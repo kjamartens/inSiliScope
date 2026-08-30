@@ -1,0 +1,17 @@
+# Build output
+build/
+*.dll
+*.lib
+*.exp
+*.pdb
+*.obj
+*.ilk
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Python
+__pycache__/
+*.pyc
