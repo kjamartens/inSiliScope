@@ -63,18 +63,22 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    }
 }
 
+void ComputeDriftOffsetPx(double elapsedSec, double driftNmPerSecX, double pixelSizeNm,
+                           double& outDx, double& outDy)
+{
+   double driftXPx = driftNmPerSecX * elapsedSec / pixelSizeNm;
+   outDx = driftXPx;
+   outDy = 0.5 * driftXPx;
+}
+
 void EmitterModel::SetPattern(std::unique_ptr<IPatternGenerator> pattern)
 {
    pattern_ = std::move(pattern);
    liveActive_.clear();
 }
 
-void EmitterModel::Reseed(uint64_t seed)
+void EmitterModel::Reseed(uint64_t /*seed*/)
 {
-   std::mt19937_64 localRng(seed ^ 0x9E3779B97F4A7C15ULL);
-   std::uniform_real_distribution<double> angleDist(0.0, 2.0 * kPi);
-   driftAngleRad_ = angleDist(localRng);
-   driftAngleSet_ = true;
    liveActive_.clear();
 }
 
@@ -150,22 +154,6 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
          overlapping.push_back(e);
    }
    return overlapping;
-}
-
-void EmitterModel::GetDriftOffsetPx(long frameIndex, long totalFrames, double driftPx,
-                                     double& outDx, double& outDy) const
-{
-   if (driftPx <= 0.0 || totalFrames <= 1)
-   {
-      outDx = 0.0;
-      outDy = 0.0;
-      return;
-   }
-   double frac = static_cast<double>(frameIndex) / static_cast<double>(totalFrames - 1);
-   frac = std::min(std::max(frac, 0.0), 1.0);
-   double mag = driftPx * frac;
-   outDx = mag * std::cos(driftAngleRad_);
-   outDy = mag * std::sin(driftAngleRad_);
 }
 
 } // namespace sim

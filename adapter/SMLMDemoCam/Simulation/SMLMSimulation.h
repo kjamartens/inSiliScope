@@ -39,7 +39,13 @@ struct SimulationParams
    double offsetAdu = 100.0;
    double offsetStdAdu = 2.0;           // per-pixel fixed-pattern offset std
    double readNoiseElectrons = 1.5;
-   double driftPx = 0.0;                // total linear drift magnitude over the movie
+   // Stage-drift rate along X, nm/sec; Y drifts at half this rate (fixed
+   // diagonal direction, not random) -- see ComputeDriftOffsetPx().
+   double driftNmPerSecX = 0.0;
+   // Wall-clock duration of one frame, seconds (derived from the camera's
+   // current Exposure). Needed alongside driftNmPerSecX to convert an
+   // elapsed frame count into an elapsed time for the drift ramp.
+   double frameDurationSec = 0.001;
 };
 
 // A single blinking event: one emitter turning on at tStart (in frame units)
@@ -52,6 +58,13 @@ struct BlinkEvent
    double tStart = 0.0;
    double tEnd = 0.0;
 };
+
+// Linear stage-drift offset (pixels) at elapsedSec seconds since the drift
+// origin (acquisition start): X moves at driftNmPerSecX, Y at half that
+// rate, both starting at (0,0). Direction is fixed (not random) so drift is
+// reproducible and trivially resets to zero by resetting elapsedSec.
+void ComputeDriftOffsetPx(double elapsedSec, double driftNmPerSecX, double pixelSizeNm,
+                           double& outDx, double& outDy);
 
 // Splats a photon-conserving 2D Gaussian PSF additively into img (a
 // width*height photon-count buffer), centered at the (sub-pixel) position
@@ -96,17 +109,9 @@ public:
                                             const SimulationParams& params,
                                             std::mt19937_64& rng);
 
-   // Linear drift offset (pixels) at a given frame, for a movie of totalFrames
-   // frames and the given total drift magnitude (driftPx). The direction is
-   // fixed per EmitterModel instance, chosen at ResetLive()/first use.
-   void GetDriftOffsetPx(long frameIndex, long totalFrames, double driftPx,
-                          double& outDx, double& outDy) const;
-
 private:
    std::unique_ptr<IPatternGenerator> pattern_;
    std::vector<BlinkEvent> liveActive_;
-   double driftAngleRad_ = 0.0;
-   bool driftAngleSet_ = false;
 };
 
 } // namespace sim

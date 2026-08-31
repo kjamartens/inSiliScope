@@ -48,7 +48,8 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.offsetAdu = offsetAdu_.load();
    p.offsetStdAdu = offsetStdAdu_.load();
    p.readNoiseElectrons = readNoiseElectrons_.load();
-   p.driftPx = driftPx_.load();
+   p.driftNmPerSecX = driftNmPerSecX_.load();
+   p.frameDurationSec = expSec;
    return p;
 }
 
@@ -140,7 +141,7 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    for (long f = 0; f < stackLength; ++f)
    {
       double dx = 0.0, dy = 0.0;
-      model.GetDriftOffsetPx(f, stackLength, params.driftPx, dx, dy);
+      sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.pixelSizeNm, dx, dy);
       sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm,
                               params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy);
       sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
@@ -173,6 +174,7 @@ void CSMLMDemoCamera::StartLiveProducer()
       liveProducerThread_.join();
 
    liveFrameCounter_ = 0;
+   liveDriftOriginFrame_ = 0;
    uint64_t liveSeed = static_cast<uint64_t>(randomSeed_) ^ 0xABCDEF1234567890ULL;
    liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_));
    liveEmitterModel_.Reseed(liveSeed);
@@ -249,10 +251,17 @@ void CSMLMDemoCamera::LiveProducerLoop()
       std::vector<sim::BlinkEvent> events =
          liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
 
-      // Drift is not meaningful for an unbounded live stream (no fixed movie
-      // length to normalize against), so live-mode frames render without it.
+      // Drift ramps up from zero at liveDriftOriginFrame_ (reset at
+      // StartLiveProducer() and at the start of every Live/MDA sequence
+      // acquisition) rather than from an absolute movie length, since a
+      // live stream has no fixed end to normalize against.
+      long framesSinceDriftOrigin = std::max(0L, liveFrameCounter_.load(std::memory_order_relaxed) -
+                                                      liveDriftOriginFrame_.load(std::memory_order_relaxed));
+      double dx = 0.0, dy = 0.0;
+      sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
+                                 params.pixelSizeNm, dx, dy);
       sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
-                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0);
+                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy);
 
       std::vector<uint16_t> nextFrame;
       sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.gainPhotonsPerAdu,
@@ -706,10 +715,10 @@ int CSMLMDemoCamera::OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnDriftPx(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CSMLMDemoCamera::OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   if (eAct == MM::BeforeGet) pProp->Set(driftPx_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftPx_ = v; InvalidateStack(); }
+   if (eAct == MM::BeforeGet) pProp->Set(driftNmPerSecX_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftNmPerSecX_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

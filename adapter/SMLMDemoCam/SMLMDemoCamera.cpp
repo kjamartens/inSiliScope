@@ -45,7 +45,7 @@ const char* g_PropGain = "CameraGainPhotonsPerADU";
 const char* g_PropOffset = "CameraOffsetADU";
 const char* g_PropOffsetStd = "CameraOffsetStdADU";
 const char* g_PropReadNoise = "ReadNoiseElectrons";
-const char* g_PropDrift = "DriftPx";
+const char* g_PropDriftNmPerSec = "DriftNmPerSec";
 const char* g_PropRandomSeed = "RandomSeed";
 const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
 
@@ -264,9 +264,9 @@ int CSMLMDemoCamera::Initialize()
    CreateFloatProperty(g_PropReadNoise, readNoiseElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropReadNoise, 0.0, 100.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftPx);
-   CreateFloatProperty(g_PropDrift, driftPx_.load(), false, pAct);
-   SetPropertyLimits(g_PropDrift, 0.0, 50.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftNmPerSec);
+   CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
+   SetPropertyLimits(g_PropDriftNmPerSec, 0.0, 20000.0);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
@@ -434,6 +434,20 @@ int CSMLMDemoCamera::StartSequenceAcquisition(long numImages, double interval_ms
 
    sequenceStartTime_ = GetCurrentMMTime();
    imageCounter_ = 0;
+
+   // A fresh Live/MDA acquisition restarts the drift ramp from zero rather
+   // than continuing wherever the previous acquisition left off.
+   if (acqMode_ == SMLM_MODE_LIVE)
+   {
+      liveDriftOriginFrame_ = liveFrameCounter_.load();
+   }
+   else
+   {
+      MMThreadGuard g(imgPixelsLock_);
+      playbackIndex_ = 0;
+      endOfStackReached_ = false;
+   }
+
    thd_->Start(numImages, interval_ms);
    return DEVICE_OK;
 }

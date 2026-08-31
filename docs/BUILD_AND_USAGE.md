@@ -77,14 +77,11 @@ per frame, exactly as changing a real camera's exposure time would.
   `FovSize`, `Binning`, `EmitterDensityPerSec`, `PhotonsPerSecond`, `OnLifetimeSec`,
   `PsfEmissionWavelengthNm`, `PsfNa`, `PixelSizeNm`, `BackgroundPhotonsPerSec`,
   `CameraGainPhotonsPerADU`, `CameraOffsetADU`, `CameraOffsetStdADU`,
-  `ReadNoiseElectrons`. The read-only `ActualFrameIntervalMs` property
-  reports a rolling average (last 10 frames) of the actual wall-clock time
-  between frames the producer thread publishes -- useful for spotting when
-  it's running behind the requested `Exposure` (e.g. very dense/large
-  frames), as opposed to the requested interval itself. (Note: `DriftPx` is
-  a Precomputed-mode-only concept --
-  it normalizes drift magnitude over a movie of known length, which an
-  unbounded live stream doesn't have -- so it has no effect in Live mode.)
+  `ReadNoiseElectrons`, `DriftNmPerSec`. The read-only `ActualFrameIntervalMs`
+  property reports a rolling average (last 10 frames) of the actual
+  wall-clock time between frames the producer thread publishes -- useful for
+  spotting when it's running behind the requested `Exposure` (e.g. very
+  dense/large frames), as opposed to the requested interval itself.
   Changing `EmitterDensityPerSec`/`OnLifetimeSec` affects *new* blinks only;
   emitters already mid-blink finish out their originally-drawn ON interval,
   same as changing `Pattern` doesn't retroactively move already-spawned
@@ -103,6 +100,18 @@ per frame, exactly as changing a real camera's exposure time would.
   which case `EndOfStackReached` becomes `Yes`). Stopping a Live/sequence
   acquisition never blocks on generation finishing -- it returns promptly
   even mid-generation.
+
+### Drift
+
+`DriftNmPerSec` is a stage-drift rate, in nm/sec, applied along X; Y drifts
+at half that rate (a fixed diagonal direction, not random). It works the
+same way in both acquisition modes and always starts at zero: every new
+Live or Multi-D acquisition (i.e. each `StartSequenceAcquisition`, whether
+from the Live button or an MDA run) resets the drift ramp to its origin, so
+drift never carries over mid-ramp from a previous run. In Precomputed mode
+this also means the ramp restarts from frame 0 of the stack even if a
+previous acquisition had advanced partway through it (or looped several
+times via `StackLoop`).
 
 ### PSF size
 

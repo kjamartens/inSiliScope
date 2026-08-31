@@ -61,7 +61,7 @@ extern const char* g_PropGain;
 extern const char* g_PropOffset;
 extern const char* g_PropOffsetStd;
 extern const char* g_PropReadNoise;
-extern const char* g_PropDrift;
+extern const char* g_PropDriftNmPerSec;
 extern const char* g_PropRandomSeed;
 extern const char* g_PropActualFrameIntervalMs;
 
@@ -153,7 +153,7 @@ public:
    int OnCameraOffset(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnOffsetStd(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnDriftPx(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
@@ -269,7 +269,18 @@ private:
    std::atomic<double> actualFrameIntervalMs_{0.0};
    sim::EmitterModel liveEmitterModel_;
    std::mt19937_64 liveRng_;
-   long liveFrameCounter_ = 0;
+   // Atomic because StartSequenceAcquisition() (main/MMCore thread) reads it
+   // to compute liveDriftOriginFrame_ while LiveProducerLoop (producer
+   // thread) increments it every tick.
+   std::atomic<long> liveFrameCounter_{0};
+   // Value of liveFrameCounter_ at the start of the current drift ramp:
+   // LiveProducerLoop computes elapsed drift time as
+   // (liveFrameCounter_ - liveDriftOriginFrame_) * exposure, so setting this
+   // to the current liveFrameCounter_ resets drift to zero without
+   // disturbing the (unrelated) blinking-process frame clock. Reset in
+   // StartLiveProducer() and at the start of every Live/MDA sequence
+   // acquisition (see StartSequenceAcquisition()).
+   std::atomic<long> liveDriftOriginFrame_{0};
    // Bumped by InvalidateStack() whenever any simulation-affecting property
    // changes; LiveProducerLoop compares against its own last-applied value
    // each tick to know when to rebuild its cached offset map / pattern.
@@ -304,7 +315,9 @@ private:
    // successive frames look like they aren't changing at all.
    std::atomic<double> offsetStdAdu_{0.5};
    std::atomic<double> readNoiseElectrons_{1.5};
-   std::atomic<double> driftPx_{0.0};
+   // Drift rate along X, nm/sec (Y drifts at half this rate -- see
+   // sim::ComputeDriftOffsetPx). Applies in both acquisition modes.
+   std::atomic<double> driftNmPerSecX_{0.0};
 
    long randomSeed_ = 12345;
    std::mt19937_64 rng_;
