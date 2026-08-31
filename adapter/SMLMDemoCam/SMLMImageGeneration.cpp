@@ -188,6 +188,8 @@ void CSMLMDemoCamera::StartLiveProducer()
       frontFrame_.assign(static_cast<size_t>(liveFrameW_) * liveFrameH_, 0);
       backFrame_.assign(static_cast<size_t>(liveFrameW_) * liveFrameH_, 0);
    }
+   liveFrameSeq_ = 0;
+   lastConsumedLiveFrameSeq_ = -1;
 
    liveProducerRun_ = true;
    liveProducerThread_ = std::thread(&CSMLMDemoCamera::LiveProducerLoop, this);
@@ -259,6 +261,7 @@ void CSMLMDemoCamera::LiveProducerLoop()
          liveFrameW_ = w;
          liveFrameH_ = h;
       }
+      liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
       ++liveFrameCounter_;
 
       double exposureMs = GetExposure();
@@ -298,14 +301,37 @@ bool CSMLMDemoCamera::GenerateNextFrameIntoImg(bool interruptible)
 {
    if (acqMode_ == SMLM_MODE_LIVE)
    {
+      // Wait for LiveProducerLoop to actually swap in a frame we haven't
+      // consumed yet, rather than immediately copying frontFrame_: without
+      // this, a consumer pulling faster than the producer's exposure-paced
+      // tick (e.g. right after StartSequenceAcquisition, or a short
+      // interval) would re-copy the still-current frontFrame_ and deliver
+      // an exact duplicate. Waiting instead turns that into a timing
+      // stutter -- the correct behavior, since the "duplicate" frame simply
+      // hadn't been simulated yet.
       std::vector<uint16_t> frameCopy;
       unsigned w, h;
+      long seq;
+      for (;;)
       {
-         MMThreadGuard g(frontFrameLock_);
-         frameCopy = frontFrame_;
-         w = liveFrameW_;
-         h = liveFrameH_;
+         {
+            MMThreadGuard g(frontFrameLock_);
+            seq = liveFrameSeq_.load(std::memory_order_relaxed);
+            if (seq != lastConsumedLiveFrameSeq_)
+            {
+               frameCopy = frontFrame_;
+               w = liveFrameW_;
+               h = liveFrameH_;
+               break;
+            }
+         }
+         if (!liveProducerRun_.load())
+            return false;
+         if (interruptible && thd_ && thd_->IsStopped())
+            return false;
+         CDeviceUtils::SleepMs(1);
       }
+      lastConsumedLiveFrameSeq_ = seq;
       CropFullFrameIntoImg(frameCopy, w, h);
       return true;
    }

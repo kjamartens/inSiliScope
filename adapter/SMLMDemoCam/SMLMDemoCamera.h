@@ -244,6 +244,15 @@ private:
    std::vector<uint16_t> frontFrame_, backFrame_;
    unsigned liveFrameW_ = 0, liveFrameH_ = 0;
    MMThreadLock frontFrameLock_;
+   // Bumped by LiveProducerLoop every time it swaps a newly rendered frame
+   // into frontFrame_. GenerateNextFrameIntoImg() (SMLM_MODE_LIVE branch)
+   // compares this against lastConsumedLiveFrameSeq_ and waits for it to
+   // advance instead of re-copying a frontFrame_ the producer hasn't
+   // refreshed yet -- without this, a consumer pulling faster than the
+   // producer's exposure-paced tick would silently deliver the same frame
+   // twice (a duplicate frame) instead of waiting (a timing stutter).
+   std::atomic<long> liveFrameSeq_{0};
+   long lastConsumedLiveFrameSeq_ = -1;
    sim::EmitterModel liveEmitterModel_;
    std::mt19937_64 liveRng_;
    long liveFrameCounter_ = 0;
