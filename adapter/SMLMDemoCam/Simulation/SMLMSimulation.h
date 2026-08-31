@@ -19,6 +19,7 @@
 
 #include "SMLMNoise.h"
 #include "SMLMPatterns.h"
+#include "PsfGeneratorBridge.h"
 
 #include <cstdint>
 #include <memory>
@@ -75,11 +76,18 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // Renders one frame's clean photon-count image (background + all emitters
 // whose [tStart,tEnd) overlaps [frameIndex, frameIndex+1)) into img (resized
 // to width*height as needed).
+//
+// psfCache: when non-null and valid, each emitter is rendered by
+// downsampling+splatting the cached oversampled vectorial PSF kernel
+// (PsfGeneratorBridge.h) instead of the analytic Gaussian -- psfSigmaPx is
+// then unused. Defaults to nullptr so every existing call site (Gaussian
+// rendering) is unaffected.
 void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
                         const std::vector<BlinkEvent>& events, long frameIndex,
                         double pixelSizeNm, double psfSigmaPx, double photonsPerBlink,
                         double backgroundPhotons,
-                        double driftOffsetXPx, double driftOffsetYPx);
+                        double driftOffsetXPx, double driftOffsetYPx,
+                        const PsfKernelCache* psfCache = nullptr);
 
 // Owns the active pattern and the emitter blinking process, and provides one
 // code path shared by both acquisition modes: GenerateAllEvents for a whole

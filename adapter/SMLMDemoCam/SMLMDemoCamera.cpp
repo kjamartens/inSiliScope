@@ -48,6 +48,15 @@ const char* g_PropReadNoise = "ReadNoiseElectrons";
 const char* g_PropDriftNmPerSec = "DriftNmPerSec";
 const char* g_PropRandomSeed = "RandomSeed";
 const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
+const char* g_PropPsfModel = "PsfModel";
+const char* g_PropPsfImmersionIndex = "PsfImmersionIndex";
+const char* g_PropPsfOversampling = "PsfOversampling";
+const char* g_PropPsfKernelHalfWidthPx = "PsfKernelHalfWidthPx";
+const char* g_PropPsfGeneratorJavaHome = "PsfGeneratorJavaHome";
+
+const char* g_PsfModelGaussian = "Gaussian";
+const char* g_PsfModelRichardsWolf = "RichardsWolf";
+const char* g_PsfModelGibsonLanni = "GibsonLanni";
 
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
@@ -270,6 +279,35 @@ int CSMLMDemoCamera::Initialize()
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
+
+   // Vectorial PSF (embedded PSFGenerator JVM bridge). Default model is
+   // GibsonLanni -- see psfModel_'s own initializer in SMLMDemoCamera.h;
+   // this string just needs to agree with it.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfModel);
+   CreateStringProperty(g_PropPsfModel, g_PsfModelGibsonLanni, false, pAct);
+   AddAllowedValue(g_PropPsfModel, g_PsfModelGaussian);
+   AddAllowedValue(g_PropPsfModel, g_PsfModelRichardsWolf);
+   AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanni);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfImmersionIndex);
+   CreateFloatProperty(g_PropPsfImmersionIndex, psfImmersionIndex_.load(), false, pAct);
+   SetPropertyLimits(g_PropPsfImmersionIndex, 1.0, 2.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfOversampling);
+   CreateIntegerProperty(g_PropPsfOversampling, psfOversampling_, false, pAct);
+   SetPropertyLimits(g_PropPsfOversampling, 1, 16);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfKernelHalfWidthPx);
+   CreateIntegerProperty(g_PropPsfKernelHalfWidthPx, psfKernelHalfWidthPx_, false, pAct);
+   SetPropertyLimits(g_PropPsfKernelHalfWidthPx, 2, 32);
+
+   // PSFGenerator itself (and this project's bridge class) are embedded in
+   // this DLL -- nothing to point at except, optionally, a specific JRE/JDK
+   // install to supply jvm.dll. Left empty (the default), the JVM
+   // auto-detects one (JAVA_HOME, then common install locations -- see
+   // sim::FindJavaHome in PsfGeneratorBridge.cpp).
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfGeneratorJavaHome);
+   CreateStringProperty(g_PropPsfGeneratorJavaHome, psfGeneratorJavaHome_.c_str(), false, pAct);
 
    nRet = UpdateStatus();
    if (nRet != DEVICE_OK)

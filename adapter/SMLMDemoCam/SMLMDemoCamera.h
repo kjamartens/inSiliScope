@@ -64,6 +64,15 @@ extern const char* g_PropReadNoise;
 extern const char* g_PropDriftNmPerSec;
 extern const char* g_PropRandomSeed;
 extern const char* g_PropActualFrameIntervalMs;
+extern const char* g_PropPsfModel;
+extern const char* g_PropPsfImmersionIndex;
+extern const char* g_PropPsfOversampling;
+extern const char* g_PropPsfKernelHalfWidthPx;
+extern const char* g_PropPsfGeneratorJavaHome;
+
+extern const char* g_PsfModelGaussian;
+extern const char* g_PsfModelRichardsWolf;
+extern const char* g_PsfModelGibsonLanni;
 
 extern const char* g_AcqModePrecomputed;
 extern const char* g_AcqModeLive;
@@ -156,6 +165,11 @@ public:
    int OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfKernelHalfWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -176,6 +190,12 @@ private:
    // wavelength + NA + current pixel size (see SMLMImageGeneration.cpp).
    double ComputePsfSigmaPx() const;
    sim::SMLMPatternType CurrentPatternType() const { return static_cast<sim::SMLMPatternType>(patternType_); }
+   sim::PsfModelKind CurrentPsfModel() const { return static_cast<sim::PsfModelKind>(psfModel_); }
+   // Snapshot of everything ComputePsfKernelCache() needs to (re)compute the
+   // oversampled vectorial PSF kernel via the PSFGenerator bridge -- see
+   // Simulation/PsfGeneratorBridge.h. Separate from SnapshotParams()/
+   // SimulationParams, which covers the blink/photon/noise model only.
+   sim::PsfGeneratorRequest BuildPsfGeneratorRequest() const;
    // Called by every property handler whose value affects simulated frame
    // content (density/lifetime/photon/background rates, PSF, noise, gain,
    // offset, pattern, pixel size, binning, FOV size, exposure, seed): marks
@@ -192,7 +212,8 @@ private:
    void StartStackGeneration();
    void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                sim::SimulationParams params, sim::SMLMPatternType patternType,
-                               std::string customPointsFile, std::vector<double> spacingsNm, long seed);
+                               std::string customPointsFile, std::vector<double> spacingsNm, long seed,
+                               sim::PsfGeneratorRequest psfRequest);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -318,6 +339,24 @@ private:
    // Drift rate along X, nm/sec (Y drifts at half this rate -- see
    // sim::ComputeDriftOffsetPx). Applies in both acquisition modes.
    std::atomic<double> driftNmPerSecX_{0.0};
+
+   // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
+   // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is
+   // used (Gaussian keeps the original analytic path); everything else
+   // here feeds BuildPsfGeneratorRequest(). The model selector follows the
+   // same plain-member convention as patternType_/customPointsFile_ (read
+   // by the live producer thread without extra synchronization, same as
+   // those); ImmersionIndex is atomic like the other photometric PSF
+   // params (WavelengthNm/Na) it sits alongside in BuildPsfGeneratorRequest().
+   int psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanni);
+   std::atomic<double> psfImmersionIndex_{1.518};
+   int psfOversampling_ = 12;
+   int psfKernelHalfWidthPx_ = 8;
+   // JRE/JDK install root override for locating jvm.dll (empty =
+   // auto-detect; see sim::FindJavaHome in PsfGeneratorBridge.cpp).
+   // PSFGenerator itself and this project's bridge class are embedded in
+   // this DLL -- no jar paths to configure.
+   std::string psfGeneratorJavaHome_;
 
    long randomSeed_ = 12345;
    std::mt19937_64 rng_;

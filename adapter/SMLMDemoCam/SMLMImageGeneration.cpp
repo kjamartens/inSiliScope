@@ -14,6 +14,7 @@
 #include "SMLMDemoCamera.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <sstream>
 
@@ -51,6 +52,41 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.driftNmPerSecX = driftNmPerSecX_.load();
    p.frameDurationSec = expSec;
    return p;
+}
+
+sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
+{
+   sim::PsfGeneratorRequest req;
+   req.model = CurrentPsfModel();
+   req.wavelengthNm = psfWavelengthNm_.load();
+   req.na = psfNa_.load();
+   req.immersionIndex = psfImmersionIndex_.load();
+   req.pixelSizeNm = pixelSizeNm_.load();
+   req.oversampling = psfOversampling_;
+
+   // PsfKernelHalfWidthPx (2-32 camera px via its property limits) is
+   // treated as a user-settable MINIMUM here, auto-grown as needed so the
+   // splatted kernel always comfortably covers the first-order Airy ring
+   // regardless of NA/wavelength/pixel size. Without this, a low-NA/
+   // long-wavelength combination -- both within the allowed property
+   // ranges -- can put the first ring outside a small fixed window,
+   // silently truncating it (the rendered spot then just looks like a
+   // soft square blob with no visible ring, since SplatPsfKernel simply
+   // never sees data beyond the window it's given). The margin (3x the
+   // classic Rayleigh first-minimum radius, 0.61*lambda/NA) comfortably
+   // clears the first bright secondary maximum, mirroring the
+   // physics-derived approach ComputePsfSigmaPx() already uses for the
+   // Gaussian renderer. Capped at 48 px regardless of physics to keep the
+   // oversampled grid PSFGenerator computes from growing unboundedly.
+   double na = req.na > 0.0 ? req.na : 0.01;
+   double rayleighRadiusNm = 0.61 * req.wavelengthNm / na;
+   int minHalfWidthPx = static_cast<int>(std::ceil(3.0 * rayleighRadiusNm / req.pixelSizeNm));
+   minHalfWidthPx = std::min(std::max(minHalfWidthPx, 2), 48);
+   req.kernelHalfWidthPx = std::max(psfKernelHalfWidthPx_, minHalfWidthPx);
+
+   req.nz = 1; // in-focus only until the Z-stack step wires up nz/zStepNm
+   req.javaHome = psfGeneratorJavaHome_;
+   return req;
 }
 
 double CSMLMDemoCamera::ComputePsfSigmaPx() const
@@ -111,15 +147,16 @@ void CSMLMDemoCamera::StartStackGeneration()
    std::vector<double> spacingsNm = resolutionSpacingsNm_;
    long seed = randomSeed_;
    long length = stackLength_;
+   sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
 
-   stackGenThread_ = std::thread(&CSMLMDemoCamera::StackGenerationWorker, this,
-                                  length, fullW, fullH, params, patternType, customFile, spacingsNm, seed);
+   stackGenThread_ = std::thread(&CSMLMDemoCamera::StackGenerationWorker, this, length, fullW, fullH, params,
+                                  patternType, customFile, spacingsNm, seed, psfRequest);
 }
 
 void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, sim::SMLMPatternType patternType,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
-                                             long seed)
+                                             long seed, sim::PsfGeneratorRequest psfRequest)
 {
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
 
@@ -136,14 +173,26 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    sim::PixelOffsetMap localOffsetMap;
    localOffsetMap.Generate(fullW, fullH, params.offsetAdu, params.offsetStdAdu, localRng);
 
+   sim::PsfKernelCache localPsfCache;
+   if (psfRequest.model != sim::PsfModelKind::Gaussian)
+   {
+      std::string err;
+      if (!sim::ComputePsfKernelCache(psfRequest, localPsfCache, err))
+      {
+         LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
+         localPsfCache = sim::PsfKernelCache();
+      }
+   }
+
    std::vector<std::vector<uint16_t>> newStack(static_cast<size_t>(std::max(stackLength, 0L)));
    std::vector<float> photonImg;
    for (long f = 0; f < stackLength; ++f)
    {
       double dx = 0.0, dy = 0.0;
       sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.pixelSizeNm, dx, dy);
-      sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm,
-                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy);
+      sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm, params.psfSigmaPx,
+                              params.photonsPerBlink, params.backgroundPhotons, dx, dy,
+                              localPsfCache.valid ? &localPsfCache : nullptr);
       sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
                             params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap, localRng);
       stackFramesGenerated_ = f + 1;
@@ -211,6 +260,10 @@ void CSMLMDemoCamera::LiveProducerLoop()
 {
    std::vector<float> photonImg;
    sim::PixelOffsetMap offsetMap;
+   // Oversampled vectorial PSF kernel cache -- confined to this thread, same
+   // as offsetMap, so no locking is needed. Rebuilt whenever
+   // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
+   sim::PsfKernelCache psfCache;
    // Sentinel: guarantees the very first tick below rebuilds both the offset
    // map and the emitter pattern/site cache, even though StartLiveProducer()
    // already primed them moments earlier (harmless redundancy, and it means
@@ -245,6 +298,22 @@ void CSMLMDemoCamera::LiveProducerLoop()
       {
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
          liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_));
+
+         sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
+         if (psfRequest.model != sim::PsfModelKind::Gaussian)
+         {
+            std::string err;
+            if (!sim::ComputePsfKernelCache(psfRequest, psfCache, err))
+            {
+               LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
+               psfCache = sim::PsfKernelCache();
+            }
+         }
+         else
+         {
+            psfCache = sim::PsfKernelCache();
+         }
+
          appliedConfigVersion = currentConfigVersion;
       }
 
@@ -261,7 +330,8 @@ void CSMLMDemoCamera::LiveProducerLoop()
       sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
                                  params.pixelSizeNm, dx, dy);
       sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
-                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy);
+                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
+                              psfCache.valid ? &psfCache : nullptr);
 
       std::vector<uint16_t> nextFrame;
       sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.gainPhotonsPerAdu,
@@ -743,6 +813,90 @@ int CSMLMDemoCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::Action
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(actualFrameIntervalMs_.load(std::memory_order_relaxed));
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      const char* names[] = {g_PsfModelGaussian, g_PsfModelRichardsWolf, g_PsfModelGibsonLanni};
+      pProp->Set(names[psfModel_]);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      if (s == g_PsfModelGaussian) psfModel_ = static_cast<int>(sim::PsfModelKind::Gaussian);
+      else if (s == g_PsfModelRichardsWolf) psfModel_ = static_cast<int>(sim::PsfModelKind::RichardsWolf);
+      else if (s == g_PsfModelGibsonLanni) psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanni);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfImmersionIndex_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfImmersionIndex_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(static_cast<long>(psfOversampling_));
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      long v;
+      pProp->Get(v);
+      if (v < 1)
+         v = 1;
+      psfOversampling_ = static_cast<int>(v);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfKernelHalfWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(static_cast<long>(psfKernelHalfWidthPx_));
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      long v;
+      pProp->Get(v);
+      if (v < 1)
+         v = 1;
+      psfKernelHalfWidthPx_ = static_cast<int>(v);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(psfGeneratorJavaHome_.c_str());
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      pProp->Get(psfGeneratorJavaHome_);
+      // Only takes effect before the first vectorial-PSF computation: the
+      // embedded JVM is created once per process (JNI only supports one
+      // JVM per process, see sim::EnsureJvmCreated) and reused for the
+      // rest of this device adapter's lifetime, so changing this after
+      // that first use has no effect until Micro-Manager/the process is
+      // restarted. InvalidateStack() is still called for consistency with
+      // every other PSF-affecting property, even though it's a no-op here
+      // post-JVM-creation.
+      InvalidateStack();
+   }
    return DEVICE_OK;
 }
 

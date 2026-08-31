@@ -14,6 +14,11 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="SMLMDemoCam.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="SMLMDemoCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -32,6 +37,9 @@
     <ClCompile Include="Simulation\SMLMNoise.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\PsfGeneratorBridge.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SMLMDemoCamera.h">
@@ -44,6 +52,12 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMNoise.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\PsfGeneratorBridge.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\PsfResource.h">
       <Filter>Simulation</Filter>
     </ClInclude>
   </ItemGroup>

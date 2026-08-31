@@ -15,3 +15,14 @@ build/
 # Python
 __pycache__/
 *.pyc
+
+# PSFGenerator (GPL-3.0, downloaded separately -- not redistributed with
+# this repo in source form; it ends up embedded in the built DLL, which is
+# GPL-3.0 as a result, see Simulation/PsfGeneratorBridge.h and
+# Simulation/psfbridge-java/psfbridge/PsfBridge.java). SMLMPsfEmbedded.jar
+# is PSFGenerator.jar merged with our own compiled PsfBridge.class -- built
+# locally, not committed either.
+third_party/PSFGenerator.jar
+third_party/PSF_Generator.jar
+third_party/SMLMPsfEmbedded.jar
+DeviceAdapter/SMLMDemoCam/Simulation/psfbridge-java/out/

@@ -44,10 +44,12 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
                         const std::vector<BlinkEvent>& events, long frameIndex,
                         double pixelSizeNm, double psfSigmaPx, double photonsPerBlink,
                         double backgroundPhotons,
-                        double driftOffsetXPx, double driftOffsetYPx)
+                        double driftOffsetXPx, double driftOffsetYPx,
+                        const PsfKernelCache* psfCache)
 {
    img.assign(static_cast<size_t>(width) * height, static_cast<float>(backgroundPhotons));
 
+   bool useVectorial = psfCache && psfCache->valid;
    for (const BlinkEvent& e : events)
    {
       double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
@@ -59,7 +61,10 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
 
       double xPx = e.xUm * 1000.0 / pixelSizeNm + driftOffsetXPx;
       double yPx = e.yUm * 1000.0 / pixelSizeNm + driftOffsetYPx;
-      RenderGaussianPSF(img, width, height, xPx, yPx, psfSigmaPx, photonsPerBlink * ov);
+      if (useVectorial)
+         SplatPsfKernel(img, width, height, *psfCache, psfCache->CenterZIndex(), xPx, yPx, photonsPerBlink * ov);
+      else
+         RenderGaussianPSF(img, width, height, xPx, yPx, psfSigmaPx, photonsPerBlink * ov);
    }
 }
 

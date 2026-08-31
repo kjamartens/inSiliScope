@@ -1,6 +1,21 @@
 Copyright (c) 2026, the demoCam_SMLM_MM contributors
 All rights reserved.
 
+NOTE ON THE VECTORIAL PSF FEATURE: the source below (this project's own
+code) is BSD-licensed as stated. However, the built mmgr_dal_SMLMDemoCam.dll
+embeds compiled classes from EPFL Biomedical Imaging Group's PSFGenerator
+(https://github.com/Biomedical-Imaging-Group/PSFGenerator), which is
+GPL-3.0-licensed, via an in-process JVM bridge -- see
+Simulation/PsfGeneratorBridge.h and Simulation/psfbridge-java/psfbridge/
+PsfBridge.java for exactly what is embedded and why. Because that GPL-3.0
+code is linked into the DLL (not merely invoked as a separate program), the
+built DLL as a whole is a combined work and must be treated as GPL-3.0 when
+distributed, notwithstanding the BSD text below, which covers only this
+project's own source. The PSFGenerator jar itself is not committed to this
+repository (see .gitignore) -- it and the merged jar built from it
+(third_party/SMLMPsfEmbedded.jar) must be obtained/built separately before
+compiling this project with the vectorial PSF feature enabled.
+
 Redistribution and use in source and binary forms, with or without modification, are
 permitted provided that the following conditions are met:
 

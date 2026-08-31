@@ -64,6 +64,7 @@
       <Optimization>Disabled</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;WIN32;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
@@ -86,6 +87,7 @@
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <PrecompiledHeader>
@@ -102,18 +104,24 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ResourceCompile Include="SMLMDemoCam.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="SMLMDemoCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
     <ClCompile Include="SMLMDemoCameraModule.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMPatterns.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
+    <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SMLMDemoCamera.h" />
     <ClInclude Include="Simulation\SMLMSimulation.h" />
     <ClInclude Include="Simulation\SMLMPatterns.h" />
     <ClInclude Include="Simulation\SMLMNoise.h" />
+    <ClInclude Include="Simulation\PsfGeneratorBridge.h" />
+    <ClInclude Include="Simulation\PsfResource.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\third_party\mmCoreAndDevices\MMDevice\MMDevice-SharedRuntime.vcxproj">
