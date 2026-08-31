@@ -26,6 +26,7 @@
 #include "DeviceThreads.h"
 #include "ImgBuffer.h"
 #include "Simulation/SMLMSimulation.h"
+#include "Simulation/SMLMZernike.h"
 
 #include <atomic>
 #include <cstdint>
@@ -78,10 +79,13 @@ extern const char* g_PropPsfZStepUm;
 extern const char* g_PropPsfSampleIndex;
 extern const char* g_PropPsfWorkingDistanceUm;
 extern const char* g_PropPsfSampleDepthNm;
+extern const char* g_PropPsfZernikeCoefficients;
+extern const char* g_PropPsfZernikePreset;
 
 extern const char* g_PsfModelGaussian;
 extern const char* g_PsfModelRichardsWolf;
 extern const char* g_PsfModelGibsonLanni;
+extern const char* g_PsfModelGibsonLanniZernike;
 
 extern const char* g_AcqModePrecomputed;
 extern const char* g_AcqModeLive;
@@ -188,6 +192,15 @@ public:
    int OnPsfSampleIndex(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfWorkingDistanceUm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::ActionType eAct);
+   // Applies a named literature-inspired aberration template (see
+   // Simulation/SMLMZernike.h's ZernikePresetCoefficients) to
+   // PsfZernikeCoefficients -- a convenience on top of it, not a separate
+   // source of truth: BeforeGet just reports the last-applied name;
+   // AfterSet overwrites psfZernikeCoefficients_ and notifies the GUI via
+   // OnPropertyChanged so the PsfZernikeCoefficients property reflects the
+   // resolved values.
+   int OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -386,8 +399,14 @@ private:
    // params (WavelengthNm/Na) it sits alongside in BuildPsfGeneratorRequest().
    int psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanni);
    std::atomic<double> psfImmersionIndex_{1.518};
-   int psfOversampling_ = 12;
-   int psfKernelHalfWidthPx_ = 32;
+   // Defaults lowered from 12/32 (which combined with GibsonLanniZernike's
+   // per-pixel 2D quadrature -- see its class Javadoc's Performance note --
+   // and the auto-grown Z-stack default to multi-minute kernel computes at
+   // out-of-the-box settings) to keep the out-of-the-box oversampled kernel
+   // small regardless of PsfModel; still user-adjustable, this only changes
+   // what a fresh config starts at.
+   int psfOversampling_ = 4;
+   int psfKernelHalfWidthPx_ = 16;
    // JRE/JDK install root override for locating jvm.dll (empty =
    // auto-detect; see sim::FindJavaHome in PsfGeneratorBridge.cpp).
    // PSFGenerator itself and this project's bridge class are embedded in
@@ -418,6 +437,16 @@ private:
    std::atomic<double> psfSampleIndex_{1.518};
    std::atomic<double> psfWorkingDistanceUm_{150.0};
    std::atomic<double> psfSampleDepthNm_{0.0};
+
+   // GibsonLanniZernike-only: PsfZernikeCoefficients (15-value comma-
+   // separated positional list, OSA index 0-14 -- see Simulation/
+   // SMLMZernike.h) and the last-applied PsfZernikePreset name (purely a
+   // convenience label; PsfZernikeCoefficients is the actual value read by
+   // BuildPsfGeneratorRequest -- see SMLMImageGeneration.cpp). Plain
+   // std::string, not std::atomic<std::string> (not specializable), same
+   // convention as psfGeneratorJavaHome_ above.
+   std::string psfZernikeCoefficients_ = sim::FormatZernikeCoefficients(sim::ZeroZernikeCoefficients());
+   std::string psfZernikePreset_ = "None";
 
    long randomSeed_ = 12345;
    std::mt19937_64 rng_;

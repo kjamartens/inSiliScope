@@ -108,6 +108,10 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    req.workingDistanceUm = psfWorkingDistanceUm_.load();
    req.sampleDepthNm = psfSampleDepthNm_.load();
 
+   // GibsonLanniZernike-only (ignored otherwise); see the comment on
+   // psfZernikeCoefficients_ in SMLMDemoCamera.h.
+   req.zernikeCoefficients = psfZernikeCoefficients_;
+
    req.javaHome = psfGeneratorJavaHome_;
    return req;
 }
@@ -204,7 +208,11 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    if (psfRequest.model != sim::PsfModelKind::Gaussian)
    {
       std::string err;
-      if (!sim::ComputePsfKernelCache(psfRequest, localPsfCache, err))
+      // Runs on the stack-generation worker thread (not the MM device
+      // thread) -- LogMessage is still safe to call from here (same
+      // pattern already used a few lines below for the failure case).
+      auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
+      if (!sim::ComputePsfKernelCache(psfRequest, localPsfCache, err, logCallback))
       {
          LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
          localPsfCache = sim::PsfKernelCache();
@@ -339,7 +347,8 @@ void CSMLMDemoCamera::LiveProducerLoop()
          if (psfRequest.model != sim::PsfModelKind::Gaussian)
          {
             std::string err;
-            if (!sim::ComputePsfKernelCache(psfRequest, psfCache, err))
+            auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
+            if (!sim::ComputePsfKernelCache(psfRequest, psfCache, err, logCallback))
             {
                LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
                psfCache = sim::PsfKernelCache();
@@ -889,7 +898,8 @@ int CSMLMDemoCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
-      const char* names[] = {g_PsfModelGaussian, g_PsfModelRichardsWolf, g_PsfModelGibsonLanni};
+      const char* names[] = {g_PsfModelGaussian, g_PsfModelRichardsWolf, g_PsfModelGibsonLanni,
+                              g_PsfModelGibsonLanniZernike};
       pProp->Set(names[psfModel_]);
    }
    else if (eAct == MM::AfterSet)
@@ -899,6 +909,7 @@ int CSMLMDemoCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
       if (s == g_PsfModelGaussian) psfModel_ = static_cast<int>(sim::PsfModelKind::Gaussian);
       else if (s == g_PsfModelRichardsWolf) psfModel_ = static_cast<int>(sim::PsfModelKind::RichardsWolf);
       else if (s == g_PsfModelGibsonLanni) psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanni);
+      else if (s == g_PsfModelGibsonLanniZernike) psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanniZernike);
       InvalidateStack();
    }
    return DEVICE_OK;
@@ -1001,6 +1012,53 @@ int CSMLMDemoCamera::OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType 
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfSampleDepthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSampleDepthNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(psfZernikeCoefficients_.c_str());
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      bool ok = false;
+      sim::ParseZernikeCoefficients(s, ok);
+      // Same "reject a malformed/wrong-length list rather than silently
+      // reinterpreting it" stance as sim::ParseZernikeCoefficients itself:
+      // only accept the new text if it parses to exactly 15 numbers, else
+      // leave the previous (valid) value in place and report the resolved
+      // value back to the property browser via pProp->Set.
+      if (ok)
+         psfZernikeCoefficients_ = s;
+      pProp->Set(psfZernikeCoefficients_.c_str());
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(psfZernikePreset_.c_str());
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string name;
+      pProp->Get(name);
+      psfZernikePreset_ = name;
+      psfZernikeCoefficients_ = sim::FormatZernikeCoefficients(sim::ZernikePresetCoefficients(name));
+      // Keep the PsfZernikeCoefficients property (a separate, independently
+      // user-editable property) in sync in the GUI/property-cache too --
+      // AfterSet here only updates our own member, not that other
+      // property's displayed value.
+      OnPropertyChanged(g_PropPsfZernikeCoefficients, psfZernikeCoefficients_.c_str());
+      InvalidateStack();
+   }
    return DEVICE_OK;
 }
 

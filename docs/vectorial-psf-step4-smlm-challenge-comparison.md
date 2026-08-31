@@ -228,15 +228,20 @@ invented) in this step:
    there aren't any.** The ground truth is a measured PSF lookup table, not a
    parametric aberration model. Step 5's Zernike defaults will need a
    different citation. Suggested path: pick standard OSA/ANSI single-index
-   modes 6 (vertical astigmatism, `Z_2^-2`... consistent with the plan doc's
-   own indexing) as the primary Step 5 test target (matches typical
-   3D-STORM/astigmatism-based SMLM, and is what the plan's own Step 5 test
-   plan already calls out at index 6), with coma (7/8) as a secondary
-   sanity-check mode for asymmetric aberration — but treat any specific RMS
-   wavefront magnitude (e.g. "0.1 λ RMS astigmatism") as an *estimate to be
-   tuned visually*, not a value sourced from this paper. This should be
-   stated explicitly in Step 5's own documentation/commit message so a future
-   reader doesn't mistake it for a paper-derived number.
+   mode **5** (vertical astigmatism, `Z_2^2`) as the primary Step 5 test
+   target (matches typical 3D-STORM/astigmatism-based SMLM), with coma
+   (7/8) as a secondary sanity-check mode for asymmetric aberration — but
+   treat any specific RMS wavefront magnitude (e.g. "0.1 λ RMS
+   astigmatism") as an *estimate to be tuned visually*, not a value sourced
+   from this paper. **Correction (post-implementation):** this note
+   originally said "index 6" — working the actual OSA/ANSI formula
+   (`j = n(n+1)/2 + l`) during Step 5's implementation showed vertical
+   astigmatism is index 5, not 6 (index 6 is oblique trefoil); see
+   `Simulation/SMLMZernike.h`'s doc comment for the verified mapping and
+   `docs/vectorial-psf-plan.md`'s Step 5 section for the full
+   implementation writeup. This should be stated explicitly in Step 5's own
+   documentation/commit message so a future reader doesn't mistake either
+   number for a paper-derived one.
 2. **Biplane and double-helix are architecturally out of scope for the
    current Zernike-only Step 5 plan**, and this is now confirmed rather than
    assumed: the paper's own biplane PSF is *two shifted copies of one PSF*,

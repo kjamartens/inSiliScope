@@ -292,10 +292,11 @@ accessible text); biplane is two shifted copies of one measured 2D PSF
 coefficients anywhere in the paper to source Step 5's defaults from.**
 Consequences for Step 5:
 
-- Pick astigmatism (OSA index 6) as the primary Zernike test target and
-  coma (7/8) as secondary, per the plan's own Step 5 test description
-  below -- but document any chosen RMS magnitude as a tuned estimate, not a
-  Sage-et-al.-sourced number.
+- Pick astigmatism (OSA index 5 -- see the correction note in the Step 5
+  section below; earlier drafts of this doc said index 6) as the primary
+  Zernike test target and coma (7/8) as secondary, per the plan's own Step
+  5 test description below -- but document any chosen RMS magnitude as a
+  tuned estimate, not a Sage-et-al.-sourced number.
 - Biplane and double-helix are **out of scope for a single-pupil Zernike
   patch** regardless of coefficients chosen -- biplane needs a second
   detection-path renderer (splat each emitter twice at a shared photon
@@ -398,41 +399,117 @@ stages don't blow out or crush the image), and that a nonzero
 `PixelGainStdPct`/`PixelReadNoiseStdPct` visibly introduces per-pixel
 fixed-pattern variation distinct from the existing offset map.
 
-## Step 5 — Static Zernike aberrations (patched PSFGenerator build)
+## Step 5 — Gibson-Lanni + Zernike aberrations — done
 
-- Fork/clone `Biomedical-Imaging-Group/PSFGenerator` locally; add a new PSF
-  model class (e.g. `src/psf/richardswolf/RichardsWolfZernikePSF.java`)
-  implementing a full 2D pupil-plane Richards-Wolf integral over
-  `(rho, phi)` — not the existing radial-only method — with an added pupil
-  phase term `2*pi * sum_j c_j * Z_j(rho, phi)` (standard OSA/ANSI
-  single-index Zernike basis). Port the algorithm from the Python
-  `psf_generator` package's `VectorialSphericalPropagator` (MIT-licensed
-  reference implementation — port the math/algorithm into fresh Java, not
-  copy Python source text). Register it in `CollectionPSF` alongside the
-  existing `RichardsWolfPSF`/`GibsonLanniPSF` models, with a new config key
-  for Zernike coefficients (comma-separated `index:value` pairs), and add
-  it to `PsfBridgeMain.java`'s model dispatch.
-- Build the patched jar with the repo's existing Ant `build.xml`. Document
-  clearly (in code comments and to you) that this step onward requires this
-  custom-built jar, not the stock EPFL download — this is the "necessary
-  plugin that needs to be downloaded" for this feature specifically, and as
-  a locally-built GPL-3.0 derivative work used privately it's licensing-safe
-  (no redistribution); the bridge/subprocess boundary keeps it out of this
-  project's own BSD-licensed C++ codebase.
-- On the C++ side, add `ZernikeCoefficients` string property
-  (comma-separated, OSA index:value), parsed/formatted with a helper
-  mirroring `ParseResolutionSpacingsNm`/`FormatResolutionSpacingsNm`
-  (`Simulation/SMLMPatterns.h/.cpp`) — implemented in
-  `PsfGeneratorBridge.h/.cpp`. Feeds into the config file the same way as
-  every other PSF param; recompute-on-change already falls out of the
-  existing `InvalidateStack()` pattern, satisfying "after these are
-  changed, re-create the oversampled PSF once and sample from that" with no
-  new plumbing.
-- **Test**: with `PsfModel = RichardsWolf`, set e.g. index 6 (astigmatism)
-  or 7/8 (coma) to a nonzero value in Live mode and confirm the rendered
-  PSF shape visibly distorts (elongates/becomes asymmetric); confirm it
-  reverts to matching steps 1-3's unaberrated output when reset to all
-  zeros (regression check against the un-patched model).
+**This section describes what was actually built, which differs from the
+above in two deliberate ways decided during implementation** (see
+`docs/vectorial-psf-step4-smlm-challenge-comparison.md` for the reasoning
+that motivated the first one):
+
+1. **Target model is `GibsonLanni`, not `RichardsWolf`.** Gibson & Lanni's
+   sample-refractive-index-mismatch/depth physics (`PsfSampleIndex`/
+   `PsfWorkingDistanceUm`/`PsfSampleDepthNm`, already exposed since step 1)
+   is the more relevant aberration source for this project, and — a
+   research finding from three background passes — PSFGenerator's own
+   `GibsonLanniPSF.java` turns out to be exactly as radially-symmetric-only
+   as `RichardsWolfPSF.java` (both a 1D `KirchhoffDiffractionSimpson`
+   radial lookup revolved onto the 2D grid), so patching either for Zernike
+   is architecturally the same difficulty. EPFL's actively-maintained
+   Python `psf_generator` package (MIT,
+   <https://github.com/Biomedical-Imaging-Group/psf_generator>) was surveyed
+   as a possible replacement library entirely; its
+   `VectorialCartesianPropagator` was used as the **algorithm reference**
+   (ported into fresh Java, not copied) for exactly this reason — the
+   sibling `VectorialSphericalPropagator` (originally assumed to be the
+   right reference) turns out to *explicitly warn and drop* any
+   non-axisymmetric Zernike term (`utils/zernike.py`,
+   `create_zernike_aberrations`, `mesh_type='spherical'`) — its Bessel-order
+   (I0/I1/I2) decomposition only works because the phi integral of a
+   phi-independent pupil collapses analytically via Jacobi-Anger, which a
+   Zernike mode with azimuthal dependence (astigmatism, coma, trefoil, ...)
+   breaks. Only the Cartesian propagator does a genuine 2D `(rho, phi)`
+   pupil integral, so that is what was ported.
+2. **All-Java, no new external repo/build tool, no `CollectionPSF`
+   registration.** `PsfBridge.java` already bypasses PSFGenerator's own
+   Settings/GUI/`CollectionPSF` machinery entirely and instantiates PSF
+   model classes directly (`new RichardsWolfPSF()`/`new GibsonLanniPSF()`,
+   see its class Javadoc) — so a new model just needs to be a class
+   extending `psf.PSF`, compiled against the existing downloaded
+   `PSFGenerator.jar` the same way `PsfBridge.java` itself already is (see
+   "Building" below), with no PSFGenerator source fork, no `ant`, and no
+   `CollectionPSF` entry needed. This removes an entire unplanned
+   build-tool dependency (forking+building a ~200-file external Java
+   project) for the identical functional outcome the original plan wanted.
+
+**What was built**:
+[`Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java`](DeviceAdapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java)
+generalizes `GibsonLanniPSF`'s scalar Kirchhoff integral from a 1D radial
+lookup to a direct 2D `(rho, phi)` numerical quadrature (fixed 32x64
+midpoint grid, not a fast transform — see the class's Performance note for
+the resulting cost/scaling caveat), adding a pupil phase term
+`2*pi * sum_j c_j * Z_j(rho, phi)` in the standard OSA/ANSI single Zernike
+index (0-14, covering every mode up to 4th radial order) on top of the same
+Gibson & Lanni sample-index-mismatch/depth OPD term `GibsonLanniPSF`
+already computes. Deliberately kept **scalar** (no Richards-Wolf vectorial
+dyadic apodization, unlike `psf_generator`'s own reference) so that
+"all Zernike coefficients zero" reduces analytically (confirmed via a
+standalone smoke test: ~0.16% relative L2 difference) to `GibsonLanniPSF`'s
+own existing, already-verified output — a true regression check, not an
+unrelated physics change bundled into the same property.
+
+- `PsfBridge.computePlanes` gained a trailing `String zernikeCoeffsCsv`
+  parameter (a 15-value comma-separated positional list, extending the
+  fixed-arity JNI signature to
+  `(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;)[F` rather than a
+  variable-length array param) and a `"GibsonLanniZernike"` dispatch
+  branch; a malformed/wrong-length list falls back to all-zero
+  (unaberrated) rather than partially/misaligned-applying it (mirrored on
+  the C++ side by `Simulation/SMLMZernike.h/.cpp`'s
+  `ParseZernikeCoefficients`).
+- `PsfGeneratorBridge.h` gained `PsfModelKind::GibsonLanniZernike` and
+  `PsfGeneratorRequest::zernikeCoefficients` (an already-formatted 15-value
+  string); `PsfGeneratorBridge.cpp`'s JNI method signature/call site were
+  extended to pass it as an additional trailing `jstring`.
+- New MM properties: `PsfZernikeCoefficients` (string, default all-zero,
+  `OnPsfZernikeCoefficients` in `SMLMImageGeneration.cpp` follows the exact
+  `OnPsfSampleIndex`-style `AfterSet` → `InvalidateStack()` pattern already
+  used for every other PSF param) and `PsfZernikePreset` (string, a
+  dropdown of named literature-inspired aberration templates —
+  `AstigmatismWeak`/`Moderate`/`Strong`, `ComaWeak`/`Strong`,
+  `SphericalWeak`/`Strong`, `TrefoilModerate`, `MixedRealisticObjective` —
+  see `Simulation/SMLMZernike.cpp`'s `ZernikePresetCoefficients` for the
+  values and their sourcing caveats; selecting one overwrites
+  `PsfZernikeCoefficients` and pushes the resolved value to the property
+  browser via `OnPropertyChanged`, added per user request after the rest of
+  step 5 was already in place, as a discoverability convenience on top of
+  the raw 15-value property rather than a new source of truth).
+- `PsfModel` gained a `GibsonLanniZernike` allowed value.
+
+**Test** (verified via a standalone Java smoke test driving
+`PsfBridge.computePlanes` directly, plus a full solution build —
+**not yet visually confirmed inside Micro-Manager itself**): with
+`PsfModel = GibsonLanniZernike`, all-zero `PsfZernikeCoefficients` closely
+reproduces `GibsonLanni`'s own output (regression check, ~0.16% relative L2
+at NA 1.4/660 nm); setting index 5 (vertical astigmatism, *not* index 6 —
+see the note below) nonzero visibly and substantially changes the rendered
+plane; a malformed coefficient list falls back to exactly the all-zero
+result rather than throwing or misapplying.
+
+**Correction to this doc's/the original plan's illustrative index number**:
+earlier text here (and in `docs/vectorial-psf-step4-smlm-challenge-
+comparison.md`) referred to "index 6" for vertical astigmatism and "7/8"
+for coma. Working through the actual OSA/ANSI single-index formula
+(`j = n(n+1)/2 + l`, `n` = radial order, `l` sequential within `n`) that
+`PsfZernikeCoefficients`/`GibsonLanniZernikePSF` implement gives: 0 piston,
+1 tip, 2 tilt, 3 oblique astigmatism, 4 defocus, **5 vertical astigmatism**,
+6 oblique trefoil, 7 vertical coma, **8 horizontal coma**, 9 vertical
+trefoil, 10 oblique quadrafoil, 11 oblique secondary astigmatism, 12
+primary spherical, 13 vertical secondary astigmatism, 14 vertical
+quadrafoil — i.e. vertical astigmatism is index 5, and coma is 7/8 as
+already stated (that part was right). Index 5, not 6, is what
+`AstigmatismWeak`/`Moderate`/`Strong` above actually drive; `Simulation/
+SMLMZernike.h`'s `ZernikeCoefficients` doc comment is the source of truth
+for this mapping.
 
 ## Verification (all steps)
 
@@ -440,7 +517,10 @@ Build the device adapter (`DeviceAdapter/SMLMDemoCam/SMLMDemoCam.sln`/
 `.vcxproj`), load it into Micro-Manager, and visually inspect Live mode
 frames after each step as described above. No existing automated test
 suite was found for this project — confirm with a build + Micro-Manager
-Live-mode check at each stage before moving to the next. Step 5
-additionally needs `ant` (or manual `javac`) to build the patched
-`PSFGenerator.jar`, and a Java runtime available at `PsfGeneratorJavaPath`
-for every step from 1 onward.
+Live-mode check at each stage before moving to the next. A Java runtime
+must be available (`PsfGeneratorJavaHome` or auto-detected) for every step
+from 1 onward; step 5 additionally needs a JDK (`javac`/`jar`) at *build*
+time only, to compile `GibsonLanniZernikePSF.java`/`PsfBridge.java` and
+merge them into `third_party/SMLMPsfEmbedded.jar` — see CLAUDE.md's
+"Building" section, unchanged in spirit from steps 1-4 (no `ant`, no
+PSFGenerator fork needed after all).

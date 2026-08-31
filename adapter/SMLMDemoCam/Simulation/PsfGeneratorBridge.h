@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,13 @@ enum class PsfModelKind
    Gaussian = 0,
    RichardsWolf = 1,
    GibsonLanni = 2,
+   // Additive extension (not part of EPFL BIG's PSFGenerator): a full 2D
+   // pupil-plane generalization of GibsonLanni adding a Zernike pupil-phase
+   // aberration term -- see Simulation/psfbridge-java/psfbridge/
+   // GibsonLanniZernikePSF.java's class Javadoc for the physics and
+   // PsfGeneratorRequest::zernikeCoefficients below for the coefficient
+   // format.
+   GibsonLanniZernike = 3,
 };
 
 // Everything needed to (re)compute one oversampled vectorial PSF kernel via
@@ -64,6 +72,16 @@ struct PsfGeneratorRequest
    double workingDistanceUm = 150.0;
    double sampleDepthNm = 0.0;
    double pixelSizeNm = 100.0;
+
+   // GibsonLanniZernike-only (ignored otherwise): already-formatted
+   // 15-value comma-separated positional Zernike-coefficient string (OSA/
+   // ANSI single index 0-14, in waves) -- built via
+   // sim::FormatZernikeCoefficients from the PsfZernikeCoefficients
+   // property's parsed sim::ZernikeCoefficients. Default is all-zero
+   // (unaberrated), reproducing GibsonLanni's own output exactly (up to a
+   // constant scale factor -- see GibsonLanniZernikePSF.java's class
+   // Javadoc) when this model is selected but no aberration is set.
+   std::string zernikeCoefficients = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0";
    // Oversampled samples per camera pixel, and the camera-pixel half-width
    // of the kernel (so the oversampled grid is
    // (2*kernelHalfWidthPx*oversampling+1) square).
@@ -119,7 +137,18 @@ struct PsfKernelCache
 // JVM creation failure, or a Java-side exception (its message is included)
 // -- so the caller can fall back to the Gaussian renderer instead of
 // breaking image acquisition.
-bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError);
+//
+// logCallback (optional -- this file has no MMDevice dependency, so it
+// cannot call CDeviceBase::LogMessage itself) is invoked with a start
+// message before the blocking JNI call, a "still computing" heartbeat
+// roughly every 2s while it runs, and a completion message with the total
+// elapsed time -- entirely for corelog reassurance during a possibly
+// long-running computation (GibsonLanniZernike's direct 2D pupil
+// quadrature especially, see its class Javadoc's Performance note; the
+// JNI call itself blocks synchronously with no incremental progress
+// available from the C++ side). No-op (default) if unset.
+bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                            const std::function<void(const std::string&)>& logCallback = {});
 
 // Downsamples the cached oversampled plane at zIndex to camera-pixel
 // resolution with the fractional-pixel shift implied by (xPx, yPx) -- the

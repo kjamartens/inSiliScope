@@ -40,6 +40,9 @@
     <ClCompile Include="Simulation\SMLMNoise.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\SMLMZernike.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -58,6 +61,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMNoise.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SMLMZernike.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\PsfGeneratorBridge.h">

@@ -2,11 +2,15 @@
 #include "PsfResource.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iomanip>
 #include <mutex>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -43,6 +47,8 @@ const char* ModelName(PsfModelKind m)
    {
       case PsfModelKind::GibsonLanni:
          return "GibsonLanni";
+      case PsfModelKind::GibsonLanniZernike:
+         return "GibsonLanniZernike";
       case PsfModelKind::RichardsWolf:
       default:
          return "RichardsWolf";
@@ -436,7 +442,8 @@ jclass ResolveBridgeClass(JNIEnv* env, std::string& outError)
 
 } // namespace
 
-bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError)
+bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                            const std::function<void(const std::string&)>& logCallback)
 {
    outCache = PsfKernelCache();
    outError.clear();
@@ -478,7 +485,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       if (!cls)
          break;
       jmethodID method =
-         env->GetStaticMethodID(cls, "computePlanes", "(Ljava/lang/String;DDDDDDDDIII)[F");
+         env->GetStaticMethodID(cls, "computePlanes", "(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;)[F");
       if (!method)
       {
          outError = "psfbridge.PsfBridge.computePlanes not found: " + DescribeAndClearException(env);
@@ -496,6 +503,66 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       double resLateralNm = req.pixelSizeNm / oversampling;
 
       jstring modelStr = env->NewStringUTF(ModelName(req.model));
+      jstring zernikeStr = env->NewStringUTF(req.zernikeCoefficients.c_str());
+
+      if (logCallback)
+      {
+         std::ostringstream startMsg;
+         startMsg << "PSFGenerator: computing " << ModelName(req.model) << " PSF kernel (" << size << "x" << size
+                   << " px, " << nz << (nz == 1 ? " Z plane" : " Z planes") << ")...";
+         logCallback(startMsg.str());
+
+         // GibsonLanniZernike (unlike the radially-symmetric models) does a
+         // direct 2D pupil-plane quadrature per pixel per Z-plane -- cost
+         // scales with size^2 * nz, so this combination (large oversampled
+         // window x many Z planes, both easy to reach via default-ish
+         // PsfOversampling/PsfKernelHalfWidthPx/PsfZRangeUm/PsfZStepUm
+         // settings) can turn into minutes even with every CPU core
+         // helping (see runPoolParallel in PsfBridge.java). Surface that
+         // up front rather than leaving the user to guess why it's slow
+         // from the heartbeat alone.
+         constexpr long long kSizeNzWarnThreshold = 20LL * 1000 * 1000; // ~ 129x129x24 px-planes
+         long long sizeNzProduct = static_cast<long long>(size) * size * nz;
+         if (req.model == PsfModelKind::GibsonLanniZernike && sizeNzProduct > kSizeNzWarnThreshold)
+         {
+            std::ostringstream warnMsg;
+            warnMsg << "PSFGenerator: GibsonLanniZernike's per-pixel 2D quadrature makes this a large "
+                        "computation ("
+                     << size << "x" << size << " px x " << nz
+                     << " Z planes) and may take minutes even with multiple CPU cores. To speed it up, "
+                        "reduce PsfOversampling, PsfKernelHalfWidthPx, PsfZRangeUm, and/or PsfZStepUm.";
+            logCallback(warnMsg.str());
+         }
+      }
+
+      // The JNI call below blocks synchronously for the entire computation
+      // (see PsfBridge.java's class Javadoc on why -- no incremental
+      // progress crosses the JNI boundary). This heartbeat thread does no
+      // JNI work itself (just sleeps and calls back into logCallback, which
+      // is plain C++/MMDevice logging) -- purely so a slow model (e.g.
+      // GibsonLanniZernike's direct 2D pupil quadrature) doesn't look hung
+      // in corelog.
+      auto startTime = std::chrono::steady_clock::now();
+      std::atomic<bool> stopHeartbeat{false};
+      std::thread heartbeat;
+      if (logCallback)
+      {
+         heartbeat = std::thread([&]() {
+            while (!stopHeartbeat.load(std::memory_order_relaxed))
+            {
+               for (int i = 0; i < 20 && !stopHeartbeat.load(std::memory_order_relaxed); ++i)
+                  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+               if (stopHeartbeat.load(std::memory_order_relaxed))
+                  break;
+               double elapsedS = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+               std::ostringstream msg;
+               msg << "PSFGenerator: still computing... " << std::fixed << std::setprecision(1) << elapsedS
+                   << "s elapsed";
+               logCallback(msg.str());
+            }
+         });
+      }
+
       jobject result = env->CallStaticObjectMethod(cls, method, modelStr, static_cast<jdouble>(req.na),
                                                      static_cast<jdouble>(req.wavelengthNm),
                                                      static_cast<jdouble>(req.immersionIndex),
@@ -504,8 +571,23 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                                                      static_cast<jdouble>(req.sampleDepthNm),
                                                      static_cast<jdouble>(resLateralNm),
                                                      static_cast<jdouble>(req.zStepNm), static_cast<jint>(size),
-                                                     static_cast<jint>(size), static_cast<jint>(nz));
+                                                     static_cast<jint>(size), static_cast<jint>(nz), zernikeStr);
+
+      stopHeartbeat.store(true, std::memory_order_relaxed);
+      if (heartbeat.joinable())
+         heartbeat.join();
+
+      if (logCallback)
+      {
+         double elapsedS = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+         std::ostringstream doneMsg;
+         doneMsg << "PSFGenerator: kernel computation finished in " << std::fixed << std::setprecision(2) << elapsedS
+                 << "s";
+         logCallback(doneMsg.str());
+      }
+
       env->DeleteLocalRef(modelStr);
+      env->DeleteLocalRef(zernikeStr);
       // Note: cls is the cached global ref from ResolveBridgeClass -- not
       // deleted here (see the comment where it was obtained above).
 
@@ -556,7 +638,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 
 #else // !_WIN32
 
-bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache, std::string& outError)
+bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache, std::string& outError,
+                            const std::function<void(const std::string&)>&)
 {
    outCache = PsfKernelCache();
    outError = "Embedded PSFGenerator JVM bridge is only implemented for Windows.";

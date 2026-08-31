@@ -80,6 +80,16 @@ public class PsfBridge
     * @param nx                 oversampled grid width in pixels (odd; PSF centered at (nx-1)/2)
     * @param ny                 oversampled grid height in pixels (odd)
     * @param nz                 number of Z planes (>= 3 -- PSFGenerator's own minimum)
+    * @param zernikeCoeffsCsv   "GibsonLanniZernike" only (ignored otherwise): a comma-
+    *                           separated, exactly-15-value positional list of OSA/ANSI
+    *                           single-index Zernike coefficients (index 0-14, in waves --
+    *                           see GibsonLanniZernikePSF's class Javadoc), e.g.
+    *                           "0,0,0,0,0,0.15,0,0,0,0,0,0,0,0,0" for a 0.15-wave vertical
+    *                           astigmatism (index 5) with everything else unaberrated. A
+    *                           malformed/wrong-length list is treated the same as this
+    *                           bridge's C++ caller treats one (see
+    *                           SMLMZernike::ParseZernikeCoefficients): fall back to all-
+    *                           zero (unaberrated) rather than partially applying it.
     * @return nx*ny*nz raw computed intensity values, plane 0 (lowest Z)
     *         first, each plane row-major (x fastest). NOT rescaled/
     *         normalized (unlike PSFGenerator's own Data3D.rescale(0, max),
@@ -89,7 +99,8 @@ public class PsfBridge
     */
    public static float[] computePlanes(String model, double na, double lambdaNm, double niImmersion,
                                         double nsSample, double workingDistanceUm, double sampleDepthNm,
-                                        double resLateralNm, double resAxialNm, int nx, int ny, int nz)
+                                        double resLateralNm, double resAxialNm, int nx, int ny, int nz,
+                                        String zernikeCoeffsCsv)
       throws Exception
    {
       PSF psf;
@@ -97,8 +108,43 @@ public class PsfBridge
          psf = new RichardsWolfPSF();
       else if (model.equalsIgnoreCase("GibsonLanni"))
          psf = new GibsonLanniPSF();
+      else if (model.equalsIgnoreCase("GibsonLanniZernike"))
+         psf = new GibsonLanniZernikePSF();
       else
          throw new IllegalArgumentException("Unknown model: " + model);
+
+      if (psf instanceof GibsonLanniZernikePSF)
+      {
+         // GibsonLanniZernikePSF is this project's own class (not a
+         // PSFGenerator model, see its class Javadoc) -- its fields are
+         // plain public doubles, set directly rather than through
+         // PSFGenerator's Swing-spinner reflection dance below.
+         GibsonLanniZernikePSF glz = (GibsonLanniZernikePSF) psf;
+         glz.ni = niImmersion;
+         glz.ns = nsSample;
+         glz.ti0 = workingDistanceUm * 1E-6;
+         glz.particleAxialPosition = sampleDepthNm * 1E-9;
+         glz.zernikeCoeffs = parseZernikeCoefficients(zernikeCoeffsCsv);
+
+         psf.setOpticsParameters(na, lambdaNm);
+         psf.setResolutionParameters(resLateralNm, resAxialNm);
+         psf.setOutputParameters(nx, ny, nz, 0, 0);
+
+         String errorSizeGlz = psf.checkSize(nx, ny, nz);
+         if (!errorSizeGlz.isEmpty())
+            throw new RuntimeException("checkSize failed: " + errorSizeGlz);
+
+         // Unlike the stock models below (runPool, forced serial -- see its
+         // Javadoc), GibsonLanniZernikePSF's per-Z-plane cost is high
+         // enough (a direct 2D pupil quadrature per pixel, not a fast 1D
+         // radial lookup -- see its class Javadoc's Performance note) that
+         // leaving all Z planes serial is a real user-facing wait at
+         // default settings (PsfZRangeUm/PsfZStepUm alone can mean 70+
+         // planes). Planes are independent (each writes a disjoint
+         // Data3D.setPlane(z, ...)), so this runs them across a plain Java
+         // thread pool instead.
+         return runPoolParallel(psf, nx, ny, nz);
+      }
 
       // Every current PSFGenerator model names its immersion-index spinner
       // field "spnNI" (see RichardsWolfPSF.java / GibsonLanniPSF.java).
@@ -138,6 +184,21 @@ public class PsfBridge
       if (!errorSize.isEmpty())
          throw new RuntimeException("checkSize failed: " + errorSize);
 
+      return runPool(psf, nx, ny, nz);
+   }
+
+   // Shared by the stock PSFGenerator models (RichardsWolf/GibsonLanni):
+   // replicates PSF.process()'s data/pool/generate/execute steps (see the
+   // class Javadoc above for why process() itself is avoided) and reads the
+   // computed planes back out, executing every Z-plane job serially
+   // (ExecutionMode.MULTITHREAD_NO -- see the class Javadoc's explanation
+   // of Pool's own MULTITHREAD_SYNCHRONIZED hang bug). Fine for these
+   // models since each plane is a fast 1D radial lookup; GibsonLanniZernike
+   // uses runPoolParallel below instead, where that would not be fine.
+   // Callers must already have called setOpticsParameters/
+   // setResolutionParameters/setOutputParameters and checkSize on psf.
+   private static float[] runPool(PSF psf, int nx, int ny, int nz) throws Exception
+   {
       psf.fetchParameters();
 
       // PSF.process() would do this itself (data = new Data3D(...)), but
@@ -198,6 +259,129 @@ public class PsfBridge
             out[idx++] = (float) plane[i];
       }
       return out;
+   }
+
+   // Same data/pool/generate steps as runPool above, but executes the
+   // registered per-Z-plane jobs on a plain java.util.concurrent thread
+   // pool (sized to the number of available processors) instead of
+   // Pool.execute(MULTITHREAD_NO) -- i.e. actually parallel, not serial.
+   // Used only for GibsonLanniZernikePSF (see its call site's comment):
+   // its jobs are independent (each writes a disjoint Data3D plane) and,
+   // unlike the stock radial models, expensive enough per plane that
+   // leaving nz of them serial is a real wait (nz is commonly 70+ once
+   // PsfZRangeUm/PsfZStepUm are accounted for). This deliberately never
+   // touches Pool.execute(MULTITHREAD_SYNCHRONIZED) -- the busy-wait hang
+   // documented in this class's Javadoc -- since jobs are run directly via
+   // their own Runnable#run() (Job implements Runnable) rather than through
+   // Pool's own execution/wait machinery at all.
+   private static float[] runPoolParallel(PSF psf, int nx, int ny, int nz) throws Exception
+   {
+      psf.fetchParameters();
+
+      Data3D data = new Data3D(nx, ny, nz);
+      Field dataField = PSF.class.getDeclaredField("data");
+      dataField.setAccessible(true);
+      dataField.set(psf, data);
+
+      Class<?> poolClass = Class.forName("bilib.commons.job.runnable.Pool");
+      Class<?> responderClass = Class.forName("bilib.commons.job.runnable.PoolResponder");
+
+      Constructor<?> poolCtor = poolClass.getConstructor(String.class, responderClass);
+      Object pool = poolCtor.newInstance(psf.getShortname(), psf);
+
+      Object outerPool = poolCtor.newInstance("outer", null);
+      psf.setPool((PoolAbstract) outerPool);
+
+      Method generateMethod = psf.getClass().getMethod("generate", poolClass);
+      generateMethod.invoke(psf, pool);
+
+      Method getRegisteredJobsMethod = poolClass.getMethod("getRegisteredJobs");
+      @SuppressWarnings("unchecked")
+      java.util.List<Runnable> jobs = (java.util.List<Runnable>) getRegisteredJobsMethod.invoke(pool);
+
+      // Job#live (bilib.commons.job.runnable.Job, checked by every model's
+      // process() -- e.g. GibsonLanniZernikePSF.PlaneJob's "if (!live)
+      // return;") defaults to false and is normally flipped true by
+      // Pool.execute() itself before running each job -- calling
+      // Runnable#run() directly (below) skips that, so every job would
+      // silently no-op and leave its plane all-zero without this. init()
+      // is Job's own public reset/initialize method (paired with run() in
+      // its API) -- call it explicitly per job for the same effect
+      // Pool.execute() would have had, since this bypasses Pool.execute()
+      // entirely (see this method's Javadoc for why).
+      Class<?> jobClass = Class.forName("bilib.commons.job.runnable.Job");
+      Method initMethod = jobClass.getMethod("init");
+
+      int threads = Math.max(1, Math.min(jobs.size(), Runtime.getRuntime().availableProcessors()));
+      java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(threads);
+      try
+      {
+         java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>(jobs.size());
+         for (Runnable job : jobs)
+         {
+            initMethod.invoke(job);
+            futures.add(executor.submit(job));
+         }
+         // Block until every plane is done and surface the first exception
+         // (if any) -- Future#get() rethrows it wrapped in
+         // ExecutionException, matching how a Job exception would have
+         // surfaced via Pool.execute() (as a RuntimeException out of this
+         // method, caught by PsfGeneratorBridge.cpp's
+         // DescribeAndClearException).
+         for (java.util.concurrent.Future<?> f : futures)
+            f.get();
+      }
+      finally
+      {
+         executor.shutdown();
+      }
+
+      float[] out = new float[nx * ny * nz];
+      int idx = 0;
+      for (int z = 0; z < nz; z++)
+      {
+         double[] plane = data.getPlane(z);
+         for (int i = 0; i < nx * ny; i++)
+            out[idx++] = (float) plane[i];
+      }
+      return out;
+   }
+
+   // Parses exactly 15 comma-separated doubles by position (index = array
+   // position = OSA Zernike mode number, see GibsonLanniZernikePSF's class
+   // Javadoc) -- mirrors the C++-side parser (Simulation/SMLMZernike.h/.cpp)
+   // in style, kept in sync by convention rather than sharing code (the two
+   // sides don't share a build). A malformed/short/long list logs a warning
+   // and returns all-zero (unaberrated) rather than partially applying it --
+   // silently misaligning positions would assign a coefficient to the wrong
+   // Zernike mode.
+   private static double[] parseZernikeCoefficients(String csv)
+   {
+      double[] zero = new double[15];
+      if (csv == null)
+         return zero;
+      String[] tokens = csv.split(",", -1);
+      if (tokens.length != 15)
+      {
+         System.err.println("psfbridge.PsfBridge: zernikeCoeffsCsv has " + tokens.length +
+                             " values, expected exactly 15 -- falling back to all-zero (unaberrated).");
+         return zero;
+      }
+      double[] result = new double[15];
+      for (int i = 0; i < 15; i++)
+      {
+         try
+         {
+            result[i] = Double.parseDouble(tokens[i].trim());
+         }
+         catch (NumberFormatException e)
+         {
+            System.err.println("psfbridge.PsfBridge: zernikeCoeffsCsv token '" + tokens[i] +
+                                "' is not a valid number -- falling back to all-zero (unaberrated).");
+            return zero;
+         }
+      }
+      return result;
    }
 
    // PSFGenerator's per-model refractive-index spinner is a private Swing

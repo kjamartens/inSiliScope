@@ -62,10 +62,13 @@ const char* g_PropPsfZStepUm = "PsfZStepUm";
 const char* g_PropPsfSampleIndex = "PsfSampleIndex";
 const char* g_PropPsfWorkingDistanceUm = "PsfWorkingDistanceUm";
 const char* g_PropPsfSampleDepthNm = "PsfSampleDepthNm";
+const char* g_PropPsfZernikeCoefficients = "PsfZernikeCoefficients";
+const char* g_PropPsfZernikePreset = "PsfZernikePreset";
 
 const char* g_PsfModelGaussian = "Gaussian";
 const char* g_PsfModelRichardsWolf = "RichardsWolf";
 const char* g_PsfModelGibsonLanni = "GibsonLanni";
+const char* g_PsfModelGibsonLanniZernike = "GibsonLanniZernike";
 
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
@@ -313,6 +316,7 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPsfModel, g_PsfModelGaussian);
    AddAllowedValue(g_PropPsfModel, g_PsfModelRichardsWolf);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanni);
+   AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanniZernike);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfImmersionIndex);
    CreateFloatProperty(g_PropPsfImmersionIndex, psfImmersionIndex_.load(), false, pAct);
@@ -360,6 +364,25 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfSampleDepthNm);
    CreateFloatProperty(g_PropPsfSampleDepthNm, psfSampleDepthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfSampleDepthNm, -100000.0, 100000.0);
+
+   // GibsonLanniZernike-only: 15-value comma-separated positional Zernike
+   // coefficient list (OSA index 0-14, in waves -- see Simulation/
+   // SMLMZernike.h's ZernikeCoefficients doc comment for the full mode
+   // list). Default is all-zero (unaberrated).
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZernikeCoefficients);
+   CreateStringProperty(g_PropPsfZernikeCoefficients, psfZernikeCoefficients_.c_str(), false, pAct);
+
+   // Convenience presets on top of PsfZernikeCoefficients -- selecting one
+   // overwrites it with a named, literature-inspired aberration template
+   // (see sim::ZernikePresetCoefficients in Simulation/SMLMZernike.cpp for
+   // the values and their sourcing/caveats). Editing PsfZernikeCoefficients
+   // directly afterwards is unaffected by (and does not update) this
+   // property -- it only ever reports the last preset explicitly selected
+   // through it.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZernikePreset);
+   CreateStringProperty(g_PropPsfZernikePreset, psfZernikePreset_.c_str(), false, pAct);
+   for (const std::string& name : sim::ZernikePresetNames())
+      AddAllowedValue(g_PropPsfZernikePreset, name.c_str());
 
    nRet = UpdateStatus();
    if (nRet != DEVICE_OK)
