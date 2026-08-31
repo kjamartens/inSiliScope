@@ -47,6 +47,11 @@ struct SimulationParams
    // current Exposure). Needed alongside driftNmPerSecX to convert an
    // elapsed frame count into an elapsed time for the drift ramp.
    double frameDurationSec = 0.001;
+   // Std dev of each emitter's random Z position, drawn once at spawn time
+   // (nm; 0 = disabled, matching the driftNmPerSecX = 0 disabled-by-default
+   // convention). Only meaningful with a vectorial PsfModel and nz > 1 --
+   // see BlinkEvent::zUm and EmitterModel::GenerateAllEvents/AdvanceOneFrame.
+   double psfZSpreadStdNm = 0.0;
 };
 
 // A single blinking event: one emitter turning on at tStart (in frame units)
@@ -58,6 +63,10 @@ struct BlinkEvent
    double yUm = 0.0;
    double tStart = 0.0;
    double tEnd = 0.0;
+   // Random per-emitter focus offset, drawn once at spawn time from
+   // N(0, psfZSpreadStdNm) -- see SimulationParams::psfZSpreadStdNm. Zero
+   // when spread is disabled, matching the in-focus-only default.
+   double zUm = 0.0;
 };
 
 // Linear stage-drift offset (pixels) at elapsedSec seconds since the drift

@@ -51,6 +51,7 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.readNoiseElectrons = readNoiseElectrons_.load();
    p.driftNmPerSecX = driftNmPerSecX_.load();
    p.frameDurationSec = expSec;
+   p.psfZSpreadStdNm = psfZSpreadStdNm_.load();
    return p;
 }
 
@@ -84,7 +85,25 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    minHalfWidthPx = std::min(std::max(minHalfWidthPx, 2), 48);
    req.kernelHalfWidthPx = std::max(psfKernelHalfWidthPx_, minHalfWidthPx);
 
-   req.nz = 1; // in-focus only until the Z-stack step wires up nz/zStepNm
+   // Real Z-stack (step 2): nz/zStepNm are derived from the user-facing
+   // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. When Z spread
+   // is disabled (psfZSpreadStdNm_ == 0), every BlinkEvent.zUm is 0.0 and
+   // PsfKernelCache::NearestZIndex(0) always resolves to the same center
+   // plane ComputePsfKernelCache pads nz up to anyway -- so requesting a
+   // multi-plane stack even with spread off is harmless (just a bit more
+   // upfront compute), and no separate "disabled" nz=1 path is needed.
+   double zRangeUm = psfZRangeUm_.load();
+   double zStepUm = std::max(psfZStepUm_.load(), 0.001);
+   req.nz = static_cast<int>(std::lround(zRangeUm / zStepUm)) + 1;
+   req.zStepNm = zStepUm * 1000.0;
+
+   // GibsonLanni-only (ignored by RichardsWolf); see the comments on
+   // psfSampleIndex_/psfWorkingDistanceUm_/psfSampleDepthNm_ in
+   // SMLMDemoCamera.h.
+   req.sampleIndex = psfSampleIndex_.load();
+   req.workingDistanceUm = psfWorkingDistanceUm_.load();
+   req.sampleDepthNm = psfSampleDepthNm_.load();
+
    req.javaHome = psfGeneratorJavaHome_;
    return req;
 }
@@ -897,6 +916,48 @@ int CSMLMDemoCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionT
       // post-JVM-creation.
       InvalidateStack();
    }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfZRangeUm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZRangeUm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfZStepUm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZStepUm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfZSpreadStdNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfZSpreadStdNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZSpreadStdNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfSampleIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfSampleIndex_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSampleIndex_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfWorkingDistanceUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfWorkingDistanceUm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfWorkingDistanceUm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfSampleDepthNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSampleDepthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

@@ -162,6 +162,42 @@ New files:
   and that changing `PsfZRangeUm`/`PsfZStepUm` visibly changes the cached
   stack's coverage/resolution.
 
+**Status: code complete, built successfully, not yet visually verified in
+Micro-Manager.** Implemented as described above, with one simplification:
+the embedded-JVM bridge (`PsfGeneratorBridge.h/.cpp`) already had `nz`/
+`zStepNm`/`NearestZIndex` plumbing in place from step 1 (ahead of this
+plan's original subprocess-based design, which predates the JVM-embedding
+pivot — see the "Architecture" section above), so step 2 only needed to:
+add `BlinkEvent::zUm` and `SimulationParams::psfZSpreadStdNm`; draw
+`zUm ~ N(0, PsfZSpreadStdNm)` at spawn time in both
+`GenerateAllEvents`/`AdvanceOneFrame` (`Simulation/SMLMSimulation.cpp`);
+switch `RenderPhotonImage`'s splat call from
+`psfCache->CenterZIndex()` to `psfCache->NearestZIndex(e.zUm)`; and add
+the three new properties (`PsfZRangeUm` default 2.0 µm, `PsfZStepUm`
+default 0.1 µm, `PsfZSpreadStdNm` default 0 = disabled) wired through
+`BuildPsfGeneratorRequest()`/`SnapshotParams()` the same way every other
+PSF property already is (`InvalidateStack()` on change). No new files.
+**Next**: load the built DLL into Micro-Manager and do the Live-mode
+visual check described above before moving to step 3.
+
+**Addendum**: `PsfBridge.java` also hardcoded three GibsonLanni-only
+PSFGenerator parameters (`spnNS` sample refractive index, `spnTI` working
+distance, `spnZPos` particle depth into the sample) rather than exposing
+them. All three are now user-facing MM properties (`PsfSampleIndex`,
+`PsfWorkingDistanceUm`, `PsfSampleDepthNm`), threaded through
+`PsfGeneratorRequest`/`computePlanes()`'s now-8-double JNI signature, with
+defaults chosen to reproduce the exact rendered output at default settings
+(`PsfSampleIndex` defaults to matching `PsfImmersionIndex`, `PsfSampleDepthNm`
+defaults to 0 -- both reproducing the no-mismatch/in-focus behavior this
+bridge used to force unconditionally; `PsfWorkingDistanceUm` defaults to
+150.0, PSFGenerator's own stock default for that spinner, which this
+bridge was already implicitly relying on). Ignored by `RichardsWolf`, which
+has no equivalent sample-index/depth/working-distance concept. Rebuilding
+required recompiling `PsfBridge.class` (`--release 8`), re-merging
+`third_party/SMLMPsfEmbedded.jar`, and a full MSBuild rebuild (resource
+recompile only re-embeds on a jar timestamp change) -- confirmed done and
+building clean.
+
 ## Step 3 — Revert random Z spread; add a real Z-stage device
 
 - Stop drawing `BlinkEvent.zUm` randomly; all emitters share one global

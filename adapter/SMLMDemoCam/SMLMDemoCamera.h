@@ -69,6 +69,12 @@ extern const char* g_PropPsfImmersionIndex;
 extern const char* g_PropPsfOversampling;
 extern const char* g_PropPsfKernelHalfWidthPx;
 extern const char* g_PropPsfGeneratorJavaHome;
+extern const char* g_PropPsfZRangeUm;
+extern const char* g_PropPsfZStepUm;
+extern const char* g_PropPsfZSpreadStdNm;
+extern const char* g_PropPsfSampleIndex;
+extern const char* g_PropPsfWorkingDistanceUm;
+extern const char* g_PropPsfSampleDepthNm;
 
 extern const char* g_PsfModelGaussian;
 extern const char* g_PsfModelRichardsWolf;
@@ -170,6 +176,12 @@ public:
    int OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfKernelHalfWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfZSpreadStdNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfSampleIndex(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfWorkingDistanceUm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -357,6 +369,31 @@ private:
    // PSFGenerator itself and this project's bridge class are embedded in
    // this DLL -- no jar paths to configure.
    std::string psfGeneratorJavaHome_;
+
+   // Z-stack + random per-emitter Z spread (step 2 of the vectorial PSF
+   // plan). PsfZRangeUm/PsfZStepUm feed req.nz/req.zStepNm in
+   // BuildPsfGeneratorRequest(); PsfZSpreadStdNm feeds
+   // SimulationParams::psfZSpreadStdNm (0 = disabled, every emitter
+   // in-focus, matching pre-step-2 behavior). All three only matter with a
+   // vectorial PsfModel.
+   std::atomic<double> psfZRangeUm_{2.0};      // total z-stack span, um
+   std::atomic<double> psfZStepUm_{0.1};       // z-plane spacing, um
+   std::atomic<double> psfZSpreadStdNm_{0.0};  // per-emitter Z std dev, nm
+
+   // GibsonLanni-only parameters (ignored by RichardsWolf -- see PsfBridge.
+   // java), previously hardcoded in PsfBridge.java rather than user-facing.
+   // Defaults match what was previously hardcoded (see PsfGeneratorRequest's
+   // own defaults / comment in PsfGeneratorBridge.h): SampleIndex defaults
+   // to matching PsfImmersionIndex's default (1.518, not PSFGenerator's own
+   // stock 1.33) and SampleDepthNm defaults to 0 (not PSFGenerator's own
+   // stock 2000) -- both reproducing the no-index-mismatch, particle-
+   // exactly-at-focus behavior this bridge used to force unconditionally.
+   // WorkingDistanceUm defaults to 150.0, PSFGenerator's own stock default
+   // for that spinner (never touched by this bridge before, so this is
+   // simply making the value it was already implicitly using adjustable).
+   std::atomic<double> psfSampleIndex_{1.518};
+   std::atomic<double> psfWorkingDistanceUm_{150.0};
+   std::atomic<double> psfSampleDepthNm_{0.0};
 
    long randomSeed_ = 12345;
    std::mt19937_64 rng_;

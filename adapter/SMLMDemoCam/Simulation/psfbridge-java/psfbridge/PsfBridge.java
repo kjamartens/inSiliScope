@@ -64,16 +64,22 @@ import psf.gibsonlanni.GibsonLanniPSF;
 public class PsfBridge
 {
    /**
-    * @param model         "RichardsWolf" | "GibsonLanni"
-    * @param na            numerical aperture
-    * @param lambdaNm      emission wavelength, nm
-    * @param niImmersion   refractive index of the immersion medium
-    * @param resLateralNm  lateral sample spacing of the OVERSAMPLED grid, nm
-    *                      (= camera pixel size / oversampling factor)
-    * @param resAxialNm    spacing between Z planes, nm
-    * @param nx            oversampled grid width in pixels (odd; PSF centered at (nx-1)/2)
-    * @param ny            oversampled grid height in pixels (odd)
-    * @param nz            number of Z planes (>= 3 -- PSFGenerator's own minimum)
+    * @param model              "RichardsWolf" | "GibsonLanni"
+    * @param na                 numerical aperture
+    * @param lambdaNm           emission wavelength, nm
+    * @param niImmersion        refractive index of the immersion medium
+    * @param nsSample           GibsonLanni only: refractive index of the sample medium
+    *                           (ignored for RichardsWolf, which has no sample-index concept)
+    * @param workingDistanceUm  GibsonLanni only: "ti" working distance, um
+    *                           (ignored for RichardsWolf)
+    * @param sampleDepthNm      GibsonLanni only: particle depth into the sample
+    *                           ("zpos"), nm (ignored for RichardsWolf)
+    * @param resLateralNm       lateral sample spacing of the OVERSAMPLED grid, nm
+    *                           (= camera pixel size / oversampling factor)
+    * @param resAxialNm         spacing between Z planes, nm
+    * @param nx                 oversampled grid width in pixels (odd; PSF centered at (nx-1)/2)
+    * @param ny                 oversampled grid height in pixels (odd)
+    * @param nz                 number of Z planes (>= 3 -- PSFGenerator's own minimum)
     * @return nx*ny*nz raw computed intensity values, plane 0 (lowest Z)
     *         first, each plane row-major (x fastest). NOT rescaled/
     *         normalized (unlike PSFGenerator's own Data3D.rescale(0, max),
@@ -82,6 +88,7 @@ public class PsfBridge
     *         absolute scale irrelevant).
     */
    public static float[] computePlanes(String model, double na, double lambdaNm, double niImmersion,
+                                        double nsSample, double workingDistanceUm, double sampleDepthNm,
                                         double resLateralNm, double resAxialNm, int nx, int ny, int nz)
       throws Exception
    {
@@ -99,24 +106,26 @@ public class PsfBridge
 
       if (psf instanceof GibsonLanniPSF)
       {
-         // PSFGenerator's own GibsonLanniPSF defaults model a deliberately
-         // aberrated scenario: sample refractive index ns=1.33 (aqueous)
-         // under a much higher immersion index (oil, ~1.5+) -- a large
-         // index mismatch -- with the particle 2um deep into the sample
-         // (spnZPos default 2000nm on top of that). RichardsWolfPSF has no
-         // equivalent sample-index/depth concept at all and is always
-         // computed in-focus with no mismatch, so left at PSFGenerator's
-         // own defaults, GibsonLanni and RichardsWolf are not a fair
-         // comparison: GibsonLanni comes out much broader/flatter/dimmer,
-         // purely from spherical aberration + defocus baked into its
-         // defaults, not from anything the user configured. Match
-         // RichardsWolf's assumptions here instead: no index mismatch
-         // (sample index = immersion index) and the particle exactly at
-         // focus (zero depth offset). A future Zernike/aberration step is
-         // the right place to reintroduce a deliberate index mismatch or
-         // depth offset, not a silent default baked into one model only.
-         setSpinnerField(psf, "spnNS", niImmersion);
-         setSpinnerField(psf, "spnZPos", 0.0);
+         // GibsonLanniPSF additionally exposes sample refractive index
+         // (spnNS, PSFGenerator's own default 1.33), working distance
+         // (spnTI, um, default 150.0) and particle depth into the sample
+         // (spnZPos, nm, default 2000.0) -- all now caller-supplied
+         // (SMLMDemoCamera's PsfSampleIndex/PsfWorkingDistanceUm/
+         // PsfSampleDepthNm properties) rather than hardcoded here, per
+         // Simulation/PsfGeneratorBridge.h's PsfGeneratorRequest, whose own
+         // defaults (nsSample = the immersion-index default, sampleDepthNm
+         // = 0) reproduce the no-mismatch/in-focus behavior this bridge
+         // used to force unconditionally -- see the comment on
+         // PsfGeneratorRequest::sampleIndex for why that default (rather
+         // than PSFGenerator's own 1.33/2000.0) was chosen: RichardsWolf has
+         // no equivalent sample-index/depth concept and is always computed
+         // in-focus with no mismatch, so matching that is what keeps
+         // GibsonLanni and RichardsWolf a fair comparison at default
+         // settings; deliberately introducing a mismatch/depth offset is
+         // now the caller's choice, not a silent default baked in here.
+         setSpinnerField(psf, "spnNS", nsSample);
+         setSpinnerField(psf, "spnTI", workingDistanceUm);
+         setSpinnerField(psf, "spnZPos", sampleDepthNm);
       }
 
       psf.setOpticsParameters(na, lambdaNm);

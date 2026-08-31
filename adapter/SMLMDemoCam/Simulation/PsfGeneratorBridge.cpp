@@ -478,7 +478,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       if (!cls)
          break;
       jmethodID method =
-         env->GetStaticMethodID(cls, "computePlanes", "(Ljava/lang/String;DDDDDIII)[F");
+         env->GetStaticMethodID(cls, "computePlanes", "(Ljava/lang/String;DDDDDDDDIII)[F");
       if (!method)
       {
          outError = "psfbridge.PsfBridge.computePlanes not found: " + DescribeAndClearException(env);
@@ -499,6 +499,9 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       jobject result = env->CallStaticObjectMethod(cls, method, modelStr, static_cast<jdouble>(req.na),
                                                      static_cast<jdouble>(req.wavelengthNm),
                                                      static_cast<jdouble>(req.immersionIndex),
+                                                     static_cast<jdouble>(req.sampleIndex),
+                                                     static_cast<jdouble>(req.workingDistanceUm),
+                                                     static_cast<jdouble>(req.sampleDepthNm),
                                                      static_cast<jdouble>(resLateralNm),
                                                      static_cast<jdouble>(req.zStepNm), static_cast<jint>(size),
                                                      static_cast<jint>(size), static_cast<jint>(nz));

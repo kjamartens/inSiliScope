@@ -48,6 +48,21 @@ struct PsfGeneratorRequest
    double wavelengthNm = 660.0;
    double na = 1.4;
    double immersionIndex = 1.518;
+   // GibsonLanni-only parameters (ignored for RichardsWolf, which has no
+   // equivalent sample-index/depth/working-distance concept -- see
+   // PsfBridge.java). Defaults are chosen to reproduce the no-index-
+   // mismatch, particle-exactly-at-focus behavior this bridge used to force
+   // unconditionally (see PsfBridge.java's header comment): sampleIndex
+   // defaults to matching immersionIndex (not PSFGenerator's own stock
+   // default of 1.33) and sampleDepthNm defaults to 0 (not PSFGenerator's
+   // own stock default of 2000). workingDistanceUm has no such special
+   // case -- this bridge never touched PSFGenerator's own "ti" spinner
+   // before, so its default here (150.0) is simply PSFGenerator's own
+   // stock default for that spinner, now caller-adjustable instead of
+   // implicit.
+   double sampleIndex = 1.518;
+   double workingDistanceUm = 150.0;
+   double sampleDepthNm = 0.0;
    double pixelSizeNm = 100.0;
    // Oversampled samples per camera pixel, and the camera-pixel half-width
    // of the kernel (so the oversampled grid is

@@ -15,8 +15,11 @@ or a live-streaming mode with parameters adjustable while running.
 Full plan: [docs/vectorial-psf-plan.md](docs/vectorial-psf-plan.md).
 
 **Step 1 (in-focus 2D vectorial PSF) is done and working**, as of commit
-`a4e5f28`. Steps 2-5 (Z-stack + random spread, Z-stage device, SMLM
-Challenge comparison, Zernike aberrations) are **not started**.
+`a4e5f28`. **Step 2 (Z-stack + random per-emitter Z spread) is code-
+complete and builds, but not yet visually verified in Micro-Manager** --
+see `docs/vectorial-psf-plan.md` for what's left to check. Steps 3-5
+(Z-stage device, SMLM Challenge comparison, Zernike aberrations) are
+**not started**.
 
 ### Architecture
 
@@ -93,6 +96,15 @@ A JRE/JDK must be present at runtime too (to supply `jvm.dll`) -- see
   (a *minimum*; auto-grown from NA/wavelength/pixel size -- see Gotchas)
 - `PsfGeneratorJavaHome` -- optional JRE/JDK root override; auto-detects
   otherwise (`JAVA_HOME`, then common Windows install paths)
+- `PsfZRangeUm` (default 2.0), `PsfZStepUm` (default 0.1),
+  `PsfZSpreadStdNm` (default 0 = disabled) -- Z-stack + random per-emitter
+  Z spread (step 2)
+- `PsfSampleIndex`, `PsfWorkingDistanceUm` (default 150.0),
+  `PsfSampleDepthNm` -- GibsonLanni-only PSFGenerator parameters, ignored
+  by RichardsWolf; `PsfSampleIndex` defaults to matching
+  `PsfImmersionIndex` and `PsfSampleDepthNm` defaults to 0, reproducing
+  PsfBridge.java's old hardcoded no-mismatch/in-focus behavior rather than
+  PSFGenerator's own stock defaults (1.33 / 2000)
 
 ### Gotchas found during step 1 (don't rediscover these)
 
