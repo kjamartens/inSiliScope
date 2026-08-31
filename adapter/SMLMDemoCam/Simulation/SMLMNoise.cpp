@@ -97,18 +97,55 @@ void PixelOffsetMap::Generate(unsigned w, unsigned h, double offsetMeanAdu, doub
    }
 }
 
+void PixelReadNoiseMap::Generate(unsigned w, unsigned h, double nominalReadNoiseElectrons,
+                                  double stdFraction, std::mt19937_64& rng)
+{
+   width = w;
+   height = h;
+   readNoiseElectrons.assign(static_cast<size_t>(w) * h, 0.0f);
+   for (size_t i = 0; i < readNoiseElectrons.size(); ++i)
+   {
+      double v = nominalReadNoiseElectrons * (1.0 + stdFraction * GaussianRng(rng, 0.0, 1.0));
+      readNoiseElectrons[i] = static_cast<float>(v < 0.0 ? 0.0 : v);
+   }
+}
+
+void PixelGainMap::Generate(unsigned w, unsigned h, double nominalGainPhotonsPerAdu, double stdFraction,
+                             std::mt19937_64& rng)
+{
+   width = w;
+   height = h;
+   gainPhotonsPerAdu.assign(static_cast<size_t>(w) * h, 0.0f);
+   for (size_t i = 0; i < gainPhotonsPerAdu.size(); ++i)
+   {
+      double v = nominalGainPhotonsPerAdu * (1.0 + stdFraction * GaussianRng(rng, 0.0, 1.0));
+      // A near-zero or negative pixel gain would blow up the division below;
+      // floor it well away from zero rather than letting one unlucky draw
+      // (possible at large stdFraction) produce a saturated/garbage pixel.
+      gainPhotonsPerAdu[i] = static_cast<float>(v < 0.01 ? 0.01 : v);
+   }
+}
+
 void ApplyNoiseChain(const std::vector<float>& photonImage,
                       std::vector<uint16_t>& outAdu,
                       unsigned width, unsigned height,
+                      double quantumEfficiency,
+                      double darkCurrentElectronsPerFrame,
                       double gainPhotonsPerAdu,
                       double readNoiseElectrons,
                       const PixelOffsetMap& offsetMap,
+                      const PixelGainMap& gainMap,
+                      const PixelReadNoiseMap& readNoiseMap,
                       std::mt19937_64& rng)
 {
    const size_t n = static_cast<size_t>(width) * height;
    outAdu.resize(n);
    const bool haveOffsetMap = (offsetMap.width == width && offsetMap.height == height &&
                                 offsetMap.offset.size() == n);
+   const bool haveGainMap = (gainMap.width == width && gainMap.height == height &&
+                              gainMap.gainPhotonsPerAdu.size() == n);
+   const bool haveReadNoiseMap = (readNoiseMap.width == width && readNoiseMap.height == height &&
+                                   readNoiseMap.readNoiseElectrons.size() == n);
 
    for (size_t i = 0; i < n; ++i)
    {
@@ -116,8 +153,17 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
       if (photons < 0.0)
          photons = 0.0;
 
-      double withReadNoise = CombinedShotAndReadNoise(rng, photons, readNoiseElectrons);
-      double adu = withReadNoise / gainPhotonsPerAdu;
+      // Quantum efficiency converts incident photons to mean detected
+      // photoelectrons; dark current is already in electron units (it
+      // originates in the sensor, not in incident light) so it's added
+      // after QE, not scaled by it.
+      double meanElectrons = photons * quantumEfficiency + darkCurrentElectronsPerFrame;
+
+      double effectiveReadNoise = haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : readNoiseElectrons;
+      double withReadNoise = CombinedShotAndReadNoise(rng, meanElectrons, effectiveReadNoise);
+
+      double effectiveGain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : gainPhotonsPerAdu;
+      double adu = withReadNoise / effectiveGain;
       adu += haveOffsetMap ? offsetMap.offset[i] : 0.0;
 
       if (adu < 0.0)

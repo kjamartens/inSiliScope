@@ -57,10 +57,14 @@ extern const char* g_PropPsfWavelengthNm;
 extern const char* g_PropPsfNa;
 extern const char* g_PropPixelSize;
 extern const char* g_PropBackgroundPerSec;
+extern const char* g_PropQuantumEfficiency;
+extern const char* g_PropDarkCurrentPerSec;
 extern const char* g_PropGain;
 extern const char* g_PropOffset;
 extern const char* g_PropOffsetStd;
 extern const char* g_PropReadNoise;
+extern const char* g_PropPixelGainStdPct;
+extern const char* g_PropPixelReadNoiseStdPct;
 extern const char* g_PropDriftNmPerSec;
 extern const char* g_PropRandomSeed;
 extern const char* g_PropActualFrameIntervalMs;
@@ -163,10 +167,14 @@ public:
    int OnPsfNa(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPixelSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBackgroundPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnQuantumEfficiency(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCameraOffset(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnOffsetStd(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPixelGainStdPct(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -337,15 +345,33 @@ private:
    std::atomic<double> psfNa_{1.4};                    // objective numerical aperture
    std::atomic<double> pixelSizeNm_{100.0};
    std::atomic<double> backgroundPhotonsPerSec_{0.0};  // photons / pixel / s
-   std::atomic<double> gainPhotonsPerAdu_{1.0};
+   // Camera noise-chain defaults below (QuantumEfficiency, DarkCurrent,
+   // Gain, ReadNoise) are the Photometrics Kinetix22 sCMOS, Sensitivity
+   // (CMS) mode datasheet values -- the mode typically used for
+   // photon-starved SMLM imaging -- per docs/vectorial-psf-plan.md's "Noise
+   // model follow-ups" section: QE ~85% at this device's default 660 nm
+   // emission wavelength (read off the published QE curve, not a table
+   // value), 1.03 e-/pixel/sec dark current, 0.25 e-/count conversion gain,
+   // 1.2 e- read noise.
+   std::atomic<double> quantumEfficiency_{0.85};       // incident photons -> detected electrons
+   std::atomic<double> darkCurrentPerSec_{1.03};       // e- / pixel / s, thermal
+   std::atomic<double> gainPhotonsPerAdu_{0.25};
    std::atomic<double> offsetAdu_{100.0};
-   // Kept below ReadNoiseElectrons (in ADU, given the default 1.0 gain) so
-   // the true frame-to-frame read noise -- not the static per-pixel offset
+   // Kept below ReadNoiseElectrons (in ADU, given the default gain) so the
+   // true frame-to-frame read noise -- not the static per-pixel offset
    // pattern -- dominates what a single frame visually looks like; a static
    // fixed-pattern component with std >= the temporal read noise makes
    // successive frames look like they aren't changing at all.
    std::atomic<double> offsetStdAdu_{0.5};
-   std::atomic<double> readNoiseElectrons_{1.5};
+   std::atomic<double> readNoiseElectrons_{1.2};
+   // Pixel-to-pixel relative spread of gain/read noise (sCMOS-style
+   // per-pixel maps), as a percent of the nominal Gain/ReadNoise above; 0 =
+   // disabled (every pixel identical), matching the driftNmPerSecX = 0
+   // disabled-by-default convention used elsewhere. Photometrics doesn't
+   // publish actual per-pixel variance for the Kinetix, so these two
+   // defaults are estimates, not datasheet values -- see the plan doc.
+   std::atomic<double> pixelGainStdPct_{5.0};
+   std::atomic<double> pixelReadNoiseStdPct_{20.0};
    // Drift rate along X, nm/sec (Y drifts at half this rate -- see
    // sim::ComputeDriftOffsetPx). Applies in both acquisition modes.
    std::atomic<double> driftNmPerSecX_{0.0};

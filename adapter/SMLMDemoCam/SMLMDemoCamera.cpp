@@ -41,10 +41,14 @@ const char* g_PropPsfWavelengthNm = "PsfEmissionWavelengthNm";
 const char* g_PropPsfNa = "PsfNa";
 const char* g_PropPixelSize = "PixelSizeNm";
 const char* g_PropBackgroundPerSec = "BackgroundPhotonsPerSec";
+const char* g_PropQuantumEfficiency = "QuantumEfficiency";
+const char* g_PropDarkCurrentPerSec = "DarkCurrentElectronsPerSec";
 const char* g_PropGain = "CameraGainPhotonsPerADU";
 const char* g_PropOffset = "CameraOffsetADU";
 const char* g_PropOffsetStd = "CameraOffsetStdADU";
 const char* g_PropReadNoise = "ReadNoiseElectrons";
+const char* g_PropPixelGainStdPct = "PixelGainStdPct";
+const char* g_PropPixelReadNoiseStdPct = "PixelReadNoiseStdPct";
 const char* g_PropDriftNmPerSec = "DriftNmPerSec";
 const char* g_PropRandomSeed = "RandomSeed";
 const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
@@ -262,9 +266,17 @@ int CSMLMDemoCamera::Initialize()
    CreateFloatProperty(g_PropBackgroundPerSec, backgroundPhotonsPerSec_.load(), false, pAct);
    SetPropertyLimits(g_PropBackgroundPerSec, 0.0, 200000.0);
 
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnQuantumEfficiency);
+   CreateFloatProperty(g_PropQuantumEfficiency, quantumEfficiency_.load(), false, pAct);
+   SetPropertyLimits(g_PropQuantumEfficiency, 0.01, 1.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDarkCurrentPerSec);
+   CreateFloatProperty(g_PropDarkCurrentPerSec, darkCurrentPerSec_.load(), false, pAct);
+   SetPropertyLimits(g_PropDarkCurrentPerSec, 0.0, 100.0);
+
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraGain);
    CreateFloatProperty(g_PropGain, gainPhotonsPerAdu_.load(), false, pAct);
-   SetPropertyLimits(g_PropGain, 0.1, 100.0);
+   SetPropertyLimits(g_PropGain, 0.01, 100.0);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraOffset);
    CreateFloatProperty(g_PropOffset, offsetAdu_.load(), false, pAct);
@@ -277,6 +289,14 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnReadNoise);
    CreateFloatProperty(g_PropReadNoise, readNoiseElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropReadNoise, 0.0, 100.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPixelGainStdPct);
+   CreateFloatProperty(g_PropPixelGainStdPct, pixelGainStdPct_.load(), false, pAct);
+   SetPropertyLimits(g_PropPixelGainStdPct, 0.0, 50.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPixelReadNoiseStdPct);
+   CreateFloatProperty(g_PropPixelReadNoiseStdPct, pixelReadNoiseStdPct_.load(), false, pAct);
+   SetPropertyLimits(g_PropPixelReadNoiseStdPct, 0.0, 100.0);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftNmPerSec);
    CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);

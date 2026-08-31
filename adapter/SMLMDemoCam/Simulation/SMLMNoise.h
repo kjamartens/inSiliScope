@@ -4,8 +4,11 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   RNG helpers and the per-pixel camera noise chain used by the
-//                synthetic SMLM camera: photon shot noise -> read noise ->
-//                gain -> fixed-pattern pixel offset.
+//                synthetic SMLM camera: quantum efficiency -> dark current ->
+//                photon shot noise -> read noise -> gain -> fixed-pattern
+//                pixel offset. Read noise and gain each optionally vary
+//                per-pixel (sCMOS-style PixelReadNoiseMap/PixelGainMap)
+//                instead of being one scalar for the whole sensor.
 //
 // LICENSE:       BSD (see license.txt)
 
@@ -46,16 +49,64 @@ struct PixelOffsetMap
                   std::mt19937_64& rng);
 };
 
-// Converts a clean photon-count image into a 16-bit ADU frame by applying, in
-// order: Poisson shot noise on the photon signal, additive Gaussian read
-// noise (in electrons), division by gain (photons/ADU), and the static
-// per-pixel fixed-pattern offset. Result is clamped to [0, 65535].
+// A static per-pixel read-noise map (sCMOS-style: every pixel has its own
+// amplifier, so read noise genuinely varies pixel to pixel, unlike EMCCD's
+// single electron-multiplying register). Each pixel's read noise is
+// nominalReadNoiseElectrons*(1 + stdFraction*Gaussian()), clamped >= 0.
+// stdFraction = 0 makes every pixel exactly nominalReadNoiseElectrons,
+// equivalent to the old scalar-read-noise behavior. Generated once per
+// RandomSeed/size and reused across every frame, like PixelOffsetMap.
+struct PixelReadNoiseMap
+{
+   unsigned width = 0;
+   unsigned height = 0;
+   std::vector<float> readNoiseElectrons; // electrons rms, size width*height
+
+   void Generate(unsigned w, unsigned h, double nominalReadNoiseElectrons, double stdFraction,
+                  std::mt19937_64& rng);
+};
+
+// A static per-pixel gain map (sCMOS-style pixel-to-pixel conversion-gain
+// variation). Each pixel's gain is
+// nominalGainPhotonsPerAdu*(1 + stdFraction*Gaussian()), clamped to stay
+// positive. stdFraction = 0 makes every pixel exactly
+// nominalGainPhotonsPerAdu, equivalent to the old scalar-gain behavior.
+// Generated once per RandomSeed/size and reused across every frame, like
+// PixelOffsetMap.
+struct PixelGainMap
+{
+   unsigned width = 0;
+   unsigned height = 0;
+   std::vector<float> gainPhotonsPerAdu; // size width*height
+
+   void Generate(unsigned w, unsigned h, double nominalGainPhotonsPerAdu, double stdFraction,
+                  std::mt19937_64& rng);
+};
+
+// Converts a clean photon-count image (incident photons, background
+// included) into a 16-bit ADU frame by applying, in order:
+//   1. Quantum efficiency: incident photons -> mean detected photoelectrons.
+//   2. Dark current: a constant electron count added on top (already in
+//      electron units, so NOT scaled by quantumEfficiency -- see
+//      darkCurrentElectronsPerFrame).
+//   3. Poisson shot noise on that electron mean, plus additive Gaussian read
+//      noise (in electrons) -- per-pixel from readNoiseMap when it matches
+//      width/height, else the scalar readNoiseElectrons for every pixel.
+//   4. Division by gain (photons/ADU) -- per-pixel from gainMap when it
+//      matches width/height, else the scalar gainPhotonsPerAdu for every
+//      pixel.
+//   5. The static per-pixel fixed-pattern offset (offsetMap).
+// Result is clamped to [0, 65535].
 void ApplyNoiseChain(const std::vector<float>& photonImage,
                       std::vector<uint16_t>& outAdu,
                       unsigned width, unsigned height,
+                      double quantumEfficiency,
+                      double darkCurrentElectronsPerFrame,
                       double gainPhotonsPerAdu,
                       double readNoiseElectrons,
                       const PixelOffsetMap& offsetMap,
+                      const PixelGainMap& gainMap,
+                      const PixelReadNoiseMap& readNoiseMap,
                       std::mt19937_64& rng);
 
 } // namespace sim

@@ -15,11 +15,14 @@ or a live-streaming mode with parameters adjustable while running.
 Full plan: [docs/vectorial-psf-plan.md](docs/vectorial-psf-plan.md).
 
 **Step 1 (in-focus 2D vectorial PSF) is done and working**, as of commit
-`a4e5f28`. **Step 2 (Z-stack + random per-emitter Z spread)** and
-**step 3 (revert random Z spread; real `SMLMDemoZStage` device) are both
-code-complete and build, but not yet visually verified in Micro-Manager**
--- see `docs/vectorial-psf-plan.md` for what's left to check. Steps 4-5
-(SMLM Challenge comparison, Zernike aberrations) are **not started**.
+`a4e5f28`. **Steps 2 (Z-stack) and 3 (real `SMLMDemoZStage` device) are
+both done and visually confirmed working in Micro-Manager.** **Step 4
+(SMLM Challenge comparison, research-only) is done** -- see
+[docs/vectorial-psf-step4-smlm-challenge-comparison.md](docs/vectorial-psf-step4-smlm-challenge-comparison.md);
+key takeaway: the Challenge's ground truth is a measured PSF lookup table,
+not a parametric/Zernike model, so it supplies no numeric Zernike targets
+for step 5, and biplane/double-helix are out of scope for a single-pupil
+Zernike patch regardless. **Step 5 (Zernike aberrations) is not started.**
 
 ### Architecture
 
@@ -110,6 +113,26 @@ A JRE/JDK must be present at runtime too (to supply `jvm.dll`) -- see
   `PsfImmersionIndex` and `PsfSampleDepthNm` defaults to 0, reproducing
   PsfBridge.java's old hardcoded no-mismatch/in-focus behavior rather than
   PSFGenerator's own stock defaults (1.33 / 2000)
+
+### Noise model properties (Kinetix22 sCMOS defaults)
+
+`Simulation/SMLMNoise.h/.cpp`'s chain: QE -> + dark current -> Poisson shot
+noise -> (per-pixel or scalar) Gaussian read noise -> (per-pixel or scalar)
+gain -> static per-pixel additive offset -> 16-bit clamp. New properties
+`QuantumEfficiency`, `DarkCurrentElectronsPerSec`, `PixelGainStdPct`,
+`PixelReadNoiseStdPct` (the last two are relative pixel-to-pixel spread on
+top of `CameraGainPhotonsPerADU`/`ReadNoiseElectrons`, sCMOS-style;
+`0` = every pixel identical, matching the `DriftNmPerSec = 0`
+disabled-by-default convention). Defaults for `QuantumEfficiency`
+(0.85), `DarkCurrentElectronsPerSec` (1.03), `CameraGainPhotonsPerADU`
+(0.25), and `ReadNoiseElectrons` (1.2) match the Photometrics Kinetix22
+sCMOS Sensitivity (CMS) mode datasheet; `PixelGainStdPct`/
+`PixelReadNoiseStdPct` default to 5%/20% as estimates, since Photometrics
+doesn't publish actual per-pixel variance. See
+[docs/vectorial-psf-plan.md](docs/vectorial-psf-plan.md)'s "Noise model
+follow-ups" section for sourcing and what's still deprioritized (PRNU,
+background vignetting, full-well/bit-depth). **Not yet visually verified
+in Micro-Manager.**
 
 ### Gotchas found during step 1 (don't rediscover these)
 

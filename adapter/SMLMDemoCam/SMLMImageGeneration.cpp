@@ -46,10 +46,16 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.onLifetimeFrames = std::min(onLifetimeSec_.load() / expSec, 20000.0);
    p.backgroundPhotons = backgroundPhotonsPerSec_.load() * expSec;
    p.psfSigmaPx = ComputePsfSigmaPx();
+   p.quantumEfficiency = quantumEfficiency_.load();
+   // Dark current is a rate (e-/pixel/s) like the other *PerSec properties,
+   // converted here to its frame-equivalent electron count.
+   p.darkCurrentElectronsPerFrame = darkCurrentPerSec_.load() * expSec;
    p.gainPhotonsPerAdu = gainPhotonsPerAdu_.load();
    p.offsetAdu = offsetAdu_.load();
    p.offsetStdAdu = offsetStdAdu_.load();
    p.readNoiseElectrons = readNoiseElectrons_.load();
+   p.pixelGainStdFraction = pixelGainStdPct_.load() / 100.0;
+   p.pixelReadNoiseStdFraction = pixelReadNoiseStdPct_.load() / 100.0;
    p.driftNmPerSecX = driftNmPerSecX_.load();
    p.frameDurationSec = expSec;
    return p;
@@ -189,6 +195,10 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
 
    sim::PixelOffsetMap localOffsetMap;
    localOffsetMap.Generate(fullW, fullH, params.offsetAdu, params.offsetStdAdu, localRng);
+   sim::PixelGainMap localGainMap;
+   localGainMap.Generate(fullW, fullH, params.gainPhotonsPerAdu, params.pixelGainStdFraction, localRng);
+   sim::PixelReadNoiseMap localReadNoiseMap;
+   localReadNoiseMap.Generate(fullW, fullH, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, localRng);
 
    sim::PsfKernelCache localPsfCache;
    if (psfRequest.model != sim::PsfModelKind::Gaussian)
@@ -214,7 +224,9 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
                               params.photonsPerBlink, params.backgroundPhotons, dx, dy,
                               localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm);
       sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
-                            params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap, localRng);
+                            params.quantumEfficiency, params.darkCurrentElectronsPerFrame,
+                            params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap,
+                            localGainMap, localReadNoiseMap, localRng);
       stackFramesGenerated_ = f + 1;
    }
 
@@ -280,6 +292,8 @@ void CSMLMDemoCamera::LiveProducerLoop()
 {
    std::vector<float> photonImg;
    sim::PixelOffsetMap offsetMap;
+   sim::PixelGainMap gainMap;
+   sim::PixelReadNoiseMap readNoiseMap;
    // Oversampled vectorial PSF kernel cache -- confined to this thread, same
    // as offsetMap, so no locking is needed. Rebuilt whenever
    // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
@@ -317,6 +331,8 @@ void CSMLMDemoCamera::LiveProducerLoop()
       if (currentConfigVersion != appliedConfigVersion || offsetMap.width != w || offsetMap.height != h)
       {
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
+         gainMap.Generate(w, h, params.gainPhotonsPerAdu, params.pixelGainStdFraction, liveRng_);
+         readNoiseMap.Generate(w, h, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, liveRng_);
          liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_));
 
          sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
@@ -358,8 +374,9 @@ void CSMLMDemoCamera::LiveProducerLoop()
                               psfCache.valid ? &psfCache : nullptr, zOffsetUm);
 
       std::vector<uint16_t> nextFrame;
-      sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.gainPhotonsPerAdu,
-                            params.readNoiseElectrons, offsetMap, liveRng_);
+      sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.quantumEfficiency,
+                            params.darkCurrentElectronsPerFrame, params.gainPhotonsPerAdu,
+                            params.readNoiseElectrons, offsetMap, gainMap, readNoiseMap, liveRng_);
 
       {
          MMThreadGuard g(frontFrameLock_);
@@ -781,6 +798,20 @@ int CSMLMDemoCamera::OnBackgroundPerSec(MM::PropertyBase* pProp, MM::ActionType 
    return DEVICE_OK;
 }
 
+int CSMLMDemoCamera::OnQuantumEfficiency(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(quantumEfficiency_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); quantumEfficiency_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(darkCurrentPerSec_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); darkCurrentPerSec_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
 int CSMLMDemoCamera::OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(gainPhotonsPerAdu_.load());
@@ -806,6 +837,20 @@ int CSMLMDemoCamera::OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(readNoiseElectrons_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); readNoiseElectrons_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPixelGainStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(pixelGainStdPct_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); pixelGainStdPct_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(pixelReadNoiseStdPct_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); pixelReadNoiseStdPct_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

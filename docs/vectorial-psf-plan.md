@@ -162,7 +162,7 @@ New files:
   and that changing `PsfZRangeUm`/`PsfZStepUm` visibly changes the cached
   stack's coverage/resolution.
 
-**Status: code complete, built successfully, not yet visually verified in
+**Status: code complete, built, and visually verified working in
 Micro-Manager.** Implemented as described above, with one simplification:
 the embedded-JVM bridge (`PsfGeneratorBridge.h/.cpp`) already had `nz`/
 `zStepNm`/`NearestZIndex` plumbing in place from step 1 (ahead of this
@@ -177,8 +177,7 @@ the three new properties (`PsfZRangeUm` default 2.0 µm, `PsfZStepUm`
 default 0.1 µm, `PsfZSpreadStdNm` default 0 = disabled) wired through
 `BuildPsfGeneratorRequest()`/`SnapshotParams()` the same way every other
 PSF property already is (`InvalidateStack()` on change). No new files.
-**Next**: load the built DLL into Micro-Manager and do the Live-mode
-visual check described above before moving to step 3.
+**Confirmed visually in Micro-Manager.**
 
 **Addendum**: `PsfBridge.java` also hardcoded three GibsonLanni-only
 PSFGenerator parameters (`spnNS` sample refractive index, `spnTI` working
@@ -220,7 +219,7 @@ building clean.
   move it via MM's Stage Control panel, confirm Live mode PSFs
   sharpen/blur in sync in real time.
 
-**Status: code complete, built successfully, not yet visually verified in
+**Status: code complete, built, and visually verified working in
 Micro-Manager.** Implemented as described above:
 `BlinkEvent::zUm`/`SimulationParams::psfZSpreadStdNm` and the
 `PsfZSpreadStdNm` property/handler (step 2's random-spread machinery) were
@@ -238,10 +237,9 @@ explicitly or the class stays abstract (a `C2259` at first build attempt).
 `sim::GetSharedStageState().zPositionUm` fresh every frame/tick and pass it
 through to `RenderPhotonImage`. Registered in `SMLMDemoCameraModule.cpp`
 alongside the camera; added to `SMLMDemoCam.vcxproj`/`.filters`.
-**Next**: load the built DLL into Micro-Manager, add both "SMLMDemoCam" and
-"SMLMDemoZStage" via the Hardware Configuration Wizard, and do the Live-mode
-visual check described above (move the stage, confirm PSFs sharpen/blur in
-sync) before moving to step 4.
+**Confirmed visually in Micro-Manager**: both devices added via the Hardware
+Configuration Wizard, moving the stage sharpens/blurs Live-mode PSFs in
+sync as expected.
 
 ## Step 4 — Compare against the SMLM Challenge (Sage et al. 2019) methodology
 
@@ -277,6 +275,128 @@ Single-Molecule Localization Microscopy Software," *Nature Methods* 16(5),
   are worth adopting as a separate follow-up — including, specifically,
   which Zernike modes/magnitudes would be worth defaulting to in the next
   step to match realistic astigmatic/biplane/DH-PSF 3D conditions.
+
+**Status: done.** Full comparison document at
+[`docs/vectorial-psf-step4-smlm-challenge-comparison.md`](vectorial-psf-step4-smlm-challenge-comparison.md),
+sourced from the open-access PMC full text of the paper (PMC6684258; the
+publisher page, bioRxiv preprint, and the EPFL challenge/data-archive pages
+could not be fetched from this environment -- noted there as gaps).
+
+**Key finding that reshapes Step 5's scope**: the Challenge's ground truth
+is **not** a vectorial/parametric PSF model at all -- it's an *experimentally
+measured* 3D PSF (bead stack, 151 z-planes at 10x10x10 nm voxels over a
+1.5 um range) used as a lookup table. Astigmatism comes from whatever real
+cylindrical-lens optics were in the acquisition path (unspecified in the
+accessible text); biplane is two shifted copies of one measured 2D PSF
+(+/-250 nm); double-helix uses a real DH phase mask. **There are no Zernike
+coefficients anywhere in the paper to source Step 5's defaults from.**
+Consequences for Step 5:
+
+- Pick astigmatism (OSA index 6) as the primary Zernike test target and
+  coma (7/8) as secondary, per the plan's own Step 5 test description
+  below -- but document any chosen RMS magnitude as a tuned estimate, not a
+  Sage-et-al.-sourced number.
+- Biplane and double-helix are **out of scope for a single-pupil Zernike
+  patch** regardless of coefficients chosen -- biplane needs a second
+  detection-path renderer (splat each emitter twice at a shared photon
+  budget with an axial offset), DH-PSF needs real Fourier-plane phase-mask
+  propagation. Treat both as explicit known limitations beyond Step 5, not
+  something Step 5 will produce.
+- Noise-side finding (lower priority, separate follow-up if ever wanted):
+  the paper's EMCCD ground truth uses an explicit Poisson -> **Gamma-
+  distributed EM-gain excess-noise** -> Gaussian read-noise chain (Evolve
+  Delta 512: QE 0.9, read noise 74.4 e-, EM gain 300, 45 e-/ADU, baseline
+  100 ADU), which `SMLMNoise.cpp` does not currently model (its gain step
+  is a plain scalar division, no excess-noise term). No sCMOS ground-truth
+  parameters were found in the paper.
+
+### Noise model follow-ups (not scheduled as a numbered step yet)
+
+Broader review of `Simulation/SMLMNoise.cpp` beyond the EM-gain finding above
+turned up further gaps between the current noise chain (`Poisson(photons +
+flat background) -> scalar Gaussian read noise -> scalar gain -> static
+per-pixel additive offset map -> 16-bit clamp`) and real camera behavior.
+Priority follow-ups, per user request:
+
+- **No quantum efficiency property.** `PhotonsPerSecond` is fed straight in
+  as the Poisson mean; QE is implicitly folded into that one number and
+  can't be varied independently of illumination intensity (e.g. to compare
+  a 0.7 QE vs. 0.95 QE sensor at the same photon flux). Add a `QuantumEfficiency`
+  property (0-1) applied before the Poisson draw.
+- **No dark current.** Thermal dark counts are indistinguishable from
+  `BackgroundPhotonsPerSec` in the current model, even though they have a
+  different physical origin (dark current scales with exposure time and
+  sensor temperature, not illumination) and real camera datasheets report
+  it as its own rate (e-/pixel/sec). Add a separate dark-current Poisson
+  component, scaled by exposure time like the other rate-based properties.
+- **No per-pixel sCMOS gain/read-noise maps.** Confirmed missing in the
+  Step 4 research (sCMOS sensors have significant pixel-to-pixel gain and
+  read-noise variation, unlike EMCCD's single electron-multiplying
+  register). Needs new multiplicative per-pixel gain and per-pixel
+  read-noise arrays, analogous in structure to the existing additive
+  `PixelOffsetMap` (generate once per RandomSeed/size, reuse every frame).
+
+**Reference defaults: Photometrics Kinetix22 sCMOS, Sensitivity (CMS) mode**
+(the mode typically used for photon-starved SMLM imaging; the 10.2MP Kinetix
+uses the same sensor generation/specs, just a larger array). Source: [Kinetix22
+datasheet](https://sg-science.jp/product/pdf/Photometrics/Kinetix22-Datasheet_2024May9.pdf)
+(Rev A3-05112021), corroborated by
+[Cairn Research's product page](https://cairn-research.co.uk/product/photometrics-kinetix/).
+
+| Parameter | Value | Maps to |
+| --- | --- | --- |
+| Peak QE | >96% (at ~600 nm) | -- |
+| QE at 660 nm (this plugin's default `PsfWavelengthNm`) | ~85% (read off the published QE curve, *not* a table value -- treat as an estimate) | new `QuantumEfficiency` property |
+| Read noise | 1.2 e- rms | existing `ReadNoise` property (currently used as a single scalar) |
+| Dark current | 1.03 e-/pixel/sec | new dark-current property |
+| Conversion gain | 0.25 e-/count | existing `Gain` (`gainPhotonsPerAdu`) property |
+| Full well | 1000 e- | relevant to the deprioritized saturation/full-well item below, not a current property |
+| Bit depth | 12-bit | relevant to the deprioritized bit-depth item below |
+| Pixel size | 6.5 um | existing `PixelSize` property |
+
+(Sub-Electron mode is even lower-noise -- 0.7 e- read noise, 0.477 e-/p/sec
+dark current, 0.015 e-/count gain, 16-bit -- but drops to 6.9 fps, so
+Sensitivity mode is the more realistic default for a general-purpose SMLM
+preset.) The datasheet gives one scalar per mode; Photometrics does not
+publish the actual per-pixel gain/read-noise *variance* the sCMOS maps item
+above would need to sample from -- any spread used there (e.g. +/-5-10%
+pixel-to-pixel gain, wider spread on read noise) would be an estimate, not
+a sourced number, and should be documented as such when implemented.
+
+Deprioritized for now (raised during discussion, not requested as follow-up
+work): pixel response non-uniformity/PRNU (multiplicative fixed-pattern
+gain, distinct from the sCMOS per-pixel maps above), flat background with
+no vignetting, and saturation modeled only as a 16-bit ADU clamp rather
+than analog full-well/blooming with a configurable bit depth.
+
+**Status: implemented and built successfully, not yet visually verified in
+Micro-Manager.** `Simulation/SMLMNoise.h/.cpp`'s chain is now
+`QE -> + dark current -> Poisson shot noise -> (per-pixel or scalar) Gaussian
+read noise -> (per-pixel or scalar) gain -> static per-pixel additive
+offset -> 16-bit clamp`: `PixelGainMap`/`PixelReadNoiseMap` (new structs,
+same `Generate`-once-per-RandomSeed/size shape as the existing
+`PixelOffsetMap`) hold per-pixel `nominal*(1 + stdFraction*Gaussian())`
+values, with `stdFraction = 0` reproducing the old scalar-everywhere
+behavior exactly; `ApplyNoiseChain` falls back to the scalar
+`gainPhotonsPerAdu`/`readNoiseElectrons` whenever a map's size doesn't
+match the frame, the same fallback pattern `PixelOffsetMap` already used.
+New MM properties: `QuantumEfficiency` (0-1), `DarkCurrentElectronsPerSec`,
+`PixelGainStdPct`, `PixelReadNoiseStdPct` (all four wired through
+`SnapshotParams()`/`InvalidateStack()` like every other simulation
+property); `CameraGainPhotonsPerADU`'s lower property limit was widened
+from 0.1 to 0.01 to comfortably fit Kinetix Sub-Electron mode's 0.015
+e-/count if that preset is ever wanted. Defaults for
+`QuantumEfficiency`/`DarkCurrentElectronsPerSec`/`CameraGainPhotonsPerADU`/
+`ReadNoiseElectrons` were changed to the Kinetix22 Sensitivity-mode table
+above (0.85, 1.03, 0.25, 1.2); `PixelGainStdPct`/`PixelReadNoiseStdPct`
+default to 5%/20% as explicitly-flagged estimates (not datasheet values,
+per the note above). **Next**: load the built DLL into Micro-Manager and
+visually confirm frames still render sensibly at the new defaults (in
+particular the much smaller default `Gain` -- 0.25 vs. the old 1.0 -- and
+`ReadNoise` -- 1.2 vs. the old 1.5 -- combined with the new QE/dark-current
+stages don't blow out or crush the image), and that a nonzero
+`PixelGainStdPct`/`PixelReadNoiseStdPct` visibly introduces per-pixel
+fixed-pattern variation distinct from the existing offset map.
 
 ## Step 5 — Static Zernike aberrations (patched PSFGenerator build)
 

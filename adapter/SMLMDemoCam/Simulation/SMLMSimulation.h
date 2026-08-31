@@ -36,10 +36,17 @@ struct SimulationParams
    double onLifetimeFrames = 3.0;       // mean exponential ON duration, frames
    double psfSigmaPx = 1.3;             // Gaussian PSF sigma, pixels
    double backgroundPhotons = 20.0;     // additive background, photons/pixel
+   double quantumEfficiency = 0.85;     // incident photons -> detected electrons
+   double darkCurrentElectronsPerFrame = 0.0; // thermal dark counts this frame
    double gainPhotonsPerAdu = 1.0;
    double offsetAdu = 100.0;
    double offsetStdAdu = 2.0;           // per-pixel fixed-pattern offset std
    double readNoiseElectrons = 1.5;
+   // Pixel-to-pixel relative std of gain/read noise (sCMOS-style per-pixel
+   // maps), as a fraction of the nominal gain/readNoiseElectrons above.
+   // 0 = every pixel identical (old scalar behavior).
+   double pixelGainStdFraction = 0.0;
+   double pixelReadNoiseStdFraction = 0.0;
    // Stage-drift rate along X, nm/sec; Y drifts at half this rate (fixed
    // diagonal direction, not random) -- see ComputeDriftOffsetPx().
    double driftNmPerSecX = 0.0;
