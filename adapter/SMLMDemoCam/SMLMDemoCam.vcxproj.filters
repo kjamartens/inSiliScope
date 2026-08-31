@@ -28,6 +28,9 @@
     <ClCompile Include="SMLMDemoCameraModule.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SMLMDemoZStage.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\SMLMSimulation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -45,6 +48,9 @@
     <ClInclude Include="SMLMDemoCamera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SMLMDemoZStage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Simulation\SMLMSimulation.h">
       <Filter>Simulation</Filter>
     </ClInclude>
@@ -58,6 +64,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\PsfResource.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SharedStageState.h">
       <Filter>Simulation</Filter>
     </ClInclude>
   </ItemGroup>

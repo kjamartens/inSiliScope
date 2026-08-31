@@ -220,6 +220,29 @@ building clean.
   move it via MM's Stage Control panel, confirm Live mode PSFs
   sharpen/blur in sync in real time.
 
+**Status: code complete, built successfully, not yet visually verified in
+Micro-Manager.** Implemented as described above:
+`BlinkEvent::zUm`/`SimulationParams::psfZSpreadStdNm` and the
+`PsfZSpreadStdNm` property/handler (step 2's random-spread machinery) were
+removed; `RenderPhotonImage` gained a `globalZOffsetUm` parameter, resolved
+to a single `PsfKernelCache::NearestZIndex()` lookup shared by every emitter
+in the frame (rather than a per-`BlinkEvent` lookup) for both correctness
+(one shared focus offset) and a small efficiency win (one lookup instead of
+one per event). `Simulation/SharedStageState.h` holds the process-wide
+`std::atomic<double> zPositionUm` singleton (`sim::GetSharedStageState()`).
+`SMLMDemoZStage.h/.cpp` implements the new `MM::Stage` device -- note
+`CStageBase` itself does *not* default-implement `IsStageSequenceable`
+(only `IsStageLinearSequenceable`), so that one had to be overridden
+explicitly or the class stays abstract (a `C2259` at first build attempt).
+`StackGenerationWorker` and `LiveProducerLoop` both read
+`sim::GetSharedStageState().zPositionUm` fresh every frame/tick and pass it
+through to `RenderPhotonImage`. Registered in `SMLMDemoCameraModule.cpp`
+alongside the camera; added to `SMLMDemoCam.vcxproj`/`.filters`.
+**Next**: load the built DLL into Micro-Manager, add both "SMLMDemoCam" and
+"SMLMDemoZStage" via the Hardware Configuration Wizard, and do the Live-mode
+visual check described above (move the stage, confirm PSFs sharpen/blur in
+sync) before moving to step 4.
+
 ## Step 4 — Compare against the SMLM Challenge (Sage et al. 2019) methodology
 
 Research-only step (no code changes unless you approve adopting a specific

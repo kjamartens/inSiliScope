@@ -45,11 +45,14 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
                         double pixelSizeNm, double psfSigmaPx, double photonsPerBlink,
                         double backgroundPhotons,
                         double driftOffsetXPx, double driftOffsetYPx,
-                        const PsfKernelCache* psfCache)
+                        const PsfKernelCache* psfCache, double globalZOffsetUm)
 {
    img.assign(static_cast<size_t>(width) * height, static_cast<float>(backgroundPhotons));
 
    bool useVectorial = psfCache && psfCache->valid;
+   // Every emitter shares the same focus offset (the Z-stage's current
+   // position), so the plane lookup is done once here rather than per event.
+   int zIndex = useVectorial ? psfCache->NearestZIndex(globalZOffsetUm) : 0;
    for (const BlinkEvent& e : events)
    {
       double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
@@ -62,7 +65,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       double xPx = e.xUm * 1000.0 / pixelSizeNm + driftOffsetXPx;
       double yPx = e.yUm * 1000.0 / pixelSizeNm + driftOffsetYPx;
       if (useVectorial)
-         SplatPsfKernel(img, width, height, *psfCache, psfCache->NearestZIndex(e.zUm), xPx, yPx, photonsPerBlink * ov);
+         SplatPsfKernel(img, width, height, *psfCache, zIndex, xPx, yPx, photonsPerBlink * ov);
       else
          RenderGaussianPSF(img, width, height, xPx, yPx, psfSigmaPx, photonsPerBlink * ov);
    }
@@ -104,7 +107,6 @@ std::vector<BlinkEvent> EmitterModel::GenerateAllEvents(long nFrames, double wid
 
    std::uniform_real_distribution<double> tStartDist(-leadIn, static_cast<double>(nFrames));
    std::uniform_real_distribution<double> unif01(0.0, 1.0);
-   std::normal_distribution<double> zDist(0.0, params.psfZSpreadStdNm / 1000.0);
 
    events.reserve(static_cast<size_t>(nEvents));
    for (long i = 0; i < nEvents; ++i)
@@ -113,8 +115,7 @@ std::vector<BlinkEvent> EmitterModel::GenerateAllEvents(long nFrames, double wid
       double tStart = tStartDist(rng);
       double u = std::min(unif01(rng), 0.999999);
       double tEnd = tStart - lifetime * std::log(1.0 - u);
-      double zUm = params.psfZSpreadStdNm > 0.0 ? zDist(rng) : 0.0;
-      events.push_back({site.xUm, site.yUm, tStart, tEnd, zUm});
+      events.push_back({site.xUm, site.yUm, tStart, tEnd});
    }
    return events;
 }
@@ -136,7 +137,6 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
       long nNew = static_cast<long>(PoissonRng(rng, arrivalRatePerFrame));
 
       std::uniform_real_distribution<double> unif01(0.0, 1.0);
-      std::normal_distribution<double> zDist(0.0, params.psfZSpreadStdNm / 1000.0);
 
       for (long i = 0; i < nNew; ++i)
       {
@@ -144,8 +144,7 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
          double tStart = static_cast<double>(frameIndex) + unif01(rng);
          double u = std::min(unif01(rng), 0.999999);
          double tEnd = tStart - lifetime * std::log(1.0 - u);
-         double zUm = params.psfZSpreadStdNm > 0.0 ? zDist(rng) : 0.0;
-         liveActive_.push_back({site.xUm, site.yUm, tStart, tEnd, zUm});
+         liveActive_.push_back({site.xUm, site.yUm, tStart, tEnd});
       }
    }
 

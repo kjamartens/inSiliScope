@@ -12,6 +12,7 @@
 // LICENSE:       BSD (see license.txt)
 
 #include "SMLMDemoCamera.h"
+#include "Simulation/SharedStageState.h"
 
 #include <algorithm>
 #include <cmath>
@@ -51,7 +52,6 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.readNoiseElectrons = readNoiseElectrons_.load();
    p.driftNmPerSecX = driftNmPerSecX_.load();
    p.frameDurationSec = expSec;
-   p.psfZSpreadStdNm = psfZSpreadStdNm_.load();
    return p;
 }
 
@@ -86,12 +86,10 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    req.kernelHalfWidthPx = std::max(psfKernelHalfWidthPx_, minHalfWidthPx);
 
    // Real Z-stack (step 2): nz/zStepNm are derived from the user-facing
-   // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. When Z spread
-   // is disabled (psfZSpreadStdNm_ == 0), every BlinkEvent.zUm is 0.0 and
-   // PsfKernelCache::NearestZIndex(0) always resolves to the same center
-   // plane ComputePsfKernelCache pads nz up to anyway -- so requesting a
-   // multi-plane stack even with spread off is harmless (just a bit more
-   // upfront compute), and no separate "disabled" nz=1 path is needed.
+   // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. The global
+   // focus offset selecting a plane from this stack each frame comes from
+   // the SMLMDemoZStage device (step 3) -- see RenderPhotonImage's
+   // globalZOffsetUm parameter.
    double zRangeUm = psfZRangeUm_.load();
    double zStepUm = std::max(psfZStepUm_.load(), 0.001);
    req.nz = static_cast<int>(std::lround(zRangeUm / zStepUm)) + 1;
@@ -209,9 +207,12 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    {
       double dx = 0.0, dy = 0.0;
       sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.pixelSizeNm, dx, dy);
+      // Read the SMLMDemoZStage device's current position fresh each frame,
+      // same as any other live-adjustable parameter (see LiveProducerLoop).
+      double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
       sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm, params.psfSigmaPx,
                               params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              localPsfCache.valid ? &localPsfCache : nullptr);
+                              localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm);
       sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
                             params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap, localRng);
       stackFramesGenerated_ = f + 1;
@@ -348,9 +349,13 @@ void CSMLMDemoCamera::LiveProducerLoop()
       double dx = 0.0, dy = 0.0;
       sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
                                  params.pixelSizeNm, dx, dy);
+      // SMLMDemoZStage's current position, read fresh every tick so moving
+      // it live in Micro-Manager sharpens/blurs the rendered PSFs in
+      // real time.
+      double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
       sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
                               params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              psfCache.valid ? &psfCache : nullptr);
+                              psfCache.valid ? &psfCache : nullptr, zOffsetUm);
 
       std::vector<uint16_t> nextFrame;
       sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.gainPhotonsPerAdu,
@@ -930,13 +935,6 @@ int CSMLMDemoCamera::OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfZStepUm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZStepUm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CSMLMDemoCamera::OnPsfZSpreadStdNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(psfZSpreadStdNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZSpreadStdNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

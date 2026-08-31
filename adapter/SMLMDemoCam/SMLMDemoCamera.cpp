@@ -55,7 +55,6 @@ const char* g_PropPsfKernelHalfWidthPx = "PsfKernelHalfWidthPx";
 const char* g_PropPsfGeneratorJavaHome = "PsfGeneratorJavaHome";
 const char* g_PropPsfZRangeUm = "PsfZRangeUm";
 const char* g_PropPsfZStepUm = "PsfZStepUm";
-const char* g_PropPsfZSpreadStdNm = "PsfZSpreadStdNm";
 const char* g_PropPsfSampleIndex = "PsfSampleIndex";
 const char* g_PropPsfWorkingDistanceUm = "PsfWorkingDistanceUm";
 const char* g_PropPsfSampleDepthNm = "PsfSampleDepthNm";
@@ -315,9 +314,9 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfGeneratorJavaHome);
    CreateStringProperty(g_PropPsfGeneratorJavaHome, psfGeneratorJavaHome_.c_str(), false, pAct);
 
-   // Z-stack + random per-emitter Z spread (vectorial PSF plan step 2).
-   // PsfZSpreadStdNm defaults to 0 (disabled): every emitter stays in-focus,
-   // reproducing step 1's behavior exactly, until deliberately turned on.
+   // Z-stack range/step (vectorial PSF plan step 2) -- the actual focus
+   // offset used each frame comes from the SMLMDemoZStage device (step 3),
+   // not from a property on this camera.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZRangeUm);
    CreateFloatProperty(g_PropPsfZRangeUm, psfZRangeUm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfZRangeUm, 0.1, 10.0);
@@ -325,10 +324,6 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZStepUm);
    CreateFloatProperty(g_PropPsfZStepUm, psfZStepUm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfZStepUm, 0.01, 1.0);
-
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZSpreadStdNm);
-   CreateFloatProperty(g_PropPsfZSpreadStdNm, psfZSpreadStdNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropPsfZSpreadStdNm, 0.0, 2000.0);
 
    // GibsonLanni-only parameters (ignored by RichardsWolf); see the comments
    // on psfSampleIndex_/psfWorkingDistanceUm_/psfSampleDepthNm_ in

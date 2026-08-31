@@ -110,6 +110,7 @@
     <ClCompile Include="SMLMDemoCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
     <ClCompile Include="SMLMDemoCameraModule.cpp" />
+    <ClCompile Include="SMLMDemoZStage.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMPatterns.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
@@ -117,11 +118,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SMLMDemoCamera.h" />
+    <ClInclude Include="SMLMDemoZStage.h" />
     <ClInclude Include="Simulation\SMLMSimulation.h" />
     <ClInclude Include="Simulation\SMLMPatterns.h" />
     <ClInclude Include="Simulation\SMLMNoise.h" />
     <ClInclude Include="Simulation\PsfGeneratorBridge.h" />
     <ClInclude Include="Simulation\PsfResource.h" />
+    <ClInclude Include="Simulation\SharedStageState.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\third_party\mmCoreAndDevices\MMDevice\MMDevice-SharedRuntime.vcxproj">

@@ -15,11 +15,11 @@ or a live-streaming mode with parameters adjustable while running.
 Full plan: [docs/vectorial-psf-plan.md](docs/vectorial-psf-plan.md).
 
 **Step 1 (in-focus 2D vectorial PSF) is done and working**, as of commit
-`a4e5f28`. **Step 2 (Z-stack + random per-emitter Z spread) is code-
-complete and builds, but not yet visually verified in Micro-Manager** --
-see `docs/vectorial-psf-plan.md` for what's left to check. Steps 3-5
-(Z-stage device, SMLM Challenge comparison, Zernike aberrations) are
-**not started**.
+`a4e5f28`. **Step 2 (Z-stack + random per-emitter Z spread)** and
+**step 3 (revert random Z spread; real `SMLMDemoZStage` device) are both
+code-complete and build, but not yet visually verified in Micro-Manager**
+-- see `docs/vectorial-psf-plan.md` for what's left to check. Steps 4-5
+(SMLM Challenge comparison, Zernike aberrations) are **not started**.
 
 ### Architecture
 
@@ -96,9 +96,14 @@ A JRE/JDK must be present at runtime too (to supply `jvm.dll`) -- see
   (a *minimum*; auto-grown from NA/wavelength/pixel size -- see Gotchas)
 - `PsfGeneratorJavaHome` -- optional JRE/JDK root override; auto-detects
   otherwise (`JAVA_HOME`, then common Windows install paths)
-- `PsfZRangeUm` (default 2.0), `PsfZStepUm` (default 0.1),
-  `PsfZSpreadStdNm` (default 0 = disabled) -- Z-stack + random per-emitter
-  Z spread (step 2)
+- `PsfZRangeUm` (default 2.0), `PsfZStepUm` (default 0.1) -- Z-stack range/
+  step (step 2). The per-emitter random Z spread step 2 originally added
+  here (`PsfZSpreadStdNm`) was removed again in step 3, replaced by a real
+  `SMLMDemoZStage` device (`MM::Stage`) driving one global, user-drivable
+  focus offset -- see `Simulation/SharedStageState.h`. Add both
+  "SMLMDemoCam" and "SMLMDemoZStage" via the Hardware Configuration Wizard;
+  they communicate through a process-wide singleton, no explicit MM
+  device-linking needed.
 - `PsfSampleIndex`, `PsfWorkingDistanceUm` (default 150.0),
   `PsfSampleDepthNm` -- GibsonLanni-only PSFGenerator parameters, ignored
   by RichardsWolf; `PsfSampleIndex` defaults to matching
@@ -144,16 +149,23 @@ A JRE/JDK must be present at runtime too (to supply `jvm.dll`) -- see
   `BuildPsfGeneratorRequest()` auto-grows it to 3x the Rayleigh radius
   (`0.61*lambda/NA`) so the rendered window can't truncate the first ring
   regardless of NA/wavelength/pixel size, capped at 48px.
+- **`CStageBase<U>` does not default-implement `IsStageSequenceable`**
+  (only `IsStageLinearSequenceable`) -- omitting an override leaves the
+  device class abstract and fails to compile/instantiate with `C2259`
+  ("cannot instantiate abstract class") at the `new SMLMDemoZStage()` call
+  site in the module's `CreateDevice`, not in `SMLMDemoZStage.h/.cpp`
+  itself, which can make the error confusing to trace back.
 
 ### Next steps
 
 See `docs/vectorial-psf-plan.md` for the full write-up. In order:
 
 1. ~~Step 1: in-focus 2D vectorial PSF~~ -- done
-2. Step 2: real Z-stack (`nz > 1`) + random per-emitter Z spread
-   (`PsfZSpreadStdNm`, `PsfZRangeUm`, `PsfZStepUm` -- new user-facing props)
-3. Step 3: revert random Z spread; add a real `MM::Stage` device
-   (`SMLMDemoZStage`) for a global, user-drivable focus offset
+2. ~~Step 2: real Z-stack (`nz > 1`) + random per-emitter Z spread~~ --
+   code-complete, not yet visually verified
+3. ~~Step 3: revert random Z spread; add a real `MM::Stage` device
+   (`SMLMDemoZStage`) for a global, user-drivable focus offset~~ --
+   code-complete, not yet visually verified
 4. Step 4: compare this plugin's PSF + noise models against the Sage et
    al. 2019 "Super-Resolution Fight Club" SMLM Challenge methodology
    (research-only, informs step 5's Zernike defaults)
