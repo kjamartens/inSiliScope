@@ -63,6 +63,7 @@ extern const char* g_PropOffsetStd;
 extern const char* g_PropReadNoise;
 extern const char* g_PropDrift;
 extern const char* g_PropRandomSeed;
+extern const char* g_PropActualFrameIntervalMs;
 
 extern const char* g_AcqModePrecomputed;
 extern const char* g_AcqModeLive;
@@ -154,6 +155,7 @@ public:
    int OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnDriftPx(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -253,6 +255,18 @@ private:
    // twice (a duplicate frame) instead of waiting (a timing stutter).
    std::atomic<long> liveFrameSeq_{0};
    long lastConsumedLiveFrameSeq_ = -1;
+   // Rolling average (last kFrameIntervalWindowSize publishes) of the
+   // wall-clock time between successive LiveProducerLoop frame publishes --
+   // i.e. what the camera is *actually* achieving, as opposed to the
+   // requested Exposure. Exposed read-only via ActualFrameIntervalMs so a
+   // loop that's running behind (simulation + sleep exceeding Exposure,
+   // the condition that used to manifest as duplicate frames) is visible.
+   static constexpr int kFrameIntervalWindowSize = 10;
+   double frameIntervalHistoryMs_[kFrameIntervalWindowSize] = {};
+   int frameIntervalHistoryCount_ = 0;
+   int frameIntervalHistoryPos_ = 0;
+   MM::MMTime lastFramePublishTime_;
+   std::atomic<double> actualFrameIntervalMs_{0.0};
    sim::EmitterModel liveEmitterModel_;
    std::mt19937_64 liveRng_;
    long liveFrameCounter_ = 0;

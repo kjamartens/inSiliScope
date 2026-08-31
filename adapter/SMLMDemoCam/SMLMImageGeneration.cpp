@@ -190,6 +190,9 @@ void CSMLMDemoCamera::StartLiveProducer()
    }
    liveFrameSeq_ = 0;
    lastConsumedLiveFrameSeq_ = -1;
+   frameIntervalHistoryCount_ = 0;
+   frameIntervalHistoryPos_ = 0;
+   actualFrameIntervalMs_ = 0.0;
 
    liveProducerRun_ = true;
    liveProducerThread_ = std::thread(&CSMLMDemoCamera::LiveProducerLoop, this);
@@ -262,6 +265,22 @@ void CSMLMDemoCamera::LiveProducerLoop()
          liveFrameH_ = h;
       }
       liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
+
+      MM::MMTime publishTime = GetCurrentMMTime();
+      if (liveFrameCounter_ > 0)
+      {
+         double intervalMs = (publishTime - lastFramePublishTime_).getMsec();
+         frameIntervalHistoryMs_[frameIntervalHistoryPos_ % kFrameIntervalWindowSize] = intervalMs;
+         ++frameIntervalHistoryPos_;
+         if (frameIntervalHistoryCount_ < kFrameIntervalWindowSize)
+            ++frameIntervalHistoryCount_;
+         double sum = 0.0;
+         for (int i = 0; i < frameIntervalHistoryCount_; ++i)
+            sum += frameIntervalHistoryMs_[i];
+         actualFrameIntervalMs_.store(sum / frameIntervalHistoryCount_, std::memory_order_relaxed);
+      }
+      lastFramePublishTime_ = publishTime;
+
       ++liveFrameCounter_;
 
       double exposureMs = GetExposure();
@@ -708,6 +727,13 @@ int CSMLMDemoCamera::OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct)
       rng_.seed(static_cast<uint64_t>(randomSeed_));
       InvalidateStack();
    }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(actualFrameIntervalMs_.load(std::memory_order_relaxed));
    return DEVICE_OK;
 }
 

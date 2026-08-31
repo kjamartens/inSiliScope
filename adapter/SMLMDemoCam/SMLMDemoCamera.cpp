@@ -47,6 +47,7 @@ const char* g_PropOffsetStd = "CameraOffsetStdADU";
 const char* g_PropReadNoise = "ReadNoiseElectrons";
 const char* g_PropDrift = "DriftPx";
 const char* g_PropRandomSeed = "RandomSeed";
+const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
 
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
@@ -266,6 +267,9 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftPx);
    CreateFloatProperty(g_PropDrift, driftPx_.load(), false, pAct);
    SetPropertyLimits(g_PropDrift, 0.0, 50.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnActualFrameIntervalMs);
+   CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
 
    nRet = UpdateStatus();
    if (nRet != DEVICE_OK)

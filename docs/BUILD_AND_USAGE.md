@@ -77,7 +77,12 @@ per frame, exactly as changing a real camera's exposure time would.
   `FovSize`, `Binning`, `EmitterDensityPerSec`, `PhotonsPerSecond`, `OnLifetimeSec`,
   `PsfEmissionWavelengthNm`, `PsfNa`, `PixelSizeNm`, `BackgroundPhotonsPerSec`,
   `CameraGainPhotonsPerADU`, `CameraOffsetADU`, `CameraOffsetStdADU`,
-  `ReadNoiseElectrons`. (Note: `DriftPx` is a Precomputed-mode-only concept --
+  `ReadNoiseElectrons`. The read-only `ActualFrameIntervalMs` property
+  reports a rolling average (last 10 frames) of the actual wall-clock time
+  between frames the producer thread publishes -- useful for spotting when
+  it's running behind the requested `Exposure` (e.g. very dense/large
+  frames), as opposed to the requested interval itself. (Note: `DriftPx` is
+  a Precomputed-mode-only concept --
   it normalizes drift magnitude over a movie of known length, which an
   unbounded live stream doesn't have -- so it has no effect in Live mode.)
   Changing `EmitterDensityPerSec`/`OnLifetimeSec` affects *new* blinks only;
