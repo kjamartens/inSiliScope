@@ -90,6 +90,10 @@ public class PsfBridge
     *                           bridge's C++ caller treats one (see
     *                           SMLMZernike::ParseZernikeCoefficients): fall back to all-
     *                           zero (unaberrated) rather than partially applying it.
+    * @param evalMethod         "GibsonLanniZernike" only (ignored otherwise): "direct"
+    *                           (default if null/unrecognized) or "chirpz" -- see
+    *                           GibsonLanniZernikePSF's class Javadoc's "Chirp-Z evaluator"
+    *                           section.
     * @return nx*ny*nz raw computed intensity values, plane 0 (lowest Z)
     *         first, each plane row-major (x fastest). NOT rescaled/
     *         normalized (unlike PSFGenerator's own Data3D.rescale(0, max),
@@ -100,7 +104,7 @@ public class PsfBridge
    public static float[] computePlanes(String model, double na, double lambdaNm, double niImmersion,
                                         double nsSample, double workingDistanceUm, double sampleDepthNm,
                                         double resLateralNm, double resAxialNm, int nx, int ny, int nz,
-                                        String zernikeCoeffsCsv)
+                                        String zernikeCoeffsCsv, String evalMethod)
       throws Exception
    {
       PSF psf;
@@ -125,6 +129,7 @@ public class PsfBridge
          glz.ti0 = workingDistanceUm * 1E-6;
          glz.particleAxialPosition = sampleDepthNm * 1E-9;
          glz.zernikeCoeffs = parseZernikeCoefficients(zernikeCoeffsCsv);
+         glz.evalMethod = "chirpz".equalsIgnoreCase(evalMethod) ? "chirpz" : "direct";
 
          psf.setOpticsParameters(na, lambdaNm);
          psf.setResolutionParameters(resLateralNm, resAxialNm);

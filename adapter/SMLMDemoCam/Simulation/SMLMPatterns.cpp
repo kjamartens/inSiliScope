@@ -1,4 +1,5 @@
 #include "SMLMPatterns.h"
+#include "SMLMStructures.h"
 
 #include <algorithm>
 #include <cmath>
@@ -419,31 +420,77 @@ EmitterSite CustomPointsPattern::SampleSite(double widthUm, double heightUm, std
    return {n.xUm * widthUm, n.yUm * heightUm};
 }
 
+EmitterSite ZSpreadPattern::SampleSite(double widthUm, double heightUm, std::mt19937_64& rng) const
+{
+   EmitterSite site = inner_->SampleSite(widthUm, heightUm, rng);
+   if (zRangeNm_ > 0.0)
+   {
+      std::uniform_real_distribution<double> zDist(-zRangeNm_, zRangeNm_);
+      site.zNm = zDist(rng);
+   }
+   return site;
+}
+
+namespace {
+// Wraps a freshly-created continuous pattern in ZSpreadPattern when the
+// caller asked for a z spread -- at structure.zRangeNm<=0 (the "flat"
+// case), returns base unwrapped so SampleSite draws exactly zero extra
+// random numbers, keeping every pre-existing seed's output unaffected by
+// this wrapping mechanism itself (see ZSpreadPattern's own doc comment).
+std::unique_ptr<IPatternGenerator> MaybeAddZSpread(std::unique_ptr<IPatternGenerator> base,
+                                                     const StructureParams& structure)
+{
+   if (structure.zRangeNm > 0.0)
+      return std::make_unique<ZSpreadPattern>(std::move(base), structure.zRangeNm);
+   return base;
+}
+} // namespace
+
 std::unique_ptr<IPatternGenerator> CreatePattern(SMLMPatternType type, const std::string& customPointsFile,
-                                                  const std::vector<double>& spacingsNm)
+                                                  const std::vector<double>& spacingsNm,
+                                                  const StructureParams& structure,
+                                                  double widthUm, double heightUm, uint64_t structureSeed)
 {
    switch (type)
    {
       case PATTERN_CIRCLE:
-         return std::make_unique<CirclePattern>(spacingsNm);
+         return MaybeAddZSpread(std::make_unique<CirclePattern>(spacingsNm), structure);
       case PATTERN_LINES:
-         return std::make_unique<LinesPattern>();
+         return MaybeAddZSpread(std::make_unique<LinesPattern>(), structure);
       case PATTERN_GRID:
-         return std::make_unique<GridPattern>();
+         return MaybeAddZSpread(std::make_unique<GridPattern>(), structure);
       case PATTERN_RANDOM:
-         return std::make_unique<RandomPattern>();
+         return MaybeAddZSpread(std::make_unique<RandomPattern>(), structure);
       case PATTERN_CUSTOM_POINTS:
-         return std::make_unique<CustomPointsPattern>(customPointsFile);
+         return MaybeAddZSpread(std::make_unique<CustomPointsPattern>(customPointsFile), structure);
       case PATTERN_SPIRAL:
-         return std::make_unique<SpiralPattern>(spacingsNm);
+         return MaybeAddZSpread(std::make_unique<SpiralPattern>(spacingsNm), structure);
       case PATTERN_STAR:
-         return std::make_unique<StarPattern>(spacingsNm);
+         return MaybeAddZSpread(std::make_unique<StarPattern>(spacingsNm), structure);
       case PATTERN_HEART:
-         return std::make_unique<HeartPattern>(spacingsNm);
+         return MaybeAddZSpread(std::make_unique<HeartPattern>(spacingsNm), structure);
       case PATTERN_RESOLUTION_TARGET:
-         return std::make_unique<ResolutionTargetPattern>(spacingsNm);
+         return MaybeAddZSpread(std::make_unique<ResolutionTargetPattern>(spacingsNm), structure);
+      case PATTERN_TILTED_PLANE:
+      case PATTERN_UNIFORM_3D:
+      case PATTERN_SHELL:
+      case PATTERN_NUP:
+      {
+         // Site-list structures: NOT wrapped in ZSpreadPattern (they place
+         // their own z directly -- TiltedPlane/Uniform3D use
+         // structure.zRangeNm themselves, Shell uses structureSizeNm, NUP
+         // uses its own ring/curvature geometry). widthUm/heightUm are
+         // needed here (unlike every arm above) to size/place the site
+         // list; structureSeed keeps this build's rng stream independent
+         // of the caller's arrival/noise stream -- see BuildStructurePattern's
+         // own doc comment.
+         auto pattern = BuildStructurePattern(type, widthUm, heightUm, structure, structureSeed);
+         if (pattern)
+            return pattern;
+         break;
+      }
    }
-   return std::make_unique<CirclePattern>(spacingsNm);
+   return MaybeAddZSpread(std::make_unique<CirclePattern>(spacingsNm), structure);
 }
 
 } // namespace sim

@@ -45,14 +45,12 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
                         double pixelSizeNm, double psfSigmaPx, double photonsPerBlink,
                         double backgroundPhotons,
                         double driftOffsetXPx, double driftOffsetYPx,
-                        const PsfKernelCache* psfCache, double globalZOffsetUm)
+                        const PsfKernelCache* psfCache, double globalZOffsetUm,
+                        long* outZClampedCount, long* outZTotalCount)
 {
    img.assign(static_cast<size_t>(width) * height, static_cast<float>(backgroundPhotons));
 
    bool useVectorial = psfCache && psfCache->valid;
-   // Every emitter shares the same focus offset (the Z-stage's current
-   // position), so the plane lookup is done once here rather than per event.
-   int zIndex = useVectorial ? psfCache->NearestZIndex(globalZOffsetUm) : 0;
    for (const BlinkEvent& e : events)
    {
       double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
@@ -65,9 +63,24 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       double xPx = e.xUm * 1000.0 / pixelSizeNm + driftOffsetXPx;
       double yPx = e.yUm * 1000.0 / pixelSizeNm + driftOffsetYPx;
       if (useVectorial)
-         SplatPsfKernel(img, width, height, *psfCache, zIndex, xPx, yPx, photonsPerBlink * ov);
+      {
+         // Stage offset and this emitter's own depth ADD: the stage moves
+         // the focal plane, the structure places the emitter at its own
+         // depth, and what the PSF sees is the difference between the two.
+         // Looked up per emitter (zNm varies per emitter) rather than once
+         // per frame the way a single shared z used to allow.
+         bool clamped = false;
+         int zIndex = psfCache->NearestZIndex(globalZOffsetUm + e.zNm / 1000.0, &clamped);
+         if (outZTotalCount)
+            ++*outZTotalCount;
+         if (clamped && outZClampedCount)
+            ++*outZClampedCount;
+         SplatPsfKernel(img, width, height, *psfCache, zIndex, xPx, yPx, photonsPerBlink * ov, psfCache->interpMode);
+      }
       else
+      {
          RenderGaussianPSF(img, width, height, xPx, yPx, psfSigmaPx, photonsPerBlink * ov);
+      }
    }
 }
 
@@ -115,7 +128,7 @@ std::vector<BlinkEvent> EmitterModel::GenerateAllEvents(long nFrames, double wid
       double tStart = tStartDist(rng);
       double u = std::min(unif01(rng), 0.999999);
       double tEnd = tStart - lifetime * std::log(1.0 - u);
-      events.push_back({site.xUm, site.yUm, tStart, tEnd});
+      events.push_back({site.xUm, site.yUm, site.zNm, tStart, tEnd});
    }
    return events;
 }
@@ -144,7 +157,7 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
          double tStart = static_cast<double>(frameIndex) + unif01(rng);
          double u = std::min(unif01(rng), 0.999999);
          double tEnd = tStart - lifetime * std::log(1.0 - u);
-         liveActive_.push_back({site.xUm, site.yUm, tStart, tEnd});
+         liveActive_.push_back({site.xUm, site.yUm, site.zNm, tStart, tEnd});
       }
    }
 

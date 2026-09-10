@@ -26,6 +26,7 @@
 #include "DeviceThreads.h"
 #include "ImgBuffer.h"
 #include "Simulation/SMLMSimulation.h"
+#include "Simulation/SMLMStructures.h"
 #include "Simulation/SMLMZernike.h"
 
 #include <atomic>
@@ -82,6 +83,36 @@ extern const char* g_PropPsfSampleDepthNm;
 extern const char* g_PropPsfZernikeCoefficients;
 extern const char* g_PropPsfZernikePreset;
 
+// 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h.
+extern const char* g_PropLabelingEfficiencyPct;
+extern const char* g_PropStructureZRangeNm;
+extern const char* g_PropStructureSizeNm;
+extern const char* g_PropNupRadiusNm;
+extern const char* g_PropNupCornerSpreadNm;
+extern const char* g_PropNupRingSeparationNm;
+extern const char* g_PropNupLinkerMinNm;
+extern const char* g_PropNupLinkerMaxNm;
+extern const char* g_PropNupMembraneType;
+extern const char* g_PropNupCount;
+extern const char* g_PropNupMinSpacingNm;
+extern const char* g_PropNupCurvatureNm;
+
+extern const char* g_NupMembraneTopDown;
+extern const char* g_NupMembraneSideways;
+
+// Sub-pixel PSF placement -- see Simulation/PsfGeneratorBridge.h's
+// PsfInterpMode.
+extern const char* g_PropPsfInterp;
+extern const char* g_PsfInterpNearest;
+extern const char* g_PsfInterpLinear;
+extern const char* g_PsfInterpCubic;
+
+// GibsonLanniZernike-only chirp-Z fast evaluator -- see Simulation/
+// PsfGeneratorBridge.h's PsfEvalMethod.
+extern const char* g_PropPsfEvalMethod;
+extern const char* g_PsfEvalMethodDirect;
+extern const char* g_PsfEvalMethodChirpZ;
+
 extern const char* g_PsfModelGaussian;
 extern const char* g_PsfModelRichardsWolf;
 extern const char* g_PsfModelGibsonLanni;
@@ -99,6 +130,10 @@ extern const char* g_PatternSpiral;
 extern const char* g_PatternStar;
 extern const char* g_PatternHeart;
 extern const char* g_PatternResolutionTarget;
+extern const char* g_PatternTiltedPlane;
+extern const char* g_PatternUniform3D;
+extern const char* g_PatternShell;
+extern const char* g_PatternNup;
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -201,6 +236,22 @@ public:
    // OnPropertyChanged so the PsfZernikeCoefficients property reflects the
    // resolved values.
    int OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct);
+   // 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h
+   // and BuildStructureParams() below.
+   int OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfEvalMethod(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -227,6 +278,12 @@ private:
    // Simulation/PsfGeneratorBridge.h. Separate from SnapshotParams()/
    // SimulationParams, which covers the blink/photon/noise model only.
    sim::PsfGeneratorRequest BuildPsfGeneratorRequest() const;
+   // Snapshot of everything BuildStructurePattern() needs (Simulation/
+   // SMLMStructures.h) -- separate from SnapshotParams()/
+   // BuildPsfGeneratorRequest() for the same reason those two are separate
+   // from each other: distinct lifetimes (rebuilt only on config change,
+   // via CreatePattern, never per frame) and a distinct consumer.
+   sim::StructureParams BuildStructureParams() const;
    // Called by every property handler whose value affects simulated frame
    // content (density/lifetime/photon/background rates, PSF, noise, gain,
    // offset, pattern, pixel size, binning, FOV size, exposure, seed): marks
@@ -244,7 +301,7 @@ private:
    void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                sim::SimulationParams params, sim::SMLMPatternType patternType,
                                std::string customPointsFile, std::vector<double> spacingsNm, long seed,
-                               sim::PsfGeneratorRequest psfRequest);
+                               sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -388,6 +445,37 @@ private:
    // Drift rate along X, nm/sec (Y drifts at half this rate -- see
    // sim::ComputeDriftOffsetPx). Applies in both acquisition modes.
    std::atomic<double> driftNmPerSecX_{0.0};
+
+   // 3D structures / labeling efficiency (Simulation/SMLMStructures.h).
+   // StructureZRangeNm defaults to 500 (not 0) so 3D structures/spread are
+   // visible out of the box once this feature is wired up -- a deliberate,
+   // documented exception to every other new default in this feature,
+   // which otherwise leave existing RandomSeed configs byte-identical (see
+   // CLAUDE.md and docs/vectorial-psf-plan.md).
+   std::atomic<double> labelingEfficiencyPct_{100.0};
+   std::atomic<double> structureZRangeNm_{500.0};
+   std::atomic<double> structureSizeNm_{500.0};
+   std::atomic<double> nupRadiusNm_{53.5};
+   std::atomic<double> nupCornerSpreadNm_{12.0};
+   std::atomic<double> nupRingSeparationNm_{50.0};
+   std::atomic<double> nupLinkerMinNm_{2.0};
+   std::atomic<double> nupLinkerMaxNm_{5.0};
+   // Plain member, same convention as patternType_/psfModel_ (read by the
+   // live producer thread without extra synchronization).
+   int nupMembrane_ = static_cast<int>(sim::MembraneOrientation::TopDown);
+   int nupCount_ = 20;
+   std::atomic<double> nupMinSpacingNm_{200.0};
+   std::atomic<double> nupCurvatureNm_{150.0};
+
+   // Sub-pixel PSF splat sampling mode -- Nearest matches the original
+   // box-average behavior exactly (default, so existing configs are
+   // unaffected); Linear/Cubic remove the 1/oversampling placement
+   // quantization -- see Simulation/PsfGeneratorBridge.h's PsfInterpMode.
+   // Plain member, same convention as psfModel_/patternType_.
+   int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Nearest);
+   // GibsonLanniZernike-only chirp-Z fast evaluator -- Direct matches the
+   // original per-pixel polar-quadrature sum exactly (default).
+   int psfEvalMethod_ = static_cast<int>(sim::PsfEvalMethod::Direct);
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
    // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is

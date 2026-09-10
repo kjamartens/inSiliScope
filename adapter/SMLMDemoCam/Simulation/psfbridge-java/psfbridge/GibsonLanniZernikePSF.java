@@ -60,6 +60,38 @@ import psf.PSF;
  * settings it is noticeably slower than the radially-symmetric Gaussian/
  * RichardsWolf/GibsonLanni models -- see CLAUDE.md's vectorial PSF Gotchas
  * section.
+ *
+ * <p>Chirp-Z evaluator ({@link #evalMethod}="chirpz", opt-in via the
+ * PsfEvalMethod MM property, default remains "direct"): the direct N_RHO x
+ * N_PHI polar sum above is a real O(pixels * N_RHO * N_PHI) cost per plane.
+ * {@code computeSliceChirpZ} reformulates the SAME continuous pupil-to-
+ * image-plane integral on a Cartesian (kx, ky) pupil grid (fixed {@link
+ * #FFT_M} x {@link #FFT_M} resolution) and evaluates it via a separable 2D
+ * chirp-Z transform (Bluestein's algorithm, {@code czt1d}): one CZT pass
+ * over ky per pupil row, then one CZT pass over kx per intermediate column
+ * -- valid because the transform kernel exp(i*(kx*x + ky*y)) factors
+ * exactly as exp(i*kx*x)*exp(i*ky*y). A chirp-Z transform (unlike a plain
+ * FFT) lets the OUTPUT sampling (the camera pixel grid: resLateral, nx, ny)
+ * differ freely from the INPUT sampling (the pupil grid: dk, FFT_M),
+ * computed via 3 ordinary power-of-two FFTs per 1D pass through the classic
+ * Bluestein m*p=(m^2+p^2-(m-p)^2)/2 reformulation, turning the transform
+ * into a linear convolution. Ported (not merely re-derived) from the
+ * webSMLM reference simulator's psfCzt1d/computePsfPupilCartesianForZPlane/
+ * computePsfIntensityPlaneFFT (see PARITY.md in that project) -- that
+ * project's own development notes report this reformulation verified
+ * against a brute-force direct sum to ~1e-13-1e-16 relative error (exact to
+ * floating-point precision) across many parameter combinations, and 76x-
+ * 970x faster in practice. This project's own standalone Java harness (not
+ * part of the embedded jar/DLL, run once during development -- see
+ * docs/vectorial-psf-plan.md) confirms this: "chirpz" and "direct" agree
+ * to 0.22-0.29% relative L2 at 65x65px/NA 1.4/660nm (both zero-Zernike and
+ * a 0.15-wave astigmatism case), after normalizing each plane to sum=1 --
+ * the same normalization SplatPsfKernel always applies downstream, since
+ * the two evaluators do NOT share the same absolute intensity scale (a
+ * fixed ~49.6x ratio was measured, consistent across both test cases,
+ * harmless for exactly that reason). Right in line with the reference
+ * project's own reported residual for this same polar-vs-Cartesian
+ * quadrature-grid difference -- not a bug in either.
  */
 public class GibsonLanniZernikePSF extends PSF
 {
@@ -76,6 +108,12 @@ public class GibsonLanniZernikePSF extends PSF
    private static final int N_RHO = 20;
    private static final int N_PHI = 40;
 
+   // Chirp-Z evaluator's Cartesian pupil grid resolution (fixed, not user-
+   // configurable -- see the class Javadoc's "Chirp-Z evaluator" section).
+   // Matches the webSMLM reference simulator's own PSF_FFT_M, chosen there
+   // via a convergence sweep against the direct polar sum.
+   private static final int FFT_M = 64;
+
    // GibsonLanni-style physical parameters -- set directly by PsfBridge
    // (public fields, no Swing-spinner reflection dance: unlike
    // GibsonLanniPSF, this class was never built for the interactive GUI, so
@@ -91,6 +129,17 @@ public class GibsonLanniZernikePSF extends PSF
    // units as the accumulated phase: pupil phase (radians) = 2*pi * sum_j
    // coeffs[j] * Z_j(rho, phi), i.e. each coefficient is in units of waves.
    public double[] zernikeCoeffs = new double[15];
+
+   // "direct" (default) | "chirpz" -- selects between the original N_RHO x
+   // N_PHI polar-quadrature direct sum (PlaneJob#computeSliceDirect, exact
+   // reference implementation, unchanged by this field's addition) and a
+   // mathematically equivalent chirp-Z-transform (Bluestein) reformulation
+   // on a Cartesian pupil grid (PlaneJob#computeSliceChirpZ) -- see the
+   // class Javadoc's "Chirp-Z evaluator" section below for why/how. Ported
+   // from the webSMLM reference simulator's simulation_psfEvalMethod (see
+   // PARITY.md in that project); set directly by PsfBridge, same as every
+   // other field here.
+   public String evalMethod = "direct";
 
    public GibsonLanniZernikePSF()
    {
@@ -230,6 +279,19 @@ public class GibsonLanniZernikePSF extends PSF
       @Override
       public void process()
       {
+         double[] slice = "chirpz".equals(evalMethod) ? computeSliceChirpZ() : computeSliceDirect();
+         if (slice == null) // computeSliceDirect() returns null only via the !live early-out below
+            return;
+         setPlane(z, slice);
+         increment(90.0 / nz, "" + z + " / " + nz);
+      }
+
+      // Original direct N_RHO x N_PHI polar-quadrature evaluator, unchanged
+      // by the chirp-Z addition -- this is the reference implementation
+      // every regression check (including the chirp-Z one) compares
+      // against, so it is never modified by this feature.
+      private double[] computeSliceDirect()
+      {
          double x0 = (nx - 1) / 2.0;
          double y0 = (ny - 1) / 2.0;
 
@@ -338,10 +400,221 @@ public class GibsonLanniZernikePSF extends PSF
                slice[rowOut + x] = sumRe * sumRe + sumIm * sumIm;
             }
             if (!live)
-               return;
+               return null;
          }
-         setPlane(z, slice);
-         increment(90.0 / nz, "" + z + " / " + nz);
+         return slice;
       }
+
+      // Chirp-Z evaluator: same physics as computeSliceDirect() (including
+      // the depth/OPD terms below), evaluated on a Cartesian (kx, ky) pupil
+      // grid via a separable 2D chirp-Z transform instead of a direct polar
+      // sum -- see the class Javadoc's "Chirp-Z evaluator" section.
+      private double[] computeSliceChirpZ()
+      {
+         double k0 = 2.0 * Math.PI / lambda;
+         double bMax = Math.min(1.0, ns / NA);
+         double kMax = k0 * NA * bMax;
+         // Small margin (FFT_M-4 instead of FFT_M) so the pupil disk sits
+         // comfortably inside the Cartesian grid rather than touching its
+         // edge -- same convention as webSMLM's psfFftDkForCfg().
+         double dk = (2.0 * kMax) / (FFT_M - 4);
+
+         double[] pupilRe = new double[FFT_M * FFT_M];
+         double[] pupilIm = new double[FFT_M * FFT_M];
+         int c0 = FFT_M / 2;
+         for (int iy = 0; iy < FFT_M; iy++)
+         {
+            double ky = (iy - c0) * dk;
+            for (int ix = 0; ix < FFT_M; ix++)
+            {
+               double kx = (ix - c0) * dk;
+               double kr2 = kx * kx + ky * ky;
+               if (kr2 > kMax * kMax)
+                  continue; // zero outside the aperture, same rho<=1 cutoff as computeSliceDirect()
+               double kr = Math.sqrt(kr2);
+               double rho = kr / (k0 * NA);
+               double phi = Math.atan2(ky, kx);
+
+               double s1 = NA * rho / ns;
+               double s3 = NA * rho / ni;
+               double opd1 = ns * particleAxialPosition * Math.sqrt(Math.max(0.0, 1.0 - s1 * s1));
+               double opd3 = ni * (ti - ti0) * Math.sqrt(Math.max(0.0, 1.0 - s3 * s3));
+
+               double zernikePhase = 0.0;
+               for (int j = 0; j < zernikeCoeffs.length; j++)
+               {
+                  double c = zernikeCoeffs[j];
+                  if (c != 0.0)
+                     zernikePhase += c * zernikeValue(j, rho / bMax, phi);
+               }
+               zernikePhase *= 2.0 * Math.PI;
+
+               double phase = k0 * (opd1 + opd3) + zernikePhase;
+               int idx = iy * FFT_M + ix;
+               pupilRe[idx] = Math.cos(phase);
+               pupilIm[idx] = Math.sin(phase);
+            }
+         }
+
+         double resLateralM = resLateral * 1E-9;
+         double kMin = -Math.floor(FFT_M / 2.0) * dk;
+         double x0m = -((nx - 1) / 2.0) * resLateralM;
+         double y0m = -((ny - 1) / 2.0) * resLateralM;
+
+         // Row pass: one CZT over ky (fixed kx=column m) per Cartesian
+         // column, producing an FFT_M x ny intermediate.
+         double[] midRe = new double[FFT_M * ny];
+         double[] midIm = new double[FFT_M * ny];
+         double[] rowRe = new double[FFT_M];
+         double[] rowIm = new double[FFT_M];
+         for (int m = 0; m < FFT_M; m++)
+         {
+            for (int n = 0; n < FFT_M; n++)
+            {
+               rowRe[n] = pupilRe[n * FFT_M + m];
+               rowIm[n] = pupilIm[n * FFT_M + m];
+            }
+            double[][] out = czt1d(rowRe, rowIm, FFT_M, dk, kMin, ny, resLateralM, y0m);
+            for (int y = 0; y < ny; y++)
+            {
+               midRe[y * FFT_M + m] = out[0][y];
+               midIm[y * FFT_M + m] = out[1][y];
+            }
+         }
+
+         // Column pass: one CZT over kx per row of the intermediate,
+         // producing the final nx x ny intensity field.
+         double[] slice = new double[nx * ny];
+         double[] colRe = new double[FFT_M];
+         double[] colIm = new double[FFT_M];
+         for (int y = 0; y < ny; y++)
+         {
+            for (int m = 0; m < FFT_M; m++)
+            {
+               colRe[m] = midRe[y * FFT_M + m];
+               colIm[m] = midIm[y * FFT_M + m];
+            }
+            double[][] out = czt1d(colRe, colIm, FFT_M, dk, kMin, nx, resLateralM, x0m);
+            for (int x = 0; x < nx; x++)
+            {
+               int idx = y * nx + x;
+               slice[idx] = out[0][x] * out[0][x] + out[1][x] * out[1][x];
+            }
+         }
+         return slice;
+      }
+   }
+
+   // Iterative radix-2 Cooley-Tukey FFT, in place. n MUST be a power of
+   // two. sign=-1 is the forward transform, +1 the inverse -- both
+   // UNNORMALIZED (czt1d divides by L itself after the inverse pass, same
+   // convention as the webSMLM reference simulator's own fft1d()).
+   private static void fft1d(double[] re, double[] im, int n, int sign)
+   {
+      for (int i = 1, j = 0; i < n; i++)
+      {
+         int bit = n >> 1;
+         for (; (j & bit) != 0; bit >>= 1)
+            j ^= bit;
+         j ^= bit;
+         if (i < j)
+         {
+            double tr = re[i]; re[i] = re[j]; re[j] = tr;
+            double ti = im[i]; im[i] = im[j]; im[j] = ti;
+         }
+      }
+      for (int len = 2; len <= n; len <<= 1)
+      {
+         double ang = sign * 2.0 * Math.PI / len;
+         double wRe = Math.cos(ang), wIm = Math.sin(ang);
+         int half = len / 2;
+         for (int i = 0; i < n; i += len)
+         {
+            double curRe = 1.0, curIm = 0.0;
+            for (int k = 0; k < half; k++)
+            {
+               double uRe = re[i + k], uIm = im[i + k];
+               double vRe = re[i + k + half] * curRe - im[i + k + half] * curIm;
+               double vIm = re[i + k + half] * curIm + im[i + k + half] * curRe;
+               re[i + k] = uRe + vRe;
+               im[i + k] = uIm + vIm;
+               re[i + k + half] = uRe - vRe;
+               im[i + k + half] = uIm - vIm;
+               double nextRe = curRe * wRe - curIm * wIm;
+               double nextIm = curRe * wIm + curIm * wRe;
+               curRe = nextRe;
+               curIm = nextIm;
+            }
+         }
+      }
+   }
+
+   /**
+    * Chirp-Z transform (Bluestein's algorithm): computes, for M uniformly-
+    * spaced complex input samples at k_m = k0 + m*dk (m=0..M-1), the P
+    * uniformly-spaced OUTPUT samples at x_p = x0 + p*dx (p=0..P-1) of the
+    * EXACT sum out[p] = sum_m in[m]*exp(i*k_m*x_p) -- mathematically
+    * identical to a direct O(M*P) sum, computed via 3 FFTs instead, using
+    * the classic Bluestein reformulation m*p = (m^2+p^2-(m-p)^2)/2, which
+    * turns the sum into a linear convolution. Letting the OUTPUT sampling
+    * (dx, x0, P) differ freely from the INPUT sampling (dk, k0, M) -- unlike
+    * a plain FFT, which locks them together -- is exactly what "chirp-Z"
+    * buys here. Ported from the webSMLM reference simulator's psfCzt1d
+    * (see PARITY.md in that project).
+    *
+    * @return {outRe, outIm}, each length P.
+    */
+   private static double[][] czt1d(double[] inRe, double[] inIm, int M, double dk, double k0, int P, double dx,
+         double x0)
+   {
+      double theta = dk * dx;
+      int L = 1;
+      while (L < M + P - 1)
+         L <<= 1; // next pow2 >= M+P-1: minimum padding so the convolution below can't wrap and corrupt adjacent outputs
+
+      double[] aRe = new double[L];
+      double[] aIm = new double[L];
+      for (int m = 0; m < M; m++)
+      {
+         // u[m] = in[m]*exp(i*m*dk*x0); a[m] = u[m]*exp(i*theta*m^2/2) (Bluestein pre-chirp)
+         double ang = m * dk * x0 + theta * m * m / 2.0;
+         double cr = Math.cos(ang), ci = Math.sin(ang);
+         aRe[m] = inRe[m] * cr - inIm[m] * ci;
+         aIm[m] = inRe[m] * ci + inIm[m] * cr;
+      }
+
+      double[] gRe = new double[L];
+      double[] gIm = new double[L];
+      for (int n = -(M - 1); n < P; n++)
+      {
+         double ang = -theta * n * n / 2.0;
+         int idx = n >= 0 ? n : L + n; // negative n wraps to the end (standard Bluestein layout)
+         gRe[idx] = Math.cos(ang);
+         gIm[idx] = Math.sin(ang);
+      }
+
+      fft1d(aRe, aIm, L, -1);
+      fft1d(gRe, gIm, L, -1);
+      for (int i = 0; i < L; i++)
+      {
+         double re = aRe[i] * gRe[i] - aIm[i] * gIm[i];
+         double im = aRe[i] * gIm[i] + aIm[i] * gRe[i];
+         aRe[i] = re;
+         aIm[i] = im;
+      }
+      fft1d(aRe, aIm, L, 1);
+
+      double[] outRe = new double[P];
+      double[] outIm = new double[P];
+      for (int p = 0; p < P; p++)
+      {
+         double convRe = aRe[p] / L, convIm = aIm[p] / L;
+         double a1 = theta * p * p / 2.0, c1 = Math.cos(a1), s1 = Math.sin(a1); // S[p]=exp(i*theta*p^2/2)*conv[p]
+         double sRe = convRe * c1 - convIm * s1, sIm = convRe * s1 + convIm * c1;
+         double a2 = k0 * (x0 + p * dx), c2 = Math.cos(a2), s2 = Math.sin(a2); // out[p]=exp(i*k0*x_p)*S[p]
+         outRe[p] = sRe * c2 - sIm * s2;
+         outIm[p] = sRe * s2 + sIm * c2;
+      }
+      return new double[][] { outRe, outIm };
    }
 }

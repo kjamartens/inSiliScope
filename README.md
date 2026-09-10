@@ -13,7 +13,7 @@ inside Micro-Manager without real hardware.
   background thread, with density, intensity, pattern, and noise parameters
   adjustable in real time while streaming.
 - **Precomputed stack**: generates a fixed-length, reproducible movie (given
-  a `RandomSeed`) up front, then serves frames from it during Snap/Live/
+  a `SimType_RandomSeed`) up front, then serves frames from it during Snap/Live/
   sequence acquisition. Good for benchmarking analysis pipelines against a
   known ground truth.
 
@@ -26,7 +26,7 @@ device-specific exposure control.
 
 Built-in patterns: `Circle`, `Lines`, `Grid`, `Random`, `Spiral`, `Star`,
 `Heart`, `ResolutionTarget`, and `CustomPoints` (loaded from a CSV file of
-normalized `x,y` coordinates via the `CustomPointsFile` property). `Circle`,
+normalized `x,y` coordinates via the `SimType_CustomPointsFile` property). `Circle`,
 `Spiral`, `Star`, and `Heart` are each rendered as concentric double-line
 outlines whose gap shrinks step to step (500 down to 10 nm), and
 `ResolutionTarget` lays the same spacing sequence out as a 3x3 chart --

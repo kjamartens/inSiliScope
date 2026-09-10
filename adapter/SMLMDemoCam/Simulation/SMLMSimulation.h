@@ -63,6 +63,7 @@ struct BlinkEvent
 {
    double xUm = 0.0;
    double yUm = 0.0;
+   double zNm = 0.0; // carried straight through from EmitterSite::zNm
    double tStart = 0.0;
    double tEnd = 0.0;
 };
@@ -90,17 +91,34 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // then unused. Defaults to nullptr so every existing call site (Gaussian
 // rendering) is unaffected.
 //
-// globalZOffsetUm: uniform focus offset (micrometers) applied to every
-// emitter alike when selecting the cached z-plane -- driven by the
+// globalZOffsetUm: uniform focus offset (micrometers), driven by the
 // SMLMDemoZStage device's shared position (Simulation/SharedStageState.h),
-// not a per-emitter quantity. 0 = center/in-focus plane.
+// ADDED to each emitter's own BlinkEvent::zNm (nm, converted to um here) to
+// pick that emitter's kernel z-plane -- so the stage moves the focal plane
+// and the structure's own depth is relative to it, not a single global
+// plane shared by every emitter. 0 offset + 0 zNm = center/in-focus plane.
+// The plane lookup is nearest-plane only, done PER EMITTER (not once per
+// frame the way it used to be, back when every emitter shared one z) --
+// deliberately not a two-plane blend: blending two planes' intensities is
+// not the same operation as interpolating a PSF's width, so it would buy no
+// accuracy while costing meaningfully more (the reference simulator this
+// project tracks parity with implemented and then removed exactly this
+// blend for that reason -- see docs/vectorial-psf-plan.md).
+//
+// outZClampedCount/outZTotalCount (optional, default nullptr): accumulated
+// (+=, not assigned) counts of vectorial-PSF emitter renders whose total z
+// fell outside the cached kernel's own range (clamped to an end plane) vs.
+// the total rendered -- callers use this to warn once per stack/config
+// rather than per emitter.
 void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
                         const std::vector<BlinkEvent>& events, long frameIndex,
                         double pixelSizeNm, double psfSigmaPx, double photonsPerBlink,
                         double backgroundPhotons,
                         double driftOffsetXPx, double driftOffsetYPx,
                         const PsfKernelCache* psfCache = nullptr,
-                        double globalZOffsetUm = 0.0);
+                        double globalZOffsetUm = 0.0,
+                        long* outZClampedCount = nullptr,
+                        long* outZTotalCount = nullptr);
 
 // Owns the active pattern and the emitter blinking process, and provides one
 // code path shared by both acquisition modes: GenerateAllEvents for a whole

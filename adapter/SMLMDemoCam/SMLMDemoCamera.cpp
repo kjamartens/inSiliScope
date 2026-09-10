@@ -24,46 +24,71 @@
 
 const char* g_SMLMCameraDeviceName = "SMLMDemoCam";
 
-const char* g_PropAcqMode = "AcqMode";
-const char* g_PropPattern = "Pattern";
-const char* g_PropCustomPointsFile = "CustomPointsFile";
-const char* g_PropResolutionSpacingsNm = "ResolutionSpacingsNm";
-const char* g_PropFovSize = "FovSize";
-const char* g_PropStackLength = "StackLength";
-const char* g_PropStackLoop = "StackLoop";
-const char* g_PropGenerateStack = "GenerateStack";
-const char* g_PropStackStatus = "StackGenerationStatus";
-const char* g_PropEndOfStack = "EndOfStackReached";
-const char* g_PropEmitterDensityPerSec = "EmitterDensityPerSec";
-const char* g_PropPhotonsPerSecond = "PhotonsPerSecond";
-const char* g_PropOnLifetimeSec = "OnLifetimeSec";
-const char* g_PropPsfWavelengthNm = "PsfEmissionWavelengthNm";
-const char* g_PropPsfNa = "PsfNa";
-const char* g_PropPixelSize = "PixelSizeNm";
-const char* g_PropBackgroundPerSec = "BackgroundPhotonsPerSec";
-const char* g_PropQuantumEfficiency = "QuantumEfficiency";
-const char* g_PropDarkCurrentPerSec = "DarkCurrentElectronsPerSec";
-const char* g_PropGain = "CameraGainPhotonsPerADU";
-const char* g_PropOffset = "CameraOffsetADU";
-const char* g_PropOffsetStd = "CameraOffsetStdADU";
-const char* g_PropReadNoise = "ReadNoiseElectrons";
-const char* g_PropPixelGainStdPct = "PixelGainStdPct";
-const char* g_PropPixelReadNoiseStdPct = "PixelReadNoiseStdPct";
-const char* g_PropDriftNmPerSec = "DriftNmPerSec";
-const char* g_PropRandomSeed = "RandomSeed";
-const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
-const char* g_PropPsfModel = "PsfModel";
-const char* g_PropPsfImmersionIndex = "PsfImmersionIndex";
-const char* g_PropPsfOversampling = "PsfOversampling";
-const char* g_PropPsfKernelHalfWidthPx = "PsfKernelHalfWidthPx";
-const char* g_PropPsfGeneratorJavaHome = "PsfGeneratorJavaHome";
-const char* g_PropPsfZRangeUm = "PsfZRangeUm";
-const char* g_PropPsfZStepUm = "PsfZStepUm";
-const char* g_PropPsfSampleIndex = "PsfSampleIndex";
-const char* g_PropPsfWorkingDistanceUm = "PsfWorkingDistanceUm";
-const char* g_PropPsfSampleDepthNm = "PsfSampleDepthNm";
-const char* g_PropPsfZernikeCoefficients = "PsfZernikeCoefficients";
-const char* g_PropPsfZernikePreset = "PsfZernikePreset";
+const char* g_PropAcqMode = "General_AcqMode";
+const char* g_PropPattern = "SimType_Pattern";
+const char* g_PropCustomPointsFile = "SimType_CustomPointsFile";
+const char* g_PropResolutionSpacingsNm = "SimType_ResolutionSpacingsNm";
+const char* g_PropFovSize = "General_FovSize";
+const char* g_PropStackLength = "General_StackLength";
+const char* g_PropStackLoop = "General_StackLoop";
+const char* g_PropGenerateStack = "General_GenerateStack";
+const char* g_PropStackStatus = "General_StackGenerationStatus";
+const char* g_PropEndOfStack = "General_EndOfStackReached";
+const char* g_PropEmitterDensityPerSec = "General_EmitterDensityPerSec";
+const char* g_PropPhotonsPerSecond = "FluoParam_PhotonsPerSecond";
+const char* g_PropOnLifetimeSec = "FluoParam_OnLifetimeSec";
+const char* g_PropPsfWavelengthNm = "PSFParam_PsfEmissionWavelengthNm";
+const char* g_PropPsfNa = "PSFParam_PsfNa";
+const char* g_PropPixelSize = "General_PixelSizeNm";
+const char* g_PropBackgroundPerSec = "General_BackgroundPhotonsPerSec";
+const char* g_PropQuantumEfficiency = "CamParam_QuantumEfficiency";
+const char* g_PropDarkCurrentPerSec = "CamParam_DarkCurrentElectronsPerSec";
+const char* g_PropGain = "CamParam_CameraGainPhotonsPerADU";
+const char* g_PropOffset = "CamParam_CameraOffsetADU";
+const char* g_PropOffsetStd = "CamParam_CameraOffsetStdADU";
+const char* g_PropReadNoise = "CamParam_ReadNoiseElectrons";
+const char* g_PropPixelGainStdPct = "CamParam_PixelGainStdPct";
+const char* g_PropPixelReadNoiseStdPct = "CamParam_PixelReadNoiseStdPct";
+const char* g_PropDriftNmPerSec = "SimType_DriftNmPerSec";
+const char* g_PropRandomSeed = "SimType_RandomSeed";
+const char* g_PropActualFrameIntervalMs = "General_ActualFrameIntervalMs";
+const char* g_PropPsfModel = "PSFParam_PsfModel";
+const char* g_PropPsfImmersionIndex = "PSFParam_PsfImmersionIndex";
+const char* g_PropPsfOversampling = "PSFParam_PsfOversampling";
+const char* g_PropPsfKernelHalfWidthPx = "PSFParam_PsfKernelHalfWidthPx";
+const char* g_PropPsfGeneratorJavaHome = "PSFParam_PsfGeneratorJavaHome";
+const char* g_PropPsfZRangeUm = "PSFParam_PsfZRangeUm";
+const char* g_PropPsfZStepUm = "PSFParam_PsfZStepUm";
+const char* g_PropPsfSampleIndex = "PSFParam_PsfSampleIndex";
+const char* g_PropPsfWorkingDistanceUm = "PSFParam_PsfWorkingDistanceUm";
+const char* g_PropPsfSampleDepthNm = "PSFParam_PsfSampleDepthNm";
+const char* g_PropPsfZernikeCoefficients = "PSFParam_PsfZernikeCoefficients";
+const char* g_PropPsfZernikePreset = "PSFParam_PsfZernikePreset";
+
+const char* g_PropLabelingEfficiencyPct = "General_LabelingEfficiencyPct";
+const char* g_PropStructureZRangeNm = "SimType_StructureZRangeNm";
+const char* g_PropStructureSizeNm = "SimType_StructureSizeNm";
+const char* g_PropNupRadiusNm = "SimType_NupRadiusNm";
+const char* g_PropNupCornerSpreadNm = "SimType_NupCornerSpreadNm";
+const char* g_PropNupRingSeparationNm = "SimType_NupRingSeparationNm";
+const char* g_PropNupLinkerMinNm = "SimType_NupLinkerMinNm";
+const char* g_PropNupLinkerMaxNm = "SimType_NupLinkerMaxNm";
+const char* g_PropNupMembraneType = "SimType_NupMembraneType";
+const char* g_PropNupCount = "SimType_NupCount";
+const char* g_PropNupMinSpacingNm = "SimType_NupMinSpacingNm";
+const char* g_PropNupCurvatureNm = "SimType_NupCurvatureNm";
+
+const char* g_NupMembraneTopDown = "TopDown";
+const char* g_NupMembraneSideways = "Sideways";
+
+const char* g_PropPsfInterp = "PSFParam_PsfInterp";
+const char* g_PsfInterpNearest = "Nearest";
+const char* g_PsfInterpLinear = "Linear";
+const char* g_PsfInterpCubic = "Cubic";
+
+const char* g_PropPsfEvalMethod = "PSFParam_PsfEvalMethod";
+const char* g_PsfEvalMethodDirect = "Direct";
+const char* g_PsfEvalMethodChirpZ = "ChirpZ";
 
 const char* g_PsfModelGaussian = "Gaussian";
 const char* g_PsfModelRichardsWolf = "RichardsWolf";
@@ -82,6 +107,10 @@ const char* g_PatternSpiral = "Spiral";
 const char* g_PatternStar = "Star";
 const char* g_PatternHeart = "Heart";
 const char* g_PatternResolutionTarget = "ResolutionTarget";
+const char* g_PatternTiltedPlane = "TiltedPlane";
+const char* g_PatternUniform3D = "Uniform3D";
+const char* g_PatternShell = "Shell";
+const char* g_PatternNup = "NUP";
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
@@ -205,6 +234,11 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPattern, g_PatternStar);
    AddAllowedValue(g_PropPattern, g_PatternHeart);
    AddAllowedValue(g_PropPattern, g_PatternResolutionTarget);
+   // 3D/NPC site-list structures -- see Simulation/SMLMStructures.h.
+   AddAllowedValue(g_PropPattern, g_PatternTiltedPlane);
+   AddAllowedValue(g_PropPattern, g_PatternUniform3D);
+   AddAllowedValue(g_PropPattern, g_PatternShell);
+   AddAllowedValue(g_PropPattern, g_PatternNup);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCustomPointsFile);
    CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
@@ -383,6 +417,77 @@ int CSMLMDemoCamera::Initialize()
    CreateStringProperty(g_PropPsfZernikePreset, psfZernikePreset_.c_str(), false, pAct);
    for (const std::string& name : sim::ZernikePresetNames())
       AddAllowedValue(g_PropPsfZernikePreset, name.c_str());
+
+   // 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h.
+   // LabelingEfficiencyPct/StructureSizeNm/NupX only matter for the four
+   // site-list Pattern values above (TiltedPlane/Uniform3D/Shell/NUP);
+   // StructureZRangeNm ALSO applies to the 9 continuous patterns (via the
+   // ZSpreadPattern decorator -- see CreatePattern in SMLMPatterns.cpp).
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnLabelingEfficiencyPct);
+   CreateFloatProperty(g_PropLabelingEfficiencyPct, labelingEfficiencyPct_.load(), false, pAct);
+   SetPropertyLimits(g_PropLabelingEfficiencyPct, 0.0, 100.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStructureZRangeNm);
+   CreateFloatProperty(g_PropStructureZRangeNm, structureZRangeNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropStructureZRangeNm, 0.0, 5000.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStructureSizeNm);
+   CreateFloatProperty(g_PropStructureSizeNm, structureSizeNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropStructureSizeNm, 10.0, 5000.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupRadiusNm);
+   CreateFloatProperty(g_PropNupRadiusNm, nupRadiusNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupRadiusNm, 20.0, 150.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCornerSpreadNm);
+   CreateFloatProperty(g_PropNupCornerSpreadNm, nupCornerSpreadNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupCornerSpreadNm, 0.0, 30.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupRingSeparationNm);
+   CreateFloatProperty(g_PropNupRingSeparationNm, nupRingSeparationNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupRingSeparationNm, 0.0, 150.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupLinkerMinNm);
+   CreateFloatProperty(g_PropNupLinkerMinNm, nupLinkerMinNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupLinkerMinNm, 0.0, 30.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupLinkerMaxNm);
+   CreateFloatProperty(g_PropNupLinkerMaxNm, nupLinkerMaxNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupLinkerMaxNm, 0.0, 30.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupMembraneType);
+   CreateStringProperty(g_PropNupMembraneType, g_NupMembraneTopDown, false, pAct);
+   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneTopDown);
+   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneSideways);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCount);
+   CreateIntegerProperty(g_PropNupCount, nupCount_, false, pAct);
+   SetPropertyLimits(g_PropNupCount, 1, 500);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupMinSpacingNm);
+   CreateFloatProperty(g_PropNupMinSpacingNm, nupMinSpacingNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupMinSpacingNm, 0.0, 2000.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCurvatureNm);
+   CreateFloatProperty(g_PropNupCurvatureNm, nupCurvatureNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
+
+   // Sub-pixel PSF placement (vectorial PSF models only) -- see
+   // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default Nearest
+   // matches the original box-average splat exactly.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfInterp);
+   CreateStringProperty(g_PropPsfInterp, g_PsfInterpNearest, false, pAct);
+   AddAllowedValue(g_PropPsfInterp, g_PsfInterpNearest);
+   AddAllowedValue(g_PropPsfInterp, g_PsfInterpLinear);
+   AddAllowedValue(g_PropPsfInterp, g_PsfInterpCubic);
+
+   // GibsonLanniZernike-only chirp-Z fast evaluator -- see Simulation/
+   // PsfGeneratorBridge.h's PsfEvalMethod. Default Direct matches the
+   // original per-pixel polar-quadrature sum exactly.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfEvalMethod);
+   CreateStringProperty(g_PropPsfEvalMethod, g_PsfEvalMethodDirect, false, pAct);
+   AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodDirect);
+   AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodChirpZ);
 
    nRet = UpdateStatus();
    if (nRet != DEVICE_OK)

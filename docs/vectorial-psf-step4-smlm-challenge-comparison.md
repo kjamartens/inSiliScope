@@ -102,7 +102,7 @@ computes a PSF *ab initio* from a vectorial optical model —
 `RichardsWolfPSF`/`GibsonLanniPSF` from EPFL's own PSFGenerator, run in an
 embedded JVM — parameterized by NA, wavelength, immersion/sample index, and
 (for Gibson-Lanni) sample depth/working distance, at oversampling factor 12x
-(default `PsfOversampling`), default NA 1.4 / wavelength 660 nm
+(default `PSFParam_PsfOversampling`), default NA 1.4 / wavelength 660 nm
 (`PsfGeneratorBridge.h`), then "oversample once, downsample everywhere"
 (`SplatPsfKernel`). It has no aberration model yet (Step 5's job), and no
 biplane or double-helix rendering mode at all — both of those are 3D-encoding
@@ -122,7 +122,7 @@ astigmatism strengths in the 3D-STORM literature (Huang et al. 2008 used
 roughly 40-45 diopter... — not verified in this step, would need separate
 lookup), or simply chosen so the axial range over which the PSF
 elongates/splits visually matches a plausible ~600 nm-1 μm axial encoding
-range, consistent with this plugin's own `PsfZRangeUm` default of 2.0 μm.
+range, consistent with this plugin's own `PSFParam_PsfZRangeUm` default of 2.0 μm.
 **This is a gap to flag explicitly rather than paper over with an invented
 number attributed to Sage et al.**
 

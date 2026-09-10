@@ -48,6 +48,37 @@ enum class PsfModelKind
    GibsonLanniZernike = 3,
 };
 
+// Sub-pixel sampling mode used by SplatPsfKernel when reading the
+// oversampled kernel plane -- the analogous property in the webSMLM
+// reference simulator this project tracks parity with is
+// simulation_psfInterp (see PARITY.md in that project). Nearest is the
+// original, still-default behavior: each camera-pixel's over*over sub-
+// cells are read at the INTEGER oversampled index nearest the emitter's
+// true fractional position, box-averaged -- position is therefore
+// quantized to steps of 1/oversampling of a camera pixel. Linear/Cubic
+// instead sample the oversampled plane at the exact CONTINUOUS fractional
+// coordinate implied by the emitter's true (xPx, yPx), removing that
+// quantization at the cost of one bilinear/bicubic evaluation per sub-cell
+// instead of one array read.
+enum class PsfInterpMode
+{
+   Nearest = 0,
+   Linear = 1,
+   Cubic = 2,
+};
+
+// GibsonLanniZernike-only evaluation method: Direct (default) is the
+// original N_RHO x N_PHI polar-quadrature sum; ChirpZ is a mathematically
+// equivalent, much faster Bluestein chirp-Z-transform reformulation on a
+// Cartesian pupil grid -- see Simulation/psfbridge-java/psfbridge/
+// GibsonLanniZernikePSF.java's class Javadoc "Chirp-Z evaluator" section
+// for the physics/porting details. Ignored by every other PsfModelKind.
+enum class PsfEvalMethod
+{
+   Direct = 0,
+   ChirpZ = 1,
+};
+
 // Everything needed to (re)compute one oversampled vectorial PSF kernel via
 // the embedded PSFGenerator JVM bridge.
 struct PsfGeneratorRequest
@@ -82,6 +113,8 @@ struct PsfGeneratorRequest
    // constant scale factor -- see GibsonLanniZernikePSF.java's class
    // Javadoc) when this model is selected but no aberration is set.
    std::string zernikeCoefficients = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0";
+   // GibsonLanniZernike-only (ignored otherwise) -- see PsfEvalMethod above.
+   PsfEvalMethod evalMethod = PsfEvalMethod::Direct;
    // Oversampled samples per camera pixel, and the camera-pixel half-width
    // of the kernel (so the oversampled grid is
    // (2*kernelHalfWidthPx*oversampling+1) square).
@@ -99,6 +132,12 @@ struct PsfGeneratorRequest
    // means auto-detect (JAVA_HOME, then common install locations) -- see
    // FindJavaHome() in PsfGeneratorBridge.cpp.
    std::string javaHome;
+
+   // Sub-pixel splat sampling mode -- see PsfInterpMode's own doc comment
+   // below. Copied into PsfKernelCache::interpMode by ComputePsfKernelCache
+   // so SplatPsfKernel's caller (RenderPhotonImage) doesn't need a separate
+   // parameter of its own for it.
+   PsfInterpMode interpMode = PsfInterpMode::Nearest;
 };
 
 // One oversampled PSF kernel (or Z-stack of them), as computed by the
@@ -114,6 +153,10 @@ struct PsfKernelCache
    int sizeOversampled = 0;      // 2*halfWidthOversampled + 1
    int nz = 1;
    double zStepNm = 0.0;
+   // Copied from PsfGeneratorRequest::interpMode by ComputePsfKernelCache --
+   // SplatPsfKernel's caller (RenderPhotonImage) reads it from here rather
+   // than needing its own separate parameter.
+   PsfInterpMode interpMode = PsfInterpMode::Nearest;
    // planes[z] has sizeOversampled*sizeOversampled floats, row-major (x fastest)
    std::vector<std::vector<float>> planes;
 
@@ -122,8 +165,12 @@ struct PsfKernelCache
    int CenterZIndex() const { return nz / 2; }
 
    // Nearest-plane lookup for a Z offset in micrometers (0 = center plane).
-   // Used from step 2 onward.
-   int NearestZIndex(double zUm) const;
+   // outClamped (optional), if non-null, is set true when zUm fell outside
+   // the cached stack's own range and the returned index was clamped to an
+   // end plane -- callers accumulate this across a frame/stack to warn once
+   // rather than silently rendering out-of-range emitters at the wrong
+   // depth (see RenderPhotonImage's outZClampedCount).
+   int NearestZIndex(double zUm, bool* outClamped = nullptr) const;
 };
 
 // Computes one oversampled PSF kernel (or Z-stack) by calling
@@ -155,9 +202,12 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 // "downsample once per emitter" half of "oversample once, downsample
 // everywhere" -- normalizes the resulting small kernel to sum to 1, scales
 // by totalPhotons, and additively splats it into img. No-op if
-// !cache.valid or totalPhotons <= 0.
+// !cache.valid or totalPhotons <= 0. interpMode defaults to Nearest, the
+// original behavior, so every existing call site is unaffected by this
+// parameter's addition.
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height,
                      const PsfKernelCache& cache, int zIndex,
-                     double xPx, double yPx, double totalPhotons);
+                     double xPx, double yPx, double totalPhotons,
+                     PsfInterpMode interpMode = PsfInterpMode::Nearest);
 
 } // namespace sim

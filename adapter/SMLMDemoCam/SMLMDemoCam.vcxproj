@@ -113,6 +113,7 @@
     <ClCompile Include="SMLMDemoZStage.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMPatterns.cpp" />
+    <ClCompile Include="Simulation\SMLMStructures.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
     <ClCompile Include="Simulation\SMLMZernike.cpp" />
@@ -122,6 +123,7 @@
     <ClInclude Include="SMLMDemoZStage.h" />
     <ClInclude Include="Simulation\SMLMSimulation.h" />
     <ClInclude Include="Simulation\SMLMPatterns.h" />
+    <ClInclude Include="Simulation\SMLMStructures.h" />
     <ClInclude Include="Simulation\SMLMNoise.h" />
     <ClInclude Include="Simulation\PsfGeneratorBridge.h" />
     <ClInclude Include="Simulation\SMLMZernike.h" />

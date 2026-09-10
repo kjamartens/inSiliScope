@@ -26,3 +26,7 @@ third_party/PSFGenerator.jar
 third_party/PSF_Generator.jar
 third_party/SMLMPsfEmbedded.jar
 DeviceAdapter/SMLMDemoCam/Simulation/psfbridge-java/out/
+
+# tools/psf_parity_check: local build/run artifacts (see its README.md)
+tools/psf_parity_check/*.class
+tools/psf_parity_check/*.bin

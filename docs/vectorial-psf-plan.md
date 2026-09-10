@@ -114,10 +114,10 @@ New files:
   subprocess failure (java/jars missing, bad config, nonzero exit, short
   read), log and fall back to the existing Gaussian renderer rather than
   breaking image acquisition.
-- New properties: `PsfModel` (enum `Gaussian`/`RichardsWolf`/`GibsonLanni`,
+- New properties: `PSFParam_PsfModel` (enum `Gaussian`/`RichardsWolf`/`GibsonLanni`,
   default `Gaussian` until step 1 is validated, then switchable for A/B
   testing), `PsfGeneratorJavaPath`, `PsfGeneratorJarPath`,
-  `PsfBridgeJarPath`, `PsfImmersionIndex` — declared/registered following
+  `PsfBridgeJarPath`, `PSFParam_PsfImmersionIndex` — declared/registered following
   the exact pattern of `OnPsfWavelengthNm`/`OnPsfNa` in
   `SMLMDemoCamera.h`/`.cpp` and `SMLMImageGeneration.cpp`.
 
@@ -135,7 +135,7 @@ New files:
   stdout → populate `PsfKernelCache`.
 - Wire `SplatPsfKernel` into `RenderPhotonImage`'s per-`BlinkEvent` loop
   when `PsfModel != Gaussian`; keep `RenderGaussianPSF` for `Gaussian`.
-- **Test**: switch `PsfModel` to `RichardsWolf` in Live mode at a high NA
+- **Test**: switch `PSFParam_PsfModel` to `RichardsWolf` in Live mode at a high NA
   (e.g. 1.4) and confirm the rendered spot shows the expected Airy-like
   central lobe/ring structure rather than a bare Gaussian, that switching
   to `GibsonLanni` also works, and that total photon counts/brightness
@@ -146,7 +146,7 @@ New files:
 - Extend `PsfGeneratorRequest`/config building to request a real z-stack
   (nz > 1, resAxial = z-step) from the same bridge call. Add two new
   **user-facing MM properties** for this rather than hardcoding a range:
-  `PsfZRangeUm` (total z-stack span, e.g. default ±1 µm) and `PsfZStepUm`
+  `PSFParam_PsfZRangeUm` (total z-stack span, e.g. default ±1 µm) and `PSFParam_PsfZStepUm`
   (z-plane spacing, e.g. default 0.05-0.1 µm), both wired through
   `InvalidateStack()` like every other PSF-affecting property.
 - Add `BlinkEvent.zUm` (new field in `Simulation/SMLMSimulation.h`), drawn
@@ -156,10 +156,10 @@ New files:
   used).
 - `SplatPsfKernel` picks the nearest cached z-plane (or linearly
   interpolates the two nearest) to `e.zUm`.
-- **Test**: with a vectorial `PsfModel` and `PsfZSpreadStdNm > 0` in Live
+- **Test**: with a vectorial `PSFParam_PsfModel` and `PsfZSpreadStdNm > 0` in Live
   mode, confirm individual spots show a distribution of focus states
   (sharp near Z=0, ring-spread further out) rather than uniform sharpness,
-  and that changing `PsfZRangeUm`/`PsfZStepUm` visibly changes the cached
+  and that changing `PSFParam_PsfZRangeUm`/`PSFParam_PsfZStepUm` visibly changes the cached
   stack's coverage/resolution.
 
 **Status: code complete, built, and visually verified working in
@@ -173,7 +173,7 @@ add `BlinkEvent::zUm` and `SimulationParams::psfZSpreadStdNm`; draw
 `GenerateAllEvents`/`AdvanceOneFrame` (`Simulation/SMLMSimulation.cpp`);
 switch `RenderPhotonImage`'s splat call from
 `psfCache->CenterZIndex()` to `psfCache->NearestZIndex(e.zUm)`; and add
-the three new properties (`PsfZRangeUm` default 2.0 µm, `PsfZStepUm`
+the three new properties (`PSFParam_PsfZRangeUm` default 2.0 µm, `PSFParam_PsfZStepUm`
 default 0.1 µm, `PsfZSpreadStdNm` default 0 = disabled) wired through
 `BuildPsfGeneratorRequest()`/`SnapshotParams()` the same way every other
 PSF property already is (`InvalidateStack()` on change). No new files.
@@ -182,13 +182,13 @@ PSF property already is (`InvalidateStack()` on change). No new files.
 **Addendum**: `PsfBridge.java` also hardcoded three GibsonLanni-only
 PSFGenerator parameters (`spnNS` sample refractive index, `spnTI` working
 distance, `spnZPos` particle depth into the sample) rather than exposing
-them. All three are now user-facing MM properties (`PsfSampleIndex`,
-`PsfWorkingDistanceUm`, `PsfSampleDepthNm`), threaded through
+them. All three are now user-facing MM properties (`PSFParam_PsfSampleIndex`,
+`PSFParam_PsfWorkingDistanceUm`, `PSFParam_PsfSampleDepthNm`), threaded through
 `PsfGeneratorRequest`/`computePlanes()`'s now-8-double JNI signature, with
 defaults chosen to reproduce the exact rendered output at default settings
-(`PsfSampleIndex` defaults to matching `PsfImmersionIndex`, `PsfSampleDepthNm`
+(`PSFParam_PsfSampleIndex` defaults to matching `PSFParam_PsfImmersionIndex`, `PSFParam_PsfSampleDepthNm`
 defaults to 0 -- both reproducing the no-mismatch/in-focus behavior this
-bridge used to force unconditionally; `PsfWorkingDistanceUm` defaults to
+bridge used to force unconditionally; `PSFParam_PsfWorkingDistanceUm` defaults to
 150.0, PSFGenerator's own stock default for that spinner, which this
 bridge was already implicitly relying on). Ignored by `RichardsWolf`, which
 has no equivalent sample-index/depth/working-distance concept. Rebuilding
@@ -260,7 +260,7 @@ Single-Molecule Localization Microscopy Software," *Nature Methods* 16(5),
   Methods — note you may need to supply the PDF/supplement, or a
   preprint/author-page copy will be searched for.
 - PSF comparison: their model/parameters/aberration handling per modality
-  vs. this plugin's `PsfModel` choice (Richards-Wolf/Gibson-Lanni,
+  vs. this plugin's `PSFParam_PsfModel` choice (Richards-Wolf/Gibson-Lanni,
   oversampling factor) from steps 1-3, and whether their 3D modalities
   (astigmatic, biplane, double-helix) imply aberration types worth
   prioritizing once the Zernike step is built.
@@ -319,13 +319,13 @@ flat background) -> scalar Gaussian read noise -> scalar gain -> static
 per-pixel additive offset map -> 16-bit clamp`) and real camera behavior.
 Priority follow-ups, per user request:
 
-- **No quantum efficiency property.** `PhotonsPerSecond` is fed straight in
+- **No quantum efficiency property.** `FluoParam_PhotonsPerSecond` is fed straight in
   as the Poisson mean; QE is implicitly folded into that one number and
   can't be varied independently of illumination intensity (e.g. to compare
-  a 0.7 QE vs. 0.95 QE sensor at the same photon flux). Add a `QuantumEfficiency`
+  a 0.7 QE vs. 0.95 QE sensor at the same photon flux). Add a `CamParam_QuantumEfficiency`
   property (0-1) applied before the Poisson draw.
 - **No dark current.** Thermal dark counts are indistinguishable from
-  `BackgroundPhotonsPerSec` in the current model, even though they have a
+  `General_BackgroundPhotonsPerSec` in the current model, even though they have a
   different physical origin (dark current scales with exposure time and
   sensor temperature, not illumination) and real camera datasheets report
   it as its own rate (e-/pixel/sec). Add a separate dark-current Poisson
@@ -347,7 +347,7 @@ datasheet](https://sg-science.jp/product/pdf/Photometrics/Kinetix22-Datasheet_20
 | Parameter | Value | Maps to |
 | --- | --- | --- |
 | Peak QE | >96% (at ~600 nm) | -- |
-| QE at 660 nm (this plugin's default `PsfWavelengthNm`) | ~85% (read off the published QE curve, *not* a table value -- treat as an estimate) | new `QuantumEfficiency` property |
+| QE at 660 nm (this plugin's default `PsfWavelengthNm`) | ~85% (read off the published QE curve, *not* a table value -- treat as an estimate) | new `CamParam_QuantumEfficiency` property |
 | Read noise | 1.2 e- rms | existing `ReadNoise` property (currently used as a single scalar) |
 | Dark current | 1.03 e-/pixel/sec | new dark-current property |
 | Conversion gain | 0.25 e-/count | existing `Gain` (`gainPhotonsPerAdu`) property |
@@ -381,22 +381,22 @@ values, with `stdFraction = 0` reproducing the old scalar-everywhere
 behavior exactly; `ApplyNoiseChain` falls back to the scalar
 `gainPhotonsPerAdu`/`readNoiseElectrons` whenever a map's size doesn't
 match the frame, the same fallback pattern `PixelOffsetMap` already used.
-New MM properties: `QuantumEfficiency` (0-1), `DarkCurrentElectronsPerSec`,
-`PixelGainStdPct`, `PixelReadNoiseStdPct` (all four wired through
+New MM properties: `CamParam_QuantumEfficiency` (0-1), `CamParam_DarkCurrentElectronsPerSec`,
+`CamParam_PixelGainStdPct`, `CamParam_PixelReadNoiseStdPct` (all four wired through
 `SnapshotParams()`/`InvalidateStack()` like every other simulation
-property); `CameraGainPhotonsPerADU`'s lower property limit was widened
+property); `CamParam_CameraGainPhotonsPerADU`'s lower property limit was widened
 from 0.1 to 0.01 to comfortably fit Kinetix Sub-Electron mode's 0.015
 e-/count if that preset is ever wanted. Defaults for
-`QuantumEfficiency`/`DarkCurrentElectronsPerSec`/`CameraGainPhotonsPerADU`/
-`ReadNoiseElectrons` were changed to the Kinetix22 Sensitivity-mode table
-above (0.85, 1.03, 0.25, 1.2); `PixelGainStdPct`/`PixelReadNoiseStdPct`
+`CamParam_QuantumEfficiency`/`CamParam_DarkCurrentElectronsPerSec`/`CamParam_CameraGainPhotonsPerADU`/
+`CamParam_ReadNoiseElectrons` were changed to the Kinetix22 Sensitivity-mode table
+above (0.85, 1.03, 0.25, 1.2); `CamParam_PixelGainStdPct`/`CamParam_PixelReadNoiseStdPct`
 default to 5%/20% as explicitly-flagged estimates (not datasheet values,
 per the note above). **Next**: load the built DLL into Micro-Manager and
 visually confirm frames still render sensibly at the new defaults (in
 particular the much smaller default `Gain` -- 0.25 vs. the old 1.0 -- and
 `ReadNoise` -- 1.2 vs. the old 1.5 -- combined with the new QE/dark-current
 stages don't blow out or crush the image), and that a nonzero
-`PixelGainStdPct`/`PixelReadNoiseStdPct` visibly introduces per-pixel
+`CamParam_PixelGainStdPct`/`CamParam_PixelReadNoiseStdPct` visibly introduces per-pixel
 fixed-pattern variation distinct from the existing offset map.
 
 ## Step 5 — Gibson-Lanni + Zernike aberrations — done
@@ -407,8 +407,8 @@ above in two deliberate ways decided during implementation** (see
 that motivated the first one):
 
 1. **Target model is `GibsonLanni`, not `RichardsWolf`.** Gibson & Lanni's
-   sample-refractive-index-mismatch/depth physics (`PsfSampleIndex`/
-   `PsfWorkingDistanceUm`/`PsfSampleDepthNm`, already exposed since step 1)
+   sample-refractive-index-mismatch/depth physics (`PSFParam_PsfSampleIndex`/
+   `PSFParam_PsfWorkingDistanceUm`/`PSFParam_PsfSampleDepthNm`, already exposed since step 1)
    is the more relevant aberration source for this project, and — a
    research finding from three background passes — PSFGenerator's own
    `GibsonLanniPSF.java` turns out to be exactly as radially-symmetric-only
@@ -470,25 +470,25 @@ unrelated physics change bundled into the same property.
   `PsfGeneratorRequest::zernikeCoefficients` (an already-formatted 15-value
   string); `PsfGeneratorBridge.cpp`'s JNI method signature/call site were
   extended to pass it as an additional trailing `jstring`.
-- New MM properties: `PsfZernikeCoefficients` (string, default all-zero,
+- New MM properties: `PSFParam_PsfZernikeCoefficients` (string, default all-zero,
   `OnPsfZernikeCoefficients` in `SMLMImageGeneration.cpp` follows the exact
   `OnPsfSampleIndex`-style `AfterSet` → `InvalidateStack()` pattern already
-  used for every other PSF param) and `PsfZernikePreset` (string, a
+  used for every other PSF param) and `PSFParam_PsfZernikePreset` (string, a
   dropdown of named literature-inspired aberration templates —
   `AstigmatismWeak`/`Moderate`/`Strong`, `ComaWeak`/`Strong`,
   `SphericalWeak`/`Strong`, `TrefoilModerate`, `MixedRealisticObjective` —
   see `Simulation/SMLMZernike.cpp`'s `ZernikePresetCoefficients` for the
   values and their sourcing caveats; selecting one overwrites
-  `PsfZernikeCoefficients` and pushes the resolved value to the property
+  `PSFParam_PsfZernikeCoefficients` and pushes the resolved value to the property
   browser via `OnPropertyChanged`, added per user request after the rest of
   step 5 was already in place, as a discoverability convenience on top of
   the raw 15-value property rather than a new source of truth).
-- `PsfModel` gained a `GibsonLanniZernike` allowed value.
+- `PSFParam_PsfModel` gained a `GibsonLanniZernike` allowed value.
 
 **Test** (verified via a standalone Java smoke test driving
 `PsfBridge.computePlanes` directly, plus a full solution build —
 **not yet visually confirmed inside Micro-Manager itself**): with
-`PsfModel = GibsonLanniZernike`, all-zero `PsfZernikeCoefficients` closely
+`PsfModel = GibsonLanniZernike`, all-zero `PSFParam_PsfZernikeCoefficients` closely
 reproduces `GibsonLanni`'s own output (regression check, ~0.16% relative L2
 at NA 1.4/660 nm); setting index 5 (vertical astigmatism, *not* index 6 —
 see the note below) nonzero visibly and substantially changes the rendered
@@ -500,7 +500,7 @@ earlier text here (and in `docs/vectorial-psf-step4-smlm-challenge-
 comparison.md`) referred to "index 6" for vertical astigmatism and "7/8"
 for coma. Working through the actual OSA/ANSI single-index formula
 (`j = n(n+1)/2 + l`, `n` = radial order, `l` sequential within `n`) that
-`PsfZernikeCoefficients`/`GibsonLanniZernikePSF` implement gives: 0 piston,
+`PSFParam_PsfZernikeCoefficients`/`GibsonLanniZernikePSF` implement gives: 0 piston,
 1 tip, 2 tilt, 3 oblique astigmatism, 4 defocus, **5 vertical astigmatism**,
 6 oblique trefoil, 7 vertical coma, **8 horizontal coma**, 9 vertical
 trefoil, 10 oblique quadrafoil, 11 oblique secondary astigmatism, 12
@@ -518,7 +518,7 @@ Build the device adapter (`DeviceAdapter/SMLMDemoCam/SMLMDemoCam.sln`/
 frames after each step as described above. No existing automated test
 suite was found for this project — confirm with a build + Micro-Manager
 Live-mode check at each stage before moving to the next. A Java runtime
-must be available (`PsfGeneratorJavaHome` or auto-detected) for every step
+must be available (`PSFParam_PsfGeneratorJavaHome` or auto-detected) for every step
 from 1 onward; step 5 additionally needs a JDK (`javac`/`jar`) at *build*
 time only, to compile `GibsonLanniZernikePSF.java`/`PsfBridge.java` and
 merge them into `third_party/SMLMPsfEmbedded.jar` — see CLAUDE.md's

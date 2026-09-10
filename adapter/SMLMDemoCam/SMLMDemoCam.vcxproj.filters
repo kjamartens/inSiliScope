@@ -37,6 +37,9 @@
     <ClCompile Include="Simulation\SMLMPatterns.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\SMLMStructures.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\SMLMNoise.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -58,6 +61,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMPatterns.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SMLMStructures.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMNoise.h">

@@ -113,6 +113,8 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    req.zernikeCoefficients = psfZernikeCoefficients_;
 
    req.javaHome = psfGeneratorJavaHome_;
+   req.interpMode = static_cast<sim::PsfInterpMode>(psfInterp_);
+   req.evalMethod = static_cast<sim::PsfEvalMethod>(psfEvalMethod_);
    return req;
 }
 
@@ -129,6 +131,31 @@ double CSMLMDemoCamera::ComputePsfSigmaPx() const
    // Keep it in a sane rendering range regardless of extreme wavelength/NA/
    // pixel-size combinations.
    return std::min(std::max(sigmaPx, 0.3), 20.0);
+}
+
+sim::StructureParams CSMLMDemoCamera::BuildStructureParams() const
+{
+   sim::StructureParams sp;
+   sp.zRangeNm = structureZRangeNm_.load();
+   sp.structureSizeNm = structureSizeNm_.load();
+   sp.labelingEfficiencyPct = labelingEfficiencyPct_.load();
+   sp.nupRadiusNm = nupRadiusNm_.load();
+   sp.nupCornerSpreadNm = nupCornerSpreadNm_.load();
+   sp.nupRingSeparationNm = nupRingSeparationNm_.load();
+   // NupLinkerMinNm/NupLinkerMaxNm have independent property limits (both
+   // 0-30nm) so a user can set min > max; clamp here rather than in the
+   // property handlers themselves, matching this codebase's existing
+   // "clamp at the point of use, not the point of entry" convention (see
+   // e.g. ComputePsfSigmaPx's own min/max clamp).
+   double linkerMin = nupLinkerMinNm_.load();
+   double linkerMax = nupLinkerMaxNm_.load();
+   sp.nupLinkerMinNm = std::min(linkerMin, linkerMax);
+   sp.nupLinkerMaxNm = std::max(linkerMin, linkerMax);
+   sp.nupMembrane = static_cast<sim::MembraneOrientation>(nupMembrane_);
+   sp.nupCount = nupCount_;
+   sp.nupMinSpacingNm = nupMinSpacingNm_.load();
+   sp.nupCurvatureNm = nupCurvatureNm_.load();
+   return sp;
 }
 
 void CSMLMDemoCamera::InvalidateStack()
@@ -175,24 +202,50 @@ void CSMLMDemoCamera::StartStackGeneration()
    long seed = randomSeed_;
    long length = stackLength_;
    sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
+   sim::StructureParams structure = BuildStructureParams();
 
    stackGenThread_ = std::thread(&CSMLMDemoCamera::StackGenerationWorker, this, length, fullW, fullH, params,
-                                  patternType, customFile, spacingsNm, seed, psfRequest);
+                                  patternType, customFile, spacingsNm, seed, psfRequest, structure);
 }
 
 void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, sim::SMLMPatternType patternType,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
-                                             long seed, sim::PsfGeneratorRequest psfRequest)
+                                             long seed, sim::PsfGeneratorRequest psfRequest,
+                                             sim::StructureParams structure)
 {
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
-
-   sim::EmitterModel model;
-   model.SetPattern(sim::CreatePattern(patternType, customPointsFile, spacingsNm));
-   model.Reseed(static_cast<uint64_t>(seed));
+   // Independent of localRng (see BuildStructurePattern's own doc comment
+   // in Simulation/SMLMStructures.h): site-list generation/labeling can
+   // never shift the arrival/noise stream above, at any StructureZRangeNm/
+   // Pattern setting.
+   uint64_t structureSeed = static_cast<uint64_t>(seed) ^ 0x5354525543545552ULL; // "STRUCTUR"
 
    double widthUm = fullW * params.pixelSizeNm / 1000.0;
    double heightUm = fullH * params.pixelSizeNm / 1000.0;
+
+   sim::EmitterModel model;
+   model.SetPattern(sim::CreatePattern(patternType, customPointsFile, spacingsNm, structure,
+                                        widthUm, heightUm, structureSeed));
+   model.Reseed(static_cast<uint64_t>(seed));
+
+   // Warn up front (before rendering a single frame) if the structure's own
+   // z extent will outrun the cached PSF kernel's z range -- catches a
+   // StructureZRangeNm/PsfZRangeUm mismatch immediately rather than only
+   // via the per-emitter clamp count below.
+   if (psfRequest.model != sim::PsfModelKind::Gaussian)
+   {
+      double structureHalfRangeNm = sim::StructureZExtentNm(patternType, structure);
+      double kernelHalfRangeNm = (psfRequest.nz > 1) ? (psfRequest.nz - 1) / 2.0 * psfRequest.zStepNm : 0.0;
+      if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
+      {
+         std::ostringstream warn;
+         warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's own z range "
+              << "(+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce StructureZRangeNm/"
+              << "StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
+         LogMessage(warn.str(), false);
+      }
+   }
 
    std::vector<sim::BlinkEvent> events =
       model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
@@ -221,6 +274,7 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
 
    std::vector<std::vector<uint16_t>> newStack(static_cast<size_t>(std::max(stackLength, 0L)));
    std::vector<float> photonImg;
+   long zClampedTotal = 0, zRenderedTotal = 0;
    for (long f = 0; f < stackLength; ++f)
    {
       double dx = 0.0, dy = 0.0;
@@ -230,12 +284,22 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
       double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
       sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm, params.psfSigmaPx,
                               params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm);
+                              localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm,
+                              &zClampedTotal, &zRenderedTotal);
       sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
                             params.quantumEfficiency, params.darkCurrentElectronsPerFrame,
                             params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap,
                             localGainMap, localReadNoiseMap, localRng);
       stackFramesGenerated_ = f + 1;
+   }
+   if (zClampedTotal > 0)
+   {
+      std::ostringstream warn;
+      warn << zClampedTotal << "/" << zRenderedTotal << " emitter renders had a total z (stage offset + "
+           << "structure depth) beyond the PSF kernel's own z range and were clamped to its end plane -- "
+           << "widen PsfZRangeUm or reduce StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/"
+           << "NupCurvatureNm.";
+      LogMessage(warn.str(), false);
    }
 
    {
@@ -265,12 +329,20 @@ void CSMLMDemoCamera::StartLiveProducer()
    liveFrameCounter_ = 0;
    liveDriftOriginFrame_ = 0;
    uint64_t liveSeed = static_cast<uint64_t>(randomSeed_) ^ 0xABCDEF1234567890ULL;
-   liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_));
+   // Independent structure-site rng stream, same rationale as
+   // StackGenerationWorker's structureSeed -- distinct XOR constant so the
+   // two modes' structure streams never collide even at the same
+   // RandomSeed.
+   uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL; // "LIVESTR1"
+   double pxSizeNm = pixelSizeNm_.load();
+   double widthUm = FullWidth() * pxSizeNm / 1000.0;
+   double heightUm = FullHeight() * pxSizeNm / 1000.0;
+   liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_,
+                                                    BuildStructureParams(), widthUm, heightUm, liveStructureSeed));
    liveEmitterModel_.Reseed(liveSeed);
    liveRng_.seed(liveSeed);
 
-   double pxSizeNm = pixelSizeNm_.load();
-   liveEmitterModel_.ResetLive(FullWidth() * pxSizeNm / 1000.0, FullHeight() * pxSizeNm / 1000.0);
+   liveEmitterModel_.ResetLive(widthUm, heightUm);
 
    {
       MMThreadGuard g(frontFrameLock_);
@@ -311,6 +383,13 @@ void CSMLMDemoCamera::LiveProducerLoop()
    // already primed them moments earlier (harmless redundancy, and it means
    // this loop doesn't depend on that priming being correct).
    long appliedConfigVersion = -1;
+   // Accumulated across ticks within one appliedConfigVersion and flushed
+   // (logged + reset) whenever the config changes -- logging every tick at
+   // live frame rates would flood the corelog, and the up-front
+   // StructureZExtentNm check on rebuild already covers the common
+   // "structure z extent misconfigured" case; this also catches "the Z
+   // stage was driven out of range while streaming".
+   long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
 
    while (liveProducerRun_.load())
    {
@@ -341,7 +420,17 @@ void CSMLMDemoCamera::LiveProducerLoop()
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
          gainMap.Generate(w, h, params.gainPhotonsPerAdu, params.pixelGainStdFraction, liveRng_);
          readNoiseMap.Generate(w, h, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, liveRng_);
-         liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_));
+         sim::StructureParams structure = BuildStructureParams();
+         // Re-derived from currentConfigVersion (not a fixed constant) so
+         // every rebuild gets an independent structure rng draw -- live
+         // mode was never required to be reproducible (see liveRng_ itself),
+         // so this only needs to avoid colliding with the arrival/noise
+         // stream above, not to be deterministic across rebuilds.
+         uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL ^
+                                       static_cast<uint64_t>(currentConfigVersion);
+         liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
+                                                          resolutionSpacingsNm_, structure, widthUm, heightUm,
+                                                          liveStructureSeed));
 
          sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
          if (psfRequest.model != sim::PsfModelKind::Gaussian)
@@ -353,11 +442,35 @@ void CSMLMDemoCamera::LiveProducerLoop()
                LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
                psfCache = sim::PsfKernelCache();
             }
+            else
+            {
+               double structureHalfRangeNm = sim::StructureZExtentNm(CurrentPatternType(), structure);
+               double kernelHalfRangeNm = (psfCache.nz > 1) ? (psfCache.nz - 1) / 2.0 * psfCache.zStepNm : 0.0;
+               if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
+               {
+                  std::ostringstream warn;
+                  warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's "
+                       << "own z range (+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce "
+                       << "StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
+                  LogMessage(warn.str(), false);
+               }
+            }
          }
          else
          {
             psfCache = sim::PsfKernelCache();
          }
+
+         if (zClampedSinceRebuild > 0)
+         {
+            std::ostringstream warn;
+            warn << zClampedSinceRebuild << "/" << zTotalSinceRebuild << " emitter renders had a total z "
+                 << "(stage offset + structure depth) beyond the PSF kernel's own z range and were clamped "
+                 << "to its end plane since the last config change.";
+            LogMessage(warn.str(), false);
+         }
+         zClampedSinceRebuild = 0;
+         zTotalSinceRebuild = 0;
 
          appliedConfigVersion = currentConfigVersion;
       }
@@ -380,7 +493,8 @@ void CSMLMDemoCamera::LiveProducerLoop()
       double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
       sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
                               params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              psfCache.valid ? &psfCache : nullptr, zOffsetUm);
+                              psfCache.valid ? &psfCache : nullptr, zOffsetUm,
+                              &zClampedSinceRebuild, &zTotalSinceRebuild);
 
       std::vector<uint16_t> nextFrame;
       sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.quantumEfficiency,
@@ -560,9 +674,10 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
-      const char* names[] = {g_PatternCircle, g_PatternLines,  g_PatternGrid,           g_PatternRandom,
-                              g_PatternCustom, g_PatternSpiral, g_PatternStar,           g_PatternHeart,
-                              g_PatternResolutionTarget};
+      const char* names[] = {g_PatternCircle,     g_PatternLines,   g_PatternGrid,
+                              g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
+                              g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
+                              g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup};
       pProp->Set(names[patternType_]);
    }
    else if (eAct == MM::AfterSet)
@@ -578,6 +693,10 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
       else if (s == g_PatternStar) patternType_ = sim::PATTERN_STAR;
       else if (s == g_PatternHeart) patternType_ = sim::PATTERN_HEART;
       else if (s == g_PatternResolutionTarget) patternType_ = sim::PATTERN_RESOLUTION_TARGET;
+      else if (s == g_PatternTiltedPlane) patternType_ = sim::PATTERN_TILTED_PLANE;
+      else if (s == g_PatternUniform3D) patternType_ = sim::PATTERN_UNIFORM_3D;
+      else if (s == g_PatternShell) patternType_ = sim::PATTERN_SHELL;
+      else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
 
       // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
       // polls every tick and rebuilds liveEmitterModel_'s pattern from
@@ -1057,6 +1176,149 @@ int CSMLMDemoCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType 
       // AfterSet here only updates our own member, not that other
       // property's displayed value.
       OnPropertyChanged(g_PropPsfZernikeCoefficients, psfZernikeCoefficients_.c_str());
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(labelingEfficiencyPct_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); labelingEfficiencyPct_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(structureZRangeNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureZRangeNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(structureSizeNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureSizeNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupRadiusNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRadiusNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupCornerSpreadNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCornerSpreadNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupRingSeparationNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRingSeparationNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMinNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMinNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMaxNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMaxNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(nupMembrane_ == static_cast<int>(sim::MembraneOrientation::TopDown) ? g_NupMembraneTopDown
+                                                                                        : g_NupMembraneSideways);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      nupMembrane_ = (s == g_NupMembraneSideways) ? static_cast<int>(sim::MembraneOrientation::Sideways)
+                                                    : static_cast<int>(sim::MembraneOrientation::TopDown);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(static_cast<long>(nupCount_));
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      long v;
+      pProp->Get(v);
+      if (v < 1)
+         v = 1;
+      nupCount_ = static_cast<int>(v);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupMinSpacingNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupMinSpacingNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(nupCurvatureNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCurvatureNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      const char* names[] = {g_PsfInterpNearest, g_PsfInterpLinear, g_PsfInterpCubic};
+      pProp->Set(names[psfInterp_]);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      if (s == g_PsfInterpLinear) psfInterp_ = static_cast<int>(sim::PsfInterpMode::Linear);
+      else if (s == g_PsfInterpCubic) psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
+      else psfInterp_ = static_cast<int>(sim::PsfInterpMode::Nearest);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfEvalMethod(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(psfEvalMethod_ == static_cast<int>(sim::PsfEvalMethod::ChirpZ) ? g_PsfEvalMethodChirpZ
+                                                                                    : g_PsfEvalMethodDirect);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      psfEvalMethod_ = (s == g_PsfEvalMethodChirpZ) ? static_cast<int>(sim::PsfEvalMethod::ChirpZ)
+                                                      : static_cast<int>(sim::PsfEvalMethod::Direct);
       InvalidateStack();
    }
    return DEVICE_OK;

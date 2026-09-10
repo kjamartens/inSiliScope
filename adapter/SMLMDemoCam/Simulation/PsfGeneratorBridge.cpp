@@ -24,16 +24,26 @@
 
 namespace sim {
 
-int PsfKernelCache::NearestZIndex(double zUm) const
+int PsfKernelCache::NearestZIndex(double zUm, bool* outClamped) const
 {
+   if (outClamped)
+      *outClamped = false;
    if (nz <= 1 || zStepNm <= 0.0)
       return 0;
    double idxF = zUm * 1000.0 / zStepNm + (nz - 1) / 2.0;
    int idx = static_cast<int>(std::lround(idxF));
    if (idx < 0)
+   {
       idx = 0;
+      if (outClamped)
+         *outClamped = true;
+   }
    if (idx >= nz)
+   {
       idx = nz - 1;
+      if (outClamped)
+         *outClamped = true;
+   }
    return idx;
 }
 
@@ -485,7 +495,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       if (!cls)
          break;
       jmethodID method =
-         env->GetStaticMethodID(cls, "computePlanes", "(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;)[F");
+         env->GetStaticMethodID(cls, "computePlanes",
+                                 "(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;Ljava/lang/String;)[F");
       if (!method)
       {
          outError = "psfbridge.PsfBridge.computePlanes not found: " + DescribeAndClearException(env);
@@ -504,6 +515,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 
       jstring modelStr = env->NewStringUTF(ModelName(req.model));
       jstring zernikeStr = env->NewStringUTF(req.zernikeCoefficients.c_str());
+      jstring evalMethodStr =
+         env->NewStringUTF(req.evalMethod == PsfEvalMethod::ChirpZ ? "chirpz" : "direct");
 
       if (logCallback)
       {
@@ -571,7 +584,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                                                      static_cast<jdouble>(req.sampleDepthNm),
                                                      static_cast<jdouble>(resLateralNm),
                                                      static_cast<jdouble>(req.zStepNm), static_cast<jint>(size),
-                                                     static_cast<jint>(size), static_cast<jint>(nz), zernikeStr);
+                                                     static_cast<jint>(size), static_cast<jint>(nz), zernikeStr,
+                                                     evalMethodStr);
 
       stopHeartbeat.store(true, std::memory_order_relaxed);
       if (heartbeat.joinable())
@@ -624,6 +638,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       outCache.sizeOversampled = size;
       outCache.nz = nz;
       outCache.zStepNm = req.zStepNm;
+      outCache.interpMode = req.interpMode;
       outCache.planes.assign(static_cast<size_t>(nz), std::vector<float>(planeFloats));
       for (int z = 0; z < nz; ++z)
          std::memcpy(outCache.planes[static_cast<size_t>(z)].data(), flat.data() + static_cast<size_t>(z) * planeFloats,
@@ -648,8 +663,69 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache,
 
 #endif
 
+namespace {
+
+// plane is size*size, row-major (x fastest). Returns 0 for any sample
+// location outside [0,size) on either axis -- out-of-range contributes
+// nothing rather than clamping to an edge value, matching Nearest mode's
+// existing "skip, don't clamp" convention for oversampled samples that
+// fall outside the plane.
+float PlaneAt(const float* plane, int size, int x, int y)
+{
+   if (x < 0 || x >= size || y < 0 || y >= size)
+      return 0.0f;
+   return plane[static_cast<size_t>(y) * size + x];
+}
+
+double SampleBilinear(const float* plane, int size, double fx, double fy)
+{
+   int x0 = static_cast<int>(std::floor(fx));
+   int y0 = static_cast<int>(std::floor(fy));
+   double tx = fx - x0, ty = fy - y0;
+   double v00 = PlaneAt(plane, size, x0, y0);
+   double v10 = PlaneAt(plane, size, x0 + 1, y0);
+   double v01 = PlaneAt(plane, size, x0, y0 + 1);
+   double v11 = PlaneAt(plane, size, x0 + 1, y0 + 1);
+   double top = v00 + (v10 - v00) * tx;
+   double bot = v01 + (v11 - v01) * tx;
+   return top + (bot - top) * ty;
+}
+
+// Catmull-Rom cubic convolution (a=-0.5), the standard "smooth but not
+// over-blurred" interpolation kernel -- same choice as the webSMLM
+// reference simulator's bicubic PSF-placement mode.
+double CubicWeight(double t)
+{
+   double at = std::fabs(t);
+   if (at <= 1.0)
+      return 1.5 * at * at * at - 2.5 * at * at + 1.0;
+   if (at < 2.0)
+      return -0.5 * at * at * at + 2.5 * at * at - 4.0 * at + 2.0;
+   return 0.0;
+}
+
+double SampleBicubic(const float* plane, int size, double fx, double fy)
+{
+   int x0 = static_cast<int>(std::floor(fx));
+   int y0 = static_cast<int>(std::floor(fy));
+   double tx = fx - x0, ty = fy - y0;
+   double wx[4] = {CubicWeight(tx + 1.0), CubicWeight(tx), CubicWeight(tx - 1.0), CubicWeight(tx - 2.0)};
+   double wy[4] = {CubicWeight(ty + 1.0), CubicWeight(ty), CubicWeight(ty - 1.0), CubicWeight(ty - 2.0)};
+   double result = 0.0;
+   for (int j = 0; j < 4; ++j)
+   {
+      double rowSum = 0.0;
+      for (int i = 0; i < 4; ++i)
+         rowSum += wx[i] * PlaneAt(plane, size, x0 - 1 + i, y0 - 1 + j);
+      result += wy[j] * rowSum;
+   }
+   return result;
+}
+
+} // namespace
+
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
-                     int zIndex, double xPx, double yPx, double totalPhotons)
+                     int zIndex, double xPx, double yPx, double totalPhotons, PsfInterpMode interpMode)
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return;
@@ -661,6 +737,7 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
    const int size = cache.sizeOversampled;
    const int camHalf = half / over;
    const std::vector<float>& plane = cache.planes[static_cast<size_t>(zIndex)];
+   const float* planeData = plane.data();
 
    const int cx = static_cast<int>(std::lround(xPx));
    const int cy = static_cast<int>(std::lround(yPx));
@@ -676,30 +753,62 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
       // Oversampled-index window covering camera-pixel offset dy, shifted
       // to account for the emitter's fractional-pixel position.
       double ovCenterY = half + (dy - fracY) * over;
-      int ovLoY = static_cast<int>(std::floor(ovCenterY - over / 2.0 + 0.5));
       for (int dx = -camHalf; dx <= camHalf; ++dx, ++idx)
       {
          double ovCenterX = half + (dx - fracX) * over;
-         int ovLoX = static_cast<int>(std::floor(ovCenterX - over / 2.0 + 0.5));
+         double v;
 
-         double acc = 0.0;
-         int cnt = 0;
-         for (int oy = 0; oy < over; ++oy)
+         if (interpMode == PsfInterpMode::Nearest)
          {
-            int sy = ovLoY + oy;
-            if (sy < 0 || sy >= size)
-               continue;
-            const float* row = plane.data() + static_cast<size_t>(sy) * size;
-            for (int ox = 0; ox < over; ++ox)
+            // Original behavior, unchanged: box-average over*over samples
+            // read at the INTEGER oversampled index nearest each sub-
+            // cell's continuous position -- quantizes sub-pixel placement
+            // to steps of 1/oversampling of a camera pixel.
+            int ovLoY = static_cast<int>(std::floor(ovCenterY - over / 2.0 + 0.5));
+            int ovLoX = static_cast<int>(std::floor(ovCenterX - over / 2.0 + 0.5));
+            double acc = 0.0;
+            int cnt = 0;
+            for (int oy = 0; oy < over; ++oy)
             {
-               int sx = ovLoX + ox;
-               if (sx < 0 || sx >= size)
+               int sy = ovLoY + oy;
+               if (sy < 0 || sy >= size)
                   continue;
-               acc += row[sx];
-               ++cnt;
+               const float* row = planeData + static_cast<size_t>(sy) * size;
+               for (int ox = 0; ox < over; ++ox)
+               {
+                  int sx = ovLoX + ox;
+                  if (sx < 0 || sx >= size)
+                     continue;
+                  acc += row[sx];
+                  ++cnt;
+               }
             }
+            v = cnt > 0 ? acc / cnt : 0.0;
          }
-         double v = cnt > 0 ? acc / cnt : 0.0;
+         else
+         {
+            // Linear/Cubic: sample at the exact CONTINUOUS oversampled
+            // coordinate for each sub-cell -- true sub-pixel placement, no
+            // 1/oversampling quantization. Averaged over over*over
+            // sub-cells the same way as Nearest (PlaneAt returns 0 for any
+            // out-of-plane sample, so the divisor is always over*over --
+            // no separate cnt bookkeeping needed here).
+            double baseY = ovCenterY - over / 2.0;
+            double baseX = ovCenterX - over / 2.0;
+            double acc = 0.0;
+            for (int oy = 0; oy < over; ++oy)
+            {
+               double sy = baseY + oy + 0.5;
+               for (int ox = 0; ox < over; ++ox)
+               {
+                  double sx = baseX + ox + 0.5;
+                  acc += (interpMode == PsfInterpMode::Cubic) ? SampleBicubic(planeData, size, sx, sy)
+                                                                : SampleBilinear(planeData, size, sx, sy);
+               }
+            }
+            v = acc / (static_cast<double>(over) * over);
+         }
+
          kernelVals[static_cast<size_t>(idx)] = v;
          sum += v;
       }
