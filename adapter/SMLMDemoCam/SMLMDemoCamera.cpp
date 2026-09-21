@@ -29,8 +29,6 @@ const char* g_PropPattern = "SimType_Pattern";
 const char* g_PropCustomPointsFile = "SimType_CustomPointsFile";
 const char* g_PropResolutionSpacingsNm = "SimType_ResolutionSpacingsNm";
 const char* g_PropFovSize = "General_FovSize";
-const char* g_PropStackLength = "General_StackLength";
-const char* g_PropStackLoop = "General_StackLoop";
 const char* g_PropGenerateStack = "General_GenerateStack";
 const char* g_PropStackStatus = "General_StackGenerationStatus";
 const char* g_PropEndOfStack = "General_EndOfStackReached";
@@ -43,19 +41,19 @@ const char* g_PropPixelSize = "General_PixelSizeNm";
 const char* g_PropBackgroundPerSec = "General_BackgroundPhotonsPerSec";
 const char* g_PropQuantumEfficiency = "CamParam_QuantumEfficiency";
 const char* g_PropDarkCurrentPerSec = "CamParam_DarkCurrentElectronsPerSec";
-const char* g_PropGain = "CamParam_CameraGainPhotonsPerADU";
-const char* g_PropOffset = "CamParam_CameraOffsetADU";
-const char* g_PropOffsetStd = "CamParam_CameraOffsetStdADU";
+const char* g_PropGain = "CamParam_GainPhotonsPerADU";
+const char* g_PropOffset = "CamParam_OffsetADU";
+const char* g_PropOffsetStd = "CamParam_OffsetStdADU";
 const char* g_PropReadNoise = "CamParam_ReadNoiseElectrons";
-const char* g_PropPixelGainStdPct = "CamParam_PixelGainStdPct";
-const char* g_PropPixelReadNoiseStdPct = "CamParam_PixelReadNoiseStdPct";
+const char* g_PropPixelGainStdPct = "CamParam_GainStdPctPerPixel";
+const char* g_PropPixelReadNoiseStdPct = "CamParam_ReadNoiseStdPctPerPixel";
 const char* g_PropDriftNmPerSec = "SimType_DriftNmPerSec";
 const char* g_PropRandomSeed = "SimType_RandomSeed";
 const char* g_PropActualFrameIntervalMs = "General_ActualFrameIntervalMs";
 const char* g_PropPsfModel = "PSFParam_PsfModel";
 const char* g_PropPsfImmersionIndex = "PSFParam_PsfImmersionIndex";
 const char* g_PropPsfOversampling = "PSFParam_PsfOversampling";
-const char* g_PropPsfKernelHalfWidthPx = "PSFParam_PsfKernelHalfWidthPx";
+const char* g_PropPsfKernelHalfWidthNm = "PSFParam_PsfKernelHalfWidthNm";
 const char* g_PropPsfGeneratorJavaHome = "PSFParam_PsfGeneratorJavaHome";
 const char* g_PropPsfZRangeUm = "PSFParam_PsfZRangeUm";
 const char* g_PropPsfZStepUm = "PSFParam_PsfZStepUm";
@@ -111,14 +109,11 @@ const char* g_PatternTiltedPlane = "TiltedPlane";
 const char* g_PatternUniform3D = "Uniform3D";
 const char* g_PatternShell = "Shell";
 const char* g_PatternNup = "NUP";
+const char* g_PatternCalibration9Spots = "Calibration9Spots";
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
 const char* g_Fov512 = "512x512";
-
-namespace {
-const char* g_YesNo[] = {"On", "Off"};
-} // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
 // CSMLMDemoCamera implementation
@@ -239,6 +234,8 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPattern, g_PatternUniform3D);
    AddAllowedValue(g_PropPattern, g_PatternShell);
    AddAllowedValue(g_PropPattern, g_PatternNup);
+   // Always-on calibration bead grid -- see Simulation/SMLMPatterns.h.
+   AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCustomPointsFile);
    CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
@@ -251,16 +248,9 @@ int CSMLMDemoCamera::Initialize()
    CreateStringProperty(g_PropResolutionSpacingsNm,
                          sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str(), false, pAct);
 
-   // Precomputed-stack properties
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStackLength);
-   CreateIntegerProperty(g_PropStackLength, stackLength_, false, pAct);
-   SetPropertyLimits(g_PropStackLength, 10, 20000);
-
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStackLoop);
-   CreateStringProperty(g_PropStackLoop, g_YesNo[0], false, pAct);
-   AddAllowedValue(g_PropStackLoop, g_YesNo[0]);
-   AddAllowedValue(g_PropStackLoop, g_YesNo[1]);
-
+   // Precomputed-stack properties. Stack length and looping are no longer
+   // user-facing (see stackLength_/stackLoop_ in SMLMDemoCamera.h) -- what
+   // remains is the trigger plus the two read-only status readbacks.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnGenerateStack);
    CreateIntegerProperty(g_PropGenerateStack, 0, false, pAct);
    SetPropertyLimits(g_PropGenerateStack, 0, 1);
@@ -343,10 +333,10 @@ int CSMLMDemoCamera::Initialize()
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge). Default model is
-   // GibsonLanni -- see psfModel_'s own initializer in SMLMDemoCamera.h;
-   // this string just needs to agree with it.
+   // GibsonLanniZernike -- see psfModel_'s own initializer in
+   // SMLMDemoCamera.h; this string just needs to agree with it.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfModel);
-   CreateStringProperty(g_PropPsfModel, g_PsfModelGibsonLanni, false, pAct);
+   CreateStringProperty(g_PropPsfModel, g_PsfModelGibsonLanniZernike, false, pAct);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGaussian);
    AddAllowedValue(g_PropPsfModel, g_PsfModelRichardsWolf);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanni);
@@ -360,9 +350,12 @@ int CSMLMDemoCamera::Initialize()
    CreateIntegerProperty(g_PropPsfOversampling, psfOversampling_, false, pAct);
    SetPropertyLimits(g_PropPsfOversampling, 1, 16);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfKernelHalfWidthPx);
-   CreateIntegerProperty(g_PropPsfKernelHalfWidthPx, psfKernelHalfWidthPx_, false, pAct);
-   SetPropertyLimits(g_PropPsfKernelHalfWidthPx, 2, 32);
+   // Expressed in nanometers (not camera pixels) so it stays physically
+   // meaningful when PixelSizeNm changes -- rounded to a whole pixel count
+   // internally, and still only a MINIMUM (see BuildPsfGeneratorRequest).
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfKernelHalfWidthNm);
+   CreateFloatProperty(g_PropPsfKernelHalfWidthNm, psfKernelHalfWidthNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropPsfKernelHalfWidthNm, 100.0, 20000.0);
 
    // PSFGenerator itself (and this project's bridge class) are embedded in
    // this DLL -- nothing to point at except, optionally, a specific JRE/JDK
@@ -402,7 +395,8 @@ int CSMLMDemoCamera::Initialize()
    // GibsonLanniZernike-only: 15-value comma-separated positional Zernike
    // coefficient list (OSA index 0-14, in waves -- see Simulation/
    // SMLMZernike.h's ZernikeCoefficients doc comment for the full mode
-   // list). Default is all-zero (unaberrated).
+   // list). Defaults to the MixedRealisticObjective preset's values (see
+   // psfZernikePreset_ in SMLMDemoCamera.h), not all-zero.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZernikeCoefficients);
    CreateStringProperty(g_PropPsfZernikeCoefficients, psfZernikeCoefficients_.c_str(), false, pAct);
 
@@ -473,19 +467,20 @@ int CSMLMDemoCamera::Initialize()
    SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
 
    // Sub-pixel PSF placement (vectorial PSF models only) -- see
-   // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default Nearest
-   // matches the original box-average splat exactly.
+   // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default is Cubic;
+   // Nearest reproduces the original box-average splat exactly.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfInterp);
-   CreateStringProperty(g_PropPsfInterp, g_PsfInterpNearest, false, pAct);
+   CreateStringProperty(g_PropPsfInterp, g_PsfInterpCubic, false, pAct);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpNearest);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpLinear);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpCubic);
 
    // GibsonLanniZernike-only chirp-Z fast evaluator -- see Simulation/
-   // PsfGeneratorBridge.h's PsfEvalMethod. Default Direct matches the
-   // original per-pixel polar-quadrature sum exactly.
+   // PsfGeneratorBridge.h's PsfEvalMethod. Default is ChirpZ (the fast
+   // path, and the only practical one at the default GibsonLanniZernike
+   // model); Direct reproduces the original per-pixel polar-quadrature sum.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfEvalMethod);
-   CreateStringProperty(g_PropPsfEvalMethod, g_PsfEvalMethodDirect, false, pAct);
+   CreateStringProperty(g_PropPsfEvalMethod, g_PsfEvalMethodChirpZ, false, pAct);
    AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodDirect);
    AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodChirpZ);
 

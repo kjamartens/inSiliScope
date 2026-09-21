@@ -4,7 +4,7 @@ Exercises: property wiring, pre-init enforcement (RandomSeed only -- FovSize
 is a regular, post-init property), background stack generation not blocking
 the calling thread, reproducibility (same seed + params -> identical
 precomputed stack), correct pixel shape/dtype, both acquisition modes
-end-to-end, and that changing a noise parameter (CameraOffsetStdADU) while
+end-to-end, and that changing a noise parameter (OffsetStdADU) while
 Live mode is streaming actually changes subsequent frames.
 
 Requires an MM nightly build installed (e.g. via `mmcore install`) whose
@@ -50,7 +50,11 @@ def load_camera(core: CMMCorePlus, label: str, seed: int, fov: str = "128x128") 
     core.setProperty(label, "General_FovSize", fov)  # regular property, set after init
 
 
-def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 60.0) -> None:
+# Generous default: the precomputed stack is a fixed 1000 frames now that
+# General_StackLength is gone (see CLAUDE.md), and the default PSF model is
+# the comparatively expensive GibsonLanniZernike -- a single generation is
+# tens of seconds, not the couple of seconds a 50-frame stack used to be.
+def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 600.0) -> None:
     t0 = time.time()
     while True:
         status = core.getProperty(label, "General_StackGenerationStatus")
@@ -75,7 +79,6 @@ print("Pre-init property confirmed: RandomSeed (FovSize confirmed NOT pre-init)"
 
 # --- Precomputed mode: trigger generation, poll status, snap -----------
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-core.setProperty("SMLMCam", "General_StackLength", "50")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
 print("Stack generation status:", core.getProperty("SMLMCam", "General_StackGenerationStatus"))
@@ -102,7 +105,6 @@ for _ in range(4):
 core.unloadDevice("SMLMCam")
 load_camera(core, "SMLMCam", seed=42, fov="128x128")
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-core.setProperty("SMLMCam", "General_StackLength", "50")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
 
@@ -120,7 +122,6 @@ print("Reproducibility OK: identical seed+params produced byte-identical frames"
 core.unloadDevice("SMLMCam")
 load_camera(core, "SMLMCam", seed=43, fov="128x128")
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-core.setProperty("SMLMCam", "General_StackLength", "50")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
 core.snapImage()
@@ -163,7 +164,7 @@ new_props = [
 for name in new_props:
     core.getProperty("SMLMCam", name)  # raises if the property doesn't exist
 pattern_values = set(core.getAllowedPropertyValues("SMLMCam", "SimType_Pattern"))
-for expected in ("TiltedPlane", "Uniform3D", "Shell", "NUP"):
+for expected in ("TiltedPlane", "Uniform3D", "Shell", "NUP", "Calibration9Spots"):
     assert expected in pattern_values, f"expected Pattern to allow {expected!r}, got {pattern_values}"
 membrane_values = set(core.getAllowedPropertyValues("SMLMCam", "SimType_NupMembraneType"))
 assert membrane_values == {"TopDown", "Sideways"}, \
@@ -171,10 +172,44 @@ assert membrane_values == {"TopDown", "Sideways"}, \
 print("3D structure property wiring OK:", len(new_props), "properties present,",
       "Pattern/NupMembraneType allowed values confirmed")
 
+# --- Renamed / removed properties ---------------------------------------
+all_props = set(core.getDevicePropertyNames("SMLMCam"))
+renamed = [
+    "CamParam_GainPhotonsPerADU", "CamParam_OffsetADU", "CamParam_OffsetStdADU",
+    "CamParam_GainStdPctPerPixel", "CamParam_ReadNoiseStdPctPerPixel",
+    "PSFParam_PsfKernelHalfWidthNm",
+]
+missing = [n for n in renamed if n not in all_props]
+assert not missing, f"expected renamed properties to exist, missing: {missing}"
+gone = [
+    "General_StackLength", "General_StackLoop", "PSFParam_PsfKernelHalfWidthPx",
+    "CamParam_CameraGainPhotonsPerADU", "CamParam_CameraOffsetADU", "CamParam_CameraOffsetStdADU",
+    "CamParam_PixelGainStdPct", "CamParam_PixelReadNoiseStdPct",
+]
+still_there = [n for n in gone if n in all_props]
+assert not still_there, f"expected these properties to be removed/renamed away, still present: {still_there}"
+print("Property surface OK:", len(renamed), "renamed properties present,", len(gone), "old names gone")
+
+# --- Defaults ------------------------------------------------------------
+# A freshly loaded device (see load_camera above -- it only sets RandomSeed
+# and FovSize) must come up with these out-of-the-box values.
+for name, expected in [
+    ("General_LabelingEfficiencyPct", "70"),
+    ("PSFParam_PsfEvalMethod", "ChirpZ"),
+    ("PSFParam_PsfInterp", "Cubic"),
+    ("PSFParam_PsfModel", "GibsonLanniZernike"),
+    ("PSFParam_PsfOversampling", "6"),
+    ("PSFParam_PsfZernikePreset", "MixedRealisticObjective"),
+    ("SimType_NupCount", "80"),
+    ("PSFParam_PsfKernelHalfWidthNm", "3000"),
+]:
+    actual = core.getProperty("SMLMCam", name)
+    assert float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected,         f"expected {name} to default to {expected!r}, got {actual!r}"
+print("Defaults OK:", "8 out-of-the-box values confirmed")
+
 # --- NUP: end-to-end + reproducibility -----------------------------------
 core.setProperty("SMLMCam", "SimType_Pattern", "NUP")
 core.setProperty("SMLMCam", "SimType_NupCount", "8")
-core.setProperty("SMLMCam", "General_StackLength", "30")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
 core.snapImage()
@@ -186,7 +221,6 @@ load_camera(core, "SMLMCam", seed=42, fov="128x128")
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
 core.setProperty("SMLMCam", "SimType_Pattern", "NUP")
 core.setProperty("SMLMCam", "SimType_NupCount", "8")
-core.setProperty("SMLMCam", "General_StackLength", "30")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
 core.snapImage()
@@ -202,7 +236,6 @@ print("NUP pattern OK: non-blank, byte-identical across two runs of the same see
 # mean/std intensity, which would not reliably change.
 core.setProperty("SMLMCam", "SimType_Pattern", "Shell")
 core.setProperty("SMLMCam", "General_BackgroundPhotonsPerSec", "0.0")
-core.setProperty("SMLMCam", "General_StackLength", "50")
 
 
 def summed_bright_area(threshold_frac=0.5):
@@ -227,7 +260,7 @@ core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "100")
 area_full = summed_bright_area()
 core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "10")
 area_low = summed_bright_area()
-core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "100")  # restore default
+core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "70")  # restore default
 assert area_low < area_full, (
     f"expected LabelingEfficiencyPct=10 to light up fewer distinct sites than =100 "
     f"(full={area_full}px, low={area_low}px) -- labeling filter may not be reaching the renderer"
@@ -287,7 +320,77 @@ assert float(interval_ms) < 100.0, (
 )
 print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms}ms with NupCount=200 streaming live")
 core.setProperty("SMLMCam", "SimType_Pattern", "Circle")  # restore default
-core.setProperty("SMLMCam", "SimType_NupCount", "20")  # restore default
+core.setProperty("SMLMCam", "SimType_NupCount", "80")  # restore default
+
+# --- Calibration9Spots: nine ALWAYS-ON beads on a 3x3 grid ---------------
+# The point of this pattern is that it bypasses the blinking model entirely
+# (IPatternGenerator::AlwaysOnSites): every frame must show the same nine
+# spots at the same x,y. Assert both halves -- the count (exactly 9 bright
+# blobs) and the always-on part (a single frame already shows all nine, and
+# two different frames agree on where they are).
+core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
+core.setProperty("SMLMCam", "SimType_Pattern", "Calibration9Spots")
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")  # fast; spot geometry is what matters here
+core.setProperty("SMLMCam", "General_BackgroundPhotonsPerSec", "0.0")
+core.setProperty("SMLMCam", "General_GenerateStack", "1")
+wait_for_stack(core, "SMLMCam")
+
+
+def bright_blob_centroids(img, threshold_frac=0.3):
+    """Flood-fill the pixels above threshold and return each blob's centroid.
+
+    A tiny hand-rolled connected-components pass rather than scipy.ndimage --
+    this is the only place the test suite needs one, and 128x128 makes an
+    explicit stack-based flood fill trivially fast.
+    """
+    a = img.astype(np.float64)
+    a -= a.min()
+    mask = a > threshold_frac * a.max()
+    h, w = mask.shape
+    seen = np.zeros_like(mask)
+    centroids = []
+    for sy in range(h):
+        for sx in range(w):
+            if not mask[sy, sx] or seen[sy, sx]:
+                continue
+            stack, pts = [(sy, sx)], []
+            seen[sy, sx] = True
+            while stack:
+                y, x = stack.pop()
+                pts.append((y, x))
+                for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+            centroids.append((sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)))
+    return centroids
+
+
+core.snapImage()
+cal_a = bright_blob_centroids(core.getImage())
+core.snapImage()
+cal_b = bright_blob_centroids(core.getImage())
+assert len(cal_a) == 9, f"expected exactly 9 always-on calibration spots in a single frame, got {len(cal_a)}"
+assert len(cal_b) == 9, f"expected all 9 calibration spots in the NEXT frame too, got {len(cal_b)}"
+# Pair the two frames' spots by nearest neighbour rather than by sorting --
+# noise shifts each centroid by a fraction of a pixel, which is enough to
+# reorder a plain sort of (y, x) tuples even though every spot is exactly
+# where it should be.
+for ay, ax in cal_a:
+    dist, (by, bx) = min(((ay - cy) ** 2 + (ax - cx) ** 2, (cy, cx)) for cy, cx in cal_b)
+    assert dist ** 0.5 < 1.0, (
+        f"calibration spot at ({ay:.2f},{ax:.2f}) has no counterpart within 1px in the next "
+        f"frame (nearest is ({by:.2f},{bx:.2f})) -- these emitters are supposed to be fixed "
+        "and always on"
+    )
+# The nine centroids must form a regular 3x3 grid: exactly 3 distinct rows
+# and 3 distinct columns, evenly spaced.
+rows = sorted({round(y / 4.0) for y, _ in cal_a})
+cols = sorted({round(x / 4.0) for _, x in cal_a})
+assert len(rows) == 3 and len(cols) == 3,     f"expected the 9 spots to form a 3x3 grid, got {len(rows)} rows x {len(cols)} cols"
+print("Calibration9Spots OK: 9 always-on beads on a 3x3 grid, identical positions frame to frame")
+core.setProperty("SMLMCam", "SimType_Pattern", "Circle")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restore default
 
 # --- PsfInterp / PsfEvalMethod: property wiring + non-blank sanity -------
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
@@ -295,7 +398,6 @@ core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")
 core.setProperty("SMLMCam", "PSFParam_PsfZernikePreset", "AstigmatismModerate")
 core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "2")
 core.setProperty("SMLMCam", "PSFParam_PsfZStepUm", "0.2")
-core.setProperty("SMLMCam", "General_StackLength", "10")
 interp_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfInterp"))
 assert interp_values == {"Nearest", "Linear", "Cubic"}, f"unexpected PsfInterp values: {interp_values}"
 evalmethod_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfEvalMethod"))
@@ -310,38 +412,38 @@ for interp in ("Nearest", "Linear", "Cubic"):
         img = core.getImage()
         assert img.std() > 0, f"expected non-blank frame at PsfInterp={interp}, PsfEvalMethod={method}"
 print("PsfInterp/PsfEvalMethod OK: allowed values confirmed, all 6 combinations produce non-blank frames")
-core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Nearest")  # restore default
-core.setProperty("SMLMCam", "PSFParam_PsfEvalMethod", "Direct")  # restore default
-core.setProperty("SMLMCam", "PSFParam_PsfZernikePreset", "None")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Cubic")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfEvalMethod", "ChirpZ")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfZernikePreset", "MixedRealisticObjective")  # restore default
 core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "7")  # restore default
 core.setProperty("SMLMCam", "PSFParam_PsfZStepUm", "0.1")  # restore default
-core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanni")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restore default
 
 # --- Regression: changing a noise parameter mid-Live-stream must actually
 # change subsequent frames, without needing to toggle AcqMode or restart
-# anything (this used to silently no-op for CameraOffsetStdADU/CameraOffsetADU
+# anything (this used to silently no-op for OffsetStdADU/OffsetADU
 # because the live producer thread cached its fixed-pattern offset map and
 # only rebuilt it on a frame-size change). Use a large offset-std delta so
 # the resulting frame-to-frame std shift is unambiguous against ordinary
 # shot/read noise.
-core.setProperty("SMLMCam", "CamParam_CameraOffsetStdADU", "0.0")
+core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "0.0")
 core.setProperty("SMLMCam", "General_BackgroundPhotonsPerSec", "0.0")
 time.sleep(0.3)  # let a few live ticks pass with the low-offset-std setting
 core.snapImage()
 std_before = float(np.std(core.getImage().astype(np.float64)))
 
-core.setProperty("SMLMCam", "CamParam_CameraOffsetStdADU", "50.0")
+core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "50.0")
 time.sleep(0.3)  # let the live producer thread pick up the change
 core.snapImage()
 std_after = float(np.std(core.getImage().astype(np.float64)))
 
 print("Live offset-std hookup: measured frame std before=%.3f after=%.3f" % (std_before, std_after))
 assert std_after > std_before + 10.0, (
-    f"expected CameraOffsetStdADU=50 to visibly increase frame-to-frame pixel std "
-    f"vs CameraOffsetStdADU=0 (before={std_before:.3f}, after={std_after:.3f}) -- "
+    f"expected OffsetStdADU=50 to visibly increase frame-to-frame pixel std "
+    f"vs OffsetStdADU=0 (before={std_before:.3f}, after={std_after:.3f}) -- "
     "looks like the live producer thread isn't picking up the change"
 )
-core.setProperty("SMLMCam", "CamParam_CameraOffsetStdADU", "0.5")  # restore default
-print("Regression OK: CameraOffsetStdADU change took effect live, no restart needed")
+core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "0.5")  # restore default
+print("Regression OK: OffsetStdADU change took effect live, no restart needed")
 
 print("All SMLMDemoCam smoke tests passed.")

@@ -420,6 +420,45 @@ EmitterSite CustomPointsPattern::SampleSite(double widthUm, double heightUm, std
    return {n.xUm * widthUm, n.yUm * heightUm};
 }
 
+namespace {
+// The nine bead centers, micrometers, for Calibration9SpotsPattern: a 3x3
+// grid centered on the FOV, spaced by a quarter of the smaller FOV side so
+// the grid spans half the frame with a comfortable margin all round. Shared
+// by SampleSite and AlwaysOnSites so the two can never disagree.
+std::vector<EmitterSite> Calibration9SpotCenters(double widthUm, double heightUm)
+{
+   double spacingUm = std::min(widthUm, heightUm) / 4.0;
+   double cx = widthUm / 2.0;
+   double cy = heightUm / 2.0;
+   std::vector<EmitterSite> sites;
+   sites.reserve(9);
+   for (int gy = -1; gy <= 1; ++gy)
+      for (int gx = -1; gx <= 1; ++gx)
+      {
+         EmitterSite s;
+         s.xUm = cx + gx * spacingUm;
+         s.yUm = cy + gy * spacingUm;
+         s.zNm = 0.0; // beads sit exactly in the nominal focal plane; the Z stage scans past them
+         sites.push_back(s);
+      }
+   return sites;
+}
+} // namespace
+
+EmitterSite Calibration9SpotsPattern::SampleSite(double widthUm, double heightUm, std::mt19937_64& rng) const
+{
+   std::vector<EmitterSite> sites = Calibration9SpotCenters(widthUm, heightUm);
+   std::uniform_int_distribution<size_t> pick(0, sites.size() - 1);
+   return sites[pick(rng)];
+}
+
+bool Calibration9SpotsPattern::AlwaysOnSites(double widthUm, double heightUm,
+                                              std::vector<EmitterSite>& out) const
+{
+   out = Calibration9SpotCenters(widthUm, heightUm);
+   return true;
+}
+
 EmitterSite ZSpreadPattern::SampleSite(double widthUm, double heightUm, std::mt19937_64& rng) const
 {
    EmitterSite site = inner_->SampleSite(widthUm, heightUm, rng);
@@ -471,6 +510,13 @@ std::unique_ptr<IPatternGenerator> CreatePattern(SMLMPatternType type, const std
          return MaybeAddZSpread(std::make_unique<HeartPattern>(spacingsNm), structure);
       case PATTERN_RESOLUTION_TARGET:
          return MaybeAddZSpread(std::make_unique<ResolutionTargetPattern>(spacingsNm), structure);
+      case PATTERN_CALIBRATION_9_SPOTS:
+         // Deliberately NOT wrapped in ZSpreadPattern: the whole point of a
+         // calibration bead field is that every bead sits at the same known
+         // z, so the Z stage's position alone determines the defocus. A
+         // random per-bead z spread would destroy that, and ZSpreadPattern
+         // does not forward AlwaysOnSites() anyway.
+         return std::make_unique<Calibration9SpotsPattern>();
       case PATTERN_TILTED_PLANE:
       case PATTERN_UNIFORM_3D:
       case PATTERN_SHELL:

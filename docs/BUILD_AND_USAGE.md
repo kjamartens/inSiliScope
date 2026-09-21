@@ -76,7 +76,7 @@ per frame, exactly as changing a real camera's exposure time would.
   few ticks -- `SimType_Pattern`, `SimType_CustomPointsFile`, `SimType_ResolutionSpacingsNm`,
   `General_FovSize`, `Binning`, `General_EmitterDensityPerSec`, `FluoParam_PhotonsPerSecond`, `FluoParam_OnLifetimeSec`,
   `PSFParam_PsfEmissionWavelengthNm`, `PSFParam_PsfNa`, `General_PixelSizeNm`, `General_BackgroundPhotonsPerSec`,
-  `CamParam_CameraGainPhotonsPerADU`, `CamParam_CameraOffsetADU`, `CamParam_CameraOffsetStdADU`,
+  `CamParam_GainPhotonsPerADU`, `CamParam_OffsetADU`, `CamParam_OffsetStdADU`,
   `CamParam_ReadNoiseElectrons`, `SimType_DriftNmPerSec`. The read-only `General_ActualFrameIntervalMs`
   property reports a rolling average (last 10 frames) of the actual
   wall-clock time between frames the producer thread publishes -- useful for
@@ -88,18 +88,21 @@ per frame, exactly as changing a real camera's exposure time would.
   emitters. This is driven by a single internal "config changed" signal that
   every relevant property handler raises, so newly added parameters are
   covered automatically rather than needing individual wiring.
-- **Precomputed mode**: set `AcqMode=Precomputed`. Set `SimType_Pattern`,
-  `General_StackLength`, and the simulation parameters above, then write `1` to
+- **Precomputed mode**: set `AcqMode=Precomputed`. Set `SimType_Pattern` and
+  the simulation parameters above, then write `1` to
   `General_GenerateStack` (generation also auto-triggers on first Snap/Live/sequence
   use if you never touch it, and re-triggers automatically whenever any
   simulation parameter, `SimType_Pattern`, `Binning`, `General_FovSize`, `Exposure`, or
   `SimType_RandomSeed` changes). Poll `General_StackGenerationStatus` -- or just Snap; it
   blocks until ready -- until it reads `Ready (N frames)`. Then Snap, Live,
-  or run a Multi-D Acquisition as usual; the movie will loop
-  (`StackLoop=On`, default) or clamp at the last frame (`StackLoop=Off`, in
-  which case `General_EndOfStackReached` becomes `Yes`). Stopping a Live/sequence
-  acquisition never blocks on generation finishing -- it returns promptly
-  even mid-generation.
+  or run a Multi-D Acquisition as usual; the movie loops back to frame 0 at
+  the end. The stack is a fixed 1000 frames and always loops -- both used to
+  be the `General_StackLength`/`General_StackLoop` properties, since removed;
+  `General_EndOfStackReached` is consequently always `No`. Note that a
+  generation pass at the default `PSFParam_PsfModel = GibsonLanniZernike` is
+  tens of seconds, so the first Snap after switching to this mode takes a
+  while. Stopping a Live/sequence acquisition never blocks on generation
+  finishing -- it returns promptly even mid-generation.
 
 ### Drift
 
@@ -111,7 +114,7 @@ from the Live button or an MDA run) resets the drift ramp to its origin, so
 drift never carries over mid-ramp from a previous run. In Precomputed mode
 this also means the ramp restarts from frame 0 of the stack even if a
 previous acquisition had advanced partway through it (or looped several
-times via `General_StackLoop`).
+times).
 
 ### PSF size
 

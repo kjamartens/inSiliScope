@@ -71,25 +71,33 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    req.pixelSizeNm = pixelSizeNm_.load();
    req.oversampling = psfOversampling_;
 
-   // PsfKernelHalfWidthPx (2-32 camera px via its property limits) is
-   // treated as a user-settable MINIMUM here, auto-grown as needed so the
-   // splatted kernel always comfortably covers the first-order Airy ring
-   // regardless of NA/wavelength/pixel size. Without this, a low-NA/
-   // long-wavelength combination -- both within the allowed property
-   // ranges -- can put the first ring outside a small fixed window,
-   // silently truncating it (the rendered spot then just looks like a
-   // soft square blob with no visible ring, since SplatPsfKernel simply
+   // PsfKernelHalfWidthNm (100-20000 nm via its property limits) is a
+   // physical half-width, rounded here to the nearest whole camera pixel
+   // against the current pixel size -- so the rendered window covers the
+   // same physical extent regardless of what PixelSizeNm is set to, which
+   // a pixel-denominated property could not do.
+   //
+   // The result is then treated as a user-settable MINIMUM, auto-grown as
+   // needed so the splatted kernel always comfortably covers the
+   // first-order Airy ring regardless of NA/wavelength/pixel size. Without
+   // this, a low-NA/long-wavelength combination -- both within the allowed
+   // property ranges -- can put the first ring outside a small fixed
+   // window, silently truncating it (the rendered spot then just looks like
+   // a soft square blob with no visible ring, since SplatPsfKernel simply
    // never sees data beyond the window it's given). The margin (3x the
    // classic Rayleigh first-minimum radius, 0.61*lambda/NA) comfortably
    // clears the first bright secondary maximum, mirroring the
    // physics-derived approach ComputePsfSigmaPx() already uses for the
    // Gaussian renderer. Capped at 48 px regardless of physics to keep the
    // oversampled grid PSFGenerator computes from growing unboundedly.
+   int requestedHalfWidthPx =
+      static_cast<int>(std::lround(psfKernelHalfWidthNm_.load() / req.pixelSizeNm));
+   requestedHalfWidthPx = std::max(requestedHalfWidthPx, 1);
    double na = req.na > 0.0 ? req.na : 0.01;
    double rayleighRadiusNm = 0.61 * req.wavelengthNm / na;
    int minHalfWidthPx = static_cast<int>(std::ceil(3.0 * rayleighRadiusNm / req.pixelSizeNm));
    minHalfWidthPx = std::min(std::max(minHalfWidthPx, 2), 48);
-   req.kernelHalfWidthPx = std::max(psfKernelHalfWidthPx_, minHalfWidthPx);
+   req.kernelHalfWidthPx = std::max(requestedHalfWidthPx, minHalfWidthPx);
 
    // Real Z-stack (step 2): nz/zStepNm are derived from the user-facing
    // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. The global
@@ -677,7 +685,8 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
       const char* names[] = {g_PatternCircle,     g_PatternLines,   g_PatternGrid,
                               g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
                               g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
-                              g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup};
+                              g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup,
+                              g_PatternCalibration9Spots};
       pProp->Set(names[patternType_]);
    }
    else if (eAct == MM::AfterSet)
@@ -697,6 +706,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
       else if (s == g_PatternUniform3D) patternType_ = sim::PATTERN_UNIFORM_3D;
       else if (s == g_PatternShell) patternType_ = sim::PATTERN_SHELL;
       else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
+      else if (s == g_PatternCalibration9Spots) patternType_ = sim::PATTERN_CALIBRATION_9_SPOTS;
 
       // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
       // polls every tick and rebuilds liveEmitterModel_'s pattern from
@@ -792,37 +802,6 @@ int CSMLMDemoCamera::OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct)
          return DEVICE_ERR;
       binSize_ = b;
       ApplyFrameSizeChange();
-   }
-   return DEVICE_OK;
-}
-
-int CSMLMDemoCamera::OnStackLength(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(stackLength_);
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      long v;
-      pProp->Get(v);
-      stackLength_ = v;
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CSMLMDemoCamera::OnStackLoop(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(stackLoop_ ? "On" : "Off");
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      stackLoop_ = (s == "On");
    }
    return DEVICE_OK;
 }
@@ -1059,21 +1038,10 @@ int CSMLMDemoCamera::OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfKernelHalfWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CSMLMDemoCamera::OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(static_cast<long>(psfKernelHalfWidthPx_));
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      long v;
-      pProp->Get(v);
-      if (v < 1)
-         v = 1;
-      psfKernelHalfWidthPx_ = static_cast<int>(v);
-      InvalidateStack();
-   }
+   if (eAct == MM::BeforeGet) pProp->Set(psfKernelHalfWidthNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfKernelHalfWidthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

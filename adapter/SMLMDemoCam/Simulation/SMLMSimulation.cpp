@@ -111,6 +111,20 @@ std::vector<BlinkEvent> EmitterModel::GenerateAllEvents(long nFrames, double wid
    if (!pattern_ || nFrames <= 0)
       return events;
 
+   // Always-on patterns (calibration bead fields -- see
+   // IPatternGenerator::AlwaysOnSites) bypass the blinking process entirely:
+   // one event per site, spanning the whole movie, so every frame renders
+   // the identical set of emitters at full brightness. Consumes ZERO rng
+   // draws, so switching to such a pattern cannot shift the noise stream.
+   std::vector<EmitterSite> alwaysOn;
+   if (pattern_->AlwaysOnSites(widthUm, heightUm, alwaysOn))
+   {
+      events.reserve(alwaysOn.size());
+      for (const EmitterSite& s : alwaysOn)
+         events.push_back({s.xUm, s.yUm, s.zNm, -1.0, static_cast<double>(nFrames) + 1.0});
+      return events;
+   }
+
    double lifetime = std::max(params.onLifetimeFrames, kMinLifetimeFrames);
    double area = widthUm * heightUm;
    double leadIn = 5.0 * lifetime;
@@ -142,6 +156,24 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
                                                         const SimulationParams& params,
                                                         std::mt19937_64& rng)
 {
+   // Always-on patterns: same bypass as GenerateAllEvents above, except that
+   // a live stream has no known end frame -- so the (fixed) event list is
+   // rebuilt each tick to span exactly this frame. liveActive_ stays empty,
+   // which is also what makes a switch back to a blinking pattern clean.
+   if (pattern_)
+   {
+      std::vector<EmitterSite> alwaysOn;
+      if (pattern_->AlwaysOnSites(widthUm, heightUm, alwaysOn))
+      {
+         std::vector<BlinkEvent> events;
+         events.reserve(alwaysOn.size());
+         for (const EmitterSite& s : alwaysOn)
+            events.push_back({s.xUm, s.yUm, s.zNm, static_cast<double>(frameIndex),
+                               static_cast<double>(frameIndex) + 1.0});
+         return events;
+      }
+   }
+
    if (pattern_)
    {
       double lifetime = std::max(params.onLifetimeFrames, kMinLifetimeFrames);

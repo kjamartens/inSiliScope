@@ -47,8 +47,6 @@ extern const char* g_PropPattern;
 extern const char* g_PropCustomPointsFile;
 extern const char* g_PropResolutionSpacingsNm;
 extern const char* g_PropFovSize;
-extern const char* g_PropStackLength;
-extern const char* g_PropStackLoop;
 extern const char* g_PropGenerateStack;
 extern const char* g_PropStackStatus;
 extern const char* g_PropEndOfStack;
@@ -73,7 +71,7 @@ extern const char* g_PropActualFrameIntervalMs;
 extern const char* g_PropPsfModel;
 extern const char* g_PropPsfImmersionIndex;
 extern const char* g_PropPsfOversampling;
-extern const char* g_PropPsfKernelHalfWidthPx;
+extern const char* g_PropPsfKernelHalfWidthNm;
 extern const char* g_PropPsfGeneratorJavaHome;
 extern const char* g_PropPsfZRangeUm;
 extern const char* g_PropPsfZStepUm;
@@ -134,6 +132,7 @@ extern const char* g_PatternTiltedPlane;
 extern const char* g_PatternUniform3D;
 extern const char* g_PatternShell;
 extern const char* g_PatternNup;
+extern const char* g_PatternCalibration9Spots;
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -194,8 +193,6 @@ public:
    int OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnStackLength(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnStackLoop(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -220,7 +217,7 @@ public:
    int OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnPsfKernelHalfWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -339,6 +336,10 @@ private:
    // Precomputed-stack storage
    std::vector<std::vector<uint16_t>> stack_;
    unsigned stackFrameW_ = 0, stackFrameH_ = 0;
+   // No longer user-facing MM properties (removed): a precomputed stack is
+   // always this long and always loops. Kept as members rather than being
+   // inlined at their use sites so the playback/generation code below reads
+   // unchanged, and so re-exposing either is a one-line property add.
    long stackLength_ = 1000;
    std::atomic<long> stackFramesGenerated_{0};
    std::atomic<bool> stackGenerating_{false};
@@ -448,11 +449,10 @@ private:
 
    // 3D structures / labeling efficiency (Simulation/SMLMStructures.h).
    // StructureZRangeNm defaults to 500 (not 0) so 3D structures/spread are
-   // visible out of the box once this feature is wired up -- a deliberate,
-   // documented exception to every other new default in this feature,
-   // which otherwise leave existing RandomSeed configs byte-identical (see
-   // CLAUDE.md and docs/vectorial-psf-plan.md).
-   std::atomic<double> labelingEfficiencyPct_{100.0};
+   // visible out of the box -- see CLAUDE.md and docs/vectorial-psf-plan.md.
+   // LabelingEfficiencyPct's 70 (not 100) is likewise a deliberate "look
+   // like a real experiment out of the box" default, not a neutral one.
+   std::atomic<double> labelingEfficiencyPct_{70.0};
    std::atomic<double> structureZRangeNm_{500.0};
    std::atomic<double> structureSizeNm_{500.0};
    std::atomic<double> nupRadiusNm_{53.5};
@@ -463,19 +463,19 @@ private:
    // Plain member, same convention as patternType_/psfModel_ (read by the
    // live producer thread without extra synchronization).
    int nupMembrane_ = static_cast<int>(sim::MembraneOrientation::TopDown);
-   int nupCount_ = 20;
+   int nupCount_ = 80;
    std::atomic<double> nupMinSpacingNm_{200.0};
    std::atomic<double> nupCurvatureNm_{150.0};
 
-   // Sub-pixel PSF splat sampling mode -- Nearest matches the original
-   // box-average behavior exactly (default, so existing configs are
-   // unaffected); Linear/Cubic remove the 1/oversampling placement
-   // quantization -- see Simulation/PsfGeneratorBridge.h's PsfInterpMode.
-   // Plain member, same convention as psfModel_/patternType_.
-   int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Nearest);
-   // GibsonLanniZernike-only chirp-Z fast evaluator -- Direct matches the
-   // original per-pixel polar-quadrature sum exactly (default).
-   int psfEvalMethod_ = static_cast<int>(sim::PsfEvalMethod::Direct);
+   // Sub-pixel PSF splat sampling mode -- Linear/Cubic remove the
+   // 1/oversampling placement quantization; Nearest reproduces the original
+   // box-average behavior exactly. See Simulation/PsfGeneratorBridge.h's
+   // PsfInterpMode. Plain member, same convention as psfModel_/patternType_.
+   int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
+   // GibsonLanniZernike-only chirp-Z fast evaluator -- Direct reproduces the
+   // original per-pixel polar-quadrature sum exactly, ChirpZ (the default)
+   // is the same integral evaluated ~4x faster.
+   int psfEvalMethod_ = static_cast<int>(sim::PsfEvalMethod::ChirpZ);
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
    // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is
@@ -485,16 +485,23 @@ private:
    // by the live producer thread without extra synchronization, same as
    // those); ImmersionIndex is atomic like the other photometric PSF
    // params (WavelengthNm/Na) it sits alongside in BuildPsfGeneratorRequest().
-   int psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanni);
+   int psfModel_ = static_cast<int>(sim::PsfModelKind::GibsonLanniZernike);
    std::atomic<double> psfImmersionIndex_{1.518};
-   // Defaults lowered from 12/32 (which combined with GibsonLanniZernike's
-   // per-pixel 2D quadrature -- see its class Javadoc's Performance note --
-   // and the auto-grown Z-stack default to multi-minute kernel computes at
-   // out-of-the-box settings) to keep the out-of-the-box oversampled kernel
-   // small regardless of PsfModel; still user-adjustable, this only changes
-   // what a fresh config starts at.
-   int psfOversampling_ = 4;
-   int psfKernelHalfWidthPx_ = 16;
+   // Oversampling and the kernel half-width below together set the
+   // oversampled kernel's pixel count, which is O((halfWidthPx*oversampling)^2)
+   // and is by far the dominant cost of a (re)compute -- see
+   // GibsonLanniZernikePSF's class Javadoc Performance note. Step 5 lowered
+   // these to 4 and 32px from 12 and 32px for exactly that reason; they sit
+   // higher again now (6 and 3000nm = 30px at the default pixel size) only
+   // because psfEvalMethod_ below defaults to the much faster ChirpZ. At
+   // Direct, expect these defaults to be slow.
+   int psfOversampling_ = 6;
+   // Kernel half-width in NANOMETERS -- converted to a whole camera-pixel
+   // count against the current PixelSizeNm in BuildPsfGeneratorRequest(),
+   // where it remains a MINIMUM that the NA/wavelength-derived Airy margin
+   // can grow further. Atomic like the other photometric PSF params it now
+   // sits alongside (it used to be a plain int pixel count).
+   std::atomic<double> psfKernelHalfWidthNm_{3000.0};
    // JRE/JDK install root override for locating jvm.dll (empty =
    // auto-detect; see sim::FindJavaHome in PsfGeneratorBridge.cpp).
    // PSFGenerator itself and this project's bridge class are embedded in
@@ -533,10 +540,16 @@ private:
    // BuildPsfGeneratorRequest -- see SMLMImageGeneration.cpp). Plain
    // std::string, not std::atomic<std::string> (not specializable), same
    // convention as psfGeneratorJavaHome_ above.
-   std::string psfZernikeCoefficients_ = sim::FormatZernikeCoefficients(sim::ZeroZernikeCoefficients());
-   std::string psfZernikePreset_ = "None";
+   // Both default to the MixedRealisticObjective preset rather than "None"/
+   // all-zero, so the default GibsonLanniZernike model actually shows the
+   // aberrated PSF it exists to model out of the box. The two must agree:
+   // psfZernikeCoefficients_ is the value BuildPsfGeneratorRequest actually
+   // reads, psfZernikePreset_ only labels where it came from.
+   std::string psfZernikePreset_ = "MixedRealisticObjective";
+   std::string psfZernikeCoefficients_ =
+      sim::FormatZernikeCoefficients(sim::ZernikePresetCoefficients("MixedRealisticObjective"));
 
-   long randomSeed_ = 12345;
+   long randomSeed_ = 42;
    std::mt19937_64 rng_;
 };
 

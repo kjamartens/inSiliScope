@@ -51,6 +51,8 @@ enum SMLMPatternType
    PATTERN_UNIFORM_3D = 10,
    PATTERN_SHELL = 11,
    PATTERN_NUP = 12,
+   // Always-on calibration bead grid -- see Calibration9SpotsPattern below.
+   PATTERN_CALIBRATION_9_SPOTS = 13,
 };
 
 // A single candidate binding/emitter site, in micrometers (x,y), relative to
@@ -82,6 +84,23 @@ public:
    virtual EmitterSite SampleSite(double widthUm, double heightUm, std::mt19937_64& rng) const = 0;
 
    virtual const char* Name() const = 0;
+
+   // Opt-in escape hatch from the blinking model entirely: a pattern that
+   // returns true here describes a FIXED set of emitters that are ON in
+   // every frame of the movie (a calibration bead field), and EmitterModel
+   // (SMLMSimulation.h) then bypasses its Poisson-arrival/exponential-
+   // ON-lifetime process for it completely -- EmitterDensityPerSec and
+   // OnLifetimeSec stop having any effect, and SampleSite() is never
+   // called. Every other pattern leaves this at the default false and is
+   // driven by the blinking process exactly as before.
+   //
+   // Deliberately a property of the PATTERN rather than a separate
+   // "AlwaysOn" MM property: whether the specimen blinks is intrinsic to
+   // what the specimen IS here (beads vs. dye), and an "always on" toggle
+   // applied to, say, the NUP structure would just be a very bright blob,
+   // not a meaningful configuration.
+   virtual bool AlwaysOnSites(double /*widthUm*/, double /*heightUm*/,
+                               std::vector<EmitterSite>& /*out*/) const { return false; }
 };
 
 // The classic resolution-test progression (easiest to hardest gap/spacing,
@@ -215,6 +234,32 @@ private:
    std::string filePath_;
    mutable std::vector<EmitterSite> cachedNormalizedPoints_; // x,y both in [0,1]
    mutable bool loaded_ = false;
+};
+
+// A 3x3 grid of ALWAYS-ON emitters ("beads") centered on the FOV, ported
+// from webSMLM's generateCalibrationStack() bead field -- the specimen a
+// real astigmatic-PSF z-calibration acquisition uses (a coverslip of
+// fiducial beads, stage-scanned through focus), as opposed to a blinking
+// dye. Being always-on is what makes it useful: drive SMLMDemoZStage
+// through focus and every frame shows the same nine spots at the same x,y,
+// with only the PSF shape changing.
+//
+// Unlike webSMLM's version, the spacing here is a plain fraction of the FOV
+// (quarter of the smaller side, so the grid spans half the frame) rather
+// than being derived from the PSF kernel's own pixel half-width: this
+// pattern is constructed by CreatePattern(), which has no visibility into
+// the PsfGeneratorRequest, and a quarter-FOV spacing already clears any
+// kernel this device will realistically be configured with.
+//
+// SampleSite() is still implemented (uniform pick among the nine) so this
+// class remains a well-behaved IPatternGenerator, but EmitterModel never
+// calls it -- see AlwaysOnSites() above.
+class Calibration9SpotsPattern : public IPatternGenerator
+{
+public:
+   EmitterSite SampleSite(double widthUm, double heightUm, std::mt19937_64& rng) const override;
+   const char* Name() const override { return "Calibration9Spots"; }
+   bool AlwaysOnSites(double widthUm, double heightUm, std::vector<EmitterSite>& out) const override;
 };
 
 // Wraps any continuous 2D pattern above and gives its sites a uniform z

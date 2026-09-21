@@ -382,21 +382,21 @@ behavior exactly; `ApplyNoiseChain` falls back to the scalar
 `gainPhotonsPerAdu`/`readNoiseElectrons` whenever a map's size doesn't
 match the frame, the same fallback pattern `PixelOffsetMap` already used.
 New MM properties: `CamParam_QuantumEfficiency` (0-1), `CamParam_DarkCurrentElectronsPerSec`,
-`CamParam_PixelGainStdPct`, `CamParam_PixelReadNoiseStdPct` (all four wired through
+`CamParam_GainStdPctPerPixel`, `CamParam_ReadNoiseStdPctPerPixel` (all four wired through
 `SnapshotParams()`/`InvalidateStack()` like every other simulation
-property); `CamParam_CameraGainPhotonsPerADU`'s lower property limit was widened
+property); `CamParam_GainPhotonsPerADU`'s lower property limit was widened
 from 0.1 to 0.01 to comfortably fit Kinetix Sub-Electron mode's 0.015
 e-/count if that preset is ever wanted. Defaults for
-`CamParam_QuantumEfficiency`/`CamParam_DarkCurrentElectronsPerSec`/`CamParam_CameraGainPhotonsPerADU`/
+`CamParam_QuantumEfficiency`/`CamParam_DarkCurrentElectronsPerSec`/`CamParam_GainPhotonsPerADU`/
 `CamParam_ReadNoiseElectrons` were changed to the Kinetix22 Sensitivity-mode table
-above (0.85, 1.03, 0.25, 1.2); `CamParam_PixelGainStdPct`/`CamParam_PixelReadNoiseStdPct`
+above (0.85, 1.03, 0.25, 1.2); `CamParam_GainStdPctPerPixel`/`CamParam_ReadNoiseStdPctPerPixel`
 default to 5%/20% as explicitly-flagged estimates (not datasheet values,
 per the note above). **Next**: load the built DLL into Micro-Manager and
 visually confirm frames still render sensibly at the new defaults (in
 particular the much smaller default `Gain` -- 0.25 vs. the old 1.0 -- and
 `ReadNoise` -- 1.2 vs. the old 1.5 -- combined with the new QE/dark-current
 stages don't blow out or crush the image), and that a nonzero
-`CamParam_PixelGainStdPct`/`CamParam_PixelReadNoiseStdPct` visibly introduces per-pixel
+`CamParam_GainStdPctPerPixel`/`CamParam_ReadNoiseStdPctPerPixel` visibly introduces per-pixel
 fixed-pattern variation distinct from the existing offset map.
 
 ## Step 5 — Gibson-Lanni + Zernike aberrations — done
