@@ -461,7 +461,7 @@ int CSMLMDemoCamera::Initialize()
    // not from a property on this camera.
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZRangeUm);
    CreateFloatProperty(g_PropPsfZRangeUm, psfZRangeUm_.load(), false, pAct);
-   SetPropertyLimits(g_PropPsfZRangeUm, 0.1, 10.0);
+   SetPropertyLimits(g_PropPsfZRangeUm, 0.1, 20.0);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZStepUm);
    CreateFloatProperty(g_PropPsfZStepUm, psfZStepUm_.load(), false, pAct);

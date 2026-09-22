@@ -168,7 +168,7 @@ everything in this section.
 - `PSFParam_PsfImmersionIndex`, `PSFParam_PsfOversampling` (default 6; was 12
   before step 5, then 4 -- kept small so the out-of-the-box oversampled
   kernel stays manageable regardless of `PSFParam_PsfModel`, see the step 5
-  performance Gotcha), `PSFParam_PsfKernelHalfWidthNm` (default 3000 nm).
+  performance Gotcha), `PSFParam_PsfKernelHalfWidthNm` (default 7000 nm).
   That last one is in NANOMETERS, not camera pixels (it was
   `PSFParam_PsfKernelHalfWidthPx`, default 16 px, until this rename):
   `BuildPsfGeneratorRequest()` rounds it to a whole pixel count against the
@@ -177,7 +177,7 @@ everything in this section.
   auto-grown from NA/wavelength/pixel size -- see Gotchas.
 - `PSFParam_PsfGeneratorJavaHome` -- optional JRE/JDK root override; auto-detects
   otherwise (`JAVA_HOME`, then common Windows install paths)
-- `PSFParam_PsfZRangeUm` (default 2.0), `PSFParam_PsfZStepUm` (default 0.1) -- Z-stack range/
+- `PSFParam_PsfZRangeUm` (default 7.0, max 20.0), `PSFParam_PsfZStepUm` (default 0.1) -- Z-stack range/
   step (step 2). The per-emitter random Z spread step 2 originally added
   here (`PsfZSpreadStdNm`) was removed again in step 3, replaced by a real
   `SMLMDemoZStage` device (`MM::Stage`) driving one global, user-drivable

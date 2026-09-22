@@ -312,10 +312,15 @@ bool CSMLMDemoCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const 
 
 void CSMLMDemoCamera::InvalidateStack()
 {
+   InvalidateStackOnly();
+   liveConfigVersion_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void CSMLMDemoCamera::InvalidateStackOnly()
+{
    stackReady_ = false;
    endOfStackReached_ = false;
    playbackIndex_ = 0;
-   liveConfigVersion_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void CSMLMDemoCamera::ApplyFrameSizeChange()
@@ -1815,8 +1820,14 @@ int CSMLMDemoCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::ActionT
       // BackgroundPhotonsPerSec are all rates converted to frame-equivalent
       // values using this property's current value (SnapshotParams()) -- a
       // changed Exposure means the precomputed stack no longer reflects the
-      // current settings and must regenerate.
-      InvalidateStack();
+      // current settings and must regenerate. Live mode needs no equivalent
+      // rebuild: LiveProducerLoop calls SnapshotParams() fresh every tick
+      // regardless, and none of its version-gated cached state (offset map,
+      // emitter pattern, PSF kernel) depends on exposure time -- so this
+      // deliberately uses InvalidateStackOnly() rather than InvalidateStack(),
+      // to avoid forcing a multi-second PSF-kernel recompute (vectorial
+      // models) on every Live-mode exposure change.
+      InvalidateStackOnly();
    }
    return DEVICE_OK;
 }

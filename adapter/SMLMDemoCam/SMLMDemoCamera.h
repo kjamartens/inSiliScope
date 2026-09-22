@@ -363,6 +363,15 @@ private:
    // when to rebuild its cached offset map / emitter pattern -- one signal
    // covering every parameter uniformly, rather than special-casing each.
    void InvalidateStack();
+   // Marks the precomputed stack stale WITHOUT bumping liveConfigVersion_ --
+   // for properties (currently just Exposure) that the precomputed-stack
+   // frame-equivalent conversion depends on but that LiveProducerLoop's
+   // per-tick SnapshotParams() already picks up fresh with no rebuild
+   // needed (its cached offset map / emitter pattern / PSF kernel do not
+   // depend on exposure time). Using the full InvalidateStack() here would
+   // force a PSF-kernel recompute (seconds, for vectorial models) on every
+   // exposure-time change in Live mode for no benefit.
+   void InvalidateStackOnly();
    // Shared by OnBinning/OnFovSize: resets ROI to the new full frame and
    // resizes img_ accordingly, then calls InvalidateStack().
    void ApplyFrameSizeChange();
@@ -624,7 +633,7 @@ private:
    // where it remains a MINIMUM that the NA/wavelength-derived Airy margin
    // can grow further. Atomic like the other photometric PSF params it now
    // sits alongside (it used to be a plain int pixel count).
-   std::atomic<double> psfKernelHalfWidthNm_{3000.0};
+   std::atomic<double> psfKernelHalfWidthNm_{7000.0};
    // JRE/JDK install root override for locating jvm.dll (empty =
    // auto-detect; see sim::FindJavaHome in PsfGeneratorBridge.cpp).
    // PSFGenerator itself and this project's bridge class are embedded in
