@@ -53,6 +53,10 @@ enum SMLMPatternType
    PATTERN_NUP = 12,
    // Always-on calibration bead grid -- see Calibration9SpotsPattern below.
    PATTERN_CALIBRATION_9_SPOTS = 13,
+   // Site-list structure (SMLMStructures.cpp): webSMLM's default
+   // filaments_ring -- three sinusoidal filaments whose z follows the same
+   // sine as their y, plus an in-focus ring.
+   PATTERN_FILAMENTS_RING = 14,
 };
 
 // A single candidate binding/emitter site, in micrometers (x,y), relative to
@@ -110,7 +114,10 @@ public:
 // property (a comma-separated list) so it's changeable without a rebuild.
 std::vector<double> DefaultResolutionSpacingsNm();
 
-// Comma-separated round-trip helpers for the ResolutionSpacingsNm property.
+// Round-trip helpers for the ResolutionSpacingsNm property: Format writes
+// space-separated values; Parse accepts spaces, commas or semicolons
+// (MMCore rejects a comma in any property value SET through it, so the
+// property itself is space-separated).
 // ParseResolutionSpacingsNm skips unparsable/non-positive tokens; returns an
 // empty vector if nothing valid was found (caller should then leave the
 // existing value in place rather than applying an empty spacing list).

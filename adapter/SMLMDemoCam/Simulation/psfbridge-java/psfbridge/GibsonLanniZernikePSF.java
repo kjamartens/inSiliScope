@@ -49,69 +49,47 @@ import psf.PSF;
  * introducing an unrelated physics change (vectorial apodization) bundled
  * into the same property.
  *
- * <p>Performance: because a non-axisymmetric pupil cannot be reduced to a 1D
- * radial profile the way GibsonLanniPSF's can, this evaluates a direct 2D
- * numerical quadrature (fixed-resolution midpoint rule over rho and phi,
- * {@link #N_RHO} x {@link #N_PHI} pupil samples) per output pixel, not a
- * fast transform -- cost scales with (oversampled kernel pixels) x (N_RHO *
- * N_PHI) x (Z planes). This is still a one-time cost per parameter change
+ * <p>Evaluator: the pupil-to-image-plane integral is evaluated on a
+ * Cartesian (kx, ky) pupil grid (fixed {@link #FFT_M} x {@link #FFT_M}
+ * resolution) via a separable 2D chirp-Z transform (Bluestein's algorithm,
+ * {@code czt1d}): one CZT pass over ky per pupil column, then one CZT pass
+ * over kx per intermediate row -- valid because the transform kernel
+ * exp(i*(kx*x + ky*y)) factors exactly as exp(i*kx*x)*exp(i*ky*y). A
+ * chirp-Z transform (unlike a plain FFT) lets the OUTPUT sampling (the
+ * oversampled camera grid: resLateral, nx, ny) differ freely from the INPUT
+ * sampling (the pupil grid: dk, FFT_M), computed via 3 ordinary power-of-two
+ * FFTs per 1D pass through the classic Bluestein m*p=(m^2+p^2-(m-p)^2)/2
+ * reformulation. Ported from the webSMLM reference simulator's psfCzt1d/
+ * computePsfPupilCartesianForZPlane/computePsfIntensityPlaneFFT (see
+ * PARITY.md in that project). This is a one-time cost per parameter change
  * (PsfKernelCache is cached and reused across every emitter/frame -- see
- * PsfGeneratorBridge.h), but at large PsfOversampling/PsfKernelHalfWidthPx
- * settings it is noticeably slower than the radially-symmetric Gaussian/
- * RichardsWolf/GibsonLanni models -- see CLAUDE.md's vectorial PSF Gotchas
- * section.
+ * PsfGeneratorBridge.h).
  *
- * <p>Chirp-Z evaluator ({@link #evalMethod}="chirpz", opt-in via the
- * PsfEvalMethod MM property, default remains "direct"): the direct N_RHO x
- * N_PHI polar sum above is a real O(pixels * N_RHO * N_PHI) cost per plane.
- * {@code computeSliceChirpZ} reformulates the SAME continuous pupil-to-
- * image-plane integral on a Cartesian (kx, ky) pupil grid (fixed {@link
- * #FFT_M} x {@link #FFT_M} resolution) and evaluates it via a separable 2D
- * chirp-Z transform (Bluestein's algorithm, {@code czt1d}): one CZT pass
- * over ky per pupil row, then one CZT pass over kx per intermediate column
- * -- valid because the transform kernel exp(i*(kx*x + ky*y)) factors
- * exactly as exp(i*kx*x)*exp(i*ky*y). A chirp-Z transform (unlike a plain
- * FFT) lets the OUTPUT sampling (the camera pixel grid: resLateral, nx, ny)
- * differ freely from the INPUT sampling (the pupil grid: dk, FFT_M),
- * computed via 3 ordinary power-of-two FFTs per 1D pass through the classic
- * Bluestein m*p=(m^2+p^2-(m-p)^2)/2 reformulation, turning the transform
- * into a linear convolution. Ported (not merely re-derived) from the
- * webSMLM reference simulator's psfCzt1d/computePsfPupilCartesianForZPlane/
- * computePsfIntensityPlaneFFT (see PARITY.md in that project) -- that
- * project's own development notes report this reformulation verified
- * against a brute-force direct sum to ~1e-13-1e-16 relative error (exact to
- * floating-point precision) across many parameter combinations, and 76x-
- * 970x faster in practice. This project's own standalone Java harness (not
- * part of the embedded jar/DLL, run once during development -- see
- * docs/vectorial-psf-plan.md) confirms this: "chirpz" and "direct" agree
- * to 0.22-0.29% relative L2 at 65x65px/NA 1.4/660nm (both zero-Zernike and
- * a 0.15-wave astigmatism case), after normalizing each plane to sum=1 --
- * the same normalization SplatPsfKernel always applies downstream, since
- * the two evaluators do NOT share the same absolute intensity scale (a
- * fixed ~49.6x ratio was measured, consistent across both test cases,
- * harmless for exactly that reason). Right in line with the reference
- * project's own reported residual for this same polar-vs-Cartesian
- * quadrature-grid difference -- not a bug in either.
+ * <p>A second, "direct" evaluator (a 20 x 40 polar midpoint quadrature per
+ * output pixel) used to live here, selectable via the PsfEvalMethod MM
+ * property. It was REMOVED (matching webSMLM build 2026-09-21e) because it
+ * is wrong on wide kernels: 40 azimuthal samples resolve exp(i*k*r*cos phi)
+ * only while k*NA_eff*r < ~N_PHI/2, i.e. out to ~1.6 um at 660 nm/NA 1.4.
+ * Beyond that the sum aliases into spurious light -- on a 6 um kernel it put
+ * ~17% of the energy beyond 3 um (chirp-Z: 0.17%, exact Airy disk: 0.157%),
+ * so after sum-to-1 normalization every emitter's core came out 17-20% too
+ * dim. The cores agreed (FWHM 255.6 vs 255.7 nm vs 255.1 nm Airy), which is
+ * why the earlier 1.6 um-kernel regression checks never caught it. Do not
+ * bring a polar evaluator back without scaling N_PHI with the kernel radius
+ * (~128 angles at 6 um).
+ *
+ * <p>Phase mask ({@link #maskType}): an optional pupil-phase term added on
+ * top of the Gibson-Lanni OPD and the Zernike sum -- currently only
+ * "doubleHelix", a Gauss-Laguerre superposition along l = 2p+1 (see {@link
+ * #pupilMaskPhase}), ported verbatim from webSMLM's pupilMaskPhase(). Its two
+ * lobes rotate ~60 degrees over +/-800 nm at the defaults (5 modes, waist
+ * 1.0 pupil radii).
  */
 public class GibsonLanniZernikePSF extends PSF
 {
-   // Pupil-plane quadrature resolution (fixed, not user-configurable -- see
-   // the class Javadoc's Performance note). Chosen to comfortably resolve
-   // Zernike modes up to the 4th radial order (n<=4, i.e. OSA index 0-14,
-   // whose highest angular frequency is m=4 -- N_PHI=40 gives 20 resolvable
-   // harmonics, 5x that) without an excessive per-pixel cost. Lowering this
-   // from an initial 32x64 didn't measurably change the zero-Zernike
-   // regression check against GibsonLanniPSF (~0.13% vs ~0.16% relative L2
-   // at NA 1.4/660nm -- if anything slightly better, within run-to-run
-   // noise) while cutting wall time by roughly a third in a 65x65x24-plane
-   // benchmark.
-   private static final int N_RHO = 20;
-   private static final int N_PHI = 40;
-
-   // Chirp-Z evaluator's Cartesian pupil grid resolution (fixed, not user-
-   // configurable -- see the class Javadoc's "Chirp-Z evaluator" section).
+   // Cartesian pupil grid resolution (fixed, not user-configurable).
    // Matches the webSMLM reference simulator's own PSF_FFT_M, chosen there
-   // via a convergence sweep against the direct polar sum.
+   // via a convergence sweep (0.25% RMS change at 64 vs 0.18% at 96).
    private static final int FFT_M = 64;
 
    // GibsonLanni-style physical parameters -- set directly by PsfBridge
@@ -124,22 +102,22 @@ public class GibsonLanniZernikePSF extends PSF
    public double ti0 = 150e-6;
    public double particleAxialPosition = 0.0;
 
-   // 15 OSA/ANSI single-index Zernike coefficients (index 0-14, unnormalized
+   // Number of OSA/ANSI single-index Zernike coefficients: index 0-27, every
+   // mode up to 6th radial order (n <= 6) -- matches webSMLM's PSF_NZERNIKE.
+   public static final int N_ZERNIKE = 28;
+
+   // N_ZERNIKE OSA/ANSI single-index Zernike coefficients (unnormalized
    // convention -- see zernikeRadial()/zernikeValue() below), in the same
    // units as the accumulated phase: pupil phase (radians) = 2*pi * sum_j
    // coeffs[j] * Z_j(rho, phi), i.e. each coefficient is in units of waves.
-   public double[] zernikeCoeffs = new double[15];
+   public double[] zernikeCoeffs = new double[N_ZERNIKE];
 
-   // "direct" (default) | "chirpz" -- selects between the original N_RHO x
-   // N_PHI polar-quadrature direct sum (PlaneJob#computeSliceDirect, exact
-   // reference implementation, unchanged by this field's addition) and a
-   // mathematically equivalent chirp-Z-transform (Bluestein) reformulation
-   // on a Cartesian pupil grid (PlaneJob#computeSliceChirpZ) -- see the
-   // class Javadoc's "Chirp-Z evaluator" section below for why/how. Ported
-   // from the webSMLM reference simulator's simulation_psfEvalMethod (see
-   // PARITY.md in that project); set directly by PsfBridge, same as every
-   // other field here.
-   public String evalMethod = "direct";
+   // Pupil phase mask: "none" (default) | "doubleHelix". maskModes is the
+   // number of Gauss-Laguerre modes (2-8), maskWaist their waist in pupil
+   // radii -- see pupilMaskPhase(). Set directly by PsfBridge.
+   public String maskType = "none";
+   public int maskModes = 5;
+   public double maskWaist = 1.0;
 
    public GibsonLanniZernikePSF()
    {
@@ -165,7 +143,10 @@ public class GibsonLanniZernikePSF extends PSF
       ns = 1.518;
       ti0 = 150e-6;
       particleAxialPosition = 0.0;
-      zernikeCoeffs = new double[15];
+      zernikeCoeffs = new double[N_ZERNIKE];
+      maskType = "none";
+      maskModes = 5;
+      maskWaist = 1.0;
    }
 
    @Override
@@ -200,9 +181,21 @@ public class GibsonLanniZernikePSF extends PSF
    @Override
    public void generate(Pool pool)
    {
+      // Depth-induced "focal shift" (ported from webSMLM's
+      // computePsfPupilCartesianForZPlane): expanding the two OPD terms to
+      // 2nd order in rho shows the rho^2 (defocus-shaped) term vanishes --
+      // i.e. the emitter is actually IN FOCUS -- at ti = ti0 -
+      // particleAxialPosition*(ni/ns), not at ti0 itself (imaging deeper
+      // into a lower-index sample through a higher-index immersion medium
+      // shifts the true focal plane). Centering the z sweep there makes the
+      // Z stack probe symmetrically AROUND the emitter, as a user refocusing
+      // on it at the microscope would; without it a 500 nm deep emitter
+      // (ns 1.33 / ni 1.518) sat ~571 nm off the stack's center plane. A
+      // no-op at the default particleAxialPosition = 0.
+      double focalShift = particleAxialPosition * (ni / ns);
       for (int z = 0; z < nz; z++)
       {
-         double ti = ti0 + resAxial * 1E-9 * (z - (nz - 1.0) / 2.0);
+         double ti = (ti0 - focalShift) + resAxial * 1E-9 * (z - (nz - 1.0) / 2.0);
          PlaneJob job = new PlaneJob(z, ti);
          job.addMonitor(this);
          pool.register(job);
@@ -214,8 +207,8 @@ public class GibsonLanniZernikePSF extends PSF
     * order pair, via the same j = n(n+1)/2 + l search (l in [0, n], m = -n +
     * 2*l) used by EPFL's psf_generator (utils/zernike.py, index_to_nl) --
     * ported here rather than depended on, per this project's "port the
-    * algorithm, don't add a dependency" convention. For j in [0, 14] this
-    * enumerates every mode up to 4th radial order (n <= 4).
+    * algorithm, don't add a dependency" convention. For j in [0, 27]
+    * (N_ZERNIKE) this enumerates every mode up to 6th radial order (n <= 6).
     */
    private static int[] indexToNM(int j)
    {
@@ -265,6 +258,48 @@ public class GibsonLanniZernikePSF extends PSF
       return radial * (l >= 0 ? Math.cos(m * phi) : Math.sin(m * phi));
    }
 
+   // Generalized Laguerre polynomial L_p^a(x) by the standard three-term
+   // recurrence -- verbatim port of webSMLM's laguerreL().
+   private static double laguerreL(int p, double a, double x)
+   {
+      double lm1 = 0.0, l = 1.0;
+      for (int k = 0; k < p; k++)
+      {
+         double next = ((2 * k + 1 + a - x) * l - (k + a) * lm1) / (k + 1);
+         lm1 = l;
+         l = next;
+      }
+      return l;
+   }
+
+   /**
+    * Pupil phase of the selected mask at normalized pupil radius rhoNorm
+    * (0..1) and azimuth phi -- verbatim port of webSMLM's pupilMaskPhase().
+    * "doubleHelix": Psi = arg sum_{p=0}^{N-1} u^(2p+1) exp(-u^2)
+    * L_p^(2p+1)(2u^2) exp(i(2p+1)phi), u = clamp(rho,0,1)/waist -- an
+    * equal-weight superposition of Gauss-Laguerre modes along the line
+    * l = 2p+1, keeping only the phase (the amplitude is discarded, as for a
+    * phase-only plate/SLM).
+    */
+   private double pupilMaskPhase(double rhoNorm, double phi)
+   {
+      if (!"doubleHelix".equals(maskType))
+         return 0.0;
+      int n = Math.max(2, maskModes);
+      double w = Math.max(0.2, maskWaist);
+      double u = Math.max(0.0, Math.min(1.0, rhoNorm)) / w;
+      double u2 = u * u;
+      double re = 0.0, im = 0.0;
+      for (int p = 0; p < n; p++)
+      {
+         int l = 2 * p + 1;
+         double amp = Math.pow(u, l) * Math.exp(-u2) * laguerreL(p, l, 2.0 * u2);
+         re += amp * Math.cos(l * phi);
+         im += amp * Math.sin(l * phi);
+      }
+      return (re == 0.0 && im == 0.0) ? 0.0 : Math.atan2(im, re);
+   }
+
    public class PlaneJob extends Job
    {
       private final int z;
@@ -279,136 +314,17 @@ public class GibsonLanniZernikePSF extends PSF
       @Override
       public void process()
       {
-         double[] slice = "chirpz".equals(evalMethod) ? computeSliceChirpZ() : computeSliceDirect();
-         if (slice == null) // computeSliceDirect() returns null only via the !live early-out below
+         if (!live)
             return;
+         double[] slice = computeSliceChirpZ();
          setPlane(z, slice);
          increment(90.0 / nz, "" + z + " / " + nz);
       }
 
-      // Original direct N_RHO x N_PHI polar-quadrature evaluator, unchanged
-      // by the chirp-Z addition -- this is the reference implementation
-      // every regression check (including the chirp-Z one) compares
-      // against, so it is never modified by this feature.
-      private double[] computeSliceDirect()
-      {
-         double x0 = (nx - 1) / 2.0;
-         double y0 = (ny - 1) / 2.0;
-
-         double k0 = 2.0 * Math.PI / lambda;
-         // Same normalized-pupil-radius clamp as PSFGenerator's own
-         // KirchhoffDiffractionSimpson (psf.gibsonlanni package): rho is
-         // sin(theta_immersion)/sin(theta_max), i.e. NA*rho = n_i*sin(theta);
-         // clamped so NA*rho/ns never exceeds 1 (would make the sample-side
-         // OPD sqrt term go complex/evanescent).
-         double bMax = Math.min(1.0, ns / NA);
-         double resLateralM = resLateral * 1E-9;
-
-         // Precompute the pupil-plane complex amplitude (Gibson-Lanni OPD +
-         // Zernike phase, both independent of the output pixel) once per
-         // Z-plane, on a fixed N_RHO x N_PHI midpoint grid.
-         double dRho = bMax / N_RHO;
-         double dPhi = 2.0 * Math.PI / N_PHI;
-         double[] krAt = new double[N_RHO];
-         double[] cosPhiAt = new double[N_PHI];
-         double[] sinPhiAt = new double[N_PHI];
-         // Flattened (not double[N_RHO][N_PHI]) -- one bounds-checked array
-         // dereference per inner-loop access instead of two, and contiguous
-         // per-ir runs instead of chasing N_RHO separate row objects. Index
-         // is ir*N_PHI+ip, same layout a double[N_RHO][N_PHI] would have had
-         // internally, just without the extra indirection.
-         double[] pupilRe = new double[N_RHO * N_PHI];
-         double[] pupilIm = new double[N_RHO * N_PHI];
-
-         for (int ip = 0; ip < N_PHI; ip++)
-         {
-            double phi = (ip + 0.5) * dPhi;
-            cosPhiAt[ip] = Math.cos(phi);
-            sinPhiAt[ip] = Math.sin(phi);
-         }
-
-         for (int ir = 0; ir < N_RHO; ir++)
-         {
-            double rho = (ir + 0.5) * dRho;
-            krAt[ir] = k0 * NA * rho;
-
-            // Gibson & Lanni sample-index-mismatch/depth OPD -- identical to
-            // KirchhoffDiffractionSimpson.integrand's OPD1 (particle depth
-            // into the sample) + OPD3 (immersion working-distance mismatch,
-            // which is how defocus enters this model: ti varies per Z-plane,
-            // see generate() above).
-            double s1 = NA * rho / ns;
-            double s3 = NA * rho / ni;
-            double opd1 = ns * particleAxialPosition * Math.sqrt(Math.max(0.0, 1.0 - s1 * s1));
-            double opd3 = ni * (ti - ti0) * Math.sqrt(Math.max(0.0, 1.0 - s3 * s3));
-            double gibsonLanniPhase = k0 * (opd1 + opd3);
-
-            int rowBase = ir * N_PHI;
-            for (int ip = 0; ip < N_PHI; ip++)
-            {
-               double phi = (ip + 0.5) * dPhi;
-               double zernikePhase = 0.0;
-               for (int j = 0; j < zernikeCoeffs.length; j++)
-               {
-                  double c = zernikeCoeffs[j];
-                  if (c != 0.0)
-                     zernikePhase += c * zernikeValue(j, rho / bMax, phi);
-               }
-               zernikePhase *= 2.0 * Math.PI;
-
-               double phase = gibsonLanniPhase + zernikePhase;
-               // rho factor is the polar-coordinate pupil-plane integration
-               // measure (rho drho dphi); dRho/dPhi are constant across the
-               // plane and dropped (they cancel in SplatPsfKernel's
-               // sum-to-1 renormalization anyway).
-               pupilRe[rowBase + ip] = rho * Math.cos(phase);
-               pupilIm[rowBase + ip] = rho * Math.sin(phase);
-            }
-         }
-
-         // y outer / x inner (not the reverse) so slice[x + nx*y] is written
-         // sequentially for fixed y -- the reverse nesting wrote it with
-         // stride nx, which is a cache-hostile access pattern for this
-         // array (the dominant cost here is the N_RHO*N_PHI inner sum per
-         // pixel, but there's no reason to also pay for a strided output
-         // write on top of that).
-         double[] slice = new double[nx * ny];
-         for (int y = 0; y < ny; y++)
-         {
-            double dyM = (y - y0) * resLateralM;
-            int rowOut = nx * y;
-            for (int x = 0; x < nx; x++)
-            {
-               double dxM = (x - x0) * resLateralM;
-
-               double sumRe = 0.0, sumIm = 0.0;
-               for (int ir = 0; ir < N_RHO; ir++)
-               {
-                  double kr = krAt[ir];
-                  int rowBase = ir * N_PHI;
-                  for (int ip = 0; ip < N_PHI; ip++)
-                  {
-                     double spatialPhase = kr * (dxM * cosPhiAt[ip] + dyM * sinPhiAt[ip]);
-                     double cosSp = Math.cos(spatialPhase);
-                     double sinSp = Math.sin(spatialPhase);
-                     double pr = pupilRe[rowBase + ip];
-                     double pi = pupilIm[rowBase + ip];
-                     sumRe += pr * cosSp - pi * sinSp;
-                     sumIm += pr * sinSp + pi * cosSp;
-                  }
-               }
-               slice[rowOut + x] = sumRe * sumRe + sumIm * sumIm;
-            }
-            if (!live)
-               return null;
-         }
-         return slice;
-      }
-
-      // Chirp-Z evaluator: same physics as computeSliceDirect() (including
-      // the depth/OPD terms below), evaluated on a Cartesian (kx, ky) pupil
-      // grid via a separable 2D chirp-Z transform instead of a direct polar
-      // sum -- see the class Javadoc's "Chirp-Z evaluator" section.
+      // Chirp-Z evaluator -- see the class Javadoc's "Evaluator" section.
+      // Pupil: unit amplitude inside the aperture (no apodization/obliquity
+      // weight), phase = Gibson-Lanni OPD (defocus enters through ti, see
+      // generate()) + Zernike sum + optional phase mask.
       private double[] computeSliceChirpZ()
       {
          double k0 = 2.0 * Math.PI / lambda;
@@ -430,7 +346,7 @@ public class GibsonLanniZernikePSF extends PSF
                double kx = (ix - c0) * dk;
                double kr2 = kx * kx + ky * ky;
                if (kr2 > kMax * kMax)
-                  continue; // zero outside the aperture, same rho<=1 cutoff as computeSliceDirect()
+                  continue; // zero outside the aperture (rho <= 1)
                double kr = Math.sqrt(kr2);
                double rho = kr / (k0 * NA);
                double phi = Math.atan2(ky, kx);
@@ -449,7 +365,7 @@ public class GibsonLanniZernikePSF extends PSF
                }
                zernikePhase *= 2.0 * Math.PI;
 
-               double phase = k0 * (opd1 + opd3) + zernikePhase;
+               double phase = k0 * (opd1 + opd3) + zernikePhase + pupilMaskPhase(rho / bMax, phi);
                int idx = iy * FFT_M + ix;
                pupilRe[idx] = Math.cos(phase);
                pupilIm[idx] = Math.sin(phase);

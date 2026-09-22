@@ -18,22 +18,30 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
 
 - `General_` -- FOV/binning/acquisition-mode/stack-playback plumbing, plus
   every property that sat in webSMLM's flat "User parameters" group
-  (density, pixel size, background, labeling efficiency, frame-interval
-  readback). Includes MM-adapter-only properties with no webSMLM
-  equivalent at all (`AcqMode`, `GenerateStack`, etc.).
+  (density, pixel size, labeling efficiency, frame-interval readback).
+  Includes MM-adapter-only properties with no webSMLM equivalent at all
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.).
 - `SimType_` -- webSMLM's "Simulation type" group: `Pattern` and every
   structure/pattern-shape parameter (`CustomPointsFile`,
   `ResolutionSpacingsNm`, `StructureZRangeNm`, `StructureSizeNm`, all
   `Nup*`), plus `DriftNmPerSec` and `RandomSeed`.
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
-  `PhotonsPerSecond`, `OnLifetimeSec`.
+  `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
+  `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its
+  illumination profile in this group too).
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
-  offset-std, read noise, QE, dark current, and the sCMOS per-pixel-map
-  std-pct properties.
+  offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
+  std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,
+  `CicElectrons`, `BitDepth`).
 - `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
   (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
-  `PsfEvalMethod`, etc., including `PsfGeneratorJavaHome`, which has no
-  direct webSMLM analog but is PSF-generator-specific machinery).
+  `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including
+  `PsfGeneratorJavaHome`, which has no direct webSMLM analog but is
+  PSF-generator-specific machinery).
+- `Background_` -- webSMLM's "Background" group (added in its 2026-09-19
+  builds): `BackgroundPhotonsPerSec` (was `General_BackgroundPhotonsPerSec`),
+  `CellContrast`, `HazeWeight`, `HazeWidthNm`, `DecaySec`,
+  `OutOfFocusRatio`, `OutOfFocusDepthNm`.
 
 Standard MM keywords this device inherits (`Exposure`, `PixelType`,
 `Name`, `Description`, `CameraName`, `CameraID`, and `SMLMDemoZStage`'s
@@ -44,7 +52,7 @@ own property surface. Allowed-*value* strings (e.g. `Circle`, `Gaussian`,
 group prefix.
 
 **Keep this convention up to date**: any new MM property added to this
-device must get one of the five prefixes above (pick by which webSMLM UI
+device must get one of the six prefixes above (pick by which webSMLM UI
 section the analogous concept would sit in, or `General_` if there's no
 webSMLM analog at all) -- update this section's bullet list and, if the
 mapping to webSMLM's groups shifts, `PARITY.md` in the websmlm repo too.
@@ -150,7 +158,7 @@ A JRE/JDK must be present at runtime too (to supply `jvm.dll`) -- see
 `PSFParam_PsfGeneratorJavaHome` property below.
 
 See the "webSMLM parity feature" section below for the 3D-structure/
-labeling-efficiency/`PSFParam_PsfInterp`/`PSFParam_PsfEvalMethod` properties added on top of
+labeling-efficiency/`PSFParam_PsfInterp` properties (and the since-removed `PSFParam_PsfEvalMethod`) added on top of
 everything in this section.
 
 ### New MM properties
@@ -183,25 +191,32 @@ everything in this section.
   `PSFParam_PsfImmersionIndex` and `PSFParam_PsfSampleDepthNm` defaults to 0, reproducing
   PsfBridge.java's old hardcoded no-mismatch/in-focus behavior rather than
   PSFGenerator's own stock defaults (1.33 / 2000)
-- `PSFParam_PsfZernikeCoefficients` (string, 15 comma-separated values;
-  defaults to the `MixedRealisticObjective` preset's values, NOT all-zero)
-  -- `GibsonLanniZernike`-only (step 5); positional OSA/ANSI single
-  Zernike index 0-14, in waves. See `Simulation/SMLMZernike.h`'s
+- `PSFParam_PsfZernikeCoefficients` (string, 28 space-separated values;
+  a 15-value list is still accepted and zero-padded; defaults to the
+  `MixedRealisticObjective` preset's values, NOT all-zero) --
+  `GibsonLanniZernike`-only; positional OSA/ANSI single Zernike index 0-27
+  (n <= 6), in waves. See `Simulation/SMLMZernike.h`'s
   `ZernikeCoefficients` doc comment for the exact index-to-mode mapping (0
   piston ... 5 vertical astigmatism ... 7/8 coma ... 12 primary spherical
-  ... 14 vertical quadrafoil).
+  ... 25 vertical tertiary astigmatism). **Space-separated because MMCore
+  rejects a comma in any property value set through it**
+  (`MM::g_FieldDelimiters`) -- the old comma-separated format could never
+  actually be set from Studio/pymmcore; same fix for
+  `SimType_ResolutionSpacingsNm`. Parsers accept spaces, commas or
+  semicolons; the JVM bridge still gets a comma-separated copy.
 - `PSFParam_PsfZernikePreset` -- convenience dropdown on top of
   `PSFParam_PsfZernikeCoefficients`: `None` | `AstigmatismWeak` |
   `AstigmatismModerate` | `AstigmatismStrong` | `ComaWeak` | `ComaStrong` |
   `SphericalWeak` | `SphericalStrong` | `TrefoilModerate` |
-  `MixedRealisticObjective` (the default). Selecting one overwrites
-  `PSFParam_PsfZernikeCoefficients` with a named, order-of-magnitude wavefront-error
-  estimate (~0.07-0.15 waves = mild, ~0.2-0.3 waves = strong -- the classic
-  Marechal/diffraction-limit criterion is ~0.07 waves RMS, lambda/14) --
-  **not numbers sourced from a specific paper**, same "gap to flag
-  explicitly" stance as `docs/vectorial-psf-step4-smlm-challenge-
-  comparison.md` already takes for this project's one pre-existing
-  illustrative Zernike value. See `Simulation/SMLMZernike.cpp`'s
+  `MixedRealisticObjective` (the default) | `SaddlePoint` | `ExtendedRange` |
+  `ExtendedRangeStrong`. Selecting one overwrites
+  `PSFParam_PsfZernikeCoefficients`. **Values are webSMLM's own
+  `PSF_ZERNIKE_PRESETS`, one-to-one** (realigned in parity round 2 -- e.g.
+  coma moved from index 8 to 7, trefoil from 9 to 6); the single-mode ones
+  are order-of-magnitude wavefront-error estimates (~0.07-0.15 waves =
+  mild, ~0.2-0.3 waves = strong), **not numbers sourced from a specific
+  paper**; the last three are engineered stacked-astigmatism PSFs for a
+  longer z range. See `Simulation/SMLMZernike.cpp`'s
   `ZernikePresetCoefficients` for the exact values. Editing
   `PSFParam_PsfZernikeCoefficients` directly afterwards does not update/clear this
   property -- it only ever reports the last preset explicitly selected
@@ -274,6 +289,13 @@ in Micro-Manager.**
   itself, which can make the error confusing to trace back.
 
 ### Gotchas found during step 5 (don't rediscover these)
+
+**Update (parity round 2): the `Direct` evaluator and its
+`PSFParam_PsfEvalMethod` property were removed** -- 40 azimuthal samples
+alias beyond ~1.6 um, so on the default 6 um kernel every emitter's core
+came out 17-20% too dim (webSMLM found this and removed its own copy in
+build 2026-09-21e). Chirp-Z is the only evaluator now. The notes below that
+discuss `Direct`/N_RHO/N_PHI performance are history.
 
 - **The "obvious" reference algorithm (`psf_generator`'s
   `VectorialSphericalPropagator`) turns out to explicitly reject the exact
@@ -350,8 +372,8 @@ in Micro-Manager.**
     now 6, and the half-width property is now
     `PSFParam_PsfKernelHalfWidthNm` at 3000 nm (= 30 px at the default 100
     nm pixel size), i.e. roughly 5x the step-5 pixel count. That is
-    affordable only because `PSFParam_PsfEvalMethod` now defaults to
-    `ChirpZ`; at `Direct` these defaults are back in painful territory.
+    affordable only because the chirp-Z evaluator is used (now the only
+    one -- `Direct` was removed in parity round 2).
     See the property list above.
   - Benchmarked (this dev machine, 12 logical cores, post all of the above):
     65x65px x 24 planes ~0.5-0.6s; 129x129px x 24 planes ~2.4-3.1s. Both
@@ -457,7 +479,7 @@ original exact box-average behavior). `Linear`/`Cubic` sample the oversampled ke
 emitter's true continuous position (bilinear / Catmull-Rom bicubic) instead
 of quantizing to steps of 1/`PSFParam_PsfOversampling` of a camera pixel.
 
-**Chirp-Z (Bluestein) fast evaluator** -- done. New `PSFParam_PsfEvalMethod`
+**Chirp-Z (Bluestein) fast evaluator** -- done, and since parity round 2 the ONLY evaluator (`Direct` and this property were removed, see the step 5 Gotchas update). New `PSFParam_PsfEvalMethod`
 property (`Direct`|`ChirpZ`, default `ChirpZ`; `Direct` reproduces the
 original exact per-pixel polar-quadrature sum), `GibsonLanniZernike`-only. `ChirpZ` reformulates the
 same continuous pupil-to-image integral on a Cartesian pupil grid via a
@@ -499,7 +521,7 @@ decorator does not forward `AlwaysOnSites` anyway).
 above, all deliberate, all changing what a fresh config starts at):
 
 - Defaults now: `General_LabelingEfficiencyPct` 70, `PSFParam_PsfEvalMethod`
-  `ChirpZ`, `PSFParam_PsfInterp` `Cubic`, `PSFParam_PsfModel`
+  `ChirpZ` (property since removed), `PSFParam_PsfInterp` `Cubic`, `PSFParam_PsfModel`
   `GibsonLanniZernike`, `PSFParam_PsfOversampling` 6,
   `PSFParam_PsfZernikePreset` `MixedRealisticObjective` (and
   `PSFParam_PsfZernikeCoefficients` correspondingly non-zero),
@@ -521,6 +543,103 @@ above, all deliberate, all changing what a fresh config starts at):
   The C++ `g_Prop*` identifiers and `On*` handler names were deliberately
   NOT renamed alongside them (they already didn't track the property
   strings exactly -- e.g. `OnCameraGain` for `g_PropGain`).
+
+## webSMLM parity round 2 (2026-09-21) -- status
+
+Catches up with webSMLM builds 2026-09-19a through 2026-09-21e (see that
+repo's `PARITY.md`, refreshed on both sides in this round). Verified via:
+- `tools/test_smlmcam.py` (extended);
+- a bit-for-bit cross-check against webSMLM's own chirp-Z JS
+  (`tools/psf_parity_check/`, now covering n<=6 Zernikes, the double-helix
+  mask and the depth focal shift: 0.0000% relative L2);
+- MSBuild.
+
+**Not yet visually confirmed in Micro-Manager Studio's GUI.**
+
+- **PSF**:
+  - `Direct` evaluator removed (see the Gotchas update above).
+  - 28 Zernike coefficients (OSA 0-27).
+  - Presets realigned to webSMLM's values, plus `SaddlePoint`/
+    `ExtendedRange`/`ExtendedRangeStrong`.
+  - `PSFParam_PsfMaskType = DoubleHelix` (Gauss-Laguerre, `PsfMaskModes`
+    default 5, `PsfMaskWaist` default 1.0 pupil radii; in
+    `GibsonLanniZernikePSF.java`).
+  - Gibson-Lanni focal shift: the z stack is centred at
+    `ti0 - depth*ni/ns`, a no-op at the default `PsfSampleDepthNm = 0`.
+  - `PSFParam_PsfInterp = Fft` (Fourier-shift placement: slow, CPU-only;
+    `FftShiftKernelTile` does webSMLM's 2D shift as separable row/column
+    1D shifts -- the same linear operation, ~170 s per default 1000-frame
+    stack instead of tens of minutes).
+  - A Cramer-Rao bound summary is logged to the corelog after every kernel
+    compute (`DescribePsfCramerRao`).
+  - The double-helix PSF is wide (lobes ~0.8 um off axis at focus, only
+    ~11% of the light in them -- same as webSMLM); a small kernel
+    half-width truncates it.
+- **Photophysics**: `EmitterModel` has a "rich" path used only when
+  `BlinkBleachProb < 1`, `PhotonCV > 0`, or for the out-of-focus
+  population. That path is molecules with geometric blinks, exponential
+  dark time and log-normal per-blink brightness, with the arrival rate
+  divided by the mean blink count so density keeps meaning ON-density.
+  Otherwise the original single-blink draw sequence is untouched. Live mode
+  carries `BlinkEvent::moleculeLive` and schedules each surviving
+  molecule's next blink when its ON period ends.
+- **Illumination / background** (`Simulation/SMLMBackground.h/.cpp`):
+  - The peak-normalized illumination field multiplies background and
+    emitters (read at the undrifted site).
+  - The cell + haze background map is normalized to the FOV mean.
+  - The fade is `0.3 + 0.7 exp(-t/decay)`.
+  - The haze uses 20000 `SampleSite` draws (continuous patterns have no
+    site list).
+  - Out-of-focus emitters run at `|z|` in [300 nm, depth], clamped to the
+    kernel's z range, and need a vectorial model. webSMLM's lower bound is
+    max(astigmatic usable range, 300 nm); this project doesn't compute that
+    range, so it always uses 300.
+- **Camera**: EMCCD path in `ApplyNoiseChain`, which keeps demoCam's dark
+  current (webSMLM has none). The sCMOS path keeps QE, dark current and the
+  per-pixel maps (demoCam is ahead there).
+- **Drift**: random direction per seed (`DriftAngleForSeed`, its own
+  stream) instead of the fixed 2:1 diagonal.
+- **Pattern**: `FilamentsRing`, webSMLM's default structure, with its
+  y-correlated z; the px constants are converted at 100 nm/px.
+- **Speed** (webSMLM 21b/21c analog):
+  - `PsfKernelCache` planes are sum-1 normalized with precomputed
+    oversampling x oversampling block sums (`BuildBlockSums`), so the splat
+    does one interpolation per camera pixel (`SplatSetup`).
+  - Frames render only their own events (`BucketEventsByFrame`).
+  - Camera noise uses counter-based pcg4d draws (`SMLMCounterRng.h`), so
+    frames are independent.
+  - The precomputed stack renders on all CPU cores or on the GPU
+    (`Simulation/GpuSimD3D11.*`: one fused D3D11 compute shader, HLSL
+    compiled at runtime by D3DCompile, frames batched per dispatch,
+    WARP/software adapters rejected).
+  - Measured, 128x128 x 1000 frames, default GibsonLanniZernike, 12-thread
+    laptop with Iris Xe: render ~0.5 s CPU / 0.15 s GPU, vs ~170-190 s
+    before.
+  - GPU and CPU agree on >= 99.8% of pixels; the rest are float32 rounding,
+    a Poisson draw one electron apart.
+  - `General_UseGpu` (default On) / `General_GpuStatus` (read-only: adapter
+    or reason for CPU).
+
+Default-output changes in this round (all deliberate):
+- The counter-based noise RNG changes every seeded frame once, as in
+  webSMLM 21b.
+- The splat now normalizes whole kernel planes (not each emitter's window)
+  and rounds Nearest placement to the nearest grid point (the old code
+  floored it, a 1/(2*oversampling) px bias).
+- Preset values follow webSMLM.
+- Drift direction is random per seed.
+
+Gotcha found while verifying this: the old sCMOS noise was **never byte-
+reproducible across rebuilds**. `CombinedShotAndReadNoise` drew
+`PoissonRng(rng) + rn * GaussianRng(rng)` in one expression, whose operand
+evaluation order C++ leaves unspecified, so an unrelated recompile could
+swap the two draws. The counter-based chain draws in explicit statement
+order. Never put two draws from the same sequential rng in one expression.
+
+Not ported (by design):
+- psfmle fitting and GT scoring/export -- analysis-side;
+- the realism/density presets -- they only write other parameters;
+- webSMLM's `zUsableNm` metric.
 
 **Parity-doc staleness reminder:** `PARITY.md` (in `C:\GitHub\websmlm`) is
 a point-in-time snapshot, not auto-updated, and this repo has no visibility

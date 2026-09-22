@@ -31,6 +31,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
@@ -98,18 +101,50 @@ extern const char* g_PropNupCurvatureNm;
 extern const char* g_NupMembraneTopDown;
 extern const char* g_NupMembraneSideways;
 
+// Multi-blink photophysics, illumination, EMCCD and structured background
+// (webSMLM parity round 2) -- see the members' comments below.
+extern const char* g_PropBlinkBleachProb;
+extern const char* g_PropOffLifetimeSec;
+extern const char* g_PropPhotonCV;
+extern const char* g_PropIllumFwhmPct;
+extern const char* g_PropEmGain;
+extern const char* g_PropCicElectrons;
+extern const char* g_PropBgCellContrast;
+extern const char* g_PropBgHazeWeight;
+extern const char* g_PropBgHazeWidthNm;
+extern const char* g_PropBgDecaySec;
+extern const char* g_PropOutOfFocusRatio;
+extern const char* g_PropOutOfFocusDepthNm;
+extern const char* g_PropIllumProfile;
+extern const char* g_IllumFlat;
+extern const char* g_IllumGaussian;
+extern const char* g_IllumFlatTop;
+extern const char* g_PropCameraType;
+extern const char* g_CameraTypeScmos;
+extern const char* g_CameraTypeEmccd;
+extern const char* g_PropBitDepth;
+
 // Sub-pixel PSF placement -- see Simulation/PsfGeneratorBridge.h's
 // PsfInterpMode.
 extern const char* g_PropPsfInterp;
 extern const char* g_PsfInterpNearest;
 extern const char* g_PsfInterpLinear;
 extern const char* g_PsfInterpCubic;
+extern const char* g_PsfInterpFft;
 
-// GibsonLanniZernike-only chirp-Z fast evaluator -- see Simulation/
-// PsfGeneratorBridge.h's PsfEvalMethod.
-extern const char* g_PropPsfEvalMethod;
-extern const char* g_PsfEvalMethodDirect;
-extern const char* g_PsfEvalMethodChirpZ;
+// GPU (Direct3D 11) splat + noise path -- see Simulation/GpuSimD3D11.h.
+extern const char* g_PropUseGpu;
+extern const char* g_PropGpuStatus;
+extern const char* g_UseGpuOn;
+extern const char* g_UseGpuOff;
+
+// GibsonLanniZernike-only pupil phase mask -- see Simulation/
+// PsfGeneratorBridge.h's PsfMaskType.
+extern const char* g_PropPsfMaskType;
+extern const char* g_PropPsfMaskModes;
+extern const char* g_PropPsfMaskWaist;
+extern const char* g_PsfMaskNone;
+extern const char* g_PsfMaskDoubleHelix;
 
 extern const char* g_PsfModelGaussian;
 extern const char* g_PsfModelRichardsWolf;
@@ -133,6 +168,7 @@ extern const char* g_PatternUniform3D;
 extern const char* g_PatternShell;
 extern const char* g_PatternNup;
 extern const char* g_PatternCalibration9Spots;
+extern const char* g_PatternFilamentsRing;
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -248,7 +284,26 @@ public:
    int OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnPsfEvalMethod(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBlinkBleachProb(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnOffLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPhotonCV(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -281,6 +336,25 @@ private:
    // from each other: distinct lifetimes (rebuilt only on config change,
    // via CreatePattern, never per frame) and a distinct consumer.
    sim::StructureParams BuildStructureParams() const;
+   // Illumination field + structured background map for the current
+   // settings (Simulation/SMLMBackground.h), each drawn from its own
+   // seed-derived rng stream; empty fields when the features are off.
+   sim::StackShapingFields BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
+                                              const sim::SimulationParams& params, long seed) const;
+   // Depth sampler for the out-of-focus population (Background_OutOfFocus-
+   // DepthNm), clamped to the cache's z range; empty if the cache has no z
+   // stack (then the population is skipped).
+   std::function<double(std::mt19937_64&)> OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const;
+   // Creates (if gpu is empty) and loads a GPU simulator with this
+   // kernel/maps/background, when General_UseGpu is On and the frame can be
+   // rendered on the GPU at all (vectorial kernel, not Fft placement).
+   // Returns false -- the caller then renders on the CPU -- otherwise, or on
+   // any D3D11 failure (logged once, and reported by General_GpuStatus).
+   bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache, unsigned w,
+                   unsigned h, const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
+                   const sim::PixelReadNoiseMap& readNoiseMap, const sim::StackShapingFields& shaping,
+                   const sim::SimulationParams& params);
+   void SetGpuStatus(const std::string& s);
    // Called by every property handler whose value affects simulated frame
    // content (density/lifetime/photon/background rates, PSF, noise, gain,
    // offset, pattern, pixel size, binning, FOV size, exposure, seed): marks
@@ -379,6 +453,11 @@ private:
    std::atomic<double> actualFrameIntervalMs_{0.0};
    sim::EmitterModel liveEmitterModel_;
    std::mt19937_64 liveRng_;
+   // Out-of-focus population (Background_OutOfFocusRatio): its own model
+   // (it carries in-flight events across ticks) and its own rng stream, so
+   // enabling it never shifts the in-focus stream.
+   sim::EmitterModel liveOutOfFocusModel_;
+   std::mt19937_64 liveOutOfFocusRng_;
    // Atomic because StartSequenceAcquisition() (main/MMCore thread) reads it
    // to compute liveDriftOriginFrame_ while LiveProducerLoop (producer
    // thread) increments it every tick.
@@ -443,9 +522,45 @@ private:
    // defaults are estimates, not datasheet values -- see the plan doc.
    std::atomic<double> pixelGainStdPct_{5.0};
    std::atomic<double> pixelReadNoiseStdPct_{20.0};
-   // Drift rate along X, nm/sec (Y drifts at half this rate -- see
-   // sim::ComputeDriftOffsetPx). Applies in both acquisition modes.
+   // Drift speed, nm/sec, along a direction drawn once per RandomSeed (see
+   // sim::ComputeDriftOffsetPx/DriftAngleForSeed). Applies in both
+   // acquisition modes. (The member name predates the random direction,
+   // when this was the X rate of a fixed X:Y = 2:1 diagonal.)
    std::atomic<double> driftNmPerSecX_{0.0};
+
+   // ---- webSMLM parity round 2 -- every default below is "off", matching
+   // webSMLM's realism=min, so a default movie is unchanged by them. ----
+   // Multi-blink photophysics (sim::SimulationParams::blinkBleachProb etc.):
+   // bleach probability per blink (1 = the original single-blink model),
+   // mean dark time between blinks (a rate property like OnLifetimeSec,
+   // converted to frames in SnapshotParams; 1 s = webSMLM's default 20
+   // frames at the default 50 ms exposure), and per-blink photon-rate CV.
+   std::atomic<double> blinkBleachProb_{1.0};
+   std::atomic<double> offLifetimeSec_{1.0};
+   std::atomic<double> photonCV_{0.0};
+   // Excitation illumination profile (sim::IllumProfile, SMLMBackground.h),
+   // peak-normalized; FWHM as percent of the FOV width.
+   int illumProfile_ = static_cast<int>(sim::IllumProfile::Flat);
+   std::atomic<double> illumFwhmPct_{60.0};
+   // Sensor: sCMOS (the original chain) or EMCCD (sim::CameraNoiseParams).
+   // EmGain/Cic/BitDepth only matter for EMCCD; webSMLM's defaults.
+   bool cameraEmccd_ = false;
+   std::atomic<double> emGain_{300.0};
+   std::atomic<double> cicElectrons_{0.002};
+   int bitDepth_ = 16;
+   // Structured background (sim::BuildBackgroundMap): cell contrast (1 =
+   // flat), out-of-focus haze weight (0 = none) and blur width, and the
+   // fade-to-30%-floor time constant in seconds (0 = no fade).
+   std::atomic<double> bgCellContrast_{1.0};
+   std::atomic<double> bgHazeWeight_{0.0};
+   std::atomic<double> bgHazeWidthNm_{800.0};
+   std::atomic<double> bgDecaySec_{0.0};
+   // Blinking out-of-focus emitters: a second population on the same
+   // structure at OutOfFocusRatio x the in-focus density, placed 300 nm to
+   // OutOfFocusDepthNm above/below focus and rendered through the real
+   // defocused vectorial PSF (needs a vectorial PsfModel). 0 = none.
+   std::atomic<double> outOfFocusRatio_{0.0};
+   std::atomic<double> outOfFocusDepthNm_{1500.0};
 
    // 3D structures / labeling efficiency (Simulation/SMLMStructures.h).
    // StructureZRangeNm defaults to 500 (not 0) so 3D structures/spread are
@@ -472,10 +587,18 @@ private:
    // box-average behavior exactly. See Simulation/PsfGeneratorBridge.h's
    // PsfInterpMode. Plain member, same convention as psfModel_/patternType_.
    int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
-   // GibsonLanniZernike-only chirp-Z fast evaluator -- Direct reproduces the
-   // original per-pixel polar-quadrature sum exactly, ChirpZ (the default)
-   // is the same integral evaluated ~4x faster.
-   int psfEvalMethod_ = static_cast<int>(sim::PsfEvalMethod::ChirpZ);
+   // Render vectorial-PSF frames (splat + noise) on the GPU when one is
+   // available (General_UseGpu); gpuStatus_ is what General_GpuStatus reports
+   // -- the adapter in use, or why the CPU is being used.
+   bool useGpu_ = true;
+   std::mutex gpuStatusMutex_;
+   std::string gpuStatus_ = "Not used yet";
+   // GibsonLanniZernike-only pupil phase mask (Simulation/PsfGeneratorBridge.h's
+   // PsfMaskType) and its Gauss-Laguerre mode count / waist (pupil radii).
+   // Defaults are webSMLM's: no mask, 5 modes, waist 1.0.
+   int psfMaskType_ = static_cast<int>(sim::PsfMaskType::None);
+   int psfMaskModes_ = 5;
+   std::atomic<double> psfMaskWaist_{1.0};
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
    // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is
@@ -490,11 +613,11 @@ private:
    // Oversampling and the kernel half-width below together set the
    // oversampled kernel's pixel count, which is O((halfWidthPx*oversampling)^2)
    // and is by far the dominant cost of a (re)compute -- see
-   // GibsonLanniZernikePSF's class Javadoc Performance note. Step 5 lowered
-   // these to 4 and 32px from 12 and 32px for exactly that reason; they sit
-   // higher again now (6 and 3000nm = 30px at the default pixel size) only
-   // because psfEvalMethod_ below defaults to the much faster ChirpZ. At
-   // Direct, expect these defaults to be slow.
+   // GibsonLanniZernikePSF's class Javadoc. Step 5 lowered these to 4 and
+   // 32px from 12 and 32px for exactly that reason; they sit higher again
+   // now (6 and 3000nm = 30px at the default pixel size) because that model
+   // is evaluated by chirp-Z transform (the slower, wide-kernel-incorrect
+   // Direct evaluator has been removed).
    int psfOversampling_ = 6;
    // Kernel half-width in NANOMETERS -- converted to a whole camera-pixel
    // count against the current PixelSizeNm in BuildPsfGeneratorRequest(),
@@ -533,8 +656,8 @@ private:
    std::atomic<double> psfWorkingDistanceUm_{150.0};
    std::atomic<double> psfSampleDepthNm_{0.0};
 
-   // GibsonLanniZernike-only: PsfZernikeCoefficients (15-value comma-
-   // separated positional list, OSA index 0-14 -- see Simulation/
+   // GibsonLanniZernike-only: PsfZernikeCoefficients (28-value comma-
+   // separated positional list, OSA index 0-27 -- see Simulation/
    // SMLMZernike.h) and the last-applied PsfZernikePreset name (purely a
    // convenience label; PsfZernikeCoefficients is the actual value read by
    // BuildPsfGeneratorRequest -- see SMLMImageGeneration.cpp). Plain

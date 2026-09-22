@@ -325,7 +325,7 @@ Priority follow-ups, per user request:
   a 0.7 QE vs. 0.95 QE sensor at the same photon flux). Add a `CamParam_QuantumEfficiency`
   property (0-1) applied before the Poisson draw.
 - **No dark current.** Thermal dark counts are indistinguishable from
-  `General_BackgroundPhotonsPerSec` in the current model, even though they have a
+  `Background_BackgroundPhotonsPerSec` (then `General_BackgroundPhotonsPerSec`) in the current model, even though they have a
   different physical origin (dark current scales with exposure time and
   sensor temperature, not illumination) and real camera datasheets report
   it as its own rate (e-/pixel/sec). Add a separate dark-current Poisson

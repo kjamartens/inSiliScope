@@ -57,7 +57,7 @@ std::string FormatResolutionSpacingsNm(const std::vector<double>& spacingsNm)
    for (size_t i = 0; i < spacingsNm.size(); ++i)
    {
       if (i > 0)
-         os << ",";
+         os << " ";
       os << spacingsNm[i];
    }
    return os.str();
@@ -65,10 +65,17 @@ std::string FormatResolutionSpacingsNm(const std::vector<double>& spacingsNm)
 
 std::vector<double> ParseResolutionSpacingsNm(const std::string& text)
 {
+   // Commas, semicolons and whitespace all separate values: MMCore rejects
+   // any property value containing a comma (MM::g_FieldDelimiters), so a
+   // comma-separated list could never be SET through MMCore/Studio.
+   std::string normalized = text;
+   for (char& ch : normalized)
+      if (ch == ',' || ch == ';' || ch == '\t')
+         ch = ' ';
    std::vector<double> result;
    std::string token;
-   std::istringstream iss(text);
-   while (std::getline(iss, token, ','))
+   std::istringstream iss(normalized);
+   while (iss >> token)
    {
       try
       {
@@ -521,6 +528,7 @@ std::unique_ptr<IPatternGenerator> CreatePattern(SMLMPatternType type, const std
       case PATTERN_UNIFORM_3D:
       case PATTERN_SHELL:
       case PATTERN_NUP:
+      case PATTERN_FILAMENTS_RING:
       {
          // Site-list structures: NOT wrapped in ZSpreadPattern (they place
          // their own z directly -- TiltedPlane/Uniform3D use

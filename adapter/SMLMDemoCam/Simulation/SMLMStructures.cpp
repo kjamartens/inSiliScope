@@ -260,6 +260,44 @@ std::vector<EmitterSite> BuildNupSites(double widthUm, double heightUm,
    return sites;
 }
 
+// webSMLM's buildFilamentsRingStructure(), its default structure: three
+// sinusoidal filaments across the field plus a ring. Each filament's z is
+// zOffset + zRange*sin(k*x + phase) with the SAME sine that drives its y,
+// so y and z are fully correlated (webSMLM documents that as an accuracy
+// limitation of its own; ported as-is for parity), and the three filaments
+// sit at z offsets -zRange/2, 0, +zRange/2 -- max |z| = 1.5*zRange. The ring
+// is flat (z = 0). webSMLM works in camera px; its px constants are
+// converted here at its own (and this project's) default 100 nm/px (the
+// same "physical distance, not px count" choice as kAreaTargetSpacingUm),
+// so the structure keeps its physical size if PixelSizeNm changes. No rng
+// draws (the site list is deterministic; labeling efficiency is applied
+// afterwards like every other structure).
+std::vector<EmitterSite> BuildFilamentsRingSites(double widthUm, double heightUm, const StructureParams& sp)
+{
+   constexpr double kPxUm = 0.1; // webSMLM px -> um, at 100 nm/px
+   std::vector<EmitterSite> sites;
+   const double cx = widthUm / 2.0, cy = heightUm / 2.0, zRange = sp.zRangeNm;
+   const double zOffsets[3] = {-zRange / 2.0, 0.0, zRange / 2.0};
+   for (int f = 0; f < 3; ++f)
+   {
+      const double y0 = heightUm * (0.25 + 0.25 * f);
+      const double amp = (8.0 + 4.0 * f) * kPxUm;
+      const double k = (0.09 + 0.02 * f) / kPxUm; // rad per um
+      const double ph = f * 2.0;
+      // Same float accumulation as webSMLM's `for(x=6; x<w-6; x+=0.35)`.
+      for (double xPx = 6.0; xPx * kPxUm < widthUm - 6.0 * kPxUm; xPx += 0.35)
+      {
+         const double x = xPx * kPxUm;
+         const double s = std::sin(k * x + ph);
+         sites.push_back({x, y0 + amp * s, zOffsets[f] + zRange * s});
+      }
+   }
+   const double R = std::min(widthUm, heightUm) * 0.28;
+   for (double a = 0.0; a < 2.0 * kPi; a += 0.012)
+      sites.push_back({cx + R * std::cos(a), cy + R * std::sin(a) - 6.0 * kPxUm, 0.0});
+   return sites;
+}
+
 // The fraction of physical structure sites that ever carry a functional
 // label at all (real SMLM labels -- antibodies, SNAP/Halo, FP fusions --
 // never reach 100% of their target). Applied ONCE here, as a keep/drop
@@ -325,6 +363,10 @@ std::unique_ptr<IPatternGenerator> BuildStructurePattern(SMLMPatternType type, d
          sites = BuildNupSites(widthUm, heightUm, sp, structureRng);
          name = "NUP";
          break;
+      case PATTERN_FILAMENTS_RING:
+         sites = BuildFilamentsRingSites(widthUm, heightUm, sp);
+         name = "FilamentsRing";
+         break;
       default:
          return nullptr;
    }
@@ -362,6 +404,8 @@ double StructureZExtentNm(SMLMPatternType type, const StructureParams& sp)
          return sp.structureSizeNm;
       case PATTERN_NUP:
          return sp.nupRingSeparationNm / 2.0 + sp.nupCurvatureNm / 2.0;
+      case PATTERN_FILAMENTS_RING:
+         return 1.5 * sp.zRangeNm;
       default:
          return 0.0;
    }

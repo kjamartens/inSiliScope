@@ -46,6 +46,12 @@
     <ClCompile Include="Simulation\SMLMZernike.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\GpuSimD3D11.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\SMLMBackground.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -70,6 +76,15 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMZernike.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SMLMCounterRng.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\GpuSimD3D11.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SMLMBackground.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\PsfGeneratorBridge.h">

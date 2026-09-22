@@ -17,7 +17,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <chrono>
+#include <functional>
+#include <iomanip>
 #include <sstream>
+#include <thread>
 
 ///////////////////////////////////////////////////////////////////////////////
 // Parameter snapshot / invalidation helpers
@@ -57,7 +61,16 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    p.pixelGainStdFraction = pixelGainStdPct_.load() / 100.0;
    p.pixelReadNoiseStdFraction = pixelReadNoiseStdPct_.load() / 100.0;
    p.driftNmPerSecX = driftNmPerSecX_.load();
+   p.driftAngleRad = sim::DriftAngleForSeed(randomSeed_);
    p.frameDurationSec = expSec;
+   p.blinkBleachProb = blinkBleachProb_.load();
+   // Same clamp rationale as onLifetimeFrames above (lead-in window size).
+   p.offLifetimeFrames = std::min(offLifetimeSec_.load() / expSec, 20000.0);
+   p.photonCV = photonCV_.load();
+   p.emccd = cameraEmccd_;
+   p.emGain = emGain_.load();
+   p.cicElectrons = cicElectrons_.load();
+   p.bitDepth = bitDepth_;
    return p;
 }
 
@@ -118,11 +131,20 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
 
    // GibsonLanniZernike-only (ignored otherwise); see the comment on
    // psfZernikeCoefficients_ in SMLMDemoCamera.h.
-   req.zernikeCoefficients = psfZernikeCoefficients_;
+   // The property is space-separated (MMCore forbids commas in values);
+   // PsfBridge.java wants commas. psfZernikeCoefficients_ only ever holds a
+   // string that parsed OK (see OnPsfZernikeCoefficients).
+   {
+      bool ok = false;
+      req.zernikeCoefficients =
+         sim::FormatZernikeCoefficients(sim::ParseZernikeCoefficients(psfZernikeCoefficients_, ok), ',');
+   }
 
    req.javaHome = psfGeneratorJavaHome_;
    req.interpMode = static_cast<sim::PsfInterpMode>(psfInterp_);
-   req.evalMethod = static_cast<sim::PsfEvalMethod>(psfEvalMethod_);
+   req.maskType = static_cast<sim::PsfMaskType>(psfMaskType_);
+   req.maskModes = psfMaskModes_;
+   req.maskWaist = psfMaskWaist_.load();
    return req;
 }
 
@@ -164,6 +186,128 @@ sim::StructureParams CSMLMDemoCamera::BuildStructureParams() const
    sp.nupMinSpacingNm = nupMinSpacingNm_.load();
    sp.nupCurvatureNm = nupCurvatureNm_.load();
    return sp;
+}
+
+sim::StackShapingFields CSMLMDemoCamera::BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
+                                                           const sim::SimulationParams& params, long seed) const
+{
+   sim::StackShapingFields out;
+   double meanFactor = 1.0;
+   out.illum = sim::BuildIlluminationField(w, h, static_cast<sim::IllumProfile>(illumProfile_), illumFwhmPct_.load(),
+                                           &meanFactor);
+   if (!out.illum.empty())
+   {
+      std::ostringstream msg;
+      msg << "Illumination profile: peak-normalized, keeps " << std::fixed << std::setprecision(1)
+          << 100.0 * meanFactor << "% of the flat-field photon budget on average.";
+      LogMessage(msg.str());
+   }
+
+   double contrast = bgCellContrast_.load(), hazeWeight = bgHazeWeight_.load();
+   if (params.backgroundPhotons > 0.0 && (contrast > 1.0 || hazeWeight > 0.0))
+   {
+      // Own streams (webSMLM's background rng is likewise derived from the
+      // seed, separate from the emitter stream): one for the haze site
+      // sample, one for the cell shape.
+      std::vector<std::pair<double, double>> sitesPx;
+      if (hazeWeight > 0.0)
+      {
+         std::mt19937_64 siteRng(static_cast<uint64_t>(seed) ^ 0x48415A4553495445ULL); // "HAZESITE"
+         double widthUm = w * params.pixelSizeNm / 1000.0, heightUm = h * params.pixelSizeNm / 1000.0;
+         for (const sim::EmitterSite& s : model.SampleSitesForHaze(widthUm, heightUm, 20000, siteRng))
+            sitesPx.emplace_back(s.xUm * 1000.0 / params.pixelSizeNm, s.yUm * 1000.0 / params.pixelSizeNm);
+      }
+      std::mt19937_64 bgRng(static_cast<uint64_t>(seed) ^ 0x4247524E44434C4CULL); // "BGRNDCLL"
+      out.background = sim::BuildBackgroundMap(w, h, params.backgroundPhotons, contrast, hazeWeight,
+                                               bgHazeWidthNm_.load() / params.pixelSizeNm, sitesPx, bgRng);
+   }
+   return out;
+}
+
+std::function<double(std::mt19937_64&)> CSMLMDemoCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
+{
+   // Port of webSMLM's out-of-focus depth draw: |z| uniform in [zLo, zHi]
+   // with a random sign, zLo = 300 nm (webSMLM uses max(its astigmatic
+   // usable range, 300 nm); this project doesn't compute that range) and
+   // zHi = OutOfFocusDepthNm, both clamped to the kernel's own half range.
+   if (!cache.valid || cache.nz < 3)
+      return {};
+   double halfKernel = cache.zStepNm * (cache.nz - 1) / 2.0;
+   double zLo = std::min(300.0, halfKernel);
+   double zHi = std::min(std::max(outOfFocusDepthNm_.load(), zLo), halfKernel);
+   return [zLo, zHi](std::mt19937_64& rng) {
+      std::uniform_real_distribution<double> unif01(0.0, 1.0);
+      double sign = unif01(rng) < 0.5 ? -1.0 : 1.0;
+      return sign * (zLo + unif01(rng) * (zHi - zLo));
+   };
+}
+
+void CSMLMDemoCamera::SetGpuStatus(const std::string& s)
+{
+   std::lock_guard<std::mutex> lock(gpuStatusMutex_);
+   gpuStatus_ = s;
+}
+
+bool CSMLMDemoCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache,
+                                 unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap,
+                                 const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
+                                 const sim::StackShapingFields& shaping, const sim::SimulationParams& params)
+{
+   if (!useGpu_)
+   {
+      SetGpuStatus("CPU (General_UseGpu is Off)");
+      return false;
+   }
+   if (!cache.valid)
+   {
+      SetGpuStatus("CPU (the Gaussian PSF renders on the CPU; the GPU path is for vectorial PSF models)");
+      return false;
+   }
+   if (cache.interpMode == sim::PsfInterpMode::Fft)
+   {
+      SetGpuStatus("CPU (PsfInterp=Fft has no GPU path)");
+      return false;
+   }
+   std::string info;
+   if (!gpu)
+   {
+      gpu = sim::GpuSimulator::Create(info);
+      if (!gpu)
+      {
+         SetGpuStatus("CPU (" + info + ")");
+         LogMessage("GPU unavailable, rendering on the CPU: " + info, false);
+         return false;
+      }
+      SetGpuStatus("GPU: " + info);
+      LogMessage("GPU simulation on " + info);
+   }
+   // Per-pixel background before the per-frame fade: the structured map (or
+   // the flat value) times the illumination field -- what RenderPhotonImage
+   // computes per pixel.
+   std::vector<float> bg;
+   if (!shaping.background.empty() || !shaping.illum.empty())
+   {
+      const size_t n = static_cast<size_t>(w) * h;
+      bg.resize(n);
+      for (size_t i = 0; i < n; ++i)
+      {
+         double v = shaping.background.size() == n ? shaping.background[i] : params.backgroundPhotons;
+         if (shaping.illum.size() == n)
+            v *= shaping.illum[i];
+         bg[i] = static_cast<float>(v);
+      }
+   }
+   std::string err;
+   if (!gpu->SetKernel(cache, err) ||
+       !gpu->SetStatic(w, h, offsetMap.offset, gainMap.gainPhotonsPerAdu, readNoiseMap.readNoiseElectrons, bg,
+                       params.backgroundPhotons, params.Camera(), err))
+   {
+      SetGpuStatus("CPU (GPU setup failed: " + err + ")");
+      LogMessage("GPU setup failed, rendering on the CPU: " + err, false);
+      gpu.reset();
+      return false;
+   }
+   return true;
 }
 
 void CSMLMDemoCamera::InvalidateStack()
@@ -258,6 +402,11 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    std::vector<sim::BlinkEvent> events =
       model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
 
+   // Illumination + structured background: fixed fields for the whole stack,
+   // drawn from their OWN rng streams (see BuildShapingFields) -- the same
+   // seed gives the same emitters and noise with or without them.
+   sim::StackShapingFields shaping = BuildShapingFields(model, fullW, fullH, params, seed);
+
    sim::PixelOffsetMap localOffsetMap;
    localOffsetMap.Generate(fullW, fullH, params.offsetAdu, params.offsetStdAdu, localRng);
    sim::PixelGainMap localGainMap;
@@ -278,28 +427,145 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
          LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
          localPsfCache = sim::PsfKernelCache();
       }
+      else
+      {
+         std::string crlb = sim::DescribePsfCramerRao(localPsfCache, params.photonsPerBlink,
+                                                      std::max(0.5, params.backgroundPhotons), params.pixelSizeNm);
+         if (!crlb.empty())
+            LogMessage(crlb);
+      }
+   }
+
+   // Blinking out-of-focus emitters (Background_OutOfFocusRatio): the same
+   // kinetics on the same structure at ratio x the density, on their own rng
+   // stream, placed off focus -- appended to the in-focus events, rendered
+   // through the same per-emitter plane lookup. Needs the kernel's z range,
+   // hence after the PSF build.
+   {
+      double ratio = outOfFocusRatio_.load();
+      if (ratio > 0.0)
+      {
+         auto zOf = OutOfFocusDepthSampler(localPsfCache);
+         if (!zOf)
+         {
+            LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
+                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
+         }
+         else
+         {
+            std::mt19937_64 oofRng(static_cast<uint64_t>(seed) ^ 0x4F55544F46464F43ULL); // "OUTOFFOC"
+            std::vector<sim::BlinkEvent> oof =
+               model.GenerateAllEvents(stackLength, widthUm, heightUm, params, oofRng, ratio, zOf);
+            events.insert(events.end(), oof.begin(), oof.end());
+         }
+      }
    }
 
    std::vector<std::vector<uint16_t>> newStack(static_cast<size_t>(std::max(stackLength, 0L)));
-   std::vector<float> photonImg;
-   long zClampedTotal = 0, zRenderedTotal = 0;
-   for (long f = 0; f < stackLength; ++f)
-   {
-      double dx = 0.0, dy = 0.0;
-      sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.pixelSizeNm, dx, dy);
+   // Each frame renders only its own emitters, and its noise comes from the
+   // counter-based stream keyed by (noiseSeed, frame, pixel) -- so frames are
+   // independent and can be made in any order, on any thread or on the GPU,
+   // with the same result.
+   const std::vector<std::vector<uint32_t>> frameEvents = sim::BucketEventsByFrame(events, stackLength);
+   const uint32_t noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+   const sim::CameraNoiseParams cam = params.Camera();
+   const double decaySec = bgDecaySec_.load();
+   std::atomic<long> zClampedAll{0}, zRenderedAll{0};
+   auto frameInputs = [&](long f, std::vector<sim::BlinkEvent>& evs, double& dx, double& dy, double& zOffsetUm) {
+      evs.clear();
+      for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
+         evs.push_back(events[idx]);
+      sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
+                                 params.pixelSizeNm, dx, dy);
       // Read the SMLMDemoZStage device's current position fresh each frame,
       // same as any other live-adjustable parameter (see LiveProducerLoop).
-      double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
-      sim::RenderPhotonImage(photonImg, fullW, fullH, events, f, params.pixelSizeNm, params.psfSigmaPx,
-                              params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm,
-                              &zClampedTotal, &zRenderedTotal);
-      sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH,
-                            params.quantumEfficiency, params.darkCurrentElectronsPerFrame,
-                            params.gainPhotonsPerAdu, params.readNoiseElectrons, localOffsetMap,
-                            localGainMap, localReadNoiseMap, localRng);
-      stackFramesGenerated_ = f + 1;
+      zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
+   };
+
+   std::unique_ptr<sim::GpuSimulator> gpu;
+   bool gpuOk = PrepareGpu(gpu, localPsfCache, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
+                           shaping, params);
+   auto startTime = std::chrono::steady_clock::now();
+   if (gpuOk)
+   {
+      // Batches of frames per dispatch: one GPU round trip per batch rather
+      // than per frame.
+      const long batch = static_cast<long>(gpu->MaxBatchFrames());
+      std::vector<sim::BlinkEvent> evs;
+      long zc = 0, zt = 0;
+      for (long f0 = 0; f0 < stackLength && gpuOk; f0 += batch)
+      {
+         const long f1 = std::min(stackLength, f0 + batch);
+         std::vector<std::vector<sim::GpuSplatEmitter>> ems(static_cast<size_t>(f1 - f0));
+         std::vector<uint32_t> frameIds;
+         std::vector<double> bgScales;
+         std::vector<std::vector<uint16_t>*> outs;
+         for (long f = f0; f < f1; ++f)
+         {
+            double dx, dy, zOffsetUm;
+            frameInputs(f, evs, dx, dy, zOffsetUm);
+            sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
+            sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, params.photonsPerBlink, dx, dy,
+                                    localPsfCache, zOffsetUm, &extras, ems[static_cast<size_t>(f - f0)], &zc, &zt);
+            frameIds.push_back(static_cast<uint32_t>(f));
+            bgScales.push_back(extras.backgroundScale);
+            outs.push_back(&newStack[static_cast<size_t>(f)]);
+         }
+         std::string err;
+         if (!gpu->RenderFrames(ems, frameIds, bgScales, cam, noiseSeed, outs, err))
+         {
+            LogMessage("GPU frame render failed, rendering the stack on the CPU: " + err, false);
+            SetGpuStatus("CPU (GPU render failed: " + err + ")");
+            gpuOk = false;
+            stackFramesGenerated_ = 0;
+            zc = zt = 0;
+            break;
+         }
+         stackFramesGenerated_ = f1;
+      }
+      zClampedAll += zc;
+      zRenderedAll += zt;
    }
+   if (!gpuOk)
+   {
+      // Multi-threaded CPU path: an atomic frame counter hands out frames.
+      std::atomic<long> nextFrame{0};
+      std::atomic<long> done{0};
+      auto worker = [&]() {
+         std::vector<float> photonImg;
+         std::vector<sim::BlinkEvent> evs;
+         long zc = 0, zt = 0;
+         for (long f; (f = nextFrame.fetch_add(1)) < stackLength;)
+         {
+            double dx, dy, zOffsetUm;
+            frameInputs(f, evs, dx, dy, zOffsetUm);
+            sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
+            sim::RenderPhotonImage(photonImg, fullW, fullH, evs, f, params.pixelSizeNm, params.psfSigmaPx,
+                                   params.photonsPerBlink, params.backgroundPhotons, dx, dy,
+                                   localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm, &zc, &zt, &extras);
+            sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH, cam, localOffsetMap,
+                                 localGainMap, localReadNoiseMap, noiseSeed, static_cast<uint32_t>(f));
+            stackFramesGenerated_ = done.fetch_add(1) + 1;
+         }
+         zClampedAll += zc;
+         zRenderedAll += zt;
+      };
+      unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
+      std::vector<std::thread> pool;
+      for (unsigned t = 1; t < nThreads; ++t)
+         pool.emplace_back(worker);
+      worker();
+      for (std::thread& t : pool)
+         t.join();
+   }
+   {
+      double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+      std::ostringstream msg;
+      msg << "Rendered " << stackLength << " frames in " << std::fixed << std::setprecision(2) << secs << " s on "
+          << (gpuOk ? "the GPU" : "the CPU (" + std::to_string(std::max(1u, std::min(std::thread::hardware_concurrency(), 32u))) + " threads)");
+      LogMessage(msg.str());
+   }
+   long zClampedTotal = zClampedAll.load(), zRenderedTotal = zRenderedAll.load();
    if (zClampedTotal > 0)
    {
       std::ostringstream warn;
@@ -349,8 +615,10 @@ void CSMLMDemoCamera::StartLiveProducer()
                                                     BuildStructureParams(), widthUm, heightUm, liveStructureSeed));
    liveEmitterModel_.Reseed(liveSeed);
    liveRng_.seed(liveSeed);
+   liveOutOfFocusRng_.seed(static_cast<uint64_t>(randomSeed_) ^ 0x4C4956454F4F4631ULL); // "LIVEOOF1"
 
    liveEmitterModel_.ResetLive(widthUm, heightUm);
+   liveOutOfFocusModel_.ResetLive(widthUm, heightUm);
 
    {
       MMThreadGuard g(frontFrameLock_);
@@ -386,6 +654,14 @@ void CSMLMDemoCamera::LiveProducerLoop()
    // as offsetMap, so no locking is needed. Rebuilt whenever
    // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
    sim::PsfKernelCache psfCache;
+   // Illumination/background fields and the out-of-focus depth sampler --
+   // rebuilt on the same config-version trigger as everything else here.
+   sim::StackShapingFields shaping;
+   std::function<double(std::mt19937_64&)> outOfFocusZ;
+   // GPU simulator for this thread (created on first use) and whether the
+   // current config renders on it.
+   std::unique_ptr<sim::GpuSimulator> gpu;
+   bool gpuOk = false;
    // Sentinel: guarantees the very first tick below rebuilds both the offset
    // map and the emitter pattern/site cache, even though StartLiveProducer()
    // already primed them moments earlier (harmless redundancy, and it means
@@ -439,6 +715,12 @@ void CSMLMDemoCamera::LiveProducerLoop()
          liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
                                                           resolutionSpacingsNm_, structure, widthUm, heightUm,
                                                           liveStructureSeed));
+         // Same seed -> the identical site list, so the out-of-focus
+         // population sits on the same structure.
+         liveOutOfFocusModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
+                                                             resolutionSpacingsNm_, structure, widthUm, heightUm,
+                                                             liveStructureSeed));
+         shaping = BuildShapingFields(liveEmitterModel_, w, h, params, randomSeed_);
 
          sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
          if (psfRequest.model != sim::PsfModelKind::Gaussian)
@@ -452,6 +734,11 @@ void CSMLMDemoCamera::LiveProducerLoop()
             }
             else
             {
+               std::string crlb = sim::DescribePsfCramerRao(psfCache, params.photonsPerBlink,
+                                                            std::max(0.5, params.backgroundPhotons),
+                                                            params.pixelSizeNm);
+               if (!crlb.empty())
+                  LogMessage(crlb);
                double structureHalfRangeNm = sim::StructureZExtentNm(CurrentPatternType(), structure);
                double kernelHalfRangeNm = (psfCache.nz > 1) ? (psfCache.nz - 1) / 2.0 * psfCache.zStepNm : 0.0;
                if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
@@ -480,11 +767,25 @@ void CSMLMDemoCamera::LiveProducerLoop()
          zClampedSinceRebuild = 0;
          zTotalSinceRebuild = 0;
 
+         gpuOk = PrepareGpu(gpu, psfCache, w, h, offsetMap, gainMap, readNoiseMap, shaping, params);
+
+         outOfFocusZ = OutOfFocusDepthSampler(psfCache);
+         if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
+            LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
+                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
+
          appliedConfigVersion = currentConfigVersion;
       }
 
       std::vector<sim::BlinkEvent> events =
          liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
+      double outOfFocusRatio = outOfFocusRatio_.load();
+      if (outOfFocusRatio > 0.0 && outOfFocusZ)
+      {
+         std::vector<sim::BlinkEvent> oof = liveOutOfFocusModel_.AdvanceOneFrame(
+            liveFrameCounter_, widthUm, heightUm, params, liveOutOfFocusRng_, outOfFocusRatio, outOfFocusZ);
+         events.insert(events.end(), oof.begin(), oof.end());
+      }
 
       // Drift ramps up from zero at liveDriftOriginFrame_ (reset at
       // StartLiveProducer() and at the start of every Live/MDA sequence
@@ -494,20 +795,48 @@ void CSMLMDemoCamera::LiveProducerLoop()
                                                       liveDriftOriginFrame_.load(std::memory_order_relaxed));
       double dx = 0.0, dy = 0.0;
       sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
-                                 params.pixelSizeNm, dx, dy);
+                                 params.driftAngleRad, params.pixelSizeNm, dx, dy);
       // SMLMDemoZStage's current position, read fresh every tick so moving
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
       // real time.
       double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
-      sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
-                              params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                              psfCache.valid ? &psfCache : nullptr, zOffsetUm,
-                              &zClampedSinceRebuild, &zTotalSinceRebuild);
-
+      // The background fade restarts with the drift ramp (at every Live/MDA
+      // acquisition start), the live-mode analog of "frame 0".
+      sim::RenderExtras extras =
+         shaping.Extras(framesSinceDriftOrigin * params.frameDurationSec, bgDecaySec_.load());
+      // Counter-based noise: keyed by the live frame counter, on a seed of
+      // its own (live mode was never meant to reproduce precomputed frames).
+      const uint32_t liveNoiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(randomSeed_) ^ 0x4C4E4F49ULL);
+      const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
       std::vector<uint16_t> nextFrame;
-      sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.quantumEfficiency,
-                            params.darkCurrentElectronsPerFrame, params.gainPhotonsPerAdu,
-                            params.readNoiseElectrons, offsetMap, gainMap, readNoiseMap, liveRng_);
+      bool rendered = false;
+      if (gpuOk && psfCache.valid)
+      {
+         std::vector<sim::GpuSplatEmitter> ems;
+         sim::CollectGpuEmitters(events, liveFrameCounter_, w, h, params.pixelSizeNm, params.photonsPerBlink, dx,
+                                 dy, psfCache, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
+                                 &zTotalSinceRebuild);
+         std::string err;
+         // Scalar camera settings (QE, gain...) are read per frame; the
+         // static per-pixel buffer carries only the maps and background.
+         rendered = gpu->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed, noiseFrame,
+                                     nextFrame, err);
+         if (!rendered)
+         {
+            LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
+            SetGpuStatus("CPU (GPU render failed: " + err + ")");
+            gpuOk = false;
+         }
+      }
+      if (!rendered)
+      {
+         sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
+                                params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
+                                psfCache.valid ? &psfCache : nullptr, zOffsetUm,
+                                &zClampedSinceRebuild, &zTotalSinceRebuild, &extras);
+         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
+                              liveNoiseSeed, noiseFrame);
+      }
 
       {
          MMThreadGuard g(frontFrameLock_);
@@ -686,7 +1015,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
                               g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
                               g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
                               g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup,
-                              g_PatternCalibration9Spots};
+                              g_PatternCalibration9Spots, g_PatternFilamentsRing};
       pProp->Set(names[patternType_]);
    }
    else if (eAct == MM::AfterSet)
@@ -707,6 +1036,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
       else if (s == g_PatternShell) patternType_ = sim::PATTERN_SHELL;
       else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
       else if (s == g_PatternCalibration9Spots) patternType_ = sim::PATTERN_CALIBRATION_9_SPOTS;
+      else if (s == g_PatternFilamentsRing) patternType_ = sim::PATTERN_FILAMENTS_RING;
 
       // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
       // polls every tick and rebuilds liveEmitterModel_'s pattern from
@@ -1116,11 +1446,11 @@ int CSMLMDemoCamera::OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::Actio
       sim::ParseZernikeCoefficients(s, ok);
       // Same "reject a malformed/wrong-length list rather than silently
       // reinterpreting it" stance as sim::ParseZernikeCoefficients itself:
-      // only accept the new text if it parses to exactly 15 numbers, else
+      // only accept the new text if it parses to exactly 15 or 28 numbers, else
       // leave the previous (valid) value in place and report the resolved
       // value back to the property browser via pProp->Set.
       if (ok)
-         psfZernikeCoefficients_ = s;
+         psfZernikeCoefficients_ = sim::FormatZernikeCoefficients(sim::ParseZernikeCoefficients(s, ok));
       pProp->Set(psfZernikeCoefficients_.c_str());
       InvalidateStack();
    }
@@ -1259,7 +1589,7 @@ int CSMLMDemoCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
-      const char* names[] = {g_PsfInterpNearest, g_PsfInterpLinear, g_PsfInterpCubic};
+      const char* names[] = {g_PsfInterpNearest, g_PsfInterpLinear, g_PsfInterpCubic, g_PsfInterpFft};
       pProp->Set(names[psfInterp_]);
    }
    else if (eAct == MM::AfterSet)
@@ -1268,27 +1598,212 @@ int CSMLMDemoCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
       pProp->Get(s);
       if (s == g_PsfInterpLinear) psfInterp_ = static_cast<int>(sim::PsfInterpMode::Linear);
       else if (s == g_PsfInterpCubic) psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
+      else if (s == g_PsfInterpFft) psfInterp_ = static_cast<int>(sim::PsfInterpMode::Fft);
       else psfInterp_ = static_cast<int>(sim::PsfInterpMode::Nearest);
       InvalidateStack();
    }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfEvalMethod(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CSMLMDemoCamera::OnBlinkBleachProb(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(blinkBleachProb_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); blinkBleachProb_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnOffLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(offLifetimeSec_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); offLifetimeSec_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPhotonCV(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(photonCV_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); photonCV_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(illumFwhmPct_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); illumFwhmPct_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(emGain_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emGain_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(cicElectrons_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); cicElectrons_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(bgCellContrast_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgCellContrast_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWeight_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWeight_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWidthNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWidthNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(bgDecaySec_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgDecaySec_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusRatio_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusRatio_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusDepthNm_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusDepthNm_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
-      pProp->Set(psfEvalMethod_ == static_cast<int>(sim::PsfEvalMethod::ChirpZ) ? g_PsfEvalMethodChirpZ
-                                                                                    : g_PsfEvalMethodDirect);
+      const char* names[] = {g_IllumFlat, g_IllumGaussian, g_IllumFlatTop};
+      pProp->Set(names[illumProfile_]);
    }
    else if (eAct == MM::AfterSet)
    {
       std::string s;
       pProp->Get(s);
-      psfEvalMethod_ = (s == g_PsfEvalMethodChirpZ) ? static_cast<int>(sim::PsfEvalMethod::ChirpZ)
-                                                      : static_cast<int>(sim::PsfEvalMethod::Direct);
+      if (s == g_IllumGaussian) illumProfile_ = static_cast<int>(sim::IllumProfile::Gaussian);
+      else if (s == g_IllumFlatTop) illumProfile_ = static_cast<int>(sim::IllumProfile::FlatTop);
+      else illumProfile_ = static_cast<int>(sim::IllumProfile::Flat);
       InvalidateStack();
    }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(cameraEmccd_ ? g_CameraTypeEmccd : g_CameraTypeScmos);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      cameraEmccd_ = (s == g_CameraTypeEmccd);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(static_cast<long>(bitDepth_));
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      long v;
+      pProp->Get(v);
+      bitDepth_ = static_cast<int>(std::min(16L, std::max(8L, v)));
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(useGpu_ ? g_UseGpuOn : g_UseGpuOff);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      useGpu_ = (s == g_UseGpuOn);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      std::lock_guard<std::mutex> lock(gpuStatusMutex_);
+      pProp->Set(gpuStatus_.c_str());
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(psfMaskType_ == static_cast<int>(sim::PsfMaskType::DoubleHelix) ? g_PsfMaskDoubleHelix
+                                                                                  : g_PsfMaskNone);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      psfMaskType_ = (s == g_PsfMaskDoubleHelix) ? static_cast<int>(sim::PsfMaskType::DoubleHelix)
+                                                   : static_cast<int>(sim::PsfMaskType::None);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      pProp->Set(static_cast<long>(psfMaskModes_));
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      long v;
+      pProp->Get(v);
+      psfMaskModes_ = static_cast<int>(std::min(8L, std::max(2L, v)));
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(psfMaskWaist_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfMaskWaist_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

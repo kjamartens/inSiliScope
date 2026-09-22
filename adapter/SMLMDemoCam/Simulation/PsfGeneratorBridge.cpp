@@ -496,7 +496,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
          break;
       jmethodID method =
          env->GetStaticMethodID(cls, "computePlanes",
-                                 "(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;Ljava/lang/String;)[F");
+                                 "(Ljava/lang/String;DDDDDDDDIIILjava/lang/String;Ljava/lang/String;ID)[F");
       if (!method)
       {
          outError = "psfbridge.PsfBridge.computePlanes not found: " + DescribeAndClearException(env);
@@ -515,8 +515,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 
       jstring modelStr = env->NewStringUTF(ModelName(req.model));
       jstring zernikeStr = env->NewStringUTF(req.zernikeCoefficients.c_str());
-      jstring evalMethodStr =
-         env->NewStringUTF(req.evalMethod == PsfEvalMethod::ChirpZ ? "chirpz" : "direct");
+      jstring maskTypeStr =
+         env->NewStringUTF(req.maskType == PsfMaskType::DoubleHelix ? "doubleHelix" : "none");
 
       if (logCallback)
       {
@@ -525,25 +525,24 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                    << " px, " << nz << (nz == 1 ? " Z plane" : " Z planes") << ")...";
          logCallback(startMsg.str());
 
-         // GibsonLanniZernike (unlike the radially-symmetric models) does a
-         // direct 2D pupil-plane quadrature per pixel per Z-plane -- cost
-         // scales with size^2 * nz, so this combination (large oversampled
-         // window x many Z planes, both easy to reach via default-ish
-         // PsfOversampling/PsfKernelHalfWidthPx/PsfZRangeUm/PsfZStepUm
-         // settings) can turn into minutes even with every CPU core
-         // helping (see runPoolParallel in PsfBridge.java). Surface that
-         // up front rather than leaving the user to guess why it's slow
-         // from the heartbeat alone.
+         // GibsonLanniZernike (unlike the radially-symmetric models) builds
+         // a full 2D pupil and chirp-Z transform per Z-plane -- cost grows
+         // with the oversampled window size and nz, so a large window x
+         // many Z planes (PsfOversampling/PsfKernelHalfWidthNm/PsfZRangeUm/
+         // PsfZStepUm) can take a while even with every CPU core helping
+         // (see runPoolParallel in PsfBridge.java). Surface that up front
+         // rather than leaving the user to guess why it's slow from the
+         // heartbeat alone.
          constexpr long long kSizeNzWarnThreshold = 20LL * 1000 * 1000; // ~ 129x129x24 px-planes
          long long sizeNzProduct = static_cast<long long>(size) * size * nz;
          if (req.model == PsfModelKind::GibsonLanniZernike && sizeNzProduct > kSizeNzWarnThreshold)
          {
             std::ostringstream warnMsg;
-            warnMsg << "PSFGenerator: GibsonLanniZernike's per-pixel 2D quadrature makes this a large "
+            warnMsg << "PSFGenerator: GibsonLanniZernike's per-plane 2D pupil transform makes this a large "
                         "computation ("
                      << size << "x" << size << " px x " << nz
                      << " Z planes) and may take minutes even with multiple CPU cores. To speed it up, "
-                        "reduce PsfOversampling, PsfKernelHalfWidthPx, PsfZRangeUm, and/or PsfZStepUm.";
+                        "reduce PsfOversampling, PsfKernelHalfWidthNm, PsfZRangeUm, and/or PsfZStepUm.";
             logCallback(warnMsg.str());
          }
       }
@@ -553,7 +552,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       // progress crosses the JNI boundary). This heartbeat thread does no
       // JNI work itself (just sleeps and calls back into logCallback, which
       // is plain C++/MMDevice logging) -- purely so a slow model (e.g.
-      // GibsonLanniZernike's direct 2D pupil quadrature) doesn't look hung
+      // GibsonLanniZernike at a large window/many planes) doesn't look hung
       // in corelog.
       auto startTime = std::chrono::steady_clock::now();
       std::atomic<bool> stopHeartbeat{false};
@@ -585,7 +584,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                                                      static_cast<jdouble>(resLateralNm),
                                                      static_cast<jdouble>(req.zStepNm), static_cast<jint>(size),
                                                      static_cast<jint>(size), static_cast<jint>(nz), zernikeStr,
-                                                     evalMethodStr);
+                                                     maskTypeStr, static_cast<jint>(req.maskModes),
+                                                     static_cast<jdouble>(req.maskWaist));
 
       stopHeartbeat.store(true, std::memory_order_relaxed);
       if (heartbeat.joinable())
@@ -602,6 +602,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 
       env->DeleteLocalRef(modelStr);
       env->DeleteLocalRef(zernikeStr);
+      env->DeleteLocalRef(maskTypeStr);
       // Note: cls is the cached global ref from ResolveBridgeClass -- not
       // deleted here (see the comment where it was obtained above).
 
@@ -640,9 +641,22 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       outCache.zStepNm = req.zStepNm;
       outCache.interpMode = req.interpMode;
       outCache.planes.assign(static_cast<size_t>(nz), std::vector<float>(planeFloats));
+      outCache.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
+      outCache.blockSumWidth = size + oversampling - 1;
       for (int z = 0; z < nz; ++z)
-         std::memcpy(outCache.planes[static_cast<size_t>(z)].data(), flat.data() + static_cast<size_t>(z) * planeFloats,
-                     planeFloats * sizeof(float));
+      {
+         std::vector<float>& plane = outCache.planes[static_cast<size_t>(z)];
+         std::memcpy(plane.data(), flat.data() + static_cast<size_t>(z) * planeFloats, planeFloats * sizeof(float));
+         // Photon-normalize (sum 1): each entry becomes a probability mass,
+         // so a splat of N photons deposits N (minus what leaves the image).
+         double sum = 0.0;
+         for (float v : plane)
+            sum += v;
+         if (sum > 0.0)
+            for (float& v : plane)
+               v = static_cast<float>(v / sum);
+         outCache.blockSums[static_cast<size_t>(z)] = BuildBlockSums(plane.data(), size, oversampling);
+      }
       outCache.valid = true;
       ok = true;
    } while (false);
@@ -663,177 +677,457 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache,
 
 #endif
 
+std::vector<float> BuildBlockSums(const float* kernel, int n, int os)
+{
+   // Port of webSMLM's buildSummedKernel(): horizontal block sums per kernel
+   // row, then vertical sums of those. B spans a in [-(os-1), n-1] (every
+   // block that overlaps the kernel at all), stored with offset off = os-1.
+   const int off = os - 1, bw = n + off;
+   std::vector<double> hsum(static_cast<size_t>(bw) * n);
+   for (int y = 0; y < n; ++y)
+      for (int bi = 0; bi < bw; ++bi)
+      {
+         const int b = bi - off, x0 = std::max(0, b), x1 = std::min(n - 1, b + off);
+         double acc = 0.0;
+         for (int x = x0; x <= x1; ++x)
+            acc += kernel[static_cast<size_t>(y) * n + x];
+         hsum[static_cast<size_t>(y) * bw + bi] = acc;
+      }
+   std::vector<float> out(static_cast<size_t>(bw) * bw);
+   for (int ai = 0; ai < bw; ++ai)
+   {
+      const int a = ai - off, y0 = std::max(0, a), y1 = std::min(n - 1, a + off);
+      for (int bi = 0; bi < bw; ++bi)
+      {
+         double acc = 0.0;
+         for (int y = y0; y <= y1; ++y)
+            acc += hsum[static_cast<size_t>(y) * bw + bi];
+         out[static_cast<size_t>(ai) * bw + bi] = static_cast<float>(acc);
+      }
+   }
+   return out;
+}
+
 namespace {
 
-// plane is size*size, row-major (x fastest). Returns 0 for any sample
-// location outside [0,size) on either axis -- out-of-range contributes
-// nothing rather than clamping to an edge value, matching Nearest mode's
-// existing "skip, don't clamp" convention for oversampled samples that
-// fall outside the plane.
-float PlaneAt(const float* plane, int size, int x, int y)
+// JS Math.round (ties toward +infinity), which webSMLM's splat uses.
+double RoundHalfUp(double v)
 {
-   if (x < 0 || x >= size || y < 0 || y >= size)
-      return 0.0f;
-   return plane[static_cast<size_t>(y) * size + x];
+   return std::floor(v + 0.5);
 }
 
-double SampleBilinear(const float* plane, int size, double fx, double fy)
+void CatmullRomWeights(double f, double* w)
 {
-   int x0 = static_cast<int>(std::floor(fx));
-   int y0 = static_cast<int>(std::floor(fy));
-   double tx = fx - x0, ty = fy - y0;
-   double v00 = PlaneAt(plane, size, x0, y0);
-   double v10 = PlaneAt(plane, size, x0 + 1, y0);
-   double v01 = PlaneAt(plane, size, x0, y0 + 1);
-   double v11 = PlaneAt(plane, size, x0 + 1, y0 + 1);
-   double top = v00 + (v10 - v00) * tx;
-   double bot = v01 + (v11 - v01) * tx;
-   return top + (bot - top) * ty;
+   const double f2 = f * f, f3 = f2 * f;
+   w[0] = -0.5 * f3 + f2 - 0.5 * f;
+   w[1] = 1.5 * f3 - 2.5 * f2 + 1.0;
+   w[2] = -1.5 * f3 + 2.0 * f2 + 0.5 * f;
+   w[3] = 0.5 * f3 - 0.5 * f2;
 }
 
-// Catmull-Rom cubic convolution (a=-0.5), the standard "smooth but not
-// over-blurred" interpolation kernel -- same choice as the webSMLM
-// reference simulator's bicubic PSF-placement mode.
-double CubicWeight(double t)
+// In-place iterative radix-2 complex FFT; n a power of two; sign -1
+// forward, +1 inverse, both unnormalized.
+void Fft1d(double* re, double* im, int n, int stride, int sign)
 {
-   double at = std::fabs(t);
-   if (at <= 1.0)
-      return 1.5 * at * at * at - 2.5 * at * at + 1.0;
-   if (at < 2.0)
-      return -0.5 * at * at * at + 2.5 * at * at - 4.0 * at + 2.0;
-   return 0.0;
-}
-
-double SampleBicubic(const float* plane, int size, double fx, double fy)
-{
-   int x0 = static_cast<int>(std::floor(fx));
-   int y0 = static_cast<int>(std::floor(fy));
-   double tx = fx - x0, ty = fy - y0;
-   double wx[4] = {CubicWeight(tx + 1.0), CubicWeight(tx), CubicWeight(tx - 1.0), CubicWeight(tx - 2.0)};
-   double wy[4] = {CubicWeight(ty + 1.0), CubicWeight(ty), CubicWeight(ty - 1.0), CubicWeight(ty - 2.0)};
-   double result = 0.0;
-   for (int j = 0; j < 4; ++j)
+   for (int i = 1, j = 0; i < n; ++i)
    {
-      double rowSum = 0.0;
-      for (int i = 0; i < 4; ++i)
-         rowSum += wx[i] * PlaneAt(plane, size, x0 - 1 + i, y0 - 1 + j);
-      result += wy[j] * rowSum;
+      int bit = n >> 1;
+      for (; j & bit; bit >>= 1)
+         j ^= bit;
+      j ^= bit;
+      if (i < j)
+      {
+         std::swap(re[i * stride], re[j * stride]);
+         std::swap(im[i * stride], im[j * stride]);
+      }
    }
-   return result;
+   for (int len = 2; len <= n; len <<= 1)
+   {
+      const double ang = sign * 2.0 * 3.14159265358979323846 / len;
+      const double wr = std::cos(ang), wi = std::sin(ang);
+      const int half = len / 2;
+      for (int i = 0; i < n; i += len)
+      {
+         double cr = 1.0, ci = 0.0;
+         for (int k = 0; k < half; ++k)
+         {
+            double* ar = re + (i + k) * stride;
+            double* ai = im + (i + k) * stride;
+            double* br = re + (i + k + half) * stride;
+            double* bi = im + (i + k + half) * stride;
+            const double vr = *br * cr - *bi * ci, vi = *br * ci + *bi * cr;
+            *br = *ar - vr;
+            *bi = *ai - vi;
+            *ar += vr;
+            *ai += vi;
+            const double nr = cr * wr - ci * wi;
+            ci = cr * wi + ci * wr;
+            cr = nr;
+         }
+      }
+   }
+}
+
+// Shifts one zero-padded complex line (length N, first n entries live) by
+// `shift` samples via the Fourier shift theorem: g(i) = f(i+shift), wrapped
+// (k >= N/2 -> k-N) frequencies. phase[k] = exp(+2*pi*i*kk*shift/N) is
+// precomputed by the caller (one table per axis).
+void FourierShiftLine(std::vector<double>& re, std::vector<double>& im, int N, const std::vector<double>& pc,
+                      const std::vector<double>& ps)
+{
+   Fft1d(re.data(), im.data(), N, 1, -1);
+   for (int k = 0; k < N; ++k)
+   {
+      const double r = re[k], i = im[k];
+      re[k] = r * pc[k] - i * ps[k];
+      im[k] = r * ps[k] + i * pc[k];
+   }
+   Fft1d(re.data(), im.data(), N, 1, 1);
+   const double norm = 1.0 / N;
+   for (int k = 0; k < N; ++k)
+   {
+      re[k] *= norm;
+      im[k] *= norm;
+   }
+}
+
+// Port of webSMLM's fftShiftKernelTile(): shifts a real n x n kernel tile by
+// a continuous (shiftX, shiftY), in kernel-grid units, via the Fourier
+// shift theorem on a zero-padded (>= 2x) buffer -- g(i) = f(i+shift),
+// using wrapped (k >= N/2 -> k-N) frequencies. webSMLM does one N x N 2D
+// FFT pair plus N^2 phase factors; the shift phase exp(i(kx sx + ky sy)) is
+// separable, so this does the IDENTICAL linear operation as 1D shifts along
+// every row and then every column (the intermediate kept complex, outputs
+// outside the n x n tile never needed) -- the same result, ~N/n times less
+// work and 2N instead of N^2 trig pairs. Still one transform per emitter,
+// so Fft remains the slowest placement mode.
+std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX, double shiftY)
+{
+   int N = 1;
+   while (N < 2 * n)
+      N <<= 1;
+   const int half = N / 2;
+   auto phaseTable = [&](double shift, std::vector<double>& pc, std::vector<double>& ps) {
+      pc.resize(N);
+      ps.resize(N);
+      for (int k = 0; k < N; ++k)
+      {
+         const int kk = k < half ? k : k - N;
+         const double ang = 2.0 * 3.14159265358979323846 * kk * shift / N;
+         pc[k] = std::cos(ang);
+         ps[k] = std::sin(ang);
+      }
+   };
+   std::vector<double> xc, xs, yc, ys;
+   phaseTable(shiftX, xc, xs);
+   phaseTable(shiftY, yc, ys);
+
+   // Row pass: n rows, each zero-padded to N; keep the first n (complex) outputs.
+   std::vector<double> midRe(static_cast<size_t>(n) * n), midIm(static_cast<size_t>(n) * n);
+   std::vector<double> re(N), im(N);
+   for (int y = 0; y < n; ++y)
+   {
+      std::fill(re.begin(), re.end(), 0.0);
+      std::fill(im.begin(), im.end(), 0.0);
+      for (int x = 0; x < n; ++x)
+         re[x] = kernel[static_cast<size_t>(y) * n + x];
+      FourierShiftLine(re, im, N, xc, xs);
+      for (int x = 0; x < n; ++x)
+      {
+         midRe[static_cast<size_t>(y) * n + x] = re[x];
+         midIm[static_cast<size_t>(y) * n + x] = im[x];
+      }
+   }
+   // Column pass on the complex intermediate; the real part is the answer.
+   std::vector<float> out(static_cast<size_t>(n) * n);
+   for (int x = 0; x < n; ++x)
+   {
+      std::fill(re.begin(), re.end(), 0.0);
+      std::fill(im.begin(), im.end(), 0.0);
+      for (int y = 0; y < n; ++y)
+      {
+         re[y] = midRe[static_cast<size_t>(y) * n + x];
+         im[y] = midIm[static_cast<size_t>(y) * n + x];
+      }
+      FourierShiftLine(re, im, N, yc, ys);
+      for (int y = 0; y < n; ++y)
+         out[static_cast<size_t>(y) * n + x] = static_cast<float>(re[y]);
+   }
+   return out;
 }
 
 } // namespace
+
+SplatSetupResult SplatSetup(const PsfKernelCache& cache, double xPx, double yPx, PsfInterpMode interpMode)
+{
+   // tx,ty: kernel-grid coordinate of camera pixel (x0,y0)'s first sub-cell
+   // centre, mapped straight from the emitter position (never rounded to a
+   // whole camera pixel first -- that is what gives genuine sub-pixel
+   // placement). Pixel (x0+dx)'s is tx + dx*os, an integer step away, so the
+   // fraction and every tap weight are shared by the whole splat.
+   SplatSetupResult r;
+   const int os = std::max(1, cache.oversampling);
+   const double kc = (cache.sizeOversampled - 1) / 2.0;
+   r.x0 = static_cast<int>(RoundHalfUp(xPx));
+   r.y0 = static_cast<int>(RoundHalfUp(yPx));
+   const double tx = kc + (r.x0 - xPx - 0.5) * os + 0.5;
+   const double ty = kc + (r.y0 - yPx - 0.5) * os + 0.5;
+   if (interpMode == PsfInterpMode::Nearest || interpMode == PsfInterpMode::Fft)
+   {
+      r.bx = static_cast<int>(std::floor(tx + 0.5));
+      r.by = static_cast<int>(std::floor(ty + 0.5));
+      r.nTaps = 1;
+      return r;
+   }
+   const int bx = static_cast<int>(std::floor(tx)), by = static_cast<int>(std::floor(ty));
+   const double fx = tx - bx, fy = ty - by;
+   if (interpMode == PsfInterpMode::Cubic)
+   {
+      r.bx = bx - 1; // taps -1..2
+      r.by = by - 1;
+      r.nTaps = 4;
+      CatmullRomWeights(fx, r.wx);
+      CatmullRomWeights(fy, r.wy);
+      return r;
+   }
+   r.bx = bx;
+   r.by = by;
+   r.nTaps = 2;
+   r.wx[0] = 1.0 - fx;
+   r.wx[1] = fx;
+   r.wy[0] = 1.0 - fy;
+   r.wy[1] = fy;
+   return r;
+}
 
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
                      int zIndex, double xPx, double yPx, double totalPhotons, PsfInterpMode interpMode)
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return;
-   if (zIndex < 0 || zIndex >= cache.nz)
+   if (zIndex < 0 || zIndex >= cache.nz || cache.blockSums.size() != static_cast<size_t>(cache.nz))
       return;
 
-   const int over = std::max(1, cache.oversampling);
-   const int half = cache.halfWidthOversampled;
-   const int size = cache.sizeOversampled;
-   const int camHalf = half / over;
-   const std::vector<float>& plane = cache.planes[static_cast<size_t>(zIndex)];
-   const float* planeData = plane.data();
+   const int os = std::max(1, cache.oversampling);
+   const int n = cache.sizeOversampled;
+   const int camRad = cache.halfWidthOversampled / os;
+   const int off = os - 1;
+   const int bw = cache.blockSumWidth;
 
-   const int cx = static_cast<int>(std::lround(xPx));
-   const int cy = static_cast<int>(std::lround(yPx));
-   const double fracX = xPx - cx; // in [-0.5, 0.5)
-   const double fracY = yPx - cy;
-
-   const int kernelSide = 2 * camHalf + 1;
-   std::vector<double> kernelVals(static_cast<size_t>(kernelSide) * kernelSide, 0.0);
-   double sum = 0.0;
-   int idx = 0;
-   for (int dy = -camHalf; dy <= camHalf; ++dy)
+   SplatSetupResult st;
+   std::vector<float> shiftedSums; // Fft mode only
+   const float* B = cache.blockSums[static_cast<size_t>(zIndex)].data();
+   if (interpMode == PsfInterpMode::Fft)
    {
-      // Oversampled-index window covering camera-pixel offset dy, shifted
-      // to account for the emitter's fractional-pixel position.
-      double ovCenterY = half + (dy - fracY) * over;
-      for (int dx = -camHalf; dx <= camHalf; ++dx, ++idx)
-      {
-         double ovCenterX = half + (dx - fracX) * over;
-         double v;
-
-         if (interpMode == PsfInterpMode::Nearest)
-         {
-            // Original behavior, unchanged: box-average over*over samples
-            // read at the INTEGER oversampled index nearest each sub-
-            // cell's continuous position -- quantizes sub-pixel placement
-            // to steps of 1/oversampling of a camera pixel.
-            int ovLoY = static_cast<int>(std::floor(ovCenterY - over / 2.0 + 0.5));
-            int ovLoX = static_cast<int>(std::floor(ovCenterX - over / 2.0 + 0.5));
-            double acc = 0.0;
-            int cnt = 0;
-            for (int oy = 0; oy < over; ++oy)
-            {
-               int sy = ovLoY + oy;
-               if (sy < 0 || sy >= size)
-                  continue;
-               const float* row = planeData + static_cast<size_t>(sy) * size;
-               for (int ox = 0; ox < over; ++ox)
-               {
-                  int sx = ovLoX + ox;
-                  if (sx < 0 || sx >= size)
-                     continue;
-                  acc += row[sx];
-                  ++cnt;
-               }
-            }
-            v = cnt > 0 ? acc / cnt : 0.0;
-         }
-         else
-         {
-            // Linear/Cubic: sample at the exact CONTINUOUS oversampled
-            // coordinate for each sub-cell -- true sub-pixel placement, no
-            // 1/oversampling quantization. Averaged over over*over
-            // sub-cells the same way as Nearest (PlaneAt returns 0 for any
-            // out-of-plane sample, so the divisor is always over*over --
-            // no separate cnt bookkeeping needed here).
-            double baseY = ovCenterY - over / 2.0;
-            double baseX = ovCenterX - over / 2.0;
-            double acc = 0.0;
-            for (int oy = 0; oy < over; ++oy)
-            {
-               double sy = baseY + oy + 0.5;
-               for (int ox = 0; ox < over; ++ox)
-               {
-                  double sx = baseX + ox + 0.5;
-                  acc += (interpMode == PsfInterpMode::Cubic) ? SampleBicubic(planeData, size, sx, sy)
-                                                                : SampleBilinear(planeData, size, sx, sy);
-               }
-            }
-            v = acc / (static_cast<double>(over) * over);
-         }
-
-         kernelVals[static_cast<size_t>(idx)] = v;
-         sum += v;
-      }
+      // Align the shared sub-cell fraction onto the grid with ONE Fourier
+      // shift of the raw kernel, then read its block sums nearest.
+      st = SplatSetup(cache, xPx, yPx, PsfInterpMode::Nearest);
+      const double kc = (n - 1) / 2.0;
+      const double tx = kc + (st.x0 - xPx - 0.5) * os + 0.5, ty = kc + (st.y0 - yPx - 0.5) * os + 0.5;
+      const double rx = RoundHalfUp(tx), ry = RoundHalfUp(ty);
+      std::vector<float> shifted =
+         FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry);
+      shiftedSums = BuildBlockSums(shifted.data(), n, os);
+      B = shiftedSums.data();
+      st.bx = static_cast<int>(rx);
+      st.by = static_cast<int>(ry);
    }
-   if (sum <= 0.0)
-      return;
-
-   idx = 0;
-   for (int dy = -camHalf; dy <= camHalf; ++dy)
+   else
    {
-      int py = cy + dy;
-      if (py < 0 || py >= static_cast<int>(height))
-      {
-         idx += kernelSide;
+      st = SplatSetup(cache, xPx, yPx, interpMode);
+   }
+
+   const int nt = st.nTaps;
+   for (int dy = -camRad; dy <= camRad; ++dy)
+   {
+      const int Y = st.y0 + dy;
+      if (Y < 0 || Y >= static_cast<int>(height))
          continue;
-      }
-      float* row = img.data() + static_cast<size_t>(py) * width;
-      for (int dx = -camHalf; dx <= camHalf; ++dx, ++idx)
+      const int r0 = st.by + dy * os + off;
+      float* rowOut = img.data() + static_cast<size_t>(Y) * width;
+      for (int dx = -camRad; dx <= camRad; ++dx)
       {
-         int px = cx + dx;
-         if (px < 0 || px >= static_cast<int>(width))
+         const int X = st.x0 + dx;
+         if (X < 0 || X >= static_cast<int>(width))
             continue;
-         row[px] += static_cast<float>(kernelVals[static_cast<size_t>(idx)] / sum * totalPhotons);
+         const int c0 = st.bx + dx * os + off;
+         double sum = 0.0;
+         for (int j = 0; j < nt; ++j)
+         {
+            const int r = r0 + j;
+            if (r < 0 || r >= bw)
+               continue;
+            const float* brow = B + static_cast<size_t>(r) * bw;
+            double row = 0.0;
+            for (int i = 0; i < nt; ++i)
+            {
+               const int c = c0 + i;
+               if (c >= 0 && c < bw)
+                  row += st.wx[i] * brow[c];
+            }
+            sum += st.wy[j] * row;
+         }
+         rowOut[X] += static_cast<float>(totalPhotons * sum);
       }
    }
+}
+
+namespace {
+
+// Solves the n x n system A x = b by Gaussian elimination with partial
+// pivoting (A, b copied). Returns false if A is (numerically) singular.
+bool SolveLinear(std::vector<std::vector<double>> a, std::vector<double> b, std::vector<double>& x)
+{
+   const size_t n = b.size();
+   for (size_t c = 0; c < n; ++c)
+   {
+      size_t piv = c;
+      for (size_t r = c + 1; r < n; ++r)
+         if (std::fabs(a[r][c]) > std::fabs(a[piv][c]))
+            piv = r;
+      if (!(std::fabs(a[piv][c]) > 1e-300))
+         return false;
+      std::swap(a[c], a[piv]);
+      std::swap(b[c], b[piv]);
+      for (size_t r = c + 1; r < n; ++r)
+      {
+         double f = a[r][c] / a[c][c];
+         for (size_t k = c; k < n; ++k)
+            a[r][k] -= f * a[c][k];
+         b[r] -= f * b[c];
+      }
+   }
+   x.assign(n, 0.0);
+   for (size_t i = n; i-- > 0;)
+   {
+      double acc = b[i];
+      for (size_t k = i + 1; k < n; ++k)
+         acc -= a[i][k] * x[k];
+      x[i] = acc / a[i][i];
+   }
+   return true;
+}
+
+struct CrlbPlane
+{
+   double zNm, xNm, yNm, zSigNm;
+};
+
+} // namespace
+
+std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, double bgPerPx, double cameraPxNm)
+{
+   if (!cache.valid || cache.nz < 3)
+      return std::string();
+   const int os = std::max(1, cache.oversampling);
+   const int n = cache.sizeOversampled;
+   const int bw = n / os, bh = n / os;
+   if (bw < 5 || bh < 5)
+      return std::string();
+
+   // Camera-pixel PSF per plane, mass-normalized.
+   std::vector<std::vector<double>> binned(static_cast<size_t>(cache.nz),
+                                           std::vector<double>(static_cast<size_t>(bw) * bh, 0.0));
+   for (int k = 0; k < cache.nz; ++k)
+   {
+      const std::vector<float>& s = cache.planes[static_cast<size_t>(k)];
+      std::vector<double>& img = binned[static_cast<size_t>(k)];
+      for (int y = 0; y < bh * os; ++y)
+         for (int x = 0; x < bw * os; ++x)
+            img[static_cast<size_t>(y / os) * bw + x / os] += s[static_cast<size_t>(y) * n + x];
+      double sum = 0.0;
+      for (double v : img)
+         sum += v;
+      if (sum > 0.0)
+         for (double& v : img)
+            v /= sum;
+   }
+
+   const double N = std::max(1.0, photons), bg = std::max(1e-6, bgPerPx), dz = cache.zStepNm;
+   const int focus = cache.nz / 2;
+   const double nan = std::nan("");
+   std::vector<CrlbPlane> out;
+   for (int k = 1; k < cache.nz - 1; ++k)
+   {
+      const std::vector<double>& p = binned[static_cast<size_t>(k)];
+      const std::vector<double>& pz = binned[static_cast<size_t>(k + 1)];
+      const std::vector<double>& pm = binned[static_cast<size_t>(k - 1)];
+      std::vector<std::vector<double>> F(5, std::vector<double>(5, 0.0));
+      for (int y = 1; y < bh - 1; ++y)
+         for (int x = 1; x < bw - 1; ++x)
+         {
+            const size_t i = static_cast<size_t>(y) * bw + x;
+            const double mu = N * p[i] + bg;
+            if (!(mu > 0.0))
+               continue;
+            // d/dx of the MODEL is -N*dp/dx: moving the emitter right moves the pattern right.
+            const double du[5] = {-N * (p[i + 1] - p[i - 1]) / 2.0, -N * (p[i + bw] - p[i - bw]) / 2.0, p[i], 1.0,
+                                  N * (pz[i] - pm[i]) / (2.0 * dz)};
+            for (int a = 0; a < 5; ++a)
+               for (int b = a; b < 5; ++b)
+               {
+                  double v = du[a] * du[b] / mu;
+                  F[a][b] += v;
+                  if (b != a)
+                     F[b][a] += v;
+               }
+         }
+      std::vector<double> ex, ey, ez;
+      bool okx = SolveLinear(F, {1, 0, 0, 0, 0}, ex);
+      bool oky = SolveLinear(F, {0, 1, 0, 0, 0}, ey);
+      bool okz = SolveLinear(F, {0, 0, 0, 0, 1}, ez);
+      out.push_back({(k - focus) * dz, okx && ex[0] > 0 ? std::sqrt(ex[0]) * cameraPxNm : nan,
+                     oky && ey[1] > 0 ? std::sqrt(ey[1]) * cameraPxNm : nan,
+                     okz && ez[4] > 0 ? std::sqrt(ez[4]) : nan});
+   }
+
+   const CrlbPlane* best = nullptr;
+   const CrlbPlane* atFocus = nullptr;
+   for (const CrlbPlane& c : out)
+   {
+      if (!std::isfinite(c.zSigNm))
+         continue;
+      if (!best || c.zSigNm < best->zSigNm)
+         best = &c;
+      if (!atFocus || std::fabs(c.zNm) < std::fabs(atFocus->zNm))
+         atFocus = &c;
+   }
+   if (!best)
+      return std::string();
+
+   // Widest contiguous span whose z bound stays within 3x the best -- quoting
+   // only the best figure would flatter a PSF that is excellent in one plane
+   // and blind everywhere else (which is exactly what an unaberrated PSF is).
+   const double lim = 3.0 * best->zSigNm;
+   int run = -1;
+   bool haveSpan = false;
+   double span0 = 0.0, span1 = 0.0;
+   for (size_t i = 0; i <= out.size(); ++i)
+   {
+      bool ok = i < out.size() && std::isfinite(out[i].zSigNm) && out[i].zSigNm <= lim;
+      if (ok && run < 0)
+         run = static_cast<int>(i);
+      if (!ok && run >= 0)
+      {
+         double z0 = out[static_cast<size_t>(run)].zNm, z1 = out[i - 1].zNm;
+         if (!haveSpan || (z1 - z0) > (span1 - span0))
+         {
+            span0 = z0;
+            span1 = z1;
+            haveSpan = true;
+         }
+         run = -1;
+      }
+   }
+
+   std::ostringstream msg;
+   msg << std::fixed << std::setprecision(1) << "PSF depth information (Cramer-Rao bound at " << N << " photons, "
+       << bg << " bg photons/px): best sigma_z " << best->zSigNm << " nm at z=" << std::setprecision(0) << best->zNm
+       << " nm, " << std::setprecision(1) << atFocus->zSigNm << " nm at focus (lateral " << atFocus->xNm << " nm)";
+   if (haveSpan)
+      msg << std::setprecision(0) << ", staying within 3x of best over " << span0 << ".." << span1 << " nm";
+   msg << ". No fitter can do better than this -- it is the yardstick, not a measurement of any fit.";
+   return msg.str();
 }
 
 } // namespace sim

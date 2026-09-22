@@ -1,4 +1,5 @@
 #include "SMLMNoise.h"
+#include "SMLMCounterRng.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,8 +8,8 @@ namespace sim {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
-// Below this mean, PoissonRng draws exactly (Knuth); at or above it, it (and
-// CombinedShotAndReadNoise) fall back to a Gaussian approximation.
+// Below this mean, PoissonRng draws exactly (Knuth); at or above it, it falls
+// back to a Gaussian approximation.
 constexpr double kPoissonExactMeanThreshold = 10.0;
 }
 
@@ -18,11 +19,11 @@ double GaussianRng(std::mt19937_64& rng, double mean, double stdDev)
    // handful of transcendental calls, no rejection loop and no distribution
    // object to construct. std::normal_distribution's typical polar-method
    // implementation involves a rejection loop (draws pairs until inside the
-   // unit circle) plus per-call construction overhead; this function is
-   // called per pixel per frame -- hundreds of millions of times when
-   // generating a full precomputed stack -- so that overhead is worth
-   // avoiding even though it costs a small amount of statistical elegance
-   // (this is a synthetic demo camera, not a metrology instrument).
+   // unit circle) plus per-call construction overhead. (Used for events and
+   // the per-pixel maps; the per-frame noise has its own counter-based
+   // draws, SMLMCounterRng.h.) The two uniforms are drawn in separate
+   // statements so their order is fixed -- two rng calls in one expression
+   // would be evaluated in an unspecified order.
    std::uniform_real_distribution<double> unif(0.0, 1.0);
    double u1 = unif(rng);
    if (u1 < 1e-300)
@@ -38,12 +39,9 @@ double PoissonRng(std::mt19937_64& rng, double mean)
       return 0.0;
 
    // Deliberately not std::poisson_distribution: constructing that
-   // distribution object has nontrivial per-call setup cost, and this
-   // function is called once per pixel per frame -- for a full precomputed
-   // stack (e.g. 512x512x1000) that's hundreds of millions of calls, where
-   // the construction overhead alone made stack generation take tens of
-   // seconds to minutes. Knuth's algorithm (exact, O(mean) uniform draws)
-   // handles small means cheaply; a Gaussian approximation -- accurate to
+   // distribution object has nontrivial per-call setup cost. Knuth's
+   // algorithm (exact, O(mean) uniform draws) handles small means cheaply;
+   // a Gaussian approximation -- accurate to
    // good precision once mean is not tiny -- handles the rest in O(1),
    // same fallback the webSMLM reference implementation uses for its own
    // (much higher) large-mean threshold.
@@ -62,26 +60,6 @@ double PoissonRng(std::mt19937_64& rng, double mean)
    }
 
    double v = mean + std::sqrt(mean) * GaussianRng(rng, 0.0, 1.0);
-   return v < 0.0 ? 0.0 : v;
-}
-
-double CombinedShotAndReadNoise(std::mt19937_64& rng, double meanPhotons, double readNoiseElectrons)
-{
-   if (meanPhotons <= 0.0)
-      return readNoiseElectrons * GaussianRng(rng, 0.0, 1.0);
-
-   if (meanPhotons < kPoissonExactMeanThreshold)
-   {
-      // Exact shot noise (cheap for a small mean) plus a separate read-noise
-      // draw.
-      return PoissonRng(rng, meanPhotons) + readNoiseElectrons * GaussianRng(rng, 0.0, 1.0);
-   }
-
-   // Both shot noise (Gaussian-approximated here) and read noise are
-   // independent Gaussians; their sum is Gaussian with combined variance, so
-   // one draw covers both instead of two.
-   double variance = meanPhotons + readNoiseElectrons * readNoiseElectrons;
-   double v = meanPhotons + std::sqrt(variance) * GaussianRng(rng, 0.0, 1.0);
    return v < 0.0 ? 0.0 : v;
 }
 
@@ -129,14 +107,11 @@ void PixelGainMap::Generate(unsigned w, unsigned h, double nominalGainPhotonsPer
 void ApplyNoiseChain(const std::vector<float>& photonImage,
                       std::vector<uint16_t>& outAdu,
                       unsigned width, unsigned height,
-                      double quantumEfficiency,
-                      double darkCurrentElectronsPerFrame,
-                      double gainPhotonsPerAdu,
-                      double readNoiseElectrons,
+                      const CameraNoiseParams& cam,
                       const PixelOffsetMap& offsetMap,
                       const PixelGainMap& gainMap,
                       const PixelReadNoiseMap& readNoiseMap,
-                      std::mt19937_64& rng)
+                      uint32_t noiseSeed, uint32_t frame)
 {
    const size_t n = static_cast<size_t>(width) * height;
    outAdu.resize(n);
@@ -147,31 +122,46 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
    const bool haveReadNoiseMap = (readNoiseMap.width == width && readNoiseMap.height == height &&
                                    readNoiseMap.readNoiseElectrons.size() == n);
 
+   CounterRng u(noiseSeed, frame);
+   if (cam.emccd)
+   {
+      const double maxAdu = std::ldexp(1.0, std::min(16, std::max(1, cam.bitDepth))) - 1.0;
+      const double emGain = std::max(1.0, cam.emGain);
+      for (size_t i = 0; i < n; ++i)
+      {
+         u.Pixel(static_cast<uint32_t>(i));
+         const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
+         // Integer electron count entering the gain register, which is then
+         // Gamma(shape = electrons, scale = 1): variance 2x the mean, the
+         // sqrt(2) excess noise factor. Read noise is divided by the EM gain.
+         const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons + cam.cicElectrons, u);
+         const double out = ne > 0.0 ? CounterGamma(ne, u) : 0.0;
+         const double readE = (haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons) / emGain;
+         const double gain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : cam.gainPhotonsPerAdu;
+         const double offset = haveOffsetMap ? offsetMap.offset[i] : 0.0;
+         const double g = CounterGauss(u);
+         double adu = std::floor(offset + (out + readE * g) / gain + 0.5);
+         outAdu[i] = static_cast<uint16_t>(adu < 0.0 ? 0.0 : (adu > maxAdu ? maxAdu : adu));
+      }
+      return;
+   }
+
    for (size_t i = 0; i < n; ++i)
    {
-      double photons = photonImage[i];
-      if (photons < 0.0)
-         photons = 0.0;
-
+      u.Pixel(static_cast<uint32_t>(i));
+      const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
       // Quantum efficiency converts incident photons to mean detected
       // photoelectrons; dark current is already in electron units (it
       // originates in the sensor, not in incident light) so it's added
       // after QE, not scaled by it.
-      double meanElectrons = photons * quantumEfficiency + darkCurrentElectronsPerFrame;
-
-      double effectiveReadNoise = haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : readNoiseElectrons;
-      double withReadNoise = CombinedShotAndReadNoise(rng, meanElectrons, effectiveReadNoise);
-
-      double effectiveGain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : gainPhotonsPerAdu;
-      double adu = withReadNoise / effectiveGain;
-      adu += haveOffsetMap ? offsetMap.offset[i] : 0.0;
-
-      if (adu < 0.0)
-         adu = 0.0;
-      if (adu > 65535.0)
-         adu = 65535.0;
-
-      outAdu[i] = static_cast<uint16_t>(adu + 0.5);
+      const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons, u);
+      const double readNoise = haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons;
+      const double gain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : cam.gainPhotonsPerAdu;
+      const double offset = haveOffsetMap ? offsetMap.offset[i] : 0.0;
+      const double g = CounterGauss(u);
+      double adu = offset + (ne + readNoise * g) / gain;
+      adu = adu < 0.0 ? 0.0 : (adu > 65535.0 ? 65535.0 : adu);
+      outAdu[i] = static_cast<uint16_t>(std::floor(adu + 0.5));
    }
 }
 

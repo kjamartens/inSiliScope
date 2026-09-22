@@ -81,19 +81,20 @@ public class PsfBridge
     * @param ny                 oversampled grid height in pixels (odd)
     * @param nz                 number of Z planes (>= 3 -- PSFGenerator's own minimum)
     * @param zernikeCoeffsCsv   "GibsonLanniZernike" only (ignored otherwise): a comma-
-    *                           separated, exactly-15-value positional list of OSA/ANSI
-    *                           single-index Zernike coefficients (index 0-14, in waves --
-    *                           see GibsonLanniZernikePSF's class Javadoc), e.g.
-    *                           "0,0,0,0,0,0.15,0,0,0,0,0,0,0,0,0" for a 0.15-wave vertical
-    *                           astigmatism (index 5) with everything else unaberrated. A
-    *                           malformed/wrong-length list is treated the same as this
-    *                           bridge's C++ caller treats one (see
-    *                           SMLMZernike::ParseZernikeCoefficients): fall back to all-
-    *                           zero (unaberrated) rather than partially applying it.
-    * @param evalMethod         "GibsonLanniZernike" only (ignored otherwise): "direct"
-    *                           (default if null/unrecognized) or "chirpz" -- see
-    *                           GibsonLanniZernikePSF's class Javadoc's "Chirp-Z evaluator"
-    *                           section.
+    *                           separated positional list of 15 or 28 OSA/ANSI single-index
+    *                           Zernike coefficients (index 0-14 or 0-27, in waves -- see
+    *                           GibsonLanniZernikePSF's class Javadoc; a 15-value list is
+    *                           zero-padded to 28), e.g. "0,0,0,0,0,0.15,0,0,0,0,0,0,0,0,0"
+    *                           for a 0.15-wave vertical astigmatism (index 5) with
+    *                           everything else unaberrated. A malformed/wrong-length list
+    *                           is treated the same as this bridge's C++ caller treats one
+    *                           (see SMLMZernike::ParseZernikeCoefficients): fall back to
+    *                           all-zero (unaberrated) rather than partially applying it.
+    * @param maskType           "GibsonLanniZernike" only (ignored otherwise): pupil phase
+    *                           mask, "none" (default if null/unrecognized) or "doubleHelix"
+    *                           -- see GibsonLanniZernikePSF#pupilMaskPhase.
+    * @param maskModes          number of Gauss-Laguerre modes in the double-helix mask (2-8)
+    * @param maskWaist          Gauss-Laguerre waist of the double-helix mask, pupil radii
     * @return nx*ny*nz raw computed intensity values, plane 0 (lowest Z)
     *         first, each plane row-major (x fastest). NOT rescaled/
     *         normalized (unlike PSFGenerator's own Data3D.rescale(0, max),
@@ -104,7 +105,8 @@ public class PsfBridge
    public static float[] computePlanes(String model, double na, double lambdaNm, double niImmersion,
                                         double nsSample, double workingDistanceUm, double sampleDepthNm,
                                         double resLateralNm, double resAxialNm, int nx, int ny, int nz,
-                                        String zernikeCoeffsCsv, String evalMethod)
+                                        String zernikeCoeffsCsv, String maskType, int maskModes,
+                                        double maskWaist)
       throws Exception
    {
       PSF psf;
@@ -129,7 +131,9 @@ public class PsfBridge
          glz.ti0 = workingDistanceUm * 1E-6;
          glz.particleAxialPosition = sampleDepthNm * 1E-9;
          glz.zernikeCoeffs = parseZernikeCoefficients(zernikeCoeffsCsv);
-         glz.evalMethod = "chirpz".equalsIgnoreCase(evalMethod) ? "chirpz" : "direct";
+         glz.maskType = "doubleHelix".equalsIgnoreCase(maskType) ? "doubleHelix" : "none";
+         glz.maskModes = maskModes;
+         glz.maskWaist = maskWaist;
 
          psf.setOpticsParameters(na, lambdaNm);
          psf.setResolutionParameters(resLateralNm, resAxialNm);
@@ -141,8 +145,8 @@ public class PsfBridge
 
          // Unlike the stock models below (runPool, forced serial -- see its
          // Javadoc), GibsonLanniZernikePSF's per-Z-plane cost is high
-         // enough (a direct 2D pupil quadrature per pixel, not a fast 1D
-         // radial lookup -- see its class Javadoc's Performance note) that
+         // enough (a full 2D pupil + chirp-Z transform per plane, not a fast
+         // 1D radial lookup -- see its class Javadoc) that
          // leaving all Z planes serial is a real user-facing wait at
          // default settings (PsfZRangeUm/PsfZStepUm alone can mean 70+
          // planes). Planes are independent (each writes a disjoint
@@ -352,28 +356,30 @@ public class PsfBridge
       return out;
    }
 
-   // Parses exactly 15 comma-separated doubles by position (index = array
+   // Parses 15 or 28 comma-separated doubles by position (index = array
    // position = OSA Zernike mode number, see GibsonLanniZernikePSF's class
-   // Javadoc) -- mirrors the C++-side parser (Simulation/SMLMZernike.h/.cpp)
-   // in style, kept in sync by convention rather than sharing code (the two
-   // sides don't share a build). A malformed/short/long list logs a warning
-   // and returns all-zero (unaberrated) rather than partially applying it --
-   // silently misaligning positions would assign a coefficient to the wrong
-   // Zernike mode.
+   // Javadoc), zero-padding a 15-value list to N_ZERNIKE (28) -- the same
+   // rule as webSMLM's custom-coefficient field. Mirrors the C++-side parser
+   // (Simulation/SMLMZernike.h/.cpp) in style, kept in sync by convention
+   // rather than sharing code (the two sides don't share a build). Any other
+   // length, or a non-number, logs a warning and returns all-zero
+   // (unaberrated) rather than partially applying it -- silently
+   // misaligning positions would assign a coefficient to the wrong mode.
    private static double[] parseZernikeCoefficients(String csv)
    {
-      double[] zero = new double[15];
+      final int n = GibsonLanniZernikePSF.N_ZERNIKE;
+      double[] zero = new double[n];
       if (csv == null)
          return zero;
       String[] tokens = csv.split(",", -1);
-      if (tokens.length != 15)
+      if (tokens.length != 15 && tokens.length != n)
       {
          System.err.println("psfbridge.PsfBridge: zernikeCoeffsCsv has " + tokens.length +
-                             " values, expected exactly 15 -- falling back to all-zero (unaberrated).");
+                             " values, expected 15 or " + n + " -- falling back to all-zero (unaberrated).");
          return zero;
       }
-      double[] result = new double[15];
-      for (int i = 0; i < 15; i++)
+      double[] result = new double[n];
+      for (int i = 0; i < tokens.length; i++)
       {
          try
          {

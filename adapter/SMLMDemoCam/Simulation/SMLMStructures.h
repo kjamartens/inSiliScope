@@ -4,7 +4,7 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   Site-list 3D/NPC structure builders (TiltedPlane/Uniform3D/
-//                Shell/NUP) plus the SiteListPattern that turns a
+//                Shell/NUP/FilamentsRing) plus the SiteListPattern that turns a
 //                pre-generated, finite site list into an IPatternGenerator
 //                -- see SMLMPatterns.h's own header comment for why a
 //                persistent site list is needed here, unlike the 9
@@ -52,7 +52,8 @@ private:
 };
 
 // Builds the site list for one of the 3D structure types (PATTERN_TILTED_
-// PLANE/PATTERN_UNIFORM_3D/PATTERN_SHELL/PATTERN_NUP), applies the
+// PLANE/PATTERN_UNIFORM_3D/PATTERN_SHELL/PATTERN_NUP/PATTERN_FILAMENTS_RING),
+// applies the
 // labeling-efficiency keep/drop filter, and returns the finished pattern.
 // type must be one of the four site-list types above; any other value
 // returns nullptr (callers should not reach this function otherwise --

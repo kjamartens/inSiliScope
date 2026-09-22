@@ -38,7 +38,7 @@ const char* g_PropOnLifetimeSec = "FluoParam_OnLifetimeSec";
 const char* g_PropPsfWavelengthNm = "PSFParam_PsfEmissionWavelengthNm";
 const char* g_PropPsfNa = "PSFParam_PsfNa";
 const char* g_PropPixelSize = "General_PixelSizeNm";
-const char* g_PropBackgroundPerSec = "General_BackgroundPhotonsPerSec";
+const char* g_PropBackgroundPerSec = "Background_BackgroundPhotonsPerSec";
 const char* g_PropQuantumEfficiency = "CamParam_QuantumEfficiency";
 const char* g_PropDarkCurrentPerSec = "CamParam_DarkCurrentElectronsPerSec";
 const char* g_PropGain = "CamParam_GainPhotonsPerADU";
@@ -79,14 +79,43 @@ const char* g_PropNupCurvatureNm = "SimType_NupCurvatureNm";
 const char* g_NupMembraneTopDown = "TopDown";
 const char* g_NupMembraneSideways = "Sideways";
 
+const char* g_PropBlinkBleachProb = "FluoParam_BlinkBleachProb";
+const char* g_PropOffLifetimeSec = "FluoParam_OffLifetimeSec";
+const char* g_PropPhotonCV = "FluoParam_PhotonCV";
+const char* g_PropIllumFwhmPct = "FluoParam_IllumFwhmPct";
+const char* g_PropEmGain = "CamParam_EmGain";
+const char* g_PropCicElectrons = "CamParam_CicElectrons";
+const char* g_PropBgCellContrast = "Background_CellContrast";
+const char* g_PropBgHazeWeight = "Background_HazeWeight";
+const char* g_PropBgHazeWidthNm = "Background_HazeWidthNm";
+const char* g_PropBgDecaySec = "Background_DecaySec";
+const char* g_PropOutOfFocusRatio = "Background_OutOfFocusRatio";
+const char* g_PropOutOfFocusDepthNm = "Background_OutOfFocusDepthNm";
+const char* g_PropIllumProfile = "FluoParam_IllumProfile";
+const char* g_IllumFlat = "Flat";
+const char* g_IllumGaussian = "Gaussian";
+const char* g_IllumFlatTop = "FlatTop";
+const char* g_PropCameraType = "CamParam_CameraType";
+const char* g_CameraTypeScmos = "sCMOS";
+const char* g_CameraTypeEmccd = "EMCCD";
+const char* g_PropBitDepth = "CamParam_BitDepth";
+
 const char* g_PropPsfInterp = "PSFParam_PsfInterp";
 const char* g_PsfInterpNearest = "Nearest";
 const char* g_PsfInterpLinear = "Linear";
 const char* g_PsfInterpCubic = "Cubic";
+const char* g_PsfInterpFft = "Fft";
 
-const char* g_PropPsfEvalMethod = "PSFParam_PsfEvalMethod";
-const char* g_PsfEvalMethodDirect = "Direct";
-const char* g_PsfEvalMethodChirpZ = "ChirpZ";
+const char* g_PropUseGpu = "General_UseGpu";
+const char* g_PropGpuStatus = "General_GpuStatus";
+const char* g_UseGpuOn = "On";
+const char* g_UseGpuOff = "Off";
+
+const char* g_PropPsfMaskType = "PSFParam_PsfMaskType";
+const char* g_PropPsfMaskModes = "PSFParam_PsfMaskModes";
+const char* g_PropPsfMaskWaist = "PSFParam_PsfMaskWaist";
+const char* g_PsfMaskNone = "None";
+const char* g_PsfMaskDoubleHelix = "DoubleHelix";
 
 const char* g_PsfModelGaussian = "Gaussian";
 const char* g_PsfModelRichardsWolf = "RichardsWolf";
@@ -110,6 +139,7 @@ const char* g_PatternUniform3D = "Uniform3D";
 const char* g_PatternShell = "Shell";
 const char* g_PatternNup = "NUP";
 const char* g_PatternCalibration9Spots = "Calibration9Spots";
+const char* g_PatternFilamentsRing = "FilamentsRing";
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
@@ -236,6 +266,8 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPattern, g_PatternNup);
    // Always-on calibration bead grid -- see Simulation/SMLMPatterns.h.
    AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
+   // webSMLM's default structure: 3 filaments with y-correlated z + a ring.
+   AddAllowedValue(g_PropPattern, g_PatternFilamentsRing);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCustomPointsFile);
    CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
@@ -325,6 +357,65 @@ int CSMLMDemoCamera::Initialize()
    CreateFloatProperty(g_PropPixelReadNoiseStdPct, pixelReadNoiseStdPct_.load(), false, pAct);
    SetPropertyLimits(g_PropPixelReadNoiseStdPct, 0.0, 100.0);
 
+   // ---- webSMLM parity round 2 (see the members' comments in
+   // SMLMDemoCamera.h). Multi-blink photophysics + illumination profile:
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBlinkBleachProb);
+   CreateFloatProperty(g_PropBlinkBleachProb, blinkBleachProb_.load(), false, pAct);
+   SetPropertyLimits(g_PropBlinkBleachProb, 0.01, 1.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOffLifetimeSec);
+   CreateFloatProperty(g_PropOffLifetimeSec, offLifetimeSec_.load(), false, pAct);
+   SetPropertyLimits(g_PropOffLifetimeSec, 0.001, 1000.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPhotonCV);
+   CreateFloatProperty(g_PropPhotonCV, photonCV_.load(), false, pAct);
+   SetPropertyLimits(g_PropPhotonCV, 0.0, 2.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnIllumProfile);
+   CreateStringProperty(g_PropIllumProfile, g_IllumFlat, false, pAct);
+   AddAllowedValue(g_PropIllumProfile, g_IllumFlat);
+   AddAllowedValue(g_PropIllumProfile, g_IllumGaussian);
+   AddAllowedValue(g_PropIllumProfile, g_IllumFlatTop);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnIllumFwhmPct);
+   CreateFloatProperty(g_PropIllumFwhmPct, illumFwhmPct_.load(), false, pAct);
+   SetPropertyLimits(g_PropIllumFwhmPct, 10.0, 300.0);
+
+   // Sensor type (EMCCD gain register vs the original sCMOS chain):
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraType);
+   CreateStringProperty(g_PropCameraType, g_CameraTypeScmos, false, pAct);
+   AddAllowedValue(g_PropCameraType, g_CameraTypeScmos);
+   AddAllowedValue(g_PropCameraType, g_CameraTypeEmccd);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnEmGain);
+   CreateFloatProperty(g_PropEmGain, emGain_.load(), false, pAct);
+   SetPropertyLimits(g_PropEmGain, 1.0, 2000.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCicElectrons);
+   CreateFloatProperty(g_PropCicElectrons, cicElectrons_.load(), false, pAct);
+   SetPropertyLimits(g_PropCicElectrons, 0.0, 1.0);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBitDepth);
+   CreateIntegerProperty(g_PropBitDepth, bitDepth_, false, pAct);
+   SetPropertyLimits(g_PropBitDepth, 8, 16);
+
+   // Structured background + out-of-focus emitters:
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgCellContrast);
+   CreateFloatProperty(g_PropBgCellContrast, bgCellContrast_.load(), false, pAct);
+   SetPropertyLimits(g_PropBgCellContrast, 1.0, 20.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgHazeWeight);
+   CreateFloatProperty(g_PropBgHazeWeight, bgHazeWeight_.load(), false, pAct);
+   SetPropertyLimits(g_PropBgHazeWeight, 0.0, 10.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgHazeWidthNm);
+   CreateFloatProperty(g_PropBgHazeWidthNm, bgHazeWidthNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropBgHazeWidthNm, 100.0, 5000.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgDecaySec);
+   CreateFloatProperty(g_PropBgDecaySec, bgDecaySec_.load(), false, pAct);
+   SetPropertyLimits(g_PropBgDecaySec, 0.0, 100000.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOutOfFocusRatio);
+   CreateFloatProperty(g_PropOutOfFocusRatio, outOfFocusRatio_.load(), false, pAct);
+   SetPropertyLimits(g_PropOutOfFocusRatio, 0.0, 10.0);
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOutOfFocusDepthNm);
+   CreateFloatProperty(g_PropOutOfFocusDepthNm, outOfFocusDepthNm_.load(), false, pAct);
+   SetPropertyLimits(g_PropOutOfFocusDepthNm, 300.0, 5000.0);
+
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftNmPerSec);
    CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
    SetPropertyLimits(g_PropDriftNmPerSec, 0.0, 20000.0);
@@ -392,8 +483,9 @@ int CSMLMDemoCamera::Initialize()
    CreateFloatProperty(g_PropPsfSampleDepthNm, psfSampleDepthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfSampleDepthNm, -100000.0, 100000.0);
 
-   // GibsonLanniZernike-only: 15-value comma-separated positional Zernike
-   // coefficient list (OSA index 0-14, in waves -- see Simulation/
+   // GibsonLanniZernike-only: 28-value comma-separated positional Zernike
+   // coefficient list (OSA index 0-27, in waves; a 15-value list is also
+   // accepted and zero-padded -- see Simulation/
    // SMLMZernike.h's ZernikeCoefficients doc comment for the full mode
    // list). Defaults to the MixedRealisticObjective preset's values (see
    // psfZernikePreset_ in SMLMDemoCamera.h), not all-zero.
@@ -474,15 +566,38 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpNearest);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpLinear);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpCubic);
+   // Fourier-shift placement (webSMLM's 'fft'): exact, but one 2D FFT pair
+   // per emitter -- much slower, and CPU-only. Kept for comparison.
+   AddAllowedValue(g_PropPsfInterp, g_PsfInterpFft);
 
-   // GibsonLanniZernike-only chirp-Z fast evaluator -- see Simulation/
-   // PsfGeneratorBridge.h's PsfEvalMethod. Default is ChirpZ (the fast
-   // path, and the only practical one at the default GibsonLanniZernike
-   // model); Direct reproduces the original per-pixel polar-quadrature sum.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfEvalMethod);
-   CreateStringProperty(g_PropPsfEvalMethod, g_PsfEvalMethodChirpZ, false, pAct);
-   AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodDirect);
-   AddAllowedValue(g_PropPsfEvalMethod, g_PsfEvalMethodChirpZ);
+   // GPU splat + noise (Direct3D 11) for vectorial PSF frames -- see
+   // Simulation/GpuSimD3D11.h. Falls back to the multi-threaded CPU path
+   // (same counter-based noise, so the same frames up to float32 rounding)
+   // when unavailable; GpuStatus says which is in use and why.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnUseGpu);
+   CreateStringProperty(g_PropUseGpu, g_UseGpuOn, false, pAct);
+   AddAllowedValue(g_PropUseGpu, g_UseGpuOn);
+   AddAllowedValue(g_PropUseGpu, g_UseGpuOff);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnGpuStatus);
+   CreateStringProperty(g_PropGpuStatus, "", true, pAct);
+
+   // GibsonLanniZernike-only pupil phase mask (engineered PSF) -- see
+   // Simulation/PsfGeneratorBridge.h's PsfMaskType. DoubleHelix is webSMLM's
+   // Gauss-Laguerre double-helix mask: two lobes rotating ~60 degrees over
+   // +/-800 nm at the default 5 modes / waist 1.0 pupil radii.
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskType);
+   CreateStringProperty(g_PropPsfMaskType, g_PsfMaskNone, false, pAct);
+   AddAllowedValue(g_PropPsfMaskType, g_PsfMaskNone);
+   AddAllowedValue(g_PropPsfMaskType, g_PsfMaskDoubleHelix);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskModes);
+   CreateIntegerProperty(g_PropPsfMaskModes, psfMaskModes_, false, pAct);
+   SetPropertyLimits(g_PropPsfMaskModes, 2, 8);
+
+   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskWaist);
+   CreateFloatProperty(g_PropPsfMaskWaist, psfMaskWaist_.load(), false, pAct);
+   SetPropertyLimits(g_PropPsfMaskWaist, 0.2, 2.0);
 
    nRet = UpdateStatus();
    if (nRet != DEVICE_OK)
@@ -552,7 +667,9 @@ const unsigned char* CSMLMDemoCamera::GetImageBuffer()
 unsigned CSMLMDemoCamera::GetImageWidth() const { return img_.Width(); }
 unsigned CSMLMDemoCamera::GetImageHeight() const { return img_.Height(); }
 unsigned CSMLMDemoCamera::GetImageBytesPerPixel() const { return img_.Depth(); }
-unsigned CSMLMDemoCamera::GetBitDepth() const { return 16; }
+// The EMCCD path clips to its own bit depth (CamParam_BitDepth); tell MM so
+// its display range matches. sCMOS stays 16-bit.
+unsigned CSMLMDemoCamera::GetBitDepth() const { return cameraEmccd_ ? static_cast<unsigned>(bitDepth_) : 16; }
 long CSMLMDemoCamera::GetImageBufferSize() const { return img_.Width() * img_.Height() * GetImageBytesPerPixel(); }
 
 double CSMLMDemoCamera::GetExposure() const
