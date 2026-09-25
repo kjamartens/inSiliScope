@@ -47,8 +47,9 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "na", 1.4, "numerical aperture" },
       { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
       { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-      { "activation-sec", 100, "SimType_CellFieldActivationMeanSec" },
-      { "labeling-pct", 10, "SimType_CellFieldLabelingPct" },
+      { "activation-rate", 0.01, "SimType_CellFieldActivationRatePerDyePerSec (per dark dye, 1/s)" },
+      { "labeling-pct", 10, "SimType_CellFieldLabelingPct (bleaching dyes, % of lattice sites)" },
+      { "nonbleach-labeling-pct", 0, "SimType_CellFieldNonBleachingLabelingPct (persistent, DNA-PAINT-like sites)" },
       { "chunk-um", 26, "SimType_CellFieldChunkSizeUm" },
       { "occupancy", 0.33, "SimType_CellFieldOccupancy" },
       { "cell-diam-min-um", 25, "SimType_CellFieldCellDiameterMinUm" },
@@ -159,6 +160,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
       { "mtDensity", O("mt-density") }, { "labelEfficiency", O("labeling-pct") / 100.0 },
+      { "labelNonBleaching", O("nonbleach-labeling-pct") / 100.0 },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // p.* pass-through (known core names only), overriding the named ones.
@@ -168,7 +170,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
          world[kv.first.substr(2)] = kv.second;
    isc_params_free(probe);
    cf.params.assign(world.begin(), world.end());
-   cf.activationMeanSec = O("activation-sec");
+   cf.activationRatePerSec = O("activation-rate");
    cf.onSec = std::max(1e-6, O("on-sec"));
    cf.offSec = std::max(0.0, O("off-sec"));
    cf.bleachProb = O("bleach-prob");
@@ -208,9 +210,9 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    char desc[512];
    std::snprintf(desc, sizeof desc,
                  "insilicell seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g exposure_ms=%g start_sec=%g "
-                 "frames=%ld focus_um=%g activation_sec=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g",
+                 "frames=%ld focus_um=%g activation_rate=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g",
                  seed, cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, t0Sec, N, O("focus-um"),
-                 cf.activationMeanSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"));
+                 cf.activationRatePerSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"));
    info.description = desc;
 
    // Same streams as the camera's StackGenerationWorker: maps off

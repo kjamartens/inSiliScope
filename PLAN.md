@@ -146,6 +146,10 @@ No second hand-maintained implementation.
       ctest `emitter_density`. `CellField` is the default pattern (default FOV at stage 0,0 shows a
       cell edge). Seeded precomputed output is unchanged when exposure = ON time (the defaults).
 
+- [x] (user request) CellField kinetics: `SimType_CellFieldActivationRatePerDyePerSec` replaces the
+      activation mean; `SimType_CellFieldNonBleachingLabelingPct` adds persistent (DNA-PAINT-like)
+      sites whose supply never drops (PORT.md 6.3, core ABI 3). Defaults unchanged in output.
+
 ### M4 -- webSMLM integration via CI
 
 - [ ] Release workflow: build + test, emit `dist/cellfield_block.html` (header: source repo, commit,

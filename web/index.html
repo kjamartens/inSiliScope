@@ -124,7 +124,8 @@
       <label class="row">Min separation (µm) <input type="range" id="mtMinSeparation" min="0" max="0.5" step="0.01" value="0.05"><span id="mtMinSeparationVal"></span></label>
       <label class="row">Max height slope (×xy) <input type="range" id="mtMaxZSlope" min="1" max="20" step="0.5" value="5"><span id="mtMaxZSlopeVal"></span></label>
       <label class="row">Show dyes (zoom in) <input type="checkbox" id="showDyes"></label>
-      <label class="row">Labelling efficiency <input type="range" id="labelEfficiency" min="0.005" max="1" step="0.005" value="0.1"><span id="labelEfficiencyVal"></span></label>
+      <label class="row" title="Fraction of lattice sites carrying a bleaching dye">Labelling, bleaching <input type="range" id="labelEfficiency" min="0" max="1" step="0.005" value="0.1"><span id="labelEfficiencyVal"></span></label>
+      <label class="row" title="Further fraction of lattice sites that are non-bleaching (DNA-PAINT-like: constant supply)">Labelling, non-bleaching <input type="range" id="labelNonBleaching" min="0" max="1" step="0.005" value="0"><span id="labelNonBleachingVal"></span></label>
     </fieldset>
 
     <fieldset id="movieFs">
@@ -133,7 +134,7 @@
       <div class="pair"><span class="k">FOV (px) / pixel (nm)</span><input type="number" id="mv_size" value="128" min="8" max="512" step="8"><input type="number" id="mv_pixel-nm" value="100" min="10" step="5"></div>
       <div class="pair"><span class="k">Photons/s / photon CV</span><input type="number" id="mv_photons-per-sec" value="7500" step="500"><input type="number" id="mv_photon-cv" value="0" min="0" step="0.05"></div>
       <div class="pair"><span class="k">ON / dark time (s)</span><input type="number" id="mv_on-sec" value="0.05" min="0.001" step="0.01"><input type="number" id="mv_off-sec" value="1" min="0" step="0.1"></div>
-      <div class="pair"><span class="k">Bleach prob. / activation mean (s)</span><input type="number" id="mv_bleach-prob" value="1" min="0.01" max="1" step="0.05"><input type="number" id="mv_activation-sec" value="100" min="0.1" step="5"></div>
+      <div class="pair"><span class="k">Bleach prob. / activation rate (per dye, 1/s)</span><input type="number" id="mv_bleach-prob" value="1" min="0.01" max="1" step="0.05"><input type="number" id="mv_activation-rate" value="0.01" min="0" step="0.005"></div>
       <div class="pair"><span class="k">Z stage (focus above coverslip) / z range (µm, 0 = all)</span><input type="number" id="mv_z" value="0.5" step="0.1"><input type="number" id="mv_z-range-um" value="7" min="0" step="0.5" title="Dyes within ± z range / 2 of the focal plane are rendered (SimType_CellFieldZRangeUm)"></div>
       <div class="pair"><span class="k">Background (photons/px/s) / start time (s)</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
       <div class="pair"><span class="k">Seed (noise)</span><input type="number" id="mv_seed" value="42" step="1"></div>
@@ -246,7 +247,7 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
- 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'tiltDeg', 'tiltDegVal', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
+ 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -305,6 +306,7 @@ function params() {
     mtMinSeparation: +els.mtMinSeparation.value,
     mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
     labelEfficiency: +els.labelEfficiency.value,
+    labelNonBleaching: +els.labelNonBleaching.value,
   };
 }
 
@@ -688,7 +690,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 2) throw new Error('insilicell core ABI ' + M._isc_abi_version() + ', viewer expects 2');
+  if (M._isc_abi_version() !== 3) throw new Error('insilicell core ABI ' + M._isc_abi_version() + ', viewer expects 3');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   function setParam(pp, k, v) {
@@ -859,7 +861,7 @@ const PACK_PAD_VIEWS = 2;
 let packCache = null;   // {key, ex0..ey1, map}
 let packPending = null; // {id, key, win} in flight on the pack worker
 let packId = 0;
-const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$)/;
+const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$|labelNonBleaching$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -949,7 +951,7 @@ function onPackResult(e) {
 const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
 const assets = new Map();
 const assetInflight = new Map(); // key -> sig
-const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$|labelEfficiency$)/;
+const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$|labelEfficiency$|labelNonBleaching$)/;
 function assetSig(seed, p) {
   const o = [seed];
   for (const k in p) if (!ASSET_SIG_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -1266,6 +1268,7 @@ function syncLabels() {
   els.mtMinSeparationVal.textContent = (+els.mtMinSeparation.value).toFixed(2) + ' um';
   els.mtMaxZSlopeVal.textContent = (+els.mtMaxZSlope.value).toFixed(1) + '×';
   els.labelEfficiencyVal.textContent = (100 * els.labelEfficiency.value).toFixed(1) + ' %';
+  els.labelNonBleachingVal.textContent = (100 * els.labelNonBleaching.value).toFixed(1) + ' %';
   els.tiltDegVal.textContent = els.tiltDeg.value + '°';
 }
 Object.keys(els).forEach(id => {
@@ -1294,7 +1297,7 @@ const DYE_PAD = 0.25;
 let dyeCache = null;    // {key, rect, sites}
 let dyePending = null;  // {id, key, rect}
 let dyeId = 0;
-function dyeKey(seed, p) { return assetSig(seed, p) + '|' + p.labelEfficiency; }
+function dyeKey(seed, p) { return assetSig(seed, p) + '|' + p.labelEfficiency + '|' + p.labelNonBleaching; }
 function onDyeResult(e) {
   const d = e.data;
   if (!dyePending || d.id !== dyePending.id) return;
@@ -1350,7 +1353,7 @@ function drawDyes(seed, p, pxPerUm) {
 // the dye worker, on the viewer's world (same seed and params). Shown in a small
 // player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
-  'bleach-prob', 'activation-sec', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed'];
+  'bleach-prob', 'activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed'];
 let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
 function movieSpec() {
   const p = params(), o = [];

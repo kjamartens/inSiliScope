@@ -36,7 +36,7 @@ struct CellFieldSettings
    uint32_t seed = 0;                                   // world seed (derive it from RandomSeed)
    std::vector<std::pair<std::string, double>> params;  // core param names (the prototype's), e.g. mtDensity
    // Dye blink kinetics, simulated seconds (see isc_world_set_kinetics).
-   double activationMeanSec = 100.0;
+   double activationRatePerSec = 0.01;   // per dark dye
    double onSec = 0.05;
    double offSec = 1.0;
    double bleachProb = 1.0;
@@ -45,7 +45,7 @@ struct CellFieldSettings
    bool SameWorld(const CellFieldSettings& o) const { return seed == o.seed && params == o.params; }
    bool SameKinetics(const CellFieldSettings& o) const
    {
-      return activationMeanSec == o.activationMeanSec && onSec == o.onSec && offSec == o.offSec &&
+      return activationRatePerSec == o.activationRatePerSec && onSec == o.onSec && offSec == o.offSec &&
              bleachProb == o.bleachProb && photonCV == o.photonCV;
    }
 };

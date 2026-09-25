@@ -180,13 +180,14 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
    }
    DyeBlock blk;
    std::vector<Dye> dyes;
-   DyesInBlock(seed_, c.cx, c.cy, mtIndex, A.mts[mtIndex].pts, A.Frames(mtIndex), block, p_.labelEfficiency, dyes);
+   DyesInBlock(seed_, c.cx, c.cy, mtIndex, A.mts[mtIndex].pts, A.Frames(mtIndex), block, p_.labelEfficiency,
+               p_.labelNonBleaching, dyes);
    blk.dyes.reserve(dyes.size());
    blk.zLo = INFINITY; blk.zHi = -INFINITY;
    for (const Dye& d : dyes) {
       double wx, wy;
       LocalToWorld(c, d.pos.x, d.pos.y, wx, wy);
-      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex, d.k, d.n });
+      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex, d.k, d.n, d.persistent });
       blk.zLo = std::min(blk.zLo, d.pos.z);
       blk.zHi = std::max(blk.zHi, d.pos.z);
    }
@@ -207,11 +208,14 @@ void World::Schedule(DyeBlock& b)
 {
    if (b.scheduled) return;
    b.events.clear();
+   b.persistent.clear();
    b.maxOn = 0;
    std::vector<Blink> blinks;
    uint32_t h1 = 0;
    int32_t lastCx = 0, lastCy = 0, lastMt = -1;
-   for (const WorldDye& d : b.dyes) {
+   for (size_t i = 0; i < b.dyes.size(); i++) {
+      const WorldDye& d = b.dyes[i];
+      if (d.persistent) { b.persistent.push_back((uint32_t)i); continue; }
       if (d.mtIndex != lastMt || d.cx != lastCx || d.cy != lastCy) {
          h1 = DyeH1(seed_, d.cx, d.cy, d.mtIndex);
          lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
@@ -269,6 +273,16 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
          const WorldEvent& e = *it;
          if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
             out.push_back(e);
+      }
+      // Persistent sites: never bleach, so their blinks are made for the
+      // queried window only (per time bin, see PersistentBlinks).
+      std::vector<Blink>& bl = blinkScratch_;
+      for (uint32_t i : b.persistent) {
+         const WorldDye& d = b.dyes[i];
+         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
+         bl.clear();
+         PersistentBlinks(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, kin_, t0, t1, bl);
+         for (const Blink& e : bl) out.push_back({ d.x, d.y, d.z, e.tOn, e.tOff, e.brightness, d.id });
       }
    });
 }

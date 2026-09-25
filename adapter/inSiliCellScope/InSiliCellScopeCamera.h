@@ -183,8 +183,9 @@ enum CellFieldNumber
    CF_MT_DENSITY,
    CF_LABELING_PCT,
    CF_FOCUS_HEIGHT_UM,
-   CF_ACTIVATION_MEAN_SEC,
+   CF_ACTIVATION_RATE,
    CF_Z_RANGE_UM,
+   CF_NONBLEACHING_LABELING_PCT,
    CF_COUNT
 };
 extern const char* g_PropCellFieldNumber[CF_COUNT];

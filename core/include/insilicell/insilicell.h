@@ -6,7 +6,8 @@
  * M0: RNG and cell packing. M2: the world (fixed-block packing, cytoplasm,
  * microtubules, dyes) and its window queries sitesInWindow / densityInWindow.
  * M3 (ABI 2): dye blink schedules and the event query, the full cell record
- * and per-cell geometry for the viewer. excitationAt arrives with M5.
+ * and per-cell geometry for the viewer. ABI 3: activation as a rate per dye,
+ * non-bleaching (persistent) sites. excitationAt arrives with M5.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -27,7 +28,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 2
+#define ISC_ABI_VERSION 3
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -59,7 +60,9 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * (seed, params, window): cells are packed on fixed 8x8-chunk blocks (or not
  * at all with enablePacking=0), so moving the window away and back gives the
  * same cells and dyes. Params are copied (and normalised) at creation; the
- * dye labelling efficiency is the `labelEfficiency` param (default 0.1).
+ * labelled fractions of the lattice sites are the `labelEfficiency` param
+ * (bleaching dyes, default 0.1) and `labelNonBleaching` (persistent,
+ * DNA-PAINT-like sites, default 0; one draw per site decides which).
  * Not thread-safe: use one world per thread. */
 typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
@@ -81,13 +84,15 @@ ISC_API int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1
 ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double zMin, double zMax, double* out, int32_t cap);
 
-/* Blink kinetics of every dye, simulated seconds (spec/PORT.md 6.1): first
- * activation Exp(activationMeanSec), ON Exp(onSec), then bleach with
- * probability bleachProb (clamped to [0.01, 1]) or dark Exp(offSec) and blink
- * again (at most 1000 blinks); per-blink brightness log-normal, mean 1, CV
- * photonCV. Defaults 100, 0.05, 1, 1, 0. Changing them keeps the geometry
- * cached. Returns 0, or -1 on bad arguments. */
-ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationMeanSec, double onSec, double offSec,
+/* Blink kinetics, simulated seconds (spec/PORT.md 6.1). A dark dye switches
+ * on at activationRatePerSec (per dye; 0 = never). Bleaching dyes: first
+ * activation after Exp(1/rate), ON Exp(onSec), then bleach with probability
+ * bleachProb (clamped to [0.01, 1]) or dark Exp(offSec) and blink again (at
+ * most 1000 blinks). Persistent sites: blinks start as a Poisson process of
+ * that rate for ever, ON Exp(onSec). Per-blink brightness log-normal, mean 1,
+ * CV photonCV. Defaults 0.01, 0.05, 1, 1, 0. Changing them keeps the
+ * geometry cached. Returns 0, or -1 on bad arguments. */
+ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
                                        double bleachProb, double photonCV);
 
 /* Blinks overlapping [t0, t1) (tOn < t1 and tOff > t0) of the labelled dyes

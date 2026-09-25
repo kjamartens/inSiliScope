@@ -78,7 +78,8 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
               "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
               "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldLabelingPct",
-              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldActivationMeanSec", "SimType_CellFieldZRangeUm"):
+              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldActivationRatePerDyePerSec", "SimType_CellFieldZRangeUm",
+              "SimType_CellFieldNonBleachingLabelingPct"):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
     for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
@@ -113,7 +114,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     # No static per-pixel pattern: it would correlate at zero shift.
     for p in ("CamParam_GainStdPctPerPixel", "CamParam_ReadNoiseStdPctPerPixel", "CamParam_OffsetStdADU"):
         core.setProperty(cam, p, "0")
-    core.setProperty(cam, "SimType_CellFieldActivationMeanSec", "2")  # dense ON population: shows the MT network
+    core.setProperty(cam, "SimType_CellFieldActivationRatePerDyePerSec", "0.5")  # dense ON population: shows the MT network
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setExposure(10.0)
     px_um = float(core.getProperty(cam, "General_PixelSizeNm")) / 1000.0
@@ -158,7 +159,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     print(f"TransposeMirrorX OK: the same user-coordinate step now moves the image by {dx2} px")
 
     # ---- precomputed: stage 1 mm away and back, identical stack -----------
-    core.setProperty(cam, "SimType_CellFieldActivationMeanSec", "100")
+    core.setProperty(cam, "SimType_CellFieldActivationRatePerDyePerSec", "0.01")
     core.setProperty(cam, "General_AcqMode", "Precomputed")
     core.setExposure(20.0)
 
@@ -203,6 +204,32 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setPosition(z, 1.5)
     assert up > empty + 1.0 and abs(down - empty) < 0.5, \
         f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+    # Bleaching dyes run out, non-bleaching (DNA-PAINT-like) sites do not:
+    # 1000 frames x 20 ms at 0.5 activations/dye/s -- the bleaching-only
+    # signal collapses over the stack, the non-bleaching one stays flat.
+    def early_late(bleach_pct, nonbleach_pct):
+        core.setProperty(cam, "SimType_CellFieldLabelingPct", str(bleach_pct))
+        core.setProperty(cam, "SimType_CellFieldNonBleachingLabelingPct", str(nonbleach_pct))
+        core.setProperty(cam, "SimType_CellFieldActivationRatePerDyePerSec", "0.5")
+        core.setXYPosition(xy, x0, y0)
+        _wait_idle(core, xy)
+        core.setProperty(cam, "General_GenerateStack", "1")
+        _wait_for_stack(core, cam)
+        sig = []
+        for _ in range(1000):
+            core.snapImage()
+            sig.append(core.getImage().astype(np.float64).mean() - 100.0)
+        return float(np.mean(sig[:100])), float(np.mean(sig[-100:]))
+    b_early, b_late = early_late(10, 0)
+    p_early, p_late = early_late(0, 1)
+    core.setProperty(cam, "SimType_CellFieldLabelingPct", "10")
+    core.setProperty(cam, "SimType_CellFieldNonBleachingLabelingPct", "0")
+    core.setProperty(cam, "SimType_CellFieldActivationRatePerDyePerSec", "0.01")
+    assert b_late < 0.2 * b_early, f"bleaching dyes should run out: {b_early:.2f} -> {b_late:.2f} ADU"
+    assert 0.8 < p_late / p_early < 1.25, f"non-bleaching sites should not: {p_early:.2f} -> {p_late:.2f} ADU"
+    print(f"Bleaching vs non-bleaching OK: signal {b_early:.2f} -> {b_late:.2f} ADU (bleaching), "
+          f"{p_early:.2f} -> {p_late:.2f} ADU (non-bleaching) over 20 s")
+
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
     core.setProperty(cam, "General_AcqMode", "Live")

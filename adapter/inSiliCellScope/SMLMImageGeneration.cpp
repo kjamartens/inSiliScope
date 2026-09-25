@@ -253,9 +253,10 @@ sim::CellFieldSettings CInSiliCellScopeCamera::BuildCellFieldSettings() const
       {"cellDiamMax", cellField_[CF_CELL_DIAM_MAX_UM].load()},
       {"mtDensity", cellField_[CF_MT_DENSITY].load()},
       {"labelEfficiency", cellField_[CF_LABELING_PCT].load() / 100.0},
+      {"labelNonBleaching", cellField_[CF_NONBLEACHING_LABELING_PCT].load() / 100.0},
       {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
    };
-   s.activationMeanSec = cellField_[CF_ACTIVATION_MEAN_SEC].load();
+   s.activationRatePerSec = cellField_[CF_ACTIVATION_RATE].load();
    s.onSec = std::max(1e-6, onLifetimeSec_.load());
    s.offSec = std::max(0.0, offLifetimeSec_.load());
    s.bleachProb = blinkBleachProb_.load();
@@ -525,8 +526,8 @@ void CInSiliCellScopeCamera::StackGenerationWorker(long stackLength, unsigned fu
           << ", " << stageYUm << ") um, dyes "
           << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
                                  : std::string("at any z"))
-          << " (dye activation from SimType_CellFieldActivationMeanSec; General_EmitterDensityPerSec does "
-          << "not apply to this pattern) ("
+          << " (dye activation from SimType_CellFieldActivationRatePerDyePerSec; General_EmitterDensityPerSec "
+          << "does not apply to this pattern) ("
           << std::fixed << std::setprecision(2)
           << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
       LogMessage(msg.str());
@@ -923,7 +924,7 @@ void CInSiliCellScopeCamera::LiveProducerLoop()
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
             else
-               LogMessage("CellField: dye activation from SimType_CellFieldActivationMeanSec; "
+               LogMessage("CellField: dye activation from SimType_CellFieldActivationRatePerDyePerSec; "
                           "General_EmitterDensityPerSec does not apply to this pattern.");
             const std::string zWarn = CellFieldZRangeWarning();
             if (!zWarn.empty())

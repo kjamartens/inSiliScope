@@ -101,8 +101,11 @@ switching ON per um^2 per second, independent of Exposure, `FluoParam_OnLifetime
 rate x exposure, which was right only when exposure = ON time). Live mode rounds its per-frame
 Poisson counts (truncation lost 0.5 per frame, -4% at ~12 arrivals/frame) and starts with a
 lead-in, like precomputed stacks. ctest `emitter_density` checks both paths. Labelling efficiency
-does not change this rate (it only thins the site list); the `CellField` pattern ignores it (dye
-activation is `SimType_CellFieldActivationMeanSec`). `CellField` is the default pattern.
+does not change this rate (it only thins the site list); the `CellField` pattern ignores it: there
+the blink rate comes from the dyes -- `SimType_CellFieldLabelingPct` (bleaching dyes, % of lattice
+sites), `SimType_CellFieldNonBleachingLabelingPct` (persistent, DNA-PAINT-like sites: constant supply)
+and `SimType_CellFieldActivationRatePerDyePerSec` (rate at which each dark dye switches on; replaced
+`ActivationMeanSec`, core ABI 3; spec/PORT.md 6.3). `CellField` is the default pattern.
 
 Renamed from SMLMDemoCam on 2026-09-25 (M3): module/DLL `mmgr_dal_inSiliCellScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware

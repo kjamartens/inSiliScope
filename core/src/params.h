@@ -52,6 +52,9 @@ struct Params {
    // Dyes (no JS counterpart: the JS preview labels 100%). Sparse by default,
    // see spec/PORT.md 5.2.
    double labelEfficiency = 0.1;
+   // Non-bleaching (persistent, DNA-PAINT-like) sites, a further fraction of
+   // the lattice sites on top of labelEfficiency (see DyesInBlock).
+   double labelNonBleaching = 0.0;
 };
 
 // params() in the prototype clamps every "max" to at least its "min",

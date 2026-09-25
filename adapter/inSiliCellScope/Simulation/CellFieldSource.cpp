@@ -55,13 +55,13 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
-      settings_.activationMeanSec = -1; // force the kinetics below
+      settings_.activationRatePerSec = -1; // force the kinetics below
    }
    if (!settings_.SameKinetics(s))
    {
-      if (isc_world_set_kinetics(world_, s.activationMeanSec, s.onSec, s.offSec, s.bleachProb, s.photonCV) != 0)
+      if (isc_world_set_kinetics(world_, s.activationRatePerSec, s.onSec, s.offSec, s.bleachProb, s.photonCV) != 0)
       {
-         err = "invalid dye kinetics (activation mean and ON time must be > 0)";
+         err = "invalid dye kinetics (activation rate must be >= 0, ON time > 0)";
          return false;
       }
       settings_ = s;

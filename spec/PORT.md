@@ -226,7 +226,7 @@ A 30 µm cell at the default density holds millions of sites. A FOV of 13x13 µm
 ## 6. Blinking from dye positions
 
 ### 6.1 Per-dye schedule = pure function of the dye's hash
-For a labelled dye: first activation `tAct = -ln(U) * activationMeanSec` (a parameter, section 9); then repeat:
+For a labelled dye: first activation `tAct = -ln(U) / activationRatePerSec` (a parameter, section 9; was `* activationMeanSec` until ABI 3); then repeat:
 ON for `Exp(onLifetimeSec)`, then bleach with probability `blinkBleachProb`, else dark for
 `Exp(offLifetimeSec)` and blink again. Per-blink brightness log-normal with CV `photonCV`, mean 1.
 Cap blinks per dye (e.g. 1000) so a tiny `blinkBleachProb` cannot loop forever. Reuse the existing
@@ -367,7 +367,8 @@ all with the defaults in 4.2:
   `SimType_CellFieldCellDiameterMinUm/MaxUm`, `SimType_CellFieldMicrotubuleDensityPerUm2`,
   `SimType_CellFieldFocusHeightUm`.
 * `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10).
-* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationMeanSec` (6.1).
+* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationRatePerDyePerSec` (6.1) and
+  `SimType_CellFieldNonBleachingLabelingPct` (6.3).
 * Stage: `General_StageSpeedUmPerSec`, `General_StageSettleMs`, `General_StageInvertX/Y`.
 
 Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-constant stream (like
@@ -435,7 +436,20 @@ Mark each done here.
   off for `CellField` (logged).
 * Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse
   `FluoParam_OnLifetimeSec/OffLifetimeSec/BlinkBleachProb/PhotonCV` plus
-  `SimType_CellFieldActivationMeanSec` (default 100 s).
+  `SimType_CellFieldActivationRatePerDyePerSec` (default 0.01/s; was `ActivationMeanSec` 100 s).
+
+### 6.3 Non-bleaching sites (ABI 3, 2026-09-25)
+Two labelled fractions of the lattice sites, decided by the one LABEL draw `u` per site:
+`u < labelEfficiency` is a bleaching dye (6.1), `labelEfficiency <= u < labelEfficiency +
+labelNonBleaching` a persistent (DNA-PAINT-like) site, so the bleaching dyes never depend on the
+second fraction. Both switch on at `activationRatePerSec` per dark dye. A persistent site never
+bleaches: its blinks are a Poisson process of that rate for ever, addressed per 1 s time bin
+(`PersistentBlinks`: count, start, ON time Exp(onSec) capped at 20 onSec, brightness from
+`Pcg4d(Pcg4d(H1, k, n, PERSIST=5).a, bin, j, purpose)`), so any window is answered without running
+from t = 0 and a window equals the union of its slices. Overlapping binding events on one site are
+allowed (independent Poisson events; fine while rate x onSec << 1). `world_checks`: constant rate at
+0-100 s and 10000 s, ON mean, window slicing, bleaching set unchanged; the adapter test shows
+bleaching-only signal collapsing and non-bleaching flat over a 20 s stack.
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 

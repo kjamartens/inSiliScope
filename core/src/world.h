@@ -45,6 +45,7 @@ struct WorldDye {
    uint32_t id;                              // per-dye hash (stable across windows)
    int32_t cx, cy, mtIndex;
    int32_t k, n;                             // lattice address on the microtubule
+   bool persistent;                          // non-bleaching site (Params::labelNonBleaching)
 };
 
 // One blink of one dye, in world um and simulated seconds.
@@ -80,9 +81,10 @@ public:
                       std::vector<WorldDye>& out);
 
    // Blinks of the labelled dyes in the rect/z range with tOn < t1 and
-   // tOff > t0 (simulated seconds, see Kinetics). Every dye's whole blink
-   // lifetime is a pure function of its address, so the answer depends only
-   // on (seed, params, kinetics, rect, t0, t1). Appends, ordered by block.
+   // tOff > t0 (simulated seconds, see Kinetics). Every blink is a pure
+   // function of its dye's address (and, for persistent sites, its time
+   // bin), so the answer depends only on (seed, params, kinetics, rect, t0,
+   // t1). Appends, ordered by block.
    void EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                        double t0, double t1, std::vector<WorldEvent>& out);
 
@@ -108,8 +110,9 @@ private:
       std::vector<WorldDye> dyes;           // world coordinates
       double zLo = 0, zHi = 0;              // z range of the dyes
       bool scheduled = false;
-      std::vector<WorldEvent> events;       // every blink of every dye, by tOn
-      double maxOn = 0;                     // longest blink (tOff - tOn)
+      std::vector<WorldEvent> events;       // every blink of every bleaching dye, by tOn
+      double maxOn = 0;                     // longest of those (tOff - tOn)
+      std::vector<uint32_t> persistent;     // indices of the persistent sites (blinks made per query)
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
 
@@ -132,6 +135,7 @@ private:
    std::map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator> dyeIndex_;
    size_t dyeCount_ = 0;
    Kinetics kin_;
+   std::vector<Blink> blinkScratch_;
    WorldStats stats_;
 };
 

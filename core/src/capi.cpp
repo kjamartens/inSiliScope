@@ -122,14 +122,14 @@ int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double
    }
 }
 
-int32_t isc_world_set_kinetics(IscWorld* w, double activationMeanSec, double onSec, double offSec,
+int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
                                double bleachProb, double photonCV)
 {
-   if (!w || !(activationMeanSec > 0) || !(onSec > 0) || !(offSec >= 0) || !(bleachProb > 0) || !(photonCV >= 0) ||
-       !std::isfinite(activationMeanSec) || !std::isfinite(onSec) || !std::isfinite(offSec) || !std::isfinite(photonCV))
+   if (!w || !(activationRatePerSec >= 0) || !(onSec > 0) || !(offSec >= 0) || !(bleachProb > 0) || !(photonCV >= 0) ||
+       !std::isfinite(activationRatePerSec) || !std::isfinite(onSec) || !std::isfinite(offSec) || !std::isfinite(photonCV))
       return -1;
    isc::Kinetics k;
-   k.activationMeanSec = activationMeanSec; k.onSec = onSec; k.offSec = offSec;
+   k.activationRatePerSec = activationRatePerSec; k.onSec = onSec; k.offSec = offSec;
    k.bleachProb = bleachProb; k.photonCV = photonCV;
    w->w.SetKinetics(k);
    return 0;
