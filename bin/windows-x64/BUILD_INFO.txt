@@ -1,8 +1,8 @@
 mmgr_dal_inSiliCellScope.dll -- test build for Micro-Manager (device interface of third_party/mmCoreAndDevices)
-source commit: d4e757e2a6e0d41e4d2bc82e5fff0a090c1e1105 (claude/vigilant-euler-cyyj9l)
-built: 2026-09-25T12:04:43.5860299+00:00 by GitHub Actions run 36132764780
+source commit: e8a2037f041dfe41b790598cc48f383475de4c51 (claude/vigilant-euler-cyyj9l)
+built: 2026-09-25T12:09:06.4787601+00:00 by GitHub Actions run 36133175762
 vectorial PSF: embedded (PSFGenerator + bridge)
-sha256: 13930a9e7fa6e767d69e1ed02f0211a88b82ed3bf994c674e5652229f0a50e36
+sha256: 8f71d24f60215e42d6cf3bdf1f43eb78cebd28301d803ec9e5b98c98282dd203
 Licence: with PSFGenerator embedded this DLL is a GPL-3.0 combined work; see license.txt. Sources: this
 repository at the commit above, and PSFGenerator (https://github.com/Biomedical-Imaging-Group/PSFGenerator).
 Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);
