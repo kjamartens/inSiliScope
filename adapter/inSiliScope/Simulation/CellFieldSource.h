@@ -91,6 +91,12 @@ public:
    // Appends the blinks of q to out. False on a core failure.
    bool Events(const CellFieldQuery& q, std::vector<BlinkEvent>& out);
 
+   // Pre-loads what q would need if the stage moved up to marginUm in x/y or
+   // to any focus (the whole z column), nearest ring first, for at most about
+   // budgetMs. Only fills caches: no event changes. True when all of it is
+   // cached.
+   bool Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs);
+
 private:
    IscWorld* world_ = nullptr;
    CellFieldSettings settings_;

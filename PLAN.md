@@ -179,6 +179,15 @@ No second hand-maintained implementation.
       the defaults and passes on the Linux test build. Old MM configs setting these properties must
       be re-made.
 
+- [x] (user request) CellField moves without stalls. Every 20th frame (each 1 s persistent-blink
+      bin at 50 ms frames) all blocks rebuilt their bin range at once (40-85 ms vs ~2 ms); ranges are
+      now extended ahead at a per-block point of their last bin. A focus move regenerated the whole
+      window (~2 s: eviction ran mid-query and dropped blocks the query still needed); eviction now
+      waits for the end of the query. Core ABI 4: `isc_world_set_dye_cache` (adapter: 16 M dyes) and
+      `isc_world_prefetch`; live mode pre-loads the FOV's z column + 3 um in x/y in the wait before
+      each frame (smooth xy + focus motion: worst query 191-336 -> <= 40 ms, RSS < 0.8 GB). Events
+      byte-identical; world_checks `CacheUnderLoad` extended.
+
 ### M4 -- webSMLM integration via CI
 
 - [x] Release workflow: build + test, emit the block and publish it as an artifact / release asset.

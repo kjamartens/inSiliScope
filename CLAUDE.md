@@ -108,7 +108,7 @@ the blink rate comes from the dyes -- `SimType_CellFieldLabelingPctBleaching` (b
 lattice sites, default 0), `SimType_CellFieldLabelingPctNonBleaching` (persistent, DNA-PAINT-like sites:
 constant supply, default 70) and `SimType_CellFieldMilliActivationRatePerDyePerSec` (rate at which each
 dark dye switches on, in 1e-3/s, 0-1000, default 1.43: 1e-3 activations per lattice site per second,
-the former 10% bleaching x 0.01/s at t = 0; core ABI 3; spec/PORT.md 6.3). The cli/viewer movie options
+the former 10% bleaching x 0.01/s at t = 0; core ABI 3, now 4; spec/PORT.md 6.3). The cli/viewer movie options
 are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
 (the viewer passes its own labelling sliders). `CellField` is the default pattern.
 

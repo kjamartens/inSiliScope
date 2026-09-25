@@ -83,7 +83,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   let gs = 0;
   for (let i = 0; i < 256; i++) gs += M.HEAPF32[g / 4 + i];
   const nc = M._isc_cells_in_window(w, win[0], win[1], win[2], win[3], 0, 0);
-  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && M._isc_abi_version() === 3;
+  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && M._isc_abi_version() === 4;
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;

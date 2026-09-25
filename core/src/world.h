@@ -20,6 +20,7 @@
 #include "params.h"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -68,6 +69,7 @@ struct WorldStats {
    long dyeBlockHits = 0;       // served from the cache
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
    long persistentBuilt = 0;    // persistent-blink bin ranges built
+   long prefetches = 0;         // Prefetch passes that scanned
 };
 
 class World {
@@ -80,6 +82,8 @@ public:
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
 
    const Params& GetParams() const { return p_; }
+   // Dye cache cap (dyes); a smaller one takes effect at the next query.
+   void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
    uint32_t Seed() const { return seed_; }
 
    // Cells (packed pose) whose footprint circle (rOuter) intersects the rect.
@@ -97,6 +101,14 @@ public:
    // t1). Appends, ordered by block.
    void EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                        double t0, double t1, std::vector<WorldEvent>& out);
+
+   // Warms the caches for the rect/z range (cells, dye blocks, blink
+   // schedules, persistent blinks around [t0, t1)) for up to budgetMs, e.g.
+   // a margin around the window, in the time before the next query. Changes
+   // no answer. True if the whole region is cached (a repeat over a region
+   // already done returns at once), false if the budget ran out first.
+   bool Prefetch(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                 double budgetMs);
 
    // Kinetics of the blink schedules. Changing them keeps cells, microtubules
    // and dye positions cached and only drops the schedules.
@@ -124,15 +136,16 @@ private:
       double maxOn = 0;                     // longest of those (tOff - tOn)
       std::vector<uint32_t> persistent;     // indices of the persistent sites
       // Blinks of all persistent sites starting in time bins [pBin0, pBin1),
-      // by tOn (PersistentCover builds them for a range of bins at a time).
+      // by tOn (PersistentCover extends them a range of bins at a time).
       std::vector<PersistentEvent> pEvents;
       long pBin0 = 0, pBin1 = 0;
       uint64_t used = 0;                    // last query that touched the block
-      uint32_t phase = 0;                   // per-block hash, staggers the bin ranges
+      uint32_t phase = 0;                   // per-block hash, staggers the extensions
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
-   // Makes b.pEvents cover time bins [b0, b1].
-   void PersistentCover(DyeBlock& b, long b0, long b1);
+   // Makes b.pEvents cover time bins [b0, b1] (the query ends at t1), and
+   // extends them ahead of time at a per-block point of their last bin.
+   void PersistentCover(DyeBlock& b, long b0, long b1, double t1);
 
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
    // Calls fn(DyeBlock&) for every 1 um dye block that can reach the rect/z range.
@@ -153,6 +166,18 @@ private:
    std::map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator> dyeIndex_;
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
+   uint64_t evictions_ = 0, kinVersion_ = 0;
+   // Prefetch: its time limit while it runs (ForEachDyeBlock stops past it)
+   // and the last region it completed.
+   bool PastDeadline();
+   const std::chrono::steady_clock::time_point* deadline_ = nullptr;
+   bool stopped_ = false;
+   struct PrefetchRegion {
+      double x0, y0, x1, y1, zMin, zMax;
+      uint64_t evictions, kinVersion;
+      bool valid = false;
+   };
+   PrefetchRegion prefetchDone_ = {};
    Kinetics kin_;
    std::vector<const PersistentEvent*> persistentScratch_;
    WorldStats stats_;

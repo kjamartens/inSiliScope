@@ -239,6 +239,10 @@ namespace {
 // Dyes up to this far outside the FOV are still rendered: their PSF tails
 // reach in (spec/PORT.md 6.2; a few kernel half-widths of the in-focus core).
 constexpr double kCellFieldMarginUm = 2.0;
+// Live mode pre-loads this far around the FOV (all of the z column), in the
+// time left before the next frame minus this slack.
+constexpr double kCellFieldPrefetchMarginUm = 3.0;
+constexpr double kCellFieldPrefetchSlackMs = 2.0;
 } // namespace
 
 sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
@@ -821,6 +825,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
    sim::CellFieldSource cellField;
    bool cellFieldOk = false;
    double cellFieldTimeSec = 0.0;
+   // The last frame's query, for pre-loading around it in the idle time
+   // before the next frame.
+   sim::CellFieldQuery cellFieldLastQuery;
+   bool cellFieldQueried = false;
 
    while (liveProducerRun_.load())
    {
@@ -971,6 +979,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                LogMessage("CellField: event query failed", false);
                cellFieldOk = false;
             }
+            cellFieldLastQuery = q;
+            cellFieldQueried = true;
          }
          cellFieldTimeSec += params.frameDurationSec;
       }
@@ -1051,6 +1061,18 @@ void CInSiliScopeCamera::LiveProducerLoop()
       double exposureMs = GetExposure();
       MM::MMTime elapsed = GetCurrentMMTime() - tickStart;
       double sleepMs = exposureMs - elapsed.getMsec();
+      // CellField: spend the wait pre-loading the dyes a stage move would
+      // need next (the whole z column and an xy margin around the FOV), so
+      // focusing and nearby moves do not stall a frame on generating them.
+      if (cellFieldOk && cellFieldQueried && CurrentPatternType() == sim::PATTERN_CELL_FIELD &&
+          sleepMs > kCellFieldPrefetchSlackMs)
+      {
+         sim::CellFieldQuery next = cellFieldLastQuery;
+         next.tSec = cellFieldTimeSec;
+         next.spanSec = params.frameDurationSec;
+         cellField.Prefetch(next, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
+         sleepMs = exposureMs - (GetCurrentMMTime() - tickStart).getMsec();
+      }
       if (sleepMs > 0.0)
          CDeviceUtils::SleepMs(static_cast<unsigned long>(sleepMs));
    }
