@@ -125,8 +125,9 @@ No second hand-maintained implementation.
       build with pymmcore-plus (`tools/build_adapter_linux.sh`, `tools/test_cellfield_stage.py`: move
       time 0.52 s for 500 um at 1000 um/s, Busy while moving, +2 um stage = -20 px image shift,
       TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
-      excursion). **Open: MSBuild on Windows (vcxproj/filters updated, not built), the full
-      `test_insilicellscope.py` against the DLL, and a look in Micro-Manager Studio.**
+      excursion). MSBuild on Windows passes in CI (job `adapter`, which also publishes
+      `bin/windows-x64/`). **Open: the full `test_insilicellscope.py` against the real DLL (needs
+      Windows + JRE) and a look in Micro-Manager Studio.**
 - [x] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
       adapter's `Simulation/` render code without MM. `Simulation/ScopeMovie.*` = the camera's
       precomputed CellField pipeline for one FOV (Gaussian PSF; same seed streams), used by
