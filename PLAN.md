@@ -61,7 +61,8 @@ No second hand-maintained implementation.
       samples); ctest `golden_vectors` passes natively and under Node+WASM.
 - [x] CI workflow `.github/workflows/ci.yml`: core native (MSVC), core WASM (pinned emsdk 6.0.10),
       golden freshness vs `web/index.html`, adapter MSBuild.
-      **Not yet run on GitHub** (repo has no remote yet); jobs verified locally step by step.
+      **Manual-only for now** (`workflow_dispatch`; not triggered by push/PR) and not yet run on GitHub;
+      jobs verified locally step by step.
 - [x] `CLAUDE.md` rewritten (repo rules on top, adapter knowledge kept below).
 - [x] Port spec moved to `spec/PORT.md` and updated for the new layout; prototype README ->
       `spec/ALGORITHM.md`. (`PORT.md` is deleted once the port is complete, per its header.)
@@ -116,4 +117,5 @@ No second hand-maintained implementation.
 - Viewer worker plumbing changes (workers run generator *source text* today; they will instantiate
   WASM).
 - `Math.pow` in the cytoplasm mesh (M2): accept "near", or change the prototype first.
-- CI has not run on GitHub yet: needs a remote. Pushing is the user's call.
+- CI is disabled on push/PR (manual trigger only) and has never run on GitHub; until it is
+  re-enabled, run `ctest` locally (native + WASM) before committing core changes.

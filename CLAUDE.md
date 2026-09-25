@@ -41,7 +41,8 @@ that finishes them.
   `/fp:precise` without `/fp:contract` (MSVC). Set in `core/CMakeLists.txt`.
 - The prototype in `web/` changes only deliberately. When its generator changes, update
   `spec/PORT.md`/`spec/ALGORITHM.md` and re-freeze `spec/golden` in the same commit (CI job
-  `golden-fresh` fails otherwise).
+  `golden-fresh` checks this). CI is manual-only for now, so run `ctest` for native and WASM
+  locally before committing core changes.
 
 ## Build and test
 

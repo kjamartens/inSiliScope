@@ -1,8 +1,9 @@
 name: CI
 
+# Manual only for now (Actions tab -> CI -> Run workflow). To run on every
+# push/PR again, add `push:` and `pull_request:` here.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 env:
   # Pinned toolchain versions. Change deliberately: a different Emscripten can
