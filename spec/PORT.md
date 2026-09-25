@@ -29,7 +29,7 @@ gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 
 ## 1. Source material (the JS prototype is the reference implementation)
 
-All in `web/` (history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
+All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
 the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
 README).
 
@@ -111,7 +111,7 @@ ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's
   ring spacing) on a libm other than the one Node was built with.
 
 **Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
-generator half of `web/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
+generator half of `web/prototype/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
 V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
 `golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
 packing (M0). M2 extended them with `cells` cases (cytoplasm mesh, microtubules, lattice sites through

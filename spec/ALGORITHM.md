@@ -1,12 +1,12 @@
 # Cell field simulation -- algorithm notes
 
 The *why* behind every non-obvious decision in the cell-field generator. Written against the JS
-prototype (`web/index.html` generator half, `web/microtubules.js`), which is the reference
+prototype (`web/prototype/index.html` generator half, `web/prototype/microtubules.js`), which is the reference
 implementation the C++ core (`core/`) is ported from; function names below are the JS ones (the C++
 uses the same names in PascalCase). Read the relevant section before touching an algorithm, in either
 language, and do not "simplify" what it says was fixed on purpose.
 
-Open `web/index.html` directly in a browser to see it -- no build step, no server.
+Open `web/prototype/index.html` directly in a browser to see it (the prototype; `web/index.html` is the viewer on the WASM core) -- no build step, no server.
 
 ## The idea being tested
 
