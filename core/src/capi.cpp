@@ -122,6 +122,24 @@ int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double
    }
 }
 
+int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes)
+{
+   if (!w || !(maxDyes >= 0) || !std::isfinite(maxDyes)) return -1;
+   w->w.SetDyeCacheCap((size_t)std::min(maxDyes, 1e15));
+   return 0;
+}
+
+int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
+                           double t0, double t1, double budgetMs)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || !(t1 >= t0) || !(budgetMs >= 0)) return -1;
+   try {
+      return w->w.Prefetch(x0, y0, x1, y1, zMin, zMax, t0, t1, budgetMs) ? 1 : 0;
+   } catch (...) {
+      return -1;
+   }
+}
+
 int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
                                double bleachProb, double photonCV)
 {

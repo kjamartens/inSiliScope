@@ -7,7 +7,7 @@
  * microtubules, dyes) and its window queries sitesInWindow / densityInWindow.
  * M3 (ABI 2): dye blink schedules and the event query, the full cell record
  * and per-cell geometry for the viewer. ABI 3: activation as a rate per dye,
- * non-bleaching (persistent) sites.
+ * non-bleaching (persistent) sites. ABI 4: isc_world_set_dye_cache, isc_world_prefetch.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 3
+#define ISC_ABI_VERSION 4
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -68,6 +68,13 @@ typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);
 
+/* Upper bound of the dye cache, in dyes (ABI 4; default 2e6). Each cached dye
+ * costs ~100-200 bytes with its blink schedule; the blocks one query uses are
+ * never evicted, so this bounds what is kept beyond the current window
+ * (e.g. the rest of the z column, or where the window was before). Caches
+ * only: no answer depends on it. Returns 0, or -1 on bad arguments. */
+ISC_API int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes);
+
 /* Cells whose footprint circle intersects the window, ISC_CELL_STRIDE doubles
  * each: cx, cy, x, y, packRot, rOuter, height, nucOffX, nucOffY, nucRot,
  * nucLong, nucShort, nucHeight, nucZ (the prototype's cell fields; nuc* are
@@ -103,6 +110,16 @@ ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec,
 #define ISC_EVENT_STRIDE 7
 ISC_API int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                      double zMin, double zMax, double t0, double t1, double* out, int32_t cap);
+
+/* Warms the caches for a window (cells, dyes, blink schedules, and the
+ * persistent sites' blinks around [t0, t1)) for at most about budgetMs, so a
+ * later isc_events_in_window there is fast: e.g. a margin around the current
+ * window and the whole z column, in the idle time before the next frame
+ * (ABI 4). Changes no answer. Returns 1 when the whole window is cached (a
+ * repeat over a window already done returns at once), 0 if the budget ran
+ * out first, -1 on bad arguments. */
+ISC_API int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                   double zMax, double t0, double t1, double budgetMs);
 
 /* ---- Per-cell geometry (viewer), cell-local frame (before packRot) ----
  * The cell is addressed by its home chunk (cx, cy); all return -1 if that

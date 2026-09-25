@@ -365,6 +365,67 @@ void CacheUnderLoad()
    const long built = w.Stats().dyeBlocks;
    for (int f = 1; f < 40; f++) { ev.clear(); w.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, ev); }
    Check(built > 0 && w.Stats().dyeBlocks == built, "window larger than the dye cache: blocks built once, not per query");
+   // A shifted window (a focus move) builds only the blocks it did not have:
+   // eviction waits for the end of the query, so the blocks the old and new
+   // windows share survive it.
+   {
+      World a(seed, p, 48, 1000), b(seed, p, 48, 1000);
+      a.SetKinetics(k); b.SetKinetics(k);
+      std::vector<WorldEvent> e;
+      a.EventsInWindow(x0, y0, x1, y1, -INF, 1.0, 0, fd, e);
+      const long before = a.Stats().dyeBlocks;
+      a.EventsInWindow(x0, y0, x1, y1, -INF, 2.0, fd, 2 * fd, e);
+      b.EventsInWindow(x0, y0, x1, y1, -INF, 2.0, fd, 2 * fd, e);
+      Check(a.Stats().dyeBlocks - before < b.Stats().dyeBlocks,
+            "window shifted in z over a full dye cache: only its new blocks are built");
+   }
+   // Prefetch only fills caches: a world pre-loading around a moving window
+   // (budget-limited or not) answers exactly like one that does not, and
+   // the window it completed is then served without building blocks.
+   {
+      World a(seed, p, 48, 1000), b(seed, p, 48, 1000);
+      a.SetKinetics(k); b.SetKinetics(k);
+      bool same = true, partial = false;
+      for (int f = 0; f < 12; f++) {
+         const double s = 0.4 * f, t0 = 2 + f * fd;
+         std::vector<WorldEvent> ea, eb;
+         a.EventsInWindow(x0 + s, y0, x1 + s, y1, 0, 2, t0, t0 + fd, ea);
+         b.EventsInWindow(x0 + s, y0, x1 + s, y1, 0, 2, t0, t0 + fd, eb);
+         same = same && SameEvents(ea, eb) && ea.size() == eb.size();
+         partial = partial || !a.Prefetch(x0 + s - 2, y0 - 2, x1 + s + 2, y1 + 2, -INF, INF, t0 + fd, t0 + 2 * fd,
+                                          f % 3 == 0 ? 0.0 : 1e9);
+      }
+      const bool done = a.Prefetch(x0 - 1, y0 - 1, x1 + 1, y1 + 1, -INF, INF, 3, 3 + fd, 1e9);
+      const long built = a.Stats().dyeBlocks;
+      std::vector<WorldEvent> ea, eb;
+      a.EventsInWindow(x0 - 1, y0 - 1, x1 + 1, y1 + 1, -INF, INF, 3, 3 + fd, ea);
+      b.EventsInWindow(x0 - 1, y0 - 1, x1 + 1, y1 + 1, -INF, INF, 3, 3 + fd, eb);
+      Check(same && SameEvents(ea, eb) && partial && done && a.Stats().dyeBlocks == built,
+            "prefetch changes no event; a prefetched window is served from the cache");
+   }
+   // Frame after frame, the persistent blinks come from blocks extending
+   // their bins ahead of time (staggered per block): still PersistentBlinks'.
+   bool steady = true;
+   for (int f = 0; f < 70; f++) {
+      ev.clear();
+      w.EventsInWindow(x0, y0, x1, y1, -INF, INF, 40 + f * fd, 40 + (f + 1) * fd, ev);
+      if (f % 7 == 0 || f == 19 || f == 20) {
+         std::vector<WorldDye> ds;
+         w.SitesInWindow(x0, y0, x1, y1, -INF, INF, ds);
+         std::vector<WorldEvent> ref;
+         std::vector<Blink> bl;
+         const double t0 = 40 + f * fd, t1 = t0 + fd;
+         for (const WorldDye& d : ds) {
+            bl.clear();
+            if (d.persistent) PersistentBlinks(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), t0, t1, bl);
+            else DyeSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), bl);
+            for (const Blink& x : bl)
+               if (x.tOn < t1 && x.tOff > t0) ref.push_back({ d.x, d.y, d.z, x.tOn, x.tOff, x.brightness, d.id });
+         }
+         steady = steady && SameEvents(ev, ref);
+      }
+   }
+   Check(steady, "persistent blinks frame by frame across bin extensions = PersistentBlinks");
 
    std::vector<WorldDye> dyes;
    w.SitesInWindow(x0, y0, x1, y1, -INF, INF, dyes);

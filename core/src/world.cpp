@@ -4,6 +4,7 @@
 #include "packing.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace isc {
@@ -71,6 +72,7 @@ void World::DropCaches()
    dyeLru_.clear();
    dyeIndex_.clear();
    dyeCount_ = 0;
+   prefetchDone_.valid = false;
 }
 
 const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
@@ -143,10 +145,12 @@ CellAssets& World::Assets(const Cell& c)
 template <class Fn>
 void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn)
 {
+   query_++;
    std::vector<Cell> cells;
    CellsInRect(x0, y0, x1, y1, cells);
    const double blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
    for (const Cell& c : cells) {
+      if (PastDeadline()) break;
       CellAssets& A = Assets(c);
       const double centreDist = RectDist(c.x, c.y, x0, y0, x1, y1);
       for (size_t i = 0; i < A.mts.size(); i++) {
@@ -162,10 +166,65 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
             double wx, wy;
             LocalToWorld(c, mid.x, mid.y, wx, wy);
             if (RectDist(wx, wy, x0, y0, x1, y1) > blockReach) continue;
+            if (PastDeadline()) break;
             fn(GetDyeBlock(A, (int)i, b));
          }
       }
    }
+   // Evict least recently used blocks only now, and never one this query
+   // used (they are the most recent ones): evicting while the query runs
+   // could drop blocks it has not reached yet and regenerate them, and a
+   // window holding more dyes than the cap would do so on every query.
+   while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
+      dyeCount_ -= dyeLru_.back().second.dyes.size();
+      dyeIndex_.erase(dyeLru_.back().first);
+      dyeLru_.pop_back();
+      evictions_++;
+   }
+}
+
+bool World::PastDeadline()
+{
+   if (!deadline_) return false;
+   if (!stopped_ && std::chrono::steady_clock::now() >= *deadline_) stopped_ = true;
+   return stopped_;
+}
+
+bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                     double budgetMs)
+{
+   // Nothing new since the last complete prefetch of a region holding this one.
+   const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, kinVersion_, true };
+   const PrefetchRegion& d = prefetchDone_;
+   if (d.valid && x0 >= d.x0 && y0 >= d.y0 && x1 <= d.x1 && y1 <= d.y1 && zMin >= d.zMin && zMax <= d.zMax &&
+       d.evictions == evictions_ && d.kinVersion == kinVersion_)
+      return true;
+   const auto deadline = std::chrono::steady_clock::now() +
+                         std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                            std::chrono::duration<double, std::milli>(std::max(0.0, budgetMs)));
+   deadline_ = &deadline;
+   stopped_ = false;
+   const bool persist = kin_.activationRatePerSec > 0 && t1 > t0;
+   const double maxOn = PERSIST_ON_CAP * kin_.onSec;
+   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
+   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
+      if (b.dyes.empty()) return;
+      Schedule(b);
+      if (persist && !b.persistent.empty()) PersistentCover(b, b0, b1, t1);
+   });
+   deadline_ = nullptr;
+   const bool complete = !stopped_;
+   stopped_ = false;
+   if (complete) {
+      // Whatever this pass evicted lay outside the region (it keeps the
+      // blocks it used), so count from after it.
+      prefetchDone_ = r;
+      prefetchDone_.evictions = evictions_;
+      prefetchDone_.valid = true;
+   }
+   stats_.prefetches++;
+   return complete;
 }
 
 World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
@@ -195,15 +254,7 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
    blk.used = query_;
    blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, (uint32_t)mtIndex, (uint32_t)block).a;
    stats_.dyeBlocks++;
-   // Evict least recently used blocks, but never one this query uses (they
-   // are the most recent ones): a window holding more dyes than the cap would
-   // otherwise evict its own blocks and regenerate them on every query.
-   dyeCount_ += blk.dyes.size();
-   while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
-      dyeCount_ -= dyeLru_.back().second.dyes.size();
-      dyeIndex_.erase(dyeLru_.back().first);
-      dyeLru_.pop_back();
-   }
+   dyeCount_ += blk.dyes.size();   // evicted at the end of the query (ForEachDyeBlock)
    dyeLru_.emplace_front(key, std::move(blk));
    dyeIndex_[key] = dyeLru_.begin();
    return dyeLru_.front().second;
@@ -239,16 +290,33 @@ void World::Schedule(DyeBlock& b)
    stats_.schedulesBuilt++;
 }
 
-void World::PersistentCover(DyeBlock& b, long b0, long b1)
+void World::PersistentCover(DyeBlock& b, long b0, long b1, double t1)
 {
-   if (b0 >= b.pBin0 && b1 < b.pBin1) return;
-   // Build a range of bins at once, up to 16 or ~2048 expected blinks, and
-   // end it on a per-block phase so that the blocks of a window do not all
-   // rebuild on the same query.
+   // Bins per build: up to 16 or ~2048 expected blinks.
    const double perBin = (double)b.persistent.size() * kin_.activationRatePerSec * PERSIST_BIN_SEC;
    const long L = (long)std::min(16.0, std::max(1.0, std::floor(2048.0 / std::max(perBin, 1e-9))));
-   const long end = b1 + 1 + (L - (long)((b1 + 1 + (long)(b.phase % (uint32_t)L)) % L)) % L;
-   b.pEvents.clear();
+   long lo, hi;
+   if (b0 < b.pBin0 || b0 >= b.pBin1) {
+      // First use, a jump in time or new kinetics: build from scratch.
+      b.pEvents.clear();
+      b.pBin0 = lo = b0;
+      hi = b1 + 1 + L;
+   } else {
+      // Extend ahead of time, once t1 passes a per-block point in the last
+      // bin covered: the blocks of a window then spread their builds over
+      // that bin's frames instead of all building on the frame that enters
+      // the next bin (a stall every PERSIST_BIN_SEC).
+      const double frac = b.phase * (1.0 / 4294967296.0);
+      if (b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC) return;
+      // Drop the bins the lookback no longer reaches (tOn, hence bin, ascends).
+      b.pEvents.erase(b.pEvents.begin(),
+                      std::partition_point(b.pEvents.begin(), b.pEvents.end(),
+                                           [&](const PersistentEvent& e) { return (long)e.bin < b0; }));
+      b.pBin0 = b0;
+      lo = b.pBin1;
+      hi = std::max(b1 + 1, b.pBin1) + L;
+   }
+   const size_t start = b.pEvents.size();
    std::vector<BinBlink> bl;
    uint32_t h1 = 0;
    int32_t lastCx = 0, lastCy = 0, lastMt = -1;
@@ -259,19 +327,21 @@ void World::PersistentCover(DyeBlock& b, long b0, long b1)
          lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
       }
       bl.clear();
-      PersistentBlinksInBins(h1, d.k, d.n, kin_, b0, end - 1, bl);
+      PersistentBlinksInBins(h1, d.k, d.n, kin_, lo, hi - 1, bl);
       for (const BinBlink& e : bl) b.pEvents.push_back({ e.tOn, e.tOff, e.brightness, i, e.bin, e.j });
    }
-   std::sort(b.pEvents.begin(), b.pEvents.end(),
+   // The new bins all start after the kept ones, so sorting them keeps the
+   // whole list sorted by tOn.
+   std::sort(b.pEvents.begin() + start, b.pEvents.end(),
              [](const PersistentEvent& a, const PersistentEvent& e) { return a.tOn < e.tOn; });
-   b.pBin0 = b0;
-   b.pBin1 = end;
+   b.pBin1 = hi;
    stats_.persistentBuilt++;
 }
 
 void World::SetKinetics(const Kinetics& k)
 {
    kin_ = k;
+   kinVersion_++;
    for (auto& e : dyeLru_) {
       e.second.scheduled = false;
       std::vector<WorldEvent>().swap(e.second.events);
@@ -290,7 +360,6 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           std::vector<WorldDye>& out)
 {
-   query_++;
    ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       for (const WorldDye& d : b.dyes)
@@ -301,7 +370,6 @@ void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMi
 void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                            double t0, double t1, std::vector<WorldEvent>& out)
 {
-   query_++;
    ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       Schedule(b);
@@ -321,7 +389,7 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
       const double maxOn = PERSIST_ON_CAP * kin_.onSec;
       const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
       const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
-      PersistentCover(b, b0, b1);
+      PersistentCover(b, b0, b1, t1);
       std::vector<const PersistentEvent*>& hit = persistentScratch_;
       hit.clear();
       auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), b0 * PERSIST_BIN_SEC,

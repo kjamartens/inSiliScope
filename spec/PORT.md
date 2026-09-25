@@ -248,7 +248,13 @@ schedule is keyed by the dye's full lattice address, not by its 32-bit `id` (ids
 collide). `Kinetics` lives on the `World` (`SetKinetics`, ABI `isc_world_set_kinetics`); changing it
 keeps the geometry and dye positions cached and rebuilds only the schedules. Defaults: activation mean
 100 s, ON 0.05 s, dark 1 s, bleach 1, CV 0. Dye blocks (world positions, then events by `tOn` with
-`maxOn`) are cached in an LRU bounded by dye count (2 M). Checked in `world_checks` (`KineticsStats`:
+`maxOn`) are cached in an LRU bounded by dye count (2 M by default; `isc_world_set_dye_cache`, ABI 4:
+the adapter keeps 16 M, the whole z column of its FOV and a few um around it). Eviction runs at the end
+of a query and never drops a block that query used, so a moved window builds only the blocks it did not
+have. `isc_world_prefetch` (ABI 4) fills the caches for a region within a time budget; the adapter's
+live mode spends the wait before each frame on the FOV's z column plus 3 um in x/y. Persistent sites'
+blink ranges are extended ahead of time at a per-block point of their last bin, so the blocks of a
+window do not all rebuild on the frame entering a new bin. Checked in `world_checks` (`KineticsStats`:
 Exp means, geometric blink count, log-normal mean/CV, time order).
 
 ### 6.2 Query, per frame
@@ -425,7 +431,8 @@ Mark each done here.
 * Labelling is `SimType_CellFieldLabelingPctBleaching` + `SimType_CellFieldLabelingPctNonBleaching`
   (defaults 0 and 70 since 2026-09-25; were 10 and 0), not `General_LabelingEfficiencyPct`. 70% of a
   cell field is ~2 M dyes in the adapter's query window: fine since the dye cache keeps a query's
-  working set and persistent blinks are cached per bin range (2.4 ms/frame steady).
+  working set and persistent blinks are cached per bin range (2.4 ms/frame steady, no per-second
+  stall; focus and xy moves come from the prefetched cache, section 6.1).
 * Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
   event), and events stay relative to the undrifted FOV origin; so drift is applied once.
 * z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000` and the renderer's defocus is
