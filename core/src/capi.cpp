@@ -3,10 +3,15 @@
 #include "packing.h"
 #include "params.h"
 #include "rng.h"
+#include "world.h"
 
+#include <cmath>
+#include <cstdint>
 #include <new>
+#include <vector>
 
 struct IscParams { isc::Params p; };
+struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; };
 
 extern "C" {
 
@@ -53,6 +58,73 @@ int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t cx1, in
          n++;
       }
       return n;
+   } catch (...) {
+      return -1;
+   }
+}
+
+IscWorld* isc_world_new(uint32_t seed, const IscParams* p)
+{
+   if (!p) return nullptr;
+   try {
+      return new IscWorld{ isc::World(seed, p->p), {} };
+   } catch (...) {
+      return nullptr;
+   }
+}
+
+void isc_world_free(IscWorld* w) { delete w; }
+
+namespace {
+bool BadRect(double x0, double y0, double x1, double y1)
+{
+   return !(x1 > x0) || !(y1 > y0) || !std::isfinite(x0) || !std::isfinite(x1) || !std::isfinite(y0) || !std::isfinite(y1);
+}
+} // namespace
+
+int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::Cell> cells;
+      w->w.CellsInRect(x0, y0, x1, y1, cells);
+      for (size_t i = 0; i < cells.size() && (int32_t)i < cap; i++) {
+         const isc::Cell& c = cells[i];
+         double* o = out + i * ISC_CELL_STRIDE;
+         o[0] = c.cx; o[1] = c.cy; o[2] = c.x; o[3] = c.y; o[4] = c.packRot; o[5] = c.rOuter;
+      }
+      return (int32_t)cells.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                            double zMin, double zMax, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::WorldDye>& d = w->scratch;
+      d.clear();
+      w->w.SitesInWindow(x0, y0, x1, y1, zMin, zMax, d);
+      if (d.size() > (size_t)INT32_MAX) return -1;
+      for (size_t i = 0; i < d.size() && (int32_t)i < cap; i++) {
+         double* o = out + i * ISC_SITE_STRIDE;
+         o[0] = d[i].x; o[1] = d[i].y; o[2] = d[i].z; o[3] = d[i].id;
+      }
+      return (int32_t)d.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                              double zMin, double zMax, int32_t nx, int32_t ny, float* out)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || nx <= 0 || ny <= 0 || !out) return -1;
+   try {
+      const long n = w->w.DensityInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, out);
+      return n > INT32_MAX ? -1 : (int32_t)n;
    } catch (...) {
       return -1;
    }

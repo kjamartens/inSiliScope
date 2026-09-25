@@ -1,6 +1,7 @@
 // Smoke test of the WASM C ABI as a JS consumer would use it: packs a few
 // parity cases through isc_pack_window and checks them against the JS
-// reference output (build/parity/ref_js.txt from run.mjs).
+// reference output (build/parity/ref_js.txt from run.mjs), then drives the
+// M2 world queries (cells / sites / density in a window).
 //   node tests/parity/wasm_abi_smoke.mjs
 import fs from 'fs';
 import path from 'path';
@@ -60,4 +61,32 @@ for (const l of cases.filter(l => l.startsWith('case ')).filter((_, i) => i % 5 
   console.log(`${id}: ${n} cells via isc_pack_window -> ${ok ? 'bit-exact vs JS' : 'MISMATCH'}`);
 }
 console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`);
+
+// ---- world queries ----
+{
+  const p = makeParams([['labelEfficiency', 0.05]]);
+  const w = M._isc_world_new(1249, p);
+  const win = [-4, -7, 0, -3, -Infinity, Infinity];   // beside the nucleus of cell (-1,-1)
+  const t0 = performance.now();
+  const n = M._isc_sites_in_window(w, ...win, 0, 0);
+  const buf = M._malloc(Math.max(1, n) * 4 * 8);
+  const n2 = M._isc_sites_in_window(w, ...win, buf, n);
+  const ms = performance.now() - t0;
+  let sum = 0, zmin = Infinity, zmax = -Infinity;
+  for (let i = 0; i < n2; i++) {
+    const o = buf / 8 + i * 4;
+    sum += M.HEAPF64[o] + M.HEAPF64[o + 1];
+    zmin = Math.min(zmin, M.HEAPF64[o + 2]); zmax = Math.max(zmax, M.HEAPF64[o + 2]);
+  }
+  const g = M._malloc(16 * 16 * 4);
+  const n3 = M._isc_density_in_window(w, ...win, 16, 16, g);
+  let gs = 0;
+  for (let i = 0; i < 256; i++) gs += M.HEAPF32[g / 4 + i];
+  const nc = M._isc_cells_in_window(w, win[0], win[1], win[2], win[3], 0, 0);
+  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && M._isc_abi_version() === 1;
+  console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
+    `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
+  if (!ok) bad++;
+  M._free(buf); M._free(g); M._isc_world_free(w); M._isc_params_free(p);
+}
 process.exit(bad ? 1 : 0);

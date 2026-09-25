@@ -21,7 +21,8 @@ that finishes them.
 - `spec/` -- [ALGORITHM.md](spec/ALGORITHM.md) (the *why* of every algorithm; do not "simplify" what it
   says was fixed on purpose), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
-- `tests/parity/` -- golden-vector and JS-parity harness; `tools/` -- `gen_jsmath.py`,
+- `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
+  determinism under any query history, tiling, packing off, dye lattice statistics); `tools/` -- `gen_jsmath.py`,
   `adapter_pixel_hash.py`, `test_smlmcam.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)

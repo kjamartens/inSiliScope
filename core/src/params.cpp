@@ -22,6 +22,7 @@ const Field kFields[] = {
    NUM(mtDensity), NUM(mtStartFracMin), NUM(mtStartFracMax), NUM(mtStartOffsetXY),
    NUM(mtEndFracMin), NUM(mtEndFracMax), NUM(mtEndJitterDeg), NUM(mtWobbleTurn), NUM(mtWobbleFactor),
    NUM(mtStepLen), NUM(mtSmoothLen), NUM(mtMinTurnRadius), NUM(mtMinSeparation), NUM(mtMaxZSlope),
+   NUM(labelEfficiency),
 };
 #undef NUM
 #undef FLAG

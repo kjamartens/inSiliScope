@@ -49,6 +49,9 @@ struct Params {
    double mtMinTurnRadius = 0.15;
    double mtMinSeparation = 0.05;
    double mtMaxZSlope = 5;
+   // Dyes (no JS counterpart: the JS preview labels 100%). Sparse by default,
+   // see spec/PORT.md 5.2.
+   double labelEfficiency = 0.1;
 };
 
 // params() in the prototype clamps every "max" to at least its "min",
