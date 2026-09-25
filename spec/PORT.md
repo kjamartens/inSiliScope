@@ -221,6 +221,33 @@ time, as a list of `{tOnSec, tOffSec, brightness, dyePosLocal}` sorted by `tOn`,
 block. No time windows, no replay. Schedule times are simulated seconds (`frameIndex *
 frameDurationSec`, as drift already does), not wall-clock time.
 
+### 6.2 Query, per frame
+```
+std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, double fovWUm, double fovHUm,
+                                                        double frameDurSec, const ...& params);
+```
+1. World rectangle = FOV centred on `pose` (x,y) expanded by a PSF margin (`>= 3 * kernel half-width`
+   is plenty; ~2 µm).
+2. Enumerate cells/blocks intersecting it (cell footprint bounding circle `rOuter` first, then per
+   microtubule bounding box, then per 1 µm block centre). Generate/fetch cached blocks.
+3. With `tNow = f * frameDurSec` (simulated time, 6.1), binary-search each block's sorted schedule for
+   `tOn` in `(tNow - maxOnSec, tNow + frameDurSec)`; keep events with `tOff > tNow`.
+4. For each hit emit a `BlinkEvent`:
+   * `xUm = xWorld - (pose.x - fovW/2)`, `yUm = yWorld - (pose.y - fovH/2)`  (FOV top-left origin, as
+     every existing pattern uses; the renderer then adds drift),
+   * `zNm = (zWorld - focusHeightUm) * 1000`  (the Z stage still adds `globalZOffsetUm` in the renderer),
+   * `tStart = f + (tOn - tNow)/frameDurSec`, `tEnd = f + (tOff - tNow)/frameDurSec`,
+   * `brightness` from the schedule.
+   Because the FOV moves between frames, **emit a fresh event per frame with that frame's translation**;
+   never keep one event across frames. The renderer's frame-overlap weighting then still works because
+   `tStart/tEnd` keep their original meaning.
+5. Cull events outside the FOV + margin and beyond the kernel z range (section 5.2).
+
+Cost budget: a rendered frame should touch a few thousand blocks and emit hundreds of events. Profile
+the first-visit block generation separately from the steady state; the steady state must not
+regenerate anything. Cache blocks in an LRU (bounded, like `MT_RESULT_CACHE_MAX`), and generate the
+blocks of the next FOV-edge ring ahead of need if first-visit latency shows up in live mode.
+
 ---
 
 ## 7. Dummy XY stage

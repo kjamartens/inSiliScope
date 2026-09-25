@@ -30,7 +30,7 @@ No second hand-maintained implementation.
 - TIFF output: JS writer in the viewer + native `cli/`.
 - Viewer: `draw()` never generates on the main thread; generation in Web Workers, each worker
   instantiates the WASM module.
-- **Out of scope for now** (removed from spec/PORT.md on 2026-09-25): an illumination-dependent
+- **Out of scope for now** (removed from spec/PORT.md on 2026-09-25; the per-frame query stays, as PORT.md 6.2): an illumination-dependent
   bleaching clock (per-block exposure time) and automatic activation-rate calibration to a target
   ON-density. Dye schedules run on plain simulated time; the mean activation time is a parameter.
 
