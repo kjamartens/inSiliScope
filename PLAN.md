@@ -96,10 +96,16 @@ No second hand-maintained implementation.
       golden `mtl` lines (lattice sites through `buildMicrotubuleLabelPoints`); dye *identity* is
       normative C++ hashing with no JS counterpart, so it is covered by `world_checks` instead.
       WASM core: 75 KB raw / 35 KB gzip.
-- Not done here, noted for M3: dye blocks are not cached between queries (warm 12.8 um FOV beside
-  a nucleus ~110 ms native for ~390k dyes); the viewer will need a mesh/microtubule polyline query.
+- Not done here, noted for M3 (both done in M3's core step): dye blocks were not cached between
+  queries; the viewer needed a mesh/microtubule polyline query.
 
 ### M3 -- Consumers
+
+- [x] Core side of the consumers (ABI 2): per-dye blink schedules (PORT.md 6.1), dye blocks cached with
+      their schedules (LRU by dye count), `isc_events_in_window` (6.2 steps 1-3 + cull), full cell
+      record + `isc_cell_outline/mesh/microtubules` for the viewer. `world_checks`: kinetics stats,
+      events = brute force, frame slicing, determinism; steady state ~3 ms/frame native, ~6 ms WASM at
+      a 12.8 um FOV (~210k dyes in z 0.5-3 um).
 
 - [ ] Viewer on WASM: workers instantiate the module; pan benchmark (300 synthetic frames; previous
       p50 17 ms / p95 26 ms with workers in software GL) re-measured.

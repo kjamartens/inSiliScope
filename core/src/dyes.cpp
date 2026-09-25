@@ -64,7 +64,7 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
    const double total = fr.Length();
    const double blockNm0 = blockIndex * DYE_BLOCK_UM * 1000;
    if (blockNm0 * NM >= total || !(efficiency > 0)) return;
-   const uint32_t h1 = Pcg4d(seed ^ DYE_SALT, (uint32_t)cx, (uint32_t)cy, (uint32_t)mtIndex).a;
+   const uint32_t h1 = DyeH1(seed, cx, cy, mtIndex);
    const double phase = MtSeamPhase(seed, cx, cy, mtIndex);
    for (int k = 0; k < MT_N_PROTOFILAMENTS; k++) {
       const double off = MtProtofilamentOffsetNm(k);
@@ -87,6 +87,35 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
          const SiteGeom g = MtSiteGeometry(pts, fr, MtSegmentAt(fr, S), S, theta, r1, r2, r3);
          out.push_back({ g.dye, mtIndex, k, (int32_t)n, label });
       }
+   }
+}
+
+uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex)
+{
+   return Pcg4d(seed ^ DYE_SALT, (uint32_t)cx, (uint32_t)cy, (uint32_t)mtIndex).a;
+}
+
+void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out)
+{
+   auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
+   const double pBleach = std::min(1.0, std::max(0.01, kin.bleachProb));
+   const double cv = std::max(0.0, kin.photonCV);
+   // log-normal with mean 1: sigma^2 = ln(1 + cv^2), mu = -sigma^2/2
+   const double s2 = cv > 0 ? jsm::log(1 + cv * cv) : 0, sigma = jsm::sqrt(s2), mu = -s2 / 2;
+   double t = -jsm::log(U(DYE_CH::ACT)) * kin.activationMeanSec;
+   for (int j = 0; j < DYE_MAX_BLINKS; j++) {
+      const uint32_t base = DYE_CH::SCHED0 + (uint32_t)j * DYE_CH::SCHED_STRIDE;
+      const double on = -jsm::log(U(base + DYE_CH::ON)) * kin.onSec;
+      double b = 1;
+      if (cv > 0) {
+         const double u1 = U(base + DYE_CH::BRIGHT1);
+         const double u2 = U(base + DYE_CH::BRIGHT2);
+         const double z = jsm::sqrt(-2 * jsm::log(u1)) * jsm::cos(2 * jsm::PI * u2);
+         b = jsm::exp(mu + sigma * z);
+      }
+      out.push_back({ t, t + on, b });
+      if (U(base + DYE_CH::BLEACH) < pBleach) break;
+      t += on - jsm::log(U(base + DYE_CH::OFF)) * kin.offSec;
    }
 }
 

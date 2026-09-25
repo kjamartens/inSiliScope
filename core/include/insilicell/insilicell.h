@@ -5,7 +5,8 @@
  *
  * M0: RNG and cell packing. M2: the world (fixed-block packing, cytoplasm,
  * microtubules, dyes) and its window queries sitesInWindow / densityInWindow.
- * excitationAt arrives with M5.
+ * M3 (ABI 2): dye blink schedules and the event query, the full cell record
+ * and per-cell geometry for the viewer. excitationAt arrives with M5.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -26,7 +27,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 1
+#define ISC_ABI_VERSION 2
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -65,9 +66,11 @@ ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);
 
 /* Cells whose footprint circle intersects the window, ISC_CELL_STRIDE doubles
- * each: cx, cy, x, y, packRot, rOuter. Writes at most `cap`; returns the total
- * (call again with a larger buffer if it exceeds cap), or -1 on bad arguments. */
-#define ISC_CELL_STRIDE 6
+ * each: cx, cy, x, y, packRot, rOuter, height, nucOffX, nucOffY, nucRot,
+ * nucLong, nucShort, nucHeight, nucZ (the prototype's cell fields; nuc* are
+ * in the cell's local frame). Writes at most `cap`; returns the total (call
+ * again with a larger buffer if it exceeds cap), or -1 on bad arguments. */
+#define ISC_CELL_STRIDE 14
 ISC_API int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double* out, int32_t cap);
 
@@ -77,6 +80,38 @@ ISC_API int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1
 #define ISC_SITE_STRIDE 4
 ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double zMin, double zMax, double* out, int32_t cap);
+
+/* Blink kinetics of every dye, simulated seconds (spec/PORT.md 6.1): first
+ * activation Exp(activationMeanSec), ON Exp(onSec), then bleach with
+ * probability bleachProb (clamped to [0.01, 1]) or dark Exp(offSec) and blink
+ * again (at most 1000 blinks); per-blink brightness log-normal, mean 1, CV
+ * photonCV. Defaults 100, 0.05, 1, 1, 0. Changing them keeps the geometry
+ * cached. Returns 0, or -1 on bad arguments. */
+ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationMeanSec, double onSec, double offSec,
+                                       double bleachProb, double photonCV);
+
+/* Blinks overlapping [t0, t1) (tOn < t1 and tOff > t0) of the labelled dyes
+ * in the window, ISC_EVENT_STRIDE doubles each: x, y, z, tOn, tOff,
+ * brightness, id. Each dye's whole blink lifetime is a pure function of its
+ * address, so the same dye blinks the same way whenever it is queried. Same
+ * cap/return convention as above. */
+#define ISC_EVENT_STRIDE 7
+ISC_API int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                     double zMin, double zMax, double t0, double t1, double* out, int32_t cap);
+
+/* ---- Per-cell geometry (viewer), cell-local frame (before packRot) ----
+ * The cell is addressed by its home chunk (cx, cy); all return -1 if that
+ * chunk holds no cell. */
+/* Footprint outline: n points as x, y pairs. Returns n. */
+ISC_API int32_t isc_cell_outline(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t capPts);
+/* Smoothed cytoplasm mesh: (rings+1) x n vertices as x, y, h triples, index
+ * k*n + i; dims[0] = rings, dims[1] = n. Returns the vertex count. */
+ISC_API int32_t isc_cell_mesh(IscWorld* w, int32_t cx, int32_t cy, int32_t dims[2], double* out, int32_t capVerts);
+/* Microtubule centrelines: all points as x, y, z triples (up to capPts) and
+ * the point count of each microtubule in lens (up to capMts). *totalPts
+ * receives the total point count. Returns the microtubule count. */
+ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, double* xyz, int32_t capPts,
+                                      int32_t* lens, int32_t capMts, int32_t* totalPts);
 
 /* Labelled-dye counts on an nx x ny grid over the window (row-major, row = y),
  * written to out[nx*ny]. Returns the total count, or -1 on bad arguments. */

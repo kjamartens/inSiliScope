@@ -34,7 +34,10 @@ constexpr double DYE_BLOCK_UM = 1.0;             // generation/caching unit alon
 
 // Per-site purpose channels (the 4th Pcg4d word of H2).
 namespace DYE_CH {
-constexpr uint32_t LABEL = 0, LINK_U = 1, LINK_PHI = 2, LINK_R = 3;
+constexpr uint32_t LABEL = 0, LINK_U = 1, LINK_PHI = 2, LINK_R = 3, ACT = 4;
+// Blink j of the schedule draws on SCHED0 + j*SCHED_STRIDE + {ON, BRIGHT1, BRIGHT2, BLEACH, OFF}.
+constexpr uint32_t SCHED0 = 16, SCHED_STRIDE = 8;
+constexpr uint32_t ON = 0, BRIGHT1 = 1, BRIGHT2 = 2, BLEACH = 3, OFF = 4;
 }
 
 struct SiteGeom { Pt3 att, tip, dye; };
@@ -55,6 +58,30 @@ double MtProtofilamentOffsetNm(int k);
 
 // Seam phase of one microtubule (same channel the JS view uses).
 double MtSeamPhase(uint32_t seed, int32_t cx, int32_t cy, int mtIndex);
+
+// Blink kinetics of every dye (spec/PORT.md 6.1), simulated seconds.
+// First activation Exp(activationMeanSec); then ON for Exp(onSec), bleach
+// with probability bleachProb (clamped to [0.01, 1], as the adapter's
+// EmitterModel), else dark for Exp(offSec) and blink again. Per-blink
+// brightness log-normal with mean 1 and CV photonCV (exactly 1 at 0).
+struct Kinetics {
+   double activationMeanSec = 100;
+   double onSec = 0.05;
+   double offSec = 1.0;
+   double bleachProb = 1.0;
+   double photonCV = 0.0;
+};
+constexpr int DYE_MAX_BLINKS = 1000;    // cap, so a tiny bleachProb cannot loop forever
+
+struct Blink { double tOn, tOff, brightness; };
+
+// H1 of a microtubule: Pcg4d(seed ^ DYE_SALT, cx, cy, mtIndex).a.
+uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex);
+
+// Full blink lifetime of dye (k, n) of the microtubule with hash h1: a pure
+// function of that address (never of a stream, window or time). Appends in
+// time order.
+void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out);
 
 struct Dye {
    Pt3 pos;          // cell-local, um

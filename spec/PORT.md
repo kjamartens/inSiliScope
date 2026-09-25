@@ -240,6 +240,17 @@ time, as a list of `{tOnSec, tOffSec, brightness, dyePosLocal}` sorted by `tOn`,
 block. No time windows, no replay. Schedule times are simulated seconds (`frameIndex *
 frameDurationSec`, as drift already does), not wall-clock time.
 
+**Implemented (M3, `core/src/dyes.*`, `world.*`):** `DyeSchedule(H1, k, n, Kinetics)`, draws
+`Unit(Pcg4d(H1, k, n, ch).a)` with `ch = ACT (4)` for the first activation and
+`SCHED0 (16) + 8*j + {ON 0, BRIGHT1 1, BRIGHT2 2, BLEACH 3, OFF 4}` for blink `j` (Box-Muller for the
+log-normal; `bleachProb` clamped to [0.01, 1] as `EmitterModel`; at most `DYE_MAX_BLINKS = 1000`). The
+schedule is keyed by the dye's full lattice address, not by its 32-bit `id` (ids of ~400k dyes in a FOV
+collide). `Kinetics` lives on the `World` (`SetKinetics`, ABI `isc_world_set_kinetics`); changing it
+keeps the geometry and dye positions cached and rebuilds only the schedules. Defaults: activation mean
+100 s, ON 0.05 s, dark 1 s, bleach 1, CV 0. Dye blocks (world positions, then events by `tOn` with
+`maxOn`) are cached in an LRU bounded by dye count (2 M). Checked in `world_checks` (`KineticsStats`:
+Exp means, geometric blink count, log-normal mean/CV, time order).
+
 ### 6.2 Query, per frame
 ```
 std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, double fovWUm, double fovHUm,
@@ -261,6 +272,15 @@ std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, 
    never keep one event across frames. The renderer's frame-overlap weighting then still works because
    `tStart/tEnd` keep their original meaning.
 5. Cull events outside the FOV + margin and beyond the kernel z range (section 5.2).
+
+**Implemented (M3):** step 1-3 and the z/xy cull are core's `World::EventsInWindow(rect, zMin, zMax, t0,
+t1)` / `isc_events_in_window` (stride 7: x, y, z, tOn, tOff, brightness, id; world um and simulated
+seconds); step 4 (translation into a `BlinkEvent`) is the adapter's. `world_checks` (`EventQuery`):
+equal to brute force over `SitesInWindow` + `DyeSchedule`, union of per-frame queries = one multi-frame
+query, identical after a 1 mm excursion, a kinetics round trip, dropped caches and tiny caches.
+Measured on a 12.8 um FOV beside a nucleus (+2 um margin, z 0.5-3 um, ~210k dyes, ~1950 blinks per
+30 ms frame at activation mean 30 s): first query ~100 ms native, steady state ~3 ms/frame native,
+~6 ms WASM.
 
 Cost budget: a rendered frame should touch a few thousand blocks and emit hundreds of events. Profile
 the first-visit block generation separately from the steady state; the steady state must not
@@ -385,7 +405,8 @@ Mark each done here.
        microtubules incl. collision nudges/resampling) bit-identical native, near 1e-13 WASM.
 3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
        pipeline. First visual check. (Block generation + window query done in M2: `dyes.*`,
-       `world.*`, `isc_sites_in_window`; schedule and `EventsForFrame` are M3.)
+       `world.*`, `isc_sites_in_window`; schedules, cached blocks and the event query in M3:
+       `DyeSchedule`, `World::EventsInWindow`, `isc_events_in_window`. Adapter `EventsForFrame` open.)
 4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
 5. [x] Fixed-block packing (4.3). `core/src/world.*`, measured in 4.3; ctest `world_checks`.
 6. [ ] Properties, `CLAUDE.md` update, performance pass, docs.
@@ -397,8 +418,6 @@ Mark each done here.
 * Packing near block borders can differ slightly from what the neighbouring block would decide.
 * Dyes of a microtubule lying on the coverslip can end up a few nm below z = 0 (binder + linker point
   down); the JS does the same. Not clamped.
-* The per-query dye generation is not cached yet (a warm 12.8 um FOV beside a nucleus re-hashes
-  ~3.9 M sites, ~110 ms native); M3 caches blocks with their schedules.
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
 * The JS prototype and this port are not validated quantitatively against real SMLM data.
