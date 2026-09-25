@@ -1,0 +1,9 @@
+mmgr_dal_inSiliCellScope.dll -- test build for Micro-Manager (device interface of third_party/mmCoreAndDevices)
+source commit: 5ee699ec5d17fef64eb9876d8ba2bdcf0814a303 (claude/vigilant-euler-cyyj9l)
+built: 2026-09-25T11:27:36.7024194+00:00 by GitHub Actions run 36129385351
+vectorial PSF: embedded (PSFGenerator + bridge)
+sha256: 8eb6503d5cc0de5707c617ada0a5ae8d73c19487bdb335efef18a6583aff0fcd
+Licence: with PSFGenerator embedded this DLL is a GPL-3.0 combined work; see license.txt. Sources: this
+repository at the commit above, and PSFGenerator (https://github.com/Biomedical-Imaging-Group/PSFGenerator).
+Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);
+devices: Camera, XYStage, ZStage in module inSiliCellScope.

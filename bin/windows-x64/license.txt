@@ -1,0 +1,43 @@
+Copyright (c) 2026, the demoCam_SMLM_MM contributors
+All rights reserved.
+
+NOTE ON THE VECTORIAL PSF FEATURE: the source below (this project's own
+code) is BSD-licensed as stated. However, the built mmgr_dal_inSiliCellScope.dll
+embeds compiled classes from EPFL Biomedical Imaging Group's PSFGenerator
+(https://github.com/Biomedical-Imaging-Group/PSFGenerator), which is
+GPL-3.0-licensed, via an in-process JVM bridge -- see
+Simulation/PsfGeneratorBridge.h and Simulation/psfbridge-java/psfbridge/
+PsfBridge.java for exactly what is embedded and why. Because that GPL-3.0
+code is linked into the DLL (not merely invoked as a separate program), the
+built DLL as a whole is a combined work and must be treated as GPL-3.0 when
+distributed, notwithstanding the BSD text below, which covers only this
+project's own source. The PSFGenerator jar itself is not committed to this
+repository (see .gitignore) -- it and the merged jar built from it
+(third_party/SMLMPsfEmbedded.jar) must be obtained/built separately before
+compiling this project with the vectorial PSF feature enabled.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice, this list of
+conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright notice, this list of
+conditions and the following disclaimer in the documentation and/or other materials
+provided with the distribution.
+    * Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from this software
+without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
