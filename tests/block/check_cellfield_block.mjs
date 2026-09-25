@@ -23,7 +23,7 @@ let fails = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'ok  ' : 'FAIL'} ${msg}`); if (!cond) fails++; };
 
 // webSMLM defaults: simulation_mt_* PARAMS, 100 nm px, zRange 500 nm.
-const base = { seed: 1249, xUm: 0, yUm: 0, pxnm: 100, mtDensity: 0.45, cellDensity: 0.33, focusUm: 0.5, slabNm: 500 };
+const base = { seed: 1249, xUm: 0, yUm: 0, pxnm: 100, mtDensity: 0.9, cellDensity: 0.33, focusUm: 0.25, slabNm: 500 };
 const W = 256, H = 256;
 const t0 = performance.now();
 const a = CellField.buildWindow(W, H, base);

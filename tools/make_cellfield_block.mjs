@@ -58,13 +58,13 @@ const emver = verFile && fs.existsSync(verFile) ? fs.readFileSync(verFile, 'utf8
 function cellFieldFactory(SRC) {
   'use strict';
   const ABI = __ABI__;
-  // webSMLM's CF_PARAMS (cell_field_sim defaults as tuned there, build 2026-09-24d), passed
+  // webSMLM's CF_PARAMS (cell_field_sim defaults as tuned there, build 2026-09-24f), passed
   // explicitly so a change of the core's own defaults cannot move webSMLM's field. Every lattice
   // site carries a dye (labelEfficiency 1), as in the JS it replaces: webSMLM applies its own
   // labelling efficiency to the returned sites.
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
-    cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.2, cellElongMax: 0.8, cellBlob: 1.75,
+    cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75,
     cellHeightMin: 3, cellHeightMax: 6,
     nucLongMin: 8, nucLongMax: 12, nucRatioMin: 0.6, nucRatioMax: 1, nucHeightMin: 0.3, nucHeightMax: 0.5,
     nucOffsetFrac: 0.1, nucMargin: 0.6,
@@ -72,7 +72,7 @@ function cellFieldFactory(SRC) {
     cytoMidHeightMin: 1, cytoMidHeightMax: 2, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3,
     cytoMaxSlope: 1, cytoDomeSlope: 3, cytoSmoothPasses: 12, cytoRings: 60, cytoTheta: 128,
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
-    mtDensity: 0.45, mtStartFracMin: 0, mtStartFracMax: 0.3, mtStartOffsetXY: 0,
+    mtDensity: 0.9, mtStartFracMin: 0, mtStartFracMax: 0.3, mtStartOffsetXY: 0,
     mtEndFracMin: 0.01, mtEndFracMax: 0.4, mtEndJitterDeg: 145, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
     labelEfficiency: 1, labelNonBleaching: 0,
