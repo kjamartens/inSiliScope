@@ -195,9 +195,14 @@ No second hand-maintained implementation.
 - [ ] webSMLM side (separate repo, separate change, per its CLAUDE.md): `tools/sync_cellfield.mjs`
       (+ `--check`), replace the `CellField` IIFE with the wrapper (main thread + worker), keep
       `simulation_mt_*` PARAMS behaviour, MODULE INDEX, build letter, CHANGELOG/docs, remove
-      `cell_field_sim/` and the two-way-sync rule.
+      `cell_field_sim/` and the two-way-sync rule. **Done in https://github.com/kjamartens/webSMLM/pull/1**
+      (into `cell-field-simulation`, build 2026-09-25a; block from 8e6632f); tick when merged. No
+      CHANGELOG row (dev build; rows are per release).
 - [ ] Verified statistically/visually against the pre-migration build (density, lattice geometry,
-      focus-height clipping) + webSMLM syntax check.
+      focus-height clipping) + webSMLM syntax check. Headless part done (in that PR): syntax OK; old vs
+      new webSMLM, 141x141 px at 100 nm, defaults, 4 seeds/places: site counts within 0.01%
+      (1522403/1522393 at seed 1249, origin), z mean/SD equal (one SD 0.1 nm apart); Simulate movie runs.
+      **Open: a look in a real browser.**
 
 ## Open points / risks
 
