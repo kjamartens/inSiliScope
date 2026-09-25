@@ -29,11 +29,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+      # Not the msvc preset: it pins "Visual Studio 17 2022", and the runner
+      # image moves on; let CMake pick the installed Visual Studio.
       - name: Configure + build (MSVC)
         run: |
-          cmake --preset msvc
-          cmake --build --preset msvc
-      - name: Golden vectors (native)
+          cmake -S . -B build/msvc -A x64
+          cmake --build build/msvc --config Release
+      - name: Golden vectors + world checks + cli (native)
         run: ctest --test-dir build/msvc -C Release --output-on-failure
 
   core-wasm:

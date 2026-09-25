@@ -127,8 +127,14 @@ No second hand-maintained implementation.
       TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
       excursion). **Open: MSBuild on Windows (vcxproj/filters updated, not built), the full
       `test_insilicellscope.py` against the DLL, and a look in Micro-Manager Studio.**
-- [ ] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
-      adapter's `Simulation/` render code without MM.
+- [x] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
+      adapter's `Simulation/` render code without MM. `Simulation/ScopeMovie.*` = the camera's
+      precomputed CellField pipeline for one FOV (Gaussian PSF; same seed streams), used by
+      `cli/insilicell_cli` (native, 16-bit multi-page TIFF, ctest `cli_tiff`) and compiled into the
+      viewer's module (`insilicell_scope_web`, export `isc_scope_movie`): the viewer's "blink movie"
+      panel renders N frames at the view centre in a worker, plays them and saves a TIFF (JS
+      writer). A 10-frame 128x128 movie from the viewer is byte-identical to `insilicell_cli` with
+      the same spec. Vectorial PSF models only in the adapter (JVM).
 
 - [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** everywhere: `adapter/inSiliCellScope/`,
       `inSiliCellScope.sln/.vcxproj`, `mmgr_dal_inSiliCellScope.dll`, devices `Camera`/`XYStage`/`ZStage`,

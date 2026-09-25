@@ -27,7 +27,11 @@
   #cvBase{position:absolute;top:0;left:0;background:#05070a;pointer-events:none;z-index:0}
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
-  #hud,#legend{z-index:3}
+  #hud,#legend,#movie{z-index:3}
+  #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
+  #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
+  #movie a{color:#8bb8e8}
+  #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:#000}
   #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:8px 10px;line-height:1.5;pointer-events:none;white-space:pre}
   #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
   .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
@@ -123,6 +127,18 @@
       <label class="row">Labelling efficiency <input type="range" id="labelEfficiency" min="0.005" max="1" step="0.005" value="0.1"><span id="labelEfficiencyVal"></span></label>
     </fieldset>
 
+    <fieldset id="movieFs">
+      <legend>blink movie (camera at the view centre)</legend>
+      <div class="pair"><span class="k">Frames / exposure (ms)</span><input type="number" id="mv_frames" value="10" min="1" max="2000" step="1"><input type="number" id="mv_exposure-ms" value="50" min="1" step="1"></div>
+      <div class="pair"><span class="k">FOV (px) / pixel (nm)</span><input type="number" id="mv_size" value="128" min="8" max="512" step="8"><input type="number" id="mv_pixel-nm" value="100" min="10" step="5"></div>
+      <div class="pair"><span class="k">Photons/s / photon CV</span><input type="number" id="mv_photons-per-sec" value="7500" step="500"><input type="number" id="mv_photon-cv" value="0" min="0" step="0.05"></div>
+      <div class="pair"><span class="k">ON / dark time (s)</span><input type="number" id="mv_on-sec" value="0.05" min="0.001" step="0.01"><input type="number" id="mv_off-sec" value="1" min="0" step="0.1"></div>
+      <div class="pair"><span class="k">Bleach prob. / activation mean (s)</span><input type="number" id="mv_bleach-prob" value="1" min="0.01" max="1" step="0.05"><input type="number" id="mv_activation-sec" value="100" min="0.1" step="5"></div>
+      <div class="pair"><span class="k">Focus height (µm) / start time (s)</span><input type="number" id="mv_focus-um" value="1.5" step="0.1"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
+      <div class="pair"><span class="k">Background (photons/px/s) / seed</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_seed" value="42" step="1"></div>
+      <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (Gaussian PSF, sCMOS defaults), in a worker.">Make movie here</button></label>
+    </fieldset>
+
 
     <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion
     case for the inSiliCellScope adapter: the field does not move, the viewport (camera
@@ -137,6 +153,9 @@
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
     <div id="hud"></div>
+    <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
+      <canvas id="mv_cv"></canvas>
+      <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
     <div id="legend">
       <span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
@@ -710,7 +729,7 @@ function iscEngine(M) {
   return {
     // Returns [message, transferList].
     handle(d) {
-      const w = useWorld(d.seed, d.p);
+      const w = d.type === 'movie' ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'pack') {
         const [x0, y0, x1, y1] = d.rect;
         const cells = query((ptr, cap) => M._isc_cells_in_window(w, x0, y0, x1, y1, ptr, cap), 14, 1024);
@@ -743,6 +762,28 @@ function iscEngine(M) {
         const [x0, y0, x1, y1] = d.rect;
         const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
+      }
+      if (d.type === 'movie') {
+        // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
+        // world of its own built from the spec, so it never disturbs `world`.
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(16), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        const t0 = performance.now();
+        let out = 0, res;
+        const need = M._isc_scope_movie(s, 0, 0, info, err, 512);
+        if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          out = M._malloc(need * 2);
+          const got = M._isc_scope_movie(s, out, need, info, err, 512);
+          if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            const frames = M.HEAPU16.slice(out / 2, out / 2 + need);
+            res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1],
+              n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], ms: performance.now() - t0 };
+          }
+        }
+        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
+        return [res, res.frames ? [res.frames.buffer] : []];
       }
       throw new Error('unknown job ' + d.type);
     },
@@ -780,7 +821,7 @@ function initGenWorkers() {
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
     genWorkers.dyes = spawnGenWorker();
-    genWorkers.dyes.onmessage = onDyeResult;
+    genWorkers.dyes.onmessage = e => (e.data.type === 'movie' ? onMovieResult(e.data) : onDyeResult(e));
     genWorkers.ok = true;
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
@@ -1157,6 +1198,7 @@ function draw() {
   }
   if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
 
+  drawMovieFov();
   drawScaleBar(pxPerUm);
 
   hud.textContent =
@@ -1298,6 +1340,131 @@ function drawDyes(seed, p, pxPerUm) {
   }
   return note || `${drawn} dyes`;
 }
+
+
+// ---- blink movie ---------------------------------------------------------------
+// "These fluorophore settings, a few frames of blinking here": the dyes under the
+// view centre rendered by the adapter's own render code (isc_scope_movie = the
+// camera's precomputed CellField stack pipeline: Gaussian PSF, sCMOS noise), in
+// the dye worker, on the viewer's world (same seed and params). Shown in a small
+// player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
+const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
+  'bleach-prob', 'activation-sec', 'focus-um', 'start-sec', 'background-per-sec', 'seed'];
+let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
+function movieSpec() {
+  const p = params(), o = [];
+  for (const k of MOVIE_KEYS) o.push(k + '=' + (+document.getElementById('mv_' + k).value));
+  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy);
+  for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
+  return o.join(' ');
+}
+function makeMovie() {
+  const spec = movieSpec();
+  const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
+  const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
+  const job = { type: 'movie', id: ++movieId, spec, rect };
+  moviePending = job;
+  document.getElementById('mv_make').textContent = 'Rendering…';
+  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  else if (mainEngine) setTimeout(() => onMovieResult(mainEngine.handle(job)[0]), 0);
+}
+function onMovieResult(d) {
+  if (!moviePending || d.id !== moviePending.id) return;
+  moviePending = null;
+  document.getElementById('mv_make').textContent = 'Make movie here';
+  if (d.error) { alert('movie failed: ' + d.error); return; }
+  // Display range: 0.1 / 99.9 percentiles over the whole movie.
+  const sample = [];
+  for (let i = 0; i < d.frames.length; i += Math.max(1, (d.frames.length / 20000) | 0)) sample.push(d.frames[i]);
+  sample.sort((a, b) => a - b);
+  d.lo = sample[Math.floor(sample.length * 0.001)];
+  d.hi = Math.max(d.lo + 1, sample[Math.min(sample.length - 1, Math.floor(sample.length * 0.999))]);
+  movie = d;
+  const cvm = document.getElementById('mv_cv');
+  cvm.width = d.w; cvm.height = d.h;
+  const scale = Math.max(1, Math.floor(384 / Math.max(d.w, d.h)));
+  cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
+  const sl = document.getElementById('mv_slider');
+  sl.max = d.n - 1; sl.value = 0;
+  document.getElementById('mv_info').textContent =
+    `${d.n} frames ${d.w}x${d.h}, ${d.blinks} blinks, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
+  document.getElementById('movie').style.display = 'block';
+  showMovieFrame(0);
+  requestDraw();
+}
+function showMovieFrame(f) {
+  const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
+  const img = g.createImageData(d.w, d.h), px = d.w * d.h, off = f * px, k = 255 / (d.hi - d.lo);
+  for (let i = 0; i < px; i++) {
+    const v = Math.max(0, Math.min(255, (d.frames[off + i] - d.lo) * k));
+    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = v; img.data[4 * i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  document.getElementById('mv_fno').textContent = `${f + 1}/${d.n}`;
+}
+function toggleMoviePlay() {
+  const b = document.getElementById('mv_play'), sl = document.getElementById('mv_slider');
+  if (movieTimer) { clearInterval(movieTimer); movieTimer = 0; b.textContent = '▶'; return; }
+  b.textContent = '❚❚';
+  const ms = Math.max(30, +document.getElementById('mv_exposure-ms').value);
+  movieTimer = setInterval(() => { if (!movie) return; sl.value = (+sl.value + 1) % movie.n; showMovieFrame(+sl.value); }, ms);
+}
+// Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
+// the spec in the first page's ImageDescription (the cli writes the same layout).
+function writeTiff16(frames, w, h, n, desc) {
+  const enc = new TextEncoder().encode(desc + '\0'), px = w * h;
+  const entries = p => (p === 0 ? 10 : 9), ifdBytes = p => 2 + 12 * entries(p) + 4;
+  let size = 8;
+  for (let p = 0; p < n; p++) size += px * 2 + (p === 0 ? enc.length + (enc.length & 1) : 0) + ifdBytes(p);
+  const buf = new ArrayBuffer(size), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  dv.setUint16(0, 0x4949, true); dv.setUint16(2, 42, true);
+  let pos = 8, link = 4;
+  for (let p = 0; p < n; p++) {
+    const data = pos;
+    for (let i = 0; i < px; i++) dv.setUint16(pos + 2 * i, frames[p * px + i], true);
+    pos += px * 2;
+    let descOff = 0;
+    if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
+    dv.setUint32(link, pos, true);
+    const E = [[256, 4, 1, w], [257, 4, 1, h], [258, 3, 1, 16], [259, 3, 1, 1], [262, 3, 1, 1]];
+    if (p === 0) E.push([270, 2, enc.length, descOff]);
+    E.push([273, 4, 1, data], [277, 3, 1, 1], [278, 4, 1, h], [279, 4, 1, px * 2]);
+    dv.setUint16(pos, E.length, true); pos += 2;
+    for (const [tag, type, count, value] of E) {
+      dv.setUint16(pos, tag, true); dv.setUint16(pos + 2, type, true); dv.setUint32(pos + 4, count, true);
+      if (type === 3) dv.setUint16(pos + 8, value, true); else dv.setUint32(pos + 8, value, true);
+      pos += 12;
+    }
+    link = pos; dv.setUint32(pos, 0, true); pos += 4;
+  }
+  return new Blob([buf], { type: 'image/tiff' });
+}
+function saveMovieTiff(e) {
+  e.preventDefault();
+  if (!movie) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insilicell viewer ' + movie.spec));
+  a.download = `insilicell_${movie.w}x${movie.h}x${movie.n}.tif`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+// Outline of the movie's FOV on the map while the player is open.
+function drawMovieFov() {
+  if (!movie || document.getElementById('movie').style.display === 'none') return;
+  const [x0, y0, x1, y1] = movie.rect, [ax, ay] = project(x0, y0, 0), [bx, by] = project(x1, y1, 0);
+  ctx = ctxTop;
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, devicePixelRatio);
+  ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
+}
+document.getElementById('mv_make').addEventListener('click', makeMovie);
+document.getElementById('mv_play').addEventListener('click', toggleMoviePlay);
+document.getElementById('mv_slider').addEventListener('input', e => { if (movie) showMovieFrame(+e.target.value); });
+document.getElementById('mv_save').addEventListener('click', saveMovieTiff);
+document.getElementById('mv_close').addEventListener('click', e => {
+  e.preventDefault(); document.getElementById('movie').style.display = 'none';
+  if (movieTimer) toggleMoviePlay();
+  requestDraw();
+});
 
 window.addEventListener('resize', resizeCanvas);
 syncLabels();

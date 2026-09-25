@@ -543,6 +543,8 @@ std::unique_ptr<IPatternGenerator> CreatePattern(SMLMPatternType type, const std
             return pattern;
          break;
       }
+      case PATTERN_CELL_FIELD:
+         break; // not sampled: events come from CellFieldSource
    }
    return MaybeAddZSpread(std::make_unique<CirclePattern>(spacingsNm), structure);
 }
