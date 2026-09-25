@@ -30,6 +30,9 @@ No second hand-maintained implementation.
 - TIFF output: JS writer in the viewer + native `cli/`.
 - Viewer: `draw()` never generates on the main thread; generation in Web Workers, each worker
   instantiates the WASM module.
+- **Out of scope for now** (removed from spec/PORT.md on 2026-09-25): an illumination-dependent
+  bleaching clock (per-block exposure time) and automatic activation-rate calibration to a target
+  ON-density. Dye schedules run on plain simulated time; the mean activation time is a parameter.
 
 ## Milestones
 
@@ -72,7 +75,8 @@ No second hand-maintained implementation.
 
 - [ ] Cytoplasm height field: `cytoHeightAt`, `buildCytoMesh`, `smoothCytoGrid`,
       `sampleCytoMeshHeight` (MTs clamp against the *smoothed mesh*, so the mesh is needed).
-      Note: uses `Math.pow` -> "near", not bit-exact, unless the JS is changed (see m0 report).
+      Uses `Math.pow`: small native/WASM-vs-JS differences here are **accepted** (decided
+      2026-09-25); the prototype is not changed for it. Golden check for the mesh uses a tolerance.
 - [ ] Microtubules: `buildMicrotubulesForCell` and everything it calls (collisions, turn radius,
       cytoplasm clamp), per-MT arc length + parallel-transport frames.
 - [ ] Dyes: lattice -> binder -> dye with addressed linker draws (`mtSiteUniforms`); only decorate
@@ -116,6 +120,5 @@ No second hand-maintained implementation.
   rebuild instructions).
 - Viewer worker plumbing changes (workers run generator *source text* today; they will instantiate
   WASM).
-- `Math.pow` in the cytoplasm mesh (M2): accept "near", or change the prototype first.
 - CI is disabled on push/PR (manual trigger only) and has never run on GitHub; until it is
   re-enabled, run `ctest` locally (native + WASM) before committing core changes.

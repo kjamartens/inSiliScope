@@ -207,7 +207,7 @@ A 30 µm cell at the default density holds millions of sites. A FOV of 13x13 µm
 ## 6. Blinking from dye positions
 
 ### 6.1 Per-dye schedule = pure function of the dye's hash
-For a labelled dye: first activation `tAct = -ln(U) * activationMeanSec`; then repeat:
+For a labelled dye: first activation `tAct = -ln(U) * activationMeanSec` (a parameter, section 9); then repeat:
 ON for `Exp(onLifetimeSec)`, then bleach with probability `blinkBleachProb`, else dark for
 `Exp(offLifetimeSec)` and blink again. Per-blink brightness log-normal with CV `photonCV`, mean 1.
 Cap blinks per dye (e.g. 1000) so a tiny `blinkBleachProb` cannot loop forever. Reuse the existing
@@ -218,58 +218,8 @@ the stage returns.
 
 The whole lifetime is finite (bleaching), so a block's schedule can be generated **once**, for all
 time, as a list of `{tOnSec, tOffSec, brightness, dyePosLocal}` sorted by `tOn`, plus `maxOnSec` for the
-block. No time windows, no replay.
-
-### 6.2 Clock (two modes, one code path)
-The schedule is in "dye clock" seconds `tau`. A block maps real simulated time to `tau`:
-
-* **`Global`** (implement first, purely functional): `tau = t`. Blocks you are not looking at bleach
-  anyway. Simple, reproducible, parallelisable, but a sample you leave for ten minutes comes back
-  depleted.
-* **`Illuminated`** (milestone 5, realistic default): `tau = E_block`, the accumulated seconds the block
-  has been inside the illuminated FOV. Keep `E_block` in a sparse map `blockId -> double` that lives
-  for the acquisition; advance it by `frameDurationSec` for every block that intersects the FOV
-  rectangle (+ PSF margin) in a rendered frame; reset on acquisition start (`StartLiveProducer`,
-  same place the drift origin resets). Block granularity (1 µm) is a deliberate approximation.
-  Reproducible for a given stage trajectory.
-
-Simulated time is `frameIndex * frameDurationSec` (as drift already does), **not** wall-clock time.
-
-### 6.3 Activation rate (keep `density` meaning ON-density)
-webSMLM's rule, which demoCam's `EmitterModel` also follows: the user-facing density means *mean
-emitters ON per µm² per frame*. Per-dye rate `k = rho * A_fov / (N_dyes_in_fov * meanBlinks * tauOn)`
-with `meanBlinks = 1/blinkBleachProb`. `N_dyes_in_fov` is estimated once (labelled-site count over the
-FOV at the initial stage position, via the cheap hash-only pass). Expose `General_EmitterDensityPerSec`
-as the target; log the resulting `activationMeanSec = 1/k`. Rough magnitude at 5% labelling, 0.2 /µm²,
-5 blinks, 90 ms ON: `activationMeanSec` of order 100-300 s. Provide an override property to set the
-mean directly.
-
-### 6.4 Query, per frame
-```
-std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, double fovWUm, double fovHUm,
-                                                        double frameDurSec, const ...& params);
-```
-1. World rectangle = FOV centred on `pose` (x,y) expanded by a PSF margin (`>= 3 * kernel half-width`
-   is plenty; ~2 µm).
-2. Enumerate cells/blocks intersecting it (cell footprint bounding circle `rOuter` first, then per
-   microtubule bounding box, then per 1 µm block centre). Generate/fetch cached blocks.
-3. Per block, get `tauNow` (section 6.2). Binary-search the sorted schedule for `tOn` in
-   `(tauNow - maxOnSec, tauNow + frameDurSec)`; keep events with `tOff > tauNow`.
-4. For each hit emit a `BlinkEvent`:
-   * `xUm = xWorld - (pose.x - fovW/2)`, `yUm = yWorld - (pose.y - fovH/2)`  (FOV top-left origin, as
-     every existing pattern uses; the renderer then adds drift),
-   * `zNm = (zWorld - focusHeightUm) * 1000`  (the Z stage still adds `globalZOffsetUm` in the renderer),
-   * `tStart = f + (tOn - tauNow)/frameDurSec`, `tEnd = f + (tOff - tauNow)/frameDurSec`,
-   * `brightness` from the schedule.
-   Because the FOV moves between frames, **emit a fresh event per frame with that frame's translation**;
-   never keep one event across frames. The renderer's frame-overlap weighting then still works because
-   `tStart/tEnd` keep their original meaning.
-5. Cull events outside the FOV + margin and beyond the kernel z range (section 5.2).
-
-Cost budget: a rendered frame should touch a few thousand blocks and emit hundreds of events. Profile
-the first-visit block generation separately from the steady state; the steady state must not
-regenerate anything. Cache blocks in an LRU (bounded, like `MT_RESULT_CACHE_MAX`), and generate the
-blocks of the next FOV-edge ring ahead of need if first-visit latency shows up in live mode.
+block. No time windows, no replay. Schedule times are simulated seconds (`frameIndex *
+frameDurationSec`, as drift already does), not wall-clock time.
 
 ---
 
@@ -329,8 +279,7 @@ result converted to µm (do not shift dye positions separately or you will doubl
 * **Live/MDA is the intended mode.** A multi-position MDA moves the XY stage between snaps, which is the
   use case. **Precomputed-stack mode** generates all frames up front, so it can only use one stage pose:
   snapshot the pose at generation start, apply it to every frame, and document that moving the stage
-  afterwards does not change the stack (the Z stage behaves the same way today). In `Illuminated` mode
-  use `E = f * frameDurationSec` for blocks in the FOV.
+  afterwards does not change the stack (the Z stage behaves the same way today).
 * `BuildShapingFields` calls `EmitterModel::SampleSitesForHaze` for the cell-contrast/haze background.
   For `CellField` either return an empty site list (background falls back to flat) or sample the dyes in
   the initial FOV. Check that function before deciding; do not let it dereference a null pattern.
@@ -351,10 +300,8 @@ all with the defaults in 4.2:
 * `SimType_CellFieldChunkSizeUm`, `SimType_CellFieldOccupancy`, `SimType_CellFieldPacking` (On/Off),
   `SimType_CellFieldCellDiameterMinUm/MaxUm`, `SimType_CellFieldMicrotubuleDensityPerUm2`,
   `SimType_CellFieldFocusHeightUm`.
-* `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10) and
-  `General_EmitterDensityPerSec` (target ON-density, section 6.3).
-* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationMode` (`Global`/`Illuminated`) and an
-  optional `SimType_CellFieldActivationMeanSec` override.
+* `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10).
+* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationMeanSec` (6.1).
 * Stage: `General_StageSpeedUmPerSec`, `General_StageSettleMs`, `General_StageInvertX/Y`.
 
 Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-constant stream (like
@@ -365,13 +312,12 @@ Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-cons
 ## 10. Verification
 
 1. **Parity** (section 3): hashes, cells, one microtubule set against the JS dump.
-2. **Determinism**: same seed, stage moved away 1 mm and back, frames identical (Global mode). Also the
+2. **Determinism**: same seed, stage moved away 1 mm and back, frames identical. Also the
    same after dropping every cache.
 3. **Dye statistics** on a straight synthetic microtubule: attachment radius 12.5 nm, tip 24.5 nm, dye
    within `[2,5]` nm of the tip, radial CDF of the linker displacement ~ r^3, per-protofilament angles
    are multiples of 2*pi/13 + phase, axial stagger 3*8/13 nm, count ~ `1625 * length_um * efficiency`.
-4. **Kinetics**: measured ON-density in a FOV matches the target within ~10% (this needs the rate
-   formula of 6.3), blink-count distribution geometric with mean `1/blinkBleachProb`.
+4. **Kinetics**: blink-count distribution geometric with mean `1/blinkBleachProb`.
 5. **Stage**: extend `tools/test_smlmcam.py` (pymmcore-plus): add the XY stage, set positions, assert
    `Busy` transitions, that a `speed` move takes ~`dist/speed`, that a known feature shifts by the
    expected pixels between two snaps, and that position-in-image flips with `StageInvertX`.
@@ -389,17 +335,16 @@ Mark each done here.
 1. [x] Hash + golden-vector tooling; port `rawCandidate`/outline/nucleus; parity test on cells.
        Done in M0/M1, plus packing (`relax`/`prune`/`packMap`), all bit-identical JS/native/WASM.
 2. [ ] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
-3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV, `Global` clock; renders through the
-       existing pipeline. First visual check.
+3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
+       pipeline. First visual check.
 4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
-5. [ ] Fixed-block packing (4.3); `Illuminated` clock; activation-rate auto-calibration (6.3).
+5. [ ] Fixed-block packing (4.3).
 6. [ ] Properties, `CLAUDE.md` update, performance pass, docs.
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.
 * Dyes beyond the kernel z range are culled, not added as diffuse background haze.
-* `Illuminated` clock is per 1 µm block, not per dye.
 * Packing near block borders can differ slightly from what the neighbouring block would decide.
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
