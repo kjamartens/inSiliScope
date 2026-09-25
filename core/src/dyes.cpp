@@ -145,11 +145,16 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
    }
 }
 
-void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
-                      std::vector<Blink>& out)
+namespace {
+// The one generator of persistent blinks: calls emit(bin, j, tOn, on, br)
+// for every blink starting in bins [b0, b1]. keep(tOn, on) decides whether a
+// blink is wanted before its brightness is drawn (the draws are addressed,
+// so skipping them changes no other value).
+template <class Keep, class Emit>
+void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long b0, long b1, Keep keep, Emit emit)
 {
    const double rate = kin.activationRatePerSec;
-   if (!(rate > 0) || !(t1 > t0)) return;
+   if (!(rate > 0)) return;
    // Per-site stream key, then per (bin, j, purpose).
    const uint32_t key = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::PERSIST).a;
    auto U = [&](uint32_t bin, uint32_t j, uint32_t ch) { return Unit(Pcg4d(key, bin, j, ch).a); };
@@ -157,25 +162,45 @@ void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, do
    const double cv = std::max(0.0, kin.photonCV);
    const double maxOn = PERSIST_ON_CAP * kin.onSec;
    const double m = rate * PERSIST_BIN_SEC;
-   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
-   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
-   for (long b = b0; b <= b1; b++) {
+   for (long b = std::max(0L, b0); b <= b1; b++) {
       const uint32_t bin = (uint32_t)b;
       const long c = PoissonFromUniform(m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
       for (long j = 0; j < c; j++) {
          const uint32_t jj = (uint32_t)j;
          const double tOn = (b + U(bin, jj, START)) * PERSIST_BIN_SEC;
          const double on = std::min(maxOn, -jsm::log(U(bin, jj, ON)) * kin.onSec);
-         if (!(tOn < t1) || !(tOn + on > t0)) continue;
+         if (!keep(tOn, on)) continue;
          double br = 1;
          if (cv > 0) {
             const double u1 = U(bin, jj, BRIGHT1);
             const double u2 = U(bin, jj, BRIGHT2);
             br = LogNormalMean1(cv, u1, u2);
          }
-         out.push_back({ tOn, tOn + on, br });
+         emit(bin, jj, tOn, on, br);
       }
    }
+}
+} // namespace
+
+void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
+                      std::vector<Blink>& out)
+{
+   if (!(t1 > t0)) return;
+   const double maxOn = PERSIST_ON_CAP * kin.onSec;
+   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
+   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
+   PersistentGen(h1, k, n, kin, b0, b1,
+                 [&](double tOn, double on) { return tOn < t1 && tOn + on > t0; },
+                 [&](uint32_t, uint32_t, double tOn, double on, double br) { out.push_back({ tOn, tOn + on, br }); });
+}
+
+void PersistentBlinksInBins(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long binLo, long binHi,
+                            std::vector<BinBlink>& out)
+{
+   PersistentGen(h1, k, n, kin, binLo, binHi, [](double, double) { return true; },
+                 [&](uint32_t bin, uint32_t j, double tOn, double on, double br) {
+                    out.push_back({ tOn, tOn + on, br, bin, j });
+                 });
 }
 
 } // namespace isc
