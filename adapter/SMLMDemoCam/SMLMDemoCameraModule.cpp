@@ -9,6 +9,7 @@
 // LICENSE:       BSD (see license.txt)
 
 #include "SMLMDemoCamera.h"
+#include "SMLMDemoXYStage.h"
 #include "SMLMDemoZStage.h"
 #include "ModuleInterface.h"
 
@@ -16,11 +17,13 @@
 
 extern const char* g_SMLMCameraDeviceName;
 extern const char* g_SMLMZStageDeviceName;
+extern const char* g_SMLMXYStageDeviceName;
 
 MODULE_API void InitializeModuleData()
 {
    RegisterDevice(g_SMLMCameraDeviceName, MM::CameraDevice, "Synthetic SMLM demo camera");
    RegisterDevice(g_SMLMZStageDeviceName, MM::StageDevice, "Global focus offset for SMLMDemoCam");
+   RegisterDevice(g_SMLMXYStageDeviceName, MM::XYStageDevice, "Moves SMLMDemoCam's FOV over the cell field");
 }
 
 MODULE_API MM::Device* CreateDevice(const char* deviceName)
@@ -33,6 +36,9 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
 
    if (strcmp(deviceName, g_SMLMZStageDeviceName) == 0)
       return new SMLMDemoZStage();
+
+   if (strcmp(deviceName, g_SMLMXYStageDeviceName) == 0)
+      return new SMLMDemoXYStage();
 
    return nullptr;
 }

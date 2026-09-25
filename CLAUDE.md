@@ -63,7 +63,10 @@ that finishes them.
 - Adapter: MSBuild `adapter/SMLMDemoCam/SMLMDemoCam.sln` Release|x64 (needs the submodule and the
   locally built `third_party/SMLMPsfEmbedded.jar`, see below). Output unchanged by a refactor:
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
-  Smoke test: `ADAPTER_DIR=<dll dir> python tools/test_smlmcam.py`.
+  Smoke test: `ADAPTER_DIR=<dll dir> python tools/test_smlmcam.py` (ends with
+  `tools/test_cellfield_stage.py`: CellField pattern + XY stage). Off Windows, `tools/build_adapter_linux.sh`
+  builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
+  checks run there, the PSF-model checks of `test_smlmcam.py` need the real DLL.
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 
@@ -99,11 +102,13 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   every property that sat in webSMLM's flat "User parameters" group
   (density, pixel size, labeling efficiency, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.).
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), and the
+  `SMLMDemoXYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`.
 - `SimType_` -- webSMLM's "Simulation type" group: `Pattern` and every
   structure/pattern-shape parameter (`CustomPointsFile`,
   `ResolutionSpacingsNm`, `StructureZRangeNm`, `StructureSizeNm`, all
-  `Nup*`), plus `DriftNmPerSec` and `RandomSeed`.
+  `Nup*`, and the `CellField*` properties of the `CellField` pattern), plus
+  `DriftNmPerSec` and `RandomSeed`.
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
   `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
   `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its

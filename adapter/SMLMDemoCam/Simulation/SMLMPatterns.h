@@ -57,6 +57,11 @@ enum SMLMPatternType
    // filaments_ring -- three sinusoidal filaments whose z follows the same
    // sine as their y, plus an in-focus ring.
    PATTERN_FILAMENTS_RING = 14,
+   // The insilicell cell field (spec/PORT.md 8). NOT an IPatternGenerator:
+   // its events come from CellFieldSource (dye blinks addressed in the
+   // world), so the camera dispatches on it before the EmitterModel;
+   // CreatePattern falls back to Circle for it, which nothing samples.
+   PATTERN_CELL_FIELD = 15,
 };
 
 // A single candidate binding/emitter site, in micrometers (x,y), relative to

@@ -64,7 +64,7 @@
       <Optimization>Disabled</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
-      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;..\..\core\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;WIN32;_DEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
@@ -87,7 +87,7 @@
       <Optimization>MaxSpeed</Optimization>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
-      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\third_party\jni;..\..\third_party\jni\win32;..\..\core\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NOMINMAX;WIN32;NDEBUG;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <PrecompiledHeader>
@@ -111,6 +111,18 @@
     <ClCompile Include="SMLMImageGeneration.cpp" />
     <ClCompile Include="SMLMDemoCameraModule.cpp" />
     <ClCompile Include="SMLMDemoZStage.cpp" />
+    <ClCompile Include="SMLMDemoXYStage.cpp" />
+    <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="..\..\core\src\capi.cpp" />
+    <ClCompile Include="..\..\core\src\cells.cpp" />
+    <ClCompile Include="..\..\core\src\cytomesh.cpp" />
+    <ClCompile Include="..\..\core\src\dyes.cpp" />
+    <ClCompile Include="..\..\core\src\jsmath.cpp" />
+    <ClCompile Include="..\..\core\src\jsmath_fdlibm.cpp" />
+    <ClCompile Include="..\..\core\src\microtubules.cpp" />
+    <ClCompile Include="..\..\core\src\packing.cpp" />
+    <ClCompile Include="..\..\core\src\params.cpp" />
+    <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMPatterns.cpp" />
     <ClCompile Include="Simulation\SMLMStructures.cpp" />
@@ -123,6 +135,18 @@
   <ItemGroup>
     <ClInclude Include="SMLMDemoCamera.h" />
     <ClInclude Include="SMLMDemoZStage.h" />
+    <ClInclude Include="SMLMDemoXYStage.h" />
+    <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="..\..\core\include\insilicell\insilicell.h" />
+    <ClInclude Include="..\..\core\src\cells.h" />
+    <ClInclude Include="..\..\core\src\cytomesh.h" />
+    <ClInclude Include="..\..\core\src\dyes.h" />
+    <ClInclude Include="..\..\core\src\jsmath.h" />
+    <ClInclude Include="..\..\core\src\microtubules.h" />
+    <ClInclude Include="..\..\core\src\packing.h" />
+    <ClInclude Include="..\..\core\src\params.h" />
+    <ClInclude Include="..\..\core\src\rng.h" />
+    <ClInclude Include="..\..\core\src\world.h" />
     <ClInclude Include="Simulation\SMLMSimulation.h" />
     <ClInclude Include="Simulation\SMLMPatterns.h" />
     <ClInclude Include="Simulation\SMLMStructures.h" />

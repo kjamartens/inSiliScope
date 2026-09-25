@@ -121,6 +121,12 @@ No second hand-maintained implementation.
 - [ ] Adapter: `CellFieldSource::EventsForFrame` + `SMLMDemoXYStage` (PORT.md 2, 6-8) feeding the
       existing `RenderPhotonImage/CollectGpuEmitters/ApplyNoiseChain` unchanged; property naming
       convention; stage test in `test_smlmcam.py`; XY stage moves over the field.
+      Code done (PORT.md 11 steps 3-4, deviations listed there) and verified on a test-only Linux
+      build with pymmcore-plus (`tools/build_adapter_linux.sh`, `tools/test_cellfield_stage.py`: move
+      time 0.52 s for 500 um at 1000 um/s, Busy while moving, +2 um stage = -20 px image shift,
+      TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
+      excursion). **Open: MSBuild on Windows (vcxproj/filters updated, not built), the full
+      `test_smlmcam.py` against the DLL, and a look in Micro-Manager Studio.**
 - [ ] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
       adapter's `Simulation/` render code without MM.
 

@@ -140,6 +140,19 @@ const char* g_PatternShell = "Shell";
 const char* g_PatternNup = "NUP";
 const char* g_PatternCalibration9Spots = "Calibration9Spots";
 const char* g_PatternFilamentsRing = "FilamentsRing";
+const char* g_PatternCellField = "CellField";
+
+const char* g_PropCellFieldNumber[CF_COUNT] = {
+   "SimType_CellFieldChunkSizeUm",
+   "SimType_CellFieldOccupancy",
+   "SimType_CellFieldCellDiameterMinUm",
+   "SimType_CellFieldCellDiameterMaxUm",
+   "SimType_CellFieldMicrotubuleDensityPerUm2",
+   "SimType_CellFieldLabelingPct",
+   "SimType_CellFieldFocusHeightUm",
+   "SimType_CellFieldActivationMeanSec",
+};
+const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
@@ -153,6 +166,11 @@ CSMLMDemoCamera::CSMLMDemoCamera()
 {
    InitializeDefaultErrorMessages();
    thd_ = new SMLMSequenceThread(this);
+
+   // CellField defaults: the prototype's (spec/PORT.md 4.2), sparse labelling.
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 10.0, 1.5, 100.0 };
+   for (int i = 0; i < CF_COUNT; ++i)
+      cellField_[i] = cellFieldDefaults[i];
 
    // Pre-init property: must exist before Initialize() finishes. FovSize is
    // deliberately NOT pre-init -- unlike RandomSeed, it's a regular,
@@ -268,6 +286,9 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
    // webSMLM's default structure: 3 filaments with y-correlated z + a ring.
    AddAllowedValue(g_PropPattern, g_PatternFilamentsRing);
+   // The insilicell cell field, imaged through SMLMDemoXYStage/ZStage -- see
+   // Simulation/CellFieldSource.h and the SimType_CellField* properties.
+   AddAllowedValue(g_PropPattern, g_PatternCellField);
 
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCustomPointsFile);
    CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
@@ -557,6 +578,23 @@ int CSMLMDemoCamera::Initialize()
    pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCurvatureNm);
    CreateFloatProperty(g_PropNupCurvatureNm, nupCurvatureNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
+
+   // CellField pattern (spec/PORT.md 9). The rest of the world's parameters
+   // stay at the prototype defaults until someone needs them.
+   {
+      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.1, 0.0, 0.1 };
+      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 100000.0 };
+      for (long i = 0; i < CF_COUNT; ++i)
+      {
+         CreateFloatProperty(g_PropCellFieldNumber[i], cellField_[i].load(), false,
+                             new CPropertyActionEx(this, &CSMLMDemoCamera::OnCellFieldNumber, i));
+         SetPropertyLimits(g_PropCellFieldNumber[i], lo[i], hi[i]);
+      }
+      CreateStringProperty(g_PropCellFieldPacking, "On", false,
+                           new CPropertyAction(this, &CSMLMDemoCamera::OnCellFieldPacking));
+      AddAllowedValue(g_PropCellFieldPacking, "On");
+      AddAllowedValue(g_PropCellFieldPacking, "Off");
+   }
 
    // Sub-pixel PSF placement (vectorial PSF models only) -- see
    // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default is Cubic;

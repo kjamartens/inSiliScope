@@ -210,7 +210,10 @@ sim::StackShapingFields CSMLMDemoCamera::BuildShapingFields(const sim::EmitterMo
       // seed, separate from the emitter stream): one for the haze site
       // sample, one for the cell shape.
       std::vector<std::pair<double, double>> sitesPx;
-      if (hazeWeight > 0.0)
+      if (hazeWeight > 0.0 && CurrentPatternType() == sim::PATTERN_CELL_FIELD)
+         LogMessage("Background_HazeWeight: no haze sites for the CellField pattern yet (flat haze-free "
+                    "background map).", false);
+      else if (hazeWeight > 0.0)
       {
          std::mt19937_64 siteRng(static_cast<uint64_t>(seed) ^ 0x48415A4553495445ULL); // "HAZESITE"
          double widthUm = w * params.pixelSizeNm / 1000.0, heightUm = h * params.pixelSizeNm / 1000.0;
@@ -222,6 +225,68 @@ sim::StackShapingFields CSMLMDemoCamera::BuildShapingFields(const sim::EmitterMo
                                                bgHazeWidthNm_.load() / params.pixelSizeNm, sitesPx, bgRng);
    }
    return out;
+}
+
+namespace {
+// Dyes up to this far outside the FOV are still rendered: their PSF tails
+// reach in (spec/PORT.md 6.2; a few kernel half-widths of the in-focus core).
+constexpr double kCellFieldMarginUm = 2.0;
+// z slab kept around the focal plane when PsfZRangeUm is 0 (single plane).
+constexpr double kCellFieldMinZHalfRangeUm = 0.5;
+} // namespace
+
+sim::CellFieldSettings CSMLMDemoCamera::BuildCellFieldSettings() const
+{
+   sim::CellFieldSettings s;
+   // Its own stream of RandomSeed ("CELL"), never the arrival/noise one.
+   s.seed = static_cast<uint32_t>(static_cast<uint64_t>(randomSeed_) ^ 0x43454C4CULL);
+   s.params = {
+      {"chunkSize", cellField_[CF_CHUNK_SIZE_UM].load()},
+      {"density", cellField_[CF_OCCUPANCY].load()},
+      {"cellDiamMin", cellField_[CF_CELL_DIAM_MIN_UM].load()},
+      {"cellDiamMax", cellField_[CF_CELL_DIAM_MAX_UM].load()},
+      {"mtDensity", cellField_[CF_MT_DENSITY].load()},
+      {"labelEfficiency", cellField_[CF_LABELING_PCT].load() / 100.0},
+      {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
+   };
+   s.activationMeanSec = cellField_[CF_ACTIVATION_MEAN_SEC].load();
+   s.onSec = std::max(1e-6, onLifetimeSec_.load());
+   s.offSec = std::max(0.0, offLifetimeSec_.load());
+   s.bleachProb = blinkBleachProb_.load();
+   s.photonCV = photonCV_.load();
+   return s;
+}
+
+sim::CellFieldQuery CSMLMDemoCamera::CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w,
+                                                       unsigned h, const sim::SimulationParams& params,
+                                                       double drift0XPx, double drift0YPx, double drift1XPx,
+                                                       double drift1YPx, long frameIndex, double tSec,
+                                                       double spanSec) const
+{
+   sim::CellFieldQuery q;
+   const double um = params.pixelSizeNm / 1000.0, W = w * um, H = h * um;
+   // Stage position = world coordinate of the FOV centre (spec/PORT.md 7.3).
+   q.originXUm = stageX - W / 2.0;
+   q.originYUm = stageY - H / 2.0;
+   // The renderer draws a dye at its FOV-relative position plus the drift,
+   // so the dyes a frame can show sit that drift further back.
+   const double dxLo = std::min(drift0XPx, drift1XPx) * um, dxHi = std::max(drift0XPx, drift1XPx) * um;
+   const double dyLo = std::min(drift0YPx, drift1YPx) * um, dyHi = std::max(drift0YPx, drift1YPx) * um;
+   q.x0Um = q.originXUm - dxHi - kCellFieldMarginUm;
+   q.x1Um = q.originXUm + W - dxLo + kCellFieldMarginUm;
+   q.y0Um = q.originYUm - dyHi - kCellFieldMarginUm;
+   q.y1Um = q.originYUm + H - dyLo + kCellFieldMarginUm;
+   // The renderer's plane is zStage + zNm, so the plane in focus is the
+   // world height focus - zStage.
+   const double focus = cellField_[CF_FOCUS_HEIGHT_UM].load();
+   q.zRefUm = focus;
+   q.zCullCentreUm = focus - zStageUm;
+   q.zHalfRangeUm = std::max(kCellFieldMinZHalfRangeUm, psfZRangeUm_.load() / 2.0);
+   q.frameIndex = frameIndex;
+   q.tSec = tSec;
+   q.spanSec = spanSec;
+   q.frameSec = params.frameDurationSec;
+   return q;
 }
 
 std::function<double(std::mt19937_64&)> CSMLMDemoCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
@@ -360,16 +425,24 @@ void CSMLMDemoCamera::StartStackGeneration()
    long length = stackLength_;
    sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
    sim::StructureParams structure = BuildStructureParams();
+   // CellField: the stack is generated for ONE stage pose, snapshot here;
+   // moving the XY stage afterwards does not change it (spec/PORT.md 8).
+   sim::CellFieldSettings cellField = BuildCellFieldSettings();
+   double stageX = 0.0, stageY = 0.0;
+   sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), stageX, stageY);
+   double stageZ = sim::GetSharedStageState().zPositionUm.load();
 
    stackGenThread_ = std::thread(&CSMLMDemoCamera::StackGenerationWorker, this, length, fullW, fullH, params,
-                                  patternType, customFile, spacingsNm, seed, psfRequest, structure);
+                                  patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
+                                  stageX, stageY, stageZ);
 }
 
 void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, sim::SMLMPatternType patternType,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
                                              long seed, sim::PsfGeneratorRequest psfRequest,
-                                             sim::StructureParams structure)
+                                             sim::StructureParams structure, sim::CellFieldSettings cellField,
+                                             double stageXUm, double stageYUm, double stageZUm)
 {
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
    // Independent of localRng (see BuildStructurePattern's own doc comment
@@ -404,8 +477,34 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
       }
    }
 
-   std::vector<sim::BlinkEvent> events =
-      model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
+   const bool isCellField = patternType == sim::PATTERN_CELL_FIELD;
+   std::vector<sim::BlinkEvent> events;
+   if (isCellField)
+   {
+      // Every blink of the frames' simulated time span [0, N * frameSec) in
+      // one query; tStart/tEnd come out in frames (BucketEventsByFrame then
+      // splits them as for any pattern).
+      auto t0 = std::chrono::steady_clock::now();
+      sim::CellFieldSource source;
+      std::string err;
+      double d1x = 0.0, d1y = 0.0;
+      sim::ComputeDriftOffsetPx(stackLength * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
+                                params.pixelSizeNm, d1x, d1y);
+      sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, stageZUm, fullW, fullH, params, 0.0, 0.0, d1x,
+                                                d1y, 0, 0.0, stackLength * params.frameDurationSec);
+      if (!source.Configure(cellField, err) || !source.Events(q, events))
+         LogMessage("CellField: no events (" + (err.empty() ? std::string("core query failed") : err) + ")", false);
+      std::ostringstream msg;
+      msg << "CellField: " << events.size() << " blinks for " << stackLength << " frames at stage (" << stageXUm
+          << ", " << stageYUm << ") um, dyes within +/-" << q.zHalfRangeUm << " um of the focal plane ("
+          << std::fixed << std::setprecision(2)
+          << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
+      LogMessage(msg.str());
+   }
+   else
+   {
+      events = model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
+   }
 
    // Illumination + structured background: fixed fields for the whole stack,
    // drawn from their OWN rng streams (see BuildShapingFields) -- the same
@@ -448,7 +547,12 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
    // hence after the PSF build.
    {
       double ratio = outOfFocusRatio_.load();
-      if (ratio > 0.0)
+      if (ratio > 0.0 && isCellField)
+      {
+         LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit at "
+                    "their own depths).", false);
+      }
+      else if (ratio > 0.0)
       {
          auto zOf = OutOfFocusDepthSampler(localPsfCache);
          if (!zOf)
@@ -679,6 +783,13 @@ void CSMLMDemoCamera::LiveProducerLoop()
    // "structure z extent misconfigured" case; this also catches "the Z
    // stage was driven out of range while streaming".
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
+   // CellField pattern: the world (configured on the rebuild trigger below)
+   // and the simulated time its dye schedules are read at, which advances by
+   // one frame duration per produced frame -- across config changes too, so
+   // changing a camera setting does not un-bleach the sample.
+   sim::CellFieldSource cellField;
+   bool cellFieldOk = false;
+   double cellFieldTimeSec = 0.0;
 
    while (liveProducerRun_.load())
    {
@@ -775,21 +886,22 @@ void CSMLMDemoCamera::LiveProducerLoop()
          gpuOk = PrepareGpu(gpu, psfCache, w, h, offsetMap, gainMap, readNoiseMap, shaping, params);
 
          outOfFocusZ = OutOfFocusDepthSampler(psfCache);
-         if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
+         if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
+         {
+            std::string err;
+            cellFieldOk = cellField.Configure(BuildCellFieldSettings(), err);
+            if (!cellFieldOk)
+               LogMessage("CellField unavailable: " + err, false);
+            if (outOfFocusRatio_.load() > 0.0)
+               LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit "
+                          "at their own depths).", false);
+            outOfFocusZ = nullptr;
+         }
+         else if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
             LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
                        "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
 
          appliedConfigVersion = currentConfigVersion;
-      }
-
-      std::vector<sim::BlinkEvent> events =
-         liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
-      double outOfFocusRatio = outOfFocusRatio_.load();
-      if (outOfFocusRatio > 0.0 && outOfFocusZ)
-      {
-         std::vector<sim::BlinkEvent> oof = liveOutOfFocusModel_.AdvanceOneFrame(
-            liveFrameCounter_, widthUm, heightUm, params, liveOutOfFocusRng_, outOfFocusRatio, outOfFocusZ);
-         events.insert(events.end(), oof.begin(), oof.end());
       }
 
       // Drift ramps up from zero at liveDriftOriginFrame_ (reset at
@@ -805,6 +917,37 @@ void CSMLMDemoCamera::LiveProducerLoop()
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
       // real time.
       double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
+
+      std::vector<sim::BlinkEvent> events;
+      if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
+      {
+         // One stage pose per produced frame (motion blur is ignored), a fresh
+         // event per blink per frame with that frame's translation.
+         if (cellFieldOk)
+         {
+            double sx = 0.0, sy = 0.0;
+            sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
+            sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
+                                                      liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
+            if (!cellField.Events(q, events))
+            {
+               LogMessage("CellField: event query failed", false);
+               cellFieldOk = false;
+            }
+         }
+         cellFieldTimeSec += params.frameDurationSec;
+      }
+      else
+      {
+         events = liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
+         double outOfFocusRatio = outOfFocusRatio_.load();
+         if (outOfFocusRatio > 0.0 && outOfFocusZ)
+         {
+            std::vector<sim::BlinkEvent> oof = liveOutOfFocusModel_.AdvanceOneFrame(
+               liveFrameCounter_, widthUm, heightUm, params, liveOutOfFocusRng_, outOfFocusRatio, outOfFocusZ);
+            events.insert(events.end(), oof.begin(), oof.end());
+         }
+      }
       // The background fade restarts with the drift ramp (at every Live/MDA
       // acquisition start), the live-mode analog of "frame 0".
       sim::RenderExtras extras =
@@ -1020,7 +1163,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
                               g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
                               g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
                               g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup,
-                              g_PatternCalibration9Spots, g_PatternFilamentsRing};
+                              g_PatternCalibration9Spots, g_PatternFilamentsRing, g_PatternCellField};
       pProp->Set(names[patternType_]);
    }
    else if (eAct == MM::AfterSet)
@@ -1042,6 +1185,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
       else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
       else if (s == g_PatternCalibration9Spots) patternType_ = sim::PATTERN_CALIBRATION_9_SPOTS;
       else if (s == g_PatternFilamentsRing) patternType_ = sim::PATTERN_FILAMENTS_RING;
+      else if (s == g_PatternCellField) patternType_ = sim::PATTERN_CELL_FIELD;
 
       // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
       // polls every tick and rebuilds liveEmitterModel_'s pattern from
@@ -1828,6 +1972,29 @@ int CSMLMDemoCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::ActionT
       // to avoid forcing a multi-second PSF-kernel recompute (vectorial
       // models) on every Live-mode exposure change.
       InvalidateStackOnly();
+   }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
+{
+   if (index < 0 || index >= CF_COUNT)
+      return DEVICE_INVALID_PROPERTY;
+   if (eAct == MM::BeforeGet) pProp->Set(cellField_[index].load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); cellField_[index] = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CSMLMDemoCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(cellFieldPacking_ ? "On" : "Off");
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      cellFieldPacking_ = (s == "On");
+      InvalidateStack();
    }
    return DEVICE_OK;
 }

@@ -25,6 +25,7 @@
 #include "DeviceBase.h"
 #include "DeviceThreads.h"
 #include "ImgBuffer.h"
+#include "Simulation/CellFieldSource.h"
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SMLMStructures.h"
 #include "Simulation/SMLMZernike.h"
@@ -169,6 +170,24 @@ extern const char* g_PatternShell;
 extern const char* g_PatternNup;
 extern const char* g_PatternCalibration9Spots;
 extern const char* g_PatternFilamentsRing;
+extern const char* g_PatternCellField;
+
+// CellField pattern (the insilicell world, spec/PORT.md 9): numeric
+// properties share one indexed handler (OnCellFieldNumber), in this order.
+enum CellFieldNumber
+{
+   CF_CHUNK_SIZE_UM = 0,
+   CF_OCCUPANCY,
+   CF_CELL_DIAM_MIN_UM,
+   CF_CELL_DIAM_MAX_UM,
+   CF_MT_DENSITY,
+   CF_LABELING_PCT,
+   CF_FOCUS_HEIGHT_UM,
+   CF_ACTIVATION_MEAN_SEC,
+   CF_COUNT
+};
+extern const char* g_PropCellFieldNumber[CF_COUNT];
+extern const char* g_PropCellFieldPacking;
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -304,6 +323,8 @@ public:
    int OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
+   int OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -345,6 +366,17 @@ private:
    // DepthNm), clamped to the cache's z range; empty if the cache has no z
    // stack (then the population is skipped).
    std::function<double(std::mt19937_64&)> OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const;
+   // CellField pattern: the world/kinetics settings, and the query for a FOV
+   // of w x h pixels centred on the XY stage position (stageX, stageY) with
+   // the Z stage at zStageUm, over simulated [tSec, tSec + spanSec). The
+   // query rect is the FOV shifted against the drift at the start and end of
+   // that span (drift px, the renderer adds it back) plus a PSF margin; dyes
+   // beyond +/- PsfZRangeUm/2 of the focal plane are culled.
+   sim::CellFieldSettings BuildCellFieldSettings() const;
+   sim::CellFieldQuery CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w, unsigned h,
+                                         const sim::SimulationParams& params, double drift0XPx, double drift0YPx,
+                                         double drift1XPx, double drift1YPx, long frameIndex, double tSec,
+                                         double spanSec) const;
    // Creates (if gpu is empty) and loads a GPU simulator with this
    // kernel/maps/background, when General_UseGpu is On and the frame can be
    // rendered on the GPU at all (vectorial kernel, not Fft placement).
@@ -381,7 +413,9 @@ private:
    void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                sim::SimulationParams params, sim::SMLMPatternType patternType,
                                std::string customPointsFile, std::vector<double> spacingsNm, long seed,
-                               sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure);
+                               sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure,
+                               sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
+                               double stageZUm);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -608,6 +642,12 @@ private:
    int psfMaskType_ = static_cast<int>(sim::PsfMaskType::None);
    int psfMaskModes_ = 5;
    std::atomic<double> psfMaskWaist_{1.0};
+
+   // CellField pattern (spec/PORT.md 9), indexed by CellFieldNumber; defaults
+   // (set in the constructor) are the prototype's (spec/PORT.md 4.2), a sparse
+   // 10% labelling (5.2) and a focal plane 1.5 um above the coverslip.
+   std::atomic<double> cellField_[CF_COUNT];
+   bool cellFieldPacking_ = true;
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
    // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is

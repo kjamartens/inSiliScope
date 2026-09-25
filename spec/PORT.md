@@ -403,13 +403,36 @@ Mark each done here.
 2. [x] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
        `core/src/cytomesh.*`, `microtubules.*`; golden `cells` cases m00-m04 (13 cells, 2306
        microtubules incl. collision nudges/resampling) bit-identical native, near 1e-13 WASM.
-3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
-       pipeline. First visual check. (Block generation + window query done in M2: `dyes.*`,
+3. [x] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
+       pipeline. First visual check still open (headless only). (Block generation + window query done in M2: `dyes.*`,
        `world.*`, `isc_sites_in_window`; schedules, cached blocks and the event query in M3:
        `DyeSchedule`, `World::EventsInWindow`, `isc_events_in_window`. Adapter `EventsForFrame` open.)
-4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
+4. [x] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
+       `SharedStageState` XY motion model, `SMLMDemoXYStage.*`, `Simulation/CellFieldSource.*`
+       (core C ABI -> `BlinkEvent`s), `CellField` pattern in `StackGenerationWorker` (one query over
+       the stack's whole time span, one stage pose) and `LiveProducerLoop` (pose + event query per
+       frame, simulated time advancing one frame duration per frame). Checks:
+       `tools/test_cellfield_stage.py` (run by `test_smlmcam.py`), passing on the Linux test build
+       (`tools/build_adapter_linux.sh`); **MSBuild not yet run** (no Windows in the M3 session).
 5. [x] Fixed-block packing (4.3). `core/src/world.*`, measured in 4.3; ctest `world_checks`.
-6. [ ] Properties, `CLAUDE.md` update, performance pass, docs.
+6. [ ] Properties, `CLAUDE.md` update, performance pass, docs. (Properties + `CLAUDE.md` done in
+       M3; see "M3 deviations" below. Performance numbers of 10.6 only for the core so far.)
+
+**M3 deviations from sections 7-9 (deliberate):**
+* No `General_StageInvertX/Y`: every MM XY stage already has `TransposeMirrorX/Y` (`CXYStageBase`),
+  which flips the direction exactly as asked; the test checks it.
+* Labelling is `SimType_CellFieldLabelingPct` (default 10), not `General_LabelingEfficiencyPct`
+  (default 70 for the small structures; 70% labelling of a cell field is ~2.7 M dyes per FOV).
+* Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
+  event), and events stay relative to the undrifted FOV origin; so drift is applied once.
+* z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000`, the renderer adds the Z stage, so the
+  in-focus world height is `focus - zStage`; dyes beyond `PsfZRangeUm / 2` (at least 0.5 um) of it
+  are culled in the query, also for the Gaussian model (a cell's out-of-focus dyes are not sharp).
+* Margin 2 um around the FOV (`kCellFieldMarginUm`); haze sites and the out-of-focus population are
+  off for `CellField` (logged).
+* Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse
+  `FluoParam_OnLifetimeSec/OffLifetimeSec/BlinkBleachProb/PhotonCV` plus
+  `SimType_CellFieldActivationMeanSec` (default 100 s).
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 

@@ -568,4 +568,10 @@ if status.startswith("GPU"):
 else:
     print(f"GPU check skipped: {status}")
 
+# CellField pattern + SMLMDemoXYStage (spec/PORT.md 10.5): tools/test_cellfield_stage.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_cellfield_stage import run_checks as run_cellfield_checks
+
+run_cellfield_checks(core)
+
 print("All SMLMDemoCam smoke tests passed.")
