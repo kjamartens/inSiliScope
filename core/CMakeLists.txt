@@ -9,8 +9,11 @@ endif()
 add_library(insilicell_core STATIC
   src/capi.cpp
   src/cells.cpp
+  src/cytomesh.cpp
+  src/dyes.cpp
   src/jsmath.cpp
   ${ISC_MATH_SRC}
+  src/microtubules.cpp
   src/packing.cpp
   src/params.cpp
 )

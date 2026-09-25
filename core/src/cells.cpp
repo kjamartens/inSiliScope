@@ -23,6 +23,13 @@ void NormalizeParams(Params& p)
    p.cytoEdgeRiseMax = std::max(p.cytoEdgeRiseMin, p.cytoEdgeRiseMax);
    p.cytoMidHeightMax = std::max(p.cytoMidHeightMin, p.cytoMidHeightMax);
    p.cytoMidDistanceMax = std::max(p.cytoMidDistanceMin, p.cytoMidDistanceMax);
+   p.mtStartFracMax = std::max(p.mtStartFracMin, p.mtStartFracMax);
+   p.mtEndFracMax = std::max(p.mtEndFracMin, p.mtEndFracMax);
+   p.mtWobbleFactor = std::max(1.0, p.mtWobbleFactor);
+   p.mtStepLen = std::max(0.02, p.mtStepLen);
+   p.mtSmoothLen = std::max(0.0, p.mtSmoothLen);
+   p.mtMinTurnRadius = std::max(0.0, p.mtMinTurnRadius);
+   p.mtMaxZSlope = std::max(1.0, p.mtMaxZSlope);
 }
 
 Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)

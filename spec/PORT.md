@@ -105,16 +105,19 @@ ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's
 * Use `double` everywhere the JS does, and `float` exactly where the JS uses a `Float32Array` (the
   packing radius LUT and collision outline are Float32 in JS; making them double changes layouts).
 * Use `isc::jsm::sin/cos/atan/atan2/exp/log/hypot`, never `<cmath>`, for anything the JS computes
-  with `Math.*`. JS `Math.pow` is the host's `std::pow` (V8 `--use-std-math-pow`), so it has no
-  bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh ring spacing).
+  with `Math.*`. JS `Math.pow` is the host's `std::pow` (V8 >= 13 `--use-std-math-pow`; V8 12 used
+  fdlibm), so it has no bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh
+  ring spacing) on a libm other than the one Node was built with.
 
 **Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
 generator half of `web/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
 V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
 `golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
-packing (M0). Extend the same files for cytoplasm mesh, microtubules and dyes; the original targets
-(cell fields within 1e-9, MT points within 1e-6 µm) remain the fallback where bit-exactness fails
-(`Math.pow`).
+packing (M0). M2 extended them with `cells` cases (cytoplasm mesh, microtubules, lattice sites through
+`buildMicrotubuleLabelPoints` with a constant rng): **bit-identical** natively on Linux/glibc against
+a Node 24 freeze; WASM (musl `pow`) is `near`, max 1.1e-13 um. The compare accepts mesh/microtubule
+lines within 1e-6 um (`--geomtol`); everything else must stay bit-exact. MSVC is expected to be
+`near` there too (UCRT `pow`); a near-tie in the collision pass could in principle make it diverge.
 
 ---
 
@@ -361,7 +364,9 @@ Mark each done here.
 
 1. [x] Hash + golden-vector tooling; port `rawCandidate`/outline/nucleus; parity test on cells.
        Done in M0/M1, plus packing (`relax`/`prune`/`packMap`), all bit-identical JS/native/WASM.
-2. [ ] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
+2. [x] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
+       `core/src/cytomesh.*`, `microtubules.*`; golden `cells` cases m00-m04 (13 cells, 2306
+       microtubules incl. collision nudges/resampling) bit-identical native, near 1e-13 WASM.
 3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
        pipeline. First visual check.
 4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.

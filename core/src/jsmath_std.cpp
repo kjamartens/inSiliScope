@@ -10,10 +10,12 @@ namespace jsm {
 
 double sin(double x) { return std::sin(x); }
 double cos(double x) { return std::cos(x); }
+double asin(double x) { return std::asin(x); }
 double atan(double x) { return std::atan(x); }
 double atan2(double y, double x) { return std::atan2(y, x); }
 double exp(double x) { return std::exp(x); }
 double log(double x) { return std::log(x); }
+double cbrt(double x) { return std::cbrt(x); }
 
 } // namespace jsm
 } // namespace isc

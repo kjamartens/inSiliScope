@@ -73,12 +73,15 @@ No second hand-maintained implementation.
 
 ### M2 -- Full core port
 
-- [ ] Cytoplasm height field: `cytoHeightAt`, `buildCytoMesh`, `smoothCytoGrid`,
+- [x] Cytoplasm height field: `cytoHeightAt`, `buildCytoMesh`, `smoothCytoGrid`,
       `sampleCytoMeshHeight` (MTs clamp against the *smoothed mesh*, so the mesh is needed).
       Uses `Math.pow`: small native/WASM-vs-JS differences here are **accepted** (decided
       2026-09-25); the prototype is not changed for it. Golden check for the mesh uses a tolerance.
-- [ ] Microtubules: `buildMicrotubulesForCell` and everything it calls (collisions, turn radius,
-      cytoplasm clamp), per-MT arc length + parallel-transport frames.
+      `core/src/cytomesh.*`. Bit-identical native (glibc) vs a Node 24 freeze; WASM near (1e-13 um).
+- [x] Microtubules: `buildMicrotubulesForCell` and everything it calls (collisions, turn radius,
+      cytoplasm clamp), per-MT arc length + parallel-transport frames. `core/src/microtubules.*`;
+      fdlibm `asin`/`cbrt` and V8's 3-argument `Math.hypot` added to `jsm`. Golden `cells` cases:
+      2306 microtubules + lattice windows bit-identical native, near WASM.
 - [ ] Dyes: lattice -> binder -> dye with addressed linker draws (`mtSiteUniforms`); only decorate
       segments reaching the window (a full network is millions of sites).
 - [ ] Fixed-block packing (PORT.md 4.3) so a moving stage reproduces cells; `packing=off` switch.
