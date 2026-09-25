@@ -11,7 +11,7 @@
 //
 // LICENSE:       BSD (see license.txt)
 
-#include "SMLMDemoCamera.h"
+#include "InSiliCellScopeCamera.h"
 #include "Simulation/SharedStageState.h"
 
 #include <algorithm>
@@ -27,7 +27,7 @@
 // Parameter snapshot / invalidation helpers
 ///////////////////////////////////////////////////////////////////////////////
 
-sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
+sim::SimulationParams CInSiliCellScopeCamera::SnapshotParams() const
 {
    // EmitterDensityPerSec/PhotonsPerSecond/OnLifetimeSec/BackgroundPhotonsPerSec
    // are all expressed as rates (per second) at the property level, so they
@@ -74,7 +74,7 @@ sim::SimulationParams CSMLMDemoCamera::SnapshotParams() const
    return p;
 }
 
-sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
+sim::PsfGeneratorRequest CInSiliCellScopeCamera::BuildPsfGeneratorRequest() const
 {
    sim::PsfGeneratorRequest req;
    req.model = CurrentPsfModel();
@@ -115,7 +115,7 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    // Real Z-stack (step 2): nz/zStepNm are derived from the user-facing
    // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. The global
    // focus offset selecting a plane from this stack each frame comes from
-   // the SMLMDemoZStage device (step 3) -- see RenderPhotonImage's
+   // the InSiliCellScopeZStage device (step 3) -- see RenderPhotonImage's
    // globalZOffsetUm parameter.
    double zRangeUm = psfZRangeUm_.load();
    double zStepUm = std::max(psfZStepUm_.load(), 0.001);
@@ -124,13 +124,13 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
 
    // GibsonLanni-only (ignored by RichardsWolf); see the comments on
    // psfSampleIndex_/psfWorkingDistanceUm_/psfSampleDepthNm_ in
-   // SMLMDemoCamera.h.
+   // InSiliCellScopeCamera.h.
    req.sampleIndex = psfSampleIndex_.load();
    req.workingDistanceUm = psfWorkingDistanceUm_.load();
    req.sampleDepthNm = psfSampleDepthNm_.load();
 
    // GibsonLanniZernike-only (ignored otherwise); see the comment on
-   // psfZernikeCoefficients_ in SMLMDemoCamera.h.
+   // psfZernikeCoefficients_ in InSiliCellScopeCamera.h.
    // The property is space-separated (MMCore forbids commas in values);
    // PsfBridge.java wants commas. psfZernikeCoefficients_ only ever holds a
    // string that parsed OK (see OnPsfZernikeCoefficients).
@@ -148,7 +148,7 @@ sim::PsfGeneratorRequest CSMLMDemoCamera::BuildPsfGeneratorRequest() const
    return req;
 }
 
-double CSMLMDemoCamera::ComputePsfSigmaPx() const
+double CInSiliCellScopeCamera::ComputePsfSigmaPx() const
 {
    // Gaussian approximation of a diffraction-limited widefield PSF (Zhang et
    // al. 2007): sigma ~= 0.21 * emission_wavelength / NA.
@@ -163,7 +163,7 @@ double CSMLMDemoCamera::ComputePsfSigmaPx() const
    return std::min(std::max(sigmaPx, 0.3), 20.0);
 }
 
-sim::StructureParams CSMLMDemoCamera::BuildStructureParams() const
+sim::StructureParams CInSiliCellScopeCamera::BuildStructureParams() const
 {
    sim::StructureParams sp;
    sp.zRangeNm = structureZRangeNm_.load();
@@ -188,7 +188,7 @@ sim::StructureParams CSMLMDemoCamera::BuildStructureParams() const
    return sp;
 }
 
-sim::StackShapingFields CSMLMDemoCamera::BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
+sim::StackShapingFields CInSiliCellScopeCamera::BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
                                                            const sim::SimulationParams& params, long seed) const
 {
    sim::StackShapingFields out;
@@ -235,7 +235,7 @@ constexpr double kCellFieldMarginUm = 2.0;
 constexpr double kCellFieldMinZHalfRangeUm = 0.5;
 } // namespace
 
-sim::CellFieldSettings CSMLMDemoCamera::BuildCellFieldSettings() const
+sim::CellFieldSettings CInSiliCellScopeCamera::BuildCellFieldSettings() const
 {
    sim::CellFieldSettings s;
    // Its own stream of RandomSeed ("CELL"), never the arrival/noise one.
@@ -257,7 +257,7 @@ sim::CellFieldSettings CSMLMDemoCamera::BuildCellFieldSettings() const
    return s;
 }
 
-sim::CellFieldQuery CSMLMDemoCamera::CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w,
+sim::CellFieldQuery CInSiliCellScopeCamera::CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w,
                                                        unsigned h, const sim::SimulationParams& params,
                                                        double drift0XPx, double drift0YPx, double drift1XPx,
                                                        double drift1YPx, long frameIndex, double tSec,
@@ -289,7 +289,7 @@ sim::CellFieldQuery CSMLMDemoCamera::CellFieldQueryFor(double stageX, double sta
    return q;
 }
 
-std::function<double(std::mt19937_64&)> CSMLMDemoCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
+std::function<double(std::mt19937_64&)> CInSiliCellScopeCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
 {
    // Port of webSMLM's out-of-focus depth draw: |z| uniform in [zLo, zHi]
    // with a random sign, zLo = 300 nm (webSMLM uses max(its astigmatic
@@ -307,13 +307,13 @@ std::function<double(std::mt19937_64&)> CSMLMDemoCamera::OutOfFocusDepthSampler(
    };
 }
 
-void CSMLMDemoCamera::SetGpuStatus(const std::string& s)
+void CInSiliCellScopeCamera::SetGpuStatus(const std::string& s)
 {
    std::lock_guard<std::mutex> lock(gpuStatusMutex_);
    gpuStatus_ = s;
 }
 
-bool CSMLMDemoCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache,
+bool CInSiliCellScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache,
                                  unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap,
                                  const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
                                  const sim::StackShapingFields& shaping, const sim::SimulationParams& params)
@@ -375,20 +375,20 @@ bool CSMLMDemoCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const 
    return true;
 }
 
-void CSMLMDemoCamera::InvalidateStack()
+void CInSiliCellScopeCamera::InvalidateStack()
 {
    InvalidateStackOnly();
    liveConfigVersion_.fetch_add(1, std::memory_order_relaxed);
 }
 
-void CSMLMDemoCamera::InvalidateStackOnly()
+void CInSiliCellScopeCamera::InvalidateStackOnly()
 {
    stackReady_ = false;
    endOfStackReached_ = false;
    playbackIndex_ = 0;
 }
 
-void CSMLMDemoCamera::ApplyFrameSizeChange()
+void CInSiliCellScopeCamera::ApplyFrameSizeChange()
 {
    MMThreadGuard g(imgPixelsLock_);
    roiX_ = 0;
@@ -403,7 +403,7 @@ void CSMLMDemoCamera::ApplyFrameSizeChange()
 // Precomputed-stack mode
 ///////////////////////////////////////////////////////////////////////////////
 
-void CSMLMDemoCamera::StartStackGeneration()
+void CInSiliCellScopeCamera::StartStackGeneration()
 {
    if (stackGenerating_.load())
       return;
@@ -432,12 +432,12 @@ void CSMLMDemoCamera::StartStackGeneration()
    sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), stageX, stageY);
    double stageZ = sim::GetSharedStageState().zPositionUm.load();
 
-   stackGenThread_ = std::thread(&CSMLMDemoCamera::StackGenerationWorker, this, length, fullW, fullH, params,
+   stackGenThread_ = std::thread(&CInSiliCellScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params,
                                   patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
                                   stageX, stageY, stageZ);
 }
 
-void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
+void CInSiliCellScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, sim::SMLMPatternType patternType,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
                                              long seed, sim::PsfGeneratorRequest psfRequest,
@@ -586,7 +586,7 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
          evs.push_back(events[idx]);
       sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
                                  params.pixelSizeNm, dx, dy);
-      // Read the SMLMDemoZStage device's current position fresh each frame,
+      // Read the InSiliCellScopeZStage device's current position fresh each frame,
       // same as any other live-adjustable parameter (see LiveProducerLoop).
       zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
    };
@@ -702,7 +702,7 @@ void CSMLMDemoCamera::StackGenerationWorker(long stackLength, unsigned fullW, un
 // Live mode
 ///////////////////////////////////////////////////////////////////////////////
 
-void CSMLMDemoCamera::StartLiveProducer()
+void CInSiliCellScopeCamera::StartLiveProducer()
 {
    if (liveProducerRun_.load())
       return;
@@ -743,17 +743,17 @@ void CSMLMDemoCamera::StartLiveProducer()
    actualFrameIntervalMs_ = 0.0;
 
    liveProducerRun_ = true;
-   liveProducerThread_ = std::thread(&CSMLMDemoCamera::LiveProducerLoop, this);
+   liveProducerThread_ = std::thread(&CInSiliCellScopeCamera::LiveProducerLoop, this);
 }
 
-void CSMLMDemoCamera::StopLiveProducer()
+void CInSiliCellScopeCamera::StopLiveProducer()
 {
    liveProducerRun_ = false;
    if (liveProducerThread_.joinable())
       liveProducerThread_.join();
 }
 
-void CSMLMDemoCamera::LiveProducerLoop()
+void CInSiliCellScopeCamera::LiveProducerLoop()
 {
    std::vector<float> photonImg;
    sim::PixelOffsetMap offsetMap;
@@ -913,7 +913,7 @@ void CSMLMDemoCamera::LiveProducerLoop()
       double dx = 0.0, dy = 0.0;
       sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
                                  params.driftAngleRad, params.pixelSizeNm, dx, dy);
-      // SMLMDemoZStage's current position, read fresh every tick so moving
+      // InSiliCellScopeZStage's current position, read fresh every tick so moving
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
       // real time.
       double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
@@ -1023,7 +1023,7 @@ void CSMLMDemoCamera::LiveProducerLoop()
 // Frame delivery (shared by SnapImage / RunSequenceOnThread)
 ///////////////////////////////////////////////////////////////////////////////
 
-void CSMLMDemoCamera::CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH)
+void CInSiliCellScopeCamera::CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH)
 {
    if (fullFrame.size() != static_cast<size_t>(fullW) * fullH)
       return;
@@ -1044,7 +1044,7 @@ void CSMLMDemoCamera::CropFullFrameIntoImg(const std::vector<uint16_t>& fullFram
    }
 }
 
-bool CSMLMDemoCamera::GenerateNextFrameIntoImg(bool interruptible)
+bool CInSiliCellScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
 {
    if (acqMode_ == SMLM_MODE_LIVE)
    {
@@ -1126,7 +1126,7 @@ bool CSMLMDemoCamera::GenerateNextFrameIntoImg(bool interruptible)
 // Property handlers
 ///////////////////////////////////////////////////////////////////////////////
 
-int CSMLMDemoCamera::OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1155,7 +1155,7 @@ int CSMLMDemoCamera::OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1195,7 +1195,7 @@ int CSMLMDemoCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1211,7 +1211,7 @@ int CSMLMDemoCamera::OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType 
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1239,7 +1239,7 @@ int CSMLMDemoCamera::OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionT
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1264,7 +1264,7 @@ int CSMLMDemoCamera::OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1285,7 +1285,7 @@ int CSMLMDemoCamera::OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1304,7 +1304,7 @@ int CSMLMDemoCamera::OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAc
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1328,126 +1328,126 @@ int CSMLMDemoCamera::OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(endOfStackReached_ ? "Yes" : "No");
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnEmitterDensityPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnEmitterDensityPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(emitterDensityPerSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emitterDensityPerSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPhotonsPerSecond(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPhotonsPerSecond(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(photonsPerSecond_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); photonsPerSecond_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnOnLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnOnLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(onLifetimeSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); onLifetimeSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfWavelengthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfWavelengthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfWavelengthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfWavelengthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfNa(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfNa(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfNa_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfNa_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPixelSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPixelSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(pixelSizeNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); pixelSizeNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBackgroundPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBackgroundPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(backgroundPhotonsPerSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); backgroundPhotonsPerSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnQuantumEfficiency(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnQuantumEfficiency(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(quantumEfficiency_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); quantumEfficiency_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(darkCurrentPerSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); darkCurrentPerSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(gainPhotonsPerAdu_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); gainPhotonsPerAdu_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCameraOffset(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCameraOffset(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(offsetAdu_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); offsetAdu_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnOffsetStd(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnOffsetStd(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(offsetStdAdu_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); offsetStdAdu_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(readNoiseElectrons_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); readNoiseElectrons_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPixelGainStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPixelGainStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(pixelGainStdPct_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); pixelGainStdPct_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(pixelReadNoiseStdPct_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); pixelReadNoiseStdPct_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(driftNmPerSecX_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftNmPerSecX_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1464,14 +1464,14 @@ int CSMLMDemoCamera::OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(actualFrameIntervalMs_.load(std::memory_order_relaxed));
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1492,14 +1492,14 @@ int CSMLMDemoCamera::OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfImmersionIndex_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfImmersionIndex_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1517,14 +1517,14 @@ int CSMLMDemoCamera::OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfKernelHalfWidthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfKernelHalfWidthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1546,42 +1546,42 @@ int CSMLMDemoCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionT
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfZRangeUm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZRangeUm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfZStepUm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfZStepUm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfSampleIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfSampleIndex(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfSampleIndex_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSampleIndex_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfWorkingDistanceUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfWorkingDistanceUm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfWorkingDistanceUm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfWorkingDistanceUm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfSampleDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfSampleDepthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSampleDepthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1606,7 +1606,7 @@ int CSMLMDemoCamera::OnPsfZernikeCoefficients(MM::PropertyBase* pProp, MM::Actio
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1628,63 +1628,63 @@ int CSMLMDemoCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType 
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(labelingEfficiencyPct_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); labelingEfficiencyPct_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(structureZRangeNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureZRangeNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(structureSizeNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureSizeNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupRadiusNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRadiusNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupCornerSpreadNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCornerSpreadNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupRingSeparationNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRingSeparationNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMinNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMinNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMaxNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMaxNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1702,7 +1702,7 @@ int CSMLMDemoCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1720,21 +1720,21 @@ int CSMLMDemoCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupMinSpacingNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupMinSpacingNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(nupCurvatureNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCurvatureNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1754,91 +1754,91 @@ int CSMLMDemoCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBlinkBleachProb(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBlinkBleachProb(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(blinkBleachProb_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); blinkBleachProb_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnOffLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnOffLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(offLifetimeSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); offLifetimeSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPhotonCV(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPhotonCV(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(photonCV_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); photonCV_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(illumFwhmPct_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); illumFwhmPct_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(emGain_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emGain_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(cicElectrons_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); cicElectrons_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgCellContrast_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgCellContrast_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgHazeWeight_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWeight_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgHazeWidthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWidthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgDecaySec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgDecaySec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(outOfFocusRatio_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusRatio_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(outOfFocusDepthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusDepthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1857,7 +1857,7 @@ int CSMLMDemoCamera::OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1873,7 +1873,7 @@ int CSMLMDemoCamera::OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1889,7 +1889,7 @@ int CSMLMDemoCamera::OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1905,7 +1905,7 @@ int CSMLMDemoCamera::OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1915,7 +1915,7 @@ int CSMLMDemoCamera::OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1933,7 +1933,7 @@ int CSMLMDemoCamera::OnPsfMaskType(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
@@ -1949,14 +1949,14 @@ int CSMLMDemoCamera::OnPsfMaskModes(MM::PropertyBase* pProp, MM::ActionType eAct
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfMaskWaist_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfMaskWaist_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::ActionType eAct)
 {
    if (eAct == MM::AfterSet)
    {
@@ -1976,7 +1976,7 @@ int CSMLMDemoCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::ActionT
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
+int CInSiliCellScopeCamera::OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
 {
    if (index < 0 || index >= CF_COUNT)
       return DEVICE_INVALID_PROPERTY;
@@ -1985,7 +1985,7 @@ int CSMLMDemoCamera::OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliCellScopeCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(cellFieldPacking_ ? "On" : "Off");

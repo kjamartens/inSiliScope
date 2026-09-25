@@ -481,7 +481,7 @@ the top of that section. Full-network labeling can reach millions of points, so 
 
 ## Port spec (keep in sync)
 
-[`PORT.md`](PORT.md) is the spec for the C++ port and the SMLMDemoCam integration (cells,
+[`PORT.md`](PORT.md) is the spec for the C++ port and the inSiliCellScope integration (cells,
 microtubules, dyes/blinks, dummy XY stage). **While that file exists, update it in the same commit as
 any change to the prototype that it describes** (hash channels, defaults, geometry, dye model, function
 names), and re-freeze the golden vectors (`node tests/parity/golden.mjs --freeze`).

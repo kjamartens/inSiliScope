@@ -3,15 +3,15 @@
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Process-wide shared state linking the SMLMDemoZStage device
-//                (SMLMDemoZStage.h/.cpp) to CSMLMDemoCamera's frame renderer,
+// DESCRIPTION:   Process-wide shared state linking the InSiliCellScopeZStage device
+//                (InSiliCellScopeZStage.h/.cpp) to CInSiliCellScopeCamera's frame renderer,
 //                without either device needing to know about the other or
-//                MM's device-linking mechanism: SMLMDemoZStage writes
+//                MM's device-linking mechanism: InSiliCellScopeZStage writes
 //                zPositionUm, and both StackGenerationWorker and
 //                LiveProducerLoop (SMLMImageGeneration.cpp) read it each
 //                frame as a uniform focus offset applied to every emitter
 //                (see RenderPhotonImage's globalZOffsetUm parameter in
-//                SMLMSimulation.h). SMLMDemoXYStage (SMLMDemoXYStage.h/.cpp)
+//                SMLMSimulation.h). InSiliCellScopeXYStage (InSiliCellScopeXYStage.h/.cpp)
 //                likewise drives the XY motion model below, which the camera
 //                samples once per produced frame for the CellField pattern
 //                (spec/PORT.md section 7). A single process-wide instance is

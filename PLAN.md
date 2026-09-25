@@ -8,7 +8,7 @@ with the evidence (test, report, commit) rather than just a checkmark.
 One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
 later NPCs, DNA, other cell types, excitation profile), consumed by:
 
-1. **SMLMDemoCam** Micro-Manager device adapter (native C++, `adapter/`).
+1. **inSiliCellScope** Micro-Manager device adapter (native C++, `adapter/`).
 2. **Browser viewer** (`web/`): JS UI + WebGL, generator = the same C++ compiled to WASM.
 3. **webSMLM** (upstream HohlbeinLab, single-file, no build): receives a CI-generated block (WASM as
    base64 + thin JS wrapper), delivered as a PR to the fork `kjamartens/webSMLM`.
@@ -56,7 +56,7 @@ No second hand-maintained implementation.
 - [x] Adapter output unchanged: `tools/adapter_pixel_hash.py` gives identical SHA-256 for 4 configs
       (defaults/GibsonLanniZernike, Gaussian, NUP, EMCCD) before and after the move; deterministic
       run to run.
-- [x] `tools/test_smlmcam.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
+- [x] `tools/test_insilicellscope.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
       DLL need not be copied into the MM install; one stale default expectation fixed -- it failed on
       the pre-move DLL too).
 - [x] `web/tools/check_cellfield_microtubules.mjs` passes from its new location.
@@ -118,17 +118,22 @@ No second hand-maintained implementation.
       and microtubule counts as the prototype at the origin; workers, `?nw` and `?2d` agree after
       seed/param changes. Dyes (real core sites) replace the JS label preview; the lattice debug
       popup is gone (the prototype keeps it). Not yet looked at by a human in a real browser.
-- [ ] Adapter: `CellFieldSource::EventsForFrame` + `SMLMDemoXYStage` (PORT.md 2, 6-8) feeding the
+- [ ] Adapter: `CellFieldSource::EventsForFrame` + `XYStage` (PORT.md 2, 6-8) feeding the
       existing `RenderPhotonImage/CollectGpuEmitters/ApplyNoiseChain` unchanged; property naming
-      convention; stage test in `test_smlmcam.py`; XY stage moves over the field.
+      convention; stage test in `test_insilicellscope.py`; XY stage moves over the field.
       Code done (PORT.md 11 steps 3-4, deviations listed there) and verified on a test-only Linux
       build with pymmcore-plus (`tools/build_adapter_linux.sh`, `tools/test_cellfield_stage.py`: move
       time 0.52 s for 500 um at 1000 um/s, Busy while moving, +2 um stage = -20 px image shift,
       TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
       excursion). **Open: MSBuild on Windows (vcxproj/filters updated, not built), the full
-      `test_smlmcam.py` against the DLL, and a look in Micro-Manager Studio.**
+      `test_insilicellscope.py` against the DLL, and a look in Micro-Manager Studio.**
 - [ ] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
       adapter's `Simulation/` render code without MM.
+
+- [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** everywhere: `adapter/inSiliCellScope/`,
+      `inSiliCellScope.sln/.vcxproj`, `mmgr_dal_inSiliCellScope.dll`, devices `Camera`/`XYStage`/`ZStage`,
+      classes `CInSiliCellScopeCamera`/`InSiliCellScopeXYStage`/`InSiliCellScopeZStage`,
+      `tools/test_insilicellscope.py`. Old MM hardware configs must be re-made.
 
 ### M4 -- webSMLM integration via CI
 

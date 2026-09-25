@@ -17,21 +17,21 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="SMLMDemoCam.rc">
+    <ResourceCompile Include="inSiliCellScope.rc">
       <Filter>Source Files</Filter>
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="SMLMDemoCamera.cpp">
+    <ClCompile Include="InSiliCellScopeCamera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SMLMImageGeneration.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="SMLMDemoCameraModule.cpp">
+    <ClCompile Include="InSiliCellScopeModule.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="SMLMDemoXYStage.cpp">
+    <ClCompile Include="InSiliCellScopeXYStage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\CellFieldSource.cpp">
@@ -67,7 +67,7 @@
     <ClCompile Include="..\..\core\src\world.cpp">
       <Filter>Core</Filter>
     </ClCompile>
-    <ClCompile Include="SMLMDemoZStage.cpp">
+    <ClCompile Include="InSiliCellScopeZStage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\SMLMSimulation.cpp">
@@ -96,10 +96,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SMLMDemoCamera.h">
+    <ClInclude Include="InSiliCellScopeCamera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="SMLMDemoXYStage.h">
+    <ClInclude Include="InSiliCellScopeXYStage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\CellFieldSource.h">
@@ -135,7 +135,7 @@
     <ClInclude Include="..\..\core\src\world.h">
       <Filter>Core</Filter>
     </ClInclude>
-    <ClInclude Include="SMLMDemoZStage.h">
+    <ClInclude Include="InSiliCellScopeZStage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMSimulation.h">

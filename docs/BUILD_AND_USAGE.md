@@ -22,7 +22,7 @@ adapter builds against.
 
 ## Installing a matching Micro-Manager nightly
 
-The device-interface version compiled into `mmgr_dal_SMLMDemoCam.dll` must
+The device-interface version compiled into `mmgr_dal_inSiliCellScope.dll` must
 match the Micro-Manager build you load it into. Stable MM releases are often
 too old; use a nightly instead:
 
@@ -36,14 +36,14 @@ install instead of the pymmcore-plus-managed one.
 
 ## Building
 
-Open `adapter/SMLMDemoCam/SMLMDemoCam.sln` in Visual Studio 2022,
+Open `adapter/inSiliCellScope/inSiliCellScope.sln` in Visual Studio 2022,
 select `Release|x64`, and build. The solution also builds
 `MMDevice-SharedRuntime` (from the submodule) as a dependency. Output lands
-at `adapter/SMLMDemoCam/build/Release/x64/mmgr_dal_SMLMDemoCam.dll`.
+at `adapter/inSiliCellScope/build/Release/x64/mmgr_dal_inSiliCellScope.dll`.
 
 ## Installing into Micro-Manager
 
-Copy `mmgr_dal_SMLMDemoCam.dll` into your Micro-Manager install directory
+Copy `mmgr_dal_inSiliCellScope.dll` into your Micro-Manager install directory
 (the same folder as `MicroManager.exe` / `ImageJ.exe` -- e.g. the directory
 `mmcore list` reports as active). No manifest file is needed; Micro-Manager
 discovers device adapters by scanning its install directory for
@@ -53,7 +53,7 @@ discovers device adapters by scanning its install directory for
 
 1. Launch Micro-Manager Studio.
 2. Tools -> Hardware Configuration Wizard -> add a new device.
-3. Find `SMLMDemoCam` in the device list and add it as a camera.
+3. Find `inSiliCellScope` in the device list and add it as a camera.
 4. On the pre-init properties page, optionally set `SimType_RandomSeed` -- this is
    the only pre-init property. `General_FovSize` (`128x128`/`256x256`/`512x512`,
    default `512x512`) is a regular property, changeable at any time after
@@ -229,7 +229,7 @@ apart.
 
 ```
 pip install pymmcore-plus numpy
-python tools/test_smlmcam.py
+python tools/test_insilicellscope.py
 ```
 
 Exercises pre-init property enforcement, background stack generation,

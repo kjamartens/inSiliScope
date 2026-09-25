@@ -1,9 +1,9 @@
-"""Pixel hash of the SMLMDemoCam adapter's precomputed output for fixed seeds.
+"""Pixel hash of the inSiliCellScope adapter's precomputed output for fixed seeds.
 
 Used to prove a refactor did not change the image output: run it against the
 DLL built before and after, and compare the printed hashes.
 
-    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_SMLMDemoCam.dll> [--frames N]
+    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_inSiliCellScope.dll> [--frames N]
 
 The DLL is loaded from that directory (MMCore's adapter search path lists it
 first); the active pymmcore-plus Micro-Manager install (or MM_DIR) provides
@@ -68,7 +68,7 @@ def main():
     for name, seed, props in CONFIGS:
         core = CMMCorePlus()
         core.setDeviceAdapterSearchPaths([os.path.abspath(args.adapter_dir), find_mm_dir()])
-        core.loadDevice("Cam", "SMLMDemoCam", "SMLMDemoCam")
+        core.loadDevice("Cam", "inSiliCellScope", "Camera")
         core.setProperty("Cam", "SimType_RandomSeed", str(seed))
         core.initializeDevice("Cam")
         core.setCameraDevice("Cam")

@@ -1,4 +1,4 @@
-"""Smoke test for the SMLMDemoCam device adapter, using pymmcore-plus.
+"""Smoke test for the inSiliCellScope device adapter, using pymmcore-plus.
 
 Exercises: property wiring, pre-init enforcement (RandomSeed only -- FovSize
 is a regular, post-init property), background stack generation not blocking
@@ -9,7 +9,7 @@ Live mode is streaming actually changes subsequent frames.
 
 Requires an MM nightly build installed (e.g. via `mmcore install`) whose
 device-interface version matches the checked-out mmCoreAndDevices submodule
-commit, with mmgr_dal_SMLMDemoCam.dll copied into that install directory
+commit, with mmgr_dal_inSiliCellScope.dll copied into that install directory
 or found via ADAPTER_DIR. See docs/BUILD_AND_USAGE.md.
 """
 
@@ -43,7 +43,7 @@ def find_active_mm_dir() -> str:
 
 
 def load_camera(core: CMMCorePlus, label: str, seed: int, fov: str = "128x128") -> None:
-    core.loadDevice(label, "SMLMDemoCam", "SMLMDemoCam")
+    core.loadDevice(label, "inSiliCellScope", "Camera")
     core.setProperty(label, "SimType_RandomSeed", str(seed))  # pre-init
     core.initializeDevice(label)
     core.setCameraDevice(label)
@@ -68,7 +68,7 @@ def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 600.0) -> N
 mm_dir = find_active_mm_dir()
 
 core = CMMCorePlus()
-# ADAPTER_DIR (e.g. adapter/SMLMDemoCam/build/Release/x64) is searched first, so a
+# ADAPTER_DIR (e.g. adapter/inSiliCellScope/build/Release/x64) is searched first, so a
 # fresh build can be tested without copying the DLL into the MM install.
 core.setDeviceAdapterSearchPaths([d for d in (os.environ.get("ADAPTER_DIR"), mm_dir) if d])
 
@@ -568,10 +568,10 @@ if status.startswith("GPU"):
 else:
     print(f"GPU check skipped: {status}")
 
-# CellField pattern + SMLMDemoXYStage (spec/PORT.md 10.5): tools/test_cellfield_stage.py.
+# CellField pattern + XYStage (spec/PORT.md 10.5): tools/test_cellfield_stage.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_cellfield_stage import run_checks as run_cellfield_checks
 
 run_cellfield_checks(core)
 
-print("All SMLMDemoCam smoke tests passed.")
+print("All inSiliCellScope smoke tests passed.")

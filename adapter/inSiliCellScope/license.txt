@@ -2,7 +2,7 @@ Copyright (c) 2026, the demoCam_SMLM_MM contributors
 All rights reserved.
 
 NOTE ON THE VECTORIAL PSF FEATURE: the source below (this project's own
-code) is BSD-licensed as stated. However, the built mmgr_dal_SMLMDemoCam.dll
+code) is BSD-licensed as stated. However, the built mmgr_dal_inSiliCellScope.dll
 embeds compiled classes from EPFL Biomedical Imaging Group's PSFGenerator
 (https://github.com/Biomedical-Imaging-Group/PSFGenerator), which is
 GPL-3.0-licensed, via an in-process JVM bridge -- see

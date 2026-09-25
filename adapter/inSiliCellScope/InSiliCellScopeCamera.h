@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          SMLMDemoCamera.h
+// FILE:          InSiliCellScopeCamera.h
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
@@ -40,10 +40,10 @@
 #include <thread>
 #include <vector>
 
-extern const char* g_SMLMCameraDeviceName;
+extern const char* g_CameraDeviceName;
 
 // Property name / allowed-value string constants, shared between
-// SMLMDemoCamera.cpp (where they're defined and used to build the property
+// InSiliCellScopeCamera.cpp (where they're defined and used to build the property
 // list) and SMLMImageGeneration.cpp (where the AfterSet handlers compare
 // against them).
 extern const char* g_PropAcqMode;
@@ -201,11 +201,11 @@ enum SMLMAcqMode
 
 class SMLMSequenceThread;
 
-class CSMLMDemoCamera : public CCameraBase<CSMLMDemoCamera>
+class CInSiliCellScopeCamera : public CCameraBase<CInSiliCellScopeCamera>
 {
 public:
-   CSMLMDemoCamera();
-   ~CSMLMDemoCamera();
+   CInSiliCellScopeCamera();
+   ~CInSiliCellScopeCamera();
 
    // MMDevice API
    // ------------
@@ -683,7 +683,7 @@ private:
    // Z-stack range/step (vectorial PSF plan step 2), feeding req.nz/
    // req.zStepNm in BuildPsfGeneratorRequest(). Only matters with a
    // vectorial PsfModel. Random per-emitter Z spread (step 2) was reverted
-   // in step 3 in favor of a real Z-stage device (SMLMDemoZStage.h/.cpp) --
+   // in step 3 in favor of a real Z-stage device (InSiliCellScopeZStage.h/.cpp) --
    // see Simulation/SharedStageState.h and RenderPhotonImage's
    // globalZOffsetUm parameter, read fresh each frame in
    // StackGenerationWorker/LiveProducerLoop rather than cached here.
@@ -727,10 +727,10 @@ private:
 
 class SMLMSequenceThread : public MMDeviceThreadBase
 {
-   friend class CSMLMDemoCamera;
+   friend class CInSiliCellScopeCamera;
 
 public:
-   explicit SMLMSequenceThread(CSMLMDemoCamera* pCam);
+   explicit SMLMSequenceThread(CInSiliCellScopeCamera* pCam);
    ~SMLMSequenceThread();
    void Stop();
    void Start(long numImages, double intervalMs);
@@ -744,7 +744,7 @@ private:
    long numImages_ = 1;
    long imageCounter_ = 0;
    bool stop_ = true;
-   CSMLMDemoCamera* camera_ = nullptr;
+   CInSiliCellScopeCamera* camera_ = nullptr;
    MM::MMTime startTime_;
    MMThreadLock stopLock_;
 };

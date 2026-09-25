@@ -1,15 +1,15 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          SMLMDemoXYStage.h
+// FILE:          InSiliCellScopeXYStage.h
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   A simulated XY stage moving SMLMDemoCam's field of view over
+// DESCRIPTION:   A simulated XY stage moving inSiliCellScope's field of view over
 //                the CellField pattern's infinite cell field (spec/PORT.md
 //                section 7). Its position is the world coordinate of the FOV
 //                centre in um; a move runs at General_StageSpeedUmPerSec and
 //                reports Busy until it arrives plus General_StageSettleMs.
-//                Add both "SMLMDemoCam" and "SMLMDemoXYStage" via the Hardware
-//                Configuration Wizard; like SMLMDemoZStage, they communicate
+//                Add both "inSiliCellScope" and "InSiliCellScopeXYStage" via the Hardware
+//                Configuration Wizard; like InSiliCellScopeZStage, they communicate
 //                through the process-wide Simulation/SharedStageState.h
 //                singleton. Direction conventions (camera mirroring) are MM's
 //                standard TransposeMirrorX/Y properties of every XY stage.
@@ -20,16 +20,16 @@
 
 #include "DeviceBase.h"
 
-extern const char* g_SMLMXYStageDeviceName;
+extern const char* g_XYStageDeviceName;
 extern const char* g_PropStageSpeedUmPerSec;
 extern const char* g_PropStageSettleMs;
 extern const char* g_PropStageLimitUm;
 
-class SMLMDemoXYStage : public CXYStageBase<SMLMDemoXYStage>
+class InSiliCellScopeXYStage : public CXYStageBase<InSiliCellScopeXYStage>
 {
 public:
-   SMLMDemoXYStage();
-   ~SMLMDemoXYStage();
+   InSiliCellScopeXYStage();
+   ~InSiliCellScopeXYStage();
 
    // MMDevice API
    int Initialize();

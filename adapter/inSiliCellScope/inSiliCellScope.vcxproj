@@ -12,7 +12,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{3F2A032D-65AE-451E-9888-AEDE09F90407}</ProjectGuid>
-    <RootNamespace>SMLMDemoCam</RootNamespace>
+    <RootNamespace>inSiliCellScope</RootNamespace>
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -104,14 +104,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ResourceCompile Include="SMLMDemoCam.rc" />
+    <ResourceCompile Include="inSiliCellScope.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="SMLMDemoCamera.cpp" />
+    <ClCompile Include="InSiliCellScopeCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
-    <ClCompile Include="SMLMDemoCameraModule.cpp" />
-    <ClCompile Include="SMLMDemoZStage.cpp" />
-    <ClCompile Include="SMLMDemoXYStage.cpp" />
+    <ClCompile Include="InSiliCellScopeModule.cpp" />
+    <ClCompile Include="InSiliCellScopeZStage.cpp" />
+    <ClCompile Include="InSiliCellScopeXYStage.cpp" />
     <ClCompile Include="Simulation\CellFieldSource.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
@@ -133,9 +133,9 @@
     <ClCompile Include="Simulation\SMLMBackground.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="SMLMDemoCamera.h" />
-    <ClInclude Include="SMLMDemoZStage.h" />
-    <ClInclude Include="SMLMDemoXYStage.h" />
+    <ClInclude Include="InSiliCellScopeCamera.h" />
+    <ClInclude Include="InSiliCellScopeZStage.h" />
+    <ClInclude Include="InSiliCellScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
     <ClInclude Include="..\..\core\include\insilicell\insilicell.h" />
     <ClInclude Include="..\..\core\src\cells.h" />

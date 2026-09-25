@@ -179,7 +179,7 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // rendering) is unaffected.
 //
 // globalZOffsetUm: uniform focus offset (micrometers), driven by the
-// SMLMDemoZStage device's shared position (Simulation/SharedStageState.h),
+// InSiliCellScopeZStage device's shared position (Simulation/SharedStageState.h),
 // ADDED to each emitter's own BlinkEvent::zNm (nm, converted to um here) to
 // pick that emitter's kernel z-plane -- so the stage moves the focal plane
 // and the structure's own depth is relative to it, not a single global

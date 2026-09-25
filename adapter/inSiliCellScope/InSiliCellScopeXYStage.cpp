@@ -1,64 +1,64 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          SMLMDemoXYStage.cpp
+// FILE:          InSiliCellScopeXYStage.cpp
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See SMLMDemoXYStage.h.
+// DESCRIPTION:   See InSiliCellScopeXYStage.h.
 //
 // LICENSE:       BSD (see license.txt)
 
-#include "SMLMDemoXYStage.h"
+#include "InSiliCellScopeXYStage.h"
 #include "Simulation/SharedStageState.h"
 
 #include <algorithm>
 #include <cmath>
 
-const char* g_SMLMXYStageDeviceName = "SMLMDemoXYStage";
+const char* g_XYStageDeviceName = "XYStage";
 const char* g_PropStageSpeedUmPerSec = "General_StageSpeedUmPerSec";
 const char* g_PropStageSettleMs = "General_StageSettleMs";
 const char* g_PropStageLimitUm = "General_StageLimitUm";
 
-SMLMDemoXYStage::SMLMDemoXYStage()
+InSiliCellScopeXYStage::InSiliCellScopeXYStage()
 {
    InitializeDefaultErrorMessages();
 }
 
-SMLMDemoXYStage::~SMLMDemoXYStage()
+InSiliCellScopeXYStage::~InSiliCellScopeXYStage()
 {
    Shutdown();
 }
 
-void SMLMDemoXYStage::GetName(char* name) const
+void InSiliCellScopeXYStage::GetName(char* name) const
 {
-   CDeviceUtils::CopyLimitedString(name, g_SMLMXYStageDeviceName);
+   CDeviceUtils::CopyLimitedString(name, g_XYStageDeviceName);
 }
 
-int SMLMDemoXYStage::Initialize()
+int InSiliCellScopeXYStage::Initialize()
 {
    if (initialized_)
       return DEVICE_OK;
 
-   int ret = CreateStringProperty(MM::g_Keyword_Name, g_SMLMXYStageDeviceName, true);
+   int ret = CreateStringProperty(MM::g_Keyword_Name, g_XYStageDeviceName, true);
    if (ret != DEVICE_OK)
       return ret;
    ret = CreateStringProperty(MM::g_Keyword_Description,
-                              "Moves SMLMDemoCam's field of view over the CellField pattern", true);
+                              "Moves inSiliCellScope's field of view over the CellField pattern", true);
    if (ret != DEVICE_OK)
       return ret;
 
    sim::SharedStageState& st = sim::GetSharedStageState();
    ret = CreateFloatProperty(g_PropStageSpeedUmPerSec, st.XySpeed(), false,
-                             new CPropertyAction(this, &SMLMDemoXYStage::OnSpeed));
+                             new CPropertyAction(this, &InSiliCellScopeXYStage::OnSpeed));
    if (ret != DEVICE_OK)
       return ret;
    SetPropertyLimits(g_PropStageSpeedUmPerSec, 1.0, 100000.0);
    ret = CreateFloatProperty(g_PropStageSettleMs, st.XySettleSec() * 1000.0, false,
-                             new CPropertyAction(this, &SMLMDemoXYStage::OnSettleMs));
+                             new CPropertyAction(this, &InSiliCellScopeXYStage::OnSettleMs));
    if (ret != DEVICE_OK)
       return ret;
    SetPropertyLimits(g_PropStageSettleMs, 0.0, 10000.0);
    ret = CreateFloatProperty(g_PropStageLimitUm, limitUm_, false,
-                             new CPropertyAction(this, &SMLMDemoXYStage::OnLimitUm));
+                             new CPropertyAction(this, &InSiliCellScopeXYStage::OnLimitUm));
    if (ret != DEVICE_OK)
       return ret;
 
@@ -66,18 +66,18 @@ int SMLMDemoXYStage::Initialize()
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::Shutdown()
+int InSiliCellScopeXYStage::Shutdown()
 {
    initialized_ = false;
    return DEVICE_OK;
 }
 
-bool SMLMDemoXYStage::Busy()
+bool InSiliCellScopeXYStage::Busy()
 {
    return sim::GetSharedStageState().XyBusy();
 }
 
-int SMLMDemoXYStage::SetPositionSteps(long x, long y)
+int InSiliCellScopeXYStage::SetPositionSteps(long x, long y)
 {
    const double lim = limitUm_;
    const double xUm = std::min(std::max(x * kStepSizeUm, -lim), lim);
@@ -86,7 +86,7 @@ int SMLMDemoXYStage::SetPositionSteps(long x, long y)
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::GetPositionSteps(long& x, long& y)
+int InSiliCellScopeXYStage::GetPositionSteps(long& x, long& y)
 {
    double xUm, yUm;
    sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), xUm, yUm);
@@ -95,38 +95,38 @@ int SMLMDemoXYStage::GetPositionSteps(long& x, long& y)
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::SetRelativePositionSteps(long x, long y)
+int InSiliCellScopeXYStage::SetRelativePositionSteps(long x, long y)
 {
    long cx, cy;
    GetPositionSteps(cx, cy);
    return SetPositionSteps(cx + x, cy + y);
 }
 
-int SMLMDemoXYStage::Home()
+int InSiliCellScopeXYStage::Home()
 {
    return SetPositionSteps(0, 0);
 }
 
-int SMLMDemoXYStage::Stop()
+int InSiliCellScopeXYStage::Stop()
 {
    sim::GetSharedStageState().StopXy();
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::SetOrigin()
+int InSiliCellScopeXYStage::SetOrigin()
 {
    // Only the reported coordinates change; the FOV stays where it is.
    return SetAdapterOriginUm(0.0, 0.0);
 }
 
-int SMLMDemoXYStage::GetLimitsUm(double& xMin, double& xMax, double& yMin, double& yMax)
+int InSiliCellScopeXYStage::GetLimitsUm(double& xMin, double& xMax, double& yMin, double& yMax)
 {
    xMin = yMin = -limitUm_;
    xMax = yMax = limitUm_;
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::GetStepLimits(long& xMin, long& xMax, long& yMin, long& yMax)
+int InSiliCellScopeXYStage::GetStepLimits(long& xMin, long& xMax, long& yMin, long& yMax)
 {
    const long lim = static_cast<long>(std::min(limitUm_ / kStepSizeUm, 2.0e9));
    xMin = yMin = -lim;
@@ -134,7 +134,7 @@ int SMLMDemoXYStage::GetStepLimits(long& xMin, long& xMax, long& yMin, long& yMa
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::OnSpeed(MM::PropertyBase* pProp, MM::ActionType eAct)
+int InSiliCellScopeXYStage::OnSpeed(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(sim::GetSharedStageState().XySpeed());
@@ -147,7 +147,7 @@ int SMLMDemoXYStage::OnSpeed(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::OnSettleMs(MM::PropertyBase* pProp, MM::ActionType eAct)
+int InSiliCellScopeXYStage::OnSettleMs(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(sim::GetSharedStageState().XySettleSec() * 1000.0);
@@ -160,7 +160,7 @@ int SMLMDemoXYStage::OnSettleMs(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int SMLMDemoXYStage::OnLimitUm(MM::PropertyBase* pProp, MM::ActionType eAct)
+int InSiliCellScopeXYStage::OnLimitUm(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(limitUm_);

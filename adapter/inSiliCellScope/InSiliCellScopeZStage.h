@@ -1,11 +1,11 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          SMLMDemoZStage.h
+// FILE:          InSiliCellScopeZStage.h
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   A single-axis Z-stage device providing a global focus offset
-//                for the SMLMDemoCam camera's vectorial PSF renderer. Add
-//                both "SMLMDemoCam" and "SMLMDemoZStage" via the Hardware
+//                for the inSiliCellScope camera's vectorial PSF renderer. Add
+//                both "inSiliCellScope" and "InSiliCellScopeZStage" via the Hardware
 //                Configuration Wizard; no explicit linking between the two
 //                devices is needed -- they communicate through the
 //                process-wide Simulation/SharedStageState.h singleton, the
@@ -18,13 +18,13 @@
 
 #include "DeviceBase.h"
 
-extern const char* g_SMLMZStageDeviceName;
+extern const char* g_ZStageDeviceName;
 
-class SMLMDemoZStage : public CStageBase<SMLMDemoZStage>
+class InSiliCellScopeZStage : public CStageBase<InSiliCellScopeZStage>
 {
 public:
-   SMLMDemoZStage();
-   ~SMLMDemoZStage();
+   InSiliCellScopeZStage();
+   ~InSiliCellScopeZStage();
 
    // MMDevice API
    int Initialize();

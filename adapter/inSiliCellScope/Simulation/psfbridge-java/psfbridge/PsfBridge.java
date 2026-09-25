@@ -16,13 +16,13 @@ import psf.gibsonlanni.GibsonLanniPSF;
  *
  * This class is NOT part of PSFGenerator -- it is this project's own small
  * driver, compiled together with PSFGenerator's classes into one embedded
- * jar resource baked into mmgr_dal_SMLMDemoCam.dll (see
+ * jar resource baked into mmgr_dal_inSiliCellScope.dll (see
  * Simulation/PsfGeneratorBridge.cpp, which extracts that resource to a temp
  * file once and loads it into an embedded JVM via the JNI Invocation API --
  * no external java.exe process, no separate bridge jar file). Because
  * PSFGenerator's (GPL-3.0) bytecode is linked into the DLL this way, that
  * DLL is a combined work and distributed under GPL-3.0, not this project's
- * usual BSD license -- see license.txt / SMLMDemoCam's other source
+ * usual BSD license -- see license.txt / inSiliCellScope's other source
  * headers for the BSD-licensed remainder of the project.
  *
  * computePlanes() instantiates PSFGenerator's own PSF model classes
@@ -165,7 +165,7 @@ public class PsfBridge
          // (spnNS, PSFGenerator's own default 1.33), working distance
          // (spnTI, um, default 150.0) and particle depth into the sample
          // (spnZPos, nm, default 2000.0) -- all now caller-supplied
-         // (SMLMDemoCamera's PsfSampleIndex/PsfWorkingDistanceUm/
+         // (InSiliCellScopeCamera's PsfSampleIndex/PsfWorkingDistanceUm/
          // PsfSampleDepthNm properties) rather than hardcoded here, per
          // Simulation/PsfGeneratorBridge.h's PsfGeneratorRequest, whose own
          // defaults (nsSample = the immersion-index default, sampleDepthNm

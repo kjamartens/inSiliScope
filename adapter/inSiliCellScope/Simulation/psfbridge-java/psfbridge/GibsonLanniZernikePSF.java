@@ -121,7 +121,7 @@ public class GibsonLanniZernikePSF extends PSF
 
    public GibsonLanniZernikePSF()
    {
-      fullname = "Gibson & Lanni + Zernike (SMLMDemoCam extension, not part of PSFGenerator)";
+      fullname = "Gibson & Lanni + Zernike (inSiliCellScope extension, not part of PSFGenerator)";
       shortname = "GLZ";
    }
 
@@ -129,7 +129,7 @@ public class GibsonLanniZernikePSF extends PSF
    public String getDescription()
    {
       String desc = "<h1>Gibson & Lanni + Zernike Optical PSF Model</h1>";
-      desc += "<p>SMLMDemoCam extension (not part of EPFL BIG's PSFGenerator): a full 2D ";
+      desc += "<p>inSiliCellScope extension (not part of EPFL BIG's PSFGenerator): a full 2D ";
       desc += "pupil-plane generalization of PSFGenerator's own Gibson & Lanni model, adding ";
       desc += "a Zernike pupil-phase aberration term on top of the same sample-index-mismatch/ ";
       desc += "depth optical path difference.</p>";

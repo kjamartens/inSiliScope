@@ -80,7 +80,7 @@ bool g_attachedToForeignJvm = false; // true if g_jvm is a pre-existing JVM we d
 jclass g_bridgeClassRef = nullptr;   // global ref, resolved lazily -- see ResolveBridgeClass
 std::string g_jvmInitError;          // sticky: if creation failed once, don't keep retrying
 
-// Directory containing this DLL's own file (mmgr_dal_SMLMDemoCam.dll),
+// Directory containing this DLL's own file (mmgr_dal_inSiliCellScope.dll),
 // wherever Micro-Manager loaded it from.
 std::string OwnModuleDirectory()
 {
@@ -163,7 +163,7 @@ std::string FindJavaHome(const std::string& override)
    return std::string();
 }
 
-// Extracts the embedded PSFGenerator+bridge jar (SMLMDemoCam.rc, resource
+// Extracts the embedded PSFGenerator+bridge jar (inSiliCellScope.rc, resource
 // IDR_PSF_JAR) to a temp file, once, and returns its path -- JNI classpath
 // entries must be real files, not in-memory buffers. Cached for the life
 // of the process (the resource never changes without rebuilding the DLL).
@@ -201,7 +201,7 @@ std::string ExtractEmbeddedJar(std::string& outError)
 
    char tempDir[MAX_PATH];
    GetTempPathA(MAX_PATH, tempDir);
-   std::string tempPath = std::string(tempDir) + "SMLMDemoCam_PsfGenerator.jar";
+   std::string tempPath = std::string(tempDir) + "inSiliCellScope_PsfGenerator.jar";
 
    HANDLE hFile = CreateFileA(tempPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL, NULL);
@@ -370,7 +370,7 @@ std::string DescribeAndClearException(JNIEnv* env)
 
 // Resolves psfbridge.PsfBridge (this project's own class, embedded together
 // with BIG PSFGenerator's classes in the jar baked into this DLL -- see
-// SMLMDemoCam.rc / ExtractEmbeddedJar above) and caches it as a global ref.
+// inSiliCellScope.rc / ExtractEmbeddedJar above) and caches it as a global ref.
 // Deliberately does NOT rely on java.class.path / the JVM's default
 // (system/application) classloader: when g_attachedToForeignJvm is true
 // (the common case under classic Micro-Manager -- see EnsureJvmCreated),
@@ -481,7 +481,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       // turn instantiates and drives EPFL Biomedical Imaging Group's BIG
       // PSFGenerator classes (psf.richardswolf.RichardsWolfPSF /
       // psf.gibsonlanni.GibsonLanniPSF, GPL-3.0) -- both are compiled
-      // together into the single jar embedded in this DLL (SMLMDemoCam.rc,
+      // together into the single jar embedded in this DLL (inSiliCellScope.rc,
       // IDR_PSF_JAR). See PsfBridge.java's header comment for the full
       // attribution and what PSFGenerator code path this exercises.
       // ResolveBridgeClass loads this via an explicit URLClassLoader

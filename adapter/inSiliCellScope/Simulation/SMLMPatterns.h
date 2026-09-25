@@ -252,7 +252,7 @@ private:
 // from webSMLM's generateCalibrationStack() bead field -- the specimen a
 // real astigmatic-PSF z-calibration acquisition uses (a coverslip of
 // fiducial beads, stage-scanned through focus), as opposed to a blinking
-// dye. Being always-on is what makes it useful: drive SMLMDemoZStage
+// dye. Being always-on is what makes it useful: drive InSiliCellScopeZStage
 // through focus and every frame shows the same nine spots at the same x,y,
 // with only the PSF shape changing.
 //

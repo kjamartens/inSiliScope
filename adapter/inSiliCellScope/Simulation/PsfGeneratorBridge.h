@@ -9,7 +9,7 @@
 //                PSFGenerator's compiled classes plus this project's own
 //                small driver class (Simulation/psfbridge-java/psfbridge/
 //                PsfBridge.java) are baked into one jar resource compiled
-//                into mmgr_dal_SMLMDemoCam.dll (see SMLMDemoCam.rc), loaded
+//                into mmgr_dal_inSiliCellScope.dll (see inSiliCellScope.rc), loaded
 //                into an in-process JVM via the JNI Invocation API on first
 //                use -- no external java.exe process, no separate bridge
 //                jar file to deploy or configure. Only a JRE/JDK install
@@ -21,7 +21,7 @@
 //
 // LICENSE:       Because PSFGenerator's GPL-3.0 bytecode is linked into
 //                this DLL (not merely invoked as an external process), the
-//                resulting mmgr_dal_SMLMDemoCam.dll is a combined work
+//                resulting mmgr_dal_inSiliCellScope.dll is a combined work
 //                distributed under GPL-3.0 -- unlike the rest of this
 //                project (BSD, see license.txt). See psfbridge/PsfBridge.java
 //                for details.

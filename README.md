@@ -1,7 +1,7 @@
 # insilicell
 
 One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites)
-for three consumers: the Micro-Manager SMLMDemoCam device adapter (native), a browser viewer (WASM)
+for three consumers: the Micro-Manager inSiliCellScope device adapter (native), a browser viewer (WASM)
 and webSMLM (a CI-generated WASM block). Every cell is a pure function of `(seed, address)`, so any
 window of the infinite field can be generated on its own, in any order, on any platform, with
 identical results.
@@ -10,7 +10,7 @@ Status: **M0 (feasibility) and M1 (repo restructure) done**; see [PLAN.md](PLAN.
 checklist. RNG and cell packing are ported and bit-identical in JS, native and WASM
 ([spec/m0-feasibility.md](spec/m0-feasibility.md)).
 
-## SMLMDemoCam (Micro-Manager device adapter)
+## inSiliCellScope (Micro-Manager device adapter)
 
 A synthetic SMLM (Single-Molecule Localization Microscopy) camera device
 adapter for [Micro-Manager](https://micro-manager.org/). It generates
@@ -39,7 +39,7 @@ outlines whose gap shrinks step to step (500 down to 10 nm), and
 `ResolutionTarget` lays the same spacing sequence out as a 3x3 chart --
 together, built-in resolution tests for the current PSF/pixel-size/density
 settings. See
-[Simulation/SMLMPatterns.h](adapter/SMLMDemoCam/Simulation/SMLMPatterns.h)
+[Simulation/SMLMPatterns.h](adapter/inSiliCellScope/Simulation/SMLMPatterns.h)
 to add more.
 
 See [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md) for full adapter build and
@@ -49,12 +49,12 @@ usage instructions (Windows/Visual Studio 2022).
 
 ```text
 core/                      world model, C++17, no MMDevice/GPU/OS deps; C ABI in core/include/insilicell/
-adapter/SMLMDemoCam/       the MM device adapter (MSBuild, builds mmgr_dal_SMLMDemoCam.dll)
+adapter/inSiliCellScope/       the MM device adapter (MSBuild, builds mmgr_dal_inSiliCellScope.dll)
   Simulation/              the SMLM render engine (PSF, camera noise, GPU path) -- no MMDevice dependency
 web/                       cell-field viewer (the JS prototype; moves onto the WASM core in M3)
 spec/                      algorithm notes, port spec, golden vectors, reports
 tests/                     golden-vector and parity harness (native + WASM)
-tools/                     gen_jsmath.py, adapter_pixel_hash.py, test_smlmcam.py, psf_parity_check/
+tools/                     gen_jsmath.py, adapter_pixel_hash.py, test_insilicellscope.py, psf_parity_check/
 third_party/mmCoreAndDevices/  git submodule: Micro-Manager's MMDevice SDK + build scripts
 ```
 

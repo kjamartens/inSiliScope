@@ -1,4 +1,4 @@
-"""CellField pattern + SMLMDemoXYStage checks (spec/PORT.md 10.5), with pymmcore-plus.
+"""CellField pattern + XYStage checks (spec/PORT.md 10.5), with pymmcore-plus.
 
 Exercises: the XY stage device (Busy while moving, move time ~ distance/speed,
 position readback, MM's TransposeMirrorX flipping the direction), the camera's
@@ -9,7 +9,7 @@ after the stage went 1 mm away and came back.
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
-tools/test_smlmcam.py also runs these checks at its end (run_checks).
+tools/test_insilicellscope.py also runs these checks at its end (run_checks).
 Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
 """
 
@@ -60,13 +60,13 @@ def _shift(a, b):
 
 
 def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
-    core.loadDevice(cam, "SMLMDemoCam", "SMLMDemoCam")
+    core.loadDevice(cam, "inSiliCellScope", "Camera")
     core.setProperty(cam, "SimType_RandomSeed", "7")
     core.initializeDevice(cam)
-    core.loadDevice(xy, "SMLMDemoCam", "SMLMDemoXYStage")
+    core.loadDevice(xy, "inSiliCellScope", "XYStage")
     core.initializeDevice(xy)
     if z not in core.getLoadedDevices():
-        core.loadDevice(z, "SMLMDemoCam", "SMLMDemoZStage")
+        core.loadDevice(z, "inSiliCellScope", "ZStage")
         core.initializeDevice(z)
     core.setCameraDevice(cam)
     core.setXYStageDevice(xy)
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     core = CMMCorePlus()
     dirs = [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR")) if d]
     if not dirs:
-        sys.exit("Set ADAPTER_DIR to the directory holding the SMLMDemoCam adapter.")
+        sys.exit("Set ADAPTER_DIR to the directory holding the inSiliCellScope adapter.")
     core.setDeviceAdapterSearchPaths(dirs)
     run_checks(core)
     print("All CellField / XY stage checks passed.")

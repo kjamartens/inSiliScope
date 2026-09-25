@@ -86,4 +86,4 @@ jobs:
         run: New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar
         shell: pwsh
       - name: MSBuild Release|x64
-        run: msbuild adapter/SMLMDemoCam/SMLMDemoCam.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+        run: msbuild adapter/inSiliCellScope/inSiliCellScope.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal

@@ -1,9 +1,9 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          SMLMDemoCamera.cpp
+// FILE:          InSiliCellScopeCamera.cpp
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   CSMLMDemoCamera: MM::Camera API, property handlers, and the
+// DESCRIPTION:   CInSiliCellScopeCamera: MM::Camera API, property handlers, and the
 //                sequence-acquisition thread. The actual frame generation
 //                (precomputed-stack management, live producer thread, and
 //                calls into the simulation engine) lives in
@@ -11,7 +11,7 @@
 //
 // LICENSE:       BSD (see license.txt)
 
-#include "SMLMDemoCamera.h"
+#include "InSiliCellScopeCamera.h"
 
 #include "CameraImageMetadata.h"
 #include "ModuleInterface.h"
@@ -22,7 +22,7 @@
 #include <cstring>
 #include <sstream>
 
-const char* g_SMLMCameraDeviceName = "SMLMDemoCam";
+const char* g_CameraDeviceName = "Camera";
 
 const char* g_PropAcqMode = "General_AcqMode";
 const char* g_PropPattern = "SimType_Pattern";
@@ -159,10 +159,10 @@ const char* g_Fov256 = "256x256";
 const char* g_Fov512 = "512x512";
 
 ///////////////////////////////////////////////////////////////////////////////
-// CSMLMDemoCamera implementation
+// CInSiliCellScopeCamera implementation
 ///////////////////////////////////////////////////////////////////////////////
 
-CSMLMDemoCamera::CSMLMDemoCamera()
+CInSiliCellScopeCamera::CInSiliCellScopeCamera()
 {
    InitializeDefaultErrorMessages();
    thd_ = new SMLMSequenceThread(this);
@@ -177,10 +177,10 @@ CSMLMDemoCamera::CSMLMDemoCamera()
    // live-changeable property (see OnFovSize/ApplyFrameSizeChange), same as
    // Binning.
    CreateIntegerProperty(g_PropRandomSeed, randomSeed_, false,
-                          new CPropertyAction(this, &CSMLMDemoCamera::OnRandomSeed), true);
+                          new CPropertyAction(this, &CInSiliCellScopeCamera::OnRandomSeed), true);
 }
 
-CSMLMDemoCamera::~CSMLMDemoCamera()
+CInSiliCellScopeCamera::~CInSiliCellScopeCamera()
 {
    StopSequenceAcquisition();
    StopLiveProducer();
@@ -189,22 +189,22 @@ CSMLMDemoCamera::~CSMLMDemoCamera()
    delete thd_;
 }
 
-void CSMLMDemoCamera::GetName(char* name) const
+void CInSiliCellScopeCamera::GetName(char* name) const
 {
-   CDeviceUtils::CopyLimitedString(name, g_SMLMCameraDeviceName);
+   CDeviceUtils::CopyLimitedString(name, g_CameraDeviceName);
 }
 
-bool CSMLMDemoCamera::Busy()
+bool CInSiliCellScopeCamera::Busy()
 {
    return stackGenerating_.load();
 }
 
-int CSMLMDemoCamera::Initialize()
+int CInSiliCellScopeCamera::Initialize()
 {
    if (initialized_)
       return DEVICE_OK;
 
-   int nRet = CreateStringProperty(MM::g_Keyword_Name, g_SMLMCameraDeviceName, true);
+   int nRet = CreateStringProperty(MM::g_Keyword_Name, g_CameraDeviceName, true);
    if (nRet != DEVICE_OK)
       return nRet;
 
@@ -212,7 +212,7 @@ int CSMLMDemoCamera::Initialize()
    if (nRet != DEVICE_OK)
       return nRet;
 
-   nRet = CreateStringProperty(MM::g_Keyword_CameraName, "SMLMDemoCam", true);
+   nRet = CreateStringProperty(MM::g_Keyword_CameraName, "inSiliCellScope", true);
    if (nRet != DEVICE_OK)
       return nRet;
 
@@ -222,7 +222,7 @@ int CSMLMDemoCamera::Initialize()
 
    // FovSize: a regular, live-changeable property (not pre-init) -- can be
    // changed after the device has been added/initialized, same as Binning.
-   CPropertyAction* pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnFovSize);
+   CPropertyAction* pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnFovSize);
    nRet = CreateStringProperty(g_PropFovSize, g_Fov256, false, pAct);
    if (nRet != DEVICE_OK)
       return nRet;
@@ -231,7 +231,7 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropFovSize, g_Fov512);
 
    // Binning
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBinning);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBinning);
    nRet = CreateIntegerProperty(MM::g_Keyword_Binning, 1, false, pAct);
    if (nRet != DEVICE_OK)
       return nRet;
@@ -252,7 +252,7 @@ int CSMLMDemoCamera::Initialize()
    // converts every rate-based simulation parameter (EmitterDensityPerSec,
    // OnLifetimeSec, PhotonsPerSecond, BackgroundPhotonsPerSec) into the
    // frame-equivalent quantity for whatever this is currently set to.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnExposureProperty);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnExposureProperty);
    nRet = CreateFloatProperty(MM::g_Keyword_Exposure, 50.0, false, pAct);
    if (nRet != DEVICE_OK)
       return nRet;
@@ -260,13 +260,13 @@ int CSMLMDemoCamera::Initialize()
 
    // Acquisition mode. Default is Live -- continuous on-the-fly simulation,
    // no precomputed-stack generation delay before the first frame appears.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnAcqMode);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnAcqMode);
    CreateStringProperty(g_PropAcqMode, g_AcqModeLive, false, pAct);
    AddAllowedValue(g_PropAcqMode, g_AcqModePrecomputed);
    AddAllowedValue(g_PropAcqMode, g_AcqModeLive);
 
    // Pattern
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPattern);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPattern);
    CreateStringProperty(g_PropPattern, g_PatternCircle, false, pAct);
    AddAllowedValue(g_PropPattern, g_PatternCircle);
    AddAllowedValue(g_PropPattern, g_PatternLines);
@@ -286,186 +286,186 @@ int CSMLMDemoCamera::Initialize()
    AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
    // webSMLM's default structure: 3 filaments with y-correlated z + a ring.
    AddAllowedValue(g_PropPattern, g_PatternFilamentsRing);
-   // The insilicell cell field, imaged through SMLMDemoXYStage/ZStage -- see
+   // The insilicell cell field, imaged through InSiliCellScopeXYStage/ZStage -- see
    // Simulation/CellFieldSource.h and the SimType_CellField* properties.
    AddAllowedValue(g_PropPattern, g_PatternCellField);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCustomPointsFile);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnCustomPointsFile);
    CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
 
    // Ring/scale-step/spiral-arc gap (Circle/Spiral/Star/Heart) and per-cell
    // line spacing (ResolutionTarget), easiest to hardest, nm, comma-
    // separated. Any positive count of values is accepted; the smallest
    // value drives the finest ring/cell, the largest the coarsest.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnResolutionSpacingsNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnResolutionSpacingsNm);
    CreateStringProperty(g_PropResolutionSpacingsNm,
                          sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str(), false, pAct);
 
    // Precomputed-stack properties. Stack length and looping are no longer
-   // user-facing (see stackLength_/stackLoop_ in SMLMDemoCamera.h) -- what
+   // user-facing (see stackLength_/stackLoop_ in InSiliCellScopeCamera.h) -- what
    // remains is the trigger plus the two read-only status readbacks.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnGenerateStack);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnGenerateStack);
    CreateIntegerProperty(g_PropGenerateStack, 0, false, pAct);
    SetPropertyLimits(g_PropGenerateStack, 0, 1);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStackStatus);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnStackStatus);
    CreateStringProperty(g_PropStackStatus, "Idle", true, pAct);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnEndOfStackReached);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnEndOfStackReached);
    CreateStringProperty(g_PropEndOfStack, "No", true, pAct);
 
    // Simulation parameters. EmitterDensityPerSec/PhotonsPerSecond/
    // OnLifetimeSec/BackgroundPhotonsPerSec are rates (per second) that scale
    // automatically with the standard Exposure property -- see
    // SnapshotParams() in SMLMImageGeneration.cpp.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnEmitterDensityPerSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnEmitterDensityPerSec);
    CreateFloatProperty(g_PropEmitterDensityPerSec, emitterDensityPerSec_.load(), false, pAct);
    SetPropertyLimits(g_PropEmitterDensityPerSec, 0.1, 500.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPhotonsPerSecond);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPhotonsPerSecond);
    CreateFloatProperty(g_PropPhotonsPerSecond, photonsPerSecond_.load(), false, pAct);
    SetPropertyLimits(g_PropPhotonsPerSecond, 1000.0, 2000000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOnLifetimeSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnOnLifetimeSec);
    CreateFloatProperty(g_PropOnLifetimeSec, onLifetimeSec_.load(), false, pAct);
    SetPropertyLimits(g_PropOnLifetimeSec, 0.001, 10.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfWavelengthNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfWavelengthNm);
    CreateFloatProperty(g_PropPsfWavelengthNm, psfWavelengthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfWavelengthNm, 400.0, 800.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfNa);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfNa);
    CreateFloatProperty(g_PropPsfNa, psfNa_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfNa, 0.5, 1.49);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPixelSizeNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPixelSizeNm);
    CreateFloatProperty(g_PropPixelSize, pixelSizeNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPixelSize, 10.0, 1000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBackgroundPerSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBackgroundPerSec);
    CreateFloatProperty(g_PropBackgroundPerSec, backgroundPhotonsPerSec_.load(), false, pAct);
    SetPropertyLimits(g_PropBackgroundPerSec, 0.0, 200000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnQuantumEfficiency);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnQuantumEfficiency);
    CreateFloatProperty(g_PropQuantumEfficiency, quantumEfficiency_.load(), false, pAct);
    SetPropertyLimits(g_PropQuantumEfficiency, 0.01, 1.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDarkCurrentPerSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnDarkCurrentPerSec);
    CreateFloatProperty(g_PropDarkCurrentPerSec, darkCurrentPerSec_.load(), false, pAct);
    SetPropertyLimits(g_PropDarkCurrentPerSec, 0.0, 100.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraGain);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnCameraGain);
    CreateFloatProperty(g_PropGain, gainPhotonsPerAdu_.load(), false, pAct);
    SetPropertyLimits(g_PropGain, 0.01, 100.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraOffset);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnCameraOffset);
    CreateFloatProperty(g_PropOffset, offsetAdu_.load(), false, pAct);
    SetPropertyLimits(g_PropOffset, 0.0, 10000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOffsetStd);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnOffsetStd);
    CreateFloatProperty(g_PropOffsetStd, offsetStdAdu_.load(), false, pAct);
    SetPropertyLimits(g_PropOffsetStd, 0.0, 500.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnReadNoise);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnReadNoise);
    CreateFloatProperty(g_PropReadNoise, readNoiseElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropReadNoise, 0.0, 100.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPixelGainStdPct);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPixelGainStdPct);
    CreateFloatProperty(g_PropPixelGainStdPct, pixelGainStdPct_.load(), false, pAct);
    SetPropertyLimits(g_PropPixelGainStdPct, 0.0, 50.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPixelReadNoiseStdPct);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPixelReadNoiseStdPct);
    CreateFloatProperty(g_PropPixelReadNoiseStdPct, pixelReadNoiseStdPct_.load(), false, pAct);
    SetPropertyLimits(g_PropPixelReadNoiseStdPct, 0.0, 100.0);
 
    // ---- webSMLM parity round 2 (see the members' comments in
-   // SMLMDemoCamera.h). Multi-blink photophysics + illumination profile:
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBlinkBleachProb);
+   // InSiliCellScopeCamera.h). Multi-blink photophysics + illumination profile:
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBlinkBleachProb);
    CreateFloatProperty(g_PropBlinkBleachProb, blinkBleachProb_.load(), false, pAct);
    SetPropertyLimits(g_PropBlinkBleachProb, 0.01, 1.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOffLifetimeSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnOffLifetimeSec);
    CreateFloatProperty(g_PropOffLifetimeSec, offLifetimeSec_.load(), false, pAct);
    SetPropertyLimits(g_PropOffLifetimeSec, 0.001, 1000.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPhotonCV);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPhotonCV);
    CreateFloatProperty(g_PropPhotonCV, photonCV_.load(), false, pAct);
    SetPropertyLimits(g_PropPhotonCV, 0.0, 2.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnIllumProfile);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnIllumProfile);
    CreateStringProperty(g_PropIllumProfile, g_IllumFlat, false, pAct);
    AddAllowedValue(g_PropIllumProfile, g_IllumFlat);
    AddAllowedValue(g_PropIllumProfile, g_IllumGaussian);
    AddAllowedValue(g_PropIllumProfile, g_IllumFlatTop);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnIllumFwhmPct);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnIllumFwhmPct);
    CreateFloatProperty(g_PropIllumFwhmPct, illumFwhmPct_.load(), false, pAct);
    SetPropertyLimits(g_PropIllumFwhmPct, 10.0, 300.0);
 
    // Sensor type (EMCCD gain register vs the original sCMOS chain):
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCameraType);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnCameraType);
    CreateStringProperty(g_PropCameraType, g_CameraTypeScmos, false, pAct);
    AddAllowedValue(g_PropCameraType, g_CameraTypeScmos);
    AddAllowedValue(g_PropCameraType, g_CameraTypeEmccd);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnEmGain);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnEmGain);
    CreateFloatProperty(g_PropEmGain, emGain_.load(), false, pAct);
    SetPropertyLimits(g_PropEmGain, 1.0, 2000.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnCicElectrons);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnCicElectrons);
    CreateFloatProperty(g_PropCicElectrons, cicElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropCicElectrons, 0.0, 1.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBitDepth);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBitDepth);
    CreateIntegerProperty(g_PropBitDepth, bitDepth_, false, pAct);
    SetPropertyLimits(g_PropBitDepth, 8, 16);
 
    // Structured background + out-of-focus emitters:
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgCellContrast);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBgCellContrast);
    CreateFloatProperty(g_PropBgCellContrast, bgCellContrast_.load(), false, pAct);
    SetPropertyLimits(g_PropBgCellContrast, 1.0, 20.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgHazeWeight);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBgHazeWeight);
    CreateFloatProperty(g_PropBgHazeWeight, bgHazeWeight_.load(), false, pAct);
    SetPropertyLimits(g_PropBgHazeWeight, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgHazeWidthNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBgHazeWidthNm);
    CreateFloatProperty(g_PropBgHazeWidthNm, bgHazeWidthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropBgHazeWidthNm, 100.0, 5000.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnBgDecaySec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnBgDecaySec);
    CreateFloatProperty(g_PropBgDecaySec, bgDecaySec_.load(), false, pAct);
    SetPropertyLimits(g_PropBgDecaySec, 0.0, 100000.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOutOfFocusRatio);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnOutOfFocusRatio);
    CreateFloatProperty(g_PropOutOfFocusRatio, outOfFocusRatio_.load(), false, pAct);
    SetPropertyLimits(g_PropOutOfFocusRatio, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnOutOfFocusDepthNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnOutOfFocusDepthNm);
    CreateFloatProperty(g_PropOutOfFocusDepthNm, outOfFocusDepthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropOutOfFocusDepthNm, 300.0, 5000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnDriftNmPerSec);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnDriftNmPerSec);
    CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
    SetPropertyLimits(g_PropDriftNmPerSec, 0.0, 20000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnActualFrameIntervalMs);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge). Default model is
    // GibsonLanniZernike -- see psfModel_'s own initializer in
-   // SMLMDemoCamera.h; this string just needs to agree with it.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfModel);
+   // InSiliCellScopeCamera.h; this string just needs to agree with it.
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfModel);
    CreateStringProperty(g_PropPsfModel, g_PsfModelGibsonLanniZernike, false, pAct);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGaussian);
    AddAllowedValue(g_PropPsfModel, g_PsfModelRichardsWolf);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanni);
    AddAllowedValue(g_PropPsfModel, g_PsfModelGibsonLanniZernike);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfImmersionIndex);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfImmersionIndex);
    CreateFloatProperty(g_PropPsfImmersionIndex, psfImmersionIndex_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfImmersionIndex, 1.0, 2.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfOversampling);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfOversampling);
    CreateIntegerProperty(g_PropPsfOversampling, psfOversampling_, false, pAct);
    SetPropertyLimits(g_PropPsfOversampling, 1, 16);
 
    // Expressed in nanometers (not camera pixels) so it stays physically
    // meaningful when PixelSizeNm changes -- rounded to a whole pixel count
    // internally, and still only a MINIMUM (see BuildPsfGeneratorRequest).
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfKernelHalfWidthNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfKernelHalfWidthNm);
    CreateFloatProperty(g_PropPsfKernelHalfWidthNm, psfKernelHalfWidthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfKernelHalfWidthNm, 100.0, 20000.0);
 
@@ -474,33 +474,33 @@ int CSMLMDemoCamera::Initialize()
    // install to supply jvm.dll. Left empty (the default), the JVM
    // auto-detects one (JAVA_HOME, then common install locations -- see
    // sim::FindJavaHome in PsfGeneratorBridge.cpp).
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfGeneratorJavaHome);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfGeneratorJavaHome);
    CreateStringProperty(g_PropPsfGeneratorJavaHome, psfGeneratorJavaHome_.c_str(), false, pAct);
 
    // Z-stack range/step (vectorial PSF plan step 2) -- the actual focus
-   // offset used each frame comes from the SMLMDemoZStage device (step 3),
+   // offset used each frame comes from the InSiliCellScopeZStage device (step 3),
    // not from a property on this camera.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZRangeUm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfZRangeUm);
    CreateFloatProperty(g_PropPsfZRangeUm, psfZRangeUm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfZRangeUm, 0.1, 20.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZStepUm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfZStepUm);
    CreateFloatProperty(g_PropPsfZStepUm, psfZStepUm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfZStepUm, 0.01, 1.0);
 
    // GibsonLanni-only parameters (ignored by RichardsWolf); see the comments
    // on psfSampleIndex_/psfWorkingDistanceUm_/psfSampleDepthNm_ in
-   // SMLMDemoCamera.h for why these particular defaults reproduce the
+   // InSiliCellScopeCamera.h for why these particular defaults reproduce the
    // no-mismatch/in-focus behavior this bridge used to hardcode.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfSampleIndex);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfSampleIndex);
    CreateFloatProperty(g_PropPsfSampleIndex, psfSampleIndex_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfSampleIndex, 1.0, 2.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfWorkingDistanceUm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfWorkingDistanceUm);
    CreateFloatProperty(g_PropPsfWorkingDistanceUm, psfWorkingDistanceUm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfWorkingDistanceUm, 0.0, 9999.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfSampleDepthNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfSampleDepthNm);
    CreateFloatProperty(g_PropPsfSampleDepthNm, psfSampleDepthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfSampleDepthNm, -100000.0, 100000.0);
 
@@ -509,8 +509,8 @@ int CSMLMDemoCamera::Initialize()
    // accepted and zero-padded -- see Simulation/
    // SMLMZernike.h's ZernikeCoefficients doc comment for the full mode
    // list). Defaults to the MixedRealisticObjective preset's values (see
-   // psfZernikePreset_ in SMLMDemoCamera.h), not all-zero.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZernikeCoefficients);
+   // psfZernikePreset_ in InSiliCellScopeCamera.h), not all-zero.
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfZernikeCoefficients);
    CreateStringProperty(g_PropPsfZernikeCoefficients, psfZernikeCoefficients_.c_str(), false, pAct);
 
    // Convenience presets on top of PsfZernikeCoefficients -- selecting one
@@ -520,7 +520,7 @@ int CSMLMDemoCamera::Initialize()
    // directly afterwards is unaffected by (and does not update) this
    // property -- it only ever reports the last preset explicitly selected
    // through it.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfZernikePreset);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfZernikePreset);
    CreateStringProperty(g_PropPsfZernikePreset, psfZernikePreset_.c_str(), false, pAct);
    for (const std::string& name : sim::ZernikePresetNames())
       AddAllowedValue(g_PropPsfZernikePreset, name.c_str());
@@ -530,52 +530,52 @@ int CSMLMDemoCamera::Initialize()
    // site-list Pattern values above (TiltedPlane/Uniform3D/Shell/NUP);
    // StructureZRangeNm ALSO applies to the 9 continuous patterns (via the
    // ZSpreadPattern decorator -- see CreatePattern in SMLMPatterns.cpp).
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnLabelingEfficiencyPct);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnLabelingEfficiencyPct);
    CreateFloatProperty(g_PropLabelingEfficiencyPct, labelingEfficiencyPct_.load(), false, pAct);
    SetPropertyLimits(g_PropLabelingEfficiencyPct, 0.0, 100.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStructureZRangeNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnStructureZRangeNm);
    CreateFloatProperty(g_PropStructureZRangeNm, structureZRangeNm_.load(), false, pAct);
    SetPropertyLimits(g_PropStructureZRangeNm, 0.0, 5000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnStructureSizeNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnStructureSizeNm);
    CreateFloatProperty(g_PropStructureSizeNm, structureSizeNm_.load(), false, pAct);
    SetPropertyLimits(g_PropStructureSizeNm, 10.0, 5000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupRadiusNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupRadiusNm);
    CreateFloatProperty(g_PropNupRadiusNm, nupRadiusNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupRadiusNm, 20.0, 150.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCornerSpreadNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupCornerSpreadNm);
    CreateFloatProperty(g_PropNupCornerSpreadNm, nupCornerSpreadNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupCornerSpreadNm, 0.0, 30.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupRingSeparationNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupRingSeparationNm);
    CreateFloatProperty(g_PropNupRingSeparationNm, nupRingSeparationNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupRingSeparationNm, 0.0, 150.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupLinkerMinNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupLinkerMinNm);
    CreateFloatProperty(g_PropNupLinkerMinNm, nupLinkerMinNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupLinkerMinNm, 0.0, 30.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupLinkerMaxNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupLinkerMaxNm);
    CreateFloatProperty(g_PropNupLinkerMaxNm, nupLinkerMaxNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupLinkerMaxNm, 0.0, 30.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupMembraneType);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupMembraneType);
    CreateStringProperty(g_PropNupMembraneType, g_NupMembraneTopDown, false, pAct);
    AddAllowedValue(g_PropNupMembraneType, g_NupMembraneTopDown);
    AddAllowedValue(g_PropNupMembraneType, g_NupMembraneSideways);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCount);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupCount);
    CreateIntegerProperty(g_PropNupCount, nupCount_, false, pAct);
    SetPropertyLimits(g_PropNupCount, 1, 500);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupMinSpacingNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupMinSpacingNm);
    CreateFloatProperty(g_PropNupMinSpacingNm, nupMinSpacingNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupMinSpacingNm, 0.0, 2000.0);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnNupCurvatureNm);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnNupCurvatureNm);
    CreateFloatProperty(g_PropNupCurvatureNm, nupCurvatureNm_.load(), false, pAct);
    SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
 
@@ -587,11 +587,11 @@ int CSMLMDemoCamera::Initialize()
       for (long i = 0; i < CF_COUNT; ++i)
       {
          CreateFloatProperty(g_PropCellFieldNumber[i], cellField_[i].load(), false,
-                             new CPropertyActionEx(this, &CSMLMDemoCamera::OnCellFieldNumber, i));
+                             new CPropertyActionEx(this, &CInSiliCellScopeCamera::OnCellFieldNumber, i));
          SetPropertyLimits(g_PropCellFieldNumber[i], lo[i], hi[i]);
       }
       CreateStringProperty(g_PropCellFieldPacking, "On", false,
-                           new CPropertyAction(this, &CSMLMDemoCamera::OnCellFieldPacking));
+                           new CPropertyAction(this, &CInSiliCellScopeCamera::OnCellFieldPacking));
       AddAllowedValue(g_PropCellFieldPacking, "On");
       AddAllowedValue(g_PropCellFieldPacking, "Off");
    }
@@ -599,7 +599,7 @@ int CSMLMDemoCamera::Initialize()
    // Sub-pixel PSF placement (vectorial PSF models only) -- see
    // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default is Cubic;
    // Nearest reproduces the original box-average splat exactly.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfInterp);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfInterp);
    CreateStringProperty(g_PropPsfInterp, g_PsfInterpCubic, false, pAct);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpNearest);
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpLinear);
@@ -612,28 +612,28 @@ int CSMLMDemoCamera::Initialize()
    // Simulation/GpuSimD3D11.h. Falls back to the multi-threaded CPU path
    // (same counter-based noise, so the same frames up to float32 rounding)
    // when unavailable; GpuStatus says which is in use and why.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnUseGpu);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnUseGpu);
    CreateStringProperty(g_PropUseGpu, g_UseGpuOn, false, pAct);
    AddAllowedValue(g_PropUseGpu, g_UseGpuOn);
    AddAllowedValue(g_PropUseGpu, g_UseGpuOff);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnGpuStatus);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnGpuStatus);
    CreateStringProperty(g_PropGpuStatus, "", true, pAct);
 
    // GibsonLanniZernike-only pupil phase mask (engineered PSF) -- see
    // Simulation/PsfGeneratorBridge.h's PsfMaskType. DoubleHelix is webSMLM's
    // Gauss-Laguerre double-helix mask: two lobes rotating ~60 degrees over
    // +/-800 nm at the default 5 modes / waist 1.0 pupil radii.
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskType);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfMaskType);
    CreateStringProperty(g_PropPsfMaskType, g_PsfMaskNone, false, pAct);
    AddAllowedValue(g_PropPsfMaskType, g_PsfMaskNone);
    AddAllowedValue(g_PropPsfMaskType, g_PsfMaskDoubleHelix);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskModes);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfMaskModes);
    CreateIntegerProperty(g_PropPsfMaskModes, psfMaskModes_, false, pAct);
    SetPropertyLimits(g_PropPsfMaskModes, 2, 8);
 
-   pAct = new CPropertyAction(this, &CSMLMDemoCamera::OnPsfMaskWaist);
+   pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPsfMaskWaist);
    CreateFloatProperty(g_PropPsfMaskWaist, psfMaskWaist_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfMaskWaist, 0.2, 2.0);
 
@@ -670,7 +670,7 @@ int CSMLMDemoCamera::Initialize()
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::Shutdown()
+int CInSiliCellScopeCamera::Shutdown()
 {
    StopSequenceAcquisition();
    StopLiveProducer();
@@ -680,7 +680,7 @@ int CSMLMDemoCamera::Shutdown()
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::SnapImage()
+int CInSiliCellScopeCamera::SnapImage()
 {
    MM::MMTime startTime = GetCurrentMMTime();
    double exp = GetExposure();
@@ -696,21 +696,21 @@ int CSMLMDemoCamera::SnapImage()
    return DEVICE_OK;
 }
 
-const unsigned char* CSMLMDemoCamera::GetImageBuffer()
+const unsigned char* CInSiliCellScopeCamera::GetImageBuffer()
 {
    MMThreadGuard g(imgPixelsLock_);
    return const_cast<unsigned char*>(img_.GetPixels());
 }
 
-unsigned CSMLMDemoCamera::GetImageWidth() const { return img_.Width(); }
-unsigned CSMLMDemoCamera::GetImageHeight() const { return img_.Height(); }
-unsigned CSMLMDemoCamera::GetImageBytesPerPixel() const { return img_.Depth(); }
+unsigned CInSiliCellScopeCamera::GetImageWidth() const { return img_.Width(); }
+unsigned CInSiliCellScopeCamera::GetImageHeight() const { return img_.Height(); }
+unsigned CInSiliCellScopeCamera::GetImageBytesPerPixel() const { return img_.Depth(); }
 // The EMCCD path clips to its own bit depth (CamParam_BitDepth); tell MM so
 // its display range matches. sCMOS stays 16-bit.
-unsigned CSMLMDemoCamera::GetBitDepth() const { return cameraEmccd_ ? static_cast<unsigned>(bitDepth_) : 16; }
-long CSMLMDemoCamera::GetImageBufferSize() const { return img_.Width() * img_.Height() * GetImageBytesPerPixel(); }
+unsigned CInSiliCellScopeCamera::GetBitDepth() const { return cameraEmccd_ ? static_cast<unsigned>(bitDepth_) : 16; }
+long CInSiliCellScopeCamera::GetImageBufferSize() const { return img_.Width() * img_.Height() * GetImageBytesPerPixel(); }
 
-double CSMLMDemoCamera::GetExposure() const
+double CInSiliCellScopeCamera::GetExposure() const
 {
    char buf[MM::MaxStrLength];
    int ret = GetProperty(MM::g_Keyword_Exposure, buf);
@@ -719,13 +719,13 @@ double CSMLMDemoCamera::GetExposure() const
    return atof(buf);
 }
 
-void CSMLMDemoCamera::SetExposure(double exp)
+void CInSiliCellScopeCamera::SetExposure(double exp)
 {
    SetProperty(MM::g_Keyword_Exposure, CDeviceUtils::ConvertToString(exp));
    GetCoreCallback()->OnExposureChanged(this, exp);
 }
 
-int CSMLMDemoCamera::SetROI(unsigned x, unsigned y, unsigned xSize, unsigned ySize)
+int CInSiliCellScopeCamera::SetROI(unsigned x, unsigned y, unsigned xSize, unsigned ySize)
 {
    MMThreadGuard g(imgPixelsLock_);
    unsigned fullW = FullWidth();
@@ -748,7 +748,7 @@ int CSMLMDemoCamera::SetROI(unsigned x, unsigned y, unsigned xSize, unsigned ySi
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::GetROI(unsigned& x, unsigned& y, unsigned& xSize, unsigned& ySize)
+int CInSiliCellScopeCamera::GetROI(unsigned& x, unsigned& y, unsigned& xSize, unsigned& ySize)
 {
    x = roiX_;
    y = roiY_;
@@ -757,12 +757,12 @@ int CSMLMDemoCamera::GetROI(unsigned& x, unsigned& y, unsigned& xSize, unsigned&
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::ClearROI()
+int CInSiliCellScopeCamera::ClearROI()
 {
    return SetROI(0, 0, 0, 0);
 }
 
-int CSMLMDemoCamera::GetBinning() const
+int CInSiliCellScopeCamera::GetBinning() const
 {
    char buf[MM::MaxStrLength];
    int ret = GetProperty(MM::g_Keyword_Binning, buf);
@@ -771,17 +771,17 @@ int CSMLMDemoCamera::GetBinning() const
    return atoi(buf);
 }
 
-int CSMLMDemoCamera::SetBinning(int binF)
+int CInSiliCellScopeCamera::SetBinning(int binF)
 {
    return SetProperty(MM::g_Keyword_Binning, CDeviceUtils::ConvertToString(binF));
 }
 
-int CSMLMDemoCamera::StartSequenceAcquisition(double interval)
+int CInSiliCellScopeCamera::StartSequenceAcquisition(double interval)
 {
    return StartSequenceAcquisition(LONG_MAX, interval, false);
 }
 
-int CSMLMDemoCamera::StopSequenceAcquisition()
+int CInSiliCellScopeCamera::StopSequenceAcquisition()
 {
    if (thd_ && !thd_->IsStopped())
    {
@@ -791,7 +791,7 @@ int CSMLMDemoCamera::StopSequenceAcquisition()
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::StartSequenceAcquisition(long numImages, double interval_ms, bool /*stopOnOverflow*/)
+int CInSiliCellScopeCamera::StartSequenceAcquisition(long numImages, double interval_ms, bool /*stopOnOverflow*/)
 {
    if (IsCapturing())
       return DEVICE_CAMERA_BUSY_ACQUIRING;
@@ -820,7 +820,7 @@ int CSMLMDemoCamera::StartSequenceAcquisition(long numImages, double interval_ms
    return DEVICE_OK;
 }
 
-int CSMLMDemoCamera::InsertImage()
+int CInSiliCellScopeCamera::InsertImage()
 {
    MM::MMTime timeStamp = GetCurrentMMTime();
    char label[MM::MaxStrLength];
@@ -844,7 +844,7 @@ int CSMLMDemoCamera::InsertImage()
    return GetCoreCallback()->InsertImage(this, pI, img_.Width(), img_.Height(), img_.Depth(), 1, md.Serialize());
 }
 
-int CSMLMDemoCamera::RunSequenceOnThread()
+int CInSiliCellScopeCamera::RunSequenceOnThread()
 {
    MM::MMTime startTime = GetCurrentMMTime();
    double exposure = GetExposure();
@@ -867,12 +867,12 @@ int CSMLMDemoCamera::RunSequenceOnThread()
    return InsertImage();
 }
 
-bool CSMLMDemoCamera::IsCapturing()
+bool CInSiliCellScopeCamera::IsCapturing()
 {
    return thd_ && !thd_->IsStopped();
 }
 
-void CSMLMDemoCamera::OnThreadExiting() throw()
+void CInSiliCellScopeCamera::OnThreadExiting() throw()
 {
    try
    {
@@ -890,7 +890,7 @@ void CSMLMDemoCamera::OnThreadExiting() throw()
 // SMLMSequenceThread
 ///////////////////////////////////////////////////////////////////////////////
 
-SMLMSequenceThread::SMLMSequenceThread(CSMLMDemoCamera* pCam) : camera_(pCam) {}
+SMLMSequenceThread::SMLMSequenceThread(CInSiliCellScopeCamera* pCam) : camera_(pCam) {}
 SMLMSequenceThread::~SMLMSequenceThread() {}
 
 void SMLMSequenceThread::Stop()

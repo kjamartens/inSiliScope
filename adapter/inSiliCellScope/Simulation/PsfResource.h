@@ -1,4 +1,4 @@
-// Resource ID for the embedded PSFGenerator+bridge jar (SMLMDemoCam.rc).
+// Resource ID for the embedded PSFGenerator+bridge jar (inSiliCellScope.rc).
 // Shared between the .rc script and PsfGeneratorBridge.cpp's FindResource() call.
 #pragma once
 
