@@ -184,6 +184,7 @@ enum CellFieldNumber
    CF_LABELING_PCT,
    CF_FOCUS_HEIGHT_UM,
    CF_ACTIVATION_MEAN_SEC,
+   CF_Z_RANGE_UM,
    CF_COUNT
 };
 extern const char* g_PropCellFieldNumber[CF_COUNT];
@@ -371,8 +372,12 @@ private:
    // the Z stage at zStageUm, over simulated [tSec, tSec + spanSec). The
    // query rect is the FOV shifted against the drift at the start and end of
    // that span (drift px, the renderer adds it back) plus a PSF margin; dyes
-   // beyond +/- PsfZRangeUm/2 of the focal plane are culled.
+   // beyond +/- SimType_CellFieldZRangeUm/2 of the focal plane are culled.
    sim::CellFieldSettings BuildCellFieldSettings() const;
+   // Corelog warning when the vectorial kernel's z range cannot cover the
+   // SimType_CellFieldZRangeUm slab (the renderer then clamps those dyes to
+   // the kernel's end plane); empty otherwise.
+   std::string CellFieldZRangeWarning() const;
    sim::CellFieldQuery CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w, unsigned h,
                                          const sim::SimulationParams& params, double drift0XPx, double drift0YPx,
                                          double drift1XPx, double drift1YPx, long frameIndex, double tSec,

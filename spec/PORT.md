@@ -426,8 +426,9 @@ Mark each done here.
 * Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
   event), and events stay relative to the undrifted FOV origin; so drift is applied once.
 * z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000`, the renderer adds the Z stage, so the
-  in-focus world height is `focus - zStage`; dyes beyond `PsfZRangeUm / 2` (at least 0.5 um) of it
-  are culled in the query, also for the Gaussian model (a cell's out-of-focus dyes are not sharp).
+  in-focus world height is `focus - zStage`; dyes beyond `SimType_CellFieldZRangeUm / 2` (default
+  7 um, 0 = no limit) of it are culled in the query, for every PSF model. With a vectorial model a
+  slab wider than `PSFParam_PsfZRangeUm` (or 0) is logged: those dyes get the kernel's end plane.
 * Margin 2 um around the FOV (`kCellFieldMarginUm`); haze sites and the out-of-focus population are
   off for `CellField` (logged).
 * Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse

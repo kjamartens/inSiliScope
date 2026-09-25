@@ -76,7 +76,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
               "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
               "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldLabelingPct",
-              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldActivationMeanSec"):
+              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldActivationMeanSec", "SimType_CellFieldZRangeUm"):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
     for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
@@ -180,6 +180,16 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
         "precomputed CellField stack differs after the stage went 1 mm away and back"
     assert any(f.std() > 3 for f in first), "precomputed CellField frames look empty"
     print(f"Precomputed CellField OK: 1000-frame stack in {gen_s:.1f} s, byte-identical after a 1 mm excursion")
+
+    # SimType_CellFieldZRangeUm is its own setting: a thin slab renders fewer
+    # dyes than the default 7 um one, 0 (no z limit) at least as many.
+    def mean_signal(zr):
+        core.setProperty(cam, "SimType_CellFieldZRangeUm", str(zr))
+        return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
+    thin, default, unlimited = mean_signal(0.2), mean_signal(7), mean_signal(0)
+    core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
+    assert thin < default <= unlimited + 1e-9, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
+    print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) <= {unlimited:.2f} ADU (no limit)")
 
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)

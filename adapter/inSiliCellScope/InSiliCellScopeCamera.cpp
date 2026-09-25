@@ -151,6 +151,7 @@ const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldLabelingPct",
    "SimType_CellFieldFocusHeightUm",
    "SimType_CellFieldActivationMeanSec",
+   "SimType_CellFieldZRangeUm",
 };
 const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
@@ -167,8 +168,9 @@ CInSiliCellScopeCamera::CInSiliCellScopeCamera()
    InitializeDefaultErrorMessages();
    thd_ = new SMLMSequenceThread(this);
 
-   // CellField defaults: the prototype's (spec/PORT.md 4.2), sparse labelling.
-   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 10.0, 1.5, 100.0 };
+   // CellField defaults: the prototype's (spec/PORT.md 4.2), sparse labelling,
+   // and a 7 um z slab around the focal plane (0 = every dye, no z limit).
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 10.0, 1.5, 100.0, 7.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
 
@@ -582,8 +584,8 @@ int CInSiliCellScopeCamera::Initialize()
    // CellField pattern (spec/PORT.md 9). The rest of the world's parameters
    // stay at the prototype defaults until someone needs them.
    {
-      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.1, 0.0, 0.1 };
-      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 100000.0 };
+      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.1, 0.0, 0.1, 0.0 };
+      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 100000.0, 50.0 };
       for (long i = 0; i < CF_COUNT; ++i)
       {
          CreateFloatProperty(g_PropCellFieldNumber[i], cellField_[i].load(), false,

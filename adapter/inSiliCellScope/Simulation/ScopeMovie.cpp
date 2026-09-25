@@ -46,7 +46,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wavelength-nm", 660, "emission wavelength (Gaussian sigma = 0.21 lambda / NA)" },
       { "na", 1.4, "numerical aperture" },
       { "focus-um", 1.5, "SimType_CellFieldFocusHeightUm" },
-      { "z-range-um", 7.0, "dyes within +/- z-range/2 of the focal plane are rendered (PSFParam_PsfZRangeUm)" },
+      { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
       { "activation-sec", 100, "SimType_CellFieldActivationMeanSec" },
       { "labeling-pct", 10, "SimType_CellFieldLabelingPct" },
       { "chunk-um", 26, "SimType_CellFieldChunkSizeUm" },
@@ -185,7 +185,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    q.y1Um = q.originYUm + H * um + margin;
    q.zRefUm = O("focus-um");
    q.zCullCentreUm = O("focus-um") - O("z");
-   q.zHalfRangeUm = std::max(0.5, O("z-range-um") / 2);
+   q.zHalfRangeUm = std::max(0.0, O("z-range-um")) / 2;
    q.frameSec = expSec;
    q.tSec = t0Sec;
    q.spanSec = N * expSec;

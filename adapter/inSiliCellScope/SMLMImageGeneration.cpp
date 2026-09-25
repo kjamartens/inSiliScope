@@ -231,8 +231,6 @@ namespace {
 // Dyes up to this far outside the FOV are still rendered: their PSF tails
 // reach in (spec/PORT.md 6.2; a few kernel half-widths of the in-focus core).
 constexpr double kCellFieldMarginUm = 2.0;
-// z slab kept around the focal plane when PsfZRangeUm is 0 (single plane).
-constexpr double kCellFieldMinZHalfRangeUm = 0.5;
 } // namespace
 
 sim::CellFieldSettings CInSiliCellScopeCamera::BuildCellFieldSettings() const
@@ -255,6 +253,20 @@ sim::CellFieldSettings CInSiliCellScopeCamera::BuildCellFieldSettings() const
    s.bleachProb = blinkBleachProb_.load();
    s.photonCV = photonCV_.load();
    return s;
+}
+
+std::string CInSiliCellScopeCamera::CellFieldZRangeWarning() const
+{
+   if (CurrentPsfModel() == sim::PsfModelKind::Gaussian)
+      return {};
+   const double slab = cellField_[CF_Z_RANGE_UM].load(), kernel = psfZRangeUm_.load();
+   if (slab > 0.0 && slab <= kernel)
+      return {};
+   std::ostringstream w;
+   w << "CellField: SimType_CellFieldZRangeUm (" << (slab > 0.0 ? std::to_string(slab) + " um" : "0 = no limit")
+     << ") exceeds PSFParam_PsfZRangeUm (" << kernel << " um): dyes beyond the kernel's range are drawn "
+     << "on its end plane. Lower the former or widen the latter.";
+   return w.str();
 }
 
 sim::CellFieldQuery CInSiliCellScopeCamera::CellFieldQueryFor(double stageX, double stageY, double zStageUm, unsigned w,
@@ -281,7 +293,9 @@ sim::CellFieldQuery CInSiliCellScopeCamera::CellFieldQueryFor(double stageX, dou
    const double focus = cellField_[CF_FOCUS_HEIGHT_UM].load();
    q.zRefUm = focus;
    q.zCullCentreUm = focus - zStageUm;
-   q.zHalfRangeUm = std::max(kCellFieldMinZHalfRangeUm, psfZRangeUm_.load() / 2.0);
+   // SimType_CellFieldZRangeUm: total slab around the focal plane whose dyes
+   // are rendered (0 = no z limit); dyes outside it are culled, not clamped.
+   q.zHalfRangeUm = std::max(0.0, cellField_[CF_Z_RANGE_UM].load()) / 2.0;
    q.frameIndex = frameIndex;
    q.tSec = tSec;
    q.spanSec = spanSec;
@@ -492,11 +506,17 @@ void CInSiliCellScopeCamera::StackGenerationWorker(long stackLength, unsigned fu
                                 params.pixelSizeNm, d1x, d1y);
       sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, stageZUm, fullW, fullH, params, 0.0, 0.0, d1x,
                                                 d1y, 0, 0.0, stackLength * params.frameDurationSec);
+      const std::string zWarn = CellFieldZRangeWarning();
+      if (!zWarn.empty())
+         LogMessage(zWarn, false);
       if (!source.Configure(cellField, err) || !source.Events(q, events))
          LogMessage("CellField: no events (" + (err.empty() ? std::string("core query failed") : err) + ")", false);
       std::ostringstream msg;
       msg << "CellField: " << events.size() << " blinks for " << stackLength << " frames at stage (" << stageXUm
-          << ", " << stageYUm << ") um, dyes within +/-" << q.zHalfRangeUm << " um of the focal plane ("
+          << ", " << stageYUm << ") um, dyes "
+          << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
+                                 : std::string("at any z"))
+          << " ("
           << std::fixed << std::setprecision(2)
           << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
       LogMessage(msg.str());
@@ -892,6 +912,9 @@ void CInSiliCellScopeCamera::LiveProducerLoop()
             cellFieldOk = cellField.Configure(BuildCellFieldSettings(), err);
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
+            const std::string zWarn = CellFieldZRangeWarning();
+            if (!zWarn.empty())
+               LogMessage(zWarn, false);
             if (outOfFocusRatio_.load() > 0.0)
                LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit "
                           "at their own depths).", false);
