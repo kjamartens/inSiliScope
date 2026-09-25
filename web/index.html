@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cell field viewer</title>
+<style>
+  html,body{margin:0;padding:0;background:#0c0f14;color:#dfe6ee;font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
+  #wrap{display:grid;grid-template-columns:300px 1fr;height:100vh}
+  #side{padding:12px;overflow-y:auto;background:#11161d;border-right:1px solid #232a35;box-sizing:border-box}
+  #side h1{font-size:15px;margin:0 0 4px}
+  #side p.sub{font-size:11px;color:#8b97a8;margin:0 0 14px;line-height:1.4}
+  label.row{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
+  input[type=number],input[type=text]{width:70px;background:#1a212b;border:1px solid #2c3644;color:#dfe6ee;border-radius:4px;padding:3px 5px;font-size:12px;font-family:inherit}
+  input[type=range]{width:110px}
+  button{background:#1a212b;border:1px solid #2c3644;color:#dfe6ee;border-radius:4px;padding:5px 8px;font-size:12px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:#4a90d9}
+  fieldset{border:1px solid #232a35;border-radius:6px;margin:10px 0;padding:8px}
+  legend{font-size:11px;color:#8b97a8;padding:0 4px}
+  .pair{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
+  .pair span.k{flex:1}
+  .pair input{width:56px}
+  #canvasHost{position:relative}
+  canvas{display:block;cursor:grab}
+  canvas.dragging{cursor:grabbing}
+  /* Three stacked layers, all the same pixel size: #cvBase (grid + microtubules, 2D), #cvGl (cell bodies, WebGL2),
+     #cv (nuclei + scale bar, 2D, the interactive one). #cvGl/#cvBase are display:none when WebGL2 is unavailable. */
+  #cvBase{position:absolute;top:0;left:0;background:#05070a;pointer-events:none;z-index:0}
+  #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
+  #cv{position:relative;z-index:2;background:transparent}
+  #hud,#legend{z-index:3}
+  #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:8px 10px;line-height:1.5;pointer-events:none;white-space:pre}
+  #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>Cell field viewer</h1>
+    <p class="sub">The insilicell world model (C++ core, compiled to WASM, run in
+    Web Workers). Every cell, microtubule and dye is a pure function of
+    (seed, address): pan anywhere and come back to the same structure. Cells are
+    packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager
+    adapter images. The JS prototype this was ported from is in
+    <a href="prototype/index.html" style="color:#8bb8e8">prototype/</a>.</p>
+
+    <fieldset>
+      <legend>3D view</legend>
+      <label class="row">Tilt (deg) <input type="range" id="tiltDeg" min="0" max="75" step="1" value="0"><span id="tiltDegVal"></span></label>
+      <label class="row">Show cytoplasm <input type="checkbox" id="showCyto" checked></label>
+      <label class="row">Show nucleus <input type="checkbox" id="showNucleus" checked></label>
+      <label class="row">Show microtubules <input type="checkbox" id="showMt" checked></label>
+      <label class="row">Show chunk grid <input type="checkbox" id="showGrid"></label>
+      <label class="row"><button id="resetView" style="width:100%">Reset view to origin</button></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>seed / world</legend>
+      <label class="row">Seed <input type="number" id="seed" value="1249" step="1"></label>
+      <label class="row"><button id="reseed" style="width:100%">Randomize seed</button></label>
+      <label class="row">Chunk size (µm) <input type="number" id="chunkSize" value="26" min="4" max="200" step="1"></label>
+      <label class="row">Cell jitter <input type="range" id="jitter" min="0.1" max="1" step="0.02" value="0.8"><span id="jitterVal"></span></label>
+      <label class="row">Density (occupancy) <input type="range" id="density" min="0.05" max="1" step="0.01" value="0.33"><span id="densityVal"></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>cell shape (µm, footprint)</legend>
+      <div class="pair"><span class="k">Diameter min/max</span><input type="number" id="cellDiamMin" value="25" step="0.5"><input type="number" id="cellDiamMax" value="35" step="0.5"></div>
+      <div class="pair"><span class="k">Elongation (short/long) min/max</span><input type="number" id="cellElongMin" value="0.5" step="0.05"><input type="number" id="cellElongMax" value="1" step="0.05"></div>
+      <label class="row">Outline blobbiness <input type="range" id="cellBlob" min="0" max="4" step="0.05" value="1.75"><span id="cellBlobVal"></span></label>
+      <div class="pair"><span class="k">Height min/max</span><input type="number" id="cellHeightMin" value="3" step="0.5"><input type="number" id="cellHeightMax" value="6" step="0.5"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>nucleus (3D ellipsoid, µm)</legend>
+      <div class="pair"><span class="k">Long axis min/max</span><input type="number" id="nucLongMin" value="8" step="0.5"><input type="number" id="nucLongMax" value="12" step="0.5"></div>
+      <div class="pair"><span class="k">Short/long ratio min/max</span><input type="number" id="nucRatioMin" value="0.6" step="0.05"><input type="number" id="nucRatioMax" value="1" step="0.05"></div>
+      <div class="pair"><span class="k">Height (× long axis) min/max</span><input type="number" id="nucHeightMin" value="0.3" step="0.05"><input type="number" id="nucHeightMax" value="0.5" step="0.05"></div>
+      <label class="row">Offset from cell centre <input type="range" id="nucOffsetFrac" min="0" max="1" step="0.02" value="0.1"><span id="nucOffsetFracVal"></span></label>
+      <label class="row">Cell margin around nucleus (µm) <input type="range" id="nucMargin" min="0.1" max="1.5" step="0.1" value="0.6"><span id="nucMarginVal"></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>cytoplasm height (µm, per-cell min/max)</legend>
+      <div class="pair"><span class="k">Rim height min/max</span><input type="number" id="cytoRimHeightMin" value="0.1" step="0.1"><input type="number" id="cytoRimHeightMax" value="0.3" step="0.1"></div>
+      <div class="pair"><span class="k">Edge rise distance min/max</span><input type="number" id="cytoEdgeRiseMin" value="0.1" step="0.05"><input type="number" id="cytoEdgeRiseMax" value="0.5" step="0.05"></div>
+      <div class="pair"><span class="k">Mid height min/max</span><input type="number" id="cytoMidHeightMin" value="1" step="0.05"><input type="number" id="cytoMidHeightMax" value="2" step="0.05"></div>
+      <div class="pair"><span class="k">Dist. from nucleus for mid height min/max (× cell radius)</span><input type="number" id="cytoMidDistanceMin" value="0.1" step="0.05"><input type="number" id="cytoMidDistanceMax" value="0.3" step="0.05"></div>
+      <label class="row">Contour interval <input type="range" id="cytoContourStep" min="0.1" max="1" step="0.05" value="0.25"><span id="cytoContourStepVal"></span></label>
+      <label class="row" title="Max rise of the cytoplasm surface per µm outside the dome (saturating from the edge). 0 = off. Cells grow to make room.">Cytoplasm slope cap <input type="range" id="cytoMaxSlope" min="0" max="2" step="0.05" value="1"><span id="cytoMaxSlopeVal"></span></label>
+      <label class="row" title="Max slope of the dome flank over the nucleus. 0 = off (flank spans only the nucleus margin). Lower = rounder dome but bigger cells.">Nucleus dome slope cap <input type="range" id="cytoDomeSlope" min="0" max="4" step="0.1" value="3"><span id="cytoDomeSlopeVal"></span></label>
+      <label class="row">Smoothing passes <input type="range" id="cytoSmoothPasses" min="0" max="12" step="1" value="12"><span id="cytoSmoothPassesVal"></span></label>
+      <label class="row">Mesh rings <input type="range" id="cytoRings" min="4" max="60" step="1" value="60"><span id="cytoRingsVal"></span></label>
+      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="128" step="4" value="128"><span id="cytoThetaVal"></span></label>
+      <label class="row">Show contour lines <input type="checkbox" id="showCytoContours"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>packing — cells move, rotate, or get removed if still stuck</legend>
+      <label class="row">Enable packing <input type="checkbox" id="enablePacking" checked></label>
+      <label class="row">Allow rotation <input type="checkbox" id="allowPackRotation" checked></label>
+      <label class="row">Min gap (× combined radius) <input type="range" id="packFrac" min="0.6" max="1.1" step="0.02" value="1.00"><span id="packFracVal"></span></label>
+      <label class="row">Relaxation iterations <input type="range" id="relaxIters" min="4" max="150" step="1" value="80"><span id="relaxItersVal"></span></label>
+      <label class="row">Relaxation step <input type="range" id="relaxDamping" min="0.1" max="1" step="0.05" value="0.55"><span id="relaxDampingVal"></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>microtubules (µm, per cell)</legend>
+      <label class="row">Density (per µm²) <input type="range" id="mtDensity" min="0" max="2" step="0.005" value="0.9"><span id="mtDensityVal"></span></label>
+      <div class="pair"><span class="k">Start offset from nucleus edge (× cell radius) min/max</span><input type="number" id="mtStartFracMin" value="0" min="0" max="1" step="0.01"><input type="number" id="mtStartFracMax" value="0.3" min="0" max="1" step="0.01"></div>
+      <label class="row">Start position XY jitter (µm) <input type="range" id="mtStartOffsetXY" min="0" max="2" step="0.05" value="0"><span id="mtStartOffsetXYVal"></span></label>
+      <div class="pair"><span class="k">End offset from cell edge (× cell radius) min/max</span><input type="number" id="mtEndFracMin" value="0.01" min="0" max="1" step="0.01"><input type="number" id="mtEndFracMax" value="0.4" min="0" max="1" step="0.01"></div>
+      <label class="row">End direction jitter (deg) <input type="range" id="mtEndJitterDeg" min="0" max="180" step="1" value="145"><span id="mtEndJitterDegVal"></span></label>
+      <label class="row">Wobble turn strength <input type="range" id="mtWobbleTurn" min="0" max="3" step="0.05" value="0.8"><span id="mtWobbleTurnVal"></span></label>
+      <label class="row">Wobble path length × <input type="range" id="mtWobbleFactor" min="0.9" max="1.3" step="0.01" value="1.05"><span id="mtWobbleFactorVal"></span></label>
+      <label class="row">Line thickness (µm) <input type="range" id="mtLineWidth" min="0.02" max="0.5" step="0.01" value="0.02"><span id="mtLineWidthVal"></span></label>
+      <label class="row">Step length (µm) <input type="range" id="mtStepLen" min="0.05" max="1" step="0.01" value="0.05"><span id="mtStepLenVal"></span></label>
+      <label class="row">Path smoothing (µm) <input type="range" id="mtSmoothLen" min="1" max="10" step="0.5" value="1.5"><span id="mtSmoothLenVal"></span></label>
+      <label class="row">Min turn radius (µm) <input type="range" id="mtMinTurnRadius" min="0" max="2" step="0.01" value="0.15"><span id="mtMinTurnRadiusVal"></span></label>
+      <label class="row">Min separation (µm) <input type="range" id="mtMinSeparation" min="0" max="0.5" step="0.01" value="0.05"><span id="mtMinSeparationVal"></span></label>
+      <label class="row">Max height slope (×xy) <input type="range" id="mtMaxZSlope" min="1" max="20" step="0.5" value="5"><span id="mtMaxZSlopeVal"></span></label>
+      <label class="row">Show dyes (zoom in) <input type="checkbox" id="showDyes"></label>
+      <label class="row">Labelling efficiency <input type="range" id="labelEfficiency" min="0.005" max="1" step="0.005" value="0.1"><span id="labelEfficiencyVal"></span></label>
+    </fieldset>
+
+
+    <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion
+    case for the SMLMDemoCam adapter: the field does not move, the viewport (camera
+    FOV) does, and the same world coordinate always re-derives the same structure.
+    Packing moves and turns overlapping cells apart (never shrinks them) and drops a
+    cell still stuck after relaxation. Dyes are the real labelled sites of the core
+    (13_3 lattice, binder + linker), shown once zoomed in.</p>
+  </div>
+
+  <div id="canvasHost">
+    <canvas id="cvBase"></canvas>
+    <canvas id="cvGl"></canvas>
+    <canvas id="cv"></canvas>
+    <div id="hud"></div>
+    <div id="legend">
+      <span class="sw" style="background:#5aa9e6"></span>cell body
+      <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
+      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
+      <span class="sw" style="background:#ff4d4d;margin-left:10px"></span>dye
+      <span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid
+    </div>
+  </div>
+</div>
+
+<script src="insilicell_module.js"></script>
+<script id="mainScript">
+'use strict';
+
+// ---- drawing helpers (the generator itself is the WASM core) ----------------
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+// Deliberately echoes the "colour by depth (z)" convention used elsewhere in
+// this project's own reference imagery -- makes the nucleus's 3D-ness legible
+// at a glance instead of just being a flat-shaded blob.
+const DEPTH_STOPS = [[0.15, 0.25, 0.9], [0.1, 0.75, 0.85], [0.25, 0.8, 0.25], [0.95, 0.85, 0.15], [0.9, 0.2, 0.15]];
+function depthRGB(z, zmin, zmax) {
+  const t = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0.5;
+  const f = Math.min(0.9999, Math.max(0, t)) * (DEPTH_STOPS.length - 1);
+  const i = Math.floor(f), frac = f - i;
+  const a = DEPTH_STOPS[i], b = DEPTH_STOPS[Math.min(DEPTH_STOPS.length - 1, i + 1)];
+  return [lerp(a[0], b[0], frac) * 255, lerp(a[1], b[1], frac) * 255, lerp(a[2], b[2], frac) * 255];
+}
+function depthColor(z, zmin, zmax, alpha) {
+  const [r, g, bl] = depthRGB(z, zmin, zmax);
+  return `rgba(${r | 0},${g | 0},${bl | 0},${alpha})`;
+}
+
+// Standard marching squares, generalised to the polar (ring, theta-index)
+// mesh above: theta wraps around (i+1 mod n), ring does not. Returns
+// segments in whatever frame the mesh itself is in (local, per
+// buildCytoMesh) with z = the iso-level (contour height) -- the caller
+// translates by c.x,c.y before projecting.
+function marchingSquaresContours(mesh, levels) {
+  const { rings, n, grid } = mesh;
+  const segs = [];
+  for (let k = 0; k < rings; k++) {
+    for (let i = 0; i < n; i++) {
+      const i2 = (i + 1) % n;
+      const p00 = grid[k][i], p10 = grid[k][i2], p11 = grid[k + 1][i2], p01 = grid[k + 1][i];
+      const edges = [[p00, p10], [p10, p11], [p11, p01], [p01, p00]];
+      for (const lvl of levels) {
+        const pts = [];
+        for (const [a, b] of edges) {
+          if ((a.h - lvl) * (b.h - lvl) < 0) {
+            const t = (lvl - a.h) / (b.h - a.h);
+            pts.push([a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t]);
+          }
+        }
+        if (pts.length === 2) segs.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], z: lvl });
+      }
+    }
+  }
+  return segs;
+}
+
+// ---- viewer -----------------------------------------------------------------
+const cv = document.getElementById('cv');
+const cvBase = document.getElementById('cvBase'), cvGl = document.getElementById('cvGl');
+const ctxTop = cv.getContext('2d');
+const ctxBase = cvBase.getContext('2d');
+let ctx = ctxTop; // the layer the shared helpers (drawScaleBar, drawMtLabels, ...) currently paint on
+const hud = document.getElementById('hud');
+const host = document.getElementById('canvasHost');
+
+const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px per um
+
+const els = {};
+['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
+ 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal',
+ 'cellHeightMin', 'cellHeightMax',
+ 'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
+ 'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
+ 'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
+ 'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
+ 'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoSmoothPasses', 'cytoSmoothPassesVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
+ 'enablePacking', 'allowPackRotation', 'packFrac', 'packFracVal', 'relaxIters', 'relaxItersVal', 'relaxDamping', 'relaxDampingVal',
+ 'mtDensity', 'mtDensityVal', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtStartOffsetXYVal',
+ 'mtEndFracMin', 'mtEndFracMax',
+ 'mtEndJitterDeg', 'mtEndJitterDegVal', 'mtWobbleTurn', 'mtWobbleTurnVal',
+ 'mtWobbleFactor', 'mtWobbleFactorVal', 'mtLineWidth', 'mtLineWidthVal', 'mtStepLen', 'mtStepLenVal', 'mtSmoothLen', 'mtSmoothLenVal',
+ 'mtMinTurnRadius', 'mtMinTurnRadiusVal',
+ 'mtMinSeparation', 'mtMinSeparationVal',
+ 'mtMaxZSlope', 'mtMaxZSlopeVal',
+ 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'tiltDeg', 'tiltDegVal', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
+  .forEach(id => { els[id] = document.getElementById(id); });
+
+function params() {
+  return {
+    chunkSize: +els.chunkSize.value,
+    jitter: +els.jitter.value,
+    density: +els.density.value,
+    cellDiamMin: +els.cellDiamMin.value,
+    cellDiamMax: Math.max(+els.cellDiamMin.value, +els.cellDiamMax.value),
+    cellElongMin: +els.cellElongMin.value,
+    cellElongMax: Math.max(+els.cellElongMin.value, +els.cellElongMax.value),
+    cellBlob: +els.cellBlob.value,
+    cellHeightMin: +els.cellHeightMin.value,
+    cellHeightMax: Math.max(+els.cellHeightMin.value, +els.cellHeightMax.value),
+    nucLongMin: +els.nucLongMin.value,
+    nucLongMax: Math.max(+els.nucLongMin.value, +els.nucLongMax.value),
+    nucRatioMin: +els.nucRatioMin.value,
+    nucRatioMax: Math.max(+els.nucRatioMin.value, +els.nucRatioMax.value),
+    nucHeightMin: +els.nucHeightMin.value,
+    nucHeightMax: Math.max(+els.nucHeightMin.value, +els.nucHeightMax.value),
+    nucOffsetFrac: +els.nucOffsetFrac.value,
+    nucMargin: +els.nucMargin.value,
+    cytoRimHeightMin: +els.cytoRimHeightMin.value,
+    cytoRimHeightMax: Math.max(+els.cytoRimHeightMin.value, +els.cytoRimHeightMax.value),
+    cytoEdgeRiseMin: +els.cytoEdgeRiseMin.value,
+    cytoEdgeRiseMax: Math.max(+els.cytoEdgeRiseMin.value, +els.cytoEdgeRiseMax.value),
+    cytoMidHeightMin: +els.cytoMidHeightMin.value,
+    cytoMidHeightMax: Math.max(+els.cytoMidHeightMin.value, +els.cytoMidHeightMax.value),
+    cytoMidDistanceMin: +els.cytoMidDistanceMin.value,
+    cytoMidDistanceMax: Math.max(+els.cytoMidDistanceMin.value, +els.cytoMidDistanceMax.value),
+    cytoContourStep: +els.cytoContourStep.value,
+    cytoMaxSlope: +els.cytoMaxSlope.value, // um/um: cytoplasm slope cap; 0 = off
+    cytoDomeSlope: +els.cytoDomeSlope.value, // um/um: slope cap of the dome flank over the nucleus; 0 = off (flank spans nucMargin only)
+    cytoSmoothPasses: +els.cytoSmoothPasses.value,
+    cytoRings: +els.cytoRings.value,
+    cytoTheta: +els.cytoTheta.value,
+    showCytoContours: els.showCytoContours.checked,
+    enablePacking: els.enablePacking.checked,
+    allowPackRotation: els.allowPackRotation.checked,
+    packFrac: +els.packFrac.value,
+    relaxIters: +els.relaxIters.value,
+    relaxDamping: +els.relaxDamping.value,
+    mtDensity: +els.mtDensity.value,
+    mtStartFracMin: +els.mtStartFracMin.value,
+    mtStartFracMax: Math.max(+els.mtStartFracMin.value, +els.mtStartFracMax.value),
+    mtStartOffsetXY: +els.mtStartOffsetXY.value,
+    mtEndFracMin: +els.mtEndFracMin.value,
+    mtEndFracMax: Math.max(+els.mtEndFracMin.value, +els.mtEndFracMax.value),
+    mtEndJitterDeg: +els.mtEndJitterDeg.value,
+    mtWobbleTurn: +els.mtWobbleTurn.value,
+    mtWobbleFactor: Math.max(1, +els.mtWobbleFactor.value),
+    mtLineWidth: Math.max(0.001, +els.mtLineWidth.value),
+    mtStepLen: Math.max(0.02, +els.mtStepLen.value),
+    mtSmoothLen: Math.max(0, +els.mtSmoothLen.value),
+    mtMinTurnRadius: Math.max(0, +els.mtMinTurnRadius.value),
+    mtMinSeparation: +els.mtMinSeparation.value,
+    mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
+    labelEfficiency: +els.labelEfficiency.value,
+  };
+}
+
+function resizeCanvas() {
+  const r = host.getBoundingClientRect();
+  cv.width = Math.round(r.width * devicePixelRatio);
+  cv.height = Math.round(r.height * devicePixelRatio);
+  cv.style.width = r.width + 'px';
+  cv.style.height = r.height + 'px';
+  for (const c of [cvBase, cvGl]) {
+    c.width = cv.width; c.height = cv.height;
+    c.style.width = cv.style.width; c.style.height = cv.style.height;
+  }
+  requestDraw();
+}
+
+// Simple oblique projection: x is unaffected by tilt, y is foreshortened by
+// cos(tilt) and z lifts the point on screen by sin(tilt) -- tilt=0 reduces
+// exactly to the original pure top-down view (cos=1, sin=0), tilt>0 reveals
+// height (cell body extrusion, nucleus ellipsoid) the way an isometric-ish
+// camera looking down at an angle would. No azimuth rotation, deliberately
+// kept to the minimum needed to make "in 3D" legible.
+function project(x, y, z) {
+  const dpr = devicePixelRatio;
+  const sx = cv.width / 2 + (x - view.cx) * view.scale * dpr;
+  const sy = cv.height / 2 + ((y - view.cy) * Math.cos(view.tiltRad) - z * Math.sin(view.tiltRad)) * view.scale * dpr;
+  return [sx, sy];
+}
+
+// Scale bar: picks a "nice" round length (1-2-5 sequence) that renders at
+// roughly TARGET_PX on screen at the current zoom, drawn bottom-right in
+// fixed screen space (untouched by pan/tilt). Uses the x-axis pixel scale
+// specifically -- project()'s x mapping is pure view.scale*dpr regardless of
+// tilt (only y is foreshortened by cos(tilt)), so a horizontal bar stays
+// metrically correct at any tilt.
+const SCALE_NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+function drawScaleBar(pxPerUm) {
+  const targetPx = 140 * devicePixelRatio;
+  let chosen = SCALE_NICE[0];
+  for (const v of SCALE_NICE) { if (v * pxPerUm <= targetPx) chosen = v; else break; }
+  const barPx = chosen * pxPerUm;
+  const m = 18 * devicePixelRatio;
+  const y = cv.height - m;
+  const x2 = cv.width - m, x1 = x2 - barPx;
+  const tick = 5 * devicePixelRatio;
+
+  ctx.strokeStyle = '#dfe6ee';
+  ctx.lineWidth = Math.max(2, 2 * devicePixelRatio);
+  ctx.beginPath();
+  ctx.moveTo(x1, y); ctx.lineTo(x2, y);
+  ctx.moveTo(x1, y - tick); ctx.lineTo(x1, y + tick);
+  ctx.moveTo(x2, y - tick); ctx.lineTo(x2, y + tick);
+  ctx.stroke();
+
+  ctx.fillStyle = '#dfe6ee';
+  ctx.font = `${12 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`${chosen} µm`, (x1 + x2) / 2, y - tick - 4 * devicePixelRatio);
+}
+
+function polyPath(pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+}
+
+// Rotates a point out of the cell's cached LOCAL frame (the frame every
+// cell mesh/outline (from the core) is built in, independent of the
+// cell's actual position -- see cellOutlineLocal's own comment) into world
+// space by the packing-only c.packRot, then translates by c.x,c.y. Applying
+// the rotation here at draw time, rather than baking it into the cached
+// local geometry, is what lets relax() turn a cell every iteration without
+// invalidating the per-cell asset cache.
+function localToWorld(c, lx, ly) {
+  const rot = c.packRot || 0;
+  if (!rot) return [c.x + lx, c.y + ly];
+  const cr = Math.cos(rot), sr = Math.sin(rot);
+  return [c.x + lx * cr - ly * sr, c.y + lx * sr + ly * cr];
+}
+
+// ---- per-cell mesh render cache + WebGL2 cell-body layer ---------------------
+// draw() runs on every pan/zoom event, so nothing here may redo work that a
+// pan/zoom cannot change. Everything below hangs off the asset's `entry`
+// (one per chunk, dropped by clearCytoCache): flat typed-array copy of the mesh
+// (`render`), its depth-sorted quad order (only depends on tilt + packRot, both
+// constant during a drag -- the sort key's translation term is the same for every
+// quad, so it never enters it), cached contour segments, and the GPU buffers.
+function getMeshRender(entry, c) {
+  let r = entry.render;
+  if (r) return r;
+  const { rings, n, grid } = entry.mesh;
+  const nv = (rings + 1) * n, nq = rings * n;
+  r = {
+    nv, nq, n, rings,
+    lx: new Float32Array(nv), ly: new Float32Array(nv), h: new Float32Array(nv),
+    qidx: new Uint32Array(nq * 4), qcol: new Array(nq), qavgH: new Float32Array(nq),
+    sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords
+    order: null, orderKey: '',
+  };
+  for (let k = 0; k <= rings; k++) for (let i = 0; i < n; i++) {
+    const v = k * n + i, pt = grid[k][i];
+    r.lx[v] = pt.x; r.ly[v] = pt.y; r.h[v] = pt.h;
+  }
+  for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
+    const q = k * n + i, i2 = (i + 1) % n, b = q * 4;
+    const a = k * n + i, bb = k * n + i2, cc = (k + 1) * n + i2, d = (k + 1) * n + i;
+    r.qidx[b] = a; r.qidx[b + 1] = bb; r.qidx[b + 2] = cc; r.qidx[b + 3] = d;
+    const avgH = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
+    r.qavgH[q] = avgH;
+    r.qcol[q] = depthColor(avgH, 0, c.height, 0.6);
+  }
+  entry.render = r;
+  return r;
+}
+
+// Back-to-front order (see the note this replaced: no z-buffer anywhere, so quads
+// are painted farthest first). Depth is y*sin(tilt) + z*cos(tilt); the cell's own
+// world y adds the same constant to every quad, so only the packRot-rotated
+// local y and the height matter.
+function ensureQuadOrder(r, c, sinT, cosT) {
+  const rot = c.packRot || 0;
+  const key = sinT.toFixed(6) + '|' + rot;
+  if (r.orderKey === key) return;
+  const cr = Math.cos(rot), sr = Math.sin(rot);
+  const depth = new Float32Array(r.nq);
+  const { lx, ly, qidx } = r;
+  for (let q = 0; q < r.nq; q++) {
+    const b = q * 4;
+    let wy = 0;
+    for (let j = 0; j < 4; j++) { const v = qidx[b + j]; wy += lx[v] * sr + ly[v] * cr; }
+    depth[q] = (wy / 4) * sinT + r.qavgH[q] * cosT;
+  }
+  const idx = new Uint32Array(r.nq);
+  for (let q = 0; q < r.nq; q++) idx[q] = q;
+  idx.sort((a, b) => depth[a] - depth[b]);
+  r.order = idx; r.orderKey = key;
+}
+
+// Marching-squares segments depend only on the mesh + step, so they are cached
+// (local frame, flat x1,y1,x2,y2,z) and merely transformed per frame.
+function getContourSegs(entry, step) {
+  if (entry.contours && entry.contours.step === step) return entry.contours.segs;
+  const { grid } = entry.mesh;
+  let maxH = 0;
+  for (const row of grid) for (const pt of row) if (pt.h > maxH) maxH = pt.h;
+  const levels = [];
+  for (let lvl = step; lvl < maxH; lvl += step) levels.push(lvl);
+  const raw = marchingSquaresContours(entry.mesh, levels);
+  const segs = new Float32Array(raw.length * 5);
+  raw.forEach((s, i) => { segs[i * 5] = s.x1; segs[i * 5 + 1] = s.y1; segs[i * 5 + 2] = s.x2; segs[i * 5 + 3] = s.y2; segs[i * 5 + 4] = s.z; });
+  entry.contours = { step, segs };
+  return segs;
+}
+
+// Screen transform of one cell's local-frame point, inlined (the old per-point
+// localToWorld()+project() allocated two arrays per call).
+function cellXform(c) {
+  const rot = c.packRot || 0, S = view.scale * devicePixelRatio;
+  return {
+    cr: Math.cos(rot), sr: Math.sin(rot), S,
+    ox: cv.width / 2 + (c.x - view.cx) * S, oy: c.y - view.cy,
+    H2: cv.height / 2, sinT: Math.sin(view.tiltRad), cosT: Math.cos(view.tiltRad),
+  };
+}
+
+function cellVisible(c) {
+  const S = view.scale * devicePixelRatio, cosT = Math.cos(view.tiltRad);
+  const sx = cv.width / 2 + (c.x - view.cx) * S, sy = cv.height / 2 + (c.y - view.cy) * cosT * S;
+  const r = (c.rOuter + c.height + 1) * S; // rOuter bounds the outline; height lifts it on screen when tilted
+  return sx + r >= 0 && sx - r <= cv.width && sy + r >= 0 && sy - r <= cv.height;
+}
+
+// Faint z=0 footprint outline; the caller batches every cell into one path.
+function addOutlinePath(c, entry) {
+  const t = cellXform(c), lo = entry.localOutline;
+  for (let i = 0; i < lo.length; i++) {
+    const lx = lo[i][0], ly = lo[i][1];
+    const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
+    const sy = t.H2 + (t.oy + lx * t.sr + ly * t.cr) * t.cosT * t.S;
+    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  }
+  ctx.closePath();
+}
+
+function addContourPath(c, entry, step) {
+  const segs = getContourSegs(entry, step), t = cellXform(c);
+  for (let i = 0; i < segs.length; i += 5) {
+    const z = segs[i + 4];
+    for (let e = 0; e < 2; e++) {
+      const lx = segs[i + e * 2], ly = segs[i + e * 2 + 1];
+      const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
+      const sy = t.H2 + ((t.oy + lx * t.sr + ly * t.cr) * t.cosT - z * t.sinT) * t.S;
+      if (e === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    }
+  }
+}
+
+// 2D fallback: height-mapped surface, one filled quad per (ring, theta) cell in
+// the cached depth order, screen coords computed once per VERTEX (not per quad).
+function drawCellBody2D(c, entry) {
+  const r = getMeshRender(entry, c), t = cellXform(c);
+  ensureQuadOrder(r, c, t.sinT, t.cosT);
+  const { lx, ly, h, sx, sy, qidx, qcol, order } = r;
+  for (let v = 0; v < r.nv; v++) {
+    const x = lx[v], y = ly[v];
+    sx[v] = t.ox + (x * t.cr - y * t.sr) * t.S;
+    sy[v] = t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - h[v] * t.sinT) * t.S;
+  }
+  let last = null;
+  for (let j = 0; j < order.length; j++) {
+    const q = order[j], b = q * 4;
+    const col = qcol[q];
+    if (col !== last) { ctx.fillStyle = col; last = col; }
+    ctx.beginPath();
+    ctx.moveTo(sx[qidx[b]], sy[qidx[b]]);
+    ctx.lineTo(sx[qidx[b + 1]], sy[qidx[b + 1]]);
+    ctx.lineTo(sx[qidx[b + 2]], sy[qidx[b + 2]]);
+    ctx.lineTo(sx[qidx[b + 3]], sy[qidx[b + 3]]);
+    ctx.fill();
+  }
+}
+
+// ---- WebGL2 cell-body layer (#cvGl) ------------------------------------------
+// The same shaded mesh, drawn on the GPU: static vertex buffer per cell
+// (local x,y,height + depth colour), an index buffer in the cached back-to-front
+// order (re-uploaded only when tilt/packRot change), alpha-blended in that order so
+// the look matches the painter's-algorithm 2D path. Pan/zoom only change uniforms.
+// Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
+let gl = null, useGl = false, glProg = null, glU = null;
+const GL_VS = `#version 300 es
+in vec3 a_pos; in vec4 a_col;
+uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale;
+out vec4 v_col;
+void main() {
+  vec2 w = vec2(a_pos.x * u_rot.x - a_pos.y * u_rot.y, a_pos.x * u_rot.y + a_pos.y * u_rot.x) + u_off;
+  float sx = u_canvas.x * 0.5 + w.x * u_scale;
+  float sy = u_canvas.y * 0.5 + (w.y * u_tilt.y - a_pos.z * u_tilt.x) * u_scale;
+  gl_Position = vec4(sx / u_canvas.x * 2.0 - 1.0, 1.0 - sy / u_canvas.y * 2.0, 0.0, 1.0);
+  v_col = a_col;
+}`;
+const GL_FS = `#version 300 es
+precision mediump float;
+in vec4 v_col; out vec4 o;
+void main() { o = vec4(v_col.rgb * v_col.a, v_col.a); }`; // premultiplied
+function setLayerMode(gpu) {
+  useGl = gpu;
+  cvGl.style.display = gpu ? 'block' : 'none';
+  cvBase.style.display = gpu ? 'block' : 'none';
+  cv.style.background = gpu ? 'transparent' : '#05070a';
+  ctx = ctxTop;
+}
+function initGl() {
+  try { gl = cvGl.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false }); } catch (e) { gl = null; }
+  if (!gl) return false;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
+  const vs = sh(gl.VERTEX_SHADER, GL_VS), fs = sh(gl.FRAGMENT_SHADER, GL_FS);
+  if (!vs || !fs) return false;
+  glProg = gl.createProgram();
+  gl.attachShader(glProg, vs); gl.attachShader(glProg, fs);
+  gl.bindAttribLocation(glProg, 0, 'a_pos'); gl.bindAttribLocation(glProg, 1, 'a_col');
+  gl.linkProgram(glProg);
+  if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) return false;
+  glU = {};
+  for (const n of ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale']) glU[n] = gl.getUniformLocation(glProg, n);
+  cvGl.addEventListener('webglcontextlost', e => {
+    e.preventDefault();
+    for (const a of assets.values()) if (a.entry) a.entry.gl = null; // buffers died with the context
+    setLayerMode(false); requestDraw();
+  });
+  return true;
+}
+function freeMeshGl(entry) {
+  const g = entry.gl;
+  if (!g) return;
+  entry.gl = null;
+  if (!gl || gl.isContextLost()) return;
+  gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); gl.deleteVertexArray(g.vao);
+}
+function ensureMeshGl(entry, c) {
+  const r = getMeshRender(entry, c);
+  const t = cellXform(c);
+  ensureQuadOrder(r, c, t.sinT, t.cosT);
+  let g = entry.gl;
+  if (!g) {
+    g = entry.gl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), nIdx: 0, orderKey: '' };
+    const buf = new ArrayBuffer(r.nv * 16), f = new Float32Array(buf), u8 = new Uint8Array(buf);
+    const alpha = Math.round(0.6 * 255);
+    for (let v = 0; v < r.nv; v++) {
+      f[v * 4] = r.lx[v]; f[v * 4 + 1] = r.ly[v]; f[v * 4 + 2] = r.h[v];
+      const [R, G, B] = depthRGB(r.h[v], 0, c.height);
+      u8[v * 16 + 12] = R; u8[v * 16 + 13] = G; u8[v * 16 + 14] = B; u8[v * 16 + 15] = alpha;
+    }
+    gl.bindVertexArray(g.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 16, 12);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
+  }
+  if (g.orderKey !== r.orderKey) {
+    const idx = new Uint32Array(r.nq * 6), { order, qidx } = r;
+    for (let j = 0; j < r.nq; j++) {
+      const b = order[j] * 4, o = j * 6;
+      idx[o] = qidx[b]; idx[o + 1] = qidx[b + 1]; idx[o + 2] = qidx[b + 2];
+      idx[o + 3] = qidx[b]; idx[o + 4] = qidx[b + 2]; idx[o + 5] = qidx[b + 3];
+    }
+    gl.bindVertexArray(g.vao);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.DYNAMIC_DRAW);
+    g.nIdx = idx.length; g.orderKey = r.orderKey;
+  }
+  return g;
+}
+function drawBodiesGl(cells, p) {
+  const W = cvGl.width, H = cvGl.height, S = view.scale * devicePixelRatio;
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // premultiplied over
+  gl.useProgram(glProg);
+  gl.uniform2f(glU.u_canvas, W, H);
+  gl.uniform1f(glU.u_scale, S);
+  gl.uniform2f(glU.u_tilt, Math.sin(view.tiltRad), Math.cos(view.tiltRad));
+  for (const { cell: c, asset } of cells) {
+    const g = ensureMeshGl(asset.entry, c);
+    const rot = c.packRot || 0;
+    gl.uniform2f(glU.u_off, c.x - view.cx, c.y - view.cy);
+    gl.uniform2f(glU.u_rot, Math.cos(rot), Math.sin(rot));
+    gl.bindVertexArray(g.vao);
+    gl.drawElements(gl.TRIANGLES, g.nIdx, gl.UNSIGNED_INT, 0);
+  }
+  gl.bindVertexArray(null);
+}
+
+const NUC_SLICES = 9, NUC_PTS = 24;
+function drawNucleus(c) {
+  // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
+  // other shape field -- see cellOutlineLocal's own comment), so the offset
+  // itself has to be rotated by packRot too, same as localToWorld does for
+  // the cytoplasm mesh; the nucleus's own rotation (c.nucRot) simply adds to
+  // packRot since both are rotations about the same world axis (z).
+  const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY);
+  const rotTotal = c.nucRot + (c.packRot || 0);
+  const rz = c.nucHeight / 2;
+  for (let s = 0; s < NUC_SLICES; s++) {
+    const t = (s / (NUC_SLICES - 1)) * 2 - 1; // -1..1, bottom to top
+    const factor = Math.sqrt(Math.max(0, 1 - t * t));
+    if (factor < 0.05) continue;
+    const rl = (c.nucLong / 2) * factor, rs = (c.nucShort / 2) * factor;
+    const zAbs = c.nucZ + t * rz;
+    const pts = [];
+    for (let i = 0; i < NUC_PTS; i++) {
+      const th = (i / NUC_PTS) * Math.PI * 2;
+      const lx = Math.cos(th) * rl, ly = Math.sin(th) * rs;
+      const wx = ncx + lx * Math.cos(rotTotal) - ly * Math.sin(rotTotal);
+      const wy = ncy + lx * Math.sin(rotTotal) + ly * Math.cos(rotTotal);
+      pts.push(project(wx, wy, zAbs));
+    }
+    ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
+    ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
+    ctx.lineWidth = 1;
+    polyPath(pts); ctx.fill(); ctx.stroke();
+  }
+}
+
+// ---- generator: the insilicell core (WASM) in Web Workers -----------------------
+// insilicell_module.js holds the core's Emscripten module as source text
+// (ISC_MODULE_SRC, WASM inlined as base64). Each worker evaluates that text, then
+// runs iscEngine() below on its own module instance:
+//   worker 0      : cells in a window  ({type:'pack'})
+//   workers 1..K  : per-cell assets    ({type:'cell'}: outline, cytoplasm mesh, microtubules)
+//   dye worker    : dyes in a window   ({type:'sites'})
+// Results are cached on the main thread (`packCache`, `assets`, `dyeCache`); draw()
+// only ever READS them, so a pan never waits on the generator. ?nw (or workers that
+// cannot start) runs the same engine on the main thread instead.
+const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
+
+// Self-contained (it is stringified into the workers): one IscWorld per (seed,
+// core params); every answer is a pure function of those and the request.
+function iscEngine(M) {
+  if (M._isc_abi_version() !== 2) throw new Error('insilicell core ABI ' + M._isc_abi_version() + ', viewer expects 2');
+  const nonCore = new Set();   // UI-only params the core does not know, learned on first use
+  let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
+  function setParam(pp, k, v) {
+    const n = M.lengthBytesUTF8(k) + 1, s = M._malloc(n);
+    M.stringToUTF8(k, s, n);
+    const r = M._isc_params_set(pp, s, typeof v === 'boolean' ? (v ? 1 : 0) : +v);
+    M._free(s);
+    return r === 0;
+  }
+  function useWorld(seed, p) {
+    const keyOf = () => (seed >>> 0) + '|' + Object.keys(p).filter(k => !nonCore.has(k)).sort().map(k => k + '=' + p[k]).join('|');
+    if (keyOf() === worldKey) return world;
+    const pp = M._isc_params_new();
+    for (const k of Object.keys(p)) if (!nonCore.has(k) && !setParam(pp, k, p[k])) nonCore.add(k);
+    if (world) M._isc_world_free(world);
+    world = M._isc_world_new(seed >>> 0, pp);
+    M._isc_params_free(pp);
+    worldKey = keyOf();
+    return world;
+  }
+  function scratch(bytes) {
+    if (bytes > bufBytes) {
+      if (buf) M._free(buf);
+      bufBytes = Math.max(bytes, 2 * bufBytes, 1 << 16);
+      buf = M._malloc(bufBytes);
+    }
+    return buf;
+  }
+  // Calls fn(ptr, cap) (the ABI's cap/total convention) until the buffer is big
+  // enough; returns a copy of the n*stride doubles written.
+  function query(fn, stride, cap0) {
+    for (let cap = cap0; ;) {
+      const ptr = scratch(Math.max(1, cap) * stride * 8), n = fn(ptr, cap);
+      if (n < 0) throw new Error('insilicell query failed');
+      if (n <= cap) return M.HEAPF64.slice(ptr / 8, ptr / 8 + n * stride);
+      cap = n;
+    }
+  }
+  return {
+    // Returns [message, transferList].
+    handle(d) {
+      const w = useWorld(d.seed, d.p);
+      if (d.type === 'pack') {
+        const [x0, y0, x1, y1] = d.rect;
+        const cells = query((ptr, cap) => M._isc_cells_in_window(w, x0, y0, x1, y1, ptr, cap), 14, 1024);
+        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells }, [cells.buffer]];
+      }
+      if (d.type === 'cell') {
+        if (!ints) ints = M._malloc(16);
+        const nOut = M._isc_cell_outline(w, d.cx, d.cy, 0, 0);
+        if (nOut < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
+        const outline = query((ptr, cap) => M._isc_cell_outline(w, d.cx, d.cy, ptr, cap), 2, nOut);
+        const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, 8192);
+        const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1], nv = mesh.length / 3;
+        const mx = new Float64Array(nv), my = new Float64Array(nv), mh = new Float64Array(nv);
+        for (let v = 0; v < nv; v++) { mx[v] = mesh[3 * v]; my[v] = mesh[3 * v + 1]; mh[v] = mesh[3 * v + 2]; }
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, outline, mx, my, mh, mts: null };
+        const transfer = [outline.buffer, mx.buffer, my.buffer, mh.buffer];
+        if (d.mt) {
+          const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
+          const total = M.HEAP32[ints / 4];
+          const base = scratch(total * 24 + nMt * 4 + 8), lensPtr = base + total * 24;
+          M._isc_cell_microtubules(w, d.cx, d.cy, base, total, lensPtr, nMt, ints);
+          const xyz = M.HEAPF64.slice(base / 8, base / 8 + total * 3);
+          const lens = M.HEAPU32.slice(lensPtr / 4, lensPtr / 4 + nMt);
+          out.mts = { xyz, lens };
+          transfer.push(xyz.buffer, lens.buffer);
+        }
+        return [out, transfer];
+      }
+      if (d.type === 'sites') {
+        const [x0, y0, x1, y1] = d.rect;
+        const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
+        return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
+      }
+      throw new Error('unknown job ' + d.type);
+    },
+  };
+}
+
+function genWorkerMain() {
+  const ready = createInsilicell().then(M => iscEngine(M));
+  onmessage = e => {
+    ready.then(eng => {
+      const [out, transfer] = eng.handle(e.data);
+      postMessage(out, transfer);
+    }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
+  };
+}
+
+const genWorkers = { ok: false, pack: null, cells: [], busy: [], dyes: null };
+let genBlobUrl = null, mainEngine = null, mainEngineStarting = false;
+function coreReady() { return genWorkers.ok || !!mainEngine; }
+function spawnGenWorker() {
+  const w = new Worker(genBlobUrl);
+  w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
+  return w;
+}
+function initGenWorkers() {
+  try {
+    const code = self.ISC_MODULE_SRC + '\n' + iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
+    genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    const K = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
+    genWorkers.pack = spawnGenWorker();
+    genWorkers.pack.onmessage = onPackResult;
+    for (let i = 0; i < K; i++) {
+      const w = spawnGenWorker();
+      w.onmessage = e => onCellResult(i, e.data);
+      genWorkers.cells.push(w); genWorkers.busy.push(null);
+    }
+    genWorkers.dyes = spawnGenWorker();
+    genWorkers.dyes.onmessage = onDyeResult;
+    genWorkers.ok = true;
+  } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
+}
+function disableGenWorkers() {
+  genWorkers.ok = false;
+  for (const w of [genWorkers.pack, genWorkers.dyes, ...genWorkers.cells]) if (w) w.terminate();
+  genWorkers.pack = null; genWorkers.dyes = null; genWorkers.cells = []; genWorkers.busy = [];
+  packPending = null; dyePending = null;
+  assetInflight.clear();
+  startMainEngine();
+}
+// The same engine on the main thread (?nw, or no workers): draw() then calls it
+// synchronously, as the prototype did with its JS generator.
+function startMainEngine() {
+  if (mainEngine || mainEngineStarting) return;
+  mainEngineStarting = true;
+  (0, eval)(self.ISC_MODULE_SRC); // defines createInsilicell
+  createInsilicell().then(M => { mainEngine = iscEngine(M); requestDraw(); });
+}
+
+// ---- packed-map cache -----------------------------------------------------
+// STANDING RULE: draw() runs on every pan/zoom event, so it must not redo work a
+// pan/zoom cannot change. The cell list comes from the core (isc_cells_in_window,
+// cells packed on fixed 8x8-chunk blocks, so it does not depend on the window);
+// it is fetched once for the view PADDED by PACK_PAD_VIEWS views each side (2 =>
+// 5x5 views) and reused until the view leaves that window. With workers, the NEXT
+// window is fetched in the background once the view gets within one view of the
+// edge. mt*/dye/contour params are left out of the key: they cannot move a cell.
+const CHUNK_CAP = 3500;  // safety net: above this many window chunks, skip the cell query (zoom in)
+const RENDER_CAP = 4000; // safety net: above this many VISIBLE chunks, skip drawing entirely -- each cell body/nucleus
+                          // is dozens of path points, so tens of thousands of them per frame would hang the tab outright,
+                          // not just run slowly. Zoom in instead; this is a "mock explorer" limit, not a renderer.
+const PACK_PAD_VIEWS = 2;
+let packCache = null;   // {key, ex0..ey1, map}
+let packPending = null; // {id, key, win} in flight on the pack worker
+let packId = 0;
+const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$)/;
+function packKey(seed, p) {
+  const o = [seed];
+  for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
+  return o.join('|');
+}
+// The params a pack job needs (the pack worker's world is keyed on them, so a
+// microtubule slider does not make it repack).
+function packParams(p) {
+  const o = {};
+  for (const k in p) if (!PACK_KEY_SKIP.test(k)) o[k] = p[k];
+  return o;
+}
+// Window to pack for a needed extended range: padded, shrunk until it fits CHUNK_CAP.
+function packWindow(p, ex0, ey0, ex1, ey1) {
+  const coreW = ex1 - ex0 + 1, coreH = ey1 - ey0 + 1;
+  for (let f = PACK_PAD_VIEWS; f > 0; f -= 0.5) {
+    const px = Math.ceil(coreW * f), py = Math.ceil(coreH * f);
+    if ((ex1 - ex0 + 1 + 2 * px) * (ey1 - ey0 + 1 + 2 * py) <= CHUNK_CAP) return [ex0 - px, ey0 - py, ex1 + px, ey1 + py];
+  }
+  return [ex0, ey0, ex1, ey1];
+}
+function packCovers(pc, key, ex0, ey0, ex1, ey1) {
+  return pc && pc.key === key && ex0 >= pc.ex0 && ex1 <= pc.ex1 && ey0 >= pc.ey0 && ey1 <= pc.ey1;
+}
+// Chunk window -> the um rect the core is asked for.
+function winRect(p, win) { const S = p.chunkSize; return [win[0] * S, win[1] * S, (win[2] + 1) * S, (win[3] + 1) * S]; }
+function cellMap(cells) {
+  const map = new Map();
+  for (let i = 0; i < cells.length; i += ISC_CELL_STRIDE) {
+    const c = { cx: cells[i], cy: cells[i + 1], x: cells[i + 2], y: cells[i + 3], packRot: cells[i + 4], rOuter: cells[i + 5],
+      height: cells[i + 6], nucOffX: cells[i + 7], nucOffY: cells[i + 8], nucRot: cells[i + 9],
+      nucLong: cells[i + 10], nucShort: cells[i + 11], nucHeight: cells[i + 12], nucZ: cells[i + 13] };
+    map.set(c.cx + ',' + c.cy, c);
+  }
+  return map;
+}
+// Main-thread path (?nw, or workers unavailable): the core runs here, synchronously.
+function getPackedMapSync(seed, p, ex0, ey0, ex1, ey1) {
+  const key = packKey(seed, p);
+  if (packCovers(packCache, key, ex0, ey0, ex1, ey1)) return packCache;
+  if (!mainEngine) return null;
+  const win = packWindow(p, ex0, ey0, ex1, ey1);
+  const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect: winRect(p, win), seed, p: packParams(p) });
+  packCache = { key, ex0: win[0], ey0: win[1], ex1: win[2], ey1: win[3], map: cellMap(d.cells) };
+  return packCache;
+}
+// Worker path: returns the best map available right now (possibly stale or
+// not-yet-covering, possibly null) and makes sure a repack is in flight if needed.
+function getPackedMapAsync(seed, p, ex0, ey0, ex1, ey1) {
+  const key = packKey(seed, p), pc = packCache;
+  const covers = packCovers(pc, key, ex0, ey0, ex1, ey1);
+  let want = !covers;
+  if (covers) { // prefetch the next window once within one view of the cached window's edge
+    const coreW = ex1 - ex0 + 1, coreH = ey1 - ey0 + 1;
+    want = ex0 - pc.ex0 < coreW || pc.ex1 - ex1 < coreW || ey0 - pc.ey0 < coreH || pc.ey1 - ey1 < coreH;
+  }
+  const pend = packPending;
+  const pendingCovers = pend && pend.key === key && ex0 >= pend.win[0] && ey0 >= pend.win[1] && ex1 <= pend.win[2] && ey1 <= pend.win[3];
+  if (want && !pendingCovers) {
+    if (pend && pend.key !== key) { // stale params: abort the running job
+      genWorkers.pack.terminate();
+      genWorkers.pack = spawnGenWorker(); genWorkers.pack.onmessage = onPackResult;
+      packPending = null;
+    }
+    if (!packPending) {
+      const win = packWindow(p, ex0, ey0, ex1, ey1);
+      packPending = { id: ++packId, key, win };
+      genWorkers.pack.postMessage({ type: 'pack', id: packPending.id, key, win, rect: winRect(p, win), seed, p: packParams(p) });
+    }
+  }
+  return pc;
+}
+function onPackResult(e) {
+  const d = e.data;
+  if (!packPending || d.id !== packPending.id) return;
+  packPending = null;
+  packCache = { key: d.key, ex0: d.win[0], ey0: d.win[1], ex1: d.win[2], ey1: d.win[3], map: cellMap(d.cells) };
+  requestDraw();
+}
+
+// ---- per-cell assets (cytoplasm mesh + microtubules) -------------------------
+// assets: chunk key -> {sig, seed, hasMt, entry, mts}. `entry` is the prototype's getCytoGeometry
+// shape ({localOutline, mesh}) plus the render caches hung off it; `mts` the
+// microtubule point arrays. An asset whose sig is out of date (a slider moved) keeps
+// being drawn until its replacement arrives, unless the SEED changed (then it would
+// be a different world). Bounded to ASSET_MAX, evicting the cells farthest from view.
+const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
+const assets = new Map();
+const assetInflight = new Map(); // key -> sig
+const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$|labelEfficiency$)/;
+function assetSig(seed, p) {
+  const o = [seed];
+  for (const k in p) if (!ASSET_SIG_SKIP.test(k)) o.push(k + '=' + p[k]);
+  return o.join('|');
+}
+let lastView = null; // {seed, p, sig, map, cx0..cy1, mt} -- what pumpAssets() prioritises against
+function disposeAsset(a) { if (a && a.entry) freeMeshGl(a.entry); }
+function evictAssets() {
+  if (assets.size <= ASSET_MAX || !lastView) return;
+  const mx = (lastView.cx0 + lastView.cx1) / 2, my = (lastView.cy0 + lastView.cy1) / 2;
+  const dist = k => { const [cx, cy] = k.split(',').map(Number); return Math.hypot(cx - mx, cy - my); };
+  const keys = [...assets.keys()].sort((a, b) => dist(b) - dist(a));
+  for (const k of keys) { if (assets.size <= ASSET_MAX) break; disposeAsset(assets.get(k)); assets.delete(k); }
+}
+function unpackAsset(d) {
+  const n = d.outline.length / 2, lo = new Array(n);
+  for (let i = 0; i < n; i++) lo[i] = [d.outline[2 * i], d.outline[2 * i + 1]];
+  const grid = new Array(d.rings + 1);
+  for (let k = 0; k <= d.rings; k++) {
+    const row = new Array(d.n);
+    for (let i = 0; i < d.n; i++) { const v = k * d.n + i; row[i] = { x: d.mx[v], y: d.my[v], h: d.mh[v] }; }
+    grid[k] = row;
+  }
+  let mts = null;
+  if (d.mts) {
+    mts = new Array(d.mts.lens.length);
+    let o = 0;
+    for (let i = 0; i < mts.length; i++) {
+      const pts = new Array(d.mts.lens[i]);
+      for (let k = 0; k < pts.length; k++, o += 3) pts[k] = { x: d.mts.xyz[o], y: d.mts.xyz[o + 1], z: d.mts.xyz[o + 2] };
+      mts[i] = pts;
+    }
+  }
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { localOutline: lo, mesh: { rings: d.rings, n: d.n, grid } }, mts };
+}
+function onCellResult(wi, d) {
+  genWorkers.busy[wi] = null;
+  if (assetInflight.get(d.key) === d.sig) assetInflight.delete(d.key);
+  if (d.missing) { pumpAssets(); return; } // chunk holds no cell under these params (a stale request)
+  if (lastView && d.sig === lastView.sig) {
+    disposeAsset(assets.get(d.key));
+    assets.set(d.key, unpackAsset(d));
+    evictAssets();
+    requestDraw();
+  }
+  pumpAssets();
+}
+// Sends the most wanted missing assets (visible first, then a prefetch ring; each
+// nearest the view centre first) to whichever cell workers are idle.
+function pumpAssets() {
+  if (!genWorkers.ok || !lastView) return;
+  const v = lastView;
+  if (!genWorkers.busy.includes(null)) return;
+  const w = v.cx1 - v.cx0 + 1, h = v.cy1 - v.cy0 + 1;
+  const px = Math.ceil(w * PREFETCH_VIEWS), py = Math.ceil(h * PREFETCH_VIEWS);
+  const mx = (v.cx0 + v.cx1) / 2, my = (v.cy0 + v.cy1) / 2, cand = [];
+  for (let cx = v.cx0 - px; cx <= v.cx1 + px; cx++) for (let cy = v.cy0 - py; cy <= v.cy1 + py; cy++) {
+    const key = cx + ',' + cy, cell = v.map.get(key);
+    if (!cell) continue;
+    const a = assets.get(key);
+    if ((a && a.sig === v.sig && (a.hasMt || !v.mt)) || assetInflight.get(key) === v.sig) continue;
+    const inView = cx >= v.cx0 && cx <= v.cx1 && cy >= v.cy0 && cy <= v.cy1;
+    cand.push({ key, cell, rank: (inView ? 0 : 1e6) + Math.hypot(cx - mx, cy - my) });
+  }
+  cand.sort((a, b) => a.rank - b.rank);
+  let ci = 0;
+  for (let wi = 0; wi < genWorkers.busy.length && ci < cand.length; wi++) {
+    if (genWorkers.busy[wi]) continue;
+    const { key, cell } = cand[ci++];
+    genWorkers.busy[wi] = key;
+    assetInflight.set(key, v.sig);
+    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt: v.mt });
+  }
+}
+// The asset to draw for `cell` right now, or null if none exists yet (the worker will
+// deliver it and request a redraw). Without workers the core runs here, synchronously.
+function getAsset(cell, key, seed, p, sig, mt) {
+  const a = assets.get(key);
+  if (a && a.sig === sig && (a.hasMt || !mt)) return a;
+  if (!genWorkers.ok) {
+    if (!mainEngine) return null;
+    const [d] = mainEngine.handle({ type: 'cell', key, sig, seed, p, cx: cell.cx, cy: cell.cy, mt: true });
+    if (d.missing) return null;
+    disposeAsset(a);
+    const fresh = unpackAsset(d);
+    assets.set(key, fresh);
+    return fresh;
+  }
+  return a && a.seed === seed ? a : null;
+}
+
+// Microtubule polylines as one Path2D per cell, built in the cell's own screen-
+// pixel frame (packRot, scale and tilt baked in, translation excluded) and
+// re-stroked under a plain translate: a pan never rebuilds it, only a zoom/tilt
+// change does. Points closer than MT_MIN_SEG_PX to the last kept one are dropped
+// (invisible sub-pixel detail when zoomed out).
+const MT_MIN_SEG_PX = 0.7, MT_MIN_SEG_PX_MOVING = 2.5; // coarser while a drag/zoom is in flight, full detail once it settles
+let interactingUntil = 0, settleTimer = 0;
+function noteInteraction() {
+  interactingUntil = performance.now() + 150;
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(requestDraw, 180);
+}
+const mtPathCache = new WeakMap();
+function getMtPath2D(mts, cell, t) {
+  const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
+  const key = t.S + '|' + t.sinT + '|' + t.cr + '|' + t.sr + '|' + minPx;
+  const hit = mtPathCache.get(mts);
+  if (hit && hit.key === key) return hit.path;
+  const path = new Path2D(), m2 = minPx * minPx;
+  for (const pts of mts) {
+    let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false;
+    for (let k = 0; k < pts.length; k++) {
+      const lx = pts[k].x, ly = pts[k].y;
+      const sx = (lx * t.cr - ly * t.sr) * t.S;
+      const sy = ((lx * t.sr + ly * t.cr) * t.cosT - pts[k].z * t.sinT) * t.S;
+      if (k === 0) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; continue; }
+      const dx = sx - lastX, dy = sy - lastY;
+      if (dx * dx + dy * dy >= m2) { path.lineTo(sx, sy); lastX = sx; lastY = sy; pending = false; }
+      else { ex = sx; ey = sy; pending = true; }
+    }
+    if (pending) path.lineTo(ex, ey); // keep the true end point
+  }
+  mtPathCache.set(mts, { key, path });
+  return path;
+}
+
+// draw() calls are coalesced to one per animation frame.
+let drawQueued = false;
+function requestDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+
+function draw() {
+  const p = params();
+  const seed = (+els.seed.value) | 0;
+  const S = p.chunkSize;
+  view.tiltRad = (+els.tiltDeg.value) * Math.PI / 180;
+  ctxTop.clearRect(0, 0, cv.width, cv.height);
+  if (useGl) ctxBase.clearRect(0, 0, cv.width, cv.height);
+
+  const halfWUm = (cv.width / devicePixelRatio / 2) / view.scale;
+  const halfHUm = (cv.height / devicePixelRatio / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
+  const cx0 = Math.floor((view.cx - halfWUm) / S) - 1, cx1 = Math.ceil((view.cx + halfWUm) / S) + 1;
+  const cy0 = Math.floor((view.cy - halfHUm) / S) - 1, cy1 = Math.ceil((view.cy + halfHUm) / S) + 1;
+  const coreCount = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
+  const pxPerUm = view.scale * devicePixelRatio;
+  const sinT = Math.sin(view.tiltRad);
+  const bg = useGl ? ctxBase : ctxTop;
+
+  if (els.showGrid.checked && coreCount <= RENDER_CAP) {
+    ctx = bg;
+    ctx.strokeStyle = '#3a4454';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let cx = cx0; cx <= cx1; cx++) {
+      const [ax, ay] = project(cx * S, cy0 * S, 0), [bx, by] = project(cx * S, cy1 * S, 0);
+      ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+    }
+    for (let cy = cy0; cy <= cy1; cy++) {
+      const [ax, ay] = project(cx0 * S, cy * S, 0), [bx, by] = project(cx1 * S, cy * S, 0);
+      ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+    }
+    ctx.stroke();
+  }
+
+  ctx = ctxTop;
+  if (coreCount > RENDER_CAP) {
+    if (useGl) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+    drawScaleBar(pxPerUm);
+    hud.textContent =
+      `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°\n` +
+      `${coreCount} chunks in view — zoom in to render (cap ${RENDER_CAP})`;
+    return;
+  }
+
+  const withinCap = coreCount <= CHUNK_CAP;
+  let map = new Map();
+  if (withinCap) {
+    const pc = genWorkers.ok ? getPackedMapAsync(seed, p, cx0, cy0, cx1, cy1) : getPackedMapSync(seed, p, cx0, cy0, cx1, cy1);
+    if (pc) map = pc.map; // no map yet => empty until the pack worker delivers
+  }
+
+  const nChunks = coreCount;
+  let nCells = 0, nMt = 0, nLoading = 0, labelNote = '';
+
+  // Visible cells only: a cell whose bounding circle is off-screen costs nothing.
+  // A visible cell whose mesh/microtubules the workers have not delivered yet is
+  // skipped (pops in when ready) rather than computed here -- see getAsset(). The
+  // map holds every cell of the (padded) window, whatever its home chunk.
+  const vis = [], sig = assetSig(seed, p), wantMt = els.showMt.checked;
+  for (const [key, cell] of map) {
+    if (cell.cx >= cx0 && cell.cx <= cx1 && cell.cy >= cy0 && cell.cy <= cy1) nCells++;
+    if (!cellVisible(cell)) continue;
+    const asset = getAsset(cell, key, seed, p, sig, wantMt);
+    if (asset) vis.push({ cx: cell.cx, cy: cell.cy, cell, asset }); else nLoading++;
+  }
+  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mt: wantMt };
+  evictAssets();
+  pumpAssets();
+
+  // Pass 1 (base layer): footprint outlines + microtubules, each batched into ONE path.
+  ctx = bg;
+  if (els.showCyto.checked) {
+    ctx.strokeStyle = 'rgba(90,169,230,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const { cell, asset } of vis) addOutlinePath(cell, asset.entry);
+    ctx.stroke();
+  }
+  if (els.showMt.checked) {
+    ctx.strokeStyle = '#e6c65a';
+    ctx.lineWidth = Math.max(0.6, p.mtLineWidth * pxPerUm);
+    ctx.globalAlpha = 0.8;
+    for (const { cell, asset } of vis) {
+      const mts = asset.mts || [];
+      const t = cellXform(cell);
+      nMt += mts.length;
+      ctx.save();
+      ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
+      ctx.stroke(getMtPath2D(mts, cell, t));
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (els.showDyes.checked) labelNote = drawDyes(seed, p, pxPerUm);
+
+  // Pass 2: cell bodies -- GPU layer, or the 2D fallback on the top canvas.
+  if (useGl) {
+    if (els.showCyto.checked) drawBodiesGl(vis, p);
+    else { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+  } else if (els.showCyto.checked) {
+    ctx = ctxTop;
+    for (const { cell, asset } of vis) drawCellBody2D(cell, asset.entry);
+  }
+
+  // Pass 3 (top layer): contours, nuclei, scale bar.
+  ctx = ctxTop;
+  if (els.showCyto.checked && p.showCytoContours) {
+    ctx.strokeStyle = 'rgba(20,30,45,0.55)';
+    ctx.lineWidth = Math.max(1, 0.04 * pxPerUm);
+    ctx.beginPath();
+    for (const { cell, asset } of vis) addContourPath(cell, asset.entry, p.cytoContourStep);
+    ctx.stroke();
+  }
+  if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
+
+  drawScaleBar(pxPerUm);
+
+  hud.textContent =
+    `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°   ${useGl ? 'GPU' : '2D'}\n` +
+    `chunks ${nChunks}   cells ${nCells} (${vis.length} on screen)   microtubules ${nMt}` +
+    (!coreReady() ? '   [loading core…]' : '') +
+    (packPending ? '   [packing…]' : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
+    (withinCap ? '' : '   [view too large: zoom in]') +
+    (labelNote ? '   [' + labelNote + ']' : '');
+}
+
+// ---- pan / zoom -------------------------------------------------------------
+let dragging = false, lastX = 0, lastY = 0;
+cv.addEventListener('pointerdown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  cv.setPointerCapture(e.pointerId);
+  cv.classList.add('dragging');
+});
+cv.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  view.cx -= dx / view.scale;
+  view.cy -= dy / (view.scale * Math.max(0.15, Math.cos(view.tiltRad)));
+  noteInteraction(); requestDraw();
+});
+window.addEventListener('pointerup', () => {
+  if (!dragging) return;
+  dragging = false;
+  cv.classList.remove('dragging');
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.0015);
+  view.scale = Math.max(0.3, view.scale * factor);
+  noteInteraction(); requestDraw();
+}, { passive: false });
+
+// ---- wiring -------------------------------------------------------------------
+function syncLabels() {
+  els.jitterVal.textContent = (+els.jitter.value).toFixed(2);
+  els.densityVal.textContent = (+els.density.value).toFixed(2);
+  els.cellBlobVal.textContent = (+els.cellBlob.value).toFixed(2);
+  els.nucOffsetFracVal.textContent = (+els.nucOffsetFrac.value).toFixed(2);
+  els.nucMarginVal.textContent = (+els.nucMargin.value).toFixed(1) + ' um';
+  els.cytoMaxSlopeVal.textContent = +els.cytoMaxSlope.value ? (+els.cytoMaxSlope.value).toFixed(2) : 'off';
+  els.cytoDomeSlopeVal.textContent = +els.cytoDomeSlope.value ? (+els.cytoDomeSlope.value).toFixed(1) : 'off';
+  els.cytoSmoothPassesVal.textContent = els.cytoSmoothPasses.value;
+  els.cytoRingsVal.textContent = els.cytoRings.value;
+  els.cytoThetaVal.textContent = els.cytoTheta.value;
+  els.cytoContourStepVal.textContent = (+els.cytoContourStep.value).toFixed(2) + ' um';
+  els.packFracVal.textContent = (+els.packFrac.value).toFixed(2);
+  els.relaxItersVal.textContent = els.relaxIters.value;
+  els.relaxDampingVal.textContent = (+els.relaxDamping.value).toFixed(2);
+  els.mtDensityVal.textContent = (+els.mtDensity.value).toFixed(3) + ' /um²';
+  els.mtStartOffsetXYVal.textContent = (+els.mtStartOffsetXY.value).toFixed(2) + ' um';
+  els.mtEndJitterDegVal.textContent = els.mtEndJitterDeg.value + '°';
+  els.mtWobbleTurnVal.textContent = (+els.mtWobbleTurn.value).toFixed(2);
+  els.mtWobbleFactorVal.textContent = (+els.mtWobbleFactor.value).toFixed(2) + '×';
+  els.mtLineWidthVal.textContent = (+els.mtLineWidth.value).toFixed(2) + ' um';
+  els.mtStepLenVal.textContent = (+els.mtStepLen.value).toFixed(2) + ' um';
+  els.mtSmoothLenVal.textContent = (+els.mtSmoothLen.value).toFixed(1) + ' um';
+  els.mtMinTurnRadiusVal.textContent = (+els.mtMinTurnRadius.value).toFixed(2) + ' um';
+  els.mtMinSeparationVal.textContent = (+els.mtMinSeparation.value).toFixed(2) + ' um';
+  els.mtMaxZSlopeVal.textContent = (+els.mtMaxZSlope.value).toFixed(1) + '×';
+  els.labelEfficiencyVal.textContent = (100 * els.labelEfficiency.value).toFixed(1) + ' %';
+  els.tiltDegVal.textContent = els.tiltDeg.value + '°';
+}
+Object.keys(els).forEach(id => {
+  const el = els[id];
+  if (!el || id === 'reseed' || id === 'resetView' || id.endsWith('Val')) return;
+  el.addEventListener('input', () => { syncLabels(); requestDraw(); });
+});
+
+els.reseed.addEventListener('click', () => {
+  els.seed.value = (Math.random() * 2 ** 31) | 0;
+  requestDraw();
+});
+els.resetView.addEventListener('click', () => {
+  view.cx = 0; view.cy = 0; view.scale = 9;
+  requestDraw();
+});
+
+// ---- dyes -----------------------------------------------------------------------
+// The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip,
+// linker; labelEfficiency of the sites), shown once zoomed in far enough that a
+// view holds a drawable number of them. Fetched by the dye worker for the view
+// padded by DYE_PAD views each side and reused while the view stays inside it.
+const DYE_MIN_PX_PER_UM = 120;
+const DYE_MAX_DRAWN = 150000;
+const DYE_PAD = 0.25;
+let dyeCache = null;    // {key, rect, sites}
+let dyePending = null;  // {id, key, rect}
+let dyeId = 0;
+function dyeKey(seed, p) { return assetSig(seed, p) + '|' + p.labelEfficiency; }
+function onDyeResult(e) {
+  const d = e.data;
+  if (!dyePending || d.id !== dyePending.id) return;
+  dyePending = null;
+  dyeCache = { key: d.key, rect: d.rect, sites: d.sites };
+  requestDraw();
+}
+// Draws the cached dyes (red) and makes sure the right window is cached or on its
+// way; returns a HUD note ('' if none).
+function drawDyes(seed, p, pxPerUm) {
+  if (pxPerUm < DYE_MIN_PX_PER_UM) return 'zoom in to show dyes';
+  const halfW = (cv.width / devicePixelRatio / 2) / view.scale;
+  const halfH = (cv.height / devicePixelRatio / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
+  const r = [view.cx - halfW, view.cy - halfH, view.cx + halfW, view.cy + halfH];
+  const key = dyeKey(seed, p);
+  const covers = c => c && c.key === key && r[0] >= c.rect[0] && r[1] >= c.rect[1] && r[2] <= c.rect[2] && r[3] <= c.rect[3];
+  let note = '';
+  if (!covers(dyeCache) && !covers(dyePending)) {
+    const px = 2 * halfW * DYE_PAD, py = 2 * halfH * DYE_PAD;
+    const rect = [r[0] - px, r[1] - py, r[2] + px, r[3] + py];
+    if (genWorkers.ok) {
+      dyePending = { id: ++dyeId, key, rect };
+      genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p });
+    } else if (mainEngine) {
+      const [d] = mainEngine.handle({ type: 'sites', id: 0, key, rect, seed, p });
+      dyeCache = { key, rect, sites: d.sites };
+    }
+  }
+  if (dyePending) note = 'loading dyes…';
+  const c = dyeCache;
+  if (!c || c.key !== key) return note;
+  const s = c.sites, W = cv.width, H = cv.height, S = view.scale * devicePixelRatio;
+  const cosT = Math.cos(view.tiltRad), sinT = Math.sin(view.tiltRad);
+  let drawn = 0;
+  ctx = ctxTop;
+  ctx.fillStyle = '#ff4d4d';
+  for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
+    const sx = W / 2 + (s[i] - view.cx) * S;
+    const sy = H / 2 + ((s[i + 1] - view.cy) * cosT - s[i + 2] * sinT) * S;
+    if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
+    if (drawn >= DYE_MAX_DRAWN) { note = 'dye cap reached, some not drawn'; break; }
+    ctx.fillRect(sx - 0.6, sy - 0.6, 1.2, 1.2);
+    drawn++;
+  }
+  return note || `${drawn} dyes`;
+}
+
+window.addEventListener('resize', resizeCanvas);
+syncLabels();
+if (/[?&]nw/.test(location.search)) startMainEngine(); // ?nw runs the core on the main thread (for testing)
+else initGenWorkers();
+setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D fallback (for testing)
+resizeCanvas();
+</script>
+</body>
+</html>

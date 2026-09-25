@@ -63,7 +63,7 @@ No second hand-maintained implementation.
 - [x] Golden vectors frozen in `spec/golden/` (JS reference: 50 packing windows, RNG, 2000 math
       samples); ctest `golden_vectors` passes natively and under Node+WASM.
 - [x] CI workflow `.github/workflows/ci.yml`: core native (MSVC), core WASM (pinned emsdk 6.0.10),
-      golden freshness vs `web/index.html`, adapter MSBuild.
+      golden freshness vs `web/index.html` (now `web/prototype/`), adapter MSBuild.
       **Manual-only for now** (`workflow_dispatch`; not triggered by push/PR) and not yet run on GitHub;
       jobs verified locally step by step.
 - [x] `CLAUDE.md` rewritten (repo rules on top, adapter knowledge kept below).
@@ -107,8 +107,17 @@ No second hand-maintained implementation.
       events = brute force, frame slicing, determinism; steady state ~3 ms/frame native, ~6 ms WASM at
       a 12.8 um FOV (~210k dyes in z 0.5-3 um).
 
-- [ ] Viewer on WASM: workers instantiate the module; pan benchmark (300 synthetic frames; previous
-      p50 17 ms / p95 26 ms with workers in software GL) re-measured.
+- [x] Viewer on WASM: workers instantiate the module; pan benchmark (300 synthetic frames; previous
+      p50 17 ms / p95 26 ms with workers in software GL) re-measured. `web/index.html` runs the core
+      (`web/insilicell_module.js`, single-file build `insilicell_web`, embedded by
+      `tools/embed_web_module.mjs`, `--check` in CI) in workers (cells / per-cell assets / dyes) or on
+      the main thread (`?nw`); the prototype moved to `web/prototype/` (parity + MT checks updated).
+      `web/tools/bench_pan.mjs` (300 frames x 0.8 um, 1280x800, headless Chromium + SwiftShader,
+      4-core container): WASM draw p50 1.5 / p95 11.4 / max 309 ms, 0 frames with cells loading,
+      initial load 7.5 s; prototype on the same box p50 2.1 / p95 15.9 / max 284 ms, 5.3 s. Same cells
+      and microtubule counts as the prototype at the origin; workers, `?nw` and `?2d` agree after
+      seed/param changes. Dyes (real core sites) replace the JS label preview; the lattice debug
+      popup is gone (the prototype keeps it). Not yet looked at by a human in a real browser.
 - [ ] Adapter: `CellFieldSource::EventsForFrame` + `SMLMDemoXYStage` (PORT.md 2, 6-8) feeding the
       existing `RenderPhotonImage/CollectGpuEmitters/ApplyNoiseChain` unchanged; property naming
       convention; stage test in `test_smlmcam.py`; XY stage moves over the field.

@@ -44,6 +44,8 @@ jobs:
           cmake --build --preset wasm
       - name: Golden vectors (WASM under Node)
         run: ctest --test-dir build/wasm --output-on-failure
+      - name: Viewer module up to date (web/insilicell_module.js)
+        run: node tools/embed_web_module.mjs --check
       - name: WASM size
         run: |
           ls -l build/wasm/core/insilicell.wasm
@@ -56,7 +58,7 @@ jobs:
             build/wasm/core/insilicell.js
 
   # The frozen golden vectors must match what the prototype in web/ produces:
-  # a generator change in web/index.html needs a re-freeze in the same commit.
+  # a generator change in web/prototype/ needs a re-freeze in the same commit.
   golden-fresh:
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +66,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Re-freeze from web/index.html and diff
+      - name: Re-freeze from web/prototype/index.html and diff
         run: |
           node tests/parity/golden.mjs --freeze
           git diff --exit-code --stat spec/golden

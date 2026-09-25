@@ -44,4 +44,22 @@ if(EMSCRIPTEN)
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,stringToUTF8,lengthBytesUTF8]"
   )
   set_target_properties(insilicell_wasm PROPERTIES OUTPUT_NAME insilicell SUFFIX ".js")
+
+  # The same module as one self-contained JS file (WASM inlined as base64),
+  # for the viewer (web/, opened from file://, workers built from its source
+  # text) and later the webSMLM block. tools/embed_web_module.mjs wraps it
+  # into web/insilicell_module.js.
+  add_executable(insilicell_web src/wasm_entry.cpp)
+  target_link_libraries(insilicell_web PRIVATE insilicell_core)
+  target_link_options(insilicell_web PRIVATE
+    -O3
+    -sMODULARIZE=1 -sEXPORT_NAME=createInsilicell
+    -sENVIRONMENT=web,worker
+    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
+    -sALLOW_MEMORY_GROWTH=1
+    -sFILESYSTEM=0
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS}]"
+    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,stringToUTF8,lengthBytesUTF8]"
+  )
+  set_target_properties(insilicell_web PROPERTIES OUTPUT_NAME insilicell_single SUFFIX ".js")
 endif()
