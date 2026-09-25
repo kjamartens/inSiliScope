@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-// Containment + slope-following regression checker for cell_field_sim's
-// microtubule generator (cell_field_sim/microtubules.js). This targets the
-// separate `cell_field_sim/` prototype, NOT the main webSMLM.html app --
-// reuses tools/node_modules (the same Playwright dependency webSMLM-cli.mjs
-// already brings in) rather than adding a second install step.
+// Containment + slope-following regression checker for the cell-field
+// prototype's microtubule generator (web/microtubules.js, loaded through
+// web/index.html). Needs Playwright: `cd web/tools && npm install` once.
 //
 // What it checks, and why:
 //  1. CONTAINMENT -- every generated point must sit (a) within the cell's own
@@ -61,7 +59,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const htmlPath = path.resolve(__dirname, '..', 'cell_field_sim', 'index.html');
+const htmlPath = path.resolve(__dirname, '..', 'index.html');
 const htmlUrl = 'file://' + htmlPath.replace(/\\/g, '/');
 
 // A tiny centre-region view -- enough chunks to see several cells (some

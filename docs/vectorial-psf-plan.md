@@ -3,9 +3,9 @@
 ## Context
 
 The plugin currently renders every emitter with an analytic, additive 2D
-Gaussian ([`RenderGaussianPSF`](DeviceAdapter/SMLMDemoCam/Simulation/SMLMSimulation.cpp:13)),
+Gaussian ([`RenderGaussianPSF`](adapter/SMLMDemoCam/Simulation/SMLMSimulation.cpp:13)),
 with `sigmaPx` derived from wavelength/NA via a diffraction-limit
-approximation ([`ComputePsfSigmaPx`](DeviceAdapter/SMLMDemoCam/SMLMImageGeneration.cpp:56)).
+approximation ([`ComputePsfSigmaPx`](adapter/SMLMDemoCam/SMLMImageGeneration.cpp:56)).
 This is a scalar approximation with no diffraction-ring structure, no
 polarization/vectorial effects, and no defocus/Z dependence.
 
@@ -206,7 +206,7 @@ building clean.
   instances (simplest: a process-wide singleton — no MM device-linking
   needed).
 - New device `SMLMDemoZStage` (new `.h`/`.cpp` under
-  `DeviceAdapter/SMLMDemoCam/`, subclassing `CStageBase<SMLMDemoZStage>`),
+  `adapter/SMLMDemoCam/`, subclassing `CStageBase<SMLMDemoZStage>`),
   implementing `SetPositionUm`/`GetPositionUm`/`SetPositionSteps`/
   `GetPositionSteps`/`Home`/`Stop`, writing to the shared `zPositionUm`.
   Registered in the module's device registration alongside the existing
@@ -265,7 +265,7 @@ Single-Molecule Localization Microscopy Software," *Nature Methods* 16(5),
   (astigmatic, biplane, double-helix) imply aberration types worth
   prioritizing once the Zernike step is built.
 - Noise comparison: this plugin's current chain in
-  [`SMLMNoise.cpp`](DeviceAdapter/SMLMDemoCam/Simulation/SMLMNoise.cpp) —
+  [`SMLMNoise.cpp`](adapter/SMLMDemoCam/Simulation/SMLMNoise.cpp) —
   Poisson shot noise → scalar Gaussian read noise → scalar gain → static
   per-pixel offset map, with **no EM-gain excess-noise (gamma) term and no
   per-pixel sCMOS gain/read-noise maps** — vs. what the paper's simulator
@@ -442,7 +442,7 @@ that motivated the first one):
    project) for the identical functional outcome the original plan wanted.
 
 **What was built**:
-[`Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java`](DeviceAdapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java)
+[`Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java`](adapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java)
 generalizes `GibsonLanniPSF`'s scalar Kirchhoff integral from a 1D radial
 lookup to a direct 2D `(rho, phi)` numerical quadrature (fixed 32x64
 midpoint grid, not a fast transform — see the class's Performance note for
@@ -513,7 +513,7 @@ for this mapping.
 
 ## Verification (all steps)
 
-Build the device adapter (`DeviceAdapter/SMLMDemoCam/SMLMDemoCam.sln`/
+Build the device adapter (`adapter/SMLMDemoCam/SMLMDemoCam.sln`/
 `.vcxproj`), load it into Micro-Manager, and visually inspect Live mode
 frames after each step as described above. No existing automated test
 suite was found for this project — confirm with a build + Micro-Manager

@@ -9,8 +9,8 @@ Live mode is streaming actually changes subsequent frames.
 
 Requires an MM nightly build installed (e.g. via `mmcore install`) whose
 device-interface version matches the checked-out mmCoreAndDevices submodule
-commit, with mmgr_dal_SMLMDemoCam.dll copied into that install directory.
-See docs/BUILD_AND_USAGE.md.
+commit, with mmgr_dal_SMLMDemoCam.dll copied into that install directory
+or found via ADAPTER_DIR. See docs/BUILD_AND_USAGE.md.
 """
 
 import os
@@ -68,7 +68,9 @@ def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 600.0) -> N
 mm_dir = find_active_mm_dir()
 
 core = CMMCorePlus()
-core.setDeviceAdapterSearchPaths([mm_dir])
+# ADAPTER_DIR (e.g. adapter/SMLMDemoCam/build/Release/x64) is searched first, so a
+# fresh build can be tested without copying the DLL into the MM install.
+core.setDeviceAdapterSearchPaths([d for d in (os.environ.get("ADAPTER_DIR"), mm_dir) if d])
 
 # --- pre-init properties -----------------------------------------------
 load_camera(core, "SMLMCam", seed=42, fov="128x128")
@@ -215,7 +217,7 @@ for name, expected in [
     ("PSFParam_PsfOversampling", "6"),
     ("PSFParam_PsfZernikePreset", "MixedRealisticObjective"),
     ("SimType_NupCount", "80"),
-    ("PSFParam_PsfKernelHalfWidthNm", "3000"),
+    ("PSFParam_PsfKernelHalfWidthNm", "7000"),
 ]:
     actual = core.getProperty("SMLMCam", name)
     assert float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected,         f"expected {name} to default to {expected!r}, got {actual!r}"

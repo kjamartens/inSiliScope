@@ -1,5 +1,5 @@
 // Writes the parity case list (deterministic; no randomness outside pcg4d).
-//   node make_cases.mjs <out/cases.txt>
+//   node make_cases.mjs <out/cases.txt> [mathSamples=40000]
 import fs from 'fs';
 import { pcg4d } from './pcg4d.mjs';
 
@@ -24,7 +24,7 @@ const KS = [0, 1, 44, 8000000, 4294967295, 9500000 * 4096 + 17];
 for (const s of SEEDS) for (const c of COORDS) for (const k of KS) out.push(`rng ${s} ${c} ${-c} ${k}`);
 for (const base of [1000, 100000, 8000000, 9500000]) out.push(`stream 1249 -3 5 ${base} 20`);
 
-out.push('math 40000');
+out.push(`math ${+(process.argv[3] ?? 40000)}`);
 
 // 50 packing cases, 14x14-chunk windows. First 10 around the origin, the
 // rest scattered up to ~5e7 chunks away (world coords ~1e9 um).

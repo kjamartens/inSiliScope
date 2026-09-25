@@ -28,7 +28,7 @@ plumbing:
   spherical, 13 vertical secondary astigmatism, 14 vertical quadrafoil.
   Each coefficient is in **waves** (unnormalized convention — see below).
   Full mapping + derivation:
-  [`../../DeviceAdapter/SMLMDemoCam/Simulation/SMLMZernike.h`](../../DeviceAdapter/SMLMDemoCam/Simulation/SMLMZernike.h)'s
+  [`../../adapter/SMLMDemoCam/Simulation/SMLMZernike.h`](../../adapter/SMLMDemoCam/Simulation/SMLMZernike.h)'s
   doc comment.
 - **Index → (n, m)**: standard OSA formula `j = n(n+1)/2 + l`, where `n` is
   the radial order and `l` (0..n) maps to azimuthal order `m = -n + 2*l`.
@@ -173,10 +173,10 @@ are from this project's read of it, but the file changes.
 - `CLAUDE.md` — "Vectorial PSF feature" section: architecture summary,
   the `PsfZernikeCoefficients`/`PsfZernikePreset` properties, and two
   Gotchas subsections (step 1, step 5) with the concrete bugs hit.
-- `DeviceAdapter/SMLMDemoCam/Simulation/SMLMZernike.h` — OSA index table
+- `adapter/SMLMDemoCam/Simulation/SMLMZernike.h` — OSA index table
   doc comment (source of truth for index→mode mapping) and the preset
   coefficient values with their sourcing caveats.
-- `DeviceAdapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java` —
+- `adapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java` —
   the actual portable math: `indexToNM`, `zernikeRadial`, `zernikeValue`,
   and the pupil-quadrature-to-pixel-intensity loop (`PlaneJob.process()`).
 

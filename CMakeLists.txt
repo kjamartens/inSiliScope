@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ISC_BUILD_TESTS "Build the parity harness" ON)
+if(ISC_BUILD_TESTS)
+  enable_testing()
+endif()
 
 add_subdirectory(core)
 if(ISC_BUILD_TESTS)

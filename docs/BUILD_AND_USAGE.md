@@ -36,10 +36,10 @@ install instead of the pymmcore-plus-managed one.
 
 ## Building
 
-Open `DeviceAdapter/SMLMDemoCam/SMLMDemoCam.sln` in Visual Studio 2022,
+Open `adapter/SMLMDemoCam/SMLMDemoCam.sln` in Visual Studio 2022,
 select `Release|x64`, and build. The solution also builds
 `MMDevice-SharedRuntime` (from the submodule) as a dependency. Output lands
-at `DeviceAdapter/SMLMDemoCam/build/Release/x64/mmgr_dal_SMLMDemoCam.dll`.
+at `adapter/SMLMDemoCam/build/Release/x64/mmgr_dal_SMLMDemoCam.dll`.
 
 ## Installing into Micro-Manager
 
