@@ -68,9 +68,11 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     if z not in core.getLoadedDevices():
         core.loadDevice(z, "inSiliCellScope", "ZStage")
         core.initializeDevice(z)
+        assert abs(core.getPosition(z) - 0.5) < 1e-9, f"ZStage should start at 0.5 um, got {core.getPosition(z)}"
+        print("ZStage starts at 0.5 um")
     core.setCameraDevice(cam)
     core.setXYStageDevice(xy)
-    core.setPosition(z, 0.0)
+    core.setPosition(z, 1.5)  # focal plane 1.5 um above the coverslip (was the old default view)
 
     # ---- property surface -------------------------------------------------
     for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
@@ -190,6 +192,18 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
     assert thin < default <= unlimited + 1e-9, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
     print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) <= {unlimited:.2f} ADU (no limit)")
+
+    # ZStage = focal-plane height above the coverslip (+Z focuses up): at
+    # +4 um the 7 um slab still holds the cells' dyes, at -4 um (below the
+    # coverslip) it holds none.
+    def mean_at_z(zpos):
+        core.setPosition(z, zpos)
+        return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
+    up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
+    core.setPosition(z, 1.5)
+    assert up > empty + 1.0 and abs(down - empty) < 0.5, \
+        f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)

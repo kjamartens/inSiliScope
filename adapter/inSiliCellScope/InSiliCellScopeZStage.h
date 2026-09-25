@@ -55,6 +55,7 @@ public:
 
 private:
    static constexpr double kStepSizeUm = 0.001;
+   static constexpr double kInitialPositionUm = 0.5;   // set on Initialize()
    static constexpr double kLowerLimitUm = -50.0;
    static constexpr double kUpperLimitUm = 50.0;
 

@@ -134,13 +134,13 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
          photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
       if (useVectorial)
       {
-         // Stage offset and this emitter's own depth ADD: the stage moves
-         // the focal plane, the structure places the emitter at its own
-         // depth, and what the PSF sees is the difference between the two.
+         // The Z stage position is the focal plane's height and the emitter
+         // sits at its own depth: what the PSF sees is the difference, the
+         // emitter's height above the focal plane (+Z moves focus up).
          // Looked up per emitter (zNm varies per emitter) rather than once
          // per frame the way a single shared z used to allow.
          bool clamped = false;
-         int zIndex = psfCache->NearestZIndex(globalZOffsetUm + e.zNm / 1000.0, &clamped);
+         int zIndex = psfCache->NearestZIndex(e.zNm / 1000.0 - globalZOffsetUm, &clamped);
          if (outZTotalCount)
             ++*outZTotalCount;
          if (clamped && outZClampedCount)
@@ -195,7 +195,7 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
       if (illum)
          photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
       bool clamped = false;
-      int zIndex = cache.NearestZIndex(globalZOffsetUm + e.zNm / 1000.0, &clamped);
+      int zIndex = cache.NearestZIndex(e.zNm / 1000.0 - globalZOffsetUm, &clamped);
       if (outZTotalCount)
          ++*outZTotalCount;
       if (clamped && outZClampedCount)

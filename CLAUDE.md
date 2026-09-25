@@ -87,6 +87,14 @@ step, ending with the `Co-Authored-By` line.
 
 ## inSiliCellScope adapter (`adapter/inSiliCellScope/`) -- overview
 
+**Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
+defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
+every pattern (it used to be added, i.e. +Z moved the emitters up; outputs at Z = 0 are unchanged).
+For `CellField`, Z = 0 puts the coverslip (the surface the cells sit on) in focus
+(`SimType_CellFieldFocusHeightUm` is now an extra offset, default 0), and the `ZStage` sets itself
+to 0.5 um on `Initialize()`; patterns at z = 0 therefore start 0.5 um out of focus when a ZStage is
+loaded. The cli/viewer movie option `z` (default 0.5) is the same quantity.
+
 **Emitter density (fixed 2026-09-25):** `General_EmitterDensityPerSec` is the rate of blinks
 switching ON per um^2 per second, independent of Exposure, `FluoParam_OnLifetimeSec` and bleaching
 (`SnapshotParams` sets the engine's steady-state ON density to rate x mean ON time; it used to be

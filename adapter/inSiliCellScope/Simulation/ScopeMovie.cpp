@@ -31,7 +31,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
       { "x", 0, "FOV centre x, world um (XY stage position)" },
       { "y", 0, "FOV centre y, world um" },
-      { "z", 0, "Z stage offset, um (renderer focus offset)" },
+      { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
       { "size", 128, "FOV width = height, pixels" },
       { "frames", 1000, "number of frames" },
       { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
@@ -45,7 +45,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "background-per-sec", 0, "Background_BackgroundPhotonsPerSec (photons/pixel/s)" },
       { "wavelength-nm", 660, "emission wavelength (Gaussian sigma = 0.21 lambda / NA)" },
       { "na", 1.4, "numerical aperture" },
-      { "focus-um", 1.5, "SimType_CellFieldFocusHeightUm" },
+      { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
       { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
       { "activation-sec", 100, "SimType_CellFieldActivationMeanSec" },
       { "labeling-pct", 10, "SimType_CellFieldLabelingPct" },
@@ -184,7 +184,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    q.y0Um = q.originYUm - margin;
    q.y1Um = q.originYUm + H * um + margin;
    q.zRefUm = O("focus-um");
-   q.zCullCentreUm = O("focus-um") - O("z");
+   q.zCullCentreUm = O("focus-um") + O("z");
    q.zHalfRangeUm = std::max(0.0, O("z-range-um")) / 2;
    q.frameSec = expSec;
    q.tSec = t0Sec;

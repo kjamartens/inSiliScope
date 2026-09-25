@@ -650,7 +650,8 @@ private:
 
    // CellField pattern (spec/PORT.md 9), indexed by CellFieldNumber; defaults
    // (set in the constructor) are the prototype's (spec/PORT.md 4.2), a sparse
-   // 10% labelling (5.2) and a focal plane 1.5 um above the coverslip.
+   // 10% labelling (5.2) and no focus offset (focal plane = ZStage position
+   // above the coverslip).
    std::atomic<double> cellField_[CF_COUNT];
    bool cellFieldPacking_ = true;
 

@@ -296,11 +296,12 @@ sim::CellFieldQuery CInSiliCellScopeCamera::CellFieldQueryFor(double stageX, dou
    q.x1Um = q.originXUm + W - dxLo + kCellFieldMarginUm;
    q.y0Um = q.originYUm - dyHi - kCellFieldMarginUm;
    q.y1Um = q.originYUm + H - dyLo + kCellFieldMarginUm;
-   // The renderer's plane is zStage + zNm, so the plane in focus is the
-   // world height focus - zStage.
+   // The renderer's defocus is zNm/1000 - zStage, so the plane in focus is
+   // the world height focus + zStage: ZStage is the focal plane's height
+   // above the coverslip, SimType_CellFieldFocusHeightUm an extra offset.
    const double focus = cellField_[CF_FOCUS_HEIGHT_UM].load();
    q.zRefUm = focus;
-   q.zCullCentreUm = focus - zStageUm;
+   q.zCullCentreUm = focus + zStageUm;
    // SimType_CellFieldZRangeUm: total slab around the focal plane whose dyes
    // are rendered (0 = no z limit); dyes outside it are culled, not clamped.
    q.zHalfRangeUm = std::max(0.0, cellField_[CF_Z_RANGE_UM].load()) / 2.0;

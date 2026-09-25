@@ -44,6 +44,11 @@ int InSiliCellScopeZStage::Initialize()
    if (ret != DEVICE_OK)
       return ret;
 
+   // Start 0.5 um above the coverslip (Z = 0 is the surface the cells sit
+   // on, for the CellField pattern), so a fresh configuration focuses into
+   // the cells. Patterns at z = 0 therefore start 0.5 um out of focus.
+   sim::GetSharedStageState().zPositionUm.store(kInitialPositionUm);
+
    CPropertyAction* pAct = new CPropertyAction(this, &InSiliCellScopeZStage::OnPosition);
    ret = CreateFloatProperty(MM::g_Keyword_Position, sim::GetSharedStageState().zPositionUm.load(), false, pAct);
    if (ret != DEVICE_OK)

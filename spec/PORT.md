@@ -425,8 +425,10 @@ Mark each done here.
   (default 70 for the small structures; 70% labelling of a cell field is ~2.7 M dyes per FOV).
 * Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
   event), and events stay relative to the undrifted FOV origin; so drift is applied once.
-* z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000`, the renderer adds the Z stage, so the
-  in-focus world height is `focus - zStage`; dyes beyond `SimType_CellFieldZRangeUm / 2` (default
+* z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000` and the renderer's defocus is
+  `zNm/1000 - zStage` (since 2026-09-25; it used to add the stage), so the in-focus world height is
+  `focus + zStage`: the Z stage is the focal plane's height above the coverslip (focus offset default
+  0, ZStage starts at 0.5 um); dyes beyond `SimType_CellFieldZRangeUm / 2` (default
   7 um, 0 = no limit) of it are culled in the query, for every PSF model. With a vectorial model a
   slab wider than `PSFParam_PsfZRangeUm` (or 0) is logged: those dyes get the kernel's end plane.
 * Margin 2 um around the FOV (`kCellFieldMarginUm`); haze sites and the out-of-focus population are

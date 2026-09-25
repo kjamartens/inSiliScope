@@ -181,12 +181,12 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // then unused. Defaults to nullptr so every existing call site (Gaussian
 // rendering) is unaffected.
 //
-// globalZOffsetUm: uniform focus offset (micrometers), driven by the
-// InSiliCellScopeZStage device's shared position (Simulation/SharedStageState.h),
-// ADDED to each emitter's own BlinkEvent::zNm (nm, converted to um here) to
-// pick that emitter's kernel z-plane -- so the stage moves the focal plane
-// and the structure's own depth is relative to it, not a single global
-// plane shared by every emitter. 0 offset + 0 zNm = center/in-focus plane.
+// globalZOffsetUm: the focal plane's height (micrometers), driven by the
+// ZStage device's shared position (Simulation/SharedStageState.h). Each
+// emitter's kernel z-plane is its defocus zNm/1000 - globalZOffsetUm, so +Z
+// moves the focal plane up through the sample like a real focus drive
+// (until 2026-09-25 the offset was ADDED, i.e. +Z moved the emitters up).
+// 0 offset + 0 zNm = in focus.
 // The plane lookup is nearest-plane only, done PER EMITTER (not once per
 // frame the way it used to be, back when every emitter shared one z) --
 // deliberately not a two-plane blend: blending two planes' intensities is
