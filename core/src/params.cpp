@@ -19,6 +19,10 @@ const Field kFields[] = {
    NUM(cytoMidHeightMin), NUM(cytoMidHeightMax), NUM(cytoMidDistanceMin), NUM(cytoMidDistanceMax),
    NUM(cytoMaxSlope), NUM(cytoDomeSlope), NUM(cytoSmoothPasses), NUM(cytoRings), NUM(cytoTheta),
    FLAG(enablePacking), FLAG(allowPackRotation), NUM(packFrac), NUM(relaxIters), NUM(relaxDamping),
+   NUM(mtDensity), NUM(mtStartFracMin), NUM(mtStartFracMax), NUM(mtStartOffsetXY),
+   NUM(mtEndFracMin), NUM(mtEndFracMax), NUM(mtEndJitterDeg), NUM(mtWobbleTurn), NUM(mtWobbleFactor),
+   NUM(mtStepLen), NUM(mtSmoothLen), NUM(mtMinTurnRadius), NUM(mtMinSeparation), NUM(mtMaxZSlope),
+   NUM(labelEfficiency),
 };
 #undef NUM
 #undef FLAG

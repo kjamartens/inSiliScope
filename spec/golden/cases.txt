@@ -2,6 +2,9 @@ params builtin
 params blobby cellBlob=3.2 density=0.6
 params norot allowPackRotation=0 packFrac=0.9 relaxIters=40
 params dense density=0.9 chunkSize=20 jitter=1 cellElongMin=0.3
+params mtsparse mtDensity=0.03 mtMinSeparation=0.25 mtStartOffsetXY=0.3
+params mtvar mtDensity=0.3 mtStepLen=0.1 cellBlob=2.5 mtEndJitterDeg=60 mtWobbleTurn=1.6 mtSmoothLen=4 nucMargin=1.2 cytoMaxSlope=0.5 cytoDomeSlope=1.5 mtMaxZSlope=2
+params mtflat mtDensity=0.1 mtWobbleTurn=0 mtMinTurnRadius=0 mtSmoothLen=0 cytoSmoothPasses=0 cytoMaxSlope=0 cytoDomeSlope=0 cytoRings=20 cytoTheta=48 mtMinSeparation=0.3
 rng 0 0 0 0
 rng 0 0 0 1
 rng 0 0 0 44
@@ -309,3 +312,8 @@ case c46 1893191519 dense -33980822 13464164 -33980809 13464177
 case c47 620123454 dense -4442300 -42198612 -4442287 -42198599
 case c48 16760380 dense 7775418 -19982118 7775431 -19982105
 case c49 1044628398 dense -47529760 -16061101 -47529747 -16061088
+cells m00 1249 builtin -2 -2 1 1 2
+cells m01 -7 mtsparse -3 -3 3 3 4
+cells m02 90210 mtvar 400 -800 403 -797 2
+cells m03 5 mtflat -1000000 1000000 -999997 1000003 2
+cells m04 424242 mtsparse 12 12 20 20 3

@@ -1,16 +1,22 @@
 // Compares parity outputs against the JS reference and prints the M0 table.
-//   node compare.mjs <ref_js.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6]
-// Exit code 0 = PASS (RNG bit-exact, every layout equal or within tolerance).
+//   node compare.mjs <ref_js.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6] [--geomtol 1e-6]
+// Exit code 0 = PASS (RNG bit-exact, every layout equal or within --tol,
+// cytoplasm mesh / microtubules equal or within --geomtol). The mesh uses
+// Math.pow = the host's std::pow, so a native build on another libm than the
+// one Node was built against is only "near" there (accepted 2026-09-25).
 import fs from 'fs';
 
 const args = process.argv.slice(2);
 let tol = 1e-6;
 const ti = args.indexOf('--tol');
 if (ti >= 0) { tol = +args[ti + 1]; args.splice(ti, 2); }
+let geomTol = 1e-6;
+const gi = args.indexOf('--geomtol');
+if (gi >= 0) { geomTol = +args[gi + 1]; args.splice(gi, 2); }
 const [refPath, ...targets] = args;
 
 function parse(path) {
-  const r = { rng: [], stream: [], math: [], cases: new Map() };
+  const r = { rng: [], stream: [], math: [], cases: new Map(), geom: new Map() };
   let cur = null;
   for (const line of fs.readFileSync(path, 'utf8').split(/\r?\n/)) {
     if (!line) continue;
@@ -24,9 +30,18 @@ function parse(path) {
         r.cases.set(cur.id, cur); break;
       case 'raw': cur.raw.set(t[1] + ',' + t[2], t.slice(3).map(Number)); break;
       case 'pk': cur.pk.set(t[1] + ',' + t[2], t.slice(3).map(Number)); break;
+      // cytoplasm mesh + microtubules, grouped by cells-case id
+      case 'cell': geomLine(r, t[1], `cell ${t[2]},${t[3]}`, [t[5]]); break;
+      case 'mesh': geomLine(r, t[1], `mesh ${t[2]},${t[3]}`, t.slice(4)); break;
+      case 'mtp': case 'mtl': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
     }
   }
   return r;
+}
+
+function geomLine(r, id, key, vals) {
+  if (!r.geom.has(id)) r.geom.set(id, new Map());
+  r.geom.get(id).set(key, vals);
 }
 
 const ref = parse(refPath);
@@ -60,7 +75,7 @@ const rngRow = outs.map(o => {
   return bad ? `**${bad} mismatches**` : `bit-exact (${ref.rng.length} addr + ${ref.stream.length} streams)`;
 });
 say('| pcg4d / hashUnit / hashStream | ' + rngRow.join(' | ') + ' |');
-const FN = ['sin', 'cos', 'atan2', 'hypot', 'atan', 'exp', 'log'];
+const FN = ['sin', 'cos', 'atan2', 'hypot', 'atan', 'exp', 'log', 'asin', 'cbrt', 'hypot3'];
 FN.forEach((fn, k) => {
   const row = outs.map(o => {
     let bad = 0;
@@ -108,10 +123,38 @@ for (const [id, rc] of ref.cases) {
   }
   say(`| ${id} | ${rc.ncand} | ${rc.removed} | ${cells.join(' | ')} | ${rc.ms.toFixed(1)} | ${ms.join(' | ')} |`);
 }
+// ---- cytoplasm mesh + microtubules ----
+if (ref.geom.size) {
+  say('\n## Cytoplasm mesh + microtubules, per cells case\n');
+  say('`equal` = bit-identical; `near` = same microtubule/point counts, max |Δ| ≤ ' + geomTol + ' µm; ' +
+      '`DIVERGES` otherwise. Lines = cells + meshes + microtubules + lattice windows.\n');
+  say('| case | lines | ' + outs.map(o => o.name).join(' | ') + ' |');
+  say('|---|---|' + outs.map(() => '---|').join(''));
+  for (const [id, rg] of ref.geom) {
+    const row = outs.map(o => {
+      const og = o.r.geom.get(id);
+      if (!og) { pass = false; tally[o.name].diverges++; return 'missing'; }
+      let same = og.size === rg.size, exact = true, maxd = 0;
+      for (const [k, v] of rg) {
+        const w = og.get(k);
+        // leading counts (points per microtubule, rings/n, labels) must agree exactly
+        if (!w || w.length !== v.length || (!k.startsWith('mesh') && v[0] !== w[0]) ||
+            (k.startsWith('mesh') && (v[0] !== w[0] || v[1] !== w[1]))) { same = false; continue; }
+        const c = cmpNumLists(v, w); exact &&= c.exact; maxd = Math.max(maxd, c.maxd);
+      }
+      const verdict = !same ? 'diverges' : exact ? 'equal' : maxd <= geomTol ? 'near' : 'diverges';
+      tally[o.name][verdict]++;
+      if (verdict === 'diverges') pass = false;
+      return !same ? 'DIVERGES (counts)' : exact ? 'equal' : `${verdict === 'near' ? 'near' : 'DIVERGES'} ${maxd.toExponential(1)}`;
+    });
+    say(`| ${id} | ${rg.size} | ${row.join(' | ')} |`);
+  }
+}
+
 say('\n## Summary\n');
 for (const o of outs) {
   const t = tally[o.name];
-  say(`- **${o.name}**: ${t.equal} equal, ${t.near} near, ${t.diverges} diverging (of ${ref.cases.size})`);
+  say(`- **${o.name}**: ${t.equal} equal, ${t.near} near, ${t.diverges} diverging (of ${ref.cases.size + ref.geom.size})`);
 }
 say(`\n**${pass ? 'PASS' : 'FAIL'}**`);
 process.exit(pass ? 0 : 1);

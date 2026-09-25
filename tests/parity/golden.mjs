@@ -7,7 +7,8 @@
 //   node tests/parity/golden.mjs --freeze    # regenerate the golden files from web/index.html
 //
 // Freeze only when the prototype's generator changed on purpose; commit the
-// new files together with that change.
+// new files together with that change. Freeze with Node 24 (V8 13.6, the CI
+// pin): its Math.pow is the host's std::pow, older V8 used fdlibm's.
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -41,9 +42,9 @@ const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'isc-golden-')), 'ou
 if (arg.endsWith('.js')) node([arg, CASES, out]);
 else execFileSync(arg, [CASES, out], { stdio: 'inherit' });
 try {
-  node([path.join(HERE, 'compare.mjs'), REF, `${path.basename(arg)}=${out}`, '--tol', '0'],
+  node([path.join(HERE, 'compare.mjs'), REF, `${path.basename(arg)}=${out}`, '--tol', '0', '--geomtol', '1e-6'],
     { stdio: ['ignore', 'pipe', 'inherit'] });
-  console.log(`golden vectors: PASS (${path.basename(arg)} bit-identical to the JS reference)`);
+  console.log(`golden vectors: PASS (${path.basename(arg)} matches the JS reference; see the table for equal/near)`);
 } catch (e) {
   console.log(e.stdout?.toString() ?? '');
   console.error('golden vectors: FAIL');

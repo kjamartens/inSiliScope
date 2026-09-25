@@ -36,9 +36,26 @@ struct Params {
    double packFrac = 1.0;
    double relaxIters = 80;
    double relaxDamping = 0.55;
+   // Microtubules (microtubules.js)
+   double mtDensity = 0.9;          // per um^2 of footprint
+   double mtStartFracMin = 0, mtStartFracMax = 0.3;
+   double mtStartOffsetXY = 0;
+   double mtEndFracMin = 0.01, mtEndFracMax = 0.4;
+   double mtEndJitterDeg = 145;
+   double mtWobbleTurn = 0.8;
+   double mtWobbleFactor = 1.05;
+   double mtStepLen = 0.05;
+   double mtSmoothLen = 1.5;
+   double mtMinTurnRadius = 0.15;
+   double mtMinSeparation = 0.05;
+   double mtMaxZSlope = 5;
+   // Dyes (no JS counterpart: the JS preview labels 100%). Sparse by default,
+   // see spec/PORT.md 5.2.
+   double labelEfficiency = 0.1;
 };
 
-// params() in the prototype clamps every "max" to at least its "min".
+// params() in the prototype clamps every "max" to at least its "min",
+// and floors a few microtubule controls (mtWobbleFactor >= 1, ...).
 void NormalizeParams(Params& p);
 
 // Set a field by its (JS prototype) name; booleans take 0/1. False if unknown.

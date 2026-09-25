@@ -1,6 +1,6 @@
 # insilicell -- plan and status
 
-Last updated: 2026-09-25 (M1 complete). Tick items in the commit that finishes them; add a short note
+Last updated: 2026-09-25 (M2 complete). Tick items in the commit that finishes them; add a short note
 with the evidence (test, report, commit) rather than just a checkmark.
 
 ## Goal
@@ -71,19 +71,33 @@ No second hand-maintained implementation.
       `spec/ALGORITHM.md`. (`PORT.md` is deleted once the port is complete, per its header.)
 - [ ] Load in Micro-Manager Studio by a human (headless checks passed; nothing visual changed).
 
-### M2 -- Full core port
+### M2 -- Full core port -- DONE
 
-- [ ] Cytoplasm height field: `cytoHeightAt`, `buildCytoMesh`, `smoothCytoGrid`,
+- [x] Cytoplasm height field: `cytoHeightAt`, `buildCytoMesh`, `smoothCytoGrid`,
       `sampleCytoMeshHeight` (MTs clamp against the *smoothed mesh*, so the mesh is needed).
       Uses `Math.pow`: small native/WASM-vs-JS differences here are **accepted** (decided
       2026-09-25); the prototype is not changed for it. Golden check for the mesh uses a tolerance.
-- [ ] Microtubules: `buildMicrotubulesForCell` and everything it calls (collisions, turn radius,
-      cytoplasm clamp), per-MT arc length + parallel-transport frames.
-- [ ] Dyes: lattice -> binder -> dye with addressed linker draws (`mtSiteUniforms`); only decorate
-      segments reaching the window (a full network is millions of sites).
-- [ ] Fixed-block packing (PORT.md 4.3) so a moving stage reproduces cells; `packing=off` switch.
-- [ ] C ABI: `sitesInWindow`, `densityInWindow` (+ `excitationAt` can wait for M5).
-- [ ] Golden vectors extended (mesh, MTs, dyes) and green, native + WASM.
+      `core/src/cytomesh.*`. Bit-identical native (glibc) vs a Node 24 freeze; WASM near (1e-13 um).
+- [x] Microtubules: `buildMicrotubulesForCell` and everything it calls (collisions, turn radius,
+      cytoplasm clamp), per-MT arc length + parallel-transport frames. `core/src/microtubules.*`;
+      fdlibm `asin`/`cbrt` and V8's 3-argument `Math.hypot` added to `jsm`. Golden `cells` cases:
+      2306 microtubules + lattice windows bit-identical native, near WASM.
+- [x] Dyes: lattice -> binder -> dye with addressed linker draws; only decorate segments reaching the
+      window (a full network is millions of sites). `core/src/dyes.*` (H1/H2 per PORT.md 5.2, 1 um
+      blocks partition the lattice exactly); stats checked in ctest `world_checks` (12.5/24.5 nm,
+      linker r^3 CDF, 13_3 angles/stagger, 1625 sites/um, count ~ efficiency).
+- [x] Fixed-block packing (PORT.md 4.3) so a moving stage reproduces cells; `packing=off` switch
+      (`enablePacking = 0`). `core/src/world.*`; `world_checks`: stage 1 mm away and back, dropped
+      caches, other query history, 4-tile union all identical. Border effect measured in PORT.md 4.3.
+- [x] C ABI: `sitesInWindow`, `densityInWindow` (+ `excitationAt` can wait for M5):
+      `isc_world_new/free`, `isc_cells_in_window`, `isc_sites_in_window`, `isc_density_in_window`
+      (ABI version 1); exercised natively (`world_checks`) and through WASM (`wasm_abi_smoke.mjs`).
+- [x] Golden vectors extended (mesh, MTs, dyes) and green, native + WASM. Dye *geometry* is in the
+      golden `mtl` lines (lattice sites through `buildMicrotubuleLabelPoints`); dye *identity* is
+      normative C++ hashing with no JS counterpart, so it is covered by `world_checks` instead.
+      WASM core: 75 KB raw / 35 KB gzip.
+- Not done here, noted for M3: dye blocks are not cached between queries (warm 12.8 um FOV beside
+  a nucleus ~110 ms native for ~390k dyes); the viewer will need a mesh/microtubule polyline query.
 
 ### M3 -- Consumers
 

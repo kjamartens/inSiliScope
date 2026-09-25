@@ -79,8 +79,9 @@ Design rules that make this work:
 3. **Geometry is C++ in `core/`, no MMDevice includes**, so it can be tested standalone and compiled to
    WASM for the viewer and webSMLM.
 
-Files: `core/src/rng.h`, `cells.*`, `packing.*` (done in M0); `core/src/cytomesh.*`, `microtubules.*`,
-`dyes.*` (labels, schedules) to come. Adapter side: a thin `CellFieldSource` (event query over the C
+Files: `core/src/rng.h`, `cells.*`, `packing.*` (M0); `cytomesh.*`, `microtubules.*`, `dyes.*` (lattice
+geometry, addressed labels), `world.*` (fixed-block packing, per-cell asset LRU, window queries) (M2);
+schedules come with M3. Adapter side: a thin `CellFieldSource` (event query over the C
 ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's sources to
 `SMLMDemoCam.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
 
@@ -105,16 +106,19 @@ ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's
 * Use `double` everywhere the JS does, and `float` exactly where the JS uses a `Float32Array` (the
   packing radius LUT and collision outline are Float32 in JS; making them double changes layouts).
 * Use `isc::jsm::sin/cos/atan/atan2/exp/log/hypot`, never `<cmath>`, for anything the JS computes
-  with `Math.*`. JS `Math.pow` is the host's `std::pow` (V8 `--use-std-math-pow`), so it has no
-  bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh ring spacing).
+  with `Math.*`. JS `Math.pow` is the host's `std::pow` (V8 >= 13 `--use-std-math-pow`; V8 12 used
+  fdlibm), so it has no bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh
+  ring spacing) on a libm other than the one Node was built with.
 
 **Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
 generator half of `web/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
 V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
 `golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
-packing (M0). Extend the same files for cytoplasm mesh, microtubules and dyes; the original targets
-(cell fields within 1e-9, MT points within 1e-6 µm) remain the fallback where bit-exactness fails
-(`Math.pow`).
+packing (M0). M2 extended them with `cells` cases (cytoplasm mesh, microtubules, lattice sites through
+`buildMicrotubuleLabelPoints` with a constant rng): **bit-identical** natively on Linux/glibc against
+a Node 24 freeze; WASM (musl `pow`) is `near`, max 1.1e-13 um. The compare accepts mesh/microtubule
+lines within 1e-6 um (`--geomtol`); everything else must stay bit-exact. MSVC is expected to be
+`near` there too (UCRT `pow`); a near-tie in the collision pass could in principle make it diverge.
 
 ---
 
@@ -156,6 +160,13 @@ overlaps) for a first milestone.
 
 Keep the safety caps (`CHUNK_CAP`, `PRUNE_ROUNDS`); they exist because a pathological setting hangs.
 
+**Implemented (M2, `core/src/world.*`):** blocks of `PACK_BLOCK_CHUNKS = 8`, margin
+`InteractionChunks(p) + 2`, `enablePacking = 0` = raw candidates. Measured against one big 80x80-chunk
+pack (compared on its central 48x48 chunks, 3 seeds): at the default occupancy 0.33, 88-94% of cells
+are bit-identical, the rest moved by at most 2.2 um, and 0-12 of ~730 cells exist in one version only.
+At occupancy 0.9 packing is globally chaotic (cells shift by up to ~55 um and ~30% differ in presence),
+so there the block result shares little with any big-window pack; it is still deterministic.
+
 ### 4.4 Microtubules
 Port `buildMicrotubulesForCell` faithfully, including the caches keyed by a signature of the cell shape
 and parameters (`mtResultSig`, `mtCellShapeSig`). Key constants: `MT_MAX_PER_CELL 5000`,
@@ -194,6 +205,14 @@ A 30 µm cell at the default density holds millions of sites. A FOV of 13x13 µm
   (~1625 sites). Blocks are addressed `(cx, cy, mtIndex, blockIndex)`.
 * **Labelling efficiency** is one hash draw per site. Default the new property to something sparse
   (start at 5-10%; the webSMLM structures use 70% but their site counts are tiny).
+* **Implemented (M2, `core/src/dyes.*`):** `DYE_SALT = 0x9E3779B9`, `H1 = Pcg4d(seed ^ DYE_SALT, cx, cy,
+  mtIndex).a`, per site `Pcg4d(H1, k, n, purpose)` with purposes `LABEL 0` (its `.a` is also the dye
+  `id`), `LINK_U 1`, `LINK_PHI 2`, `LINK_R 3`; seam phase on `8000000 + mtIndex` as the JS view. Site
+  `(k, n)` sits at `off_k + 8n` nm from the microtubule start and belongs to block
+  `floor((off_k + 8n) / 1000)`, so blocks partition the lattice exactly. Param `labelEfficiency`
+  (default 0.1). Only 1 um blocks whose midpoint lies within 0.5 um + 29.5 nm of the window are
+  decorated. Measured: a 12.8 um FOV beside a default nucleus holds ~390k labelled dyes at 10%
+  (~3.9 M sites; every microtubule of the cell starts there), far more than the estimate above.
 * The JS preview uses a sequential `hashStream` for labels, so **JS and C++ dye-for-dye positions will
   not match**. The C++ hashing above is normative; only the *statistics* (ring at 12.5 nm, tip at 24.5 nm,
   linker in range, lattice angles/stagger) must agree. If exact match is ever wanted, change the JS to
@@ -361,11 +380,14 @@ Mark each done here.
 
 1. [x] Hash + golden-vector tooling; port `rawCandidate`/outline/nucleus; parity test on cells.
        Done in M0/M1, plus packing (`relax`/`prune`/`packMap`), all bit-identical JS/native/WASM.
-2. [ ] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
+2. [x] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
+       `core/src/cytomesh.*`, `microtubules.*`; golden `cells` cases m00-m04 (13 cells, 2306
+       microtubules incl. collision nudges/resampling) bit-identical native, near 1e-13 WASM.
 3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
-       pipeline. First visual check.
+       pipeline. First visual check. (Block generation + window query done in M2: `dyes.*`,
+       `world.*`, `isc_sites_in_window`; schedule and `EventsForFrame` are M3.)
 4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
-5. [ ] Fixed-block packing (4.3).
+5. [x] Fixed-block packing (4.3). `core/src/world.*`, measured in 4.3; ctest `world_checks`.
 6. [ ] Properties, `CLAUDE.md` update, performance pass, docs.
 
 ## 12. Known gaps to keep in mind (not for the first pass)
@@ -373,6 +395,10 @@ Mark each done here.
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.
 * Dyes beyond the kernel z range are culled, not added as diffuse background haze.
 * Packing near block borders can differ slightly from what the neighbouring block would decide.
+* Dyes of a microtubule lying on the coverslip can end up a few nm below z = 0 (binder + linker point
+  down); the JS does the same. Not clamped.
+* The per-query dye generation is not cached yet (a warm 12.8 um FOV beside a nucleus re-hashes
+  ~3.9 M sites, ~110 ms native); M3 caches blocks with their schedules.
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
 * The JS prototype and this port are not validated quantitatively against real SMLM data.
