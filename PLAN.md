@@ -167,6 +167,18 @@ No second hand-maintained implementation.
       activation mean; `SimType_CellFieldNonBleachingLabelingPct` adds persistent (DNA-PAINT-like)
       sites whose supply never drops (PORT.md 6.3, core ABI 3). Defaults unchanged in output.
 
+- [x] (user request) CellField speed + defaults. Slow frames with more labelling at a lower rate:
+      the 2M-dye cache evicted the query's own blocks (784 -> 1.5 ms/frame at 2.8M dyes; blocks in use
+      are never evicted now) and persistent blinks were re-derived per dye per frame (now cached per
+      block for a range of time bins: 548 -> 2.7 ms); events byte-identical, world_checks
+      `CacheUnderLoad`. Renames: `SimType_CellFieldLabelingPctBleaching` / `...LabelingPctNonBleaching`
+      (were `...LabelingPct` / `...NonBleachingLabelingPct`), `SimType_CellFieldMilliActivationRatePerDyePerSec`
+      (1e-3/s, max 1000; was `...ActivationRatePerDyePerSec` in 1/s). Defaults 0% / 70% / 1.43 = the old
+      1e-3 activations per lattice site per s, now constant (22824 vs 21311 blinks in 10 s: the old
+      bleaching dyes deplete); 2.4 ms/frame at the adapter's window. `test_cellfield_stage.py` checks
+      the defaults and passes on the Linux test build. Old MM configs setting these properties must
+      be re-made.
+
 ### M4 -- webSMLM integration via CI
 
 - [x] Release workflow: build + test, emit the block and publish it as an artifact / release asset.

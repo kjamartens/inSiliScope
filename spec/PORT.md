@@ -367,8 +367,8 @@ all with the defaults in 4.2:
   `SimType_CellFieldCellDiameterMinUm/MaxUm`, `SimType_CellFieldMicrotubuleDensityPerUm2`,
   `SimType_CellFieldFocusHeightUm`.
 * `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10).
-* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationRatePerDyePerSec` (6.1) and
-  `SimType_CellFieldNonBleachingLabelingPct` (6.3).
+* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldMilliActivationRatePerDyePerSec` (6.1, in
+  1e-3/s) and `SimType_CellFieldLabelingPctNonBleaching` (6.3).
 * Stage: `General_StageSpeedUmPerSec`, `General_StageSettleMs`, `General_StageInvertX/Y`.
 
 Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-constant stream (like
@@ -422,8 +422,10 @@ Mark each done here.
 **M3 deviations from sections 7-9 (deliberate):**
 * No `General_StageInvertX/Y`: every MM XY stage already has `TransposeMirrorX/Y` (`CXYStageBase`),
   which flips the direction exactly as asked; the test checks it.
-* Labelling is `SimType_CellFieldLabelingPct` (default 10), not `General_LabelingEfficiencyPct`
-  (default 70 for the small structures; 70% labelling of a cell field is ~2.7 M dyes per FOV).
+* Labelling is `SimType_CellFieldLabelingPctBleaching` + `SimType_CellFieldLabelingPctNonBleaching`
+  (defaults 0 and 70 since 2026-09-25; were 10 and 0), not `General_LabelingEfficiencyPct`. 70% of a
+  cell field is ~2 M dyes in the adapter's query window: fine since the dye cache keeps a query's
+  working set and persistent blinks are cached per bin range (2.4 ms/frame steady).
 * Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
   event), and events stay relative to the undrifted FOV origin; so drift is applied once.
 * z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000` and the renderer's defocus is
@@ -436,7 +438,9 @@ Mark each done here.
   off for `CellField` (logged).
 * Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse
   `FluoParam_OnLifetimeSec/OffLifetimeSec/BlinkBleachProb/PhotonCV` plus
-  `SimType_CellFieldActivationRatePerDyePerSec` (default 0.01/s; was `ActivationMeanSec` 100 s).
+  `SimType_CellFieldMilliActivationRatePerDyePerSec` (1e-3/s, default 1.43 with 70% non-bleaching
+  sites; was `ActivationRatePerDyePerSec` 0.01/s with 10% bleaching dyes, before that
+  `ActivationMeanSec` 100 s).
 
 ### 6.3 Non-bleaching sites (ABI 3, 2026-09-25)
 Two labelled fractions of the lattice sites, decided by the one LABEL draw `u` per site:

@@ -47,9 +47,9 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "na", 1.4, "numerical aperture" },
       { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
       { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-      { "activation-rate", 0.01, "SimType_CellFieldActivationRatePerDyePerSec (per dark dye, 1/s)" },
-      { "labeling-pct", 10, "SimType_CellFieldLabelingPct (bleaching dyes, % of lattice sites)" },
-      { "nonbleach-labeling-pct", 0, "SimType_CellFieldNonBleachingLabelingPct (persistent, DNA-PAINT-like sites)" },
+      { "milli-activation-rate", 1.43, "SimType_CellFieldMilliActivationRatePerDyePerSec (per dark dye, 1e-3/s)" },
+      { "labeling-pct-bleaching", 0, "SimType_CellFieldLabelingPctBleaching (bleaching dyes, % of lattice sites)" },
+      { "labeling-pct-nonbleaching", 70, "SimType_CellFieldLabelingPctNonBleaching (persistent, DNA-PAINT-like sites)" },
       { "chunk-um", 26, "SimType_CellFieldChunkSizeUm" },
       { "occupancy", 0.33, "SimType_CellFieldOccupancy" },
       { "cell-diam-min-um", 25, "SimType_CellFieldCellDiameterMinUm" },
@@ -159,8 +159,8 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
-      { "mtDensity", O("mt-density") }, { "labelEfficiency", O("labeling-pct") / 100.0 },
-      { "labelNonBleaching", O("nonbleach-labeling-pct") / 100.0 },
+      { "mtDensity", O("mt-density") }, { "labelEfficiency", O("labeling-pct-bleaching") / 100.0 },
+      { "labelNonBleaching", O("labeling-pct-nonbleaching") / 100.0 },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // p.* pass-through (known core names only), overriding the named ones.
@@ -170,7 +170,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
          world[kv.first.substr(2)] = kv.second;
    isc_params_free(probe);
    cf.params.assign(world.begin(), world.end());
-   cf.activationRatePerSec = O("activation-rate");
+   cf.activationRatePerSec = O("milli-activation-rate") / 1000.0;
    cf.onSec = std::max(1e-6, O("on-sec"));
    cf.offSec = std::max(0.0, O("off-sec"));
    cf.bleachProb = O("bleach-prob");

@@ -104,10 +104,13 @@ rate x exposure, which was right only when exposure = ON time). Live mode rounds
 Poisson counts (truncation lost 0.5 per frame, -4% at ~12 arrivals/frame) and starts with a
 lead-in, like precomputed stacks. ctest `emitter_density` checks both paths. Labelling efficiency
 does not change this rate (it only thins the site list); the `CellField` pattern ignores it: there
-the blink rate comes from the dyes -- `SimType_CellFieldLabelingPct` (bleaching dyes, % of lattice
-sites), `SimType_CellFieldNonBleachingLabelingPct` (persistent, DNA-PAINT-like sites: constant supply)
-and `SimType_CellFieldActivationRatePerDyePerSec` (rate at which each dark dye switches on; replaced
-`ActivationMeanSec`, core ABI 3; spec/PORT.md 6.3). `CellField` is the default pattern.
+the blink rate comes from the dyes -- `SimType_CellFieldLabelingPctBleaching` (bleaching dyes, % of
+lattice sites, default 0), `SimType_CellFieldLabelingPctNonBleaching` (persistent, DNA-PAINT-like sites:
+constant supply, default 70) and `SimType_CellFieldMilliActivationRatePerDyePerSec` (rate at which each
+dark dye switches on, in 1e-3/s, 0-1000, default 1.43: 1e-3 activations per lattice site per second,
+the former 10% bleaching x 0.01/s at t = 0; core ABI 3; spec/PORT.md 6.3). The cli/viewer movie options
+are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
+(the viewer passes its own labelling sliders). `CellField` is the default pattern.
 
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices

@@ -252,11 +252,11 @@ sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
       {"cellDiamMin", cellField_[CF_CELL_DIAM_MIN_UM].load()},
       {"cellDiamMax", cellField_[CF_CELL_DIAM_MAX_UM].load()},
       {"mtDensity", cellField_[CF_MT_DENSITY].load()},
-      {"labelEfficiency", cellField_[CF_LABELING_PCT].load() / 100.0},
-      {"labelNonBleaching", cellField_[CF_NONBLEACHING_LABELING_PCT].load() / 100.0},
+      {"labelEfficiency", cellField_[CF_LABELING_PCT_BLEACHING].load() / 100.0},
+      {"labelNonBleaching", cellField_[CF_LABELING_PCT_NONBLEACHING].load() / 100.0},
       {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
    };
-   s.activationRatePerSec = cellField_[CF_ACTIVATION_RATE].load();
+   s.activationRatePerSec = cellField_[CF_MILLI_ACTIVATION_RATE].load() / 1000.0; // property in 1e-3/s
    s.onSec = std::max(1e-6, onLifetimeSec_.load());
    s.offSec = std::max(0.0, offLifetimeSec_.load());
    s.bleachProb = blinkBleachProb_.load();
@@ -526,7 +526,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
           << ", " << stageYUm << ") um, dyes "
           << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
                                  : std::string("at any z"))
-          << " (dye activation from SimType_CellFieldActivationRatePerDyePerSec; General_EmitterDensityPerSec "
+          << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; General_EmitterDensityPerSec "
           << "does not apply to this pattern) ("
           << std::fixed << std::setprecision(2)
           << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
@@ -924,7 +924,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
             else
-               LogMessage("CellField: dye activation from SimType_CellFieldActivationRatePerDyePerSec; "
+               LogMessage("CellField: dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; "
                           "General_EmitterDensityPerSec does not apply to this pattern.");
             const std::string zWarn = CellFieldZRangeWarning();
             if (!zWarn.empty())

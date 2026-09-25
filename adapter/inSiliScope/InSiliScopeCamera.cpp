@@ -148,11 +148,11 @@ const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldCellDiameterMinUm",
    "SimType_CellFieldCellDiameterMaxUm",
    "SimType_CellFieldMicrotubuleDensityPerUm2",
-   "SimType_CellFieldLabelingPct",
+   "SimType_CellFieldLabelingPctBleaching",
    "SimType_CellFieldFocusHeightUm",
-   "SimType_CellFieldActivationRatePerDyePerSec",
+   "SimType_CellFieldMilliActivationRatePerDyePerSec",
    "SimType_CellFieldZRangeUm",
-   "SimType_CellFieldNonBleachingLabelingPct",
+   "SimType_CellFieldLabelingPctNonBleaching",
 };
 const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
@@ -169,13 +169,15 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    InitializeDefaultErrorMessages();
    thd_ = new SMLMSequenceThread(this);
 
-   // CellField defaults: the prototype's (spec/PORT.md 4.2), sparse labelling
-   // (10% bleaching dyes, no non-bleaching sites), each dark dye switching on
-   // at 0.01/s,
+   // CellField defaults: the prototype's (spec/PORT.md 4.2); 70% of the lattice
+   // sites carry non-bleaching (persistent) dyes, none bleaching ones, each
+   // dark dye switching on at 1.43e-3/s (the property is in 1e-3/s): 1e-3
+   // activations per lattice site per second, as the former 10% bleaching dyes
+   // at 0.01/s at t = 0, but constant (persistent sites never run out);
    // a 7 um z slab around the focal plane (0 = every dye, no z limit), and no
    // focus offset: ZStage = 0 puts the coverslip in focus (the ZStage starts
    // at 0.5 um).
-   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 10.0, 0.0, 0.01, 7.0, 0.0 };
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
 
