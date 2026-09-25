@@ -1,0 +1,10 @@
+add_executable(isc_parity parity_main.cpp)
+target_link_libraries(isc_parity PRIVATE insilicell_core)
+# White-box test: needs core's internal headers.
+target_include_directories(isc_parity PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+if(MSVC)
+  target_compile_definitions(isc_parity PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+if(EMSCRIPTEN)
+  target_link_options(isc_parity PRIVATE -O3 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
+endif()
