@@ -1,7 +1,7 @@
-# insilicell -- plan and status
+# insiliscope -- plan and status
 
 Last updated: 2026-09-25 (M4 CI block done; webSMLM side open).
-Pending: rename to inSiliScope, see [docs/RENAME_inSiliScope.md](docs/RENAME_inSiliScope.md) (do it before the webSMLM side of M4). Tick items in the commit that finishes them; add a short note
+Tick items in the commit that finishes them; add a short note
 with the evidence (test, report, commit) rather than just a checkmark.
 
 ## Goal
@@ -9,7 +9,7 @@ with the evidence (test, report, commit) rather than just a checkmark.
 One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
 later NPCs, DNA, other cell types, excitation profile), consumed by:
 
-1. **inSiliCellScope** Micro-Manager device adapter (native C++, `adapter/`).
+1. **inSiliScope** Micro-Manager device adapter (native C++, `adapter/`).
 2. **Browser viewer** (`web/`): JS UI + WebGL, generator = the same C++ compiled to WASM.
 3. **webSMLM** (upstream HohlbeinLab, single-file, no build): receives a CI-generated block (WASM as
    base64 + thin JS wrapper). CI only builds and publishes the block (artifact / release asset); it
@@ -60,7 +60,7 @@ No second hand-maintained implementation.
 - [x] Adapter output unchanged: `tools/adapter_pixel_hash.py` gives identical SHA-256 for 4 configs
       (defaults/GibsonLanniZernike, Gaussian, NUP, EMCCD) before and after the move; deterministic
       run to run.
-- [x] `tools/test_insilicellscope.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
+- [x] `tools/test_insiliscope.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
       DLL need not be copied into the MM install; one stale default expectation fixed -- it failed on
       the pre-move DLL too).
 - [x] `web/tools/check_cellfield_microtubules.mjs` passes from its new location.
@@ -113,7 +113,7 @@ No second hand-maintained implementation.
 
 - [x] Viewer on WASM: workers instantiate the module; pan benchmark (300 synthetic frames; previous
       p50 17 ms / p95 26 ms with workers in software GL) re-measured. `web/index.html` runs the core
-      (`web/insilicell_module.js`, single-file build `insilicell_web`, embedded by
+      (`web/insiliscope_module.js`, single-file build `insiliscope_web`, embedded by
       `tools/embed_web_module.mjs`, `--check` in CI) in workers (cells / per-cell assets / dyes) or on
       the main thread (`?nw`); the prototype moved to `web/prototype/` (parity + MT checks updated).
       `web/tools/bench_pan.mjs` (300 frames x 0.8 um, 1280x800, headless Chromium + SwiftShader,
@@ -124,27 +124,39 @@ No second hand-maintained implementation.
       popup is gone (the prototype keeps it). Not yet looked at by a human in a real browser.
 - [ ] Adapter: `CellFieldSource::EventsForFrame` + `XYStage` (PORT.md 2, 6-8) feeding the
       existing `RenderPhotonImage/CollectGpuEmitters/ApplyNoiseChain` unchanged; property naming
-      convention; stage test in `test_insilicellscope.py`; XY stage moves over the field.
+      convention; stage test in `test_insiliscope.py`; XY stage moves over the field.
       Code done (PORT.md 11 steps 3-4, deviations listed there) and verified on a test-only Linux
       build with pymmcore-plus (`tools/build_adapter_linux.sh`, `tools/test_cellfield_stage.py`: move
       time 0.52 s for 500 um at 1000 um/s, Busy while moving, +2 um stage = -20 px image shift,
       TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
       excursion). MSBuild on Windows passes in CI (job `adapter`, which also publishes
-      `bin/windows-x64/`). **Open: the full `test_insilicellscope.py` against the real DLL (needs
+      `bin/windows-x64/`). **Open: the full `test_insiliscope.py` against the real DLL (needs
       Windows + JRE) and a look in Micro-Manager Studio.**
 - [x] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
       adapter's `Simulation/` render code without MM. `Simulation/ScopeMovie.*` = the camera's
       precomputed CellField pipeline for one FOV (Gaussian PSF; same seed streams), used by
-      `cli/insilicell_cli` (native, 16-bit multi-page TIFF, ctest `cli_tiff`) and compiled into the
-      viewer's module (`insilicell_scope_web`, export `isc_scope_movie`): the viewer's "blink movie"
+      `cli/insiliscope_cli` (native, 16-bit multi-page TIFF, ctest `cli_tiff`) and compiled into the
+      viewer's module (`insiliscope_scope_web`, export `isc_scope_movie`): the viewer's "blink movie"
       panel renders N frames at the view centre in a worker, plays them and saves a TIFF (JS
-      writer). A 10-frame 128x128 movie from the viewer is byte-identical to `insilicell_cli` with
+      writer). A 10-frame 128x128 movie from the viewer is byte-identical to `insiliscope_cli` with
       the same spec. Vectorial PSF models only in the adapter (JVM).
 
-- [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** everywhere: `adapter/inSiliCellScope/`,
-      `inSiliCellScope.sln/.vcxproj`, `mmgr_dal_inSiliCellScope.dll`, devices `Camera`/`XYStage`/`ZStage`,
-      classes `CInSiliCellScopeCamera`/`InSiliCellScopeXYStage`/`InSiliCellScopeZStage`,
-      `tools/test_insilicellscope.py`. Old MM hardware configs must be re-made.
+- [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** (now inSiliScope, see below) everywhere: `adapter/inSiliScope/`,
+      `inSiliScope.sln/.vcxproj`, `mmgr_dal_inSiliScope.dll`, devices `Camera`/`XYStage`/`ZStage`,
+      classes `CInSiliScopeCamera`/`InSiliScopeXYStage`/`InSiliScopeZStage`,
+      `tools/test_insiliscope.py`. Old MM hardware configs must be re-made.
+
+- [x] Rename (user request, 2026-09-25): repo `insilicell` -> **insiliscope** (renamed on GitHub by the
+      owner) and every internal name: adapter `inSiliCellScope` -> `inSiliScope` (dir, `.sln/.vcxproj/.rc`,
+      `mmgr_dal_inSiliScope.dll`, classes `CInSiliScopeCamera`/`InSiliScopeXYStage`/`InSiliScopeZStage`),
+      `core/include/insiliscope/insiliscope.h`, CMake targets/outputs `insiliscope_*`, `insiliscope_cli`,
+      `web/insiliscope_module.js` + `createInsiliscope`, `tools/test_insiliscope.py`, block markers.
+      Kept: the `isc_`/`ISC_` C ABI prefix, `isc::`, MM property and device names. Old MM hardware
+      configs must be re-made; `bin/windows-x64/` removed until CI (`publish_dll`) rebuilds the DLL.
+      Output unchanged: native + WASM ctest pass; `insiliscope_cli` frames pixel-identical (only the
+      TIFF description string changed); block module sha256 unchanged (9d76094f4867) with the same
+      block-test results; `tests/parity/run.mjs` PASS; viewer loads and renders in headless Chromium;
+      Linux test build + `tools/test_cellfield_stage.py` all pass under module `inSiliScope`.
 
 - [x] (user request) `General_EmitterDensityPerSec` = blink onsets / um^2 / s at any exposure and
       ON time (was scaled by exposure / ON time); live-mode Poisson truncation and warm-up fixed;
@@ -161,9 +173,9 @@ No second hand-maintained implementation.
       **CI does not open PRs** (nor push to other repos). `.github/workflows/release.yml` ("webSMLM
       block", manual; `release_tag` input -> GitHub release asset + `.sha256`); `ci.yml` core-wasm builds
       and checks it too. The block is `dist/cellfield_block.js` (JS, not `.html`: it replaces the IIFE
-      inside webSMLM's existing `<script>`), between `// ==== BEGIN/END insilicell CellField block ====`
+      inside webSMLM's existing `<script>`), between `// ==== BEGIN/END insiliscope CellField block ====`
       markers; header: source repo + commit, Emscripten version, core ABI, sha256 of the module,
-      licence, rebuild command. Not committed (`dist/` is gitignored). Pieces: target `insilicell_block`
+      licence, rebuild command. Not committed (`dist/` is gitignored). Pieces: target `insiliscope_block`
       (core C ABI, WASM inlined, `WASM_ASYNC_COMPILATION=0` + `MODULARIZE=0` so it instantiates
       synchronously -- webSMLM builds structures synchronously on the main thread),
       `tools/make_cellfield_block.mjs` (+ `--check <file>`: header checksum = module = this build),

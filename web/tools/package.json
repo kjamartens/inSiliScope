@@ -1,5 +1,5 @@
 {
-  "name": "insilicell-web-tools",
+  "name": "insiliscope-web-tools",
   "private": true,
   "type": "module",
   "description": "Playwright-driven checks for the cell-field viewer (web/).",

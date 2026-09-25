@@ -49,14 +49,14 @@ try {
 } catch (e) { report += e.stdout; code = 1; }
 
 // WASM size trajectory.
-const wasm = path.join(ROOT, 'build/wasm/core/insilicell.wasm');
+const wasm = path.join(ROOT, 'build/wasm/core/insiliscope.wasm');
 if (fs.existsSync(wasm)) {
   const raw = fs.readFileSync(wasm);
   const glue = fs.readFileSync(wasm.replace(/\.wasm$/, '.js'));
   const gz = zlib.gzipSync(raw, { level: 9 });
   const kb = n => (n / 1024).toFixed(1) + ' KB';
   report += `\n## WASM core module size (C ABI only)\n\n| | raw | gzip -9 | base64(raw) | base64(gzip) |\n|---|---|---|---|---|\n` +
-    `| insilicell.wasm | ${kb(raw.length)} | ${kb(gz.length)} | ${kb(Math.ceil(raw.length / 3) * 4)} | ${kb(Math.ceil(gz.length / 3) * 4)} |\n` +
+    `| insiliscope.wasm | ${kb(raw.length)} | ${kb(gz.length)} | ${kb(Math.ceil(raw.length / 3) * 4)} | ${kb(Math.ceil(gz.length / 3) * 4)} |\n` +
     `| Emscripten JS glue | ${kb(glue.length)} | ${kb(zlib.gzipSync(glue, { level: 9 }).length)} | | |\n`;
 }
 fs.writeFileSync(path.join(OUT, 'report.md'), report);

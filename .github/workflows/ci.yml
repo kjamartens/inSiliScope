@@ -55,7 +55,7 @@ jobs:
           cmake --build --preset wasm
       - name: Golden vectors (WASM under Node)
         run: ctest --test-dir build/wasm --output-on-failure
-      - name: Viewer module up to date (web/insilicell_module.js)
+      - name: Viewer module up to date (web/insiliscope_module.js)
         run: node tools/embed_web_module.mjs --check
       - name: webSMLM block (dist/cellfield_block.js; published by the "webSMLM block" workflow)
         run: |
@@ -63,14 +63,14 @@ jobs:
           node tests/block/check_cellfield_block.mjs
       - name: WASM size
         run: |
-          ls -l build/wasm/core/insilicell.wasm
-          gzip -9 -c build/wasm/core/insilicell.wasm | wc -c
+          ls -l build/wasm/core/insiliscope.wasm
+          gzip -9 -c build/wasm/core/insiliscope.wasm | wc -c
       - uses: actions/upload-artifact@v4
         with:
-          name: insilicell-wasm
+          name: insiliscope-wasm
           path: |
-            build/wasm/core/insilicell.wasm
-            build/wasm/core/insilicell.js
+            build/wasm/core/insiliscope.wasm
+            build/wasm/core/insiliscope.js
 
   # The frozen golden vectors must match what the prototype in web/ produces:
   # a generator change in web/prototype/ needs a re-freeze in the same commit.
@@ -117,11 +117,11 @@ jobs:
             } catch { Write-Host "download failed: $u ($_)" }
           }
           if ($ok) {
-            Push-Location adapter/inSiliCellScope/Simulation/psfbridge-java
+            Push-Location adapter/inSiliScope/Simulation/psfbridge-java
             javac --release 8 -cp ../../../../third_party/PSFGenerator.jar -d out psfbridge/PsfBridge.java psfbridge/GibsonLanniZernikePSF.java
             Pop-Location
             Copy-Item third_party/PSFGenerator.jar third_party/SMLMPsfEmbedded.jar
-            Push-Location adapter/inSiliCellScope/Simulation/psfbridge-java/out
+            Push-Location adapter/inSiliScope/Simulation/psfbridge-java/out
             jar uf ../../../../../third_party/SMLMPsfEmbedded.jar psfbridge/PsfBridge.class psfbridge/GibsonLanniZernikePSF.class 'psfbridge/GibsonLanniZernikePSF$PlaneJob.class'
             Pop-Location
             "vectorial PSF: embedded (PSFGenerator + bridge)" | Out-File -Encoding utf8 psf_status.txt
@@ -131,18 +131,18 @@ jobs:
           }
           Get-Content psf_status.txt
       - name: MSBuild Release|x64
-        run: msbuild adapter/inSiliCellScope/inSiliCellScope.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+        run: msbuild adapter/inSiliScope/inSiliScope.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal
       - name: Collect DLL
         shell: pwsh
         run: |
-          $dll = Get-ChildItem -Recurse -Filter mmgr_dal_inSiliCellScope.dll adapter/inSiliCellScope | Select-Object -First 1
-          if (-not $dll) { throw "mmgr_dal_inSiliCellScope.dll not found" }
+          $dll = Get-ChildItem -Recurse -Filter mmgr_dal_inSiliScope.dll adapter/inSiliScope | Select-Object -First 1
+          if (-not $dll) { throw "mmgr_dal_inSiliScope.dll not found" }
           New-Item -ItemType Directory -Force bin/windows-x64 | Out-Null
           Copy-Item $dll.FullName bin/windows-x64/
-          Copy-Item adapter/inSiliCellScope/license.txt bin/windows-x64/license.txt
-          $hash = (Get-FileHash bin/windows-x64/mmgr_dal_inSiliCellScope.dll -Algorithm SHA256).Hash.ToLower()
+          Copy-Item adapter/inSiliScope/license.txt bin/windows-x64/license.txt
+          $hash = (Get-FileHash bin/windows-x64/mmgr_dal_inSiliScope.dll -Algorithm SHA256).Hash.ToLower()
           @(
-            "mmgr_dal_inSiliCellScope.dll -- test build for Micro-Manager (device interface of third_party/mmCoreAndDevices)",
+            "mmgr_dal_inSiliScope.dll -- test build for Micro-Manager (device interface of third_party/mmCoreAndDevices)",
             "source commit: $env:GITHUB_SHA ($env:GITHUB_REF_NAME)",
             "built: $(Get-Date -Format o) by GitHub Actions run $env:GITHUB_RUN_ID",
             (Get-Content psf_status.txt),
@@ -150,12 +150,12 @@ jobs:
             "Licence: with PSFGenerator embedded this DLL is a GPL-3.0 combined work; see license.txt. Sources: this",
             "repository at the commit above, and PSFGenerator (https://github.com/Biomedical-Imaging-Group/PSFGenerator).",
             "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);",
-            "devices: Camera, XYStage, ZStage in module inSiliCellScope."
+            "devices: Camera, XYStage, ZStage in module inSiliScope."
           ) | Out-File -Encoding utf8 bin/windows-x64/BUILD_INFO.txt
           Get-Content bin/windows-x64/BUILD_INFO.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: mmgr_dal_inSiliCellScope-windows-x64
+          name: mmgr_dal_inSiliScope-windows-x64
           path: bin/windows-x64/
       - name: Commit DLL to the branch
         if: ${{ inputs.publish_dll }}

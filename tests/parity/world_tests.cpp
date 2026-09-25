@@ -10,7 +10,7 @@
 #include "params.h"
 #include "world.h"
 
-#include "insilicell/insilicell.h"
+#include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <chrono>

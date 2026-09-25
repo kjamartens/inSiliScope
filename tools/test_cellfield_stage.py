@@ -2,14 +2,14 @@
 
 Exercises: the XY stage device (Busy while moving, move time ~ distance/speed,
 position readback, MM's TransposeMirrorX flipping the direction), the camera's
-CellField pattern rendering dyes of the insilicell world through the unchanged
+CellField pattern rendering dyes of the insiliscope world through the unchanged
 render pipeline, a known feature shifting by the expected pixels between two
 stage positions (live mode), and precomputed stacks that are byte-identical
 after the stage went 1 mm away and came back.
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
-tools/test_insilicellscope.py also runs these checks at its end (run_checks).
+tools/test_insiliscope.py also runs these checks at its end (run_checks).
 Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
 """
 
@@ -60,13 +60,13 @@ def _shift(a, b):
 
 
 def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
-    core.loadDevice(cam, "inSiliCellScope", "Camera")
+    core.loadDevice(cam, "inSiliScope", "Camera")
     core.setProperty(cam, "SimType_RandomSeed", "7")
     core.initializeDevice(cam)
-    core.loadDevice(xy, "inSiliCellScope", "XYStage")
+    core.loadDevice(xy, "inSiliScope", "XYStage")
     core.initializeDevice(xy)
     if z not in core.getLoadedDevices():
-        core.loadDevice(z, "inSiliCellScope", "ZStage")
+        core.loadDevice(z, "inSiliScope", "ZStage")
         core.initializeDevice(z)
         assert abs(core.getPosition(z) - 0.5) < 1e-9, f"ZStage should start at 0.5 um, got {core.getPosition(z)}"
         print("ZStage starts at 0.5 um")
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     core = CMMCorePlus()
     dirs = [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR")) if d]
     if not dirs:
-        sys.exit("Set ADAPTER_DIR to the directory holding the inSiliCellScope adapter.")
+        sys.exit("Set ADAPTER_DIR to the directory holding the inSiliScope adapter.")
     core.setDeviceAdapterSearchPaths(dirs)
     run_checks(core)
     print("All CellField / XY stage checks passed.")

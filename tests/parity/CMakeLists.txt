@@ -1,5 +1,5 @@
 add_executable(isc_parity parity_main.cpp)
-target_link_libraries(isc_parity PRIVATE insilicell_core)
+target_link_libraries(isc_parity PRIVATE insiliscope_core)
 # White-box test: needs core's internal headers.
 target_include_directories(isc_parity PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(MSVC)
@@ -11,7 +11,7 @@ endif()
 
 # World checks (determinism, tiling, packing off, dye statistics).
 add_executable(isc_world_tests world_tests.cpp)
-target_link_libraries(isc_world_tests PRIVATE insilicell_core)
+target_link_libraries(isc_world_tests PRIVATE insiliscope_core)
 target_include_directories(isc_world_tests PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
 if(EMSCRIPTEN)
   target_link_options(isc_world_tests PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)

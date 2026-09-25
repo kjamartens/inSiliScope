@@ -1,9 +1,9 @@
 // WASM exports of the scope movie (sim::RenderScopeMovie) for the viewer:
-// the same render code as the inSiliCellScope camera and insilicell_cli, in
+// the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
 #include "ScopeMovie.h"
 
-#include "insilicell/insilicell.h"
+#include "insiliscope/insiliscope.h"
 
 #include <cstring>
 #include <string>

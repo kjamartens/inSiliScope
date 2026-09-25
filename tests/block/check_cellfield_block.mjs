@@ -15,7 +15,7 @@ globalThis.self = globalThis;
 globalThis.location = { href: 'file:///cellfield_block.js' };
 
 const text = fs.readFileSync(file, 'utf8');
-if (!text.startsWith('// ==== BEGIN insilicell CellField block ====') || !text.trimEnd().endsWith('// ==== END insilicell CellField block ===='))
+if (!text.startsWith('// ==== BEGIN insiliscope CellField block ====') || !text.trimEnd().endsWith('// ==== END insiliscope CellField block ===='))
   throw new Error('block markers missing');
 const CellField = new Function(text + '\nreturn CellField;')();
 

@@ -41,7 +41,7 @@
 <div id="wrap">
   <div id="side">
     <h1>Cell field viewer</h1>
-    <p class="sub">The insilicell world model (C++ core, compiled to WASM, run in
+    <p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in
     Web Workers). Every cell, microtubule and dye is a pure function of
     (seed, address): pan anywhere and come back to the same structure. Cells are
     packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager
@@ -143,7 +143,7 @@
 
 
     <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion
-    case for the inSiliCellScope adapter: the field does not move, the viewport (camera
+    case for the inSiliScope adapter: the field does not move, the viewport (camera
     FOV) does, and the same world coordinate always re-derives the same structure.
     Packing moves and turns overlapping cells apart (never shrinks them) and drops a
     cell still stuck after relaxation. Dyes are the real labelled sites of the core
@@ -168,7 +168,7 @@
   </div>
 </div>
 
-<script src="insilicell_module.js"></script>
+<script src="insiliscope_module.js"></script>
 <script id="mainScript">
 'use strict';
 
@@ -675,8 +675,8 @@ function drawNucleus(c) {
   }
 }
 
-// ---- generator: the insilicell core (WASM) in Web Workers -----------------------
-// insilicell_module.js holds the core's Emscripten module as source text
+// ---- generator: the insiliscope core (WASM) in Web Workers -----------------------
+// insiliscope_module.js holds the core's Emscripten module as source text
 // (ISC_MODULE_SRC, WASM inlined as base64). Each worker evaluates that text, then
 // runs iscEngine() below on its own module instance:
 //   worker 0      : cells in a window  ({type:'pack'})
@@ -690,7 +690,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 3) throw new Error('insilicell core ABI ' + M._isc_abi_version() + ', viewer expects 3');
+  if (M._isc_abi_version() !== 3) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 3');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   function setParam(pp, k, v) {
@@ -724,7 +724,7 @@ function iscEngine(M) {
   function query(fn, stride, cap0) {
     for (let cap = cap0; ;) {
       const ptr = scratch(Math.max(1, cap) * stride * 8), n = fn(ptr, cap);
-      if (n < 0) throw new Error('insilicell query failed');
+      if (n < 0) throw new Error('insiliscope query failed');
       if (n <= cap) return M.HEAPF64.slice(ptr / 8, ptr / 8 + n * stride);
       cap = n;
     }
@@ -794,7 +794,7 @@ function iscEngine(M) {
 }
 
 function genWorkerMain() {
-  const ready = createInsilicell().then(M => iscEngine(M));
+  const ready = createInsiliscope().then(M => iscEngine(M));
   onmessage = e => {
     ready.then(eng => {
       const [out, transfer] = eng.handle(e.data);
@@ -841,8 +841,8 @@ function disableGenWorkers() {
 function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
-  (0, eval)(self.ISC_MODULE_SRC); // defines createInsilicell
-  createInsilicell().then(M => { mainEngine = iscEngine(M); requestDraw(); });
+  (0, eval)(self.ISC_MODULE_SRC); // defines createInsiliscope
+  createInsiliscope().then(M => { mainEngine = iscEngine(M); requestDraw(); });
 }
 
 // ---- packed-map cache -----------------------------------------------------
@@ -1447,8 +1447,8 @@ function saveMovieTiff(e) {
   e.preventDefault();
   if (!movie) return;
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insilicell viewer ' + movie.spec));
-  a.download = `insilicell_${movie.w}x${movie.h}x${movie.n}.tif`;
+  a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insiliscope viewer ' + movie.spec));
+  a.download = `insiliscope_${movie.w}x${movie.h}x${movie.n}.tif`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }

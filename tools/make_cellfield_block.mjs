@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds the webSMLM block (M4): dist/cellfield_block.js, a drop-in replacement for webSMLM's
-// `const CellField=(function(){...})();` IIFE, generated from the insilicell_block target (the core's
+// `const CellField=(function(){...})();` IIFE, generated from the insiliscope_block target (the core's
 // C ABI, WASM inlined, instantiated synchronously) plus the thin JS wrapper below. Same entry point
 // and return shape as the IIFE it replaces: CellField.buildWindow(w, h, opts).
 //
@@ -19,12 +19,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = path.join(ROOT, 'build/wasm/core/insilicell_block.js');
+const SRC = path.join(ROOT, 'build/wasm/core/insiliscope_block.js');
 const args = process.argv.slice(2);
 const argVal = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const OUT = path.resolve(argVal('--out') || path.join(ROOT, 'dist/cellfield_block.js'));
-const BEGIN = '// ==== BEGIN insilicell CellField block ====';
-const END = '// ==== END insilicell CellField block ====';
+const BEGIN = '// ==== BEGIN insiliscope CellField block ====';
+const END = '// ==== END insiliscope CellField block ====';
 
 const mod = fs.readFileSync(SRC, 'utf8');
 if (/[^\x09\x0a\x0d\x20-\x7e]/.test(mod)) throw new Error('module is not plain ASCII (SINGLE_FILE_BINARY_ENCODE=0?)');
@@ -44,10 +44,10 @@ if (checkFile) {
 
 const sh = c => { try { return execSync(c, { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; } };
 const repo = process.env.GITHUB_REPOSITORY ? `${process.env.GITHUB_SERVER_URL || 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`
-                                           : 'https://github.com/kjamartens/insilicell';
+                                           : 'https://github.com/kjamartens/insiliscope';
 const commit = process.env.GITHUB_SHA || ((sh('git rev-parse HEAD') || 'unknown') +
   (sh('git status --porcelain -- core cli tools CMakeLists.txt CMakePresets.json') ? '+dirty' : ''));
-const abi = /#define ISC_ABI_VERSION (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'core/include/insilicell/insilicell.h'), 'utf8'))[1];
+const abi = /#define ISC_ABI_VERSION (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'core/include/insiliscope/insiliscope.h'), 'utf8'))[1];
 const cache = fs.readFileSync(path.join(ROOT, 'build/wasm/CMakeCache.txt'), 'utf8');
 const tc = (/CMAKE_TOOLCHAIN_FILE:\w+=(.+)/.exec(cache) || [])[1];
 const verFile = tc && path.resolve(path.dirname(tc.trim()), '../../../emscripten-version.txt');
@@ -205,7 +205,7 @@ const text = `${BEGIN}
 // sha256(module): ${sha}
 // licence: BSD-3-Clause, ${repo}/blob/${commit}/LICENSE
 // rebuild: cmake --preset wasm && cmake --build --preset wasm && node tools/make_cellfield_block.mjs
-// Replaces webSMLM's CellField IIFE: the insilicell core (C++ -> WASM, the module text in the
+// Replaces webSMLM's CellField IIFE: the insiliscope core (C++ -> WASM, the module text in the
 // last line, WASM inlined) + a thin wrapper. CellField.buildWindow(w, h, opts) as before
 // (see the comment on buildWindow); the module is instantiated synchronously on first use.
 // CellField.workerSource() gives source text that evaluates to a CellField inside a Web Worker.
