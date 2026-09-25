@@ -67,6 +67,10 @@ that finishes them.
   `tools/test_cellfield_stage.py`: CellField pattern + XY stage). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insilicellscope.py` need the real DLL.
+- Prebuilt DLL for testing: CI workflow (Actions -> CI -> Run workflow, `publish_dll` ticked) builds
+  the adapter on windows-latest and commits `bin/windows-x64/mmgr_dal_inSiliCellScope.dll` +
+  `BUILD_INFO.txt` to the branch it ran on (always also as an artifact). It embeds PSFGenerator only
+  if CI could download it (`psfgenerator_url` input); BUILD_INFO.txt says which.
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 

@@ -4,6 +4,15 @@ name: CI
 # push/PR again, add `push:` and `pull_request:` here.
 on:
   workflow_dispatch:
+    inputs:
+      publish_dll:
+        description: 'Commit the built adapter DLL to bin/windows-x64/ on the branch this runs on'
+        type: boolean
+        default: false
+      psfgenerator_url:
+        description: 'Download URL of PSFGenerator.jar (the "Java application for standalone/Matlab" build); empty = try the EPFL site'
+        type: string
+        default: ''
 
 env:
   # Pinned toolchain versions. Change deliberately: a different Emscripten can
@@ -73,17 +82,81 @@ jobs:
 
   adapter:
     runs-on: windows-latest
+    permissions:
+      contents: write   # only used by the publish_dll step
     steps:
       - run: git config --global core.longpaths true
       - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: microsoft/setup-msbuild@v2
-      # SMLMPsfEmbedded.jar (PSFGenerator, GPL-3.0) is built locally and never
-      # committed (see CLAUDE.md). CI embeds an empty placeholder: this job
-      # proves the adapter compiles and links, not that the vectorial PSF runs.
-      - name: Placeholder PSF jar
-        run: New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # SMLMPsfEmbedded.jar = PSFGenerator.jar (GPL-3.0, EPFL BIG; never committed) + this project's
+      # bridge classes, built as CLAUDE.md describes. If PSFGenerator cannot be downloaded, an empty
+      # placeholder is embedded: the DLL then works, but vectorial PSF models fall back to Gaussian.
+      - name: Embedded PSF jar
         shell: pwsh
+        run: |
+          $urls = @('${{ inputs.psfgenerator_url }}',
+                    'https://bigwww.epfl.ch/algorithms/psfgenerator/PSFGenerator.jar',
+                    'http://bigwww.epfl.ch/algorithms/psfgenerator/PSFGenerator.jar') | Where-Object { $_ }
+          $ok = $false
+          foreach ($u in $urls) {
+            try {
+              Invoke-WebRequest -Uri $u -OutFile third_party/PSFGenerator.jar -UseBasicParsing
+              if ((Get-Item third_party/PSFGenerator.jar).Length -gt 100000) { $ok = $true; Write-Host "PSFGenerator.jar from $u"; break }
+            } catch { Write-Host "download failed: $u ($_)" }
+          }
+          if ($ok) {
+            Push-Location adapter/inSiliCellScope/Simulation/psfbridge-java
+            javac --release 8 -cp ../../../../third_party/PSFGenerator.jar -d out psfbridge/PsfBridge.java psfbridge/GibsonLanniZernikePSF.java
+            Pop-Location
+            Copy-Item third_party/PSFGenerator.jar third_party/SMLMPsfEmbedded.jar
+            Push-Location adapter/inSiliCellScope/Simulation/psfbridge-java/out
+            jar uf ../../../../../third_party/SMLMPsfEmbedded.jar psfbridge/PsfBridge.class psfbridge/GibsonLanniZernikePSF.class 'psfbridge/GibsonLanniZernikePSF$PlaneJob.class'
+            Pop-Location
+            "vectorial PSF: embedded (PSFGenerator + bridge)" | Out-File -Encoding utf8 psf_status.txt
+          } else {
+            New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar | Out-Null
+            "vectorial PSF: NOT embedded (PSFGenerator.jar unavailable in CI); vectorial models fall back to Gaussian" | Out-File -Encoding utf8 psf_status.txt
+          }
+          Get-Content psf_status.txt
       - name: MSBuild Release|x64
         run: msbuild adapter/inSiliCellScope/inSiliCellScope.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+      - name: Collect DLL
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse -Filter mmgr_dal_inSiliCellScope.dll adapter/inSiliCellScope | Select-Object -First 1
+          if (-not $dll) { throw "mmgr_dal_inSiliCellScope.dll not found" }
+          New-Item -ItemType Directory -Force bin/windows-x64 | Out-Null
+          Copy-Item $dll.FullName bin/windows-x64/
+          Copy-Item adapter/inSiliCellScope/license.txt bin/windows-x64/license.txt
+          $hash = (Get-FileHash bin/windows-x64/mmgr_dal_inSiliCellScope.dll -Algorithm SHA256).Hash.ToLower()
+          @(
+            "mmgr_dal_inSiliCellScope.dll -- test build for Micro-Manager (device interface of third_party/mmCoreAndDevices)",
+            "source commit: $env:GITHUB_SHA ($env:GITHUB_REF_NAME)",
+            "built: $(Get-Date -Format o) by GitHub Actions run $env:GITHUB_RUN_ID",
+            (Get-Content psf_status.txt),
+            "sha256: $hash",
+            "Licence: with PSFGenerator embedded this DLL is a GPL-3.0 combined work; see license.txt. Sources: this",
+            "repository at the commit above, and PSFGenerator (https://github.com/Biomedical-Imaging-Group/PSFGenerator).",
+            "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);",
+            "devices: Camera, XYStage, ZStage in module inSiliCellScope."
+          ) | Out-File -Encoding utf8 bin/windows-x64/BUILD_INFO.txt
+          Get-Content bin/windows-x64/BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mmgr_dal_inSiliCellScope-windows-x64
+          path: bin/windows-x64/
+      - name: Commit DLL to the branch
+        if: ${{ inputs.publish_dll }}
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f bin/windows-x64
+          git commit -m "bin: Windows x64 adapter DLL built from $env:GITHUB_SHA"
+          git push origin "HEAD:$env:GITHUB_REF_NAME"

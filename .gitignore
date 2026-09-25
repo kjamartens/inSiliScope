@@ -33,3 +33,6 @@ adapter/inSiliCellScope/Simulation/psfbridge-java/out/
 # tools/psf_parity_check: local build/run artifacts (see its README.md)
 tools/psf_parity_check/*.class
 tools/psf_parity_check/*.bin
+
+# Test build of the adapter, committed by CI (workflow input publish_dll)
+!bin/windows-x64/*.dll
