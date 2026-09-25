@@ -7,7 +7,7 @@
  * microtubules, dyes) and its window queries sitesInWindow / densityInWindow.
  * M3 (ABI 2): dye blink schedules and the event query, the full cell record
  * and per-cell geometry for the viewer. ABI 3: activation as a rate per dye,
- * non-bleaching (persistent) sites. excitationAt arrives with M5.
+ * non-bleaching (persistent) sites.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.

@@ -3,8 +3,8 @@
 One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
 later NPCs, DNA, other cell types, excitation profile), consumed by (1) the Micro-Manager
 inSiliCellScope adapter (native), (2) the browser viewer in `web/` (WASM) and (3) webSMLM (a
-CI-generated block: WASM as base64 + thin JS wrapper, delivered as a PR to the fork
-`kjamartens/webSMLM`). No second hand-maintained implementation.
+CI-generated block: WASM as base64 + thin JS wrapper, published by CI; brought into the fork
+`kjamartens/webSMLM` by a separate change there -- CI never opens PRs). No second hand-maintained implementation.
 
 **Plan and status: [PLAN.md](PLAN.md).** Keep its checklist current: tick items off in the commit
 that finishes them.
@@ -79,8 +79,8 @@ that finishes them.
 ## Working rules
 
 Do only what the current milestone asks; don't add UI nobody asked for. Ask before pushing,
-releasing, or touching the source repos (`C:\GitHub\websmlm`, `C:\GitHub\demoCam_SMLM_MM`). webSMLM
-integration is only ever a CI-generated PR to the fork, never a direct push. Commit per milestone
+releasing, or touching the source repos (`C:\GitHub\websmlm`, `C:\GitHub\demoCam_SMLM_MM`). CI never opens
+PRs or pushes to other repos; webSMLM integration lands only in the fork, never as a direct push upstream. Commit per milestone
 step, ending with the `Co-Authored-By` line.
 
 ---
