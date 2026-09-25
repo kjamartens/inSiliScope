@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Golden vectors are compared line by line; keep them byte-stable.
+spec/golden/** text eol=lf

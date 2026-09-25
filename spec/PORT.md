@@ -1,27 +1,37 @@
-# Porting the cell field simulation into demoCam_SMLM_MM
+# Porting the cell field simulation into the insilicell core and the SMLMDemoCam adapter
 
-> **Keep this file up to date while it exists.** It is the hand-off spec between the two repos. Whenever
-> the cell-field code in `C:\GitHub\websmlm\cell_field_sim\` changes in a way that affects anything
-> described here (hash channels, defaults, geometry, dye model, function names), update this file in
-> the same commit. Whoever implements the port in `C:\GitHub\demoCam_SMLM_MM` should correct this file
-> when reality diverges from it (a decision changed, a section turned out wrong), and mark finished
-> milestones in section 11. Delete the file only once the port is complete and `cell_field_sim/README.md`
-> plus demoCam's `CLAUDE.md` carry everything that is still true.
+> **Keep this file up to date while it exists.** It is the port spec (originally the hand-off between
+> webSMLM's `cell_field_sim/` and demoCam_SMLM_MM, both now in this repo). Whenever the prototype in
+> `web/` changes in a way that affects anything described here (hash channels, defaults, geometry, dye
+> model, function names), update this file in the same commit. Correct it when reality diverges from it
+> (a decision changed, a section turned out wrong), and mark finished steps in section 11 (the overall
+> milestones are tracked in [PLAN.md](../PLAN.md)). Delete the file only once the port is complete and
+> [ALGORITHM.md](ALGORITHM.md) plus `CLAUDE.md` carry everything that is still true.
+>
+> **Changed by the insilicell decisions (M0/M1), overriding the text below where they conflict:**
+> the geometry lives in `core/` (C++17, no MMDevice/GPU/OS dependencies), not in
+> `adapter/SMLMDemoCam/Simulation/`; the adapter only calls core through its C ABI
+> (`core/include/insilicell/insilicell.h`). Every transcendental in core goes through `isc::jsm`
+> (V8's fdlibm), not `<cmath>`, which is what makes native/WASM/JS bit-identical (see
+> [m0-feasibility.md](m0-feasibility.md)). Golden vectors live in [golden/](golden/), not
+> `tools/cellfield_parity_check/`.
 
-**Audience:** a coding agent working in `C:\GitHub\demoCam_SMLM_MM` (C++ Micro-Manager device adapter).
-**Goal:** demoCam simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
+**Audience:** a coding agent working in this repo.
+**Goal:** SMLMDemoCam simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
 microtubules) that is effectively infinite, plus a **dummy XY stage** so the field-of-view can be moved
 over it, with **blinks generated from the actual dye positions** and rendered by the existing PSF/noise
 pipeline.
 
-Read demoCam's `CLAUDE.md` first (property naming convention, the "two draws in one expression" RNG
+Read `CLAUDE.md` first (property naming convention, the "two draws in one expression" RNG
 gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 
 ---
 
 ## 1. Source material (the JS prototype is the reference implementation)
 
-All in `C:\GitHub\websmlm\cell_field_sim\`. Line numbers drift; grep the function names.
+All in `web/` (history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
+the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
+README).
 
 | File | What to port |
 |---|---|
@@ -31,7 +41,7 @@ All in `C:\GitHub\websmlm\cell_field_sim\`. Line numbers drift; grep the functio
 | `index.html` `buildCandidateMap`, `relax`, `prune`, `interactionChunks` | Packing (cells are moved apart, never shrunk). **See the viewport-dependence trap in 4.3.** |
 | `microtubules.js` `buildMicrotubulesForCell` and everything it calls (`mtGenerateOne`, `mtResolveCollisions`, `mtEnforceMinTurnRadius`, `mtClampIntoCytoplasm`, `buildMtDirectionTable`, ...) | Per-cell 3D microtubule centrelines (`{x,y,z}` µm, cell-local frame). |
 | `microtubules.js` `buildMicrotubuleLabelPoints`, `MT_*` constants | Lattice site -> binder tip -> dye. Currently only a windowed debug preview in JS. |
-| `README.md` in the same folder | The *why* behind every non-obvious decision (blobbiness area correction, z-as-fraction-of-local-ceiling, over/under-nucleus crossing, turn-radius enforcement). Read it before touching an algorithm; do not "simplify" what it says was fixed on purpose. |
+| [ALGORITHM.md](ALGORITHM.md) (was the prototype's `README.md`) | The *why* behind every non-obvious decision (blobbiness area correction, z-as-fraction-of-local-ceiling, over/under-nucleus crossing, turn-radius enforcement). Read it before touching an algorithm; do not "simplify" what it says was fixed on purpose. |
 
 The JS header of `microtubules.js` already states it is written to be reimplemented in C++ (plain scalar
 math, named constants). The cell generator in `index.html` is the same in spirit.
@@ -66,12 +76,13 @@ Design rules that make this work:
 2. **The renderer stays untouched.** The new source emits ordinary `BlinkEvent`s already translated
    into FOV-relative coordinates. `RenderPhotonImage`, the GPU path, camera noise, drift, illumination
    all keep working.
-3. **Geometry is C++ in `Simulation/`, no MMDevice includes**, like the rest of the engine, so it can be
-   tested standalone.
+3. **Geometry is C++ in `core/`, no MMDevice includes**, so it can be tested standalone and compiled to
+   WASM for the viewer and webSMLM.
 
-New files (suggested): `Simulation/SMLMCellField.h/.cpp` (hash, cells, packing, cytoplasm mesh),
-`Simulation/SMLMMicrotubules.h/.cpp`, `Simulation/SMLMCellFieldDyes.h/.cpp` (labels, schedules, event
-query), `SMLMDemoXYStage.h/.cpp`. Add them to `SMLMDemoCam.vcxproj` and `.filters`.
+Files: `core/src/rng.h`, `cells.*`, `packing.*` (done in M0); `core/src/cytomesh.*`, `microtubules.*`,
+`dyes.*` (labels, schedules) to come. Adapter side: a thin `CellFieldSource` (event query over the C
+ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's sources to
+`SMLMDemoCam.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
 
 ---
 
@@ -91,14 +102,19 @@ query), `SMLMDemoXYStage.h/.cpp`. Add them to `SMLMDemoCam.vcxproj` and `.filter
 * **Never write two draws from the same sequential stream in one expression.** C++ leaves operand
   evaluation order unspecified (demoCam already hit this with `CombinedShotAndReadNoise`). JS is
   left-to-right, so a line-for-line port can silently diverge. Draw into named locals in the JS order.
-* Use `double` everywhere the JS does. `Float32` is only for what demoCam already holds in float.
+* Use `double` everywhere the JS does, and `float` exactly where the JS uses a `Float32Array` (the
+  packing radius LUT and collision outline are Float32 in JS; making them double changes layouts).
+* Use `isc::jsm::sin/cos/atan/atan2/exp/log/hypot`, never `<cmath>`, for anything the JS computes
+  with `Math.*`. JS `Math.pow` is the host's `std::pow` (V8 `--use-std-math-pow`), so it has no
+  bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh ring spacing).
 
-**Golden vectors.** Before anything else, add `tools/cellfield_parity_check/` (mirror
-`tools/psf_parity_check/`): a Node script that `require`s the JS (or evals `index.html`'s script) and
-dumps, for a fixed seed, `hashUnit` values including negative `cx,cy` and large `k`; `rawCandidate` for
-~20 chunks; and one full `buildMicrotubulesForCell` result. Compare against the C++ output. Targets:
-hash bit-exact, cell fields within 1e-9, MT points within 1e-6 µm (they pass through `sqrt`/`atan2`/
-iterative clamps, so demand tolerance, not bit-exactness).
+**Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
+generator half of `web/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
+V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
+`golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
+packing (M0). Extend the same files for cytoplasm mesh, microtubules and dyes; the original targets
+(cell fields within 1e-9, MT points within 1e-6 µm) remain the fallback where bit-exactness fails
+(`Math.pow`).
 
 ---
 
@@ -370,7 +386,8 @@ Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-cons
 
 Mark each done here.
 
-1. [ ] Hash + golden-vector tooling; port `rawCandidate`/outline/nucleus; parity test on cells.
+1. [x] Hash + golden-vector tooling; port `rawCandidate`/outline/nucleus; parity test on cells.
+       Done in M0/M1, plus packing (`relax`/`prune`/`packMap`), all bit-identical JS/native/WASM.
 2. [ ] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
 3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV, `Global` clock; renders through the
        existing pipeline. First visual check.

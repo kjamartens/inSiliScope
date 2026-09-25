@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  # Pinned toolchain versions. Change deliberately: a different Emscripten can
+  # change the WASM blob that ships to webSMLM (not the numbers -- the golden
+  # test guards those).
+  EMSDK_VERSION: 6.0.10
+  NODE_VERSION: 24
+
+jobs:
+  core-native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Configure + build (MSVC)
+        run: |
+          cmake --preset msvc
+          cmake --build --preset msvc
+      - name: Golden vectors (native)
+        run: ctest --test-dir build/msvc -C Release --output-on-failure
+
+  core-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - run: sudo apt-get install -y ninja-build
+      - name: Configure + build (Emscripten)
+        run: |
+          cmake --preset wasm
+          cmake --build --preset wasm
+      - name: Golden vectors (WASM under Node)
+        run: ctest --test-dir build/wasm --output-on-failure
+      - name: WASM size
+        run: |
+          ls -l build/wasm/core/insilicell.wasm
+          gzip -9 -c build/wasm/core/insilicell.wasm | wc -c
+      - uses: actions/upload-artifact@v4
+        with:
+          name: insilicell-wasm
+          path: |
+            build/wasm/core/insilicell.wasm
+            build/wasm/core/insilicell.js
+
+  # The frozen golden vectors must match what the prototype in web/ produces:
+  # a generator change in web/index.html needs a re-freeze in the same commit.
+  golden-fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Re-freeze from web/index.html and diff
+        run: |
+          node tests/parity/golden.mjs --freeze
+          git diff --exit-code --stat spec/golden
+
+  adapter:
+    runs-on: windows-latest
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: microsoft/setup-msbuild@v2
+      # SMLMPsfEmbedded.jar (PSFGenerator, GPL-3.0) is built locally and never
+      # committed (see CLAUDE.md). CI embeds an empty placeholder: this job
+      # proves the adapter compiles and links, not that the vectorial PSF runs.
+      - name: Placeholder PSF jar
+        run: New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar
+        shell: pwsh
+      - name: MSBuild Release|x64
+        run: msbuild adapter/SMLMDemoCam/SMLMDemoCam.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal

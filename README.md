@@ -6,8 +6,9 @@ and webSMLM (a CI-generated WASM block). Every cell is a pure function of `(seed
 window of the infinite field can be generated on its own, in any order, on any platform, with
 identical results.
 
-Status: **M0 feasibility spike done** ([spec/m0-feasibility.md](spec/m0-feasibility.md)). RNG and
-cell packing are ported and bit-identical in JS, native and WASM.
+Status: **M0 (feasibility) and M1 (repo restructure) done**; see [PLAN.md](PLAN.md) for the plan and
+checklist. RNG and cell packing are ported and bit-identical in JS, native and WASM
+([spec/m0-feasibility.md](spec/m0-feasibility.md)).
 
 ## SMLMDemoCam (Micro-Manager device adapter)
 
