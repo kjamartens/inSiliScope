@@ -36,7 +36,10 @@ namespace sim {
 struct SimulationParams
 {
    double pixelSizeNm = 100.0;          // simulation pixel size, nm
-   double emitterDensity = 0.5;         // emitters / um^2 / frame
+   // Steady-state density of ON emitters, per um^2: blink onsets per frame
+   // are emitterDensity * area / onLifetimeFrames (the camera sets it to
+   // General_EmitterDensityPerSec x the mean ON time, see SnapshotParams).
+   double emitterDensity = 0.5;
    double photonsPerBlink = 2000.0;     // photons emitted per full ON frame
    double onLifetimeFrames = 3.0;       // mean exponential ON duration, frames
    double psfSigmaPx = 1.3;             // Gaussian PSF sigma, pixels
@@ -275,6 +278,11 @@ public:
 private:
    std::unique_ptr<IPatternGenerator> pattern_;
    std::vector<BlinkEvent> liveActive_;
+   // Set by ResetLive: the next AdvanceOneFrame first seeds the molecules
+   // that would have arrived during a lead-in before it (as GenerateAllEvents
+   // does), so a live stream starts at the steady-state blink rate instead
+   // of ramping up over the molecules' lifetime.
+   bool liveLeadInPending_ = true;
 };
 
 } // namespace sim

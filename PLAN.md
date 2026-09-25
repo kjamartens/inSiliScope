@@ -141,6 +141,11 @@ No second hand-maintained implementation.
       classes `CInSiliCellScopeCamera`/`InSiliCellScopeXYStage`/`InSiliCellScopeZStage`,
       `tools/test_insilicellscope.py`. Old MM hardware configs must be re-made.
 
+- [x] (user request) `General_EmitterDensityPerSec` = blink onsets / um^2 / s at any exposure and
+      ON time (was scaled by exposure / ON time); live-mode Poisson truncation and warm-up fixed;
+      ctest `emitter_density`. `CellField` is the default pattern (default FOV at stage 0,0 shows a
+      cell edge). Seeded precomputed output is unchanged when exposure = ON time (the defaults).
+
 ### M4 -- webSMLM integration via CI
 
 - [ ] Release workflow: build + test, emit `dist/cellfield_block.html` (header: source repo, commit,

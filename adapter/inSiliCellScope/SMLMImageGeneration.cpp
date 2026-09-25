@@ -41,13 +41,21 @@ sim::SimulationParams CInSiliCellScopeCamera::SnapshotParams() const
 
    sim::SimulationParams p;
    p.pixelSizeNm = pixelSizeNm_.load();
-   p.emitterDensity = emitterDensityPerSec_.load() * expSec;
    p.photonsPerBlink = photonsPerSecond_.load() * expSec;
    // Clamp: an extreme (very short exposure)/(very long ON lifetime)
    // combination would otherwise blow up the lead-in window and event count
    // in GenerateAllEvents() (see SMLMSimulation.cpp), making stack
    // generation pathologically slow.
    p.onLifetimeFrames = std::min(onLifetimeSec_.load() / expSec, 20000.0);
+   // General_EmitterDensityPerSec is the rate of blinks switching ON, per um^2
+   // per second -- what a localization count measures -- whatever the
+   // exposure, ON lifetime or bleaching. The engine's emitterDensity is the
+   // steady-state density of ON emitters (arrivals per frame =
+   // emitterDensity * area / onLifetimeFrames), i.e. rate x mean ON time.
+   // (It used to be rate x exposure, which only equals that when the
+   // exposure equals the ON lifetime: 20 ms frames with a 0.2 s ON time gave
+   // a tenth of the set rate, and changing Exposure changed the density.)
+   p.emitterDensity = emitterDensityPerSec_.load() * expSec * std::max(p.onLifetimeFrames, 0.01);
    p.backgroundPhotons = backgroundPhotonsPerSec_.load() * expSec;
    p.psfSigmaPx = ComputePsfSigmaPx();
    p.quantumEfficiency = quantumEfficiency_.load();
@@ -516,7 +524,8 @@ void CInSiliCellScopeCamera::StackGenerationWorker(long stackLength, unsigned fu
           << ", " << stageYUm << ") um, dyes "
           << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
                                  : std::string("at any z"))
-          << " ("
+          << " (dye activation from SimType_CellFieldActivationMeanSec; General_EmitterDensityPerSec does "
+          << "not apply to this pattern) ("
           << std::fixed << std::setprecision(2)
           << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
       LogMessage(msg.str());
@@ -912,6 +921,9 @@ void CInSiliCellScopeCamera::LiveProducerLoop()
             cellFieldOk = cellField.Configure(BuildCellFieldSettings(), err);
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
+            else
+               LogMessage("CellField: dye activation from SimType_CellFieldActivationMeanSec; "
+                          "General_EmitterDensityPerSec does not apply to this pattern.");
             const std::string zWarn = CellFieldZRangeWarning();
             if (!zWarn.empty())
                LogMessage(zWarn, false);

@@ -269,7 +269,7 @@ int CInSiliCellScopeCamera::Initialize()
 
    // Pattern
    pAct = new CPropertyAction(this, &CInSiliCellScopeCamera::OnPattern);
-   CreateStringProperty(g_PropPattern, g_PatternCircle, false, pAct);
+   CreateStringProperty(g_PropPattern, g_PatternCellField, false, pAct);
    AddAllowedValue(g_PropPattern, g_PatternCircle);
    AddAllowedValue(g_PropPattern, g_PatternLines);
    AddAllowedValue(g_PropPattern, g_PatternGrid);

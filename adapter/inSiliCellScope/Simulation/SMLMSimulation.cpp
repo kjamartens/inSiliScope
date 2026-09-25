@@ -29,6 +29,16 @@ double DrawBrightness(std::mt19937_64& rng, double cv)
    return std::exp(-s2 / 2.0 + std::sqrt(s2) * GaussianRng(rng, 0.0, 1.0));
 }
 
+// A Poisson count for live mode's per-frame arrivals. PoissonRng's Gaussian
+// branch (mean >= 10) returns a real number, and truncating it (as the
+// once-per-stack calls in GenerateAllEvents do, where the mean is huge and
+// it does not matter) loses 0.5 per draw: -4% of the arrivals at a mean of
+// 12 per frame. Rounding keeps the count unbiased; same rng draws either way.
+long PoissonCount(std::mt19937_64& rng, double mean)
+{
+   return static_cast<long>(std::floor(PoissonRng(rng, mean) + 0.5));
+}
+
 double ExpDraw(std::mt19937_64& rng, double mean)
 {
    std::uniform_real_distribution<double> unif01(0.0, 1.0);
@@ -335,6 +345,7 @@ std::vector<BlinkEvent> EmitterModel::GenerateAllEvents(long nFrames, double wid
 void EmitterModel::ResetLive(double /*widthUm*/, double /*heightUm*/)
 {
    liveActive_.clear();
+   liveLeadInPending_ = true;
 }
 
 std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double widthUm, double heightUm,
@@ -385,7 +396,29 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
          // each ON period ends.
          const double pBleach = std::min(1.0, std::max(0.01, params.blinkBleachProb));
          const double molRate = density * area / (lifetime / pBleach);
-         long nNew = static_cast<long>(PoissonRng(rng, molRate));
+         if (liveLeadInPending_)
+         {
+            // Molecules that arrived during the lead-in: their first blinks go
+            // in as live molecules; the continuation pass below runs each
+            // chain forward to this frame.
+            const double offLife = std::max(params.offLifetimeFrames, kMinLifetimeFrames);
+            const double meanBlinks = 1.0 / pBleach;
+            const double leadIn =
+               std::min(5.0 * (meanBlinks * lifetime + (meanBlinks - 1.0) * offLife), 20000.0);
+            long nLead = PoissonCount(rng, molRate * leadIn);
+            for (long i = 0; i < nLead; ++i)
+            {
+               EmitterSite site = pattern_->SampleSite(widthUm, heightUm, rng);
+               if (zOverride)
+                  site.zNm = zOverride(rng);
+               double tStart = static_cast<double>(frameIndex) - leadIn + unif01(rng) * leadIn;
+               BlinkEvent e{site.xUm, site.yUm, site.zNm, tStart, tStart + ExpDraw(rng, lifetime)};
+               e.brightness = DrawBrightness(rng, params.photonCV);
+               e.moleculeLive = true;
+               liveActive_.push_back(e);
+            }
+         }
+         long nNew = PoissonCount(rng, molRate);
          for (long i = 0; i < nNew; ++i)
          {
             EmitterSite site = pattern_->SampleSite(widthUm, heightUm, rng);
@@ -401,7 +434,22 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
       else
       {
          double arrivalRatePerFrame = density * area / lifetime;
-         long nNew = static_cast<long>(PoissonRng(rng, arrivalRatePerFrame));
+         if (liveLeadInPending_)
+         {
+            // Blinks already ON at the first frame (lead-in of 5 lifetimes).
+            const double leadIn = 5.0 * lifetime;
+            long nLead = PoissonCount(rng, arrivalRatePerFrame * leadIn);
+            for (long i = 0; i < nLead; ++i)
+            {
+               EmitterSite site = pattern_->SampleSite(widthUm, heightUm, rng);
+               double tStart = static_cast<double>(frameIndex) - leadIn + unif01(rng) * leadIn;
+               double u = std::min(unif01(rng), 0.999999);
+               double tEnd = tStart - lifetime * std::log(1.0 - u);
+               if (tEnd > static_cast<double>(frameIndex))
+                  liveActive_.push_back({site.xUm, site.yUm, site.zNm, tStart, tEnd});
+            }
+         }
+         long nNew = PoissonCount(rng, arrivalRatePerFrame);
 
          for (long i = 0; i < nNew; ++i)
          {
@@ -413,6 +461,8 @@ std::vector<BlinkEvent> EmitterModel::AdvanceOneFrame(long frameIndex, double wi
          }
       }
    }
+
+   liveLeadInPending_ = false;
 
    // Multi-blink continuation: every blink whose ON period ends before the
    // end of this frame decides now whether its molecule bleaches or goes

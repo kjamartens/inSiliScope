@@ -87,6 +87,15 @@ step, ending with the `Co-Authored-By` line.
 
 ## inSiliCellScope adapter (`adapter/inSiliCellScope/`) -- overview
 
+**Emitter density (fixed 2026-09-25):** `General_EmitterDensityPerSec` is the rate of blinks
+switching ON per um^2 per second, independent of Exposure, `FluoParam_OnLifetimeSec` and bleaching
+(`SnapshotParams` sets the engine's steady-state ON density to rate x mean ON time; it used to be
+rate x exposure, which was right only when exposure = ON time). Live mode rounds its per-frame
+Poisson counts (truncation lost 0.5 per frame, -4% at ~12 arrivals/frame) and starts with a
+lead-in, like precomputed stacks. ctest `emitter_density` checks both paths. Labelling efficiency
+does not change this rate (it only thins the site list); the `CellField` pattern ignores it (dye
+activation is `SimType_CellFieldActivationMeanSec`). `CellField` is the default pattern.
+
 Renamed from SMLMDemoCam on 2026-09-25 (M3): module/DLL `mmgr_dal_inSiliCellScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
 configurations saved with the old names must be re-made. Property names did not change. The

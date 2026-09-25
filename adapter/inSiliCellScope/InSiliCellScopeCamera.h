@@ -448,7 +448,7 @@ private:
    MMThreadLock imgPixelsLock_;
 
    int acqMode_ = SMLM_MODE_LIVE;
-   int patternType_ = sim::PATTERN_CIRCLE;
+   int patternType_ = sim::PATTERN_CELL_FIELD;   // default: the insilicell cell field
    std::string customPointsFile_;
    // Ring/scale-step/spiral-arc gap (Circle/Spiral/Star/Heart) and line
    // spacing (ResolutionTarget) progression, in nanometers, easiest to
@@ -536,7 +536,7 @@ private:
    // SMLMImageGeneration.cpp) converts them to the frame-equivalent values
    // the simulation engine expects using the camera's *current* MM Exposure,
    // so they automatically scale correctly with whatever Exposure is set to.
-   std::atomic<double> emitterDensityPerSec_{0.5};     // emitters / um^2 / s
+   std::atomic<double> emitterDensityPerSec_{0.5};     // blinks switching ON / um^2 / s (not CellField)
    std::atomic<double> photonsPerSecond_{7500.0};      // photons / s while ON
    std::atomic<double> onLifetimeSec_{0.05};           // mean ON duration, s
    std::atomic<double> psfWavelengthNm_{660.0};        // emission wavelength, nm

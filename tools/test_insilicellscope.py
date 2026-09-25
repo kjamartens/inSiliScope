@@ -200,6 +200,7 @@ print("Property surface OK:", len(renamed), "renamed properties present,", len(g
 # A freshly loaded device (see load_camera above -- it only sets RandomSeed
 # and FovSize) must come up with these out-of-the-box values.
 for name, expected in [
+    ("SimType_Pattern", "CellField"),
     ("General_LabelingEfficiencyPct", "70"),
     ("PSFParam_PsfMaskType", "None"),
     # webSMLM parity round 2: every new feature defaults to "off".
@@ -335,7 +336,7 @@ assert float(interval_ms) < 100.0, (
     f"live, got {interval_ms}ms -- site-list build may be happening per frame instead of on config change"
 )
 print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms}ms with NupCount=200 streaming live")
-core.setProperty("SMLMCam", "SimType_Pattern", "Circle")  # restore default
+core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
 core.setProperty("SMLMCam", "SimType_NupCount", "80")  # restore default
 
 # --- Calibration9Spots: nine ALWAYS-ON beads on a 3x3 grid ---------------
@@ -405,7 +406,7 @@ rows = sorted({round(y / 4.0) for y, _ in cal_a})
 cols = sorted({round(x / 4.0) for _, x in cal_a})
 assert len(rows) == 3 and len(cols) == 3,     f"expected the 9 spots to form a 3x3 grid, got {len(rows)} rows x {len(cols)} cols"
 print("Calibration9Spots OK: 9 always-on beads on a 3x3 grid, identical positions frame to frame")
-core.setProperty("SMLMCam", "SimType_Pattern", "Circle")  # restore default
+core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
 core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restore default
 
 # --- PsfInterp: property wiring + non-blank sanity ----------------------

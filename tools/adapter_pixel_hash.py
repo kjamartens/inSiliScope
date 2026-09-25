@@ -23,10 +23,11 @@ from pymmcore_plus._util import USER_DATA_DIR
 # (name, pre-init seed, post-init properties). Each config regenerates the
 # precomputed stack and hashes its first frames.
 CONFIGS = [
-    ("defaults", 1234, {}),
-    ("gaussian-psf", 1234, {"PSFParam_PsfModel": "Gaussian"}),
+    # Circle explicitly: the default pattern became CellField in M3.
+    ("defaults", 1234, {"SimType_Pattern": "Circle"}),
+    ("gaussian-psf", 1234, {"SimType_Pattern": "Circle", "PSFParam_PsfModel": "Gaussian"}),
     ("nup-pattern", 99, {"SimType_Pattern": "NUP", "PSFParam_PsfModel": "Gaussian"}),
-    ("emccd", 7, {"CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
+    ("emccd", 7, {"SimType_Pattern": "Circle", "CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
 ]
 
 
