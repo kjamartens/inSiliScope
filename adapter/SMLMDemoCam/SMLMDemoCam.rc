@@ -1,0 +1,12 @@
+// Embeds the PSFGenerator (GPL-3.0) + psfbridge.PsfBridge jar into
+// mmgr_dal_SMLMDemoCam.dll -- see Simulation/PsfGeneratorBridge.h/.cpp,
+// which extracts this resource to a temp file and loads it into an
+// embedded JVM via JNI. The referenced jar (third_party/SMLMPsfEmbedded.jar)
+// is built by merging Simulation/psfbridge-java/psfbridge/PsfBridge.class
+// into a copy of a downloaded PSFGenerator.jar -- see
+// Simulation/psfbridge-java/psfbridge/PsfBridge.java's header comment for
+// the exact build steps. Not committed to the repo (GPL-3.0, downloaded
+// separately -- see .gitignore); this .rc file fails to build without it.
+#include "Simulation/PsfResource.h"
+
+IDR_PSF_JAR RCDATA "..\\..\\third_party\\SMLMPsfEmbedded.jar"

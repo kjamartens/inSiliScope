@@ -1,3 +1,35 @@
-/build/
+# Build output
+build/
+*.dll
+*.lib
+*.exp
+*.pdb
+*.obj
+*.ilk
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Python
 __pycache__/
+*.pyc
+
+# Node
 node_modules/
+
+# PSFGenerator (GPL-3.0, downloaded separately -- not redistributed with
+# this repo in source form; it ends up embedded in the built DLL, which is
+# GPL-3.0 as a result, see Simulation/PsfGeneratorBridge.h and
+# Simulation/psfbridge-java/psfbridge/PsfBridge.java). SMLMPsfEmbedded.jar
+# is PSFGenerator.jar merged with our own compiled PsfBridge.class -- built
+# locally, not committed either.
+third_party/PSFGenerator.jar
+third_party/PSF_Generator.jar
+third_party/SMLMPsfEmbedded.jar
+adapter/SMLMDemoCam/Simulation/psfbridge-java/out/
+
+# tools/psf_parity_check: local build/run artifacts (see its README.md)
+tools/psf_parity_check/*.class
+tools/psf_parity_check/*.bin
