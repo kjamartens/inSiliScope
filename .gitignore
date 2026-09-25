@@ -1,5 +1,7 @@
 # Build output
 build/
+# webSMLM block: a CI build product (tools/make_cellfield_block.mjs), published, not committed
+dist/
 *.dll
 *.lib
 *.exp

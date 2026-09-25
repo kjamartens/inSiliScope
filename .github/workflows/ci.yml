@@ -57,6 +57,10 @@ jobs:
         run: ctest --test-dir build/wasm --output-on-failure
       - name: Viewer module up to date (web/insilicell_module.js)
         run: node tools/embed_web_module.mjs --check
+      - name: webSMLM block (dist/cellfield_block.js; published by the "webSMLM block" workflow)
+        run: |
+          node tools/make_cellfield_block.mjs
+          node tests/block/check_cellfield_block.mjs
       - name: WASM size
         run: |
           ls -l build/wasm/core/insilicell.wasm

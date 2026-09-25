@@ -1,6 +1,7 @@
 # insilicell -- plan and status
 
-Last updated: 2026-09-25 (M2 complete). Tick items in the commit that finishes them; add a short note
+Last updated: 2026-09-25 (M4 CI block done; webSMLM side open).
+Pending: rename to inSiliScope, see [docs/RENAME_inSiliScope.md](docs/RENAME_inSiliScope.md) (do it before the webSMLM side of M4). Tick items in the commit that finishes them; add a short note
 with the evidence (test, report, commit) rather than just a checkmark.
 
 ## Goal
@@ -156,9 +157,29 @@ No second hand-maintained implementation.
 
 ### M4 -- webSMLM integration via CI
 
-- [ ] Release workflow: build + test, emit `dist/cellfield_block.html` (header: source repo, commit,
-      Emscripten version, checksum, licence) and publish it as an artifact / release asset. **CI does
-      not open PRs** (nor push to other repos).
+- [x] Release workflow: build + test, emit the block and publish it as an artifact / release asset.
+      **CI does not open PRs** (nor push to other repos). `.github/workflows/release.yml` ("webSMLM
+      block", manual; `release_tag` input -> GitHub release asset + `.sha256`); `ci.yml` core-wasm builds
+      and checks it too. The block is `dist/cellfield_block.js` (JS, not `.html`: it replaces the IIFE
+      inside webSMLM's existing `<script>`), between `// ==== BEGIN/END insilicell CellField block ====`
+      markers; header: source repo + commit, Emscripten version, core ABI, sha256 of the module,
+      licence, rebuild command. Not committed (`dist/` is gitignored). Pieces: target `insilicell_block`
+      (core C ABI, WASM inlined, `WASM_ASYNC_COMPILATION=0` + `MODULARIZE=0` so it instantiates
+      synchronously -- webSMLM builds structures synchronously on the main thread),
+      `tools/make_cellfield_block.mjs` (+ `--check <file>`: header checksum = module = this build),
+      `tests/block/check_cellfield_block.mjs`. Same entry point as the IIFE:
+      `CellField.buildWindow(w, h, {seed, xUm, yUm, pxnm, mtDensity, cellDensity, focusUm, slabNm})` ->
+      `{sites: [[x px, y px, z nm]], nCells, nMt, removed: null, packed}`; webSMLM's `CF_PARAMS` are
+      passed explicitly, every lattice site carries a dye (labelEfficiency 1, webSMLM thins sites
+      itself); plus `workerSource()` (text that evaluates to a CellField in a Worker), `dispose()`.
+      141.6 KB. Verified: block test (bounds, determinism after a 1.2 mm excursion / seed change /
+      dispose, two half windows = full window, parameters reach the world, worker copy identical);
+      headless Chromium main thread (sync compile accepted) and a Blob Worker give the same sites.
+      Against webSMLM's pre-migration IIFE (branch `cell-field-simulation` @ b957244, 25.6 um window,
+      defaults): seed 1249 at the origin 2047593 vs 2047594 sites, z mean/SD/histogram equal to 0.1 nm;
+      elsewhere the cells differ as expected from fixed-block packing (PORT.md 4.3): e.g. seed 7 at
+      (100, 100) um 3.19M vs 3.02M sites, same z profile. Timing: first call at a new place ~3-6 s
+      (packing a block + ~2M sites), repeat ~2 s; the JS was 1.8-4.5 s.
 - [ ] webSMLM side (separate repo, separate change, per its CLAUDE.md): `tools/sync_cellfield.mjs`
       (+ `--check`), replace the `CellField` IIFE with the wrapper (main thread + worker), keep
       `simulation_mt_*` PARAMS behaviour, MODULE INDEX, build letter, CHANGELOG/docs, remove
