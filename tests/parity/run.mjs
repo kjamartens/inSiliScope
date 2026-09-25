@@ -1,7 +1,7 @@
 // Runs the full parity check and writes build/parity/report.md.
 //   node tests/parity/run.mjs [name=<native exe | wasm .js> ...]
 // Defaults to the msvc and wasm preset outputs that exist. The JS reference
-// is the prototype at $ISC_PROTOTYPE (default: web/index.html, falling back
+// is the prototype at $ISC_PROTOTYPE (default: web/prototype/index.html, falling back
 // to the original C:/GitHub/websmlm/cell_field_sim/index.html).
 import fs from 'fs';
 import path from 'path';
@@ -15,7 +15,7 @@ const OUT = path.join(ROOT, 'build/parity');
 fs.mkdirSync(OUT, { recursive: true });
 
 const proto = process.env.ISC_PROTOTYPE ||
-  [path.join(ROOT, 'web/index.html'), 'C:/GitHub/websmlm/cell_field_sim/index.html'].find(p => fs.existsSync(p));
+  [path.join(ROOT, 'web/prototype/index.html'), 'C:/GitHub/websmlm/cell_field_sim/index.html'].find(p => fs.existsSync(p));
 if (!proto) throw new Error('JS prototype not found; set ISC_PROTOTYPE');
 
 let targets = process.argv.slice(2).map(s => s.split('='));

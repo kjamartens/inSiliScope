@@ -1,4 +1,4 @@
-# Porting the cell field simulation into the insilicell core and the SMLMDemoCam adapter
+# Porting the cell field simulation into the insilicell core and the inSiliCellScope adapter
 
 > **Keep this file up to date while it exists.** It is the port spec (originally the hand-off between
 > webSMLM's `cell_field_sim/` and demoCam_SMLM_MM, both now in this repo). Whenever the prototype in
@@ -10,14 +10,14 @@
 >
 > **Changed by the insilicell decisions (M0/M1), overriding the text below where they conflict:**
 > the geometry lives in `core/` (C++17, no MMDevice/GPU/OS dependencies), not in
-> `adapter/SMLMDemoCam/Simulation/`; the adapter only calls core through its C ABI
+> `adapter/inSiliCellScope/Simulation/`; the adapter only calls core through its C ABI
 > (`core/include/insilicell/insilicell.h`). Every transcendental in core goes through `isc::jsm`
 > (V8's fdlibm), not `<cmath>`, which is what makes native/WASM/JS bit-identical (see
 > [m0-feasibility.md](m0-feasibility.md)). Golden vectors live in [golden/](golden/), not
 > `tools/cellfield_parity_check/`.
 
 **Audience:** a coding agent working in this repo.
-**Goal:** SMLMDemoCam simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
+**Goal:** inSiliCellScope simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
 microtubules) that is effectively infinite, plus a **dummy XY stage** so the field-of-view can be moved
 over it, with **blinks generated from the actual dye positions** and rendered by the existing PSF/noise
 pipeline.
@@ -29,7 +29,7 @@ gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 
 ## 1. Source material (the JS prototype is the reference implementation)
 
-All in `web/` (history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
+All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
 the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
 README).
 
@@ -52,10 +52,10 @@ math, named constants). The cell generator in `index.html` is the same in spirit
 
 ```
                     SharedStageState (process-wide, no MMDevice dependency)
-   SMLMDemoXYStage --writes--> x,y target + motion model      zPositionUm (existing)
+   XYStage --writes--> x,y target + motion model      zPositionUm (existing)
         (MM::XYStage)                    |                         |
                                          v                         v
-  CSMLMDemoCamera live loop / stack worker: per frame ->  stage(x,y) at frame time, z
+  CInSiliCellScopeCamera live loop / stack worker: per frame ->  stage(x,y) at frame time, z
                                          |
                                          v
       CellFieldSource::EventsForFrame(f, stageXY, fovSize, frameDur, params)
@@ -82,8 +82,8 @@ Design rules that make this work:
 Files: `core/src/rng.h`, `cells.*`, `packing.*` (M0); `cytomesh.*`, `microtubules.*`, `dyes.*` (lattice
 geometry, addressed labels), `world.*` (fixed-block packing, per-cell asset LRU, window queries) (M2);
 schedules come with M3. Adapter side: a thin `CellFieldSource` (event query over the C
-ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's sources to
-`SMLMDemoCam.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
+ABI) and `InSiliCellScopeXYStage.h/.cpp` in `adapter/inSiliCellScope/`; add them and core's sources to
+`inSiliCellScope.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
 
 ---
 
@@ -111,7 +111,7 @@ ABI) and `SMLMDemoXYStage.h/.cpp` in `adapter/SMLMDemoCam/`; add them and core's
   ring spacing) on a libm other than the one Node was built with.
 
 **Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
-generator half of `web/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
+generator half of `web/prototype/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
 V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
 `golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
 packing (M0). M2 extended them with `cells` cases (cytoplasm mesh, microtubules, lattice sites through
@@ -226,7 +226,7 @@ A 30 µm cell at the default density holds millions of sites. A FOV of 13x13 µm
 ## 6. Blinking from dye positions
 
 ### 6.1 Per-dye schedule = pure function of the dye's hash
-For a labelled dye: first activation `tAct = -ln(U) * activationMeanSec` (a parameter, section 9); then repeat:
+For a labelled dye: first activation `tAct = -ln(U) / activationRatePerSec` (a parameter, section 9; was `* activationMeanSec` until ABI 3); then repeat:
 ON for `Exp(onLifetimeSec)`, then bleach with probability `blinkBleachProb`, else dark for
 `Exp(offLifetimeSec)` and blink again. Per-blink brightness log-normal with CV `photonCV`, mean 1.
 Cap blinks per dye (e.g. 1000) so a tiny `blinkBleachProb` cannot loop forever. Reuse the existing
@@ -239,6 +239,17 @@ The whole lifetime is finite (bleaching), so a block's schedule can be generated
 time, as a list of `{tOnSec, tOffSec, brightness, dyePosLocal}` sorted by `tOn`, plus `maxOnSec` for the
 block. No time windows, no replay. Schedule times are simulated seconds (`frameIndex *
 frameDurationSec`, as drift already does), not wall-clock time.
+
+**Implemented (M3, `core/src/dyes.*`, `world.*`):** `DyeSchedule(H1, k, n, Kinetics)`, draws
+`Unit(Pcg4d(H1, k, n, ch).a)` with `ch = ACT (4)` for the first activation and
+`SCHED0 (16) + 8*j + {ON 0, BRIGHT1 1, BRIGHT2 2, BLEACH 3, OFF 4}` for blink `j` (Box-Muller for the
+log-normal; `bleachProb` clamped to [0.01, 1] as `EmitterModel`; at most `DYE_MAX_BLINKS = 1000`). The
+schedule is keyed by the dye's full lattice address, not by its 32-bit `id` (ids of ~400k dyes in a FOV
+collide). `Kinetics` lives on the `World` (`SetKinetics`, ABI `isc_world_set_kinetics`); changing it
+keeps the geometry and dye positions cached and rebuilds only the schedules. Defaults: activation mean
+100 s, ON 0.05 s, dark 1 s, bleach 1, CV 0. Dye blocks (world positions, then events by `tOn` with
+`maxOn`) are cached in an LRU bounded by dye count (2 M). Checked in `world_checks` (`KineticsStats`:
+Exp means, geometric blink count, log-normal mean/CV, time order).
 
 ### 6.2 Query, per frame
 ```
@@ -261,6 +272,15 @@ std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, 
    never keep one event across frames. The renderer's frame-overlap weighting then still works because
    `tStart/tEnd` keep their original meaning.
 5. Cull events outside the FOV + margin and beyond the kernel z range (section 5.2).
+
+**Implemented (M3):** step 1-3 and the z/xy cull are core's `World::EventsInWindow(rect, zMin, zMax, t0,
+t1)` / `isc_events_in_window` (stride 7: x, y, z, tOn, tOff, brightness, id; world um and simulated
+seconds); step 4 (translation into a `BlinkEvent`) is the adapter's. `world_checks` (`EventQuery`):
+equal to brute force over `SitesInWindow` + `DyeSchedule`, union of per-frame queries = one multi-frame
+query, identical after a 1 mm excursion, a kinetics round trip, dropped caches and tiny caches.
+Measured on a 12.8 um FOV beside a nucleus (+2 um margin, z 0.5-3 um, ~210k dyes, ~1950 blinks per
+30 ms frame at activation mean 30 s): first query ~100 ms native, steady state ~3 ms/frame native,
+~6 ms WASM.
 
 Cost budget: a rendered frame should touch a few thousand blocks and emit hundreds of events. Profile
 the first-visit block generation separately from the steady state; the steady state must not
@@ -285,16 +305,16 @@ Provide, all MMDevice-free:
 The camera samples `PositionXyAt(now)` **once per produced frame** (live) and uses the pose at that
 frame. Motion blur during the exposure is ignored on purpose; note it in the docs.
 
-### 7.2 MM device `SMLMDemoXYStage`
-Derive from `CXYStageBase<SMLMDemoXYStage>` (`DeviceBase.h`). It is in `third_party/mmCoreAndDevices`.
-**Implement every pure virtual it declares**: an abstract class fails at the `new SMLMDemoXYStage()` in
-`SMLMDemoCameraModule.cpp`, not in the stage's own files (same trap already recorded for
+### 7.2 MM device `XYStage`
+Derive from `CXYStageBase<XYStage>` (`DeviceBase.h`). It is in `third_party/mmCoreAndDevices`.
+**Implement every pure virtual it declares**: an abstract class fails at the `new XYStage()` in
+`InSiliCellScopeModule.cpp`, not in the stage's own files (same trap already recorded for
 `IsStageSequenceable`). At minimum: `Initialize/Shutdown/GetName`, `Busy` (return
 `XyBusy(now)` so MM waits for the move), `SetPositionSteps/GetPositionSteps`, `SetPositionUm/GetPositionUm`
 (the base provides the step-based defaults; overriding the Um versions directly and using a step size
 of 0.1 µm is simplest), `SetRelativePositionUm`, `Home` (0,0), `Stop`, `SetOrigin`, `GetLimitsUm`,
 `GetStepLimits`, `GetStepSizeXUm/YUm`, `IsXYStageSequenceable` (false). Register it in
-`InitializeModuleData`/`CreateDevice` as `MM::XYStageDevice`, name `"SMLMDemoXYStage"`, and add to the
+`InitializeModuleData`/`CreateDevice` as `MM::XYStageDevice`, name `"XYStage"`, and add to the
 vcxproj/filters.
 
 Properties (group prefix rule from `CLAUDE.md`: no standard keyword applies, so use `General_`):
@@ -347,7 +367,8 @@ all with the defaults in 4.2:
   `SimType_CellFieldCellDiameterMinUm/MaxUm`, `SimType_CellFieldMicrotubuleDensityPerUm2`,
   `SimType_CellFieldFocusHeightUm`.
 * `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10).
-* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationMeanSec` (6.1).
+* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationRatePerDyePerSec` (6.1) and
+  `SimType_CellFieldNonBleachingLabelingPct` (6.3).
 * Stage: `General_StageSpeedUmPerSec`, `General_StageSettleMs`, `General_StageInvertX/Y`.
 
 Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-constant stream (like
@@ -364,7 +385,7 @@ Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-cons
    within `[2,5]` nm of the tip, radial CDF of the linker displacement ~ r^3, per-protofilament angles
    are multiples of 2*pi/13 + phase, axial stagger 3*8/13 nm, count ~ `1625 * length_um * efficiency`.
 4. **Kinetics**: blink-count distribution geometric with mean `1/blinkBleachProb`.
-5. **Stage**: extend `tools/test_smlmcam.py` (pymmcore-plus): add the XY stage, set positions, assert
+5. **Stage**: extend `tools/test_insilicellscope.py` (pymmcore-plus): add the XY stage, set positions, assert
    `Busy` transitions, that a `speed` move takes ~`dist/speed`, that a known feature shifts by the
    expected pixels between two snaps, and that position-in-image flips with `StageInvertX`.
 6. **Performance**: report first-visit block generation time, steady-state frame time at the default FOV
@@ -383,12 +404,52 @@ Mark each done here.
 2. [x] Cytoplasm mesh + microtubules (unpacked cells first); parity test on one microtubule set.
        `core/src/cytomesh.*`, `microtubules.*`; golden `cells` cases m00-m04 (13 cells, 2306
        microtubules incl. collision nudges/resampling) bit-identical native, near 1e-13 WASM.
-3. [ ] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
-       pipeline. First visual check. (Block generation + window query done in M2: `dyes.*`,
-       `world.*`, `isc_sites_in_window`; schedule and `EventsForFrame` are M3.)
-4. [ ] Shared XY state + `SMLMDemoXYStage` + camera wiring; stage test in `test_smlmcam.py`.
+3. [x] Dyes: block generation, schedule, `EventsForFrame`; static FOV; renders through the existing
+       pipeline. First visual check still open (headless only). (Block generation + window query done in M2: `dyes.*`,
+       `world.*`, `isc_sites_in_window`; schedules, cached blocks and the event query in M3:
+       `DyeSchedule`, `World::EventsInWindow`, `isc_events_in_window`. Adapter `EventsForFrame` open.)
+4. [x] Shared XY state + `XYStage` + camera wiring; stage test in `test_insilicellscope.py`.
+       `SharedStageState` XY motion model, `XYStage.*`, `Simulation/CellFieldSource.*`
+       (core C ABI -> `BlinkEvent`s), `CellField` pattern in `StackGenerationWorker` (one query over
+       the stack's whole time span, one stage pose) and `LiveProducerLoop` (pose + event query per
+       frame, simulated time advancing one frame duration per frame). Checks:
+       `tools/test_cellfield_stage.py` (run by `test_insilicellscope.py`), passing on the Linux test build
+       (`tools/build_adapter_linux.sh`); **MSBuild not yet run** (no Windows in the M3 session).
 5. [x] Fixed-block packing (4.3). `core/src/world.*`, measured in 4.3; ctest `world_checks`.
-6. [ ] Properties, `CLAUDE.md` update, performance pass, docs.
+6. [ ] Properties, `CLAUDE.md` update, performance pass, docs. (Properties + `CLAUDE.md` done in
+       M3; see "M3 deviations" below. Performance numbers of 10.6 only for the core so far.)
+
+**M3 deviations from sections 7-9 (deliberate):**
+* No `General_StageInvertX/Y`: every MM XY stage already has `TransposeMirrorX/Y` (`CXYStageBase`),
+  which flips the direction exactly as asked; the test checks it.
+* Labelling is `SimType_CellFieldLabelingPct` (default 10), not `General_LabelingEfficiencyPct`
+  (default 70 for the small structures; 70% labelling of a cell field is ~2.7 M dyes per FOV).
+* Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
+  event), and events stay relative to the undrifted FOV origin; so drift is applied once.
+* z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000` and the renderer's defocus is
+  `zNm/1000 - zStage` (since 2026-09-25; it used to add the stage), so the in-focus world height is
+  `focus + zStage`: the Z stage is the focal plane's height above the coverslip (focus offset default
+  0, ZStage starts at 0.5 um); dyes beyond `SimType_CellFieldZRangeUm / 2` (default
+  7 um, 0 = no limit) of it are culled in the query, for every PSF model. With a vectorial model a
+  slab wider than `PSFParam_PsfZRangeUm` (or 0) is logged: those dyes get the kernel's end plane.
+* Margin 2 um around the FOV (`kCellFieldMarginUm`); haze sites and the out-of-focus population are
+  off for `CellField` (logged).
+* Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse
+  `FluoParam_OnLifetimeSec/OffLifetimeSec/BlinkBleachProb/PhotonCV` plus
+  `SimType_CellFieldActivationRatePerDyePerSec` (default 0.01/s; was `ActivationMeanSec` 100 s).
+
+### 6.3 Non-bleaching sites (ABI 3, 2026-09-25)
+Two labelled fractions of the lattice sites, decided by the one LABEL draw `u` per site:
+`u < labelEfficiency` is a bleaching dye (6.1), `labelEfficiency <= u < labelEfficiency +
+labelNonBleaching` a persistent (DNA-PAINT-like) site, so the bleaching dyes never depend on the
+second fraction. Both switch on at `activationRatePerSec` per dark dye. A persistent site never
+bleaches: its blinks are a Poisson process of that rate for ever, addressed per 1 s time bin
+(`PersistentBlinks`: count, start, ON time Exp(onSec) capped at 20 onSec, brightness from
+`Pcg4d(Pcg4d(H1, k, n, PERSIST=5).a, bin, j, purpose)`), so any window is answered without running
+from t = 0 and a window equals the union of its slices. Overlapping binding events on one site are
+allowed (independent Poisson events; fine while rate x onSec << 1). `world_checks`: constant rate at
+0-100 s and 10000 s, ON mean, window slicing, bleaching set unchanged; the adapter test shows
+bleaching-only signal collapsing and non-bleaching flat over a 20 s stack.
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 
@@ -397,8 +458,6 @@ Mark each done here.
 * Packing near block borders can differ slightly from what the neighbouring block would decide.
 * Dyes of a microtubule lying on the coverslip can end up a few nm below z = 0 (binder + linker point
   down); the JS does the same. Not clamped.
-* The per-query dye generation is not cached yet (a warm 12.8 um FOV beside a nucleus re-hashes
-  ~3.9 M sites, ~110 ms native); M3 caches blocks with their schedules.
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
 * The JS prototype and this port are not validated quantitatively against real SMLM data.

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Containment + slope-following regression checker for the cell-field
-// prototype's microtubule generator (web/microtubules.js, loaded through
-// web/index.html). Needs Playwright: `cd web/tools && npm install` once.
+// prototype's microtubule generator (web/prototype/microtubules.js, loaded through
+// web/prototype/index.html). Needs Playwright: `cd web/tools && npm install` once
+// (or a global playwright).
 //
 // What it checks, and why:
 //  1. CONTAINMENT -- every generated point must sit (a) within the cell's own
@@ -47,8 +48,8 @@
 //     non-trivial share, not any single violation.
 //
 // Usage:
-//   cd tools && npm install   (once -- installs Playwright + Chromium)
-//   node check_cellfield_microtubules.mjs
+//   cd web/tools && npm install   (once -- installs Playwright + Chromium)
+//   node web/tools/check_cellfield_microtubules.mjs
 //
 // Exits non-zero on any containment violation or failed slope check, so this
 // is usable as a real regression gate after touching microtubule or
@@ -59,7 +60,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const htmlPath = path.resolve(__dirname, '..', 'index.html');
+const htmlPath = path.resolve(__dirname, '..', 'prototype', 'index.html');
 const htmlUrl = 'file://' + htmlPath.replace(/\\/g, '/');
 
 // A tiny centre-region view -- enough chunks to see several cells (some

@@ -28,8 +28,11 @@ node_modules/
 third_party/PSFGenerator.jar
 third_party/PSF_Generator.jar
 third_party/SMLMPsfEmbedded.jar
-adapter/SMLMDemoCam/Simulation/psfbridge-java/out/
+adapter/inSiliCellScope/Simulation/psfbridge-java/out/
 
 # tools/psf_parity_check: local build/run artifacts (see its README.md)
 tools/psf_parity_check/*.class
 tools/psf_parity_check/*.bin
+
+# Test build of the adapter, committed by CI (workflow input publish_dll)
+!bin/windows-x64/*.dll

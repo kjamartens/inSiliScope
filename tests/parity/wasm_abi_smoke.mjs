@@ -1,7 +1,7 @@
 // Smoke test of the WASM C ABI as a JS consumer would use it: packs a few
 // parity cases through isc_pack_window and checks them against the JS
 // reference output (build/parity/ref_js.txt from run.mjs), then drives the
-// M2 world queries (cells / sites / density in a window).
+// world queries (cells / sites / density / events in a window, ABI 2).
 //   node tests/parity/wasm_abi_smoke.mjs
 import fs from 'fs';
 import path from 'path';
@@ -83,10 +83,23 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   let gs = 0;
   for (let i = 0; i < 256; i++) gs += M.HEAPF32[g / 4 + i];
   const nc = M._isc_cells_in_window(w, win[0], win[1], win[2], win[3], 0, 0);
-  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && M._isc_abi_version() === 1;
+  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && M._isc_abi_version() === 3;
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
+  M._isc_world_set_kinetics(w, 0.5, 0.05, 0.5, 0.3, 0.4);
+  const te = performance.now();
+  const ne = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, 0, 0);
+  const eb = M._malloc(Math.max(1, ne) * 7 * 8);
+  const ne2 = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, eb, ne);
+  let eok = ne > 0 && ne2 === ne;
+  for (let i = 0; i < ne2; i++) {
+    const o = eb / 8 + i * 7;
+    eok &&= M.HEAPF64[o + 3] < 1.1 && M.HEAPF64[o + 4] > 1.0 && M.HEAPF64[o + 5] > 0;
+  }
+  console.log(`events: ${ne} blinks overlapping [1.0, 1.1) s in ${(performance.now() - te).toFixed(0)} ms -> ${eok ? 'ok' : 'MISMATCH'}`);
+  if (!eok) bad++;
+  M._free(eb);
   M._free(buf); M._free(g); M._isc_world_free(w); M._isc_params_free(p);
 }
 process.exit(bad ? 1 : 0);

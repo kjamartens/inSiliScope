@@ -3,9 +3,9 @@
 ## Context
 
 The plugin currently renders every emitter with an analytic, additive 2D
-Gaussian ([`RenderGaussianPSF`](adapter/SMLMDemoCam/Simulation/SMLMSimulation.cpp:13)),
+Gaussian ([`RenderGaussianPSF`](adapter/inSiliCellScope/Simulation/SMLMSimulation.cpp:13)),
 with `sigmaPx` derived from wavelength/NA via a diffraction-limit
-approximation ([`ComputePsfSigmaPx`](adapter/SMLMDemoCam/SMLMImageGeneration.cpp:56)).
+approximation ([`ComputePsfSigmaPx`](adapter/inSiliCellScope/SMLMImageGeneration.cpp:56)).
 This is a scalar approximation with no diffraction-ring structure, no
 polarization/vectorial effects, and no defocus/Z dependence.
 
@@ -59,7 +59,7 @@ Confirmed design decisions from earlier discussion:
   are used as-is (unpolarized/isotropic detection, their standard
   behavior).
 - The Z-stage step's Z control is a separate `MM::Stage` device
-  (`SMLMDemoZStage`), linked to the camera via a small shared-state object.
+  (`ZStage`), linked to the camera via a small shared-state object.
 - All external PSF computation stays **Java-only** (no Python dependency
   introduced), invoked as a subprocess (no embedded JVM/JNI), even for the
   Zernike step.
@@ -107,7 +107,7 @@ New files:
     "downsample to place everywhere" step. Each downsampled camera-pixel
     kernel is normalized to sum to 1 before scaling by `totalPhotons`, so
     photon-count conservation matches the current Gaussian renderer.
-- `CSMLMDemoCamera` gains a `sim::PsfKernelCache psfCache_`, rebuilt inline
+- `CInSiliCellScopeCamera` gains a `sim::PsfKernelCache psfCache_`, rebuilt inline
   whenever `liveConfigVersion_` changes and a PSF-relevant property was
   touched — reusing the *existing* `InvalidateStack()` mechanism; new PSF
   properties just call it like every other property already does. On
@@ -119,7 +119,7 @@ New files:
   testing), `PsfGeneratorJavaPath`, `PsfGeneratorJarPath`,
   `PsfBridgeJarPath`, `PSFParam_PsfImmersionIndex` — declared/registered following
   the exact pattern of `OnPsfWavelengthNm`/`OnPsfNa` in
-  `SMLMDemoCamera.h`/`.cpp` and `SMLMImageGeneration.cpp`.
+  `InSiliCellScopeCamera.h`/`.cpp` and `SMLMImageGeneration.cpp`.
 
 ## Step 1 — In-focus 2D vectorial PSF via PSFGenerator + oversample/downsample plumbing
 
@@ -205,17 +205,17 @@ building clean.
   struct with `std::atomic<double> zPositionUm`, reachable from both device
   instances (simplest: a process-wide singleton — no MM device-linking
   needed).
-- New device `SMLMDemoZStage` (new `.h`/`.cpp` under
-  `adapter/SMLMDemoCam/`, subclassing `CStageBase<SMLMDemoZStage>`),
+- New device `ZStage` (new `.h`/`.cpp` under
+  `adapter/inSiliCellScope/`, subclassing `CStageBase<ZStage>`),
   implementing `SetPositionUm`/`GetPositionUm`/`SetPositionSteps`/
   `GetPositionSteps`/`Home`/`Stop`, writing to the shared `zPositionUm`.
   Registered in the module's device registration alongside the existing
   camera registration so it appears in the Hardware Configuration Wizard.
-- `CSMLMDemoCamera` reads the shared `zPositionUm` each frame (both
+- `CInSiliCellScopeCamera` reads the shared `zPositionUm` each frame (both
   `StackGenerationWorker`'s per-frame loop and `LiveProducerLoop`) as a
   uniform Z offset applied to every emitter when selecting/interpolating
   the cached z-plane in `SplatPsfKernel`.
-- **Test**: add "SMLMDemoZStage" via the Hardware Configuration Wizard,
+- **Test**: add "ZStage" via the Hardware Configuration Wizard,
   move it via MM's Stage Control panel, confirm Live mode PSFs
   sharpen/blur in sync in real time.
 
@@ -229,14 +229,14 @@ in the frame (rather than a per-`BlinkEvent` lookup) for both correctness
 (one shared focus offset) and a small efficiency win (one lookup instead of
 one per event). `Simulation/SharedStageState.h` holds the process-wide
 `std::atomic<double> zPositionUm` singleton (`sim::GetSharedStageState()`).
-`SMLMDemoZStage.h/.cpp` implements the new `MM::Stage` device -- note
+`InSiliCellScopeZStage.h/.cpp` implements the new `MM::Stage` device -- note
 `CStageBase` itself does *not* default-implement `IsStageSequenceable`
 (only `IsStageLinearSequenceable`), so that one had to be overridden
 explicitly or the class stays abstract (a `C2259` at first build attempt).
 `StackGenerationWorker` and `LiveProducerLoop` both read
 `sim::GetSharedStageState().zPositionUm` fresh every frame/tick and pass it
-through to `RenderPhotonImage`. Registered in `SMLMDemoCameraModule.cpp`
-alongside the camera; added to `SMLMDemoCam.vcxproj`/`.filters`.
+through to `RenderPhotonImage`. Registered in `InSiliCellScopeModule.cpp`
+alongside the camera; added to `inSiliCellScope.vcxproj`/`.filters`.
 **Confirmed visually in Micro-Manager**: both devices added via the Hardware
 Configuration Wizard, moving the stage sharpens/blurs Live-mode PSFs in
 sync as expected.
@@ -265,7 +265,7 @@ Single-Molecule Localization Microscopy Software," *Nature Methods* 16(5),
   (astigmatic, biplane, double-helix) imply aberration types worth
   prioritizing once the Zernike step is built.
 - Noise comparison: this plugin's current chain in
-  [`SMLMNoise.cpp`](adapter/SMLMDemoCam/Simulation/SMLMNoise.cpp) —
+  [`SMLMNoise.cpp`](adapter/inSiliCellScope/Simulation/SMLMNoise.cpp) —
   Poisson shot noise → scalar Gaussian read noise → scalar gain → static
   per-pixel offset map, with **no EM-gain excess-noise (gamma) term and no
   per-pixel sCMOS gain/read-noise maps** — vs. what the paper's simulator
@@ -442,7 +442,7 @@ that motivated the first one):
    project) for the identical functional outcome the original plan wanted.
 
 **What was built**:
-[`Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java`](adapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java)
+[`Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java`](adapter/inSiliCellScope/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java)
 generalizes `GibsonLanniPSF`'s scalar Kirchhoff integral from a 1D radial
 lookup to a direct 2D `(rho, phi)` numerical quadrature (fixed 32x64
 midpoint grid, not a fast transform — see the class's Performance note for
@@ -513,7 +513,7 @@ for this mapping.
 
 ## Verification (all steps)
 
-Build the device adapter (`adapter/SMLMDemoCam/SMLMDemoCam.sln`/
+Build the device adapter (`adapter/inSiliCellScope/inSiliCellScope.sln`/
 `.vcxproj`), load it into Micro-Manager, and visually inspect Live mode
 frames after each step as described above. No existing automated test
 suite was found for this project — confirm with a build + Micro-Manager

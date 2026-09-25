@@ -28,7 +28,7 @@ plumbing:
   spherical, 13 vertical secondary astigmatism, 14 vertical quadrafoil.
   Each coefficient is in **waves** (unnormalized convention — see below).
   Full mapping + derivation:
-  [`../../adapter/SMLMDemoCam/Simulation/SMLMZernike.h`](../../adapter/SMLMDemoCam/Simulation/SMLMZernike.h)'s
+  [`../../adapter/inSiliCellScope/Simulation/SMLMZernike.h`](../../adapter/inSiliCellScope/Simulation/SMLMZernike.h)'s
   doc comment.
 - **Index → (n, m)**: standard OSA formula `j = n(n+1)/2 + l`, where `n` is
   the radial order and `l` (0..n) maps to azimuthal order `m = -n + 2*l`.
@@ -93,7 +93,7 @@ are from this project's read of it, but the file changes.
      entries around line 2711-2715.
   2. Add `PARAMS` entries for the 15 Zernike coefficients (or a smaller
      curated subset + a preset dropdown — this project's own
-     `PsfZernikePreset` in `SMLMDemoCamera.cpp`/`Simulation/SMLMZernike.cpp`
+     `PsfZernikePreset` in `InSiliCellScopeCamera.cpp`/`Simulation/SMLMZernike.cpp`
      is a reasonable model: `AstigmatismWeak/Moderate/Strong`,
      `ComaWeak/Strong`, `SphericalWeak/Strong`, etc., with magnitudes in
      the ~0.07-0.3 wave range — see that file for the values and their
@@ -173,10 +173,10 @@ are from this project's read of it, but the file changes.
 - `CLAUDE.md` — "Vectorial PSF feature" section: architecture summary,
   the `PsfZernikeCoefficients`/`PsfZernikePreset` properties, and two
   Gotchas subsections (step 1, step 5) with the concrete bugs hit.
-- `adapter/SMLMDemoCam/Simulation/SMLMZernike.h` — OSA index table
+- `adapter/inSiliCellScope/Simulation/SMLMZernike.h` — OSA index table
   doc comment (source of truth for index→mode mapping) and the preset
   coefficient values with their sourcing caveats.
-- `adapter/SMLMDemoCam/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java` —
+- `adapter/inSiliCellScope/Simulation/psfbridge-java/psfbridge/GibsonLanniZernikePSF.java` —
   the actual portable math: `indexToNM`, `zernikeRadial`, `zernikeValue`,
   and the pupil-quadrature-to-pixel-intensity loop (`PlaneJob.process()`).
 

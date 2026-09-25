@@ -3,13 +3,27 @@
 Pan/zoom/tilt viewer for the infinite cell field. Open `index.html` directly in a browser -- no build
 step, no server.
 
-Today this is still the **JS prototype**: `index.html` (generator above the `// ---- viewer ---`
-marker, viewer below it) and `microtubules.js` generate the field themselves, in Web Workers. It is
-the **reference implementation** the C++ core is ported from and tested against (`tests/parity`,
-`spec/golden`), so generator changes here must be deliberate (see [spec/PORT.md](../spec/PORT.md)).
+The generator is the **insilicell core** (`core/`, C++) compiled to WASM: `insilicell_module.js` holds
+the Emscripten module as source text (WASM inlined as base64; generated, do not edit). The same module
+carries the adapter's render code (`isc_scope_movie`): the "blink movie" panel renders a few camera
+frames of the dyes under the view centre with the fluorophore/camera settings given there, plays them,
+and saves them as a 16-bit TIFF (identical to `cli/insilicell_cli` with the same settings). Web Workers
+evaluate it and answer cell/asset/dye requests through the C ABI; the page itself keeps only UI,
+Canvas 2D and WebGL. Cells are packed on fixed 8x8-chunk blocks (as in the adapter), so a view shows
+exactly what the Micro-Manager adapter images. `?nw` runs the core on the main thread, `?2d` forces the
+Canvas 2D fallback (both for testing).
 
-In M3 the generator half is replaced by the WASM build of `core/` (workers instantiate the module;
-the viewer keeps only UI/WebGL). Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
+Rebuild the module after a core change:
 
-`tools/check_cellfield_microtubules.mjs` is the prototype's Playwright regression check for the
-microtubule generator (`cd tools && npm install` once, then `npm run check:mt`).
+    source ~/emsdk/emsdk_env.sh
+    cmake --preset wasm && cmake --build --preset wasm
+    node tools/embed_web_module.mjs          # --check: fail if web/insilicell_module.js is stale
+
+`prototype/` is the original JS prototype (`index.html` generator half + `microtubules.js`): the
+**reference implementation** the core is ported from and tested against (`tests/parity`,
+`spec/golden`), so its generator changes only deliberately (see [spec/PORT.md](../spec/PORT.md)).
+Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
+
+Tools (`cd tools && npm install` once, or a global Playwright):
+- `node tools/bench_pan.mjs [page]` -- pan benchmark (300 frames, headless Chromium, software GL).
+- `node tools/check_cellfield_microtubules.mjs` -- the prototype's microtubule regression check.

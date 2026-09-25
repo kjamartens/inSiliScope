@@ -1,9 +1,9 @@
-"""Pixel hash of the SMLMDemoCam adapter's precomputed output for fixed seeds.
+"""Pixel hash of the inSiliCellScope adapter's precomputed output for fixed seeds.
 
 Used to prove a refactor did not change the image output: run it against the
 DLL built before and after, and compare the printed hashes.
 
-    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_SMLMDemoCam.dll> [--frames N]
+    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_inSiliCellScope.dll> [--frames N]
 
 The DLL is loaded from that directory (MMCore's adapter search path lists it
 first); the active pymmcore-plus Micro-Manager install (or MM_DIR) provides
@@ -23,10 +23,11 @@ from pymmcore_plus._util import USER_DATA_DIR
 # (name, pre-init seed, post-init properties). Each config regenerates the
 # precomputed stack and hashes its first frames.
 CONFIGS = [
-    ("defaults", 1234, {}),
-    ("gaussian-psf", 1234, {"PSFParam_PsfModel": "Gaussian"}),
+    # Circle explicitly: the default pattern became CellField in M3.
+    ("defaults", 1234, {"SimType_Pattern": "Circle"}),
+    ("gaussian-psf", 1234, {"SimType_Pattern": "Circle", "PSFParam_PsfModel": "Gaussian"}),
     ("nup-pattern", 99, {"SimType_Pattern": "NUP", "PSFParam_PsfModel": "Gaussian"}),
-    ("emccd", 7, {"CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
+    ("emccd", 7, {"SimType_Pattern": "Circle", "CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
 ]
 
 
@@ -68,7 +69,7 @@ def main():
     for name, seed, props in CONFIGS:
         core = CMMCorePlus()
         core.setDeviceAdapterSearchPaths([os.path.abspath(args.adapter_dir), find_mm_dir()])
-        core.loadDevice("Cam", "SMLMDemoCam", "SMLMDemoCam")
+        core.loadDevice("Cam", "inSiliCellScope", "Camera")
         core.setProperty("Cam", "SimType_RandomSeed", str(seed))
         core.initializeDevice("Cam")
         core.setCameraDevice("Cam")

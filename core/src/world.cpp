@@ -58,8 +58,8 @@ const MtFrames& CellAssets::Frames(size_t i)
    return *frames[i];
 }
 
-World::World(uint32_t seed, const Params& p, size_t assetCacheCells)
-   : seed_(seed), p_(p), assetCap_(std::max<size_t>(1, assetCacheCells))
+World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeCacheDyes)
+   : seed_(seed), p_(p), assetCap_(std::max<size_t>(1, assetCacheCells)), dyeCap_(dyeCacheDyes)
 {
    NormalizeParams(p_);
 }
@@ -68,6 +68,9 @@ void World::DropCaches()
 {
    blocks_.clear();
    assets_.clear();
+   dyeLru_.clear();
+   dyeIndex_.clear();
+   dyeCount_ = 0;
 }
 
 const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
@@ -137,14 +140,12 @@ CellAssets& World::Assets(const Cell& c)
    return *assets_.front().second;
 }
 
-void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
-                          std::vector<WorldDye>& out)
+template <class Fn>
+void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn)
 {
    std::vector<Cell> cells;
    CellsInRect(x0, y0, x1, y1, cells);
-   const double eff = p_.labelEfficiency;
    const double blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
-   std::vector<Dye> dyes;
    for (const Cell& c : cells) {
       CellAssets& A = Assets(c);
       const double centreDist = RectDist(c.x, c.y, x0, y0, x1, y1);
@@ -161,19 +162,129 @@ void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMi
             double wx, wy;
             LocalToWorld(c, mid.x, mid.y, wx, wy);
             if (RectDist(wx, wy, x0, y0, x1, y1) > blockReach) continue;
-            dyes.clear();
-            DyesInBlock(seed_, c.cx, c.cy, (int)i, pts, fr, b, eff, dyes);
-            stats_.dyeBlocks++;
-            for (const Dye& d : dyes) {
-               if (!(d.pos.z >= zMin && d.pos.z < zMax)) continue;
-               double dx, dy;
-               LocalToWorld(c, d.pos.x, d.pos.y, dx, dy);
-               if (!(dx >= x0 && dx < x1 && dy >= y0 && dy < y1)) continue;
-               out.push_back({ dx, dy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex });
-            }
+            fn(GetDyeBlock(A, (int)i, b));
          }
       }
    }
+}
+
+World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
+{
+   const Cell& c = A.cell;
+   const BlockKey key = { c.cx, c.cy, mtIndex, block };
+   auto it = dyeIndex_.find(key);
+   if (it != dyeIndex_.end()) {
+      stats_.dyeBlockHits++;
+      if (it->second != dyeLru_.begin()) dyeLru_.splice(dyeLru_.begin(), dyeLru_, it->second);
+      return dyeLru_.front().second;
+   }
+   DyeBlock blk;
+   std::vector<Dye> dyes;
+   DyesInBlock(seed_, c.cx, c.cy, mtIndex, A.mts[mtIndex].pts, A.Frames(mtIndex), block, p_.labelEfficiency,
+               p_.labelNonBleaching, dyes);
+   blk.dyes.reserve(dyes.size());
+   blk.zLo = INFINITY; blk.zHi = -INFINITY;
+   for (const Dye& d : dyes) {
+      double wx, wy;
+      LocalToWorld(c, d.pos.x, d.pos.y, wx, wy);
+      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex, d.k, d.n, d.persistent });
+      blk.zLo = std::min(blk.zLo, d.pos.z);
+      blk.zHi = std::max(blk.zHi, d.pos.z);
+   }
+   stats_.dyeBlocks++;
+   // Evict least recently used blocks, but never the one being added.
+   dyeCount_ += blk.dyes.size();
+   while (dyeCount_ > dyeCap_ && !dyeLru_.empty()) {
+      dyeCount_ -= dyeLru_.back().second.dyes.size();
+      dyeIndex_.erase(dyeLru_.back().first);
+      dyeLru_.pop_back();
+   }
+   dyeLru_.emplace_front(key, std::move(blk));
+   dyeIndex_[key] = dyeLru_.begin();
+   return dyeLru_.front().second;
+}
+
+void World::Schedule(DyeBlock& b)
+{
+   if (b.scheduled) return;
+   b.events.clear();
+   b.persistent.clear();
+   b.maxOn = 0;
+   std::vector<Blink> blinks;
+   uint32_t h1 = 0;
+   int32_t lastCx = 0, lastCy = 0, lastMt = -1;
+   for (size_t i = 0; i < b.dyes.size(); i++) {
+      const WorldDye& d = b.dyes[i];
+      if (d.persistent) { b.persistent.push_back((uint32_t)i); continue; }
+      if (d.mtIndex != lastMt || d.cx != lastCx || d.cy != lastCy) {
+         h1 = DyeH1(seed_, d.cx, d.cy, d.mtIndex);
+         lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
+      }
+      blinks.clear();
+      DyeSchedule(h1, d.k, d.n, kin_, blinks);
+      for (const Blink& bl : blinks) {
+         b.events.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, d.id });
+         b.maxOn = std::max(b.maxOn, bl.tOff - bl.tOn);
+      }
+   }
+   // Stable order: by tOn, ties by dye order (deterministic either way).
+   std::stable_sort(b.events.begin(), b.events.end(),
+                    [](const WorldEvent& a, const WorldEvent& e) { return a.tOn < e.tOn; });
+   b.scheduled = true;
+   stats_.schedulesBuilt++;
+}
+
+void World::SetKinetics(const Kinetics& k)
+{
+   kin_ = k;
+   for (auto& e : dyeLru_) {
+      e.second.scheduled = false;
+      std::vector<WorldEvent>().swap(e.second.events);
+   }
+}
+
+bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
+{
+   for (const Cell& c : PackedBlock(FloorDiv(cx, PACK_BLOCK_CHUNKS), FloorDiv(cy, PACK_BLOCK_CHUNKS)))
+      if (c.cx == cx && c.cy == cy) { out = c; return true; }
+   return false;
+}
+
+void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                          std::vector<WorldDye>& out)
+{
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
+      for (const WorldDye& d : b.dyes)
+         if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) out.push_back(d);
+   });
+}
+
+void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                           double t0, double t1, std::vector<WorldEvent>& out)
+{
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
+      Schedule(b);
+      // Only blinks with tOn in [t0 - maxOn, t1) can overlap [t0, t1).
+      auto it = std::lower_bound(b.events.begin(), b.events.end(), t0 - b.maxOn,
+                                 [](const WorldEvent& e, double t) { return e.tOn < t; });
+      for (; it != b.events.end() && it->tOn < t1; ++it) {
+         const WorldEvent& e = *it;
+         if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
+            out.push_back(e);
+      }
+      // Persistent sites: never bleach, so their blinks are made for the
+      // queried window only (per time bin, see PersistentBlinks).
+      std::vector<Blink>& bl = blinkScratch_;
+      for (uint32_t i : b.persistent) {
+         const WorldDye& d = b.dyes[i];
+         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
+         bl.clear();
+         PersistentBlinks(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, kin_, t0, t1, bl);
+         for (const Blink& e : bl) out.push_back({ d.x, d.y, d.z, e.tOn, e.tOff, e.brightness, d.id });
+      }
+   });
 }
 
 long World::DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,

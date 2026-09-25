@@ -11,6 +11,7 @@ if(ISC_BUILD_TESTS)
 endif()
 
 add_subdirectory(core)
+add_subdirectory(cli)
 if(ISC_BUILD_TESTS)
   add_subdirectory(tests/parity)
 endif()
