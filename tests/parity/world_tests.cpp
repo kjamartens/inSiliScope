@@ -10,7 +10,7 @@
 #include "params.h"
 #include "world.h"
 
-#include "insilicell/insilicell.h"
+#include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <chrono>
@@ -342,6 +342,63 @@ bool SameEvents(std::vector<WorldEvent> a, std::vector<WorldEvent> b)
    return true;
 }
 
+// Caches under load: a window holding more dyes than the dye cache is not
+// regenerated on every query, and the persistent-blink cache (built for a
+// range of time bins) gives PersistentBlinks' answer, also when time jumps
+// back, across range ends and after a kinetics change.
+void CacheUnderLoad()
+{
+   Params p;
+   p.labelEfficiency = 0.05;
+   p.labelNonBleaching = 0.05;
+   const uint32_t seed = 1249;
+   Kinetics k;
+   k.activationRatePerSec = 0.2; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
+   World w(seed, p, 48, 1000);   // a dye cache far smaller than the window
+   w.SetKinetics(k);
+   std::vector<Cell> near;
+   w.CellsInRect(-30, -30, 30, 30, near);
+   if (near.empty()) { Check(false, "cells near the origin"); return; }
+   const double x0 = near[0].x - 6.4, y0 = near[0].y - 6.4, x1 = x0 + 12.8, y1 = y0 + 12.8, fd = 0.05;
+   std::vector<WorldEvent> ev;
+   w.EventsInWindow(x0, y0, x1, y1, -INF, INF, 0, fd, ev);
+   const long built = w.Stats().dyeBlocks;
+   for (int f = 1; f < 40; f++) { ev.clear(); w.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, ev); }
+   Check(built > 0 && w.Stats().dyeBlocks == built, "window larger than the dye cache: blocks built once, not per query");
+
+   std::vector<WorldDye> dyes;
+   w.SitesInWindow(x0, y0, x1, y1, -INF, INF, dyes);
+   auto brute = [&](double t0, double t1) {
+      std::vector<WorldEvent> out;
+      std::vector<Blink> b;
+      for (const WorldDye& d : dyes) {
+         b.clear();
+         if (d.persistent) PersistentBlinks(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), t0, t1, b);
+         else DyeSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), b);
+         for (const Blink& bl : b)
+            if (bl.tOn < t1 && bl.tOff > t0) out.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, d.id });
+      }
+      return out;
+   };
+   bool same = true;
+   long nPersist = 0;
+   for (double t : { 3.0, 15.97, 16.0, 31.99, 47.5, 0.02, 200.0, 199.0 }) {
+      ev.clear();
+      w.EventsInWindow(x0, y0, x1, y1, -INF, INF, t, t + fd, ev);
+      same = same && SameEvents(ev, brute(t, t + fd));
+      nPersist += (long)ev.size();
+   }
+   Kinetics k2 = k;
+   k2.activationRatePerSec = 3;   // more blinks per bin: shorter bin ranges
+   w.SetKinetics(k2);
+   for (double t : { 7.3, 7.35, 9.0 }) {
+      ev.clear();
+      w.EventsInWindow(x0, y0, x1, y1, -INF, INF, t, t + fd, ev);
+      same = same && SameEvents(ev, brute(t, t + fd));
+   }
+   Check(same && nPersist > 0, "cached persistent blinks = PersistentBlinks (time jumps, range ends, new kinetics)");
+}
+
 // The event query (spec/PORT.md 6.2): brute force equality, determinism,
 // time slicing, and the per-frame cost at the default FOV.
 void EventQuery()
@@ -513,6 +570,7 @@ int main()
    KineticsStats();
    PersistentSites();
    EventQuery();
+   CacheUnderLoad();
    CApi();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);
    return g_failures ? 1 : 0;

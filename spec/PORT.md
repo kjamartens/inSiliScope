@@ -1,4 +1,4 @@
-# Porting the cell field simulation into the insilicell core and the inSiliCellScope adapter
+# Porting the cell field simulation into the insiliscope core and the inSiliScope adapter
 
 > **Keep this file up to date while it exists.** It is the port spec (originally the hand-off between
 > webSMLM's `cell_field_sim/` and demoCam_SMLM_MM, both now in this repo). Whenever the prototype in
@@ -8,16 +8,16 @@
 > milestones are tracked in [PLAN.md](../PLAN.md)). Delete the file only once the port is complete and
 > [ALGORITHM.md](ALGORITHM.md) plus `CLAUDE.md` carry everything that is still true.
 >
-> **Changed by the insilicell decisions (M0/M1), overriding the text below where they conflict:**
+> **Changed by the insiliscope decisions (M0/M1), overriding the text below where they conflict:**
 > the geometry lives in `core/` (C++17, no MMDevice/GPU/OS dependencies), not in
-> `adapter/inSiliCellScope/Simulation/`; the adapter only calls core through its C ABI
-> (`core/include/insilicell/insilicell.h`). Every transcendental in core goes through `isc::jsm`
+> `adapter/inSiliScope/Simulation/`; the adapter only calls core through its C ABI
+> (`core/include/insiliscope/insiliscope.h`). Every transcendental in core goes through `isc::jsm`
 > (V8's fdlibm), not `<cmath>`, which is what makes native/WASM/JS bit-identical (see
 > [m0-feasibility.md](m0-feasibility.md)). Golden vectors live in [golden/](golden/), not
 > `tools/cellfield_parity_check/`.
 
 **Audience:** a coding agent working in this repo.
-**Goal:** inSiliCellScope simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
+**Goal:** inSiliScope simulates a *field of cells* (cell body, nucleus, microtubules, fluorophores on the
 microtubules) that is effectively infinite, plus a **dummy XY stage** so the field-of-view can be moved
 over it, with **blinks generated from the actual dye positions** and rendered by the existing PSF/noise
 pipeline.
@@ -55,7 +55,7 @@ math, named constants). The cell generator in `index.html` is the same in spirit
    XYStage --writes--> x,y target + motion model      zPositionUm (existing)
         (MM::XYStage)                    |                         |
                                          v                         v
-  CInSiliCellScopeCamera live loop / stack worker: per frame ->  stage(x,y) at frame time, z
+  CInSiliScopeCamera live loop / stack worker: per frame ->  stage(x,y) at frame time, z
                                          |
                                          v
       CellFieldSource::EventsForFrame(f, stageXY, fovSize, frameDur, params)
@@ -82,8 +82,8 @@ Design rules that make this work:
 Files: `core/src/rng.h`, `cells.*`, `packing.*` (M0); `cytomesh.*`, `microtubules.*`, `dyes.*` (lattice
 geometry, addressed labels), `world.*` (fixed-block packing, per-cell asset LRU, window queries) (M2);
 schedules come with M3. Adapter side: a thin `CellFieldSource` (event query over the C
-ABI) and `InSiliCellScopeXYStage.h/.cpp` in `adapter/inSiliCellScope/`; add them and core's sources to
-`inSiliCellScope.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
+ABI) and `InSiliScopeXYStage.h/.cpp` in `adapter/inSiliScope/`; add them and core's sources to
+`inSiliScope.vcxproj` and `.filters` (the adapter stays MSBuild, core is compiled into it).
 
 ---
 
@@ -308,7 +308,7 @@ frame. Motion blur during the exposure is ignored on purpose; note it in the doc
 ### 7.2 MM device `XYStage`
 Derive from `CXYStageBase<XYStage>` (`DeviceBase.h`). It is in `third_party/mmCoreAndDevices`.
 **Implement every pure virtual it declares**: an abstract class fails at the `new XYStage()` in
-`InSiliCellScopeModule.cpp`, not in the stage's own files (same trap already recorded for
+`InSiliScopeModule.cpp`, not in the stage's own files (same trap already recorded for
 `IsStageSequenceable`). At minimum: `Initialize/Shutdown/GetName`, `Busy` (return
 `XyBusy(now)` so MM waits for the move), `SetPositionSteps/GetPositionSteps`, `SetPositionUm/GetPositionUm`
 (the base provides the step-based defaults; overriding the Um versions directly and using a step size
@@ -367,8 +367,8 @@ all with the defaults in 4.2:
   `SimType_CellFieldCellDiameterMinUm/MaxUm`, `SimType_CellFieldMicrotubuleDensityPerUm2`,
   `SimType_CellFieldFocusHeightUm`.
 * `General_LabelingEfficiencyPct` (existing; reuse for the dyes, default for this pattern 5-10).
-* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldActivationRatePerDyePerSec` (6.1) and
-  `SimType_CellFieldNonBleachingLabelingPct` (6.3).
+* `FluoParam_...` (existing kinetics) plus `SimType_CellFieldMilliActivationRatePerDyePerSec` (6.1, in
+  1e-3/s) and `SimType_CellFieldLabelingPctNonBleaching` (6.3).
 * Stage: `General_StageSpeedUmPerSec`, `General_StageSettleMs`, `General_StageInvertX/Y`.
 
 Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-constant stream (like
@@ -385,7 +385,7 @@ Seed: reuse `SimType_RandomSeed`; derive the cell-field seed as its own XOR-cons
    within `[2,5]` nm of the tip, radial CDF of the linker displacement ~ r^3, per-protofilament angles
    are multiples of 2*pi/13 + phase, axial stagger 3*8/13 nm, count ~ `1625 * length_um * efficiency`.
 4. **Kinetics**: blink-count distribution geometric with mean `1/blinkBleachProb`.
-5. **Stage**: extend `tools/test_insilicellscope.py` (pymmcore-plus): add the XY stage, set positions, assert
+5. **Stage**: extend `tools/test_insiliscope.py` (pymmcore-plus): add the XY stage, set positions, assert
    `Busy` transitions, that a `speed` move takes ~`dist/speed`, that a known feature shifts by the
    expected pixels between two snaps, and that position-in-image flips with `StageInvertX`.
 6. **Performance**: report first-visit block generation time, steady-state frame time at the default FOV
@@ -408,12 +408,12 @@ Mark each done here.
        pipeline. First visual check still open (headless only). (Block generation + window query done in M2: `dyes.*`,
        `world.*`, `isc_sites_in_window`; schedules, cached blocks and the event query in M3:
        `DyeSchedule`, `World::EventsInWindow`, `isc_events_in_window`. Adapter `EventsForFrame` open.)
-4. [x] Shared XY state + `XYStage` + camera wiring; stage test in `test_insilicellscope.py`.
+4. [x] Shared XY state + `XYStage` + camera wiring; stage test in `test_insiliscope.py`.
        `SharedStageState` XY motion model, `XYStage.*`, `Simulation/CellFieldSource.*`
        (core C ABI -> `BlinkEvent`s), `CellField` pattern in `StackGenerationWorker` (one query over
        the stack's whole time span, one stage pose) and `LiveProducerLoop` (pose + event query per
        frame, simulated time advancing one frame duration per frame). Checks:
-       `tools/test_cellfield_stage.py` (run by `test_insilicellscope.py`), passing on the Linux test build
+       `tools/test_cellfield_stage.py` (run by `test_insiliscope.py`), passing on the Linux test build
        (`tools/build_adapter_linux.sh`); **MSBuild not yet run** (no Windows in the M3 session).
 5. [x] Fixed-block packing (4.3). `core/src/world.*`, measured in 4.3; ctest `world_checks`.
 6. [ ] Properties, `CLAUDE.md` update, performance pass, docs. (Properties + `CLAUDE.md` done in
@@ -422,8 +422,10 @@ Mark each done here.
 **M3 deviations from sections 7-9 (deliberate):**
 * No `General_StageInvertX/Y`: every MM XY stage already has `TransposeMirrorX/Y` (`CXYStageBase`),
   which flips the direction exactly as asked; the test checks it.
-* Labelling is `SimType_CellFieldLabelingPct` (default 10), not `General_LabelingEfficiencyPct`
-  (default 70 for the small structures; 70% labelling of a cell field is ~2.7 M dyes per FOV).
+* Labelling is `SimType_CellFieldLabelingPctBleaching` + `SimType_CellFieldLabelingPctNonBleaching`
+  (defaults 0 and 70 since 2026-09-25; were 10 and 0), not `General_LabelingEfficiencyPct`. 70% of a
+  cell field is ~2 M dyes in the adapter's query window: fine since the dye cache keeps a query's
+  working set and persistent blinks are cached per bin range (2.4 ms/frame steady).
 * Drift: the query rect is the FOV shifted *against* the drift (the renderer adds the drift to each
   event), and events stay relative to the undrifted FOV origin; so drift is applied once.
 * z: `zNm = (z - SimType_CellFieldFocusHeightUm) * 1000` and the renderer's defocus is
@@ -436,7 +438,9 @@ Mark each done here.
   off for `CellField` (logged).
 * Cell-field world seed = `RandomSeed ^ 0x43454C4C` ("CELL"); dye kinetics reuse
   `FluoParam_OnLifetimeSec/OffLifetimeSec/BlinkBleachProb/PhotonCV` plus
-  `SimType_CellFieldActivationRatePerDyePerSec` (default 0.01/s; was `ActivationMeanSec` 100 s).
+  `SimType_CellFieldMilliActivationRatePerDyePerSec` (1e-3/s, default 1.43 with 70% non-bleaching
+  sites; was `ActivationRatePerDyePerSec` 0.01/s with 10% bleaching dyes, before that
+  `ActivationMeanSec` 100 s).
 
 ### 6.3 Non-bleaching sites (ABI 3, 2026-09-25)
 Two labelled fractions of the lattice sites, decided by the one LABEL draw `u` per site:

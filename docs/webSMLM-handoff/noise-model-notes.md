@@ -30,7 +30,7 @@ Full details: [`../vectorial-psf-plan.md`](../vectorial-psf-plan.md)'s
 "Noise model follow-ups" section (under Step 4) for the sourcing/reasoning,
 and this repo's `CLAUDE.md` ("Noise model properties" section) for the
 property list. Implementation:
-[`../../adapter/inSiliCellScope/Simulation/SMLMNoise.h`](../../adapter/inSiliCellScope/Simulation/SMLMNoise.h)/`.cpp`.
+[`../../adapter/inSiliScope/Simulation/SMLMNoise.h`](../../adapter/inSiliScope/Simulation/SMLMNoise.h)/`.cpp`.
 
 Chain, in order, per pixel:
 
@@ -203,10 +203,10 @@ which nothing in webSMLM's current UI/properties suggests it's aiming for
   finding (section 3 of that doc).
 - `CLAUDE.md` — "Noise model properties" section: quick summary + property
   names/defaults.
-- `adapter/inSiliCellScope/Simulation/SMLMNoise.h` — the noise-chain API
+- `adapter/inSiliScope/Simulation/SMLMNoise.h` — the noise-chain API
   and its ordering doc comment (source of truth for the exact per-pixel
   formula and stage order).
-- `adapter/inSiliCellScope/Simulation/SMLMNoise.cpp` — the implementation,
+- `adapter/inSiliScope/Simulation/SMLMNoise.cpp` — the implementation,
   including `PixelGainMap`/`PixelReadNoiseMap::Generate()`.
 
 **In `webSMLM`**:

@@ -10,8 +10,8 @@ import { fileURLToPath } from 'url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(import.meta.url);
-const createInsilicell = require(path.join(ROOT, 'build/wasm/core/insilicell.js'));
-const M = await createInsilicell();
+const createInsiliscope = require(path.join(ROOT, 'build/wasm/core/insiliscope.js'));
+const M = await createInsiliscope();
 
 const cases = fs.readFileSync(path.join(ROOT, 'build/parity/cases.txt'), 'utf8').split(/\r?\n/);
 const ref = fs.readFileSync(path.join(ROOT, 'build/parity/ref_js.txt'), 'utf8').split(/\r?\n/);

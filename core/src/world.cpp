@@ -176,6 +176,7 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
    if (it != dyeIndex_.end()) {
       stats_.dyeBlockHits++;
       if (it->second != dyeLru_.begin()) dyeLru_.splice(dyeLru_.begin(), dyeLru_, it->second);
+      dyeLru_.front().second.used = query_;
       return dyeLru_.front().second;
    }
    DyeBlock blk;
@@ -191,10 +192,14 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
       blk.zLo = std::min(blk.zLo, d.pos.z);
       blk.zHi = std::max(blk.zHi, d.pos.z);
    }
+   blk.used = query_;
+   blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, (uint32_t)mtIndex, (uint32_t)block).a;
    stats_.dyeBlocks++;
-   // Evict least recently used blocks, but never the one being added.
+   // Evict least recently used blocks, but never one this query uses (they
+   // are the most recent ones): a window holding more dyes than the cap would
+   // otherwise evict its own blocks and regenerate them on every query.
    dyeCount_ += blk.dyes.size();
-   while (dyeCount_ > dyeCap_ && !dyeLru_.empty()) {
+   while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
       dyeCount_ -= dyeLru_.back().second.dyes.size();
       dyeIndex_.erase(dyeLru_.back().first);
       dyeLru_.pop_back();
@@ -234,12 +239,44 @@ void World::Schedule(DyeBlock& b)
    stats_.schedulesBuilt++;
 }
 
+void World::PersistentCover(DyeBlock& b, long b0, long b1)
+{
+   if (b0 >= b.pBin0 && b1 < b.pBin1) return;
+   // Build a range of bins at once, up to 16 or ~2048 expected blinks, and
+   // end it on a per-block phase so that the blocks of a window do not all
+   // rebuild on the same query.
+   const double perBin = (double)b.persistent.size() * kin_.activationRatePerSec * PERSIST_BIN_SEC;
+   const long L = (long)std::min(16.0, std::max(1.0, std::floor(2048.0 / std::max(perBin, 1e-9))));
+   const long end = b1 + 1 + (L - (long)((b1 + 1 + (long)(b.phase % (uint32_t)L)) % L)) % L;
+   b.pEvents.clear();
+   std::vector<BinBlink> bl;
+   uint32_t h1 = 0;
+   int32_t lastCx = 0, lastCy = 0, lastMt = -1;
+   for (uint32_t i : b.persistent) {
+      const WorldDye& d = b.dyes[i];
+      if (d.mtIndex != lastMt || d.cx != lastCx || d.cy != lastCy) {
+         h1 = DyeH1(seed_, d.cx, d.cy, d.mtIndex);
+         lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
+      }
+      bl.clear();
+      PersistentBlinksInBins(h1, d.k, d.n, kin_, b0, end - 1, bl);
+      for (const BinBlink& e : bl) b.pEvents.push_back({ e.tOn, e.tOff, e.brightness, i, e.bin, e.j });
+   }
+   std::sort(b.pEvents.begin(), b.pEvents.end(),
+             [](const PersistentEvent& a, const PersistentEvent& e) { return a.tOn < e.tOn; });
+   b.pBin0 = b0;
+   b.pBin1 = end;
+   stats_.persistentBuilt++;
+}
+
 void World::SetKinetics(const Kinetics& k)
 {
    kin_ = k;
    for (auto& e : dyeLru_) {
       e.second.scheduled = false;
       std::vector<WorldEvent>().swap(e.second.events);
+      std::vector<PersistentEvent>().swap(e.second.pEvents);
+      e.second.pBin0 = e.second.pBin1 = 0;
    }
 }
 
@@ -253,6 +290,7 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           std::vector<WorldDye>& out)
 {
+   query_++;
    ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       for (const WorldDye& d : b.dyes)
@@ -263,6 +301,7 @@ void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMi
 void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                            double t0, double t1, std::vector<WorldEvent>& out)
 {
+   query_++;
    ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       Schedule(b);
@@ -274,15 +313,30 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
          if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
             out.push_back(e);
       }
-      // Persistent sites: never bleach, so their blinks are made for the
-      // queried window only (per time bin, see PersistentBlinks).
-      std::vector<Blink>& bl = blinkScratch_;
-      for (uint32_t i : b.persistent) {
-         const WorldDye& d = b.dyes[i];
-         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
-         bl.clear();
-         PersistentBlinks(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, kin_, t0, t1, bl);
-         for (const Blink& e : bl) out.push_back({ d.x, d.y, d.z, e.tOn, e.tOff, e.brightness, d.id });
+      // Persistent sites never bleach, so their blinks are addressed per time
+      // bin (see PersistentBlinks) and cached for a range of bins. The answer
+      // is PersistentBlinks' for every site in the window, in its order
+      // (site, bin, j).
+      if (b.persistent.empty() || !(kin_.activationRatePerSec > 0) || !(t1 > t0)) return;
+      const double maxOn = PERSIST_ON_CAP * kin_.onSec;
+      const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
+      const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
+      PersistentCover(b, b0, b1);
+      std::vector<const PersistentEvent*>& hit = persistentScratch_;
+      hit.clear();
+      auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), b0 * PERSIST_BIN_SEC,
+                                [](const PersistentEvent& e, double t) { return e.tOn < t; });
+      for (; p != b.pEvents.end() && p->tOn < t1; ++p) {
+         if (p->bin < (uint32_t)b0 || !(p->tOff > t0)) continue;
+         const WorldDye& d = b.dyes[p->dye];
+         if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) hit.push_back(&*p);
+      }
+      std::sort(hit.begin(), hit.end(), [](const PersistentEvent* a, const PersistentEvent* e) {
+         return a->dye != e->dye ? a->dye < e->dye : a->bin != e->bin ? a->bin < e->bin : a->j < e->j;
+      });
+      for (const PersistentEvent* e : hit) {
+         const WorldDye& d = b.dyes[e->dye];
+         out.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, d.id });
       }
    });
 }

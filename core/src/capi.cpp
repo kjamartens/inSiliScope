@@ -1,4 +1,4 @@
-#include "insilicell/insilicell.h"
+#include "insiliscope/insiliscope.h"
 
 #include "cytomesh.h"
 #include "packing.h"

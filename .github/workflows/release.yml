@@ -1,0 +1,69 @@
+name: webSMLM block
+
+# Builds and publishes dist/cellfield_block.js, the drop-in replacement for webSMLM's CellField
+# IIFE (M4). Manual only (Actions -> webSMLM block -> Run workflow). Always uploads it as an
+# artifact; with a tag given, also publishes it as a GitHub release asset of this repository.
+# It never opens PRs or pushes anywhere else: bringing the block into kjamartens/webSMLM is a
+# separate change made there.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Tag to publish a release under (e.g. block-v1); empty = artifact only'
+        type: string
+        default: ''
+
+env:
+  EMSDK_VERSION: 6.0.10   # same pin as ci.yml: the block's bytes depend on it
+  NODE_VERSION: 24
+
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only used by the release step
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - run: sudo apt-get install -y ninja-build
+      - name: Configure + build (Emscripten)
+        run: |
+          cmake --preset wasm
+          cmake --build --preset wasm
+      - name: Golden vectors + world checks (WASM under Node)
+        run: ctest --test-dir build/wasm --output-on-failure
+      - name: Make the block
+        run: node tools/make_cellfield_block.mjs
+      - name: Check the block
+        run: |
+          node tools/make_cellfield_block.mjs --check dist/cellfield_block.js
+          node tests/block/check_cellfield_block.mjs dist/cellfield_block.js
+          sha256sum dist/cellfield_block.js | tee dist/cellfield_block.js.sha256
+          head -n 14 dist/cellfield_block.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cellfield_block
+          path: dist/
+      - name: Release
+        if: ${{ inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          {
+            echo "webSMLM CellField block built from ${GITHUB_SHA} (Emscripten ${EMSDK_VERSION})."
+            echo
+            echo "Replaces webSMLM's CellField IIFE; see the header of cellfield_block.js."
+            echo
+            echo '```'
+            head -n 8 dist/cellfield_block.js
+            cat dist/cellfield_block.js.sha256
+            echo '```'
+          } > notes.md
+          gh release create "$TAG" dist/cellfield_block.js dist/cellfield_block.js.sha256 \
+            --target "$GITHUB_SHA" --title "webSMLM block $TAG" --notes-file notes.md

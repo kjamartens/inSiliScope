@@ -82,6 +82,9 @@ constexpr double PERSIST_BIN_SEC = 1.0;
 constexpr double PERSIST_ON_CAP = 20.0;  // ON times truncated at 20 x onSec (window lookback)
 
 struct Blink { double tOn, tOff, brightness; };
+// A persistent-site blink with its address within the site: time bin and
+// index j in that bin (the order PersistentBlinks appends in).
+struct BinBlink { double tOn, tOff, brightness; uint32_t bin, j; };
 
 // H1 of a microtubule: Pcg4d(seed ^ DYE_SALT, cx, cy, mtIndex).a.
 uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex);
@@ -95,6 +98,12 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
 // function of (address, time bin). Appends, by bin.
 void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
                       std::vector<Blink>& out);
+
+// Every blink of persistent site (k, n) starting in time bins [binLo, binHi]
+// (bins of PERSIST_BIN_SEC), unfiltered. Same values as PersistentBlinks,
+// which is this plus the overlap filter. Appends, by bin then j.
+void PersistentBlinksInBins(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long binLo, long binHi,
+                            std::vector<BinBlink>& out);
 
 struct Dye {
    Pt3 pos;          // cell-local, um

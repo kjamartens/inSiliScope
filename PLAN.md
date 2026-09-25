@@ -1,6 +1,7 @@
-# insilicell -- plan and status
+# insiliscope -- plan and status
 
-Last updated: 2026-09-25 (M2 complete). Tick items in the commit that finishes them; add a short note
+Last updated: 2026-09-25 (M4 CI block done; webSMLM side open).
+Tick items in the commit that finishes them; add a short note
 with the evidence (test, report, commit) rather than just a checkmark.
 
 ## Goal
@@ -8,7 +9,7 @@ with the evidence (test, report, commit) rather than just a checkmark.
 One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
 later NPCs, DNA, other cell types, excitation profile), consumed by:
 
-1. **inSiliCellScope** Micro-Manager device adapter (native C++, `adapter/`).
+1. **inSiliScope** Micro-Manager device adapter (native C++, `adapter/`).
 2. **Browser viewer** (`web/`): JS UI + WebGL, generator = the same C++ compiled to WASM.
 3. **webSMLM** (upstream HohlbeinLab, single-file, no build): receives a CI-generated block (WASM as
    base64 + thin JS wrapper). CI only builds and publishes the block (artifact / release asset); it
@@ -59,7 +60,7 @@ No second hand-maintained implementation.
 - [x] Adapter output unchanged: `tools/adapter_pixel_hash.py` gives identical SHA-256 for 4 configs
       (defaults/GibsonLanniZernike, Gaussian, NUP, EMCCD) before and after the move; deterministic
       run to run.
-- [x] `tools/test_insilicellscope.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
+- [x] `tools/test_insiliscope.py` passes against the moved build (all checks; `ADAPTER_DIR` added so the
       DLL need not be copied into the MM install; one stale default expectation fixed -- it failed on
       the pre-move DLL too).
 - [x] `web/tools/check_cellfield_microtubules.mjs` passes from its new location.
@@ -112,7 +113,7 @@ No second hand-maintained implementation.
 
 - [x] Viewer on WASM: workers instantiate the module; pan benchmark (300 synthetic frames; previous
       p50 17 ms / p95 26 ms with workers in software GL) re-measured. `web/index.html` runs the core
-      (`web/insilicell_module.js`, single-file build `insilicell_web`, embedded by
+      (`web/insiliscope_module.js`, single-file build `insiliscope_web`, embedded by
       `tools/embed_web_module.mjs`, `--check` in CI) in workers (cells / per-cell assets / dyes) or on
       the main thread (`?nw`); the prototype moved to `web/prototype/` (parity + MT checks updated).
       `web/tools/bench_pan.mjs` (300 frames x 0.8 um, 1280x800, headless Chromium + SwiftShader,
@@ -123,27 +124,39 @@ No second hand-maintained implementation.
       popup is gone (the prototype keeps it). Not yet looked at by a human in a real browser.
 - [ ] Adapter: `CellFieldSource::EventsForFrame` + `XYStage` (PORT.md 2, 6-8) feeding the
       existing `RenderPhotonImage/CollectGpuEmitters/ApplyNoiseChain` unchanged; property naming
-      convention; stage test in `test_insilicellscope.py`; XY stage moves over the field.
+      convention; stage test in `test_insiliscope.py`; XY stage moves over the field.
       Code done (PORT.md 11 steps 3-4, deviations listed there) and verified on a test-only Linux
       build with pymmcore-plus (`tools/build_adapter_linux.sh`, `tools/test_cellfield_stage.py`: move
       time 0.52 s for 500 um at 1000 um/s, Busy while moving, +2 um stage = -20 px image shift,
       TransposeMirrorX flips it, 1000-frame precomputed stack 1.7 s and byte-identical after a 1 mm
       excursion). MSBuild on Windows passes in CI (job `adapter`, which also publishes
-      `bin/windows-x64/`). **Open: the full `test_insilicellscope.py` against the real DLL (needs
+      `bin/windows-x64/`). **Open: the full `test_insiliscope.py` against the real DLL (needs
       Windows + JRE) and a look in Micro-Manager Studio.**
 - [x] TIFF: JS writer in the viewer; `cli/` (window/seed -> sites/frames -> TIFF) reusing the
       adapter's `Simulation/` render code without MM. `Simulation/ScopeMovie.*` = the camera's
       precomputed CellField pipeline for one FOV (Gaussian PSF; same seed streams), used by
-      `cli/insilicell_cli` (native, 16-bit multi-page TIFF, ctest `cli_tiff`) and compiled into the
-      viewer's module (`insilicell_scope_web`, export `isc_scope_movie`): the viewer's "blink movie"
+      `cli/insiliscope_cli` (native, 16-bit multi-page TIFF, ctest `cli_tiff`) and compiled into the
+      viewer's module (`insiliscope_scope_web`, export `isc_scope_movie`): the viewer's "blink movie"
       panel renders N frames at the view centre in a worker, plays them and saves a TIFF (JS
-      writer). A 10-frame 128x128 movie from the viewer is byte-identical to `insilicell_cli` with
+      writer). A 10-frame 128x128 movie from the viewer is byte-identical to `insiliscope_cli` with
       the same spec. Vectorial PSF models only in the adapter (JVM).
 
-- [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** everywhere: `adapter/inSiliCellScope/`,
-      `inSiliCellScope.sln/.vcxproj`, `mmgr_dal_inSiliCellScope.dll`, devices `Camera`/`XYStage`/`ZStage`,
-      classes `CInSiliCellScopeCamera`/`InSiliCellScopeXYStage`/`InSiliCellScopeZStage`,
-      `tools/test_insilicellscope.py`. Old MM hardware configs must be re-made.
+- [x] Rename (user request, 2026-09-25): SMLMDemoCam -> **inSiliCellScope** (now inSiliScope, see below) everywhere: `adapter/inSiliScope/`,
+      `inSiliScope.sln/.vcxproj`, `mmgr_dal_inSiliScope.dll`, devices `Camera`/`XYStage`/`ZStage`,
+      classes `CInSiliScopeCamera`/`InSiliScopeXYStage`/`InSiliScopeZStage`,
+      `tools/test_insiliscope.py`. Old MM hardware configs must be re-made.
+
+- [x] Rename (user request, 2026-09-25): repo `insilicell` -> **insiliscope** (renamed on GitHub by the
+      owner) and every internal name: adapter `inSiliCellScope` -> `inSiliScope` (dir, `.sln/.vcxproj/.rc`,
+      `mmgr_dal_inSiliScope.dll`, classes `CInSiliScopeCamera`/`InSiliScopeXYStage`/`InSiliScopeZStage`),
+      `core/include/insiliscope/insiliscope.h`, CMake targets/outputs `insiliscope_*`, `insiliscope_cli`,
+      `web/insiliscope_module.js` + `createInsiliscope`, `tools/test_insiliscope.py`, block markers.
+      Kept: the `isc_`/`ISC_` C ABI prefix, `isc::`, MM property and device names. Old MM hardware
+      configs must be re-made; `bin/windows-x64/` removed until CI (`publish_dll`) rebuilds the DLL.
+      Output unchanged: native + WASM ctest pass; `insiliscope_cli` frames pixel-identical (only the
+      TIFF description string changed); block module sha256 unchanged (9d76094f4867) with the same
+      block-test results; `tests/parity/run.mjs` PASS; viewer loads and renders in headless Chromium;
+      Linux test build + `tools/test_cellfield_stage.py` all pass under module `inSiliScope`.
 
 - [x] (user request) `General_EmitterDensityPerSec` = blink onsets / um^2 / s at any exposure and
       ON time (was scaled by exposure / ON time); live-mode Poisson truncation and warm-up fixed;
@@ -154,17 +167,54 @@ No second hand-maintained implementation.
       activation mean; `SimType_CellFieldNonBleachingLabelingPct` adds persistent (DNA-PAINT-like)
       sites whose supply never drops (PORT.md 6.3, core ABI 3). Defaults unchanged in output.
 
+- [x] (user request) CellField speed + defaults. Slow frames with more labelling at a lower rate:
+      the 2M-dye cache evicted the query's own blocks (784 -> 1.5 ms/frame at 2.8M dyes; blocks in use
+      are never evicted now) and persistent blinks were re-derived per dye per frame (now cached per
+      block for a range of time bins: 548 -> 2.7 ms); events byte-identical, world_checks
+      `CacheUnderLoad`. Renames: `SimType_CellFieldLabelingPctBleaching` / `...LabelingPctNonBleaching`
+      (were `...LabelingPct` / `...NonBleachingLabelingPct`), `SimType_CellFieldMilliActivationRatePerDyePerSec`
+      (1e-3/s, max 1000; was `...ActivationRatePerDyePerSec` in 1/s). Defaults 0% / 70% / 1.43 = the old
+      1e-3 activations per lattice site per s, now constant (22824 vs 21311 blinks in 10 s: the old
+      bleaching dyes deplete); 2.4 ms/frame at the adapter's window. `test_cellfield_stage.py` checks
+      the defaults and passes on the Linux test build. Old MM configs setting these properties must
+      be re-made.
+
 ### M4 -- webSMLM integration via CI
 
-- [ ] Release workflow: build + test, emit `dist/cellfield_block.html` (header: source repo, commit,
-      Emscripten version, checksum, licence) and publish it as an artifact / release asset. **CI does
-      not open PRs** (nor push to other repos).
+- [x] Release workflow: build + test, emit the block and publish it as an artifact / release asset.
+      **CI does not open PRs** (nor push to other repos). `.github/workflows/release.yml` ("webSMLM
+      block", manual; `release_tag` input -> GitHub release asset + `.sha256`); `ci.yml` core-wasm builds
+      and checks it too. The block is `dist/cellfield_block.js` (JS, not `.html`: it replaces the IIFE
+      inside webSMLM's existing `<script>`), between `// ==== BEGIN/END insiliscope CellField block ====`
+      markers; header: source repo + commit, Emscripten version, core ABI, sha256 of the module,
+      licence, rebuild command. Not committed (`dist/` is gitignored). Pieces: target `insiliscope_block`
+      (core C ABI, WASM inlined, `WASM_ASYNC_COMPILATION=0` + `MODULARIZE=0` so it instantiates
+      synchronously -- webSMLM builds structures synchronously on the main thread),
+      `tools/make_cellfield_block.mjs` (+ `--check <file>`: header checksum = module = this build),
+      `tests/block/check_cellfield_block.mjs`. Same entry point as the IIFE:
+      `CellField.buildWindow(w, h, {seed, xUm, yUm, pxnm, mtDensity, cellDensity, focusUm, slabNm})` ->
+      `{sites: [[x px, y px, z nm]], nCells, nMt, removed: null, packed}`; webSMLM's `CF_PARAMS` are
+      passed explicitly, every lattice site carries a dye (labelEfficiency 1, webSMLM thins sites
+      itself); plus `workerSource()` (text that evaluates to a CellField in a Worker), `dispose()`.
+      141.6 KB. Verified: block test (bounds, determinism after a 1.2 mm excursion / seed change /
+      dispose, two half windows = full window, parameters reach the world, worker copy identical);
+      headless Chromium main thread (sync compile accepted) and a Blob Worker give the same sites.
+      Against webSMLM's pre-migration IIFE (branch `cell-field-simulation` @ b957244, 25.6 um window,
+      defaults): seed 1249 at the origin 2047593 vs 2047594 sites, z mean/SD/histogram equal to 0.1 nm;
+      elsewhere the cells differ as expected from fixed-block packing (PORT.md 4.3): e.g. seed 7 at
+      (100, 100) um 3.19M vs 3.02M sites, same z profile. Timing: first call at a new place ~3-6 s
+      (packing a block + ~2M sites), repeat ~2 s; the JS was 1.8-4.5 s.
 - [ ] webSMLM side (separate repo, separate change, per its CLAUDE.md): `tools/sync_cellfield.mjs`
       (+ `--check`), replace the `CellField` IIFE with the wrapper (main thread + worker), keep
       `simulation_mt_*` PARAMS behaviour, MODULE INDEX, build letter, CHANGELOG/docs, remove
-      `cell_field_sim/` and the two-way-sync rule.
+      `cell_field_sim/` and the two-way-sync rule. **Done in https://github.com/kjamartens/webSMLM/pull/1**
+      (into `cell-field-simulation`, build 2026-09-25a; block from 8e6632f); tick when merged. No
+      CHANGELOG row (dev build; rows are per release).
 - [ ] Verified statistically/visually against the pre-migration build (density, lattice geometry,
-      focus-height clipping) + webSMLM syntax check.
+      focus-height clipping) + webSMLM syntax check. Headless part done (in that PR): syntax OK; old vs
+      new webSMLM, 141x141 px at 100 nm, defaults, 4 seeds/places: site counts within 0.01%
+      (1522403/1522393 at seed 1249, origin), z mean/SD equal (one SD 0.1 nm apart); Simulate movie runs.
+      **Open: a look in a real browser.**
 
 ## Open points / risks
 

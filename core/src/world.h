@@ -55,18 +55,28 @@ struct WorldEvent {
    uint32_t id;
 };
 
+// A persistent-site blink cached in its dye block: dye index in the block,
+// and (bin, j) to restore PersistentBlinks' order.
+struct PersistentEvent {
+   double tOn, tOff, brightness;
+   uint32_t dye, bin, j;
+};
+
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
    long dyeBlocks = 0;          // 1 um dye blocks generated (cache misses)
    long dyeBlockHits = 0;       // served from the cache
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
+   long persistentBuilt = 0;    // persistent-blink bin ranges built
 };
 
 class World {
 public:
    // Caches: cell assets (LRU, cells) and dye blocks (LRU, bounded by the
    // number of dyes they hold; a 12.8 um FOV beside a nucleus is ~400k dyes
-   // at the default 10% labelling, ~50 bytes each plus ~60 per blink).
+   // at the default 10% labelling, ~50 bytes each plus ~60 per blink). The
+   // dye cap is soft: blocks the current query uses are never evicted, so a
+   // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
 
    const Params& GetParams() const { return p_; }
@@ -112,9 +122,17 @@ private:
       bool scheduled = false;
       std::vector<WorldEvent> events;       // every blink of every bleaching dye, by tOn
       double maxOn = 0;                     // longest of those (tOff - tOn)
-      std::vector<uint32_t> persistent;     // indices of the persistent sites (blinks made per query)
+      std::vector<uint32_t> persistent;     // indices of the persistent sites
+      // Blinks of all persistent sites starting in time bins [pBin0, pBin1),
+      // by tOn (PersistentCover builds them for a range of bins at a time).
+      std::vector<PersistentEvent> pEvents;
+      long pBin0 = 0, pBin1 = 0;
+      uint64_t used = 0;                    // last query that touched the block
+      uint32_t phase = 0;                   // per-block hash, staggers the bin ranges
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
+   // Makes b.pEvents cover time bins [b0, b1].
+   void PersistentCover(DyeBlock& b, long b0, long b1);
 
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
    // Calls fn(DyeBlock&) for every 1 um dye block that can reach the rect/z range.
@@ -134,8 +152,9 @@ private:
    std::list<std::pair<BlockKey, DyeBlock>> dyeLru_;
    std::map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator> dyeIndex_;
    size_t dyeCount_ = 0;
+   uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
    Kinetics kin_;
-   std::vector<Blink> blinkScratch_;
+   std::vector<const PersistentEvent*> persistentScratch_;
    WorldStats stats_;
 };
 

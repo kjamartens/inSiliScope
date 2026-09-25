@@ -13,7 +13,7 @@ v24.18.0 (V8 13.6.233.17). Native: MSVC 2022 x64 Release, `/fp:precise`. WASM: E
 `core/`: `pcg4d`, `hashUnit`, `hashStream` (`rng.h`); `rawCandidate`, `cellRadiusAt`,
 `envelopNucleus`, `cytoSlopeRunout`, `cytoDomeReach` (`cells.cpp`); `interactionChunks`,
 `buildCandidateMap`, the radius LUT, `boundaryClearance`, `directionalOverlap`, `relax`, `prune`,
-`packMap` (`packing.cpp`); C ABI `isc_pack_window` (`include/insilicell/insilicell.h`).
+`packMap` (`packing.cpp`); C ABI `isc_pack_window` (`include/insiliscope/insiliscope.h`).
 
 ## Findings that shape the rest of the port
 
@@ -132,5 +132,5 @@ node tests/parity/wasm_abi_smoke.mjs # the C ABI from JS, as the viewer/webSMLM 
 
 | | raw | gzip -9 | base64(raw) | base64(gzip) |
 |---|---|---|---|---|
-| insilicell.wasm | 29.6 KB | 12.8 KB | 39.5 KB | 17.0 KB |
+| insiliscope.wasm | 29.6 KB | 12.8 KB | 39.5 KB | 17.0 KB |
 | Emscripten JS glue | 9.4 KB | 3.2 KB | | |
