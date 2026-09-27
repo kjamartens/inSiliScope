@@ -37,6 +37,15 @@
     <ClCompile Include="Simulation\CellFieldSource.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\Fft2d.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\Illumination.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\WidefieldRender.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\capi.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -103,6 +112,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\CellFieldSource.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Fft2d.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Illumination.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\WidefieldRender.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h">

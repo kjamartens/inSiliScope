@@ -113,6 +113,9 @@
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
     <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="Simulation\Fft2d.cpp" />
+    <ClCompile Include="Simulation\Illumination.cpp" />
+    <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
     <ClCompile Include="..\..\core\src\cytomesh.cpp" />
@@ -137,6 +140,9 @@
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="Simulation\Fft2d.h" />
+    <ClInclude Include="Simulation\Illumination.h" />
+    <ClInclude Include="Simulation\WidefieldRender.h" />
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h" />
     <ClInclude Include="..\..\core\src\cells.h" />
     <ClInclude Include="..\..\core\src\cytomesh.h" />

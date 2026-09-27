@@ -335,6 +335,193 @@ std::function<double(std::mt19937_64&)> CInSiliScopeCamera::OutOfFocusDepthSampl
    };
 }
 
+namespace {
+const char* const kWideFieldGpuStatus = "CPU (WideField: FFT convolution on the CPU; GPU path planned)";
+} // namespace
+
+sim::WidefieldSceneSpec CInSiliScopeCamera::BuildWidefieldSceneSpec(const sim::SimulationParams& params,
+                                                                  const sim::CellFieldQuery& q) const
+{
+   sim::WidefieldSceneSpec s;
+   const unsigned w = FullWidth(), h = FullHeight();
+   s.originXUm = q.originXUm;
+   s.originYUm = q.originYUm;
+   s.width = w;
+   s.height = h;
+   s.pixelUm = params.pixelSizeNm / 1000.0;
+   // The focal plane is the world height focus + ZStage (CellFieldQueryFor);
+   // the dye slab is SimType_CellFieldZRangeUm around it (0 = every dye).
+   s.focusWorldUm = q.zCullCentreUm;
+   s.slabCentreUm = q.zCullCentreUm;
+   s.slabHalfUm = q.zHalfRangeUm;
+   s.grid.upscale = static_cast<int>(std::lround(std::min(4.0, std::max(1.0, wideFieldNum_[WF_UPSCALING].load()))));
+   s.grid.zPlaneNm = std::min(500.0, std::max(5.0, wideFieldNum_[WF_Z_PLANE_NM].load()));
+   s.marginUm = kCellFieldMarginUm;
+   s.kernelCapUm = std::max(0.1, psfKernelHalfWidthNm_.load() / 1000.0);
+   s.phot.excitationPhotonsPerUm2PerSec = std::max(0.0, wideFieldNum_[WF_EXCITATION].load());
+   s.phot.quantumYield = std::min(1.0, std::max(0.0, wideFieldNum_[WF_QUANTUM_YIELD].load()));
+   s.phot.photonBudget = std::max(0.0, wideFieldNum_[WF_PHOTON_BUDGET].load());
+   s.phot.extinctionCoeff = std::max(0.0, wideFieldNum_[WF_EXTINCTION_COEFF].load());
+   s.eta = sim::WidefieldCollectionEfficiency(psfNa_.load(), psfImmersionIndex_.load());
+   s.exposureSec = params.frameDurationSec;
+   return s;
+}
+
+std::unique_ptr<sim::WidefieldPsf> CInSiliScopeCamera::MakeWidefieldPsf(const sim::PsfKernelCache& cache,
+                                                                        sim::WidefieldSceneSpec& spec) const
+{
+   if (cache.valid)
+   {
+      const int u = sim::VectorialWidefieldPsf::ValidUpscale(cache.oversampling, spec.grid.upscale);
+      if (u != spec.grid.upscale)
+      {
+         std::ostringstream m;
+         m << "WideField: General_WideFieldUpscaling " << spec.grid.upscale << " does not divide "
+           << "PSFParam_PsfOversampling " << cache.oversampling << "; using " << u << ".";
+         LogMessage(m.str(), false);
+         spec.grid.upscale = u;
+      }
+      return std::unique_ptr<sim::WidefieldPsf>(new sim::VectorialWidefieldPsf(cache, u));
+   }
+   return std::unique_ptr<sim::WidefieldPsf>(new sim::GaussianWidefieldPsf(
+      spec.pixelUm / std::max(1, spec.grid.upscale), psfWavelengthNm_.load(), psfNa_.load(), psfImmersionIndex_.load()));
+}
+
+void CInSiliScopeCamera::LogWidefieldPhotophysics(const sim::WidefieldSceneSpec& spec)
+{
+   const double kem = spec.phot.EmissionRatePerSec(1.0);
+   std::ostringstream m;
+   m << "WideField: sigma " << spec.phot.CrossSectionUm2() << " um^2, k_em " << kem << " photons/s at peak, t1/2 "
+     << (spec.phot.Bleaches() ? std::to_string(spec.phot.HalfTimeSec(1.0)) + " s" : std::string("never (budget 0)"))
+     << ", collection efficiency " << spec.eta << ", " << spec.eta * kem * spec.exposureSec
+     << " photons/dye/frame reach the camera (before QE); non-bleaching dyes never bleach.";
+   LogMessage(m.str());
+}
+
+void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w,
+                                              unsigned h, const sim::SimulationParams& params,
+                                              const sim::CellFieldSettings& cellField, double stageXUm,
+                                              double stageYUm, const sim::PsfKernelCache& psfCache,
+                                              const sim::StackShapingFields& shaping,
+                                              const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
+                                              const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed)
+{
+   SetGpuStatus(kWideFieldGpuStatus);
+   if (params.driftNmPerSecX > 0.0)
+      LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
+   auto t0 = std::chrono::steady_clock::now();
+   std::string err;
+   sim::CellFieldSource source;
+   double z = sim::GetSharedStageState().zPositionUm.load();
+   sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
+   sim::WidefieldSceneSpec spec = BuildWidefieldSceneSpec(params, q);
+   std::unique_ptr<sim::WidefieldPsf> psf = MakeWidefieldPsf(psfCache, spec);
+   LogWidefieldPhotophysics(spec);
+   const sim::SquareIllumination ill(w * spec.pixelUm, h * spec.pixelUm);
+   sim::WidefieldScene scene;
+   bool ok = source.Configure(cellField, err) && scene.Update(source, ill, spec, *psf, err);
+   if (!ok)
+      LogMessage("WideField: no dyes rendered (" + err + ")", false);
+   else
+   {
+      std::ostringstream m;
+      m << "WideField: " << scene.Dyes() << " dyes (" << scene.BleachingDyes() << " bleaching) at stage (" << stageXUm
+        << ", " << stageYUm << ") um, " << scene.PsfPlanes() << " PSF planes, " << scene.FftSize() << "^2 FFT, "
+        << (psfCache.valid ? "vectorial" : "Gaussian") << " PSF, upscaling " << spec.grid.upscale << " ("
+        << std::fixed << std::setprecision(2)
+        << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s setup)";
+      LogMessage(m.str());
+   }
+
+   const sim::CameraNoiseParams cam = params.Camera();
+   const double decaySec = bgDecaySec_.load();
+   const std::vector<sim::BlinkEvent> none;
+   const unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
+   const long batch = static_cast<long>(nThreads) * 4;
+   long clampedMax = ok ? scene.ClampedDyes() : 0;
+   std::vector<float> wb;
+   for (long f0 = 0; f0 < stackLength; f0 += batch)
+   {
+      const long f1 = std::min(stackLength, f0 + batch);
+      // The Z stage is read per batch of frames (a focus change re-derives the PSF planes).
+      const double zNow = sim::GetSharedStageState().zPositionUm.load();
+      if (ok && zNow != z)
+      {
+         z = zNow;
+         q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
+         spec.focusWorldUm = spec.slabCentreUm = q.zCullCentreUm;
+         ok = scene.Update(source, ill, spec, *psf, err);
+         if (!ok)
+            LogMessage("WideField: " + err, false);
+         clampedMax = std::max(clampedMax, ok ? scene.ClampedDyes() : 0L);
+      }
+      // A fresh sample: frame f starts at dose f x dD. With a uniform pattern
+      // every frame is a multiple of the batch's first (the fast path).
+      std::vector<double> c(static_cast<size_t>(f1 - f0), 0.0);
+      bool scalar = true;
+      if (ok)
+      {
+         scene.FreshBleachWeights(static_cast<double>(f0), wb);
+         double c0;
+         if (!scene.ScalarOfBleaching(wb, c0))
+            scene.SetBleachWeights(wb);
+         for (long f = f0; f < f1 && scalar; ++f)
+         {
+            scene.FreshBleachWeights(static_cast<double>(f), wb);
+            scalar = scene.ScalarOfBleaching(wb, c[static_cast<size_t>(f - f0)]);
+         }
+      }
+      auto background = [&](long f, std::vector<float>& img) {
+         sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
+         sim::RenderPhotonImage(img, w, h, none, f, params.pixelSizeNm, params.psfSigmaPx, params.photonsPerBlink,
+                                params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr, nullptr, &extras);
+      };
+      if (!ok || scalar)
+      {
+         std::atomic<long> next{f0};
+         auto worker = [&]() {
+            std::vector<float> img;
+            std::vector<sim::cfloat> scratch;
+            for (long f; (f = next.fetch_add(1)) < f1;)
+            {
+               background(f, img);
+               if (ok)
+                  scene.RenderScaled(c[static_cast<size_t>(f - f0)], img, scratch);
+               sim::ApplyNoiseChain(img, stack[static_cast<size_t>(f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
+                                    noiseSeed, static_cast<uint32_t>(f));
+            }
+         };
+         std::vector<std::thread> pool;
+         for (unsigned t = 1; t < nThreads; ++t)
+            pool.emplace_back(worker);
+         worker();
+         for (std::thread& t : pool)
+            t.join();
+      }
+      else
+      {
+         // A non-uniform pattern: each frame's bleaching spectrum on its own.
+         std::vector<float> img;
+         for (long f = f0; f < f1; ++f)
+         {
+            background(f, img);
+            scene.FreshBleachWeights(static_cast<double>(f), wb);
+            scene.RenderFrame(wb, img);
+            sim::ApplyNoiseChain(img, stack[static_cast<size_t>(f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
+                                 noiseSeed, static_cast<uint32_t>(f));
+         }
+      }
+      stackFramesGenerated_ = f1;
+   }
+   if (clampedMax > 0)
+   {
+      std::ostringstream m;
+      m << "WideField: " << clampedMax << " dyes lay beyond the PSF kernel's z range and were drawn on its end plane "
+        << "-- widen PSFParam_PsfZRangeUm or lower SimType_CellFieldZRangeUm.";
+      LogMessage(m.str(), false);
+   }
+}
+
 void CInSiliScopeCamera::SetGpuStatus(const std::string& s)
 {
    std::lock_guard<std::mutex> lock(gpuStatusMutex_);
@@ -462,7 +649,7 @@ void CInSiliScopeCamera::StartStackGeneration()
 
    stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params,
                                   patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
-                                  stageX, stageY, stageZ);
+                                  stageX, stageY, stageZ, WideFieldSelected());
 }
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
@@ -470,7 +657,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
                                              long seed, sim::PsfGeneratorRequest psfRequest,
                                              sim::StructureParams structure, sim::CellFieldSettings cellField,
-                                             double stageXUm, double stageYUm, double stageZUm)
+                                             double stageXUm, double stageYUm, double stageZUm, bool wideField)
 {
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
    // Independent of localRng (see BuildStructurePattern's own doc comment
@@ -506,8 +693,14 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    }
 
    const bool isCellField = patternType == sim::PATTERN_CELL_FIELD;
+   // WideField renders every labelled dye (RenderWidefieldStack below), so
+   // it needs no blinks.
+   const bool wf = isCellField && wideField;
+   if (wideField && !isCellField)
+      LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering SuperRes.",
+                 false);
    std::vector<sim::BlinkEvent> events;
-   if (isCellField)
+   if (isCellField && !wf)
    {
       // Every blink of the frames' simulated time span [0, N * frameSec) in
       // one query; tStart/tEnd come out in frames (BucketEventsByFrame then
@@ -536,7 +729,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
           << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
       LogMessage(msg.str());
    }
-   else
+   else if (!isCellField)
    {
       events = model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
    }
@@ -627,9 +820,12 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    };
 
    std::unique_ptr<sim::GpuSimulator> gpu;
-   bool gpuOk = PrepareGpu(gpu, localPsfCache, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
-                           shaping, params);
+   bool gpuOk = !wf && PrepareGpu(gpu, localPsfCache, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
+                                  shaping, params);
    auto startTime = std::chrono::steady_clock::now();
+   if (wf)
+      RenderWidefieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm, localPsfCache,
+                           shaping, localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed);
    if (gpuOk)
    {
       // Batches of frames per dispatch: one GPU round trip per batch rather
@@ -670,7 +866,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       zClampedAll += zc;
       zRenderedAll += zt;
    }
-   if (!gpuOk)
+   if (!gpuOk && !wf)
    {
       // Multi-threaded CPU path: an atomic frame counter hands out frames.
       std::atomic<long> nextFrame{0};
@@ -829,6 +1025,20 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // before the next frame.
    sim::CellFieldQuery cellFieldLastQuery;
    bool cellFieldQueried = false;
+   // WideField (CellField only): the scene, its PSF and a world-anchored
+   // bleach map that persists across frames and config changes (so bleaching
+   // a region, moving away and back finds it dim); reset on a world change
+   // (seed, labelling, cell params) or a grid pitch change.
+   bool wfActive = false, wfOk = false;
+   sim::WidefieldScene wfScene;
+   std::unique_ptr<sim::WidefieldPsf> wfPsf;
+   int wfUpscale = 1;
+   long wfPsfVersion = 0, wfWorldVersion = 0;
+   sim::CellFieldSettings wfWorld;
+   bool wfHaveWorld = false;
+   sim::BleachField wfBleach;
+   sim::WidefieldSceneSpec wfSpec;
+   std::vector<float> wfDose, wfWeights;
 
    while (liveProducerRun_.load())
    {
@@ -946,6 +1156,33 @@ void CInSiliScopeCamera::LiveProducerLoop()
             LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
                        "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
 
+         wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
+         if (WideFieldSelected() && !wfActive)
+            LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering "
+                       "SuperRes.", false);
+         if (wfActive)
+         {
+            gpuOk = false;
+            SetGpuStatus(kWideFieldGpuStatus);
+            if (params.driftNmPerSecX > 0.0)
+               LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
+            sim::WidefieldSceneSpec base = BuildWidefieldSceneSpec(params, sim::CellFieldQuery());
+            wfPsf = MakeWidefieldPsf(psfCache, base);
+            wfUpscale = base.grid.upscale;
+            ++wfPsfVersion;
+            LogWidefieldPhotophysics(base);
+            const sim::CellFieldSettings world = BuildCellFieldSettings();
+            if (!wfHaveWorld || !world.SameWorld(wfWorld))
+            {
+               ++wfWorldVersion;
+               if (!wfBleach.Empty())
+                  LogMessage("WideField: new cell-field world, bleach map reset.");
+               wfBleach.Reset(wfBleach.Pitch());
+               wfWorld = world;
+               wfHaveWorld = true;
+            }
+         }
+
          appliedConfigVersion = currentConfigVersion;
       }
 
@@ -974,7 +1211,22 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
             sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
                                                       liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            if (!cellField.Events(q, events))
+            if (wfActive)
+            {
+               // The grid is rebuilt when the pose, slab or grid settings
+               // change; the PSF planes when the focus does.
+               wfSpec = BuildWidefieldSceneSpec(params, q);
+               wfSpec.grid.upscale = wfUpscale;
+               wfSpec.psfVersion = wfPsfVersion;
+               wfSpec.worldVersion = wfWorldVersion;
+               const sim::SquareIllumination ill(w * wfSpec.pixelUm, h * wfSpec.pixelUm);
+               std::string err;
+               const bool wasOk = wfOk;
+               wfOk = wfPsf && wfScene.Update(cellField, ill, wfSpec, *wfPsf, err);
+               if (!wfOk && wasOk)
+                  LogMessage("WideField: " + err, false);
+            }
+            else if (!cellField.Events(q, events))
             {
                LogMessage("CellField: event query failed", false);
                cellFieldOk = false;
@@ -1005,7 +1257,35 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
       std::vector<uint16_t> nextFrame;
       bool rendered = false;
-      if (gpuOk && psfCache.valid)
+      if (wfActive)
+      {
+         // Background as SR, plus every labelled dye at its current dose; the
+         // frame's dose is then deposited over the pattern's whole support.
+         const std::vector<sim::BlinkEvent> none;
+         sim::RenderPhotonImage(photonImg, w, h, none, liveFrameCounter_, params.pixelSizeNm, params.psfSigmaPx,
+                                params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
+                                nullptr, &extras);
+         if (cellFieldOk && wfOk)
+         {
+            const sim::WidefieldGridSpec& g = wfScene.Grid();
+            if (wfBleach.Pitch() != g.pitchUm)
+            {
+               if (!wfBleach.Empty())
+                  LogMessage("WideField: grid pitch changed, bleach map reset.");
+               wfBleach.Reset(g.pitchUm);
+            }
+            wfBleach.DoseOver(g.x0Um, g.y0Um, g.nx, g.ny, wfDose);
+            wfScene.BleachWeightsFromDose(wfDose, wfWeights);
+            wfScene.RenderFrame(wfWeights, photonImg);
+            if (wfSpec.phot.Bleaches())
+               wfBleach.Deposit(sim::SquareIllumination(w * wfSpec.pixelUm, h * wfSpec.pixelUm), wfScene.AxisXUm(),
+                                wfScene.AxisYUm(), wfSpec.phot.EmissionRatePerSec(1.0) * params.frameDurationSec);
+         }
+         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
+                              liveNoiseSeed, noiseFrame);
+         rendered = true;
+      }
+      if (!rendered && gpuOk && psfCache.valid)
       {
          std::vector<sim::GpuSplatEmitter> ems;
          sim::CollectGpuEmitters(events, liveFrameCounter_, w, h, params.pixelSizeNm, params.photonsPerBlink, dx,
@@ -2053,6 +2333,41 @@ int CInSiliScopeCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionTy
       std::string s;
       pProp->Get(s);
       cellFieldPacking_ = (s == "On");
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(wideField_.load() ? g_ModalityWideField : g_ModalitySuperRes);
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      wideField_ = (s == g_ModalityWideField);
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
+{
+   if (index < 0 || index >= WF_COUNT)
+      return DEVICE_INVALID_PROPERTY;
+   if (eAct == MM::BeforeGet)
+   {
+      if (index == WF_UPSCALING)
+         pProp->Set(static_cast<long>(wideFieldNum_[index].load()));
+      else
+         pProp->Set(wideFieldNum_[index].load());
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      double v;
+      pProp->Get(v);
+      wideFieldNum_[index] = v;
       InvalidateStack();
    }
    return DEVICE_OK;

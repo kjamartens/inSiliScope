@@ -29,6 +29,7 @@
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SMLMStructures.h"
 #include "Simulation/SMLMZernike.h"
+#include "Simulation/WidefieldRender.h"
 
 #include <atomic>
 #include <cstdint>
@@ -191,6 +192,25 @@ enum CellFieldNumber
 extern const char* g_PropCellFieldNumber[CF_COUNT];
 extern const char* g_PropCellFieldPacking;
 
+// Imaging modality (General_ImagingModality): SuperRes renders the dyes'
+// blinks, WideField every labelled dye at once (Simulation/WidefieldRender.h;
+// CellField pattern only). Its numeric properties share one indexed handler
+// (OnWideFieldNumber), in this order.
+extern const char* g_PropImagingModality;
+extern const char* g_ModalitySuperRes;
+extern const char* g_ModalityWideField;
+enum WideFieldNumber
+{
+   WF_UPSCALING = 0,
+   WF_Z_PLANE_NM,
+   WF_EXCITATION,
+   WF_QUANTUM_YIELD,
+   WF_PHOTON_BUDGET,
+   WF_EXTINCTION_COEFF,
+   WF_COUNT
+};
+extern const char* g_PropWideFieldNumber[WF_COUNT];
+
 extern const char* g_Fov128;
 extern const char* g_Fov256;
 extern const char* g_Fov512;
@@ -327,6 +347,8 @@ public:
    int OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -383,6 +405,29 @@ private:
                                          const sim::SimulationParams& params, double drift0XPx, double drift0YPx,
                                          double drift1XPx, double drift1YPx, long frameIndex, double tSec,
                                          double spanSec) const;
+   // WideField: the modality property is WideField (it renders only for the
+   // CellField pattern; others log once and render SR).
+   bool WideFieldSelected() const { return wideField_.load(); }
+   // The scene spec's settings (grid, photophysics, collection efficiency,
+   // kernel cap, exposure) for the current properties; pose fields from q.
+   sim::WidefieldSceneSpec BuildWidefieldSceneSpec(const sim::SimulationParams& params,
+                                                   const sim::CellFieldQuery& q) const;
+   // The PSF WideField convolves with: the vectorial kernel planes when
+   // cache is valid (upscale lowered to a divisor of its oversampling, logged),
+   // else the Gaussian. spec.grid.upscale is updated to the one used.
+   std::unique_ptr<sim::WidefieldPsf> MakeWidefieldPsf(const sim::PsfKernelCache& cache,
+                                                       sim::WidefieldSceneSpec& spec) const;
+   // One corelog line of the derived photophysics (sigma, k_em, t1/2, eta,
+   // photons/dye/frame).
+   void LogWidefieldPhotophysics(const sim::WidefieldSceneSpec& spec);
+   // WideField precomputed stack (fresh sample: frame f starts at dose f dD),
+   // rendered into stack; Z is read per batch of frames.
+   void RenderWidefieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w, unsigned h,
+                             const sim::SimulationParams& params, const sim::CellFieldSettings& cellField,
+                             double stageXUm, double stageYUm, const sim::PsfKernelCache& psfCache,
+                             const sim::StackShapingFields& shaping, const sim::PixelOffsetMap& offsetMap,
+                             const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
+                             uint32_t noiseSeed);
    // Creates (if gpu is empty) and loads a GPU simulator with this
    // kernel/maps/background, when General_UseGpu is On and the frame can be
    // rendered on the GPU at all (vectorial kernel, not Fft placement).
@@ -421,7 +466,7 @@ private:
                                std::string customPointsFile, std::vector<double> spacingsNm, long seed,
                                sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure,
                                sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
-                               double stageZUm);
+                               double stageZUm, bool wideField);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -655,6 +700,11 @@ private:
    // above the coverslip).
    std::atomic<double> cellField_[CF_COUNT];
    bool cellFieldPacking_ = true;
+
+   // Imaging modality (General_ImagingModality) and the WideField numbers,
+   // indexed by WideFieldNumber (defaults set in the constructor).
+   std::atomic<bool> wideField_{false};
+   std::atomic<double> wideFieldNum_[WF_COUNT];
 
    // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
    // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is
