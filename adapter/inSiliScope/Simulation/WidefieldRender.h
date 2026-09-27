@@ -30,7 +30,10 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -68,22 +71,32 @@ struct WidefieldGridSettings
    double zPlaneNm = 25.0; // dye plane thickness (world-anchored)
 };
 
-// Upscaled xy grid (world um) and z slab of a dye grid.
+// World-anchored upscaled xy grid and z slab of a dye grid: cell (i, j) is
+// world [(ix0 + i) pitch, (ix0 + i + 1) pitch) x [(iy0 + j) pitch, ...), the
+// same cells whatever the stage pose, so a dye is binned the same way from
+// every pose and BleachField cells map one-to-one onto grid cells.
 struct WidefieldGridSpec
 {
-   double x0Um = 0.0, y0Um = 0.0, pitchUm = 0.1;
+   long ix0 = 0, iy0 = 0;
+   double x0Um = 0.0, y0Um = 0.0, pitchUm = 0.1; // x0Um = ix0 pitch
    unsigned nx = 0, ny = 0;
    double zMinUm = -5.0, zMaxUm = 50.0, zPlaneUm = 0.025;
    bool operator==(const WidefieldGridSpec& o) const
    {
-      return x0Um == o.x0Um && y0Um == o.y0Um && pitchUm == o.pitchUm && nx == o.nx && ny == o.ny &&
+      return ix0 == o.ix0 && iy0 == o.iy0 && pitchUm == o.pitchUm && nx == o.nx && ny == o.ny &&
              zMinUm == o.zMinUm && zMaxUm == o.zMaxUm && zPlaneUm == o.zPlaneUm;
    }
    bool operator!=(const WidefieldGridSpec& o) const { return !(*this == o); }
+   bool SameRect(const WidefieldGridSpec& o) const
+   {
+      return ix0 == o.ix0 && iy0 == o.iy0 && pitchUm == o.pitchUm && nx == o.nx && ny == o.ny &&
+             zPlaneUm == o.zPlaneUm;
+   }
 };
 
 // Dye counts per population on the occupied world planes of a grid: plane i
-// spans [(k0 + i) zPlane, (k0 + i + 1) zPlane).
+// spans [(k0 + i) zPlane, (k0 + i + 1) zPlane). Dense; the reference layout
+// for tests and synthetic samples.
 struct WidefieldDyeGrid
 {
    WidefieldGridSpec spec;
@@ -98,6 +111,59 @@ struct WidefieldDyeGrid
 // each population is binned over just those. False (with err) on a failure.
 bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, WidefieldDyeGrid& out,
                            std::string& err);
+
+// Sparse dye counts: per world plane k and population, (cell, count) pairs,
+// cell = row-major index in the grid rect it was made for.
+struct WidefieldSparsePlane
+{
+   std::vector<uint32_t> cell[2]; // [0] bleaching, [1] persistent
+   std::vector<float> count[2];
+   bool Empty(int pop) const { return cell[pop].empty(); }
+};
+
+struct WidefieldDyePlanes
+{
+   WidefieldGridSpec rect; // the xy rect (zMin/zMax: the column fetched)
+   std::map<long, WidefieldSparsePlane> planes; // world plane k -> dyes
+   long nBleaching = 0, nPersistent = 0;
+   static WidefieldDyePlanes FromGrid(const WidefieldDyeGrid& g);
+};
+
+// World-anchored dye tiles (kTile x kTile cells, every occupied plane of the
+// z column), filled from isc_density3d_in_window on first use and assembled
+// into any grid rect of the same pitch and plane thickness. A small stage move
+// then queries only the tiles that newly enter the view. Thread-safe (the
+// live loop and a prefetch worker share one); each caller passes its own
+// CellFieldSource. Cleared when the key (pitch, plane, column, world) changes;
+// least recently used tiles are dropped beyond the memory budget.
+class WidefieldDyeTiles
+{
+public:
+   static constexpr int kTile = 64;
+   explicit WidefieldDyeTiles(size_t budgetBytes = 0); // 0 = default for the platform
+   // The planes of rect (its zMin/zMax: the z column, world um) for world
+   // version `world`. False (with err) on a failure.
+   bool Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, WidefieldDyePlanes& out,
+               std::string& err);
+   size_t Bytes() const;
+   void Clear();
+
+private:
+   struct Tile
+   {
+      std::map<long, WidefieldSparsePlane> planes; // cells relative to the tile
+      long nBleaching = 0, nPersistent = 0;
+      size_t bytes = 0;
+      unsigned long long used = 0;
+   };
+   bool Fill(CellFieldSource& src, long tx, long ty, Tile& t, std::string& err) const;
+   mutable std::mutex mutex_;
+   std::map<std::pair<long, long>, std::shared_ptr<Tile>> tiles_;
+   double pitch_ = 0.0, zPlane_ = 0.0, zMin_ = 0.0, zMax_ = 0.0;
+   long world_ = -1;
+   size_t bytes_ = 0, budget_ = 0;
+   unsigned long long clock_ = 0;
+};
 
 // Emission PSF on the grid's pitch, as a set of planes indexed by an integer
 // p at defocus PlaneDefocusUm(p). Dye planes between two PSF planes are
@@ -186,7 +252,7 @@ struct WidefieldSceneSpec
    double pixelUm = 0.1;
    double focusWorldUm = 0.0; // world z of the focal plane
    // Dyes within +/- slabHalfUm of slabCentreUm; slabHalfUm <= 0 = all
-   // (histogrammed over [-5, 50] um).
+   // (the whole [-5, 50] um column).
    double slabCentreUm = 0.0, slabHalfUm = 0.0;
    WidefieldGridSettings grid;
    double marginUm = 2.0;     // grid margin beyond the FOV, within the illumination support
@@ -198,74 +264,213 @@ struct WidefieldSceneSpec
    double exposureSec = 0.05;
 };
 
+// The camera image (before background and noise) of one focus, as linear
+// channels: the persistent dyes, and the bleaching dyes split over a small
+// basis of weight maps (see WidefieldScene). A frame is
+// bin(max(0, P + sum_j a_j B_j)); cells are the FOV's grid cells (width x
+// upscale by height x upscale), already shifted to the camera's sub-cell
+// position.
+struct WidefieldImages
+{
+   unsigned cw = 0, ch = 0, upscale = 1; // cell grid of the FOV
+   std::vector<float> persistent;        // empty: none
+   std::vector<std::vector<float>> bleach;
+   // Adds the frame with bleach coefficients a (a.size() == bleach.size())
+   // to cam (cw/upscale x ch/upscale camera pixels).
+   void Render(const std::vector<double>& a, std::vector<float>& cam) const;
+};
+
+// The WideField renderer for one grid rect (a stage pose), any focus.
+//
+//  * Dye planes are world-anchored (zPlaneNm); each is convolved with the
+//    PSF at its defocus by FFT. Its spectrum depends only on its dyes and
+//    their weights, so it is cached (per plane, channel and resolution
+//    level): a focus change only re-pairs cached plane spectra with cached
+//    kernel spectra (one multiply-add per frequency and plane) plus one
+//    inverse FFT per channel.
+//  * Focus bands: a PSF plane whose spectrum is (almost) confined to the low
+//    frequencies is convolved on a 2x or 4x coarser grid (dyes cloud-in-cell
+//    binned, the binning deconvolved) and its spectrum embedded back. A plane
+//    goes coarse only if the kernel energy it cannot represent plus the
+//    binning's alias energy (white source) is below kBandEpsilon of its total
+//    (<= 0.1% rms of that plane's light).
+//  * Sub-cell stage positions: the image is resampled to the camera by a
+//    Fourier phase ramp (exact for band-limited images: pitch <=
+//    lambda / (4 NA)), so the dyes' binning does not depend on the pose.
+//  * Bleaching: the frame's per-column weights wb are expressed in a basis
+//    anchored at some frame: wb = sum_j a_j phi_j. With the stage and the
+//    illumination fixed, wb evolves as wb_anchor exp(-t dD / B): columns
+//    that share a frame dose dD share a factor (one basis map per distinct dD
+//    value, <= kMaxGroups; a square illumination has one), otherwise a
+//    Chebyshev expansion in dD (kChebTerms maps). Every frame is checked
+//    against the basis (1e-5 of the peak weight) and re-anchored when it
+//    does not fit, so the image is always that of wb.
 class WidefieldScene
 {
 public:
-   // (Re)builds whatever changed: the dye grid (pose, slab, grid settings,
-   // world), the PSF planes (focus, PSF), the illumination and dose maps and
-   // the persistent spectrum. False (with err) on a failure.
+   WidefieldScene();
+   // Shares a dye tile cache (a prefetch scene and the live scene).
+   void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
+   const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
+
+   // (Re)builds whatever changed: the grid rect and dyes (pose, grid
+   // settings, world), the kernels (PSF, rect), the illumination and dose
+   // maps, the spectra and images of the focus. False (with err) on a
+   // failure.
    bool Update(CellFieldSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                const WidefieldPsf& psf, std::string& err);
    // The same from a dye grid built elsewhere (tests, synthetic samples);
-   // its spec must be GridSpecFor(pattern, spec).
+   // its rect must be GridSpecFor(pattern, spec)'s.
    bool UpdateFromGrid(const WidefieldDyeGrid& grid, const IlluminationPattern& pattern,
                        const WidefieldSceneSpec& spec, const WidefieldPsf& psf, std::string& err);
-   // The grid a spec renders on: the FOV at pitch pixel / upscale, grown by
-   // the margin where the pattern still excites, and the z slab.
+   // The grid a spec renders on: the world-anchored cells covering the FOV at
+   // pitch pixel / upscale, grown by the margin where the pattern still
+   // excites, and the z slab. fovCellX/Y: grid cell of the FOV corner,
+   // fracX/Y: its sub-cell offset in [0, 1).
    static WidefieldGridSpec GridSpecFor(const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
-                                        unsigned* marginX = nullptr, unsigned* marginY = nullptr);
+                                        unsigned* fovCellX = nullptr, unsigned* fovCellY = nullptr,
+                                        double* fracX = nullptr, double* fracY = nullptr);
 
-   const WidefieldGridSpec& Grid() const { return grid_.spec; }
+   const WidefieldGridSpec& Grid() const { return rect_; }
    double AxisXUm() const { return axisX_; }
    double AxisYUm() const { return axisY_; }
    // Emitted photons per unbleached dye in one frame, per grid column.
    const std::vector<float>& FrameDose() const { return dD_; }
-   long Dyes() const { return grid_.nBleaching + grid_.nPersistent; }
-   long BleachingDyes() const { return grid_.nBleaching; }
+   long Dyes() const { return dyes_.nBleaching + dyes_.nPersistent; }
+   long BleachingDyes() const { return dyes_.nBleaching; }
    long ClampedDyes() const { return clamped_; }
-   unsigned FftSize() const { return fft_.N(); }
+   unsigned FftSize() const { return std::max(nx_, ny_); }
+   unsigned FftSizeX() const { return nx_; }
+   unsigned FftSizeY() const { return ny_; }
    int KernelRadius() const { return R_; }
-   int PsfPlanes() const { return nP_; }
+   int PsfPlanes() const { return static_cast<int>(kernels_.size()); }
+   // Dye planes of the current focus per resolution level (full, 1/2, 1/4).
+   const unsigned* PlanesPerLevel() const { return planesPerLevel_; }
+   size_t CachedSpectraBytes() const { return cacheBytes_; }
 
    // Per-column camera photons per bleaching dye for a frame: fresh sample
    // (D0 = framesBefore x dD) or from a dose map (BleachField::DoseOver).
    void FreshBleachWeights(double framesBefore, std::vector<float>& wb) const;
    void BleachWeightsFromDose(const std::vector<float>& d0, std::vector<float>& wb) const;
 
-   // Makes wb the cached bleaching spectrum's weights (one FFT per PSF plane).
+   // Anchors the bleaching basis at wb (spectra and images of every basis
+   // map for the current focus).
    void SetBleachWeights(const std::vector<float>& wb);
-   // True (and c) if wb = c x the cached bleaching weights.
+   // True (and a) if wb is in the anchored basis: wb = sum_j a_j phi_j.
+   bool BleachCoefficients(const std::vector<float>& wb, std::vector<double>& a) const;
+   // The coefficients of the anchor weights themselves.
+   std::vector<double> AnchorCoefficients() const;
+   // Kept for one-map bases (a uniform frame dose): wb = c x the anchor.
    bool ScalarOfBleaching(const std::vector<float>& wb, double& c) const;
-   // Adds c x the bleaching image + the persistent image to cam (width x
-   // height). Thread-safe (const): scratch is the caller's.
-   void RenderScaled(double c, std::vector<float>& cam, std::vector<cfloat>& scratch) const;
-   // One frame: the fast path when wb is a multiple of the cached weights,
-   // else SetBleachWeights first. Adds to cam.
+
+   // The images of the current focus (thread-safe to read and Render from).
+   const WidefieldImages& Images() const { return images_; }
+   // Adds the frame with bleach coefficients a to cam (width x height).
+   void RenderCoefficients(const std::vector<double>& a, std::vector<float>& cam) const { images_.Render(a, cam); }
+   // One frame: the basis coefficients when wb fits, else SetBleachWeights
+   // first. Adds to cam.
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
    bool LastFrameFast() const { return lastFast_; }
 
-private:
-   void Finish(bool gridChanged, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
-               const WidefieldPsf& psf, unsigned mx, unsigned my);
-   void BuildPlanes(const WidefieldPsf& psf, double kernelCapUm);
-   // Sum over PSF planes of F(src_p x w) F(K_p), into S.
-   void Spectrum(const std::vector<float>& src, const std::vector<float>& w, std::vector<cfloat>& S) const;
+   // Images at other focus positions (world z of the focal plane) for the
+   // same pose, weights and basis -- a z series. Computed in parallel over
+   // the positions; the scene's own focus is unchanged.
+   bool FocusSeries(const std::vector<double>& focusWorldUm, std::vector<WidefieldImages>& out, std::string& err);
+   // Changes whenever the images of any focus would change other than by the
+   // focus itself (pose, weights, bleach basis, PSF): FocusSeries results
+   // stay valid while it does not.
+   unsigned long long ImagesVersion() const { return imagesVersion_; }
+   // Moves the scene to a focus whose images FocusSeries made at `version`
+   // (no convolution); false if the version is stale.
+   bool AdoptFocus(double focusWorldUm, const WidefieldImages& images, unsigned long long version);
 
+   static constexpr double kBandEpsilon = 1e-6;
+   // Tests only: a looser band criterion, to exercise the coarse levels with
+   // a PSF that (rightly) never meets kBandEpsilon.
+   void SetBandEpsilonForTesting(double e) { bandEpsilon_ = e; }
+   static constexpr unsigned kMaxGroups = 8;
+   static constexpr unsigned kChebTerms = 12;
+   static constexpr int kLevels = 3;
+
+private:
+   struct KernelSpec
+   {
+      int level = 0; // coarsest usable level
+      std::vector<cfloat> spec[kLevels];
+   };
+   struct Channel
+   {
+      int pop = 1;                // 0 bleaching, 1 persistent
+      std::vector<float> weight;  // per grid cell
+      unsigned long long version = 0;
+   };
+   struct FocusPlan
+   {
+      struct Dep { long k; int p0; float w0, w1; int level; };
+      std::vector<Dep> deps;
+      long clamped = 0;
+      unsigned perLevel[kLevels] = {0, 0, 0};
+   };
+
+   bool Finish(const WidefieldSceneSpec& spec, const IlluminationPattern& pattern, const WidefieldPsf& psf,
+               bool rectChanged, std::string& err);
+   void SetupFft(const WidefieldPsf& psf, double kernelCapUm, bool keepRadius);
+   void MakeKernel(const WidefieldPsf& psf, int p, KernelSpec& ks) const;
+   FocusPlan PlanFocus(const WidefieldPsf& psf, double focusWorldUm);
+   // Makes sure the plane spectra the plans need exist for the channels.
+   void FillSpectra(const std::vector<const Channel*>& chans, const std::vector<const FocusPlan*>& plans);
+   const std::vector<cfloat>* CachedSpectrum(const Channel& c, long k, int level) const;
+   void PlaneSpectrum(const Channel& c, const WidefieldSparsePlane& pl, int level, std::vector<cfloat>& out) const;
+   // Full-resolution spectrum of a channel at a plan, then its image.
+   void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img) const;
+   void ImagesFor(const FocusPlan& plan, WidefieldImages& out) const;
+   std::vector<const Channel*> ActiveChannels() const;
+   void Refocus(const WidefieldPsf& psf);
+   void DropChannel(const Channel& c);
+   void BuildBleachChannels(const std::vector<float>& wb);
+
+   std::shared_ptr<WidefieldDyeTiles> tiles_;
    WidefieldSceneSpec spec_;
    bool haveSpec_ = false;
-   WidefieldDyeGrid grid_;
-   unsigned fovX0_ = 0, fovY0_ = 0; // grid cell of the FOV's corner
+   WidefieldGridSpec rect_;
+   WidefieldDyePlanes dyes_;
+   const WidefieldPsf* psf_ = nullptr;
+   unsigned fovX0_ = 0, fovY0_ = 0;
+   double fracX_ = 0.0, fracY_ = 0.0;
    double axisX_ = 0.0, axisY_ = 0.0;
    std::vector<float> illum_, dD_, wp_;
-   // PSF planes pMin_ .. pMin_ + nP_ - 1: per-plane source maps and kernels.
-   int pMin_ = 0, nP_ = 0, R_ = 0;
-   long clamped_ = 0;
-   std::vector<float> srcB_, srcP_, kernels_;
-   Fft2d fft_;
-   std::vector<cfloat> Sp_, Sb_;
+   // FFT sizes (levels: n / 1, 2, 4), kernel radius.
+   unsigned nx_ = 0, ny_ = 0;
+   int R_ = 0;
+   int levels_ = 1;
+   RealFft2d fft_[kLevels];
+   std::map<int, KernelSpec> kernels_;
+   long kernelsVersion_ = -1;
+   // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
+   Channel persistent_;
+   std::vector<Channel> bleach_;
+   unsigned long long nextVersion_ = 1;
+   // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD.
+   bool bleachValid_ = false, cheb_ = false;
+   std::vector<float> groupDose_;
+   float doseMax_ = 0.0f;
    std::vector<float> wbRef_;
-   std::vector<cfloat> scratch_;
-   bool bleachValid_ = false, lastFast_ = false;
+   // Plane spectra cache: (channel version, plane k, level) -> spectrum.
+   struct CacheEntry
+   {
+      std::vector<cfloat> spec;
+      unsigned long long used = 0;
+   };
+   std::map<std::tuple<unsigned long long, long, int>, CacheEntry> cache_;
+   size_t cacheBytes_ = 0, cacheBudget_ = 0;
+   mutable unsigned long long cacheClock_ = 0;
+   FocusPlan plan_;
+   WidefieldImages images_;
+   long clamped_ = 0;
+   unsigned planesPerLevel_[kLevels] = {0, 0, 0};
+   bool lastFast_ = false;
+   double bandEpsilon_ = kBandEpsilon;
+   unsigned long long imagesVersion_ = 1;
 };
 
 } // namespace sim

@@ -420,6 +420,9 @@ private:
    // else the Gaussian. spec.grid.upscale is updated to the one used.
    std::unique_ptr<sim::WidefieldPsf> MakeWidefieldPsf(const sim::PsfKernelCache& cache,
                                                        sim::WidefieldSceneSpec& spec) const;
+   // A version number for a cell-field world: bumped whenever the settings
+   // differ from the last ones seen (keys the shared dye tiles).
+   long WideFieldWorldVersion(const sim::CellFieldSettings& world);
    // One corelog line of the derived photophysics (sigma, k_em, t1/2, eta,
    // photons/dye/frame).
    void LogWidefieldPhotophysics(const sim::WidefieldSceneSpec& spec);
@@ -524,6 +527,23 @@ private:
    // decoupled from MM's Snap/Live/sequence pull cadence.
    std::thread liveProducerThread_;
    std::atomic<bool> liveProducerRun_{false};
+   // Sequence acquisitions and the ZStage's z sequence (SharedStageState):
+   // the acquisition epoch, whether one runs, whether it must skip frames
+   // rendered before it started (an armed z sequence), and the epoch of the
+   // frame in the front buffer (under frontFrameLock_).
+   std::atomic<long> liveSeqEpoch_{0};
+   std::atomic<bool> liveSeqCapture_{false};
+   std::atomic<bool> liveSeqSkipStale_{false};
+   long liveFrameEpoch_ = 0;
+   // The z sequence the precomputed stack was made for (-1: none).
+   std::atomic<long> stackZSeqVersion_{-1};
+   // WideField caches shared by the stack worker, the live loop and its
+   // prefetch worker: the dye tiles (keyed by the world version below).
+   std::shared_ptr<sim::WidefieldDyeTiles> wfTiles_ = std::make_shared<sim::WidefieldDyeTiles>();
+   std::mutex wfWorldMutex_;
+   sim::CellFieldSettings wfWorldLast_;
+   bool wfWorldHave_ = false;
+   long wfWorldCounter_ = 0;
    std::vector<uint16_t> frontFrame_, backFrame_;
    unsigned liveFrameW_ = 0, liveFrameH_ = 0;
    MMThreadLock frontFrameLock_;

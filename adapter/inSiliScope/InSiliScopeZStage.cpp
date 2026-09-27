@@ -131,3 +131,48 @@ int InSiliScopeZStage::OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct)
    }
    return DEVICE_OK;
 }
+
+int InSiliScopeZStage::StartStageSequence()
+{
+   sim::GetSharedStageState().ArmZSequence(true);
+   return DEVICE_OK;
+}
+
+int InSiliScopeZStage::StopStageSequence()
+{
+   sim::GetSharedStageState().ArmZSequence(false);
+   return OnStagePositionChanged(sim::GetSharedStageState().zPositionUm.load());
+}
+
+int InSiliScopeZStage::ClearStageSequence()
+{
+   pending_.clear();
+   return DEVICE_OK;
+}
+
+int InSiliScopeZStage::AddToStageSequence(double position)
+{
+   if (static_cast<long>(pending_.size()) >= kMaxSequence)
+      return DEVICE_SEQUENCE_TOO_LARGE;
+   pending_.push_back(std::min(std::max(position, kLowerLimitUm), kUpperLimitUm));
+   return DEVICE_OK;
+}
+
+int InSiliScopeZStage::SendStageSequence()
+{
+   sim::GetSharedStageState().SetZSequence(pending_);
+   return DEVICE_OK;
+}
+
+int InSiliScopeZStage::SetStageLinearSequence(double dZ_um, long nSlices)
+{
+   if (nSlices < 1 || nSlices > kMaxSequence)
+      return DEVICE_SEQUENCE_TOO_LARGE;
+   // Steps of dZ from the current position; the N-th trigger returns to it.
+   const double z0 = sim::GetSharedStageState().zPositionUm.load();
+   std::vector<double> seq;
+   for (long i = 0; i < nSlices; ++i)
+      seq.push_back(std::min(std::max(z0 + i * dZ_um, kLowerLimitUm), kUpperLimitUm));
+   sim::GetSharedStageState().SetZSequence(seq);
+   return DEVICE_OK;
+}

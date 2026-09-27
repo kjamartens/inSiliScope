@@ -12,6 +12,7 @@
 // LICENSE:       BSD (see license.txt)
 
 #include "InSiliScopeCamera.h"
+#include "Simulation/SharedStageState.h"
 
 #include "CameraImageMetadata.h"
 #include "ModuleInterface.h"
@@ -839,6 +840,9 @@ int CInSiliScopeCamera::StopSequenceAcquisition()
       thd_->Stop();
       thd_->wait();
    }
+   liveSeqCapture_ = false;
+   liveSeqSkipStale_ = false;
+   sim::GetSharedStageState().EndSequenceAcquisition();
    return DEVICE_OK;
 }
 
@@ -856,12 +860,22 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
 
    // A fresh Live/MDA acquisition restarts the drift ramp from zero rather
    // than continuing wherever the previous acquisition left off.
+   // An armed z sequence (hardware z stack) restarts at its first position;
+   // the camera steps it one position per frame.
+   const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
+   liveSeqEpoch_ = sim::GetSharedStageState().BeginSequenceAcquisition();
+   liveSeqSkipStale_ = zseq.armed;
+   liveSeqCapture_ = true;
    if (acqMode_ == SMLM_MODE_LIVE)
    {
       liveDriftOriginFrame_ = liveFrameCounter_.load();
    }
    else
    {
+      // A precomputed stack made for another (or no) z sequence is remade
+      // for this one: frame f at position f mod n.
+      if (zseq.armed ? stackZSeqVersion_.load() != zseq.version : stackZSeqVersion_.load() != -1)
+         InvalidateStackOnly();
       MMThreadGuard g(imgPixelsLock_);
       playbackIndex_ = 0;
       endOfStackReached_ = false;
@@ -928,6 +942,9 @@ void CInSiliScopeCamera::OnThreadExiting() throw()
    try
    {
       LogMessage("SMLM sequence acquisition thread exiting");
+      liveSeqCapture_ = false;
+      liveSeqSkipStale_ = false;
+      sim::GetSharedStageState().EndSequenceAcquisition();
       if (GetCoreCallback())
          GetCoreCallback()->AcqFinished(this, 0);
    }

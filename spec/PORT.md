@@ -497,25 +497,69 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
 * **Illumination** (`IlluminationPattern`): anchored to the objective, peak 1; for now `SquareIllumination`
   over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
   `FluoParam_IllumProfile`.
-* **Dye grid.** Upscaled grid (pitch = pixel / upscale) over the FOV plus the part of a 2 um margin the
-  pattern still excites (none for the square: dyes outside are dark); world-anchored z planes of
-  `zPlaneNm` (so a focus move changes only PSFs), slab = `SimType_CellFieldZRangeUm` (0 = [-5, 50] um).
-  Pass 1 is a z histogram (6.4, nx = ny = 1), pass 2 bins each population over the occupied planes only.
+* **Dye grid (world-anchored).** Upscaled grid, pitch = pixel / upscale, cell i = world [i pitch, (i+1)
+  pitch): the same cells from every stage pose (the dyes bin the same way; `BleachField` cells map one to
+  one). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
+  plus one cell for the sub-cell shift; z planes of `zPlaneNm`, world-anchored; slab =
+  `SimType_CellFieldZRangeUm` around the focus (0 = [-5, 50] um), applied per focus to the cached planes.
+* **Dye tiles** (`WidefieldDyeTiles`, C1). 64 x 64-cell world tiles holding the whole [-5, 50] um column
+  sparsely ((cell, count) per plane and population), filled from `isc_density3d_in_window` (histogram,
+  then each population over the occupied planes) and assembled into any rect of that pitch; LRU beyond
+  1.5 GB (256 MB WASM). Shared by the stack worker, the live loop and its prefetch worker; keyed by
+  (pitch, plane, world version). A cold region still costs the core's world generation (~1.7 s for 26 um
+  at the defaults; the live loop's `Prefetch` warms the neighbourhood during the frame slack).
 * **PSF planes.** Dye planes go to the two neighbouring PSF planes with linear weights (= a linearly
   z-blended PSF). Vectorial: the `PsfKernelCache` planes, each grid cell the sum of its (os/u)^2
   oversampled cells placed as `SplatPsfKernel` (Nearest) centres them; u must divide the oversampling.
   Gaussian: planes every 100 nm, sigma from `WidefieldGaussianSigmaUm` (TODO(human): defocus ignored for
-  now). Radius capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`).
-* **Convolution.** N = pow2 >= FOV + margin + R + 1; per pair of PSF planes one FFT of the two sources
-  and one of the two kernels, split by Hermitian symmetry, S += A_p P_p; at most 8 fixed chunks summed in
-  order (thread-count independent). One inverse FFT per frame, clamp >= 0, crop, bin, plus the SR
-  background (map x illumination field x fade), then `ApplyNoiseChain` (one Poisson per camera pixel).
-* **Fast path.** The persistent spectrum is cached per pose/focus; the bleaching spectrum with its
-  per-column weights: a frame whose weights are c x those is `c S_bl + S_p` (a stationary sample under a
-  uniform pattern, every frame of a stack).
+  now). Radius R capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`), kept across focus moves.
+* **FFT** (`Fft2d.h`, A3/A4). Real 2D r2c/c2r, sizes 2^a 3^b 5^c (mixed-radix 4/2/3/5 Stockham, batched
+  16 rows/columns at a time, rows by the half-length complex trick; every row and column independent, so
+  thread-count independent). N per axis = the smallest such size (multiple of 8) with the wrapped part of
+  the linear convolution (source + kernel + 4 cells of cloud-in-cell + 1 of shift) missing the FOV cells:
+  320 instead of 512 at 256 px.
+* **Spectra and caches** (A2, B1). Kernel spectra per PSF plane (computed once per PSF, rect and R);
+  plane spectra per (channel, world plane, level), LRU beyond 1 GB (256 MB WASM). A channel is a
+  population with its per-column weights: persistent (eta dD) and the bleach basis maps. A focus change
+  re-pairs cached plane spectra with kernel spectra (one complex multiply-add per frequency and dye plane,
+  rows in parallel, planes in order) and does one inverse FFT per channel: ~10 ms at 256 px instead of a
+  full rebuild. `FocusSeries` makes the images of many foci from one cache fill (parallel over foci;
+  identical bits to one scene per focus).
+* **Focus bands** (B2). A PSF plane may be convolved on a 2x or 4x coarser grid: dyes cloud-in-cell
+  binned, the coarse product embedded in the fine spectrum with the coarse cells' phase and the binning's
+  transfer function divided out. Only if the kernel energy outside the coarse band plus the binning's
+  alias energy (white source; sum_m sinc^4(pi(u+m)) = 1 - 2/3 sin^2(pi u)) is <= 1e-6 of the plane's
+  (<= 0.1% rms of its light). Measured on a scalar-diffraction NA 1.4 PSF: even 3 um out of focus keeps
+  0.4% (2x) / 1-5% (4x) there -- the defocused disk's sharp rim carries frequencies up to the NA cutoff --
+  so with sharp-pupil PSFs (all current models) no plane goes coarse. The mechanism is tested with a
+  loosened criterion (160 of 200 planes coarse, 0.24% rms total image error).
+* **Sub-cell pose** (C2). The camera sits at a fractional cell offset of the world grid; the image is
+  resampled there by a Fourier phase ramp (Nyquist bins: cosine), exact for band-limited images (pitch <=
+  lambda / (4 NA), 117 nm at 660 nm / 1.4). A stage move within a cell only redoes the inverse FFTs (~25
+  ms at 256 px), one that changes the rect reassembles the dyes from tiles and redoes the spectra. The
+  illumination is anchored to the objective, so a whole-cell move lights different dyes: nothing but the
+  tiles is reused then.
+* **Images and frames** (A1). Per focus the scene holds one real image per channel (FOV cells, shifted);
+  a frame is bin(max(0, P + sum_j a_j B_j)) plus the SR background (map x illumination field x fade), then
+  `ApplyNoiseChain`. No FFT per frame (0.2 ms at 256 px).
+* **Bleach basis** (D2, D3). With the stage and illumination fixed the weights evolve as wb_anchor
+  exp(-t dD / B). One basis map per distinct frame dose dD (<= 8; the square has one: the old scalar path),
+  else 12 Chebyshev maps wb_anchor T_j(2 dD/dDmax - 1) with coefficients from exp(-tau x). Every frame is
+  checked against the basis (1e-5 of the peak weight) and re-anchors when it does not fit, so a frame is
+  always the image of its own weights.
 * **Stack** = fresh sample (frame f starts at dose f dD), reproducible, never touches the live map; Z read
-  per batch of frames. **Live**: `BleachField`, world-anchored dose in sparse 256^2 tiles of the grid
-  pitch (column j maps to the cell holding its centre), deposited over the pattern support after each
-  frame; reset on a world change or a pitch change.
-* Limits (v1): no drift, CPU only (D3D11 FFT path planned), a stage move rebuilds the grid (~0.6 s at 256
-  px) and makes the dose map non-uniform (full path per frame, ~0.2 s at 256 px, 4 cores).
+  per batch of frames; frames rendered in parallel between re-anchors. **Live**: `BleachField`,
+  world-anchored dose in sparse 256^2 tiles of the grid pitch, deposited over the pattern support after
+  each frame; reset on a world change or a pitch change. The producer renders the frame (a weighted sum)
+  and hands background, noise and publication to a finisher thread that overlaps the next frame's scene
+  work (D4). During a stage move a worker builds the destination's scene (own `CellFieldSource`, shared
+  tiles) and the live loop swaps it in on arrival (C3). Frames are never stale: each is the image of its
+  own pose, focus and dose.
+* **Z sequence** (F2, B4). The `ZStage` is sequenceable (list and linear): positions go to
+  `SharedStageState`; while armed, every frame of a camera sequence acquisition takes the next position
+  (the TTL a real camera sends), starting at 0 when the acquisition starts; frames rendered before it
+  started are skipped; stopping the sequence returns the stage. Live WideField makes the images of all
+  positions at once (`FocusSeries`) and adopts them frame by frame; a precomputed stack is (re)made for
+  the armed sequence (frame f at position f mod n) when an acquisition starts with a different one. SR
+  frames take the positions too.
+* Limits: no drift, CPU only (D3D11 FFT path planned).

@@ -3,10 +3,19 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   In-place N x N complex<float> FFT, N = 2^k: iterative
-//                radix-2 with precomputed twiddles, rows then columns via a
-//                transpose. No third-party dependency (it stays small in the
-//                viewer's WASM) and the same operation order native and WASM.
+// DESCRIPTION:   Real 2D FFT (r2c / c2r) of an nx x ny image, any sizes
+//                2^a 3^b 5^c (nx even): a mixed-radix (4, 2, 3, 5) Stockham
+//                complex FFT, batched over blocks of rows / columns so the
+//                innermost loop runs over contiguous transforms. Rows use the
+//                half-length complex trick. Every row and column is an
+//                independent transform, so the result does not depend on the
+//                thread count. No third-party dependency (it stays small in
+//                the viewer's WASM) and the same operation order native and
+//                WASM.
+//
+//                Spectrum layout: ny rows of SpecW() = nx/2 + 1 complex
+//                (kx = 0..nx/2), row ky = 0..ny-1; the other half is the
+//                Hermitian mirror.
 //
 // LICENSE:       BSD (see license.txt)
 
@@ -20,32 +29,54 @@ namespace sim {
 
 using cfloat = std::complex<float>;
 
-class Fft2d
+// Batched 1D complex FFT of length n = 2^a 3^b 5^c. Element i of transform b
+// is at x[i * B + b].
+class FftPlan1d
 {
 public:
-   explicit Fft2d(unsigned n = 1); // n is rounded up to a power of two
+   explicit FftPlan1d(unsigned n = 1);
    unsigned N() const { return n_; }
-   size_t Size() const { return static_cast<size_t>(n_) * n_; }
-   void Forward(cfloat* d) const;
-   void Inverse(cfloat* d) const; // normalised (1/N^2)
-
-   // Z = F(a + i b) of two real images a, b: their spectra are
-   // A[k] = (Z[k] + conj(Z[-k])) / 2 and B[k] = (Z[k] - conj(Z[-k])) / 2i.
-   // Index of -k (row-major k = ky*N + kx).
-   size_t Neg(size_t k) const
-   {
-      const size_t kx = k % n_, ky = k / n_;
-      return ((n_ - ky) & (n_ - 1)) * n_ + ((n_ - kx) & (n_ - 1));
-   }
-
-   static unsigned NextPow2(unsigned v);
+   // Forward (exp(-2 pi i ...)) transform of B interleaved sequences; x and
+   // work are n * B long. Returns the buffer holding the result (x or work).
+   cfloat* Forward(cfloat* x, cfloat* work, unsigned B) const;
 
 private:
-   void Rows(cfloat* d, bool inverse) const;
-   void Transpose(cfloat* d) const;
-   unsigned n_ = 1, log2_ = 0;
-   std::vector<cfloat> tw_;     // exp(-2 pi i k / N), k < N/2
-   std::vector<unsigned> rev_;  // bit reversal
+   struct Stage
+   {
+      unsigned R, Ns;
+      std::vector<cfloat> tw; // tw[k * R + r] = exp(-2 pi i k r / (Ns R))
+   };
+   unsigned n_ = 1;
+   std::vector<Stage> stages_;
+};
+
+class RealFft2d
+{
+public:
+   RealFft2d() = default;
+   RealFft2d(unsigned nx, unsigned ny); // nx even; both 2^a 3^b 5^c
+   unsigned Nx() const { return nx_; }
+   unsigned Ny() const { return ny_; }
+   unsigned SpecW() const { return nx_ / 2 + 1; }
+   size_t SpecSize() const { return static_cast<size_t>(SpecW()) * ny_; }
+   bool Valid() const { return nx_ > 0; }
+
+   // Spectrum of the nx x ny image that is `in` (inW x inH, row stride
+   // inStride) at the origin and zero elsewhere. spec: SpecSize().
+   void Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec) const;
+   // Inverse, normalised (1/(nx ny)): rows [row0, row0 + rows) of the image,
+   // columns [col0, col0 + cols), into out (row stride outStride). spec is
+   // destroyed.
+   void Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, unsigned col0, unsigned cols,
+                size_t outStride) const;
+
+   // Smallest m >= n with m = 2^a 3^b 5^c and m % multiple == 0.
+   static unsigned FastSize(unsigned n, unsigned multiple = 2);
+
+private:
+   unsigned nx_ = 0, ny_ = 0, m_ = 0; // m = nx / 2
+   FftPlan1d rows_, cols_;
+   std::vector<cfloat> w_;            // exp(-2 pi i k / nx), k <= m
 };
 
 } // namespace sim

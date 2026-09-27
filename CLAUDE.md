@@ -125,9 +125,15 @@ follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame; read-only
 `PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
 non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
 Illumination is a modality-neutral `IlluminationPattern` (square over the FOV for now). Stacks are a
-fresh sample (reproducible, fast path: every frame a multiple of cached spectra); live mode keeps a
-world-anchored `BleachField` (bleach, move away and back: still dim), reset on a world or pitch
-change. Limits: CellField only, no drift, CPU only (D3D11 path planned; `General_GpuStatus` says so),
+fresh sample (reproducible); live mode keeps a world-anchored `BleachField` (bleach, move away and
+back: still dim), reset on a world or pitch change. Speed (2026-09-27, spec/PORT.md 13): world-anchored
+grid and dye tiles (shared, sparse), a mixed-radix real FFT, cached kernel and per-dye-plane spectra (a
+focus change is a re-pairing, ~10 ms at 256 px), a sub-cell stage move is a phase ramp, frames are
+weighted sums of per-focus images (no FFT per frame), a bleach basis (dose groups / Chebyshev) instead
+of per-frame spectra, destination prefetch on stage moves, a pipelined live loop. Focus bands (2x/4x
+coarse far planes) exist but are gated at 0.1% rms error, which no sharp-pupil PSF meets. The `ZStage`
+is sequenceable (hardware z stacks: one position per camera frame, live and precomputed; WideField
+makes all positions' images at once). Limits: CellField only, no drift, CPU only (D3D11 path planned; `General_GpuStatus` says so),
 the Gaussian PSF ignores defocus for now (`WidefieldGaussianSigmaUm`, TODO(human)). cli/viewer:
 `modality` (0/1 or the names), `wf-upscale`, `wf-plane-nm`, `wf-kernel-um`, `wf-excitation-photons-
 per-um2-per-sec`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`, `immersion-index`.

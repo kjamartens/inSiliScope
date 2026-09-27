@@ -20,6 +20,7 @@
 #include <chrono>
 #include <functional>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <thread>
 
@@ -398,6 +399,18 @@ void CInSiliScopeCamera::LogWidefieldPhotophysics(const sim::WidefieldSceneSpec&
    LogMessage(m.str());
 }
 
+long CInSiliScopeCamera::WideFieldWorldVersion(const sim::CellFieldSettings& world)
+{
+   std::lock_guard<std::mutex> g(wfWorldMutex_);
+   if (!wfWorldHave_ || !world.SameWorld(wfWorldLast_))
+   {
+      wfWorldLast_ = world;
+      wfWorldHave_ = true;
+      ++wfWorldCounter_;
+   }
+   return wfWorldCounter_;
+}
+
 void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w,
                                               unsigned h, const sim::SimulationParams& params,
                                               const sim::CellFieldSettings& cellField, double stageXUm,
@@ -412,13 +425,21 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    auto t0 = std::chrono::steady_clock::now();
    std::string err;
    sim::CellFieldSource source;
-   double z = sim::GetSharedStageState().zPositionUm.load();
+   // An armed z sequence (a hardware-triggered z stack) gives frame f the
+   // position seq[f % n], all made at once (FocusSeries); otherwise the Z
+   // stage, read per batch of frames.
+   const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
+   const bool useSeq = zseq.armed && !zseq.positions.empty();
+   stackZSeqVersion_ = useSeq ? zseq.version : -1;
+   double z = useSeq ? zseq.positions[0] : sim::GetSharedStageState().zPositionUm.load();
    sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
    sim::WidefieldSceneSpec spec = BuildWidefieldSceneSpec(params, q);
+   spec.worldVersion = WideFieldWorldVersion(cellField);
    std::unique_ptr<sim::WidefieldPsf> psf = MakeWidefieldPsf(psfCache, spec);
    LogWidefieldPhotophysics(spec);
    const sim::SquareIllumination ill(w * spec.pixelUm, h * spec.pixelUm);
    sim::WidefieldScene scene;
+   scene.SetTiles(wfTiles_);
    bool ok = source.Configure(cellField, err) && scene.Update(source, ill, spec, *psf, err);
    if (!ok)
       LogMessage("WideField: no dyes rendered (" + err + ")", false);
@@ -426,12 +447,35 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    {
       std::ostringstream m;
       m << "WideField: " << scene.Dyes() << " dyes (" << scene.BleachingDyes() << " bleaching) at stage (" << stageXUm
-        << ", " << stageYUm << ") um, " << scene.PsfPlanes() << " PSF planes, " << scene.FftSize() << "^2 FFT, "
-        << (psfCache.valid ? "vectorial" : "Gaussian") << " PSF, upscaling " << spec.grid.upscale << " ("
-        << std::fixed << std::setprecision(2)
+        << ", " << stageYUm << ") um, " << scene.PsfPlanes() << " PSF planes, " << scene.FftSizeX() << "x"
+        << scene.FftSizeY() << " FFT, " << (psfCache.valid ? "vectorial" : "Gaussian") << " PSF, upscaling "
+        << spec.grid.upscale << (useSeq ? ", z sequence of " + std::to_string(zseq.positions.size()) : std::string())
+        << " (" << std::fixed << std::setprecision(2)
         << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s setup)";
       LogMessage(m.str());
    }
+
+   // z sequence: the world focus of every distinct position, and its images.
+   std::vector<double> seqFocus;
+   std::map<double, size_t> seqIndex;
+   std::vector<sim::WidefieldImages> series;
+   unsigned long long seriesVersion = 0;
+   if (useSeq)
+      for (double p : zseq.positions)
+         if (!seqIndex.count(p))
+         {
+            seqIndex[p] = seqFocus.size();
+            seqFocus.push_back(CellFieldQueryFor(stageXUm, stageYUm, p, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0)
+                                  .zCullCentreUm);
+         }
+   auto refreshSeries = [&]() {
+      if (!ok || !useSeq || seriesVersion == scene.ImagesVersion())
+         return;
+      std::string e;
+      if (!scene.FocusSeries(seqFocus, series, e))
+         LogMessage("WideField: " + e, false);
+      seriesVersion = scene.ImagesVersion();
+   };
 
    const sim::CameraNoiseParams cam = params.Camera();
    const double decaySec = bgDecaySec_.load();
@@ -439,13 +483,49 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    const unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
    const long batch = static_cast<long>(nThreads) * 4;
    long clampedMax = ok ? scene.ClampedDyes() : 0;
+   // Frames waiting to be rendered with the current images: the bleach
+   // coefficients are found in order (a frame that does not fit the basis
+   // re-anchors it), the rendering is parallel.
+   struct Pending
+   {
+      long f;
+      std::vector<double> a;
+      const sim::WidefieldImages* img;
+   };
+   std::vector<Pending> pending;
+   auto flush = [&]() {
+      std::atomic<size_t> next{0};
+      auto worker = [&]() {
+         std::vector<float> img;
+         for (size_t i; (i = next.fetch_add(1)) < pending.size();)
+         {
+            const Pending& p = pending[i];
+            sim::RenderExtras extras = shaping.Extras(p.f * params.frameDurationSec, decaySec);
+            sim::RenderPhotonImage(img, w, h, none, p.f, params.pixelSizeNm, params.psfSigmaPx,
+                                   params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
+                                   nullptr, &extras);
+            if (p.img)
+               p.img->Render(p.a, img);
+            sim::ApplyNoiseChain(img, stack[static_cast<size_t>(p.f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
+                                 noiseSeed, static_cast<uint32_t>(p.f));
+         }
+      };
+      std::vector<std::thread> pool;
+      for (unsigned t = 1; t < nThreads; ++t)
+         pool.emplace_back(worker);
+      worker();
+      for (std::thread& t : pool)
+         t.join();
+      pending.clear();
+   };
    std::vector<float> wb;
    for (long f0 = 0; f0 < stackLength; f0 += batch)
    {
       const long f1 = std::min(stackLength, f0 + batch);
-      // The Z stage is read per batch of frames (a focus change re-derives the PSF planes).
+      // Without a sequence the Z stage is read per batch (a focus change
+      // re-pairs the cached plane spectra).
       const double zNow = sim::GetSharedStageState().zPositionUm.load();
-      if (ok && zNow != z)
+      if (ok && !useSeq && zNow != z)
       {
          z = zNow;
          q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
@@ -455,62 +535,26 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
             LogMessage("WideField: " + err, false);
          clampedMax = std::max(clampedMax, ok ? scene.ClampedDyes() : 0L);
       }
-      // A fresh sample: frame f starts at dose f x dD. With a uniform pattern
-      // every frame is a multiple of the batch's first (the fast path).
-      std::vector<double> c(static_cast<size_t>(f1 - f0), 0.0);
-      bool scalar = true;
-      if (ok)
+      for (long f = f0; f < f1; ++f)
       {
-         scene.FreshBleachWeights(static_cast<double>(f0), wb);
-         double c0;
-         if (!scene.ScalarOfBleaching(wb, c0))
-            scene.SetBleachWeights(wb);
-         for (long f = f0; f < f1 && scalar; ++f)
+         Pending p{f, {}, nullptr};
+         if (ok)
          {
+            // A fresh sample: frame f starts at dose f x dD.
             scene.FreshBleachWeights(static_cast<double>(f), wb);
-            scalar = scene.ScalarOfBleaching(wb, c[static_cast<size_t>(f - f0)]);
-         }
-      }
-      auto background = [&](long f, std::vector<float>& img) {
-         sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
-         sim::RenderPhotonImage(img, w, h, none, f, params.pixelSizeNm, params.psfSigmaPx, params.photonsPerBlink,
-                                params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr, nullptr, &extras);
-      };
-      if (!ok || scalar)
-      {
-         std::atomic<long> next{f0};
-         auto worker = [&]() {
-            std::vector<float> img;
-            std::vector<sim::cfloat> scratch;
-            for (long f; (f = next.fetch_add(1)) < f1;)
+            if (!scene.BleachCoefficients(wb, p.a))
             {
-               background(f, img);
-               if (ok)
-                  scene.RenderScaled(c[static_cast<size_t>(f - f0)], img, scratch);
-               sim::ApplyNoiseChain(img, stack[static_cast<size_t>(f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
-                                    noiseSeed, static_cast<uint32_t>(f));
+               flush(); // the images change with the basis
+               scene.SetBleachWeights(wb);
+               p.a = scene.AnchorCoefficients();
             }
-         };
-         std::vector<std::thread> pool;
-         for (unsigned t = 1; t < nThreads; ++t)
-            pool.emplace_back(worker);
-         worker();
-         for (std::thread& t : pool)
-            t.join();
-      }
-      else
-      {
-         // A non-uniform pattern: each frame's bleaching spectrum on its own.
-         std::vector<float> img;
-         for (long f = f0; f < f1; ++f)
-         {
-            background(f, img);
-            scene.FreshBleachWeights(static_cast<double>(f), wb);
-            scene.RenderFrame(wb, img);
-            sim::ApplyNoiseChain(img, stack[static_cast<size_t>(f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
-                                 noiseSeed, static_cast<uint32_t>(f));
+            refreshSeries();
+            p.img = useSeq ? &series[seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]]]
+                           : &scene.Images();
          }
+         pending.push_back(std::move(p));
       }
+      flush();
       stackFramesGenerated_ = f1;
    }
    if (clampedMax > 0)
@@ -808,6 +852,11 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    const sim::CameraNoiseParams cam = params.Camera();
    const double decaySec = bgDecaySec_.load();
    std::atomic<long> zClampedAll{0}, zRenderedAll{0};
+   // An armed z sequence (hardware z stack): frame f is at position f mod n.
+   const sim::SharedStageState::ZSequence stackSeq = sim::GetSharedStageState().GetZSequence();
+   const bool stackUsesSeq = stackSeq.armed && !stackSeq.positions.empty();
+   if (!wf)
+      stackZSeqVersion_ = stackUsesSeq ? stackSeq.version : -1;
    auto frameInputs = [&](long f, std::vector<sim::BlinkEvent>& evs, double& dx, double& dy, double& zOffsetUm) {
       evs.clear();
       for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
@@ -815,8 +864,10 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
                                  params.pixelSizeNm, dx, dy);
       // Read the InSiliScopeZStage device's current position fresh each frame,
-      // same as any other live-adjustable parameter (see LiveProducerLoop).
-      zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
+      // same as any other live-adjustable parameter (see LiveProducerLoop),
+      // or the z sequence's position for this frame.
+      zOffsetUm = stackUsesSeq ? stackSeq.positions[static_cast<size_t>(f) % stackSeq.positions.size()]
+                               : sim::GetSharedStageState().zPositionUm.load();
    };
 
    std::unique_ptr<sim::GpuSimulator> gpu;
@@ -1034,11 +1085,71 @@ void CInSiliScopeCamera::LiveProducerLoop()
    std::unique_ptr<sim::WidefieldPsf> wfPsf;
    int wfUpscale = 1;
    long wfPsfVersion = 0, wfWorldVersion = 0;
-   sim::CellFieldSettings wfWorld;
    bool wfHaveWorld = false;
    sim::BleachField wfBleach;
    sim::WidefieldSceneSpec wfSpec;
    std::vector<float> wfDose, wfWeights;
+   wfScene.SetTiles(wfTiles_);
+   // z sequence (hardware z stack): the images of every position, made at
+   // once (FocusSeries) and adopted frame by frame while still valid.
+   struct WfSeries
+   {
+      long seqVersion = -1;
+      unsigned long long imagesVersion = 0;
+      std::map<double, size_t> index; // world focus -> images
+      std::vector<sim::WidefieldImages> images;
+   } wfSeries;
+   // Destination prefetch (a stage move): a scene for the target pose built
+   // on a worker with its own CellFieldSource and the shared dye tiles,
+   // swapped in on arrival.
+   struct WfPrefetch
+   {
+      std::thread thread;
+      std::atomic<bool> done{false};
+      bool active = false, ok = false, ready = false;
+      double x = 0.0, y = 0.0;
+      sim::WidefieldScene scene;
+      sim::CellFieldSource source;
+      long sourceWorld = -1;
+      std::string err;
+   } wfPrefetch;
+   wfPrefetch.scene.SetTiles(wfTiles_);
+   // Noise and publication of the previous WideField frame, overlapping the
+   // next frame's scene work.
+   std::thread wfFinisher;
+   auto joinWorkers = [&]() {
+      if (wfFinisher.joinable())
+         wfFinisher.join();
+      if (wfPrefetch.thread.joinable())
+         wfPrefetch.thread.join();
+      wfPrefetch.active = false;
+   };
+   // Publishes a finished frame (front buffer, sequence counter, interval
+   // statistics). Called by the producer, or by wfFinisher (one at a time).
+   auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex) {
+      {
+         MMThreadGuard g(frontFrameLock_);
+         frontFrame_.swap(frame);
+         liveFrameW_ = fw;
+         liveFrameH_ = fh;
+         liveFrameEpoch_ = epoch;
+      }
+      liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
+      MM::MMTime publishTime = GetCurrentMMTime();
+      if (frameIndex > 0)
+      {
+         double intervalMs = (publishTime - lastFramePublishTime_).getMsec();
+         frameIntervalHistoryMs_[frameIntervalHistoryPos_ % kFrameIntervalWindowSize] = intervalMs;
+         ++frameIntervalHistoryPos_;
+         if (frameIntervalHistoryCount_ < kFrameIntervalWindowSize)
+            ++frameIntervalHistoryCount_;
+         double sum = 0.0;
+         for (int i = 0; i < frameIntervalHistoryCount_; ++i)
+            sum += frameIntervalHistoryMs_[i];
+         actualFrameIntervalMs_.store(sum / frameIntervalHistoryCount_, std::memory_order_relaxed);
+      }
+      lastFramePublishTime_ = publishTime;
+   };
 
    while (liveProducerRun_.load())
    {
@@ -1066,6 +1177,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       long currentConfigVersion = liveConfigVersion_.load(std::memory_order_relaxed);
       if (currentConfigVersion != appliedConfigVersion || offsetMap.width != w || offsetMap.height != h)
       {
+         // The workers read the maps and the PSF rebuilt below.
+         joinWorkers();
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
          gainMap.Generate(w, h, params.gainPhotonsPerAdu, params.pixelGainStdFraction, liveRng_);
          readNoiseMap.Generate(w, h, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, liveRng_);
@@ -1171,14 +1284,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
             wfUpscale = base.grid.upscale;
             ++wfPsfVersion;
             LogWidefieldPhotophysics(base);
-            const sim::CellFieldSettings world = BuildCellFieldSettings();
-            if (!wfHaveWorld || !world.SameWorld(wfWorld))
+            const long world = WideFieldWorldVersion(BuildCellFieldSettings());
+            if (!wfHaveWorld || world != wfWorldVersion)
             {
-               ++wfWorldVersion;
                if (!wfBleach.Empty())
                   LogMessage("WideField: new cell-field world, bleach map reset.");
                wfBleach.Reset(wfBleach.Pitch());
-               wfWorld = world;
+               wfWorldVersion = world;
                wfHaveWorld = true;
             }
          }
@@ -1197,8 +1309,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
                                  params.driftAngleRad, params.pixelSizeNm, dx, dy);
       // InSiliScopeZStage's current position, read fresh every tick so moving
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
-      // real time.
-      double zOffsetUm = sim::GetSharedStageState().zPositionUm.load();
+      // real time -- or, during a sequence acquisition with an armed z
+      // sequence, the sequence's next position (one per frame).
+      long frameEpoch = 0;
+      double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch);
 
       std::vector<sim::BlinkEvent> events;
       if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
@@ -1213,18 +1327,100 @@ void CInSiliScopeCamera::LiveProducerLoop()
                                                       liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
             if (wfActive)
             {
-               // The grid is rebuilt when the pose, slab or grid settings
-               // change; the PSF planes when the focus does.
+               // Only the pieces that changed are rebuilt: the dyes (from the
+               // shared tiles) when the pose leaves the grid rect, the plane
+               // spectra when the dyes' weights do, the images when the
+               // focus or the sub-cell pose does.
                wfSpec = BuildWidefieldSceneSpec(params, q);
                wfSpec.grid.upscale = wfUpscale;
                wfSpec.psfVersion = wfPsfVersion;
                wfSpec.worldVersion = wfWorldVersion;
                const sim::SquareIllumination ill(w * wfSpec.pixelUm, h * wfSpec.pixelUm);
+               // Arrived where a prefetch went: take its scene (Update below
+               // then only adjusts focus and sub-cell pose).
+               if (wfPrefetch.active && wfPrefetch.done.load())
+               {
+                  wfPrefetch.thread.join();
+                  wfPrefetch.active = false;
+                  wfPrefetch.ready = wfPrefetch.ok;
+                  if (!wfPrefetch.ok)
+                     LogMessage("WideField: destination prefetch failed (" + wfPrefetch.err + ")", false);
+               }
+               if (wfPrefetch.ready && std::fabs(sx - wfPrefetch.x) < 1e-6 && std::fabs(sy - wfPrefetch.y) < 1e-6)
+               {
+                  std::swap(wfScene, wfPrefetch.scene);
+                  wfPrefetch.ready = false;
+                  wfSeries = WfSeries();
+               }
+               // A running z sequence: its images, made once.
+               const bool seqRunning = liveSeqCapture_.load() && wfOk;
+               if (seqRunning && wfSeries.imagesVersion == wfScene.ImagesVersion())
+               {
+                  auto it = wfSeries.index.find(wfSpec.focusWorldUm);
+                  if (it != wfSeries.index.end())
+                     wfScene.AdoptFocus(wfSpec.focusWorldUm, wfSeries.images[it->second], wfSeries.imagesVersion);
+               }
                std::string err;
                const bool wasOk = wfOk;
                wfOk = wfPsf && wfScene.Update(cellField, ill, wfSpec, *wfPsf, err);
                if (!wfOk && wasOk)
                   LogMessage("WideField: " + err, false);
+               if (wfOk && seqRunning)
+               {
+                  const sim::SharedStageState::ZSequence zs = sim::GetSharedStageState().GetZSequence();
+                  if (zs.armed && (zs.version != wfSeries.seqVersion || wfSeries.imagesVersion != wfScene.ImagesVersion()))
+                  {
+                     WfSeries fresh;
+                     std::vector<double> foci;
+                     for (double p : zs.positions)
+                     {
+                        const double fz = CellFieldQueryFor(sx, sy, p, w, h, params, dx, dy, dx, dy, 0, 0.0, 0.0).zCullCentreUm;
+                        if (!fresh.index.count(fz))
+                        {
+                           fresh.index[fz] = foci.size();
+                           foci.push_back(fz);
+                        }
+                     }
+                     if (wfScene.FocusSeries(foci, fresh.images, err))
+                     {
+                        fresh.seqVersion = zs.version;
+                        fresh.imagesVersion = wfScene.ImagesVersion();
+                        wfSeries = std::move(fresh);
+                     }
+                  }
+               }
+               // A stage move under way: build the destination's scene.
+               double tx = 0.0, ty = 0.0;
+               sim::GetSharedStageState().XyTarget(tx, ty);
+               if (wfOk && !wfPrefetch.active && (tx != sx || ty != sy) && sim::GetSharedStageState().XyBusy() &&
+                   !(wfPrefetch.ready && wfPrefetch.x == tx && wfPrefetch.y == ty))
+               {
+                  wfPrefetch.active = true;
+                  wfPrefetch.ready = false;
+                  wfPrefetch.done = false;
+                  wfPrefetch.x = tx;
+                  wfPrefetch.y = ty;
+                  sim::WidefieldSceneSpec ts = BuildWidefieldSceneSpec(
+                     params, CellFieldQueryFor(tx, ty, zOffsetUm, w, h, params, dx, dy, dx, dy, 0, 0.0, 0.0));
+                  ts.grid.upscale = wfUpscale;
+                  ts.psfVersion = wfPsfVersion;
+                  ts.worldVersion = wfWorldVersion;
+                  const sim::CellFieldSettings world = BuildCellFieldSettings();
+                  const sim::WidefieldPsf* psfPtr = wfPsf.get();
+                  const long worldVersion = wfWorldVersion;
+                  wfPrefetch.thread = std::thread([&wfPrefetch, ts, world, psfPtr, worldVersion, w, h]() {
+                     wfPrefetch.ok = true;
+                     if (wfPrefetch.sourceWorld != worldVersion)
+                     {
+                        wfPrefetch.ok = wfPrefetch.source.Configure(world, wfPrefetch.err);
+                        wfPrefetch.sourceWorld = wfPrefetch.ok ? worldVersion : -1;
+                     }
+                     const sim::SquareIllumination tIll(w * ts.pixelUm, h * ts.pixelUm);
+                     wfPrefetch.ok = wfPrefetch.ok &&
+                                     wfPrefetch.scene.Update(wfPrefetch.source, tIll, ts, *psfPtr, wfPrefetch.err);
+                     wfPrefetch.done = true;
+                  });
+               }
             }
             else if (!cellField.Events(q, events))
             {
@@ -1257,14 +1453,14 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
       std::vector<uint16_t> nextFrame;
       bool rendered = false;
+      bool publishedAsync = false;
       if (wfActive)
       {
-         // Background as SR, plus every labelled dye at its current dose; the
-         // frame's dose is then deposited over the pattern's whole support.
-         const std::vector<sim::BlinkEvent> none;
-         sim::RenderPhotonImage(photonImg, w, h, none, liveFrameCounter_, params.pixelSizeNm, params.psfSigmaPx,
-                                params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
-                                nullptr, &extras);
+         // Every labelled dye at its current dose (the images are ready, so
+         // this is a weighted sum); the frame's dose is then deposited over
+         // the pattern's whole support. Background, noise and publication go
+         // to wfFinisher, overlapping the next frame's scene work.
+         std::vector<float> dyes;
          if (cellFieldOk && wfOk)
          {
             const sim::WidefieldGridSpec& g = wfScene.Grid();
@@ -1276,14 +1472,30 @@ void CInSiliScopeCamera::LiveProducerLoop()
             }
             wfBleach.DoseOver(g.x0Um, g.y0Um, g.nx, g.ny, wfDose);
             wfScene.BleachWeightsFromDose(wfDose, wfWeights);
-            wfScene.RenderFrame(wfWeights, photonImg);
+            wfScene.RenderFrame(wfWeights, dyes);
             if (wfSpec.phot.Bleaches())
                wfBleach.Deposit(sim::SquareIllumination(w * wfSpec.pixelUm, h * wfSpec.pixelUm), wfScene.AxisXUm(),
                                 wfScene.AxisYUm(), wfSpec.phot.EmissionRatePerSec(1.0) * params.frameDurationSec);
          }
-         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
-                              liveNoiseSeed, noiseFrame);
+         if (wfFinisher.joinable())
+            wfFinisher.join();
+         const long frameIndex = liveFrameCounter_.load(std::memory_order_relaxed);
+         const sim::CameraNoiseParams camNow = params.Camera();
+         wfFinisher = std::thread([this, &publish, &offsetMap, &gainMap, &readNoiseMap, dyes = std::move(dyes), extras,
+                                   params, w, h, camNow, liveNoiseSeed, noiseFrame, frameEpoch, frameIndex]() {
+            std::vector<float> img;
+            const std::vector<sim::BlinkEvent> none;
+            sim::RenderPhotonImage(img, w, h, none, frameIndex, params.pixelSizeNm, params.psfSigmaPx,
+                                   params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
+                                   nullptr, &extras);
+            for (size_t i = 0; i < dyes.size() && i < img.size(); ++i)
+               img[i] += dyes[i];
+            std::vector<uint16_t> frame;
+            sim::ApplyNoiseChain(img, frame, w, h, camNow, offsetMap, gainMap, readNoiseMap, liveNoiseSeed, noiseFrame);
+            publish(frame, w, h, frameEpoch, frameIndex);
+         });
          rendered = true;
+         publishedAsync = true;
       }
       if (!rendered && gpuOk && psfCache.valid)
       {
@@ -1313,28 +1525,12 @@ void CInSiliScopeCamera::LiveProducerLoop()
                               liveNoiseSeed, noiseFrame);
       }
 
+      if (!publishedAsync)
       {
-         MMThreadGuard g(frontFrameLock_);
-         frontFrame_.swap(nextFrame);
-         liveFrameW_ = w;
-         liveFrameH_ = h;
+         if (wfFinisher.joinable())
+            wfFinisher.join(); // keep the publication order
+         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed));
       }
-      liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
-
-      MM::MMTime publishTime = GetCurrentMMTime();
-      if (liveFrameCounter_ > 0)
-      {
-         double intervalMs = (publishTime - lastFramePublishTime_).getMsec();
-         frameIntervalHistoryMs_[frameIntervalHistoryPos_ % kFrameIntervalWindowSize] = intervalMs;
-         ++frameIntervalHistoryPos_;
-         if (frameIntervalHistoryCount_ < kFrameIntervalWindowSize)
-            ++frameIntervalHistoryCount_;
-         double sum = 0.0;
-         for (int i = 0; i < frameIntervalHistoryCount_; ++i)
-            sum += frameIntervalHistoryMs_[i];
-         actualFrameIntervalMs_.store(sum / frameIntervalHistoryCount_, std::memory_order_relaxed);
-      }
-      lastFramePublishTime_ = publishTime;
 
       ++liveFrameCounter_;
 
@@ -1356,6 +1552,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       if (sleepMs > 0.0)
          CDeviceUtils::SleepMs(static_cast<unsigned long>(sleepMs));
    }
+   joinWorkers();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1403,7 +1600,12 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
          {
             MMThreadGuard g(frontFrameLock_);
             seq = liveFrameSeq_.load(std::memory_order_relaxed);
-            if (seq != lastConsumedLiveFrameSeq_)
+            // A z-sequence acquisition takes only frames rendered after it
+            // started (their focus is the sequence's).
+            const bool stale = interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load();
+            if (stale && seq != lastConsumedLiveFrameSeq_)
+               lastConsumedLiveFrameSeq_ = seq;
+            else if (seq != lastConsumedLiveFrameSeq_)
             {
                frameCopy = frontFrame_;
                w = liveFrameW_;

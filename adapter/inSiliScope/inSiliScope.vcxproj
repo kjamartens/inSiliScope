@@ -141,6 +141,7 @@
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
     <ClInclude Include="Simulation\Fft2d.h" />
+    <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Illumination.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h" />

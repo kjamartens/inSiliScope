@@ -10,9 +10,11 @@
 #include "insiliscope/insiliscope.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <map>
 #include <random>
 #include <string>
 #include <vector>
@@ -22,6 +24,7 @@ using namespace sim;
 namespace {
 
 int g_failures = 0;
+const double kPi = 3.14159265358979323846;
 
 void Check(bool ok, const char* what)
 {
@@ -38,6 +41,7 @@ double Sum(const std::vector<float>& v)
 
 double MaxRelDiff(const std::vector<float>& a, const std::vector<float>& b)
 {
+   if (a.size() != b.size()) return 1e30;
    double m = 0.0, peak = 0.0;
    for (size_t i = 0; i < a.size(); i++) {
       m = std::max(m, std::fabs(static_cast<double>(a[i]) - b[i]));
@@ -46,37 +50,164 @@ double MaxRelDiff(const std::vector<float>& a, const std::vector<float>& b)
    return peak > 0 ? m / peak : m;
 }
 
+double RmsRelDiff(const std::vector<float>& a, const std::vector<float>& b)
+{
+   if (a.size() != b.size()) return 1e30;
+   double e = 0.0, s = 0.0;
+   for (size_t i = 0; i < a.size(); i++) {
+      e += (static_cast<double>(a[i]) - b[i]) * (static_cast<double>(a[i]) - b[i]);
+      s += static_cast<double>(b[i]) * b[i];
+   }
+   return s > 0 ? std::sqrt(e / s) : std::sqrt(e);
+}
+
 // A PSF whose width depends on z, so the plane blending is exercised.
 class TestPsf : public WidefieldPsf
 {
 public:
-   explicit TestPsf(double pitch) : pitch_(pitch) {}
+   TestPsf(double pitch, double s0 = 0.12, double slope = 0.02, int R = 6) : pitch_(pitch), s0_(s0), slope_(slope), R_(R) {}
    double PlaneCoord(double defocusUm) const override { return defocusUm / 0.1; }
    int MinPlane() const override { return -30; }
    int MaxPlane() const override { return 30; }
-   int Radius(int, int) const override { return 6; }
-   void Kernel(int p, int R, std::vector<float>& out) const override
+   int Radius(int, int) const override { return R_; }
+   double SigmaCells(int p) const { return (s0_ + slope_ * std::abs(p)) / pitch_; }
+   double NormSum(int p, int R) const
    {
-      const int D = 2 * R + 1;
-      const double s = (0.12 + 0.02 * std::abs(p)) / pitch_;
-      out.assign(static_cast<size_t>(D) * D, 0.0f);
+      const double s = SigmaCells(p);
       double sum = 0;
       for (int y = -R; y <= R; y++)
          for (int x = -R; x <= R; x++) sum += std::exp(-(x * x + y * y) / (2 * s * s));
+      return sum;
+   }
+   void Kernel(int p, int R, std::vector<float>& out) const override
+   {
+      const int D = 2 * R + 1;
+      const double s = SigmaCells(p), sum = NormSum(p, R);
+      out.assign(static_cast<size_t>(D) * D, 0.0f);
       for (int y = -R; y <= R; y++)
          for (int x = -R; x <= R; x++)
             out[static_cast<size_t>(y + R) * D + x + R] = static_cast<float>(std::exp(-(x * x + y * y) / (2 * s * s)) / sum);
    }
 
 private:
-   double pitch_;
+   double pitch_, s0_, slope_;
+   int R_;
 };
 
-WidefieldSceneSpec BaseSpec(unsigned W, int upscale)
+// Scalar-diffraction defocused widefield PSF (circular pupil, NA 1.4, oil,
+// 670 nm): the realistic spectrum the focus bands are judged on. Planes every
+// 0.1 um over +/- 3 um.
+class ScalarPsf : public WidefieldPsf
+{
+public:
+   explicit ScalarPsf(double pitch, int R = 40) : pitch_(pitch), R_(R)
+   {
+      const unsigned M = 256;
+      FftPlan1d plan(M);
+      const double lambda = 0.67, na = 1.4, n = 1.518;
+      for (int p = 0; p <= 60; p++) {
+         const double z = (p - 30) * 0.1;
+         std::vector<std::complex<float>> f(M * M), w(M * M);
+         for (unsigned iy = 0; iy < M; iy++)
+            for (unsigned ix = 0; ix < M; ix++) {
+               const double kx = (ix <= M / 2 ? double(ix) : double(ix) - M) / (M * pitch);
+               const double ky = (iy <= M / 2 ? double(iy) : double(iy) - M) / (M * pitch);
+               const double k2 = kx * kx + ky * ky;
+               if (k2 > (na / lambda) * (na / lambda)) continue;
+               const double ph = 2 * kPi * z * std::sqrt((n / lambda) * (n / lambda) - k2);
+               f[iy * M + ix] = std::complex<float>((float)std::cos(ph), (float)std::sin(ph));
+            }
+         // 2D FFT: rows then columns (B = 1).
+         for (unsigned y = 0; y < M; y++) {
+            std::vector<cfloat> a(f.begin() + y * M, f.begin() + (y + 1) * M), t(M);
+            const cfloat* r = plan.Forward(a.data(), t.data(), 1);
+            std::copy(r, r + M, f.begin() + y * M);
+         }
+         for (unsigned x = 0; x < M; x++) {
+            std::vector<cfloat> a(M), t(M);
+            for (unsigned y = 0; y < M; y++) a[y] = f[y * M + x];
+            const cfloat* r = plan.Forward(a.data(), t.data(), 1);
+            for (unsigned y = 0; y < M; y++) f[y * M + x] = r[y];
+         }
+         const int D = 2 * R_ + 1;
+         std::vector<double> k(D * D);
+         double sum = 0;
+         for (int dy = -R_; dy <= R_; dy++)
+            for (int dx = -R_; dx <= R_; dx++) {
+               const double v = std::norm(f[((dy + M) % M) * M + (dx + M) % M]);
+               k[(dy + R_) * D + dx + R_] = v;
+               sum += v;
+            }
+         std::vector<float> kf(D * D);
+         for (size_t i = 0; i < k.size(); i++) kf[i] = (float)(k[i] / sum);
+         planes_.push_back(kf);
+      }
+   }
+   double PlaneCoord(double defocusUm) const override { return defocusUm / 0.1 + 30; }
+   int MinPlane() const override { return 0; }
+   int MaxPlane() const override { return 60; }
+   int Radius(int, int) const override { return R_; }
+   void Kernel(int p, int R, std::vector<float>& out) const override
+   {
+      const int D = 2 * R + 1, DS = 2 * R_ + 1;
+      out.assign(static_cast<size_t>(D) * D, 0.0f);
+      for (int dy = -std::min(R, R_); dy <= std::min(R, R_); dy++)
+         for (int dx = -std::min(R, R_); dx <= std::min(R, R_); dx++)
+            out[(dy + R) * D + dx + R] = planes_[p][(dy + R_) * DS + dx + R_];
+   }
+
+private:
+   double pitch_;
+   int R_;
+   std::vector<std::vector<float>> planes_;
+};
+
+// Two excitation levels: 1 on the left half of the square, 0.5 on the right.
+class TwoLevelIllumination : public IlluminationPattern
+{
+public:
+   TwoLevelIllumination(double w, double h) : w_(w), h_(h) {}
+   double At(double x, double y) const override
+   {
+      if (x < -w_ / 2 || x >= w_ / 2 || y < -h_ / 2 || y >= h_ / 2) return 0.0;
+      return x < 0 ? 1.0 : 0.5;
+   }
+   void Support(double& x0, double& y0, double& x1, double& y1) const override
+   {
+      x0 = -w_ / 2; x1 = w_ / 2; y0 = -h_ / 2; y1 = h_ / 2;
+   }
+
+private:
+   double w_, h_;
+};
+
+// A smooth (Gaussian) beam: many distinct frame doses.
+class BeamIllumination : public IlluminationPattern
+{
+public:
+   BeamIllumination(double w, double sigma) : w_(w), s_(sigma) {}
+   double At(double x, double y) const override
+   {
+      if (std::fabs(x) >= w_ / 2 || std::fabs(y) >= w_ / 2) return 0.0;
+      return std::exp(-(x * x + y * y) / (2 * s_ * s_));
+   }
+   void Support(double& x0, double& y0, double& x1, double& y1) const override
+   {
+      x0 = y0 = -w_ / 2; x1 = y1 = w_ / 2;
+   }
+
+private:
+   double w_, s_;
+};
+
+// pixel 0.1 um; origin chosen so the FOV corner sits on a cell boundary
+// (no sub-cell shift) unless frac is given.
+WidefieldSceneSpec BaseSpec(unsigned W, int upscale, double frac = 0.0)
 {
    WidefieldSceneSpec s;
-   s.originXUm = 3.0;
-   s.originYUm = -2.0;
+   const double pitch = 0.1 / upscale;
+   s.originXUm = 3.0 + 0.05 + frac * pitch;
+   s.originYUm = -2.0 + 0.05 + frac * pitch;
    s.width = s.height = W;
    s.pixelUm = 0.1;
    s.focusWorldUm = 1.0;
@@ -91,43 +222,55 @@ WidefieldSceneSpec BaseSpec(unsigned W, int upscale)
 
 void FftVsDft()
 {
-   const unsigned N = 16;
-   Fft2d fft(N);
-   std::mt19937 rng(7);
-   std::uniform_real_distribution<float> U(-1, 1);
-   std::vector<cfloat> x(N * N), X(N * N);
-   for (auto& v : x) v = cfloat(U(rng), U(rng));
-   X = x;
-   fft.Forward(X.data());
-   double err = 0, peak = 0;
-   const double pi = 3.14159265358979323846;
-   for (unsigned ky = 0; ky < N; ky++)
-      for (unsigned kx = 0; kx < N; kx++) {
-         std::complex<double> s = 0;
-         for (unsigned y = 0; y < N; y++)
-            for (unsigned xx = 0; xx < N; xx++)
-               s += std::complex<double>(x[y * N + xx]) * std::polar(1.0, -2 * pi * (double(kx * xx) / N + double(ky * y) / N));
-         err = std::max(err, std::abs(s - std::complex<double>(X[ky * N + kx])));
-         peak = std::max(peak, std::abs(s));
-      }
-   Check(err / peak < 1e-5, "FFT vs naive DFT (rel. err < 1e-5)");
-   std::vector<cfloat> y = X;
-   fft.Inverse(y.data());
-   double rt = 0;
-   for (size_t i = 0; i < x.size(); i++) rt = std::max(rt, (double)std::abs(y[i] - x[i]));
-   Check(rt < 1e-5, "FFT inverse round trip");
+   bool ok = true;
+   double worst = 0, worstRt = 0;
+   for (auto sz : std::vector<std::pair<unsigned, unsigned>>{{12, 10}, {30, 18}, {40, 45}, {16, 16}, {24, 50}}) {
+      const unsigned nx = sz.first, ny = sz.second, iw = nx - 3, ih = ny - 2;
+      RealFft2d f(nx, ny);
+      std::mt19937 rng(nx * 131 + ny);
+      std::uniform_real_distribution<float> U(-1, 1);
+      std::vector<float> x(iw * ih);
+      for (auto& v : x) v = U(rng);
+      std::vector<cfloat> S(f.SpecSize());
+      f.Forward(x.data(), iw, ih, iw, S.data());
+      double err = 0, peak = 0;
+      for (unsigned ky = 0; ky < ny; ky++)
+         for (unsigned kx = 0; kx <= nx / 2; kx++) {
+            std::complex<double> s = 0;
+            for (unsigned y = 0; y < ih; y++)
+               for (unsigned xx = 0; xx < iw; xx++)
+                  s += double(x[y * iw + xx]) * std::polar(1.0, -2 * kPi * (double(kx * xx) / nx + double(ky * y) / ny));
+            err = std::max(err, std::abs(s - std::complex<double>(S[ky * f.SpecW() + kx])));
+            peak = std::max(peak, std::abs(s));
+         }
+      std::vector<float> o(nx * ny);
+      f.Inverse(S.data(), o.data(), 0, ny, 0, nx, nx);
+      double rt = 0;
+      for (unsigned y = 0; y < ny; y++)
+         for (unsigned xx = 0; xx < nx; xx++)
+            rt = std::max(rt, (double)std::fabs(o[y * nx + xx] - ((y < ih && xx < iw) ? x[y * iw + xx] : 0.0f)));
+      worst = std::max(worst, err / peak);
+      worstRt = std::max(worstRt, rt);
+      ok = ok && err / peak < 1e-5 && rt < 1e-5;
+   }
+   char msg[160];
+   std::snprintf(msg, sizeof msg, "real FFT (mixed radix 2/3/4/5) vs naive DFT: rel err %.1e, round trip %.1e", worst, worstRt);
+   Check(ok, msg);
+   Check(RealFft2d::FastSize(300, 8) == 320 && RealFft2d::FastSize(97, 2) == 100 && RealFft2d::FastSize(7, 1) == 8,
+         "FastSize picks 2^a 3^b 5^c");
 }
 
-// Synthetic dye grid: random counts on a few planes around the focus.
-WidefieldDyeGrid RandomGrid(const WidefieldGridSpec& g, bool bleach, bool persist, unsigned seed)
+// Synthetic dye grid: random counts on planes around the focus.
+WidefieldDyeGrid RandomGrid(const WidefieldGridSpec& g, bool bleach, bool persist, unsigned seed, double z0 = 0.6,
+                            unsigned nz = 32, int sparsity = 30)
 {
    WidefieldDyeGrid G;
    G.spec = g;
-   G.k0 = static_cast<long>(std::floor(0.6 / g.zPlaneUm));
-   G.nz = 32;
+   G.k0 = static_cast<long>(std::floor(z0 / g.zPlaneUm));
+   G.nz = nz;
    const size_t n = static_cast<size_t>(g.nx) * g.ny * G.nz;
    std::mt19937 rng(seed);
-   std::uniform_int_distribution<int> D(0, 30);
+   std::uniform_int_distribution<int> D(0, sparsity);
    if (bleach) G.bleaching.resize(n);
    if (persist) G.persistent.resize(n);
    for (size_t i = 0; i < n; i++) {
@@ -138,20 +281,28 @@ WidefieldDyeGrid RandomGrid(const WidefieldGridSpec& g, bool bleach, bool persis
    return G;
 }
 
-// Direct convolution reference: each dye plane to PSF planes p0, p0+1 with
-// linear weights, convolve, crop the FOV, clamp, bin.
+// Direct convolution reference: each dye plane (inside the slab) to PSF
+// planes p0, p0+1 with linear weights, convolve, crop the FOV, clamp, bin.
 std::vector<float> DirectImage(const WidefieldDyeGrid& G, const WidefieldSceneSpec& s, const WidefieldPsf& psf,
-                               const std::vector<float>& wb, const std::vector<float>& wp, unsigned mx, unsigned my)
+                               const std::vector<float>& wb, const std::vector<float>& wp, unsigned fx, unsigned fy,
+                               int R)
 {
    const WidefieldGridSpec& g = G.spec;
    const size_t n2 = static_cast<size_t>(g.nx) * g.ny;
-   const int u = s.grid.upscale, R = 6, D = 2 * R + 1;
+   const int u = s.grid.upscale, D = 2 * R + 1;
    std::vector<double> img(n2, 0.0);
    std::vector<float> k;
+   const double dz = g.zPlaneUm;
    for (unsigned i = 0; i < G.nz; i++) {
-      const double t = psf.PlaneCoord(G.PlaneCentreUm(i) - s.focusWorldUm);
-      const int p0 = (int)std::floor(t);
-      const double fr = t - p0;
+      const long kk = G.k0 + (long)i;
+      if (s.slabHalfUm > 0 && ((kk + 1) * dz <= s.slabCentreUm - s.slabHalfUm + 1e-12 ||
+                               kk * dz >= s.slabCentreUm + s.slabHalfUm - 1e-12))
+         continue;
+      double t = psf.PlaneCoord(G.PlaneCentreUm(i) - s.focusWorldUm);
+      t = std::min<double>(psf.MaxPlane(), std::max<double>(psf.MinPlane(), t));
+      int p0 = (int)std::floor(t);
+      double fr = t - p0;
+      if (p0 >= psf.MaxPlane()) { p0 = psf.MaxPlane(); fr = 0; }
       for (int sIdx = 0; sIdx < 2; sIdx++) {
          const double w = sIdx ? fr : 1 - fr;
          if (w == 0) continue;
@@ -177,10 +328,17 @@ std::vector<float> DirectImage(const WidefieldDyeGrid& G, const WidefieldSceneSp
       for (unsigned X = 0; X < s.width; X++) {
          double acc = 0;
          for (int sy = 0; sy < u; sy++)
-            for (int sx = 0; sx < u; sx++) acc += std::max(0.0, img[(size_t)(my + Y * u + sy) * g.nx + mx + X * u + sx]);
+            for (int sx = 0; sx < u; sx++) acc += std::max(0.0, img[(size_t)(fy + Y * u + sy) * g.nx + fx + X * u + sx]);
          cam[(size_t)Y * s.width + X] = (float)acc;
       }
    return cam;
+}
+
+std::vector<float> Wp(const WidefieldScene& sc, const WidefieldSceneSpec& s)
+{
+   std::vector<float> wp(sc.FrameDose().size());
+   for (size_t i = 0; i < wp.size(); i++) wp[i] = (float)(s.eta * sc.FrameDose()[i]);
+   return wp;
 }
 
 void ConvolutionVsDirect()
@@ -189,8 +347,9 @@ void ConvolutionVsDirect()
       WidefieldSceneSpec s = BaseSpec(24, u);
       // Illumination wider than the FOV: exercises the margin.
       SquareIllumination ill(3.0, 2.8);
-      unsigned mx = 0, my = 0;
-      const WidefieldGridSpec g = WidefieldScene::GridSpecFor(ill, s, &mx, &my);
+      unsigned fx = 0, fy = 0;
+      double frx = 1, fry = 1;
+      const WidefieldGridSpec g = WidefieldScene::GridSpecFor(ill, s, &fx, &fy, &frx, &fry);
       TestPsf psf(g.pitchUm);
       WidefieldDyeGrid G = RandomGrid(g, true, true, 11 + u);
       WidefieldScene sc;
@@ -199,14 +358,104 @@ void ConvolutionVsDirect()
       std::vector<float> wb, cam;
       sc.FreshBleachWeights(3, wb);
       sc.RenderFrame(wb, cam);
-      std::vector<float> wp(sc.FrameDose().size());
-      for (size_t i = 0; i < wp.size(); i++) wp[i] = (float)(s.eta * sc.FrameDose()[i]);
-      const std::vector<float> ref = DirectImage(G, s, psf, wb, wp, mx, my);
+      const std::vector<float> ref = DirectImage(G, s, psf, wb, Wp(sc, s), fx, fy, sc.KernelRadius());
       const double d = MaxRelDiff(cam, ref);
-      char msg[160];
-      std::snprintf(msg, sizeof msg, "FFT convolution == direct convolution, upscale %d, margin %u (max rel diff %.2e)", u, mx, d);
-      Check(ok && mx > 0 && d < 1e-4, msg);
+      char msg[200];
+      std::snprintf(msg, sizeof msg,
+                    "FFT convolution == direct convolution, upscale %d, FOV cell (%u, %u), frac %.2g (max rel diff %.2e)%s",
+                    u, fx, fy, frx + fry, d, ok ? "" : err.c_str());
+      Check(ok && fx > 0 && frx == 0 && fry == 0 && d < 1e-4, msg);
    }
+}
+
+// Focus bands: a realistic defocused PSF, dyes over +/- 2.5 um; the image
+// against the full-resolution direct convolution. At the real criterion no
+// plane of a sharp-pupil PSF goes coarse (its defocused disk's rim keeps
+// energy up to the NA cutoff); a loosened one exercises the coarse levels.
+void FocusBands()
+{
+   for (double eps : {WidefieldScene::kBandEpsilon, 2e-2}) {
+      WidefieldSceneSpec s = BaseSpec(40, 1);
+      s.slabHalfUm = 3.0;
+      SquareIllumination ill(4.0, 4.0);
+      unsigned fx = 0, fy = 0;
+      const WidefieldGridSpec g = WidefieldScene::GridSpecFor(ill, s, &fx, &fy);
+      ScalarPsf psf(g.pitchUm);
+      WidefieldDyeGrid G = RandomGrid(g, false, true, 21, s.focusWorldUm - 2.5, 200, 60);
+      WidefieldScene sc;
+      sc.SetBandEpsilonForTesting(eps);
+      std::string err;
+      const bool ok = sc.UpdateFromGrid(G, ill, s, psf, err);
+      std::vector<float> wb, cam;
+      sc.FreshBleachWeights(0, wb);
+      sc.RenderFrame(wb, cam);
+      const std::vector<float> ref = DirectImage(G, s, psf, wb, Wp(sc, s), fx, fy, sc.KernelRadius());
+      const unsigned* lv = sc.PlanesPerLevel();
+      const double rms = RmsRelDiff(cam, ref), mx = MaxRelDiff(cam, ref);
+      char msg[260];
+      std::snprintf(msg, sizeof msg,
+                    "focus bands (criterion %.0e): %u/%u/%u dye planes at full/half/quarter resolution, %ux%u FFT, R %d; "
+                    "vs direct: rms %.1e, max %.1e of peak",
+                    eps, lv[0], lv[1], lv[2], sc.FftSizeX(), sc.FftSizeY(), sc.KernelRadius(), rms, mx);
+      if (eps == WidefieldScene::kBandEpsilon)
+         Check(ok && lv[1] + lv[2] == 0 && rms < 1e-5, msg);
+      else
+         Check(ok && lv[1] > 0 && lv[2] > 0 && rms < 1e-2, msg);
+   }
+}
+
+// Sub-cell stage positions: a band-limited PSF, the phase-ramped image
+// against the analytic image at the shifted cell centres.
+void SubCellShift()
+{
+   bool ok = true;
+   double worst = 0;
+   for (double frac : {0.37, 0.81}) {
+      WidefieldSceneSpec s = BaseSpec(24, 1, frac);
+      s.slabHalfUm = 0.3;
+      SquareIllumination ill(3.0, 3.0);
+      unsigned fx = 0, fy = 0;
+      double frx = 0, fry = 0;
+      const WidefieldGridSpec g = WidefieldScene::GridSpecFor(ill, s, &fx, &fy, &frx, &fry);
+      TestPsf psf(g.pitchUm, 0.25, 0.0, 16);
+      WidefieldDyeGrid G;
+      G.spec = g;
+      G.k0 = static_cast<long>(std::floor(s.focusWorldUm / g.zPlaneUm));
+      G.nz = 1;
+      G.persistent.assign((size_t)g.nx * g.ny, 0.0f);
+      std::mt19937 rng(5);
+      for (auto& v : G.persistent) { v = rng() % 7 == 0 ? 1.0f : 0.0f; G.nPersistent += (long)v; }
+      WidefieldScene sc;
+      std::string err;
+      ok = ok && sc.UpdateFromGrid(G, ill, s, psf, err);
+      std::vector<float> wb, cam;
+      sc.FreshBleachWeights(0, wb);
+      sc.RenderFrame(wb, cam);
+      const std::vector<float> wp = Wp(sc, s);
+      // Plane p: t = (centre - focus) / 0.1 = 0.5 * 0.25 ... PlaneCoord of the
+      // plane centre; sigma does not depend on p (slope 0).
+      const double sc_ = psf.SigmaCells(0), norm = psf.NormSum(0, sc.KernelRadius());
+      std::vector<float> ref((size_t)s.width * s.height, 0.0f);
+      for (unsigned Y = 0; Y < s.height; Y++)
+         for (unsigned X = 0; X < s.width; X++) {
+            const double cx = fx + X + frx, cy = fy + Y + fry; // the camera cell's grid position
+            double acc = 0;
+            for (unsigned iy = 0; iy < g.ny; iy++)
+               for (unsigned ix = 0; ix < g.nx; ix++) {
+                  const float a = G.persistent[(size_t)iy * g.nx + ix];
+                  if (a == 0) continue;
+                  const double dx = cx - ix, dy = cy - iy;
+                  acc += a * wp[(size_t)iy * g.nx + ix] * std::exp(-(dx * dx + dy * dy) / (2 * sc_ * sc_)) / norm;
+               }
+            ref[(size_t)Y * s.width + X] = (float)acc;
+         }
+      const double d = MaxRelDiff(cam, ref);
+      worst = std::max(worst, d);
+      ok = ok && std::fabs(frx - frac) < 1e-6 && std::fabs(fry - frac) < 1e-6 && d < 1e-4;
+   }
+   char msg[160];
+   std::snprintf(msg, sizeof msg, "sub-cell stage position: phase-ramped image == analytic shifted image (max rel diff %.2e)", worst);
+   Check(ok, msg);
 }
 
 void PhotonConservation()
@@ -340,8 +589,7 @@ void FastEqualsFull()
    const bool wasFast = fast.LastFrameFast();
    full.FreshBleachWeights(400, wb);
    full.SetBleachWeights(wb);
-   std::vector<cfloat> scratch;
-   full.RenderScaled(1.0, c, scratch);
+   full.RenderCoefficients({1.0}, c);
    char msg[120];
    std::snprintf(msg, sizeof msg, "fast path == full path (max rel diff %.2e)", MaxRelDiff(b, c));
    Check(wasFast && MaxRelDiff(b, c) < 1e-5, msg);
@@ -351,6 +599,99 @@ void FastEqualsFull()
    again.FreshBleachWeights(0, wb);
    again.RenderFrame(wb, d);
    Check(a == d, "determinism: same inputs, same bits");
+}
+
+// A focus change re-pairs cached plane spectra: same bits as a fresh scene
+// at that focus; and FocusSeries == one scene per focus.
+void FocusReuse()
+{
+   WidefieldSceneSpec s = BaseSpec(40, 1);
+   s.slabHalfUm = 3.0;
+   SquareIllumination ill(4.0, 4.0);
+   const WidefieldGridSpec g = WidefieldScene::GridSpecFor(ill, s);
+   ScalarPsf psf(g.pitchUm, 24);
+   const WidefieldDyeGrid G = RandomGrid(g, true, true, 31, s.focusWorldUm - 1.5, 120, 60);
+   std::string err;
+   WidefieldScene moving;
+   moving.UpdateFromGrid(G, ill, s, psf, err);
+   std::vector<float> wb, a, b;
+   moving.FreshBleachWeights(10, wb);
+   moving.RenderFrame(wb, a);
+   const size_t bytes0 = moving.CachedSpectraBytes();
+   WidefieldSceneSpec s2 = s;
+   s2.focusWorldUm += 0.437;
+   const auto t0 = std::chrono::steady_clock::now();
+   moving.UpdateFromGrid(G, ill, s2, psf, err); // same grid: UpdateFromGrid rebuilds; use Refocus via a plain spec change below
+   (void)t0;
+   // Refocus through the normal path: a scene fed once, then focus moved.
+   WidefieldScene sc;
+   sc.UpdateFromGrid(G, ill, s, psf, err);
+   sc.FreshBleachWeights(10, wb);
+   sc.RenderFrame(wb, a);
+   std::vector<double> foci = {s.focusWorldUm + 0.437, s.focusWorldUm - 0.9, s.focusWorldUm + 1.3};
+   std::vector<WidefieldImages> series;
+   const bool sOk = sc.FocusSeries(foci, series, err);
+   bool same = sOk && series.size() == foci.size();
+   double worst = 0;
+   for (size_t i = 0; same && i < foci.size(); i++) {
+      WidefieldSceneSpec si = s;
+      si.focusWorldUm = foci[i];
+      si.slabCentreUm = foci[i];
+      WidefieldScene fresh;
+      fresh.UpdateFromGrid(G, ill, si, psf, err);
+      std::vector<float> ra, rb;
+      fresh.FreshBleachWeights(10, wb);
+      fresh.RenderFrame(wb, ra);
+      std::vector<double> coef;
+      sc.BleachCoefficients(wb, coef);
+      series[i].Render(coef, rb);
+      worst = std::max(worst, MaxRelDiff(rb, ra));
+      same = same && ra == rb;
+   }
+   char msg[200];
+   std::snprintf(msg, sizeof msg, "FocusSeries (3 foci, one spectra cache) == a fresh scene per focus (identical bits: %d, max rel %.1e, %.1f MB spectra)",
+                 (int)same, worst, bytes0 / 1048576.0);
+   Check(same, msg);
+}
+
+// Bleach basis with a non-uniform illumination: frames stay on the fast
+// path and match a scene anchored at that very frame.
+void BleachBasis()
+{
+   for (int kind = 0; kind < 2; kind++) {
+      WidefieldSceneSpec s = BaseSpec(32, 1);
+      std::unique_ptr<IlluminationPattern> ill;
+      if (kind == 0) ill.reset(new TwoLevelIllumination(3.2, 3.2));
+      else ill.reset(new BeamIllumination(3.2, 1.0));
+      const WidefieldGridSpec g = WidefieldScene::GridSpecFor(*ill, s);
+      TestPsf psf(g.pitchUm);
+      const WidefieldDyeGrid G = RandomGrid(g, true, true, 41 + kind);
+      std::string err;
+      WidefieldScene sc;
+      sc.UpdateFromGrid(G, *ill, s, psf, err);
+      std::vector<float> wb, img;
+      sc.FreshBleachWeights(0, wb);
+      sc.RenderFrame(wb, img);
+      bool allFast = true;
+      double worst = 0;
+      for (double f : {1.0, 50.0, 400.0, 900.0}) {
+         sc.FreshBleachWeights(f, wb);
+         std::vector<float> a, b;
+         sc.RenderFrame(wb, a);
+         allFast = allFast && sc.LastFrameFast();
+         WidefieldScene ref;
+         ref.UpdateFromGrid(G, *ill, s, psf, err);
+         ref.SetBleachWeights(wb);
+         std::vector<double> one;
+         ref.BleachCoefficients(wb, one);
+         ref.RenderCoefficients(one, b);
+         worst = std::max(worst, MaxRelDiff(a, b));
+      }
+      char msg[200];
+      std::snprintf(msg, sizeof msg, "bleach basis (%s illumination): frames 1..900 on the fast path %d, == re-anchored (max rel %.1e)",
+                    kind == 0 ? "two-level, groups" : "Gaussian beam, Chebyshev", (int)allFast, worst);
+      Check(allFast && worst < 1e-4, msg);
+   }
 }
 
 void RealWorld()
@@ -373,10 +714,30 @@ void RealWorld()
    std::vector<float> wb, cam;
    sc.FreshBleachWeights(0, wb);
    sc.RenderFrame(wb, cam);
-   char msg[160];
-   std::snprintf(msg, sizeof msg, "cell field: %ld dyes (%ld bleaching), %u^2 FFT, R %d, %d PSF planes, %.0f photons",
-                 sc.Dyes(), sc.BleachingDyes(), sc.FftSize(), sc.KernelRadius(), sc.PsfPlanes(), Sum(cam));
+   char msg[200];
+   std::snprintf(msg, sizeof msg, "cell field: %ld dyes (%ld bleaching), %ux%u FFT, R %d, %d PSF planes, %.0f photons",
+                 sc.Dyes(), sc.BleachingDyes(), sc.FftSizeX(), sc.FftSizeY(), sc.KernelRadius(), sc.PsfPlanes(), Sum(cam));
    Check(ok && sc.Dyes() > 1000 && sc.BleachingDyes() > 0 && Sum(cam) > 0, msg);
+
+   // Tiles == one query over the same rect.
+   WidefieldGridSpec g = sc.Grid();
+   WidefieldDyeGrid one;
+   const bool q = BuildWidefieldDyeGrid(src, g, one, err);
+   WidefieldScene ref;
+   ref.UpdateFromGrid(one, ill, s, psf, err);
+   std::vector<float> cam2;
+   ref.FreshBleachWeights(0, wb);
+   ref.RenderFrame(wb, cam2);
+   std::snprintf(msg, sizeof msg, "dye tiles == one density query: %ld vs %ld dyes, image max rel diff %.1e", sc.Dyes(),
+                 one.nBleaching + one.nPersistent, MaxRelDiff(cam, cam2));
+   Check(q && sc.Dyes() == one.nBleaching + one.nPersistent && MaxRelDiff(cam, cam2) < 1e-3, msg);
+
+   // A sub-cell stage move keeps the dye binning (tiles and spectra reused).
+   WidefieldSceneSpec s3 = s;
+   s3.originXUm += 0.004;
+   const size_t tileBytes = sc.Tiles()->Bytes();
+   sc.Update(src, ill, s3, psf, err);
+   Check(sc.Tiles()->Bytes() == tileBytes && sc.Grid().SameRect(g), "sub-cell stage move: same grid rect, no new tiles");
 }
 
 } // namespace
@@ -385,12 +746,16 @@ int main()
 {
    FftVsDft();
    ConvolutionVsDirect();
+   FocusBands();
+   SubCellShift();
    PhotonConservation();
    Units();
    FrameIntegral();
    SplitRespected();
    Illumination();
    FastEqualsFull();
+   FocusReuse();
+   BleachBasis();
    RealWorld();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall widefield checks passed\n", g_failures);
    return g_failures ? 1 : 0;

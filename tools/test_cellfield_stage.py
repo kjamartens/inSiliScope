@@ -6,7 +6,8 @@ CellField pattern rendering dyes of the insiliscope world through the unchanged
 render pipeline, a known feature shifting by the expected pixels between two
 stage positions (live mode), precomputed stacks that are byte-identical
 after the stage went 1 mm away and came back, and the WideField modality
-(bleaching half time, split labelling, a world-anchored bleach map in live mode).
+(bleaching half time, split labelling, a world-anchored bleach map in live mode),
+and a hardware z stack (the ZStage's sequence, one position per camera frame).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
@@ -241,6 +242,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
     _widefield_checks(core, cam, xy, x0, y0)
+    _zsequence_checks(core, cam, z, "WideField")
 
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)
@@ -344,6 +346,69 @@ def _widefield_checks(core, cam, xy, x0, y0):
     assert back < 0.25 * here0, f"back at the bleached region it should still be dim: {back:.2f} vs {here0:.2f} ADU"
     print(f"WideField live bleach map OK: {here0:.1f} -> {here1:.1f} ADU here, fresh {away0:.1f} -> {away1:.1f} ADU "
           f"30 um away, still {back:.1f} ADU back here")
+
+
+def _zsequence_checks(core, cam, z, modality):
+    """A hardware z stack: the ZStage is sequenceable, the camera takes one
+    sequence position per frame (live and precomputed modes), and the stage
+    returns to where it was when the sequence stops."""
+    positions = [0.5, 2.0, 3.5, 5.0]
+    core.setProperty(cam, "General_ImagingModality", modality)
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
+    core.setExposure(20.0)
+    # A thin slab makes every position a distinct dye layer (the Gaussian
+    # WideField PSF, what the Linux test build has, ignores defocus).
+    z_range = core.getProperty(cam, "SimType_CellFieldZRangeUm")
+    core.setProperty(cam, "SimType_CellFieldZRangeUm", "0.5")
+    assert core.isStageSequenceable(z) and core.getStageSequenceMaxLength(z) >= len(positions)
+    z_before = core.getPosition(z)
+
+    def norm(a):
+        a = a - a.mean()
+        return a / (np.sqrt((a * a).sum()) + 1e-12)
+
+    for mode in ("Live", "Precomputed"):
+        core.setProperty(cam, "General_AcqMode", mode)
+        refs = []
+        for p in positions:
+            core.setPosition(z, p)
+            if mode == "Precomputed":
+                core.setProperty(cam, "General_GenerateStack", "1")
+                _wait_for_stack(core, cam)
+            acc = None
+            for _ in range(4):
+                core.snapImage()
+                img = core.getImage().astype(np.float64)
+                acc = img if acc is None else acc + img
+            refs.append(norm(acc))
+        core.setPosition(z, z_before)
+        core.loadStageSequence(z, positions)
+        core.startStageSequence(z)
+        n = 2 * len(positions)
+        core.startSequenceAcquisition(n, 0, True)
+        frames = []
+        t0 = time.time()
+        while len(frames) < n:
+            if core.getRemainingImageCount() > 0:
+                frames.append(core.popNextImage().astype(np.float64))
+            elif time.time() - t0 > 300:
+                sys.exit("z sequence acquisition timed out")
+            else:
+                time.sleep(0.005)
+        core.stopSequenceAcquisition()
+        core.stopStageSequence(z)
+        picks = [int(np.argmax([(norm(f) * r).sum() for r in refs])) for f in frames]
+        expect = [k % len(positions) for k in range(n)]
+        assert picks == expect, f"{modality} {mode} z sequence: frames matched positions {picks}, expected {expect}"
+        assert abs(core.getPosition(z) - z_before) < 1e-9, f"stage should return to {z_before}, at {core.getPosition(z)}"
+        print(f"z sequence OK ({modality}, {mode}): {n} frames at positions {[positions[i] for i in picks]}, "
+              f"stage back at {z_before} um")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty(cam, "SimType_CellFieldZRangeUm", z_range)
+    core.setProperty(cam, "General_ImagingModality", "SuperRes")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
 
 
 if __name__ == "__main__":
