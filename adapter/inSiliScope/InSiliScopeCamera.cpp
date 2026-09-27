@@ -167,6 +167,7 @@ const char* g_PropWideFieldNumber[WF_COUNT] = {
    "FluoParam_WideFieldPhotonBudget",
    "FluoParam_WideFieldExtinctionCoeff",
 };
+const char* g_PropWideFieldHalfTimeSec = "FluoParam_WideFieldHalfTimeSec";
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
@@ -641,6 +642,9 @@ int CInSiliScopeCamera::Initialize()
             CreateFloatProperty(g_PropWideFieldNumber[i], wideFieldNum_[i].load(), false, act);
          SetPropertyLimits(g_PropWideFieldNumber[i], lo[i], hi[i]);
       }
+      // Derived, read-only: B ln2 / k_em at pattern value 1; -1 = never bleaches.
+      CreateFloatProperty(g_PropWideFieldHalfTimeSec, 0.0, true,
+                          new CPropertyAction(this, &CInSiliScopeCamera::OnWideFieldHalfTimeSec));
    }
 
    // Sub-pixel PSF placement (vectorial PSF models only) -- see

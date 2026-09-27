@@ -2372,3 +2372,20 @@ int CInSiliScopeCamera::OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionTyp
    }
    return DEVICE_OK;
 }
+
+int CInSiliScopeCamera::OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      // Same photophysics as BuildWidefieldSceneSpec, at the pattern's peak
+      // (the whole FOV for the square illumination).
+      sim::WidefieldPhotophysics ph;
+      ph.excitationPhotonsPerUm2PerSec = std::max(0.0, wideFieldNum_[WF_EXCITATION].load());
+      ph.quantumYield = std::min(1.0, std::max(0.0, wideFieldNum_[WF_QUANTUM_YIELD].load()));
+      ph.photonBudget = std::max(0.0, wideFieldNum_[WF_PHOTON_BUDGET].load());
+      ph.extinctionCoeff = std::max(0.0, wideFieldNum_[WF_EXTINCTION_COEFF].load());
+      const double t = ph.HalfTimeSec(1.0);
+      pProp->Set(std::isfinite(t) ? t : -1.0);
+   }
+   return DEVICE_OK;
+}

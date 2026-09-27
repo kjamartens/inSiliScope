@@ -120,7 +120,8 @@ default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (cor
 `isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
 cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
 flux, extinction coefficient, QY, emitted-photon budget (`FluoParam_WideField*`); the bleach rate
-follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame), collection efficiency from
+follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame; read-only
+`FluoParam_WideFieldHalfTimeSec` reports it at the pattern peak, -1 = never), collection efficiency from
 `PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
 non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
 Illumination is a modality-neutral `IlluminationPattern` (square over the FOV for now). Stacks are a
@@ -172,7 +173,8 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its
   illumination profile in this group too), and the WideField photophysics
   `WideFieldExcitationPhotonsPerUm2PerSec`, `WideFieldQuantumYield`,
-  `WideFieldPhotonBudget`, `WideFieldExtinctionCoeff`.
+  `WideFieldPhotonBudget`, `WideFieldExtinctionCoeff`, and the read-only
+  `WideFieldHalfTimeSec` derived from them (-1 = never bleaches).
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
   offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
   std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,

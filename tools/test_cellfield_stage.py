@@ -265,7 +265,18 @@ def _widefield_checks(core, cam, xy, x0, y0):
     assert "WideField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
     t_half = _wf_half_time_s(core, cam)
     assert abs(t_half - 30.0) < 0.05, f"default WideField t1/2 {t_half:.3f} s, expected 30 s"
-    print(f"WideField properties present (defaults give t1/2 = {t_half:.2f} s)")
+    reported = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    assert core.isPropertyReadOnly(cam, "FluoParam_WideFieldHalfTimeSec") and abs(reported / t_half - 1) < 1e-4, \
+        f"FluoParam_WideFieldHalfTimeSec {reported} vs {t_half}"
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "3.2e9")
+    halved = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "0")
+    never = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "5000")
+    assert abs(halved / t_half - 0.5) < 1e-4 and never == -1, f"half time follows: {halved}, budget 0 -> {never}"
+    print(f"WideField properties present (defaults give t1/2 = {t_half:.2f} s; FluoParam_WideFieldHalfTimeSec "
+          f"reports {reported:.2f} s, {halved:.2f} s at 2x flux, -1 = never at budget 0)")
 
     offset = float(core.getProperty(cam, "CamParam_OffsetADU"))
     core.setProperty(cam, "General_ImagingModality", "WideField")

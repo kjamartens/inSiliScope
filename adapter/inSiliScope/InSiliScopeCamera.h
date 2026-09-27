@@ -210,6 +210,8 @@ enum WideFieldNumber
    WF_COUNT
 };
 extern const char* g_PropWideFieldNumber[WF_COUNT];
+// Read-only: the bleach half time these photophysics give at the pattern's peak.
+extern const char* g_PropWideFieldHalfTimeSec;
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -349,6 +351,7 @@ public:
    int OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
+   int OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
