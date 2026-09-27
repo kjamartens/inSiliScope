@@ -424,4 +424,29 @@ long World::DensityInWindow(double x0, double y0, double x1, double y1, double z
    return (long)dyes.size();
 }
 
+long World::Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                              int nx, int ny, int nz, unsigned populations, float* out)
+{
+   std::fill(out, out + (size_t)nx * ny * nz, 0.0f);
+   const bool wantBleach = (populations & 1u) != 0, wantPersist = (populations & 2u) != 0;
+   if (!wantBleach && !wantPersist) return 0;
+   // Same binning as DensityInWindow, so nz = 1 reproduces it.
+   const double sx = nx / (x1 - x0), sy = ny / (y1 - y0);
+   const double sz = nz > 1 ? nz / (zMax - zMin) : 0.0;
+   long total = 0;
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
+      for (const WorldDye& d : b.dyes) {
+         if (!(d.persistent ? wantPersist : wantBleach)) continue;
+         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
+         const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
+         const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
+         const int iz = nz > 1 ? std::min(nz - 1, (int)std::floor((d.z - zMin) * sz)) : 0;
+         out[((size_t)iz * ny + iy) * nx + ix] += 1;
+         total++;
+      }
+   });
+   return total;
+}
+
 } // namespace isc

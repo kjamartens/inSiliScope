@@ -123,6 +123,14 @@ public:
    long DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                         int nx, int ny, float* out);
 
+   // Labelled-dye counts on an nx x ny x nz grid over the rect and
+   // [zMin, zMax), out[(k*ny + iy)*nx + ix]; plane k spans
+   // [zMin + k*(zMax-zMin)/nz, ...). populations: bit 0 bleaching dyes, bit 1
+   // persistent sites. Bins straight from the dye blocks (no copy); returns
+   // the total. zMin/zMax may be infinite only with nz = 1.
+   long Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                          int nx, int ny, int nz, unsigned populations, float* out);
+
    CellAssets& Assets(const Cell& c);
    void DropCaches();
    const WorldStats& Stats() const { return stats_; }

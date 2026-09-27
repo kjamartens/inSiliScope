@@ -282,6 +282,60 @@ void CApi()
    isc_params_free(p);
 }
 
+// ABI 5: the z-resolved, population-selectable density query (WideField).
+void Density3d()
+{
+   IscParams* p = isc_params_new();
+   isc_params_set(p, "labelEfficiency", 0.2);
+   isc_params_set(p, "labelNonBleaching", 0.3);
+   IscWorld* w = isc_world_new(1249, p);
+   const double x0 = -4, y0 = -7, x1 = 0, y1 = -3, zLo = -2, zHi = 14;
+   const int nx = 16, ny = 12, nz = 32;
+   const size_t n2 = (size_t)nx * ny, n3 = n2 * nz;
+   std::vector<float> all(n3), bl(n3), pe(n3), none(n3, 7.0f), flat(n2), slab(n2);
+   const int32_t na = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_BLEACHING | ISC_POP_PERSISTENT, all.data());
+   const int32_t nb = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_BLEACHING, bl.data());
+   const int32_t np = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_PERSISTENT, pe.data());
+   const int32_t n0 = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 0, none.data());
+   const int32_t nf = isc_density_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, flat.data());
+   Check(na > 0 && nb > 0 && np > 0 && na == nb + np && nf == na, "density3d: totals (all = bleaching + persistent = 2D)");
+   bool sumZ = true, split = true;
+   for (size_t i = 0; i < n2; i++) {
+      double s = 0;
+      for (int k = 0; k < nz; k++) s += all[k * n2 + i];
+      sumZ = sumZ && s == flat[i];
+   }
+   for (size_t i = 0; i < n3; i++) split = split && all[i] == bl[i] + pe[i];
+   Check(sumZ, "density3d: summed over z equals isc_density_in_window");
+   Check(split, "density3d: bleaching + persistent = all, voxel by voxel");
+   Check(n0 == 0 && std::all_of(none.begin(), none.end(), [](float v) { return v == 0.0f; }), "density3d: no population = zeros");
+
+   // Hand-binning the sites by the persistent flag.
+   World ref(1249, [] { Params q; q.labelEfficiency = 0.2; q.labelNonBleaching = 0.3; return q; }());
+   std::vector<WorldDye> d;
+   ref.SitesInWindow(x0, y0, x1, y1, zLo, zHi, d);
+   std::vector<float> hb(n3, 0.0f), hp(n3, 0.0f);
+   for (const WorldDye& e : d) {
+      const int ix = std::min(nx - 1, (int)std::floor((e.x - x0) * (nx / (x1 - x0))));
+      const int iy = std::min(ny - 1, (int)std::floor((e.y - y0) * (ny / (y1 - y0))));
+      const int iz = std::min(nz - 1, (int)std::floor((e.z - zLo) * (nz / (zHi - zLo))));
+      (e.persistent ? hp : hb)[((size_t)iz * ny + iy) * nx + ix] += 1;
+   }
+   Check(hb == bl && hp == pe, "density3d: matches hand-binned SitesInWindow per population");
+
+   // nz = 1 over a slab = the 2D query with the same z limits; infinite z too.
+   const int32_t ns = isc_density3d_in_window(w, x0, y0, x1, y1, 1.0, 3.0, nx, ny, 1, 3, slab.data());
+   isc_density_in_window(w, x0, y0, x1, y1, 1.0, 3.0, nx, ny, flat.data());
+   const int32_t ni = isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 1, 3, all.data());
+   Check(slab == flat && ns > 0 && ni >= na, "density3d: nz = 1 slab equals the 2D query");
+   Check(isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 2, 3, all.data()) == -1 &&
+            isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 4, all.data()) == -1 &&
+            isc_density3d_in_window(w, x0, y0, x1, y1, zHi, zLo, nx, ny, nz, 3, all.data()) == -1,
+         "density3d: bad arguments rejected");
+   isc_world_free(w);
+   isc_params_free(p);
+}
+
 // Blink kinetics of the per-dye schedule (spec/PORT.md 10.4).
 void KineticsStats()
 {
@@ -633,6 +687,7 @@ int main()
    EventQuery();
    CacheUnderLoad();
    CApi();
+   Density3d();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);
    return g_failures ? 1 : 0;
 }

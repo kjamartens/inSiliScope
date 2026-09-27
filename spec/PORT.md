@@ -462,6 +462,16 @@ allowed (independent Poisson events; fine while rate x onSec << 1). `world_check
 0-100 s and 10000 s, ON mean, window slicing, bleaching set unchanged; the adapter test shows
 bleaching-only signal collapsing and non-bleaching flat over a 20 s stack.
 
+### 6.4 Z-resolved density per population (ABI 5, 2026-09-27)
+`isc_density3d_in_window(w, x0,y0,x1,y1, zMin,zMax, nx,ny,nz, populations, out)`: labelled-dye counts
+on an nx x ny x nz grid, `out[(k*ny + iy)*nx + ix]`, plane k spanning `[zMin + k(zMax-zMin)/nz, ...)`,
+x/y binned exactly as `isc_density_in_window` (so nz = 1 reproduces it). `populations` is a bitmask,
+`ISC_POP_BLEACHING 1 | ISC_POP_PERSISTENT 2` (the `WorldDye::persistent` flag of 6.3). `World::
+Density3dInWindow` bins straight from `ForEachDyeBlock` (no copy through `SitesInWindow`), so millions of
+cached dyes become voxels with nothing crossing the ABI per dye. Infinite z limits only with nz = 1.
+Used by the WideField modality (section 13). `world_checks` (`Density3d`): z-sum = 2D query, bleaching
++ persistent = all per voxel, equals hand-binning `SitesInWindow`, nz = 1 slab = 2D query.
+
 ## 12. Known gaps to keep in mind (not for the first pass)
 
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.
