@@ -97,6 +97,13 @@ public:
    // cached.
    bool Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs);
 
+   // Labelled-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
+   // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], populations
+   // ISC_POP_BLEACHING | ISC_POP_PERSISTENT (isc_density3d_in_window).
+   // Returns the total, or -1 on a failure.
+   long Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx, int ny, int nz,
+                  int populations, float* out);
+
 private:
    IscWorld* world_ = nullptr;
    CellFieldSettings settings_;

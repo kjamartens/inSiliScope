@@ -134,4 +134,12 @@ bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double 
    return true;
 }
 
+long CellFieldSource::Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
+                                int ny, int nz, int populations, float* out)
+{
+   if (!world_)
+      return -1;
+   return isc_density3d_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, populations, out);
+}
+
 } // namespace sim

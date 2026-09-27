@@ -12,6 +12,7 @@
 #include "CellFieldSource.h"
 #include "SMLMNoise.h"
 #include "SMLMSimulation.h"
+#include "WidefieldRender.h"
 
 #include "insiliscope/insiliscope.h"
 
@@ -20,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <random>
 
 namespace sim {
@@ -64,6 +66,15 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "read-noise", 1.2, "CamParam_ReadNoiseElectrons" },
       { "gain-std-pct", 5, "CamParam_GainStdPctPerPixel" },
       { "read-noise-std-pct", 20, "CamParam_ReadNoiseStdPctPerPixel" },
+      { "modality", 0, "General_ImagingModality: 0 = SuperRes (blinks), 1 = WideField (all dyes; names accepted)" },
+      { "wf-upscale", 1, "General_WideFieldUpscaling: WideField grid cells per pixel, per axis (1-4)" },
+      { "wf-plane-nm", 25, "General_WideFieldZPlaneNm: WideField dye plane thickness, nm" },
+      { "wf-kernel-um", 7, "WideField PSF kernel radius cap, um" },
+      { "wf-excitation-photons-per-um2-per-sec", 1.6e9, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec" },
+      { "wf-quantum-yield", 0.7, "FluoParam_WideFieldQuantumYield" },
+      { "wf-photon-budget", 5000, "FluoParam_WideFieldPhotonBudget: emitted photons per dye (0 = never bleaches)" },
+      { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
+      { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (WideField collection efficiency)" },
    };
    return opts;
 }
@@ -95,6 +106,20 @@ double ScopeSpecGet(const ScopeSpec& spec, const char* name)
    return 0.0;
 }
 
+bool ScopeOptionValue(const std::string& name, const char* text, double& value)
+{
+   char* end = nullptr;
+   value = std::strtod(text, &end);
+   if (end != text && *end == 0)
+      return true;
+   if (name == "modality")
+   {
+      if (!std::strcmp(text, "SuperRes")) { value = 0; return true; }
+      if (!std::strcmp(text, "WideField")) { value = 1; return true; }
+   }
+   return false;
+}
+
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err)
 {
    size_t i = 0;
@@ -106,9 +131,9 @@ bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err)
       if (j == i) break;
       const std::string tok = text.substr(i, j - i);
       const size_t eq = tok.find('=');
-      char* end = nullptr;
-      const double v = eq == std::string::npos ? 0.0 : std::strtod(tok.c_str() + eq + 1, &end);
-      if (eq == std::string::npos || end == tok.c_str() + eq + 1 || !ScopeSpecSet(spec, tok.substr(0, eq), v))
+      double v = 0.0;
+      if (eq == std::string::npos || !ScopeOptionValue(tok.substr(0, eq), tok.c_str() + eq + 1, v) ||
+          !ScopeSpecSet(spec, tok.substr(0, eq), v))
       {
          err = "bad option '" + tok + "'";
          return false;
@@ -123,6 +148,106 @@ void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frame
    w = h = static_cast<unsigned>(std::min(2048.0, std::max(1.0, ScopeSpecGet(spec, "size"))));
    frames = static_cast<long>(std::min(100000.0, std::max(1.0, ScopeSpecGet(spec, "frames"))));
 }
+
+namespace {
+
+// The camera's noise maps and seeds for a RandomSeed (StackGenerationWorker).
+struct NoiseSetup
+{
+   PixelOffsetMap offsetMap;
+   PixelGainMap gainMap;
+   PixelReadNoiseMap rnMap;
+   uint32_t noiseSeed = 0;
+   NoiseSetup(long seed, unsigned W, unsigned H, const SimulationParams& p)
+   {
+      std::mt19937_64 rng(static_cast<uint64_t>(seed));
+      offsetMap.Generate(W, H, p.offsetAdu, p.offsetStdAdu, rng);
+      gainMap.Generate(W, H, p.gainPhotonsPerAdu, p.pixelGainStdFraction, rng);
+      rnMap.Generate(W, H, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng);
+      noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+   }
+};
+
+// WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
+// f), square illumination over the FOV, Gaussian PSF, same noise as SR.
+bool RenderWidefield(const ScopeSpec& spec, CellFieldSource& source, const CellFieldQuery& q,
+                     const SimulationParams& p, uint32_t worldSeed,
+                     const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
+                     std::string& err)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const auto t0 = std::chrono::steady_clock::now();
+   const long seed = static_cast<long>(O("seed"));
+   unsigned W, H;
+   long N;
+   ScopeMovieDims(spec, W, H, N);
+   const double expSec = p.frameDurationSec;
+   const double um = p.pixelSizeNm / 1000.0;
+
+   WidefieldSceneSpec ws;
+   ws.originXUm = q.originXUm;
+   ws.originYUm = q.originYUm;
+   ws.width = W;
+   ws.height = H;
+   ws.pixelUm = um;
+   ws.focusWorldUm = q.zCullCentreUm;
+   ws.slabCentreUm = q.zCullCentreUm;
+   ws.slabHalfUm = q.zHalfRangeUm;
+   ws.grid.upscale = static_cast<int>(std::min(4.0, std::max(1.0, O("wf-upscale"))));
+   ws.grid.zPlaneNm = std::min(500.0, std::max(5.0, O("wf-plane-nm")));
+   ws.kernelCapUm = std::max(0.1, O("wf-kernel-um"));
+   ws.phot.excitationPhotonsPerUm2PerSec = std::max(0.0, O("wf-excitation-photons-per-um2-per-sec"));
+   ws.phot.quantumYield = std::min(1.0, std::max(0.0, O("wf-quantum-yield")));
+   ws.phot.photonBudget = std::max(0.0, O("wf-photon-budget"));
+   ws.phot.extinctionCoeff = std::max(0.0, O("wf-extinction-coeff"));
+   ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
+   ws.exposureSec = expSec;
+   SquareIllumination ill(W * um, H * um);
+   GaussianWidefieldPsf psf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index"));
+   WidefieldScene scene;
+   if (!scene.Update(source, ill, ws, psf, err))
+      return false;
+
+   const double kem = ws.phot.EmissionRatePerSec(1.0);
+   info.width = W;
+   info.height = H;
+   info.frames = N;
+   info.dyes = scene.Dyes();
+   info.halfTimeSec = ws.phot.HalfTimeSec(1.0);
+   info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   char desc[768];
+   std::snprintf(desc, sizeof desc,
+                 "insiliscope modality=WideField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
+                 "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g dyes=%ld bleaching_dyes=%ld upscale=%d "
+                 "plane_nm=%g excitation=%g qy=%g budget=%g eps=%g eta=%.4f k_em=%.4g t_half_s=%.4g "
+                 "photons_per_dye_per_frame=%.4g",
+                 seed, worldSeed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, O("start-sec"), N,
+                 O("focus-um"), scene.Dyes(), scene.BleachingDyes(), ws.grid.upscale, ws.grid.zPlaneNm,
+                 ws.phot.excitationPhotonsPerUm2PerSec, ws.phot.quantumYield, ws.phot.photonBudget,
+                 ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * expSec);
+   info.description = desc;
+
+   NoiseSetup noise(seed, W, H, p);
+   const double framesBefore0 = std::max(0.0, O("start-sec")) / expSec;
+   std::vector<float> photons, wb;
+   std::vector<uint16_t> adu;
+   const std::vector<BlinkEvent> none;
+   for (long f = 0; f < N; f++)
+   {
+      RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
+                        0.0, 0.0, nullptr, O("z"));
+      scene.FreshBleachWeights(framesBefore0 + f, wb);
+      scene.RenderFrame(wb, photons);
+      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
+                      static_cast<uint32_t>(f));
+      if (!onFrame(f, adu))
+         break;
+   }
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   return true;
+}
+
+} // namespace
 
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err)
@@ -197,6 +322,8 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    std::vector<BlinkEvent> events;
    if (!source.Configure(cf, err))
       return false;
+   if (O("modality") == 1)
+      return RenderWidefield(spec, source, q, p, cf.seed, onFrame, info, err);
    if (!source.Events(q, events))
    {
       err = "cell-field event query failed";

@@ -9,7 +9,8 @@
 //                same seed streams) for one FOV. Used by cli/ (TIFF files)
 //                and the viewer (web/, via the WASM export isc_scope_movie).
 //                Gaussian PSF only (the vectorial models need the adapter's
-//                embedded JVM bridge).
+//                embedded JVM bridge). modality = 1 renders WideField
+//                (WidefieldRender.h) instead of the blinks.
 //
 // LICENSE:       BSD (see license.txt)
 
@@ -41,6 +42,9 @@ using ScopeSpec = std::map<std::string, double>;
 // False for a name that is neither a named option nor p.*.
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
+// An option's value from text: a number, or a name (modality: SuperRes,
+// WideField). False if neither.
+bool ScopeOptionValue(const std::string& name, const char* text, double& value);
 // "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
 
@@ -49,6 +53,8 @@ struct ScopeMovieInfo
    unsigned width = 0, height = 0;
    long frames = 0;
    size_t blinks = 0;
+   long dyes = 0;            // WideField: labelled dyes on the dye grid
+   double halfTimeSec = 0;   // WideField: bleaching half time at pattern peak (inf = never)
    double querySec = 0, totalSec = 0;
    std::string description;   // one line of the settings, for file metadata
 };

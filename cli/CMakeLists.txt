@@ -8,6 +8,9 @@ set(ISC_SIM ${PROJECT_SOURCE_DIR}/adapter/inSiliScope/Simulation)
 set(ISC_SIM_SRC
   ${ISC_SIM}/ScopeMovie.cpp
   ${ISC_SIM}/CellFieldSource.cpp
+  ${ISC_SIM}/Fft2d.cpp
+  ${ISC_SIM}/Illumination.cpp
+  ${ISC_SIM}/WidefieldRender.cpp
   ${ISC_SIM}/GpuSimD3D11.cpp
   ${ISC_SIM}/PsfGeneratorBridge.cpp
   ${ISC_SIM}/SMLMBackground.cpp
@@ -61,4 +64,17 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   endif()
   add_test(NAME emitter_density COMMAND emitter_density_check)
   add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
+  add_test(NAME cli_tiff_wf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_wf.tif --modality WideField --frames 10 --size 64 --x -4 --y -5)
+
+  add_executable(widefield_check widefield_check.cpp ${ISC_SIM_SRC})
+  target_include_directories(widefield_check PRIVATE ${ISC_SIM})
+  target_link_libraries(widefield_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(widefield_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(widefield_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(widefield_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(widefield_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME widefield COMMAND widefield_check)
 endif()

@@ -5,6 +5,8 @@
 
 #include "insiliscope/insiliscope.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -26,8 +28,9 @@ ISC_API int32_t isc_scope_options(char* out, int32_t cap)
 }
 
 // Renders the movie of `spec` ("k=v k=v ...", see ScopeMovie.h) into out
-// (frames * height * width uint16, frame-major). info[0..3] = width, height,
-// frames, blinks. Returns the pixel count the movie needs; renders only if
+// (frames * height * width uint16, frame-major). info[0..5] = width, height,
+// frames, blinks, WideField dyes, WideField t1/2 in ms (-1 = never bleaches).
+// Returns the pixel count the movie needs; renders only if
 // capPixels >= that. -1 on a bad spec or a failure (message in errOut).
 ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixels, int32_t* info,
                                 char* errOut, int32_t errCap)
@@ -50,7 +53,7 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
       sim::ScopeMovieDims(s, w, h, n);
       const double need = static_cast<double>(w) * h * n;
       if (need > 2.0e9) return fail("movie too large");
-      if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = 0; }
+      if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
       if (!out || capPixels < need) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
       const bool ok = sim::RenderScopeMovie(s, [&](long f, const std::vector<uint16_t>& adu) {
@@ -58,7 +61,11 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
          return true;
       }, mi, err);
       if (!ok) return fail(err);
-      if (info) info[3] = static_cast<int32_t>(mi.blinks);
+      if (info) {
+         info[3] = static_cast<int32_t>(mi.blinks);
+         info[4] = static_cast<int32_t>(mi.dyes);
+         info[5] = std::isfinite(mi.halfTimeSec) ? static_cast<int32_t>(std::min(2.0e9, mi.halfTimeSec * 1000.0)) : -1;
+      }
       return static_cast<int32_t>(need);
    } catch (...) {
       return fail("exception");
