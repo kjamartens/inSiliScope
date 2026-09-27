@@ -482,3 +482,40 @@ Used by the WideField modality (section 13). `world_checks` (`Density3d`): z-sum
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
 * The JS prototype and this port are not validated quantitatively against real SMLM data.
+
+## 13. WideField imaging modality (2026-09-27)
+
+`General_ImagingModality = WideField` (cli/viewer `modality=1`): every labelled dye emits at once,
+CellField only (other patterns log once and render SR). Code: `Simulation/WidefieldRender.{h,cpp}`,
+`Fft2d`, `Illumination`; `cli/widefield_check.cpp` (ctest `widefield`).
+
+* **Photophysics, physical units.** sigma = ln(10) 1000 eps / N_A (3.8235e-13 eps um^2), k_em = QY sigma
+  Phi I, eta = (1 - sqrt(1 - (NA/n)^2)) / 2, surviving fraction exp(-D/B) with D the emitted-photon dose.
+  Camera photons per frame: bleaching `nb eta B exp(-D0/B)(1 - exp(-dD/B))` (exact frame integral),
+  persistent `np eta dD`. Defaults (eps 270000, QY 0.7, B 5000, Phi 1.6e9 photons/um^2/s) give t1/2 =
+  30.0 s and ~1.8 photons/dye/50 ms frame. B = 0 never bleaches. QE is applied by the noise chain.
+* **Illumination** (`IlluminationPattern`): anchored to the objective, peak 1; for now `SquareIllumination`
+  over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
+  `FluoParam_IllumProfile`.
+* **Dye grid.** Upscaled grid (pitch = pixel / upscale) over the FOV plus the part of a 2 um margin the
+  pattern still excites (none for the square: dyes outside are dark); world-anchored z planes of
+  `zPlaneNm` (so a focus move changes only PSFs), slab = `SimType_CellFieldZRangeUm` (0 = [-5, 50] um).
+  Pass 1 is a z histogram (6.4, nx = ny = 1), pass 2 bins each population over the occupied planes only.
+* **PSF planes.** Dye planes go to the two neighbouring PSF planes with linear weights (= a linearly
+  z-blended PSF). Vectorial: the `PsfKernelCache` planes, each grid cell the sum of its (os/u)^2
+  oversampled cells placed as `SplatPsfKernel` (Nearest) centres them; u must divide the oversampling.
+  Gaussian: planes every 100 nm, sigma from `WidefieldGaussianSigmaUm` (TODO(human): defocus ignored for
+  now). Radius capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`).
+* **Convolution.** N = pow2 >= FOV + margin + R + 1; per pair of PSF planes one FFT of the two sources
+  and one of the two kernels, split by Hermitian symmetry, S += A_p P_p; at most 8 fixed chunks summed in
+  order (thread-count independent). One inverse FFT per frame, clamp >= 0, crop, bin, plus the SR
+  background (map x illumination field x fade), then `ApplyNoiseChain` (one Poisson per camera pixel).
+* **Fast path.** The persistent spectrum is cached per pose/focus; the bleaching spectrum with its
+  per-column weights: a frame whose weights are c x those is `c S_bl + S_p` (a stationary sample under a
+  uniform pattern, every frame of a stack).
+* **Stack** = fresh sample (frame f starts at dose f dD), reproducible, never touches the live map; Z read
+  per batch of frames. **Live**: `BleachField`, world-anchored dose in sparse 256^2 tiles of the grid
+  pitch (column j maps to the cell holding its centre), deposited over the pattern support after each
+  frame; reset on a world change or a pitch change.
+* Limits (v1): no drift, CPU only (D3D11 FFT path planned), a stage move rebuilds the grid (~0.6 s at 256
+  px) and makes the dose map non-uniform (full path per frame, ~0.2 s at 256 px, 4 cores).

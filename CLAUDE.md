@@ -27,7 +27,8 @@ that finishes them.
   says was fixed on purpose), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
-  determinism under any query history, tiling, packing off, dye lattice statistics); `tools/` -- `gen_jsmath.py`,
+  determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
+  query); `cli/widefield_check.cpp` (ctest `widefield`); `tools/` -- `gen_jsmath.py`,
   `adapter_pixel_hash.py`, `test_insiliscope.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)
@@ -112,6 +113,25 @@ the former 10% bleaching x 0.01/s at t = 0; core ABI 3, now 4; spec/PORT.md 6.3)
 are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
 (the viewer passes its own labelling sliders). `CellField` is the default pattern.
 
+**WideField modality (2026-09-27):** `General_ImagingModality` = `SuperRes` (default, the blinks) |
+`WideField`: every labelled dye of the `CellField` pattern emits at once (other patterns log once and
+render SR). Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
+default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
+`isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
+cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
+flux, extinction coefficient, QY, emitted-photon budget (`FluoParam_WideField*`); the bleach rate
+follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame), collection efficiency from
+`PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
+non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
+Illumination is a modality-neutral `IlluminationPattern` (square over the FOV for now). Stacks are a
+fresh sample (reproducible, fast path: every frame a multiple of cached spectra); live mode keeps a
+world-anchored `BleachField` (bleach, move away and back: still dim), reset on a world or pitch
+change. Limits: CellField only, no drift, CPU only (D3D11 path planned; `General_GpuStatus` says so),
+the Gaussian PSF ignores defocus for now (`WidefieldGaussianSigmaUm`, TODO(human)). cli/viewer:
+`modality` (0/1 or the names), `wf-upscale`, `wf-plane-nm`, `wf-kernel-um`, `wf-excitation-photons-
+per-um2-per-sec`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`, `immersion-index`.
+Details: spec/PORT.md 13; ctest `widefield`, `cli_tiff_wf`.
+
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
@@ -139,7 +159,8 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   every property that sat in webSMLM's flat "User parameters" group
   (density, pixel size, labeling efficiency, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), and the
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), the WideField
+  modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, and the
   `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`.
 - `SimType_` -- webSMLM's "Simulation type" group: `Pattern` and every
   structure/pattern-shape parameter (`CustomPointsFile`,
@@ -149,7 +170,9 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
   `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
   `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its
-  illumination profile in this group too).
+  illumination profile in this group too), and the WideField photophysics
+  `WideFieldExcitationPhotonsPerUm2PerSec`, `WideFieldQuantumYield`,
+  `WideFieldPhotonBudget`, `WideFieldExtinctionCoeff`.
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
   offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
   std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,
