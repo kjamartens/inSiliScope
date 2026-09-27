@@ -694,6 +694,140 @@ void BleachBasis()
    }
 }
 
+// The GPU hosts' algorithm on the CPU (full precision): images from a
+// WidefieldGpuJob alone, planes kept "resident" by key as the hosts do. The
+// scene driven through it must match its own CPU images.
+class JobReferenceHost : public WidefieldAccelerator
+{
+public:
+   bool HasPlane(unsigned long long geometry, unsigned long long key) const override
+   {
+      return geometry == geometry_ && planes_.count(key) != 0;
+   }
+   bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) override
+   {
+      if (job.geometry != geometry_ || !fft_.Valid() || fft_.Nx() != job.NX || fft_.Ny() != job.NY)
+      {
+         planes_.clear();
+         geometry_ = job.geometry;
+         fft_ = RealFft2d(job.NX, job.NY);
+      }
+      for (const WidefieldGpuJob::Plane& p : job.planes)
+      {
+         std::vector<float> img(static_cast<size_t>(job.nx) * job.ny, 0.0f);
+         for (size_t i = 0; i < p.cells.size(); i++) img[p.cells[i]] = p.values[i];
+         std::vector<cfloat>& S = planes_[p.key];
+         S.resize(fft_.SpecSize());
+         fft_.Forward(img.data(), job.nx, job.ny, job.nx, S.data());
+         jobPlanes_++;
+      }
+      std::map<int, const std::vector<cfloat>*> K;
+      for (const auto& k : job.kernels) K[k.p] = k.spec;
+      out.clear();
+      const unsigned W = job.NX / 2 + 1;
+      for (const auto& ch : job.channels)
+      {
+         std::vector<cfloat> acc(fft_.SpecSize(), cfloat(0, 0));
+         for (const auto& d : ch)
+         {
+            auto it = planes_.find(d.key);
+            if (it == planes_.end() || !K.count(d.p0) || (d.two && !K.count(d.p1)))
+            {
+               err = "job refers to a plane or kernel it does not carry";
+               return false;
+            }
+            const std::vector<cfloat>& A = it->second;
+            for (size_t b = 0; b < acc.size(); b++)
+            {
+               cfloat k = d.w0 * (*K[d.p0])[b];
+               if (d.two) k += d.w1 * (*K[d.p1])[b];
+               acc[b] += A[b] * k;
+            }
+         }
+         for (unsigned ky = 0; ky < job.NY; ky++)
+            for (unsigned kx = 0; kx < W; kx++)
+            {
+               const double kys = ky <= job.NY / 2 ? double(ky) : double(ky) - job.NY;
+               const double ax = 2 * kPi * kx * job.fracX / job.NX, ay = 2 * kPi * kys * job.fracY / job.NY;
+               const std::complex<double> px = kx == job.NX / 2 ? std::complex<double>(std::cos(ax), 0) : std::polar(1.0, ax);
+               const std::complex<double> py = ky == job.NY / 2 ? std::complex<double>(std::cos(ay), 0) : std::polar(1.0, ay);
+               const std::complex<double> ph = px * py;
+               cfloat& v = acc[(size_t)ky * W + kx];
+               v = cfloat(std::complex<double>(v) * ph);
+            }
+         std::vector<float> img((size_t)job.cw * job.ch);
+         fft_.Inverse(acc.data(), img.data(), job.fovY0, job.ch, job.fovX0, job.cw, job.cw);
+         out.push_back(std::move(img));
+      }
+      jobs_++;
+      return true;
+   }
+   unsigned long long geometry_ = ~0ull;
+   RealFft2d fft_;
+   std::map<unsigned long long, std::vector<cfloat>> planes_;
+   int jobs_ = 0;
+   long jobPlanes_ = 0;
+};
+
+double ImagesRms(const WidefieldImages& a, const WidefieldImages& b)
+{
+   double e = 0, s = 0;
+   auto acc = [&](const std::vector<float>& x, const std::vector<float>& y) {
+      for (size_t i = 0; i < x.size() && i < y.size(); i++) { const double d = x[i] - y[i]; e += d * d; s += (double)y[i] * y[i]; }
+      if (x.size() != y.size()) e += 1e30;
+   };
+   acc(a.persistent, b.persistent);
+   if (a.bleach.size() != b.bleach.size()) return 1e30;
+   for (size_t j = 0; j < a.bleach.size(); j++) acc(a.bleach[j], b.bleach[j]);
+   return s > 0 ? std::sqrt(e / s) : std::sqrt(e);
+}
+
+// GPU mode through the job interface: a scene with the reference host vs a
+// plain GPU-mode scene, over focus changes and a sub-cell move (planes stay
+// resident: the later jobs carry none).
+void GpuJobs()
+{
+   CellFieldSource src;
+   CellFieldSettings cf;
+   cf.seed = 42 ^ 0x43454C4Cu;
+   cf.params = { { "labelEfficiency", 0.1 }, { "labelNonBleaching", 0.5 } };
+   std::string err;
+   if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
+   WidefieldSceneSpec s = BaseSpec(40, 1);
+   s.originXUm = -2.0 + 0.0123;
+   s.originYUm = -2.0 - 0.031;
+   s.focusWorldUm = s.slabCentreUm = 1.0;
+   s.slabHalfUm = 3.5;
+   SquareIllumination ill(4.0, 4.0);
+   GaussianWidefieldPsf psf(0.1, 660, 1.4, 1.518);
+   JobReferenceHost host;
+   WidefieldScene g, c;
+   g.SetGpuMode(true);
+   c.SetGpuMode(true);
+   g.SetAccelerator(&host);
+   double worst = 0;
+   bool ok = true;
+   long planesAfterFirst = -1;
+   for (double f : {1.0, 1.3, 0.4, 0.4}) {
+      s.focusWorldUm = s.slabCentreUm = f;
+      if (f == 0.4 && planesAfterFirst >= 0) s.originXUm += 0.004; // the last one: a sub-cell move
+      ok = ok && g.Update(src, ill, s, psf, err) && c.Update(src, ill, s, psf, err);
+      std::vector<float> wb, a, b;
+      g.FreshBleachWeights(5, wb);
+      c.FreshBleachWeights(5, wb);
+      g.RenderFrame(wb, a);
+      c.RenderFrame(wb, b);
+      worst = std::max(worst, ImagesRms(g.Images(), c.Images()));
+      if (planesAfterFirst < 0) planesAfterFirst = host.jobPlanes_;
+   }
+   const bool pow2 = (g.FftSizeX() & (g.FftSizeX() - 1)) == 0 && (g.FftSizeY() & (g.FftSizeY() - 1)) == 0;
+   char msg[240];
+   std::snprintf(msg, sizeof msg, "GPU job interface (CPU reference host): %d jobs, %ld plane spectra (%ld after the first focus), %ux%u FFT, images rms %.1e vs the scene's own%s%s",
+                 host.jobs_, host.jobPlanes_, host.jobPlanes_ - planesAfterFirst, g.FftSizeX(), g.FftSizeY(), worst,
+                 g.UsingAccelerator() ? "" : ", accelerator dropped: ", g.GpuError().c_str());
+   Check(ok && pow2 && g.UsingAccelerator() && worst < 1e-5 && host.jobs_ >= 4, msg);
+}
+
 void RealWorld()
 {
    CellFieldSource src;
@@ -756,6 +890,7 @@ int main()
    FastEqualsFull();
    FocusReuse();
    BleachBasis();
+   GpuJobs();
    RealWorld();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall widefield checks passed\n", g_failures);
    return g_failures ? 1 : 0;

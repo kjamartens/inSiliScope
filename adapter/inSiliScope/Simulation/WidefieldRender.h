@@ -280,6 +280,56 @@ struct WidefieldImages
    void Render(const std::vector<double>& a, std::vector<float>& cam) const;
 };
 
+// The GPU's share of one focus (WidefieldGpu.wgsl): which dye planes of
+// which channels meet which kernels, for a host (web/wf_gpu.js,
+// WidefieldGpuD3D11) that keeps plane spectra resident across jobs by key.
+// Keys are valid within one geometry value.
+struct WidefieldGpuJob
+{
+   unsigned NX = 0, NY = 0;                       // FFT grid (powers of two, <= kMaxGpuFft)
+   unsigned nx = 0, ny = 0;                       // dye grid; cell = y * nx + x
+   unsigned fovX0 = 0, fovY0 = 0, cw = 0, ch = 0; // FOV cells in the grid
+   double fracX = 0.0, fracY = 0.0;               // sub-cell shift
+   unsigned long long geometry = 0;
+   struct Kernel
+   {
+      int p;
+      const std::vector<cfloat>* spec; // half spectrum, (NX / 2 + 1) x NY
+   };
+   std::vector<Kernel> kernels;
+   struct Plane
+   {
+      unsigned long long key;
+      std::vector<uint32_t> cells;
+      std::vector<float> values; // count x weight
+      float absSum = 0.0f;
+   };
+   std::vector<Plane> planes; // every plane the channels need, once (see WidefieldAccelerator::HasPlane)
+   struct Dep
+   {
+      unsigned long long key;
+      int p0, p1; // kernel planes; p1 only if two
+      float w0, w1;
+      bool two;
+   };
+   std::vector<std::vector<Dep>> channels; // [persistent if hasPersistent], then the bleach maps
+   bool hasPersistent = false;
+   static constexpr unsigned kMaxGpuFft = 2048;
+};
+
+// A synchronous GPU host the scene hands its focus work to (the adapter's
+// D3D11 one). Images: one cw x ch image per job channel. False (err) on a
+// failure: the scene then renders on the CPU from then on.
+class WidefieldAccelerator
+{
+public:
+   virtual ~WidefieldAccelerator() = default;
+   // Whether the plane spectrum of key (in geometry) is resident: its dyes
+   // are then left out of the job.
+   virtual bool HasPlane(unsigned long long geometry, unsigned long long key) const = 0;
+   virtual bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) = 0;
+};
+
 // The WideField renderer for one grid rect (a stage pose), any focus.
 //
 //  * Dye planes are world-anchored (zPlaneNm); each is convolved with the
@@ -384,6 +434,25 @@ public:
    // (no convolution); false if the version is stale.
    bool AdoptFocus(double focusWorldUm, const WidefieldImages& images, unsigned long long version);
 
+   // GPU mode: power-of-two FFT sizes and no coarse bands (what the GPU
+   // kernels do). Set before the first Update.
+   void SetGpuMode(bool on) { gpuMode_ = on; }
+   // A synchronous GPU host for the focus work (plane spectra, re-pairing,
+   // images); nullptr = the CPU. On a host failure the scene keeps rendering
+   // on the CPU and GpuError() says why.
+   void SetAccelerator(WidefieldAccelerator* acc) { accel_ = acc; }
+   bool UsingAccelerator() const { return accel_ != nullptr; }
+   const std::string& GpuError() const { return gpuError_; }
+   // The GPU job of the current focus (false if it cannot run on the GPU:
+   // not GPU mode, or an FFT beyond kMaxGpuFft); the images it yields go to
+   // SetImages (one per job channel, in order).
+   bool MakeGpuJob(WidefieldGpuJob& job) const;
+   // Deferred images: Update / SetBleachWeights plan the focus but leave the
+   // images to SetImages (a GPU host) or ComputeCpuImages.
+   void SetDeferImages(bool on) { defer_ = on; }
+   void ComputeCpuImages();
+   bool SetImages(std::vector<std::vector<float>>& images);
+
    static constexpr double kBandEpsilon = 1e-6;
    // Tests only: a looser band criterion, to exercise the coarse levels with
    // a PSF that (rightly) never meets kBandEpsilon.
@@ -449,7 +518,6 @@ private:
    // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
    Channel persistent_;
    std::vector<Channel> bleach_;
-   unsigned long long nextVersion_ = 1;
    // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD.
    bool bleachValid_ = false, cheb_ = false;
    std::vector<float> groupDose_;
@@ -471,6 +539,15 @@ private:
    bool lastFast_ = false;
    double bandEpsilon_ = kBandEpsilon;
    unsigned long long imagesVersion_ = 1;
+   bool gpuMode_ = false, defer_ = false;
+   WidefieldAccelerator* accel_ = nullptr;
+   std::string gpuError_;
+   unsigned long long geometry_ = 0;
+   bool JobFor(const FocusPlan& plan, const std::vector<const Channel*>& chans, WidefieldGpuJob& job) const;
+   // Images of the plan's channels on the accelerator; false (accelerator
+   // dropped, gpuError_ set) on a failure.
+   bool AccelImages(const FocusPlan& plan, const std::vector<const Channel*>& chans,
+                    std::vector<std::vector<float>>& out);
 };
 
 } // namespace sim

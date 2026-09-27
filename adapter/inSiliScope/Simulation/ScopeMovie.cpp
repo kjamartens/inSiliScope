@@ -168,92 +168,24 @@ struct NoiseSetup
    }
 };
 
-// WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
-// f), square illumination over the FOV, Gaussian PSF, same noise as SR.
-bool RenderWidefield(const ScopeSpec& spec, CellFieldSource& source, const CellFieldQuery& q,
-                     const SimulationParams& p, uint32_t worldSeed,
-                     const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
-                     std::string& err)
-{
-   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
-   const auto t0 = std::chrono::steady_clock::now();
-   const long seed = static_cast<long>(O("seed"));
-   unsigned W, H;
-   long N;
-   ScopeMovieDims(spec, W, H, N);
-   const double expSec = p.frameDurationSec;
-   const double um = p.pixelSizeNm / 1000.0;
-
-   WidefieldSceneSpec ws;
-   ws.originXUm = q.originXUm;
-   ws.originYUm = q.originYUm;
-   ws.width = W;
-   ws.height = H;
-   ws.pixelUm = um;
-   ws.focusWorldUm = q.zCullCentreUm;
-   ws.slabCentreUm = q.zCullCentreUm;
-   ws.slabHalfUm = q.zHalfRangeUm;
-   ws.grid.upscale = static_cast<int>(std::min(4.0, std::max(1.0, O("wf-upscale"))));
-   ws.grid.zPlaneNm = std::min(500.0, std::max(5.0, O("wf-plane-nm")));
-   ws.kernelCapUm = std::max(0.1, O("wf-kernel-um"));
-   ws.phot.excitationPhotonsPerUm2PerSec = std::max(0.0, O("wf-excitation-photons-per-um2-per-sec"));
-   ws.phot.quantumYield = std::min(1.0, std::max(0.0, O("wf-quantum-yield")));
-   ws.phot.photonBudget = std::max(0.0, O("wf-photon-budget"));
-   ws.phot.extinctionCoeff = std::max(0.0, O("wf-extinction-coeff"));
-   ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
-   ws.exposureSec = expSec;
-   SquareIllumination ill(W * um, H * um);
-   GaussianWidefieldPsf psf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index"));
-   WidefieldScene scene;
-   if (!scene.Update(source, ill, ws, psf, err))
-      return false;
-
-   const double kem = ws.phot.EmissionRatePerSec(1.0);
-   info.width = W;
-   info.height = H;
-   info.frames = N;
-   info.dyes = scene.Dyes();
-   info.halfTimeSec = ws.phot.HalfTimeSec(1.0);
-   info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-   char desc[768];
-   std::snprintf(desc, sizeof desc,
-                 "insiliscope modality=WideField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
-                 "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g dyes=%ld bleaching_dyes=%ld upscale=%d "
-                 "plane_nm=%g excitation=%g qy=%g budget=%g eps=%g eta=%.4f k_em=%.4g t_half_s=%.4g "
-                 "photons_per_dye_per_frame=%.4g",
-                 seed, worldSeed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, O("start-sec"), N,
-                 O("focus-um"), scene.Dyes(), scene.BleachingDyes(), ws.grid.upscale, ws.grid.zPlaneNm,
-                 ws.phot.excitationPhotonsPerUm2PerSec, ws.phot.quantumYield, ws.phot.photonBudget,
-                 ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * expSec);
-   info.description = desc;
-
-   NoiseSetup noise(seed, W, H, p);
-   const double framesBefore0 = std::max(0.0, O("start-sec")) / expSec;
-   std::vector<float> photons, wb;
-   std::vector<uint16_t> adu;
-   const std::vector<BlinkEvent> none;
-   for (long f = 0; f < N; f++)
-   {
-      RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                        0.0, 0.0, nullptr, O("z"));
-      scene.FreshBleachWeights(framesBefore0 + f, wb);
-      scene.RenderFrame(wb, photons);
-      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                      static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
-         break;
-   }
-   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-   return true;
-}
-
 } // namespace
 
-bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
-                      ScopeMovieInfo& info, std::string& err)
+struct ScopeSetup
 {
+   SimulationParams p;
+   CellFieldSettings cf;
+   CellFieldQuery q;
+   unsigned W = 0, H = 0;
+   long N = 0;
+   long seed = 0;
+   double expSec = 0.05, t0Sec = 0.0;
+};
+
+static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
+{
+   ScopeSetup S;
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
-   const auto t0 = std::chrono::steady_clock::now();
+
    const long seed = static_cast<long>(O("seed"));
    unsigned W, H;
    long N;
@@ -318,12 +250,164 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    q.spanSec = N * expSec;
    q.frameIndex = 0;
 
+   S.p = p;
+   S.cf = cf;
+   S.q = q;
+   S.W = W;
+   S.H = H;
+   S.N = N;
+   S.seed = seed;
+   S.expSec = expSec;
+   S.t0Sec = t0Sec;
+   return S;
+}
+
+// WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
+// f), square illumination over the FOV, Gaussian PSF, same noise as SR.
+struct WidefieldMovie::Impl
+{
+   ScopeSpec spec;
+   ScopeSetup S;
+   CellFieldSource source;
+   WidefieldSceneSpec ws;
+   std::unique_ptr<GaussianWidefieldPsf> psf;
+   std::unique_ptr<SquareIllumination> ill;
+   WidefieldScene scene;
+   double framesBefore0 = 0.0;
+   std::chrono::steady_clock::time_point t0;
+   double setupSec = 0.0;
+};
+
+WidefieldMovie::WidefieldMovie() : impl_(new Impl) {}
+WidefieldMovie::~WidefieldMovie() = default;
+
+WidefieldScene& WidefieldMovie::Scene()
+{
+   return impl_->scene;
+}
+
+bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err)
+{
+   Impl& m = *impl_;
+   m.t0 = std::chrono::steady_clock::now();
+   m.spec = spec;
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   m.S = MakeScopeSetup(spec);
+   const ScopeSetup& S = m.S;
+   if (!m.source.Configure(S.cf, err))
+      return false;
+   const double um = S.p.pixelSizeNm / 1000.0;
+   WidefieldSceneSpec& ws = m.ws;
+   ws.originXUm = S.q.originXUm;
+   ws.originYUm = S.q.originYUm;
+   ws.width = S.W;
+   ws.height = S.H;
+   ws.pixelUm = um;
+   ws.focusWorldUm = S.q.zCullCentreUm;
+   ws.slabCentreUm = S.q.zCullCentreUm;
+   ws.slabHalfUm = S.q.zHalfRangeUm;
+   ws.grid.upscale = static_cast<int>(std::min(4.0, std::max(1.0, O("wf-upscale"))));
+   ws.grid.zPlaneNm = std::min(500.0, std::max(5.0, O("wf-plane-nm")));
+   ws.kernelCapUm = std::max(0.1, O("wf-kernel-um"));
+   ws.phot.excitationPhotonsPerUm2PerSec = std::max(0.0, O("wf-excitation-photons-per-um2-per-sec"));
+   ws.phot.quantumYield = std::min(1.0, std::max(0.0, O("wf-quantum-yield")));
+   ws.phot.photonBudget = std::max(0.0, O("wf-photon-budget"));
+   ws.phot.extinctionCoeff = std::max(0.0, O("wf-extinction-coeff"));
+   ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
+   ws.exposureSec = S.p.frameDurationSec;
+   m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
+   m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
+   m.scene.SetGpuMode(gpuMode);
+   m.scene.SetDeferImages(gpuMode);
+   if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
+      return false;
+   // The bleach basis, anchored at the first frame (a job then has every
+   // channel the frames need).
+   m.framesBefore0 = std::max(0.0, O("start-sec")) / S.expSec;
+   std::vector<float> wb;
+   m.scene.FreshBleachWeights(m.framesBefore0, wb);
+   m.scene.SetBleachWeights(wb);
+   m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   return true;
+}
+
+void WidefieldMovie::ComputeCpuImages()
+{
+   impl_->scene.ComputeCpuImages();
+}
+
+bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   (void)err;
+   Impl& m = *impl_;
+   const ScopeSetup& S = m.S;
+   const WidefieldSceneSpec& ws = m.ws;
+   auto O = [&](const char* n) { return ScopeSpecGet(m.spec, n); };
+   const SimulationParams& p = S.p;
+   const unsigned W = S.W, H = S.H;
+   const long N = S.N;
+   // Frames that do not fit the basis re-anchor it on the CPU.
+   m.scene.SetDeferImages(false);
+   const double kem = ws.phot.EmissionRatePerSec(1.0);
+   info.width = W;
+   info.height = H;
+   info.frames = N;
+   info.dyes = m.scene.Dyes();
+   info.halfTimeSec = ws.phot.HalfTimeSec(1.0);
+   info.querySec = m.setupSec;
+   char desc[768];
+   std::snprintf(desc, sizeof desc,
+                 "insiliscope modality=WideField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
+                 "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g dyes=%ld bleaching_dyes=%ld upscale=%d "
+                 "plane_nm=%g excitation=%g qy=%g budget=%g eps=%g eta=%.4f k_em=%.4g t_half_s=%.4g "
+                 "photons_per_dye_per_frame=%.4g",
+                 S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, O("start-sec"), N,
+                 O("focus-um"), m.scene.Dyes(), m.scene.BleachingDyes(), ws.grid.upscale, ws.grid.zPlaneNm,
+                 ws.phot.excitationPhotonsPerUm2PerSec, ws.phot.quantumYield, ws.phot.photonBudget,
+                 ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * S.expSec);
+   info.description = desc;
+
+   NoiseSetup noise(S.seed, W, H, p);
+   std::vector<float> photons, wb;
+   std::vector<uint16_t> adu;
+   const std::vector<BlinkEvent> none;
+   for (long f = 0; f < N; f++)
+   {
+      RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
+                        0.0, 0.0, nullptr, O("z"));
+      m.scene.FreshBleachWeights(m.framesBefore0 + f, wb);
+      m.scene.RenderFrame(wb, photons);
+      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
+                      static_cast<uint32_t>(f));
+      if (!onFrame(f, adu))
+         break;
+   }
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   return true;
+}
+
+bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                      ScopeMovieInfo& info, std::string& err)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const auto t0 = std::chrono::steady_clock::now();
+   if (O("modality") == 1)
+   {
+      WidefieldMovie wm;
+      return wm.Begin(spec, false, err) && wm.Render(onFrame, info, err);
+   }
+   const ScopeSetup S = MakeScopeSetup(spec);
+   const SimulationParams& p = S.p;
+   const CellFieldSettings& cf = S.cf;
+   const CellFieldQuery& q = S.q;
+   const unsigned W = S.W, H = S.H;
+   const long N = S.N, seed = S.seed;
+   const double expSec = S.expSec, t0Sec = S.t0Sec;
    CellFieldSource source;
    std::vector<BlinkEvent> events;
    if (!source.Configure(cf, err))
       return false;
-   if (O("modality") == 1)
-      return RenderWidefield(spec, source, q, p, cf.seed, onFrame, info, err);
    if (!source.Events(q, events))
    {
       err = "cell-field event query failed";

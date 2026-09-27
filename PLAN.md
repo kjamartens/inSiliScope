@@ -9,6 +9,8 @@ Upcoming ideas:
   (focus = re-pairing), [x] per-focus images (no FFT per frame), [x] focus bands (gated, inactive for
   sharp-pupil PSFs), [x] world-anchored grid + dye tiles, [x] sub-cell phase ramp, [x] bleach basis
   (groups / Chebyshev), [x] destination prefetch, [x] pipelined live loop, [x] sequenceable ZStage + z
-  series. Next: [ ] the GPU WideField path (D3D11 in MM, WebGPU in the viewer); the Gaussian PSF's defocus
-  law (`WidefieldGaussianSigmaUm`, TODO(human)).
+  series, [x] the GPU WideField path (one WGSL source: WebGPU in the viewer, D3D11 in MM via naga HLSL,
+  fp16 resident spectra, stack frames + noise on the GPU, self-check + CPU fallback). Next: visual check
+  of the D3D11 path on a real Windows GPU; the Gaussian PSF's defocus law (`WidefieldGaussianSigmaUm`,
+  TODO(human)).
 - more targets

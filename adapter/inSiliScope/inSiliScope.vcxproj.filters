@@ -46,6 +46,9 @@
     <ClCompile Include="Simulation\WidefieldRender.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\capi.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -124,6 +127,12 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\WidefieldRender.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\WidefieldGpuD3D11.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\WidefieldGpuHlsl.inc">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h">

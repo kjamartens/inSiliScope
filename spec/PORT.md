@@ -562,4 +562,19 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
   positions at once (`FocusSeries`) and adopts them frame by frame; a precomputed stack is (re)made for
   the armed sequence (frame f at position f mod n) when an acquisition starts with a different one. SR
   frames take the positions too.
-* Limits: no drift, CPU only (D3D11 FFT path planned).
+* **GPU** (E). One source, `Simulation/WidefieldGpu.wgsl` (kernels: clear, scatter, radix-2 FFT in
+  workgroup memory (n <= 2048), Hermitian split into fp16 plane spectra scaled by 1 / sum|values|, the
+  re-pairing MAC, expand with the separable sub-cell phase, crop, and frames with the counter-based
+  noise chain). The scene hands a host a `WidefieldGpuJob` (GPU mode: power-of-two FFTs, no coarse bands)
+  whose plane keys are process-wide unique, so hosts keep plane spectra resident across focus jobs.
+  Viewer: `web/wf_gpu.js` on WebGPU (the WASM movie in steps: `isc_wf_begin`/`_job`/getters/
+  `_set_images`/`_movie`; any failure or a software adapter falls back to the CPU images). Adapter:
+  `Simulation/WidefieldGpuD3D11` on Direct3D 11 with HLSL generated from the WGSL by naga
+  (`tools/gen_wf_gpu.mjs` -> `WidefieldGpuHlsl.inc`); focus work in live and stack mode, stack frames
+  with noise on the GPU; `Create()` rejects software adapters and self-checks against the CPU; a failure
+  mid-stream falls back to the CPU (`General_GpuStatus` says which). fp16 spectra cost <= 3e-4 rms of the
+  image (measured 2.7e-5 .. 2.5e-4). Checks: ctest `widefield` (the job format through a CPU reference
+  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
+  Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
+  + Microsoft's HLSL compiler).
+* Limits: no drift.

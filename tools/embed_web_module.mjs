@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Wraps the viewer's single-file WASM build (build/wasm/cli/insiliscope_scope_single.js:
+// Wraps the viewer's single-file WASM build (and the WideField GPU kernels' WGSL) (build/wasm/cli/insiliscope_scope_single.js:
 // the core's C ABI + isc_scope_movie, the adapter's render code; WASM inlined as base64) into web/insiliscope_module.js, as source TEXT the
 // viewer can evaluate on the main thread and hand to its Web Workers (a page
 // opened from file:// cannot fetch() or importScripts() a sibling file).
@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'build/wasm/cli/insiliscope_scope_single.js');
 const OUT = path.join(ROOT, 'web/insiliscope_module.js');
+const WGSL = path.join(ROOT, 'adapter/inSiliScope/Simulation/WidefieldGpu.wgsl');
 const check = process.argv.includes('--check');
 
 const mod = fs.readFileSync(SRC, 'utf8');
@@ -34,6 +35,8 @@ const text =
 // The module as source text (WASM inlined as base64): evaluating it defines
 // createInsiliscope(); the viewer does that on the main thread and in each worker.
 self.ISC_MODULE_SRC = ${JSON.stringify(mod)};
+// The WideField GPU kernels (adapter/inSiliScope/Simulation/WidefieldGpu.wgsl), for web/wf_gpu.js.
+self.ISC_WF_WGSL = ${JSON.stringify(fs.readFileSync(WGSL, 'utf8'))};
 `;
 
 if (check) {

@@ -13,6 +13,11 @@ Canvas 2D and WebGL. Cells are packed on fixed 8x8-chunk blocks (as in the adapt
 exactly what the Micro-Manager adapter images. `?nw` runs the core on the main thread, `?2d` forces the
 Canvas 2D fallback (both for testing).
 
+WideField movies run their convolution on WebGPU when the browser has a hardware adapter
+(`wf_gpu.js`, the kernels of `adapter/inSiliScope/Simulation/WidefieldGpu.wgsl`, embedded in
+`insiliscope_module.js`); the movie's info line says "GPU: ..." or "CPU". A software adapter is not
+used unless `?wfgpu=any` (tests); any GPU failure falls back to the CPU.
+
 Rebuild the module after a core change:
 
     source ~/emsdk/emsdk_env.sh

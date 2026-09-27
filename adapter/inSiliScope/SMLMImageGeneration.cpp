@@ -336,9 +336,35 @@ std::function<double(std::mt19937_64&)> CInSiliScopeCamera::OutOfFocusDepthSampl
    };
 }
 
-namespace {
-const char* const kWideFieldGpuStatus = "CPU (WideField: FFT convolution on the CPU; GPU path planned)";
-} // namespace
+// The WideField GPU host for this thread, when General_UseGpu is On and a
+// usable Direct3D 11 device passes its self-check (General_GpuStatus says
+// which, or why not). Created once per thread and kept.
+sim::WidefieldGpuD3D11* CInSiliScopeCamera::WideFieldGpu(std::unique_ptr<sim::WidefieldGpuD3D11>& gpu, bool& tried)
+{
+   if (!useGpu_)
+   {
+      SetGpuStatus("CPU (General_UseGpu is Off)");
+      return nullptr;
+   }
+   thread_local std::string name; // this thread's host
+   if (!gpu && !tried)
+   {
+      tried = true;
+      std::string info;
+      gpu = sim::WidefieldGpuD3D11::Create(info);
+      if (!gpu)
+      {
+         SetGpuStatus("CPU (WideField: " + info + ")");
+         LogMessage("WideField GPU unavailable, convolving on the CPU: " + info, false);
+         return nullptr;
+      }
+      LogMessage("WideField GPU on " + info);
+      name = info;
+   }
+   if (gpu)
+      SetGpuStatus("GPU: " + name + " (WideField)");
+   return gpu.get();
+}
 
 sim::WidefieldSceneSpec CInSiliScopeCamera::BuildWidefieldSceneSpec(const sim::SimulationParams& params,
                                                                   const sim::CellFieldQuery& q) const
@@ -419,12 +445,16 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
                                               const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
                                               const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed)
 {
-   SetGpuStatus(kWideFieldGpuStatus);
    if (params.driftNmPerSecX > 0.0)
       LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
    auto t0 = std::chrono::steady_clock::now();
    std::string err;
    sim::CellFieldSource source;
+   // GPU: the focus work (spectra, re-pairing, images) and the frames
+   // (dyes, background, noise), the same Direct3D 11 host for both.
+   std::unique_ptr<sim::WidefieldGpuD3D11> gpuHolder;
+   bool gpuTried = false;
+   sim::WidefieldGpuD3D11* gpu = WideFieldGpu(gpuHolder, gpuTried);
    // An armed z sequence (a hardware-triggered z stack) gives frame f the
    // position seq[f % n], all made at once (FocusSeries); otherwise the Z
    // stage, read per batch of frames.
@@ -440,7 +470,36 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    const sim::SquareIllumination ill(w * spec.pixelUm, h * spec.pixelUm);
    sim::WidefieldScene scene;
    scene.SetTiles(wfTiles_);
+   if (gpu)
+   {
+      scene.SetGpuMode(true);
+      scene.SetAccelerator(gpu);
+   }
    bool ok = source.Configure(cellField, err) && scene.Update(source, ill, spec, *psf, err);
+   // Per-pixel frame inputs for GPU frames: the maps, and the background
+   // before the fade (map x illumination, as RenderPhotonImage).
+   bool gpuFrames = false;
+   if (gpu && ok)
+   {
+      std::vector<float> bg;
+      if (!shaping.background.empty() || !shaping.illum.empty())
+      {
+         const size_t n = static_cast<size_t>(w) * h;
+         bg.resize(n);
+         for (size_t i = 0; i < n; ++i)
+         {
+            double v = shaping.background.size() == n ? shaping.background[i] : params.backgroundPhotons;
+            if (shaping.illum.size() == n)
+               v *= shaping.illum[i];
+            bg[i] = static_cast<float>(v);
+         }
+      }
+      std::string e;
+      gpuFrames = gpu->SetFrameStatic(w, h, offsetMap.offset, gainMap.gainPhotonsPerAdu,
+                                      readNoiseMap.readNoiseElectrons, bg, params.backgroundPhotons, params.Camera(), e);
+      if (!gpuFrames)
+         LogMessage("WideField GPU frames unavailable, noise on the CPU: " + e, false);
+   }
    if (!ok)
       LogMessage("WideField: no dyes rendered (" + err + ")", false);
    else
@@ -493,8 +552,8 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
       const sim::WidefieldImages* img;
    };
    std::vector<Pending> pending;
-   auto flush = [&]() {
-      std::atomic<size_t> next{0};
+   auto flushCpu = [&](size_t from) {
+      std::atomic<size_t> next{from};
       auto worker = [&]() {
          std::vector<float> img;
          for (size_t i; (i = next.fetch_add(1)) < pending.size();)
@@ -516,6 +575,36 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
       worker();
       for (std::thread& t : pool)
          t.join();
+   };
+   auto flush = [&]() {
+      // GPU: runs of frames that share their images, one call each.
+      size_t done = 0;
+      while (gpuFrames && done < pending.size() && pending[done].img)
+      {
+         size_t end = done;
+         std::vector<std::vector<double>> coef;
+         std::vector<uint32_t> ids;
+         std::vector<double> bgs;
+         std::vector<std::vector<uint16_t>*> outs;
+         while (end < pending.size() && pending[end].img == pending[done].img)
+         {
+            const Pending& p = pending[end++];
+            coef.push_back(p.a);
+            ids.push_back(static_cast<uint32_t>(p.f));
+            bgs.push_back(shaping.Extras(p.f * params.frameDurationSec, decaySec).backgroundScale);
+            outs.push_back(&stack[static_cast<size_t>(p.f)]);
+         }
+         std::string e;
+         if (!gpu->RenderFrames(*pending[done].img, coef, ids, bgs, cam, noiseSeed, outs, e))
+         {
+            LogMessage("WideField GPU frames failed, noise on the CPU: " + e, false);
+            gpuFrames = false;
+            break;
+         }
+         done = end;
+      }
+      if (done < pending.size())
+         flushCpu(done);
       pending.clear();
    };
    std::vector<float> wb;
@@ -556,6 +645,11 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
       }
       flush();
       stackFramesGenerated_ = f1;
+   }
+   if (gpu && !scene.UsingAccelerator())
+   {
+      SetGpuStatus("CPU (" + scene.GpuError() + ")");
+      LogMessage(scene.GpuError() + " -- convolved on the CPU.", false);
    }
    if (clampedMax > 0)
    {
@@ -1114,6 +1208,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
       std::string err;
    } wfPrefetch;
    wfPrefetch.scene.SetTiles(wfTiles_);
+   // The GPU host of this thread (WideField focus work) and whether the
+   // scenes are in GPU mode.
+   std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
+   bool wfGpuTried = false, wfGpuMode = false;
    // Noise and publication of the previous WideField frame, overlapping the
    // next frame's scene work.
    std::thread wfFinisher;
@@ -1276,7 +1374,22 @@ void CInSiliScopeCamera::LiveProducerLoop()
          if (wfActive)
          {
             gpuOk = false;
-            SetGpuStatus(kWideFieldGpuStatus);
+            // The GPU host (this thread's); the scene must be made in the
+            // matching mode (power-of-two FFTs), so a change starts afresh.
+            sim::WidefieldGpuD3D11* acc = WideFieldGpu(wfGpu, wfGpuTried);
+            if ((acc != nullptr) != wfGpuMode)
+            {
+               wfScene = sim::WidefieldScene();
+               wfScene.SetTiles(wfTiles_);
+               wfPrefetch.scene = sim::WidefieldScene();
+               wfPrefetch.scene.SetTiles(wfTiles_);
+               wfPrefetch.ready = false;
+               wfSeries = WfSeries();
+               wfGpuMode = acc != nullptr;
+               wfScene.SetGpuMode(wfGpuMode);
+               wfPrefetch.scene.SetGpuMode(wfGpuMode);
+            }
+            wfScene.SetAccelerator(acc);
             if (params.driftNmPerSecX > 0.0)
                LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
             sim::WidefieldSceneSpec base = BuildWidefieldSceneSpec(params, sim::CellFieldQuery());
@@ -1348,7 +1461,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
                if (wfPrefetch.ready && std::fabs(sx - wfPrefetch.x) < 1e-6 && std::fabs(sy - wfPrefetch.y) < 1e-6)
                {
+                  // The prefetch ran on the CPU (the GPU host belongs to
+                  // this thread); its scene takes the host from here on.
                   std::swap(wfScene, wfPrefetch.scene);
+                  wfScene.SetAccelerator(wfGpuMode ? wfGpu.get() : nullptr);
+                  wfPrefetch.scene.SetAccelerator(nullptr);
                   wfPrefetch.ready = false;
                   wfSeries = WfSeries();
                }
@@ -1362,9 +1479,18 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
                std::string err;
                const bool wasOk = wfOk;
+               const bool wasAccel = wfScene.UsingAccelerator();
                wfOk = wfPsf && wfScene.Update(cellField, ill, wfSpec, *wfPsf, err);
                if (!wfOk && wasOk)
                   LogMessage("WideField: " + err, false);
+               if (wasAccel && !wfScene.UsingAccelerator())
+               {
+                  // The GPU failed mid-stream: CPU from here on (the scene
+                  // already re-rendered this focus on the CPU).
+                  SetGpuStatus("CPU (" + wfScene.GpuError() + ")");
+                  LogMessage(wfScene.GpuError() + " -- convolving on the CPU.", false);
+                  wfGpu.reset();
+               }
                if (wfOk && seqRunning)
                {
                   const sim::SharedStageState::ZSequence zs = sim::GetSharedStageState().GetZSequence();

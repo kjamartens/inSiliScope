@@ -29,6 +29,7 @@
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SMLMStructures.h"
 #include "Simulation/SMLMZernike.h"
+#include "Simulation/WidefieldGpuD3D11.h"
 #include "Simulation/WidefieldRender.h"
 
 #include <atomic>
@@ -423,6 +424,9 @@ private:
    // A version number for a cell-field world: bumped whenever the settings
    // differ from the last ones seen (keys the shared dye tiles).
    long WideFieldWorldVersion(const sim::CellFieldSettings& world);
+   // The calling thread's WideField GPU host (created once: gpu/tried are
+   // the thread's), or nullptr for the CPU; sets General_GpuStatus.
+   sim::WidefieldGpuD3D11* WideFieldGpu(std::unique_ptr<sim::WidefieldGpuD3D11>& gpu, bool& tried);
    // One corelog line of the derived photophysics (sigma, k_em, t1/2, eta,
    // photons/dye/frame).
    void LogWidefieldPhotophysics(const sim::WidefieldSceneSpec& spec);

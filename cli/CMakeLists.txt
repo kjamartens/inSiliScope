@@ -32,7 +32,7 @@ if(EMSCRIPTEN)
     -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
     -sALLOW_MEMORY_GROWTH=1
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_scope_options,_isc_scope_movie]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_scope_options,_isc_scope_movie,_isc_wf_begin,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")
@@ -77,4 +77,13 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(widefield_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME widefield COMMAND widefield_check)
+  if(WIN32)
+    # The WideField GPU host on Direct3D 11 (Linux: tools/wine_wf_gpu_check.sh).
+    add_executable(wf_gpu_d3d11_check ${PROJECT_SOURCE_DIR}/tests/d3d11/wf_gpu_d3d11_check.cpp ${ISC_SIM_SRC}
+                   ${ISC_SIM}/WidefieldGpuD3D11.cpp)
+    target_include_directories(wf_gpu_d3d11_check PRIVATE ${ISC_SIM} ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(wf_gpu_d3d11_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(wf_gpu_d3d11_check PRIVATE insiliscope_core d3d11 d3dcompiler dxgi)
+    add_test(NAME wf_gpu_d3d11 COMMAND wf_gpu_d3d11_check)
+  endif()
 endif()

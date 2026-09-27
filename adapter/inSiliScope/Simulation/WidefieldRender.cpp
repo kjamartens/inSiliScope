@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <limits>
 
 namespace sim {
@@ -62,6 +63,15 @@ long SnapFloor(double x)
    if (std::fabs(x - r) < 1e-9)
       return static_cast<long>(r);
    return static_cast<long>(std::floor(x));
+}
+
+// Process-wide serial numbers for channel versions and scene geometries: a
+// GPU host shared by several scenes (a self-check, the live scene, a
+// prefetch) never sees one scene's keys under another's.
+unsigned long long NextSerial()
+{
+   static std::atomic<unsigned long long> next{1};
+   return next.fetch_add(1);
 }
 
 double Sinc(double x)
@@ -748,6 +758,8 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
          kernels_.clear();
          kernelsVersion_ = spec.psfVersion;
       }
+      if (fftChanged || rectChanged)
+         geometry_ = NextSerial();
    }
    const bool weightsChanged = fftChanged || rectChanged || wp != wp_ || dD != dD_;
    illum_.swap(ill);
@@ -763,7 +775,7 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
       persistent_.pop = 1;
       persistent_.weight = wp_;
       DropChannel(persistent_);
-      persistent_.version = nextVersion_++;
+      persistent_.version = NextSerial();
       for (Channel& c : bleach_)
          DropChannel(c);
       bleach_.clear();
@@ -821,7 +833,15 @@ void WidefieldScene::SetupFft(const WidefieldPsf& psf, double kernelCapUm, bool 
    auto need = [&](unsigned n, unsigned fov0, unsigned fovN) {
       const unsigned a = fov0 + fovN + static_cast<unsigned>(R_) + 6;
       const unsigned b = n + static_cast<unsigned>(R_) + 6 - std::min(fov0, n);
-      return RealFft2d::FastSize(std::max({n + 8, a, b}), 8);
+      const unsigned m = std::max({n + 8, a, b});
+      if (gpuMode_)
+      {
+         unsigned p = 16;
+         while (p < m)
+            p <<= 1;
+         return p;
+      }
+      return RealFft2d::FastSize(m, 8);
    };
    const unsigned nx = need(g.nx, fovX0_, spec_.width * u), ny = need(g.ny, fovY0_, spec_.height * u);
    if (nx != nx_ || ny != ny_)
@@ -830,7 +850,7 @@ void WidefieldScene::SetupFft(const WidefieldPsf& psf, double kernelCapUm, bool 
       ny_ = ny;
       levels_ = 1;
       fft_[0] = RealFft2d(nx, ny);
-      for (int L = 1; L < kLevels; ++L)
+      for (int L = 1; L < kLevels && !gpuMode_; ++L)
       {
          const unsigned f = 1u << L;
          if (nx % (2 * f) != 0 || ny % f != 0 || nx / f < 16 || ny / f < 16)
@@ -1232,8 +1252,148 @@ void WidefieldScene::Refocus(const WidefieldPsf& psf)
    clamped_ = plan_.clamped;
    for (int L = 0; L < kLevels; ++L)
       planesPerLevel_[L] = plan_.perLevel[L];
+   if (defer_)
+   {
+      images_ = WidefieldImages();
+      return;
+   }
+   if (accel_)
+   {
+      std::vector<std::vector<float>> imgs;
+      if (AccelImages(plan_, ActiveChannels(), imgs))
+      {
+         SetImages(imgs);
+         return;
+      }
+   }
+   ComputeCpuImages();
+}
+
+void WidefieldScene::ComputeCpuImages()
+{
    FillSpectra(ActiveChannels(), {&plan_});
    ImagesFor(plan_, images_);
+}
+
+bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Channel*>& chans,
+                            WidefieldGpuJob& job) const
+{
+   job = WidefieldGpuJob();
+   if (!gpuMode_ || levels_ != 1 || nx_ > WidefieldGpuJob::kMaxGpuFft || ny_ > WidefieldGpuJob::kMaxGpuFft ||
+       (nx_ & (nx_ - 1)) != 0 || (ny_ & (ny_ - 1)) != 0)
+      return false;
+   const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
+   job.NX = nx_;
+   job.NY = ny_;
+   job.nx = rect_.nx;
+   job.ny = rect_.ny;
+   job.fovX0 = fovX0_;
+   job.fovY0 = fovY0_;
+   job.cw = spec_.width * u;
+   job.ch = spec_.height * u;
+   job.fracX = fracX_;
+   job.fracY = fracY_;
+   job.geometry = geometry_;
+   job.hasPersistent = !chans.empty() && chans[0] == &persistent_;
+   std::vector<int> ps;
+   auto key = [](const Channel& c, long k) {
+      return (static_cast<unsigned long long>(c.version) << 32) ^ static_cast<uint32_t>(k + 0x40000000L);
+   };
+   // Planes whose weighted dyes are all zero (unlit) have no spectrum: no dep.
+   std::map<unsigned long long, bool> planeSeen; // key -> has values
+   for (const Channel* c : chans)
+   {
+      std::vector<WidefieldGpuJob::Dep> deps;
+      for (const FocusPlan::Dep& d : plan.deps)
+      {
+         const WidefieldSparsePlane& pl = dyes_.planes.at(d.k);
+         if (pl.Empty(c->pop))
+            continue;
+         const unsigned long long kk = key(*c, d.k);
+         auto seen = planeSeen.find(kk);
+         if (seen == planeSeen.end())
+         {
+            bool any = accel_ && accel_->HasPlane(geometry_, kk);
+            if (!any)
+            {
+               WidefieldGpuJob::Plane jp;
+               jp.key = kk;
+               const std::vector<uint32_t>& cells = pl.cell[c->pop];
+               const std::vector<float>& counts = pl.count[c->pop];
+               for (size_t i = 0; i < cells.size(); ++i)
+               {
+                  const float v = counts[i] * c->weight[cells[i]];
+                  if (v == 0.0f)
+                     continue;
+                  jp.cells.push_back(cells[i]);
+                  jp.values.push_back(v);
+                  jp.absSum += std::fabs(v);
+               }
+               any = !jp.cells.empty();
+               if (any)
+                  job.planes.push_back(std::move(jp));
+            }
+            seen = planeSeen.insert({kk, any}).first;
+         }
+         if (!seen->second)
+            continue;
+         const bool two = d.w1 > 0.0f;
+         deps.push_back({kk, d.p0, two ? d.p0 + 1 : d.p0, d.w0, two ? d.w1 : 0.0f, two});
+         for (int p : {d.p0, d.p0 + 1})
+            if ((p == d.p0 || two) && std::find(ps.begin(), ps.end(), p) == ps.end())
+               ps.push_back(p);
+      }
+      job.channels.push_back(std::move(deps));
+   }
+   std::sort(ps.begin(), ps.end());
+   for (int p : ps)
+      job.kernels.push_back({p, &kernels_.at(p).spec[0]});
+   return true;
+}
+
+bool WidefieldScene::MakeGpuJob(WidefieldGpuJob& job) const
+{
+   return JobFor(plan_, ActiveChannels(), job);
+}
+
+bool WidefieldScene::AccelImages(const FocusPlan& plan, const std::vector<const Channel*>& chans,
+                                 std::vector<std::vector<float>>& out)
+{
+   WidefieldGpuJob job;
+   if (!JobFor(plan, chans, job))
+   {
+      gpuError_ = "WideField GPU: this scene cannot run on the GPU (FFT " + std::to_string(nx_) + "x" +
+                  std::to_string(ny_) + ")";
+      accel_ = nullptr;
+      return false;
+   }
+   std::string err;
+   if (!accel_->Images(job, out, err) || out.size() != job.channels.size())
+   {
+      gpuError_ = "WideField GPU failed: " + err;
+      accel_ = nullptr;
+      return false;
+   }
+   return true;
+}
+
+bool WidefieldScene::SetImages(std::vector<std::vector<float>>& imgs)
+{
+   const std::vector<const Channel*> chans = ActiveChannels();
+   if (imgs.size() != chans.size())
+      return false;
+   const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
+   images_.cw = spec_.width * u;
+   images_.ch = spec_.height * u;
+   images_.upscale = u;
+   images_.persistent.clear();
+   images_.bleach.clear();
+   size_t i = 0;
+   if (!chans.empty() && chans[0] == &persistent_)
+      images_.persistent.swap(imgs[i++]);
+   for (; i < imgs.size(); ++i)
+      images_.bleach.push_back(std::move(imgs[i]));
+   return true;
 }
 
 // ---- Bleaching -----------------------------------------------------------------
@@ -1309,7 +1469,7 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb)
          for (size_t i = 0; i < n; ++i)
             if (wb[i] != 0.0f && dD_[i] == g)
                c.weight[i] = wb[i];
-         c.version = nextVersion_++;
+         c.version = NextSerial();
          bleach_.push_back(std::move(c));
       }
       return;
@@ -1320,7 +1480,7 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb)
       Channel c;
       c.pop = 0;
       c.weight.assign(n, 0.0f);
-      c.version = nextVersion_++;
+      c.version = NextSerial();
       bleach_.push_back(std::move(c));
    }
    for (size_t i = 0; i < n; ++i)
@@ -1352,8 +1512,17 @@ void WidefieldScene::SetBleachWeights(const std::vector<float>& wb)
    std::vector<const Channel*> chans;
    for (const Channel& c : bleach_)
       chans.push_back(&c);
-   if (!haveSpec_ || !psf_)
+   if (!haveSpec_ || !psf_ || defer_)
       return;
+   if (accel_)
+   {
+      std::vector<std::vector<float>> imgs;
+      if (AccelImages(plan_, chans, imgs))
+      {
+         images_.bleach = std::move(imgs);
+         return;
+      }
+   }
    FillSpectra(chans, {&plan_});
    images_.bleach.resize(bleach_.size());
    for (size_t j = 0; j < bleach_.size(); ++j)
@@ -1483,11 +1652,37 @@ bool WidefieldScene::FocusSeries(const std::vector<double>& focusWorldUm, std::v
       plans[i] = PlanFocus(*psf_, focusWorldUm[i]);
    }
    rect_ = keep;
+   out.resize(plans.size());
+   if (accel_)
+   {
+      // One job per focus; the plane spectra stay resident between them.
+      const std::vector<const Channel*> chans = ActiveChannels();
+      bool ok = true;
+      for (size_t i = 0; i < plans.size() && ok; ++i)
+      {
+         std::vector<std::vector<float>> imgs;
+         ok = AccelImages(plans[i], chans, imgs);
+         if (ok)
+         {
+            const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
+            WidefieldImages& o = out[i];
+            o.cw = spec_.width * u;
+            o.ch = spec_.height * u;
+            o.upscale = u;
+            size_t j = 0;
+            if (!chans.empty() && chans[0] == &persistent_)
+               o.persistent.swap(imgs[j++]);
+            for (; j < imgs.size(); ++j)
+               o.bleach.push_back(std::move(imgs[j]));
+         }
+      }
+      if (ok)
+         return true;
+   }
    std::vector<const FocusPlan*> pp;
    for (const FocusPlan& p : plans)
       pp.push_back(&p);
    FillSpectra(ActiveChannels(), pp);
-   out.resize(plans.size());
    ParallelFor(static_cast<unsigned>(plans.size()), [&](unsigned i) { ImagesFor(plans[i], out[i]); });
    return true;
 }
