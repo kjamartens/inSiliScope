@@ -13,4 +13,11 @@ Upcoming ideas:
   fp16 resident spectra, stack frames + noise on the GPU, self-check + CPU fallback). Next: visual check
   of the D3D11 path on a real Windows GPU; the Gaussian PSF's defocus law (`WidefieldGaussianSigmaUm`,
   TODO(human)).
+- SuperRes speed-ups (2026-09-28), every output bit-identical (cli TIFFs, adapter_pixel_hash + 3 CellField
+  configs, world_checks `Threads`, ctest `sr_render` against the previous splat/FFT code): [x] core
+  query on threads (packing blocks, cell assets, dye blocks, schedules, persistent covers) + hoisted
+  invariants, [x] short first persistent cover, [x] PSF kernel memo (a property change no longer
+  recomputes it), [x] stack query concurrent with the PSF computation, [x] live CPU render + noise in
+  row bands on all cores, [x] bounds-check-free splat, [x] Fft placement: tabulated twiddles, line
+  transforms on all cores in live mode, [x] cli frames in parallel batches.
 - more targets

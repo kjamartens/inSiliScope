@@ -8,6 +8,7 @@
 // LICENSE:       BSD (see license.txt)
 
 #include "ScopeMovie.h"
+#include "Parallel.h"
 
 #include "CellFieldSource.h"
 #include "SMLMNoise.h"
@@ -438,19 +439,29 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    const uint32_t noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
    const std::vector<std::vector<uint32_t>> buckets = BucketEventsByFrame(events, N);
 
-   std::vector<float> photons;
-   std::vector<uint16_t> adu;
-   std::vector<BlinkEvent> fe;
-   for (long f = 0; f < N; f++)
+   // Frames are independent (own events, counter-based noise), so a batch
+   // is made on all cores (serial under Emscripten) and handed over in order.
+   const double zStage = O("z");
+   const long batch = 32;
+   std::vector<std::vector<uint16_t>> adu(static_cast<size_t>(std::min(batch, std::max(N, 1L))));
+   for (long f0 = 0; f0 < N; f0 += batch)
    {
-      fe.clear();
-      for (uint32_t i : buckets[static_cast<size_t>(f)])
-         fe.push_back(events[i]);
-      RenderPhotonImage(photons, W, H, fe, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                        0.0, 0.0, nullptr, O("z"));
-      ApplyNoiseChain(photons, adu, W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
-                      static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
+      const long nb = std::min(batch, N - f0);
+      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+         const long f = f0 + static_cast<long>(k);
+         std::vector<BlinkEvent> fe;
+         for (uint32_t i : buckets[static_cast<size_t>(f)])
+            fe.push_back(events[i]);
+         std::vector<float> photons;
+         RenderPhotonImage(photons, W, H, fe, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
+                           0.0, 0.0, nullptr, zStage);
+         ApplyNoiseChain(photons, adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
+                         static_cast<uint32_t>(f));
+      });
+      bool more = true;
+      for (long k = 0; k < nb && more; k++)
+         more = onFrame(f0 + k, adu[static_cast<size_t>(k)]);
+      if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

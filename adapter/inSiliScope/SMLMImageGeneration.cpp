@@ -838,34 +838,40 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering SuperRes.",
                  false);
    std::vector<sim::BlinkEvent> events;
+   // CellField: the query runs on its own thread while the maps and the PSF
+   // kernel are made below (neither depends on it); joined before events is
+   // first used.
+   std::thread cellFieldQuery;
    if (isCellField && !wf)
    {
-      // Every blink of the frames' simulated time span [0, N * frameSec) in
-      // one query; tStart/tEnd come out in frames (BucketEventsByFrame then
-      // splits them as for any pattern).
-      auto t0 = std::chrono::steady_clock::now();
-      sim::CellFieldSource source;
-      std::string err;
-      double d1x = 0.0, d1y = 0.0;
-      sim::ComputeDriftOffsetPx(stackLength * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
-                                params.pixelSizeNm, d1x, d1y);
-      sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, stageZUm, fullW, fullH, params, 0.0, 0.0, d1x,
-                                                d1y, 0, 0.0, stackLength * params.frameDurationSec);
-      const std::string zWarn = CellFieldZRangeWarning();
-      if (!zWarn.empty())
-         LogMessage(zWarn, false);
-      if (!source.Configure(cellField, err) || !source.Events(q, events))
-         LogMessage("CellField: no events (" + (err.empty() ? std::string("core query failed") : err) + ")", false);
-      std::ostringstream msg;
-      msg << "CellField: " << events.size() << " blinks for " << stackLength << " frames at stage (" << stageXUm
-          << ", " << stageYUm << ") um, dyes "
-          << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
-                                 : std::string("at any z"))
-          << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; General_EmitterDensityPerSec "
-          << "does not apply to this pattern) ("
-          << std::fixed << std::setprecision(2)
-          << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
-      LogMessage(msg.str());
+      cellFieldQuery = std::thread([&]() {
+         // Every blink of the frames' simulated time span [0, N * frameSec) in
+         // one query; tStart/tEnd come out in frames (BucketEventsByFrame then
+         // splits them as for any pattern).
+         auto t0 = std::chrono::steady_clock::now();
+         sim::CellFieldSource source;
+         std::string err;
+         double d1x = 0.0, d1y = 0.0;
+         sim::ComputeDriftOffsetPx(stackLength * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
+                                   params.pixelSizeNm, d1x, d1y);
+         sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, stageZUm, fullW, fullH, params, 0.0, 0.0, d1x,
+                                                   d1y, 0, 0.0, stackLength * params.frameDurationSec);
+         const std::string zWarn = CellFieldZRangeWarning();
+         if (!zWarn.empty())
+            LogMessage(zWarn, false);
+         if (!source.Configure(cellField, err) || !source.Events(q, events))
+            LogMessage("CellField: no events (" + (err.empty() ? std::string("core query failed") : err) + ")", false);
+         std::ostringstream msg;
+         msg << "CellField: " << events.size() << " blinks for " << stackLength << " frames at stage (" << stageXUm
+             << ", " << stageYUm << ") um, dyes "
+             << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
+                                    : std::string("at any z"))
+             << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; General_EmitterDensityPerSec "
+             << "does not apply to this pattern) ("
+             << std::fixed << std::setprecision(2)
+             << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
+         LogMessage(msg.str());
+      });
    }
    else if (!isCellField)
    {
@@ -905,6 +911,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             LogMessage(crlb);
       }
    }
+
+   if (cellFieldQuery.joinable())
+      cellFieldQuery.join();
 
    // Blinking out-of-focus emitters (Background_OutOfFocusRatio): the same
    // kinetics on the same structure at ratio x the density, on their own rng
@@ -1643,12 +1652,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       if (!rendered)
       {
+         // One frame at a time here, so it uses every core (row bands: the
+         // same pixels as a serial render).
+         sim::RenderExtras cpuExtras = extras;
+         cpuExtras.parallel = true;
          sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
                                 params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
                                 psfCache.valid ? &psfCache : nullptr, zOffsetUm,
-                                &zClampedSinceRebuild, &zTotalSinceRebuild, &extras);
+                                &zClampedSinceRebuild, &zTotalSinceRebuild, &cpuExtras);
          sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
-                              liveNoiseSeed, noiseFrame);
+                              liveNoiseSeed, noiseFrame, true);
       }
 
       if (!publishedAsync)

@@ -127,6 +127,8 @@ struct PixelGainMap
 // + offset, rounded and clipped to [0, 2^bitDepth - 1]. The per-pixel gain
 // and read-noise maps still apply. Unlike webSMLM (which has no dark
 // current), dark current is added to the Poisson mean alongside CIC.
+// parallel: bands of rows on all cores (the same image; for a single frame,
+// not for frames already made in parallel).
 void ApplyNoiseChain(const std::vector<float>& photonImage,
                       std::vector<uint16_t>& outAdu,
                       unsigned width, unsigned height,
@@ -134,6 +136,6 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
                       const PixelOffsetMap& offsetMap,
                       const PixelGainMap& gainMap,
                       const PixelReadNoiseMap& readNoiseMap,
-                      uint32_t noiseSeed, uint32_t frame);
+                      uint32_t noiseSeed, uint32_t frame, bool parallel = false);
 
 } // namespace sim

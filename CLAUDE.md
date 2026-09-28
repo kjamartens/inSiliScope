@@ -29,7 +29,9 @@ that finishes them.
 - `tests/web/` -- the viewer's WideField GPU path in headless Chromium; `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
-  query); `cli/widefield_check.cpp` (ctest `widefield`); `tools/` -- `gen_jsmath.py`,
+  query, and `Threads`: 8 threads = 1 thread); `cli/widefield_check.cpp` (ctest `widefield`);
+  `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
+  parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
   `adapter_pixel_hash.py`, `test_insiliscope.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)
@@ -47,6 +49,9 @@ that finishes them.
 - **Types follow the JS:** `double` where JS uses numbers, `float` exactly where JS uses a
   `Float32Array`. Keep JS operand order in expressions (`a*b*c` is `(a*b)*c`), and never write two
   draws from one sequential stream in a single expression (C++ evaluation order is unspecified).
+- **Threads** (`core/src/parallel.*`, `ParallelFor`): only for work items that are pure functions of
+  their address and write only their own slot; results are consumed in the serial order (the event
+  order is the renderer's summation order). Serial in WASM.
 - **Floating-point flags:** no `-ffast-math`; `-ffp-contract=off` (GCC/Clang/Emscripten),
   `/fp:precise` without `/fp:contract` (MSVC). Set in `core/CMakeLists.txt`.
 - The prototype in `web/prototype/` changes only deliberately. When its generator changes, update
@@ -149,6 +154,16 @@ the Gaussian PSF ignores defocus for now (`WidefieldGaussianSigmaUm`, TODO(human
 `modality` (0/1 or the names), `wf-upscale`, `wf-plane-nm`, `wf-kernel-um`, `wf-excitation-photons-
 per-um2-per-sec`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`, `immersion-index`.
 Details: spec/PORT.md 13; ctest `widefield`, `cli_tiff_wf`.
+
+**SuperRes speed-ups (2026-09-28), output bit-identical:** the core query runs its per-block work on
+threads (spec/PORT.md 6.1: 1000-frame stack query ~6x faster, stage jumps ~4x on 4 cores); the vectorial
+PSF kernel is memoized (`ComputePsfKernelCache`, last 2 requests: a live property change or a new stack
+that leaves the PSF alone no longer re-runs the JVM); the stack's CellField query runs while the PSF is
+computed; live CPU frames render and add noise in row bands on all cores (`RenderExtras::parallel`,
+`ApplyNoiseChain(..., parallel)`); the splat skips its per-tap bounds checks; `Fft` placement tabulates
+its twiddles (~1.6x) and, in live mode, transforms lines on all cores; the cli renders frames in
+parallel batches. Checked: cli TIFFs and `adapter_pixel_hash` (+ CellField configs) unchanged, ctest
+`sr_render`, `world_checks` `Threads`.
 
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
