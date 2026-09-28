@@ -15,10 +15,16 @@ add_library(insiliscope_core STATIC
   ${ISC_MATH_SRC}
   src/microtubules.cpp
   src/packing.cpp
+  src/parallel.cpp
   src/params.cpp
   src/world.cpp
 )
 target_include_directories(insiliscope_core PUBLIC include PRIVATE src)
+if(NOT EMSCRIPTEN)
+  # src/parallel.cpp (serial under Emscripten without pthreads).
+  find_package(Threads REQUIRED)
+  target_link_libraries(insiliscope_core PUBLIC Threads::Threads)
+endif()
 
 # Floating point: no contraction into FMA, no fast-math, so native and WASM
 # evaluate every expression exactly as written (and as JS does).
@@ -33,7 +39,7 @@ endif()
 if(EMSCRIPTEN)
   add_executable(insiliscope_wasm src/wasm_entry.cpp)
   target_link_libraries(insiliscope_wasm PRIVATE insiliscope_core)
-  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_kinetics,_isc_events_in_window,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_malloc,_free")
+  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_kinetics,_isc_events_in_window,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_malloc,_free")
   set(ISC_EXPORTS "${ISC_EXPORTS}" PARENT_SCOPE)   # cli/ links the viewer module with the same list
   target_link_options(insiliscope_wasm PRIVATE
     -O3

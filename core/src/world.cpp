@@ -2,6 +2,7 @@
 
 #include "jsmath.h"
 #include "packing.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <chrono>
@@ -42,6 +43,23 @@ double CellReachUm(const Params& p)
    return 2 * worstSemiMajor * CELL_MOD_MAX + p.chunkSize;
 }
 
+// A cell's geometry and microtubules (a pure function of seed, cell, params).
+std::unique_ptr<CellAssets> BuildCellAssets(uint32_t seed, const Cell& c, const Params& p)
+{
+   std::unique_ptr<CellAssets> a(new CellAssets());
+   a->cell = c;
+   a->geom = BuildMtCellGeom(c, p);
+   a->mts = BuildMicrotubulesForCell(seed, c, p, a->geom);
+   a->mtReach.resize(a->mts.size());
+   a->frames.resize(a->mts.size());
+   for (size_t i = 0; i < a->mts.size(); i++) {
+      double r = 0;
+      for (const Pt3& q : a->mts[i].pts) r = std::max(r, jsm::hypot(q.x, q.y));
+      a->mtReach[i] = r;
+   }
+   return a;
+}
+
 } // namespace
 
 void LocalToWorld(const Cell& c, double lx, double ly, double& wx, double& wy)
@@ -75,13 +93,8 @@ void World::DropCaches()
    prefetchDone_.valid = false;
 }
 
-const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
+std::vector<Cell> World::PackBlock(int32_t bx, int32_t by) const
 {
-   const auto key = std::make_pair(bx, by);
-   auto it = blocks_.find(key);
-   if (it != blocks_.end()) return it->second;
-   if (blocks_.size() >= BLOCK_CACHE_MAX) blocks_.clear();
-
    const int32_t cx0 = bx * PACK_BLOCK_CHUNKS, cy0 = by * PACK_BLOCK_CHUNKS;
    const int32_t cx1 = cx0 + PACK_BLOCK_CHUNKS - 1, cy1 = cy0 + PACK_BLOCK_CHUNKS - 1;
    std::vector<Cell> cells;
@@ -100,6 +113,23 @@ const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
             if (c.present) cells.push_back(c);
          }
    }
+   return cells;
+}
+
+const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
+{
+   const auto key = std::make_pair(bx, by);
+   auto it = blocks_.find(key);
+   if (it != blocks_.end()) return it->second;
+   if (blocks_.size() >= BLOCK_CACHE_MAX) blocks_.clear();
+   std::vector<Cell> cells;
+   auto pre = packPrebuilt_.find(key);
+   if (pre != packPrebuilt_.end()) {
+      cells = std::move(pre->second);
+      packPrebuilt_.erase(pre);
+   } else {
+      cells = PackBlock(bx, by);
+   }
    stats_.blocksPacked++;
    return blocks_.emplace(key, std::move(cells)).first->second;
 }
@@ -111,10 +141,22 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
    const int32_t cyLo = (int32_t)std::floor((y0 - reach) / S), cyHi = (int32_t)std::floor((y1 + reach) / S);
    const int32_t bx0 = FloorDiv(cxLo, PACK_BLOCK_CHUNKS), bx1 = FloorDiv(cxHi, PACK_BLOCK_CHUNKS);
    const int32_t by0 = FloorDiv(cyLo, PACK_BLOCK_CHUNKS), by1 = FloorDiv(cyHi, PACK_BLOCK_CHUNKS);
+   // Pack the missing blocks in parallel (each is a pure function of its
+   // address); PackedBlock below takes them in the usual order.
+   std::vector<std::pair<int32_t, int32_t>> missing;
+   for (int32_t bx = bx0; bx <= bx1; bx++)
+      for (int32_t by = by0; by <= by1; by++)
+         if (!blocks_.count(std::make_pair(bx, by))) missing.push_back(std::make_pair(bx, by));
+   if (missing.size() > 1) {
+      std::vector<std::vector<Cell>> built(missing.size());
+      ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = PackBlock(missing[i].first, missing[i].second); });
+      for (size_t i = 0; i < missing.size(); i++) packPrebuilt_[missing[i]] = std::move(built[i]);
+   }
    for (int32_t bx = bx0; bx <= bx1; bx++)
       for (int32_t by = by0; by <= by1; by++)
          for (const Cell& c : PackedBlock(bx, by))
             if (RectDist(c.x, c.y, x0, y0, x1, y1) <= c.rOuter) out.push_back(c);
+   packPrebuilt_.clear();
 }
 
 CellAssets& World::Assets(const Cell& c)
@@ -125,16 +167,13 @@ CellAssets& World::Assets(const Cell& c)
       if (it != assets_.begin()) assets_.splice(assets_.begin(), assets_, it);
       return *assets_.front().second;
    }
-   std::unique_ptr<CellAssets> a(new CellAssets());
-   a->cell = c;
-   a->geom = BuildMtCellGeom(c, p_);
-   a->mts = BuildMicrotubulesForCell(seed_, c, p_, a->geom);
-   a->mtReach.resize(a->mts.size());
-   a->frames.resize(a->mts.size());
-   for (size_t i = 0; i < a->mts.size(); i++) {
-      double r = 0;
-      for (const Pt3& q : a->mts[i].pts) r = std::max(r, jsm::hypot(q.x, q.y));
-      a->mtReach[i] = r;
+   std::unique_ptr<CellAssets> a;
+   auto pre = assetPrebuilt_.find(key);
+   if (pre != assetPrebuilt_.end()) {
+      a = std::move(pre->second);
+      assetPrebuilt_.erase(pre);
+   } else {
+      a = BuildCellAssets(seed_, c, p_);
    }
    stats_.cellsBuilt++;
    assets_.emplace_front(key, std::move(a));
@@ -143,16 +182,42 @@ CellAssets& World::Assets(const Cell& c)
 }
 
 template <class Fn>
-void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn)
+void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                            const BlockPrep& prep, const BlockNeeds& needs, Fn fn)
 {
    query_++;
    std::vector<Cell> cells;
    CellsInRect(x0, y0, x1, y1, cells);
+   // The assets of the cells not cached, built in parallel (Assets takes them
+   // in the usual order). Not under a deadline: that walk may stop early.
+   if (!deadline_) {
+      std::vector<const Cell*> missing;
+      for (const Cell& c : cells) {
+         const auto key = std::make_pair(c.cx, c.cy);
+         bool known = assetPrebuilt_.count(key) > 0;
+         for (auto it = assets_.begin(); !known && it != assets_.end(); ++it) known = it->first == key;
+         if (!known) {
+            missing.push_back(&c);
+            assetPrebuilt_[key] = nullptr;
+         }
+      }
+      assetPrebuilt_.clear();
+      if (missing.size() > 1) {
+         std::vector<std::unique_ptr<CellAssets>> built(missing.size());
+         ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = BuildCellAssets(seed_, *missing[i], p_); });
+         for (size_t i = 0; i < missing.size(); i++)
+            assetPrebuilt_[std::make_pair(missing[i]->cx, missing[i]->cy)] = std::move(built[i]);
+      }
+   }
    const double blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
+   struct Item { DyeBlock* b; int mt, block; };
+   std::vector<Item> batch;
+   std::vector<size_t> work;
    for (const Cell& c : cells) {
       if (PastDeadline()) break;
       CellAssets& A = Assets(c);
       const double centreDist = RectDist(c.x, c.y, x0, y0, x1, y1);
+      batch.clear();
       for (size_t i = 0; i < A.mts.size(); i++) {
          const std::vector<Pt3>& pts = A.mts[i].pts;
          if (pts.size() < 2 || centreDist > A.mtReach[i] + DYE_REACH_UM) continue;
@@ -167,10 +232,28 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
             LocalToWorld(c, mid.x, mid.y, wx, wy);
             if (RectDist(wx, wy, x0, y0, x1, y1) > blockReach) continue;
             if (PastDeadline()) break;
-            fn(GetDyeBlock(A, (int)i, b));
+            batch.push_back({ &FindDyeBlock(c, (int)i, b), (int)i, b });
          }
       }
+      // This cell's new dye blocks, then the prep work, in parallel; each
+      // item touches only its own block.
+      work.clear();
+      for (size_t k = 0; k < batch.size(); k++)
+         if (!batch[k].b->generated) work.push_back(k);
+      ParallelFor(work.size(), 2, [&](size_t w) {
+         const Item& it = batch[work[w]];
+         GenerateDyes(*it.b, c, A.mts[it.mt].pts, *A.frames[it.mt], it.mt, it.block);
+      });
+      for (size_t k : work) dyeCount_ += batch[k].b->dyes.size();
+      if (prep) {
+         work.clear();
+         for (size_t k = 0; k < batch.size(); k++)
+            if (needs(*batch[k].b)) work.push_back(k);
+         ParallelFor(work.size(), 2, [&](size_t w) { prep(*batch[work[w]].b); });
+      }
+      for (const Item& it : batch) fn(*it.b);
    }
+   assetPrebuilt_.clear();
    // Evict least recently used blocks only now, and never one this query
    // used (they are the most recent ones): evicting while the query runs
    // could drop blocks it has not reached yet and regenerate them, and a
@@ -208,11 +291,19 @@ bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, do
    const double maxOn = PERSIST_ON_CAP * kin_.onSec;
    const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
    const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
-   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
-      if (b.dyes.empty()) return;
-      Schedule(b);
-      if (persist && !b.persistent.empty()) PersistentCover(b, b0, b1, t1);
-   });
+   PrepCounts n;
+   ForEachDyeBlock(
+      x0, y0, x1, y1, zMin, zMax,
+      [&](DyeBlock& b) {
+         if (Schedule(b)) n.schedules++;
+         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, false)) n.covers++;
+      },
+      [&](const DyeBlock& b) {
+         return !b.dyes.empty() && (!b.scheduled || (persist && !b.persistent.empty() && CoverWouldBuild(b, b0, b1, t1)));
+      },
+      [](DyeBlock&) {});
+   stats_.schedulesBuilt += n.schedules.load();
+   stats_.persistentBuilt += n.covers.load();
    deadline_ = nullptr;
    const bool complete = !stopped_;
    stopped_ = false;
@@ -227,9 +318,8 @@ bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, do
    return complete;
 }
 
-World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
+World::DyeBlock& World::FindDyeBlock(const Cell& c, int mtIndex, int block)
 {
-   const Cell& c = A.cell;
    const BlockKey key = { c.cx, c.cy, mtIndex, block };
    auto it = dyeIndex_.find(key);
    if (it != dyeIndex_.end()) {
@@ -238,10 +328,21 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
       dyeLru_.front().second.used = query_;
       return dyeLru_.front().second;
    }
+   // Filled in by GenerateDyes before anything reads it (ForEachDyeBlock),
+   // counted in dyeCount_ then; evicted only at the end of a query.
    DyeBlock blk;
+   blk.used = query_;
+   stats_.dyeBlocks++;
+   dyeLru_.emplace_front(key, std::move(blk));
+   dyeIndex_[key] = dyeLru_.begin();
+   return dyeLru_.front().second;
+}
+
+void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& pts, const MtFrames& fr, int mtIndex,
+                         int block) const
+{
    std::vector<Dye> dyes;
-   DyesInBlock(seed_, c.cx, c.cy, mtIndex, A.mts[mtIndex].pts, A.Frames(mtIndex), block, p_.labelEfficiency,
-               p_.labelNonBleaching, dyes);
+   DyesInBlock(seed_, c.cx, c.cy, mtIndex, pts, fr, block, p_.labelEfficiency, p_.labelNonBleaching, dyes);
    blk.dyes.reserve(dyes.size());
    blk.zLo = INFINITY; blk.zHi = -INFINITY;
    for (const Dye& d : dyes) {
@@ -251,18 +352,13 @@ World::DyeBlock& World::GetDyeBlock(CellAssets& A, int mtIndex, int block)
       blk.zLo = std::min(blk.zLo, d.pos.z);
       blk.zHi = std::max(blk.zHi, d.pos.z);
    }
-   blk.used = query_;
    blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, (uint32_t)mtIndex, (uint32_t)block).a;
-   stats_.dyeBlocks++;
-   dyeCount_ += blk.dyes.size();   // evicted at the end of the query (ForEachDyeBlock)
-   dyeLru_.emplace_front(key, std::move(blk));
-   dyeIndex_[key] = dyeLru_.begin();
-   return dyeLru_.front().second;
+   blk.generated = true;
 }
 
-void World::Schedule(DyeBlock& b)
+bool World::Schedule(DyeBlock& b) const
 {
-   if (b.scheduled) return;
+   if (b.scheduled) return false;
    b.events.clear();
    b.persistent.clear();
    b.maxOn = 0;
@@ -287,27 +383,37 @@ void World::Schedule(DyeBlock& b)
    std::stable_sort(b.events.begin(), b.events.end(),
                     [](const WorldEvent& a, const WorldEvent& e) { return a.tOn < e.tOn; });
    b.scheduled = true;
-   stats_.schedulesBuilt++;
+   return true;
 }
 
-void World::PersistentCover(DyeBlock& b, long b0, long b1, double t1)
+bool World::CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const
+{
+   if (b0 < b.pBin0 || b0 >= b.pBin1) return true;
+   const double frac = b.phase * (1.0 / 4294967296.0);
+   return !(b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC);
+}
+
+bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const
 {
    // Bins per build: up to 16 or ~2048 expected blinks.
    const double perBin = (double)b.persistent.size() * kin_.activationRatePerSec * PERSIST_BIN_SEC;
    const long L = (long)std::min(16.0, std::max(1.0, std::floor(2048.0 / std::max(perBin, 1e-9))));
    long lo, hi;
    if (b0 < b.pBin0 || b0 >= b.pBin1) {
-      // First use, a jump in time or new kinetics: build from scratch.
+      // First use, a jump in time or new kinetics: build from scratch --
+      // for a query (shortFirst) only one bin ahead, so a window full of new
+      // blocks (a stage jump, a kinetics change) builds what it shows now
+      // and the rest in the staggered extensions below.
       b.pEvents.clear();
       b.pBin0 = lo = b0;
-      hi = b1 + 1 + L;
+      hi = b1 + 1 + (shortFirst ? 1 : L);
    } else {
       // Extend ahead of time, once t1 passes a per-block point in the last
       // bin covered: the blocks of a window then spread their builds over
       // that bin's frames instead of all building on the frame that enters
       // the next bin (a stall every PERSIST_BIN_SEC).
       const double frac = b.phase * (1.0 / 4294967296.0);
-      if (b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC) return;
+      if (b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC) return false;
       // Drop the bins the lookback no longer reaches (tOn, hence bin, ascends).
       b.pEvents.erase(b.pEvents.begin(),
                       std::partition_point(b.pEvents.begin(), b.pEvents.end(),
@@ -335,7 +441,7 @@ void World::PersistentCover(DyeBlock& b, long b0, long b1, double t1)
    std::sort(b.pEvents.begin() + start, b.pEvents.end(),
              [](const PersistentEvent& a, const PersistentEvent& e) { return a.tOn < e.tOn; });
    b.pBin1 = hi;
-   stats_.persistentBuilt++;
+   return true;
 }
 
 void World::SetKinetics(const Kinetics& k)
@@ -360,7 +466,7 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           std::vector<WorldDye>& out)
 {
-   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       for (const WorldDye& d : b.dyes)
          if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) out.push_back(d);
@@ -370,43 +476,60 @@ void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMi
 void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                            double t0, double t1, std::vector<WorldEvent>& out)
 {
-   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) {
-      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
-      Schedule(b);
-      // Only blinks with tOn in [t0 - maxOn, t1) can overlap [t0, t1).
-      auto it = std::lower_bound(b.events.begin(), b.events.end(), t0 - b.maxOn,
-                                 [](const WorldEvent& e, double t) { return e.tOn < t; });
-      for (; it != b.events.end() && it->tOn < t1; ++it) {
-         const WorldEvent& e = *it;
-         if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
-            out.push_back(e);
-      }
-      // Persistent sites never bleach, so their blinks are addressed per time
-      // bin (see PersistentBlinks) and cached for a range of bins. The answer
-      // is PersistentBlinks' for every site in the window, in its order
-      // (site, bin, j).
-      if (b.persistent.empty() || !(kin_.activationRatePerSec > 0) || !(t1 > t0)) return;
-      const double maxOn = PERSIST_ON_CAP * kin_.onSec;
-      const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
-      const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
-      PersistentCover(b, b0, b1, t1);
-      std::vector<const PersistentEvent*>& hit = persistentScratch_;
-      hit.clear();
-      auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), b0 * PERSIST_BIN_SEC,
-                                [](const PersistentEvent& e, double t) { return e.tOn < t; });
-      for (; p != b.pEvents.end() && p->tOn < t1; ++p) {
-         if (p->bin < (uint32_t)b0 || !(p->tOff > t0)) continue;
-         const WorldDye& d = b.dyes[p->dye];
-         if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) hit.push_back(&*p);
-      }
-      std::sort(hit.begin(), hit.end(), [](const PersistentEvent* a, const PersistentEvent* e) {
-         return a->dye != e->dye ? a->dye < e->dye : a->bin != e->bin ? a->bin < e->bin : a->j < e->j;
+   // Blocks the window can see: their schedules and persistent blinks are
+   // built (in parallel) before the serial pass below reads them.
+   const bool persist = kin_.activationRatePerSec > 0 && t1 > t0;
+   const double maxOn = PERSIST_ON_CAP * kin_.onSec;
+   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
+   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
+   auto visible = [&](const DyeBlock& b) { return !b.dyes.empty() && !(b.zHi < zMin || b.zLo >= zMax); };
+   PrepCounts n;
+   ForEachDyeBlock(
+      x0, y0, x1, y1, zMin, zMax,
+      [&](DyeBlock& b) {
+         if (Schedule(b)) n.schedules++;
+         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, true)) n.covers++;
+      },
+      [&](const DyeBlock& b) {
+         return visible(b) && (!b.scheduled || (persist && !b.persistent.empty() && CoverWouldBuild(b, b0, b1, t1)));
+      },
+      [&](DyeBlock& b) {
+         if (!visible(b)) return;
+         // Built above; these only check (a block the prep skipped needs nothing).
+         if (Schedule(b)) n.schedules++;
+         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, true)) n.covers++;
+         // Only blinks with tOn in [t0 - maxOn, t1) can overlap [t0, t1).
+         auto it = std::lower_bound(b.events.begin(), b.events.end(), t0 - b.maxOn,
+                                    [](const WorldEvent& e, double t) { return e.tOn < t; });
+         for (; it != b.events.end() && it->tOn < t1; ++it) {
+            const WorldEvent& e = *it;
+            if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
+               out.push_back(e);
+         }
+         // Persistent sites never bleach, so their blinks are addressed per time
+         // bin (see PersistentBlinks) and cached for a range of bins. The answer
+         // is PersistentBlinks' for every site in the window, in its order
+         // (site, bin, j).
+         if (b.persistent.empty() || !persist) return;
+         std::vector<const PersistentEvent*>& hit = persistentScratch_;
+         hit.clear();
+         auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), b0 * PERSIST_BIN_SEC,
+                                   [](const PersistentEvent& e, double t) { return e.tOn < t; });
+         for (; p != b.pEvents.end() && p->tOn < t1; ++p) {
+            if (p->bin < (uint32_t)b0 || !(p->tOff > t0)) continue;
+            const WorldDye& d = b.dyes[p->dye];
+            if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) hit.push_back(&*p);
+         }
+         std::sort(hit.begin(), hit.end(), [](const PersistentEvent* a, const PersistentEvent* e) {
+            return a->dye != e->dye ? a->dye < e->dye : a->bin != e->bin ? a->bin < e->bin : a->j < e->j;
+         });
+         for (const PersistentEvent* e : hit) {
+            const WorldDye& d = b.dyes[e->dye];
+            out.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, d.id });
+         }
       });
-      for (const PersistentEvent* e : hit) {
-         const WorldDye& d = b.dyes[e->dye];
-         out.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, d.id });
-      }
-   });
+   stats_.schedulesBuilt += n.schedules.load();
+   stats_.persistentBuilt += n.covers.load();
 }
 
 long World::DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
@@ -422,6 +545,31 @@ long World::DensityInWindow(double x0, double y0, double x1, double y1, double z
       out[(size_t)iy * nx + ix] += 1;
    }
    return (long)dyes.size();
+}
+
+long World::Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                              int nx, int ny, int nz, unsigned populations, float* out)
+{
+   std::fill(out, out + (size_t)nx * ny * nz, 0.0f);
+   const bool wantBleach = (populations & 1u) != 0, wantPersist = (populations & 2u) != 0;
+   if (!wantBleach && !wantPersist) return 0;
+   // Same binning as DensityInWindow, so nz = 1 reproduces it.
+   const double sx = nx / (x1 - x0), sy = ny / (y1 - y0);
+   const double sz = nz > 1 ? nz / (zMax - zMin) : 0.0;
+   long total = 0;
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
+      for (const WorldDye& d : b.dyes) {
+         if (!(d.persistent ? wantPersist : wantBleach)) continue;
+         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
+         const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
+         const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
+         const int iz = nz > 1 ? std::min(nz - 1, (int)std::floor((d.z - zMin) * sz)) : 0;
+         out[((size_t)iz * ny + iy) * nx + ix] += 1;
+         total++;
+      }
+   });
+   return total;
 }
 
 } // namespace isc

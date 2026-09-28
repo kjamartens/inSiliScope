@@ -1,4 +1,5 @@
 #include "PsfGeneratorBridge.h"
+#include "Parallel.h"
 #include "PsfResource.h"
 
 #include <algorithm>
@@ -7,7 +8,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <iomanip>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -452,8 +455,77 @@ jclass ResolveBridgeClass(JNIEnv* env, std::string& outError)
 
 } // namespace
 
+namespace {
+
+bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                                   const std::function<void(const std::string&)>& logCallback);
+
+// Everything the computed planes depend on: the request minus interpMode
+// (copied into the cache, not used by the JVM) and javaHome (only picks the
+// JVM, which is created once per process).
+bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
+{
+   return a.model == b.model && a.wavelengthNm == b.wavelengthNm && a.na == b.na &&
+          a.immersionIndex == b.immersionIndex && a.sampleIndex == b.sampleIndex &&
+          a.workingDistanceUm == b.workingDistanceUm && a.sampleDepthNm == b.sampleDepthNm &&
+          a.pixelSizeNm == b.pixelSizeNm && a.zernikeCoefficients == b.zernikeCoefficients &&
+          a.maskType == b.maskType && a.maskModes == b.maskModes && a.maskWaist == b.maskWaist &&
+          a.oversampling == b.oversampling && a.kernelHalfWidthPx == b.kernelHalfWidthPx && a.nz == b.nz &&
+          a.zStepNm == b.zStepNm;
+}
+
+// The last few kernels computed in this process: a live-mode config change
+// or a new stack that leaves the PSF parameters alone (exposure, gain,
+// seed, ...) gets the kernel it would recompute, without the JVM.
+struct KernelMemo
+{
+   std::mutex mutex;
+   std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const PsfKernelCache>>> entries; // most recent first
+};
+
+KernelMemo& Memo()
+{
+   static KernelMemo* memo = new KernelMemo(); // never destroyed (DLL unload order)
+   return *memo;
+}
+
+constexpr size_t kKernelMemoEntries = 2;
+
+} // namespace
+
 bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
                             const std::function<void(const std::string&)>& logCallback)
+{
+   outError.clear();
+   {
+      KernelMemo& m = Memo();
+      std::lock_guard<std::mutex> g(m.mutex);
+      for (size_t i = 0; i < m.entries.size(); ++i)
+      {
+         if (!SameKernel(m.entries[i].first, req))
+            continue;
+         outCache = *m.entries[i].second;
+         outCache.interpMode = req.interpMode;
+         std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
+         if (logCallback)
+            logCallback("PSFGenerator: kernel unchanged, reusing the one already computed.");
+         return true;
+      }
+   }
+   if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
+      return false;
+   KernelMemo& m = Memo();
+   std::lock_guard<std::mutex> g(m.mutex);
+   m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
+   if (m.entries.size() > kKernelMemoEntries)
+      m.entries.resize(kKernelMemoEntries);
+   return true;
+}
+
+namespace {
+
+bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                                   const std::function<void(const std::string&)>& logCallback)
 {
    outCache = PsfKernelCache();
    outError.clear();
@@ -665,6 +737,8 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
    return ok;
 }
 
+} // namespace
+
 #else // !_WIN32
 
 bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache, std::string& outError,
@@ -725,10 +799,46 @@ void CatmullRomWeights(double f, double* w)
    w[3] = 0.5 * f3 - 0.5 * f2;
 }
 
-// In-place iterative radix-2 complex FFT; n a power of two; sign -1
-// forward, +1 inverse, both unnormalized.
-void Fft1d(double* re, double* im, int n, int stride, int sign)
+// The twiddle factors of Fft1d below for one (n, sign): per stage (len = 2,
+// 4, ..., n) the len/2 values the in-loop recurrence cr' = cr*wr - ci*wi,
+// ci' = cr*wi + ci*wr produces from (1, 0) -- the same operations, so the
+// same bits -- computed once instead of once per block of every stage of
+// every transform.
+struct FftTwiddles
 {
+   int n = 0;
+   std::vector<double> c, s; // stage len's values start at index len/2 - 1
+};
+
+FftTwiddles MakeTwiddles(int n, int sign)
+{
+   FftTwiddles t;
+   t.n = n;
+   t.c.resize(static_cast<size_t>(std::max(0, n - 1)));
+   t.s.resize(t.c.size());
+   for (int len = 2; len <= n; len <<= 1)
+   {
+      const double ang = sign * 2.0 * 3.14159265358979323846 / len;
+      const double wr = std::cos(ang), wi = std::sin(ang);
+      const int half = len / 2;
+      double cr = 1.0, ci = 0.0;
+      for (int k = 0; k < half; ++k)
+      {
+         t.c[static_cast<size_t>(half - 1 + k)] = cr;
+         t.s[static_cast<size_t>(half - 1 + k)] = ci;
+         const double nr = cr * wr - ci * wi;
+         ci = cr * wi + ci * wr;
+         cr = nr;
+      }
+   }
+   return t;
+}
+
+// In-place iterative radix-2 complex FFT (contiguous); n = tw.n a power of
+// two; the twiddles' sign: -1 forward, +1 inverse, both unnormalized.
+void Fft1d(double* re, double* im, const FftTwiddles& tw)
+{
+   const int n = tw.n;
    for (int i = 1, j = 0; i < n; ++i)
    {
       int bit = n >> 1;
@@ -737,32 +847,29 @@ void Fft1d(double* re, double* im, int n, int stride, int sign)
       j ^= bit;
       if (i < j)
       {
-         std::swap(re[i * stride], re[j * stride]);
-         std::swap(im[i * stride], im[j * stride]);
+         std::swap(re[i], re[j]);
+         std::swap(im[i], im[j]);
       }
    }
    for (int len = 2; len <= n; len <<= 1)
    {
-      const double ang = sign * 2.0 * 3.14159265358979323846 / len;
-      const double wr = std::cos(ang), wi = std::sin(ang);
       const int half = len / 2;
+      const double* tc = tw.c.data() + (half - 1);
+      const double* ts = tw.s.data() + (half - 1);
       for (int i = 0; i < n; i += len)
       {
-         double cr = 1.0, ci = 0.0;
+         double* ar = re + i;
+         double* ai = im + i;
+         double* br = re + i + half;
+         double* bi = im + i + half;
          for (int k = 0; k < half; ++k)
          {
-            double* ar = re + (i + k) * stride;
-            double* ai = im + (i + k) * stride;
-            double* br = re + (i + k + half) * stride;
-            double* bi = im + (i + k + half) * stride;
-            const double vr = *br * cr - *bi * ci, vi = *br * ci + *bi * cr;
-            *br = *ar - vr;
-            *bi = *ai - vi;
-            *ar += vr;
-            *ai += vi;
-            const double nr = cr * wr - ci * wi;
-            ci = cr * wi + ci * wr;
-            cr = nr;
+            const double cr = tc[k], ci = ts[k];
+            const double vr = br[k] * cr - bi[k] * ci, vi = br[k] * ci + bi[k] * cr;
+            br[k] = ar[k] - vr;
+            bi[k] = ai[k] - vi;
+            ar[k] += vr;
+            ai[k] += vi;
          }
       }
    }
@@ -771,18 +878,19 @@ void Fft1d(double* re, double* im, int n, int stride, int sign)
 // Shifts one zero-padded complex line (length N, first n entries live) by
 // `shift` samples via the Fourier shift theorem: g(i) = f(i+shift), wrapped
 // (k >= N/2 -> k-N) frequencies. phase[k] = exp(+2*pi*i*kk*shift/N) is
-// precomputed by the caller (one table per axis).
+// precomputed by the caller (one table per axis), and so are the forward and
+// inverse twiddles.
 void FourierShiftLine(std::vector<double>& re, std::vector<double>& im, int N, const std::vector<double>& pc,
-                      const std::vector<double>& ps)
+                      const std::vector<double>& ps, const FftTwiddles& fwd, const FftTwiddles& inv)
 {
-   Fft1d(re.data(), im.data(), N, 1, -1);
+   Fft1d(re.data(), im.data(), fwd);
    for (int k = 0; k < N; ++k)
    {
       const double r = re[k], i = im[k];
       re[k] = r * pc[k] - i * ps[k];
       im[k] = r * ps[k] + i * pc[k];
    }
-   Fft1d(re.data(), im.data(), N, 1, 1);
+   Fft1d(re.data(), im.data(), inv);
    const double norm = 1.0 / N;
    for (int k = 0; k < N; ++k)
    {
@@ -801,7 +909,7 @@ void FourierShiftLine(std::vector<double>& re, std::vector<double>& im, int N, c
 // outside the n x n tile never needed) -- the same result, ~N/n times less
 // work and 2N instead of N^2 trig pairs. Still one transform per emitter,
 // so Fft remains the slowest placement mode.
-std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX, double shiftY)
+std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX, double shiftY, bool parallel)
 {
    int N = 1;
    while (N < 2 * n)
@@ -821,27 +929,59 @@ std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX,
    std::vector<double> xc, xs, yc, ys;
    phaseTable(shiftX, xc, xs);
    phaseTable(shiftY, yc, ys);
+   static const FftTwiddles* cached[2] = {nullptr, nullptr};
+   static std::mutex cachedMutex;
+   const FftTwiddles *fwd, *inv;
+   {
+      // One pair per process for the current N (N depends only on the
+      // kernel size); rebuilt, never freed while in use, when N changes.
+      std::lock_guard<std::mutex> g(cachedMutex);
+      static std::vector<std::unique_ptr<FftTwiddles>> keep;
+      if (!cached[0] || cached[0]->n != N)
+      {
+         keep.emplace_back(new FftTwiddles(MakeTwiddles(N, -1)));
+         cached[0] = keep.back().get();
+         keep.emplace_back(new FftTwiddles(MakeTwiddles(N, 1)));
+         cached[1] = keep.back().get();
+      }
+      fwd = cached[0];
+      inv = cached[1];
+   }
+   // Lines are independent (each with its own buffers), so they run on any
+   // number of threads with the same result.
+   auto forLines = [&](const std::function<void(int, std::vector<double>&, std::vector<double>&)>& line) {
+      if (!parallel)
+      {
+         std::vector<double> re(N), im(N);
+         for (int k = 0; k < n; ++k)
+            line(k, re, im);
+         return;
+      }
+      const unsigned chunks = 16;
+      ParallelFor(chunks, [&](unsigned c) {
+         std::vector<double> re(N), im(N);
+         for (int k = static_cast<int>(c * n / chunks); k < static_cast<int>((c + 1) * n / chunks); ++k)
+            line(k, re, im);
+      });
+   };
 
    // Row pass: n rows, each zero-padded to N; keep the first n (complex) outputs.
    std::vector<double> midRe(static_cast<size_t>(n) * n), midIm(static_cast<size_t>(n) * n);
-   std::vector<double> re(N), im(N);
-   for (int y = 0; y < n; ++y)
-   {
+   forLines([&](int y, std::vector<double>& re, std::vector<double>& im) {
       std::fill(re.begin(), re.end(), 0.0);
       std::fill(im.begin(), im.end(), 0.0);
       for (int x = 0; x < n; ++x)
          re[x] = kernel[static_cast<size_t>(y) * n + x];
-      FourierShiftLine(re, im, N, xc, xs);
+      FourierShiftLine(re, im, N, xc, xs, *fwd, *inv);
       for (int x = 0; x < n; ++x)
       {
          midRe[static_cast<size_t>(y) * n + x] = re[x];
          midIm[static_cast<size_t>(y) * n + x] = im[x];
       }
-   }
+   });
    // Column pass on the complex intermediate; the real part is the answer.
    std::vector<float> out(static_cast<size_t>(n) * n);
-   for (int x = 0; x < n; ++x)
-   {
+   forLines([&](int x, std::vector<double>& re, std::vector<double>& im) {
       std::fill(re.begin(), re.end(), 0.0);
       std::fill(im.begin(), im.end(), 0.0);
       for (int y = 0; y < n; ++y)
@@ -849,10 +989,10 @@ std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX,
          re[y] = midRe[static_cast<size_t>(y) * n + x];
          im[y] = midIm[static_cast<size_t>(y) * n + x];
       }
-      FourierShiftLine(re, im, N, yc, ys);
+      FourierShiftLine(re, im, N, yc, ys, *fwd, *inv);
       for (int y = 0; y < n; ++y)
          out[static_cast<size_t>(y) * n + x] = static_cast<float>(re[y]);
-   }
+   });
    return out;
 }
 
@@ -900,76 +1040,127 @@ SplatSetupResult SplatSetup(const PsfKernelCache& cache, double xPx, double yPx,
    return r;
 }
 
-void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
-                     int zIndex, double xPx, double yPx, double totalPhotons, PsfInterpMode interpMode)
+bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,
+               PsfInterpMode interpMode, SplatPlan& plan, bool parallelFft)
 {
    if (!cache.valid || totalPhotons <= 0.0)
-      return;
+      return false;
    if (zIndex < 0 || zIndex >= cache.nz || cache.blockSums.size() != static_cast<size_t>(cache.nz))
-      return;
+      return false;
 
    const int os = std::max(1, cache.oversampling);
    const int n = cache.sizeOversampled;
-   const int camRad = cache.halfWidthOversampled / os;
-   const int off = os - 1;
-   const int bw = cache.blockSumWidth;
-
-   SplatSetupResult st;
-   std::vector<float> shiftedSums; // Fft mode only
-   const float* B = cache.blockSums[static_cast<size_t>(zIndex)].data();
+   plan.B = cache.blockSums[static_cast<size_t>(zIndex)].data();
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
       // shift of the raw kernel, then read its block sums nearest.
-      st = SplatSetup(cache, xPx, yPx, PsfInterpMode::Nearest);
+      plan.st = SplatSetup(cache, xPx, yPx, PsfInterpMode::Nearest);
       const double kc = (n - 1) / 2.0;
-      const double tx = kc + (st.x0 - xPx - 0.5) * os + 0.5, ty = kc + (st.y0 - yPx - 0.5) * os + 0.5;
+      const double tx = kc + (plan.st.x0 - xPx - 0.5) * os + 0.5, ty = kc + (plan.st.y0 - yPx - 0.5) * os + 0.5;
       const double rx = RoundHalfUp(tx), ry = RoundHalfUp(ty);
       std::vector<float> shifted =
-         FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry);
-      shiftedSums = BuildBlockSums(shifted.data(), n, os);
-      B = shiftedSums.data();
-      st.bx = static_cast<int>(rx);
-      st.by = static_cast<int>(ry);
+         FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry, parallelFft);
+      plan.shiftedSums = BuildBlockSums(shifted.data(), n, os);
+      plan.B = plan.shiftedSums.data();
+      plan.st.bx = static_cast<int>(rx);
+      plan.st.by = static_cast<int>(ry);
    }
    else
    {
-      st = SplatSetup(cache, xPx, yPx, interpMode);
+      plan.st = SplatSetup(cache, xPx, yPx, interpMode);
    }
+   return true;
+}
 
-   const int nt = st.nTaps;
-   for (int dy = -camRad; dy <= camRad; ++dy)
+namespace {
+
+// One camera pixel's interpolated block-sum read: taps j in [jLo, jHi) and i
+// in [iLo, iHi) (the taps inside the block-sum array), in index order --
+// the order and the operations of the original all-taps loop, which skipped
+// the same taps.
+inline double SplatPixel(const float* B, int bw, int r0, int c0, int jLo, int jHi, int iLo, int iHi,
+                         const double* wx, const double* wy)
+{
+   double sum = 0.0;
+   for (int j = jLo; j < jHi; ++j)
    {
-      const int Y = st.y0 + dy;
-      if (Y < 0 || Y >= static_cast<int>(height))
-         continue;
+      const float* brow = B + static_cast<size_t>(r0 + j) * bw;
+      double row = 0.0;
+      for (int i = iLo; i < iHi; ++i)
+         row += wx[i] * brow[c0 + i];
+      sum += wy[j] * row;
+   }
+   return sum;
+}
+
+template <int NT>
+inline double SplatPixelFull(const float* B, int bw, int r0, int c0, int jLo, int jHi, const double* wx,
+                             const double* wy)
+{
+   double sum = 0.0;
+   for (int j = jLo; j < jHi; ++j)
+   {
+      const float* brow = B + static_cast<size_t>(r0 + j) * bw + c0;
+      double row = 0.0;
+      for (int i = 0; i < NT; ++i)
+         row += wx[i] * brow[i];
+      sum += wy[j] * row;
+   }
+   return sum;
+}
+
+template <int NT>
+void SplatRowsT(std::vector<float>& img, unsigned width, int yLo, int yHi, const PsfKernelCache& cache,
+                const SplatPlan& plan, double totalPhotons)
+{
+   const int os = std::max(1, cache.oversampling);
+   const int camRad = cache.halfWidthOversampled / os;
+   const int off = os - 1;
+   const int bw = cache.blockSumWidth;
+   const SplatSetupResult& st = plan.st;
+   const float* B = plan.B;
+   const int dyLo = std::max(-camRad, yLo - st.y0), dyHi = std::min(camRad, yHi - 1 - st.y0);
+   const int dxLo = std::max(-camRad, -st.x0), dxHi = std::min(camRad, static_cast<int>(width) - 1 - st.x0);
+   for (int dy = dyLo; dy <= dyHi; ++dy)
+   {
       const int r0 = st.by + dy * os + off;
-      float* rowOut = img.data() + static_cast<size_t>(Y) * width;
-      for (int dx = -camRad; dx <= camRad; ++dx)
+      const int jLo = std::max(0, -r0), jHi = std::min(NT, bw - r0);
+      float* rowOut = img.data() + static_cast<size_t>(st.y0 + dy) * width;
+      for (int dx = dxLo; dx <= dxHi; ++dx)
       {
-         const int X = st.x0 + dx;
-         if (X < 0 || X >= static_cast<int>(width))
-            continue;
          const int c0 = st.bx + dx * os + off;
-         double sum = 0.0;
-         for (int j = 0; j < nt; ++j)
-         {
-            const int r = r0 + j;
-            if (r < 0 || r >= bw)
-               continue;
-            const float* brow = B + static_cast<size_t>(r) * bw;
-            double row = 0.0;
-            for (int i = 0; i < nt; ++i)
-            {
-               const int c = c0 + i;
-               if (c >= 0 && c < bw)
-                  row += st.wx[i] * brow[c];
-            }
-            sum += st.wy[j] * row;
-         }
-         rowOut[X] += static_cast<float>(totalPhotons * sum);
+         const int iLo = std::max(0, -c0), iHi = std::min(NT, bw - c0);
+         double sum;
+         if (iLo == 0 && iHi == NT)
+            sum = SplatPixelFull<NT>(B, bw, r0, c0, jLo, jHi, st.wx, st.wy);
+         else
+            sum = SplatPixel(B, bw, r0, c0, jLo, jHi, iLo, iHi, st.wx, st.wy);
+         rowOut[st.x0 + dx] += static_cast<float>(totalPhotons * sum);
       }
    }
+}
+
+} // namespace
+
+void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int rowLo, int rowHi,
+               const PsfKernelCache& cache, const SplatPlan& plan, double totalPhotons)
+{
+   const int yLo = std::max(0, rowLo), yHi = std::min(static_cast<int>(height), rowHi);
+   switch (plan.st.nTaps)
+   {
+   case 1: SplatRowsT<1>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
+   case 2: SplatRowsT<2>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
+   default: SplatRowsT<4>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
+   }
+}
+
+void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
+                     int zIndex, double xPx, double yPx, double totalPhotons, PsfInterpMode interpMode)
+{
+   SplatPlan plan;
+   if (PlanSplat(cache, zIndex, xPx, yPx, totalPhotons, interpMode, plan))
+      SplatRows(img, width, height, 0, static_cast<int>(height), cache, plan, totalPhotons);
 }
 
 namespace {

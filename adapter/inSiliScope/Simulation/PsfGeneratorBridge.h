@@ -259,4 +259,21 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height,
                      double xPx, double yPx, double totalPhotons,
                      PsfInterpMode interpMode = PsfInterpMode::Nearest);
 
+// SplatPsfKernel in two steps, so one emitter can be splatted a band of rows
+// at a time (RenderPhotonImage's parallel mode): PlanSplat does everything
+// that does not depend on the camera pixel (false: nothing to splat) -- for
+// Fft the shifted plane's block sums, its line transforms on all cores when
+// parallelFft --, SplatRows adds the rows [rowLo, rowHi) of the splat. Every
+// pixel gets exactly the value SplatPsfKernel gives it.
+struct SplatPlan
+{
+   SplatSetupResult st;
+   const float* B = nullptr;        // block sums read (the plane's, or shiftedSums)
+   std::vector<float> shiftedSums;  // Fft only
+};
+bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,
+               PsfInterpMode interpMode, SplatPlan& plan, bool parallelFft = false);
+void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int rowLo, int rowHi,
+               const PsfKernelCache& cache, const SplatPlan& plan, double totalPhotons);
+
 } // namespace sim

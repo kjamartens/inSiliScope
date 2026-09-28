@@ -254,8 +254,20 @@ of a query and never drops a block that query used, so a moved window builds onl
 have. `isc_world_prefetch` (ABI 4) fills the caches for a region within a time budget; the adapter's
 live mode spends the wait before each frame on the FOV's z column plus 3 um in x/y. Persistent sites'
 blink ranges are extended ahead of time at a per-block point of their last bin, so the blocks of a
-window do not all rebuild on the frame entering a new bin. Checked in `world_checks` (`KineticsStats`:
-Exp means, geometric blink count, log-normal mean/CV, time order).
+window do not all rebuild on the frame entering a new bin; a query's first build of a block reaches only
+one bin ahead (a jump or a kinetics change builds what it shows now, the extensions the rest). Checked in
+`world_checks` (`KineticsStats`: Exp means, geometric blink count, log-normal mean/CV, time order).
+
+**Threads (2026-09-28, `core/src/parallel.*`):** the world's independent per-item work runs on
+`ParallelFor` (up to 16 threads, made per call; serial in WASM, nested, or while another world's
+`ParallelFor` runs): missing packing blocks, missing cells' assets (geometry + microtubules), and per
+cell the new dye blocks, then their schedules and persistent covers. Each item is a pure function of its
+address writing only its own block, and the query then reads the blocks serially in the old order, so
+the events -- and their order, which the renderer sums in -- are those of one thread (`world_checks`
+`Threads`: 8 threads = 1 thread, events byte for byte in order and the same build counts). With the
+loop-invariant `exp(-m)` of the persistent-bin Poisson draw and the per-protofilament `cos/sin` and
+linker `pow` hoisted (same operands, same bits): a 1000-frame 128 px stack query 2.1 -> 0.35 s,
+a 40 um stage jump 5.2 -> 1.2 s (4 cores).
 
 ### 6.2 Query, per frame
 ```
@@ -462,6 +474,16 @@ allowed (independent Poisson events; fine while rate x onSec << 1). `world_check
 0-100 s and 10000 s, ON mean, window slicing, bleaching set unchanged; the adapter test shows
 bleaching-only signal collapsing and non-bleaching flat over a 20 s stack.
 
+### 6.4 Z-resolved density per population (ABI 5, 2026-09-27)
+`isc_density3d_in_window(w, x0,y0,x1,y1, zMin,zMax, nx,ny,nz, populations, out)`: labelled-dye counts
+on an nx x ny x nz grid, `out[(k*ny + iy)*nx + ix]`, plane k spanning `[zMin + k(zMax-zMin)/nz, ...)`,
+x/y binned exactly as `isc_density_in_window` (so nz = 1 reproduces it). `populations` is a bitmask,
+`ISC_POP_BLEACHING 1 | ISC_POP_PERSISTENT 2` (the `WorldDye::persistent` flag of 6.3). `World::
+Density3dInWindow` bins straight from `ForEachDyeBlock` (no copy through `SitesInWindow`), so millions of
+cached dyes become voxels with nothing crossing the ABI per dye. Infinite z limits only with nz = 1.
+Used by the WideField modality (section 13). `world_checks` (`Density3d`): z-sum = 2D query, bleaching
++ persistent = all per voxel, equals hand-binning `SitesInWindow`, nz = 1 slab = 2D query.
+
 ## 12. Known gaps to keep in mind (not for the first pass)
 
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.
@@ -472,3 +494,99 @@ bleaching-only signal collapsing and non-bleaching flat over a 20 s stack.
 * Only microtubules carry labels; nucleus/cytoplasm labels (lamin, mitochondria, NUP) do not exist yet
   in the JS either.
 * The JS prototype and this port are not validated quantitatively against real SMLM data.
+
+## 13. WideField imaging modality (2026-09-27)
+
+`General_ImagingModality = WideField` (cli/viewer `modality=1`): every labelled dye emits at once,
+CellField only (other patterns log once and render SR). Code: `Simulation/WidefieldRender.{h,cpp}`,
+`Fft2d`, `Illumination`; `cli/widefield_check.cpp` (ctest `widefield`).
+
+* **Photophysics, physical units.** sigma = ln(10) 1000 eps / N_A (3.8235e-13 eps um^2), k_em = QY sigma
+  Phi I, eta = (1 - sqrt(1 - (NA/n)^2)) / 2, surviving fraction exp(-D/B) with D the emitted-photon dose.
+  Camera photons per frame: bleaching `nb eta B exp(-D0/B)(1 - exp(-dD/B))` (exact frame integral),
+  persistent `np eta dD`. Defaults (eps 270000, QY 0.7, B 5000, Phi 1.6e9 photons/um^2/s) give t1/2 =
+  30.0 s and ~1.8 photons/dye/50 ms frame. B = 0 never bleaches. QE is applied by the noise chain.
+* **Illumination** (`IlluminationPattern`): anchored to the objective, peak 1; for now `SquareIllumination`
+  over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
+  `FluoParam_IllumProfile`.
+* **Dye grid (world-anchored).** Upscaled grid, pitch = pixel / upscale, cell i = world [i pitch, (i+1)
+  pitch): the same cells from every stage pose (the dyes bin the same way; `BleachField` cells map one to
+  one). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
+  plus one cell for the sub-cell shift; z planes of `zPlaneNm`, world-anchored; slab =
+  `SimType_CellFieldZRangeUm` around the focus (0 = [-5, 50] um), applied per focus to the cached planes.
+* **Dye tiles** (`WidefieldDyeTiles`, C1). 64 x 64-cell world tiles holding the whole [-5, 50] um column
+  sparsely ((cell, count) per plane and population), filled from `isc_density3d_in_window` (histogram,
+  then each population over the occupied planes) and assembled into any rect of that pitch; LRU beyond
+  1.5 GB (256 MB WASM). Shared by the stack worker, the live loop and its prefetch worker; keyed by
+  (pitch, plane, world version). A cold region still costs the core's world generation (~1.7 s for 26 um
+  at the defaults; the live loop's `Prefetch` warms the neighbourhood during the frame slack).
+* **PSF planes.** Dye planes go to the two neighbouring PSF planes with linear weights (= a linearly
+  z-blended PSF). Vectorial: the `PsfKernelCache` planes, each grid cell the sum of its (os/u)^2
+  oversampled cells placed as `SplatPsfKernel` (Nearest) centres them; u must divide the oversampling.
+  Gaussian: planes every 100 nm, sigma from `WidefieldGaussianSigmaUm` (TODO(human): defocus ignored for
+  now). Radius R capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`), kept across focus moves.
+* **FFT** (`Fft2d.h`, A3/A4). Real 2D r2c/c2r, sizes 2^a 3^b 5^c (mixed-radix 4/2/3/5 Stockham, batched
+  16 rows/columns at a time, rows by the half-length complex trick; every row and column independent, so
+  thread-count independent). N per axis = the smallest such size (multiple of 8) with the wrapped part of
+  the linear convolution (source + kernel + 4 cells of cloud-in-cell + 1 of shift) missing the FOV cells:
+  320 instead of 512 at 256 px.
+* **Spectra and caches** (A2, B1). Kernel spectra per PSF plane (computed once per PSF, rect and R);
+  plane spectra per (channel, world plane, level), LRU beyond 1 GB (256 MB WASM). A channel is a
+  population with its per-column weights: persistent (eta dD) and the bleach basis maps. A focus change
+  re-pairs cached plane spectra with kernel spectra (one complex multiply-add per frequency and dye plane,
+  rows in parallel, planes in order) and does one inverse FFT per channel: ~10 ms at 256 px instead of a
+  full rebuild. `FocusSeries` makes the images of many foci from one cache fill (parallel over foci;
+  identical bits to one scene per focus).
+* **Focus bands** (B2). A PSF plane may be convolved on a 2x or 4x coarser grid: dyes cloud-in-cell
+  binned, the coarse product embedded in the fine spectrum with the coarse cells' phase and the binning's
+  transfer function divided out. Only if the kernel energy outside the coarse band plus the binning's
+  alias energy (white source; sum_m sinc^4(pi(u+m)) = 1 - 2/3 sin^2(pi u)) is <= 1e-6 of the plane's
+  (<= 0.1% rms of its light). Measured on a scalar-diffraction NA 1.4 PSF: even 3 um out of focus keeps
+  0.4% (2x) / 1-5% (4x) there -- the defocused disk's sharp rim carries frequencies up to the NA cutoff --
+  so with sharp-pupil PSFs (all current models) no plane goes coarse. The mechanism is tested with a
+  loosened criterion (160 of 200 planes coarse, 0.24% rms total image error).
+* **Sub-cell pose** (C2). The camera sits at a fractional cell offset of the world grid; the image is
+  resampled there by a Fourier phase ramp (Nyquist bins: cosine), exact for band-limited images (pitch <=
+  lambda / (4 NA), 117 nm at 660 nm / 1.4). A stage move within a cell only redoes the inverse FFTs (~25
+  ms at 256 px), one that changes the rect reassembles the dyes from tiles and redoes the spectra. The
+  illumination is anchored to the objective, so a whole-cell move lights different dyes: nothing but the
+  tiles is reused then.
+* **Images and frames** (A1). Per focus the scene holds one real image per channel (FOV cells, shifted);
+  a frame is bin(max(0, P + sum_j a_j B_j)) plus the SR background (map x illumination field x fade), then
+  `ApplyNoiseChain`. No FFT per frame (0.2 ms at 256 px).
+* **Bleach basis** (D2, D3). With the stage and illumination fixed the weights evolve as wb_anchor
+  exp(-t dD / B). One basis map per distinct frame dose dD (<= 8; the square has one: the old scalar path),
+  else 12 Chebyshev maps wb_anchor T_j(2 dD/dDmax - 1) with coefficients from exp(-tau x). Every frame is
+  checked against the basis (1e-5 of the peak weight) and re-anchors when it does not fit, so a frame is
+  always the image of its own weights.
+* **Stack** = fresh sample (frame f starts at dose f dD), reproducible, never touches the live map; Z read
+  per batch of frames; frames rendered in parallel between re-anchors. **Live**: `BleachField`,
+  world-anchored dose in sparse 256^2 tiles of the grid pitch, deposited over the pattern support after
+  each frame; reset on a world change or a pitch change. The producer renders the frame (a weighted sum)
+  and hands background, noise and publication to a finisher thread that overlaps the next frame's scene
+  work (D4). During a stage move a worker builds the destination's scene (own `CellFieldSource`, shared
+  tiles) and the live loop swaps it in on arrival (C3). Frames are never stale: each is the image of its
+  own pose, focus and dose.
+* **Z sequence** (F2, B4). The `ZStage` is sequenceable (list and linear): positions go to
+  `SharedStageState`; while armed, every frame of a camera sequence acquisition takes the next position
+  (the TTL a real camera sends), starting at 0 when the acquisition starts; frames rendered before it
+  started are skipped; stopping the sequence returns the stage. Live WideField makes the images of all
+  positions at once (`FocusSeries`) and adopts them frame by frame; a precomputed stack is (re)made for
+  the armed sequence (frame f at position f mod n) when an acquisition starts with a different one. SR
+  frames take the positions too.
+* **GPU** (E). One source, `Simulation/WidefieldGpu.wgsl` (kernels: clear, scatter, radix-2 FFT in
+  workgroup memory (n <= 2048), Hermitian split into fp16 plane spectra scaled by 1 / sum|values|, the
+  re-pairing MAC, expand with the separable sub-cell phase, crop, and frames with the counter-based
+  noise chain). The scene hands a host a `WidefieldGpuJob` (GPU mode: power-of-two FFTs, no coarse bands)
+  whose plane keys are process-wide unique, so hosts keep plane spectra resident across focus jobs.
+  Viewer: `web/wf_gpu.js` on WebGPU (the WASM movie in steps: `isc_wf_begin`/`_job`/getters/
+  `_set_images`/`_movie`; any failure or a software adapter falls back to the CPU images). Adapter:
+  `Simulation/WidefieldGpuD3D11` on Direct3D 11 with HLSL generated from the WGSL by naga
+  (`tools/gen_wf_gpu.mjs` -> `WidefieldGpuHlsl.inc`); focus work in live and stack mode, stack frames
+  with noise on the GPU; `Create()` rejects software adapters and self-checks against the CPU; a failure
+  mid-stream falls back to the CPU (`General_GpuStatus` says which). fp16 spectra cost <= 3e-4 rms of the
+  image (measured 2.7e-5 .. 2.5e-4). Checks: ctest `widefield` (the job format through a CPU reference
+  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
+  Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
+  + Microsoft's HLSL compiler).
+* Limits: no drift.

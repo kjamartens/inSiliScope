@@ -138,6 +138,10 @@
       <div class="pair"><span class="k">Z stage (focus above coverslip) / z range (µm, 0 = all)</span><input type="number" id="mv_z" value="0.5" step="0.1"><input type="number" id="mv_z-range-um" value="7" min="0" step="0.5" title="Dyes within ± z range / 2 of the focal plane are rendered (SimType_CellFieldZRangeUm)"></div>
       <div class="pair"><span class="k">Background (photons/px/s) / start time (s)</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
       <div class="pair"><span class="k">Seed (noise)</span><input type="number" id="mv_seed" value="42" step="1"></div>
+      <div class="pair"><span class="k">Imaging modality</span><select id="mv_modality" title="General_ImagingModality: SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics)"><option value="0">SuperRes</option><option value="1">WideField</option></select></div>
+      <div class="wfRow pair" style="display:none"><span class="k">WF upscaling / z plane (nm)</span><input type="number" id="mv_wf-upscale" value="1" min="1" max="4" step="1"><input type="number" id="mv_wf-plane-nm" value="25" min="5" max="500" step="5"></div>
+      <div class="wfRow pair" style="display:none"><span class="k">WF excitation (photons/µm²/s) / QY</span><input type="number" id="mv_wf-excitation-photons-per-um2-per-sec" value="1.6e9" min="0" step="1e8"><input type="number" id="mv_wf-quantum-yield" value="0.7" min="0" max="1" step="0.05"></div>
+      <div class="wfRow pair" style="display:none"><span class="k">WF photon budget / ε (M⁻¹cm⁻¹)</span><input type="number" id="mv_wf-photon-budget" value="5000" min="0" step="500" title="Emitted photons per dye before it bleaches (0 = never)"><input type="number" id="mv_wf-extinction-coeff" value="270000" min="1000" max="1000000" step="10000"></div>
       <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (Gaussian PSF, sCMOS defaults), in a worker.">Make movie here</button></label>
     </fieldset>
 
@@ -169,6 +173,7 @@
 </div>
 
 <script src="insiliscope_module.js"></script>
+<script src="wf_gpu.js"></script>
 <script id="mainScript">
 'use strict';
 
@@ -690,7 +695,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 4) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 4');
+  if (M._isc_abi_version() !== 5) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 5');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   function setParam(pp, k, v) {
@@ -729,6 +734,46 @@ function iscEngine(M) {
       cap = n;
     }
   }
+  // WideField movie with the convolution on WebGPU (web/wf_gpu.js): the scene
+  // in WASM (isc_wf_begin), its job on the GPU, the frames back in WASM. Any
+  // GPU failure falls back to the CPU images (logged). Resolves like handle().
+  let wfHost = null;
+  async function wfGpuMovie(d) {
+    const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(24), err = M._malloc(512);
+    M.stringToUTF8(d.spec, s, n);
+    const t0 = performance.now();
+    let out = 0, res, img = 0, gpu = 'CPU';
+    const h = M._isc_wf_begin(s, err, 512);
+    if (h < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+    else {
+      try {
+        if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
+        const host = await wfHost, job = host && self.IscWfGpu.jobFromModule(M, h);
+        if (!job) throw new Error(host ? 'the scene does not fit the GPU kernels' : 'no WebGPU adapter');
+        const imgs = await host.images(job), cs = job.cw * job.ch;
+        img = M._malloc(Math.max(4, imgs.length * cs * 4));
+        imgs.forEach((a, c) => M.HEAPF32.set(a, img / 4 + c * cs));
+        if (M._isc_wf_set_images(h, img) !== 0) throw new Error('images rejected');
+        gpu = host.adapterInfo || 'WebGPU';
+      } catch (e) {
+        console.warn('WideField on the CPU:', e.message || e);
+        M._isc_wf_cpu_images(h, 0);
+      }
+      const need = M._isc_wf_movie(h, 0, 0, info, err, 512);
+      if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+      else {
+        out = M._malloc(need * 2);
+        const got = M._isc_wf_movie(h, out, need, info, err, 512);
+        if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+        else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
+          w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: 0,
+          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu };
+      }
+      M._isc_wf_end(h);
+    }
+    for (const ptr of [s, info, err, out, img]) if (ptr) M._free(ptr);
+    return [res, res.frames ? [res.frames.buffer] : []];
+  }
   return {
     // Returns [message, transferList].
     handle(d) {
@@ -766,10 +811,12 @@ function iscEngine(M) {
         const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
+      if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
+        return wfGpuMovie(d);
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
-        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(16), err = M._malloc(512);
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(24), err = M._malloc(512);
         M.stringToUTF8(d.spec, s, n);
         const t0 = performance.now();
         let out = 0, res;
@@ -782,7 +829,8 @@ function iscEngine(M) {
           else {
             const frames = M.HEAPU16.slice(out / 2, out / 2 + need);
             res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1],
-              n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], ms: performance.now() - t0 };
+              n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4],
+              halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0 };
           }
         }
         for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
@@ -796,8 +844,7 @@ function iscEngine(M) {
 function genWorkerMain() {
   const ready = createInsiliscope().then(M => iscEngine(M));
   onmessage = e => {
-    ready.then(eng => {
-      const [out, transfer] = eng.handle(e.data);
+    ready.then(eng => Promise.resolve(eng.handle(e.data))).then(([out, transfer]) => {
       postMessage(out, transfer);
     }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
   };
@@ -813,7 +860,9 @@ function spawnGenWorker() {
 }
 function initGenWorkers() {
   try {
-    const code = self.ISC_MODULE_SRC + '\n' + iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
+    const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
+      (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+      iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
     genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     const K = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
     genWorkers.pack = spawnGenWorker();
@@ -1353,7 +1402,9 @@ function drawDyes(seed, p, pxPerUm) {
 // the dye worker, on the viewer's world (same seed and params). Shown in a small
 // player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
-  'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed'];
+  'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed', 'modality',
+  'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
+  'wf-extinction-coeff'];
 let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
 function movieSpec() {
   const p = params(), o = [];
@@ -1366,11 +1417,12 @@ function makeMovie() {
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
-  const job = { type: 'movie', id: ++movieId, spec, rect };
+  // ?wfgpu=any: WideField also on a software WebGPU adapter (tests).
+  const job = { type: 'movie', id: ++movieId, spec, rect, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
   moviePending = job;
   document.getElementById('mv_make').textContent = 'Rendering…';
   if (genWorkers.ok) genWorkers.dyes.postMessage(job);
-  else if (mainEngine) setTimeout(() => onMovieResult(mainEngine.handle(job)[0]), 0);
+  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
 function onMovieResult(d) {
   if (!moviePending || d.id !== moviePending.id) return;
@@ -1390,8 +1442,10 @@ function onMovieResult(d) {
   cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
+  const what = d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
+                           : `${d.blinks} blinks`;
   document.getElementById('mv_info').textContent =
-    `${d.n} frames ${d.w}x${d.h}, ${d.blinks} blinks, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
+    `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
   document.getElementById('movie').style.display = 'block';
   showMovieFrame(0);
   requestDraw();
@@ -1461,6 +1515,9 @@ function drawMovieFov() {
   ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
+document.getElementById('mv_modality').addEventListener('change', e => {
+  for (const r of document.querySelectorAll('.wfRow')) r.style.display = e.target.value === '1' ? '' : 'none';
+});
 document.getElementById('mv_play').addEventListener('click', toggleMoviePlay);
 document.getElementById('mv_slider').addEventListener('input', e => { if (movie) showMovieFrame(+e.target.value); });
 document.getElementById('mv_save').addEventListener('click', saveMovieTiff);

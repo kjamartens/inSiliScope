@@ -4,8 +4,10 @@ Exercises: the XY stage device (Busy while moving, move time ~ distance/speed,
 position readback, MM's TransposeMirrorX flipping the direction), the camera's
 CellField pattern rendering dyes of the insiliscope world through the unchanged
 render pipeline, a known feature shifting by the expected pixels between two
-stage positions (live mode), and precomputed stacks that are byte-identical
-after the stage went 1 mm away and came back.
+stage positions (live mode), precomputed stacks that are byte-identical
+after the stage went 1 mm away and came back, and the WideField modality
+(bleaching half time, split labelling, a world-anchored bleach map in live mode),
+and a hardware z stack (the ZStage's sequence, one position per camera frame).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
@@ -239,9 +241,174 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
 
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
+    _widefield_checks(core, cam, xy, x0, y0)
+    _zsequence_checks(core, cam, z, "WideField")
+
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)
     _wait_idle(core, xy)
+
+
+def _wf_half_time_s(core, cam):
+    """t1/2 from the WideField properties (WidefieldRender.h): B ln2 / (QY sigma Phi)."""
+    g = lambda p: float(core.getProperty(cam, "FluoParam_WideField" + p))
+    sigma_um2 = np.log(10.0) * 1000.0 * g("ExtinctionCoeff") / 6.02214076e23 * 1e8
+    return g("PhotonBudget") * np.log(2.0) / (g("QuantumYield") * sigma_um2 * g("ExcitationPhotonsPerUm2PerSec"))
+
+
+def _widefield_checks(core, cam, xy, x0, y0):
+    for p, v in (("General_ImagingModality", "SuperRes"), ("General_WideFieldUpscaling", 1.0),
+                 ("General_WideFieldZPlaneNm", 25.0), ("FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", 1.6e9),
+                 ("FluoParam_WideFieldQuantumYield", 0.7), ("FluoParam_WideFieldPhotonBudget", 5000.0),
+                 ("FluoParam_WideFieldExtinctionCoeff", 270000.0)):
+        assert core.hasProperty(cam, p), f"missing camera property {p}"
+        got = core.getProperty(cam, p)
+        assert (got == v) if isinstance(v, str) else abs(float(got) / v - 1) < 1e-9, f"{p} default {got}, expected {v}"
+    assert "WideField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
+    t_half = _wf_half_time_s(core, cam)
+    assert abs(t_half - 30.0) < 0.05, f"default WideField t1/2 {t_half:.3f} s, expected 30 s"
+    reported = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    assert core.isPropertyReadOnly(cam, "FluoParam_WideFieldHalfTimeSec") and abs(reported / t_half - 1) < 1e-4, \
+        f"FluoParam_WideFieldHalfTimeSec {reported} vs {t_half}"
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "3.2e9")
+    halved = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "0")
+    never = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "5000")
+    assert abs(halved / t_half - 0.5) < 1e-4 and never == -1, f"half time follows: {halved}, budget 0 -> {never}"
+    print(f"WideField properties present (defaults give t1/2 = {t_half:.2f} s; FluoParam_WideFieldHalfTimeSec "
+          f"reports {reported:.2f} s, {halved:.2f} s at 2x flux, -1 = never at budget 0)")
+
+    offset = float(core.getProperty(cam, "CamParam_OffsetADU"))
+    core.setProperty(cam, "General_ImagingModality", "WideField")
+    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setExposure(50.0)
+    core.setXYPosition(xy, x0, y0)
+    _wait_idle(core, xy)
+
+    def stack_signal(bleach_pct, nonbleach_pct):
+        core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", str(bleach_pct))
+        core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", str(nonbleach_pct))
+        core.setProperty(cam, "General_GenerateStack", "1")
+        _wait_for_stack(core, cam)
+        sig = []
+        for _ in range(1000):
+            core.snapImage()
+            sig.append(core.getImage().astype(np.float64).mean() - offset)
+        return np.array(sig)
+
+    b = stack_signal(20, 0)
+    assert "WideField" in core.getProperty(cam, "General_GpuStatus"), core.getProperty(cam, "General_GpuStatus")
+    ratio = b[590:610].mean() / b[0:20].mean()
+    expect = 2.0 ** (-(600 * 0.05) / t_half)
+    assert b[0:20].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
+        f"WideField bleaching: frames 590-609 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
+    p = stack_signal(0, 70)
+    pr = p[-100:].mean() / p[:100].mean()
+    assert p[:100].mean() > 5 and abs(pr - 1) < 0.02, f"WideField non-bleaching should stay flat: ratio {pr:.3f}"
+    print(f"WideField stack OK: 20% bleaching labelling decays to {ratio:.3f} at {600 * 0.05:.0f} s "
+          f"(expected {expect:.3f}, t1/2 {t_half:.1f} s); 70% non-bleaching flat ({pr:.3f})")
+
+    # Live: a world-anchored bleach map. Bright excitation (t1/2 ~ 0.3 s),
+    # bleach the FOV, move 30 um away (fresh, bright, then bleaches too) and
+    # back (still dim).
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "20")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e11")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setExposure(20.0)
+
+    def live_mean():
+        core.snapImage()
+        return core.getImage().astype(np.float64).mean() - offset
+
+    def bleach_here(n=60):
+        first = np.mean([live_mean() for _ in range(3)])
+        for _ in range(n):
+            live_mean()
+        return first, np.mean([live_mean() for _ in range(3)])
+
+    here0, here1 = bleach_here()
+    core.setXYPosition(xy, x0 + 30.0, y0)
+    _wait_idle(core, xy)
+    live_mean()
+    away0, away1 = bleach_here()
+    core.setXYPosition(xy, x0, y0)
+    _wait_idle(core, xy)
+    live_mean()
+    back = np.mean([live_mean() for _ in range(3)])
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    core.setProperty(cam, "General_ImagingModality", "SuperRes")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
+    assert here0 > 5 and here1 < 0.2 * here0, f"live WideField should bleach: {here0:.2f} -> {here1:.2f} ADU"
+    assert away0 > 3 * away1, f"30 um away should be fresh (bright, then bleaching): {away0:.2f} -> {away1:.2f} ADU"
+    assert back < 0.25 * here0, f"back at the bleached region it should still be dim: {back:.2f} vs {here0:.2f} ADU"
+    print(f"WideField live bleach map OK: {here0:.1f} -> {here1:.1f} ADU here, fresh {away0:.1f} -> {away1:.1f} ADU "
+          f"30 um away, still {back:.1f} ADU back here")
+
+
+def _zsequence_checks(core, cam, z, modality):
+    """A hardware z stack: the ZStage is sequenceable, the camera takes one
+    sequence position per frame (live and precomputed modes), and the stage
+    returns to where it was when the sequence stops."""
+    positions = [0.5, 2.0, 3.5, 5.0]
+    core.setProperty(cam, "General_ImagingModality", modality)
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
+    core.setExposure(20.0)
+    # A thin slab makes every position a distinct dye layer (the Gaussian
+    # WideField PSF, what the Linux test build has, ignores defocus).
+    z_range = core.getProperty(cam, "SimType_CellFieldZRangeUm")
+    core.setProperty(cam, "SimType_CellFieldZRangeUm", "0.5")
+    assert core.isStageSequenceable(z) and core.getStageSequenceMaxLength(z) >= len(positions)
+    z_before = core.getPosition(z)
+
+    def norm(a):
+        a = a - a.mean()
+        return a / (np.sqrt((a * a).sum()) + 1e-12)
+
+    for mode in ("Live", "Precomputed"):
+        core.setProperty(cam, "General_AcqMode", mode)
+        refs = []
+        for p in positions:
+            core.setPosition(z, p)
+            if mode == "Precomputed":
+                core.setProperty(cam, "General_GenerateStack", "1")
+                _wait_for_stack(core, cam)
+            acc = None
+            for _ in range(4):
+                core.snapImage()
+                img = core.getImage().astype(np.float64)
+                acc = img if acc is None else acc + img
+            refs.append(norm(acc))
+        core.setPosition(z, z_before)
+        core.loadStageSequence(z, positions)
+        core.startStageSequence(z)
+        n = 2 * len(positions)
+        core.startSequenceAcquisition(n, 0, True)
+        frames = []
+        t0 = time.time()
+        while len(frames) < n:
+            if core.getRemainingImageCount() > 0:
+                frames.append(core.popNextImage().astype(np.float64))
+            elif time.time() - t0 > 300:
+                sys.exit("z sequence acquisition timed out")
+            else:
+                time.sleep(0.005)
+        core.stopSequenceAcquisition()
+        core.stopStageSequence(z)
+        picks = [int(np.argmax([(norm(f) * r).sum() for r in refs])) for f in frames]
+        expect = [k % len(positions) for k in range(n)]
+        assert picks == expect, f"{modality} {mode} z sequence: frames matched positions {picks}, expected {expect}"
+        assert abs(core.getPosition(z) - z_before) < 1e-9, f"stage should return to {z_before}, at {core.getPosition(z)}"
+        print(f"z sequence OK ({modality}, {mode}): {n} frames at positions {[positions[i] for i in picks]}, "
+              f"stage back at {z_before} um")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty(cam, "SimType_CellFieldZRangeUm", z_range)
+    core.setProperty(cam, "General_ImagingModality", "SuperRes")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
 
 
 if __name__ == "__main__":

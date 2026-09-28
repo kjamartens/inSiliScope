@@ -1,5 +1,6 @@
 #include "SMLMNoise.h"
 #include "SMLMCounterRng.h"
+#include "Parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -111,7 +112,7 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
                       const PixelOffsetMap& offsetMap,
                       const PixelGainMap& gainMap,
                       const PixelReadNoiseMap& readNoiseMap,
-                      uint32_t noiseSeed, uint32_t frame)
+                      uint32_t noiseSeed, uint32_t frame, bool parallel)
 {
    const size_t n = static_cast<size_t>(width) * height;
    outAdu.resize(n);
@@ -122,47 +123,62 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
    const bool haveReadNoiseMap = (readNoiseMap.width == width && readNoiseMap.height == height &&
                                    readNoiseMap.readNoiseElectrons.size() == n);
 
-   CounterRng u(noiseSeed, frame);
-   if (cam.emccd)
-   {
-      const double maxAdu = std::ldexp(1.0, std::min(16, std::max(1, cam.bitDepth))) - 1.0;
-      const double emGain = std::max(1.0, cam.emGain);
-      for (size_t i = 0; i < n; ++i)
+   // Rows [y0, y1). A pixel's draws are addressed by (seed, frame, pixel),
+   // so any split of the rows over threads gives the same image.
+   auto rows = [&](unsigned y0, unsigned y1) {
+      CounterRng u(noiseSeed, frame);
+      const size_t i0 = static_cast<size_t>(y0) * width, i1 = static_cast<size_t>(y1) * width;
+      if (cam.emccd)
+      {
+         const double maxAdu = std::ldexp(1.0, std::min(16, std::max(1, cam.bitDepth))) - 1.0;
+         const double emGain = std::max(1.0, cam.emGain);
+         for (size_t i = i0; i < i1; ++i)
+         {
+            u.Pixel(static_cast<uint32_t>(i));
+            const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
+            // Integer electron count entering the gain register, which is then
+            // Gamma(shape = electrons, scale = 1): variance 2x the mean, the
+            // sqrt(2) excess noise factor. Read noise is divided by the EM gain.
+            const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons + cam.cicElectrons, u);
+            const double out = ne > 0.0 ? CounterGamma(ne, u) : 0.0;
+            const double readE = (haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons) / emGain;
+            const double gain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : cam.gainPhotonsPerAdu;
+            const double offset = haveOffsetMap ? offsetMap.offset[i] : 0.0;
+            const double g = CounterGauss(u);
+            double adu = std::floor(offset + (out + readE * g) / gain + 0.5);
+            outAdu[i] = static_cast<uint16_t>(adu < 0.0 ? 0.0 : (adu > maxAdu ? maxAdu : adu));
+         }
+         return;
+      }
+
+      for (size_t i = i0; i < i1; ++i)
       {
          u.Pixel(static_cast<uint32_t>(i));
          const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
-         // Integer electron count entering the gain register, which is then
-         // Gamma(shape = electrons, scale = 1): variance 2x the mean, the
-         // sqrt(2) excess noise factor. Read noise is divided by the EM gain.
-         const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons + cam.cicElectrons, u);
-         const double out = ne > 0.0 ? CounterGamma(ne, u) : 0.0;
-         const double readE = (haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons) / emGain;
+         // Quantum efficiency converts incident photons to mean detected
+         // photoelectrons; dark current is already in electron units (it
+         // originates in the sensor, not in incident light) so it's added
+         // after QE, not scaled by it.
+         const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons, u);
+         const double readNoise = haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons;
          const double gain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : cam.gainPhotonsPerAdu;
          const double offset = haveOffsetMap ? offsetMap.offset[i] : 0.0;
          const double g = CounterGauss(u);
-         double adu = std::floor(offset + (out + readE * g) / gain + 0.5);
-         outAdu[i] = static_cast<uint16_t>(adu < 0.0 ? 0.0 : (adu > maxAdu ? maxAdu : adu));
+         double adu = offset + (ne + readNoise * g) / gain;
+         adu = adu < 0.0 ? 0.0 : (adu > 65535.0 ? 65535.0 : adu);
+         outAdu[i] = static_cast<uint16_t>(std::floor(adu + 0.5));
       }
+   };
+   if (!parallel)
+   {
+      rows(0, height);
       return;
    }
-
-   for (size_t i = 0; i < n; ++i)
-   {
-      u.Pixel(static_cast<uint32_t>(i));
-      const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
-      // Quantum efficiency converts incident photons to mean detected
-      // photoelectrons; dark current is already in electron units (it
-      // originates in the sensor, not in incident light) so it's added
-      // after QE, not scaled by it.
-      const double ne = CounterPoisson(photons * cam.quantumEfficiency + cam.darkCurrentElectrons, u);
-      const double readNoise = haveReadNoiseMap ? readNoiseMap.readNoiseElectrons[i] : cam.readNoiseElectrons;
-      const double gain = haveGainMap ? gainMap.gainPhotonsPerAdu[i] : cam.gainPhotonsPerAdu;
-      const double offset = haveOffsetMap ? offsetMap.offset[i] : 0.0;
-      const double g = CounterGauss(u);
-      double adu = offset + (ne + readNoise * g) / gain;
-      adu = adu < 0.0 ? 0.0 : (adu > 65535.0 ? 65535.0 : adu);
-      outAdu[i] = static_cast<uint16_t>(std::floor(adu + 0.5));
-   }
+   const unsigned bands = std::max(1u, std::min(height, 64u));
+   ParallelFor(bands, [&](unsigned b) {
+      rows(static_cast<unsigned>(static_cast<size_t>(height) * b / bands),
+           static_cast<unsigned>(static_cast<size_t>(height) * (b + 1) / bands));
+   });
 }
 
 } // namespace sim

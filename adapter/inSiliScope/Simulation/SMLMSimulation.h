@@ -142,6 +142,9 @@ struct RenderExtras
    const std::vector<float>* backgroundMap = nullptr;
    // Background fade factor for this frame (BackgroundFadeScale).
    double backgroundScale = 1.0;
+   // Render on all cores (bands of rows; the same pixels as serial). For a
+   // single frame (live mode), not for frames already rendered in parallel.
+   bool parallel = false;
 };
 
 // The fixed (per stack / per live config) spatial fields behind a

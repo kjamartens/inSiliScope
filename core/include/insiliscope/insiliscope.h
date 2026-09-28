@@ -8,6 +8,7 @@
  * M3 (ABI 2): dye blink schedules and the event query, the full cell record
  * and per-cell geometry for the viewer. ABI 3: activation as a rate per dye,
  * non-bleaching (persistent) sites. ABI 4: isc_world_set_dye_cache, isc_world_prefetch.
+ * ABI 5: isc_density3d_in_window (z-resolved, per population; WideField).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -28,7 +29,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 4
+#define ISC_ABI_VERSION 5
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -139,6 +140,19 @@ ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, doubl
  * written to out[nx*ny]. Returns the total count, or -1 on bad arguments. */
 ISC_API int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                       double zMin, double zMax, int32_t nx, int32_t ny, float* out);
+
+/* Labelled-dye counts on an nx x ny x nz grid (ABI 5), written to
+ * out[(k*ny + iy)*nx + ix]; plane k spans [zMin + k*(zMax-zMin)/nz, ...),
+ * x/y binned as isc_density_in_window. populations selects which dyes count
+ * (ISC_POP_BLEACHING | ISC_POP_PERSISTENT; 0 counts none). The core bins its
+ * cached dyes straight into the voxels, so nothing crosses the ABI per dye.
+ * zMin/zMax may be infinite only with nz = 1. Returns the total count, or -1
+ * on bad arguments. */
+#define ISC_POP_BLEACHING 1
+#define ISC_POP_PERSISTENT 2
+ISC_API int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                        double zMin, double zMax, int32_t nx, int32_t ny, int32_t nz,
+                                        int32_t populations, float* out);
 
 #ifdef __cplusplus
 }

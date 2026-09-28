@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include "DeviceBase.h"
 
 extern const char* g_ZStageDeviceName;
@@ -42,13 +44,30 @@ public:
    int Home();
    int Stop();
    bool IsContinuousFocusDrive() const { return false; }
-   // Not sequenceable -- position changes come from the user/UI (or a
-   // script), not TTL-triggered sequences.
+   // Sequenceable: MM uploads a z stack and the camera steps through it,
+   // one position per frame of a sequence acquisition (the TTL a real
+   // camera would send), via SharedStageState.
    int IsStageSequenceable(bool& isSequenceable) const
    {
-      isSequenceable = false;
+      isSequenceable = true;
       return DEVICE_OK;
    }
+   int IsStageLinearSequenceable(bool& isSequenceable) const
+   {
+      isSequenceable = true;
+      return DEVICE_OK;
+   }
+   int GetStageSequenceMaxLength(long& nrEvents) const
+   {
+      nrEvents = kMaxSequence;
+      return DEVICE_OK;
+   }
+   int StartStageSequence();
+   int StopStageSequence();
+   int ClearStageSequence();
+   int AddToStageSequence(double position);
+   int SendStageSequence();
+   int SetStageLinearSequence(double dZ_um, long nSlices);
 
    // action interface
    int OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -58,6 +77,8 @@ private:
    static constexpr double kInitialPositionUm = 0.5;   // set on Initialize()
    static constexpr double kLowerLimitUm = -50.0;
    static constexpr double kUpperLimitUm = 50.0;
+   static constexpr long kMaxSequence = 100000;
 
    bool initialized_ = false;
+   std::vector<double> pending_; // AddToStageSequence, until SendStageSequence
 };

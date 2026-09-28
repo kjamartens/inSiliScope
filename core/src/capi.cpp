@@ -241,4 +241,20 @@ int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double x1, doub
    }
 }
 
+int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
+                                int32_t nx, int32_t ny, int32_t nz, int32_t populations, float* out)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || nx <= 0 || ny <= 0 || nz <= 0 || !out || populations < 0 ||
+       (populations & ~(ISC_POP_BLEACHING | ISC_POP_PERSISTENT)) != 0 || !(zMax > zMin) ||
+       (nz > 1 && (!std::isfinite(zMin) || !std::isfinite(zMax))))
+      return -1;
+   if ((double)nx * ny * nz > 2.0e9) return -1;
+   try {
+      const long n = w->w.Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, (unsigned)populations, out);
+      return n > INT32_MAX ? -1 : (int32_t)n;
+   } catch (...) {
+      return -1;
+   }
+}
+
 } // extern "C"

@@ -73,7 +73,9 @@ int main(int argc, char** argv)
       const std::string a = argv[i];
       if (a == "--help" || a == "-h") { Usage(); return 0; }
       if (a == "--out" && i + 1 < argc) { out = argv[++i]; continue; }
-      if (a.compare(0, 2, "--") != 0 || i + 1 >= argc || !sim::ScopeSpecSet(spec, a.substr(2), std::atof(argv[i + 1]))) {
+      double v = 0.0;
+      if (a.compare(0, 2, "--") != 0 || i + 1 >= argc || !sim::ScopeOptionValue(a.substr(2), argv[i + 1], v) ||
+          !sim::ScopeSpecSet(spec, a.substr(2), v)) {
          std::fprintf(stderr, "unknown or incomplete option %s\n\n", a.c_str());
          Usage();
          return 2;
@@ -93,7 +95,11 @@ int main(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
-   std::printf("%s: %ld frames %ux%u, %zu blinks (query %.2f s), total %.2f s\n", out.c_str(), info.frames,
-               info.width, info.height, info.blinks, info.querySec, info.totalSec);
+   if (info.dyes > 0 || sim::ScopeSpecGet(spec, "modality") == 1)
+      std::printf("%s: %ld frames %ux%u, WideField, %ld dyes, t1/2 %.4g s (setup %.2f s), total %.2f s\n", out.c_str(),
+                  info.frames, info.width, info.height, info.dyes, info.halfTimeSec, info.querySec, info.totalSec);
+   else
+      std::printf("%s: %ld frames %ux%u, %zu blinks (query %.2f s), total %.2f s\n", out.c_str(), info.frames,
+                  info.width, info.height, info.blinks, info.querySec, info.totalSec);
    return 0;
 }

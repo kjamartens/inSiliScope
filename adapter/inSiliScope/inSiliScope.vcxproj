@@ -113,6 +113,10 @@
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
     <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="Simulation\Fft2d.cpp" />
+    <ClCompile Include="Simulation\Illumination.cpp" />
+    <ClCompile Include="Simulation\WidefieldRender.cpp" />
+    <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
     <ClCompile Include="..\..\core\src\cytomesh.cpp" />
@@ -121,6 +125,7 @@
     <ClCompile Include="..\..\core\src\jsmath_fdlibm.cpp" />
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
     <ClCompile Include="..\..\core\src\packing.cpp" />
+    <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
     <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
@@ -137,6 +142,12 @@
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="Simulation\Fft2d.h" />
+    <ClInclude Include="Simulation\Parallel.h" />
+    <ClInclude Include="Simulation\Illumination.h" />
+    <ClInclude Include="Simulation\WidefieldRender.h" />
+    <ClInclude Include="Simulation\WidefieldGpuD3D11.h" />
+    <ClInclude Include="Simulation\WidefieldGpuHlsl.inc" />
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h" />
     <ClInclude Include="..\..\core\src\cells.h" />
     <ClInclude Include="..\..\core\src\cytomesh.h" />
@@ -144,6 +155,7 @@
     <ClInclude Include="..\..\core\src\jsmath.h" />
     <ClInclude Include="..\..\core\src\microtubules.h" />
     <ClInclude Include="..\..\core\src\packing.h" />
+    <ClInclude Include="..\..\core\src\parallel.h" />
     <ClInclude Include="..\..\core\src\params.h" />
     <ClInclude Include="..\..\core\src\rng.h" />
     <ClInclude Include="..\..\core\src\world.h" />

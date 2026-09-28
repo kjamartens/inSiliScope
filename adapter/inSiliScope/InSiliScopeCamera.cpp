@@ -12,6 +12,7 @@
 // LICENSE:       BSD (see license.txt)
 
 #include "InSiliScopeCamera.h"
+#include "Simulation/SharedStageState.h"
 
 #include "CameraImageMetadata.h"
 #include "ModuleInterface.h"
@@ -156,6 +157,19 @@ const char* g_PropCellFieldNumber[CF_COUNT] = {
 };
 const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
+const char* g_PropImagingModality = "General_ImagingModality";
+const char* g_ModalitySuperRes = "SuperRes";
+const char* g_ModalityWideField = "WideField";
+const char* g_PropWideFieldNumber[WF_COUNT] = {
+   "General_WideFieldUpscaling",
+   "General_WideFieldZPlaneNm",
+   "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec",
+   "FluoParam_WideFieldQuantumYield",
+   "FluoParam_WideFieldPhotonBudget",
+   "FluoParam_WideFieldExtinctionCoeff",
+};
+const char* g_PropWideFieldHalfTimeSec = "FluoParam_WideFieldHalfTimeSec";
+
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
 const char* g_Fov512 = "512x512";
@@ -180,6 +194,12 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
+   // WideField: grid 1 cell/pixel, 25 nm dye planes; 1.6e9 photons/um^2/s
+   // (~0.05 W/cm^2 at 640 nm), QY 0.7, 5000 emitted photons per dye,
+   // eps 270000 M^-1 cm^-1: t1/2 = 30 s (WidefieldRender.h).
+   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 1.6e9, 0.7, 5000.0, 270000.0 };
+   for (int i = 0; i < WF_COUNT; ++i)
+      wideFieldNum_[i] = wideFieldDefaults[i];
 
    // Pre-init property: must exist before Initialize() finishes. FovSize is
    // deliberately NOT pre-init -- unlike RandomSeed, it's a regular,
@@ -605,6 +625,29 @@ int CInSiliScopeCamera::Initialize()
       AddAllowedValue(g_PropCellFieldPacking, "Off");
    }
 
+   // Imaging modality: WideField renders every labelled dye of the CellField
+   // pattern at once (Simulation/WidefieldRender.h); other patterns stay SR.
+   CreateStringProperty(g_PropImagingModality, g_ModalitySuperRes, false,
+                        new CPropertyAction(this, &CInSiliScopeCamera::OnImagingModality));
+   AddAllowedValue(g_PropImagingModality, g_ModalitySuperRes);
+   AddAllowedValue(g_PropImagingModality, g_ModalityWideField);
+   {
+      const double lo[WF_COUNT] = { 1.0, 5.0, 0.0, 0.0, 0.0, 1e3 };
+      const double hi[WF_COUNT] = { 4.0, 500.0, 1e13, 1.0, 1e9, 1e6 };
+      for (long i = 0; i < WF_COUNT; ++i)
+      {
+         auto* act = new CPropertyActionEx(this, &CInSiliScopeCamera::OnWideFieldNumber, i);
+         if (i == WF_UPSCALING)
+            CreateIntegerProperty(g_PropWideFieldNumber[i], static_cast<long>(wideFieldNum_[i].load()), false, act);
+         else
+            CreateFloatProperty(g_PropWideFieldNumber[i], wideFieldNum_[i].load(), false, act);
+         SetPropertyLimits(g_PropWideFieldNumber[i], lo[i], hi[i]);
+      }
+      // Derived, read-only: B ln2 / k_em at pattern value 1; -1 = never bleaches.
+      CreateFloatProperty(g_PropWideFieldHalfTimeSec, 0.0, true,
+                          new CPropertyAction(this, &CInSiliScopeCamera::OnWideFieldHalfTimeSec));
+   }
+
    // Sub-pixel PSF placement (vectorial PSF models only) -- see
    // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default is Cubic;
    // Nearest reproduces the original box-average splat exactly.
@@ -797,6 +840,9 @@ int CInSiliScopeCamera::StopSequenceAcquisition()
       thd_->Stop();
       thd_->wait();
    }
+   liveSeqCapture_ = false;
+   liveSeqSkipStale_ = false;
+   sim::GetSharedStageState().EndSequenceAcquisition();
    return DEVICE_OK;
 }
 
@@ -814,12 +860,22 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
 
    // A fresh Live/MDA acquisition restarts the drift ramp from zero rather
    // than continuing wherever the previous acquisition left off.
+   // An armed z sequence (hardware z stack) restarts at its first position;
+   // the camera steps it one position per frame.
+   const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
+   liveSeqEpoch_ = sim::GetSharedStageState().BeginSequenceAcquisition();
+   liveSeqSkipStale_ = zseq.armed;
+   liveSeqCapture_ = true;
    if (acqMode_ == SMLM_MODE_LIVE)
    {
       liveDriftOriginFrame_ = liveFrameCounter_.load();
    }
    else
    {
+      // A precomputed stack made for another (or no) z sequence is remade
+      // for this one: frame f at position f mod n.
+      if (zseq.armed ? stackZSeqVersion_.load() != zseq.version : stackZSeqVersion_.load() != -1)
+         InvalidateStackOnly();
       MMThreadGuard g(imgPixelsLock_);
       playbackIndex_ = 0;
       endOfStackReached_ = false;
@@ -886,6 +942,9 @@ void CInSiliScopeCamera::OnThreadExiting() throw()
    try
    {
       LogMessage("SMLM sequence acquisition thread exiting");
+      liveSeqCapture_ = false;
+      liveSeqSkipStale_ = false;
+      sim::GetSharedStageState().EndSequenceAcquisition();
       if (GetCoreCallback())
          GetCoreCallback()->AcqFinished(this, 0);
    }

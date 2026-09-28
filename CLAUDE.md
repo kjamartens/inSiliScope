@@ -26,8 +26,12 @@ that finishes them.
 - `spec/` -- [ALGORITHM.md](spec/ALGORITHM.md) (the *why* of every algorithm; do not "simplify" what it
   says was fixed on purpose), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
+- `tests/web/` -- the viewer's WideField GPU path in headless Chromium; `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
-  determinism under any query history, tiling, packing off, dye lattice statistics); `tools/` -- `gen_jsmath.py`,
+  determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
+  query, and `Threads`: 8 threads = 1 thread); `cli/widefield_check.cpp` (ctest `widefield`);
+  `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
+  parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
   `adapter_pixel_hash.py`, `test_insiliscope.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)
@@ -45,6 +49,9 @@ that finishes them.
 - **Types follow the JS:** `double` where JS uses numbers, `float` exactly where JS uses a
   `Float32Array`. Keep JS operand order in expressions (`a*b*c` is `(a*b)*c`), and never write two
   draws from one sequential stream in a single expression (C++ evaluation order is unspecified).
+- **Threads** (`core/src/parallel.*`, `ParallelFor`): only for work items that are pure functions of
+  their address and write only their own slot; results are consumed in the serial order (the event
+  order is the renderer's summation order). Serial in WASM.
 - **Floating-point flags:** no `-ffast-math`; `-ffp-contract=off` (GCC/Clang/Emscripten),
   `/fp:precise` without `/fp:contract` (MSVC). Set in `core/CMakeLists.txt`.
 - The prototype in `web/prototype/` changes only deliberately. When its generator changes, update
@@ -68,9 +75,14 @@ that finishes them.
   locally built `third_party/SMLMPsfEmbedded.jar`, see below). Output unchanged by a refactor:
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
   Smoke test: `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py` (ends with
-  `tools/test_cellfield_stage.py`: CellField pattern + XY stage). Off Windows, `tools/build_adapter_linux.sh`
+  `tools/test_cellfield_stage.py`: CellField pattern + XY stage + hardware z stacks). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
+- WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a
+  `WidefieldGpu.wgsl` change, then `node tools/embed_web_module.mjs`. Viewer path: `node
+  tests/web/wf_gpu_check.mjs` and `node tests/web/viewer_wf_movie.mjs` (headless Chromium, WebGPU on
+  SwiftShader). D3D11 path: ctest `wf_gpu_d3d11` on Windows, or `tools/wine_wf_gpu_check.sh` on Linux
+  (mingw-w64, Wine, Mesa lavapipe, Microsoft's d3dcompiler_47.dll -- see the script).
 - Prebuilt DLL for testing: CI workflow (Actions -> CI -> Run workflow, `publish_dll` ticked) builds
   the adapter on windows-latest and commits `bin/windows-x64/mmgr_dal_inSiliScope.dll` +
   `BUILD_INFO.txt` to the branch it ran on (always also as an artifact). It embeds PSFGenerator only
@@ -112,6 +124,47 @@ the former 10% bleaching x 0.01/s at t = 0; core ABI 3, now 4; spec/PORT.md 6.3)
 are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
 (the viewer passes its own labelling sliders). `CellField` is the default pattern.
 
+**WideField modality (2026-09-27):** `General_ImagingModality` = `SuperRes` (default, the blinks) |
+`WideField`: every labelled dye of the `CellField` pattern emits at once (other patterns log once and
+render SR). Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
+default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
+`isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
+cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
+flux, extinction coefficient, QY, emitted-photon budget (`FluoParam_WideField*`); the bleach rate
+follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame; read-only
+`FluoParam_WideFieldHalfTimeSec` reports it at the pattern peak, -1 = never), collection efficiency from
+`PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
+non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
+Illumination is a modality-neutral `IlluminationPattern` (square over the FOV for now). Stacks are a
+fresh sample (reproducible); live mode keeps a world-anchored `BleachField` (bleach, move away and
+back: still dim), reset on a world or pitch change. Speed (2026-09-27, spec/PORT.md 13): world-anchored
+grid and dye tiles (shared, sparse), a mixed-radix real FFT, cached kernel and per-dye-plane spectra (a
+focus change is a re-pairing, ~10 ms at 256 px), a sub-cell stage move is a phase ramp, frames are
+weighted sums of per-focus images (no FFT per frame), a bleach basis (dose groups / Chebyshev) instead
+of per-frame spectra, destination prefetch on stage moves, a pipelined live loop. Focus bands (2x/4x
+coarse far planes) exist but are gated at 0.1% rms error, which no sharp-pupil PSF meets. The `ZStage`
+is sequenceable (hardware z stacks: one position per camera frame, live and precomputed; WideField
+makes all positions' images at once). GPU: one WGSL source (`Simulation/WidefieldGpu.wgsl`) runs on
+WebGPU in the viewer (`web/wf_gpu.js`) and on Direct3D 11 in the adapter (`Simulation/WidefieldGpuD3D11`,
+HLSL generated by `tools/gen_wf_gpu.mjs` with naga -- regenerate after any WGSL change, never hand-edit
+`WidefieldGpuHlsl.inc`); fp16 plane spectra resident across focus jobs; stack frames and noise on the
+GPU; self-check against the CPU at startup, CPU fallback on any failure (`General_GpuStatus`). Limits:
+CellField only, no drift,
+the Gaussian PSF ignores defocus for now (`WidefieldGaussianSigmaUm`, TODO(human)). cli/viewer:
+`modality` (0/1 or the names), `wf-upscale`, `wf-plane-nm`, `wf-kernel-um`, `wf-excitation-photons-
+per-um2-per-sec`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`, `immersion-index`.
+Details: spec/PORT.md 13; ctest `widefield`, `cli_tiff_wf`.
+
+**SuperRes speed-ups (2026-09-28), output bit-identical:** the core query runs its per-block work on
+threads (spec/PORT.md 6.1: 1000-frame stack query ~6x faster, stage jumps ~4x on 4 cores); the vectorial
+PSF kernel is memoized (`ComputePsfKernelCache`, last 2 requests: a live property change or a new stack
+that leaves the PSF alone no longer re-runs the JVM); the stack's CellField query runs while the PSF is
+computed; live CPU frames render and add noise in row bands on all cores (`RenderExtras::parallel`,
+`ApplyNoiseChain(..., parallel)`); the splat skips its per-tap bounds checks; `Fft` placement tabulates
+its twiddles (~1.6x) and, in live mode, transforms lines on all cores; the cli renders frames in
+parallel batches. Checked: cli TIFFs and `adapter_pixel_hash` (+ CellField configs) unchanged, ctest
+`sr_render`, `world_checks` `Threads`.
+
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
@@ -139,7 +192,8 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   every property that sat in webSMLM's flat "User parameters" group
   (density, pixel size, labeling efficiency, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), and the
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), the WideField
+  modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, and the
   `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`.
 - `SimType_` -- webSMLM's "Simulation type" group: `Pattern` and every
   structure/pattern-shape parameter (`CustomPointsFile`,
@@ -149,7 +203,10 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
   `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
   `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its
-  illumination profile in this group too).
+  illumination profile in this group too), and the WideField photophysics
+  `WideFieldExcitationPhotonsPerUm2PerSec`, `WideFieldQuantumYield`,
+  `WideFieldPhotonBudget`, `WideFieldExtinctionCoeff`, and the read-only
+  `WideFieldHalfTimeSec` derived from them (-1 = never bleaches).
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
   offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
   std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,
