@@ -2,12 +2,17 @@ name: webSMLM block
 
 # Builds and publishes dist/cellfield_block.js, the drop-in replacement for webSMLM's CellField
 # IIFE (M4). Manual only (Actions -> webSMLM block -> Run workflow). Always uploads it as an
-# artifact; with a tag given, also publishes it as a GitHub release asset of this repository.
+# artifact; with publish_block ticked, also commits it (+ .sha256) to bin/websmlm/ on the branch it
+# ran on (like ci.yml's publish_dll); with a tag given, also publishes it as a release asset.
 # It never opens PRs or pushes anywhere else: bringing the block into kjamartens/webSMLM is a
 # separate change made there.
 on:
   workflow_dispatch:
     inputs:
+      publish_block:
+        description: 'Commit the block to bin/websmlm/ on the branch this runs on'
+        type: boolean
+        default: true
       release_tag:
         description: 'Tag to publish a release under (e.g. block-v1); empty = artifact only'
         type: string
@@ -21,7 +26,7 @@ jobs:
   block:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # only used by the release step
+      contents: write   # only used by the publish_block and release steps
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,6 +54,18 @@ jobs:
         with:
           name: cellfield_block
           path: dist/
+      - name: Commit block to the branch
+        if: ${{ inputs.publish_block }}
+        run: |
+          mkdir -p bin/websmlm
+          cp dist/cellfield_block.js bin/websmlm/
+          (cd bin/websmlm && sha256sum cellfield_block.js > cellfield_block.js.sha256)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f bin/websmlm
+          if git diff --cached --quiet; then echo "block unchanged"; exit 0; fi
+          git commit -m "bin: webSMLM CellField block built from ${GITHUB_SHA}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
       - name: Release
         if: ${{ inputs.release_tag != '' }}
         env:
