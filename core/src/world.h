@@ -20,7 +20,9 @@
 #include "params.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <cstdint>
 #include <list>
 #include <map>
@@ -149,18 +151,37 @@ private:
       long pBin0 = 0, pBin1 = 0;
       uint64_t used = 0;                    // last query that touched the block
       uint32_t phase = 0;                   // per-block hash, staggers the extensions
+      bool generated = false;               // dyes filled in (ForEachDyeBlock)
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
    // Makes b.pEvents cover time bins [b0, b1] (the query ends at t1), and
-   // extends them ahead of time at a per-block point of their last bin.
-   void PersistentCover(DyeBlock& b, long b0, long b1, double t1);
+   // extends them ahead of time at a per-block point of their last bin
+   // (shortFirst: a first build reaches only one bin ahead). True if it built
+   // anything. Touches only b (runs in parallel).
+   bool PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const;
+   // Whether PersistentCover(b, b0, b1, t1) would build (the same test).
+   bool CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const;
 
+   std::vector<Cell> PackBlock(int32_t bx, int32_t by) const;
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
-   // Calls fn(DyeBlock&) for every 1 um dye block that can reach the rect/z range.
+   // For every 1 um dye block that can reach the rect/z range, in a fixed
+   // order: prep(DyeBlock&) -- work on that block alone, run in parallel
+   // over the blocks of a cell (nullptr: none), needs(const DyeBlock&) says
+   // whether a block has prep work -- then fn(DyeBlock&), serially, in that
+   // order. Missing dye blocks and cell assets are built in parallel first.
+   using BlockPrep = std::function<void(DyeBlock&)>;
+   using BlockNeeds = std::function<bool(const DyeBlock&)>;
    template <class Fn>
-   void ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn);
-   DyeBlock& GetDyeBlock(CellAssets& A, int mtIndex, int block);
-   void Schedule(DyeBlock& b);
+   void ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                        const BlockPrep& prep, const BlockNeeds& needs, Fn fn);
+   DyeBlock& FindDyeBlock(const Cell& c, int mtIndex, int block);
+   void GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& pts, const MtFrames& fr, int mtIndex,
+                     int block) const;
+   // Builds b's blink schedule; true if it did (touches only b).
+   bool Schedule(DyeBlock& b) const;
+   // The schedule + persistent-cover prep of EventsInWindow/Prefetch, with
+   // the build counts added to stats_ afterwards.
+   struct PrepCounts { std::atomic<long> schedules{0}, covers{0}; };
 
    uint32_t seed_;
    Params p_;
@@ -188,6 +209,10 @@ private:
    PrefetchRegion prefetchDone_ = {};
    Kinetics kin_;
    std::vector<const PersistentEvent*> persistentScratch_;
+   // Built ahead in parallel for the current walk (PackedBlock / Assets take
+   // them from here instead of building).
+   std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> packPrebuilt_;
+   std::map<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>> assetPrebuilt_;
    WorldStats stats_;
 };
 

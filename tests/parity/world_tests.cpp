@@ -7,6 +7,7 @@
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
+#include "parallel.h"
 #include "params.h"
 #include "world.h"
 
@@ -16,6 +17,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <functional>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -677,6 +680,58 @@ void PersistentSites()
 
 } // namespace
 
+// The parallel block work (packing blocks, cell assets, dye blocks, blink
+// schedules and persistent covers built on several threads) changes nothing:
+// the same events in the same order -- the order the renderer sums them in --
+// and the same build counts as one thread, for stack-sized and frame-sized
+// queries, jumps, a kinetics change and prefetches.
+bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEvent>& b)
+{
+   if (a.size() != b.size()) return false;
+   for (size_t i = 0; i < a.size(); i++) {
+      const WorldEvent &x = a[i], &y = b[i];
+      if (x.id != y.id || std::memcmp(&x.x, &y.x, 6 * sizeof(double)) != 0) return false;
+   }
+   return true;
+}
+
+void Threads()
+{
+   Params p;
+   p.labelEfficiency = 0.1;
+   p.labelNonBleaching = 0.3;
+   Kinetics k;
+   k.activationRatePerSec = 0.01; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
+   World a(77, p), b(77, p);
+   a.SetKinetics(k); b.SetKinetics(k);
+   size_t total = 0;
+   auto both = [&](const std::function<void(World&, std::vector<WorldEvent>&)>& q) {
+      std::vector<WorldEvent> ea, eb;
+      SetWorldThreads(1);
+      q(a, ea);
+      SetWorldThreads(8);
+      q(b, eb);
+      SetWorldThreads(0);
+      total += ea.size();
+      return IdenticalEvents(ea, eb);
+   };
+   bool same = both([](World& w, std::vector<WorldEvent>& e) { w.EventsInWindow(-20, -20, 20, 20, 0, 3, 0, 20, e); });
+   for (int f = 0; f < 30 && same; f++) {
+      const double s = f < 10 ? 0.3 * f : f < 20 ? 60 + 0.3 * f : 250;   // a move, a jump, another jump
+      same = both([&](World& w, std::vector<WorldEvent>& e) {
+         if (f == 25) w.SetKinetics(Kinetics{ 0.02, 0.05, 0.5, 0.5, 0.2 });
+         w.EventsInWindow(s - 8, -8, s + 8, 8, 0, 4, 21 + f * 0.05, 21 + (f + 1) * 0.05, e);
+         if (f % 4 == 0) w.Prefetch(s - 11, -11, s + 11, 11, -INF, INF, 21 + (f + 1) * 0.05, 21 + (f + 2) * 0.05, 1e9);
+      });
+   }
+   const WorldStats &sa = a.Stats(), &sb = b.Stats();
+   Check(same && total > 10000, "8 threads = 1 thread: the same events in the same order");
+   Check(sa.blocksPacked == sb.blocksPacked && sa.cellsBuilt == sb.cellsBuilt && sa.dyeBlocks == sb.dyeBlocks &&
+            sa.dyeBlockHits == sb.dyeBlockHits && sa.schedulesBuilt == sb.schedulesBuilt &&
+            sa.persistentBuilt == sb.persistentBuilt,
+         "8 threads = 1 thread: the same caches built");
+}
+
 int main()
 {
    Determinism();
@@ -686,6 +741,7 @@ int main()
    PersistentSites();
    EventQuery();
    CacheUnderLoad();
+   Threads();
    CApi();
    Density3d();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);

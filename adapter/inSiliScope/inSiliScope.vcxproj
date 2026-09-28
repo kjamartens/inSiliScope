@@ -125,6 +125,7 @@
     <ClCompile Include="..\..\core\src\jsmath_fdlibm.cpp" />
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
     <ClCompile Include="..\..\core\src\packing.cpp" />
+    <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
     <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
@@ -154,6 +155,7 @@
     <ClInclude Include="..\..\core\src\jsmath.h" />
     <ClInclude Include="..\..\core\src\microtubules.h" />
     <ClInclude Include="..\..\core\src\packing.h" />
+    <ClInclude Include="..\..\core\src\parallel.h" />
     <ClInclude Include="..\..\core\src\params.h" />
     <ClInclude Include="..\..\core\src\rng.h" />
     <ClInclude Include="..\..\core\src\world.h" />

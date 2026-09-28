@@ -73,6 +73,9 @@
     <ClCompile Include="..\..\core\src\packing.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\parallel.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\params.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -154,6 +157,9 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\packing.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\core\src\parallel.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\params.h">

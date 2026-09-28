@@ -254,8 +254,20 @@ of a query and never drops a block that query used, so a moved window builds onl
 have. `isc_world_prefetch` (ABI 4) fills the caches for a region within a time budget; the adapter's
 live mode spends the wait before each frame on the FOV's z column plus 3 um in x/y. Persistent sites'
 blink ranges are extended ahead of time at a per-block point of their last bin, so the blocks of a
-window do not all rebuild on the frame entering a new bin. Checked in `world_checks` (`KineticsStats`:
-Exp means, geometric blink count, log-normal mean/CV, time order).
+window do not all rebuild on the frame entering a new bin; a query's first build of a block reaches only
+one bin ahead (a jump or a kinetics change builds what it shows now, the extensions the rest). Checked in
+`world_checks` (`KineticsStats`: Exp means, geometric blink count, log-normal mean/CV, time order).
+
+**Threads (2026-09-28, `core/src/parallel.*`):** the world's independent per-item work runs on
+`ParallelFor` (up to 16 threads, made per call; serial in WASM, nested, or while another world's
+`ParallelFor` runs): missing packing blocks, missing cells' assets (geometry + microtubules), and per
+cell the new dye blocks, then their schedules and persistent covers. Each item is a pure function of its
+address writing only its own block, and the query then reads the blocks serially in the old order, so
+the events -- and their order, which the renderer sums in -- are those of one thread (`world_checks`
+`Threads`: 8 threads = 1 thread, events byte for byte in order and the same build counts). With the
+loop-invariant `exp(-m)` of the persistent-bin Poisson draw and the per-protofilament `cos/sin` and
+linker `pow` hoisted (same operands, same bits): a 1000-frame 128 px stack query 2.1 -> 0.35 s,
+a 40 um stage jump 5.2 -> 1.2 s (4 cores).
 
 ### 6.2 Query, per frame
 ```

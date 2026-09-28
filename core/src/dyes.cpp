@@ -37,10 +37,13 @@ double MtSeamPhase(uint32_t seed, int32_t cx, int32_t cy, int mtIndex)
    return 2 * jsm::PI * HashUnit(seed, cx, cy, MT_CH_SEAM_PHASE + (uint32_t)mtIndex);
 }
 
-SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t seg, double S, double theta,
-                        double r1, double r2, double r3)
+namespace {
+// MtSiteGeometry with the per-protofilament (cos, sin theta) and the linker
+// shell's cubed radii passed in: DyesInBlock evaluates those once, not per
+// site. Same operands in the same order, so the same bits.
+SiteGeom SiteGeometryWith(const std::vector<Pt3>& pts, const MtFrames& fr, size_t seg, double S, double ct,
+                          double st, double minL3, double maxL3, double r1, double r2, double r3)
 {
-   const double ct = jsm::cos(theta), st = jsm::sin(theta);
    const Pt3& t = fr.T[seg]; const Pt3& u = fr.U[seg]; const Pt3& v = fr.V[seg];
    const double f = S - fr.cum[seg];
    const double cx = pts[seg].x + t.x * f, cy = pts[seg].y + t.y * f, cz = pts[seg].z + t.z * f;
@@ -50,11 +53,20 @@ SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t 
    g.att = { cx + rx * R, cy + ry * R, cz + rz * R };
    g.tip = { cx + rx * B, cy + ry * B, cz + rz * B };
    // mtDisplaceByLinker: uniform direction, radius uniform in volume.
-   const double minL = MT_LINKER_MIN_NM * NM, maxL = MT_LINKER_MAX_NM * NM;
    const double lu = r1 * 2 - 1, phi = r2 * 2 * jsm::PI, sn = jsm::sqrt(1 - lu * lu);
-   const double r = jsm::cbrt(jsm::pow(minL, 3) + (jsm::pow(maxL, 3) - jsm::pow(minL, 3)) * r3);
+   const double r = jsm::cbrt(minL3 + (maxL3 - minL3) * r3);
    g.dye = { g.tip.x + r * sn * jsm::cos(phi), g.tip.y + r * sn * jsm::sin(phi), g.tip.z + r * lu };
    return g;
+}
+
+constexpr double LINK_MIN_UM = MT_LINKER_MIN_NM * NM, LINK_MAX_UM = MT_LINKER_MAX_NM * NM;
+} // namespace
+
+SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t seg, double S, double theta,
+                        double r1, double r2, double r3)
+{
+   return SiteGeometryWith(pts, fr, seg, S, jsm::cos(theta), jsm::sin(theta), jsm::pow(LINK_MIN_UM, 3),
+                           jsm::pow(LINK_MAX_UM, 3), r1, r2, r3);
 }
 
 void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::vector<Pt3>& pts, const MtFrames& fr,
@@ -68,9 +80,11 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
    if (blockNm0 * NM >= total || !(labelledBelow > 0)) return;
    const uint32_t h1 = DyeH1(seed, cx, cy, mtIndex);
    const double phase = MtSeamPhase(seed, cx, cy, mtIndex);
+   const double minL3 = jsm::pow(LINK_MIN_UM, 3), maxL3 = jsm::pow(LINK_MAX_UM, 3);
    for (int k = 0; k < MT_N_PROTOFILAMENTS; k++) {
       const double off = MtProtofilamentOffsetNm(k);
       const double theta = MtProtofilamentTheta(phase, k);
+      const double ct = jsm::cos(theta), st = jsm::sin(theta);
       // Block membership is decided on sNm = off + 8n alone, so every site
       // lands in exactly one block.
       long n = std::max(0L, (long)std::floor((blockNm0 - off) / MT_DIMER_NM) - 1);
@@ -87,7 +101,7 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
          const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
          const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
          const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
-         const SiteGeom g = MtSiteGeometry(pts, fr, MtSegmentAt(fr, S), S, theta, r1, r2, r3);
+         const SiteGeom g = SiteGeometryWith(pts, fr, MtSegmentAt(fr, S), S, ct, st, minL3, maxL3, r1, r2, r3);
          out.push_back({ g.dye, mtIndex, k, (int32_t)n, label, u >= efficiency });
       }
    }
@@ -107,6 +121,16 @@ double LogNormalMean1(double cv, double u1, double u2)
    return jsm::exp(mu + sigma * z);
 }
 
+// Inverse-CDF Poisson count of mean m (<= 30) from one uniform, expM =
+// exp(-m) passed in so a caller with a fixed m evaluates it once.
+long PoissonInverse(double m, double expM, double u)
+{
+   double p = expM, F = p;
+   long c = 0;
+   while (u > F && c < 1000) { c++; p *= m / c; F += p; }
+   return c;
+}
+
 // Poisson count of mean m from one uniform (inverse CDF; a normal
 // approximation above m = 30, which a per-second bin rarely reaches).
 long PoissonFromUniform(double m, double u, double u2)
@@ -116,10 +140,7 @@ long PoissonFromUniform(double m, double u, double u2)
       const double z = jsm::sqrt(-2 * jsm::log(u)) * jsm::cos(2 * jsm::PI * u2);
       return std::max(0L, (long)std::floor(m + jsm::sqrt(m) * z + 0.5));
    }
-   double p = jsm::exp(-m), F = p;
-   long c = 0;
-   while (u > F && c < 1000) { c++; p *= m / c; F += p; }
-   return c;
+   return PoissonInverse(m, jsm::exp(-m), u);
 }
 } // namespace
 
@@ -162,9 +183,14 @@ void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long 
    const double cv = std::max(0.0, kin.photonCV);
    const double maxOn = PERSIST_ON_CAP * kin.onSec;
    const double m = rate * PERSIST_BIN_SEC;
+   // PoissonFromUniform, with exp(-m) once per site and the second uniform
+   // (addressed, so skipping it changes nothing) only where it is used.
+   const bool small = m <= 30;
+   const double expM = small ? jsm::exp(-m) : 0.0;
    for (long b = std::max(0L, b0); b <= b1; b++) {
       const uint32_t bin = (uint32_t)b;
-      const long c = PoissonFromUniform(m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
+      const long c = small ? PoissonInverse(m, expM, U(bin, 0, COUNT))
+                           : PoissonFromUniform(m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
       for (long j = 0; j < c; j++) {
          const uint32_t jj = (uint32_t)j;
          const double tOn = (b + U(bin, jj, START)) * PERSIST_BIN_SEC;

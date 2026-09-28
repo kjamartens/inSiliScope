@@ -15,10 +15,16 @@ add_library(insiliscope_core STATIC
   ${ISC_MATH_SRC}
   src/microtubules.cpp
   src/packing.cpp
+  src/parallel.cpp
   src/params.cpp
   src/world.cpp
 )
 target_include_directories(insiliscope_core PUBLIC include PRIVATE src)
+if(NOT EMSCRIPTEN)
+  # src/parallel.cpp (serial under Emscripten without pthreads).
+  find_package(Threads REQUIRED)
+  target_link_libraries(insiliscope_core PUBLIC Threads::Threads)
+endif()
 
 # Floating point: no contraction into FMA, no fast-math, so native and WASM
 # evaluate every expression exactly as written (and as JS does).
