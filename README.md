@@ -21,7 +21,6 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 |---|---|
 | try it | open the [viewer](https://kjamartens.github.io/inSiliScope/viewer/) |
 | use it in Micro-Manager | download `mmgr_dal_inSiliScope.dll` from the [latest release](https://github.com/kjamartens/inSiliScope/releases), copy it to your Micro-Manager folder (Windows x64), add the module `inSiliScope` |
-| use it in webSMLM | download `cellfield_block.js` from the release, run webSMLM's `node tools/sync_cellfield.mjs <file>` |
 | script it | build `insiliscope_cli` (below) and write TIFF movies headlessly |
 
 ## What it models
@@ -33,8 +32,7 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 - **WideField**: all labelled dyes at once, 3D PSF convolution by FFT, photobleaching in physical units (extinction, QY,
   photon budget), world-anchored bleach memory, hardware z stacks, GPU path (WebGPU / Direct3D 11).
 
-Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/physics/world-model/). The algorithm
-notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
+Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/physics/world-model/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
 
 ## Build
 
