@@ -19,7 +19,8 @@ const OUT = path.join(ROOT, 'web/insiliscope_module.js');
 const WGSL = path.join(ROOT, 'adapter/inSiliScope/Simulation/WidefieldGpu.wgsl');
 const check = process.argv.includes('--check');
 
-const mod = fs.readFileSync(SRC, 'utf8');
+// LF line endings: Emscripten on Windows writes a few CRLFs into the glue, the Linux build (CI's --check) does not.
+const mod = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
 if (/[^\x09\x0a\x0d\x20-\x7e]/.test(mod)) throw new Error('module is not plain ASCII (SINGLE_FILE_BINARY_ENCODE=0?)');
 const abi = /#define ISC_ABI_VERSION (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'core/include/insiliscope/insiliscope.h'), 'utf8'))[1];
 const cache = fs.readFileSync(path.join(ROOT, 'build/wasm/CMakeCache.txt'), 'utf8');
