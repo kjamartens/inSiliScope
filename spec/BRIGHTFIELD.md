@@ -115,7 +115,9 @@ Excluded on purpose until they exist in the core (rule above). Roughly by expect
 3. **Vesicles, lysosomes, endosomes, granules** -- the main cytoplasmic BF "texture".
 4. **Mitochondria** -- tubular network, visible in high-NA BF/DIC.
 5. **Chromatin texture / nuclear envelope** -- the nucleus is a uniform ellipsoid today.
-6. **Plasma membrane features** -- lamellipodia, ruffles, filopodia, blebs; the edge is a smooth height field.
+6. **Plasma membrane features** -- lamellipodia, ruffles, filopodia, blebs. The outline has a fractal wiggle (harmonics 6-64,
+   D = 1.35, since 2026-10-01) and the height is a relaxed (crease-free) field, but there are no thin protrusions, ruffle
+   folds or retraction fibres.
 7. **Actin** -- cortex and stress fibres (DIC-visible bundles).
 8. **ER, Golgi** -- diffuse; small contribution.
 9. **Cell-cell junctions, other cell types, mitotic/rounded cells, cell debris** -- shape statistics of the field.

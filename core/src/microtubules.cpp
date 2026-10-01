@@ -189,7 +189,9 @@ double MtSampleDirection(const MtCellGeom& g, double u1, double u2)
    return g.dirTheta[i] + (u2 - 0.5) * binWidth;
 }
 
-void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt)
+// knownInside: the caller has just checked this point against the outline
+// (the cut below); skip that check again unless the nucleus push moves it.
+void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt, bool knownInside = false)
 {
    const double dxN = pt.x - c.nucOffX, dyN = pt.y - c.nucOffY;
    const double cr = jsm::cos(-c.nucRot), sr = jsm::sin(-c.nucRot);
@@ -205,10 +207,10 @@ void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt)
       const double cr2 = jsm::cos(c.nucRot), sr2 = jsm::sin(c.nucRot);
       pt.x = c.nucOffX + lx2 * cr2 - ly2 * sr2;
       pt.y = c.nucOffY + lx2 * sr2 + ly2 * cr2;
+      knownInside = false;
    }
-   const double ang = jsm::atan2(pt.y, pt.x);
-   const double rc = CellRadiusAt(c, ang);
    const double dist = jsm::hypot(pt.x, pt.y);
+   const double rc = knownInside || dist <= CellInnerRadiusBound(c) ? dist : CellRadiusAt(c, jsm::atan2(pt.y, pt.x));
    if (dist > rc) {
       const double scale = (rc * MT_CONTAIN_MARGIN) / std::max(1e-9, dist);
       pt.x *= scale; pt.y *= scale;
@@ -534,12 +536,14 @@ Microtubule MtGenerateOne(uint32_t seed, int mtIndex, int resampleRound, const C
 
    // Truncate at the first exit through the cell outline.
    size_t cutLen = pts.size();
+   const double rIn = CellInnerRadiusBound(c);
    for (size_t i = 0; i < pts.size(); i++) {
-      const double ang = atan2(pts[i].y, pts[i].x);
-      if (hypot(pts[i].x, pts[i].y) > CellRadiusAt(c, ang)) { cutLen = i; break; }
+      const double d = hypot(pts[i].x, pts[i].y);
+      if (d <= rIn) continue;
+      if (d > CellRadiusAt(c, atan2(pts[i].y, pts[i].x))) { cutLen = i; break; }
    }
    pts.resize(cutLen);
-   for (Pt3& pt : pts) MtClampIntoCytoplasm(c, g, pt);
+   for (Pt3& pt : pts) MtClampIntoCytoplasm(c, g, pt, true);
 
    mt.priority = next.Next();
    return mt;

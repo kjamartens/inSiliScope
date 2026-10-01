@@ -13,8 +13,11 @@ cell radius. A lateral/vertical envelopment step guarantees the whole ellipsoid 
 ## Cytoplasm
 
 A height field over the cell footprint: dome over the nucleus (slope capped, `cytoDomeSlope`), a saturating rise from the
-edge, `Hc(1 - e^{-s d_{edge}/Hc})` with \(H_c = 2 h_{mid}\), so the cell never has a linear pyramid flank, and a smoothing
-pass on a ring/angle mesh. Microtubules are clamped against this *rendered* (smoothed) mesh, not the raw analytic height.
+edge, `Hc(1 - e^{-s d_{edge}/Hc})` with \(H_c = 2 h_{mid}\), so the cell never has a linear pyramid flank. That raw
+profile is a min/max of distance fields and has creases ("folds"), so the height is *relaxed*: on a 0.25 um grid it solves
+\(h - \ell^2 \nabla^2 h = h_{raw}\) (\(\ell\) = `cytoRelaxUm`, default 1 um), a membrane under tension pulled toward the
+profile, with \(h = 0\) on the exact outline and \(h \ge\) nucleus top + margin over the nucleus. Microtubules, dyes and
+the brightfield volume all use this relaxed height, not the raw analytic one.
 
 ## Microtubules
 

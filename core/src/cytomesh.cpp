@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 
 namespace isc {
@@ -135,28 +136,226 @@ double CytoHeightAt(const Cell& c, const Params& p, double dEdge, double dNuc)
 }
 
 namespace {
-// 3x3 binomial passes over rings 1..rings-1; theta wraps, rings 0 and
-// `rings` stay (the edge must stay pinned at 0).
-void SmoothCytoGrid(CytoMesh& m, double passes)
+constexpr double CYTO_EDT_INF = 1e20;
+
+// 1D squared Euclidean distance transform (Felzenszwalb-Huttenlocher).
+void Edt1d(const double* f, int n, double* d, int* v, double* z)
 {
-   const int rings = m.rings, n = m.n;
-   std::vector<double> next((size_t)(rings + 1) * n);
-   for (int pass = 0; pass < passes; pass++) {
-      for (int k = 1; k < rings; k++) {
-         const int km = k - 1, kp = k + 1;
-         for (int i = 0; i < n; i++) {
-            const int im = (i - 1 + n) % n, ip = (i + 1) % n;
-            const double sum = m.H(k, i) * 4
-               + (m.H(k, im) + m.H(k, ip) + m.H(km, i) + m.H(kp, i)) * 2
-               + m.H(km, im) + m.H(km, ip) + m.H(kp, im) + m.H(kp, ip);
-            next[(size_t)k * n + i] = sum / 16;
-         }
+   int k = 0;
+   v[0] = 0; z[0] = -CYTO_EDT_INF; z[1] = CYTO_EDT_INF;
+   for (int q = 1; q < n; q++) {
+      double s = ((f[q] + (double)q * q) - (f[v[k]] + (double)v[k] * v[k])) / (2.0 * q - 2.0 * v[k]);
+      while (s <= z[k]) {
+         k--;
+         s = ((f[q] + (double)q * q) - (f[v[k]] + (double)v[k] * v[k])) / (2.0 * q - 2.0 * v[k]);
       }
-      for (int k = 1; k < rings; k++)
-         for (int i = 0; i < n; i++) m.h[(size_t)k * n + i] = next[(size_t)k * n + i];
+      k++;
+      v[k] = q; z[k] = s; z[k + 1] = CYTO_EDT_INF;
+   }
+   k = 0;
+   for (int q = 0; q < n; q++) {
+      while (z[k + 1] < q) k++;
+      d[q] = (double)(q - v[k]) * (q - v[k]) + f[v[k]];
    }
 }
+
+// Sorted crossings of the outline polygon with each grid line (axis 0: rows,
+// coordinate x; axis 1: columns, coordinate y), half-open in the other one.
+std::vector<std::vector<double>> GridCrossings(const std::vector<Pt2>& pts, int N, int half, double g, int axis)
+{
+   std::vector<std::vector<double>> lines((size_t)N);
+   const size_t n = pts.size();
+   for (size_t e = 0, f = n - 1; e < n; f = e++) {
+      const double ax = axis == 0 ? pts[f].x : pts[f].y, ay = axis == 0 ? pts[f].y : pts[f].x;
+      const double bx = axis == 0 ? pts[e].x : pts[e].y, by = axis == 0 ? pts[e].y : pts[e].x;
+      if (ay == by) continue;
+      const double lo = std::min(ay, by), hi = std::max(ay, by);
+      const int j0 = (int)std::max(0.0, std::floor(lo / g + half));
+      const int j1 = (int)std::min((double)(N - 1), std::ceil(hi / g + half));
+      for (int j = j0; j <= j1; j++) {
+         const double y = (j - half) * g;
+         if (!(y >= lo && y < hi)) continue;
+         lines[(size_t)j].push_back(ax + (y - ay) * (bx - ax) / (by - ay));
+      }
+   }
+   for (auto& l : lines) std::sort(l.begin(), l.end());
+   return lines;
+}
+
+double CrossFrac(const std::vector<double>& line, double u, int dir, double len)
+{
+   double best = len;
+   for (double cpos : line) {
+      const double d = (cpos - u) * dir;
+      if (d >= 0 && d < best) best = d;
+   }
+   return std::max(0.01, best / len);
+}
 } // namespace
+
+CytoHeightGrid BuildCytoHeightGrid(const Cell& c, const Params& p)
+{
+   const double g = CYTO_GRID_UM;
+   const std::vector<Pt2> pts = CellOutlineLocal(c, CYTO_OUTLINE_N);
+   double ext = 0;
+   for (const Pt2& q : pts) ext = std::max(ext, std::max(std::fabs(q.x), std::fabs(q.y)));
+   const int half = (int)std::ceil(ext / (4 * g)) * 4 + 4;
+   const int N = 2 * half + 1;
+   const size_t NN = (size_t)N * N;
+   const auto rows = GridCrossings(pts, N, half, g, 0), cols = GridCrossings(pts, N, half, g, 1);
+   std::vector<uint8_t> inside(NN);
+   for (int j = 0; j < N; j++) {
+      const std::vector<double>& l = rows[(size_t)j];
+      size_t q = 0;
+      uint8_t odd = 0;
+      for (int i = 0; i < N; i++) {
+         const double x = (i - half) * g;
+         while (q < l.size() && l[q] < x) { q++; odd ^= 1; }
+         inside[(size_t)j * N + i] = odd;
+      }
+   }
+   // dEdge: squared EDT to the outside nodes, columns then rows.
+   std::vector<double> d2(NN);
+   {
+      std::vector<double> f((size_t)N), d((size_t)N), z((size_t)N + 1);
+      std::vector<int> v((size_t)N);
+      for (int i = 0; i < N; i++) {
+         for (int j = 0; j < N; j++) f[(size_t)j] = inside[(size_t)j * N + i] ? CYTO_EDT_INF : 0;
+         Edt1d(f.data(), N, d.data(), v.data(), z.data());
+         for (int j = 0; j < N; j++) d2[(size_t)j * N + i] = d[(size_t)j];
+      }
+      for (int j = 0; j < N; j++) {
+         for (int i = 0; i < N; i++) f[(size_t)i] = d2[(size_t)j * N + i];
+         Edt1d(f.data(), N, d.data(), v.data(), z.data());
+         for (int i = 0; i < N; i++) d2[(size_t)j * N + i] = d[(size_t)i];
+      }
+   }
+   const double margin = std::max(0.1, p.nucMargin);
+   const double inner = CytoDomeReach(c, p);
+   double midDist = std::max(0.0, c.cytoMidDistFrac) * c.rOuter;
+   if (p.cytoMaxSlope > 0) midDist = std::max(midDist, 1.5 * std::max(0.0, c.cytoMidHeight - c.cytoRimHeight) / p.cytoMaxSlope);
+   const double nucReach = std::max(c.nucLong, c.nucShort) / 2 + inner + midDist + g;
+   const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
+   const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2), nrz = c.nucHeight / 2;
+   std::vector<double> ht(NN, 0.0), ob(NN, 0.0);
+   for (int j = 0; j < N; j++) {
+      for (int i = 0; i < N; i++) {
+         const size_t v = (size_t)j * N + i;
+         if (!inside[v]) continue;
+         const double x = (i - half) * g, y = (j - half) * g;
+         const double dEdge = std::max(0.0, std::sqrt(d2[v]) * g - 0.5 * g);
+         const double dc = jsm::hypot(x - c.nucOffX, y - c.nucOffY);
+         const double dNuc = dc < nucReach ? NucleusSignedDistLocal(c, x, y) : dc;
+         ht[v] = CytoHeightAt(c, p, dEdge, dNuc);
+         const double ex = x - c.nucOffX, ey = y - c.nucOffY;
+         const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
+         const double q = 1 - ux * ux - uy * uy;
+         if (q > 0) ob[v] = c.nucZ + nrz * std::sqrt(q) + margin;
+      }
+   }
+   std::vector<double> h(NN, 0.0);
+   const double ell = std::max(0.0, p.cytoRelaxUm);
+   if (!(ell > 0)) {
+      h = ht;
+   } else {
+      for (int lev = 0; lev < 3; lev++) {
+         const int s = 4 >> lev;
+         const double gs = g * s, a = (ell * ell) / (gs * gs);
+         const int M = (N - 1) / s + 1;
+         const size_t MM = (size_t)M * M;
+         std::vector<double> wL(MM), wR(MM), wD(MM), wU(MM), diag(MM);
+         std::vector<uint8_t> bL(MM), bR(MM), bD(MM), bU(MM);
+         auto node = [&](int I, int J) { return (size_t)(J * s) * N + (size_t)(I * s); };
+         for (int J = 1; J < M - 1; J++) {
+            for (int I = 1; I < M - 1; I++) {
+               const size_t m = (size_t)J * M + I, v = node(I, J);
+               if (!inside[v]) continue;
+               const double x = (I * s - half) * g, y = (J * s - half) * g;
+               const double tL = inside[node(I - 1, J)] ? 1 : CrossFrac(rows[(size_t)(J * s)], x, -1, gs);
+               const double tR = inside[node(I + 1, J)] ? 1 : CrossFrac(rows[(size_t)(J * s)], x, 1, gs);
+               const double tD = inside[node(I, J - 1)] ? 1 : CrossFrac(cols[(size_t)(I * s)], y, -1, gs);
+               const double tU = inside[node(I, J + 1)] ? 1 : CrossFrac(cols[(size_t)(I * s)], y, 1, gs);
+               bL[m] = inside[node(I - 1, J)]; bR[m] = inside[node(I + 1, J)];
+               bD[m] = inside[node(I, J - 1)]; bU[m] = inside[node(I, J + 1)];
+               wL[m] = 2 / ((tL + tR) * tL); wR[m] = 2 / ((tL + tR) * tR);
+               wD[m] = 2 / ((tD + tU) * tD); wU[m] = 2 / ((tD + tU) * tU);
+               diag[m] = 1 + a * (wL[m] + wR[m] + wD[m] + wU[m]);
+            }
+         }
+         if (lev == 0) {
+            for (int J = 0; J < M; J++)
+               for (int I = 0; I < M; I++) { const size_t v = node(I, J); h[v] = inside[v] ? ht[v] : 0; }
+         } else {
+            const int sc = s * 2;
+            for (int J = 0; J < M; J++) {
+               for (int I = 0; I < M; I++) {
+                  const size_t v = node(I, J);
+                  if (!inside[v]) { h[v] = 0; continue; }
+                  if ((I & 1) == 0 && (J & 1) == 0) continue;
+                  const int fi = I * s, fj = J * s;
+                  const int i0 = (fi / sc) * sc, j0 = (fj / sc) * sc;
+                  const int i1 = std::min(N - 1, i0 + sc), j1 = std::min(N - 1, j0 + sc);
+                  const double ti = (double)(fi - i0) / sc, tj = (double)(fj - j0) / sc;
+                  const size_t v00 = (size_t)j0 * N + i0, v10 = (size_t)j0 * N + i1;
+                  const size_t v01 = (size_t)j1 * N + i0, v11 = (size_t)j1 * N + i1;
+                  const double h00 = inside[v00] ? h[v00] : 0, h10 = inside[v10] ? h[v10] : 0;
+                  const double h01 = inside[v01] ? h[v01] : 0, h11 = inside[v11] ? h[v11] : 0;
+                  h[v] = (h00 * (1 - ti) + h10 * ti) * (1 - tj) + (h01 * (1 - ti) + h11 * ti) * tj;
+               }
+            }
+         }
+         for (int sweep = 0; sweep < CYTO_RELAX_SWEEPS[lev]; sweep++) {
+            for (int J = 1; J < M - 1; J++) {
+               for (int I = 1; I < M - 1; I++) {
+                  const size_t m = (size_t)J * M + I, v = node(I, J);
+                  if (!inside[v]) continue;
+                  const double sL = bL[m] ? h[node(I - 1, J)] : 0, sR = bR[m] ? h[node(I + 1, J)] : 0;
+                  const double sD = bD[m] ? h[node(I, J - 1)] : 0, sU = bU[m] ? h[node(I, J + 1)] : 0;
+                  const double nbv = wL[m] * sL + wR[m] * sR + wD[m] * sD + wU[m] * sU;
+                  const double hv = (ht[v] + a * nbv) / diag[m];
+                  h[v] = std::max(hv, ob[v]);
+               }
+            }
+         }
+      }
+   }
+   CytoHeightGrid hg;
+   hg.N = N; hg.half = half; hg.g = g;
+   hg.h.assign(NN, 0.0f);
+   for (size_t v = 0; v < NN; v++) hg.h[v] = inside[v] ? (float)h[v] : 0.0f;
+   for (int j = 1; j < N - 1; j++) {
+      for (int i = 1; i < N - 1; i++) {
+         const size_t v = (size_t)j * N + i;
+         if (inside[v]) continue;
+         double sum = 0;
+         int cnt = 0;
+         for (int q = 0; q < 4; q++) {
+            const int di = q == 0 ? -1 : q == 1 ? 1 : 0, dj = q == 2 ? -1 : q == 3 ? 1 : 0;
+            const size_t u = (size_t)(j + dj) * N + (size_t)(i + di);
+            if (!inside[u]) continue;
+            const double t = dj == 0 ? CrossFrac(rows[(size_t)j], (i + di - half) * g, -di, g)
+                                     : CrossFrac(cols[(size_t)i], (j + dj - half) * g, -dj, g);
+            sum += -h[u] * std::min(4.0, (1 - t) / t);
+            cnt++;
+         }
+         if (cnt > 0) hg.h[v] = (float)(sum / cnt);
+      }
+   }
+   return hg;
+}
+
+double SampleCytoHeightGrid(const CytoHeightGrid& hg, double x, double y)
+{
+   const double fi = x / hg.g + hg.half, fj = y / hg.g + hg.half;
+   if (!(fi >= 0 && fj >= 0 && fi < hg.N - 1 && fj < hg.N - 1)) return 0;
+   const int i0 = (int)std::floor(fi), j0 = (int)std::floor(fj);
+   const double ti = fi - i0, tj = fj - j0;
+   const size_t N = (size_t)hg.N, v = (size_t)j0 * N + i0;
+   const std::vector<float>& h = hg.h;
+   const double r = ((double)h[v] * (1 - ti) + (double)h[v + 1] * ti) * (1 - tj)
+                  + ((double)h[v + N] * (1 - ti) + (double)h[v + N + 1] * ti) * tj;
+   return std::max(0.0, r);
+}
 
 CytoMesh BuildCytoMesh(const Cell& c, const Params& p)
 {
@@ -164,37 +363,23 @@ CytoMesh BuildCytoMesh(const Cell& c, const Params& p)
    CytoMesh m;
    m.rings = (int)std::max(2.0, JsRound(p.cytoRings));
    m.n = (int)outline.size();
+   m.hg = BuildCytoHeightGrid(c, p);
    const size_t nv = (size_t)(m.rings + 1) * m.n;
    m.x.resize(nv); m.y.resize(nv); m.h.resize(nv);
    for (int k = 0; k <= m.rings; k++) {
       const double frac = k == m.rings ? 1 : 1 - jsm::pow(1 - (double)k / m.rings, CYTO_RING_BIAS);
       for (int i = 0; i < m.n; i++) {
          const double lx = outline[i].x * frac, ly = outline[i].y * frac;
-         const double dEdge = frac >= 1 ? 0 : NearestDistToOutline(outline, lx, ly);
-         const double dNuc = NucleusSignedDistLocal(c, lx, ly);
          const size_t v = (size_t)k * m.n + i;
-         m.x[v] = lx; m.y[v] = ly; m.h[v] = CytoHeightAt(c, p, dEdge, dNuc);
+         m.x[v] = lx; m.y[v] = ly; m.h[v] = frac >= 1 ? 0 : SampleCytoHeightGrid(m.hg, lx, ly);
       }
    }
-   SmoothCytoGrid(m, p.cytoSmoothPasses);
    return m;
 }
 
-double SampleCytoMeshHeight(const Cell& c, const CytoMesh& m, double x, double y)
+double SampleCytoMeshHeight(const Cell&, const CytoMesh& m, double x, double y)
 {
-   const int rings = m.rings, n = m.n;
-   const double theta = jsm::atan2(y, x);
-   const double thetaNorm = std::fmod(std::fmod(theta / (jsm::PI * 2), 1.0) + 1, 1.0);
-   const double iF = thetaNorm * n;
-   const int i0 = (int)std::floor(iF) % n, i1 = (i0 + 1) % n;
-   const double ti = iF - std::floor(iF);
-   const double rc = CellRadiusAt(c, theta);
-   const double f = std::min(1.0, std::max(0.0, rc > 1e-9 ? jsm::hypot(x, y) / rc : 0));
-   const double kF = std::min((double)rings, rings * (1 - jsm::pow(1 - f, 1 / CYTO_RING_BIAS)));
-   const int k0 = std::min(rings - 1, (int)std::floor(kF)), k1 = k0 + 1;
-   const double tk = kF - k0;
-   const double h00 = m.H(k0, i0), h01 = m.H(k0, i1), h10 = m.H(k1, i0), h11 = m.H(k1, i1);
-   return (h00 * (1 - ti) + h01 * ti) * (1 - tk) + (h10 * (1 - ti) + h11 * ti) * tk;
+   return SampleCytoHeightGrid(m.hg, x, y);
 }
 
 } // namespace isc

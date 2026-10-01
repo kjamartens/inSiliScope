@@ -40,7 +40,7 @@ Pt3 PointAtArc(const std::vector<Pt3>& pts, const MtFrames& fr, double S)
 double CellReachUm(const Params& p)
 {
    const double worstSemiMajor = (p.cellDiamMax / 2) / jsm::sqrt(std::max(0.05, p.cellElongMin));
-   return 2 * worstSemiMajor * CELL_MOD_MAX + p.chunkSize;
+   return 2 * worstSemiMajor * CELL_MOD_MAX * (p.cellRough > 0 && p.cellBlob > 0 ? 1 + TAIL_MAX : 1) + p.chunkSize;
 }
 
 // A cell's geometry and microtubules (a pure function of seed, cell, params).
@@ -603,6 +603,7 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
       const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
       const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2);
       const double nrz = c.nucHeight / 2;
+      const double rIn = CellInnerRadiusBound(c);
       const int ix0 = std::max(0, (int)std::floor((c.x - c.rOuter - x0) / px));
       const int ix1 = std::min(nx - 1, (int)std::floor((c.x + c.rOuter - x0) / px));
       const int iy0 = std::max(0, (int)std::floor((c.y - c.rOuter - y0) / py));
@@ -618,7 +619,7 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
                      const double dy = y0 + (iy + (sv + 0.5) / sub) * py - c.y;
                      const double lx = dx * cr + dy * sr, ly = -dx * sr + dy * cr;
                      const double rr = jsm::hypot(lx, ly);
-                     if (rr > c.rOuter || rr > CellRadiusAt(c, jsm::atan2(ly, lx))) continue;
+                     if (rr > c.rOuter || (rr > rIn && rr > CellRadiusAt(c, jsm::atan2(ly, lx)))) continue;
                      const double h = SampleCytoMeshHeight(c, mesh, lx, ly);
                      if (!(h > 0)) continue;
                      // Nucleus chord through this column, clipped to the body.

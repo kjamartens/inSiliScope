@@ -69,6 +69,8 @@
       <div class="pair"><span class="k">Diameter min/max</span><input type="number" id="cellDiamMin" value="25" step="0.5"><input type="number" id="cellDiamMax" value="35" step="0.5"></div>
       <div class="pair"><span class="k">Elongation (short/long) min/max</span><input type="number" id="cellElongMin" value="0.5" step="0.05"><input type="number" id="cellElongMax" value="1" step="0.05"></div>
       <label class="row">Outline blobbiness <input type="range" id="cellBlob" min="0" max="4" step="0.05" value="1.75"><span id="cellBlobVal"></span></label>
+      <label class="row" title="Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.">Edge roughness <input type="range" id="cellRough" min="0" max="1" step="0.01" value="0.15"><span id="cellRoughVal"></span></label>
+      <label class="row" title="Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.">Edge fractal dimension <input type="range" id="cellFractalDim" min="1" max="2" step="0.01" value="1.35"><span id="cellFractalDimVal"></span></label>
       <div class="pair"><span class="k">Height min/max</span><input type="number" id="cellHeightMin" value="3" step="0.5"><input type="number" id="cellHeightMax" value="6" step="0.5"></div>
     </fieldset>
 
@@ -90,9 +92,9 @@
       <label class="row">Contour interval <input type="range" id="cytoContourStep" min="0.1" max="1" step="0.05" value="0.25"><span id="cytoContourStepVal"></span></label>
       <label class="row" title="Max rise of the cytoplasm surface per µm outside the dome (saturating from the edge). 0 = off. Cells grow to make room.">Cytoplasm slope cap <input type="range" id="cytoMaxSlope" min="0" max="2" step="0.05" value="1"><span id="cytoMaxSlopeVal"></span></label>
       <label class="row" title="Max slope of the dome flank over the nucleus. 0 = off (flank spans only the nucleus margin). Lower = rounder dome but bigger cells.">Nucleus dome slope cap <input type="range" id="cytoDomeSlope" min="0" max="4" step="0.1" value="3"><span id="cytoDomeSlopeVal"></span></label>
-      <label class="row">Smoothing passes <input type="range" id="cytoSmoothPasses" min="0" max="12" step="1" value="12"><span id="cytoSmoothPassesVal"></span></label>
+      <label class="row" title="Relaxation length: the height solves h - l^2 lap(h) = raw profile (a membrane pulled toward it), which removes the profile's folds. 0 = raw profile.">Relax length (µm) <input type="range" id="cytoRelaxUm" min="0" max="3" step="0.1" value="1"><span id="cytoRelaxUmVal"></span></label>
       <label class="row">Mesh rings <input type="range" id="cytoRings" min="4" max="60" step="1" value="60"><span id="cytoRingsVal"></span></label>
-      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="128" step="4" value="128"><span id="cytoThetaVal"></span></label>
+      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="512" step="4" value="256"><span id="cytoThetaVal"></span></label>
       <label class="row">Show contour lines <input type="checkbox" id="showCytoContours"></label>
     </fieldset>
 
@@ -227,6 +229,22 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 // from the SAME address, each on its own channel, so a chunk's full
 // candidate is one deterministic bundle.
 const HARM_K = [2, 3, 5]; // angular harmonics composing the blobby outline
+// Fractal edge tail: harmonics TAIL_K0..TAIL_K0+N_TAIL-1 (6..64) on top of
+// HARM_K, amplitude u_k * cellRough * cellBlob/5 * (k/5)^-(2.5-D), D =
+// cellFractalDim. A self-affine radius r(theta) with Hurst exponent H has
+// harmonic amplitudes ~ k^-(H+1/2) and box-counting dimension D = 2 - H, so
+// the exponent is 2.5 - D; the 1/k of HARM_K is H = 0.5 (D = 1.5), and the
+// tail starts at the k = 5 term's own 1/k scale. Measured cell contours have
+// D ~ 1.35 (box counting on adherent cells, Df = 1.352 +- 0.044). The tail is
+// proportional to cellBlob: a round cell (blob 0) stays smooth. It is
+// MULTIPLICATIVE on the clamped coarse modulation (r = base*mod*(1+tail)),
+// so the wiggle survives where the coarse clamp saturates, and soft-clamped
+// to +-TAIL_MAX (t/sqrt(1+(t/TAIL_MAX)^2): smooth, only sqrt). Evaluated by
+// a complex-multiply recurrence (cellTailAt) -- only + and *, so bit-exact
+// in C++ -- not 59 Math.cos calls. Draws: two hashStreams (TAIL_AMP_STREAM,
+// TAIL_PH_STREAM), far from every CH channel and microtubule stream base.
+const TAIL_K0 = 6, N_TAIL = 59, TAIL_MAX = 0.3;
+const TAIL_AMP_STREAM = 50, TAIL_PH_STREAM = 51;
 // NUC_LONG (30) is deliberately unused/retired, not reassigned -- nucleus
 // long axis reuses SIZE's own draw (see rawCandidate) so it's correlated
 // with cell size rather than an independent channel. Leaving the number
@@ -263,6 +281,24 @@ function rawCandidate(seed, cx, cy, p) {
   c.height = lerp(p.cellHeightMin, p.cellHeightMax, hashUnit(seed, cx, cy, CH.HEIGHT));
   c.harmAmp = HARM_K.map((k, i) => hashUnit(seed, cx, cy, CH.HARM_AMP + i) * p.cellBlob / k);
   c.harmPh = HARM_K.map((k, i) => hashUnit(seed, cx, cy, CH.HARM_PH + i) * Math.PI * 2);
+  // Fractal tail (see TAIL_K0). (k/5)^-e as exp(-e*log(k/5)): fdlibm on both
+  // sides, unlike Math.pow. tailBound bounds |tail| (soft clamp <= TAIL_MAX).
+  c.tailAc = []; c.tailAs = []; c.tailBound = 0;
+  if (p.cellRough > 0 && p.cellBlob > 0) {
+    const tailExp = 2.5 - Math.min(2, Math.max(1, p.cellFractalDim));
+    const nextA = hashStream(seed, cx, cy, TAIL_AMP_STREAM), nextP = hashStream(seed, cx, cy, TAIL_PH_STREAM);
+    let sum = 0;
+    for (let i = 0; i < N_TAIL; i++) {
+      const k = TAIL_K0 + i;
+      const u = nextA();
+      const ph = nextP() * Math.PI * 2;
+      const a = u * p.cellRough * p.cellBlob / 5 * Math.exp(-tailExp * Math.log(k / 5));
+      c.tailAc.push(a * Math.cos(ph));
+      c.tailAs.push(a * Math.sin(ph));
+      sum += a;
+    }
+    c.tailBound = Math.min(TAIL_MAX, sum);
+  }
   // Symmetric clamping alone (see CELL_MOD_MIN/MAX below) is NOT enough to keep
   // "diameter" meaning the same size at any blobbiness, and neither is a simple
   // analytic RMS pre-correction (tried first: E[mod^2]=1+0.5*sum(A_k^2), exact
@@ -278,8 +314,9 @@ function rawCandidate(seed, cx, cy, p) {
   // statistics: sample the outline, compare its true mean r^2 against the
   // unmodulated ellipse's own r^2, and scale the base ellipse by the exact
   // ratio needed to cancel the difference.
+  // With the fractal tail on, 256 samples (>= 4 per period of k = 64).
   {
-    const N = 48;
+    const N = c.tailBound > 0 ? 256 : 48;
     let sumBase2 = 0, sumR2 = 0;
     for (let i = 0; i < N; i++) {
       const th = (i / N) * Math.PI * 2;
@@ -288,6 +325,7 @@ function rawCandidate(seed, cx, cy, p) {
       let mod = 1;
       for (let j = 0; j < HARM_K.length; j++) mod += c.harmAmp[j] * Math.cos(HARM_K[j] * th + c.harmPh[j]);
       mod = Math.max(CELL_MOD_MIN, Math.min(CELL_MOD_MAX, mod));
+      if (c.tailBound > 0) mod *= 1 + cellTailAt(c, th);
       sumBase2 += base * base;
       sumR2 += base * base * mod * mod;
     }
@@ -344,7 +382,7 @@ function rawCandidate(seed, cx, cy, p) {
   // further apart than their actual drawn outlines needed -- the other half
   // of the "blobbiness enlarges cells" symptom, independent of the clamp
   // symmetry fix above.
-  c.rOuter = c.semiMajor * CELL_MOD_MAX;
+  c.rOuter = c.semiMajor * CELL_MOD_MAX * (1 + c.tailBound);
   c.priority = hashUnit(seed, cx, cy, CH.PRIORITY);
   // Packing-only rigid rotation, layered ON TOP of the local shape (c.rot,
   // harmAmp/harmPh, nucOffX/Y, nucRot are all still the ORIGINAL, cached,
@@ -391,7 +429,37 @@ function cellRadiusAt(c, thetaWorld) {
   // touching semiMajor/semiMinor -- see envelopNucleus's own comment.
   const floor = c.modFloor !== undefined ? c.modFloor : CELL_MOD_MIN;
   mod = Math.max(floor, Math.min(CELL_MOD_MAX, mod));
+  if (c.tailBound > 0) return base * mod * (1 + cellTailAt(c, thetaWorld));
   return base * mod;
+}
+// The fractal tail at world angle theta (see TAIL_K0): z^k = e^{ik theta}
+// by complex multiplication, in four independent chains (k = 6+q, stepping
+// by z^4, q = 0..3) with four partial sums -- the same operations in the
+// same order in C++ -- then soft-clamped. (One serial chain of 59 dependent
+// multiplications was the microtubule builder's bottleneck.)
+function cellTailAt(c, theta) {
+  const C = Math.cos(theta), S = Math.sin(theta);
+  const c2 = C * C - S * S, s2 = C * S + S * C;
+  const c4 = c2 * c2 - s2 * s2, s4 = c2 * s2 + s2 * c2;
+  let c0 = c4 * c2 - s4 * s2, s0 = c4 * s2 + s4 * c2;   // z^6
+  let c1 = c0 * C - s0 * S, s1 = c0 * S + s0 * C;       // z^7
+  let c8 = c4 * c4 - s4 * s4, s8 = c4 * s4 + s4 * c4;   // z^8
+  let c3 = c8 * C - s8 * S, s3 = c8 * S + s8 * C;       // z^9
+  const ac = c.tailAc, as = c.tailAs;
+  let t0 = 0, t1 = 0, t2 = 0, t3 = 0;
+  for (let i = 0; i < N_TAIL; i += 4) {
+    t0 += c0 * ac[i] - s0 * as[i];
+    if (i + 1 < N_TAIL) t1 += c1 * ac[i + 1] - s1 * as[i + 1];
+    if (i + 2 < N_TAIL) t2 += c8 * ac[i + 2] - s8 * as[i + 2];
+    if (i + 3 < N_TAIL) t3 += c3 * ac[i + 3] - s3 * as[i + 3];
+    let n = c0 * c4 - s0 * s4; s0 = c0 * s4 + s0 * c4; c0 = n;
+    n = c1 * c4 - s1 * s4; s1 = c1 * s4 + s1 * c4; c1 = n;
+    n = c8 * c4 - s8 * s4; s8 = c8 * s4 + s8 * c4; c8 = n;
+    n = c3 * c4 - s3 * s4; s3 = c3 * s4 + s3 * c4; c3 = n;
+  }
+  const t = ((t0 + t1) + t2) + t3;
+  const q = t / TAIL_MAX;
+  return t / Math.sqrt(1 + q * q);
 }
 
 // The full nucleus must always sit inside the cell volume, with at least
@@ -442,7 +510,8 @@ function envelopNucleus(c, marginUm, extraUm = 0) {
   // merit untouched, and leaves the cell's own nominal (already
   // blobbiness-normalized) size alone.
   if (typeof extraUm === 'function') extraUm = extraUm(c); // needs the final c.height from the vertical step above
-  const N = 32;
+  // 256 samples with the fractal tail on (its harmonics go to k = 64).
+  const N = c.tailBound > 0 ? 256 : 32;
   let neededFloor = CELL_MOD_MIN;
   for (let i = 0; i < N; i++) {
     const th = (i / N) * Math.PI * 2;
@@ -454,7 +523,9 @@ function envelopNucleus(c, marginUm, extraUm = 0) {
     const phi = angle - c.rot;
     const base = (c.semiMajor * c.semiMinor) / Math.hypot(c.semiMinor * Math.cos(phi), c.semiMajor * Math.sin(phi));
     if (base <= 1e-6) continue;
-    const required = (dist * 1.05 + margin + extraUm) / base;
+    let required = (dist * 1.05 + margin + extraUm) / base;
+    // The fractal tail scales the radius at this angle by 1 + tail.
+    if (c.tailBound > 0) required /= 1 + cellTailAt(c, angle);
     // Modulation is evaluated at the sample's own WORLD angle around the
     // cell (`angle`, matching cellRadiusAt's convention) -- not the local
     // parametrization angle `th` used above to walk the nucleus boundary.
@@ -716,46 +787,259 @@ function cytoHeightAt(c, p, dEdge, dNuc) {
 // fill+stroke) found THAT to be the larger cost, since drawing is inherently
 // per-frame regardless of caching -- `rings`/`n` (mesh resolution) is kept
 // modest for exactly that reason, not just to bound the math above.
-// Ring count is `p.cytoRings` (default 10).
+// Ring count is `p.cytoRings` (default 60).
 const CYTO_RING_BIAS = 2.4;
-// A few smoothing passes take the edge off facet-to-facet jumps in the raw
-// profile, purely cosmetic -- theta wraps around, the outer ring (k=rings) is
-// deliberately EXCLUDED so the true edge stays pinned at exactly 0 (the
-// guarantee cytoHeightAt's own edgeCeiling establishes must survive this pass
-// untouched), and the degenerate centre ring (k=0, every theta collapses to
-// the same point by construction) is left alone too since smoothing it is a
-// no-op anyway. Each pass is a 3x3 binomial (Gaussian-approximating) kernel
-// -- [[1,2,1],[2,4,2],[1,2,1]]/16 -- not a 4-neighbour cross average: CYTO
-// rings are biased toward the OUTER edge (CYTO_RING_BIAS, see buildCytoMesh),
-// so the region right around the nucleus -- where the envelope rise is
-// steepest -- sits at the SPARSEST radial spacing, and a cross-only kernel
-// (no diagonals) barely rounds a peak built from such coarse wedges; a real,
-// reported "jagged pyramid" look at the nucleus. Diagonal neighbours make the
-// blur isotropic instead of separately axis-biased, and more passes (6, up
-// from 2) round it further. This only costs time once per chunk at mesh-build
-// time (getCytoGeometry's own cache) -- the per-frame cost this file's other
-// comments warn about is the CANVAS DRAW loop over rings*n quads, not this.
-// Pass count is `p.cytoSmoothPasses` (default 6; 0 = raw, unsmoothed profile).
-function smoothCytoGrid(grid, rings, n, passes) {
-  for (let pass = 0; pass < passes; pass++) {
-    const next = new Array(rings + 1);
-    for (let k = 1; k < rings; k++) {
-      next[k] = new Array(n);
-      const km = k - 1, kp = k + 1;
-      for (let i = 0; i < n; i++) {
-        const im = (i - 1 + n) % n, ip = (i + 1) % n;
-        const sum = grid[k][i].h * 4
-          + (grid[k][im].h + grid[k][ip].h + grid[km][i].h + grid[kp][i].h) * 2
-          + grid[km][im].h + grid[km][ip].h + grid[kp][im].h + grid[kp][ip].h;
-        next[k][i] = sum / 16;
-      }
+// RELAXATION (replaces the old index-space smoothing passes). The raw
+// profile cytoHeightAt() is a min/max of functions of two distance fields;
+// a distance field to a non-convex outline has creases on its medial axis,
+// and the min/max switches add more, so its contours have kinks ("folds").
+// Smoothing on the polar (ring, theta-index) mesh did not remove them: a
+// 3x3 kernel in index space is anisotropic in um (theta neighbours are ~1 um
+// apart near the edge, ring neighbours a few tens of nm) and the rings are
+// scaled copies of the outline, so lobes printed inward as radial spokes.
+// Instead the height solves, on a Cartesian grid in the cell's local frame
+// (CYTO_GRID_UM), the screened Poisson problem
+//     h - l^2 lap(h) = h_raw         l = p.cytoRelaxUm
+// with h = 0 on the true outline (Shortley-Weller: the boundary sits at its
+// exact fraction along each grid edge, so no staircase) and the obstacle
+// h >= nucleus top + nucMargin over the nucleus footprint (the envelope
+// guarantee survives the smoothing). It is the minimiser of
+//     integral |grad h|^2 + (h - h_raw)^2 / l^2
+// i.e. a membrane under tension pulled toward the target profile: isotropic,
+// smooth (no kinks off the obstacle contact), features wider than l kept.
+// Solver: projected Gauss-Seidel, lexicographic order, fixed sweep counts,
+// cascading from a 4x and a 2x coarser grid (bilinear prolongation) -- a
+// fixed sequence of + - * / and sqrt, so bit-exact in the C++ port.
+// dEdge comes from an exact squared Euclidean distance transform of the
+// outside nodes (Felzenszwalb-Huttenlocher), minus half a grid step.
+// cytoRelaxUm = 0: no solve, h = h_raw on the grid.
+const CYTO_GRID_UM = 0.25;
+const CYTO_OUTLINE_N = 2048;   // outline polygon of the grid's inside test (~0.1 um edges)
+const CYTO_RELAX_SWEEPS = [40, 20, 20]; // 4g, 2g, g
+const CYTO_EDT_INF = 1e20;
+function edt1d(f, n, d, v, z) {
+  let k = 0;
+  v[0] = 0; z[0] = -CYTO_EDT_INF; z[1] = CYTO_EDT_INF;
+  for (let q = 1; q < n; q++) {
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]) {
+      k--;
+      s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
     }
-    for (let k = 1; k < rings; k++) for (let i = 0; i < n; i++) grid[k][i].h = next[k][i];
+    k++;
+    v[k] = q; z[k] = s; z[k + 1] = CYTO_EDT_INF;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++) {
+    while (z[k + 1] < q) k++;
+    d[q] = (q - v[k]) * (q - v[k]) + f[v[k]];
   }
 }
+// Crossings of the closed outline polygon `pts` with the grid lines: for
+// each line (row j: y = (j-half)*g, or column i), the sorted coordinates
+// (along the line) where an edge crosses it, half-open in the other
+// coordinate so a vertex on the line counts once. Inside = odd number of
+// crossings before the node (even-odd rule); the crossings also give the
+// exact boundary position along each grid edge.
+function cytoGridCrossings(pts, N, half, g, axis) {
+  const lines = [];
+  for (let j = 0; j < N; j++) lines.push([]);
+  const n = pts.length;
+  for (let e = 0, f = n - 1; e < n; f = e++) {
+    const ax = axis === 0 ? pts[f][0] : pts[f][1], ay = axis === 0 ? pts[f][1] : pts[f][0];
+    const bx = axis === 0 ? pts[e][0] : pts[e][1], by = axis === 0 ? pts[e][1] : pts[e][0];
+    if (ay === by) continue;
+    const lo = Math.min(ay, by), hi = Math.max(ay, by);
+    const j0 = Math.max(0, Math.floor(lo / g + half)), j1 = Math.min(N - 1, Math.ceil(hi / g + half));   // loose: the exact test is below
+    for (let j = j0; j <= j1; j++) {
+      const y = (j - half) * g;
+      if (!(y >= lo && y < hi)) continue;
+      lines[j].push(ax + (y - ay) * (bx - ax) / (by - ay));
+    }
+  }
+  for (const l of lines) l.sort((a, b) => a - b);
+  return lines;
+}
+// Distance (fraction of len) from coordinate u along a line to the nearest
+// crossing in direction dir (+1/-1), capped at 1.
+function cytoCrossFrac(line, u, dir, len) {
+  let best = len;
+  for (let q = 0; q < line.length; q++) {
+    const d = (line[q] - u) * dir;
+    if (d >= 0 && d < best) best = d;
+  }
+  return Math.max(0.01, best / len);
+}
+// The relaxed height grid: nodes (i,j), i,j in [0,N), local x = (i - half)*g.
+function buildCytoHeightGrid(c, p) {
+  const g = CYTO_GRID_UM;
+  const pts = cellOutlineLocal(c, CYTO_OUTLINE_N);
+  // Square grid around the outline polygon, half-width a multiple of 4 nodes
+  // (the coarse levels' nodes coincide with fine ones) plus a 1 um border.
+  let ext = 0;
+  for (const [x, y] of pts) ext = Math.max(ext, Math.abs(x), Math.abs(y));
+  const half = Math.ceil(ext / (4 * g)) * 4 + 4;
+  const N = 2 * half + 1, NN = N * N;
+  const rows = cytoGridCrossings(pts, N, half, g, 0), cols = cytoGridCrossings(pts, N, half, g, 1);
+  const inside = new Uint8Array(NN);
+  for (let j = 0; j < N; j++) {
+    const l = rows[j];
+    let q = 0, odd = 0;
+    for (let i = 0; i < N; i++) {
+      const x = (i - half) * g;
+      while (q < l.length && l[q] < x) { q++; odd ^= 1; }
+      inside[j * N + i] = odd;
+    }
+  }
+  // dEdge: squared EDT to the outside nodes, columns then rows.
+  const d2 = new Float64Array(NN);
+  {
+    const f = new Float64Array(N), d = new Float64Array(N), z = new Float64Array(N + 1);
+    const v = new Int32Array(N);
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) f[j] = inside[j * N + i] ? CYTO_EDT_INF : 0;
+      edt1d(f, N, d, v, z);
+      for (let j = 0; j < N; j++) d2[j * N + i] = d[j];
+    }
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) f[i] = d2[j * N + i];
+      edt1d(f, N, d, v, z);
+      for (let i = 0; i < N; i++) d2[j * N + i] = d[i];
+    }
+  }
+  // Raw target and nucleus obstacle. dNuc is only needed where the profile
+  // depends on it: beyond inner + midDist from the nucleus it is flat rim.
+  const margin = Math.max(0.1, p.nucMargin);
+  const inner = cytoDomeReach(c, p);
+  let midDist = Math.max(0, c.cytoMidDistFrac) * c.rOuter;
+  if (p.cytoMaxSlope > 0) midDist = Math.max(midDist, 1.5 * Math.max(0, c.cytoMidHeight - c.cytoRimHeight) / p.cytoMaxSlope);
+  const nucReach = Math.max(c.nucLong, c.nucShort) / 2 + inner + midDist + g;
+  const ncr = Math.cos(-c.nucRot), nsr = Math.sin(-c.nucRot);
+  const na = Math.max(1e-6, c.nucLong / 2), nb = Math.max(1e-6, c.nucShort / 2), nrz = c.nucHeight / 2;
+  const ht = new Float64Array(NN), ob = new Float64Array(NN);
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const v = j * N + i;
+      if (!inside[v]) continue;
+      const x = (i - half) * g, y = (j - half) * g;
+      const dEdge = Math.max(0, Math.sqrt(d2[v]) * g - 0.5 * g);
+      const dc = Math.hypot(x - c.nucOffX, y - c.nucOffY);
+      const dNuc = dc < nucReach ? nucleusSignedDistLocal(c, x, y) : dc;
+      ht[v] = cytoHeightAt(c, p, dEdge, dNuc);
+      const ex = x - c.nucOffX, ey = y - c.nucOffY;
+      const ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
+      const q = 1 - ux * ux - uy * uy;
+      if (q > 0) ob[v] = c.nucZ + nrz * Math.sqrt(q) + margin;
+    }
+  }
+  const h = new Float64Array(NN);
+  const ell = Math.max(0, p.cytoRelaxUm);
+  if (!(ell > 0)) {
+    for (let v = 0; v < NN; v++) h[v] = ht[v];
+  } else {
+    // Levels: step s = 4, 2, 1 (in fine nodes); nodes at multiples of s.
+    for (let lev = 0; lev < 3; lev++) {
+      const s = 4 >> lev, gs = g * s, a = (ell * ell) / (gs * gs);
+      const M = (N - 1) / s + 1;   // N - 1 = 2*half, a multiple of 8
+      // Per node: neighbour weights (Shortley-Weller) and diagonal.
+      const wL = new Float64Array(M * M), wR = new Float64Array(M * M), wD = new Float64Array(M * M), wU = new Float64Array(M * M);
+      const bL = new Uint8Array(M * M), bR = new Uint8Array(M * M), bD = new Uint8Array(M * M), bU = new Uint8Array(M * M);
+      const diag = new Float64Array(M * M);
+      const node = (I, J) => (J * s) * N + I * s;
+      for (let J = 1; J < M - 1; J++) {
+        for (let I = 1; I < M - 1; I++) {
+          const m = J * M + I, v = node(I, J);
+          if (!inside[v]) continue;
+          const x = (I * s - half) * g, y = (J * s - half) * g;
+          // boundary fractions along each axis (1 = neighbour inside)
+          const tL = inside[node(I - 1, J)] ? 1 : cytoCrossFrac(rows[J * s], x, -1, gs);
+          const tR = inside[node(I + 1, J)] ? 1 : cytoCrossFrac(rows[J * s], x, 1, gs);
+          const tD = inside[node(I, J - 1)] ? 1 : cytoCrossFrac(cols[I * s], y, -1, gs);
+          const tU = inside[node(I, J + 1)] ? 1 : cytoCrossFrac(cols[I * s], y, 1, gs);
+          bL[m] = inside[node(I - 1, J)]; bR[m] = inside[node(I + 1, J)];
+          bD[m] = inside[node(I, J - 1)]; bU[m] = inside[node(I, J + 1)];
+          wL[m] = 2 / ((tL + tR) * tL); wR[m] = 2 / ((tL + tR) * tR);
+          wD[m] = 2 / ((tD + tU) * tD); wU[m] = 2 / ((tD + tU) * tU);
+          diag[m] = 1 + a * (wL[m] + wR[m] + wD[m] + wU[m]);
+        }
+      }
+      // Initial guess: the raw target on the coarsest level, else bilinear
+      // prolongation from the previous level (outside nodes are 0).
+      if (lev === 0) {
+        for (let J = 0; J < M; J++) for (let I = 0; I < M; I++) { const v = node(I, J); h[v] = inside[v] ? ht[v] : 0; }
+      } else {
+        const sc = s * 2;
+        for (let J = 0; J < M; J++) {
+          for (let I = 0; I < M; I++) {
+            const v = node(I, J);
+            if (!inside[v]) { h[v] = 0; continue; }
+            if ((I & 1) === 0 && (J & 1) === 0) continue;   // coarse node: keep
+            const fi = I * s, fj = J * s;
+            const i0 = Math.floor(fi / sc) * sc, j0 = Math.floor(fj / sc) * sc;
+            const i1 = Math.min(N - 1, i0 + sc), j1 = Math.min(N - 1, j0 + sc);
+            const ti = (fi - i0) / sc, tj = (fj - j0) / sc;
+            const h00 = inside[j0 * N + i0] ? h[j0 * N + i0] : 0, h10 = inside[j0 * N + i1] ? h[j0 * N + i1] : 0;
+            const h01 = inside[j1 * N + i0] ? h[j1 * N + i0] : 0, h11 = inside[j1 * N + i1] ? h[j1 * N + i1] : 0;
+            h[v] = (h00 * (1 - ti) + h10 * ti) * (1 - tj) + (h01 * (1 - ti) + h11 * ti) * tj;
+          }
+        }
+      }
+      for (let sweep = 0; sweep < CYTO_RELAX_SWEEPS[lev]; sweep++) {
+        for (let J = 1; J < M - 1; J++) {
+          for (let I = 1; I < M - 1; I++) {
+            const m = J * M + I, v = node(I, J);
+            if (!inside[v]) continue;
+            const sL = bL[m] ? h[node(I - 1, J)] : 0, sR = bR[m] ? h[node(I + 1, J)] : 0;
+            const sD = bD[m] ? h[node(I, J - 1)] : 0, sU = bU[m] ? h[node(I, J + 1)] : 0;
+            const nb = wL[m] * sL + wR[m] * sR + wD[m] * sD + wU[m] * sU;
+            const hv = (ht[v] + a * nb) / diag[m];
+            h[v] = Math.max(hv, ob[v]);
+          }
+        }
+      }
+    }
+  }
+  // Ghost values on the outside nodes next to the outline: the linear
+  // extrapolation through 0 at the boundary, averaged over inside axis
+  // neighbours, so bilinear sampling reaches 0 at the true edge (sampling
+  // clamps at 0) instead of a grid step inside it.
+  const out = new Float32Array(NN);
+  for (let v = 0; v < NN; v++) out[v] = inside[v] ? h[v] : 0;
+  for (let j = 1; j < N - 1; j++) {
+    for (let i = 1; i < N - 1; i++) {
+      const v = j * N + i;
+      if (inside[v]) continue;
+      let sum = 0, cnt = 0;
+      for (let q = 0; q < 4; q++) {
+        const di = q === 0 ? -1 : q === 1 ? 1 : 0, dj = q === 2 ? -1 : q === 3 ? 1 : 0;
+        const u = (j + dj) * N + (i + di);
+        if (!inside[u]) continue;
+        // boundary at t*g from the inside neighbour, toward this node
+        const t = dj === 0 ? cytoCrossFrac(rows[j], (i + di - half) * g, -di, g)
+                           : cytoCrossFrac(cols[i], (j + dj - half) * g, -dj, g);
+        sum += -h[u] * Math.min(4, (1 - t) / t);
+        cnt++;
+      }
+      if (cnt > 0) out[v] = sum / cnt;
+    }
+  }
+  return { N, half, g, h: out };
+}
+// Bilinear sample of the relaxed grid at local (x,y), clamped at 0.
+function sampleCytoHeightGrid(hg, x, y) {
+  const fi = x / hg.g + hg.half, fj = y / hg.g + hg.half;
+  if (!(fi >= 0 && fj >= 0 && fi < hg.N - 1 && fj < hg.N - 1)) return 0;
+  const i0 = Math.floor(fi), j0 = Math.floor(fj), ti = fi - i0, tj = fj - j0;
+  const N = hg.N, h = hg.h, v = j0 * N + i0;
+  const r = (h[v] * (1 - ti) + h[v + 1] * ti) * (1 - tj) + (h[v + N] * (1 - ti) + h[v + N + 1] * ti) * tj;
+  return Math.max(0, r);
+}
+// The polar mesh (rings x outline points) is kept for drawing and contours;
+// its heights are samples of the relaxed grid (outer ring exactly 0).
 function buildCytoMesh(c, p, localOutlinePts) {
   const rings = Math.max(2, Math.round(p.cytoRings));
   const n = localOutlinePts.length;
+  const hg = buildCytoHeightGrid(c, p);
   const grid = [];
   for (let k = 0; k <= rings; k++) {
     const frac = k === rings ? 1 : 1 - Math.pow(1 - k / rings, CYTO_RING_BIAS);
@@ -763,14 +1047,11 @@ function buildCytoMesh(c, p, localOutlinePts) {
     for (let i = 0; i < n; i++) {
       const [ex, ey] = localOutlinePts[i];
       const lx = ex * frac, ly = ey * frac;
-      const dEdge = frac >= 1 ? 0 : nearestDistToOutline(localOutlinePts, lx, ly);
-      const dNuc = nucleusSignedDistLocal(c, lx, ly);
-      row.push({ x: lx, y: ly, h: cytoHeightAt(c, p, dEdge, dNuc) });
+      row.push({ x: lx, y: ly, h: frac >= 1 ? 0 : sampleCytoHeightGrid(hg, lx, ly) });
     }
     grid.push(row);
   }
-  smoothCytoGrid(grid, rings, n, p.cytoSmoothPasses);
-  return { rings, n, grid };
+  return { rings, n, grid, hg };
 }
 
 // Small per-chunk cache: the cell shape/mesh above never depends on the
@@ -791,7 +1072,7 @@ function cytoGeometrySignature(seed, p) {
     p.cellHeightMin, p.cellHeightMax, p.nucLongMin, p.nucLongMax, p.nucRatioMin, p.nucRatioMax,
     p.nucHeightMin, p.nucHeightMax, p.nucOffsetFrac, p.nucMargin,
     p.cytoRimHeightMin, p.cytoRimHeightMax, p.cytoEdgeRiseMin, p.cytoEdgeRiseMax,
-    p.cytoMidHeightMin, p.cytoMidHeightMax, p.cytoMidDistanceMin, p.cytoMidDistanceMax, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoSmoothPasses, p.cytoRings, p.cytoTheta].join('|');
+    p.cytoMidHeightMin, p.cytoMidHeightMax, p.cytoMidDistanceMin, p.cytoMidDistanceMax, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta, p.cellRough, p.cellFractalDim].join('|');
 }
 function ensureCytoCacheFresh(seed, p) {
   const sig = cytoGeometrySignature(seed, p);
@@ -808,7 +1089,7 @@ function clearCytoCache() {
 // theta resolution directly multiplies quad count (rings*n, each its own
 // canvas fill+stroke), the dominant per-frame drawing cost; 64 is still
 // smooth enough for the outer silhouette at any reasonable zoom.
-// Angular sample count is `p.cytoTheta` (default 64).
+// Angular sample count is `p.cytoTheta` (default 256).
 function getCytoGeometry(c, p) {
   const key = c.cx + ',' + c.cy;
   let entry = cytoCache.get(key);
@@ -820,31 +1101,15 @@ function getCytoGeometry(c, p) {
   return entry;
 }
 
-// Samples the ACTUAL rendered (smoothed) cytoplasm height-field at an
-// arbitrary local (x,y), not just at the p.cytoRings x p.cytoTheta grid
-// vertices buildCytoMesh() itself uses -- bilinear over (ring-fraction,
-// theta-index). Needed because mtClampIntoCytoplasm() (microtubules.js) used
-// to clamp against the raw analytic cytoHeightAt() while the surface actually
-// DRAWN comes from this smoothed mesh (smoothCytoGrid's Laplacian averaging
-// systematically lowers the sharp nucleus-adjacent dome peak below its raw
-// analytic value) -- clamping against the raw function let a microtubule
-// point sit above what render actually shows, a real, reported "pokes out of
-// the dome" bug. The ring-bias schedule (frac_k = 1-(1-k/rings)^CYTO_RING_BIAS,
-// see buildCytoMesh) is monotonic and invertible in closed form:
-// k(f) = rings*(1-(1-f)^(1/CYTO_RING_BIAS)).
+// Samples the ACTUAL rendered (relaxed) cytoplasm height at an arbitrary
+// local (x,y): bilinear on the relaxed grid (buildCytoHeightGrid), the same
+// field the drawn mesh is sampled from. mtClampIntoCytoplasm()
+// (microtubules.js) used to clamp against the raw analytic cytoHeightAt()
+// while the drawn surface was smoothed (lower at the sharp nucleus-adjacent
+// dome peak), which let a microtubule point sit above what render showed
+// (a real, reported "pokes out of the dome" bug).
 function sampleCytoMeshHeight(c, p, x, y) {
-  const { mesh } = getCytoGeometry(c, p);
-  const { rings, n, grid } = mesh;
-  const theta = Math.atan2(y, x);
-  const thetaNorm = ((theta / (Math.PI * 2)) % 1 + 1) % 1;
-  const iF = thetaNorm * n;
-  const i0 = Math.floor(iF) % n, i1 = (i0 + 1) % n, ti = iF - Math.floor(iF);
-  const rc = cellRadiusAt(c, theta);
-  const f = Math.min(1, Math.max(0, rc > 1e-9 ? Math.hypot(x, y) / rc : 0));
-  const kF = Math.min(rings, rings * (1 - Math.pow(1 - f, 1 / CYTO_RING_BIAS)));
-  const k0 = Math.min(rings - 1, Math.floor(kF)), k1 = k0 + 1, tk = kF - k0;
-  const h00 = grid[k0][i0].h, h01 = grid[k0][i1].h, h10 = grid[k1][i0].h, h11 = grid[k1][i1].h;
-  return (h00 * (1 - ti) + h01 * ti) * (1 - tk) + (h10 * (1 - ti) + h11 * ti) * tk;
+  return sampleCytoHeightGrid(getCytoGeometry(c, p).mesh.hg, x, y);
 }
 
 // Standard marching squares, generalised to the polar (ring, theta-index)
@@ -894,7 +1159,7 @@ function marchingSquaresContours(mesh, levels) {
 // just outside the search window and were never touched.
 function interactionChunks(p) {
   const worstSemiMajor = (p.cellDiamMax / 2) / Math.sqrt(Math.max(0.05, p.cellElongMin));
-  const worstROuter = worstSemiMajor * CELL_MOD_MAX;
+  const worstROuter = worstSemiMajor * CELL_MOD_MAX * (p.cellRough > 0 && p.cellBlob > 0 ? 1 + TAIL_MAX : 1);
   return Math.min(6, Math.max(1, Math.ceil((2 * worstROuter) / p.chunkSize)));
 }
 
@@ -1254,13 +1519,13 @@ const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px pe
 
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
- 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal',
+ 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
  'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
  'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
- 'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoSmoothPasses', 'cytoSmoothPassesVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
+ 'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
  'enablePacking', 'allowPackRotation', 'packFrac', 'packFracVal', 'relaxIters', 'relaxItersVal', 'relaxDamping', 'relaxDampingVal',
  'mtDensity', 'mtDensityVal', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtStartOffsetXYVal',
  'mtEndFracMin', 'mtEndFracMax',
@@ -1282,6 +1547,8 @@ function params() {
     cellElongMin: +els.cellElongMin.value,
     cellElongMax: Math.max(+els.cellElongMin.value, +els.cellElongMax.value),
     cellBlob: +els.cellBlob.value,
+    cellRough: +els.cellRough.value,
+    cellFractalDim: Math.min(2, Math.max(1, +els.cellFractalDim.value)),
     cellHeightMin: +els.cellHeightMin.value,
     cellHeightMax: Math.max(+els.cellHeightMin.value, +els.cellHeightMax.value),
     nucLongMin: +els.nucLongMin.value,
@@ -1303,7 +1570,7 @@ function params() {
     cytoContourStep: +els.cytoContourStep.value,
     cytoMaxSlope: +els.cytoMaxSlope.value, // um/um: cytoplasm slope cap; 0 = off
     cytoDomeSlope: +els.cytoDomeSlope.value, // um/um: slope cap of the dome flank over the nucleus; 0 = off (flank spans nucMargin only)
-    cytoSmoothPasses: +els.cytoSmoothPasses.value,
+    cytoRelaxUm: +els.cytoRelaxUm.value,
     cytoRings: +els.cytoRings.value,
     cytoTheta: +els.cytoTheta.value,
     showCytoContours: els.showCytoContours.checked,
@@ -2188,7 +2455,9 @@ function syncLabels() {
   els.nucMarginVal.textContent = (+els.nucMargin.value).toFixed(1) + ' um';
   els.cytoMaxSlopeVal.textContent = +els.cytoMaxSlope.value ? (+els.cytoMaxSlope.value).toFixed(2) : 'off';
   els.cytoDomeSlopeVal.textContent = +els.cytoDomeSlope.value ? (+els.cytoDomeSlope.value).toFixed(1) : 'off';
-  els.cytoSmoothPassesVal.textContent = els.cytoSmoothPasses.value;
+  els.cytoRelaxUmVal.textContent = +els.cytoRelaxUm.value ? (+els.cytoRelaxUm.value).toFixed(1) + ' um' : 'off';
+  els.cellRoughVal.textContent = (+els.cellRough.value).toFixed(2);
+  els.cellFractalDimVal.textContent = (+els.cellFractalDim.value).toFixed(2);
   els.cytoRingsVal.textContent = els.cytoRings.value;
   els.cytoThetaVal.textContent = els.cytoTheta.value;
   els.cytoContourStepVal.textContent = (+els.cytoContourStep.value).toFixed(2) + ' um';

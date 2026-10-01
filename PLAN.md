@@ -32,3 +32,8 @@ Upcoming ideas:
   excitation 4e8 (t1/2 120 s) defaults; [x] the 2x2 overview (map, structures, widefield, SMLM) on the gallery and
   Home (`tools/build_overview.py`, `insiliscope_cli --geometry-json`); [x] site: homepage link, viewer embedded on
   its docs page with a back link and a loading text.
+- 2026-10-01: cell edges and height (spec/ALGORITHM.md): [x] fractal outline tail (harmonics 6-64, amplitude
+  ∝ blob x k^-(2.5-D), `cellRough` 0.15, `cellFractalDim` 1.35, bit-exact complex recurrence), [x] cytoplasm height
+  relaxed on a Cartesian grid (screened Poisson, exact boundary, nucleus obstacle; `cytoRelaxUm` replaces
+  `cytoSmoothPasses`): no folds. Next: [ ] thin protrusions (filopodia, retraction fibres), [ ] tension arcs between
+  adhesions (concave scallops).

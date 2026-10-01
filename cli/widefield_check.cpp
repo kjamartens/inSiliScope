@@ -837,8 +837,8 @@ void RealWorld()
    std::string err;
    if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
    WidefieldSceneSpec s = BaseSpec(48, 1);
-   s.originXUm = -4 - 2.4;
-   s.originYUm = -5 - 2.4;
+   s.originXUm = 22 - 2.4;   // a cell of this seed covers (22, 14), in its lamella
+   s.originYUm = 14 - 2.4;
    s.focusWorldUm = s.slabCentreUm = 0.5;
    s.slabHalfUm = 3.5;
    SquareIllumination ill(4.8, 4.8);

@@ -100,8 +100,8 @@ BrightfieldSpec FieldSpec(int quality)
    BrightfieldSpec s;
    s.width = s.height = 128;
    s.pixelUm = 0.1;
-   s.originXUm = -6.4;
-   s.originYUm = -6.4;
+   s.originXUm = 32 - 6.4;   // centred on a cell of World()'s seed (nucleus and edge in view)
+   s.originYUm = 11 - 6.4;
    s.quality = quality;
    return s;
 }

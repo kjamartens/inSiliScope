@@ -57,12 +57,28 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
    c.height = lerp(p.cellHeightMin, p.cellHeightMax, H(CH::HEIGHT));
    for (int i = 0; i < N_HARM; i++) c.harmAmp[i] = H(CH::HARM_AMP + i) * p.cellBlob / HARM_K[i];
    for (int i = 0; i < N_HARM; i++) c.harmPh[i] = H(CH::HARM_PH + i) * PI * 2;
+   // Fractal tail; (k/5)^-e as exp(-e*log(k/5)) (fdlibm, bit-exact; not pow).
+   if (p.cellRough > 0 && p.cellBlob > 0) {
+      const double tailExp = 2.5 - std::min(2.0, std::max(1.0, p.cellFractalDim));
+      HashStream nextA(seed, cx, cy, TAIL_AMP_STREAM), nextP(seed, cx, cy, TAIL_PH_STREAM);
+      double sum = 0;
+      for (int i = 0; i < N_TAIL; i++) {
+         const int k = TAIL_K0 + i;
+         const double u = nextA.Next();
+         const double ph = nextP.Next() * PI * 2;
+         const double a = u * p.cellRough * p.cellBlob / 5 * exp(-tailExp * log((double)k / 5));
+         c.tailAc[i] = a * cos(ph);
+         c.tailAs[i] = a * sin(ph);
+         sum += a;
+      }
+      c.tailBound = std::min(TAIL_MAX, sum);
+   }
 
    // Area correction measured on the cell's own clamped outline (48 samples):
    // rescale so the mean r^2 matches the unmodulated ellipse. See spec
    // "Keeping diameter meaning the same size at any blobbiness".
    {
-      const int N = 48;
+      const int N = c.tailBound > 0 ? 256 : 48;
       double sumBase2 = 0, sumR2 = 0;
       for (int i = 0; i < N; i++) {
          const double th = ((double)i / N) * PI * 2;
@@ -71,6 +87,7 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
          double mod = 1;
          for (int j = 0; j < N_HARM; j++) mod += c.harmAmp[j] * cos(HARM_K[j] * th + c.harmPh[j]);
          mod = std::max(CELL_MOD_MIN, std::min(CELL_MOD_MAX, mod));
+         if (c.tailBound > 0) mod *= 1 + CellTailAt(c, th);
          sumBase2 += base * base;
          sumR2 += base * base * mod * mod;
       }
@@ -103,7 +120,7 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
    c.height = std::max(std::max(c.height, c.cytoRimHeight), c.cytoMidHeight);
 
    // Packing reach: the clamped ceiling, not the unclamped harmonic sum.
-   c.rOuter = c.semiMajor * CELL_MOD_MAX;
+   c.rOuter = c.semiMajor * CELL_MOD_MAX * (1 + c.tailBound);
    c.priority = H(CH::PRIORITY);
    c.packRot = 0;
    return c;
@@ -118,7 +135,38 @@ double CellRadiusAt(const Cell& c, double thetaWorld)
    double mod = 1;
    for (int i = 0; i < N_HARM; i++) mod += c.harmAmp[i] * cos(HARM_K[i] * thetaWorld + c.harmPh[i]);
    mod = std::max(c.modFloor, std::min(CELL_MOD_MAX, mod));
+   if (c.tailBound > 0) return base * mod * (1 + CellTailAt(c, thetaWorld));
    return base * mod;
+}
+
+// z^k = e^{ik theta} by complex multiplication (only + and *: bit-exact with
+// the JS) in four independent chains k = 6+q stepping by z^4, four partial
+// sums, then the soft clamp. Same operations and order as cellTailAt.
+double CellTailAt(const Cell& c, double theta)
+{
+   const double C = jsm::cos(theta), S = jsm::sin(theta);
+   const double c2 = C * C - S * S, s2 = C * S + S * C;
+   const double c4 = c2 * c2 - s2 * s2, s4 = c2 * s2 + s2 * c2;
+   double c0 = c4 * c2 - s4 * s2, s0 = c4 * s2 + s4 * c2;   // z^6
+   double c1 = c0 * C - s0 * S, s1 = c0 * S + s0 * C;       // z^7
+   double c8 = c4 * c4 - s4 * s4, s8 = c4 * s4 + s4 * c4;   // z^8
+   double c3 = c8 * C - s8 * S, s3 = c8 * S + s8 * C;       // z^9
+   const double* ac = c.tailAc;
+   const double* as = c.tailAs;
+   double t0 = 0, t1 = 0, t2 = 0, t3 = 0;
+   for (int i = 0; i < N_TAIL; i += 4) {
+      t0 += c0 * ac[i] - s0 * as[i];
+      if (i + 1 < N_TAIL) t1 += c1 * ac[i + 1] - s1 * as[i + 1];
+      if (i + 2 < N_TAIL) t2 += c8 * ac[i + 2] - s8 * as[i + 2];
+      if (i + 3 < N_TAIL) t3 += c3 * ac[i + 3] - s3 * as[i + 3];
+      double n = c0 * c4 - s0 * s4; s0 = c0 * s4 + s0 * c4; c0 = n;
+      n = c1 * c4 - s1 * s4; s1 = c1 * s4 + s1 * c4; c1 = n;
+      n = c8 * c4 - s8 * s4; s8 = c8 * s4 + s8 * c4; c8 = n;
+      n = c3 * c4 - s3 * s4; s3 = c3 * s4 + s3 * c4; c3 = n;
+   }
+   const double t = ((t0 + t1) + t2) + t3;
+   const double q = t / TAIL_MAX;
+   return t / jsm::sqrt(1 + q * q);
 }
 
 double CytoDomeReach(const Cell& c, const Params& p)
@@ -152,7 +200,7 @@ void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams)
 
    // Evaluated after the vertical step: it needs the final c.height.
    const double extraUm = runoutParams ? CytoSlopeRunout(c, *runoutParams) : 0;
-   const int N = 32;
+   const int N = c.tailBound > 0 ? 256 : 32;   // the tail's harmonics go to k = 64
    double neededFloor = CELL_MOD_MIN;
    for (int i = 0; i < N; i++) {
       const double th = ((double)i / N) * PI * 2;
@@ -164,7 +212,8 @@ void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams)
       const double phi = angle - c.rot;
       const double base = (c.semiMajor * c.semiMinor) / hypot(c.semiMinor * cos(phi), c.semiMajor * sin(phi));
       if (base <= 1e-6) continue;
-      const double required = (dist * 1.05 + margin + extraUm) / base;
+      double required = (dist * 1.05 + margin + extraUm) / base;
+      if (c.tailBound > 0) required /= 1 + CellTailAt(c, angle);   // the tail at this angle
       // Modulation at the sample's world angle around the cell, not `th`.
       double naturalMod = 1;
       for (int j = 0; j < N_HARM; j++) naturalMod += c.harmAmp[j] * cos(HARM_K[j] * angle + c.harmPh[j]);

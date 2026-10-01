@@ -77,6 +77,8 @@
       <div class="pair"><span class="k">Diameter min/max</span><input type="number" id="cellDiamMin" value="25" step="0.5"><input type="number" id="cellDiamMax" value="35" step="0.5"></div>
       <div class="pair"><span class="k">Elongation (short/long) min/max</span><input type="number" id="cellElongMin" value="0.5" step="0.05"><input type="number" id="cellElongMax" value="1" step="0.05"></div>
       <label class="row">Outline blobbiness <input type="range" id="cellBlob" min="0" max="4" step="0.05" value="1.75"><span id="cellBlobVal"></span></label>
+      <label class="row" title="Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.">Edge roughness <input type="range" id="cellRough" min="0" max="1" step="0.01" value="0.15"><span id="cellRoughVal"></span></label>
+      <label class="row" title="Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.">Edge fractal dimension <input type="range" id="cellFractalDim" min="1" max="2" step="0.01" value="1.35"><span id="cellFractalDimVal"></span></label>
       <div class="pair"><span class="k">Height min/max</span><input type="number" id="cellHeightMin" value="3" step="0.5"><input type="number" id="cellHeightMax" value="6" step="0.5"></div>
     </fieldset>
 
@@ -98,9 +100,9 @@
       <label class="row">Contour interval <input type="range" id="cytoContourStep" min="0.1" max="1" step="0.05" value="0.25"><span id="cytoContourStepVal"></span></label>
       <label class="row" title="Max rise of the cytoplasm surface per µm outside the dome (saturating from the edge). 0 = off. Cells grow to make room.">Cytoplasm slope cap <input type="range" id="cytoMaxSlope" min="0" max="2" step="0.05" value="1"><span id="cytoMaxSlopeVal"></span></label>
       <label class="row" title="Max slope of the dome flank over the nucleus. 0 = off (flank spans only the nucleus margin). Lower = rounder dome but bigger cells.">Nucleus dome slope cap <input type="range" id="cytoDomeSlope" min="0" max="4" step="0.1" value="3"><span id="cytoDomeSlopeVal"></span></label>
-      <label class="row">Smoothing passes <input type="range" id="cytoSmoothPasses" min="0" max="12" step="1" value="12"><span id="cytoSmoothPassesVal"></span></label>
+      <label class="row" title="Relaxation length: the height solves h - l^2 lap(h) = raw profile (a membrane pulled toward it), which removes the profile's folds. 0 = raw profile.">Relax length (µm) <input type="range" id="cytoRelaxUm" min="0" max="3" step="0.1" value="1"><span id="cytoRelaxUmVal"></span></label>
       <label class="row">Mesh rings <input type="range" id="cytoRings" min="4" max="60" step="1" value="60"><span id="cytoRingsVal"></span></label>
-      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="128" step="4" value="128"><span id="cytoThetaVal"></span></label>
+      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="512" step="4" value="256"><span id="cytoThetaVal"></span></label>
       <label class="row">Show contour lines <input type="checkbox" id="showCytoContours"></label>
     </fieldset>
 
@@ -257,13 +259,13 @@ const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px pe
 
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
- 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal',
+ 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
  'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
  'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
- 'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoSmoothPasses', 'cytoSmoothPassesVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
+ 'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
  'enablePacking', 'allowPackRotation', 'packFrac', 'packFracVal', 'relaxIters', 'relaxItersVal', 'relaxDamping', 'relaxDampingVal',
  'mtDensity', 'mtDensityVal', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtStartOffsetXYVal',
  'mtEndFracMin', 'mtEndFracMax',
@@ -285,6 +287,8 @@ function params() {
     cellElongMin: +els.cellElongMin.value,
     cellElongMax: Math.max(+els.cellElongMin.value, +els.cellElongMax.value),
     cellBlob: +els.cellBlob.value,
+    cellRough: +els.cellRough.value,
+    cellFractalDim: Math.min(2, Math.max(1, +els.cellFractalDim.value)),
     cellHeightMin: +els.cellHeightMin.value,
     cellHeightMax: Math.max(+els.cellHeightMin.value, +els.cellHeightMax.value),
     nucLongMin: +els.nucLongMin.value,
@@ -306,7 +310,7 @@ function params() {
     cytoContourStep: +els.cytoContourStep.value,
     cytoMaxSlope: +els.cytoMaxSlope.value, // um/um: cytoplasm slope cap; 0 = off
     cytoDomeSlope: +els.cytoDomeSlope.value, // um/um: slope cap of the dome flank over the nucleus; 0 = off (flank spans nucMargin only)
-    cytoSmoothPasses: +els.cytoSmoothPasses.value,
+    cytoRelaxUm: +els.cytoRelaxUm.value,
     cytoRings: +els.cytoRings.value,
     cytoTheta: +els.cytoTheta.value,
     showCytoContours: els.showCytoContours.checked,
@@ -1326,7 +1330,9 @@ function syncLabels() {
   els.nucMarginVal.textContent = (+els.nucMargin.value).toFixed(1) + ' um';
   els.cytoMaxSlopeVal.textContent = +els.cytoMaxSlope.value ? (+els.cytoMaxSlope.value).toFixed(2) : 'off';
   els.cytoDomeSlopeVal.textContent = +els.cytoDomeSlope.value ? (+els.cytoDomeSlope.value).toFixed(1) : 'off';
-  els.cytoSmoothPassesVal.textContent = els.cytoSmoothPasses.value;
+  els.cytoRelaxUmVal.textContent = +els.cytoRelaxUm.value ? (+els.cytoRelaxUm.value).toFixed(1) + ' um' : 'off';
+  els.cellRoughVal.textContent = (+els.cellRough.value).toFixed(2);
+  els.cellFractalDimVal.textContent = (+els.cellFractalDim.value).toFixed(2);
   els.cytoRingsVal.textContent = els.cytoRings.value;
   els.cytoThetaVal.textContent = els.cytoTheta.value;
   els.cytoContourStepVal.textContent = (+els.cytoContourStep.value).toFixed(2) + ' um';

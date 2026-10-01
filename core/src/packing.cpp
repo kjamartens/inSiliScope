@@ -110,7 +110,7 @@ int32_t CandidateMap::Find(int32_t cx, int32_t cy) const
 int InteractionChunks(const Params& p)
 {
    const double worstSemiMajor = (p.cellDiamMax / 2) / jsm::sqrt(std::max(0.05, p.cellElongMin));
-   const double worstROuter = worstSemiMajor * CELL_MOD_MAX;
+   const double worstROuter = worstSemiMajor * CELL_MOD_MAX * (p.cellRough > 0 && p.cellBlob > 0 ? 1 + TAIL_MAX : 1);
    return (int)std::min(6.0, std::max(1.0, std::ceil((2 * worstROuter) / p.chunkSize)));
 }
 

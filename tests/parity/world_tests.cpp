@@ -4,6 +4,8 @@
 // Built natively and with Emscripten (run under Node), like isc_parity.
 //
 //   isc_world_tests          exit code 0 = all checks passed
+#include "cells.h"
+#include "cytomesh.h"
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
@@ -822,6 +824,128 @@ void OpticalVolume()
    isc_params_free(ip);
 }
 
+// Fractal edge tail and relaxed cytoplasm height (spec/ALGORITHM.md "Edge
+// roughness", "Height relaxation").
+void EdgeAndHeight()
+{
+   auto eqDiam = [](const Params& p, double& meanTail) {
+      double sum = 0, tail = 0;
+      int n = 0;
+      for (int cx = 0; cx < 12; cx++)
+         for (int cy = 0; cy < 12; cy++) {
+            const Cell c = RawCandidate(77, cx, cy, p);
+            if (!c.present) continue;
+            const std::vector<Pt2> o = CellOutlineLocal(c, 4096);
+            double a = 0;
+            for (size_t i = 0, j = o.size() - 1; i < o.size(); j = i++) a += o[j].x * o[i].y - o[i].x * o[j].y;
+            sum += 2 * std::sqrt(std::fabs(a) / 2 / jsm::PI);
+            tail += c.tailBound;
+            n++;
+         }
+      meanTail = tail / n;
+      return sum / n;
+   };
+   Params p;
+   double t0 = 0, tb = 0;
+   p.cellRough = 0;
+   const double dOff = eqDiam(p, t0);
+   Check(t0 == 0, "cellRough 0: no tail");
+   p.cellRough = 0.15;
+   p.cellBlob = 0;
+   eqDiam(p, tb);
+   Check(tb == 0, "cellBlob 0: no tail (roughness scales with blobbiness)");
+   double worst = 0;
+   for (double blob : { 0.5, 1.75, 3.0, 4.0 }) {
+      p.cellBlob = blob;
+      p.cellRough = 0;
+      double t;
+      const double d0 = eqDiam(p, t);
+      p.cellRough = 0.15;
+      const double d = eqDiam(p, tb);
+      std::printf("      (no tail: %.2f um)\n", d0);
+      worst = std::max(worst, std::fabs(d / d0 - 1));
+      std::printf("      blob %.2f: equivalent diameter %.2f um (mean tail bound %.3f)\n", blob, d, tb);
+   }
+   std::printf("      blob 1.75 without tail: %.2f um\n", dOff);
+   Check(worst < 0.04, "the tail keeps the equivalent diameter (4%) at blob 0.5-4");
+
+   // The tail's power spectrum: |c_k|^2 ~ k^-(2H+1) = k^-(5-2D) over its band
+   // (a self-affine r(theta) of Hurst H has box-counting dimension D = 2 - H).
+   for (double D : { 1.35, 1.7 }) {
+      Params q;
+      q.cellFractalDim = D;
+      q.cellRough = 0.05;   // small: the soft clamp stays linear
+      std::vector<double> power(65, 0.0);
+      const int M = 512;
+      for (int cx = 0; cx < 10; cx++)
+         for (int cy = 0; cy < 10; cy++) {
+            const Cell c = RawCandidate(91, cx, cy, q);
+            if (!c.present || !(c.tailBound > 0)) continue;
+            std::vector<double> f(M);
+            for (int i = 0; i < M; i++) f[i] = CellTailAt(c, 2 * jsm::PI * i / M);
+            for (int k = TAIL_K0; k < TAIL_K0 + N_TAIL; k++) {
+               double re = 0, im = 0;
+               for (int i = 0; i < M; i++) { re += f[i] * std::cos(2 * jsm::PI * k * i / M); im += f[i] * std::sin(2 * jsm::PI * k * i / M); }
+               power[k] += re * re + im * im;
+            }
+         }
+      double sxx = 0, sxy = 0, sx = 0, sy = 0;
+      int m = 0;
+      for (int k = TAIL_K0; k < TAIL_K0 + N_TAIL; k++) {
+         const double x = std::log((double)k), y = std::log(power[k]);
+         sx += x; sy += y; sxx += x * x; sxy += x * y; m++;
+      }
+      const double slope = (m * sxy - sx * sy) / (m * sxx - sx * sx);
+      char msg[160];
+      std::snprintf(msg, sizeof msg, "tail D %.2f: spectral slope %.2f vs -(5 - 2D) = %.2f (0.25)", D, slope, -(5 - 2 * D));
+      Check(std::fabs(slope + (5 - 2 * D)) < 0.25, msg);
+   }
+
+   // Height grid: nucleus covered, and the relaxation removes the kinks.
+   Params q;
+   World w(1249, q);
+   std::vector<Cell> cs;
+   w.CellsInRect(-60, -60, 60, 60, cs);
+   double worstCover = 1e9;
+   std::vector<double> lapRelax, lapRaw;
+   Params raw = q;
+   raw.cytoRelaxUm = 0;
+   for (const Cell& c : cs) {
+      const CytoHeightGrid hg = BuildCytoHeightGrid(c, q), hr = BuildCytoHeightGrid(c, raw);
+      const double margin = std::max(0.1, q.nucMargin);
+      for (int k = 0; k < 2000; k++) {
+         // Points of the nucleus footprint, in its own frame.
+         const double ang = 2 * jsm::PI * k / 2000, rr = std::sqrt((k % 97) / 97.0) * 0.98;
+         const double lx = std::cos(ang) * rr * c.nucLong / 2, ly = std::sin(ang) * rr * c.nucShort / 2;
+         const double x = c.nucOffX + lx * std::cos(c.nucRot) - ly * std::sin(c.nucRot);
+         const double y = c.nucOffY + lx * std::sin(c.nucRot) + ly * std::cos(c.nucRot);
+         const double top = c.nucZ + c.nucHeight / 2 * std::sqrt(1 - rr * rr) + margin;
+         worstCover = std::min(worstCover, SampleCytoHeightGrid(hg, x, y) - top);
+      }
+      // |laplacian| at nodes well inside the cell and off the nucleus.
+      const int N = hg.N;
+      for (int j = 2; j < N - 2; j++)
+         for (int i = 2; i < N - 2; i++) {
+            const double x = (i - hg.half) * hg.g, y = (j - hg.half) * hg.g;
+            if (std::hypot(x, y) + 1.0 > CellRadiusAt(c, std::atan2(y, x))) continue;
+            if (NucleusSignedDistLocal(c, x, y) < 1.0) continue;
+            auto lap = [&](const CytoHeightGrid& G) {
+               const size_t v = (size_t)j * N + i;
+               return std::fabs((double)G.h[v - 1] + G.h[v + 1] + G.h[v - N] + G.h[v + N] - 4.0 * G.h[v]) / (G.g * G.g);
+            };
+            lapRelax.push_back(lap(hg));
+            lapRaw.push_back(lap(hr));
+         }
+   }
+   char msg[160];
+   std::snprintf(msg, sizeof msg, "relaxed height covers the nucleus + margin (worst %.3f um, tol 0.02)", worstCover);
+   Check(!cs.empty() && worstCover > -0.02, msg);
+   auto p99 = [](std::vector<double> v) { std::sort(v.begin(), v.end()); return v[(size_t)(0.99 * (v.size() - 1))]; };
+   const double a = lapRelax.empty() ? 0 : p99(lapRelax), b = lapRaw.empty() ? 0 : p99(lapRaw);
+   std::snprintf(msg, sizeof msg, "relaxation removes kinks: p99 |laplacian| %.2f vs raw %.2f per um", a, b);
+   Check(!lapRaw.empty() && a < 0.5 * b, msg);
+}
+
 int main()
 {
    Determinism();
@@ -835,6 +959,7 @@ int main()
    CApi();
    Density3d();
    OpticalVolume();
+   EdgeAndHeight();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);
    return g_failures ? 1 : 0;
 }

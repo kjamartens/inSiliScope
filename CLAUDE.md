@@ -28,7 +28,8 @@ that finishes them.
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
-  query, ABI 6 optical volume, and `Threads`: 8 threads = 1 thread); `cli/widefield_check.cpp` (ctest `widefield`);
+  query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
+  coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
   `cli/brightfield_check.cpp` (ctest `brightfield`);
   `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
@@ -188,6 +189,13 @@ the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` opt
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase
 grating vs theory, thin and multislice), `cli_tiff_bf`, `world_checks` OpticalVolume, `tests/web/viewer_bf_movie.mjs`,
 `tools/test_cellfield_stage.py`. Not built with MSBuild or checked in Micro-Manager Studio yet.
+
+**Cell edges and height (2026-10-01, spec/ALGORITHM.md):** the outline has a fractal tail (harmonics 6-64, amplitude
+`cellRough` (0.15) x `cellBlob` x k^-(2.5-D), D = `cellFractalDim` 1.35, multiplicative after the coarse clamp, bit-exact
+complex recurrence `CellTailAt`), and the cytoplasm height is relaxed on a 0.25 um Cartesian grid (screened Poisson
+`h - l^2 lap h = raw`, l = `cytoRelaxUm` 1 um, exact boundary, nucleus obstacle; replaced `cytoSmoothPasses`, whose
+index-space smoothing left folds). Cli/viewer: `p.cellRough`, `p.cellFractalDim`, `p.cytoRelaxUm` (viewer sliders);
+`cytoTheta` (drawn mesh) default 256.
 
 **PSF in the cli/viewer (2026-10-01):** `ScopeMovie` uses the adapter's default `GibsonLanniZernike` (C++,
 `Simulation/ZernikePsf.*`, same kernel cache and render calls as the adapter) for SR and WideField; options

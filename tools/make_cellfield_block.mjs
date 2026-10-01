@@ -64,13 +64,13 @@ function cellFieldFactory(SRC) {
   // labelling efficiency to the returned sites.
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
-    cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75,
+    cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
     cellHeightMin: 3, cellHeightMax: 6,
     nucLongMin: 8, nucLongMax: 12, nucRatioMin: 0.6, nucRatioMax: 1, nucHeightMin: 0.3, nucHeightMax: 0.5,
     nucOffsetFrac: 0.1, nucMargin: 0.6,
     cytoRimHeightMin: 0.1, cytoRimHeightMax: 0.3, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5,
     cytoMidHeightMin: 1, cytoMidHeightMax: 2, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3,
-    cytoMaxSlope: 1, cytoDomeSlope: 3, cytoSmoothPasses: 12, cytoRings: 60, cytoTheta: 128,
+    cytoMaxSlope: 1, cytoDomeSlope: 3, cytoRelaxUm: 1, cytoRings: 60, cytoTheta: 256,
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
     mtDensity: 0.9, mtStartFracMin: 0, mtStartFracMax: 0.3, mtStartOffsetXY: 0,
     mtEndFracMin: 0.01, mtEndFracMax: 0.4, mtEndJitterDeg: 145, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
