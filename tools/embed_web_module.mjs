@@ -26,6 +26,9 @@ const cache = fs.readFileSync(path.join(ROOT, 'build/wasm/CMakeCache.txt'), 'utf
 const tc = (/CMAKE_TOOLCHAIN_FILE:\w+=(.+)/.exec(cache) || [])[1];
 const verFile = tc && path.resolve(path.dirname(tc.trim()), '../../../emscripten-version.txt');
 const emver = verFile && fs.existsSync(verFile) ? fs.readFileSync(verFile, 'utf8').trim().replace(/"/g, '') : 'unknown';
+// LF line endings whatever the checkout uses (a Windows working copy has CRLF; CI's
+// --check builds on Linux).
+const wgsl = fs.readFileSync(WGSL, 'utf8').replace(/\r\n/g, '\n');
 const sha = crypto.createHash('sha256').update(mod).digest('hex');
 
 const text =
@@ -36,7 +39,7 @@ const text =
 // createInsiliscope(); the viewer does that on the main thread and in each worker.
 self.ISC_MODULE_SRC = ${JSON.stringify(mod)};
 // The WideField GPU kernels (adapter/inSiliScope/Simulation/WidefieldGpu.wgsl), for web/wf_gpu.js.
-self.ISC_WF_WGSL = ${JSON.stringify(fs.readFileSync(WGSL, 'utf8'))};
+self.ISC_WF_WGSL = ${JSON.stringify(wgsl)};
 `;
 
 if (check) {
