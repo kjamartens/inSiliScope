@@ -451,7 +451,7 @@ Mark each done here.
   `zNm/1000 - zStage` (since 2026-09-25; it used to add the stage), so the in-focus world height is
   `focus + zStage`: the Z stage is the focal plane's height above the coverslip (focus offset default
   0, ZStage starts at 0.5 um); dyes beyond `SimType_CellFieldZRangeUm / 2` (default
-  7 um, 0 = no limit) of it are culled in the query, for every PSF model. With a vectorial model a
+  7 um, 0 = no limit) of it are culled in the query, for every PSF model. With a diffraction model a
   slab wider than `PSFParam_PsfZRangeUm` (or 0) is logged: those dyes get the kernel's end plane.
 * Margin 2 um around the FOV (`kCellFieldMarginUm`); haze sites and the out-of-focus population are
   off for `CellField` (logged).
@@ -521,10 +521,10 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
   (pitch, plane, world version). A cold region still costs the core's world generation (~1.7 s for 26 um
   at the defaults; the live loop's `Prefetch` warms the neighbourhood during the frame slack).
 * **PSF planes.** Dye planes go to the two neighbouring PSF planes with linear weights (= a linearly
-  z-blended PSF). Vectorial: the `PsfKernelCache` planes, each grid cell the sum of its (os/u)^2
+  z-blended PSF). Diffraction: the `PsfKernelCache` planes, each grid cell the sum of its (os/u)^2
   oversampled cells placed as `SplatPsfKernel` (Nearest) centres them; u must divide the oversampling.
-  Gaussian: planes every 100 nm, sigma from `WidefieldGaussianSigmaUm` (TODO(human): defocus ignored for
-  now). Radius R capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`), kept across focus moves.
+  Gaussian (`PsfModel = Gaussian`, cli `psf-model=0`): planes every 100 nm, sigma from
+  `WidefieldGaussianSigmaUm` (TODO(human): defocus ignored for now). Radius R capped by `PSFParam_PsfKernelHalfWidthNm` (cli `wf-kernel-um`), kept across focus moves.
 * **FFT** (`Fft2d.h`, A3/A4). Real 2D r2c/c2r, sizes 2^a 3^b 5^c (mixed-radix 4/2/3/5 Stockham, batched
   16 rows/columns at a time, rows by the half-length complex trick; every row and column independent, so
   thread-count independent). N per axis = the smallest such size (multiple of 8) with the wrapped part of
@@ -590,3 +590,19 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
   Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
   + Microsoft's HLSL compiler).
 * Limits: no drift.
+
+## 14. The PSF in the cli and the viewer (2026-10-01)
+
+`ScopeMovie` (cli and viewer) renders with the adapter's default PSF, `GibsonLanniZernike`, computed by
+`Simulation/ZernikePsf.cpp` (a C++ port of webSMLM's chirp-Z code, the same as the Java class; no JVM),
+through the same memoized `ComputePsfKernelCache`, `RenderPhotonImage(..., &kernel, z)` (SR) and
+`KernelWidefieldPsf` (WideField) as the adapter. Options mirror the `PSFParam_` properties and their
+defaults: `psf-model` (0 Gaussian, 3 GibsonLanniZernike; 1/2 need the JVM and are refused),
+`psf-zernike-preset` (index or name), `zern.<j>` (one coefficient, waves, replacing the preset's),
+`psf-mask`, `psf-mask-modes`, `psf-mask-waist`, `psf-oversampling`, `psf-kernel-half-width-nm` (rounded
+and grown by the shared `PsfKernelHalfWidthPx`), `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`; `wavelength-nm`, `na`, `immersion-index`
+as before. `ScopePsfRequest` builds the same `PsfGeneratorRequest` as the camera's
+`BuildPsfGeneratorRequest`. The SR movie computes the kernel while the cell field is queried (native).
+The viewer sends `psf-kernel-half-width-nm=3000` (kernel stack ~75 MB instead of ~400 MB of WASM
+memory); a cli run reproduces a viewer movie with that option. Check: ctest `zernike_psf`.

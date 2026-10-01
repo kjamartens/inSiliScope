@@ -8,8 +8,8 @@ Open the [viewer](try-viewer.md). Nothing to install.
 
 1. Download `mmgr_dal_inSiliScope.dll` from the latest [release](https://github.com/kjamartens/inSiliScope/releases)
    (verify with the `.sha256` file) and copy it into your Micro-Manager folder.
-   A Java runtime must be installed for the vectorial PSF models (the DLL embeds PSFGenerator and starts, or
-   attaches to, a JVM). Without it the Gaussian PSF still works.
+   The default PSF (`GibsonLanniZernike`) and the Gaussian need nothing else. A Java runtime is needed only for the
+   `RichardsWolf` and `GibsonLanni` models (the DLL embeds PSFGenerator and starts, or attaches to, a JVM).
 2. In the Hardware Configuration Wizard add the module **inSiliScope** and the devices `Camera`, `XYStage` and `ZStage`.
    The devices share state in-process; no linking is needed.
 3. Choose the `CellField` pattern (the default), take a snapshot, move the XY stage, change the Z stage. The Z stage

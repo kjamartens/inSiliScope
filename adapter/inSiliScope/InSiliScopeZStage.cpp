@@ -40,7 +40,7 @@ int InSiliScopeZStage::Initialize()
       return ret;
 
    ret = CreateStringProperty(MM::g_Keyword_Description,
-                               "Global focus offset for inSiliScope's vectorial PSF renderer", true);
+                               "Global focus offset for inSiliScope's diffraction PSF renderer", true);
    if (ret != DEVICE_OK)
       return ret;
 

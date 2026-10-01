@@ -234,7 +234,7 @@ void GaussianWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
       out[i] = static_cast<float>(k[i] / sum);
 }
 
-int VectorialWidefieldPsf::ValidUpscale(int oversampling, int requested)
+int KernelWidefieldPsf::ValidUpscale(int oversampling, int requested)
 {
    const int os = std::max(1, oversampling);
    for (int u = std::max(1, std::min(requested, os)); u > 1; --u)
@@ -243,7 +243,7 @@ int VectorialWidefieldPsf::ValidUpscale(int oversampling, int requested)
    return 1;
 }
 
-VectorialWidefieldPsf::VectorialWidefieldPsf(const PsfKernelCache& cache, int upscale) : c_(cache)
+KernelWidefieldPsf::KernelWidefieldPsf(const PsfKernelCache& cache, int upscale) : c_(cache)
 {
    const int os = std::max(1, cache.oversampling);
    r_ = std::max(1, os / ValidUpscale(os, upscale));
@@ -253,19 +253,19 @@ VectorialWidefieldPsf::VectorialWidefieldPsf(const PsfKernelCache& cache, int up
    s0_ = static_cast<int>(std::floor(kc - r_ / 2.0 + 1.0));
 }
 
-double VectorialWidefieldPsf::PlaneCoord(double defocusUm) const
+double KernelWidefieldPsf::PlaneCoord(double defocusUm) const
 {
    if (c_.nz <= 1 || !(c_.zStepNm > 0.0))
       return 0.0;
    return defocusUm * 1000.0 / c_.zStepNm + (c_.nz - 1) / 2.0;
 }
 
-int VectorialWidefieldPsf::MaxPlane() const
+int KernelWidefieldPsf::MaxPlane() const
 {
    return std::max(0, c_.nz - 1);
 }
 
-int VectorialWidefieldPsf::Radius(int, int) const
+int KernelWidefieldPsf::Radius(int, int) const
 {
    const int n = c_.sizeOversampled;
    // Grid cells d whose block [s0 + d r, s0 + d r + r - 1] overlaps [0, n).
@@ -274,7 +274,7 @@ int VectorialWidefieldPsf::Radius(int, int) const
    return std::max(1, std::max(-dMin, dMax));
 }
 
-void VectorialWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
+void KernelWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
 {
    const int D = 2 * R + 1, n = c_.sizeOversampled;
    out.assign(static_cast<size_t>(D) * D, 0.0f);

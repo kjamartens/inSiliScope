@@ -2,7 +2,7 @@
 #   native     insiliscope_cli (TIFF movies)
 #   Emscripten insiliscope_scope_single.js: the viewer's module (core C ABI +
 #              isc_scope_movie), embedded by tools/embed_web_module.mjs.
-# Gaussian PSF only; on Windows the D3D11/JNI sources still compile and link
+# PSF: GibsonLanniZernike in C++ (ZernikePsf.cpp) or Gaussian; on Windows the D3D11/JNI sources still compile and link
 # (unused), elsewhere they are stubs.
 set(ISC_SIM ${PROJECT_SOURCE_DIR}/adapter/inSiliScope/Simulation)
 set(ISC_SIM_SRC

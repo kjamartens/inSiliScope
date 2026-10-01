@@ -8,8 +8,10 @@
 //                BucketEventsByFrame -> RenderPhotonImage -> ApplyNoiseChain,
 //                same seed streams) for one FOV. Used by cli/ (TIFF files)
 //                and the viewer (web/, via the WASM export isc_scope_movie).
-//                Gaussian PSF only (the vectorial models need the adapter's
-//                embedded JVM bridge). modality = 1 renders WideField
+//                PSF: GibsonLanniZernike (the adapter's default, C++
+//                ZernikePsf.h; psf-* options = the PSFParam_ properties) or
+//                Gaussian (psf-model 0); RichardsWolf/GibsonLanni need the
+//                adapter's JVM. modality = 1 renders WideField
 //                (WidefieldRender.h) instead of the blinks.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
@@ -37,14 +39,17 @@ const std::vector<ScopeOption>& ScopeMovieOptions();
 
 // Option values by name; missing ones take their default. Besides the named
 // options, "p.<name>" passes a core world parameter through (the prototype's
-// names, e.g. p.mtWobbleTurn); unknown p.* names are ignored.
+// names, e.g. p.mtWobbleTurn); unknown p.* names are ignored. "zern.<j>"
+// (j = 0..27) sets Zernike coefficient j in waves, replacing the preset's.
 using ScopeSpec = std::map<std::string, double>;
 
-// False for a name that is neither a named option nor p.*.
+// False for a name that is neither a named option nor p.* / zern.*.
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
 // An option's value from text: a number, or a name (modality: SuperRes,
-// WideField). False if neither.
+// WideField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
+// DoubleHelix; psf-interp: Nearest, Linear, Cubic, Fft; psf-zernike-preset:
+// the PSFParam_PsfZernikePreset names). False if neither.
 bool ScopeOptionValue(const std::string& name, const char* text, double& value);
 // "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
@@ -59,6 +64,16 @@ struct ScopeMovieInfo
    double querySec = 0, totalSec = 0;
    std::string description;   // one line of the settings, for file metadata
 };
+
+struct PsfGeneratorRequest;
+struct PsfKernelCache;
+// The spec's PSF as the camera's BuildPsfGeneratorRequest would build it from
+// the same PSFParam_ values. False for psf-model 0 (Gaussian; err empty) or a
+// bad value (err set).
+bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::string& err);
+// Its kernel (memoized, ComputePsfKernelCache); cache.valid = false and true
+// returned for the Gaussian.
+bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& err);
 
 // Frame size and count of a spec (no rendering).
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);

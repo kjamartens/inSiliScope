@@ -27,8 +27,8 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 
 - **World**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a 3D nucleus, a cytoplasm height
   field, 3D microtubules anchored at the nucleus, a 13_3 protofilament dye lattice with antibody/nanobody linkers.
-- **SuperRes**: blinking dyes (bleaching and persistent/DNA-PAINT-like populations), vectorial PSFs with Zernike
-  aberrations (Richards-Wolf, Gibson-Lanni, double helix), sub-pixel placement, sCMOS/EMCCD noise, background, drift.
+- **SuperRes**: blinking dyes (bleaching and persistent/DNA-PAINT-like populations), diffraction PSFs (scalar
+  Gibson-Lanni with Zernike aberrations by default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), sub-pixel placement, sCMOS/EMCCD noise, background, drift.
 - **WideField**: all labelled dyes at once, 3D PSF convolution by FFT, photobleaching in physical units (extinction, QY,
   photon budget), world-anchored bleach memory, hardware z stacks, GPU path (WebGPU / Direct3D 11).
 

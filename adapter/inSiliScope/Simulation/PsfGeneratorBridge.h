@@ -3,7 +3,8 @@
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Vectorial PSF kernels computed by EPFL's PSFGenerator
+// DESCRIPTION:   Diffraction PSF kernels: GibsonLanniZernike in C++
+//                (ZernikePsf.h), RichardsWolf/GibsonLanni by EPFL's PSFGenerator
 //                library (https://github.com/Biomedical-Imaging-Group/
 //                PSFGenerator, GPL-3.0), embedded directly into this DLL:
 //                PSFGenerator's compiled classes plus this project's own
@@ -81,7 +82,7 @@ enum class PsfMaskType
    DoubleHelix = 1,
 };
 
-// Everything needed to (re)compute one oversampled vectorial PSF kernel via
+// Everything needed to (re)compute one oversampled diffraction PSF kernel via
 // the embedded PSFGenerator JVM bridge.
 struct PsfGeneratorRequest
 {
@@ -192,8 +193,10 @@ struct PsfKernelCache
    int NearestZIndex(double zUm, bool* outClamped = nullptr) const;
 };
 
-// Computes one oversampled PSF kernel (or Z-stack) by calling
-// psfbridge.PsfBridge.computePlanes(...) in an embedded, lazily-created JVM
+// Computes one oversampled PSF kernel (or Z-stack), memoized (the last two
+// requests; a repeat returns a copy at once). GibsonLanniZernike runs in C++
+// (ZernikePsf.h, every platform, no JVM). RichardsWolf/GibsonLanni (Windows
+// only) call psfbridge.PsfBridge.computePlanes(...) in an embedded, lazily-created JVM
 // (created once per process and reused for the DLL's lifetime -- the JNI
 // Invocation API only supports creating one JVM per process). No files
 // (config or image) and no subprocess are involved anywhere in this call --
@@ -209,12 +212,18 @@ struct PsfKernelCache
 // message before the blocking JNI call, a "still computing" heartbeat
 // roughly every 2s while it runs, and a completion message with the total
 // elapsed time -- entirely for corelog reassurance during a possibly
-// long-running computation (GibsonLanniZernike's full 2D pupil + chirp-Z
-// transform per plane especially; the JNI call itself blocks synchronously
-// with no incremental progress available from the C++ side). No-op
-// (default) if unset.
+// long-running computation (the JNI call blocks synchronously with no
+// incremental progress available from the C++ side; the C++ model logs only
+// start and finish). No-op (default) if unset.
 bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
                             const std::function<void(const std::string&)>& logCallback = {});
+
+// The kernel half-width in camera pixels for PSFParam_PsfKernelHalfWidthNm:
+// the nm value rounded against the pixel size (at least 1), then grown to 3x
+// the Rayleigh radius (0.61 lambda / NA, capped at 48 px) so the first Airy
+// ring is never truncated. Shared by the adapter's BuildPsfGeneratorRequest
+// and the cli/viewer (ScopeMovie) so the two cannot drift.
+int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double wavelengthNm, double na);
 
 // PSF figure of merit: the x/y/z Cramer-Rao lower bound of the cached
 // kernel stack at the given per-frame photon count and background (photons/

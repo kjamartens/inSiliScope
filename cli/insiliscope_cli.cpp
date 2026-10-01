@@ -2,7 +2,8 @@
 // (core) -> frames (the adapter's Simulation/ render code via
 // sim::RenderScopeMovie, the same pipeline as the inSiliScope camera's
 // precomputed CellField stack and the viewer's movie panel) -> 16-bit
-// multi-page TIFF. Gaussian PSF only.
+// multi-page TIFF. PSF: the adapter's default GibsonLanniZernike (C++), or
+// Gaussian with --psf-model Gaussian.
 //
 //   insiliscope_cli --out movie.tif [--seed 42] [--x 0 --y 0] [--frames 1000] ...
 //   insiliscope_cli --help

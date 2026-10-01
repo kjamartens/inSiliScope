@@ -3,7 +3,7 @@
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Optional GPU path for the per-frame work -- vectorial PSF
+// DESCRIPTION:   Optional GPU path for the per-frame work -- diffraction PSF
 //                splat + camera noise -- as ONE fused Direct3D 11 compute
 //                shader, the analog of webSMLM's WebGPU simulation kernel
 //                (build 2026-09-21c). One GPU thread per output pixel gathers

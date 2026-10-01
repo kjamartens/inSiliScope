@@ -30,7 +30,7 @@ A background map multiplies an illumination field and fades with time:
   FOV mean (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`);
 - **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`Background_DecaySec`);
 - **out-of-focus emitters**: a population at \(|z|\) between 300 nm and a depth (`OutOfFocusRatio`, `OutOfFocusDepthNm`), needs
-  a vectorial PSF;
+  a diffraction PSF;
 - **illumination**: a peak-normalised profile (`FluoParam_IllumProfile`, `IllumFwhmPct`) multiplies background and emitters.
 
 ## Drift

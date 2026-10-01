@@ -199,15 +199,15 @@ private:
    double pitch_, lambdaNm_, na_, n_, step_;
 };
 
-// The vectorial kernel planes (PsfKernelCache), resampled to the grid pitch:
+// The diffraction kernel planes (PsfKernelCache), resampled to the grid pitch:
 // each grid cell is the sum of its (os/upscale)^2 oversampled cells, placed
 // exactly as SplatPsfKernel centres them (Nearest). Planes are the cache's
 // own z planes; not renormalised (as the SR splat).
-class VectorialWidefieldPsf : public WidefieldPsf
+class KernelWidefieldPsf : public WidefieldPsf
 {
 public:
    // upscale must divide cache.oversampling (see ValidUpscale).
-   VectorialWidefieldPsf(const PsfKernelCache& cache, int upscale);
+   KernelWidefieldPsf(const PsfKernelCache& cache, int upscale);
    // The largest divisor of oversampling that is <= requested (>= 1).
    static int ValidUpscale(int oversampling, int requested);
    double PlaneCoord(double defocusUm) const override;

@@ -12,6 +12,7 @@ What is checked, against what, and where.
 | Emitter density semantics | rate of blinks switching ON, live and precomputed | ctest `emitter_density` |
 | Splat and FFT placement | against verbatim copies of the previous implementation; parallel = serial | ctest `sr_render` |
 | Widefield engine | job format through a CPU reference host; GPU vs CPU (<= 3e-4 rms from fp16 spectra) | ctest `widefield`, `tests/web/wf_gpu_check.mjs`, `wf_gpu_d3d11` |
+| C++ chirp-Z PSF (`ZernikePsf.cpp`) vs webSMLM's JS / the Java class | 0 / ~1e-12 relative L2 | ctest `zernike_psf`, `tools/psf_parity_check/` |
 | Chirp-Z PSF vs webSMLM's own chirp-Z | n <= 6 Zernikes, double-helix mask, depth shift: 0.0000% relative L2 | `tools/psf_parity_check/` |
 | Chirp-Z vs the old direct quadrature | 0.22-0.29% relative L2 | history in `docs/dev/` |
 | PSF and noise models vs SMLM Challenge methodology | research comparison; the Challenge ground truth is a measured PSF table, so it gives no Zernike targets | `docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md` |
@@ -20,6 +21,6 @@ What is checked, against what, and where.
 ## Known deviations
 
 - The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 um elsewhere).
-- Widefield: Gaussian PSF ignores defocus; no drift; CellField only.
+- Widefield: the Gaussian PSF (`psf-model=0`, not the default) ignores defocus; no drift; CellField only.
 - Not yet verified by eye in every Micro-Manager configuration (headless pymmcore tests cover every property and the render path).
 - Debug-only dye geometry in the JS prototype uses a sequential stream; the C++ hashing is normative and only the *statistics* match.

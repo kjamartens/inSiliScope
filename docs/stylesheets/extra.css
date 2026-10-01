@@ -1,0 +1,29 @@
+/* The embedded viewer (try-viewer.md): full bleed across the page, below the header. */
+.isc-viewer {
+  position: relative;
+  width: calc(100vw - 2rem);
+  margin-left: calc(50% - 50vw + 1rem);
+  height: calc(100vh - 7rem);
+  min-height: 480px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #05070a;
+}
+.isc-viewer iframe {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.isc-viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b97a8;
+  font-size: 0.8rem;
+}

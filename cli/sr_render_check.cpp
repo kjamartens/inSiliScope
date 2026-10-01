@@ -1,7 +1,7 @@
 // SR render regression check (ctest sr_render): the splat, the Fft placement
 // and the parallel frame paths against REFERENCE copies of the serial code
 // they replaced (verbatim below, from before the 2026-09-28 speed-up), on a
-// synthetic vectorial kernel. Every rendered pixel must be bit-identical.
+// synthetic diffraction kernel. Every rendered pixel must be bit-identical.
 #include "PsfGeneratorBridge.h"
 #include "SMLMNoise.h"
 #include "SMLMSimulation.h"

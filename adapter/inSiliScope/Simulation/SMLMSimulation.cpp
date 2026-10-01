@@ -133,7 +133,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    };
 
    // Every emitter's position, photons and plane, in event order.
-   bool useVectorial = psfCache && psfCache->valid;
+   bool useKernel = psfCache && psfCache->valid;
    std::vector<FrameEmitter> ems;
    ems.reserve(events.size());
    for (const BlinkEvent& e : events)
@@ -158,7 +158,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       if (illum)
          photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
       int zIndex = 0;
-      if (useVectorial)
+      if (useKernel)
       {
          // The Z stage position is the focal plane's height and the emitter
          // sits at its own depth: what the PSF sees is the difference, the
@@ -182,7 +182,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       SplatPlan plan;
       for (const FrameEmitter& em : ems)
       {
-         if (!useVectorial)
+         if (!useKernel)
             RenderGaussianRows(img, width, height, 0, static_cast<int>(height), em.xPx, em.yPx, psfSigmaPx,
                                em.photons);
          else if (PlanSplat(*psfCache, em.zIndex, em.xPx, em.yPx, em.photons, psfCache->interpMode, plan))
@@ -197,7 +197,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    // line transforms spread over the cores, before the bands.
    std::vector<SplatPlan> plans;
    std::vector<char> planned;
-   if (useVectorial)
+   if (useKernel)
    {
       plans.resize(ems.size());
       planned.assign(ems.size(), 0);
@@ -213,7 +213,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       background(y0, y1);
       for (size_t k = 0; k < ems.size(); ++k)
       {
-         if (!useVectorial)
+         if (!useKernel)
             RenderGaussianRows(img, width, height, static_cast<int>(y0), static_cast<int>(y1), ems[k].xPx,
                                ems[k].yPx, psfSigmaPx, ems[k].photons);
          else if (planned[k])

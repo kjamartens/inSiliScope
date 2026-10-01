@@ -25,8 +25,8 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   [World model](physics/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
-- **Two modalities.** *SuperRes*: blinking dyes with a vectorial PSF (Richards-Wolf, Gibson-Lanni, Zernike aberrations,
-  double helix). *WideField*: every labelled dye at once, 3D PSF convolution, photobleaching in physical units.
+- **Two modalities.** *SuperRes*: blinking dyes with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default, double
+  helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *WideField*: every labelled dye at once, 3D PSF convolution, photobleaching in physical units.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
 - **Built to extend.** Targets, photophysics and modalities are separate layers; see [Extending](extending.md).
 

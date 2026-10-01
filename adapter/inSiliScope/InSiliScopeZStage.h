@@ -4,7 +4,7 @@
 // SUBSYSTEM:     DeviceAdapters
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   A single-axis Z-stage device providing a global focus offset
-//                for the inSiliScope camera's vectorial PSF renderer. Add
+//                for the inSiliScope camera's diffraction PSF renderer. Add
 //                both "inSiliScope" and "InSiliScopeZStage" via the Hardware
 //                Configuration Wizard; no explicit linking between the two
 //                devices is needed -- they communicate through the

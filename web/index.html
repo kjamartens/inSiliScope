@@ -21,6 +21,7 @@
   .pair{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
   .pair span.k{flex:1}
   .pair input{width:56px}
+  .pair select{max-width:170px}
   #canvasHost{position:relative}
   canvas{display:block;cursor:grab}
   canvas.dragging{cursor:grabbing}
@@ -30,6 +31,7 @@
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
   #hud,#legend,#movie{z-index:3}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
   #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie a{color:#8bb8e8}
@@ -42,7 +44,7 @@
 <body>
 <div id="wrap">
   <div id="side">
-    <a id="docsLink" class="back" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
+    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
     <h1>Cell field viewer</h1>
     <p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in
     Web Workers). Every cell, microtubule and dye is a pure function of
@@ -142,10 +144,12 @@
       <div class="pair"><span class="k">Background (photons/px/s) / start time (s)</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
       <div class="pair"><span class="k">Seed (noise)</span><input type="number" id="mv_seed" value="42" step="1"></div>
       <div class="pair"><span class="k">Imaging modality</span><select id="mv_modality" title="General_ImagingModality: SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics)"><option value="0">SuperRes</option><option value="1">WideField</option></select></div>
+      <div class="pair"><span class="k">PSF</span><select id="mv_psf-model" title="PSFParam_PsfModel: GibsonLanniZernike is the adapter's default (scalar Gibson-Lanni + Zernike, as webSMLM; kernel half width 3 µm here); Gaussian is fast but has no defocus"><option value="3">Gibson-Lanni + Zernike</option><option value="0">Gaussian</option></select></div>
+      <div class="pair"><span class="k">Aberrations</span><select id="mv_psf-zernike-preset" title="PSFParam_PsfZernikePreset"><option value="0">None</option><option value="1">AstigmatismWeak</option><option value="2">AstigmatismModerate</option><option value="3">AstigmatismStrong</option><option value="4">ComaWeak</option><option value="5">ComaStrong</option><option value="6">SphericalWeak</option><option value="7">SphericalStrong</option><option value="8">TrefoilModerate</option><option value="9" selected>MixedRealisticObjective</option><option value="10">SaddlePoint</option><option value="11">ExtendedRange</option><option value="12">ExtendedRangeStrong</option></select></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF upscaling / z plane (nm)</span><input type="number" id="mv_wf-upscale" value="1" min="1" max="4" step="1"><input type="number" id="mv_wf-plane-nm" value="25" min="5" max="500" step="5"></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF excitation (photons/µm²/s) / QY</span><input type="number" id="mv_wf-excitation-photons-per-um2-per-sec" value="1.6e9" min="0" step="1e8"><input type="number" id="mv_wf-quantum-yield" value="0.7" min="0" max="1" step="0.05"></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF photon budget / ε (M⁻¹cm⁻¹)</span><input type="number" id="mv_wf-photon-budget" value="5000" min="0" step="500" title="Emitted photons per dye before it bleaches (0 = never)"><input type="number" id="mv_wf-extinction-coeff" value="270000" min="1000" max="1000000" step="10000"></div>
-      <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (Gaussian PSF, sCMOS defaults), in a worker.">Make movie here</button></label>
+      <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (the PSF chosen above, sCMOS defaults), in a worker.">Make movie here</button></label>
     </fieldset>
 
 
@@ -162,6 +166,7 @@
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
     <div id="hud"></div>
+    <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
     <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
@@ -183,6 +188,8 @@
 // On the Pages site the viewer lives at <docs>/viewer/: link back relatively (forks, previews); opened from disk,
 // the absolute docs URL stays.
 if (/\/viewer\/(index\.html)?$/.test(location.pathname)) document.getElementById('docsLink').href = '../';
+// Embedded in the docs' Viewer page (an iframe): the docs are already around it.
+if (window.top !== window.self) document.getElementById('docsLink').style.display = 'none';
 
 // ---- drawing helpers (the generator itself is the WASM core) ----------------
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -955,6 +962,12 @@ function cellMap(cells) {
   return map;
 }
 // Main-thread path (?nw, or workers unavailable): the core runs here, synchronously.
+// The first cells are in: drop the loading overlay.
+function hideLoading() {
+  const el = document.getElementById('loading');
+  if (el) el.remove();
+}
+
 function getPackedMapSync(seed, p, ex0, ey0, ex1, ey1) {
   const key = packKey(seed, p);
   if (packCovers(packCache, key, ex0, ey0, ex1, ey1)) return packCache;
@@ -962,6 +975,7 @@ function getPackedMapSync(seed, p, ex0, ey0, ex1, ey1) {
   const win = packWindow(p, ex0, ey0, ex1, ey1);
   const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect: winRect(p, win), seed, p: packParams(p) });
   packCache = { key, ex0: win[0], ey0: win[1], ex1: win[2], ey1: win[3], map: cellMap(d.cells) };
+  hideLoading();
   return packCache;
 }
 // Worker path: returns the best map available right now (possibly stale or
@@ -995,6 +1009,7 @@ function onPackResult(e) {
   if (!packPending || d.id !== packPending.id) return;
   packPending = null;
   packCache = { key: d.key, ex0: d.win[0], ey0: d.win[1], ex1: d.win[2], ey1: d.win[3], map: cellMap(d.cells) };
+  hideLoading();
   requestDraw();
 }
 
@@ -1405,18 +1420,24 @@ function drawDyes(seed, p, pxPerUm) {
 // ---- blink movie ---------------------------------------------------------------
 // "These fluorophore settings, a few frames of blinking here": the dyes under the
 // view centre rendered by the adapter's own render code (isc_scope_movie = the
-// camera's precomputed CellField stack pipeline: Gaussian PSF, sCMOS noise), in
+// camera's precomputed CellField stack pipeline: its PSF, sCMOS noise), in
 // the dye worker, on the viewer's world (same seed and params). Shown in a small
 // player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
   'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed', 'modality',
   'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
-  'wf-extinction-coeff'];
+  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset'];
+// The PSF kernel's half width: 3 um here instead of the adapter's 7 um keeps
+// the kernel stack ~75 MB instead of ~400 MB in the worker's WASM memory. The
+// cli reproduces a viewer movie with --psf-kernel-half-width-nm 3000.
+const MOVIE_PSF_HALF_WIDTH_NM = 3000;
+const moviePsfSeen = new Set(); // PSFs the worker has computed (it memoizes the last two)
 let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
 function movieSpec() {
   const p = params(), o = [];
   for (const k of MOVIE_KEYS) o.push(k + '=' + (+document.getElementById('mv_' + k).value));
-  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy);
+  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy,
+         'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
   return o.join(' ');
 }
@@ -1427,7 +1448,10 @@ function makeMovie() {
   // ?wfgpu=any: WideField also on a software WebGPU adapter (tests).
   const job = { type: 'movie', id: ++movieId, spec, rect, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
   moviePending = job;
-  document.getElementById('mv_make').textContent = 'Rendering…';
+  const psfKey = ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+  const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
+  moviePsfSeen.add(psfKey);
+  document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
   if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
@@ -1522,6 +1546,9 @@ function drawMovieFov() {
   ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
+document.getElementById('mv_psf-model').addEventListener('change', e => {
+  document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
+});
 document.getElementById('mv_modality').addEventListener('change', e => {
   for (const r of document.querySelectorAll('.wfRow')) r.style.display = e.target.value === '1' ? '' : 'none';
 });

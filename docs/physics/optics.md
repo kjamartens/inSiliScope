@@ -15,7 +15,13 @@
 | `Gaussian` | \(\sigma = 0.21\lambda/\mathrm{NA}\); no defocus law yet |
 | `RichardsWolf` | Vectorial focus field, in-focus, no index mismatch (PSFGenerator) |
 | `GibsonLanni` | Adds the sample/immersion index mismatch and depth (PSFGenerator) |
-| `GibsonLanniZernike` (default) | Gibson-Lanni plus a pupil wavefront from OSA/ANSI Zernike modes 0-27 (this project, Java, chirp-Z) |
+| `GibsonLanniZernike` (default) | Scalar Gibson-Lanni plus a pupil wavefront from OSA/ANSI Zernike modes 0-27 (this project, C++, chirp-Z; the same model as webSMLM) |
+
+`GibsonLanniZernike` is a **scalar** model: a unit-amplitude pupil (no apodization, no polarization) whose phase is the
+Gibson-Lanni optical path difference (sample depth and immersion defocus), the Zernike sum and an optional mask. It is the
+same model as webSMLM's, computed in C++ (`Simulation/ZernikePsf.cpp`), identical to webSMLM's JavaScript to the last
+float32 bit on the reference cases (ctest `zernike_psf`) and to the original Java class (`GibsonLanniZernikePSF.java`, kept
+as a reference) to ~1e-12 relative L2. It needs no Java; only `RichardsWolf` and `GibsonLanni` run in PSFGenerator's JVM.
 
 The Zernike model evaluates the pupil-to-image integral on a Cartesian pupil grid with a separable 2D **chirp-Z (Bluestein)
 transform**. Other pieces: the double-helix mask (`PsfMaskType = DoubleHelix`, Gauss-Laguerre modes), the Gibson-Lanni focal
@@ -34,8 +40,12 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 
 ## PSF in the CLI and the viewer
 
-The command line and the viewer use the Gaussian PSF (the vectorial models need PSFGenerator's JVM, which only the adapter
-embeds). Pixel-level agreement with the adapter for the Gaussian model is tested.
+The command line and the viewer use the same PSF as the adapter: `GibsonLanniZernike` by default (the same C++ code and
+kernel cache), with options named after the `PSFParam_` properties (`psf-model`, `psf-zernike-preset`, `zern.<j>`,
+`psf-mask`, `psf-oversampling`, `psf-kernel-half-width-nm`, `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
+selects the Gaussian; `RichardsWolf`/`GibsonLanni` need PSFGenerator's JVM and exist only in the adapter. The viewer uses
+a 3 um kernel half width (instead of 7 um) to save browser memory.
 
 ## WideField imaging
 

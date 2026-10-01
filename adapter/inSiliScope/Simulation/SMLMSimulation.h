@@ -179,7 +179,7 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // to width*height as needed).
 //
 // psfCache: when non-null and valid, each emitter is rendered by
-// downsampling+splatting the cached oversampled vectorial PSF kernel
+// downsampling+splatting the cached oversampled diffraction PSF kernel
 // (PsfGeneratorBridge.h) instead of the analytic Gaussian -- psfSigmaPx is
 // then unused. Defaults to nullptr so every existing call site (Gaussian
 // rendering) is unaffected.
@@ -199,7 +199,7 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // blend for that reason -- see docs/dev/vectorial-psf-plan.md).
 //
 // outZClampedCount/outZTotalCount (optional, default nullptr): accumulated
-// (+=, not assigned) counts of vectorial-PSF emitter renders whose total z
+// (+=, not assigned) counts of diffraction-PSF emitter renders whose total z
 // fell outside the cached kernel's own range (clamped to an end plane) vs.
 // the total rendered -- callers use this to warn once per stack/config
 // rather than per emitter.
@@ -220,7 +220,7 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
 // frame scanning every event of the movie.
 std::vector<std::vector<uint32_t>> BucketEventsByFrame(const std::vector<BlinkEvent>& events, long nFrames);
 
-// The GPU path's half of RenderPhotonImage: this frame's vectorial-PSF
+// The GPU path's half of RenderPhotonImage: this frame's diffraction-PSF
 // emitters as GpuSplatEmitter records (same photons -- overlap x brightness
 // x illumination --, same per-emitter z plane, same SplatSetup), appended to
 // out. The background is applied on the GPU itself. Not for Fft placement.

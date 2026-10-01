@@ -112,14 +112,9 @@ sim::PsfGeneratorRequest CInSiliScopeCamera::BuildPsfGeneratorRequest() const
    // physics-derived approach ComputePsfSigmaPx() already uses for the
    // Gaussian renderer. Capped at 48 px regardless of physics to keep the
    // oversampled grid PSFGenerator computes from growing unboundedly.
-   int requestedHalfWidthPx =
-      static_cast<int>(std::lround(psfKernelHalfWidthNm_.load() / req.pixelSizeNm));
-   requestedHalfWidthPx = std::max(requestedHalfWidthPx, 1);
-   double na = req.na > 0.0 ? req.na : 0.01;
-   double rayleighRadiusNm = 0.61 * req.wavelengthNm / na;
-   int minHalfWidthPx = static_cast<int>(std::ceil(3.0 * rayleighRadiusNm / req.pixelSizeNm));
-   minHalfWidthPx = std::min(std::max(minHalfWidthPx, 2), 48);
-   req.kernelHalfWidthPx = std::max(requestedHalfWidthPx, minHalfWidthPx);
+   // (sim::PsfKernelHalfWidthPx, shared with the cli/viewer.)
+   req.kernelHalfWidthPx =
+      sim::PsfKernelHalfWidthPx(psfKernelHalfWidthNm_.load(), req.pixelSizeNm, req.wavelengthNm, req.na);
 
    // Real Z-stack (step 2): nz/zStepNm are derived from the user-facing
    // PsfZRangeUm/PsfZStepUm properties rather than hardcoded. The global
@@ -399,7 +394,7 @@ std::unique_ptr<sim::WidefieldPsf> CInSiliScopeCamera::MakeWidefieldPsf(const si
 {
    if (cache.valid)
    {
-      const int u = sim::VectorialWidefieldPsf::ValidUpscale(cache.oversampling, spec.grid.upscale);
+      const int u = sim::KernelWidefieldPsf::ValidUpscale(cache.oversampling, spec.grid.upscale);
       if (u != spec.grid.upscale)
       {
          std::ostringstream m;
@@ -408,7 +403,7 @@ std::unique_ptr<sim::WidefieldPsf> CInSiliScopeCamera::MakeWidefieldPsf(const si
          LogMessage(m.str(), false);
          spec.grid.upscale = u;
       }
-      return std::unique_ptr<sim::WidefieldPsf>(new sim::VectorialWidefieldPsf(cache, u));
+      return std::unique_ptr<sim::WidefieldPsf>(new sim::KernelWidefieldPsf(cache, u));
    }
    return std::unique_ptr<sim::WidefieldPsf>(new sim::GaussianWidefieldPsf(
       spec.pixelUm / std::max(1, spec.grid.upscale), psfWavelengthNm_.load(), psfNa_.load(), psfImmersionIndex_.load()));
@@ -507,7 +502,7 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
       std::ostringstream m;
       m << "WideField: " << scene.Dyes() << " dyes (" << scene.BleachingDyes() << " bleaching) at stage (" << stageXUm
         << ", " << stageYUm << ") um, " << scene.PsfPlanes() << " PSF planes, " << scene.FftSizeX() << "x"
-        << scene.FftSizeY() << " FFT, " << (psfCache.valid ? "vectorial" : "Gaussian") << " PSF, upscaling "
+        << scene.FftSizeY() << " FFT, " << (psfCache.valid ? "diffraction" : "Gaussian") << " PSF, upscaling "
         << spec.grid.upscale << (useSeq ? ", z sequence of " + std::to_string(zseq.positions.size()) : std::string())
         << " (" << std::fixed << std::setprecision(2)
         << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s setup)";
@@ -678,7 +673,7 @@ bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, con
    }
    if (!cache.valid)
    {
-      SetGpuStatus("CPU (the Gaussian PSF renders on the CPU; the GPU path is for vectorial PSF models)");
+      SetGpuStatus("CPU (the Gaussian PSF renders on the CPU; the GPU path is for diffraction PSF models)");
       return false;
    }
    if (cache.interpMode == sim::PsfInterpMode::Fft)
@@ -900,7 +895,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
       if (!sim::ComputePsfKernelCache(psfRequest, localPsfCache, err, logCallback))
       {
-         LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
+         LogMessage("Diffraction PSF unavailable, falling back to Gaussian: " + err, false);
          localPsfCache = sim::PsfKernelCache();
       }
       else
@@ -932,7 +927,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          auto zOf = OutOfFocusDepthSampler(localPsfCache);
          if (!zOf)
          {
-            LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
+            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
                        "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
          }
          else
@@ -1144,7 +1139,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
    sim::PixelOffsetMap offsetMap;
    sim::PixelGainMap gainMap;
    sim::PixelReadNoiseMap readNoiseMap;
-   // Oversampled vectorial PSF kernel cache -- confined to this thread, same
+   // Oversampled diffraction PSF kernel cache -- confined to this thread, same
    // as offsetMap, so no locking is needed. Rebuilt whenever
    // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
    sim::PsfKernelCache psfCache;
@@ -1314,7 +1309,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
             if (!sim::ComputePsfKernelCache(psfRequest, psfCache, err, logCallback))
             {
-               LogMessage("Vectorial PSF unavailable, falling back to Gaussian: " + err, false);
+               LogMessage("Diffraction PSF unavailable, falling back to Gaussian: " + err, false);
                psfCache = sim::PsfKernelCache();
             }
             else
@@ -1373,7 +1368,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             outOfFocusZ = nullptr;
          }
          else if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
-            LogMessage("Background_OutOfFocusRatio > 0 needs a vectorial PsfModel with a z stack "
+            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
                        "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
 
          wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
@@ -2213,7 +2208,7 @@ int CInSiliScopeCamera::OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::Acti
    else if (eAct == MM::AfterSet)
    {
       pProp->Get(psfGeneratorJavaHome_);
-      // Only takes effect before the first vectorial-PSF computation: the
+      // Only takes effect before the first diffraction-PSF computation: the
       // embedded JVM is created once per process (JNI only supports one
       // JVM per process, see sim::EnsureJvmCreated) and reused for the
       // rest of this device adapter's lifetime, so changing this after
@@ -2649,7 +2644,7 @@ int CInSiliScopeCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::Acti
       // regardless, and none of its version-gated cached state (offset map,
       // emitter pattern, PSF kernel) depends on exposure time -- so this
       // deliberately uses InvalidateStackOnly() rather than InvalidateStack(),
-      // to avoid forcing a multi-second PSF-kernel recompute (vectorial
+      // to avoid forcing a multi-second PSF-kernel recompute (diffraction
       // models) on every Live-mode exposure change.
       InvalidateStackOnly();
    }

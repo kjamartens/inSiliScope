@@ -473,8 +473,9 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
 
-   // Vectorial PSF (embedded PSFGenerator JVM bridge). Default model is
-   // GibsonLanniZernike -- see psfModel_'s own initializer in
+   // Diffraction PSF: GibsonLanniZernike (the default) in C++ (Simulation/
+   // ZernikePsf.*), RichardsWolf/GibsonLanni in the embedded PSFGenerator JVM
+   // bridge. See psfModel_'s own initializer in
    // InSiliScopeCamera.h; this string just needs to agree with it.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfModel);
    CreateStringProperty(g_PropPsfModel, g_PsfModelGibsonLanniZernike, false, pAct);
@@ -502,11 +503,12 @@ int CInSiliScopeCamera::Initialize()
    // this DLL -- nothing to point at except, optionally, a specific JRE/JDK
    // install to supply jvm.dll. Left empty (the default), the JVM
    // auto-detects one (JAVA_HOME, then common install locations -- see
-   // sim::FindJavaHome in PsfGeneratorBridge.cpp).
+   // sim::FindJavaHome in PsfGeneratorBridge.cpp). Only RichardsWolf and
+   // GibsonLanni use the JVM.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfGeneratorJavaHome);
    CreateStringProperty(g_PropPsfGeneratorJavaHome, psfGeneratorJavaHome_.c_str(), false, pAct);
 
-   // Z-stack range/step (vectorial PSF plan step 2) -- the actual focus
+   // Z-stack range/step (PSF plan (docs/dev/vectorial-psf-plan.md) step 2) -- the actual focus
    // offset used each frame comes from the InSiliScopeZStage device (step 3),
    // not from a property on this camera.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfZRangeUm);
@@ -648,7 +650,7 @@ int CInSiliScopeCamera::Initialize()
                           new CPropertyAction(this, &CInSiliScopeCamera::OnWideFieldHalfTimeSec));
    }
 
-   // Sub-pixel PSF placement (vectorial PSF models only) -- see
+   // Sub-pixel PSF placement (diffraction PSF models only) -- see
    // Simulation/PsfGeneratorBridge.h's PsfInterpMode. Default is Cubic;
    // Nearest reproduces the original box-average splat exactly.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfInterp);
@@ -660,7 +662,7 @@ int CInSiliScopeCamera::Initialize()
    // per emitter -- much slower, and CPU-only. Kept for comparison.
    AddAllowedValue(g_PropPsfInterp, g_PsfInterpFft);
 
-   // GPU splat + noise (Direct3D 11) for vectorial PSF frames -- see
+   // GPU splat + noise (Direct3D 11) for diffraction PSF frames -- see
    // Simulation/GpuSimD3D11.h. Falls back to the multi-threaded CPU path
    // (same counter-based noise, so the same frames up to float32 rounding)
    // when unavailable; GpuStatus says which is in use and why.

@@ -3,7 +3,7 @@
 # Windows): builds build/adapter-linux/libmmgr_dal_inSiliScope.so.0 so the
 # device, stages and cell field can be exercised headlessly with pymmcore(-plus)
 # (device interface of the mmCoreAndDevices submodule; `pip install pymmcore-plus`).
-# No JVM bridge (vectorial PSF models fall back to Gaussian) and no D3D11 GPU path.
+# No JVM bridge (RichardsWolf/GibsonLanni fall back to Gaussian; the default GibsonLanniZernike is C++) and no D3D11 GPU path.
 #   tools/build_adapter_linux.sh && ADAPTER_DIR=build/adapter-linux python tools/test_cellfield_stage.py
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

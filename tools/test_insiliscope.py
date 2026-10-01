@@ -285,8 +285,8 @@ assert area_low < area_full, (
 print(f"Labeling efficiency OK: bright-site area dropped {area_full}px -> {area_low}px at 10% labeling")
 
 # --- Per-emitter z: 3D structure should visibly defocus vs flat ----------
-# Only meaningful with a vectorial PsfModel (JVM/PSFGenerator jar); skip
-# gracefully if that path isn't available in this environment.
+# Only meaningful with a diffraction PsfModel; GibsonLanni needs the JVM
+# (PSFGenerator jar), so skip gracefully if that path isn't available.
 core.setProperty("SMLMCam", "SimType_Pattern", "Uniform3D")
 core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanni")
 core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "7")
@@ -303,7 +303,7 @@ core.snapImage()
 img_flat = core.getImage().astype(np.float64)
 
 if img_3d.std() == 0 or img_flat.std() == 0:
-    print("Per-emitter z check SKIPPED: vectorial PSF path unavailable in this environment "
+    print("Per-emitter z check SKIPPED: diffraction PSF path unavailable in this environment "
           "(frame is blank -- likely no usable JVM/JRE)")
 else:
     # Defocused (spread-out) emitters have a lower peak/std than in-focus
@@ -419,7 +419,10 @@ INTERP_VALUES = {"Nearest", "Linear", "Cubic", "Fft"}
 interp_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfInterp"))
 assert interp_values == INTERP_VALUES, f"unexpected PsfInterp values: {interp_values}"
 # Low density: Fft does one Fourier shift per emitter and is by far the
-# slowest mode (minutes for 1000 frames at the default density).
+# slowest mode (minutes for 1000 frames at the default density). Circle,
+# because EmitterDensityPerSec does not apply to CellField (whose dyes
+# would take Fft placement far past wait_for_stack's timeout).
+core.setProperty("SMLMCam", "SimType_Pattern", "Circle")
 core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.1")
 for interp in sorted(INTERP_VALUES):
     core.setProperty("SMLMCam", "PSFParam_PsfInterp", interp)
@@ -431,6 +434,7 @@ for interp in sorted(INTERP_VALUES):
 print(f"PsfInterp OK: allowed values confirmed, all {len(INTERP_VALUES)} modes produce non-blank frames")
 core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Cubic")  # restore default
 core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.5")  # restore default
+core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
 
 # --- Zernike presets / 28 coefficients / double-helix mask -----------------
 preset_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfZernikePreset"))
@@ -547,7 +551,7 @@ decay = stack_frames({**flat_bg, "Background_DecaySec": "0.5"}, n=40)
 assert decay[-1].mean() < decay[0].mean(), "background fade must lower the background over time"
 print("Background OK: cell contrast keeps the mean, illumination dims corners, fade decays")
 
-# FilamentsRing renders; out-of-focus emitters add light (vectorial PSF only).
+# FilamentsRing renders; out-of-focus emitters add light (diffraction PSF only).
 fr = stack_frames({**FAST, "SimType_Pattern": "FilamentsRing"}, n=3)
 assert fr.std() > 0
 vec = {"PSFParam_PsfZRangeUm": "4", "PSFParam_PsfZStepUm": "0.2", "SimType_Pattern": "FilamentsRing",

@@ -375,7 +375,7 @@ private:
    sim::SMLMPatternType CurrentPatternType() const { return static_cast<sim::SMLMPatternType>(patternType_); }
    sim::PsfModelKind CurrentPsfModel() const { return static_cast<sim::PsfModelKind>(psfModel_); }
    // Snapshot of everything ComputePsfKernelCache() needs to (re)compute the
-   // oversampled vectorial PSF kernel via the PSFGenerator bridge -- see
+   // oversampled diffraction PSF kernel via the PSFGenerator bridge -- see
    // Simulation/PsfGeneratorBridge.h. Separate from SnapshotParams()/
    // SimulationParams, which covers the blink/photon/noise model only.
    sim::PsfGeneratorRequest BuildPsfGeneratorRequest() const;
@@ -401,7 +401,7 @@ private:
    // that span (drift px, the renderer adds it back) plus a PSF margin; dyes
    // beyond +/- SimType_CellFieldZRangeUm/2 of the focal plane are culled.
    sim::CellFieldSettings BuildCellFieldSettings() const;
-   // Corelog warning when the vectorial kernel's z range cannot cover the
+   // Corelog warning when the diffraction kernel's z range cannot cover the
    // SimType_CellFieldZRangeUm slab (the renderer then clamps those dyes to
    // the kernel's end plane); empty otherwise.
    std::string CellFieldZRangeWarning() const;
@@ -416,7 +416,7 @@ private:
    // kernel cap, exposure) for the current properties; pose fields from q.
    sim::WidefieldSceneSpec BuildWidefieldSceneSpec(const sim::SimulationParams& params,
                                                    const sim::CellFieldQuery& q) const;
-   // The PSF WideField convolves with: the vectorial kernel planes when
+   // The PSF WideField convolves with: the diffraction kernel planes when
    // cache is valid (upscale lowered to a divisor of its oversampling, logged),
    // else the Gaussian. spec.grid.upscale is updated to the one used.
    std::unique_ptr<sim::WidefieldPsf> MakeWidefieldPsf(const sim::PsfKernelCache& cache,
@@ -440,7 +440,7 @@ private:
                              uint32_t noiseSeed);
    // Creates (if gpu is empty) and loads a GPU simulator with this
    // kernel/maps/background, when General_UseGpu is On and the frame can be
-   // rendered on the GPU at all (vectorial kernel, not Fft placement).
+   // rendered on the GPU at all (diffraction kernel, not Fft placement).
    // Returns false -- the caller then renders on the CPU -- otherwise, or on
    // any D3D11 failure (logged once, and reported by General_GpuStatus).
    bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache, unsigned w,
@@ -462,7 +462,7 @@ private:
    // per-tick SnapshotParams() already picks up fresh with no rebuild
    // needed (its cached offset map / emitter pattern / PSF kernel do not
    // depend on exposure time). Using the full InvalidateStack() here would
-   // force a PSF-kernel recompute (seconds, for vectorial models) on every
+   // force a PSF-kernel recompute (seconds, for diffraction models) on every
    // exposure-time change in Live mode for no benefit.
    void InvalidateStackOnly();
    // Shared by OnBinning/OnFovSize: resets ROI to the new full frame and
@@ -679,7 +679,7 @@ private:
    // Blinking out-of-focus emitters: a second population on the same
    // structure at OutOfFocusRatio x the in-focus density, placed 300 nm to
    // OutOfFocusDepthNm above/below focus and rendered through the real
-   // defocused vectorial PSF (needs a vectorial PsfModel). 0 = none.
+   // defocused diffraction PSF (needs a diffraction PsfModel). 0 = none.
    std::atomic<double> outOfFocusRatio_{0.0};
    std::atomic<double> outOfFocusDepthNm_{1500.0};
 
@@ -708,7 +708,7 @@ private:
    // box-average behavior exactly. See Simulation/PsfGeneratorBridge.h's
    // PsfInterpMode. Plain member, same convention as psfModel_/patternType_.
    int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
-   // Render vectorial-PSF frames (splat + noise) on the GPU when one is
+   // Render diffraction-PSF frames (splat + noise) on the GPU when one is
    // available (General_UseGpu); gpuStatus_ is what General_GpuStatus reports
    // -- the adapter in use, or why the CPU is being used.
    bool useGpu_ = true;
@@ -733,8 +733,8 @@ private:
    std::atomic<bool> wideField_{false};
    std::atomic<double> wideFieldNum_[WF_COUNT];
 
-   // Vectorial PSF (embedded PSFGenerator JVM bridge, Simulation/
-   // PsfGeneratorBridge.h) parameters. PsfModel gates which renderer is
+   // Diffraction PSF (Simulation/PsfGeneratorBridge.h: GibsonLanniZernike in
+   // C++, RichardsWolf/GibsonLanni in the embedded PSFGenerator JVM) parameters. PsfModel gates which renderer is
    // used (Gaussian keeps the original analytic path); everything else
    // here feeds BuildPsfGeneratorRequest(). The model selector follows the
    // same plain-member convention as patternType_/customPointsFile_ (read
@@ -764,9 +764,9 @@ private:
    // this DLL -- no jar paths to configure.
    std::string psfGeneratorJavaHome_;
 
-   // Z-stack range/step (vectorial PSF plan step 2), feeding req.nz/
+   // Z-stack range/step (PSF plan (docs/dev/vectorial-psf-plan.md) step 2), feeding req.nz/
    // req.zStepNm in BuildPsfGeneratorRequest(). Only matters with a
-   // vectorial PsfModel. Random per-emitter Z spread (step 2) was reverted
+   // diffraction PsfModel. Random per-emitter Z spread (step 2) was reverted
    // in step 3 in favor of a real Z-stage device (InSiliScopeZStage.h/.cpp) --
    // see Simulation/SharedStageState.h and RenderPhotonImage's
    // globalZOffsetUm parameter, read fresh each frame in

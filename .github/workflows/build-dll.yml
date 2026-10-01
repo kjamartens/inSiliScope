@@ -1,6 +1,6 @@
 name: Build adapter DLL
 
-# Builds mmgr_dal_inSiliScope.dll (Windows x64) with the vectorial-PSF jar embedded.
+# Builds mmgr_dal_inSiliScope.dll (Windows x64) with the PSFGenerator jar embedded (RichardsWolf/GibsonLanni).
 # Called by release.yml; can also be run by hand (Actions -> Build adapter DLL). The DLL is only
 # ever uploaded as an artifact / release asset, never committed.
 on:
@@ -36,7 +36,7 @@ jobs:
           java-version: '17'
       # SMLMPsfEmbedded.jar = PSFGenerator.jar (GPL-3.0, EPFL BIG; never committed) + this project's
       # bridge classes, built as CLAUDE.md describes. If PSFGenerator cannot be downloaded, an empty
-      # placeholder is embedded: the DLL then works, but vectorial PSF models fall back to Gaussian.
+      # placeholder is embedded: the DLL then works (the default GibsonLanniZernike PSF is C++), but RichardsWolf/GibsonLanni fall back to Gaussian.
       - name: Embedded PSF jar
         shell: pwsh
         run: |
@@ -58,10 +58,10 @@ jobs:
             Push-Location adapter/inSiliScope/Simulation/psfbridge-java/out
             jar uf ../../../../../third_party/SMLMPsfEmbedded.jar psfbridge/PsfBridge.class psfbridge/GibsonLanniZernikePSF.class 'psfbridge/GibsonLanniZernikePSF$PlaneJob.class'
             Pop-Location
-            "vectorial PSF: embedded (PSFGenerator + bridge)" | Out-File -Encoding utf8 psf_status.txt
+            "PSFGenerator: embedded (RichardsWolf/GibsonLanni available; GibsonLanniZernike is C++)" | Out-File -Encoding utf8 psf_status.txt
           } else {
             New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar | Out-Null
-            "vectorial PSF: NOT embedded (PSFGenerator.jar unavailable in CI); vectorial models fall back to Gaussian" | Out-File -Encoding utf8 psf_status.txt
+            "PSFGenerator: NOT embedded (PSFGenerator.jar unavailable in CI); RichardsWolf/GibsonLanni fall back to Gaussian, GibsonLanniZernike (C++) unaffected" | Out-File -Encoding utf8 psf_status.txt
           }
           Get-Content psf_status.txt
       - name: MSBuild Release|x64
@@ -86,7 +86,7 @@ jobs:
             "sha256: $hash",
             "Licence: with PSFGenerator (GPL-3.0, EPFL BIG, https://github.com/Biomedical-Imaging-Group/PSFGenerator) embedded",
             "this DLL is GPL-3.0 as a whole (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE).",
-            "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);",
+            "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime only for the RichardsWolf/GibsonLanni PSF models);",
             "devices: Camera, XYStage, ZStage in module inSiliScope."
           ) | Out-File -Encoding utf8 out/BUILD_INFO.txt
           Get-Content out/BUILD_INFO.txt

@@ -11,6 +11,8 @@
 #include "Parallel.h"
 
 #include "CellFieldSource.h"
+#include "PsfGeneratorBridge.h"
+#include "SMLMZernike.h"
 #include "SMLMNoise.h"
 #include "SMLMSimulation.h"
 #include "WidefieldRender.h"
@@ -24,6 +26,9 @@
 #include <cstring>
 #include <limits>
 #include <random>
+#if !defined(__EMSCRIPTEN__)
+#include <thread>
+#endif
 
 namespace sim {
 
@@ -46,8 +51,8 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "bleach-prob", 1.0, "FluoParam_BlinkBleachProb" },
       { "photon-cv", 0.0, "FluoParam_PhotonCV" },
       { "background-per-sec", 0, "Background_BackgroundPhotonsPerSec (photons/pixel/s)" },
-      { "wavelength-nm", 660, "emission wavelength (Gaussian sigma = 0.21 lambda / NA)" },
-      { "na", 1.4, "numerical aperture" },
+      { "wavelength-nm", 660, "PSFParam_PsfEmissionWavelengthNm (Gaussian sigma = 0.21 lambda / NA)" },
+      { "na", 1.4, "PSFParam_PsfNa: numerical aperture" },
       { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
       { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
       { "milli-activation-rate", 1.43, "SimType_CellFieldMilliActivationRatePerDyePerSec (per dark dye, 1e-3/s)" },
@@ -75,14 +80,47 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wf-quantum-yield", 0.7, "FluoParam_WideFieldQuantumYield" },
       { "wf-photon-budget", 5000, "FluoParam_WideFieldPhotonBudget: emitted photons per dye (0 = never bleaches)" },
       { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
-      { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (WideField collection efficiency)" },
+      { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (PSF and WideField collection efficiency)" },
+      { "psf-model", 3, "PSFParam_PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter's JVM)" },
+      { "psf-zernike-preset", 9, "PSFParam_PsfZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)" },
+      { "psf-mask", 0, "PSFParam_PsfMaskType: 0 = None, 1 = DoubleHelix (names accepted)" },
+      { "psf-mask-modes", 5, "PSFParam_PsfMaskModes: double-helix Gauss-Laguerre modes (2-8)" },
+      { "psf-mask-waist", 1.0, "PSFParam_PsfMaskWaist: double-helix waist, pupil radii" },
+      { "psf-oversampling", 6, "PSFParam_PsfOversampling: kernel samples per camera pixel, per axis (1-16)" },
+      { "psf-kernel-half-width-nm", 7000, "PSFParam_PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)" },
+      { "psf-z-range-um", 7.0, "PSFParam_PsfZRangeUm: span of the PSF z stack" },
+      { "psf-z-step-um", 0.1, "PSFParam_PsfZStepUm: PSF z plane spacing" },
+      { "psf-sample-index", 1.518, "PSFParam_PsfSampleIndex: sample refractive index (Gibson-Lanni)" },
+      { "psf-working-distance-um", 150, "PSFParam_PsfWorkingDistanceUm (Gibson-Lanni ti0)" },
+      { "psf-sample-depth-nm", 0, "PSFParam_PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)" },
+      { "psf-interp", 2, "PSFParam_PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
    };
    return opts;
 }
 
+namespace {
+
+// "zern.<j>", j = 0..27: Zernike coefficient j in waves, replacing the
+// preset's. Returns j, or -1.
+int ZernikeKeyIndex(const std::string& name)
+{
+   if (name.compare(0, 5, "zern.") != 0 || name.size() < 6 || name.size() > 7)
+      return -1;
+   int j = 0;
+   for (size_t i = 5; i < name.size(); ++i)
+   {
+      if (name[i] < '0' || name[i] > '9')
+         return -1;
+      j = j * 10 + (name[i] - '0');
+   }
+   return j < static_cast<int>(kNumZernike) ? j : -1;
+}
+
+} // namespace
+
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)
 {
-   if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
+   if ((name.compare(0, 2, "p.") == 0 && name.size() > 2) || ZernikeKeyIndex(name) >= 0)
    {
       spec[name] = value;
       return true;
@@ -117,6 +155,29 @@ bool ScopeOptionValue(const std::string& name, const char* text, double& value)
    {
       if (!std::strcmp(text, "SuperRes")) { value = 0; return true; }
       if (!std::strcmp(text, "WideField")) { value = 1; return true; }
+   }
+   if (name == "psf-model")
+   {
+      const char* names[] = { "Gaussian", "RichardsWolf", "GibsonLanni", "GibsonLanniZernike" };
+      for (int i = 0; i < 4; ++i)
+         if (!std::strcmp(text, names[i])) { value = i; return true; }
+   }
+   if (name == "psf-mask")
+   {
+      if (!std::strcmp(text, "None")) { value = 0; return true; }
+      if (!std::strcmp(text, "DoubleHelix")) { value = 1; return true; }
+   }
+   if (name == "psf-interp")
+   {
+      const char* names[] = { "Nearest", "Linear", "Cubic", "Fft" };
+      for (int i = 0; i < 4; ++i)
+         if (!std::strcmp(text, names[i])) { value = i; return true; }
+   }
+   if (name == "psf-zernike-preset")
+   {
+      const std::vector<std::string>& names = ZernikePresetNames();
+      for (size_t i = 0; i < names.size(); ++i)
+         if (names[i] == text) { value = static_cast<double>(i); return true; }
    }
    return false;
 }
@@ -263,15 +324,78 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    return S;
 }
 
+bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::string& err)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const int model = static_cast<int>(O("psf-model"));
+   if (model == 0)
+      return false;
+   if (model != 3)
+   {
+      err = "psf-model " + std::to_string(model) +
+            ": only 0 (Gaussian) and 3 (GibsonLanniZernike) run here; RichardsWolf/GibsonLanni need the adapter's JVM";
+      return false;
+   }
+   // As the camera's BuildPsfGeneratorRequest.
+   req = PsfGeneratorRequest();
+   req.model = PsfModelKind::GibsonLanniZernike;
+   req.wavelengthNm = O("wavelength-nm");
+   req.na = O("na");
+   req.immersionIndex = O("immersion-index");
+   req.pixelSizeNm = O("pixel-nm");
+   req.oversampling = static_cast<int>(std::min(16.0, std::max(1.0, O("psf-oversampling"))));
+   req.kernelHalfWidthPx =
+      PsfKernelHalfWidthPx(std::min(20000.0, std::max(100.0, O("psf-kernel-half-width-nm"))), req.pixelSizeNm,
+                           req.wavelengthNm, req.na);
+   const double zStepUm = std::max(O("psf-z-step-um"), 0.001);
+   req.nz = static_cast<int>(std::lround(std::max(0.0, O("psf-z-range-um")) / zStepUm)) + 1;
+   req.zStepNm = zStepUm * 1000.0;
+   req.sampleIndex = O("psf-sample-index");
+   req.workingDistanceUm = O("psf-working-distance-um");
+   req.sampleDepthNm = O("psf-sample-depth-nm");
+   const std::vector<std::string>& presets = ZernikePresetNames();
+   const int preset = static_cast<int>(O("psf-zernike-preset"));
+   if (preset < 0 || preset >= static_cast<int>(presets.size()))
+   {
+      err = "psf-zernike-preset " + std::to_string(preset) + " out of range (0-" +
+            std::to_string(presets.size() - 1) + ")";
+      return false;
+   }
+   ZernikeCoefficients z = ZernikePresetCoefficients(presets[static_cast<size_t>(preset)]);
+   for (const auto& kv : spec)
+   {
+      const int j = ZernikeKeyIndex(kv.first);
+      if (j >= 0)
+         z[static_cast<size_t>(j)] = kv.second;
+   }
+   req.zernikeCoefficients = FormatZernikeCoefficients(z, ',');
+   req.maskType = O("psf-mask") == 1 ? PsfMaskType::DoubleHelix : PsfMaskType::None;
+   req.maskModes = static_cast<int>(std::min(8.0, std::max(2.0, O("psf-mask-modes"))));
+   req.maskWaist = O("psf-mask-waist");
+   req.interpMode = static_cast<PsfInterpMode>(static_cast<int>(std::min(3.0, std::max(0.0, O("psf-interp")))));
+   return true;
+}
+
+bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& err)
+{
+   cache = PsfKernelCache();
+   PsfGeneratorRequest req;
+   err.clear();
+   if (!ScopePsfRequest(spec, req, err))
+      return err.empty(); // Gaussian: no kernel, not an error
+   return ComputePsfKernelCache(req, cache, err);
+}
+
 // WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
-// f), square illumination over the FOV, Gaussian PSF, same noise as SR.
+// f), square illumination over the FOV, the same PSF as SR, same noise.
 struct WidefieldMovie::Impl
 {
    ScopeSpec spec;
    ScopeSetup S;
    CellFieldSource source;
    WidefieldSceneSpec ws;
-   std::unique_ptr<GaussianWidefieldPsf> psf;
+   PsfKernelCache psfCache; // before psf: KernelWidefieldPsf refers to it
+   std::unique_ptr<WidefieldPsf> psf;
    std::unique_ptr<SquareIllumination> ill;
    WidefieldScene scene;
    double framesBefore0 = 0.0;
@@ -317,7 +441,16 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
    ws.exposureSec = S.p.frameDurationSec;
    m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
-   m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
+   if (!ScopePsfKernel(spec, m.psfCache, err))
+      return false;
+   if (m.psfCache.valid)
+   {
+      // As the camera's MakeWidefieldPsf: the upscale must divide the oversampling.
+      ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(m.psfCache.oversampling, ws.grid.upscale);
+      m.psf.reset(new KernelWidefieldPsf(m.psfCache, ws.grid.upscale));
+   }
+   else
+      m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
    m.scene.SetGpuMode(gpuMode);
    m.scene.SetDeferImages(gpuMode);
    if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
@@ -362,11 +495,12 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
                  "insiliscope modality=WideField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g dyes=%ld bleaching_dyes=%ld upscale=%d "
                  "plane_nm=%g excitation=%g qy=%g budget=%g eps=%g eta=%.4f k_em=%.4g t_half_s=%.4g "
-                 "photons_per_dye_per_frame=%.4g",
+                 "photons_per_dye_per_frame=%.4g psf=%s",
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, O("start-sec"), N,
                  O("focus-um"), m.scene.Dyes(), m.scene.BleachingDyes(), ws.grid.upscale, ws.grid.zPlaneNm,
                  ws.phot.excitationPhotonsPerUm2PerSec, ws.phot.quantumYield, ws.phot.photonBudget,
-                 ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * S.expSec);
+                 ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * S.expSec,
+                 m.psfCache.valid ? "GibsonLanniZernike" : "Gaussian");
    info.description = desc;
 
    NoiseSetup noise(S.seed, W, H, p);
@@ -409,7 +543,26 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    std::vector<BlinkEvent> events;
    if (!source.Configure(cf, err))
       return false;
-   if (!source.Events(q, events))
+   // The PSF kernel computes while the cell field is queried (as the
+   // camera's stack generation does); serially under Emscripten.
+   PsfKernelCache psfCache;
+   std::string psfErr;
+   bool psfOk = true;
+#if defined(__EMSCRIPTEN__)
+   psfOk = ScopePsfKernel(spec, psfCache, psfErr);
+   const bool eventsOk = psfOk && source.Events(q, events);
+#else
+   std::thread psfThread([&]() { psfOk = ScopePsfKernel(spec, psfCache, psfErr); });
+   const bool eventsOk = source.Events(q, events);
+   psfThread.join();
+#endif
+   if (!psfOk)
+   {
+      err = psfErr;
+      return false;
+   }
+   const PsfKernelCache* kernel = psfCache.valid ? &psfCache : nullptr;
+   if (!eventsOk)
    {
       err = "cell-field event query failed";
       return false;
@@ -422,9 +575,11 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    char desc[512];
    std::snprintf(desc, sizeof desc,
                  "insiliscope seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g exposure_ms=%g start_sec=%g "
-                 "frames=%ld focus_um=%g activation_rate=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g",
+                 "frames=%ld focus_um=%g activation_rate=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g "
+                 "photon_cv=%g psf=%s",
                  seed, cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, t0Sec, N, O("focus-um"),
-                 cf.activationRatePerSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"));
+                 cf.activationRatePerSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"), cf.photonCV,
+                 kernel ? "GibsonLanniZernike" : "Gaussian");
    info.description = desc;
 
    // Same streams as the camera's StackGenerationWorker: maps off
@@ -454,7 +609,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
             fe.push_back(events[i]);
          std::vector<float> photons;
          RenderPhotonImage(photons, W, H, fe, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                           0.0, 0.0, nullptr, zStage);
+                           0.0, 0.0, kernel, zStage);
          ApplyNoiseChain(photons, adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
                          static_cast<uint32_t>(f));
       });

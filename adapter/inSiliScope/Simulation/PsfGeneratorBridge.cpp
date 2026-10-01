@@ -1,5 +1,6 @@
 #include "PsfGeneratorBridge.h"
 #include "FftRadix2.h"
+#include "ZernikePsf.h"
 #include "Parallel.h"
 #include "PsfResource.h"
 
@@ -253,7 +254,7 @@ bool EnsureJvmCreated(const std::string& javaHomeOverride, std::string& outError
    // gracefully when you try (no catchable exception, no clean JNI_ERR):
    // it can crash the whole host process outright, which is exactly what
    // was observed (Micro-Manager's corelog just stops, no exception
-   // logged, when selecting a vectorial PsfModel). If jvm.dll is already
+   // logged, when selecting a diffraction PsfModel). If jvm.dll is already
    // loaded into this process, reuse whatever JVM instance it already
    // created via JNI_GetCreatedJavaVMs instead of calling
    // JNI_CreateJavaVM ourselves.
@@ -458,75 +459,9 @@ jclass ResolveBridgeClass(JNIEnv* env, std::string& outError)
 
 namespace {
 
-bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
-                                   const std::function<void(const std::string&)>& logCallback);
-
-// Everything the computed planes depend on: the request minus interpMode
-// (copied into the cache, not used by the JVM) and javaHome (only picks the
-// JVM, which is created once per process).
-bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
-{
-   return a.model == b.model && a.wavelengthNm == b.wavelengthNm && a.na == b.na &&
-          a.immersionIndex == b.immersionIndex && a.sampleIndex == b.sampleIndex &&
-          a.workingDistanceUm == b.workingDistanceUm && a.sampleDepthNm == b.sampleDepthNm &&
-          a.pixelSizeNm == b.pixelSizeNm && a.zernikeCoefficients == b.zernikeCoefficients &&
-          a.maskType == b.maskType && a.maskModes == b.maskModes && a.maskWaist == b.maskWaist &&
-          a.oversampling == b.oversampling && a.kernelHalfWidthPx == b.kernelHalfWidthPx && a.nz == b.nz &&
-          a.zStepNm == b.zStepNm;
-}
-
-// The last few kernels computed in this process: a live-mode config change
-// or a new stack that leaves the PSF parameters alone (exposure, gain,
-// seed, ...) gets the kernel it would recompute, without the JVM.
-struct KernelMemo
-{
-   std::mutex mutex;
-   std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const PsfKernelCache>>> entries; // most recent first
-};
-
-KernelMemo& Memo()
-{
-   static KernelMemo* memo = new KernelMemo(); // never destroyed (DLL unload order)
-   return *memo;
-}
-
-constexpr size_t kKernelMemoEntries = 2;
-
-} // namespace
-
-bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
-                            const std::function<void(const std::string&)>& logCallback)
-{
-   outError.clear();
-   {
-      KernelMemo& m = Memo();
-      std::lock_guard<std::mutex> g(m.mutex);
-      for (size_t i = 0; i < m.entries.size(); ++i)
-      {
-         if (!SameKernel(m.entries[i].first, req))
-            continue;
-         outCache = *m.entries[i].second;
-         outCache.interpMode = req.interpMode;
-         std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
-         if (logCallback)
-            logCallback("PSFGenerator: kernel unchanged, reusing the one already computed.");
-         return true;
-      }
-   }
-   if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
-      return false;
-   KernelMemo& m = Memo();
-   std::lock_guard<std::mutex> g(m.mutex);
-   m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
-   if (m.entries.size() > kKernelMemoEntries)
-      m.entries.resize(kKernelMemoEntries);
-   return true;
-}
-
-namespace {
-
-bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
-                                   const std::function<void(const std::string&)>& logCallback)
+// RichardsWolf / GibsonLanni: PSFGenerator in the embedded JVM.
+bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                              const std::function<void(const std::string&)>& logCallback)
 {
    outCache = PsfKernelCache();
    outError.clear();
@@ -598,26 +533,6 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
                    << " px, " << nz << (nz == 1 ? " Z plane" : " Z planes") << ")...";
          logCallback(startMsg.str());
 
-         // GibsonLanniZernike (unlike the radially-symmetric models) builds
-         // a full 2D pupil and chirp-Z transform per Z-plane -- cost grows
-         // with the oversampled window size and nz, so a large window x
-         // many Z planes (PsfOversampling/PsfKernelHalfWidthNm/PsfZRangeUm/
-         // PsfZStepUm) can take a while even with every CPU core helping
-         // (see runPoolParallel in PsfBridge.java). Surface that up front
-         // rather than leaving the user to guess why it's slow from the
-         // heartbeat alone.
-         constexpr long long kSizeNzWarnThreshold = 20LL * 1000 * 1000; // ~ 129x129x24 px-planes
-         long long sizeNzProduct = static_cast<long long>(size) * size * nz;
-         if (req.model == PsfModelKind::GibsonLanniZernike && sizeNzProduct > kSizeNzWarnThreshold)
-         {
-            std::ostringstream warnMsg;
-            warnMsg << "PSFGenerator: GibsonLanniZernike's per-plane 2D pupil transform makes this a large "
-                        "computation ("
-                     << size << "x" << size << " px x " << nz
-                     << " Z planes) and may take minutes even with multiple CPU cores. To speed it up, "
-                        "reduce PsfOversampling, PsfKernelHalfWidthNm, PsfZRangeUm, and/or PsfZStepUm.";
-            logCallback(warnMsg.str());
-         }
       }
 
       // The JNI call below blocks synchronously for the entire computation
@@ -740,17 +655,120 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
 
 } // namespace
 
-#else // !_WIN32
+#endif // _WIN32
 
-bool ComputePsfKernelCache(const PsfGeneratorRequest&, PsfKernelCache& outCache, std::string& outError,
-                            const std::function<void(const std::string&)>&)
+namespace {
+
+// Everything the computed planes depend on: the request minus interpMode
+// (copied into the cache, not used to compute it) and javaHome (only picks
+// the JVM, which is created once per process).
+bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
 {
-   outCache = PsfKernelCache();
-   outError = "Embedded PSFGenerator JVM bridge is only implemented for Windows.";
-   return false;
+   return a.model == b.model && a.wavelengthNm == b.wavelengthNm && a.na == b.na &&
+          a.immersionIndex == b.immersionIndex && a.sampleIndex == b.sampleIndex &&
+          a.workingDistanceUm == b.workingDistanceUm && a.sampleDepthNm == b.sampleDepthNm &&
+          a.pixelSizeNm == b.pixelSizeNm && a.zernikeCoefficients == b.zernikeCoefficients &&
+          a.maskType == b.maskType && a.maskModes == b.maskModes && a.maskWaist == b.maskWaist &&
+          a.oversampling == b.oversampling && a.kernelHalfWidthPx == b.kernelHalfWidthPx && a.nz == b.nz &&
+          a.zStepNm == b.zStepNm;
 }
 
+// The last few kernels computed in this process: a live-mode config change
+// or a new stack that leaves the PSF parameters alone (exposure, gain,
+// seed, ...) gets the kernel it would recompute.
+struct KernelMemo
+{
+   std::mutex mutex;
+   std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const PsfKernelCache>>> entries; // most recent first
+};
+
+KernelMemo& Memo()
+{
+   static KernelMemo* memo = new KernelMemo(); // never destroyed (DLL unload order)
+   return *memo;
+}
+
+constexpr size_t kKernelMemoEntries = 2;
+
+// GibsonLanniZernike: the C++ port (ZernikePsf.cpp; the Java class stays as
+// its reference). RichardsWolf / GibsonLanni: the JVM, Windows only.
+bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                                   const std::function<void(const std::string&)>& logCallback)
+{
+   if (req.model == PsfModelKind::GibsonLanniZernike)
+   {
+      const auto startTime = std::chrono::steady_clock::now();
+      if (logCallback)
+      {
+         std::ostringstream msg;
+         msg << "PSF: computing the GibsonLanniZernike kernel (C++, " << (2 * std::max(1, req.kernelHalfWidthPx) * std::max(1, req.oversampling) + 1)
+             << " px square, " << std::max(3, req.nz) << " Z planes)...";
+         logCallback(msg.str());
+      }
+      if (!BuildZernikePsfKernelCache(req, outCache, outError))
+         return false;
+      if (logCallback)
+      {
+         const double elapsedS = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+         std::ostringstream msg;
+         msg << "PSF: GibsonLanniZernike kernel finished in " << std::fixed << std::setprecision(2) << elapsedS << "s";
+         logCallback(msg.str());
+      }
+      return true;
+   }
+#ifdef _WIN32
+   return ComputePsfKernelCacheJvm(req, outCache, outError, logCallback);
+#else
+   (void)logCallback;
+   outCache = PsfKernelCache();
+   outError = "The RichardsWolf/GibsonLanni models need the embedded PSFGenerator JVM bridge, only implemented for Windows.";
+   return false;
 #endif
+}
+
+} // namespace
+
+bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
+                            const std::function<void(const std::string&)>& logCallback)
+{
+   outError.clear();
+   {
+      KernelMemo& m = Memo();
+      std::lock_guard<std::mutex> g(m.mutex);
+      for (size_t i = 0; i < m.entries.size(); ++i)
+      {
+         if (!SameKernel(m.entries[i].first, req))
+            continue;
+         outCache = *m.entries[i].second;
+         outCache.interpMode = req.interpMode;
+         std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
+         if (logCallback)
+            logCallback("PSF: kernel unchanged, reusing the one already computed.");
+         return true;
+      }
+   }
+   if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
+      return false;
+   KernelMemo& m = Memo();
+   std::lock_guard<std::mutex> g(m.mutex);
+   m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
+   if (m.entries.size() > kKernelMemoEntries)
+      m.entries.resize(kKernelMemoEntries);
+   return true;
+}
+
+
+
+int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double wavelengthNm, double na)
+{
+   int requested = static_cast<int>(std::lround(halfWidthNm / pixelSizeNm));
+   requested = std::max(requested, 1);
+   const double naSafe = na > 0.0 ? na : 0.01;
+   const double rayleighRadiusNm = 0.61 * wavelengthNm / naSafe;
+   int minHalf = static_cast<int>(std::ceil(3.0 * rayleighRadiusNm / pixelSizeNm));
+   minHalf = std::min(std::max(minHalf, 2), 48);
+   return std::max(requested, minHalf);
+}
 
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os)
 {
