@@ -13,12 +13,12 @@
   #wrap{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 33px)}
   #side{overflow-y:auto;padding:8px 10px;background:var(--panel);border-right:1px solid var(--line)}
   #main{overflow:auto;padding:8px}
-  fieldset{border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 8px}
+  fieldset{border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 8px;min-width:0}
   legend{color:var(--mute);font-size:11px;padding:0 4px}
   .row{display:flex;align-items:center;gap:6px;margin:4px 0}
   .row .k{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .row.chg .k{color:var(--chg)}
-  .row .bd{color:var(--mute);font-size:10px;min-width:34px;text-align:right}
+  .row .bd{color:var(--mute);font-size:10px;min-width:28px;text-align:right}
   .row .bd.diff{color:var(--chg)}
   input[type=number],input[type=text],select{width:64px;background:#1a212b;border:1px solid #2c3644;color:var(--fg);border-radius:4px;padding:2px 4px;font:inherit}
   select{width:auto}
@@ -33,7 +33,15 @@
   .pane h3 span{color:var(--mute);font-weight:normal}
   canvas{display:block;width:100%;background:#05070a;border-radius:4px}
   canvas.xy{cursor:crosshair}
-  .imgs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+  .imgs3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+  #imPanes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #imPanes.one{grid-template-columns:1fr}
+  #imCompare{margin:4px 0;color:var(--chg)}
+  fieldset.fold > :not(legend){display:none}
+  fieldset.fold.open > :not(legend){display:flex}
+  fieldset.fold legend{cursor:pointer}
+  fieldset.fold legend::before{content:'▸ '}
+  fieldset.fold.open legend::before{content:'▾ '}
   table{border-collapse:collapse;width:100%;margin-top:8px}
   td,th{padding:2px 6px;border-bottom:1px solid var(--line);text-align:right}
   td:first-child,th:first-child{text-align:left}
@@ -57,23 +65,23 @@
       <div class="row"><span class="k">Apply panel tweaks to baseline</span><input type="checkbox" id="tweakBase" checked></div>
       <div class="row"><button id="resetAll">reset all tweaks</button><button id="copyLink">copy link</button></div>
     </fieldset>
-    <fieldset><legend>imaging preview (approx., not the C++ renderer)</legend>
-      <div class="row"><span class="k">Mode</span><select id="pv.mode"><option value="wf">WideField</option><option value="sr">SR frame</option><option value="recon">SR reconstruction</option><option value="none">off</option></select></div>
-      <div class="row"><span class="k">Focus z (µm)</span><input type="number" id="pv.focusUm" step="0.1"></div>
-      <div class="row"><span class="k">Labelling (% of sites)</span><input type="number" id="pv.labelPct" step="1"></div>
-      <div class="row"><span class="k">FOV (µm)</span><input type="number" id="pv.fovUm" step="0.4"></div>
-      <div class="row"><span class="k">Pixel (µm)</span><input type="number" id="pv.pxUm" step="0.01"></div>
-      <div class="row"><span class="k">NA / λ (nm)</span><input type="number" id="pv.na" step="0.05"><input type="number" id="pv.lambdaNm" step="10"></div>
-      <div class="row"><span class="k">WF photons/dye</span><input type="number" id="pv.wfPhotonsPerDye" step="0.05"></div>
-      <div class="row"><span class="k">SR ON % / photons</span><input type="number" id="pv.srOnPct" step="0.01"><input type="number" id="pv.srPhotons" step="100"></div>
-      <div class="row"><span class="k">Background (ph/px)</span><input type="number" id="pv.bgPhotons" step="1"></div>
-      <div class="row"><span class="k">Recon loc. prec. (nm)</span><input type="number" id="pv.locPrecNm" step="1"></div>
+    <fieldset><legend>imaging (the real pipeline: JS reference = the C++)</legend>
+      <div class="row"><span class="k">Render movie</span><input type="checkbox" id="imOn"><button id="rerun">re-run</button></div>
+      <div class="row"><span class="k" title="more options, k=v (e.g. zern.5=0.2); see the panel tooltips">extra</span><input type="text" id="extra" style="width:150px" placeholder="zern.5=0.2 ..."></div>
+      <div class="row"><input type="text" id="spec" readonly style="width:100%;font-size:10px" title="the spec of the JS movie (= insiliscope_cli options)"></div>
+      <div class="row"><button id="copySpec">copy as cli command</button></div>
       <p class="note">Click the top view to move the FOV. Space flips A/B in flip mode.</p>
     </fieldset>
+    <div id="imParams"></div>
     <div id="params"></div>
   </div>
   <div id="main">
     <div id="panes"></div>
+    <div id="imaging">
+      <div class="row" style="margin:8px 0"><button id="play">▶</button><input type="range" id="frame" min="0" max="0" value="0" style="flex:1"><span id="frameN"></span></div>
+      <div id="imCompare" class="note"></div>
+      <div id="imPanes"></div>
+    </div>
     <div id="metrics"></div>
     <div id="errors" class="err"></div>
   </div>

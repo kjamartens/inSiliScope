@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { makeField } from './field.js';
 import { formatSummary } from './metrics.js';
+import { renderScopeMovie } from '../prototype/scope/scope_movie.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -77,5 +78,20 @@ const rows = formatSummary(sw, sb);
 const w0 = Math.max(...rows.map(r => r.name.length));
 console.log(`${'metric'.padEnd(w0)}  ${'working'.padStart(10)}  ${(sb ? baseRef : '').padStart(12)}  ${sb ? 'delta' : ''}`);
 for (const r of rows) console.log(`${r.name.padEnd(w0)}  ${r.a.padStart(10)}  ${r.b.padStart(12)}  ${r.d}`);
+// Imaging smoke test of the JS reference (web/prototype/scope): SR and WideField movies run, finite, not flat.
+// (Equality with the C++ is tests/parity/scope_parity.mjs, run in the port.)
+for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 frames=2 modality=WideField psf-kernel-half-width-nm=1500']) {
+  const c = workCells[0], t = performance.now();
+  const full = `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} ${spec}`;
+  let lo = Infinity, hi = -Infinity, nan = 0;
+  try {
+    const info = renderScopeMovie(loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js')), full, (f, adu, photons) => {
+      for (let i = 0; i < adu.length; i++) { lo = Math.min(lo, adu[i]); hi = Math.max(hi, adu[i]); if (!Number.isFinite(photons[i])) nan++; }
+    });
+    if (nan) bad(`imaging ${spec}: ${nan} non-finite photon values`);
+    else if (!(hi > lo)) bad(`imaging ${spec}: flat movie`);
+    else console.log(`imaging ${spec}: ADU ${lo}..${hi}, ${info.blinks ?? info.dyes} ${info.blinks != null ? 'blinks' : 'dyes'}, ${(performance.now() - t).toFixed(0)} ms`);
+  } catch (e) { bad(`imaging ${spec}: ${e.message}`); }
+}
 console.log(fail ? `lab check: ${fail} failure(s)` : 'lab check: PASS');
 process.exit(fail ? 1 : 0);

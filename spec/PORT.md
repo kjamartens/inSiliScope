@@ -30,7 +30,8 @@ gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 ## 1. Source material (the JS prototype is the reference implementation)
 
 Prototype changes are tried in the lab first (`web/lab/`, [README](../web/lab/README.md)) and ported here in the
-PR to main, listed in `PORT_PENDING.md` until then.
+PR to main, listed in `PORT_PENDING.md` until then. The imaging path (dyes, kinetics, PSF, render, camera, WideField)
+has a JS twin too, `web/prototype/scope/` (2026-10-01), held equal to the C++ by `tests/parity/scope_parity.mjs`.
 All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
 the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
 README).

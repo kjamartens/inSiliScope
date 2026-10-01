@@ -43,6 +43,17 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: node web/lab/check.mjs
 
+  # JS imaging reference (web/prototype/scope) == the C++ (the committed WASM module): events, SR, WideField.
+  scope-parity:
+    needs: port-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: node tests/parity/scope_parity.mjs
+
   core-native:
     needs: port-gate
     runs-on: windows-latest

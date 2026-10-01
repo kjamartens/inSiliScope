@@ -3,7 +3,8 @@
 # build and test that the iteration phase skipped. Stops at the first failure.
 #   bash tools/port_check.sh            # native via Ninja (Linux/macOS)
 #   ISC_NATIVE=msvc bash tools/port_check.sh   # native via the msvc preset (Windows, Git Bash)
-# WASM runs when emsdk is found (~/emsdk or $EMSDK); freeze golden with Node 24 (CLAUDE.md).
+# WASM runs when emsdk is found (~/emsdk or $EMSDK); freeze golden with Node 24 (CLAUDE.md). The imaging
+# parity compares with web/insiliscope_module.js, so without emsdk it checks the committed (old) module.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 step() { printf '\n== %s\n' "$*"; }
@@ -37,6 +38,9 @@ fi
 
 step "JS parity report (build/parity/report.md)"
 node tests/parity/run.mjs
+
+step "imaging parity: web/prototype/scope (JS reference) vs the C++ (web/insiliscope_module.js)"
+node tests/parity/scope_parity.mjs
 
 if [ -f PORT_PENDING.md ]; then
   printf '\nAll checks passed. Delete PORT_PENDING.md in the port commit (CI port-gate blocks the merge until then).\n'

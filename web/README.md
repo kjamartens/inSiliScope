@@ -29,6 +29,7 @@ Rebuild the module after a core change:
 `spec/golden`), so its generator changes only deliberately (see [spec/PORT.md](../spec/PORT.md)).
 Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
 
+`prototype/scope/` is the JS imaging reference (the C++ imaging path mirrored; `tests/parity/scope_parity.mjs`).
 `lab/` is the iteration page for prototype changes (A/B against main, imaging preview, metrics; `node
 web/lab/serve.mjs`): try ideas there in JS and port to C++ only at merge, see [lab/README.md](lab/README.md).
 

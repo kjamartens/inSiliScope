@@ -44,3 +44,6 @@ Upcoming ideas:
   metrics, `check.mjs` ~8 s), `PORT_PENDING.md` + CI `port-gate` (C++ port only in the PR to main),
   `tools/port_check.sh` (all builds/tests in one go); prototype loader shared with the golden reference
   (`tests/parity/load_prototype.mjs`, plain `Function` instead of a `vm` context: re-freeze 68 s -> 10 s, same output).
+  [x] JS imaging reference `web/prototype/scope/` (world/dyes/kinetics, Gibson-Lanni+Zernike PSF, splat, camera,
+  WideField) = the C++ (`tests/parity/scope_parity.mjs`: events equal, SR and WideField movies 100% identical ADU vs
+  the committed WASM; CI job `scope-parity`), shown in the lab next to main's C++ movie.
