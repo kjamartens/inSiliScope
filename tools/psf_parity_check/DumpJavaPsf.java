@@ -36,8 +36,13 @@ public class DumpJavaPsf
    {
       if (args.length < 1)
       {
-         System.err.println("usage: DumpJavaPsf <outfile>");
+         System.err.println("usage: DumpJavaPsf <outfile> | --stack <outfile> mixed|doubleHelix");
          System.exit(1);
+      }
+      if (args[0].equals("--stack"))
+      {
+         dumpAdapterDefaultStack(args[1], args[2]);
+         return;
       }
 
       // Shared parameter block -- keep in sync with dump_websmlm.mjs.
@@ -70,5 +75,31 @@ public class DumpJavaPsf
          out.write(buf.array());
       }
       System.out.println("Wrote " + cases.length + " planes (" + nx + "x" + ny + ") to " + args[0]);
+   }
+
+   // --stack: the adapter's default kernel request (BuildPsfGeneratorRequest
+   // at its defaults: 100 nm px x oversampling 6, 70 px half width = 841 x
+   // 841, 71 planes 100 nm apart, MixedRealisticObjective; or the double-helix
+   // mask with no Zernike terms), every plane, little-endian float32 after a
+   // "ZPSF" + int32 1, nx, ny, nz header -- for
+   // `zernike_psf_check <fixture> --stack <file> mixed|doubleHelix`, which
+   // compares the C++ port (Simulation/ZernikePsf.cpp) against it.
+   private static void dumpAdapterDefaultStack(String path, String which) throws Exception
+   {
+      boolean dh = which.equals("doubleHelix");
+      String z = dh ? zernike(new double[][] {})
+                    : zernike(new double[][] { { 4, 0.05 }, { 5, 0.08 }, { 7, 0.06 }, { 12, 0.07 } });
+      int n = 841, nz = 71;
+      float[] planes = PsfBridge.computePlanes("GibsonLanniZernike", 1.4, 660.0, 1.518, 1.518, 150.0, 0.0,
+            100.0 / 6, 100.0, n, n, nz, z, dh ? "doubleHelix" : "none", 5, 1.0);
+      ByteBuffer buf = ByteBuffer.allocate(20 + planes.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+      buf.put("ZPSF".getBytes("US-ASCII")).putInt(1).putInt(n).putInt(n).putInt(nz);
+      for (float v : planes)
+         buf.putFloat(v);
+      try (FileOutputStream out = new FileOutputStream(path))
+      {
+         out.write(buf.array());
+      }
+      System.out.println("Wrote " + nz + " planes (" + n + "x" + n + ") to " + path);
    }
 }

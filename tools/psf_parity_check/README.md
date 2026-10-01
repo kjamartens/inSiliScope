@@ -52,3 +52,24 @@ python compare.py java_psf.bin websmlm_psf.bin --nx 65 --ny 65
 
 2026-09-21, all four cases: **0.0000% relative L2** (raw and sum-
 normalized) -- bit-for-bit agreement modulo floating-point noise.
+
+## The C++ port (2026-10-01)
+
+`adapter/inSiliScope/Simulation/ZernikePsf.cpp` computes the same model in
+C++ (used by the adapter for `GibsonLanniZernike`, the cli and the viewer).
+Two checks:
+
+- ctest `zernike_psf` (`cli/zernike_psf_check.cpp`): every plane of the four
+  cases above (nz = 3) against `tests/psf/zernike_ref.bin`, written by
+  `node dump_websmlm.mjs --fixture ../../tests/psf/zernike_ref.bin`.
+  Result: relative L2 **0** (identical float32 values).
+- Manual, against the JVM at the adapter's default request (841 x 841 x 71,
+  MixedRealisticObjective; and the double-helix mask):
+  ```
+  java -Xmx4g -cp ".;../../third_party/SMLMPsfEmbedded.jar" DumpJavaPsf --stack mixed.bin mixed
+  java -Xmx4g -cp ".;../../third_party/SMLMPsfEmbedded.jar" DumpJavaPsf --stack dh.bin doubleHelix
+  zernike_psf_check ../../tests/psf/zernike_ref.bin --stack mixed.bin mixed
+  zernike_psf_check ../../tests/psf/zernike_ref.bin --stack dh.bin doubleHelix
+  ```
+  Result 2026-10-01: worst plane relative L2 9.7e-13 (mixed), 1.1e-12
+  (double helix). `--bench` times the default stack (0.8 s on 12 threads).

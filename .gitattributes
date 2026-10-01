@@ -3,3 +3,6 @@
 
 # Golden vectors are compared line by line; keep them byte-stable.
 spec/golden/** text eol=lf
+
+# Binary test fixtures.
+*.bin binary

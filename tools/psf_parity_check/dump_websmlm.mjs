@@ -13,6 +13,7 @@
 // a webSMLM PSF change (see PARITY.md's staleness warning).
 //
 // Run: node dump_websmlm.mjs <outfile>
+//      node dump_websmlm.mjs --fixture tests/psf/zernike_ref.bin  (every plane, LE)
 //
 // Writes the in-focus plane of each case below, in order, as raw big-endian
 // float32 row-major (x fastest). Keep the case list in sync with
@@ -173,6 +174,11 @@ const CASES = [
   [1.518, 0, zcoef({}), 'doubleHelix'],                       // double-helix mask
   [1.33, 500, zcoef({}), 'none'],                             // index mismatch + depth (focal shift)
 ];
+// --fixture <file>: every plane of every case (nz = NZ), little-endian
+// float32, after a header "ZPSF" + int32 cases, nx, ny, nz -- the reference
+// the C++ port (Simulation/ZernikePsf.cpp) is checked against by ctest
+// zernike_psf (cli/zernike_psf_check.cpp; tests/psf/zernike_ref.bin).
+const fixture = process.argv[2] === '--fixture';
 const out = [];
 for (const [ns, depthNm, zernikeCoeffs, maskType] of CASES) {
   const params = { NA: 1.4, lambda: 660e-9, ns, ni: 1.518, ti0: 150e-6,
@@ -180,12 +186,18 @@ for (const [ns, depthNm, zernikeCoeffs, maskType] of CASES) {
                    maskType, maskModes: 5, maskWaist: 1.0 };
   const k0 = 2 * Math.PI / params.lambda, bMax = Math.min(1, ns / params.NA), kMax = k0 * params.NA * bMax;
   const dk = 2 * kMax / (PSF_FFT_M - 4);
-  const zc = (NZ - 1) / 2;
-  const cart = computePsfPupilCartesianForZPlane(zc, NZ, params, PSF_FFT_M, dk);
-  out.push(computePsfIntensityPlaneFFT(NX, NY, RES_LAT_M, cart, PSF_FFT_M, dk));
+  const zs = fixture ? [...Array(NZ).keys()] : [(NZ - 1) / 2];
+  for (const z of zs) {
+    const cart = computePsfPupilCartesianForZPlane(z, NZ, params, PSF_FFT_M, dk);
+    out.push(computePsfIntensityPlaneFFT(NX, NY, RES_LAT_M, cart, PSF_FFT_M, dk));
+  }
 }
-const buf = Buffer.alloc(out.length * NX * NY * 4);
-let o = 0;
-for (const s of out) for (let i = 0; i < NX * NY; i++) { buf.writeFloatBE(s[i], o); o += 4; }
-writeFileSync(process.argv[2], buf);
-console.log(`Wrote ${out.length} planes (${NX}x${NY}) to ${process.argv[2]}`);
+const head = fixture ? 20 : 0;
+const buf = Buffer.alloc(head + out.length * NX * NY * 4);
+if (fixture) { buf.write('ZPSF', 0, 'latin1'); buf.writeInt32LE(CASES.length, 4); buf.writeInt32LE(NX, 8);
+               buf.writeInt32LE(NY, 12); buf.writeInt32LE(NZ, 16); }
+let o = head;
+for (const s of out) for (let i = 0; i < NX * NY; i++) { fixture ? buf.writeFloatLE(s[i], o) : buf.writeFloatBE(s[i], o); o += 4; }
+const file = fixture ? process.argv[3] : process.argv[2];
+writeFileSync(file, buf);
+console.log(`Wrote ${out.length} planes (${NX}x${NY}) to ${file}`);

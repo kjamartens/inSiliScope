@@ -134,6 +134,7 @@
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
     <ClCompile Include="Simulation\SMLMZernike.cpp" />
+    <ClCompile Include="Simulation\ZernikePsf.cpp" />
     <ClCompile Include="Simulation\GpuSimD3D11.cpp" />
     <ClCompile Include="Simulation\SMLMBackground.cpp" />
   </ItemGroup>
@@ -165,6 +166,8 @@
     <ClInclude Include="Simulation\SMLMNoise.h" />
     <ClInclude Include="Simulation\PsfGeneratorBridge.h" />
     <ClInclude Include="Simulation\SMLMZernike.h" />
+    <ClInclude Include="Simulation\ZernikePsf.h" />
+    <ClInclude Include="Simulation\FftRadix2.h" />
     <ClInclude Include="Simulation\SMLMCounterRng.h" />
     <ClInclude Include="Simulation\GpuSimD3D11.h" />
     <ClInclude Include="Simulation\SMLMBackground.h" />

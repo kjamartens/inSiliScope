@@ -100,6 +100,9 @@
     <ClCompile Include="Simulation\SMLMZernike.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\ZernikePsf.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\GpuSimD3D11.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -187,6 +190,12 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMZernike.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\ZernikePsf.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\FftRadix2.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMCounterRng.h">

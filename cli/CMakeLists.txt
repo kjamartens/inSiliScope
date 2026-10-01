@@ -19,6 +19,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/SMLMSimulation.cpp
   ${ISC_SIM}/SMLMStructures.cpp
   ${ISC_SIM}/SMLMZernike.cpp
+  ${ISC_SIM}/ZernikePsf.cpp
 )
 
 if(EMSCRIPTEN)
@@ -87,6 +88,19 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(widefield_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME widefield COMMAND widefield_check)
+
+  # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
+  add_executable(zernike_psf_check zernike_psf_check.cpp ${ISC_SIM_SRC})
+  target_include_directories(zernike_psf_check PRIVATE ${ISC_SIM})
+  target_link_libraries(zernike_psf_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(zernike_psf_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(zernike_psf_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(zernike_psf_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(zernike_psf_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME zernike_psf COMMAND zernike_psf_check ${PROJECT_SOURCE_DIR}/tests/psf/zernike_ref.bin)
   if(WIN32)
     # The WideField GPU host on Direct3D 11 (Linux: tools/wine_wf_gpu_check.sh).
     add_executable(wf_gpu_d3d11_check ${PROJECT_SOURCE_DIR}/tests/d3d11/wf_gpu_d3d11_check.cpp ${ISC_SIM_SRC}
