@@ -46,7 +46,9 @@ jobs:
       - name: Latest release gallery + benchmarks (optional)
         run: |
           mkdir -p release_assets
-          gh release download --pattern gallery.zip --pattern benchmarks.json --dir release_assets || echo "no release yet"
+          # newest release incl. pre-releases (plain `gh release download` skips those)
+          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          if [ -n "$tag" ]; then gh release download "$tag" --pattern gallery.zip --pattern benchmarks.json --dir release_assets; else echo "no release yet"; fi
       - name: Build the site
         run: bash tools/build_site.sh site
       - uses: actions/upload-pages-artifact@v3
