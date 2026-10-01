@@ -258,7 +258,7 @@ def _wf_half_time_s(core, cam):
 
 def _widefield_checks(core, cam, xy, x0, y0):
     for p, v in (("General_ImagingModality", "SuperRes"), ("General_WideFieldUpscaling", 1.0),
-                 ("General_WideFieldZPlaneNm", 25.0), ("FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", 1.6e9),
+                 ("General_WideFieldZPlaneNm", 25.0), ("FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", 4e8),
                  ("FluoParam_WideFieldQuantumYield", 0.7), ("FluoParam_WideFieldPhotonBudget", 5000.0),
                  ("FluoParam_WideFieldExtinctionCoeff", 270000.0)):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
@@ -266,15 +266,15 @@ def _widefield_checks(core, cam, xy, x0, y0):
         assert (got == v) if isinstance(v, str) else abs(float(got) / v - 1) < 1e-9, f"{p} default {got}, expected {v}"
     assert "WideField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
     t_half = _wf_half_time_s(core, cam)
-    assert abs(t_half - 30.0) < 0.05, f"default WideField t1/2 {t_half:.3f} s, expected 30 s"
+    assert abs(t_half - 120.0) < 0.2, f"default WideField t1/2 {t_half:.3f} s, expected 120 s"
     reported = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
     assert core.isPropertyReadOnly(cam, "FluoParam_WideFieldHalfTimeSec") and abs(reported / t_half - 1) < 1e-4, \
         f"FluoParam_WideFieldHalfTimeSec {reported} vs {t_half}"
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "3.2e9")
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "8e8")
     halved = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
     core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "0")
     never = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "4e8")
     core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "5000")
     assert abs(halved / t_half - 0.5) < 1e-4 and never == -1, f"half time follows: {halved}, budget 0 -> {never}"
     print(f"WideField properties present (defaults give t1/2 = {t_half:.2f} s; FluoParam_WideFieldHalfTimeSec "
@@ -286,6 +286,11 @@ def _widefield_checks(core, cam, xy, x0, y0):
     core.setExposure(50.0)
     core.setXYPosition(xy, x0, y0)
     _wait_idle(core, xy)
+
+    # The bleaching law at 4x the default flux (t1/2 30 s): 30 s of stack
+    # then shows a clear decay, with signal well above the noise.
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    t_half = _wf_half_time_s(core, cam)
 
     def stack_signal(bleach_pct, nonbleach_pct):
         core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", str(bleach_pct))
@@ -338,7 +343,7 @@ def _widefield_checks(core, cam, xy, x0, y0):
     _wait_idle(core, xy)
     live_mean()
     back = np.mean([live_mean() for _ in range(3)])
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "4e8")
     core.setProperty(cam, "General_ImagingModality", "SuperRes")
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
     assert here0 > 5 and here1 < 0.2 * here0, f"live WideField should bleach: {here0:.2f} -> {here1:.2f} ADU"

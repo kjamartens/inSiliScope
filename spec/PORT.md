@@ -228,7 +228,7 @@ A 30 µm cell at the default density holds millions of sites. A FOV of 13x13 µm
 ### 6.1 Per-dye schedule = pure function of the dye's hash
 For a labelled dye: first activation `tAct = -ln(U) / activationRatePerSec` (a parameter, section 9; was `* activationMeanSec` until ABI 3); then repeat:
 ON for `Exp(onLifetimeSec)`, then bleach with probability `blinkBleachProb`, else dark for
-`Exp(offLifetimeSec)` and blink again. Per-blink brightness log-normal with CV `photonCV`, mean 1.
+`Exp(offLifetimeSec)` and blink again. Per-blink brightness log-normal with CV `photonCV` (default 0.5 since 2026-10-01), mean 1.
 Cap blinks per dye (e.g. 1000) so a tiny `blinkBleachProb` cannot loop forever. Reuse the existing
 properties `FluoParam_OnLifetimeSec`, `FluoParam_OffLifetimeSec`, `FluoParam_BlinkBleachProb`,
 `FluoParam_PhotonCV`, `FluoParam_PhotonsPerSecond`. This is the same three-state model as
@@ -504,8 +504,8 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
 * **Photophysics, physical units.** sigma = ln(10) 1000 eps / N_A (3.8235e-13 eps um^2), k_em = QY sigma
   Phi I, eta = (1 - sqrt(1 - (NA/n)^2)) / 2, surviving fraction exp(-D/B) with D the emitted-photon dose.
   Camera photons per frame: bleaching `nb eta B exp(-D0/B)(1 - exp(-dD/B))` (exact frame integral),
-  persistent `np eta dD`. Defaults (eps 270000, QY 0.7, B 5000, Phi 1.6e9 photons/um^2/s) give t1/2 =
-  30.0 s and ~1.8 photons/dye/50 ms frame. B = 0 never bleaches. QE is applied by the noise chain.
+  persistent `np eta dD`. Defaults (eps 270000, QY 0.7, B 5000, Phi 4e8 photons/um^2/s; 1.6e9 until 2026-10-01) give
+  t1/2 = 120 s and ~0.45 photons/dye/50 ms frame. B = 0 never bleaches. QE is applied by the noise chain.
 * **Illumination** (`IlluminationPattern`): anchored to the objective, peak 1; for now `SquareIllumination`
   over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
   `FluoParam_IllumProfile`.

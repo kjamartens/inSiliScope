@@ -22,6 +22,8 @@ C ABI. Keep that and a new feature works in the Micro-Manager adapter, the viewe
 4. Expose the sites through the existing dye/event queries, so both modalities pick it up.
 5. Add `world_checks` cases: order independence, tiling, 8 threads = 1 thread.
 6. Document the model on a page under `docs/physics/` (equations, parameters with units and defaults, sources, limits).
+7. Show it in the overview: add its geometry to `ScopeGeometryJson` (`Simulation/ScopeMovie.cpp`, `insiliscope_cli
+   --geometry-json`) and one draw function to `STRUCTURE_LAYERS` in `tools/build_overview.py`.
 
 ## Recipe: a new photophysics preset
 
@@ -41,7 +43,9 @@ entry in `gallery/manifest.json`, a CI check, and a section in the physics docs.
 ## Recipe: a gallery entry
 
 Add an entry to `gallery/manifest.json` (options are `insiliscope_cli` options without the leading `--`). The release
-workflow renders it.
+workflow renders it. The 2x2 overview at the top of the gallery and on the Home page comes from the manifest's
+`overview` block (`tools/build_overview.py`; `--suggest` proposes a spot); `build_gallery.py --only overview` renders
+just that.
 
 ## Bit-exactness and `world_version`
 

@@ -73,7 +73,7 @@ struct Kinetics {
    double onSec = 0.05;
    double offSec = 1.0;
    double bleachProb = 1.0;
-   double photonCV = 0.0;
+   double photonCV = 0.5;
 };
 constexpr int DYE_MAX_BLINKS = 1000;    // cap, so a tiny bleachProb cannot loop forever
 // Persistent blinks are addressed per time bin (dye, bin, j), so any time

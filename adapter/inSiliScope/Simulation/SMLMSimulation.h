@@ -61,8 +61,9 @@ struct SimulationParams
    // dark for an exponential time of mean offLifetimeFrames and blinks
    // again -- a geometric number of blinks, mean 1/blinkBleachProb.
    // photonCV > 0 makes each blink's photon rate log-normal with that
-   // coefficient of variation, mean preserved. The defaults (1 and 0) select
-   // the original single-blink, constant-brightness model, whose rng draw
+   // coefficient of variation, mean preserved. These struct defaults (1 and 0;
+   // the user-facing FluoParam_PhotonCV / cli photon-cv default is 0.5 and
+   // always overwrites this) select the original single-blink, constant-brightness model, whose rng draw
    // sequence is untouched -- see EmitterModel::GenerateAllEvents.
    double blinkBleachProb = 1.0;
    double offLifetimeFrames = 20.0;

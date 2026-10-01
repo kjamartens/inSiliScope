@@ -205,7 +205,7 @@ for name, expected in [
     ("PSFParam_PsfMaskType", "None"),
     # webSMLM parity round 2: every new feature defaults to "off".
     ("FluoParam_BlinkBleachProb", "1"),
-    ("FluoParam_PhotonCV", "0"),
+    ("FluoParam_PhotonCV", "0.5"),
     ("FluoParam_IllumProfile", "Flat"),
     ("CamParam_CameraType", "sCMOS"),
     ("Background_CellContrast", "1"),
@@ -516,7 +516,9 @@ FAST = {"PSFParam_PsfModel": "Gaussian"}
 
 # Multi-blink: density keeps meaning ON-density, so the mean signal above
 # offset stays about the same when molecules blink ~5x (bleach prob 0.2).
-single = stack_frames({**FAST, "General_EmitterDensityPerSec": "20"}, n=200)
+# PhotonCV 0 explicitly: the single-blink, constant-brightness baseline (the
+# property defaults to 0.5 since 2026-10-01).
+single = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_PhotonCV": "0"}, n=200)
 multi = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_BlinkBleachProb": "0.2",
                       "FluoParam_PhotonCV": "0.5"}, n=200)
 s_sig, m_sig = single.mean() - 100.0, multi.mean() - 100.0

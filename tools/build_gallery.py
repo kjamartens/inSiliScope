@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Render gallery/manifest.json with insiliscope_cli into GIFs + a Markdown page.
 
-usage: build_gallery.py --cli build/native/cli/insiliscope_cli --out site_gallery [--only id,id]
+usage: build_gallery.py --cli build/native/cli/insiliscope_cli --out site_gallery [--only id,id]  ("overview" is an id too)
 Needs: numpy, pillow, tifffile (pip install numpy pillow tifffile).
-Outputs <out>/<id>.gif, <out>/<id>.tif (16-bit), <out>/gallery.json and <out>/gallery.md.
+Outputs <out>/<id>.gif, <out>/<id>.tif (16-bit), <out>/gallery.json and <out>/gallery.md, and, when the manifest
+has an "overview" block, the 2x2 overview panels (tools/build_overview.py) at the top of the page.
 """
 import argparse, json, os, subprocess, sys, time
 import numpy as np
 import tifffile
 from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import build_overview  # noqa: E402
 
 
 def to_gif(stack, path, fps=10, scale=2):
@@ -34,6 +38,11 @@ def main():
     man = json.load(open(a.manifest, encoding="utf-8"))
     only = set(filter(None, a.only.split(",")))
     os.makedirs(a.out, exist_ok=True)
+    overview = None
+    if "overview" in man and (not only or "overview" in only):
+        t0 = time.time()
+        overview = build_overview.build(a.cli, a.out, man["overview"], man.get("defaults", {}).get("seed", 42))
+        print("%-18s %.1fs" % ("overview", time.time() - t0))
     meta = []
     for e in man["entries"]:
         if only and e["id"] not in only:
@@ -62,6 +71,11 @@ def main():
     lines = ["# Gallery", "",
              "Every movie on this page is produced by `insiliscope_cli` from `gallery/manifest.json` on each "
              "release. Frames use a square-root intensity scale. Seeds are fixed, so a re-run reproduces them.", ""]
+    if overview:
+        lines += ["## What inSiliScope is", "",
+                  "One spot of the endless cell field, four ways: where it is, what is there, and how a widefield "
+                  "and an SMLM camera see it.", "", build_overview.grid_html(""), "",
+                  "`%s`  " % overview["wf_cli"], "`%s`" % overview["sr_cli"], ""]
     group = None
     for m in meta:
         if m["group"] != group:

@@ -492,7 +492,7 @@ void Units()
    char msg[200];
    std::snprintf(msg, sizeof msg, "defaults: sigma %.4g um^2, eta %.4f, t1/2 %.3f s, %.3f photons/dye/frame",
                  ph.CrossSectionUm2(), eta, t, perFrame);
-   Check(std::fabs(t - 30.0) < 0.05 && std::fabs(perFrame - 1.8) < 0.05 && std::fabs(eta - 0.307) < 0.001, msg);
+   Check(std::fabs(t - 120.0) < 0.2 && std::fabs(perFrame - 0.45) < 0.0125 && std::fabs(eta - 0.307) < 0.001, msg);
    WidefieldPhotophysics never = ph;
    never.photonBudget = 0;
    Check(std::isinf(never.HalfTimeSec(1.0)) && WidefieldBleachingPhotons(eta, 0, 1e6, 10) == eta * 10,

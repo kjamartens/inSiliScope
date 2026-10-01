@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <random>
@@ -49,7 +50,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "on-sec", 0.05, "FluoParam_OnLifetimeSec" },
       { "off-sec", 1.0, "FluoParam_OffLifetimeSec" },
       { "bleach-prob", 1.0, "FluoParam_BlinkBleachProb" },
-      { "photon-cv", 0.0, "FluoParam_PhotonCV" },
+      { "photon-cv", 0.5, "FluoParam_PhotonCV (per-blink log-normal brightness spread)" },
       { "background-per-sec", 0, "Background_BackgroundPhotonsPerSec (photons/pixel/s)" },
       { "wavelength-nm", 660, "PSFParam_PsfEmissionWavelengthNm (Gaussian sigma = 0.21 lambda / NA)" },
       { "na", 1.4, "PSFParam_PsfNa: numerical aperture" },
@@ -76,7 +77,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wf-upscale", 1, "General_WideFieldUpscaling: WideField grid cells per pixel, per axis (1-4)" },
       { "wf-plane-nm", 25, "General_WideFieldZPlaneNm: WideField dye plane thickness, nm" },
       { "wf-kernel-um", 7, "WideField PSF kernel radius cap, um" },
-      { "wf-excitation-photons-per-um2-per-sec", 1.6e9, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec" },
+      { "wf-excitation-photons-per-um2-per-sec", 4e8, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec" },
       { "wf-quantum-yield", 0.7, "FluoParam_WideFieldQuantumYield" },
       { "wf-photon-budget", 5000, "FluoParam_WideFieldPhotonBudget: emitted photons per dye (0 = never bleaches)" },
       { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
@@ -519,6 +520,154 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   return true;
+}
+
+namespace {
+
+void AppendNum(std::string& s, double v)
+{
+   char b[32];
+   std::snprintf(b, sizeof b, "%.4f", v);
+   s += b;
+}
+
+} // namespace
+
+bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::string& json, std::string& err)
+{
+   const ScopeSetup S = MakeScopeSetup(spec);
+   CellFieldSource source;
+   if (!source.Configure(S.cf, err))
+      return false;
+   IscWorld* w = source.World();
+   const double cx = ScopeSpecGet(spec, "x"), cy = ScopeSpecGet(spec, "y"), h = std::max(0.1, sizeUm) / 2;
+   const double x0 = cx - h, y0 = cy - h, x1 = cx + h, y1 = cy + h;
+   std::vector<double> cells(static_cast<size_t>(ISC_CELL_STRIDE) * 256);
+   int32_t n = isc_cells_in_window(w, x0, y0, x1, y1, cells.data(), 256);
+   if (n > 256)
+   {
+      cells.resize(static_cast<size_t>(ISC_CELL_STRIDE) * n);
+      n = isc_cells_in_window(w, x0, y0, x1, y1, cells.data(), n);
+   }
+   if (n < 0)
+   {
+      err = "cell query failed";
+      return false;
+   }
+   json.clear();
+   json += "{\"x0\":";
+   AppendNum(json, x0);
+   json += ",\"y0\":";
+   AppendNum(json, y0);
+   json += ",\"x1\":";
+   AppendNum(json, x1);
+   json += ",\"y1\":";
+   AppendNum(json, y1);
+   json += ",\"cells\":[";
+   std::vector<double> buf;
+   std::vector<int32_t> lens;
+   for (int32_t i = 0; i < n; ++i)
+   {
+      const double* c = cells.data() + static_cast<size_t>(i) * ISC_CELL_STRIDE;
+      // cx, cy, x, y, packRot, rOuter, height, nucOffX, nucOffY, nucRot, nucLong, nucShort, nucHeight, nucZ
+      const int32_t ccx = static_cast<int32_t>(c[0]), ccy = static_cast<int32_t>(c[1]);
+      const double px = c[2], py = c[3], rot = c[4], cr = std::cos(rot), sr = std::sin(rot);
+      auto toWorld = [&](double lx, double ly, double& wx, double& wy) {
+         wx = px + lx * cr - ly * sr;
+         wy = py + lx * sr + ly * cr;
+      };
+      double wx, wy;
+      if (i)
+         json += ',';
+      json += "{\"x\":";
+      AppendNum(json, px);
+      json += ",\"y\":";
+      AppendNum(json, py);
+      json += ",\"height\":";
+      AppendNum(json, c[6]);
+      // Footprint outline.
+      const int32_t no = isc_cell_outline(w, ccx, ccy, nullptr, 0);
+      buf.assign(static_cast<size_t>(std::max(0, no)) * 2, 0.0);
+      if (no > 0)
+         isc_cell_outline(w, ccx, ccy, buf.data(), no);
+      json += ",\"outline\":[";
+      for (int32_t k = 0; k < no; ++k)
+      {
+         toWorld(buf[2 * k], buf[2 * k + 1], wx, wy);
+         json += k ? ",[" : "[";
+         AppendNum(json, wx);
+         json += ',';
+         AppendNum(json, wy);
+         json += ']';
+      }
+      json += "],\"nucleus\":{\"x\":";
+      toWorld(c[7], c[8], wx, wy);
+      AppendNum(json, wx);
+      json += ",\"y\":";
+      AppendNum(json, wy);
+      json += ",\"rot\":";
+      AppendNum(json, c[9] + rot);
+      json += ",\"long\":";
+      AppendNum(json, c[10]);
+      json += ",\"short\":";
+      AppendNum(json, c[11]);
+      json += ",\"height\":";
+      AppendNum(json, c[12]);
+      json += ",\"z\":";
+      AppendNum(json, c[13]);
+      json += '}';
+      if (detail)
+      {
+         // Cytoplasm height mesh: (rings+1) x n vertices x, y, h.
+         int32_t dims[2] = { 0, 0 };
+         int32_t nv = isc_cell_mesh(w, ccx, ccy, dims, nullptr, 0);
+         buf.assign(static_cast<size_t>(std::max(0, nv)) * 3, 0.0);
+         if (nv > 0)
+            nv = isc_cell_mesh(w, ccx, ccy, dims, buf.data(), nv);
+         json += ",\"mesh\":{\"rings\":" + std::to_string(dims[0]) + ",\"n\":" + std::to_string(dims[1]) + ",\"v\":[";
+         for (int32_t k = 0; k < nv; ++k)
+         {
+            toWorld(buf[3 * k], buf[3 * k + 1], wx, wy);
+            json += k ? ",[" : "[";
+            AppendNum(json, wx);
+            json += ',';
+            AppendNum(json, wy);
+            json += ',';
+            AppendNum(json, buf[3 * k + 2]);
+            json += ']';
+         }
+         json += "]}";
+         // Microtubule centrelines.
+         int32_t totalPts = 0;
+         const int32_t nMt = isc_cell_microtubules(w, ccx, ccy, nullptr, 0, nullptr, 0, &totalPts);
+         buf.assign(static_cast<size_t>(std::max(0, totalPts)) * 3, 0.0);
+         lens.assign(static_cast<size_t>(std::max(0, nMt)), 0);
+         if (nMt > 0)
+            isc_cell_microtubules(w, ccx, ccy, buf.data(), totalPts, lens.data(), nMt, &totalPts);
+         json += ",\"mts\":[";
+         size_t p = 0;
+         for (int32_t m = 0; m < nMt; ++m)
+         {
+            json += m ? ",[" : "[";
+            for (int32_t k = 0; k < lens[static_cast<size_t>(m)]; ++k, ++p)
+            {
+               toWorld(buf[3 * p], buf[3 * p + 1], wx, wy);
+               json += k ? ",[" : "[";
+               AppendNum(json, wx);
+               json += ',';
+               AppendNum(json, wy);
+               json += ',';
+               AppendNum(json, buf[3 * p + 2]);
+               json += ']';
+            }
+            json += ']';
+         }
+         json += ']';
+      }
+      json += '}';
+   }
+   json += "]}";
    return true;
 }
 

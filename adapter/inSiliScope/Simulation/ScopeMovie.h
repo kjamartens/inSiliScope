@@ -75,6 +75,15 @@ bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::strin
 // returned for the Gaussian.
 bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& err);
 
+// The cell geometry of the spec's world (the same world the movie renders)
+// in the square of side sizeUm centred on the spec's x, y, as JSON in world
+// um: {"x0","y0","x1","y1","cells":[{"x","y","height","outline":[[x,y]...],
+// "nucleus":{"x","y","rot","long","short","z","height"}, with detail also
+// "mesh":{"rings","n","v":[[x,y,h]...]}, "mts":[[[x,y,z]...]...]}]}. The
+// cell-local geometry is rotated by packRot and moved to the cell's x, y
+// (the viewer's localToWorld). Image row 0 of a movie is the smallest y.
+bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::string& json, std::string& err);
+
 // Frame size and count of a spec (no rendering).
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);
 

@@ -658,7 +658,7 @@ private:
    // frames at the default 50 ms exposure), and per-blink photon-rate CV.
    std::atomic<double> blinkBleachProb_{1.0};
    std::atomic<double> offLifetimeSec_{1.0};
-   std::atomic<double> photonCV_{0.0};
+   std::atomic<double> photonCV_{0.5};
    // Excitation illumination profile (sim::IllumProfile, SMLMBackground.h),
    // peak-normalized; FWHM as percent of the FOV width.
    int illumProfile_ = static_cast<int>(sim::IllumProfile::Flat);

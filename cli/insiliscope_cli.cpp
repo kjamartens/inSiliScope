@@ -23,7 +23,13 @@ void Usage()
                "options (default):\n");
    for (const sim::ScopeOption& o : sim::ScopeMovieOptions())
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
-   std::printf("  --p.<name> <value>     any core world parameter (the prototype's names)\n");
+   std::printf("  --p.<name> <value>     any core world parameter (the prototype's names)\n"
+               "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"
+               "\n"
+               "geometry instead of a movie (same world, no rendering):\n"
+               "  --geometry-json <file> write the cells around x, y as JSON (ScopeGeometryJson)\n"
+               "  --geometry-um <um>     side of that square (160)\n"
+               "  --geometry-detail 0|1  also cytoplasm meshes and microtubules (0)\n");
 }
 
 // Little-endian baseline TIFF, one uncompressed 16-bit grey page per frame.
@@ -68,12 +74,17 @@ private:
 
 int main(int argc, char** argv)
 {
-   std::string out;
+   std::string out, geometryOut;
+   double geometryUm = 160.0;
+   bool geometryDetail = false;
    sim::ScopeSpec spec;
    for (int i = 1; i < argc; i++) {
       const std::string a = argv[i];
       if (a == "--help" || a == "-h") { Usage(); return 0; }
       if (a == "--out" && i + 1 < argc) { out = argv[++i]; continue; }
+      if (a == "--geometry-json" && i + 1 < argc) { geometryOut = argv[++i]; continue; }
+      if (a == "--geometry-um" && i + 1 < argc) { geometryUm = std::atof(argv[++i]); continue; }
+      if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
       double v = 0.0;
       if (a.compare(0, 2, "--") != 0 || i + 1 >= argc || !sim::ScopeOptionValue(a.substr(2), argv[i + 1], v) ||
           !sim::ScopeSpecSet(spec, a.substr(2), v)) {
@@ -82,6 +93,20 @@ int main(int argc, char** argv)
          return 2;
       }
       i++;
+   }
+   if (!geometryOut.empty()) {
+      std::string json, err;
+      if (!sim::ScopeGeometryJson(spec, geometryUm, geometryDetail, json, err)) {
+         std::fprintf(stderr, "%s\n", err.c_str());
+         return 1;
+      }
+      FILE* f = std::fopen(geometryOut.c_str(), "wb");
+      const bool wrote = f && std::fwrite(json.data(), 1, json.size(), f) == json.size();
+      if (f) std::fclose(f);
+      if (!wrote) { std::fprintf(stderr, "cannot write %s\n", geometryOut.c_str()); return 1; }
+      std::printf("%s: geometry of %g um around (%g, %g), %zu bytes\n", geometryOut.c_str(), geometryUm,
+                  sim::ScopeSpecGet(spec, "x"), sim::ScopeSpecGet(spec, "y"), json.size());
+      return 0;
    }
    if (out.empty()) { Usage(); return 2; }
 

@@ -84,7 +84,9 @@ that finishes them.
   (mingw-w64, Wine, Mesa lavapipe, Microsoft's d3dcompiler_47.dll -- see the script).
 - Releases (2026-10-01): push a tag `vX.Y.Z` (or run Actions -> Release with a version). `release.yml` runs `ci.yml`,
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
-  the gallery (`tools/build_gallery.py` over `gallery/manifest.json`) and benchmarks (`tools/bench.py`, history kept in
+  the gallery (`tools/build_gallery.py` over `gallery/manifest.json`, including the 2x2 overview of its `overview` block
+  by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; shown on Home too, dropped by
+  `build_site.sh` when no release provides it) and benchmarks (`tools/bench.py`, history kept in
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
@@ -145,7 +147,8 @@ default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (cor
 `isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
 cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
 flux, extinction coefficient, QY, emitted-photon budget (`FluoParam_WideField*`); the bleach rate
-follows (defaults: t1/2 = 30 s, ~1.8 photons/dye/50 ms frame; read-only
+follows (defaults since 2026-10-01: excitation 4e8 photons/um^2/s, so shot noise shows; t1/2 = 120 s,
+~0.45 photons/dye/50 ms frame; was 1.6e9 / 30 s / 1.8; read-only
 `FluoParam_WideFieldHalfTimeSec` reports it at the pattern peak, -1 = never), collection efficiency from
 `PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
 non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
@@ -785,7 +788,9 @@ repo's `PARITY.md`, refreshed on both sides in this round). Verified via:
     half-width truncates it.
 - **Photophysics**: `EmitterModel` has a "rich" path used only when
   `BlinkBleachProb < 1`, `PhotonCV > 0`, or for the out-of-focus
-  population. That path is molecules with geometric blinks, exponential
+  population. Since 2026-10-01 `FluoParam_PhotonCV` (and cli/viewer
+  `photon-cv`, the core's kinetics) defaults to 0.5, so the rich path is the
+  default for every pattern (seeded output changed deliberately). That path is molecules with geometric blinks, exponential
   dark time and log-normal per-blink brightness, with the arrival rate
   divided by the mean blink count so density keeps meaning ON-density.
   Otherwise the original single-blink draw sequence is untouched. Live mode

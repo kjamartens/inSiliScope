@@ -16,7 +16,8 @@ stage returns, and a window query equals the union of its slices.
    (`SimType_CellFieldMilliActivationRatePerDyePerSec`, default \(1.43\times10^{-3}\ \mathrm{s^{-1}}\)).
 2. Repeat: ON for \(\mathrm{Exp}(\tau_{on})\) (`FluoParam_OnLifetimeSec`); then bleach with probability \(p_b\)
    (`FluoParam_BlinkBleachProb`), otherwise dark for \(\mathrm{Exp}(\tau_{off})\) (`FluoParam_OffLifetimeSec`) and blink again.
-3. Per-blink brightness is log-normal with mean 1 and coefficient of variation `FluoParam_PhotonCV`.
+3. Per-blink brightness is log-normal with mean 1 and coefficient of variation `FluoParam_PhotonCV` (default 0.5; cli/viewer
+   `photon-cv`; 0 = every blink equally bright).
 4. At most 1000 blinks per dye (so a tiny \(p_b\) cannot loop forever); \(p_b\) is clamped to [0.01, 1].
 
 **Persistent (DNA-PAINT-like) sites** never bleach. Their blinks are a Poisson process of rate \(k_{act}\) for ever, addressed
@@ -42,7 +43,7 @@ with \(\varepsilon\) the extinction coefficient (M\(^{-1}\)cm\(^{-1}\), default 
 
 \[ k_{em} = \mathrm{QY}\;\sigma\;\Phi\, I(x,y) \]
 
-with \(\Phi\) the excitation photon flux (um\(^{-2}\)s\(^{-1}\), default \(1.6\times10^{9}\)), \(I\) the illumination pattern (peak 1)
+with \(\Phi\) the excitation photon flux (um\(^{-2}\)s\(^{-1}\), default \(4\times10^{8}\), about 0.0125 W/cm\(^2\) at 640 nm: dim enough that shot noise shows), \(I\) the illumination pattern (peak 1)
 and QY the quantum yield (0.7). Each bleaching dye has an emitted-photon budget \(B\) (default 5000; 0 = never bleaches). With
 \(D\) the emitted-photon dose a dye has already produced, the surviving fraction is \(e^{-D/B}\).
 
@@ -55,8 +56,8 @@ and the **exact** frame integral of the bleaching decay, not an approximation:
 - bleaching dyes: \(\; n_b\,\eta\,B\,e^{-D_0/B}\,(1 - e^{-\Delta D/B})\)
 - persistent dyes: \(\; n_p\,\eta\,\Delta D\)
 
-where \(\Delta D = k_{em}\Delta t\) is the dose per frame. The defaults give a half time \(t_{1/2} = 30.0\) s (reported by the
-read-only property `FluoParam_WideFieldHalfTimeSec`, -1 = never) and about 1.8 photons per dye per 50 ms frame. QE is applied
+where \(\Delta D = k_{em}\Delta t\) is the dose per frame. The defaults give a half time \(t_{1/2} = 120\) s (reported by the
+read-only property `FluoParam_WideFieldHalfTimeSec`, -1 = never) and about 0.45 photons per dye per 50 ms frame. QE is applied
 later by the camera noise chain.
 
 **Bleach memory.** In live mode a world-anchored `BleachField` stores the dose in sparse tiles on the dye grid: bleach a

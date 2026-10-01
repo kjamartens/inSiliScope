@@ -65,6 +65,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   endif()
   add_test(NAME emitter_density COMMAND emitter_density_check)
   add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
+  add_test(NAME cli_geometry COMMAND insiliscope_cli --geometry-json ${CMAKE_CURRENT_BINARY_DIR}/cli_geometry.json --geometry-um 30 --geometry-detail 1 --x 5 --y -3)
   add_test(NAME cli_tiff_wf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_wf.tif --modality WideField --frames 10 --size 64 --x -4 --y -5)
 
   add_executable(sr_render_check sr_render_check.cpp ${ISC_SIM_SRC})

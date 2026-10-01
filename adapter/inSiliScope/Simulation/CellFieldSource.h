@@ -40,7 +40,7 @@ struct CellFieldSettings
    double onSec = 0.05;
    double offSec = 1.0;
    double bleachProb = 1.0;
-   double photonCV = 0.0;
+   double photonCV = 0.5;
 
    bool SameWorld(const CellFieldSettings& o) const { return seed == o.seed && params == o.params; }
    bool SameKinetics(const CellFieldSettings& o) const
@@ -87,6 +87,9 @@ public:
    // (with err) on an unknown param or a core failure.
    bool Configure(const CellFieldSettings& s, std::string& err);
    bool Ready() const { return world_ != nullptr; }
+   // The configured core world (nullptr before Configure), for geometry
+   // queries through the C ABI (ScopeGeometryJson).
+   IscWorld* World() const { return world_; }
 
    // Appends the blinks of q to out. False on a core failure.
    bool Events(const CellFieldQuery& q, std::vector<BlinkEvent>& out);

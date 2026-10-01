@@ -44,7 +44,7 @@ struct PsfKernelCache;
 
 struct WidefieldPhotophysics
 {
-   double excitationPhotonsPerUm2PerSec = 1.6e9; // Phi at pattern value 1 (~0.05 W/cm^2 at 640 nm)
+   double excitationPhotonsPerUm2PerSec = 4e8; // Phi at pattern value 1 (~0.0125 W/cm^2 at 640 nm)
    double quantumYield = 0.7;
    double photonBudget = 5000.0;   // emitted photons per dye before it bleaches (1/e); <= 0: never bleaches
    double extinctionCoeff = 270000.0; // M^-1 cm^-1

@@ -98,7 +98,7 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  * bleachProb (clamped to [0.01, 1]) or dark Exp(offSec) and blink again (at
  * most 1000 blinks). Persistent sites: blinks start as a Poisson process of
  * that rate for ever, ON Exp(onSec). Per-blink brightness log-normal, mean 1,
- * CV photonCV. Defaults 0.01, 0.05, 1, 1, 0. Changing them keeps the
+ * CV photonCV. Defaults 0.01, 0.05, 1, 1, 0.5. Changing them keeps the
  * geometry cached. Returns 0, or -1 on bad arguments. */
 ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
                                        double bleachProb, double photonCV);

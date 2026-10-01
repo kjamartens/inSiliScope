@@ -21,3 +21,8 @@ Upcoming ideas:
   row bands on all cores, [x] bounds-check-free splat, [x] Fft placement: tabulated twiddles, line
   transforms on all cores in live mode, [x] cli frames in parallel batches.
 - more targets
+- 2026-10-01: [x] C++ Gibson-Lanni+Zernike PSF (`Simulation/ZernikePsf.*`, = webSMLM's scalar chirp-Z model) in the
+  adapter (no JVM for the default model), cli and viewer (their default PSF now); [x] photonCV 0.5 and WideField
+  excitation 4e8 (t1/2 120 s) defaults; [x] the 2x2 overview (map, structures, widefield, SMLM) on the gallery and
+  Home (`tools/build_overview.py`, `insiliscope_cli --geometry-json`); [x] site: homepage link, viewer embedded on
+  its docs page with a back link and a loading text.

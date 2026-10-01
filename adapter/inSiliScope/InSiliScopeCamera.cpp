@@ -194,10 +194,11 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
-   // WideField: grid 1 cell/pixel, 25 nm dye planes; 1.6e9 photons/um^2/s
-   // (~0.05 W/cm^2 at 640 nm), QY 0.7, 5000 emitted photons per dye,
-   // eps 270000 M^-1 cm^-1: t1/2 = 30 s (WidefieldRender.h).
-   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 1.6e9, 0.7, 5000.0, 270000.0 };
+   // WideField: grid 1 cell/pixel, 25 nm dye planes; 4e8 photons/um^2/s
+   // (~0.0125 W/cm^2 at 640 nm; dim enough that shot noise shows), QY 0.7,
+   // 5000 emitted photons per dye, eps 270000 M^-1 cm^-1: t1/2 = 120 s
+   // (WidefieldRender.h).
+   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 4e8, 0.7, 5000.0, 270000.0 };
    for (int i = 0; i < WF_COUNT; ++i)
       wideFieldNum_[i] = wideFieldDefaults[i];
 

@@ -18,6 +18,10 @@ if [ -f release_assets/gallery.zip ]; then
 else
   printf '# Gallery\n\nThe gallery is rendered on each release; none has been published yet.\n' > .site_docs/gallery/index.md
 fi
+# The Home page's 2x2 overview shows the release's gallery images; without them, drop it (no broken images).
+if [ ! -f .site_docs/gallery/overview_map.png ]; then
+  sed -i '/<!-- overview:start/,/<!-- overview:end -->/d' .site_docs/index.md
+fi
 
 if [ -f release_assets/benchmarks.json ]; then
   python3 tools/benchmarks_page.py release_assets/benchmarks.json > .site_docs/benchmarks.md
