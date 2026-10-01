@@ -8,6 +8,8 @@
   #wrap{display:grid;grid-template-columns:300px 1fr;height:100vh}
   #side{padding:12px;overflow-y:auto;background:#11161d;border-right:1px solid #232a35;box-sizing:border-box}
   #side h1{font-size:15px;margin:0 0 4px}
+  #side a.back{display:block;font-size:11px;color:#8bb8e8;text-decoration:none;margin:0 0 8px}
+  #side a.back:hover{text-decoration:underline}
   #side p.sub{font-size:11px;color:#8b97a8;margin:0 0 14px;line-height:1.4}
   label.row{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
   input[type=number],input[type=text]{width:70px;background:#1a212b;border:1px solid #2c3644;color:#dfe6ee;border-radius:4px;padding:3px 5px;font-size:12px;font-family:inherit}
@@ -40,6 +42,7 @@
 <body>
 <div id="wrap">
   <div id="side">
+    <a id="docsLink" class="back" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
     <h1>Cell field viewer</h1>
     <p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in
     Web Workers). Every cell, microtubule and dye is a pure function of
@@ -176,6 +179,10 @@
 <script src="wf_gpu.js"></script>
 <script id="mainScript">
 'use strict';
+
+// On the Pages site the viewer lives at <docs>/viewer/: link back relatively (forks, previews); opened from disk,
+// the absolute docs URL stays.
+if (/\/viewer\/(index\.html)?$/.test(location.pathname)) document.getElementById('docsLink').href = '../';
 
 // ---- drawing helpers (the generator itself is the WASM core) ----------------
 function lerp(a, b, t) { return a + (b - a) * t; }

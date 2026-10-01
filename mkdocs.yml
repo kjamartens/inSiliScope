@@ -32,6 +32,12 @@ extra_javascript:
 extra_css:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
 
+extra:
+  social:
+    - icon: fontawesome/solid/house
+      link: https://kjamartens.github.io
+      name: Koen Martens
+
 exclude_docs: |
   dev/
 
@@ -50,3 +56,4 @@ nav:
   - Gallery: gallery/index.md
   - Benchmarks: benchmarks.md
   - Roadmap: roadmap.md
+  - kjamartens.github.io ↗: https://kjamartens.github.io
