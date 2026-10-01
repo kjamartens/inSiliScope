@@ -29,6 +29,9 @@ Rebuild the module after a core change:
 `spec/golden`), so its generator changes only deliberately (see [spec/PORT.md](../spec/PORT.md)).
 Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
 
+`lab/` is the iteration page for prototype changes (A/B against main, imaging preview, metrics; `node
+web/lab/serve.mjs`): try ideas there in JS and port to C++ only at merge, see [lab/README.md](lab/README.md).
+
 Tools (`cd tools && npm install` once, or a global Playwright):
 - `node tools/bench_pan.mjs [page]` -- pan benchmark (300 frames, headless Chromium, software GL).
 - `node tools/check_cellfield_microtubules.mjs` -- the prototype's microtubule regression check.

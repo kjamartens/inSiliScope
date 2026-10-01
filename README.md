@@ -64,6 +64,7 @@ core/                      world model, C++17, no MMDevice/GPU/OS deps; C ABI in
 adapter/inSiliScope/       the Micro-Manager device adapter (MSBuild) and Simulation/, the render engine
 cli/                       insiliscope_cli (headless TIFF movies) and the viewer's WASM target
 web/                       the viewer (WASM core); web/prototype/ is the JS reference implementation
+web/lab/                   iteration page: try prototype changes in JS (A/B vs main), port to C++ at merge
 spec/                      algorithm notes, port spec, frozen golden vectors
 tests/ tools/              parity and golden harness, GPU checks, adapter smoke tests, release tooling
 docs/  gallery/            the project site (mkdocs) and the manifest rendered into the gallery

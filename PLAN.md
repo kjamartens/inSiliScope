@@ -40,3 +40,7 @@ Upcoming ideas:
   relaxed on a Cartesian grid (screened Poisson, exact boundary, nucleus obstacle; `cytoRelaxUm` replaces
   `cytoSmoothPasses`): no folds. Next: [ ] thin protrusions (filopodia, retraction fibres), [ ] tension arcs between
   adhesions (concave scallops).
+- 2026-10-01: [x] fast iteration loop: `web/lab/` (prototype A/B vs main with hot reload, imaging preview, MT shape
+  metrics, `check.mjs` ~8 s), `PORT_PENDING.md` + CI `port-gate` (C++ port only in the PR to main),
+  `tools/port_check.sh` (all builds/tests in one go); prototype loader shared with the golden reference
+  (`tests/parity/load_prototype.mjs`, plain `Function` instead of a `vm` context: re-freeze 68 s -> 10 s, same output).
