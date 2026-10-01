@@ -15,7 +15,7 @@ Open the [viewer](try-viewer.md). Nothing to install.
 3. Choose the `CellField` pattern (the default), take a snapshot, move the XY stage, change the Z stage. The Z stage
    position is the focal plane height above the coverslip (0 = coverslip in focus; it starts at 0.5 um).
 4. Switch `General_ImagingModality` between `SuperRes`, `WideField` and `BrightField` (transmitted light;
-   `General_BrightFieldQuality` 1-5 trades speed for precision).
+   `General_BrightFieldQuality` 1-4 trades speed for precision).
 
 Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `CamParam_`, `PSFParam_`, `Background_`.
 

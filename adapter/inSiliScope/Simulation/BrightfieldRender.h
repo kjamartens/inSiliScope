@@ -35,8 +35,9 @@ namespace sim {
 
 class CellFieldSource;
 
-// The speed/precision trade-off as one number: level 1 (fastest) .. 5 (most
-// precise); 3 is the default. A spec field left at 0 takes the level's value.
+// The speed/precision trade-off as one number: level 1 (fastest) .. 4 (most
+// precise) are exposed; 3 is the default. Level 5 exists as a reference for
+// checks (cli/viewer/MM clamp to 4). A spec field left at 0 takes the level's value.
 struct BrightfieldQuality
 {
    int sources = 0;      // condenser source points

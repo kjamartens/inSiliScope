@@ -73,7 +73,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "offset", 100, "CamParam_OffsetADU" },
       { "offset-std", 0.5, "CamParam_OffsetStdADU" },
       { "read-noise", 1.2, "CamParam_ReadNoiseElectrons" },
-      { "gain-std-pct", 5, "CamParam_GainStdPctPerPixel" },
+      { "gain-std-pct", 0.5, "CamParam_GainStdPctPerPixel (per-pixel gain spread, PRNU)" },
       { "read-noise-std-pct", 20, "CamParam_ReadNoiseStdPctPerPixel" },
       { "modality", 0, "General_ImagingModality: 0 = SuperRes (blinks), 1 = WideField (all dyes), 2 = BrightField (transmitted light; names accepted)" },
       { "wf-upscale", 1, "General_WideFieldUpscaling: WideField grid cells per pixel, per axis (1-4)" },
@@ -83,12 +83,12 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wf-quantum-yield", 0.7, "FluoParam_WideFieldQuantumYield" },
       { "wf-photon-budget", 5000, "FluoParam_WideFieldPhotonBudget: emitted photons per dye (0 = never bleaches)" },
       { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
-      { "bf-quality", 3, "General_BrightFieldQuality: speed vs precision, 1 (fast) .. 5 (precise); sets the four below unless given" },
-      { "bf-sources", 0, "General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48/96)" },
-      { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (0 = from bf-quality: 1/1/2/2/3)" },
-      { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/3/4)" },
-      { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/1/0.5/0.25/0.125)" },
-      { "bf-margin-um", 0, "BrightField grid margin around the FOV, um (0 = from bf-quality: 2-6)" },
+      { "bf-quality", 3, "General_BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given" },
+      { "bf-sources", 0, "General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)" },
+      { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (0 = from bf-quality: 1/1/2/2)" },
+      { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/3)" },
+      { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/1/0.5/0.25)" },
+      { "bf-margin-um", 0, "BrightField grid margin around the FOV, um (0 = from bf-quality: 3-5)" },
       { "bf-condenser-na", 0.55, "General_BrightFieldCondenserNa: illumination NA (0 = coherent)" },
       { "bf-wavelength-nm", 550, "General_BrightFieldWavelengthNm: illumination wavelength" },
       { "bf-photons-per-px-per-sec", 40000, "General_BrightFieldPhotonsPerPxPerSec: empty-field photons per pixel per second" },
@@ -551,7 +551,7 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    bs.width = S.W;
    bs.height = S.H;
    bs.pixelUm = S.p.pixelSizeNm / 1000.0;
-   bs.quality = static_cast<int>(std::min(5.0, std::max(1.0, O("bf-quality"))));
+   bs.quality = static_cast<int>(std::min(4.0, std::max(1.0, O("bf-quality"))));
    bs.sources = static_cast<int>(std::min(1024.0, std::max(0.0, O("bf-sources"))));
    bs.upscale = static_cast<int>(std::min(8.0, std::max(0.0, O("bf-upscale"))));
    bs.sub = static_cast<int>(std::min(16.0, std::max(0.0, O("bf-sub"))));

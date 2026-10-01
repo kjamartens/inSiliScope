@@ -23,7 +23,7 @@ Upcoming ideas:
 - more targets
 - brightfield (exploration, 2026-10-01, spec/BRIGHTFIELD.md): [x] package survey (waveorder, chromatix, TorchOptics,
   PyWolf, holopy, CytoPacq/SimuCell: none embeddable, chromatix-style multislice ported), [x] core ABI 6 optical volume,
-  [x] multislice + Abbe engine with a speed/precision quality (1-5), [x] cli/viewer (slider)/adapter (stack, live, z
+  [x] multislice + Abbe engine with a speed/precision quality (1-4; a hidden reference level 5), [x] camera PRNU default 5% -> 0.5%, [x] cli/viewer (slider)/adapter (stack, live, z
   sequences), [x] tests (grating theory, empty field, determinism, adapter, viewer), [x] list of missing structures
   (only simulated ones make contrast). Next: [ ] MSBuild + visual check in MM, [ ] waveorder comparison, [ ] GPU path,
   [ ] stage-move prefetch, [ ] phase contrast / DIC, [ ] the missing structures (nucleoli, lipid droplets, vesicles...).

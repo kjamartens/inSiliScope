@@ -662,7 +662,7 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(g_PropImagingModality, g_ModalityBrightField);
    {
       const double lo[BF_COUNT] = { 1, 0, 0, 0, -1, 0, 300, 0, 0, 1.0, 1.0, 1.0, 1.0, 0 };
-      const double hi[BF_COUNT] = { 5, 1024, 8, 16, 5, 1.5, 1000, 1e9, 1, 2.0, 2.0, 2.0, 2.0, 100 };
+      const double hi[BF_COUNT] = { 4, 1024, 8, 16, 5, 1.5, 1000, 1e9, 1, 2.0, 2.0, 2.0, 2.0, 100 };
       for (long i = 0; i < BF_COUNT; ++i)
       {
          auto* act = new CPropertyActionEx(this, &CInSiliScopeCamera::OnBrightFieldNumber, i);

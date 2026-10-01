@@ -250,7 +250,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     # defocused images differ too little to tell apart in noise).
     _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
     core.setProperty(cam, "General_BrightFieldQuality", "3")
-    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "5")
+    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
     core.setProperty(cam, "General_ImagingModality", "SuperRes")
 
     core.setProperty(cam, "General_AcqMode", "Live")

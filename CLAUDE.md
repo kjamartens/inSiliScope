@@ -180,9 +180,11 @@ refractive index. **Rule: only simulated structures make BF contrast** (cytoplas
 core simulates them. Core ABI 6 `isc_optical_volume_in_window` (volume fractions per voxel, pure geometry); engine
 `Simulation/BrightfieldRender.*`: Abbe source sum (condenser NA) x multislice angular-spectrum propagation, exit
 spectra cached so a focus change is one inverse FFT per source; detection pupil = NA + the PSF's Zernike terms; thin
-screen (1 slice) at the phase-weighted height; margin taper against wrap-around. `General_BrightFieldQuality` 1-5
-(cli/viewer `bf-quality`, a slider in the viewer) sets sources 6..96, upscaling, geometry samples and slice step
-(thin..0.125 um) unless those are set. cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
+screen (1 slice) at the phase-weighted height; margin taper against wrap-around. `General_BrightFieldQuality` 1-4
+(cli/viewer `bf-quality`, a slider in the viewer) sets sources 6..48, upscaling, geometry samples and slice step
+(thin..0.25 um) unless those are set (a level 5 stays in `BrightfieldQualityLevel` as a reference, not exposed).
+`CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
+the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase
 grating vs theory, thin and multislice), `cli_tiff_bf`, `world_checks` OpticalVolume, `tests/web/viewer_bf_movie.mjs`,
 `tools/test_cellfield_stage.py`. Not built with MSBuild or checked in Micro-Manager Studio yet.
@@ -465,8 +467,9 @@ disabled-by-default convention). Defaults for `CamParam_QuantumEfficiency`
 (0.85), `CamParam_DarkCurrentElectronsPerSec` (1.03), `CamParam_GainPhotonsPerADU`
 (0.25), and `CamParam_ReadNoiseElectrons` (1.2) match the Photometrics Kinetix22
 sCMOS Sensitivity (CMS) mode datasheet; `CamParam_GainStdPctPerPixel`/
-`CamParam_ReadNoiseStdPctPerPixel` default to 5%/20% as estimates, since Photometrics
-doesn't publish actual per-pixel variance. See
+`CamParam_ReadNoiseStdPctPerPixel` default to 0.5%/20% as estimates, since Photometrics
+doesn't publish actual per-pixel variance (the gain spread was 5% until 2026-10-01: realistic sCMOS PRNU is
+~0.2-1%, and 5% made a static pattern that swamped BrightField contrast). See
 [docs/dev/vectorial-psf-plan.md](docs/dev/vectorial-psf-plan.md)'s "Noise model
 follow-ups" section for sourcing and what's still deprioritized (PRNU,
 background vignetting, full-well/bit-depth). **Not yet visually verified

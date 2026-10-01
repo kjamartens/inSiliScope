@@ -216,7 +216,7 @@ extern const char* g_PropWideFieldNumber[WF_COUNT];
 extern const char* g_PropWideFieldHalfTimeSec;
 // BrightField (transmitted light, Simulation/BrightfieldRender.h; CellField
 // only): its numeric properties, one indexed handler (OnBrightFieldNumber).
-// Quality 1-5 sets sources/upscaling/geometry samples/slice step unless
+// Quality 1-4 sets sources/upscaling/geometry samples/slice step unless
 // those are set (> 0; slice >= 0).
 extern const char* g_ModalityBrightField;
 enum BrightFieldNumber
@@ -680,7 +680,7 @@ private:
    // disabled-by-default convention used elsewhere. Photometrics doesn't
    // publish actual per-pixel variance for the Kinetix, so these two
    // defaults are estimates, not datasheet values -- see the plan doc.
-   std::atomic<double> pixelGainStdPct_{5.0};
+   std::atomic<double> pixelGainStdPct_{0.5};
    std::atomic<double> pixelReadNoiseStdPct_{20.0};
    // Drift speed, nm/sec, along a direction drawn once per RandomSeed (see
    // sim::ComputeDriftOffsetPx/DriftAngleForSeed). Applies in both

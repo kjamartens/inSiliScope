@@ -95,7 +95,6 @@ One number trades speed for precision (`General_BrightFieldQuality`, cli/viewer 
 | 2 | 12 | 1 | 1 um | 0.4 s / 12 ms |
 | 3 (default) | 24 | 2 | 0.5 um | 2.9 s / 0.12 s |
 | 4 | 48 | 2 | 0.25 um | 10 s / 0.24 s |
-| 5 | 96 | 3 | 0.125 um | 6 s / 90 s |
 
 Each knob can also be set alone (`bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`). A weak phase object in focus
 shows almost no contrast; defocus brings it out with opposite signs above and below focus, as in a real microscope.

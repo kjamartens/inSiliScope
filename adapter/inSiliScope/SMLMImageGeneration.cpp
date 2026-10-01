@@ -666,7 +666,7 @@ sim::BrightfieldSpec CInSiliScopeCamera::BuildBrightfieldSpec(const sim::Simulat
    s.height = h;
    s.pixelUm = params.pixelSizeNm / 1000.0;
    auto N = [&](int i) { return brightFieldNum_[i].load(); };
-   s.quality = static_cast<int>(std::lround(std::min(5.0, std::max(1.0, N(BF_QUALITY)))));
+   s.quality = static_cast<int>(std::lround(std::min(4.0, std::max(1.0, N(BF_QUALITY)))));
    s.sources = static_cast<int>(std::lround(std::max(0.0, N(BF_SOURCES))));
    s.upscale = static_cast<int>(std::lround(std::max(0.0, N(BF_UPSCALING))));
    s.sub = static_cast<int>(std::lround(std::max(0.0, N(BF_GEOMETRY_SAMPLES))));

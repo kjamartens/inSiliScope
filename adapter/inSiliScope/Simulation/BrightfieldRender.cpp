@@ -44,7 +44,7 @@ BrightfieldQuality BrightfieldQualityLevel(int level)
       {12, 1, 1, 1.0, 3.0},   // 2
       {24, 2, 2, 0.5, 4.0},   // 3: default
       {48, 2, 3, 0.25, 5.0},  // 4
-      {96, 3, 4, 0.125, 6.0}, // 5: slow
+      {96, 3, 4, 0.125, 6.0}, // 5: reference level for checks; not exposed (cli/viewer/MM clamp to 4)
    };
    return kLevels[std::max(1, std::min(5, level)) - 1];
 }

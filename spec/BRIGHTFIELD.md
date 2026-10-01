@@ -57,32 +57,41 @@ pixels, averaged over sources (empty field = 1). Photons = intensity x `General_
 exposure, then the usual camera chain (`ApplyNoiseChain`). Fluorescence background, haze and illumination profile
 (`Background_*`, `FluoParam_Illum*`) do not apply.
 
-**Grid.** `General_BrightFieldUpscaling` cells per pixel, plus a margin (2-6 um by quality) whose outer half tapers the
+**Grid.** `General_BrightFieldUpscaling` cells per pixel, plus a margin (3-5 um by quality) whose outer half tapers the
 specimen phase to 0 (cosine), so the periodic grid wraps without a phase jump. FFT sizes 2^a 3^b 5^c (`FftPlan1d`).
 
 **Determinism.** Every source's image is a pure function of its index, written to its own slot and summed in source
 order: bit-identical for any thread count (ctest `brightfield`). Frames differ only by camera noise.
 
 **Cost.** Specimen propagation does not depend on focus: per new pose/setting `N x S x 2` FFTs; a focus change is one
-inverse FFT per source (the exit spectra are cached up to 768 MB; above that, e.g. quality 5 at 256 px, they are
-recomputed per focus).
+inverse FFT per source (the exit spectra are cached up to 768 MB; above that they are recomputed per focus).
 
 ## Quality: speed vs precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`)
 
 One number sets four knobs (each can be overridden: `bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`, and
 `bf-margin-um`; MM `General_BrightFieldSources`/`Upscaling`/`GeometrySamples`/`SliceUm`, 0 / -1 = from the quality).
 
-| Level | Sources | Grid upscale | Geometry samples | Slice step | Margin | 256 px, 4 cores: setup / per focus | rms vs level 5 |
+| Level | Sources | Grid upscale | Geometry samples | Slice step | Margin | 256 px, 4 cores: setup / per focus | rms vs reference |
 |---|---|---|---|---|---|---|---|
 | 1 fastest | 6 | 1 | 1 | thin (1 screen) | 3 um | 0.3 s / 10 ms | 0.85% |
 | 2 | 12 | 1 | 1 | 1 um | 3 um | 0.4 s / 12 ms | 0.42% |
 | 3 default | 24 | 2 | 2 | 0.5 um | 4 um | 2.9 s / 0.12 s | 0.23% |
 | 4 | 48 | 2 | 3 | 0.25 um | 5 um | 10 s / 0.24 s | 0.13% |
-| 5 slow | 96 | 3 | 4 | 0.125 um | 6 um | 6 s / 90 s (exit fields not cached) | -- |
 
-(rms of the noise-free transmitted intensity at focus 0, `x = y = 0`, seed 42; the cell's own contrast is ~1.2% rms.)
+(rms of the noise-free transmitted intensity at focus 0, `x = y = 0`, seed 42, against a reference level 5 -- 96
+sources, 3x grid, 4 samples, 0.125 um slices, 6 um margin; kept in `BrightfieldQualityLevel` for checks, not exposed:
+cli/viewer/MM clamp the quality to 4. The cell's own contrast is ~1.2% rms.)
 Setup includes building the cells' assets (~0.3 s). Level 1 is a single thin screen: a flat lamella and a 6 um
 nucleus dome cannot both be at its one height, so it misplaces focus by up to a few um; use >= 2 for z stacks.
+
+## Camera: why the default per-pixel gain spread is 0.5%
+
+BrightField puts thousands of photons in every pixel, so the camera's fixed pattern shows: the per-pixel gain spread
+(`CamParam_GainStdPctPerPixel`, PRNU) multiplies the signal and is static. At its former default of 5% it was a
+~345 ADU pattern at the default lamp (2000 photons/px/frame), above the ~160 ADU shot noise and far above the cells'
+~85 ADU contrast, and it grew relative to shot noise with a brighter lamp. Real sCMOS PRNU is ~0.2-1%; the default is
+0.5% since 2026-10-01 (all modalities). Also: at 0.25 photons/ADU and QE 0.85 the 16-bit range ends near 19k
+photons/px/frame (`General_BrightFieldPhotonsPerPxPerSec` x exposure).
 
 ## Checks
 

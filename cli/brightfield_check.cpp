@@ -162,15 +162,13 @@ int main()
       Check(ok && worst < 1e-4, "empty field: transmitted intensity 1 at every pixel and focus");
    }
 
-   // The real world (cells around the origin), every quality level.
+   // The real world (cells around the origin), every exposed quality level (1-4).
    {
       CellFieldSource src;
       std::string err;
       bool ok = src.Configure(World(0.33), err);
-      for (int q = 1; q <= 5 && ok; ++q)
+      for (int q = 1; q <= 4 && ok; ++q)
       {
-         if (q == 5)
-            continue; // slow; covered by the cli
          BrightfieldScene a;
          std::vector<float> img, again;
          ok = a.Update(src, FieldSpec(q), 1, err) && a.Image(0.5, img, err);
