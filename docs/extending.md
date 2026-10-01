@@ -37,8 +37,11 @@ prefix list in `CLAUDE.md`, and add the same option to `ScopeMovieOptions()` so 
 
 ## Recipe: a new modality
 
-Follow WideField: a render path in `Simulation/`, a modality value in `General_ImagingModality`, a CLI/viewer option, an
-entry in `gallery/manifest.json`, a CI check, and a section in the physics docs.
+Follow WideField or BrightField: a render path in `Simulation/`, a modality value in `General_ImagingModality`, a
+CLI/viewer option, an entry in `gallery/manifest.json`, a CI check, and a section in the physics docs. A modality that
+needs new geometry gets it from a core query (BrightField: `isc_optical_volume_in_window`, pure geometry; the optics
+live in the renderer). A new structure should also say what it does to brightfield (its refractive index) and be added
+to the optical volume, so brightfield never shows structures the world does not simulate.
 
 ## Recipe: a gallery entry
 

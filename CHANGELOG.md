@@ -9,6 +9,9 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - Release automation: tests, DLL, webSMLM block, gallery and benchmarks built on a `v*` tag and published as GitHub
   Release assets; project site (docs, viewer, gallery, benchmarks) on GitHub Pages. Built binaries are no longer committed.
 - Documentation site with physics pages.
+- **BrightField** modality (exploration): transmitted light through the cells' refractive index (only simulated
+  structures), partially coherent multislice wave optics, `General_BrightFieldQuality` 1-5; core ABI 6
+  (`isc_optical_volume_in_window`). SuperRes/WideField output unchanged.
 
 ### Earlier history (summary of the dated notes in `CLAUDE.md`)
 

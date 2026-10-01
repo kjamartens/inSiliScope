@@ -732,6 +732,96 @@ void Threads()
          "8 threads = 1 thread: the same caches built");
 }
 
+// ABI 6: the optical volume (BrightField). Tiling, threads, z consistency,
+// nucleus volume against the ellipsoid, bad arguments.
+void OpticalVolume()
+{
+   Params p;
+   // Cells are ~50 um across: a 140 um window holds several whole ones.
+   const double x0 = -70, y0 = -66, x1 = 70, y1 = 74, zLo = -0.5, zHi = 9.5;
+   const int nx = 140, ny = 140, nz = 20, sub = 2;
+   const size_t plane = (size_t)nx * ny, chan = plane * nz;
+   std::vector<float> whole(3 * chan), left(3 * chan / 2), right(3 * chan / 2), t8(3 * chan);
+   World a(31, p), b(31, p);
+   SetWorldThreads(1);
+   const long cells = a.OpticalVolumeInWindow(x0, y0, x1, y1, zLo, zHi, nx, ny, nz, sub, whole.data());
+   SetWorldThreads(8);
+   b.OpticalVolumeInWindow(x0, y0, x1, y1, zLo, zHi, nx, ny, nz, sub, t8.data());
+   SetWorldThreads(0);
+   Check(cells > 3 && whole == t8, "optical volume: 8 threads = 1 thread");
+   // Left/right halves (same voxel grid) assemble to the whole window.
+   const double xm = (x0 + x1) / 2;
+   b.OpticalVolumeInWindow(x0, y0, xm, y1, zLo, zHi, nx / 2, ny, nz, sub, left.data());
+   b.OpticalVolumeInWindow(xm, y0, x1, y1, zLo, zHi, nx / 2, ny, nz, sub, right.data());
+   bool tiled = true;
+   for (int ch = 0; ch < 3; ch++)
+      for (int k = 0; k < nz; k++)
+         for (int iy = 0; iy < ny; iy++)
+            for (int ix = 0; ix < nx; ix++) {
+               const float wv = whole[((size_t)(ch * nz + k) * ny + iy) * nx + ix];
+               const std::vector<float>& h = ix < nx / 2 ? left : right;
+               const float hv = h[((size_t)(ch * nz + k) * ny + iy) * (nx / 2) + ix % (nx / 2)];
+               tiled = tiled && wv == hv;
+            }
+   Check(tiled, "optical volume: two half windows = the whole window");
+   bool range = true;
+   double cyto = 0, nuc = 0, mt = 0;
+   for (size_t v = 0; v < chan; v++) {
+      const double s = (double)whole[v] + whole[chan + v];
+      range = range && whole[v] >= -1e-6 && whole[chan + v] >= 0 && s <= 1 + 1e-5 && whole[2 * chan + v] >= 0;
+      cyto += whole[v]; nuc += whole[chan + v]; mt += whole[2 * chan + v];
+   }
+   Check(range && cyto > 0 && nuc > 0 && mt > 0, "optical volume: fractions in [0, 1], all three present");
+   // nz = 1 over the same slab = the z sum (per column).
+   std::vector<float> flat(3 * plane);
+   a.OpticalVolumeInWindow(x0, y0, x1, y1, zLo, zHi, nx, ny, 1, sub, flat.data());
+   double worst = 0;
+   for (int ch = 0; ch < 3; ch++)
+      for (size_t i = 0; i < plane; i++) {
+         double s = 0;
+         for (int k = 0; k < nz; k++) s += whole[(size_t)ch * chan + k * plane + i];
+         if (ch < 2) worst = std::max(worst, std::fabs(s / nz - flat[ch * plane + i]));
+      }
+   Check(worst < 1e-5, "optical volume: nz = 1 equals the mean over z");
+   // Nucleus volume of each cell entirely inside the window vs its ellipsoid.
+   std::vector<Cell> cs;
+   a.CellsInRect(x0, y0, x1, y1, cs);
+   double want = 0;
+   for (const Cell& q : cs)
+      if (q.x - q.rOuter > x0 && q.x + q.rOuter < x1 && q.y - q.rOuter > y0 && q.y + q.rOuter < y1)
+         want += 4.0 / 3 * jsm::PI * (q.nucLong / 2) * (q.nucShort / 2) * (q.nucHeight / 2);
+   std::vector<float> fine(3 * plane);
+   double got = 0, gotAll = 0;
+   a.OpticalVolumeInWindow(x0, y0, x1, y1, zLo, zHi, nx, ny, 1, 4, fine.data());
+   const double vox = (x1 - x0) / nx * (y1 - y0) / ny * (zHi - zLo);
+   for (const Cell& q : cs) {
+      if (!(q.x - q.rOuter > x0 && q.x + q.rOuter < x1 && q.y - q.rOuter > y0 && q.y + q.rOuter < y1)) continue;
+      for (int iy = 0; iy < ny; iy++)
+         for (int ix = 0; ix < nx; ix++) {
+            // Voxels whose centre lies near this cell's nucleus footprint.
+            const double wx = x0 + (ix + 0.5) * (x1 - x0) / nx - q.x, wy = y0 + (iy + 0.5) * (y1 - y0) / ny - q.y;
+            const double cr = std::cos(q.packRot), sr = std::sin(q.packRot);
+            const double lx = wx * cr + wy * sr - q.nucOffX, ly = -wx * sr + wy * cr - q.nucOffY;
+            const double nr = std::cos(q.nucRot), ns = std::sin(q.nucRot);
+            const double u = (lx * nr + ly * ns) / (q.nucLong / 2 + 1), v = (-lx * ns + ly * nr) / (q.nucShort / 2 + 1);
+            if (u * u + v * v <= 1) got += fine[plane + (size_t)iy * nx + ix] * vox;
+         }
+   }
+   for (size_t i = 0; i < plane; i++) gotAll += fine[plane + i] * vox;
+   Check(want > 0 && std::fabs(got / want - 1) < 0.02, "optical volume: nucleus volume = ellipsoid volume (2%)");
+   std::printf("      nucleus volume %.2f um^3 vs ellipsoids %.2f (window %.2f)\n", got, want, gotAll);
+   IscParams* ip = isc_params_new();
+   IscWorld* w = isc_world_new(31, ip);
+   std::vector<float> o(3 * 16 * 16 * 2);
+   Check(isc_optical_volume_in_window(w, x0, y0, x1, y1, 0, 8, 16, 16, 2, 1, o.data()) >= 0 &&
+            isc_optical_volume_in_window(w, x0, y0, x1, y1, -INF, 8, 16, 16, 2, 1, o.data()) == -1 &&
+            isc_optical_volume_in_window(w, x0, y0, x1, y1, 0, 8, 16, 16, 2, 0, o.data()) == -1 &&
+            isc_optical_volume_in_window(w, x0, y0, x1, y1, 8, 0, 16, 16, 2, 1, o.data()) == -1,
+         "optical volume: C ABI, bad arguments rejected");
+   isc_world_free(w);
+   isc_params_free(ip);
+}
+
 int main()
 {
    Determinism();
@@ -744,6 +834,7 @@ int main()
    Threads();
    CApi();
    Density3d();
+   OpticalVolume();
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);
    return g_failures ? 1 : 0;
 }

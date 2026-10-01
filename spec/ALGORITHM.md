@@ -405,6 +405,13 @@ looked visibly broken (still-overlapping, under-relaxed cells) for the whole dra
 only "snapped" correct on release — worse than just paying the full cost, which turned
 out cheap enough at the chunk counts `CHUNK_CAP` allows through anyway.
 
+## BrightField (2026-10-01)
+
+Transmitted light is computed from the world's own geometry only (core `isc_optical_volume_in_window`: cytoplasm,
+nucleus, microtubule volume fractions), never from added texture: a structure the world does not simulate must not
+appear in brightfield. Multislice + Abbe source sum, thin screen at the phase-weighted height, margin taper against
+wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

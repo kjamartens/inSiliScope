@@ -53,4 +53,5 @@ The core is bit-exact with the original JS prototype (the reference implementati
 
 Consumers see only `core/include/insiliscope/insiliscope.h`: `extern "C"`, flat buffers, opaque handles, no exceptions or
 STL across it. Queries return cells, assets (cell geometry and microtubules), dye sites, dye events in a time window
-(`isc_events_in_window`) and z-resolved dye density (`isc_density3d_in_window`, used by widefield).
+(`isc_events_in_window`), z-resolved dye density (`isc_density3d_in_window`, used by widefield) and the optical volume
+(`isc_optical_volume_in_window`: cytoplasm, nucleus and microtubule volume fractions per voxel, used by brightfield).

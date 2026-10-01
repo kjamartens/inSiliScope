@@ -11,6 +11,7 @@
 
 #include "insiliscope/insiliscope.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -140,6 +141,38 @@ long CellFieldSource::Density3d(double x0, double y0, double x1, double y1, doub
    if (!world_)
       return -1;
    return isc_density3d_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, populations, out);
+}
+
+long CellFieldSource::OpticalVolume(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
+                                    int ny, int nz, int sub, float* out)
+{
+   if (!world_)
+      return -1;
+   return isc_optical_volume_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, out);
+}
+
+double CellFieldSource::MaxCellHeight(double x0, double y0, double x1, double y1)
+{
+   if (!world_)
+      return -1;
+   constexpr int kStride = ISC_CELL_STRIDE; // height at 6
+   int32_t cap = 64;
+   for (;;)
+   {
+      buf_.resize(static_cast<size_t>(cap) * kStride);
+      const int32_t n = isc_cells_in_window(world_, x0, y0, x1, y1, buf_.data(), cap);
+      if (n < 0)
+         return -1;
+      if (n > cap)
+      {
+         cap = n;
+         continue;
+      }
+      double h = 0;
+      for (int32_t i = 0; i < n; ++i)
+         h = std::max(h, buf_[static_cast<size_t>(i) * kStride + 6]);
+      return h;
+   }
 }
 
 } // namespace sim

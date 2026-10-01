@@ -606,3 +606,24 @@ as before. `ScopePsfRequest` builds the same `PsfGeneratorRequest` as the camera
 `BuildPsfGeneratorRequest`. The SR movie computes the kernel while the cell field is queried (native).
 The viewer sends `psf-kernel-half-width-nm=3000` (kernel stack ~75 MB instead of ~400 MB of WASM
 memory); a cli run reproduces a viewer movie with that option. Check: ctest `zernike_psf`.
+
+## 15. BrightField imaging modality (2026-10-01, exploration branch)
+
+Spec, model, quality table and the list of missing structures: [BRIGHTFIELD.md](BRIGHTFIELD.md).
+- Core ABI 6: `isc_optical_volume_in_window(w, x0,y0,x1,y1, zMin,zMax, nx,ny,nz, sub, out[3*nx*ny*nz])`, channel-major
+  cytoplasm / nucleus / microtubule volume fractions (`World::OpticalVolumeInWindow`: cached cell assets, the smoothed
+  cytoplasm mesh as the body height field, the nucleus ellipsoid's chord clipped to it, microtubule centrelines
+  deposited as tube volume). Read-only: no new hash draws, goldens unchanged. Rows run on `ParallelFor` per cell.
+  `World::PrebuildAssets` is factored out of `ForEachDyeBlock` (unchanged behaviour).
+- Engine `Simulation/BrightfieldRender.*`: `BrightfieldScene::Update(src, spec, worldVersion)` (slices, sources,
+  pupil, exit spectra), `Image(focusUm)` (cached per focus); `UpdateFromPhase` is the test hook.
+- cli/viewer: `modality` 2 / `BrightField`; `bf-quality`, `bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`,
+  `bf-margin-um`, `bf-condenser-na`, `bf-wavelength-nm`, `bf-photons-per-px-per-sec`, `bf-aberrations`, `bf-n-medium`,
+  `bf-n-cytoplasm`, `bf-n-nucleus`, `bf-n-microtubule`, `bf-absorption-per-um`. The viewer has a quality slider.
+- Adapter: `General_ImagingModality` gains `BrightField` (the modality is an int now: 0/1/2), properties
+  `General_BrightField{Quality,Sources,Upscaling,GeometrySamples,SliceUm,CondenserNa,WavelengthNm,PhotonsPerPxPerSec,
+  Aberrations}` and `SimType_CellField{IndexMedium,IndexCytoplasm,IndexNucleus,IndexMicrotubule,AbsorptionPerUm}`;
+  precomputed stacks (`RenderBrightfieldStack`, one image per distinct focus, z sequences) and live mode (scene per
+  pose, image per focus). No GPU path, no drift, CellField only.
+- [ ] Visual check in Micro-Manager Studio; [ ] MSBuild of the DLL (only the Linux test `.so` was built);
+  [ ] waveorder weak-phase comparison; [ ] GPU path; [ ] stage-move prefetch.

@@ -133,6 +133,18 @@ public:
    long Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           int nx, int ny, int nz, unsigned populations, float* out);
 
+   // Optical volume (ABI 6, BrightField): per voxel of an nx x ny x nz grid
+   // over the rect and [zMin, zMax) (finite), the volume fractions of
+   // cytoplasm (cell body minus nucleus), nucleus and microtubule (12.5 nm
+   // tubes), channel-major: out[((ch*nz + k)*ny + iy)*nx + ix], ch = 0, 1, 2.
+   // Each column is sampled at sub x sub points per voxel footprint; the
+   // z overlaps are exact (the body is a height field over the coverslip,
+   // the nucleus an ellipsoid). Pure geometry: no optical constants. Cells
+   // add (packing keeps them apart). Returns the number of cells that reach
+   // the rect.
+   long OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                              int nx, int ny, int nz, int sub, float* out);
+
    CellAssets& Assets(const Cell& c);
    void DropCaches();
    const WorldStats& Stats() const { return stats_; }
@@ -163,6 +175,9 @@ private:
    bool CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const;
 
    std::vector<Cell> PackBlock(int32_t bx, int32_t by) const;
+   // Builds the assets of those cells not cached yet, in parallel, for the
+   // next Assets() calls to take (they keep the usual order).
+   void PrebuildAssets(const std::vector<Cell>& cells);
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
    // For every 1 um dye block that can reach the rect/z range, in a fixed
    // order: prep(DyeBlock&) -- work on that block alone, run in parallel

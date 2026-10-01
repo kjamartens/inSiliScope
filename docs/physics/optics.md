@@ -68,3 +68,35 @@ Implementation points that matter for accuracy and speed:
 
 A GPU path runs the same WGSL source on WebGPU in the viewer and on Direct3D 11 in the adapter (fp16 plane spectra, noise on the
 GPU), self-checks against the CPU at startup and falls back to the CPU on any failure.
+
+## BrightField imaging
+
+Transmitted light through the cells (`General_ImagingModality = BrightField`; CellField only). Only simulated
+structures make contrast: the core's optical volume gives, per voxel, the volume fractions of cytoplasm, nucleus and
+microtubule, and the renderer turns them into refractive-index slices (`SimType_CellFieldIndexMedium` 1.337,
+`...Cytoplasm` 1.360, `...Nucleus` 1.355, `...Microtubule` 1.48; optional absorption `SimType_CellFieldAbsorptionPerUm`).
+Structures that dominate real brightfield images (nucleoli, lipid droplets, vesicles, mitochondria...) are absent until
+the world simulates them.
+
+The model is scalar wave optics with partially coherent Koehler illumination (Abbe): the condenser aperture
+(`General_BrightFieldCondenserNa`, default 0.55) is sampled by equal-area source points; each tilted plane wave is
+propagated down through the slices (multislice / beam propagation: phase screen, then the angular-spectrum step
+\(e^{i k_z \Delta z}\)); the exit field is refocused to the focal plane and filtered by the objective pupil (NA and the
+PSF's Zernike aberrations); the intensities of all source points add:
+
+\[ I(x,y;Z) = \frac{1}{N}\sum_{s=1}^{N} \left| \mathcal{F}^{-1}\!\left[ P(\mathbf k)\, e^{i k_z (z_{obj}-Z)}\, E_s(\mathbf k) \right] \right|^2 \]
+
+Since the specimen propagation does not depend on focus, a focus change costs one inverse FFT per source point.
+One number trades speed for precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`):
+
+| Quality | Source points | Grid cells/pixel | Slice step | 256 px setup / per focus (4 cores) |
+|---|---|---|---|---|
+| 1 | 6 | 1 | one thin screen | 0.3 s / 10 ms |
+| 2 | 12 | 1 | 1 um | 0.4 s / 12 ms |
+| 3 (default) | 24 | 2 | 0.5 um | 2.9 s / 0.12 s |
+| 4 | 48 | 2 | 0.25 um | 10 s / 0.24 s |
+| 5 | 96 | 3 | 0.125 um | 6 s / 90 s |
+
+Each knob can also be set alone (`bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`). A weak phase object in focus
+shows almost no contrast; defocus brings it out with opposite signs above and below focus, as in a real microscope.
+Details, the package survey and the list of missing structures: `spec/BRIGHTFIELD.md`.

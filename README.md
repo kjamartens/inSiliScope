@@ -9,7 +9,7 @@ nucleus, cytoplasm, microtubules, dye sites) and images it as a single-molecule 
 widefield image, with a physical PSF and camera noise model. Every cell is a pure function of `(seed, address)`, so
 any window of the field can be generated on its own, in any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan through the field, render SMLM/widefield movies, save TIFFs.
+- **Live viewer** (browser, WebAssembly): pan through the field, render SMLM/widefield/brightfield movies, save TIFFs.
 - **Micro-Manager adapter**: `Camera`, `XYStage`, `ZStage` devices; live or precomputed acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.
 
@@ -31,6 +31,9 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
   Gibson-Lanni with Zernike aberrations by default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), sub-pixel placement, sCMOS/EMCCD noise, background, drift.
 - **WideField**: all labelled dyes at once, 3D PSF convolution by FFT, photobleaching in physical units (extinction, QY,
   photon budget), world-anchored bleach memory, hardware z stacks, GPU path (WebGPU / Direct3D 11).
+- **BrightField** (exploration): transmitted light through the cells' refractive index (cytoplasm, nucleus,
+  microtubules only -- nothing the world does not simulate), partially coherent Koehler illumination, multislice
+  wave optics, one quality setting from fast to precise ([spec/BRIGHTFIELD.md](spec/BRIGHTFIELD.md)).
 
 Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/physics/world-model/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
 

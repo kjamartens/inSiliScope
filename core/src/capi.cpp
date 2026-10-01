@@ -257,4 +257,19 @@ int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, do
    }
 }
 
+int32_t isc_optical_volume_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                     double zMax, int32_t nx, int32_t ny, int32_t nz, int32_t sub, float* out)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || nx <= 0 || ny <= 0 || nz <= 0 || !out || sub < 1 || sub > 16 ||
+       !std::isfinite(zMin) || !std::isfinite(zMax) || !(zMax > zMin))
+      return -1;
+   if (3.0 * nx * ny * nz > 2.0e9) return -1;
+   try {
+      const long n = w->w.OpticalVolumeInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, out);
+      return n > INT32_MAX ? -1 : (int32_t)n;
+   } catch (...) {
+      return -1;
+   }
+}
+
 } // extern "C"

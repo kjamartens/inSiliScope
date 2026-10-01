@@ -47,7 +47,7 @@ using ScopeSpec = std::map<std::string, double>;
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
 // An option's value from text: a number, or a name (modality: SuperRes,
-// WideField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
+// WideField, BrightField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
 // DoubleHelix; psf-interp: Nearest, Linear, Cubic, Fft; psf-zernike-preset:
 // the PSFParam_PsfZernikePreset names). False if neither.
 bool ScopeOptionValue(const std::string& name, const char* text, double& value);
@@ -114,5 +114,14 @@ private:
 
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err);
+
+// BrightField (modality 2): the transmitted-light image at the spec's focus
+// (BrightfieldScene), times bf-photons-per-px-per-sec x exposure, then the
+// camera noise per frame (the specimen does not change between frames).
+struct BrightfieldSpec;
+bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::string& err);
+bool RenderBrightfieldMovie(const ScopeSpec& spec,
+                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err);
 
 } // namespace sim

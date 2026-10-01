@@ -9,6 +9,8 @@
  * and per-cell geometry for the viewer. ABI 3: activation as a rate per dye,
  * non-bleaching (persistent) sites. ABI 4: isc_world_set_dye_cache, isc_world_prefetch.
  * ABI 5: isc_density3d_in_window (z-resolved, per population; WideField).
+ * ABI 6: isc_optical_volume_in_window (cytoplasm/nucleus/microtubule volume
+ * fractions per voxel; BrightField).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -29,7 +31,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 5
+#define ISC_ABI_VERSION 6
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -153,6 +155,21 @@ ISC_API int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double 
 ISC_API int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                         double zMin, double zMax, int32_t nx, int32_t ny, int32_t nz,
                                         int32_t populations, float* out);
+
+/* Optical volume (ABI 6, BrightField): the volume fractions of cytoplasm
+ * (cell body minus nucleus), nucleus and microtubules (12.5 nm tubes) in
+ * each voxel of an nx x ny x nz grid over the window, written channel-major
+ * to out[3*nx*ny*nz]: out[((ch*nz + k)*ny + iy)*nx + ix], ch = 0 cytoplasm,
+ * 1 nucleus, 2 microtubule. Pure geometry (no refractive indices). Each
+ * voxel column is sampled at sub x sub points (1..16) across its footprint;
+ * z overlaps are exact. zMin/zMax must be finite. Returns the number of
+ * cells that reach the window, or -1 on bad arguments. */
+#define ISC_OPT_CYTOPLASM 0
+#define ISC_OPT_NUCLEUS 1
+#define ISC_OPT_MICROTUBULE 2
+ISC_API int32_t isc_optical_volume_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                             double zMin, double zMax, int32_t nx, int32_t ny, int32_t nz,
+                                             int32_t sub, float* out);
 
 #ifdef __cplusplus
 }

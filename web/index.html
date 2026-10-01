@@ -143,12 +143,18 @@
       <div class="pair"><span class="k">Z stage (focus above coverslip) / z range (µm, 0 = all)</span><input type="number" id="mv_z" value="0.5" step="0.1"><input type="number" id="mv_z-range-um" value="7" min="0" step="0.5" title="Dyes within ± z range / 2 of the focal plane are rendered (SimType_CellFieldZRangeUm)"></div>
       <div class="pair"><span class="k">Background (photons/px/s) / start time (s)</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
       <div class="pair"><span class="k">Seed (noise)</span><input type="number" id="mv_seed" value="42" step="1"></div>
-      <div class="pair"><span class="k">Imaging modality</span><select id="mv_modality" title="General_ImagingModality: SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics)"><option value="0">SuperRes</option><option value="1">WideField</option></select></div>
+      <div class="pair"><span class="k">Imaging modality</span><select id="mv_modality" title="General_ImagingModality: SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells' refractive index (partially coherent multislice wave optics)"><option value="0">SuperRes</option><option value="1">WideField</option><option value="2">BrightField</option></select></div>
       <div class="pair"><span class="k">PSF</span><select id="mv_psf-model" title="PSFParam_PsfModel: GibsonLanniZernike is the adapter's default (scalar Gibson-Lanni + Zernike, as webSMLM; kernel half width 3 µm here); Gaussian is fast but has no defocus"><option value="3">Gibson-Lanni + Zernike</option><option value="0">Gaussian</option></select></div>
       <div class="pair"><span class="k">Aberrations</span><select id="mv_psf-zernike-preset" title="PSFParam_PsfZernikePreset"><option value="0">None</option><option value="1">AstigmatismWeak</option><option value="2">AstigmatismModerate</option><option value="3">AstigmatismStrong</option><option value="4">ComaWeak</option><option value="5">ComaStrong</option><option value="6">SphericalWeak</option><option value="7">SphericalStrong</option><option value="8">TrefoilModerate</option><option value="9" selected>MixedRealisticObjective</option><option value="10">SaddlePoint</option><option value="11">ExtendedRange</option><option value="12">ExtendedRangeStrong</option></select></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF upscaling / z plane (nm)</span><input type="number" id="mv_wf-upscale" value="1" min="1" max="4" step="1"><input type="number" id="mv_wf-plane-nm" value="25" min="5" max="500" step="5"></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF excitation (photons/µm²/s) / QY</span><input type="number" id="mv_wf-excitation-photons-per-um2-per-sec" value="4e8" min="0" step="1e8"><input type="number" id="mv_wf-quantum-yield" value="0.7" min="0" max="1" step="0.05"></div>
       <div class="wfRow pair" style="display:none"><span class="k">WF photon budget / ε (M⁻¹cm⁻¹)</span><input type="number" id="mv_wf-photon-budget" value="5000" min="0" step="500" title="Emitted photons per dye before it bleaches (0 = never)"><input type="number" id="mv_wf-extinction-coeff" value="270000" min="1000" max="1000000" step="10000"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">BF quality: <b id="mv_bf-quality-name">3 balanced</b></span><input type="range" id="mv_bf-quality" value="3" min="1" max="5" step="1" title="General_BrightFieldQuality: speed vs precision. 1: thin object, 6 condenser points, camera-pixel grid ... 5: 0.125 µm slices, 96 points, 3x grid (slow). Sets the source count, grid, geometry samples and slice step unless given below"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">BF sources / slice (µm) (0 / -1 = from quality)</span><input type="number" id="mv_bf-sources" value="0" min="0" max="256" step="1" title="General_BrightFieldSources: condenser source points"><input type="number" id="mv_bf-slice-um" value="-1" min="-1" max="5" step="0.125" title="General_BrightFieldSliceUm: multislice step; 0 = one thin slice"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">BF condenser NA / λ (nm)</span><input type="number" id="mv_bf-condenser-na" value="0.55" min="0" max="1.4" step="0.05" title="General_BrightFieldCondenserNa: 0 = coherent; close to the objective NA flattens a phase object in focus"><input type="number" id="mv_bf-wavelength-nm" value="550" min="300" max="1000" step="10"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">BF lamp (photons/px/s) / absorption (1/µm)</span><input type="number" id="mv_bf-photons-per-px-per-sec" value="40000" min="0" step="5000"><input type="number" id="mv_bf-absorption-per-um" value="0" min="0" step="0.01" title="SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material (unstained: 0)"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">n medium / cytoplasm</span><input type="number" id="mv_bf-n-medium" value="1.337" min="1" max="2" step="0.001"><input type="number" id="mv_bf-n-cytoplasm" value="1.36" min="1" max="2" step="0.001"></div>
+      <div class="bfRow pair" style="display:none"><span class="k">n nucleus / microtubule</span><input type="number" id="mv_bf-n-nucleus" value="1.355" min="1" max="2" step="0.001"><input type="number" id="mv_bf-n-microtubule" value="1.48" min="1" max="2" step="0.01"></div>
       <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (the PSF chosen above, sCMOS defaults), in a worker.">Make movie here</button></label>
     </fieldset>
 
@@ -709,7 +715,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 5) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 5');
+  if (M._isc_abi_version() !== 6) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 6');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   function setParam(pp, k, v) {
@@ -1426,7 +1432,9 @@ function drawDyes(seed, p, pxPerUm) {
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
   'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed', 'modality',
   'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
-  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset'];
+  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset', 'bf-quality', 'bf-sources', 'bf-slice-um',
+  'bf-condenser-na', 'bf-wavelength-nm', 'bf-photons-per-px-per-sec', 'bf-absorption-per-um', 'bf-n-medium',
+  'bf-n-cytoplasm', 'bf-n-nucleus', 'bf-n-microtubule'];
 // The PSF kernel's half width: 3 um here instead of the adapter's 7 um keeps
 // the kernel stack ~75 MB instead of ~400 MB in the worker's WASM memory. The
 // cli reproduces a viewer movie with --psf-kernel-half-width-nm 3000.
@@ -1473,7 +1481,7 @@ function onMovieResult(d) {
   cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
-  const what = d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
+  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? 'BrightField (transmitted light)' : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
                            : `${d.blinks} blinks`;
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
@@ -1551,6 +1559,11 @@ document.getElementById('mv_psf-model').addEventListener('change', e => {
 });
 document.getElementById('mv_modality').addEventListener('change', e => {
   for (const r of document.querySelectorAll('.wfRow')) r.style.display = e.target.value === '1' ? '' : 'none';
+  for (const r of document.querySelectorAll('.bfRow')) r.style.display = e.target.value === '2' ? '' : 'none';
+});
+const BF_QUALITY_NAMES = ['', 'fastest', 'fast', 'balanced', 'precise', 'most precise (slow)'];
+document.getElementById('mv_bf-quality').addEventListener('input', e => {
+  document.getElementById('mv_bf-quality-name').textContent = e.target.value + ' ' + BF_QUALITY_NAMES[+e.target.value];
 });
 document.getElementById('mv_play').addEventListener('click', toggleMoviePlay);
 document.getElementById('mv_slider').addEventListener('input', e => { if (movie) showMovieFrame(+e.target.value); });

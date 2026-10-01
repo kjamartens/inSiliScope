@@ -655,6 +655,124 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    }
 }
 
+sim::BrightfieldSpec CInSiliScopeCamera::BuildBrightfieldSpec(const sim::SimulationParams& params,
+                                                              const sim::CellFieldQuery& q, unsigned w,
+                                                              unsigned h) const
+{
+   sim::BrightfieldSpec s;
+   s.originXUm = q.originXUm;
+   s.originYUm = q.originYUm;
+   s.width = w;
+   s.height = h;
+   s.pixelUm = params.pixelSizeNm / 1000.0;
+   auto N = [&](int i) { return brightFieldNum_[i].load(); };
+   s.quality = static_cast<int>(std::lround(std::min(5.0, std::max(1.0, N(BF_QUALITY)))));
+   s.sources = static_cast<int>(std::lround(std::max(0.0, N(BF_SOURCES))));
+   s.upscale = static_cast<int>(std::lround(std::max(0.0, N(BF_UPSCALING))));
+   s.sub = static_cast<int>(std::lround(std::max(0.0, N(BF_GEOMETRY_SAMPLES))));
+   s.sliceUm = N(BF_SLICE_UM) < 0 ? -1.0 : N(BF_SLICE_UM);
+   s.condenserNa = std::max(0.0, N(BF_CONDENSER_NA));
+   s.wavelengthNm = std::max(1.0, N(BF_WAVELENGTH_NM));
+   s.na = std::max(0.01, psfNa_.load());
+   s.nMedium = N(BF_INDEX_MEDIUM);
+   s.nCytoplasm = N(BF_INDEX_CYTOPLASM);
+   s.nNucleus = N(BF_INDEX_NUCLEUS);
+   s.nMicrotubule = N(BF_INDEX_MICROTUBULE);
+   s.absorptionPerUm = std::max(0.0, N(BF_ABSORPTION_PER_UM));
+   s.zernike = sim::ZeroZernikeCoefficients();
+   if (N(BF_ABERRATIONS) != 0 && CurrentPsfModel() == sim::PsfModelKind::GibsonLanniZernike)
+   {
+      bool ok = false;
+      s.zernike = sim::ParseZernikeCoefficients(BuildPsfGeneratorRequest().zernikeCoefficients, ok);
+   }
+   return s;
+}
+
+void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength,
+                                                unsigned w, unsigned h, const sim::SimulationParams& params,
+                                                const sim::CellFieldSettings& cellField, double stageXUm,
+                                                double stageYUm, const sim::PixelOffsetMap& offsetMap,
+                                                const sim::PixelGainMap& gainMap,
+                                                const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed)
+{
+   if (params.driftNmPerSecX > 0.0)
+      LogMessage("BrightField: SimType_DriftNmPerSec is not applied in BrightField (yet).", false);
+   auto t0 = std::chrono::steady_clock::now();
+   std::string err;
+   sim::CellFieldSource source;
+   // As WideField: an armed z sequence gives frame f the position
+   // seq[f % n]; otherwise the Z stage, read per batch of frames.
+   const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
+   const bool useSeq = zseq.armed && !zseq.positions.empty();
+   stackZSeqVersion_ = useSeq ? zseq.version : -1;
+   auto focusOf = [&](double z) {
+      return CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0).zCullCentreUm;
+   };
+   const sim::CellFieldQuery q =
+      CellFieldQueryFor(stageXUm, stageYUm, 0.0, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
+   const sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, q, w, h);
+   sim::BrightfieldScene scene;
+   bool ok = source.Configure(cellField, err) && scene.Update(source, spec, 1, err);
+   if (!ok)
+      LogMessage("BrightField: nothing rendered (" + err + ")", false);
+   else
+   {
+      const sim::BrightfieldQuality bq = spec.Resolved();
+      std::ostringstream m;
+      m << "BrightField: quality " << spec.quality << ", " << scene.Sources() << " sources, " << scene.Slices()
+        << " slices, " << scene.GridNx() << "x" << scene.GridNy() << " grid (upscaling " << bq.upscale
+        << ", geometry samples " << bq.sub << ") at stage (" << stageXUm << ", " << stageYUm << ") um ("
+        << std::fixed << std::setprecision(2)
+        << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s setup)";
+      LogMessage(m.str());
+   }
+   // Photons per pixel of the empty field per frame.
+   const double flux = std::max(0.0, brightFieldNum_[BF_PHOTONS_PER_PX_PER_SEC].load()) * params.frameDurationSec;
+   std::map<double, std::vector<float>> images; // world focus -> transmitted intensity
+   auto imageAt = [&](double focus) -> const std::vector<float>* {
+      auto it = images.find(focus);
+      if (it != images.end())
+         return &it->second;
+      std::vector<float> img;
+      if (!ok || !scene.Image(focus, img, err))
+         return nullptr;
+      for (float& v : img)
+         v = static_cast<float>(v * flux);
+      return &(images[focus] = std::move(img));
+   };
+   const sim::CameraNoiseParams cam = params.Camera();
+   const unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
+   const long batch = static_cast<long>(nThreads) * 4;
+   const std::vector<float> dark(static_cast<size_t>(w) * h, 0.0f);
+   for (long f0 = 0; f0 < stackLength; f0 += batch)
+   {
+      const long f1 = std::min(stackLength, f0 + batch);
+      std::vector<const std::vector<float>*> src(static_cast<size_t>(f1 - f0));
+      const double zNow = sim::GetSharedStageState().zPositionUm.load();
+      for (long f = f0; f < f1; ++f)
+      {
+         const double z = useSeq ? zseq.positions[static_cast<size_t>(f) % zseq.positions.size()] : zNow;
+         const std::vector<float>* img = imageAt(focusOf(z));
+         src[static_cast<size_t>(f - f0)] = img ? img : &dark;
+      }
+      std::atomic<long> next{f0};
+      auto worker = [&]() {
+         for (long f; (f = next.fetch_add(1)) < f1;)
+            sim::ApplyNoiseChain(*src[static_cast<size_t>(f - f0)], stack[static_cast<size_t>(f)], w, h, cam,
+                                 offsetMap, gainMap, readNoiseMap, noiseSeed, static_cast<uint32_t>(f));
+      };
+      std::vector<std::thread> pool;
+      for (unsigned t = 1; t < nThreads; ++t)
+         pool.emplace_back(worker);
+      worker();
+      for (std::thread& t : pool)
+         t.join();
+      stackFramesGenerated_ = f1;
+   }
+   if (!err.empty() && ok)
+      LogMessage("BrightField: " + err, false);
+}
+
 void CInSiliScopeCamera::SetGpuStatus(const std::string& s)
 {
    std::lock_guard<std::mutex> lock(gpuStatusMutex_);
@@ -782,7 +900,7 @@ void CInSiliScopeCamera::StartStackGeneration()
 
    stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params,
                                   patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
-                                  stageX, stageY, stageZ, WideFieldSelected());
+                                  stageX, stageY, stageZ, modality_.load());
 }
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
@@ -790,8 +908,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                                              std::string customPointsFile, std::vector<double> spacingsNm,
                                              long seed, sim::PsfGeneratorRequest psfRequest,
                                              sim::StructureParams structure, sim::CellFieldSettings cellField,
-                                             double stageXUm, double stageYUm, double stageZUm, bool wideField)
+                                             double stageXUm, double stageYUm, double stageZUm, int modality)
 {
+   const bool wideField = modality == 1, brightField = modality == 2;
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
    // Independent of localRng (see BuildStructurePattern's own doc comment
    // in Simulation/SMLMStructures.h): site-list generation/labeling can
@@ -828,10 +947,13 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    const bool isCellField = patternType == sim::PATTERN_CELL_FIELD;
    // WideField renders every labelled dye (RenderWidefieldStack below), so
    // it needs no blinks.
-   const bool wf = isCellField && wideField;
-   if (wideField && !isCellField)
-      LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering SuperRes.",
-                 false);
+   // BrightField renders the cells' refractive index (RenderBrightfieldStack):
+   // no blinks either. Both go down the wf branches below.
+   const bool bf = isCellField && brightField;
+   const bool wf = (isCellField && wideField) || bf;
+   if ((wideField || brightField) && !isCellField)
+      LogMessage(std::string("General_ImagingModality = ") + (wideField ? "WideField" : "BrightField") +
+                 " applies to the CellField pattern only; rendering SuperRes.", false);
    std::vector<sim::BlinkEvent> events;
    // CellField: the query runs on its own thread while the maps and the PSF
    // kernel are made below (neither depends on it); joined before events is
@@ -886,7 +1008,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    localReadNoiseMap.Generate(fullW, fullH, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, localRng);
 
    sim::PsfKernelCache localPsfCache;
-   if (psfRequest.model != sim::PsfModelKind::Gaussian)
+   if (psfRequest.model != sim::PsfModelKind::Gaussian && !bf) // BrightField has its own optics
    {
       std::string err;
       // Runs on the stack-generation worker thread (not the MM device
@@ -972,7 +1094,10 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    bool gpuOk = !wf && PrepareGpu(gpu, localPsfCache, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
                                   shaping, params);
    auto startTime = std::chrono::steady_clock::now();
-   if (wf)
+   if (bf)
+      RenderBrightfieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm,
+                             localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed);
+   else if (wf)
       RenderWidefieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm, localPsfCache,
                            shaping, localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed);
    if (gpuOk)
@@ -1216,6 +1341,12 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // scenes are in GPU mode.
    std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
    bool wfGpuTried = false, wfGpuMode = false;
+   // BrightField (CellField only): the scene of the current pose (rebuilt
+   // when the pose or a setting changes; a focus change only re-images) and
+   // the transmitted intensity of the current frame.
+   bool bfActive = false, bfErrLogged = false;
+   sim::BrightfieldScene bfScene;
+   std::vector<float> bfImage;
    // Noise and publication of the previous WideField frame, overlapping the
    // next frame's scene work.
    std::thread wfFinisher;
@@ -1371,6 +1502,17 @@ void CInSiliScopeCamera::LiveProducerLoop()
             LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
                        "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
 
+         bfActive = BrightFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
+         if (BrightFieldSelected() && !bfActive)
+            LogMessage("General_ImagingModality = BrightField applies to the CellField pattern only; rendering "
+                       "SuperRes.", false);
+         if (bfActive)
+         {
+            gpuOk = false;
+            bfErrLogged = false;
+            if (params.driftNmPerSecX > 0.0)
+               LogMessage("BrightField: SimType_DriftNmPerSec is not applied in BrightField (yet).", false);
+         }
          wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
          if (WideFieldSelected() && !wfActive)
             LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering "
@@ -1442,7 +1584,24 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
             sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
                                                       liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            if (wfActive)
+            if (bfActive)
+            {
+               // A new pose or setting rebuilds the scene (seconds at high
+               // quality); a focus change re-images it (one inverse FFT per
+               // source).
+               std::string err;
+               const sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, q, w, h);
+               const bool ok = bfScene.Update(cellField, spec, static_cast<uint64_t>(appliedConfigVersion), err) &&
+                               bfScene.Image(q.zCullCentreUm, bfImage, err);
+               if (!ok)
+               {
+                  bfImage.clear();
+                  if (!bfErrLogged)
+                     LogMessage("BrightField: " + err, false);
+                  bfErrLogged = true;
+               }
+            }
+            else if (wfActive)
             {
                // Only the pieces that changed are rebuilt: the dyes (from the
                // shared tiles) when the pose leaves the grid rect, the plane
@@ -1626,6 +1785,19 @@ void CInSiliScopeCamera::LiveProducerLoop()
          });
          rendered = true;
          publishedAsync = true;
+      }
+      if (bfActive)
+      {
+         // The lamp: photons per pixel of the empty field, times the
+         // transmitted intensity (dark if the scene failed); camera noise.
+         const double flux = std::max(0.0, brightFieldNum_[BF_PHOTONS_PER_PX_PER_SEC].load()) * params.frameDurationSec;
+         photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
+         if (bfImage.size() == photonImg.size())
+            for (size_t i = 0; i < photonImg.size(); ++i)
+               photonImg[i] = static_cast<float>(bfImage[i] * flux);
+         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
+                              liveNoiseSeed, noiseFrame, true);
+         rendered = true;
       }
       if (!rendered && gpuOk && psfCache.valid)
       {
@@ -2677,12 +2849,14 @@ int CInSiliScopeCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionTy
 int CInSiliScopeCamera::OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
-      pProp->Set(wideField_.load() ? g_ModalityWideField : g_ModalitySuperRes);
+      pProp->Set(modality_.load() == 2   ? g_ModalityBrightField
+                 : modality_.load() == 1 ? g_ModalityWideField
+                                         : g_ModalitySuperRes);
    else if (eAct == MM::AfterSet)
    {
       std::string s;
       pProp->Get(s);
-      wideField_ = (s == g_ModalityWideField);
+      modality_ = s == g_ModalityBrightField ? 2 : s == g_ModalityWideField ? 1 : 0;
       InvalidateStack();
    }
    return DEVICE_OK;
@@ -2704,6 +2878,29 @@ int CInSiliScopeCamera::OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionTyp
       double v;
       pProp->Get(v);
       wideFieldNum_[index] = v;
+      InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnBrightFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
+{
+   if (index < 0 || index >= BF_COUNT)
+      return DEVICE_INVALID_PROPERTY;
+   const bool integer = index == BF_QUALITY || index == BF_SOURCES || index == BF_UPSCALING ||
+                        index == BF_GEOMETRY_SAMPLES || index == BF_ABERRATIONS;
+   if (eAct == MM::BeforeGet)
+   {
+      if (integer)
+         pProp->Set(static_cast<long>(brightFieldNum_[index].load()));
+      else
+         pProp->Set(brightFieldNum_[index].load());
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      double v;
+      pProp->Get(v);
+      brightFieldNum_[index] = v;
       InvalidateStack();
    }
    return DEVICE_OK;

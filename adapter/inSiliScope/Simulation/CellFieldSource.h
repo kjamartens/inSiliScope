@@ -107,6 +107,16 @@ public:
    long Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx, int ny, int nz,
                   int populations, float* out);
 
+   // Volume fractions of cytoplasm, nucleus and microtubules per voxel
+   // (isc_optical_volume_in_window, channel-major out[3*nx*ny*nz]; zMin/zMax
+   // finite, sub x sub samples per voxel column). Returns the cell count, or
+   // -1 on a failure.
+   long OpticalVolume(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx, int ny, int nz,
+                      int sub, float* out);
+   // Tallest cell (peak height, um) whose footprint circle reaches the rect;
+   // 0 if none, -1 on a failure.
+   double MaxCellHeight(double x0, double y0, double x1, double y1);
+
 private:
    IscWorld* world_ = nullptr;
    CellFieldSettings settings_;

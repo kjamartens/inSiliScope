@@ -21,6 +21,12 @@ Upcoming ideas:
   row bands on all cores, [x] bounds-check-free splat, [x] Fft placement: tabulated twiddles, line
   transforms on all cores in live mode, [x] cli frames in parallel batches.
 - more targets
+- brightfield (exploration, 2026-10-01, spec/BRIGHTFIELD.md): [x] package survey (waveorder, chromatix, TorchOptics,
+  PyWolf, holopy, CytoPacq/SimuCell: none embeddable, chromatix-style multislice ported), [x] core ABI 6 optical volume,
+  [x] multislice + Abbe engine with a speed/precision quality (1-5), [x] cli/viewer (slider)/adapter (stack, live, z
+  sequences), [x] tests (grating theory, empty field, determinism, adapter, viewer), [x] list of missing structures
+  (only simulated ones make contrast). Next: [ ] MSBuild + visual check in MM, [ ] waveorder comparison, [ ] GPU path,
+  [ ] stage-move prefetch, [ ] phase contrast / DIC, [ ] the missing structures (nucleoli, lipid droplets, vesicles...).
 - 2026-10-01: [x] C++ Gibson-Lanni+Zernike PSF (`Simulation/ZernikePsf.*`, = webSMLM's scalar chirp-Z model) in the
   adapter (no JVM for the default model), cli and viewer (their default PSF now); [x] photonCV 0.5 and WideField
   excitation 4e8 (t1/2 120 s) defaults; [x] the 2x2 overview (map, structures, widefield, SMLM) on the gallery and

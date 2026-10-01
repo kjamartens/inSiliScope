@@ -181,6 +181,27 @@ CellAssets& World::Assets(const Cell& c)
    return *assets_.front().second;
 }
 
+void World::PrebuildAssets(const std::vector<Cell>& cells)
+{
+   std::vector<const Cell*> missing;
+   for (const Cell& c : cells) {
+      const auto key = std::make_pair(c.cx, c.cy);
+      bool known = assetPrebuilt_.count(key) > 0;
+      for (auto it = assets_.begin(); !known && it != assets_.end(); ++it) known = it->first == key;
+      if (!known) {
+         missing.push_back(&c);
+         assetPrebuilt_[key] = nullptr;
+      }
+   }
+   assetPrebuilt_.clear();
+   if (missing.size() > 1) {
+      std::vector<std::unique_ptr<CellAssets>> built(missing.size());
+      ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = BuildCellAssets(seed_, *missing[i], p_); });
+      for (size_t i = 0; i < missing.size(); i++)
+         assetPrebuilt_[std::make_pair(missing[i]->cx, missing[i]->cy)] = std::move(built[i]);
+   }
+}
+
 template <class Fn>
 void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double zMin, double zMax,
                             const BlockPrep& prep, const BlockNeeds& needs, Fn fn)
@@ -190,25 +211,7 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
    CellsInRect(x0, y0, x1, y1, cells);
    // The assets of the cells not cached, built in parallel (Assets takes them
    // in the usual order). Not under a deadline: that walk may stop early.
-   if (!deadline_) {
-      std::vector<const Cell*> missing;
-      for (const Cell& c : cells) {
-         const auto key = std::make_pair(c.cx, c.cy);
-         bool known = assetPrebuilt_.count(key) > 0;
-         for (auto it = assets_.begin(); !known && it != assets_.end(); ++it) known = it->first == key;
-         if (!known) {
-            missing.push_back(&c);
-            assetPrebuilt_[key] = nullptr;
-         }
-      }
-      assetPrebuilt_.clear();
-      if (missing.size() > 1) {
-         std::vector<std::unique_ptr<CellAssets>> built(missing.size());
-         ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = BuildCellAssets(seed_, *missing[i], p_); });
-         for (size_t i = 0; i < missing.size(); i++)
-            assetPrebuilt_[std::make_pair(missing[i]->cx, missing[i]->cy)] = std::move(built[i]);
-      }
-   }
+   if (!deadline_) PrebuildAssets(cells);
    const double blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
    struct Item { DyeBlock* b; int mt, block; };
    std::vector<Item> batch;
@@ -570,6 +573,103 @@ long World::Density3dInWindow(double x0, double y0, double x1, double y1, double
       }
    });
    return total;
+}
+
+
+namespace {
+double Overlap(double a0, double a1, double b0, double b1)
+{
+   return std::max(0.0, std::min(a1, b1) - std::max(a0, b0));
+}
+} // namespace
+
+long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                                  int nx, int ny, int nz, int sub, float* out)
+{
+   const size_t plane = (size_t)nx * ny, chan = plane * nz;
+   std::fill(out, out + chan * 3, 0.0f);
+   std::vector<Cell> cells;
+   CellsInRect(x0, y0, x1, y1, cells);
+   PrebuildAssets(cells);
+   const double px = (x1 - x0) / nx, py = (y1 - y0) / ny, dz = (zMax - zMin) / nz;
+   const double subW = 1.0 / ((double)sub * sub);
+   const double mtArea = jsm::PI * (MT_RADIUS_NM / 1000) * (MT_RADIUS_NM / 1000);
+   const double mtStep = 0.5 * std::min(px, std::min(py, dz));
+   for (const Cell& c : cells) {
+      CellAssets& A = Assets(c);
+      const CytoMesh& mesh = A.geom.mesh;
+      const bool rotated = !(c.packRot == 0 || std::isnan(c.packRot));
+      const double cr = rotated ? jsm::cos(c.packRot) : 1, sr = rotated ? jsm::sin(c.packRot) : 0;
+      const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
+      const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2);
+      const double nrz = c.nucHeight / 2;
+      const int ix0 = std::max(0, (int)std::floor((c.x - c.rOuter - x0) / px));
+      const int ix1 = std::min(nx - 1, (int)std::floor((c.x + c.rOuter - x0) / px));
+      const int iy0 = std::max(0, (int)std::floor((c.y - c.rOuter - y0) / py));
+      const int iy1 = std::min(ny - 1, (int)std::floor((c.y + c.rOuter - y0) / py));
+      if (ix0 <= ix1 && iy0 <= iy1) {
+         // Rows in parallel: each writes only its own row of every plane.
+         ParallelFor((size_t)(iy1 - iy0 + 1), 4, [&](size_t r) {
+            const int iy = iy0 + (int)r;
+            for (int ix = ix0; ix <= ix1; ix++) {
+               for (int sv = 0; sv < sub; sv++)
+                  for (int su = 0; su < sub; su++) {
+                     const double dx = x0 + (ix + (su + 0.5) / sub) * px - c.x;
+                     const double dy = y0 + (iy + (sv + 0.5) / sub) * py - c.y;
+                     const double lx = dx * cr + dy * sr, ly = -dx * sr + dy * cr;
+                     const double rr = jsm::hypot(lx, ly);
+                     if (rr > c.rOuter || rr > CellRadiusAt(c, jsm::atan2(ly, lx))) continue;
+                     const double h = SampleCytoMeshHeight(c, mesh, lx, ly);
+                     if (!(h > 0)) continue;
+                     // Nucleus chord through this column, clipped to the body.
+                     const double ex = lx - c.nucOffX, ey = ly - c.nucOffY;
+                     const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
+                     const double q = 1 - ux * ux - uy * uy;
+                     double zn0 = 0, zn1 = 0;
+                     if (q > 0 && nrz > 0) {
+                        const double half = nrz * std::sqrt(q);
+                        zn0 = std::max(0.0, c.nucZ - half);
+                        zn1 = std::min(h, c.nucZ + half);
+                        if (zn1 < zn0) zn0 = zn1 = 0;
+                     }
+                     const int k0 = std::max(0, (int)std::floor((0 - zMin) / dz));
+                     const int k1 = std::min(nz - 1, (int)std::floor((h - zMin) / dz));
+                     for (int k = k0; k <= k1; k++) {
+                        const double zl = zMin + k * dz, zh = zl + dz;
+                        const double nuc = Overlap(zl, zh, zn0, zn1);
+                        const double body = Overlap(zl, zh, 0, h);
+                        const size_t v = ((size_t)k * ny + iy) * nx + ix;
+                        out[v] += (float)((body - nuc) / dz * subW);
+                        out[chan + v] += (float)(nuc / dz * subW);
+                     }
+                  }
+            }
+         });
+      }
+      // Microtubules: their tube volume, deposited along the centrelines.
+      const double voxVol = px * py * dz;
+      for (const Microtubule& m : A.mts) {
+         for (size_t i = 0; i + 1 < m.pts.size(); i++) {
+            const Pt3& a = m.pts[i];
+            const Pt3& b = m.pts[i + 1];
+            const double len = jsm::hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+            if (!(len > 0)) continue;
+            const int n = std::max(1, (int)std::ceil(len / mtStep));
+            for (int j = 0; j < n; j++) {
+               const double t = (j + 0.5) / n;
+               const double lx = a.x + (b.x - a.x) * t, ly = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t;
+               const double wx = c.x + lx * cr - ly * sr, wy = c.y + lx * sr + ly * cr;
+               if (!(wx >= x0 && wx < x1 && wy >= y0 && wy < y1 && z >= zMin && z < zMax)) continue;
+               const int ix = std::min(nx - 1, (int)std::floor((wx - x0) / px));
+               const int iy = std::min(ny - 1, (int)std::floor((wy - y0) / py));
+               const int k = std::min(nz - 1, (int)std::floor((z - zMin) / dz));
+               out[2 * chan + ((size_t)k * ny + iy) * nx + ix] += (float)(len / n * mtArea / voxVol);
+            }
+         }
+      }
+   }
+   assetPrebuilt_.clear();
+   return (long)cells.size();
 }
 
 } // namespace isc

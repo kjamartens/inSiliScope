@@ -7,7 +7,7 @@ hide:
 # Viewer
 
 The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt for a 3D impression,
-then render a short SMLM or widefield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
+then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
 to the `insiliscope_cli` output with the same settings). **[Open it full screen](../viewer/index.html)** for more room.
 
 <div class="isc-viewer">
@@ -24,6 +24,8 @@ Notes:
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
+- Brightfield movies run on the CPU (one core in the browser); the **BF quality** slider trades speed for precision
+  (1: thin object, 6 condenser points ... 5: 0.125 um slices, 96 points). Levels 1-3 take seconds at 128 px.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).

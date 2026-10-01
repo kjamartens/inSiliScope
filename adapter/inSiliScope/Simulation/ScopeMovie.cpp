@@ -8,6 +8,8 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "ScopeMovie.h"
+
+#include "BrightfieldRender.h"
 #include "Parallel.h"
 
 #include "CellFieldSource.h"
@@ -73,7 +75,7 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "read-noise", 1.2, "CamParam_ReadNoiseElectrons" },
       { "gain-std-pct", 5, "CamParam_GainStdPctPerPixel" },
       { "read-noise-std-pct", 20, "CamParam_ReadNoiseStdPctPerPixel" },
-      { "modality", 0, "General_ImagingModality: 0 = SuperRes (blinks), 1 = WideField (all dyes; names accepted)" },
+      { "modality", 0, "General_ImagingModality: 0 = SuperRes (blinks), 1 = WideField (all dyes), 2 = BrightField (transmitted light; names accepted)" },
       { "wf-upscale", 1, "General_WideFieldUpscaling: WideField grid cells per pixel, per axis (1-4)" },
       { "wf-plane-nm", 25, "General_WideFieldZPlaneNm: WideField dye plane thickness, nm" },
       { "wf-kernel-um", 7, "WideField PSF kernel radius cap, um" },
@@ -81,6 +83,21 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wf-quantum-yield", 0.7, "FluoParam_WideFieldQuantumYield" },
       { "wf-photon-budget", 5000, "FluoParam_WideFieldPhotonBudget: emitted photons per dye (0 = never bleaches)" },
       { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
+      { "bf-quality", 3, "General_BrightFieldQuality: speed vs precision, 1 (fast) .. 5 (precise); sets the four below unless given" },
+      { "bf-sources", 0, "General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48/96)" },
+      { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (0 = from bf-quality: 1/1/2/2/3)" },
+      { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/3/4)" },
+      { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/1/0.5/0.25/0.125)" },
+      { "bf-margin-um", 0, "BrightField grid margin around the FOV, um (0 = from bf-quality: 2-6)" },
+      { "bf-condenser-na", 0.55, "General_BrightFieldCondenserNa: illumination NA (0 = coherent)" },
+      { "bf-wavelength-nm", 550, "General_BrightFieldWavelengthNm: illumination wavelength" },
+      { "bf-photons-per-px-per-sec", 40000, "General_BrightFieldPhotonsPerPxPerSec: empty-field photons per pixel per second" },
+      { "bf-aberrations", 1, "General_BrightFieldAberrations: 1 = the PSF's Zernike aberrations in the detection pupil, 0 = none" },
+      { "bf-n-medium", 1.337, "SimType_CellFieldIndexMedium: refractive index of the medium" },
+      { "bf-n-cytoplasm", 1.360, "SimType_CellFieldIndexCytoplasm" },
+      { "bf-n-nucleus", 1.355, "SimType_CellFieldIndexNucleus" },
+      { "bf-n-microtubule", 1.48, "SimType_CellFieldIndexMicrotubule (12.5 nm tubes)" },
+      { "bf-absorption-per-um", 0, "SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)" },
       { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (PSF and WideField collection efficiency)" },
       { "psf-model", 3, "PSFParam_PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter's JVM)" },
       { "psf-zernike-preset", 9, "PSFParam_PsfZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)" },
@@ -156,6 +173,7 @@ bool ScopeOptionValue(const std::string& name, const char* text, double& value)
    {
       if (!std::strcmp(text, "SuperRes")) { value = 0; return true; }
       if (!std::strcmp(text, "WideField")) { value = 1; return true; }
+      if (!std::strcmp(text, "BrightField")) { value = 2; return true; }
    }
    if (name == "psf-model")
    {
@@ -523,6 +541,103 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
    return true;
 }
 
+bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::string& err)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const ScopeSetup S = MakeScopeSetup(spec);
+   bs = BrightfieldSpec();
+   bs.originXUm = S.q.originXUm;
+   bs.originYUm = S.q.originYUm;
+   bs.width = S.W;
+   bs.height = S.H;
+   bs.pixelUm = S.p.pixelSizeNm / 1000.0;
+   bs.quality = static_cast<int>(std::min(5.0, std::max(1.0, O("bf-quality"))));
+   bs.sources = static_cast<int>(std::min(1024.0, std::max(0.0, O("bf-sources"))));
+   bs.upscale = static_cast<int>(std::min(8.0, std::max(0.0, O("bf-upscale"))));
+   bs.sub = static_cast<int>(std::min(16.0, std::max(0.0, O("bf-sub"))));
+   bs.sliceUm = O("bf-slice-um") < 0 ? -1.0 : std::max(0.0, O("bf-slice-um"));
+   bs.marginUm = std::max(0.0, O("bf-margin-um"));
+   bs.condenserNa = std::max(0.0, O("bf-condenser-na"));
+   bs.wavelengthNm = std::max(1.0, O("bf-wavelength-nm"));
+   bs.na = std::max(0.01, O("na"));
+   bs.nMedium = O("bf-n-medium");
+   bs.nCytoplasm = O("bf-n-cytoplasm");
+   bs.nNucleus = O("bf-n-nucleus");
+   bs.nMicrotubule = O("bf-n-microtubule");
+   bs.absorptionPerUm = std::max(0.0, O("bf-absorption-per-um"));
+   bs.zernike = ZeroZernikeCoefficients();
+   if (O("bf-aberrations") != 0)
+   {
+      PsfGeneratorRequest req;
+      std::string e;
+      if (ScopePsfRequest(spec, req, e))
+      {
+         bool ok = false;
+         bs.zernike = ParseZernikeCoefficients(req.zernikeCoefficients, ok);
+      }
+      else if (!e.empty())
+      {
+         err = e;
+         return false;
+      }
+   }
+   return true;
+}
+
+bool RenderBrightfieldMovie(const ScopeSpec& spec,
+                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const auto t0 = std::chrono::steady_clock::now();
+   const ScopeSetup S = MakeScopeSetup(spec);
+   const SimulationParams& p = S.p;
+   CellFieldSource source;
+   if (!source.Configure(S.cf, err))
+      return false;
+   BrightfieldSpec bs;
+   if (!ScopeBrightfieldSpec(spec, bs, err))
+      return false;
+   BrightfieldScene scene;
+   std::vector<float> trans;
+   const double focusUm = S.q.zCullCentreUm;
+   if (!scene.Update(source, bs, 1, err) || !scene.Image(focusUm, trans, err))
+      return false;
+   const unsigned W = S.W, H = S.H;
+   const long N = S.N;
+   const double flux = std::max(0.0, O("bf-photons-per-px-per-sec")) * S.expSec;
+   const BrightfieldQuality q = bs.Resolved();
+   info.width = W;
+   info.height = H;
+   info.frames = N;
+   info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   char desc[768];
+   std::snprintf(desc, sizeof desc,
+                 "insiliscope modality=BrightField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
+                 "exposure_ms=%g frames=%ld focus_um=%g quality=%d sources=%d upscale=%d sub=%d slices=%d grid=%ux%u "
+                 "na=%g condenser_na=%g lambda_nm=%g n_medium=%g n_cytoplasm=%g n_nucleus=%g n_microtubule=%g "
+                 "absorption_per_um=%g photons_per_px=%.4g setup_ms=%.0f image_ms=%.0f",
+                 S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, N, focusUm, bs.quality,
+                 scene.Sources(), q.upscale, q.sub, scene.Slices(), scene.GridNx(), scene.GridNy(), bs.na,
+                 bs.condenserNa, bs.wavelengthNm, bs.nMedium, bs.nCytoplasm, bs.nNucleus, bs.nMicrotubule,
+                 bs.absorptionPerUm, flux, scene.SetupMs(), scene.LastImageMs());
+   info.description = desc;
+   NoiseSetup noise(S.seed, W, H, p);
+   std::vector<float> photons(trans.size());
+   for (size_t i = 0; i < trans.size(); ++i)
+      photons[i] = static_cast<float>(trans[i] * flux);
+   std::vector<uint16_t> adu;
+   for (long f = 0; f < N; f++)
+   {
+      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
+                      static_cast<uint32_t>(f));
+      if (!onFrame(f, adu))
+         break;
+   }
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   return true;
+}
+
 namespace {
 
 void AppendNum(std::string& s, double v)
@@ -681,6 +796,8 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
       WidefieldMovie wm;
       return wm.Begin(spec, false, err) && wm.Render(onFrame, info, err);
    }
+   if (O("modality") == 2)
+      return RenderBrightfieldMovie(spec, onFrame, info, err);
    const ScopeSetup S = MakeScopeSetup(spec);
    const SimulationParams& p = S.p;
    const CellFieldSettings& cf = S.cf;
