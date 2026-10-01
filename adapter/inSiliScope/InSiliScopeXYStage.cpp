@@ -5,7 +5,7 @@
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   See InSiliScopeXYStage.h.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeXYStage.h"
 #include "Simulation/SharedStageState.h"

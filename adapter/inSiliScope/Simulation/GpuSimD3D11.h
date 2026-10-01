@@ -29,7 +29,7 @@
 //                thread-safe, so the stack worker and the live loop each
 //                create their own.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

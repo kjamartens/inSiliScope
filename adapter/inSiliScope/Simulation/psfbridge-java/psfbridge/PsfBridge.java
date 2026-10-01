@@ -21,9 +21,9 @@ import psf.gibsonlanni.GibsonLanniPSF;
  * file once and loads it into an embedded JVM via the JNI Invocation API --
  * no external java.exe process, no separate bridge jar file). Because
  * PSFGenerator's (GPL-3.0) bytecode is linked into the DLL this way, that
- * DLL is a combined work and distributed under GPL-3.0, not this project's
- * usual BSD license -- see license.txt / inSiliScope's other source
- * headers for the BSD-licensed remainder of the project.
+ * DLL is a combined work and distributed under GPL-3.0, while this project's
+ * own source (this file included) is BSD-3-Clause -- see LICENSE and
+ * THIRD_PARTY_NOTICES.md.
  *
  * computePlanes() instantiates PSFGenerator's own PSF model classes
  * directly (bypassing its Settings/config-file/GUI machinery, which lives

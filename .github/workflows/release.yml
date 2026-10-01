@@ -1,32 +1,43 @@
-name: webSMLM block
+name: Release
 
-# Builds and publishes dist/cellfield_block.js, the drop-in replacement for webSMLM's CellField
-# IIFE (M4). Manual only (Actions -> webSMLM block -> Run workflow). Always uploads it as an
-# artifact; with publish_block ticked, also commits it (+ .sha256) to bin/websmlm/ on the branch it
-# ran on (like ci.yml's publish_dll); with a tag given, also publishes it as a release asset.
-# It never opens PRs or pushes anywhere else: bringing the block into kjamartens/webSMLM is a
-# separate change made there.
+# Push a tag `vX.Y.Z` (or run by hand with a version) to: run the CI tests, build the Micro-Manager
+# DLL and the webSMLM block, render the gallery and the benchmarks, publish a GitHub Release with
+# all of it, and redeploy the Pages site (viewer + docs + gallery + benchmarks).
+# Nothing is committed to the repository and no PR is opened; bringing the block into
+# kjamartens/webSMLM is a separate change made there (tools/sync_cellfield.mjs).
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      publish_block:
-        description: 'Commit the block to bin/websmlm/ on the branch this runs on'
-        type: boolean
-        default: true
-      release_tag:
-        description: 'Tag to publish a release under (e.g. block-v1); empty = artifact only'
+      version:
+        description: 'Release version/tag to create (e.g. v0.1.0); the tag is created on the selected branch head'
+        type: string
+        required: true
+      psfgenerator_url:
+        description: 'Download URL of PSFGenerator.jar (empty = the EPFL site)'
         type: string
         default: ''
 
 env:
   EMSDK_VERSION: 6.0.10   # same pin as ci.yml: the block's bytes depend on it
   NODE_VERSION: 24
+  VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
+  tests:
+    uses: ./.github/workflows/ci.yml
+
+  dll:
+    needs: tests
+    uses: ./.github/workflows/build-dll.yml
+    with:
+      version: ${{ inputs.version || github.ref_name }}
+      psfgenerator_url: ${{ inputs.psfgenerator_url || '' }}
+
   block:
+    needs: tests
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # only used by the publish_block and release steps
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,47 +51,85 @@ jobs:
         run: |
           cmake --preset wasm
           cmake --build --preset wasm
-      - name: Golden vectors + world checks (WASM under Node)
-        run: ctest --test-dir build/wasm --output-on-failure
-      - name: Make the block
-        run: node tools/make_cellfield_block.mjs
-      - name: Check the block
+      - name: Make + check the block
         run: |
+          node tools/make_cellfield_block.mjs
           node tools/make_cellfield_block.mjs --check dist/cellfield_block.js
           node tests/block/check_cellfield_block.mjs dist/cellfield_block.js
-          sha256sum dist/cellfield_block.js | tee dist/cellfield_block.js.sha256
-          head -n 14 dist/cellfield_block.js
+          (cd dist && sha256sum cellfield_block.js | tee cellfield_block.js.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: cellfield_block
           path: dist/
-      - name: Commit block to the branch
-        if: ${{ inputs.publish_block }}
+
+  gallery:
+    needs: tests
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y ninja-build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install numpy pillow tifffile
+      - name: Build the CLI (native Release)
         run: |
-          mkdir -p bin/websmlm
-          cp dist/cellfield_block.js bin/websmlm/
-          (cd bin/websmlm && sha256sum cellfield_block.js > cellfield_block.js.sha256)
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f bin/websmlm
-          if git diff --cached --quiet; then echo "block unchanged"; exit 0; fi
-          git commit -m "bin: webSMLM CellField block built from ${GITHUB_SHA}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-      - name: Release
-        if: ${{ inputs.release_tag != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag }}
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native --target insiliscope_cli
+      - name: Gallery
+        run: python tools/build_gallery.py --cli build/native/cli/insiliscope_cli --out site_gallery
+      - name: Benchmarks (history from the previous release, if any)
+        run: |
+          gh release download --pattern benchmarks.json --dir . || echo "no previous benchmarks"
+          python tools/bench.py --cli build/native/cli/insiliscope_cli --version "$VERSION" --out benchmarks.json
+      - run: cd site_gallery && rm -f *.tif && zip -q ../gallery.zip *
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gallery
+          path: |
+            gallery.zip
+            benchmarks.json
+
+  release:
+    needs: [dll, block, gallery]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+      - name: Publish
         run: |
           {
-            echo "webSMLM CellField block built from ${GITHUB_SHA} (Emscripten ${EMSDK_VERSION})."
+            echo "inSiliScope ${VERSION}, built from ${GITHUB_SHA}."
             echo
-            echo "Replaces webSMLM's CellField IIFE; see the header of cellfield_block.js."
+            echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64). GPL-3.0 as a whole (embeds PSFGenerator). Copy into the Micro-Manager folder."
+            echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
+            echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings (also on the project site)."
             echo
             echo '```'
-            head -n 8 dist/cellfield_block.js
-            cat dist/cellfield_block.js.sha256
+            cat assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt
             echo '```'
           } > notes.md
-          gh release create "$TAG" dist/cellfield_block.js dist/cellfield_block.js.sha256 \
-            --target "$GITHUB_SHA" --title "webSMLM block $TAG" --notes-file notes.md
+          gh release create "$VERSION" \
+            assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll \
+            assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll.sha256 \
+            assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt \
+            assets/cellfield_block/cellfield_block.js \
+            assets/cellfield_block/cellfield_block.js.sha256 \
+            assets/gallery/gallery.zip assets/gallery/benchmarks.json \
+            --target "$GITHUB_SHA" --title "inSiliScope $VERSION" --notes-file notes.md
+
+  pages:
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

@@ -18,7 +18,7 @@
 //                sufficient -- Micro-Manager loads one instance of each
 //                device type per process.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

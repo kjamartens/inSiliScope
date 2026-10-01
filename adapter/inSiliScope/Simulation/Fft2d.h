@@ -17,7 +17,7 @@
 //                (kx = 0..nx/2), row ky = 0..ny-1; the other half is the
 //                Hermitian mirror.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

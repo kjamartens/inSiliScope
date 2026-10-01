@@ -6,7 +6,7 @@
 // DESCRIPTION:   Module initialization and device factory for the synthetic
 //                SMLM demo camera adapter.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
 #include "InSiliScopeXYStage.h"

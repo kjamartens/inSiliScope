@@ -10,7 +10,7 @@ Live mode is streaming actually changes subsequent frames.
 Requires an MM nightly build installed (e.g. via `mmcore install`) whose
 device-interface version matches the checked-out mmCoreAndDevices submodule
 commit, with mmgr_dal_inSiliScope.dll copied into that install directory
-or found via ADAPTER_DIR. See docs/BUILD_AND_USAGE.md.
+or found via ADAPTER_DIR. See docs/dev/BUILD_AND_USAGE.md.
 """
 
 import os
@@ -37,7 +37,7 @@ def find_active_mm_dir() -> str:
         sys.exit(
             f"No MicroManager install found under {mm_root}.\n"
             "Run `mmcore install` first, or set the MM_DIR environment "
-            "variable to point at your install (see docs/BUILD_AND_USAGE.md)."
+            "variable to point at your install (see docs/dev/BUILD_AND_USAGE.md)."
         )
     return str(candidates[-1])
 

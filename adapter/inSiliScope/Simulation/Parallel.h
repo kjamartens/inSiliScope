@@ -9,7 +9,7 @@
 //                count. A ParallelFor inside a ParallelFor worker runs
 //                serially (no nested thread pools).
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

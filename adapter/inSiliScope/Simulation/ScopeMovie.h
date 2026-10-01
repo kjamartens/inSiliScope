@@ -12,7 +12,7 @@
 //                embedded JVM bridge). modality = 1 renders WideField
 //                (WidefieldRender.h) instead of the blinks.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

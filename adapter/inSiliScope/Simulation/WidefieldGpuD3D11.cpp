@@ -5,7 +5,7 @@
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   See WidefieldGpuD3D11.h. Mirrors web/wf_gpu.js step for step.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "WidefieldGpuD3D11.h"
 

@@ -16,7 +16,7 @@
 //                background", which is what keeps default output byte-
 //                identical to before these features existed.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

@@ -15,7 +15,7 @@
 //                compilable/testable standalone, independent of Micro-
 //                Manager.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 
@@ -196,7 +196,7 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
 // not the same operation as interpolating a PSF's width, so it would buy no
 // accuracy while costing meaningfully more (the reference simulator this
 // project tracks parity with implemented and then removed exactly this
-// blend for that reason -- see docs/vectorial-psf-plan.md).
+// blend for that reason -- see docs/dev/vectorial-psf-plan.md).
 //
 // outZClampedCount/outZTotalCount (optional, default nullptr): accumulated
 // (+=, not assigned) counts of vectorial-PSF emitter renders whose total z

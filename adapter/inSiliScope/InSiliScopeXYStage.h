@@ -14,7 +14,7 @@
 //                singleton. Direction conventions (camera mirroring) are MM's
 //                standard TransposeMirrorX/Y properties of every XY stage.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

@@ -21,7 +21,7 @@
 //                  nb eta B exp(-D0/B) (1 - exp(-dD/B))   (exact frame integral)
 //                  np eta dD
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

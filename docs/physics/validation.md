@@ -1,0 +1,25 @@
+# Validation
+
+What is checked, against what, and where.
+
+| Claim | Check | Where |
+|---|---|---|
+| RNG and geometry equal the JS prototype bit for bit | golden vectors frozen from the prototype (Node 24); native and WASM must match | ctest `golden_vectors`, `tests/parity/run.mjs`, CI `golden-fresh` |
+| Math functions equal V8's | 40k sampled arguments vs `Math.*` | `tests/parity/run.mjs` |
+| Determinism under any query history, tiling, threads | `world_checks` (query order, cache size, 8 threads = 1 thread) | ctest `world_checks` |
+| Dye statistics | lattice angles and stagger, ring at 12.5 nm, tip at 24.5 nm, linker range, exponential ON/OFF means, geometric blink count, log-normal brightness | `world_checks` `KineticsStats` |
+| Persistent sites | constant rate over 0-100 s and 10000 s, ON mean, window slicing | `world_checks` |
+| Emitter density semantics | rate of blinks switching ON, live and precomputed | ctest `emitter_density` |
+| Splat and FFT placement | against verbatim copies of the previous implementation; parallel = serial | ctest `sr_render` |
+| Widefield engine | job format through a CPU reference host; GPU vs CPU (<= 3e-4 rms from fp16 spectra) | ctest `widefield`, `tests/web/wf_gpu_check.mjs`, `wf_gpu_d3d11` |
+| Chirp-Z PSF vs webSMLM's own chirp-Z | n <= 6 Zernikes, double-helix mask, depth shift: 0.0000% relative L2 | `tools/psf_parity_check/` |
+| Chirp-Z vs the old direct quadrature | 0.22-0.29% relative L2 | history in `docs/dev/` |
+| PSF and noise models vs SMLM Challenge methodology | research comparison; the Challenge ground truth is a measured PSF table, so it gives no Zernike targets | `docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md` |
+| Adapter output unchanged by refactors | pixel hashes of fixed configurations | `tools/adapter_pixel_hash.py` |
+
+## Known deviations
+
+- The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 um elsewhere).
+- Widefield: Gaussian PSF ignores defocus; no drift; CellField only.
+- Not yet verified by eye in every Micro-Manager configuration (headless pymmcore tests cover every property and the render path).
+- Debug-only dye geometry in the JS prototype uses a sequential stream; the C++ hashing is normative and only the *statistics* match.

@@ -1,0 +1,67 @@
+name: Pages
+
+# Project site on GitHub Pages: docs (mkdocs-material), the viewer at /viewer/, and, when a release
+# exists, its gallery and benchmark history (downloaded from the latest release's assets).
+# Runs on every push to main (docs/viewer changes) and is called by release.yml after a release.
+# One-time setup: repository Settings -> Pages -> Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'mkdocs.yml', 'web/**', 'core/**', 'tools/build_site.sh', 'tools/embed_web_module.mjs', 'gallery/**', '.github/workflows/pages.yml']
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  EMSDK_VERSION: 6.0.10
+  NODE_VERSION: 24
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+      - run: sudo apt-get install -y ninja-build
+      - run: pip install "mkdocs<2" mkdocs-material
+      # The viewer module is regenerated here, not trusted from the committed copy.
+      - name: Build the viewer's WASM module
+        run: |
+          cmake --preset wasm
+          cmake --build --preset wasm
+          node tools/embed_web_module.mjs
+      - name: Latest release gallery + benchmarks (optional)
+        run: |
+          mkdir -p release_assets
+          gh release download --pattern gallery.zip --pattern benchmarks.json --dir release_assets || echo "no release yet"
+      - name: Build the site
+        run: bash tools/build_site.sh site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

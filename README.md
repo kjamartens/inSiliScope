@@ -1,72 +1,85 @@
-# insiliscope
+# inSiliScope
 
-One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites)
-for three consumers: the Micro-Manager inSiliScope device adapter (native), a browser viewer (WASM)
-and webSMLM (a CI-generated WASM block). Every cell is a pure function of `(seed, address)`, so any
-window of the infinite field can be generated on its own, in any order, on any platform, with
-identical results.
+[![CI](https://github.com/kjamartens/inSiliScope/actions/workflows/ci.yml/badge.svg)](https://github.com/kjamartens/inSiliScope/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kjamartens/inSiliScope?include_prereleases)](https://github.com/kjamartens/inSiliScope/releases)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
-Status: **M0 (feasibility) and M1 (repo restructure) done**; see [PLAN.md](PLAN.md) for the plan and
-checklist. RNG and cell packing are ported and bit-identical in JS, native and WASM
-([spec/m0-feasibility.md](spec/m0-feasibility.md)).
+**A deterministic in-silico microscope.** inSiliScope generates an endless field of synthetic cells (cell body,
+nucleus, cytoplasm, microtubules, dye sites) and images it as a single-molecule localisation (SMLM) movie or as a
+widefield image, with a physical PSF and camera noise model. Every cell is a pure function of `(seed, address)`, so
+any window of the field can be generated on its own, in any order, on any platform, with identical results.
 
-## inSiliScope (Micro-Manager device adapter)
+- **Live viewer** (browser, WebAssembly): pan through the field, render SMLM/widefield movies, save TIFFs.
+- **Micro-Manager adapter**: `Camera`, `XYStage`, `ZStage` devices; live or precomputed acquisitions against a sample that never changes.
+- **webSMLM block**: the same core as one generated JS file.
 
-A synthetic SMLM (Single-Molecule Localization Microscopy) camera device
-adapter for [Micro-Manager](https://micro-manager.org/). It generates
-blinking-fluorophore movies -- point-spread functions rendered on a
-pixel grid, with realistic camera noise -- that resolve into a chosen pattern
-over many frames. Useful for demoing or testing SMLM analysis pipelines
-inside Micro-Manager without real hardware.
+Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSiliScope/**
 
-- **Live** (compute-as-you-go, default): continuously simulates frames on a
-  background thread, with density, intensity, pattern, and noise parameters
-  adjustable in real time while streaming.
-- **Precomputed stack**: generates a fixed-length, reproducible movie (given
-  a `SimType_RandomSeed`) up front, then serves frames from it during Snap/Live/
-  sequence acquisition. Good for benchmarking analysis pipelines against a
-  known ground truth.
+## Get it
 
-Emitter density, photon emission rate, ON-lifetime, and background are all
-expressed as physical rates (per second) and automatically scale with
-whatever the standard MM `Exposure` is set to.
+| I want to... | Do this |
+|---|---|
+| try it | open the [viewer](https://kjamartens.github.io/inSiliScope/viewer/) |
+| use it in Micro-Manager | download `mmgr_dal_inSiliScope.dll` from the [latest release](https://github.com/kjamartens/inSiliScope/releases), copy it to your Micro-Manager folder (Windows x64), add the module `inSiliScope` |
+| use it in webSMLM | download `cellfield_block.js` from the release, run webSMLM's `node tools/sync_cellfield.mjs <file>` |
+| script it | build `insiliscope_cli` (below) and write TIFF movies headlessly |
 
-Built-in patterns: `Circle`, `Lines`, `Grid`, `Random`, `Spiral`, `Star`,
-`Heart`, `ResolutionTarget`, and `CustomPoints` (loaded from a CSV file of
-normalized `x,y` coordinates via the `SimType_CustomPointsFile` property). `Circle`,
-`Spiral`, `Star`, and `Heart` are each rendered as concentric double-line
-outlines whose gap shrinks step to step (500 down to 10 nm), and
-`ResolutionTarget` lays the same spacing sequence out as a 3x3 chart --
-together, built-in resolution tests for the current PSF/pixel-size/density
-settings. See
-[Simulation/SMLMPatterns.h](adapter/inSiliScope/Simulation/SMLMPatterns.h)
-to add more.
+## What it models
 
-See [docs/BUILD_AND_USAGE.md](docs/BUILD_AND_USAGE.md) for full adapter build and
-usage instructions (Windows/Visual Studio 2022).
+- **World**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a 3D nucleus, a cytoplasm height
+  field, 3D microtubules anchored at the nucleus, a 13_3 protofilament dye lattice with antibody/nanobody linkers.
+- **SuperRes**: blinking dyes (bleaching and persistent/DNA-PAINT-like populations), vectorial PSFs with Zernike
+  aberrations (Richards-Wolf, Gibson-Lanni, double helix), sub-pixel placement, sCMOS/EMCCD noise, background, drift.
+- **WideField**: all labelled dyes at once, 3D PSF convolution by FFT, photobleaching in physical units (extinction, QY,
+  photon budget), world-anchored bleach memory, hardware z stacks, GPU path (WebGPU / Direct3D 11).
 
-## Layout
+Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/physics/world-model/). The algorithm
+notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
+
+## Build
+
+```sh
+# core + CLI, native (Linux/macOS)
+cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native
+ctest --test-dir build/native
+build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128   # --help for all options
+
+# Windows (MSVC)
+cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release
+
+# WASM (Emscripten 6.0.10) and the viewer module
+cmake --preset wasm && cmake --build --preset wasm && node tools/embed_web_module.mjs
+```
+
+The Micro-Manager adapter is MSBuild-only and needs the `third_party/mmCoreAndDevices` submodule and a locally built
+`third_party/SMLMPsfEmbedded.jar`; see [CLAUDE.md](CLAUDE.md) and [docs/dev/BUILD_AND_USAGE.md](docs/dev/BUILD_AND_USAGE.md).
+Tagged releases build everything in CI ([.github/workflows/release.yml](.github/workflows/release.yml)).
+
+## Repository layout
 
 ```text
 core/                      world model, C++17, no MMDevice/GPU/OS deps; C ABI in core/include/insiliscope/
-adapter/inSiliScope/       the MM device adapter (MSBuild, builds mmgr_dal_inSiliScope.dll)
-  Simulation/              the SMLM render engine (PSF, camera noise, GPU path) -- no MMDevice dependency
-web/                       cell-field viewer (the JS prototype; moves onto the WASM core in M3)
-spec/                      algorithm notes, port spec, golden vectors, reports
-tests/                     golden-vector and parity harness (native + WASM)
-tools/                     gen_jsmath.py, adapter_pixel_hash.py, test_insiliscope.py, psf_parity_check/
-third_party/mmCoreAndDevices/  git submodule: Micro-Manager's MMDevice SDK + build scripts
+adapter/inSiliScope/       the Micro-Manager device adapter (MSBuild) and Simulation/, the render engine
+cli/                       insiliscope_cli (headless TIFF movies) and the viewer's WASM target
+web/                       the viewer (WASM core); web/prototype/ is the JS reference implementation
+spec/                      algorithm notes, port spec, frozen golden vectors
+tests/ tools/              parity and golden harness, GPU checks, adapter smoke tests, release tooling
+docs/  gallery/            the project site (mkdocs) and the manifest rendered into the gallery
 ```
 
-## Build and test
+## Contributing
 
-```sh
-cmake --preset msvc && cmake --build --preset msvc          # core, native (MSVC 2022 x64)
-source ~/emsdk/emsdk_env.sh                                  # Emscripten (pinned: see .github/)
-cmake --preset wasm && cmake --build --preset wasm           # core, WASM
-node tests/parity/run.mjs                                    # parity vs the JS prototype
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/extending.md](docs/extending.md). Ideas: [docs/roadmap.md](docs/roadmap.md).
+
+## Citing
+
+See [CITATION.cff](CITATION.cff).
 
 ## License
 
-BSD, see [LICENSE](LICENSE).
+This project's source is BSD-3-Clause ([LICENSE](LICENSE)). The Micro-Manager DLL embeds EPFL's PSFGenerator
+(GPL-3.0), so the distributed DLL is GPL-3.0 as a whole ([LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt)). The viewer and the
+webSMLM block contain no GPL code and are BSD-3-Clause. Third-party components and credits:
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). inSiliScope builds on
+[webSMLM](https://github.com/kjamartens/webSMLM) (MIT) and its camera and PSF models.

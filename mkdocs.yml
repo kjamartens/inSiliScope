@@ -1,0 +1,52 @@
+site_name: inSiliScope
+site_description: A deterministic in-silico microscope - a synthetic field of cells imaged as SMLM or widefield, in Micro-Manager, the browser and webSMLM.
+repo_url: https://github.com/kjamartens/inSiliScope
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/weather-sunny, name: Light mode }
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.arithmatex: { generic: true }
+  - pymdownx.superfences
+  - pymdownx.details
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js
+  - javascripts/katex-init.js
+extra_css:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
+
+exclude_docs: |
+  dev/
+
+nav:
+  - Home: index.md
+  - Viewer (live): try-viewer.md
+  - Quickstart: quickstart.md
+  - Physics:
+      - World model: physics/world-model.md
+      - Structures: physics/structures.md
+      - Photophysics: physics/photophysics.md
+      - Optics and PSF: physics/optics.md
+      - Camera and background: physics/camera.md
+      - Validation: physics/validation.md
+  - Extending: extending.md
+  - Gallery: gallery/index.md
+  - Benchmarks: benchmarks.md
+  - Roadmap: roadmap.md

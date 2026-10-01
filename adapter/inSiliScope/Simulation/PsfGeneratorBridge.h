@@ -19,12 +19,12 @@
 //                downsamples+places it at every emitter position, every
 //                frame -- "oversample once, downsample everywhere".
 //
-// LICENSE:       Because PSFGenerator's GPL-3.0 bytecode is linked into
-//                this DLL (not merely invoked as an external process), the
-//                resulting mmgr_dal_inSiliScope.dll is a combined work
-//                distributed under GPL-3.0 -- unlike the rest of this
-//                project (BSD, see license.txt). See psfbridge/PsfBridge.java
-//                for details.
+// LICENSE:       PSFGenerator's GPL-3.0 bytecode is linked into this DLL
+//                (not merely invoked as an external process), so the
+//                resulting mmgr_dal_inSiliScope.dll is a GPL-3.0 combined
+//                work, while this project's own source stays BSD-3-Clause
+//                (see LICENSE and THIRD_PARTY_NOTICES.md). See
+//                psfbridge/PsfBridge.java.
 
 #pragma once
 

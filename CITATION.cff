@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use inSiliScope, please cite it as below."
+title: "inSiliScope: a deterministic in-silico microscope"
+type: software
+authors:
+  - family-names: Martens
+    given-names: Koen J.A.
+repository-code: "https://github.com/kjamartens/inSiliScope"
+license: BSD-3-Clause
+version: 0.1.0
+date-released: "2026-10-01"
+keywords:
+  - microscopy
+  - single-molecule localization microscopy
+  - simulation
+  - Micro-Manager

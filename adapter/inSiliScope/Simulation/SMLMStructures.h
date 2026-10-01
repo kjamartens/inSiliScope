@@ -15,7 +15,7 @@
 //                -- see PARITY.md in that project for the parameter/feature
 //                correspondence this project tracks against it.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

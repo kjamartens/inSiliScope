@@ -9,7 +9,7 @@
 //                model only -- see Simulation/psfbridge-java/psfbridge/
 //                GibsonLanniZernikePSF.java and PsfGeneratorBridge.h).
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 
@@ -70,7 +70,7 @@ ZernikeCoefficients ZeroZernikeCoefficients();
 //     magnitude wavefront-error estimates (~0.07 waves = the Marechal/
 //     diffraction-limit criterion, lambda/14; ~0.1-0.15 mild; ~0.25-0.3
 //     strong), NOT numbers sourced from a specific paper -- see
-//     docs/vectorial-psf-step4-smlm-challenge-comparison.md's "gap to flag
+//     docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md's "gap to flag
 //     explicitly" note;
 //   - SaddlePoint/ExtendedRange/ExtendedRangeStrong are engineered
 //     astigmatic PSFs for a longer single-valued z range, stacking

@@ -9,7 +9,7 @@
 //                calls into the simulation engine) lives in
 //                SMLMImageGeneration.cpp.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
 #include "Simulation/SharedStageState.h"

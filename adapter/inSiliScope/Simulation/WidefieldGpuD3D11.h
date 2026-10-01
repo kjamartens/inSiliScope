@@ -21,7 +21,7 @@
 //                wrong leaves the CPU path in charge. Windows only; elsewhere
 //                Create() returns nullptr. One instance per thread.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

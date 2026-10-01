@@ -24,7 +24,7 @@
 //                MIRRORED LINE FOR LINE in GpuSimD3D11.cpp's HLSL source --
 //                change one, change both.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

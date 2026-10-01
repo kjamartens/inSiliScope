@@ -13,7 +13,7 @@
 //                shot+read noise with an electron-multiplying register --
 //                ported from webSMLM's applySimCameraNoise.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

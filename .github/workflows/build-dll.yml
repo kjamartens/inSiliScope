@@ -1,0 +1,96 @@
+name: Build adapter DLL
+
+# Builds mmgr_dal_inSiliScope.dll (Windows x64) with the vectorial-PSF jar embedded.
+# Called by release.yml; can also be run by hand (Actions -> Build adapter DLL). The DLL is only
+# ever uploaded as an artifact / release asset, never committed.
+on:
+  workflow_call:
+    inputs:
+      psfgenerator_url:
+        description: 'Download URL of PSFGenerator.jar (empty = the EPFL site)'
+        type: string
+        default: ''
+      version:
+        description: 'Version string recorded in BUILD_INFO.txt'
+        type: string
+        default: 'dev'
+  workflow_dispatch:
+    inputs:
+      psfgenerator_url:
+        description: 'Download URL of PSFGenerator.jar (the "Java application for standalone/Matlab" build); empty = try the EPFL site'
+        type: string
+        default: ''
+
+jobs:
+  adapter:
+    runs-on: windows-latest
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # SMLMPsfEmbedded.jar = PSFGenerator.jar (GPL-3.0, EPFL BIG; never committed) + this project's
+      # bridge classes, built as CLAUDE.md describes. If PSFGenerator cannot be downloaded, an empty
+      # placeholder is embedded: the DLL then works, but vectorial PSF models fall back to Gaussian.
+      - name: Embedded PSF jar
+        shell: pwsh
+        run: |
+          $urls = @('${{ inputs.psfgenerator_url }}',
+                    'https://bigwww.epfl.ch/algorithms/psfgenerator/PSFGenerator.jar',
+                    'http://bigwww.epfl.ch/algorithms/psfgenerator/PSFGenerator.jar') | Where-Object { $_ }
+          $ok = $false
+          foreach ($u in $urls) {
+            try {
+              Invoke-WebRequest -Uri $u -OutFile third_party/PSFGenerator.jar -UseBasicParsing
+              if ((Get-Item third_party/PSFGenerator.jar).Length -gt 100000) { $ok = $true; Write-Host "PSFGenerator.jar from $u"; break }
+            } catch { Write-Host "download failed: $u ($_)" }
+          }
+          if ($ok) {
+            Push-Location adapter/inSiliScope/Simulation/psfbridge-java
+            javac --release 8 -cp ../../../../third_party/PSFGenerator.jar -d out psfbridge/PsfBridge.java psfbridge/GibsonLanniZernikePSF.java
+            Pop-Location
+            Copy-Item third_party/PSFGenerator.jar third_party/SMLMPsfEmbedded.jar
+            Push-Location adapter/inSiliScope/Simulation/psfbridge-java/out
+            jar uf ../../../../../third_party/SMLMPsfEmbedded.jar psfbridge/PsfBridge.class psfbridge/GibsonLanniZernikePSF.class 'psfbridge/GibsonLanniZernikePSF$PlaneJob.class'
+            Pop-Location
+            "vectorial PSF: embedded (PSFGenerator + bridge)" | Out-File -Encoding utf8 psf_status.txt
+          } else {
+            New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar | Out-Null
+            "vectorial PSF: NOT embedded (PSFGenerator.jar unavailable in CI); vectorial models fall back to Gaussian" | Out-File -Encoding utf8 psf_status.txt
+          }
+          Get-Content psf_status.txt
+      - name: MSBuild Release|x64
+        run: msbuild adapter/inSiliScope/inSiliScope.sln /p:Configuration=Release /p:Platform=x64 /m /v:minimal
+      - name: Collect DLL
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse -Filter mmgr_dal_inSiliScope.dll adapter/inSiliScope | Select-Object -First 1
+          if (-not $dll) { throw "mmgr_dal_inSiliScope.dll not found" }
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item $dll.FullName out/
+          Copy-Item LICENSE-GPL-3.0.txt out/LICENSE-GPL-3.0.txt
+          Copy-Item LICENSE out/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md out/THIRD_PARTY_NOTICES.md
+          $hash = (Get-FileHash out/mmgr_dal_inSiliScope.dll -Algorithm SHA256).Hash.ToLower()
+          "$hash  mmgr_dal_inSiliScope.dll" | Out-File -Encoding ascii out/mmgr_dal_inSiliScope.dll.sha256
+          @(
+            "mmgr_dal_inSiliScope.dll, version ${{ inputs.version }} (Micro-Manager device interface of third_party/mmCoreAndDevices)",
+            "source commit: $env:GITHUB_SHA ($env:GITHUB_REF_NAME)",
+            "built: $(Get-Date -Format o) by GitHub Actions run $env:GITHUB_RUN_ID",
+            (Get-Content psf_status.txt),
+            "sha256: $hash",
+            "Licence: with PSFGenerator (GPL-3.0, EPFL BIG, https://github.com/Biomedical-Imaging-Group/PSFGenerator) embedded",
+            "this DLL is GPL-3.0 as a whole (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE).",
+            "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime for the vectorial PSF);",
+            "devices: Camera, XYStage, ZStage in module inSiliScope."
+          ) | Out-File -Encoding utf8 out/BUILD_INFO.txt
+          Get-Content out/BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mmgr_dal_inSiliScope-windows-x64
+          path: out/

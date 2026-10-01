@@ -18,7 +18,7 @@
 //                Simulation/SMLMSimulation.h, which has no MMDevice
 //                dependency.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 
@@ -619,7 +619,7 @@ private:
    // Camera noise-chain defaults below (QuantumEfficiency, DarkCurrent,
    // Gain, ReadNoise) are the Photometrics Kinetix22 sCMOS, Sensitivity
    // (CMS) mode datasheet values -- the mode typically used for
-   // photon-starved SMLM imaging -- per docs/vectorial-psf-plan.md's "Noise
+   // photon-starved SMLM imaging -- per docs/dev/vectorial-psf-plan.md's "Noise
    // model follow-ups" section: QE ~85% at this device's default 660 nm
    // emission wavelength (read off the published QE curve, not a table
    // value), 1.03 e-/pixel/sec dark current, 0.25 e-/count conversion gain,
@@ -685,7 +685,7 @@ private:
 
    // 3D structures / labeling efficiency (Simulation/SMLMStructures.h).
    // StructureZRangeNm defaults to 500 (not 0) so 3D structures/spread are
-   // visible out of the box -- see CLAUDE.md and docs/vectorial-psf-plan.md.
+   // visible out of the box -- see CLAUDE.md and docs/dev/vectorial-psf-plan.md.
    // LabelingEfficiencyPct's 70 (not 100) is likewise a deliberate "look
    // like a real experiment out of the box" default, not a neutral one.
    std::atomic<double> labelingEfficiencyPct_{70.0};

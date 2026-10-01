@@ -12,7 +12,7 @@
 //                structured pattern) needs no renderer change. SR keeps its
 //                FluoParam_IllumProfile field for now.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

@@ -23,7 +23,7 @@
 //                fresh continuous draw per blink cannot express. That is a
 //                genuine physical requirement, not a performance shortcut.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

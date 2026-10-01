@@ -12,7 +12,7 @@
 //                same way MM itself treats camera and focus stage as
 //                independent devices.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

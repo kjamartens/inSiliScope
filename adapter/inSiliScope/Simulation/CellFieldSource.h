@@ -16,7 +16,7 @@
 //                the same way whenever the FOV returns to it. Not thread-
 //                safe (the core world is not): one instance per thread.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once
 

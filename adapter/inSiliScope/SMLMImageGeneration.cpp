@@ -9,7 +9,7 @@
 //                (background thread), the always-running live producer
 //                thread, and frame delivery into ImgBuffer.
 //
-// LICENSE:       BSD (see license.txt)
+// LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
 #include "Simulation/SharedStageState.h"

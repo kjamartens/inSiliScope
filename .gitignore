@@ -38,3 +38,12 @@ tools/psf_parity_check/*.bin
 
 # Test build of the adapter, committed by CI (workflow input publish_dll)
 !bin/windows-x64/*.dll
+
+# Release/site build products
+site/
+site_gallery/
+.site_docs/
+.mkdocs_site.yml
+release_assets/
+benchmarks.json
+gallery.zip
