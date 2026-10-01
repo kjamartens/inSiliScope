@@ -117,7 +117,8 @@ jobs:
             cat assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt
             echo '```'
           } > notes.md
-          gh release create "$VERSION" \
+          pre=""; case "$VERSION" in *-*) pre="--prerelease";; esac   # v0.1.0-rc1 etc.
+          gh release create "$VERSION" $pre \
             assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll \
             assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll.sha256 \
             assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt \
