@@ -74,7 +74,7 @@ GPU), self-checks against the CPU at startup and falls back to the CPU on any fa
 Transmitted light through the cells (`General_ImagingModality = BrightField`; CellField only). Only simulated
 structures make contrast: the core's optical volume gives, per voxel, the volume fractions of cytoplasm, nucleus and
 microtubule, and the renderer turns them into refractive-index slices (`SimType_CellFieldIndexMedium` 1.337,
-`...Cytoplasm` 1.360, `...Nucleus` 1.355, `...Microtubule` 1.48; optional absorption `SimType_CellFieldAbsorptionPerUm`).
+`...Cytoplasm` 1.345, `...Nucleus` 1.345, `...Microtubule` 1.48; optional absorption `SimType_CellFieldAbsorptionPerUm`).
 Structures that dominate real brightfield images (nucleoli, lipid droplets, vesicles, mitochondria...) are absent until
 the world simulates them.
 

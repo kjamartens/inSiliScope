@@ -37,8 +37,9 @@ column samples per voxel; pure geometry, no optical constants in the core). The 
 
     phi_k = k0 dz [ f_c (n_c - n_m) + f_n (n_n - n_m) + f_mt (n_mt - n_c) ],   a_k = exp(-mu dz (f_c + f_n) / 2)
 
-(a tube displaces cytoplasm, hence `n_mt - n_c`). Defaults (`SimType_CellField*`): medium 1.337, cytoplasm 1.360,
-nucleus 1.355 (nucleus slightly below cytoplasm, as measured in HeLa by Schuermann et al. 2016), microtubule 1.48
+(a tube displaces cytoplasm, hence `n_mt - n_c`). Defaults (`SimType_CellField*`): medium 1.337, cytoplasm 1.345,
+nucleus 1.345 (since 2026-10-01; were 1.360 / 1.355 -- cytoplasm and nucleus are both ~1.34-1.36 in measurements, e.g.
+HeLa by Schuermann et al. 2016, and the lower values give realistic, weak BF contrast), microtubule 1.48
 (protein-dense tube; an estimate), absorption 0 (unstained cells).
 
 **Illumination.** Koehler, partially coherent: the condenser aperture (`General_BrightFieldCondenserNa`, default 0.55)
@@ -57,32 +58,46 @@ pixels, averaged over sources (empty field = 1). Photons = intensity x `General_
 exposure, then the usual camera chain (`ApplyNoiseChain`). Fluorescence background, haze and illumination profile
 (`Background_*`, `FluoParam_Illum*`) do not apply.
 
-**Grid.** `General_BrightFieldUpscaling` cells per pixel, plus a margin (3-5 um by quality) whose outer half tapers the
-specimen phase to 0 (cosine), so the periodic grid wraps without a phase jump. FFT sizes 2^a 3^b 5^c (`FftPlan1d`).
+**Grid.** `General_BrightFieldUpscaling` cells per pixel -- a minimum: `UpscaleFor` raises it until the pitch is
+<= lambda / (4 n_medium) (0.103 um at 550 nm). That is enough: the propagating field is band-limited to |k| < k0 n, so
+screen frequencies above 2 k0 n only scatter into evanescent waves, and a pitch of lambda / 4n samples the screen x field
+product and the intensity without aliasing into the band (measured: a 2x or 3x grid changed the image by < 1% of the cell
+contrast). Plus a margin (3-6 um by quality) whose outer half tapers the specimen phase to 0 (cosine), so the periodic
+grid wraps without a phase jump. FFT sizes 2^a 3^b 5^c (`FftPlan1d`).
 
 **Determinism.** Every source's image is a pure function of its index, written to its own slot and summed in source
 order: bit-identical for any thread count (ctest `brightfield`). Frames differ only by camera noise.
 
 **Cost.** Specimen propagation does not depend on focus: per new pose/setting `N x S x 2` FFTs; a focus change is one
-inverse FFT per source (the exit spectra are cached up to 768 MB; above that they are recomputed per focus).
+inverse FFT per source (the exit spectra are cached up to 768 MB; above that they are recomputed per focus). Speed-ups
+(2026-10-02, output unchanged): the slice transmittances, the slice propagator and the per-focus pupil x defocus are
+computed once and shared by every source (they were per source: millions of sin/cos); the 2D FFTs work on 16 rows or
+columns at a time in a cache-resident buffer (no full-array transposes), and only transform the columns of the
+propagating band |kx| < k0 n where the rest is zero or discarded; the image's inverse only makes the FOV rows; the FFT
+butterflies vectorize (WASM SIMD in the viewer). The cli/viewer keep one world and one scene across movies, so a repeat,
+or a new frame count or noise setting, reuses the cells and the multislice.
 
 ## Quality: speed vs precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`)
 
 One number sets four knobs (each can be overridden: `bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`, and
 `bf-margin-um`; MM `General_BrightFieldSources`/`Upscaling`/`GeometrySamples`/`SliceUm`, 0 / -1 = from the quality).
 
-| Level | Sources | Grid upscale | Geometry samples | Slice step | Margin | 256 px, 4 cores: setup / per focus | rms vs reference |
+| Level | Sources | Geometry samples | Slice step | Margin | 256 px cli, 4 cores (cold) | 256 px viewer (1 core, cells built) | error / cell contrast |
 |---|---|---|---|---|---|---|---|
-| 1 fastest | 6 | 1 | 1 | thin (1 screen) | 3 um | 0.3 s / 10 ms | 0.85% |
-| 2 | 12 | 1 | 1 | 1 um | 3 um | 0.4 s / 12 ms | 0.42% |
-| 3 default | 24 | 2 | 2 | 0.5 um | 4 um | 2.9 s / 0.12 s | 0.23% |
-| 4 | 48 | 2 | 3 | 0.25 um | 5 um | 10 s / 0.24 s | 0.13% |
+| 1 fastest | 6 | 1 | thin (1 screen) | 3 um | 0.4 s | 0.1 s | 0.9-1.2 |
+| 2 | 12 | 1 | 0.5 um | 3 um | 0.55 s | 0.5 s | 0.30-0.33 |
+| 3 default | 24 | 2 | 0.5 um | 3 um | 0.7 s | 0.9 s | 0.25-0.28 |
+| 4 | 48 | 2 | 0.25 um | 4 um | 1.9 s | 3.6-3.9 s | 0.13-0.15 |
 
-(rms of the noise-free transmitted intensity at focus 0, `x = y = 0`, seed 42, against a reference level 5 -- 96
-sources, 3x grid, 4 samples, 0.125 um slices, 6 um margin; kept in `BrightfieldQualityLevel` for checks, not exposed:
-cli/viewer/MM clamp the quality to 4. The cell's own contrast is ~1.2% rms.)
-Setup includes building the cells' assets (~0.3 s). Level 1 is a single thin screen: a flat lamella and a 6 um
-nucleus dome cannot both be at its one height, so it misplaces focus by up to a few um; use >= 2 for z stacks.
+All levels use the lambda / 4n grid (upscale 1 at 100 nm pixels). Error: rms difference of the noise-free image from a
+reference (96 sources, 0.125 um slices, 4 samples, 6 um margin; level 5 in `BrightfieldQualityLevel`, for checks, not
+exposed: cli/viewer/MM clamp the quality to 4) over the cell's own rms contrast, at `x = 30, y = 10` (a cell and its
+nucleus), seed 42, focus 0.5 and 2 um. The slice step is the main lever (0.5 -> 0.125 um halves the error), then the
+source count; the grid upscale and the geometry samples change nothing measurable. Before 2026-10-02 the levels were
+12 sources / 1 um slices (2: error 0.45), 24 / 0.5 um on a 2x grid (3: 0.27, 3.0 s cli, ~12 s in the viewer) and
+48 / 0.25 um on a 2x grid (4: 0.14, 10 s). The cli's cold time includes building the cells (~0.4 s; ~1.5 s in the
+viewer, whose first level-3 movie at a new place takes 2.4 s); the viewer and MM keep them. Level 1 is a single thin screen: a flat lamella and a 6 um nucleus dome cannot both be at its one height, so
+it misplaces focus by up to a few um; use >= 2 for z stacks.
 
 ## Camera: why the default per-pixel gain spread is 0.5%
 

@@ -561,7 +561,9 @@ std::vector<Microtubule> BuildMicrotubulesForCell(uint32_t seed, const Cell& c, 
    for (Microtubule& m : mts) {
       MtTrimSteepEnds(m.pts, p.mtMaxZSlope);
       MtLimitZSlopeRealized(m.pts, p.mtMaxZSlope);
-      for (Pt3& pt : m.pts) MtClampIntoCytoplasm(c, g, pt);
+      // Inside the outline from an earlier clamp (the cut, or the clamp after
+      // a collision nudge); the two steps above change z only.
+      for (Pt3& pt : m.pts) MtClampIntoCytoplasm(c, g, pt, true);
    }
    return mts;
 }

@@ -25,99 +25,142 @@ const double kPi = 3.14159265358979323846;
 
 // Butterflies on B interleaved transforms: in[r] / out[r] point at element r
 // (B complex each). tw[r] (r >= 1) multiplies input r first; tw == nullptr
-// skips it (k = 0).
-inline void Twiddle(float& re, float& im, const cfloat& w)
+// skips it (k = 0). The twiddles are copied into locals and the loops get
+// restrict pointers, so the compiler can vectorize over b (the arithmetic
+// and its order are unchanged).
+inline void Twiddle(float& re, float& im, float wr, float wi)
 {
-   const float r = re * w.real() - im * w.imag();
-   im = re * w.imag() + im * w.real();
+   const float r = re * wr - im * wi;
+   im = re * wi + im * wr;
    re = r;
 }
 
-void Radix2(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+template <bool TW>
+void Radix2T(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
 {
+   const float* __restrict i0 = in[0];
+   const float* __restrict i1 = in[1];
+   float* __restrict o0 = out[0];
+   float* __restrict o1 = out[1];
+   const float w1r = TW ? tw[1].real() : 1.0f, w1i = TW ? tw[1].imag() : 0.0f;
    for (unsigned b = 0; b < B; ++b)
    {
-      const unsigned o = 2 * b;
-      float ar = in[0][o], ai = in[0][o + 1], br = in[1][o], bi = in[1][o + 1];
-      if (tw)
-         Twiddle(br, bi, tw[1]);
-      out[0][o] = ar + br;
-      out[0][o + 1] = ai + bi;
-      out[1][o] = ar - br;
-      out[1][o + 1] = ai - bi;
+      const size_t o = 2 * static_cast<size_t>(b);
+      float ar = i0[o], ai = i0[o + 1], br = i1[o], bi = i1[o + 1];
+      if (TW)
+         Twiddle(br, bi, w1r, w1i);
+      o0[o] = ar + br;
+      o0[o + 1] = ai + bi;
+      o1[o] = ar - br;
+      o1[o + 1] = ai - bi;
    }
 }
 
-void Radix4(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+template <bool TW>
+void Radix4T(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
 {
+   const float* __restrict i0 = in[0];
+   const float* __restrict i1 = in[1];
+   const float* __restrict i2 = in[2];
+   const float* __restrict i3 = in[3];
+   float* __restrict o0 = out[0];
+   float* __restrict o1 = out[1];
+   float* __restrict o2 = out[2];
+   float* __restrict o3 = out[3];
+   const float w1r = TW ? tw[1].real() : 1.0f, w1i = TW ? tw[1].imag() : 0.0f;
+   const float w2r = TW ? tw[2].real() : 1.0f, w2i = TW ? tw[2].imag() : 0.0f;
+   const float w3r = TW ? tw[3].real() : 1.0f, w3i = TW ? tw[3].imag() : 0.0f;
    for (unsigned b = 0; b < B; ++b)
    {
-      const unsigned o = 2 * b;
-      float a0r = in[0][o], a0i = in[0][o + 1], a1r = in[1][o], a1i = in[1][o + 1];
-      float a2r = in[2][o], a2i = in[2][o + 1], a3r = in[3][o], a3i = in[3][o + 1];
-      if (tw)
+      const size_t o = 2 * static_cast<size_t>(b);
+      float a0r = i0[o], a0i = i0[o + 1], a1r = i1[o], a1i = i1[o + 1];
+      float a2r = i2[o], a2i = i2[o + 1], a3r = i3[o], a3i = i3[o + 1];
+      if (TW)
       {
-         Twiddle(a1r, a1i, tw[1]);
-         Twiddle(a2r, a2i, tw[2]);
-         Twiddle(a3r, a3i, tw[3]);
+         Twiddle(a1r, a1i, w1r, w1i);
+         Twiddle(a2r, a2i, w2r, w2i);
+         Twiddle(a3r, a3i, w3r, w3i);
       }
       const float t0r = a0r + a2r, t0i = a0i + a2i, t1r = a0r - a2r, t1i = a0i - a2i;
       const float t2r = a1r + a3r, t2i = a1i + a3i;
       // (a1 - a3) * (-i)
       const float t3r = a1i - a3i, t3i = a3r - a1r;
-      out[0][o] = t0r + t2r;
-      out[0][o + 1] = t0i + t2i;
-      out[1][o] = t1r + t3r;
-      out[1][o + 1] = t1i + t3i;
-      out[2][o] = t0r - t2r;
-      out[2][o + 1] = t0i - t2i;
-      out[3][o] = t1r - t3r;
-      out[3][o + 1] = t1i - t3i;
+      o0[o] = t0r + t2r;
+      o0[o + 1] = t0i + t2i;
+      o1[o] = t1r + t3r;
+      o1[o + 1] = t1i + t3i;
+      o2[o] = t0r - t2r;
+      o2[o + 1] = t0i - t2i;
+      o3[o] = t1r - t3r;
+      o3[o + 1] = t1i - t3i;
    }
 }
 
-void Radix3(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+template <bool TW>
+void Radix3T(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
 {
    const float c = -0.5f, s = static_cast<float>(-std::sqrt(3.0) / 2.0);
+   const float* __restrict i0 = in[0];
+   const float* __restrict i1 = in[1];
+   const float* __restrict i2 = in[2];
+   float* __restrict o0 = out[0];
+   float* __restrict o1 = out[1];
+   float* __restrict o2 = out[2];
+   const float w1r = TW ? tw[1].real() : 1.0f, w1i = TW ? tw[1].imag() : 0.0f;
+   const float w2r = TW ? tw[2].real() : 1.0f, w2i = TW ? tw[2].imag() : 0.0f;
    for (unsigned b = 0; b < B; ++b)
    {
-      const unsigned o = 2 * b;
-      float a0r = in[0][o], a0i = in[0][o + 1], a1r = in[1][o], a1i = in[1][o + 1];
-      float a2r = in[2][o], a2i = in[2][o + 1];
-      if (tw)
+      const size_t o = 2 * static_cast<size_t>(b);
+      float a0r = i0[o], a0i = i0[o + 1], a1r = i1[o], a1i = i1[o + 1];
+      float a2r = i2[o], a2i = i2[o + 1];
+      if (TW)
       {
-         Twiddle(a1r, a1i, tw[1]);
-         Twiddle(a2r, a2i, tw[2]);
+         Twiddle(a1r, a1i, w1r, w1i);
+         Twiddle(a2r, a2i, w2r, w2i);
       }
       const float tr = a1r + a2r, ti = a1i + a2i;
       const float mr = a0r + c * tr, mi = a0i + c * ti;
       // i s (a1 - a2)
       const float dr = -s * (a1i - a2i), di = s * (a1r - a2r);
-      out[0][o] = a0r + tr;
-      out[0][o + 1] = a0i + ti;
-      out[1][o] = mr + dr;
-      out[1][o + 1] = mi + di;
-      out[2][o] = mr - dr;
-      out[2][o + 1] = mi - di;
+      o0[o] = a0r + tr;
+      o0[o + 1] = a0i + ti;
+      o1[o] = mr + dr;
+      o1[o + 1] = mi + di;
+      o2[o] = mr - dr;
+      o2[o + 1] = mi - di;
    }
 }
 
-void Radix5(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+template <bool TW>
+void Radix5T(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
 {
    const float c1 = static_cast<float>(std::cos(2 * kPi / 5)), s1 = static_cast<float>(-std::sin(2 * kPi / 5));
    const float c2 = static_cast<float>(std::cos(4 * kPi / 5)), s2 = static_cast<float>(-std::sin(4 * kPi / 5));
+   const float* __restrict i0 = in[0];
+   const float* __restrict i1 = in[1];
+   const float* __restrict i2 = in[2];
+   const float* __restrict i3 = in[3];
+   const float* __restrict i4 = in[4];
+   float* __restrict o0 = out[0];
+   float* __restrict o1 = out[1];
+   float* __restrict o2 = out[2];
+   float* __restrict o3 = out[3];
+   float* __restrict o4 = out[4];
+   float wr[5] = {1, 1, 1, 1, 1}, wi[5] = {0, 0, 0, 0, 0};
+   if (TW)
+      for (int r = 1; r < 5; ++r)
+      {
+         wr[r] = tw[r].real();
+         wi[r] = tw[r].imag();
+      }
    for (unsigned b = 0; b < B; ++b)
    {
-      const unsigned o = 2 * b;
-      float ar[5], ai[5];
-      for (int r = 0; r < 5; ++r)
-      {
-         ar[r] = in[r][o];
-         ai[r] = in[r][o + 1];
-      }
-      if (tw)
+      const size_t o = 2 * static_cast<size_t>(b);
+      float ar[5] = {i0[o], i1[o], i2[o], i3[o], i4[o]};
+      float ai[5] = {i0[o + 1], i1[o + 1], i2[o + 1], i3[o + 1], i4[o + 1]};
+      if (TW)
          for (int r = 1; r < 5; ++r)
-            Twiddle(ar[r], ai[r], tw[r]);
+            Twiddle(ar[r], ai[r], wr[r], wi[r]);
       const float t1r = ar[1] + ar[4], t1i = ai[1] + ai[4], t2r = ar[2] + ar[3], t2i = ai[2] + ai[3];
       const float t3r = ar[1] - ar[4], t3i = ai[1] - ai[4], t4r = ar[2] - ar[3], t4i = ai[2] - ai[3];
       const float m1r = ar[0] + c1 * t1r + c2 * t2r, m1i = ai[0] + c1 * t1i + c2 * t2i;
@@ -126,17 +169,34 @@ void Radix5(const float* const* in, float* const* out, const cfloat* tw, unsigne
       const float u1r = s1 * t3r + s2 * t4r, u1i = s1 * t3i + s2 * t4i;
       const float u2r = s2 * t3r - s1 * t4r, u2i = s2 * t3i - s1 * t4i;
       const float n1r = -u1i, n1i = u1r, n2r = -u2i, n2i = u2r;
-      out[0][o] = ar[0] + t1r + t2r;
-      out[0][o + 1] = ai[0] + t1i + t2i;
-      out[1][o] = m1r + n1r;
-      out[1][o + 1] = m1i + n1i;
-      out[4][o] = m1r - n1r;
-      out[4][o + 1] = m1i - n1i;
-      out[2][o] = m2r + n2r;
-      out[2][o + 1] = m2i + n2i;
-      out[3][o] = m2r - n2r;
-      out[3][o + 1] = m2i - n2i;
+      o0[o] = ar[0] + t1r + t2r;
+      o0[o + 1] = ai[0] + t1i + t2i;
+      o1[o] = m1r + n1r;
+      o1[o + 1] = m1i + n1i;
+      o4[o] = m1r - n1r;
+      o4[o + 1] = m1i - n1i;
+      o2[o] = m2r + n2r;
+      o2[o + 1] = m2i + n2i;
+      o3[o] = m2r - n2r;
+      o3[o + 1] = m2i - n2i;
    }
+}
+
+void Radix2(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+{
+   if (tw) Radix2T<true>(in, out, tw, B); else Radix2T<false>(in, out, tw, B);
+}
+void Radix4(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+{
+   if (tw) Radix4T<true>(in, out, tw, B); else Radix4T<false>(in, out, tw, B);
+}
+void Radix3(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+{
+   if (tw) Radix3T<true>(in, out, tw, B); else Radix3T<false>(in, out, tw, B);
+}
+void Radix5(const float* const* in, float* const* out, const cfloat* tw, unsigned B)
+{
+   if (tw) Radix5T<true>(in, out, tw, B); else Radix5T<false>(in, out, tw, B);
 }
 
 } // namespace

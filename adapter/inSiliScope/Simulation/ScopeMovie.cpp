@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <random>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
@@ -85,17 +86,17 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "wf-extinction-coeff", 270000, "FluoParam_WideFieldExtinctionCoeff, M^-1 cm^-1" },
       { "bf-quality", 3, "General_BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given" },
       { "bf-sources", 0, "General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)" },
-      { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (0 = from bf-quality: 1/1/2/2)" },
-      { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/3)" },
-      { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/1/0.5/0.25)" },
+      { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)" },
+      { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/2)" },
+      { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/0.5/0.5/0.25)" },
       { "bf-margin-um", 0, "BrightField grid margin around the FOV, um (0 = from bf-quality: 3-5)" },
       { "bf-condenser-na", 0.55, "General_BrightFieldCondenserNa: illumination NA (0 = coherent)" },
       { "bf-wavelength-nm", 550, "General_BrightFieldWavelengthNm: illumination wavelength" },
       { "bf-photons-per-px-per-sec", 40000, "General_BrightFieldPhotonsPerPxPerSec: empty-field photons per pixel per second" },
       { "bf-aberrations", 1, "General_BrightFieldAberrations: 1 = the PSF's Zernike aberrations in the detection pupil, 0 = none" },
       { "bf-n-medium", 1.337, "SimType_CellFieldIndexMedium: refractive index of the medium" },
-      { "bf-n-cytoplasm", 1.360, "SimType_CellFieldIndexCytoplasm" },
-      { "bf-n-nucleus", 1.355, "SimType_CellFieldIndexNucleus" },
+      { "bf-n-cytoplasm", 1.345, "SimType_CellFieldIndexCytoplasm" },
+      { "bf-n-nucleus", 1.345, "SimType_CellFieldIndexNucleus" },
       { "bf-n-microtubule", 1.48, "SimType_CellFieldIndexMicrotubule (12.5 nm tubes)" },
       { "bf-absorption-per-um", 0, "SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)" },
       { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (PSF and WideField collection efficiency)" },
@@ -584,6 +585,44 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
+namespace {
+// Movies made by one process (the cli; the viewer's worker, one after the
+// other) share one world and one BrightField scene, so a repeat, or a new
+// focus, frame count or noise setting, reuses the built cells and the
+// multislice. The answers are the same as with fresh objects (the caches
+// are for speed only); a mutex keeps concurrent callers serial.
+struct MovieCache
+{
+   std::mutex mutex;
+   CellFieldSource source;
+   CellFieldSettings world;
+   bool haveWorld = false;
+   uint64_t version = 0;
+   BrightfieldScene brightfield;
+};
+
+MovieCache& SharedMovieCache()
+{
+   static MovieCache c;
+   return c;
+}
+
+// Configures the shared source; bumps the version when the world changes.
+bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
+{
+   if (!c.haveWorld || !c.world.SameWorld(cf))
+      ++c.version;
+   c.world = cf;
+   c.haveWorld = true;
+   if (!c.source.Configure(cf, err))
+   {
+      c.haveWorld = false;
+      return false;
+   }
+   return true;
+}
+} // namespace
+
 bool RenderBrightfieldMovie(const ScopeSpec& spec,
                             const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                             ScopeMovieInfo& info, std::string& err)
@@ -592,16 +631,17 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
    const auto t0 = std::chrono::steady_clock::now();
    const ScopeSetup S = MakeScopeSetup(spec);
    const SimulationParams& p = S.p;
-   CellFieldSource source;
-   if (!source.Configure(S.cf, err))
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, S.cf, err))
       return false;
    BrightfieldSpec bs;
    if (!ScopeBrightfieldSpec(spec, bs, err))
       return false;
-   BrightfieldScene scene;
+   BrightfieldScene& scene = cache.brightfield;
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   if (!scene.Update(source, bs, 1, err) || !scene.Image(focusUm, trans, err))
+   if (!scene.Update(cache.source, bs, cache.version, err) || !scene.Image(focusUm, trans, err))
       return false;
    const unsigned W = S.W, H = S.H;
    const long N = S.N;

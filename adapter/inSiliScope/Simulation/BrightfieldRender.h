@@ -66,7 +66,7 @@ struct BrightfieldSpec
    ZernikeCoefficients zernike = {}; // detection pupil aberrations, waves
    // Specimen: refractive indices and absorption (1/um of cell material, on
    // intensity).
-   double nMedium = 1.337, nCytoplasm = 1.360, nNucleus = 1.355, nMicrotubule = 1.48;
+   double nMedium = 1.337, nCytoplasm = 1.345, nNucleus = 1.345, nMicrotubule = 1.48;
    double absorptionPerUm = 0.0;
 
    // The values after the quality level fills the 0 fields.
@@ -85,6 +85,10 @@ public:
    bool UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm, const std::vector<float>& phase,
                         std::string& err);
    static void GridFor(const BrightfieldSpec& spec, unsigned& nx, unsigned& ny, unsigned& marginCells);
+   // Grid cells per camera pixel: the quality's upscale, raised until the
+   // pitch is <= lambda / (4 n_medium) (the propagating field and the
+   // intensity are then sampled without aliasing).
+   static unsigned UpscaleFor(const BrightfieldSpec& spec);
 
    // Transmitted intensity per camera pixel (1 = the empty field) with the
    // focal plane at focusUm (um above the coverslip). Cached per focus.
@@ -102,11 +106,22 @@ public:
 
 private:
    struct Source { int mx, my; }; // tilt on the grid: k = 2 pi (mx / Lx, my / Ly)
-   void Fft2(cfloat* a, std::vector<cfloat>& work, bool inverse) const;
+   // 2D complex FFTs, cache-blocked (16 rows / columns at a time). The
+   // propagating field lives in |k| < k0 n_medium: `band` transforms only the
+   // columns that can hold it (the forward transform leaves the others
+   // undefined; the inverse expects them zero). The inverse writes rows
+   // [row0, row1) only (the rest undefined), normalised.
+   void FftForward(cfloat* a, std::vector<cfloat>& work, bool band) const;
+   void FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1) const;
+   void FftRows(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1, bool conjIn, float outScale,
+                bool conjOut) const;
+   void FftCols(cfloat* a, std::vector<cfloat>& work, const std::vector<unsigned>& cols, bool conjIn,
+                bool conjOut) const;
    void ExitField(const Source& s, std::vector<cfloat>& u, std::vector<cfloat>& work) const;
    bool Begin(const BrightfieldSpec& spec, std::string& err);
    void Finish();
-   void SourceImage(int s, double focusUm, std::vector<cfloat>& u, std::vector<cfloat>& work, float* camOut) const;
+   void SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u, std::vector<cfloat>& work,
+                    float* camOut) const;
 
    BrightfieldSpec spec_;
    uint64_t worldVersion_ = 0;
@@ -121,6 +136,9 @@ private:
    std::vector<Source> src_;
    std::vector<cfloat> pupil_;        // detection pupil (aperture + aberration), per k
    std::vector<float> kz_;            // axial wavenumber in the medium (< 0: evanescent)
+   std::vector<cfloat> prop_;         // one slice step dz: exp(i kz dz), 0 where evanescent
+   std::vector<cfloat> trans_;        // per slice transmittance exp(i phase) * amplitude (empty: on the fly)
+   std::vector<unsigned> allCols_, bandCols_; // FFT columns: all, and those with |kx| < k0 n_medium
    std::vector<cfloat> thinSpec_;     // one slice: the transmittance spectrum (every source shifts it)
    std::vector<std::vector<cfloat>> exit_; // multislice: per source exit spectrum (empty: recompute)
    bool haveImage_ = false;

@@ -26,6 +26,8 @@ const double kPi = 3.14159265358979323846;
 constexpr double kVolumeQueryFloats = 48e6;
 // Exit spectra kept per scene; above this they are recomputed per focus.
 constexpr double kExitCacheBytes = 768e6;
+// Slice transmittances kept per scene; above this they are made per source.
+constexpr double kTransCacheBytes = 512e6;
 
 double Ms(std::chrono::steady_clock::time_point t0)
 {
@@ -40,11 +42,13 @@ inline int Freq(unsigned i, unsigned n) { return i <= n / 2 ? static_cast<int>(i
 BrightfieldQuality BrightfieldQualityLevel(int level)
 {
    static const BrightfieldQuality kLevels[5] = {
-      {6, 1, 1, 0.0, 3.0},    // 1: thin object, few sources, camera-pixel grid
-      {12, 1, 1, 1.0, 3.0},   // 2
-      {24, 2, 2, 0.5, 4.0},   // 3: default
-      {48, 2, 3, 0.25, 5.0},  // 4
-      {96, 3, 4, 0.125, 6.0}, // 5: reference level for checks; not exposed (cli/viewer/MM clamp to 4)
+      // Upscale 1: the grid is fine enough at pitch <= lambda / (4 n), which
+      // UpscaleFor enforces (a finer grid did not change the image).
+      {6, 1, 1, 0.0, 3.0},     // 1: thin object, few sources
+      {12, 1, 1, 0.5, 3.0},    // 2
+      {24, 1, 2, 0.5, 3.0},    // 3: default
+      {48, 1, 2, 0.25, 4.0},   // 4
+      {96, 1, 4, 0.125, 6.0},  // 5: reference level for checks; not exposed (cli/viewer/MM clamp to 4)
    };
    return kLevels[std::max(1, std::min(5, level)) - 1];
 }
@@ -78,43 +82,107 @@ static bool SameSpec(const BrightfieldSpec& a, const BrightfieldSpec& b)
           a.absorptionPerUm == b.absorptionPerUm;
 }
 
-void BrightfieldScene::Fft2(cfloat* a, std::vector<cfloat>& work, bool inverse) const
+// Rows [row0, row1): 1D FFTs along x, 16 rows at a time in a small
+// interleaved buffer (cache resident).
+void BrightfieldScene::FftRows(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1, bool conjIn,
+                               float outScale, bool conjOut) const
 {
-   const size_t n = static_cast<size_t>(nx_) * ny_;
-   work.resize(n);
-   if (inverse)
-      for (size_t i = 0; i < n; ++i)
-         a[i] = std::conj(a[i]);
-   // Along y: element y of transform x sits at a[y * nx + x].
-   cfloat* r = planY_.Forward(a, work.data(), nx_);
-   if (r != a)
-      std::copy(work.begin(), work.end(), a);
-   // Along x, on the transpose.
-   for (unsigned y = 0; y < ny_; ++y)
-      for (unsigned x = 0; x < nx_; ++x)
-         work[static_cast<size_t>(x) * ny_ + y] = a[static_cast<size_t>(y) * nx_ + x];
-   r = planX_.Forward(work.data(), a, ny_);
-   const cfloat* t = r;
-   if (r == a)
+   constexpr unsigned B = 16;
+   const unsigned nx = nx_;
+   work.resize(2 * static_cast<size_t>(std::max(nx_, ny_)) * B);
+   cfloat* buf = work.data();
+   cfloat* tmp = buf + static_cast<size_t>(std::max(nx_, ny_)) * B;
+   for (unsigned r0 = row0; r0 < row1; r0 += B)
    {
-      std::copy(a, a + n, work.begin());
-      t = work.data();
+      const unsigned rb = std::min(B, row1 - r0);
+      for (unsigned b = 0; b < B; ++b)
+      {
+         if (b >= rb)
+         {
+            for (unsigned x = 0; x < nx; ++x)
+               buf[static_cast<size_t>(x) * B + b] = cfloat(0.0f, 0.0f);
+            continue;
+         }
+         const cfloat* row = a + static_cast<size_t>(r0 + b) * nx;
+         if (conjIn)
+            for (unsigned x = 0; x < nx; ++x)
+               buf[static_cast<size_t>(x) * B + b] = std::conj(row[x]);
+         else
+            for (unsigned x = 0; x < nx; ++x)
+               buf[static_cast<size_t>(x) * B + b] = row[x];
+      }
+      const cfloat* r = planX_.Forward(buf, tmp, B);
+      for (unsigned b = 0; b < rb; ++b)
+      {
+         cfloat* row = a + static_cast<size_t>(r0 + b) * nx;
+         for (unsigned x = 0; x < nx; ++x)
+         {
+            const cfloat v = r[static_cast<size_t>(x) * B + b];
+            row[x] = (conjOut ? std::conj(v) : v) * outScale;
+         }
+      }
    }
-   for (unsigned y = 0; y < ny_; ++y)
-      for (unsigned x = 0; x < nx_; ++x)
-         a[static_cast<size_t>(y) * nx_ + x] = t[static_cast<size_t>(x) * ny_ + y];
-   if (inverse)
+}
+
+// The listed columns: 1D FFTs along y, 16 columns at a time.
+void BrightfieldScene::FftCols(cfloat* a, std::vector<cfloat>& work, const std::vector<unsigned>& cols, bool conjIn,
+                               bool conjOut) const
+{
+   constexpr unsigned B = 16;
+   const unsigned nx = nx_, ny = ny_;
+   work.resize(2 * static_cast<size_t>(std::max(nx_, ny_)) * B);
+   cfloat* buf = work.data();
+   cfloat* tmp = buf + static_cast<size_t>(std::max(nx_, ny_)) * B;
+   const unsigned nc = static_cast<unsigned>(cols.size());
+   for (unsigned c0 = 0; c0 < nc; c0 += B)
    {
-      const float s = 1.0f / static_cast<float>(n);
-      for (size_t i = 0; i < n; ++i)
-         a[i] = std::conj(a[i]) * s;
+      const unsigned cb = std::min(B, nc - c0);
+      const unsigned* cl = &cols[c0];
+      for (unsigned y = 0; y < ny; ++y)
+      {
+         const cfloat* row = a + static_cast<size_t>(y) * nx;
+         cfloat* d = buf + static_cast<size_t>(y) * B;
+         for (unsigned b = 0; b < cb; ++b)
+            d[b] = conjIn ? std::conj(row[cl[b]]) : row[cl[b]];
+         for (unsigned b = cb; b < B; ++b)
+            d[b] = cfloat(0.0f, 0.0f);
+      }
+      const cfloat* r = planY_.Forward(buf, tmp, B);
+      for (unsigned y = 0; y < ny; ++y)
+      {
+         cfloat* row = a + static_cast<size_t>(y) * nx;
+         const cfloat* sv = r + static_cast<size_t>(y) * B;
+         for (unsigned b = 0; b < cb; ++b)
+            row[cl[b]] = conjOut ? std::conj(sv[b]) : sv[b];
+      }
    }
+}
+
+void BrightfieldScene::FftForward(cfloat* a, std::vector<cfloat>& work, bool band) const
+{
+   FftRows(a, work, 0, ny_, false, 1.0f, false);
+   FftCols(a, work, band ? bandCols_ : allCols_, false, false);
+}
+
+// Inverse = conj(F(conj(X))) / N; the input is zero outside the band columns.
+void BrightfieldScene::FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1) const
+{
+   FftCols(a, work, bandCols_, true, false);
+   FftRows(a, work, row0, row1, false, 1.0f / (static_cast<float>(nx_) * static_cast<float>(ny_)), true);
+}
+
+unsigned BrightfieldScene::UpscaleFor(const BrightfieldSpec& spec)
+{
+   const BrightfieldQuality q = spec.Resolved();
+   const double maxPitch = spec.wavelengthNm * 1e-3 / (4.0 * std::max(1.0, spec.nMedium));
+   const unsigned need = static_cast<unsigned>(std::ceil(spec.pixelUm / maxPitch - 1e-9));
+   return std::min(8u, std::max({1u, static_cast<unsigned>(std::max(1, q.upscale)), need}));
 }
 
 void BrightfieldScene::GridFor(const BrightfieldSpec& spec, unsigned& nx, unsigned& ny, unsigned& marginCells)
 {
    const BrightfieldQuality q = spec.Resolved();
-   const unsigned up = static_cast<unsigned>(std::max(1, q.upscale));
+   const unsigned up = UpscaleFor(spec);
    const double pitch = spec.pixelUm / up;
    marginCells = static_cast<unsigned>(std::ceil(q.marginUm / pitch));
    nx = RealFft2d::FastSize(spec.width * up + 2 * marginCells, 2);
@@ -132,8 +200,7 @@ bool BrightfieldScene::Begin(const BrightfieldSpec& spec, std::string& err)
       return false;
    }
    spec_ = spec;
-   const BrightfieldQuality q = spec.Resolved();
-   up_ = static_cast<unsigned>(std::max(1, q.upscale));
+   up_ = UpscaleFor(spec);
    pitch_ = spec.pixelUm / up_;
    GridFor(spec, nx_, ny_, margin_);
    planX_ = FftPlan1d(nx_);
@@ -293,6 +360,16 @@ void BrightfieldScene::Finish()
       src_.push_back({static_cast<int>(std::lround(kx * Lx / (2 * kPi))), static_cast<int>(std::lround(ky * Ly / (2 * kPi)))});
    }
 
+   // FFT column sets: all, and the propagating band |kx| < k0 n_medium.
+   allCols_.resize(nx_);
+   bandCols_.clear();
+   for (unsigned ix = 0; ix < nx_; ++ix)
+   {
+      allCols_[ix] = ix;
+      if (std::fabs(2 * kPi * Freq(ix, nx_) / Lx) < k0_ * spec.nMedium)
+         bandCols_.push_back(ix);
+   }
+
    // Detection pupil and the medium's kz.
    pupil_.assign(N, cfloat(0, 0));
    kz_.assign(N, -1.0f);
@@ -316,6 +393,8 @@ void BrightfieldScene::Finish()
    // Thin object: one transmittance spectrum that every source shifts.
    thinSpec_.clear();
    exit_.clear();
+   prop_.clear();
+   trans_.clear();
    if (slices_ == 1)
    {
       thinSpec_.resize(N);
@@ -325,9 +404,23 @@ void BrightfieldScene::Finish()
          thinSpec_[i] = std::polar(a, phase_[i]);
       }
       std::vector<cfloat> work;
-      Fft2(thinSpec_.data(), work, false);
+      FftForward(thinSpec_.data(), work, false);
    }
-   else if (static_cast<double>(src_.size()) * N * sizeof(cfloat) <= kExitCacheBytes)
+   else
+   {
+      // Shared by every source: the slice step and the slice transmittances.
+      prop_.resize(N);
+      for (size_t i = 0; i < N; ++i)
+         prop_[i] = kz_[i] >= 0 ? std::polar(1.0f, static_cast<float>(kz_[i] * dz_)) : cfloat(0, 0);
+      trans_.clear();
+      if (static_cast<double>(N) * slices_ * sizeof(cfloat) <= kTransCacheBytes)
+      {
+         trans_.resize(N * slices_);
+         for (size_t i = 0; i < N * slices_; ++i)
+            trans_[i] = std::polar(atten_.empty() ? 1.0f : atten_[i], phase_[i]);
+      }
+   }
+   if (slices_ > 1 && static_cast<double>(src_.size()) * N * sizeof(cfloat) <= kExitCacheBytes)
    {
       exit_.resize(src_.size());
       ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
@@ -345,32 +438,45 @@ void BrightfieldScene::ExitField(const Source& s, std::vector<cfloat>& u, std::v
 {
    const size_t N = static_cast<size_t>(nx_) * ny_;
    u.resize(N);
+   // The tilted plane wave, separable in x and y.
+   std::vector<cfloat> ex(nx_);
+   for (unsigned x = 0; x < nx_; ++x)
+      ex[x] = std::polar(1.0f, static_cast<float>(2 * kPi * static_cast<double>(s.mx) * x / nx_));
    for (unsigned y = 0; y < ny_; ++y)
+   {
+      const cfloat ey = std::polar(1.0f, static_cast<float>(2 * kPi * static_cast<double>(s.my) * y / ny_));
+      cfloat* row = &u[static_cast<size_t>(y) * nx_];
       for (unsigned x = 0; x < nx_; ++x)
-      {
-         const double ph = 2 * kPi * (static_cast<double>(s.mx) * x / nx_ + static_cast<double>(s.my) * y / ny_);
-         u[static_cast<size_t>(y) * nx_ + x] = std::polar(1.0f, static_cast<float>(ph));
-      }
-   std::vector<cfloat> prop(N);
-   for (size_t i = 0; i < N; ++i)
-      prop[i] = kz_[i] >= 0 ? std::polar(1.0f, static_cast<float>(kz_[i] * dz_)) : cfloat(0, 0);
+         row[x] = ex[x] * ey;
+   }
    for (int k = slices_ - 1; k >= 0; --k)
    {
-      const float* ph = &phase_[static_cast<size_t>(k) * N];
-      const float* at = atten_.empty() ? nullptr : &atten_[static_cast<size_t>(k) * N];
-      for (size_t i = 0; i < N; ++i)
-         u[i] *= std::polar(at ? at[i] : 1.0f, ph[i]);
-      Fft2(u.data(), work, false);
+      if (!trans_.empty())
+      {
+         const cfloat* t = &trans_[static_cast<size_t>(k) * N];
+         for (size_t i = 0; i < N; ++i)
+            u[i] *= t[i];
+      }
+      else
+      {
+         const float* ph = &phase_[static_cast<size_t>(k) * N];
+         const float* at = atten_.empty() ? nullptr : &atten_[static_cast<size_t>(k) * N];
+         for (size_t i = 0; i < N; ++i)
+            u[i] *= std::polar(at ? at[i] : 1.0f, ph[i]);
+      }
+      // Only the propagating band is needed: prop_ (and later the pupil)
+      // is zero elsewhere.
+      FftForward(u.data(), work, true);
       if (k == 0)
          break;
       for (size_t i = 0; i < N; ++i)
-         u[i] *= prop[i];
-      Fft2(u.data(), work, true);
+         u[i] *= prop_[i];
+      FftInverse(u.data(), work, 0, ny_);
    }
 }
 
-void BrightfieldScene::SourceImage(int s, double focusUm, std::vector<cfloat>& u, std::vector<cfloat>& work,
-                                   float* camOut) const
+void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u,
+                                   std::vector<cfloat>& work, float* camOut) const
 {
    const size_t N = static_cast<size_t>(nx_) * ny_;
    const Source& sp = src_[s];
@@ -392,14 +498,11 @@ void BrightfieldScene::SourceImage(int s, double focusUm, std::vector<cfloat>& u
       u = exit_[s];
    else
       ExitField(sp, u, work);
-   // From the lowest screen (objectZ_ above the coverslip: its slice's
-   // mid-plane, or the thin screen's height) to the focal plane, travelling
-   // down: distance objectZ_ - focus.
-   const double d = objectZ_ - focusUm;
+   // Pupil and defocus to the focal plane (Image), zero outside the band.
    for (size_t i = 0; i < N; ++i)
-      u[i] = kz_[i] >= 0 ? u[i] * pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
-   Fft2(u.data(), work, true);
+      u[i] *= defocus[i];
    const unsigned W = spec_.width, H = spec_.height;
+   FftInverse(u.data(), work, margin_, margin_ + H * up_);
    const float norm = 1.0f / static_cast<float>(up_ * up_);
    for (unsigned j = 0; j < H; ++j)
       for (unsigned i = 0; i < W; ++i)
@@ -426,10 +529,18 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
    }
    const auto t0 = std::chrono::steady_clock::now();
    const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
+   // From the lowest screen (objectZ_ above the coverslip: its slice's
+   // mid-plane, or the thin screen's height) to the focal plane, travelling
+   // down: distance objectZ_ - focus. Shared by every source.
+   const size_t N = static_cast<size_t>(nx_) * ny_;
+   const double d = objectZ_ - focusUm;
+   std::vector<cfloat> defocus(N);
+   for (size_t i = 0; i < N; ++i)
+      defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
    std::vector<float> slots(P * src_.size());
    ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
       std::vector<cfloat> u, work;
-      SourceImage(static_cast<int>(s), focusUm, u, work, &slots[s * P]);
+      SourceImage(static_cast<int>(s), defocus, u, work, &slots[s * P]);
    });
    image_.assign(P, 0.0f);
    for (size_t s = 0; s < src_.size(); ++s)

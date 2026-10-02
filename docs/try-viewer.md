@@ -25,7 +25,8 @@ Notes:
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
 - Brightfield movies run on the CPU (one core in the browser); the **BF quality** slider trades speed for precision
-  (1: thin object, 6 condenser points ... 4: 0.25 um slices, 48 points). Levels 1-3 take seconds at 128 px.
+  (1: thin object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes about a
+  second once the cells are built (the first movie at a new place also builds them); repeating a movie is instant.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).

@@ -182,8 +182,12 @@ core simulates them. Core ABI 6 `isc_optical_volume_in_window` (volume fractions
 `Simulation/BrightfieldRender.*`: Abbe source sum (condenser NA) x multislice angular-spectrum propagation, exit
 spectra cached so a focus change is one inverse FFT per source; detection pupil = NA + the PSF's Zernike terms; thin
 screen (1 slice) at the phase-weighted height; margin taper against wrap-around. `General_BrightFieldQuality` 1-4
-(cli/viewer `bf-quality`, a slider in the viewer) sets sources 6..48, upscaling, geometry samples and slice step
-(thin..0.25 um) unless those are set (a level 5 stays in `BrightfieldQualityLevel` as a reference, not exposed).
+(cli/viewer `bf-quality`, a slider in the viewer) sets sources 6..48, geometry samples and slice step (thin, 0.5, 0.5,
+0.25 um) unless those are set (a level 5 stays in `BrightfieldQualityLevel` as a reference, not exposed); the grid pitch is
+<= lambda/4n (`UpscaleFor`; upscale is a minimum). Speed (2026-10-02, spec/BRIGHTFIELD.md Cost): shared slice
+transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD, and the cli/viewer keep one world + scene
+across movies: 256 px level 3 is 0.7 s cli cold / 0.9 s in the viewer (was 3 s / 12 s), same accuracy. Defaults
+`SimType_CellFieldIndexCytoplasm`/`IndexNucleus` 1.345 (were 1.360 / 1.355).
 `CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
 the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase

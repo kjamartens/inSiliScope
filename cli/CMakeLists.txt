@@ -27,6 +27,10 @@ if(EMSCRIPTEN)
   add_executable(insiliscope_scope_web scope_wasm.cpp ${ISC_SIM_SRC})
   target_include_directories(insiliscope_scope_web PRIVATE ${ISC_SIM})
   target_link_libraries(insiliscope_scope_web PRIVATE insiliscope_core)
+  # WASM SIMD for the render code (FFT butterflies, multiply loops); the core
+  # library is built without it. Vectorizing plain loops does not change
+  # results (no fast-math, no contraction).
+  target_compile_options(insiliscope_scope_web PRIVATE -msimd128)
   target_link_options(insiliscope_scope_web PRIVATE
     -O3
     -sMODULARIZE=1 -sEXPORT_NAME=createInsiliscope

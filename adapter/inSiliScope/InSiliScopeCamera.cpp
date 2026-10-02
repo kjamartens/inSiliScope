@@ -223,7 +223,7 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    // (2000 per 50 ms frame), the PSF's aberrations, refractive indices of
    // medium / cytoplasm / nucleus / microtubule (spec/BRIGHTFIELD.md), no
    // absorption (unstained).
-   const double brightFieldDefaults[BF_COUNT] = { 3, 0, 0, 0, -1, 0.55, 550, 40000, 1, 1.337, 1.360, 1.355, 1.48, 0 };
+   const double brightFieldDefaults[BF_COUNT] = { 3, 0, 0, 0, -1, 0.55, 550, 40000, 1, 1.337, 1.345, 1.345, 1.48, 0 };
    for (int i = 0; i < BF_COUNT; ++i)
       brightFieldNum_[i] = brightFieldDefaults[i];
 

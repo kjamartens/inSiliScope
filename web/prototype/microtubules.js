@@ -1276,7 +1276,9 @@ function buildMicrotubulesForCell(seed, cx, cy, cell, p) {
     for (const pts of paths) {
       mtTrimSteepEnds(pts, p.mtMaxZSlope);
       mtLimitZSlopeRealized(pts, p.mtMaxZSlope);
-      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i]);
+      // Every point is inside the outline from an earlier clamp (the cut, or
+      // the clamp after a collision nudge); the two steps above change z only.
+      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true);
     }
   }
   mtResultCache.set(key, { sig, paths });
