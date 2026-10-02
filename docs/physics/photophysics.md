@@ -1,9 +1,12 @@
 # Photophysics
 
-Two modalities share one dye population but use different photophysics:
+Two fluorescence modalities share one dye population but use different photophysics:
 
 - **SuperRes**: individual dyes switch on and off (a blink model, below).
 - **WideField**: all labelled dyes emit continuously and bleach (a dose model, below).
+
+The third modality, **BrightField**, images transmitted light and has no photophysics: see
+[Optics](optics.md#brightfield-imaging).
 
 ## SuperRes: blinking
 

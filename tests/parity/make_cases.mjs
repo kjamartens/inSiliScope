@@ -11,6 +11,8 @@ const out = [];
 const PARAM_SETS = {
   builtin: {},
   blobby: { cellBlob: 3.2, density: 0.6 },
+  // Fractal edge tail: strong and rough (the soft clamp binds), relaxation short.
+  rough: { cellRough: 0.6, cellFractalDim: 1.8, cellBlob: 2.5, cytoRelaxUm: 0.4 },
   norot: { allowPackRotation: 0, packFrac: 0.9, relaxIters: 40 },
   dense: { density: 0.9, chunkSize: 20, jitter: 1, cellElongMin: 0.3 },
   // Microtubules: sparse enough that the collision pass runs (it is skipped
@@ -18,7 +20,7 @@ const PARAM_SETS = {
   mtsparse: { mtDensity: 0.03, mtMinSeparation: 0.25, mtStartOffsetXY: 0.3 },
   mtvar: { mtDensity: 0.3, mtStepLen: 0.1, cellBlob: 2.5, mtEndJitterDeg: 60, mtWobbleTurn: 1.6, mtSmoothLen: 4,
            nucMargin: 1.2, cytoMaxSlope: 0.5, cytoDomeSlope: 1.5, mtMaxZSlope: 2 },
-  mtflat: { mtDensity: 0.1, mtWobbleTurn: 0, mtMinTurnRadius: 0, mtSmoothLen: 0, cytoSmoothPasses: 0,
+  mtflat: { mtDensity: 0.1, mtWobbleTurn: 0, mtMinTurnRadius: 0, mtSmoothLen: 0, cytoRelaxUm: 0, cellRough: 0,
             cytoMaxSlope: 0, cytoDomeSlope: 0, cytoRings: 20, cytoTheta: 48, mtMinSeparation: 0.3 },
 };
 for (const [name, kv] of Object.entries(PARAM_SETS))
@@ -56,6 +58,8 @@ out.push('cells m01 -7 mtsparse -3 -3 3 3 4');
 out.push('cells m02 90210 mtvar 400 -800 403 -797 2');
 out.push('cells m03 5 mtflat -1000000 1000000 -999997 1000003 2');
 out.push('cells m04 424242 mtsparse 12 12 20 20 3');
+out.push('cells m05 77 rough -4 -4 0 0 2');
+out.push('case r00 31337 rough -6 -6 7 7');
 
 fs.writeFileSync(process.argv[2], out.join('\n') + '\n');
 console.log(`wrote ${out.length} lines to ${process.argv[2]}`);

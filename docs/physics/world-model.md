@@ -28,6 +28,9 @@ Cell outline: an ellipse (random elongation, rotation) whose *geometric mean* di
 a few angular harmonics ("blobbiness") to look like a confluent-culture cell. Keeping the diameter meaningful at any
 blobbiness needed three separate fixes (a symmetric clamp, a numeric area correction per cell, and a per-cell modulation
 floor instead of whole-cell scaling); they are described in `spec/ALGORITHM.md` and must not be "simplified" away.
+On top of the lobes the outline has a fractal wiggle: harmonics 6-64 with amplitudes \(\propto k^{-(2.5-D)}\), so a
+box-counting dimension \(D\) (`cellFractalDim`, default 1.35, as measured on cultured cell contours), scaled by the
+blobbiness (`cellRough` x `cellBlob`: a round cell stays smooth).
 
 **Packing - move, don't shrink.** Cells are never resized to avoid overlap. A fixed number of Jacobi relaxation
 iterations moves overlapping neighbours apart by half the overlap using a same-iteration snapshot, so a pair separates
@@ -53,4 +56,5 @@ The core is bit-exact with the original JS prototype (the reference implementati
 
 Consumers see only `core/include/insiliscope/insiliscope.h`: `extern "C"`, flat buffers, opaque handles, no exceptions or
 STL across it. Queries return cells, assets (cell geometry and microtubules), dye sites, dye events in a time window
-(`isc_events_in_window`) and z-resolved dye density (`isc_density3d_in_window`, used by widefield).
+(`isc_events_in_window`), z-resolved dye density (`isc_density3d_in_window`, used by widefield) and the optical volume
+(`isc_optical_volume_in_window`: cytoplasm, nucleus and microtubule volume fractions per voxel, used by brightfield).

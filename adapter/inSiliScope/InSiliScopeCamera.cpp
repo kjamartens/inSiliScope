@@ -169,6 +169,23 @@ const char* g_PropWideFieldNumber[WF_COUNT] = {
    "FluoParam_WideFieldExtinctionCoeff",
 };
 const char* g_PropWideFieldHalfTimeSec = "FluoParam_WideFieldHalfTimeSec";
+const char* g_ModalityBrightField = "BrightField";
+const char* g_PropBrightFieldNumber[BF_COUNT] = {
+   "General_BrightFieldQuality",
+   "General_BrightFieldSources",
+   "General_BrightFieldUpscaling",
+   "General_BrightFieldGeometrySamples",
+   "General_BrightFieldSliceUm",
+   "General_BrightFieldCondenserNa",
+   "General_BrightFieldWavelengthNm",
+   "General_BrightFieldPhotonsPerPxPerSec",
+   "General_BrightFieldAberrations",
+   "SimType_CellFieldIndexMedium",
+   "SimType_CellFieldIndexCytoplasm",
+   "SimType_CellFieldIndexNucleus",
+   "SimType_CellFieldIndexMicrotubule",
+   "SimType_CellFieldAbsorptionPerUm",
+};
 
 const char* g_Fov128 = "128x128";
 const char* g_Fov256 = "256x256";
@@ -201,6 +218,14 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 4e8, 0.7, 5000.0, 270000.0 };
    for (int i = 0; i < WF_COUNT; ++i)
       wideFieldNum_[i] = wideFieldDefaults[i];
+   // BrightField: quality 3 (its sources/upscaling/samples/slice: 0 / -1 =
+   // from the quality), condenser NA 0.55, 550 nm, 40000 photons/pixel/s
+   // (2000 per 50 ms frame), the PSF's aberrations, refractive indices of
+   // medium / cytoplasm / nucleus / microtubule (spec/BRIGHTFIELD.md), no
+   // absorption (unstained).
+   const double brightFieldDefaults[BF_COUNT] = { 3, 0, 0, 0, -1, 0.55, 550, 40000, 1, 1.337, 1.345, 1.345, 1.48, 0 };
+   for (int i = 0; i < BF_COUNT; ++i)
+      brightFieldNum_[i] = brightFieldDefaults[i];
 
    // Pre-init property: must exist before Initialize() finishes. FovSize is
    // deliberately NOT pre-init -- unlike RandomSeed, it's a regular,
@@ -634,6 +659,22 @@ int CInSiliScopeCamera::Initialize()
                         new CPropertyAction(this, &CInSiliScopeCamera::OnImagingModality));
    AddAllowedValue(g_PropImagingModality, g_ModalitySuperRes);
    AddAllowedValue(g_PropImagingModality, g_ModalityWideField);
+   AddAllowedValue(g_PropImagingModality, g_ModalityBrightField);
+   {
+      const double lo[BF_COUNT] = { 1, 0, 0, 0, -1, 0, 300, 0, 0, 1.0, 1.0, 1.0, 1.0, 0 };
+      const double hi[BF_COUNT] = { 4, 1024, 8, 16, 5, 1.5, 1000, 1e9, 1, 2.0, 2.0, 2.0, 2.0, 100 };
+      for (long i = 0; i < BF_COUNT; ++i)
+      {
+         auto* act = new CPropertyActionEx(this, &CInSiliScopeCamera::OnBrightFieldNumber, i);
+         const bool integer = i == BF_QUALITY || i == BF_SOURCES || i == BF_UPSCALING || i == BF_GEOMETRY_SAMPLES ||
+                              i == BF_ABERRATIONS;
+         if (integer)
+            CreateIntegerProperty(g_PropBrightFieldNumber[i], static_cast<long>(brightFieldNum_[i].load()), false, act);
+         else
+            CreateFloatProperty(g_PropBrightFieldNumber[i], brightFieldNum_[i].load(), false, act);
+         SetPropertyLimits(g_PropBrightFieldNumber[i], lo[i], hi[i]);
+      }
+   }
    {
       const double lo[WF_COUNT] = { 1.0, 5.0, 0.0, 0.0, 0.0, 1e3 };
       const double hi[WF_COUNT] = { 4.0, 500.0, 1e13, 1.0, 1e9, 1e6 };

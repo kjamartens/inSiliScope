@@ -481,7 +481,7 @@ function mtSampleDirection(table, u1, u2) {
 const MT_GEOM_CACHE_MAX = 6000;
 const mtGeomCache = new Map();
 function mtCellShapeSig(cell) {
-  return [cell.semiMajor, cell.semiMinor, cell.rot, cell.harmAmp.join(','), cell.harmPh.join(','),
+  return [cell.semiMajor, cell.semiMinor, cell.rot, cell.harmAmp.join(','), cell.harmPh.join(','), cell.tailAc.join(','), cell.tailAs.join(','),
     cell.modFloor, cell.nucOffX, cell.nucOffY, cell.nucLong, cell.nucShort, cell.nucRot,
     cell.nucZ, cell.nucHeight, cell.rOuter].join('|');
 }
@@ -531,7 +531,10 @@ function mtCountForCell(seed, cx, cy, cell, p, geom) {
 // always exactly satisfies containment, and reads as the microtubule
 // bending along the nuclear envelope/cell cortex when wobble would have
 // carried it through, a reasonable stand-in for a real prototype.
-function mtClampIntoCytoplasm(cell, p, geom, pt) {
+// knownInside: the caller has just checked this point against the outline
+// (the cut in buildMicrotubule); skip that check again unless the nucleus
+// push moves it (speed only).
+function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
   const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
   const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
   const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
@@ -550,20 +553,20 @@ function mtClampIntoCytoplasm(cell, p, geom, pt) {
     const cr2 = Math.cos(cell.nucRot), sr2 = Math.sin(cell.nucRot);
     pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
     pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
+    knownInside = false;
   }
 
-  const ang = Math.atan2(pt.y, pt.x);
-  const rc = cellRadiusAt(cell, ang);
   const dist = Math.hypot(pt.x, pt.y);
+  const rc = knownInside ? dist : cellRadiusAt(cell, Math.atan2(pt.y, pt.x));
   if (dist > rc) {
     const scale = (rc * MT_CONTAIN_MARGIN) / Math.max(1e-9, dist);
     pt.x *= scale; pt.y *= scale;
   }
 
-  // Against the ACTUAL rendered (smoothed) mesh height, not the raw analytic
+  // Against the ACTUAL rendered (relaxed) height, not the raw analytic
   // cytoHeightAt() -- see sampleCytoMeshHeight's own comment in index.html:
-  // buildCytoMesh()'s Laplacian smoothing lowers the sharp nucleus-adjacent
-  // dome peak below what cytoHeightAt() alone would return, so clamping
+  // the relaxation lowers the sharp nucleus-adjacent dome peak below what
+  // cytoHeightAt() alone would return, so clamping
   // against the raw function let a point sit above the surface actually
   // drawn (a real, reported "pokes out of the dome" bug).
   const topH = Math.max(0, sampleCytoMeshHeight(cell, p, pt.x, pt.y));
@@ -1040,7 +1043,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // no-op here in the ordinary case (nothing left in `pts` violates it) --
   // kept as-is rather than split out, since the collision-nudge pass still
   // needs the full three-way clamp for points it moves after this point.
-  for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i]);
+  for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true);
 
   return { pts, priority: next() };
 }
@@ -1237,7 +1240,7 @@ function mtResultSig(seed, cell, p) {
   // cached microtubule set built against the old clearance/height field.
   return [seed, mtCellShapeSig(cell), p.mtDensity, p.mtStartFracMin, p.mtStartFracMax,
     p.mtStartOffsetXY, p.mtEndFracMin, p.mtEndFracMax, p.mtEndJitterDeg, p.mtWobbleTurn,
-    p.mtWobbleFactor, p.mtStepLen, p.mtSmoothLen, p.mtMinTurnRadius, p.mtMinSeparation, p.mtMaxZSlope, p.nucMargin, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoSmoothPasses, p.cytoRings, p.cytoTheta].join('|');
+    p.mtWobbleFactor, p.mtStepLen, p.mtSmoothLen, p.mtMinTurnRadius, p.mtMinSeparation, p.mtMaxZSlope, p.nucMargin, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta].join('|');
 }
 
 // The one entry point index.html's draw() calls: builds every microtubule for
@@ -1273,7 +1276,9 @@ function buildMicrotubulesForCell(seed, cx, cy, cell, p) {
     for (const pts of paths) {
       mtTrimSteepEnds(pts, p.mtMaxZSlope);
       mtLimitZSlopeRealized(pts, p.mtMaxZSlope);
-      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i]);
+      // Every point is inside the outline from an earlier clamp (the cut, or
+      // the clamp after a collision nudge); the two steps above change z only.
+      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true);
     }
   }
   mtResultCache.set(key, { sig, paths });

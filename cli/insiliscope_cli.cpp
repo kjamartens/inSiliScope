@@ -121,7 +121,10 @@ int main(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
-   if (info.dyes > 0 || sim::ScopeSpecGet(spec, "modality") == 1)
+   if (sim::ScopeSpecGet(spec, "modality") == 2)
+      std::printf("%s: %ld frames %ux%u, BrightField (setup %.2f s), total %.2f s\n", out.c_str(), info.frames,
+                  info.width, info.height, info.querySec, info.totalSec);
+   else if (info.dyes > 0 || sim::ScopeSpecGet(spec, "modality") == 1)
       std::printf("%s: %ld frames %ux%u, WideField, %ld dyes, t1/2 %.4g s (setup %.2f s), total %.2f s\n", out.c_str(),
                   info.frames, info.width, info.height, info.dyes, info.halfTimeSec, info.querySec, info.totalSec);
    else

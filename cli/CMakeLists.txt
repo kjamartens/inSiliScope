@@ -7,6 +7,7 @@
 set(ISC_SIM ${PROJECT_SOURCE_DIR}/adapter/inSiliScope/Simulation)
 set(ISC_SIM_SRC
   ${ISC_SIM}/ScopeMovie.cpp
+  ${ISC_SIM}/BrightfieldRender.cpp
   ${ISC_SIM}/CellFieldSource.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/Illumination.cpp
@@ -26,6 +27,10 @@ if(EMSCRIPTEN)
   add_executable(insiliscope_scope_web scope_wasm.cpp ${ISC_SIM_SRC})
   target_include_directories(insiliscope_scope_web PRIVATE ${ISC_SIM})
   target_link_libraries(insiliscope_scope_web PRIVATE insiliscope_core)
+  # WASM SIMD for the render code (FFT butterflies, multiply loops); the core
+  # library is built without it. Vectorizing plain loops does not change
+  # results (no fast-math, no contraction).
+  target_compile_options(insiliscope_scope_web PRIVATE -msimd128)
   target_link_options(insiliscope_scope_web PRIVATE
     -O3
     -sMODULARIZE=1 -sEXPORT_NAME=createInsiliscope
@@ -66,6 +71,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_test(NAME emitter_density COMMAND emitter_density_check)
   add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
   add_test(NAME cli_geometry COMMAND insiliscope_cli --geometry-json ${CMAKE_CURRENT_BINARY_DIR}/cli_geometry.json --geometry-um 30 --geometry-detail 1 --x 5 --y -3)
+  add_test(NAME cli_tiff_bf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_bf.tif --modality BrightField --frames 3 --size 64 --x -4 --y -5 --bf-quality 2)
   add_test(NAME cli_tiff_wf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_wf.tif --modality WideField --frames 10 --size 64 --x -4 --y -5)
 
   add_executable(sr_render_check sr_render_check.cpp ${ISC_SIM_SRC})
@@ -89,6 +95,19 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(widefield_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME widefield COMMAND widefield_check)
+
+  # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
+  add_executable(brightfield_check brightfield_check.cpp ${ISC_SIM_SRC})
+  target_include_directories(brightfield_check PRIVATE ${ISC_SIM})
+  target_link_libraries(brightfield_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(brightfield_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(brightfield_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(brightfield_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(brightfield_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME brightfield COMMAND brightfield_check)
 
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp ${ISC_SIM_SRC})

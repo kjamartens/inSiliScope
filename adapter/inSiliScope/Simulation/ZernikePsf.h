@@ -21,6 +21,7 @@
 #pragma once
 
 #include "PsfGeneratorBridge.h"
+#include "SMLMZernike.h"
 
 #include <string>
 #include <vector>
@@ -39,5 +40,10 @@ bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::ve
 // it (sum-1 planes, block sums). Not memoized: ComputePsfKernelCache is the
 // memoized entry point for every model.
 bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError);
+
+// Wavefront of the Zernike coefficients (OSA/ANSI, waves) at pupil radius
+// rho (0..1) and angle phi, in waves (0 outside the pupil). The same modes
+// the PSF uses; the BrightField detection pupil takes it.
+double ZernikeWavefrontWaves(const ZernikeCoefficients& coeffs, double rho, double phi);
 
 } // namespace sim

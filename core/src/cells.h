@@ -23,6 +23,13 @@ constexpr int N_HARM = 3;
 constexpr int HARM_K[N_HARM] = { 2, 3, 5 };
 constexpr double CELL_MOD_MIN = 0.35, CELL_MOD_MAX = 1.65;
 
+// Fractal edge tail: harmonics TAIL_K0 .. TAIL_K0+N_TAIL-1 (6..64), amplitude
+// u_k * cellRough * cellBlob/5 * (k/5)^-(2.5-D), D = cellFractalDim; applied
+// as r *= 1 + softclamp(tail, TAIL_MAX). See spec/ALGORITHM.md "Edge roughness".
+constexpr int TAIL_K0 = 6, N_TAIL = 59;
+constexpr double TAIL_MAX = 0.3;
+constexpr uint32_t TAIL_AMP_STREAM = 50, TAIL_PH_STREAM = 51;
+
 constexpr int RADIUS_LUT_N = 128;
 constexpr int OUTLINE_SAMPLE_N = 16;
 
@@ -35,6 +42,8 @@ struct Cell {
    double semiMajor = 0, semiMinor = 0, rot = 0, height = 0;
    double harmAmp[N_HARM] = {}, harmPh[N_HARM] = {};
    double modFloor = CELL_MOD_MIN;   // raised by EnvelopNucleus
+   double tailAc[N_TAIL] = {}, tailAs[N_TAIL] = {};   // a_k cos(ph_k), a_k sin(ph_k)
+   double tailBound = 0;             // bound on |tail|; 0 = no tail
    double nucLong = 0, nucShort = 0, nucHeight = 0;
    double nucOffX = 0, nucOffY = 0, nucRot = 0, nucZ = 0;
    double cytoRimHeight = 0, cytoEdgeRise = 0, cytoMidHeight = 0, cytoMidDistFrac = 0;
@@ -52,6 +61,15 @@ struct Cell {
 
 Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p);
 double CellRadiusAt(const Cell& c, double thetaWorld);
+double CellTailAt(const Cell& c, double theta);
+// A lower bound on CellRadiusAt at any angle (ellipse minor axis x floor x
+// (1 - tailBound), minus a relative 1e-12 for rounding): a point closer to
+// the centre is inside without evaluating the outline. Speed only.
+inline double CellInnerRadiusBound(const Cell& c)
+{
+   const double b = c.semiMinor < c.semiMajor ? c.semiMinor : c.semiMajor;
+   return b * c.modFloor * (1 - c.tailBound) * (1 - 1e-12);
+}
 void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams);
 double CytoSlopeRunout(const Cell& c, const Params& p);
 double CytoDomeReach(const Cell& c, const Params& p);

@@ -13,6 +13,8 @@ struct Params {
    double cellDiamMin = 25, cellDiamMax = 35;
    double cellElongMin = 0.5, cellElongMax = 1;
    double cellBlob = 1.75;
+   double cellRough = 0.15;        // fractal edge tail amplitude (x cellBlob); 0 = off
+   double cellFractalDim = 1.35;   // box-counting dimension of the tail, [1, 2]
    double cellHeightMin = 3, cellHeightMax = 6;
    // Nucleus
    double nucLongMin = 8, nucLongMax = 12;
@@ -27,9 +29,9 @@ struct Params {
    double cytoMidDistanceMin = 0.1, cytoMidDistanceMax = 0.3;
    double cytoMaxSlope = 1;
    double cytoDomeSlope = 3;
-   double cytoSmoothPasses = 12;
+   double cytoRelaxUm = 1;         // screened-Poisson relaxation length; 0 = raw profile
    double cytoRings = 60;
-   double cytoTheta = 128;
+   double cytoTheta = 256;
    // Packing
    bool enablePacking = true;
    bool allowPackRotation = true;

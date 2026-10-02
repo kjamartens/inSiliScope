@@ -11,13 +11,13 @@ struct Field { const char* name; double Params::* num; bool Params::* flag; };
 #define FLAG(n) { #n, nullptr, &Params::n }
 const Field kFields[] = {
    NUM(chunkSize), NUM(jitter), NUM(density),
-   NUM(cellDiamMin), NUM(cellDiamMax), NUM(cellElongMin), NUM(cellElongMax), NUM(cellBlob),
+   NUM(cellDiamMin), NUM(cellDiamMax), NUM(cellElongMin), NUM(cellElongMax), NUM(cellBlob), NUM(cellRough), NUM(cellFractalDim),
    NUM(cellHeightMin), NUM(cellHeightMax),
    NUM(nucLongMin), NUM(nucLongMax), NUM(nucRatioMin), NUM(nucRatioMax),
    NUM(nucHeightMin), NUM(nucHeightMax), NUM(nucOffsetFrac), NUM(nucMargin),
    NUM(cytoRimHeightMin), NUM(cytoRimHeightMax), NUM(cytoEdgeRiseMin), NUM(cytoEdgeRiseMax),
    NUM(cytoMidHeightMin), NUM(cytoMidHeightMax), NUM(cytoMidDistanceMin), NUM(cytoMidDistanceMax),
-   NUM(cytoMaxSlope), NUM(cytoDomeSlope), NUM(cytoSmoothPasses), NUM(cytoRings), NUM(cytoTheta),
+   NUM(cytoMaxSlope), NUM(cytoDomeSlope), NUM(cytoRelaxUm), NUM(cytoRings), NUM(cytoTheta),
    FLAG(enablePacking), FLAG(allowPackRotation), NUM(packFrac), NUM(relaxIters), NUM(relaxDamping),
    NUM(mtDensity), NUM(mtStartFracMin), NUM(mtStartFracMax), NUM(mtStartOffsetXY),
    NUM(mtEndFracMin), NUM(mtEndFracMax), NUM(mtEndJitterDeg), NUM(mtWobbleTurn), NUM(mtWobbleFactor),

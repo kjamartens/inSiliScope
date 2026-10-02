@@ -25,6 +25,7 @@
 #include "DeviceBase.h"
 #include "DeviceThreads.h"
 #include "ImgBuffer.h"
+#include "Simulation/BrightfieldRender.h"
 #include "Simulation/CellFieldSource.h"
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SMLMStructures.h"
@@ -213,6 +214,30 @@ enum WideFieldNumber
 extern const char* g_PropWideFieldNumber[WF_COUNT];
 // Read-only: the bleach half time these photophysics give at the pattern's peak.
 extern const char* g_PropWideFieldHalfTimeSec;
+// BrightField (transmitted light, Simulation/BrightfieldRender.h; CellField
+// only): its numeric properties, one indexed handler (OnBrightFieldNumber).
+// Quality 1-4 sets sources/upscaling/geometry samples/slice step unless
+// those are set (> 0; slice >= 0).
+extern const char* g_ModalityBrightField;
+enum BrightFieldNumber
+{
+   BF_QUALITY = 0,
+   BF_SOURCES,
+   BF_UPSCALING,
+   BF_GEOMETRY_SAMPLES,
+   BF_SLICE_UM,
+   BF_CONDENSER_NA,
+   BF_WAVELENGTH_NM,
+   BF_PHOTONS_PER_PX_PER_SEC,
+   BF_ABERRATIONS,
+   BF_INDEX_MEDIUM,
+   BF_INDEX_CYTOPLASM,
+   BF_INDEX_NUCLEUS,
+   BF_INDEX_MICROTUBULE,
+   BF_ABSORPTION_PER_UM,
+   BF_COUNT
+};
+extern const char* g_PropBrightFieldNumber[BF_COUNT];
 
 extern const char* g_Fov128;
 extern const char* g_Fov256;
@@ -353,6 +378,7 @@ public:
    int OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnBrightFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    // Standard MM Exposure property -- this device deliberately does not add
    // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
    // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
@@ -411,7 +437,20 @@ private:
                                          double spanSec) const;
    // WideField: the modality property is WideField (it renders only for the
    // CellField pattern; others log once and render SR).
-   bool WideFieldSelected() const { return wideField_.load(); }
+   bool WideFieldSelected() const { return modality_.load() == 1; }
+   // BrightField: the modality property is BrightField (CellField only, as WideField).
+   bool BrightFieldSelected() const { return modality_.load() == 2; }
+   // The BrightField spec (optics, quality, specimen indices) for the current
+   // properties at the pose of q (FOV origin), w x h pixels.
+   sim::BrightfieldSpec BuildBrightfieldSpec(const sim::SimulationParams& params, const sim::CellFieldQuery& q,
+                                             unsigned w, unsigned h) const;
+   // BrightField precomputed stack: one image per distinct focus, times the
+   // lamp flux, camera noise per frame; Z is read per batch of frames.
+   void RenderBrightfieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w, unsigned h,
+                               const sim::SimulationParams& params, const sim::CellFieldSettings& cellField,
+                               double stageXUm, double stageYUm, const sim::PixelOffsetMap& offsetMap,
+                               const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
+                               uint32_t noiseSeed);
    // The scene spec's settings (grid, photophysics, collection efficiency,
    // kernel cap, exposure) for the current properties; pose fields from q.
    sim::WidefieldSceneSpec BuildWidefieldSceneSpec(const sim::SimulationParams& params,
@@ -476,7 +515,7 @@ private:
                                std::string customPointsFile, std::vector<double> spacingsNm, long seed,
                                sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure,
                                sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
-                               double stageZUm, bool wideField);
+                               double stageZUm, int modality);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -641,7 +680,7 @@ private:
    // disabled-by-default convention used elsewhere. Photometrics doesn't
    // publish actual per-pixel variance for the Kinetix, so these two
    // defaults are estimates, not datasheet values -- see the plan doc.
-   std::atomic<double> pixelGainStdPct_{5.0};
+   std::atomic<double> pixelGainStdPct_{0.5};
    std::atomic<double> pixelReadNoiseStdPct_{20.0};
    // Drift speed, nm/sec, along a direction drawn once per RandomSeed (see
    // sim::ComputeDriftOffsetPx/DriftAngleForSeed). Applies in both
@@ -728,10 +767,12 @@ private:
    std::atomic<double> cellField_[CF_COUNT];
    bool cellFieldPacking_ = true;
 
-   // Imaging modality (General_ImagingModality) and the WideField numbers,
-   // indexed by WideFieldNumber (defaults set in the constructor).
-   std::atomic<bool> wideField_{false};
+   // Imaging modality (General_ImagingModality: 0 SuperRes, 1 WideField,
+   // 2 BrightField) and the WideField / BrightField numbers, indexed by
+   // WideFieldNumber / BrightFieldNumber (defaults set in the constructor).
+   std::atomic<int> modality_{0};
    std::atomic<double> wideFieldNum_[WF_COUNT];
+   std::atomic<double> brightFieldNum_[BF_COUNT];
 
    // Diffraction PSF (Simulation/PsfGeneratorBridge.h: GibsonLanniZernike in
    // C++, RichardsWolf/GibsonLanni in the embedded PSFGenerator JVM) parameters. PsfModel gates which renderer is

@@ -354,6 +354,21 @@ bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::ve
    return true;
 }
 
+double ZernikeWavefrontWaves(const ZernikeCoefficients& coeffs, double rho, double phi)
+{
+   double w = 0.0;
+   for (size_t j = 0; j < coeffs.size(); ++j)
+   {
+      if (coeffs[j] == 0.0)
+         continue;
+      ZernikeMode zm;
+      IndexToNM(static_cast<int>(j), zm.n, zm.l);
+      zm.m = std::abs(zm.l);
+      w += coeffs[j] * ZernikeValue(zm, rho, phi);
+   }
+   return w;
+}
+
 bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError)
 {
    outCache = PsfKernelCache();

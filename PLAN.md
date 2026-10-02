@@ -21,8 +21,22 @@ Upcoming ideas:
   row bands on all cores, [x] bounds-check-free splat, [x] Fft placement: tabulated twiddles, line
   transforms on all cores in live mode, [x] cli frames in parallel batches.
 - more targets
+- brightfield (exploration, 2026-10-01, spec/BRIGHTFIELD.md): [x] package survey (waveorder, chromatix, TorchOptics,
+  PyWolf, holopy, CytoPacq/SimuCell: none embeddable, chromatix-style multislice ported), [x] core ABI 6 optical volume,
+  [x] multislice + Abbe engine with a speed/precision quality (1-4; a hidden reference level 5), [x] camera PRNU default 5% -> 0.5%, [x] cli/viewer (slider)/adapter (stack, live, z
+  sequences), [x] tests (grating theory, empty field, determinism, adapter, viewer), [x] list of missing structures
+  (only simulated ones make contrast). Next: [ ] MSBuild + visual check in MM, [ ] waveorder comparison, [ ] GPU path,
+  [ ] stage-move prefetch, [ ] phase contrast / DIC, [ ] the missing structures (nucleoli, lipid droplets, vesicles...).
+  Speed (2026-10-02): [x] shared transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD,
+  [x] quality levels re-tuned on measured accuracy (grid at lambda/4n), [x] cli/viewer keep world + scene across movies:
+  256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
 - 2026-10-01: [x] C++ Gibson-Lanni+Zernike PSF (`Simulation/ZernikePsf.*`, = webSMLM's scalar chirp-Z model) in the
   adapter (no JVM for the default model), cli and viewer (their default PSF now); [x] photonCV 0.5 and WideField
   excitation 4e8 (t1/2 120 s) defaults; [x] the 2x2 overview (map, structures, widefield, SMLM) on the gallery and
   Home (`tools/build_overview.py`, `insiliscope_cli --geometry-json`); [x] site: homepage link, viewer embedded on
   its docs page with a back link and a loading text.
+- 2026-10-01: cell edges and height (spec/ALGORITHM.md): [x] fractal outline tail (harmonics 6-64, amplitude
+  ∝ blob x k^-(2.5-D), `cellRough` 0.15, `cellFractalDim` 1.35, bit-exact complex recurrence), [x] cytoplasm height
+  relaxed on a Cartesian grid (screened Poisson, exact boundary, nucleus obstacle; `cytoRelaxUm` replaces
+  `cytoSmoothPasses`): no folds. Next: [ ] thin protrusions (filopodia, retraction fibres), [ ] tension arcs between
+  adhesions (concave scallops).

@@ -36,8 +36,8 @@ README).
 | File | What to port |
 |---|---|
 | `index.html` `pcg4d`, `hashUnit`, `hashStream` | Address-based RNG. Same primitive as demoCam's `Pcg4d` in `SMLMCounterRng.h`. |
-| `index.html` `CH`, `rawCandidate`, `cellRadiusAt`, `envelopNucleus`, `cellOutlineLocal`, `nucleusSignedDistLocal` | Per-chunk cell candidate: position, ellipse + angular-harmonic outline, nucleus ellipsoid. |
-| `index.html` `cytoHeightAt`, `buildCytoMesh`, `getCytoGeometry`, `sampleCytoMeshHeight`, `smoothCytoGrid` | Cytoplasm height field. Microtubules are clamped against the *smoothed mesh*, not the analytic function, so the mesh must be ported too. |
+| `index.html` `CH`, `rawCandidate`, `cellRadiusAt`, `envelopNucleus`, `cellOutlineLocal`, `nucleusSignedDistLocal` | Per-chunk cell candidate: position, ellipse + angular-harmonic outline (+ the fractal tail, `cellTailAt`, 2026-10-01), nucleus ellipsoid. |
+| `index.html` `cytoHeightAt`, `buildCytoHeightGrid` (+ `edt1d`, `cytoGridCrossings`, `cytoCrossFrac`), `sampleCytoHeightGrid`, `buildCytoMesh`, `getCytoGeometry`, `sampleCytoMeshHeight` | Cytoplasm height field: the raw profile relaxed on a Cartesian grid (screened Poisson, nucleus obstacle; was `smoothCytoGrid` on the polar mesh until 2026-10-01). Microtubules are clamped against the *relaxed* height, not the analytic function, so the grid must be ported too. |
 | `index.html` `buildCandidateMap`, `relax`, `prune`, `interactionChunks` | Packing (cells are moved apart, never shrunk). **See the viewport-dependence trap in 4.3.** |
 | `microtubules.js` `buildMicrotubulesForCell` and everything it calls (`mtGenerateOne`, `mtResolveCollisions`, `mtEnforceMinTurnRadius`, `mtClampIntoCytoplasm`, `buildMtDirectionTable`, ...) | Per-cell 3D microtubule centrelines (`{x,y,z}` µm, cell-local frame). |
 | `microtubules.js` `buildMicrotubuleLabelPoints`, `MT_*` constants | Lattice site -> binder tip -> dye. Currently only a windowed debug preview in JS. |
@@ -135,9 +135,9 @@ Put these in a `CellFieldParams` struct with these defaults; expose only a curat
 properties (section 9) and keep the rest as constants until asked.
 
 Field: `chunkSize 26`, `jitter 0.8`, `density (occupancy) 0.33`.
-Cell: diameter 25-35, elongation (short/long) 0.5-1, `cellBlob 1.75`, height 3-6.
+Cell: diameter 25-35, elongation (short/long) 0.5-1, `cellBlob 1.75`, `cellRough 0.15` (fractal edge tail, x blob, 0 = off), `cellFractalDim 1.35` (its box-counting dimension, 1-2), height 3-6.
 Nucleus: long axis 8-12, short/long 0.6-1, height 0.3-0.5 x long axis, offset 0.1, margin 1.5.
-Cytoplasm: rim height 0.1-0.3, edge rise 0.1-0.5, mid height 1-2, mid distance 0.1-0.3 x cell radius, `nucMargin` 0.6. `cytoMaxSlope` (default 1 µm/µm, slider 0-2, 0 = off) caps how fast the cytoplasm may rise outside the nucleus dome, and `cytoDomeSlope` (default 3, slider 0-4, 0 = off) separately caps the dome flank over the nucleus (falls from `c.height` to mid height along a smoothstep of reach `1.5·(H-mid)/cytoDomeSlope`, ≥ `nucMargin`). Cytoplasm cap: the edge rise is `Hc(1-exp(-s·dEdge/Hc))` with `Hc = 2·cytoMidHeight` (saturating, so no linear pyramid), the rim→mid ramp is stretched to keep its peak slope ≤ s, and `envelopNucleus(c, margin, cytoSlopeRunout)` pushes the outline out so the nucleus is always ≥ dome reach + `2·mid·ln2/cytoMaxSlope` from the edge. The four `cyto*` per-cell fields are now sampled before `envelopNucleus`. `cytoSmoothPasses` (default 12, slider 0-12) is the number of 3x3 binomial smoothing passes `smoothCytoGrid` applies to the mesh; `cytoRings` (default 60, slider 4-60) is the mesh's radial ring count; `cytoTheta` (default 128, slider 32-128) is its angular sample count.
+Cytoplasm: rim height 0.1-0.3, edge rise 0.1-0.5, mid height 1-2, mid distance 0.1-0.3 x cell radius, `nucMargin` 0.6. `cytoMaxSlope` (default 1 µm/µm, slider 0-2, 0 = off) caps how fast the cytoplasm may rise outside the nucleus dome, and `cytoDomeSlope` (default 3, slider 0-4, 0 = off) separately caps the dome flank over the nucleus (falls from `c.height` to mid height along a smoothstep of reach `1.5·(H-mid)/cytoDomeSlope`, ≥ `nucMargin`). Cytoplasm cap: the edge rise is `Hc(1-exp(-s·dEdge/Hc))` with `Hc = 2·cytoMidHeight` (saturating, so no linear pyramid), the rim→mid ramp is stretched to keep its peak slope ≤ s, and `envelopNucleus(c, margin, cytoSlopeRunout)` pushes the outline out so the nucleus is always ≥ dome reach + `2·mid·ln2/cytoMaxSlope` from the edge. The four `cyto*` per-cell fields are now sampled before `envelopNucleus`. `cytoRelaxUm` (default 1 µm, slider 0-3, 0 = raw profile; replaced `cytoSmoothPasses` on 2026-10-01) is the screened-Poisson relaxation length of the height grid (0.25 µm, `CYTO_GRID_UM`; spec/ALGORITHM.md "Cytoplasm height: relaxation"); `cytoRings` (default 60, slider 4-60) is the drawn mesh's radial ring count; `cytoTheta` (default 256 since 2026-10-01, was 128; slider 32-512) is its angular sample count (and `isc_cell_outline`'s).
 Packing: enabled, min gap 1.0, relax iterations 80 (slider to 150), step (damping) 0.55, rotation allowed.
 Microtubules: density 0.9 /µm², start offset 0-0.3, start XY jitter 0, end offset 0.01-0.4,
 end direction jitter 145 deg, wobble turn 0.8, wobble path x1.05, step length 0.05, path smoothing 1.5,
@@ -606,3 +606,24 @@ as before. `ScopePsfRequest` builds the same `PsfGeneratorRequest` as the camera
 `BuildPsfGeneratorRequest`. The SR movie computes the kernel while the cell field is queried (native).
 The viewer sends `psf-kernel-half-width-nm=3000` (kernel stack ~75 MB instead of ~400 MB of WASM
 memory); a cli run reproduces a viewer movie with that option. Check: ctest `zernike_psf`.
+
+## 15. BrightField imaging modality (2026-10-01, exploration branch)
+
+Spec, model, quality table and the list of missing structures: [BRIGHTFIELD.md](BRIGHTFIELD.md).
+- Core ABI 6: `isc_optical_volume_in_window(w, x0,y0,x1,y1, zMin,zMax, nx,ny,nz, sub, out[3*nx*ny*nz])`, channel-major
+  cytoplasm / nucleus / microtubule volume fractions (`World::OpticalVolumeInWindow`: cached cell assets, the smoothed
+  cytoplasm mesh as the body height field, the nucleus ellipsoid's chord clipped to it, microtubule centrelines
+  deposited as tube volume). Read-only: no new hash draws, goldens unchanged. Rows run on `ParallelFor` per cell.
+  `World::PrebuildAssets` is factored out of `ForEachDyeBlock` (unchanged behaviour).
+- Engine `Simulation/BrightfieldRender.*`: `BrightfieldScene::Update(src, spec, worldVersion)` (slices, sources,
+  pupil, exit spectra), `Image(focusUm)` (cached per focus); `UpdateFromPhase` is the test hook.
+- cli/viewer: `modality` 2 / `BrightField`; `bf-quality`, `bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`,
+  `bf-margin-um`, `bf-condenser-na`, `bf-wavelength-nm`, `bf-photons-per-px-per-sec`, `bf-aberrations`, `bf-n-medium`,
+  `bf-n-cytoplasm`, `bf-n-nucleus`, `bf-n-microtubule`, `bf-absorption-per-um`. The viewer has a quality slider.
+- Adapter: `General_ImagingModality` gains `BrightField` (the modality is an int now: 0/1/2), properties
+  `General_BrightField{Quality,Sources,Upscaling,GeometrySamples,SliceUm,CondenserNa,WavelengthNm,PhotonsPerPxPerSec,
+  Aberrations}` and `SimType_CellField{IndexMedium,IndexCytoplasm,IndexNucleus,IndexMicrotubule,AbsorptionPerUm}`;
+  precomputed stacks (`RenderBrightfieldStack`, one image per distinct focus, z sequences) and live mode (scene per
+  pose, image per focus). No GPU path, no drift, CellField only.
+- [ ] Visual check in Micro-Manager Studio; [ ] MSBuild of the DLL (only the Linux test `.so` was built);
+  [ ] waveorder weak-phase comparison; [ ] GPU path; [ ] stage-move prefetch.

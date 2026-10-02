@@ -90,6 +90,40 @@ harmonic amplitudes — the unclamped sum routinely overshoots what `cellRadiusA
 ever actually draws once the clamp saturates, which was quietly forcing packing to
 space cells much further apart than their drawn outlines needed.
 
+**Edge roughness (fractal tail, 2026-10-01)**: real adherent-cell outlines are wiggly at
+every scale below the lobes (BF and phase images show sub-µm to few-µm ruffles), not
+smooth arcs. Box counting on cultured epithelial cells gives a contour fractal dimension
+D = 1.352 ± 0.044 that varies little with cell shape (Fractal analysis of cell boundary
+ultrastructure, AFM, 2015); spreading fronts are self-affine with Hurst exponents ~0.6-0.86;
+rougher edges go with more filopodia/ruffles. So the outline gets a **spectral tail**:
+harmonics k = 6..64 (`TAIL_K0`, `N_TAIL`) with amplitude
+`u_k · cellRough · cellBlob/5 · (k/5)^-(2.5-D)` and a uniform random phase, `D =
+cellFractalDim` (default 1.35, clamped to [1, 2]), `cellRough` default 0.15.
+- Why that exponent: a self-affine graph r(θ) with Hurst exponent H has harmonic
+  amplitudes ∝ k^-(H+½) and box-counting dimension D = 2 − H, so the exponent is 2.5 − D.
+  The existing k = 2, 3, 5 terms (∝ 1/k) are H = ½, D = 1.5, and the tail starts at the
+  k = 5 term's scale, so it extends the same spectrum (world_checks fits the tail's power
+  spectrum: slope −(5 − 2D) within 0.25).
+- **Proportional to `cellBlob`**: a round cell (blob 0) stays smooth, a lobed one is
+  rough — round cells in culture are not fractal either.
+- **Multiplicative, after the coarse clamp**: `r = base · clamp(mod) · (1 + tail)`.
+  Inside the clamp, the wiggle would be clipped flat wherever the lobes saturate it.
+  The tail is soft-clamped, `t / sqrt(1 + (t/TAIL_MAX)²)` with `TAIL_MAX = 0.3`
+  (smooth, only sqrt), and `tailBound = min(TAIL_MAX, Σ a_k)` bounds it: `rOuter`
+  and the packing reach get a factor `1 + tailBound` (`1 + TAIL_MAX` worst case).
+- **Size stays meaning the same**: the area correction samples 256 points with the
+  tail on (48 without), and `envelopNucleus()` divides each nucleus sample's
+  required modulation by `1 + tail` at that angle, over 256 samples. Dividing by
+  `1 − tailBound` everywhere instead was tried first: it raised the floor far too
+  much and often fell through to the whole-cell scale-up, making cells ~18% larger.
+- **Evaluation**: `cellTailAt()` builds z^k = e^{ikθ} by complex multiplication from
+  one `cos`/`sin`. Only `+` and `×`, so it is bit-exact JS ↔ C++. It runs as four
+  independent chains (k = 6+q, step z⁴) with four partial sums, because one serial
+  chain of 59 dependent multiplications was the microtubule builder's bottleneck.
+  Amplitudes use `exp(-e·log(k/5))` (fdlibm on both sides), not `pow`.
+- Draws: two `hashStream`s (bases 50 and 51), clear of every CH channel and
+  microtubule stream. With `cellRough = 0` nothing changes (bit-identical outline).
+
 **Nucleus**: a true 3D ellipsoid per cell — long axis, short/long ratio, and height
 (as a fraction of the long axis) are tunable in the sidebar (defaults: long axis
 8–12 µm, ratio 0.6–1, height 0.3–0.6× long axis). **Nucleus size is correlated with
@@ -114,6 +148,48 @@ by the true ellipsoid equation at each slice height, coloured by absolute z with
 small blue→red depth ramp (`depthColor()`) — a deliberate echo of the "colour by
 depth" convention in this project's own reference imagery, so the 3D-ness reads at a
 glance instead of looking like a flat blob.
+
+**Cytoplasm height: relaxation instead of smoothing (2026-10-01)**. The raw profile
+`cytoHeightAt(dEdge, dNuc)` is a min/max of functions of two distance fields. That
+gives it "folds":
+- a distance field to a non-convex outline has creases on its medial axis;
+- each min/max switch adds a kink.
+
+The old fix was 12 passes of a 3×3 binomial filter on the polar (ring × angle) mesh.
+That filter works in *index* space, which is anisotropic in µm: angle neighbours are
+~1 µm apart near the edge, ring neighbours tens of nm. The rings are also scaled
+copies of the outline, so lobes printed inward as radial spokes, and the folds stayed.
+
+Now `buildCytoHeightGrid()` solves, on a Cartesian grid in the cell's local frame
+(`CYTO_GRID_UM` = 0.25 µm), the screened Poisson problem
+
+    h − ℓ²∇²h = h_raw,   ℓ = cytoRelaxUm (default 1 µm; 0 = raw profile)
+
+This is the minimiser of ∫|∇h|² + (h − h_raw)²/ℓ²: a membrane under tension pulled
+toward the target profile. It is isotropic and has no kinks off the obstacle; features
+wider than ℓ survive, so every rim/mid/dome parameter keeps its meaning.
+- **Boundary**: h = 0 on the true outline. Shortley–Weller weights put the boundary
+  at its exact position along each grid edge (from the crossings of a 2048-point
+  outline polygon with the grid lines), so the edge has no staircase.
+- **Obstacle**: h ≥ nucleus top + `nucMargin` over the nucleus footprint (projected
+  Gauss–Seidel), so the envelope guarantee survives the smoothing.
+- **Solver**: fixed sweep counts (40/20/20) on 1, 0.5 and 0.25 µm grids, with bilinear
+  prolongation, lexicographic order: deterministic and bit-exact in C++. Converged to
+  ~5 nm against 400 sweeps per level.
+- **`dEdge`**: an exact squared Euclidean distance transform of the outside nodes
+  (Felzenszwalb–Huttenlocher), minus half a step.
+- **`dNuc`**: only computed where the profile depends on it.
+- **Edge nodes**: outside nodes next to the outline hold the linear extrapolation
+  through 0 at the boundary, so bilinear sampling (clamped at 0) reaches 0 at the true
+  edge.
+
+`sampleCytoMeshHeight()` samples this grid; that covers the optical volume,
+microtubule ceilings and dye heights. The polar mesh (`cytoRings` × `cytoTheta`,
+default 256 angles since the tail goes to k = 64) only carries samples of it for
+drawing and contours.
+
+Effect: world_checks measures the 99th percentile of |∇²h| off the nucleus and edge
+at 0.69 µm⁻¹, against 4.25 for the raw profile. ~10 ms per cell native.
 
 **3D view**: a simple oblique projection (`project()`, one `tilt` parameter, no
 azimuth) — x is untouched, y is foreshortened by `cos(tilt)` and z lifts the point on
@@ -255,10 +331,10 @@ stay inside the cell's actual cytoplasm volume (inside the blobby footprint, bel
 cytoplasm height-field, and outside the nucleus ellipsoid), not just checked at the
 endpoints; with the fraction-of-local-ceiling z model this is mostly a safety net for
 the collision-nudge pass (which moves points after generation) rather than the primary
-height mechanism. **The clamp's own height ceiling is the ACTUAL rendered (smoothed)
-mesh height (`sampleCytoMeshHeight()`, bilinearly sampled from the same mesh
-`buildCytoMesh()` draws), not the raw analytic `cytoHeightAt()`** — the mesh's Laplacian
-smoothing pass systematically lowers the sharp nucleus-adjacent dome peak below its raw
+height mechanism. **The clamp's own height ceiling is the ACTUAL rendered (relaxed)
+height (`sampleCytoMeshHeight()`, bilinearly sampled from the relaxed grid the drawn
+mesh is sampled from), not the raw analytic `cytoHeightAt()`** — smoothing (then the
+mesh's Laplacian passes, now the relaxation) lowers the sharp nucleus-adjacent dome peak below its raw
 analytic value, so clamping against the raw function used to let a point sit above the
 surface actually drawn (a real, reported "pokes out of the dome" bug, most visible right
 near that peak). **The cell's own outer edge is a cutoff, not a clamp**: the free walk
@@ -404,6 +480,13 @@ count now, including on every `pointermove` during an active drag. It used to dr
 looked visibly broken (still-overlapping, under-relaxed cells) for the whole drag and
 only "snapped" correct on release — worse than just paying the full cost, which turned
 out cheap enough at the chunk counts `CHUNK_CAP` allows through anyway.
+
+## BrightField (2026-10-01)
+
+Transmitted light is computed from the world's own geometry only (core `isc_optical_volume_in_window`: cytoplasm,
+nucleus, microtubule volume fractions), never from added texture: a structure the world does not simulate must not
+appear in brightfield. Multislice + Abbe source sum, thin screen at the phase-weighted height, margin taper against
+wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 
 ## Known limitations / not yet done
 

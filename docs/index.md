@@ -20,7 +20,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt through the field in your browser, render SMLM and widefield movies, save TIFFs (WASM, WebGPU for widefield) | [Open the viewer](try-viewer.md) |
+| **Viewer** | Pan/zoom/tilt through the field in your browser, render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield) | [Open the viewer](try-viewer.md) |
 | **Micro-Manager adapter** | `Camera`, `XYStage` and `ZStage` devices (`mmgr_dal_inSiliScope.dll`): move the stage, change focus, run live or precomputed acquisitions against a sample that never changes | [Quickstart](quickstart.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/kjamartens/webSMLM) | [Quickstart](quickstart.md) |
 
@@ -37,8 +37,10 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   [World model](physics/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
-- **Two modalities.** *SuperRes*: blinking dyes with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default, double
+- **Three modalities.** *SuperRes*: blinking dyes with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default, double
   helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *WideField*: every labelled dye at once, 3D PSF convolution, photobleaching in physical units.
+  *BrightField* (exploration): transmitted light through the cells' refractive index, partially coherent multislice wave
+  optics, a speed/precision quality setting.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
 - **Built to extend.** Targets, photophysics and modalities are separate layers; see [Extending](extending.md).
 

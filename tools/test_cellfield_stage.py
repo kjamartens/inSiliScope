@@ -7,7 +7,9 @@ render pipeline, a known feature shifting by the expected pixels between two
 stage positions (live mode), precomputed stacks that are byte-identical
 after the stage went 1 mm away and came back, and the WideField modality
 (bleaching half time, split labelling, a world-anchored bleach map in live mode),
-and a hardware z stack (the ZStage's sequence, one position per camera frame).
+a hardware z stack (the ZStage's sequence, one position per camera frame),
+and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
+z sequence).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
@@ -243,6 +245,18 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
 
     _widefield_checks(core, cam, xy, x0, y0)
     _zsequence_checks(core, cam, z, "WideField")
+    _brightfield_checks(core, cam, z)
+    # BrightField: foci through and around the cells (above them the
+    # defocused images differ too little to tell apart in noise).
+    # A bright lamp (16000 photons/px per 20 ms frame, below 16-bit
+    # saturation): at the default 800 the single frames are shot-noise
+    # limited (~3.5% against ~1-2% cell contrast) and close foci swap.
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
+    _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_BrightFieldQuality", "3")
+    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
+    core.setProperty(cam, "General_ImagingModality", "SuperRes")
 
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)
@@ -353,11 +367,68 @@ def _widefield_checks(core, cam, xy, x0, y0):
           f"30 um away, still {back:.1f} ADU back here")
 
 
-def _zsequence_checks(core, cam, z, modality):
+def _brightfield_checks(core, cam, z):
+    """BrightField (transmitted light): its properties, the lamp's flux scaling
+    the frame, defocus changing the cells' contrast, live = precomputed."""
+    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.55),
+                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 40000.0),
+                 ("General_BrightFieldSliceUm", -1.0), ("SimType_CellFieldIndexMedium", 1.337),
+                 ("SimType_CellFieldIndexCytoplasm", 1.345), ("SimType_CellFieldIndexNucleus", 1.345),
+                 ("SimType_CellFieldIndexMicrotubule", 1.48), ("SimType_CellFieldAbsorptionPerUm", 0.0)):
+        got = float(core.getProperty(cam, p))
+        assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
+    assert "BrightField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
+    core.setProperty(cam, "General_ImagingModality", "BrightField")
+    core.setProperty(cam, "General_BrightFieldQuality", "1")  # fast: thin object, 6 sources
+    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0")
+    core.setExposure(20.0)
+    core.setProperty(cam, "General_AcqMode", "Live")
+
+    def avg(n=4):
+        acc = None
+        for _ in range(n):
+            core.snapImage()
+            img = core.getImage().astype(np.float64)
+            acc = img if acc is None else acc + img
+        return acc / n
+
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "0")
+    dark = avg().mean()
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    a = avg()
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
+    b = avg()
+    ratio = (b.mean() - dark) / (a.mean() - dark)
+    assert 1.95 < ratio < 2.05, f"doubling the lamp should double the signal: {ratio:.3f}"
+    # A bright lamp (16000 photons/px per 20 ms frame, below 16-bit
+    # saturation) and 16-frame averages, so the comparisons below are not
+    # limited by shot noise (the default indices give ~1% contrast).
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
+    core.setPosition(z, 0.0)
+    f0 = avg(16)
+    core.setPosition(z, -3.0)
+    fm = avg(16)
+    rel = lambda im: im.std() / (im.mean() - dark)
+    corr = lambda u, v: float(((u - u.mean()) * (v - v.mean())).sum() /
+                              (np.sqrt(((u - u.mean()) ** 2).sum() * ((v - v.mean()) ** 2).sum()) + 1e-12))
+    assert corr(f0, fm) < 0.9, f"defocus should change the image (corr {corr(f0, fm):.3f})"
+    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setProperty(cam, "General_GenerateStack", "1")
+    _wait_for_stack(core, cam)
+    pm = avg(16)
+    assert corr(pm, fm) > 0.8, f"precomputed and live BrightField should agree (corr {corr(pm, fm):.3f})"
+    print(f"BrightField OK: lamp x2 -> signal x{ratio:.3f}, contrast {rel(f0):.3f} (focus 0) / {rel(fm):.3f} "
+          f"(-3 um), live vs precomputed corr {corr(pm, fm):.3f}")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setPosition(z, 1.5)
+
+
+def _zsequence_checks(core, cam, z, modality, positions=(0.5, 2.0, 3.5, 5.0)):
     """A hardware z stack: the ZStage is sequenceable, the camera takes one
     sequence position per frame (live and precomputed modes), and the stage
     returns to where it was when the sequence stops."""
-    positions = [0.5, 2.0, 3.5, 5.0]
+    positions = list(positions)
     core.setProperty(cam, "General_ImagingModality", modality)
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
     core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")

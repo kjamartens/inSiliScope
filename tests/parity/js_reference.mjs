@@ -34,10 +34,10 @@ const g = ctx.__gen;
 
 // ---- defaults from the page's inputs ----
 const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax',
-  'cellBlob', 'cellHeightMin', 'cellHeightMax', 'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax',
+  'cellBlob', 'cellRough', 'cellFractalDim', 'cellHeightMin', 'cellHeightMax', 'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax',
   'nucHeightMin', 'nucHeightMax', 'nucOffsetFrac', 'nucMargin', 'cytoRimHeightMin', 'cytoRimHeightMax',
   'cytoEdgeRiseMin', 'cytoEdgeRiseMax', 'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin',
-  'cytoMidDistanceMax', 'cytoMaxSlope', 'cytoDomeSlope', 'cytoSmoothPasses', 'cytoRings', 'cytoTheta',
+  'cytoMidDistanceMax', 'cytoMaxSlope', 'cytoDomeSlope', 'cytoRelaxUm', 'cytoRings', 'cytoTheta',
   'enablePacking', 'allowPackRotation', 'packFrac', 'relaxIters', 'relaxDamping',
   'mtDensity', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtEndFracMin', 'mtEndFracMax',
   'mtEndJitterDeg', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
