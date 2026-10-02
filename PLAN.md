@@ -40,3 +40,14 @@ Upcoming ideas:
   relaxed on a Cartesian grid (screened Poisson, exact boundary, nucleus obstacle; `cytoRelaxUm` replaces
   `cytoSmoothPasses`): no folds. Next: [ ] thin protrusions (filopodia, retraction fibres), [ ] tension arcs between
   adhesions (concave scallops).
+- 2026-10-01: [x] fast iteration loop: `web/lab/` (prototype A/B vs main with hot reload, imaging preview, MT shape
+  metrics, `check.mjs` ~8 s), `PORT_PENDING.md` + CI `port-gate` (C++ port only in the PR to main),
+  `tools/port_check.sh` (all builds/tests in one go); prototype loader shared with the golden reference
+  (`tests/parity/load_prototype.mjs`, plain `Function` instead of a `vm` context: re-freeze 68 s -> 10 s, same output).
+  [x] JS imaging reference `web/prototype/scope/` (world/dyes/kinetics, Gibson-Lanni+Zernike PSF, splat, camera,
+  WideField) = the C++ (`tests/parity/scope_parity.mjs`: events equal, SR and WideField movies 100% identical ADU vs
+  the committed WASM; CI job `scope-parity`), shown in the lab next to main's C++ movie.
+- 2026-10-02: [x] JS imaging reference caught up with main's C++: BrightField (`web/prototype/scope/brightfield.js` =
+  `BrightfieldRender.cpp`; >= 99.5% identical ADU, intensity within 1e-4 relative: complex float32 FFTs), the
+  optical-volume query (`World.opticalVolume`, bit-identical), the fractal cells' reach, the PRNU 0.5% default and the
+  `bf-*` options; the lab shows BrightField.

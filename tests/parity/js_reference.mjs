@@ -2,13 +2,12 @@
 // implementation) and prints them in parity_main.cpp's line format.
 //   node js_reference.mjs <prototype index.html> <cases.txt> <out.txt>
 //
-// Loads the DOM-free generator half of index.html (everything above the
-// `// ---- viewer ---` marker) plus the body of microtubules.js (a sibling of
-// index.html) into one vm context. Default params come from the page's own
-// <input> defaults, normalised like its params().
+// Loads the DOM-free generator half of index.html plus microtubules.js via
+// load_prototype.mjs. Default params come from the page's own <input>
+// defaults, normalised like its params().
 import fs from 'fs';
 import path from 'path';
-import vm from 'vm';
+import { loadPrototype } from './load_prototype.mjs';
 
 const [protoPath, casesPath, outPath] = process.argv.slice(2);
 // V8 < 13 computes Math.pow with its own fdlibm port; 13+ calls std::pow
@@ -17,20 +16,10 @@ const [protoPath, casesPath, outPath] = process.argv.slice(2);
 if (+process.versions.v8.split('.')[0] < 13)
   console.warn(`warning: V8 ${process.versions.v8} uses fdlibm Math.pow; use Node >= 24 for the reference`);
 const html = fs.readFileSync(protoPath, 'utf8');
-
-const start = html.indexOf('<script id="mainScript">') + '<script id="mainScript">'.length;
-const end = html.indexOf('// ---- viewer ---');
-if (start < 30 || end < 0) throw new Error('generator markers not found in ' + protoPath);
-const ctx = vm.createContext({});
-vm.runInContext(html.slice(start, end), ctx);
-// microtubules.js: `window.__MT_SRC = function () { <body> };`, run the body as a script (as index.html does).
+// microtubules.js is a sibling of index.html.
 const mtSrc = fs.readFileSync(path.join(path.dirname(protoPath), 'microtubules.js'), 'utf8');
-const mtOpen = mtSrc.indexOf('window.__MT_SRC = function () {');
-if (mtOpen < 0) throw new Error('microtubules.js wrapper not found');
-vm.runInContext(mtSrc.slice(mtSrc.indexOf('{', mtOpen) + 1, mtSrc.lastIndexOf('}')), ctx);
-vm.runInContext('globalThis.__gen = { pcg4d, hashUnit, hashStream, buildCandidateMap, packMap, rawCandidate,' +
-  ' getCytoGeometry, sampleCytoMeshHeight, getMtCellGeometry, buildMicrotubulesForCell, buildMicrotubuleLabelPoints, cytoCache };', ctx);
-const g = ctx.__gen;
+const proto = loadPrototype(html, mtSrc);
+const g = proto.gen;
 
 // ---- defaults from the page's inputs ----
 const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax',
@@ -43,13 +32,7 @@ const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMa
   'mtEndJitterDeg', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
   'mtMinSeparation', 'mtMaxZSlope'];
 const defaults = {};
-for (const m of html.matchAll(/<input\b[^>]*>/g)) {
-  const tag = m[0];
-  const id = /\bid="(\w+)"/.exec(tag)?.[1];
-  if (!PARAM_KEYS.includes(id)) continue;
-  if (/type="checkbox"/.test(tag)) defaults[id] = /\bchecked\b/.test(tag);
-  else defaults[id] = +/\bvalue="([^"]*)"/.exec(tag)[1];
-}
+for (const k of PARAM_KEYS) if (k in proto.defaults) defaults[k] = proto.defaults[k];
 const missing = PARAM_KEYS.filter(k => !(k in defaults));
 if (missing.length) throw new Error('defaults not found in page: ' + missing.join(','));
 

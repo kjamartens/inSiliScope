@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>insiliscope lab</title>
+<style>
+  :root{--bg:#0c0f14;--panel:#11161d;--line:#232a35;--fg:#dfe6ee;--mute:#8b97a8;--acc:#4a90d9;--chg:#e6a23c;--bad:#e05d5d;--ok:#5bbf73}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font:12px system-ui,Segoe UI,Arial,sans-serif}
+  #top{display:flex;gap:14px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel)}
+  #top b{font-size:14px}
+  #status{color:var(--mute);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #wrap{display:grid;grid-template-columns:300px 1fr;height:calc(100vh - 33px)}
+  #side{overflow-y:auto;padding:8px 10px;background:var(--panel);border-right:1px solid var(--line)}
+  #main{overflow:auto;padding:8px}
+  fieldset{border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:6px 8px;min-width:0}
+  legend{color:var(--mute);font-size:11px;padding:0 4px}
+  .row{display:flex;align-items:center;gap:6px;margin:4px 0}
+  .row .k{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row.chg .k{color:var(--chg)}
+  .row .bd{color:var(--mute);font-size:10px;min-width:28px;text-align:right}
+  .row .bd.diff{color:var(--chg)}
+  input[type=number],input[type=text],select{width:64px;background:#1a212b;border:1px solid #2c3644;color:var(--fg);border-radius:4px;padding:2px 4px;font:inherit}
+  select{width:auto}
+  button{background:#1a212b;border:1px solid #2c3644;color:var(--fg);border-radius:4px;padding:3px 7px;font:inherit;cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  .x{padding:0 5px;font-size:10px;visibility:hidden}
+  .row.chg .x{visibility:visible}
+  #panes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #panes.one{grid-template-columns:1fr}
+  .pane{border:1px solid var(--line);border-radius:6px;padding:6px;background:#0a0d12;min-width:0}
+  .pane h3{margin:0 0 4px;font-size:12px;display:flex;justify-content:space-between;gap:8px}
+  .pane h3 span{color:var(--mute);font-weight:normal}
+  canvas{display:block;width:100%;background:#05070a;border-radius:4px}
+  canvas.xy{cursor:crosshair}
+  .imgs3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+  #imPanes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  #imPanes.one{grid-template-columns:1fr}
+  #imCompare{margin:4px 0;color:var(--chg)}
+  fieldset.fold > :not(legend){display:none}
+  fieldset.fold.open > :not(legend){display:flex}
+  fieldset.fold legend{cursor:pointer}
+  fieldset.fold legend::before{content:'▸ '}
+  fieldset.fold.open legend::before{content:'▾ '}
+  table{border-collapse:collapse;width:100%;margin-top:8px}
+  td,th{padding:2px 6px;border-bottom:1px solid var(--line);text-align:right}
+  td:first-child,th:first-child{text-align:left}
+  td.up{color:var(--chg)}
+  .err{color:var(--bad);white-space:pre-wrap;font-family:monospace;font-size:11px}
+  .note{color:var(--mute);font-size:11px;line-height:1.4}
+</style>
+</head>
+<body>
+<div id="top"><b>insiliscope lab</b><span id="ref"></span><span id="status">starting…</span><span id="timing"></span></div>
+<div id="wrap">
+  <div id="side">
+    <fieldset><legend>where</legend>
+      <div class="row"><span class="k">Seed</span><input type="number" id="seed" step="1"></div>
+      <div class="row"><span class="k">Chunk cx / cy</span><input type="number" id="cx" step="1"><input type="number" id="cy" step="1"></div>
+      <div class="row"><button id="prevCell">◀ cell</button><button id="nextCell">cell ▶</button><span class="k"></span>
+        <select id="win"><option value="0">1 chunk</option><option value="1">3×3 chunks</option></select></div>
+    </fieldset>
+    <fieldset><legend>compare</legend>
+      <div class="row"><span class="k">Baseline (main)</span><select id="abMode"><option value="side">side by side</option><option value="flip">flip (space)</option><option value="off">off</option></select></div>
+      <div class="row"><span class="k">Apply panel tweaks to baseline</span><input type="checkbox" id="tweakBase" checked></div>
+      <div class="row"><button id="resetAll">reset all tweaks</button><button id="copyLink">copy link</button></div>
+    </fieldset>
+    <fieldset><legend>imaging (the real pipeline: JS reference = the C++)</legend>
+      <div class="row"><span class="k">Render movie</span><input type="checkbox" id="imOn"><button id="rerun">re-run</button></div>
+      <div class="row"><span class="k" title="more options, k=v (e.g. zern.5=0.2); see the panel tooltips">extra</span><input type="text" id="extra" style="width:150px" placeholder="zern.5=0.2 ..."></div>
+      <div class="row"><input type="text" id="spec" readonly style="width:100%;font-size:10px" title="the spec of the JS movie (= insiliscope_cli options)"></div>
+      <div class="row"><button id="copySpec">copy as cli command</button></div>
+      <p class="note">Click the top view to move the FOV. Space flips A/B in flip mode.</p>
+    </fieldset>
+    <div id="imParams"></div>
+    <div id="params"></div>
+  </div>
+  <div id="main">
+    <div id="panes"></div>
+    <div id="imaging">
+      <div class="row" style="margin:8px 0"><button id="play">▶</button><input type="range" id="frame" min="0" max="0" value="0" style="flex:1"><span id="frameN"></span></div>
+      <div id="imCompare" class="note"></div>
+      <div id="imPanes"></div>
+    </div>
+    <div id="metrics"></div>
+    <div id="errors" class="err"></div>
+  </div>
+</div>
+<script type="module" src="lab.js"></script>
+</body>
+</html>

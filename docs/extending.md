@@ -59,10 +59,14 @@ The existing content is bit-exact with the JS prototype and frozen by golden vec
 - changing existing output (a default, a fix that moves cells) is a **breaking change for seeds**: record it in `CHANGELOG.md`;
 - the plan is a `world_version` in the ABI, stamped in every output, so a seed can be reproduced on the version that made it.
 
-Changes to the prototype itself follow the rule in `CLAUDE.md`: update `spec/` and re-freeze `spec/golden` in the same commit.
+Changes to the prototype itself: iterate in the lab (`node web/lab/serve.mjs`, `web/lab/README.md`: the prototype in
+the browser, A/B against main, an imaging preview and shape metrics, no build), list what the C++ needs in
+`PORT_PENDING.md`, then port in the pull request: `bash tools/port_check.sh` re-freezes `spec/golden` and runs every
+build and test; update `spec/` and delete `PORT_PENDING.md` in that commit.
 
 ## Checklist for a pull request
 
+- no `PORT_PENDING.md` left (CI `port-gate`); `bash tools/port_check.sh` runs everything below but the adapter;
 - ctest passes natively and under WASM (see `CLAUDE.md`);
 - `node tools/embed_web_module.mjs --check` is clean (regenerate after a core change);
 - adapter output unchanged by a refactor: `tools/adapter_pixel_hash.py` before and after;

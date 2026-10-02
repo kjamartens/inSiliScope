@@ -18,7 +18,44 @@ env:
   NODE_VERSION: 24
 
 jobs:
+  # Iteration mode (web/lab/README.md): while PORT_PENDING.md exists, the JS prototype is ahead of the C++
+  # core. This gate fails (blocking the merge and any release) and the C++/WASM/golden jobs below are
+  # skipped instead of failing one by one; the port removes the file.
+  port-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No pending C++ port
+        run: |
+          if [ -f PORT_PENDING.md ]; then
+            echo "::error file=PORT_PENDING.md::The prototype is ahead of the C++ core; port it before merging (web/lab/README.md)."
+            cat PORT_PENDING.md
+            exit 1
+          fi
+
+  # The lab's headless check: prototype loads, no NaN geometry, address determinism. Runs in iteration mode too.
+  lab-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: node web/lab/check.mjs
+
+  # JS imaging reference (web/prototype/scope) == the C++ (the committed WASM module): events, SR, WideField.
+  scope-parity:
+    needs: port-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: node tests/parity/scope_parity.mjs
+
   core-native:
+    needs: port-gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +72,7 @@ jobs:
         run: ctest --test-dir build/msvc -C Release --output-on-failure
 
   core-wasm:
+    needs: port-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,8 +107,9 @@ jobs:
             build/wasm/core/insiliscope.js
 
   # The frozen golden vectors must match what the prototype in web/ produces:
-  # a generator change in web/prototype/ needs a re-freeze in the same commit.
+  # a generator change in web/prototype/ needs a re-freeze in the port commit.
   golden-fresh:
+    needs: port-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +122,7 @@ jobs:
           git diff --exit-code --stat spec/golden
 
   core-native-linux:
+    needs: port-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
