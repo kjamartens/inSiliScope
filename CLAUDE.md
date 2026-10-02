@@ -69,6 +69,8 @@ that finishes them.
 ## Build and test
 
 - Core native: `cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release`
+- Lab (JS iteration loop, `web/lab/README.md`): `cmake --build --preset lab` (or `node web/lab/serve.mjs --open`)
+  starts the dev server and opens http://localhost:8123/web/lab/; Ctrl+C stops it.
 - Core WASM: `source ~/emsdk/emsdk_env.sh` (Emscripten pinned to 6.0.10, see `.github/workflows/ci.yml`),
   `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm`, then
   `node tools/embed_web_module.mjs` (viewer module; `--check` in CI). webSMLM block:

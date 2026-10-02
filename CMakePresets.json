@@ -19,6 +19,7 @@
   ],
   "buildPresets": [
     { "name": "msvc", "configurePreset": "msvc", "configuration": "Release" },
-    { "name": "wasm", "configurePreset": "wasm" }
+    { "name": "wasm", "configurePreset": "wasm" },
+    { "name": "lab", "displayName": "JS lab dev server (opens the browser)", "configurePreset": "msvc", "configuration": "Release", "targets": ["lab"] }
   ]
 }

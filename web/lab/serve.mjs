@@ -1,11 +1,12 @@
 // Dev server for the lab (zero dependencies).
-//   node web/lab/serve.mjs [--port 8123] [--base origin/main]
+//   node web/lab/serve.mjs [--port 8123] [--base origin/main] [--open]
+// --open opens the page in the default browser (`cmake --build --preset lab` passes it).
 // Serves the repo root; /baseline/<path> serves <path> as of the git ref --base (A/B against main);
 // /__lab/events is a server-sent-event stream that fires on every save under web/prototype or web/lab.
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -63,6 +64,16 @@ http.createServer((req, res) => {
   const f = path.join(ROOT, p);
   if (!f.startsWith(ROOT)) return send(res, 403, 'no');
   fs.readFile(f, (err, buf) => err ? send(res, 404, 'not found') : send(res, 200, buf, TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream'));
+}).on('error', (e) => {
+  if (e.code !== 'EADDRINUSE') throw e;
+  console.error(`lab: port ${PORT} is in use (a lab already running?). Open http://localhost:${PORT}/web/lab/ or pass --port <n>.`);
+  process.exit(1);
 }).listen(PORT, () => {
-  console.log(`lab: http://localhost:${PORT}/web/lab/   (baseline ${BASE ? `${BASE} @ ${baseSha}` : 'none'})`);
+  const page = `http://localhost:${PORT}/web/lab/`;
+  console.log(`lab: ${page}   (baseline ${BASE ? `${BASE} @ ${baseSha}` : 'none'})   Ctrl+C stops it`);
+  if (process.argv.includes('--open')) {
+    const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', page]]
+      : process.platform === 'darwin' ? ['open', [page]] : ['xdg-open', [page]];
+    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  }
 });

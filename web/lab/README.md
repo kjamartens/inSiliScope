@@ -7,6 +7,7 @@ a golden re-freeze per try. So work happens in two phases.
 
 ```
 node web/lab/serve.mjs            # http://localhost:8123/web/lab/   (--base <git ref>, default origin/main)
+cmake --build --preset lab         # the same, and opens it in the browser (after `cmake --preset msvc`)
 ```
 
 - Edit `web/prototype/index.html` / `microtubules.js` (the generator is the truth for geometry). Saving reloads
