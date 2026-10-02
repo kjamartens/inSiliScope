@@ -42,6 +42,9 @@ node tests/parity/run.mjs
 step "imaging parity: web/prototype/scope (JS reference) vs the C++ (web/insiliscope_module.js)"
 node tests/parity/scope_parity.mjs
 
+step "lab.html engine (web/lab/engine.js) vs the viewer's WASM engine: lab.html and index.html show the same"
+node web/lab/engine_check.mjs
+
 if [ -f PORT_PENDING.md ]; then
   printf '\nAll checks passed. Delete PORT_PENDING.md in the port commit (CI port-gate blocks the merge until then).\n'
 else

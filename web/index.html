@@ -877,17 +877,22 @@ function genWorkerMain() {
 const genWorkers = { ok: false, pack: null, cells: [], busy: [], dyes: null };
 let genBlobUrl = null, mainEngine = null, mainEngineStarting = false;
 function coreReady() { return genWorkers.ok || !!mainEngine; }
+// self.ISC_ENGINE_URL (set only by web/lab.html, see web/lab/serve.mjs): an ES module with the same
+// handle() protocol (web/lab/engine.js, the JS reference) replaces the WASM engine.
+const engineUrl = () => self.ISC_ENGINE_URL && new URL(self.ISC_ENGINE_URL, location.href).href;
 function spawnGenWorker() {
-  const w = new Worker(genBlobUrl);
+  const w = engineUrl() ? new Worker(engineUrl(), { type: 'module' }) : new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   return w;
 }
 function initGenWorkers() {
   try {
-    const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
-      (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
-      iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
-    genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    if (!engineUrl()) {
+      const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
+        (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+        iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
+      genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    }
     const K = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
     genWorkers.pack = spawnGenWorker();
     genWorkers.pack.onmessage = onPackResult;
@@ -914,6 +919,10 @@ function disableGenWorkers() {
 function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
+  if (engineUrl()) {
+    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); });
+    return;
+  }
   (0, eval)(self.ISC_MODULE_SRC); // defines createInsiliscope
   createInsiliscope().then(M => { mainEngine = iscEngine(M); requestDraw(); });
 }

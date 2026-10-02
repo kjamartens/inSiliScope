@@ -1,8 +1,10 @@
 // Dev server for the lab (zero dependencies).
 //   node web/lab/serve.mjs [--port 8123] [--base origin/main] [--open]
-// --open opens the page in the default browser (`cmake --build --preset lab` passes it).
-// Serves the repo root; /baseline/<path> serves <path> as of the git ref --base (A/B against main);
-// /__lab/events is a server-sent-event stream that fires on every save under web/prototype or web/lab.
+// --open opens /web/lab.html in the default browser (`cmake --build --preset lab` passes it).
+// Serves the repo root. /web/lab.html is web/index.html (the viewer) on the JS reference: its WASM module tag
+// becomes self.ISC_ENGINE_URL = 'lab/engine.js', plus lab/lab_html.js (badge, reload on save). /web/lab/ is the
+// A/B page; /baseline/<path> serves <path> as of the git ref --base (A/B against main); /__lab/events is a
+// server-sent-event stream that fires on every save under web/prototype, web/lab, or of web/index.html / wf_gpu.js.
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -27,14 +29,22 @@ const send = (res, code, body, type = 'text/plain') => {
 
 const clients = new Set();
 let timer = null;
-for (const dir of ['web/prototype', 'web/lab']) {
-  fs.watch(path.join(ROOT, dir), { recursive: true }, (_, f) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      const msg = `data: ${JSON.stringify({ dir, file: String(f || '') })}\n\n`;
-      for (const c of clients) c.write(msg);
-    }, 80);
-  });
+const notify = (dir, f) => {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    const msg = `data: ${JSON.stringify({ dir, file: String(f || '') })}\n\n`;
+    for (const c of clients) c.write(msg);
+  }, 80);
+};
+for (const dir of ['web/prototype', 'web/lab']) fs.watch(path.join(ROOT, dir), { recursive: true }, (_, f) => notify(dir, f));
+fs.watch(path.join(ROOT, 'web'), (_, f) => { if (f === 'index.html' || f === 'wf_gpu.js') notify('web', f); });
+
+const MODULE_TAG = '<script src="insiliscope_module.js"></script>';
+function labHtml() {
+  const html = fs.readFileSync(path.join(ROOT, 'web/index.html'), 'utf8');
+  if (!html.includes(MODULE_TAG)) throw new Error('web/index.html: ' + MODULE_TAG + ' not found');
+  return html.replace(MODULE_TAG, "<script>self.ISC_ENGINE_URL = 'lab/engine.js';</script>")
+    .replace('</body>', '<script src="lab/lab_html.js"></script>\n</body>');
 }
 
 http.createServer((req, res) => {
@@ -54,6 +64,9 @@ http.createServer((req, res) => {
     try { dirty = git('status', '--porcelain', '--', 'web/prototype').toString(); } catch {}
     return send(res, 200, JSON.stringify({ base: BASE, baseSha, head, prototypeDirty: dirty.trim().split('\n').filter(Boolean) }), 'application/json');
   }
+  if (p === '/web/lab.html') {
+    try { return send(res, 200, labHtml(), 'text/html'); } catch (e) { return send(res, 500, String(e.message)); }
+  }
   const ext = path.extname(p).toLowerCase() || '.html';
   if (p.startsWith('/baseline/')) {
     if (!BASE) return send(res, 404, 'no baseline ref');
@@ -66,11 +79,12 @@ http.createServer((req, res) => {
   fs.readFile(f, (err, buf) => err ? send(res, 404, 'not found') : send(res, 200, buf, TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream'));
 }).on('error', (e) => {
   if (e.code !== 'EADDRINUSE') throw e;
-  console.error(`lab: port ${PORT} is in use (a lab already running?). Open http://localhost:${PORT}/web/lab/ or pass --port <n>.`);
+  console.error(`lab: port ${PORT} is in use (a lab already running?). Open http://localhost:${PORT}/web/lab.html or pass --port <n>.`);
   process.exit(1);
 }).listen(PORT, () => {
-  const page = `http://localhost:${PORT}/web/lab/`;
-  console.log(`lab: ${page}   (baseline ${BASE ? `${BASE} @ ${baseSha}` : 'none'})   Ctrl+C stops it`);
+  const page = `http://localhost:${PORT}/web/lab.html`;
+  console.log(`lab: ${page}   (the viewer on the JS reference; reloads on save)`);
+  console.log(`     http://localhost:${PORT}/web/lab/   (A/B against ${BASE ? `${BASE} @ ${baseSha}` : 'no baseline'})   Ctrl+C stops it`);
   if (process.argv.includes('--open')) {
     const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', page]]
       : process.platform === 'darwin' ? ['open', [page]] : ['xdg-open', [page]];

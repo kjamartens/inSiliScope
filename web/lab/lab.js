@@ -479,6 +479,7 @@ async function boot() {
     es.onmessage = async e => {
       const m = JSON.parse(e.data);
       if (m.dir === 'web/lab') return location.reload();
+      if (m.dir === 'web') return; // the viewer (lab.html), not this page
       $('status').textContent = 'prototype changed, reloading…';
       try {
         await startWorker(panes.work);

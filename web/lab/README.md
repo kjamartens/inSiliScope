@@ -6,9 +6,29 @@ a golden re-freeze per try. So work happens in two phases.
 ## 1. Iterate (feature branch, JS only, seconds per try)
 
 ```
-node web/lab/serve.mjs            # http://localhost:8123/web/lab/   (--base <git ref>, default origin/main)
-cmake --build --preset lab         # the same, and opens it in the browser (after `cmake --preset msvc`)
+cmake --build --preset lab         # starts the dev server and opens lab.html (after `cmake --preset msvc` once)
+node web/lab/serve.mjs [--open]    # the same without CMake (--base <git ref> for the A/B page, default origin/main)
 ```
+
+### lab.html: the viewer on the JS reference (http://localhost:8123/web/lab.html)
+
+`web/index.html` itself (same page, UI, drawing and movies: the server swaps only its WASM module for
+`self.ISC_ENGINE_URL = 'lab/engine.js'`), with every answer computed by the JS: cells, outlines, meshes and
+microtubules by the prototype (`web/prototype/index.html`, `microtubules.js`), dyes and SR / WideField / BrightField
+movies by `web/prototype/scope/`. `web/lab/engine.js` is the glue: the viewer's `iscEngine` protocol (`pack`, `cell`,
+`sites`, `movie`) on `World` and `renderScopeMovie`.
+
+- With nothing changed it shows exactly what `index.html` shows (`node web/lab/engine_check.mjs`: cells, assets and
+  dyes identical, SR and WideField movies identical, BrightField >= 99.5%).
+- Edit the JS, save: the page reloads by itself and keeps the view and every control you changed (click the orange
+  badge to forget them). Saves under `web/prototype`, `web/lab` and of `web/index.html` / `wf_gpu.js` all reload it.
+- The viewer's control values are sent as they are; the prototype's own defaults only fill in what the viewer has no
+  control for. A new parameter: add it to the prototype's generator and `params()`, and a control for it to
+  `web/index.html` (that UI is what ships); a key only the viewer sends still reaches the generator.
+- Slower than the WASM (no threads, no caches, no WebGPU): the first SR movie spends ~10 s on the PSF in JS.
+- `?nw` runs the JS engine on the main thread, as in the viewer.
+
+### The A/B page (http://localhost:8123/web/lab/)
 
 - Edit `web/prototype/index.html` / `microtubules.js` (the generator is the truth for geometry). Saving reloads
   the working pane in place (view and tweaks kept); editing `web/lab/*` reloads the page.
@@ -49,11 +69,13 @@ and skips the C++/WASM/golden jobs, so the branch cannot merge):
    then speed work.
 2. `bash tools/port_check.sh` (`ISC_NATIVE=msvc` on Windows): re-freezes `spec/golden` (Node 24), lab check, native
    build + ctest, WASM build + ctest + viewer module + webSMLM block (if emsdk is present), parity report, and
-   `tests/parity/scope_parity.mjs` (JS imaging == the rebuilt C++: SR 100% identical, WideField >= 99.9%, BrightField >= 99.5%).
+   `tests/parity/scope_parity.mjs` (JS imaging == the rebuilt C++: SR 100% identical, WideField >= 99.9%, BrightField >= 99.5%),
+   and `web/lab/engine_check.mjs` (lab.html == index.html on the rebuilt module).
 3. Update `spec/PORT.md`, `spec/ALGORITHM.md`, `docs/`, adapter/cli/viewer options, gallery; delete
    `PORT_PENDING.md`; merge when CI is green.
 
-Files: `serve.mjs` (dev server: static + `/baseline/` + reload events), `lab.js`/`index.html` (page),
+Files: `serve.mjs` (dev server: static + `/web/lab.html` + `/baseline/` + reload events), `engine.js` (lab.html's JS
+engine), `lab_html.js` (lab.html's badge and reload), `engine_check.mjs`, `lab.js`/`index.html` (page),
 `lab_worker.js` (one prototype instance per worker, or a ref's WASM for the C++ movie), `field.js` (packing window,
 world-space MTs), `metrics.js`, `check.mjs`. Imaging: `web/prototype/scope/`; C++ side for comparisons:
 `tests/parity/wasm_scope.mjs`. The prototype is loaded by `tests/parity/load_prototype.mjs`, the same

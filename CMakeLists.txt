@@ -16,13 +16,13 @@ if(ISC_BUILD_TESTS)
   add_subdirectory(tests/parity)
 endif()
 
-# `cmake --build --preset lab` (or `--target lab`): the JS lab's dev server (web/lab/README.md), opened in the
-# default browser; runs until Ctrl+C. Builds nothing.
+# `cmake --build --preset lab` (or `--target lab`): the lab's dev server (web/lab/README.md), opening web/lab.html
+# (the viewer on the JS reference) in the default browser; runs until Ctrl+C. Builds nothing.
 find_program(ISC_NODE node)
 if(ISC_NODE)
   add_custom_target(lab
     COMMAND "${ISC_NODE}" web/lab/serve.mjs --open
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL
-    COMMENT "lab: http://localhost:8123/web/lab/ (Ctrl+C stops it)")
+    COMMENT "lab: http://localhost:8123/web/lab.html (Ctrl+C stops it)")
 endif()
