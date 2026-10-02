@@ -15,7 +15,7 @@ const MT_OPEN = 'window.__MT_SRC = function () {';
 // Generator exports (functions/values declared at the generator's top level).
 export const GEN_EXPORTS = ['pcg4d', 'hashUnit', 'hashStream', 'rawCandidate', 'buildCandidateMap', 'packMap',
   'interactionChunks', 'getCytoGeometry', 'sampleCytoMeshHeight', 'cellOutlineLocal', 'ensureCytoCacheFresh',
-  'cytoCache', 'getMtCellGeometry', 'buildMicrotubulesForCell', 'buildMicrotubuleLabelPoints', 'CELL_MOD_MAX'];
+  'cytoCache', 'getMtCellGeometry', 'buildMicrotubulesForCell', 'buildMicrotubuleLabelPoints', 'CELL_MOD_MAX', 'TAIL_MAX', 'cellRadiusAt'];
 
 function sliceOrThrow(text, a, b, what) {
   if (a < 0 || b < 0 || b <= a) throw new Error(what + ' markers not found');
@@ -95,6 +95,9 @@ export function prototypeScript(html, mtText) {
 // Runs as a function body (new Function), so every top-level name stays private to this instance. Not a
 // Node vm context: code in a separate vm context runs ~9x slower (cross-context builtins), same results.
 export function loadPrototype(html, mtText) {
+  // A CRLF checkout (core.autocrlf on Windows) would break the marker searches below.
+  html = html.replace(/\r\n/g, '\n');
+  mtText = mtText.replace(/\r\n/g, '\n');
   const inputs = parseInputs(html);
   const defaults = inputDefaults(inputs);
   const { paramsFrom, gen } = new Function(prototypeScript(html, mtText))();

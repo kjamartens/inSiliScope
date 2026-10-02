@@ -78,9 +78,10 @@ const rows = formatSummary(sw, sb);
 const w0 = Math.max(...rows.map(r => r.name.length));
 console.log(`${'metric'.padEnd(w0)}  ${'working'.padStart(10)}  ${(sb ? baseRef : '').padStart(12)}  ${sb ? 'delta' : ''}`);
 for (const r of rows) console.log(`${r.name.padEnd(w0)}  ${r.a.padStart(10)}  ${r.b.padStart(12)}  ${r.d}`);
-// Imaging smoke test of the JS reference (web/prototype/scope): SR and WideField movies run, finite, not flat.
+// Imaging smoke test of the JS reference (web/prototype/scope): SR, WideField and BrightField movies run, finite, not flat.
 // (Equality with the C++ is tests/parity/scope_parity.mjs, run in the port.)
-for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 frames=2 modality=WideField psf-kernel-half-width-nm=1500']) {
+for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 frames=2 modality=WideField psf-kernel-half-width-nm=1500',
+  'size=32 frames=2 modality=BrightField bf-quality=1']) {
   const c = workCells[0], t = performance.now();
   const full = `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} ${spec}`;
   let lo = Infinity, hi = -Infinity, nan = 0;
@@ -90,7 +91,7 @@ for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 f
     });
     if (nan) bad(`imaging ${spec}: ${nan} non-finite photon values`);
     else if (!(hi > lo)) bad(`imaging ${spec}: flat movie`);
-    else console.log(`imaging ${spec}: ADU ${lo}..${hi}, ${info.blinks ?? info.dyes} ${info.blinks != null ? 'blinks' : 'dyes'}, ${(performance.now() - t).toFixed(0)} ms`);
+    else console.log(`imaging ${spec}: ADU ${lo}..${hi}, ${info.blinks ?? info.dyes ?? info.sources} ${info.blinks != null ? 'blinks' : info.dyes != null ? 'dyes' : 'sources'}, ${(performance.now() - t).toFixed(0)} ms`);
   } catch (e) { bad(`imaging ${spec}: ${e.message}`); }
 }
 console.log(fail ? `lab check: ${fail} failure(s)` : 'lab check: PASS');

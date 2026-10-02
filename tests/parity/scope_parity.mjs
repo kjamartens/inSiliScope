@@ -1,8 +1,10 @@
 // Imaging parity: the JS reference (web/prototype/scope/) against the C++ (the committed viewer WASM,
 // web/insiliscope_module.js: core world + ScopeMovie). Needs no build.
 //   node tests/parity/scope_parity.mjs [--quick] [--module <insiliscope_module.js>]
-// Checks: blink events (count, order, values to 1e-9), then SR and WideField movies pixel by pixel.
-// Expected after a port: SR 100% identical ADU, WideField >= 99.9% (the C++ convolves in float32).
+// Checks: blink events (count, order, values to 1e-9), the BrightField optical volume (bit-identical), then SR,
+// WideField and BrightField movies pixel by pixel. Expected after a port: SR 100% identical ADU, WideField >= 99.9%
+// (the C++ convolves in float32), BrightField >= 99.5% (complex float32 FFTs through the slices: single-electron
+// Poisson flips) and its intensity within 1e-4 relative.
 // In iteration mode (PORT_PENDING.md) the JS is ahead on purpose and this fails: run it in the port.
 import fs from 'fs';
 import path from 'path';
@@ -43,6 +45,19 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
     `events: ${js.length} JS / ${n} C++, ids in order ${idBad ? idBad + ' differ' : 'equal'}, max |d| ${maxd.toExponential(2)}`);
 }
 
+// ---- optical volume (BrightField) ----
+{
+  const seed = 1249, W = new World(P, seed, { ...P.paramsFrom(P.defaults), labelEfficiency: 0, labelNonBleaching: 0.7 });
+  const [rect, nz, sub, n] = quick ? [[60, 0, 64, 4], 6, 1, 40] : [[58, -2, 68, 8], 6, 2, 50];
+  const js = new Float32Array(3 * n * n * nz);
+  const jc = W.opticalVolume(...rect, 0, 6, n, n, nz, sub, js);
+  const cc = C.opticalVolume(seed, {}, rect, 0, 6, n, n, nz, sub);
+  let same = 0, maxd = 0;
+  for (let i = 0; i < js.length; i++) { const d = Math.abs(js[i] - cc[i]); if (!d) same++; maxd = Math.max(maxd, d); }
+  report(jc === cc.cells && same === js.length,
+    `optical volume: ${jc} / ${cc.cells} cells, ${(100 * same / js.length).toFixed(3)}% of ${js.length} voxels identical, max |d| ${maxd.toExponential(2)}`);
+}
+
 // ---- movies ----
 const CASES = [
   ['SR Gaussian', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-model=0', 0.999],
@@ -51,6 +66,9 @@ const CASES = [
   ['WideField GibsonLanniZernike', 'world-seed=1249 x=63 y=3 size=48 frames=3 modality=WideField psf-kernel-half-width-nm=2500 labeling-pct-bleaching=10', 0.999],
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 modality=1 psf-model=0 wf-upscale=2', 0.999],
   ['WideField upscale 3, bleaching from t = 30 s', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=1 psf-kernel-half-width-nm=2500 wf-upscale=3 start-sec=30 labeling-pct-bleaching=20 wf-photon-budget=500', 0.999],
+  ['BrightField thin object (quality 1)', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField bf-quality=1', 0.995],
+  ['BrightField multislice (quality 3), defocused', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField z=2', 0.995],
+  ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=2 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
   const t0 = performance.now();
@@ -63,6 +81,17 @@ for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
   for (let i = 0; i < n; i++) { const d = Math.abs(js[i] - c.frames[i]); if (!d) same++; maxd = Math.max(maxd, d); }
   report(same / n >= need, `${name}: ${(100 * same / n).toFixed(3)}% of ${n} pixels identical, max |d| ${maxd} ADU ` +
     `(C++ ${((t1 - t0) / 1000).toFixed(1)} s, JS ${((t2 - t1) / 1000).toFixed(1)} s)`);
+}
+// ---- BrightField intensity: huge flux, coarse gain, no other noise, so ADU ~ transmitted intensity ----
+{
+  const spec = 'world-seed=1249 x=63 y=3 size=40 frames=1 modality=BrightField bf-quality=2 qe=1 dark-per-sec=0 offset=0 ' +
+    'offset-std=0 read-noise=0 gain-std-pct=0 read-noise-std-pct=0 gain=20000 bf-photons-per-px-per-sec=2e10';
+  const c = C.movie(spec);
+  let js;
+  renderScopeMovie(P, spec, (f, adu) => { js = adu; });
+  let maxd = 0, mean = 0;
+  for (let i = 0; i < js.length; i++) { maxd = Math.max(maxd, Math.abs(js[i] - c.frames[i])); mean += c.frames[i] / js.length; }
+  report(maxd / mean < 1e-4, `BrightField intensity (quality 2): max |d| ${maxd} ADU of ${mean.toFixed(0)} (${(maxd / mean).toExponential(1)} relative)`);
 }
 console.log(fails ? `scope parity: ${fails} failure(s)` : 'scope parity: PASS');
 process.exit(fails ? 1 : 0);

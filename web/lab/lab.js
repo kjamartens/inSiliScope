@@ -15,10 +15,11 @@ const IMG_GROUPS = [
   ['dyes & photophysics', /^(photons-per-sec|on-sec|off-sec|bleach-prob|photon-cv|milli-activation-rate|labeling-)/],
   ['PSF', /^(psf-|wavelength-nm|na|immersion-index)/],
   ['WideField', /^wf-/],
+  ['BrightField', /^bf-/],
   ['camera & background', /./],
 ];
 const ENUMS = {
-  modality: ['SuperRes', 'WideField'], 'psf-model': ['Gaussian', null, null, 'GibsonLanniZernike'], 'psf-mask': ['None', 'DoubleHelix'],
+  modality: ['SuperRes', 'WideField', 'BrightField'], 'psf-model': ['Gaussian', null, null, 'GibsonLanniZernike'], 'psf-mask': ['None', 'DoubleHelix'],
   'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'],
   'psf-zernike-preset': ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'AstigmatismStrong', 'ComaWeak', 'ComaStrong',
     'SphericalWeak', 'SphericalStrong', 'TrefoilModerate', 'MixedRealisticObjective', 'SaddlePoint', 'ExtendedRange', 'ExtendedRangeStrong'],

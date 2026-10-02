@@ -44,7 +44,7 @@ export class World {
   cellReachUm() {
     const p = this.p;
     const worstSemiMajor = (p.cellDiamMax / 2) / Math.sqrt(Math.max(0.05, p.cellElongMin));
-    return 2 * worstSemiMajor * this.g.CELL_MOD_MAX + p.chunkSize;
+    return 2 * worstSemiMajor * this.g.CELL_MOD_MAX * (p.cellRough > 0 && p.cellBlob > 0 ? 1 + this.g.TAIL_MAX : 1) + p.chunkSize;
   }
 
   packBlock(bx, by) {
@@ -226,6 +226,97 @@ export class World {
       }
     });
     return { total, grid: out };
+  }
+
+  // Tallest cell (c.height) whose footprint meets the rect; 0 if none (CellFieldSource::MaxCellHeight).
+  maxCellHeight(x0, y0, x1, y1) {
+    let h = 0;
+    for (const c of this.cellsInRect(x0, y0, x1, y1)) h = Math.max(h, c.height);
+    return h;
+  }
+
+  // Optical volume (World::OpticalVolumeInWindow, ABI 6, BrightField): per voxel of an nx x ny x nz grid over
+  // the rect and [zMin, zMax) (finite), the volume fractions of cytoplasm (body minus nucleus), nucleus and
+  // microtubule (12.5 nm tubes), channel-major: out[((ch*nz + k)*ny + iy)*nx + ix]. Each column is sampled at
+  // sub x sub points per voxel footprint; z overlaps are exact. Returns the number of cells reaching the rect.
+  opticalVolume(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, out = new Float32Array(3 * nx * ny * nz)) {
+    const g = this.g, p = this.p;
+    const plane = nx * ny, chan = plane * nz;
+    out.fill(0, 0, 3 * chan);
+    const cells = this.cellsInRect(x0, y0, x1, y1);
+    const px = (x1 - x0) / nx, py = (y1 - y0) / ny, dz = (zMax - zMin) / nz;
+    const subW = 1.0 / (sub * sub);
+    const mtArea = Math.PI * (MT_RADIUS_NM / 1000) * (MT_RADIUS_NM / 1000);
+    const mtStep = 0.5 * Math.min(px, Math.min(py, dz));
+    const overlap = (a0, a1, b0, b1) => Math.max(0.0, Math.min(a1, b1) - Math.max(a0, b0));
+    for (const c of cells) {
+      const A = this.cellAssets(c);
+      const rotated = !(c.packRot === 0 || Number.isNaN(c.packRot) || c.packRot == null);
+      const cr = rotated ? Math.cos(c.packRot) : 1, sr = rotated ? Math.sin(c.packRot) : 0;
+      const ncr = Math.cos(-c.nucRot), nsr = Math.sin(-c.nucRot);
+      const na = Math.max(1e-6, c.nucLong / 2), nb = Math.max(1e-6, c.nucShort / 2);
+      const nrz = c.nucHeight / 2;
+      // CellInnerRadiusBound (speed only): closer to the centre is inside without evaluating the outline.
+      const rIn = (c.semiMinor < c.semiMajor ? c.semiMinor : c.semiMajor) * c.modFloor * (1 - c.tailBound) * (1 - 1e-12);
+      const ix0 = Math.max(0, Math.floor((c.x - c.rOuter - x0) / px));
+      const ix1 = Math.min(nx - 1, Math.floor((c.x + c.rOuter - x0) / px));
+      const iy0 = Math.max(0, Math.floor((c.y - c.rOuter - y0) / py));
+      const iy1 = Math.min(ny - 1, Math.floor((c.y + c.rOuter - y0) / py));
+      for (let iy = iy0; iy <= iy1; iy++)
+        for (let ix = ix0; ix <= ix1; ix++)
+          for (let sv = 0; sv < sub; sv++)
+            for (let su = 0; su < sub; su++) {
+              const dx = x0 + (ix + (su + 0.5) / sub) * px - c.x;
+              const dy = y0 + (iy + (sv + 0.5) / sub) * py - c.y;
+              const lx = dx * cr + dy * sr, ly = -dx * sr + dy * cr;
+              const rr = Math.hypot(lx, ly);
+              if (rr > c.rOuter || (rr > rIn && rr > g.cellRadiusAt(c, Math.atan2(ly, lx)))) continue;
+              const h = g.sampleCytoMeshHeight(c, p, lx, ly);
+              if (!(h > 0)) continue;
+              // Nucleus chord through this column, clipped to the body.
+              const ex = lx - c.nucOffX, ey = ly - c.nucOffY;
+              const ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
+              const q = 1 - ux * ux - uy * uy;
+              let zn0 = 0, zn1 = 0;
+              if (q > 0 && nrz > 0) {
+                const half = nrz * Math.sqrt(q);
+                zn0 = Math.max(0.0, c.nucZ - half);
+                zn1 = Math.min(h, c.nucZ + half);
+                if (zn1 < zn0) zn0 = zn1 = 0;
+              }
+              const k0 = Math.max(0, Math.floor((0 - zMin) / dz));
+              const k1 = Math.min(nz - 1, Math.floor((h - zMin) / dz));
+              for (let k = k0; k <= k1; k++) {
+                const zl = zMin + k * dz, zh = zl + dz;
+                const nuc = overlap(zl, zh, zn0, zn1);
+                const body = overlap(zl, zh, 0, h);
+                const v = (k * ny + iy) * nx + ix;
+                out[v] += Math.fround((body - nuc) / dz * subW);
+                out[chan + v] += Math.fround(nuc / dz * subW);
+              }
+            }
+      // Microtubules: their tube volume, deposited along the centrelines.
+      const voxVol = px * py * dz;
+      for (const pts of A.mts) {
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const a = pts[i], b = pts[i + 1];
+          const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+          if (!(len > 0)) continue;
+          const n = Math.max(1, Math.ceil(len / mtStep));
+          for (let j = 0; j < n; j++) {
+            const t = (j + 0.5) / n;
+            const lx = a.x + (b.x - a.x) * t, ly = a.y + (b.y - a.y) * t, z = a.z + (b.z - a.z) * t;
+            const wx = c.x + lx * cr - ly * sr, wy = c.y + lx * sr + ly * cr;
+            if (!(wx >= x0 && wx < x1 && wy >= y0 && wy < y1 && z >= zMin && z < zMax)) continue;
+            const ix = Math.min(nx - 1, Math.floor((wx - x0) / px));
+            const iy = Math.min(ny - 1, Math.floor((wy - y0) / py));
+            const k = Math.min(nz - 1, Math.floor((z - zMin) / dz));
+            out[2 * chan + (k * ny + iy) * nx + ix] += Math.fround(len / n * mtArea / voxVol);
+          }
+        }
+      }
+    }
+    return cells.length;
   }
 }
 

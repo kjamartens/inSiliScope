@@ -2,6 +2,7 @@
 // the scope movie) evaluated under Node or in a worker, with small wrappers. No build needed.
 //   const C = await loadWasmScope(moduleText);
 //   C.events(seed, params, kinetics, rect, zMin, zMax, t0, t1) -> Float64Array (stride 7)
+//   C.opticalVolume(seed, params, rect, zMin, zMax, nx, ny, nz, sub) -> Float32Array (3 channels)
 //   C.movie('k=v ...') -> { frames: Uint16Array, info }
 export async function loadWasmScope(moduleText) {
   const g = globalThis;
@@ -50,6 +51,16 @@ export async function loadWasmScope(moduleText) {
       const r = query((b, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, zMin, zMax, b, cap), 4);
       M._isc_world_free(w);
       return r;
+    },
+    // Optical volume (ABI 6): Float32Array 3 * nx * ny * nz, channel-major; .cells = the return value.
+    opticalVolume(seed, params, [x0, y0, x1, y1], zMin, zMax, nx, ny, nz, sub) {
+      const w = world(seed, params), n = 3 * nx * ny * nz, buf = M._malloc(n * 4);
+      const cells = M._isc_optical_volume_in_window(w, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, buf);
+      const out = M.HEAPF32.slice(buf / 4, buf / 4 + n);
+      M._free(buf); M._isc_world_free(w);
+      if (cells < 0) throw new Error('optical volume query failed');
+      out.cells = cells;
+      return out;
     },
     // WideField scene images (CPU) of a spec: {info: [NX, NY, nx, ny, fovX0, fovY0, cw, ch, kernels, planes,
     // channels, hasPersistent, dyes, geometry], frac, images: Float32Array channels * cw * ch}.

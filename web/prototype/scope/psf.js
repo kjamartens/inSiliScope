@@ -97,6 +97,16 @@ function zernikeValue(z, rho, phi) {
   const radial = rho <= 1.0 ? zernikeRadial(z.n, z.m, rho) : 0.0;
   return radial * (z.l >= 0 ? Math.cos(z.m * phi) : Math.sin(z.m * phi));
 }
+// ZernikeWavefrontWaves: the pupil wavefront sum_j c_j Z_j(rho, phi), waves (the BrightField detection pupil).
+export function zernikeWavefrontWaves(coeffs, rho, phi) {
+  let w = 0.0;
+  for (let j = 0; j < coeffs.length; ++j) {
+    if (coeffs[j] === 0.0) continue;
+    const [n, l] = indexToNM(j);
+    w += coeffs[j] * zernikeValue({ n, l, m: Math.abs(l) }, rho, phi);
+  }
+  return w;
+}
 function laguerreL(p, a, x) {
   let lm1 = 0.0, l = 1.0;
   for (let k = 0; k < p; ++k) {
