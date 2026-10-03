@@ -17,6 +17,7 @@
 #include "cells.h"
 #include "dyes.h"
 #include "microtubules.h"
+#include "parallel.h"
 #include "params.h"
 
 #include <array>
@@ -229,6 +230,8 @@ private:
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> packPrebuilt_;
    std::map<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>> assetPrebuilt_;
    WorldStats stats_;
+   // The shared worker pool (parallel.h), installed for every public call.
+   std::shared_ptr<WorkerPool> pool_;
 };
 
 // Cell-local (lx, ly) -> world, as the JS localToWorld (packRot, then x/y).

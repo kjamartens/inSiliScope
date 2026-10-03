@@ -1,5 +1,7 @@
 #include "microtubules.h"
 
+#include "parallel.h"
+
 #include "jsmath.h"
 #include "rng.h"
 
@@ -559,16 +561,20 @@ std::vector<Microtubule> BuildMicrotubulesForCell(uint32_t seed, const Cell& c, 
    if (!c.present) return mts;
    const int count = std::min(MT_MAX_PER_CELL, MtCountForCell(seed, c, p, g));
    if (count <= 0) return mts;
-   mts.reserve((size_t)count);
-   for (int i = 0; i < count; i++) mts.push_back(MtGenerateOne(seed, i, 0, c, p, g));
+   // Every microtubule draws from its own stream (seed, cell, index) and
+   // reads only the cell, the parameters and the geometry: generated in
+   // parallel into its slot, consumed in index order below.
+   mts.resize((size_t)count);
+   ParallelFor((size_t)count, 4, [&](size_t i) { mts[i] = MtGenerateOne(seed, (int)i, 0, c, p, g); });
    MtResolveCollisions(seed, c, p, mts, g);
-   for (Microtubule& m : mts) {
+   ParallelFor(mts.size(), 4, [&](size_t i) {
+      Microtubule& m = mts[i];
       MtTrimSteepEnds(m.pts, p.mtMaxZSlope);
       MtLimitZSlopeRealized(m.pts, p.mtMaxZSlope);
       // Inside the outline from an earlier clamp (the cut, or the clamp after
       // a collision nudge); the two steps above change z only.
       for (Pt3& pt : m.pts) MtClampIntoCytoplasm(c, g, pt, true);
-   }
+   });
    return mts;
 }
 

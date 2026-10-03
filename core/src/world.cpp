@@ -78,7 +78,8 @@ const MtFrames& CellAssets::Frames(size_t i)
 }
 
 World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeCacheDyes)
-   : seed_(seed), p_(p), assetCap_(std::max<size_t>(1, assetCacheCells)), dyeCap_(dyeCacheDyes)
+   : seed_(seed), p_(p), assetCap_(std::max<size_t>(1, assetCacheCells)), dyeCap_(dyeCacheDyes),
+     pool_(AcquireWorkerPool())
 {
    NormalizeParams(p_);
 }
@@ -136,18 +137,21 @@ const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
 
 void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<Cell>& out)
 {
+   PoolScope scope(pool_);
    const double S = p_.chunkSize, reach = CellReachUm(p_);
    const int32_t cxLo = (int32_t)std::floor((x0 - reach) / S), cxHi = (int32_t)std::floor((x1 + reach) / S);
    const int32_t cyLo = (int32_t)std::floor((y0 - reach) / S), cyHi = (int32_t)std::floor((y1 + reach) / S);
    const int32_t bx0 = FloorDiv(cxLo, PACK_BLOCK_CHUNKS), bx1 = FloorDiv(cxHi, PACK_BLOCK_CHUNKS);
    const int32_t by0 = FloorDiv(cyLo, PACK_BLOCK_CHUNKS), by1 = FloorDiv(cyHi, PACK_BLOCK_CHUNKS);
    // Pack the missing blocks in parallel (each is a pure function of its
-   // address); PackedBlock below takes them in the usual order.
+   // address); PackedBlock below takes them in the usual order. With few
+   // missing blocks the relaxation inside each block gets the threads
+   // instead (Relax runs its cells in parallel when not nested).
    std::vector<std::pair<int32_t, int32_t>> missing;
    for (int32_t bx = bx0; bx <= bx1; bx++)
       for (int32_t by = by0; by <= by1; by++)
          if (!blocks_.count(std::make_pair(bx, by))) missing.push_back(std::make_pair(bx, by));
-   if (missing.size() > 1) {
+   if (missing.size() > 1 && (int)missing.size() >= WorldThreads() / 2) {
       std::vector<std::vector<Cell>> built(missing.size());
       ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = PackBlock(missing[i].first, missing[i].second); });
       for (size_t i = 0; i < missing.size(); i++) packPrebuilt_[missing[i]] = std::move(built[i]);
@@ -161,6 +165,7 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
 
 CellAssets& World::Assets(const Cell& c)
 {
+   PoolScope scope(pool_);
    const auto key = std::make_pair(c.cx, c.cy);
    for (auto it = assets_.begin(); it != assets_.end(); ++it) {
       if (it->first != key) continue;
@@ -194,7 +199,8 @@ void World::PrebuildAssets(const std::vector<Cell>& cells)
       }
    }
    assetPrebuilt_.clear();
-   if (missing.size() > 1) {
+   // Few cells: each cell's microtubules run in parallel instead (see CellsInRect).
+   if (missing.size() > 1 && (int)missing.size() >= WorldThreads() / 2) {
       std::vector<std::unique_ptr<CellAssets>> built(missing.size());
       ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = BuildCellAssets(seed_, *missing[i], p_); });
       for (size_t i = 0; i < missing.size(); i++)
@@ -279,6 +285,7 @@ bool World::PastDeadline()
 bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
                      double budgetMs)
 {
+   PoolScope scope(pool_);
    // Nothing new since the last complete prefetch of a region holding this one.
    const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, kinVersion_, true };
    const PrefetchRegion& d = prefetchDone_;
@@ -469,6 +476,7 @@ void World::SetKinetics(const Kinetics& k)
 
 bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 {
+   PoolScope scope(pool_);
    for (const Cell& c : PackedBlock(FloorDiv(cx, PACK_BLOCK_CHUNKS), FloorDiv(cy, PACK_BLOCK_CHUNKS)))
       if (c.cx == cx && c.cy == cy) { out = c; return true; }
    return false;
@@ -477,6 +485,7 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           std::vector<WorldDye>& out)
 {
+   PoolScope scope(pool_);
    ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
       if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
       for (const WorldDye& d : b.dyes)
@@ -487,6 +496,7 @@ void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMi
 void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                            double t0, double t1, std::vector<WorldEvent>& out)
 {
+   PoolScope scope(pool_);
    // Blocks the window can see: their schedules and persistent blinks are
    // built (in parallel) before the serial pass below reads them.
    const bool persist = kin_.activationRatePerSec > 0 && t1 > t0;
@@ -555,6 +565,7 @@ long World::DensityInWindow(double x0, double y0, double x1, double y1, double z
 long World::Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                               int nx, int ny, int nz, unsigned populations, float* out)
 {
+   PoolScope scope(pool_);
    std::fill(out, out + (size_t)nx * ny * nz, 0.0f);
    const bool wantBleach = (populations & 1u) != 0, wantPersist = (populations & 2u) != 0;
    if (!wantBleach && !wantPersist) return 0;
@@ -588,6 +599,7 @@ double Overlap(double a0, double a1, double b0, double b1)
 long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                                   int nx, int ny, int nz, int sub, float* out)
 {
+   PoolScope scope(pool_);
    const size_t plane = (size_t)nx * ny, chan = plane * nz;
    std::fill(out, out + chan * 3, 0.0f);
    std::vector<Cell> cells;

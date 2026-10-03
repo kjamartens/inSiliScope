@@ -1,6 +1,7 @@
 #include "packing.h"
 
 #include "jsmath.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -182,13 +183,15 @@ void Relax(CandidateMap& map, const Params& p, int iters)
    struct Disp { double ax, ay, ar; };
    std::vector<Disp> disp(N);
    std::vector<CellPose> poses(N);
-   std::vector<int32_t> neighbors, overlapping;
    for (int it = 0; it < iters; it++) {
       // The poses of this iteration's snapshot.
       for (size_t i = 0; i < N; i++)
          if (map.alive[i]) MakePose(map.cells[i], map.cells[i].packRot, poses[i]);
-      for (size_t i = 0; i < N; i++) {
-         if (!map.alive[i]) continue;
+      // Jacobi: disp[i] reads only the snapshot (cells, poses) and writes its
+      // own slot, so the cells run in parallel; the update below is serial.
+      ParallelFor(N, 8, [&](size_t i) {
+         if (!map.alive[i]) return;
+         thread_local std::vector<int32_t> neighbors, overlapping;
          const Cell& c = map.cells[i];
          // Circle-sum broad phase before the expensive outline check.
          neighbors.clear();
@@ -219,7 +222,7 @@ void Relax(CandidateMap& map, const Params& p, int iters)
             else if (minus < curOverlapSum) rotDelta = -PACK_ROT_TRIAL;
          }
          disp[i] = { ax * damping, ay * damping, rotDelta * damping };
-      }
+      });
       for (size_t i = 0; i < N; i++) {
          if (!map.alive[i]) continue;
          Cell& c = map.cells[i];
