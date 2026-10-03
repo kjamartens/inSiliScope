@@ -5,6 +5,7 @@
 #include "CellFieldSource.h"
 #include "Fft2d.h"
 #include "Illumination.h"
+#include "ScopeMovie.h"
 #include "WidefieldRender.h"
 
 #include "insiliscope/insiliscope.h"
@@ -876,8 +877,41 @@ void RealWorld()
 
 } // namespace
 
+// Movies made one after the other in one process share the world and the
+// WideField scene (ScopeMovie's MovieCache): a repeat, or a return after a
+// movie in another world or with another PSF, must equal a fresh render.
+void RepeatedMovies()
+{
+   auto movie = [](const char* text) {
+      ScopeSpec spec;
+      std::string err;
+      std::vector<uint16_t> all;
+      ScopeMovieInfo info;
+      if (!ParseScopeSpec(text, spec, err) ||
+          !RenderScopeMovie(spec, [&](long, const std::vector<uint16_t>& adu) {
+             all.insert(all.end(), adu.begin(), adu.end());
+             return true;
+          }, info, err))
+         std::printf("  movie failed: %s\n", err.c_str());
+      return all;
+   };
+   const char* sr = "size=32 frames=4 x=30 y=10 psf-kernel-half-width-nm=1500 milli-activation-rate=20";
+   const char* wf = "size=32 frames=3 x=30 y=10 modality=1 psf-kernel-half-width-nm=1500";
+   const char* wfGauss = "size=32 frames=2 x=30 y=10 modality=1 psf-model=0 wf-upscale=2";
+   const char* other = "size=32 frames=2 x=-20 y=5 world-seed=7 modality=1 psf-kernel-half-width-nm=1500";
+   const std::vector<uint16_t> sr1 = movie(sr), wf1 = movie(wf), g1 = movie(wfGauss);
+   const std::vector<uint16_t> sr2 = movie(sr), wf2 = movie(wf);
+   Check(!sr1.empty() && sr1 == sr2, "SR movie repeated in one process = the first (shared world)");
+   Check(!wf1.empty() && wf1 == wf2, "WideField movie repeated = the first (shared scene and PSF)");
+   const std::vector<uint16_t> o = movie(other);
+   const std::vector<uint16_t> wf3 = movie(wf), g2 = movie(wfGauss), sr3 = movie(sr);
+   Check(!o.empty() && wf1 == wf3 && sr1 == sr3, "movies after another world and PSF = the first");
+   Check(!g1.empty() && g1 == g2, "Gaussian WideField movie after kernel movies = the first");
+}
+
 int main()
 {
+   RepeatedMovies();
    FftVsDft();
    ConvolutionVsDirect();
    FocusBands();

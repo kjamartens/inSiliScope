@@ -407,21 +407,81 @@ bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& e
    return ComputePsfKernelCache(req, cache, err);
 }
 
+namespace {
+// Movies made by one process (the cli; the viewer's worker, one after the
+// other) share one world, one WideField scene and one BrightField scene, so
+// a repeat, or a new focus, frame count, PSF or noise setting, reuses the
+// built cells, microtubules, dyes, dye tiles and spectra (2026-10-03: SR
+// and WideField too; BrightField since 2026-10-02). The answers are the
+// same as with fresh objects (every answer of the core is a pure function
+// of seed, params and window; the caches are for speed only); a mutex keeps
+// concurrent callers serial.
+struct MovieCache
+{
+   std::mutex mutex;
+   CellFieldSource source;
+   CellFieldSettings world;
+   bool haveWorld = false;
+   uint64_t version = 0;
+   BrightfieldScene brightfield;
+   // WideField: the scene (dye tiles, kernel and plane spectra, images) and
+   // the PSF it was built with; wfPsfVersion changes when the PSF object does.
+   WidefieldScene widefield;
+   std::unique_ptr<WidefieldPsf> wfPsf;
+   PsfKernelCache wfPsfCache;
+   int wfUpscale = 0;
+   double wfGauss[4] = { 0, 0, 0, 0 };
+   bool wfGpuMode = false, wfHasScene = false;
+   long wfPsfVersion = 0;
+};
+
+MovieCache& SharedMovieCache()
+{
+   static MovieCache c;
+   return c;
+}
+
+// Configures the shared source; bumps the version when the world changes.
+bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
+{
+   if (!c.haveWorld || !c.world.SameWorld(cf))
+      ++c.version;
+   c.world = cf;
+   c.haveWorld = true;
+   if (!c.source.Configure(cf, err))
+   {
+      c.haveWorld = false;
+      return false;
+   }
+   return true;
+}
+} // namespace
+
 // WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
 // f), square illumination over the FOV, the same PSF as SR, same noise.
 struct WidefieldMovie::Impl
 {
    ScopeSpec spec;
    ScopeSetup S;
-   CellFieldSource source;
+   // The shared world and WideField scene (MovieCache), held for this
+   // movie's lifetime: Begin locks, the destructor unlocks (the viewer's
+   // isc_wf_begin .. isc_wf_end steps are one session).
+   MovieCache& cache;
+   std::unique_lock<std::mutex> lock;
+   CellFieldSource& source;
    WidefieldSceneSpec ws;
-   PsfKernelCache psfCache; // before psf: KernelWidefieldPsf refers to it
-   std::unique_ptr<WidefieldPsf> psf;
+   PsfKernelCache& psfCache;
+   std::unique_ptr<WidefieldPsf>& psf;
    std::unique_ptr<SquareIllumination> ill;
-   WidefieldScene scene;
+   WidefieldScene& scene;
    double framesBefore0 = 0.0;
    std::chrono::steady_clock::time_point t0;
    double setupSec = 0.0;
+   Impl()
+      : cache(SharedMovieCache()), lock(cache.mutex, std::defer_lock), source(cache.source),
+        psfCache(cache.wfPsfCache), psf(cache.wfPsf), scene(cache.widefield)
+   {
+   }
 };
 
 WidefieldMovie::WidefieldMovie() : impl_(new Impl) {}
@@ -441,7 +501,12 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    m.S = MakeScopeSetup(spec);
    const ScopeSetup& S = m.S;
    auto tPhase = TimingClock::now();
-   if (!m.source.Configure(S.cf, err))
+   if (!m.lock.owns_lock() && !m.lock.try_lock())
+   {
+      err = "WideField: another movie is being rendered in this process";
+      return false;
+   }
+   if (!ConfigureShared(m.cache, S.cf, err))
       return false;
    TimingLog("wf.configure", TimingSince(tPhase));
    const double um = S.p.pixelSizeNm / 1000.0;
@@ -463,20 +528,47 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    ws.phot.extinctionCoeff = std::max(0.0, O("wf-extinction-coeff"));
    ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
    ws.exposureSec = S.p.frameDurationSec;
+   ws.worldVersion = static_cast<long>(m.cache.version);
    m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
    tPhase = TimingClock::now();
-   if (!ScopePsfKernel(spec, m.psfCache, err))
+   PsfKernelCache kc;
+   if (!ScopePsfKernel(spec, kc, err))
       return false;
    TimingLog("wf.psf-kernel", TimingSince(tPhase));
-   if (m.psfCache.valid)
+   if (kc.valid)
    {
       // As the camera's MakeWidefieldPsf: the upscale must divide the oversampling.
-      ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(m.psfCache.oversampling, ws.grid.upscale);
-      m.psf.reset(new KernelWidefieldPsf(m.psfCache, ws.grid.upscale));
+      ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(kc.oversampling, ws.grid.upscale);
    }
-   else
-      m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
-   m.scene.SetGpuMode(gpuMode);
+   // The WidefieldPsf (and with it the scene's kernel spectra) is kept across
+   // movies while the kernel stack (its serial) and the grid pitch, or the
+   // Gaussian's parameters, are unchanged.
+   MovieCache& c = m.cache;
+   const double gauss[4] = { um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index") };
+   const bool samePsf = c.wfPsf && c.wfPsfCache.valid == kc.valid &&
+                        (kc.valid ? (c.wfPsfCache.Serial() == kc.Serial() && c.wfUpscale == ws.grid.upscale)
+                                  : std::equal(gauss, gauss + 4, c.wfGauss));
+   if (!samePsf)
+   {
+      c.wfPsfCache = kc;
+      c.wfUpscale = ws.grid.upscale;
+      std::copy(gauss, gauss + 4, c.wfGauss);
+      if (kc.valid)
+         c.wfPsf.reset(new KernelWidefieldPsf(c.wfPsfCache, ws.grid.upscale));
+      else
+         c.wfPsf.reset(new GaussianWidefieldPsf(gauss[0], gauss[1], gauss[2], gauss[3]));
+      ++c.wfPsfVersion;
+   }
+   ws.psfVersion = c.wfPsfVersion;
+   // The scene's FFT sizes depend on the mode (GPU: powers of two): a mode
+   // change starts from a fresh scene.
+   if (!c.wfHasScene || c.wfGpuMode != gpuMode)
+   {
+      c.widefield = WidefieldScene();
+      c.widefield.SetGpuMode(gpuMode);
+      c.wfGpuMode = gpuMode;
+      c.wfHasScene = true;
+   }
    m.scene.SetDeferImages(gpuMode);
    tPhase = TimingClock::now();
    if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
@@ -664,44 +756,6 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    }
    return true;
 }
-
-namespace {
-// Movies made by one process (the cli; the viewer's worker, one after the
-// other) share one world and one BrightField scene, so a repeat, or a new
-// focus, frame count or noise setting, reuses the built cells and the
-// multislice. The answers are the same as with fresh objects (the caches
-// are for speed only); a mutex keeps concurrent callers serial.
-struct MovieCache
-{
-   std::mutex mutex;
-   CellFieldSource source;
-   CellFieldSettings world;
-   bool haveWorld = false;
-   uint64_t version = 0;
-   BrightfieldScene brightfield;
-};
-
-MovieCache& SharedMovieCache()
-{
-   static MovieCache c;
-   return c;
-}
-
-// Configures the shared source; bumps the version when the world changes.
-bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
-{
-   if (!c.haveWorld || !c.world.SameWorld(cf))
-      ++c.version;
-   c.world = cf;
-   c.haveWorld = true;
-   if (!c.source.Configure(cf, err))
-   {
-      c.haveWorld = false;
-      return false;
-   }
-   return true;
-}
-} // namespace
 
 bool RenderBrightfieldMovie(const ScopeSpec& spec,
                             const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
@@ -946,12 +1000,16 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    const unsigned W = S.W, H = S.H;
    const long N = S.N, seed = S.seed;
    const double expSec = S.expSec, t0Sec = S.t0Sec;
-   CellFieldSource source;
    std::vector<BlinkEvent> events;
    const unsigned long spawns0 = ParallelForSpawns().load();
    auto tPhase = TimingClock::now();
-   if (!source.Configure(cf, err))
+   // The shared world (MovieCache): a repeat movie, or one with other
+   // imaging settings, reuses the built cells, microtubules and dyes.
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, cf, err))
       return false;
+   CellFieldSource& source = cache.source;
    TimingLog("sr.configure", TimingSince(tPhase));
    // The PSF kernel computes while the cell field is queried (as the
    // camera's stack generation does); serially under Emscripten.

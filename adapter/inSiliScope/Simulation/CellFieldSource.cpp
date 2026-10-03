@@ -57,8 +57,14 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
       // Keep ~16M dyes (~1.5-3 GB): the whole z column of a 12.8 um FOV plus
       // margin at 100% labelling is ~9M, so focusing through the cell and
       // moving about a FOV in xy come back from the cache, not regenerated.
-      // The core's default (2M) suits the browser.
+      // In the browser (where the movie world now lives across movies) a
+      // 4M soft cap: a 256 px WideField movie uses ~4M dyes, which the cap
+      // never evicts while they are in use.
+#if defined(__EMSCRIPTEN__)
+      isc_world_set_dye_cache(w, 4e6);
+#else
       isc_world_set_dye_cache(w, 16e6);
+#endif
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
