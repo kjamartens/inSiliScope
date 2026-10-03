@@ -179,6 +179,13 @@ struct PsfKernelCache
    // holds them too, so CPU and GPU interpolate the same numbers.
    std::vector<std::vector<float>> blockSums;
    int blockSumWidth = 0;
+   // Column-polyphase copy of blockSums (2026-10-03, speed only): with
+   // qw = blockSumWidth / os, polySums[z][(r*os + p)*qw + q] =
+   // blockSums[z][r*W + q*os + p]. The splat's taps for consecutive camera
+   // pixels are os columns apart in blockSums and adjacent here, so a pixel
+   // row is a few contiguous multiply-add loops (SplatKernel.h). Empty when
+   // W is not a multiple of os (never for the kernels built here).
+   std::vector<std::vector<float>> polySums;
 
    // Index of the nominally in-focus plane (nz/2) -- used until per-
    // emitter/global Z is wired up (steps 2-3).
@@ -242,6 +249,11 @@ std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, do
 
 // Builds the block sums of one plane (see PsfKernelCache::blockSums).
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os);
+// The column-polyphase copy of one plane's block sums (bw x bw; see
+// PsfKernelCache::polySums). Empty when bw is not a multiple of os.
+std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os);
+// Fills cache.polySums from cache.blockSums (every plane).
+void BuildPolyphaseSums(PsfKernelCache& cache);
 
 // Everything about one emitter's splat that does not depend on the camera
 // pixel -- webSMLM's simSplatSetup(): the centre pixel (x0, y0) =
@@ -278,6 +290,7 @@ struct SplatPlan
 {
    SplatSetupResult st;
    const float* B = nullptr;        // block sums read (the plane's, or shiftedSums)
+   const float* P = nullptr;        // the plane's polySums (nullptr: Fft, or none built)
    std::vector<float> shiftedSums;  // Fft only
 };
 bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,

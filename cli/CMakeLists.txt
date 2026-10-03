@@ -21,7 +21,21 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/SMLMStructures.cpp
   ${ISC_SIM}/SMLMZernike.cpp
   ${ISC_SIM}/ZernikePsf.cpp
+  ${ISC_SIM}/SplatSse2.cpp
+  ${ISC_SIM}/SplatAvx2.cpp
 )
+# The splat kernel's AVX2 copy (SplatKernel.h): this one file gets the AVX2
+# flag on x86-64 and the dispatcher picks it at run time; everything else
+# keeps the baseline instruction set. No contraction into FMA (/fp:precise
+# without /fp:contract, -ffp-contract=off), so it is bit-exact with the
+# baseline copy (ctest sr_render).
+if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
+  if(MSVC)
+    set_source_files_properties(${ISC_SIM}/SplatAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+  else()
+    set_source_files_properties(${ISC_SIM}/SplatAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+  endif()
+endif()
 
 if(EMSCRIPTEN)
   add_executable(insiliscope_scope_web scope_wasm.cpp ${ISC_SIM_SRC})

@@ -11,6 +11,7 @@
 
 #include "BrightfieldRender.h"
 #include "Parallel.h"
+#include "Timing.h"
 
 #include "CellFieldSource.h"
 #include "PsfGeneratorBridge.h"
@@ -439,8 +440,10 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    m.S = MakeScopeSetup(spec);
    const ScopeSetup& S = m.S;
+   auto tPhase = TimingClock::now();
    if (!m.source.Configure(S.cf, err))
       return false;
+   TimingLog("wf.configure", TimingSince(tPhase));
    const double um = S.p.pixelSizeNm / 1000.0;
    WidefieldSceneSpec& ws = m.ws;
    ws.originXUm = S.q.originXUm;
@@ -461,8 +464,10 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
    ws.exposureSec = S.p.frameDurationSec;
    m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
+   tPhase = TimingClock::now();
    if (!ScopePsfKernel(spec, m.psfCache, err))
       return false;
+   TimingLog("wf.psf-kernel", TimingSince(tPhase));
    if (m.psfCache.valid)
    {
       // As the camera's MakeWidefieldPsf: the upscale must divide the oversampling.
@@ -473,15 +478,20 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
       m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
    m.scene.SetGpuMode(gpuMode);
    m.scene.SetDeferImages(gpuMode);
+   tPhase = TimingClock::now();
    if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
       return false;
+   TimingLog("wf.scene-update", TimingSince(tPhase));
    // The bleach basis, anchored at the first frame (a job then has every
    // channel the frames need).
    m.framesBefore0 = std::max(0.0, O("start-sec")) / S.expSec;
    std::vector<float> wb;
+   tPhase = TimingClock::now();
    m.scene.FreshBleachWeights(m.framesBefore0, wb);
    m.scene.SetBleachWeights(wb);
+   TimingLog("wf.bleach-anchor", TimingSince(tPhase));
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   TimingLog("wf.setup", m.setupSec);
    return true;
 }
 
@@ -527,18 +537,42 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
    std::vector<float> photons, wb;
    std::vector<uint16_t> adu;
    const std::vector<BlinkEvent> none;
+   TimingSum tBg, tWeights, tRender, tNoise, tWrite;
+   const unsigned long spawns0 = ParallelForSpawns().load();
    for (long f = 0; f < N; f++)
    {
+      tBg.Start();
       RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
                         0.0, 0.0, nullptr, O("z"));
+      tBg.Stop();
+      tWeights.Start();
       m.scene.FreshBleachWeights(m.framesBefore0 + f, wb);
+      tWeights.Stop();
+      tRender.Start();
       m.scene.RenderFrame(wb, photons);
+      tRender.Stop();
+      tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
+      tNoise.Stop();
+      tWrite.Start();
+      const bool more = onFrame(f, adu);
+      tWrite.Stop();
+      if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   tBg.Log("wf.frame.background");
+   tWeights.Log("wf.frame.bleach-weights");
+   tRender.Log("wf.frame.render");
+   tNoise.Log("wf.frame.noise");
+   tWrite.Log("wf.frame.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "dyes %ld, ParallelFor spawns %lu", info.dyes, ParallelForSpawns().load() - spawns0);
+      TimingLog("wf.total", info.totalSec, b);
+   }
    return true;
 }
 
@@ -641,8 +675,15 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
    BrightfieldScene& scene = cache.brightfield;
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   if (!scene.Update(cache.source, bs, cache.version, err) || !scene.Image(focusUm, trans, err))
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   auto tPhase = TimingClock::now();
+   if (!scene.Update(cache.source, bs, cache.version, err))
       return false;
+   TimingLog("bf.scene-update", TimingSince(tPhase));
+   tPhase = TimingClock::now();
+   if (!scene.Image(focusUm, trans, err))
+      return false;
+   TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
    const double flux = std::max(0.0, O("bf-photons-per-px-per-sec")) * S.expSec;
@@ -667,14 +708,28 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
    for (size_t i = 0; i < trans.size(); ++i)
       photons[i] = static_cast<float>(trans[i] * flux);
    std::vector<uint16_t> adu;
+   TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
+      tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
+      tNoise.Stop();
+      tWrite.Start();
+      const bool more = onFrame(f, adu);
+      tWrite.Stop();
+      if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   tNoise.Log("bf.frame.noise");
+   tWrite.Log("bf.frame.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "ParallelFor spawns %lu", ParallelForSpawns().load() - spawns0);
+      TimingLog("bf.total", info.totalSec, b);
+   }
    return true;
 }
 
@@ -847,21 +902,37 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    const double expSec = S.expSec, t0Sec = S.t0Sec;
    CellFieldSource source;
    std::vector<BlinkEvent> events;
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   auto tPhase = TimingClock::now();
    if (!source.Configure(cf, err))
       return false;
+   TimingLog("sr.configure", TimingSince(tPhase));
    // The PSF kernel computes while the cell field is queried (as the
    // camera's stack generation does); serially under Emscripten.
    PsfKernelCache psfCache;
    std::string psfErr;
    bool psfOk = true;
+   double psfSec = 0.0, eventsSec = 0.0;
+   tPhase = TimingClock::now();
 #if defined(__EMSCRIPTEN__)
    psfOk = ScopePsfKernel(spec, psfCache, psfErr);
+   psfSec = TimingSince(tPhase);
+   const auto tEv = TimingClock::now();
    const bool eventsOk = psfOk && source.Events(q, events);
+   eventsSec = TimingSince(tEv);
 #else
-   std::thread psfThread([&]() { psfOk = ScopePsfKernel(spec, psfCache, psfErr); });
+   std::thread psfThread([&]() {
+      const auto tk = TimingClock::now();
+      psfOk = ScopePsfKernel(spec, psfCache, psfErr);
+      psfSec = TimingSince(tk);
+   });
    const bool eventsOk = source.Events(q, events);
+   eventsSec = TimingSince(tPhase);
    psfThread.join();
 #endif
+   TimingLog("sr.psf-kernel", psfSec, psfCache.valid ? "GibsonLanniZernike" : "Gaussian");
+   TimingLog("sr.events-query", eventsSec);
+   TimingLog("sr.psf+query-wall", TimingSince(tPhase));
    if (!psfOk)
    {
       err = psfErr;
@@ -898,7 +969,10 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    PixelReadNoiseMap rnMap;
    rnMap.Generate(W, H, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng);
    const uint32_t noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+   tPhase = TimingClock::now();
    const std::vector<std::vector<uint32_t>> buckets = BucketEventsByFrame(events, N);
+   TimingLog("sr.noise-maps+buckets", TimingSince(tPhase));
+   TimingSum tRender, tWrite;
 
    // Frames are independent (own events, counter-based noise), so a batch
    // is made on all cores (serial under Emscripten) and handed over in order.
@@ -908,6 +982,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
+      tRender.Start();
       ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
          std::vector<BlinkEvent> fe;
@@ -919,13 +994,25 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
          ApplyNoiseChain(photons, adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
                          static_cast<uint32_t>(f));
       });
+      tRender.Stop();
+      tWrite.Start();
       bool more = true;
       for (long k = 0; k < nb && more; k++)
          more = onFrame(f0 + k, adu[static_cast<size_t>(k)]);
+      tWrite.Stop();
       if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   tRender.Log("sr.render-batches");
+   tWrite.Log("sr.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "blinks %zu, ParallelFor spawns %lu", events.size(),
+                    ParallelForSpawns().load() - spawns0);
+      TimingLog("sr.total", info.totalSec, b);
+   }
    return true;
 }
 

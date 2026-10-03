@@ -1,8 +1,10 @@
 #include "PsfGeneratorBridge.h"
 #include "FftRadix2.h"
+#include "SplatKernel.h"
 #include "ZernikePsf.h"
 #include "Parallel.h"
 #include "PsfResource.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <atomic>
@@ -645,6 +647,7 @@ bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& ou
                v = static_cast<float>(v / sum);
          outCache.blockSums[static_cast<size_t>(z)] = BuildBlockSums(plane.data(), size, oversampling);
       }
+      BuildPolyphaseSums(outCache);
       outCache.valid = true;
       ok = true;
    } while (false);
@@ -732,6 +735,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                             const std::function<void(const std::string&)>& logCallback)
 {
    outError.clear();
+   const auto tStart = TimingClock::now();
    {
       KernelMemo& m = Memo();
       std::lock_guard<std::mutex> g(m.mutex);
@@ -744,16 +748,20 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
          std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
          if (logCallback)
             logCallback("PSF: kernel unchanged, reusing the one already computed.");
+         TimingLog("psf.memo-hit", TimingSince(tStart));
          return true;
       }
    }
    if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
       return false;
+   TimingLog("psf.compute", TimingSince(tStart));
+   const auto tStore = TimingClock::now();
    KernelMemo& m = Memo();
    std::lock_guard<std::mutex> g(m.mutex);
    m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
    if (m.entries.size() > kKernelMemoEntries)
       m.entries.resize(kKernelMemoEntries);
+   TimingLog("psf.memo-store", TimingSince(tStore));
    return true;
 }
 
@@ -799,6 +807,31 @@ std::vector<float> BuildBlockSums(const float* kernel, int n, int os)
       }
    }
    return out;
+}
+
+std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os)
+{
+   std::vector<float> out;
+   if (bw <= 0 || os <= 0 || bw % os != 0)
+      return out;
+   const int qw = bw / os;
+   out.resize(static_cast<size_t>(bw) * bw);
+   for (int r = 0; r < bw; ++r)
+   {
+      const float* src = blockSums + static_cast<size_t>(r) * bw;
+      float* dst = out.data() + static_cast<size_t>(r) * os * qw;
+      for (int c = 0; c < bw; ++c)
+         dst[static_cast<size_t>(c % os) * qw + c / os] = src[c];
+   }
+   return out;
+}
+
+void BuildPolyphaseSums(PsfKernelCache& cache)
+{
+   cache.polySums.assign(cache.blockSums.size(), std::vector<float>());
+   ParallelFor(static_cast<unsigned>(cache.blockSums.size()), [&](unsigned z) {
+      cache.polySums[z] = BuildPolyphaseSums(cache.blockSums[z].data(), cache.blockSumWidth, cache.oversampling);
+   });
 }
 
 namespace {
@@ -994,6 +1027,9 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
    const int os = std::max(1, cache.oversampling);
    const int n = cache.sizeOversampled;
    plan.B = cache.blockSums[static_cast<size_t>(zIndex)].data();
+   plan.P = nullptr;
+   if (cache.polySums.size() == static_cast<size_t>(cache.nz) && !cache.polySums[static_cast<size_t>(zIndex)].empty())
+      plan.P = cache.polySums[static_cast<size_t>(zIndex)].data();
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
@@ -1006,6 +1042,7 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
          FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry, parallelFft);
       plan.shiftedSums = BuildBlockSums(shifted.data(), n, os);
       plan.B = plan.shiftedSums.data();
+      plan.P = nullptr;
       plan.st.bx = static_cast<int>(rx);
       plan.st.by = static_cast<int>(ry);
    }
@@ -1016,86 +1053,35 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
    return true;
 }
 
-namespace {
-
-// One camera pixel's interpolated block-sum read: taps j in [jLo, jHi) and i
-// in [iLo, iHi) (the taps inside the block-sum array), in index order --
-// the order and the operations of the original all-taps loop, which skipped
-// the same taps.
-inline double SplatPixel(const float* B, int bw, int r0, int c0, int jLo, int jHi, int iLo, int iHi,
-                         const double* wx, const double* wy)
-{
-   double sum = 0.0;
-   for (int j = jLo; j < jHi; ++j)
-   {
-      const float* brow = B + static_cast<size_t>(r0 + j) * bw;
-      double row = 0.0;
-      for (int i = iLo; i < iHi; ++i)
-         row += wx[i] * brow[c0 + i];
-      sum += wy[j] * row;
-   }
-   return sum;
-}
-
-template <int NT>
-inline double SplatPixelFull(const float* B, int bw, int r0, int c0, int jLo, int jHi, const double* wx,
-                             const double* wy)
-{
-   double sum = 0.0;
-   for (int j = jLo; j < jHi; ++j)
-   {
-      const float* brow = B + static_cast<size_t>(r0 + j) * bw + c0;
-      double row = 0.0;
-      for (int i = 0; i < NT; ++i)
-         row += wx[i] * brow[i];
-      sum += wy[j] * row;
-   }
-   return sum;
-}
-
-template <int NT>
-void SplatRowsT(std::vector<float>& img, unsigned width, int yLo, int yHi, const PsfKernelCache& cache,
-                const SplatPlan& plan, double totalPhotons)
-{
-   const int os = std::max(1, cache.oversampling);
-   const int camRad = cache.halfWidthOversampled / os;
-   const int off = os - 1;
-   const int bw = cache.blockSumWidth;
-   const SplatSetupResult& st = plan.st;
-   const float* B = plan.B;
-   const int dyLo = std::max(-camRad, yLo - st.y0), dyHi = std::min(camRad, yHi - 1 - st.y0);
-   const int dxLo = std::max(-camRad, -st.x0), dxHi = std::min(camRad, static_cast<int>(width) - 1 - st.x0);
-   for (int dy = dyLo; dy <= dyHi; ++dy)
-   {
-      const int r0 = st.by + dy * os + off;
-      const int jLo = std::max(0, -r0), jHi = std::min(NT, bw - r0);
-      float* rowOut = img.data() + static_cast<size_t>(st.y0 + dy) * width;
-      for (int dx = dxLo; dx <= dxHi; ++dx)
-      {
-         const int c0 = st.bx + dx * os + off;
-         const int iLo = std::max(0, -c0), iHi = std::min(NT, bw - c0);
-         double sum;
-         if (iLo == 0 && iHi == NT)
-            sum = SplatPixelFull<NT>(B, bw, r0, c0, jLo, jHi, st.wx, st.wy);
-         else
-            sum = SplatPixel(B, bw, r0, c0, jLo, jHi, iLo, iHi, st.wx, st.wy);
-         rowOut[st.x0 + dx] += static_cast<float>(totalPhotons * sum);
-      }
-   }
-}
-
-} // namespace
-
 void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int rowLo, int rowHi,
                const PsfKernelCache& cache, const SplatPlan& plan, double totalPhotons)
 {
-   const int yLo = std::max(0, rowLo), yHi = std::min(static_cast<int>(height), rowHi);
-   switch (plan.st.nTaps)
-   {
-   case 1: SplatRowsT<1>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   case 2: SplatRowsT<2>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   default: SplatRowsT<4>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   }
+   // The per-pixel arithmetic lives in SplatKernel.inl (two copies: the
+   // baseline instruction set and AVX2, chosen here at run time; identical
+   // results, ctest sr_render).
+   SplatArgs a;
+   a.img = img.data();
+   a.width = width;
+   a.yLo = std::max(0, rowLo);
+   a.yHi = std::min(static_cast<int>(height), rowHi);
+   a.os = std::max(1, cache.oversampling);
+   a.camRad = cache.halfWidthOversampled / a.os;
+   a.bw = cache.blockSumWidth;
+   a.qw = a.bw % a.os == 0 ? a.bw / a.os : 0;
+   a.B = plan.B;
+   a.P = a.qw > 0 ? plan.P : nullptr;
+   a.x0 = plan.st.x0;
+   a.y0 = plan.st.y0;
+   a.bx = plan.st.bx;
+   a.by = plan.st.by;
+   a.nTaps = plan.st.nTaps;
+   a.wx = plan.st.wx;
+   a.wy = plan.st.wy;
+   a.photons = totalPhotons;
+   if (splat_avx2::Available())
+      splat_avx2::SplatRows(a);
+   else
+      splat_sse2::SplatRows(a);
 }
 
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,

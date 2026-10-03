@@ -17,6 +17,14 @@ if(EMSCRIPTEN)
   target_link_options(isc_world_tests PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
 endif()
 
+# Per-phase core timing (not a test): isc_core_bench [seed] [windowUm].
+add_executable(isc_core_bench core_bench.cpp)
+target_link_libraries(isc_core_bench PRIVATE insiliscope_core)
+target_include_directories(isc_core_bench PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+if(EMSCRIPTEN)
+  target_link_options(isc_core_bench PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
+endif()
+
 # Golden vectors (spec/golden): bit-identical to the frozen JS reference.
 find_program(ISC_NODE node NAMES node nodejs)
 if(EMSCRIPTEN AND NOT ISC_NODE)

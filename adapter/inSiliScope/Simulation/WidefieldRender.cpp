@@ -15,6 +15,7 @@
 #include "insiliscope/insiliscope.h"
 
 #include "Parallel.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -687,11 +688,16 @@ bool WidefieldScene::Update(CellFieldSource& src, const IlluminationPattern& pat
       WidefieldGridSpec column = g;
       column.zMinUm = kColumnMinUm;
       column.zMaxUm = kColumnMaxUm;
+      const auto tTiles = TimingClock::now();
       if (!tiles_->Planes(src, column, spec.worldVersion, dyes_, err))
          return false;
+      TimingLog("wf.scene.dye-tiles", TimingSince(tTiles));
    }
    rect_ = g;
-   return Finish(spec, pattern, psf, rectChanged, err);
+   const auto tFinish = TimingClock::now();
+   const bool ok = Finish(spec, pattern, psf, rectChanged, err);
+   TimingLog("wf.scene.finish", TimingSince(tFinish));
+   return ok;
 }
 
 bool WidefieldScene::UpdateFromGrid(const WidefieldDyeGrid& grid, const IlluminationPattern& pattern,
@@ -750,7 +756,9 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    {
       const unsigned oldX = nx_, oldY = ny_;
       const int oldR = R_;
+      const auto tFft = TimingClock::now();
       SetupFft(psf, spec.kernelCapUm, samePsf);
+      TimingLog("wf.scene.setup-fft", TimingSince(tFft));
       fftChanged = rectChanged || !samePsf || nx_ != oldX || ny_ != oldY || R_ != oldR ||
                    spec.psfVersion != kernelsVersion_;
       if (fftChanged)
@@ -785,7 +793,11 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    if (weightsChanged || moved || psfChanged)
       ++imagesVersion_;
    if (weightsChanged || focusChanged || moved || psfChanged)
+   {
+      const auto tRefocus = TimingClock::now();
       Refocus(psf);
+      TimingLog("wf.scene.refocus", TimingSince(tRefocus));
+   }
    return true;
 }
 

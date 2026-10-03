@@ -5,11 +5,14 @@
 #include "PsfGeneratorBridge.h"
 #include "SMLMNoise.h"
 #include "SMLMSimulation.h"
+#include "SplatKernel.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <random>
 #include <vector>
 
@@ -267,7 +270,70 @@ PsfKernelCache SyntheticKernel(int os, int halfPx, int nz, PsfInterpMode mode)
       c.planes.push_back(std::move(pl));
    }
    c.blockSumWidth = n + os - 1;
+   BuildPolyphaseSums(c);
    return c;
+}
+
+// The new splat with the given kernel copy (SplatKernel.h) for one emitter.
+void SplatWith(bool avx2, std::vector<float>& img, unsigned W, unsigned H, const PsfKernelCache& kc, int z,
+               double x, double y, double ph, PsfInterpMode mode)
+{
+   SplatPlan plan;
+   if (!PlanSplat(kc, z, x, y, ph, mode, plan))
+      return;
+   SplatArgs a;
+   a.img = img.data();
+   a.width = W;
+   a.yLo = 0;
+   a.yHi = static_cast<int>(H);
+   a.os = kc.oversampling;
+   a.camRad = kc.halfWidthOversampled / a.os;
+   a.bw = kc.blockSumWidth;
+   a.qw = a.bw / a.os;
+   a.B = plan.B;
+   a.P = plan.P;
+   a.x0 = plan.st.x0;
+   a.y0 = plan.st.y0;
+   a.bx = plan.st.bx;
+   a.by = plan.st.by;
+   a.nTaps = plan.st.nTaps;
+   a.wx = plan.st.wx;
+   a.wy = plan.st.wy;
+   a.photons = ph;
+   if (avx2)
+      splat_avx2::SplatRows(a);
+   else
+      splat_sse2::SplatRows(a);
+}
+
+// --bench: one emitter's Cubic splat, old code vs the new copies, on a
+// synthetic kernel of the cli's default geometry (os 6, 70 px) and the
+// viewer's (30 px), cycling through the planes.
+void Bench()
+{
+   for (int halfPx : {70, 30})
+   {
+      const PsfKernelCache kc = SyntheticKernel(6, halfPx, 7, PsfInterpMode::Cubic);
+      const unsigned W = 128, H = 128;
+      std::vector<float> img(static_cast<size_t>(W) * H, 0.0f);
+      std::mt19937_64 rng(11);
+      std::uniform_real_distribution<double> u(10.0, 118.0);
+      const int reps = halfPx > 40 ? 300 : 1500;
+      auto time = [&](const char* name, const std::function<void(int, double, double)>& fn) {
+         const auto t0 = std::chrono::steady_clock::now();
+         std::mt19937_64 r = rng;
+         for (int k = 0; k < reps; ++k)
+            fn(k % 7, u(r), u(r));
+         const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / reps;
+         std::printf("bench: %2d px half-width, %-18s %8.1f us per blink\n", halfPx, name, us);
+      };
+      time("previous splat", [&](int z, double x, double y) { ref::SplatPsfKernel(img, W, H, kc, z, x, y, 500.0, PsfInterpMode::Cubic); });
+      time("baseline copy", [&](int z, double x, double y) { SplatWith(false, img, W, H, kc, z, x, y, 500.0, PsfInterpMode::Cubic); });
+      if (splat_avx2::Available())
+         time("AVX2 copy", [&](int z, double x, double y) { SplatWith(true, img, W, H, kc, z, x, y, 500.0, PsfInterpMode::Cubic); });
+      else
+         std::printf("bench: %2d px half-width, AVX2 copy          (not available)\n", halfPx);
+   }
 }
 
 bool SameFloats(const std::vector<float>& a, const std::vector<float>& b)
@@ -277,14 +343,21 @@ bool SameFloats(const std::vector<float>& a, const std::vector<float>& b)
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+   if (argc > 1 && std::strcmp(argv[1], "--bench") == 0)
+   {
+      Bench();
+      return 0;
+   }
    const unsigned W = 48, H = 40;
    std::mt19937_64 rng(7);
    std::uniform_real_distribution<double> ux(-12.0, W + 12.0), uy(-12.0, H + 12.0), up(1.0, 2000.0);
    const PsfInterpMode modes[] = {PsfInterpMode::Nearest, PsfInterpMode::Linear, PsfInterpMode::Cubic,
                                   PsfInterpMode::Fft};
    const char* names[] = {"Nearest", "Linear", "Cubic", "Fft"};
+   const bool haveAvx2 = splat_avx2::Available();
+   std::printf("AVX2 splat copy: %s\n", haveAvx2 ? "available" : "not available on this CPU/build");
    for (int m = 0; m < 4; ++m)
    {
       // Oversampling 4 and 5 (odd/even kernel grids), emitters on and off
@@ -293,7 +366,7 @@ int main()
       for (int os : {4, 5})
       {
          const PsfKernelCache kc = SyntheticKernel(os, 8, 5, modes[m]);
-         std::vector<float> a(static_cast<size_t>(W) * H, 1.5f), b = a;
+         std::vector<float> a(static_cast<size_t>(W) * H, 1.5f), b = a, c = a, d = a;
          const int nEm = modes[m] == PsfInterpMode::Fft ? 40 : 400;
          for (int k = 0; k < nEm; ++k)
          {
@@ -304,11 +377,15 @@ int main()
             const double ph = up(rng);
             ref::SplatPsfKernel(a, W, H, kc, z, x, y, ph, modes[m]);
             SplatPsfKernel(b, W, H, kc, z, x, y, ph, modes[m]);
+            SplatWith(false, c, W, H, kc, z, x, y, ph, modes[m]);
+            if (haveAvx2)
+               SplatWith(true, d, W, H, kc, z, x, y, ph, modes[m]);
          }
-         same = same && SameFloats(a, b);
+         same = same && SameFloats(a, b) && SameFloats(a, c) && (!haveAvx2 || SameFloats(a, d));
       }
       char what[160];
-      std::snprintf(what, sizeof what, "%s splat = the previous code, bit for bit", names[m]);
+      std::snprintf(what, sizeof what, "%s splat = the previous code, bit for bit (baseline%s copy)", names[m],
+                    haveAvx2 ? " and AVX2" : "");
       Check(same, what);
    }
 

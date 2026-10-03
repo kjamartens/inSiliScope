@@ -4,6 +4,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Performance pass (2026-10-03), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`, `scope_parity`
+  SR 100 %): the diffraction-PSF splat reads a column-polyphase copy of the kernel block sums with vectorised row loops
+  and an AVX2 copy chosen at run time (`Simulation/SplatKernel.h`; ~2x per blink single-threaded, the 12-thread cli is
+  then limited by memory bandwidth at the 7000 nm kernel). Dev tooling: `ISC_TIMING=1` prints phase times of a cli/viewer
+  movie, `sr_render_check --bench`, `isc_core_bench` and `tools/bench_core.mjs` (per-phase core timing, native and WASM),
+  `tools/bench.py` gained 1000-frame SR, 200-frame WF and BrightField configs.
 - Licensing clarified: own source BSD-3-Clause; the distributed DLL is GPL-3.0 as a whole (it embeds PSFGenerator).
 - Renamed to inSiliScope everywhere.
 - Release automation: tests, DLL, webSMLM block, gallery and benchmarks built on a `v*` tag and published as GitHub

@@ -17,6 +17,7 @@
 #include "FftRadix2.h"
 #include "Parallel.h"
 #include "SMLMZernike.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -373,8 +374,11 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
 {
    outCache = PsfKernelCache();
    std::vector<std::vector<float>> planes;
+   const auto tPlanes = TimingClock::now();
    if (!ComputeZernikePsfPlanes(req, planes, outError))
       return false;
+   TimingLog("psf.zernike-planes", TimingSince(tPlanes));
+   const auto tSums = TimingClock::now();
    const StackGeometry g = GeometryFor(req);
    outCache.oversampling = g.oversampling;
    outCache.halfWidthOversampled = g.halfOv;
@@ -396,6 +400,8 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
             v = static_cast<float>(v / sum);
       outCache.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
    });
+   BuildPolyphaseSums(outCache);
+   TimingLog("psf.normalize+block-sums", TimingSince(tSums));
    outCache.valid = true;
    return true;
 }

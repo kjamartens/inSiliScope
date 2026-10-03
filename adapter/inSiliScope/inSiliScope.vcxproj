@@ -136,6 +136,10 @@
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
     <ClCompile Include="Simulation\SMLMZernike.cpp" />
     <ClCompile Include="Simulation\ZernikePsf.cpp" />
+    <ClCompile Include="Simulation\SplatSse2.cpp" />
+    <ClCompile Include="Simulation\SplatAvx2.cpp">
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <ClCompile Include="Simulation\GpuSimD3D11.cpp" />
     <ClCompile Include="Simulation\SMLMBackground.cpp" />
   </ItemGroup>
@@ -146,6 +150,9 @@
     <ClInclude Include="Simulation\CellFieldSource.h" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\Parallel.h" />
+    <ClInclude Include="Simulation\Timing.h" />
+    <ClInclude Include="Simulation\SplatKernel.h" />
+    <ClInclude Include="Simulation\SplatKernel.inl" />
     <ClInclude Include="Simulation\Illumination.h" />
     <ClInclude Include="Simulation\BrightfieldRender.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
