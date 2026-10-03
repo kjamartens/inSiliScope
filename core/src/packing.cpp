@@ -15,7 +15,10 @@ constexpr double PACK_ROT_TRIAL = 12 * jsm::PI / 180;
 
 double RadiusFromLUT(const float* lut, double thetaLocal)
 {
-   double t = std::fmod(thetaLocal, TWO_PI);
+   // fmod(x, 2 pi) is x itself (exactly) when |x| < 2 pi, the usual case:
+   // the call is skipped then (NaN takes the fmod path and stays NaN).
+   double t = thetaLocal;
+   if (!(t > -TWO_PI && t < TWO_PI)) t = std::fmod(thetaLocal, TWO_PI);
    if (t < 0) t += TWO_PI;
    const double f = (t / TWO_PI) * RADIUS_LUT_N;
    const int i0 = (int)f, i1 = (i0 + 1) % RADIUS_LUT_N;
@@ -43,24 +46,40 @@ void EnsureLUT(Cell& c)
    c.lutReady = true;
 }
 
-double BoundaryClearance(const Cell& c, double crot, const Cell& n, double nrot)
+// A cell's collision outline in the world frame at rotation `rot` (the 16
+// collisionLocal points turned and moved) with that rotation's cos/sin.
+// Within a Jacobi iteration every cell's pose is fixed, so it is computed
+// once per cell (and once per rotation trial) instead of once per neighbour
+// pair: the same expressions on the same operands as before.
+struct CellPose {
+   double cosR, sinR;
+   double w[OUTLINE_SAMPLE_N * 2];
+};
+
+void MakePose(const Cell& c, double rot, CellPose& o)
+{
+   o.cosR = jsm::cos(rot);
+   o.sinR = jsm::sin(rot);
+   for (int i = 0; i < OUTLINE_SAMPLE_N; i++) {
+      const double lx = c.collisionLocal[i * 2], ly = c.collisionLocal[i * 2 + 1];
+      o.w[i * 2] = c.x + lx * o.cosR - ly * o.sinR;
+      o.w[i * 2 + 1] = c.y + lx * o.sinR + ly * o.cosR;
+   }
+}
+
+// cp: c's pose at crot; np: n's pose at nrot (= n.packRot).
+double BoundaryClearance(const Cell& c, const CellPose& cp, double crot, const Cell& n, const CellPose& np, double nrot)
 {
    using namespace jsm;
    double minGap = std::numeric_limits<double>::infinity();
-   const double cCos = cos(crot), cSin = sin(crot);
-   const double nCos = cos(nrot), nSin = sin(nrot);
    for (int i = 0; i < OUTLINE_SAMPLE_N; i++) {
-      const double lx = c.collisionLocal[i * 2], ly = c.collisionLocal[i * 2 + 1];
-      const double wx = c.x + lx * cCos - ly * cSin, wy = c.y + lx * cSin + ly * cCos;
-      const double bdx = wx - n.x, bdy = wy - n.y;
+      const double bdx = cp.w[i * 2] - n.x, bdy = cp.w[i * 2 + 1] - n.y;
       const double bd = hypot(bdx, bdy);
       const double gap = bd - RadiusFromLUT(n.radiusLUT, atan2(bdy, bdx) - nrot);
       if (gap < minGap) minGap = gap;
    }
    for (int i = 0; i < OUTLINE_SAMPLE_N; i++) {
-      const double lx = n.collisionLocal[i * 2], ly = n.collisionLocal[i * 2 + 1];
-      const double wx = n.x + lx * nCos - ly * nSin, wy = n.y + lx * nSin + ly * nCos;
-      const double adx = wx - c.x, ady = wy - c.y;
+      const double adx = np.w[i * 2] - c.x, ady = np.w[i * 2 + 1] - c.y;
       const double ad = hypot(adx, ady);
       const double gap = ad - RadiusFromLUT(c.radiusLUT, atan2(ady, adx) - crot);
       if (gap < minGap) minGap = gap;
@@ -72,7 +91,8 @@ struct Overlap { double overlap, ux, uy; };
 
 // Overlap measured against the "min gap x combined radius" meaning:
 // minGapFrac < 1 allows (ra+rb)*(1-minGapFrac) of penetration.
-Overlap DirectionalOverlap(const Cell& c, double crot, const Cell& n, double minGapFrac)
+Overlap DirectionalOverlap(const Cell& c, const CellPose& cp, double crot, const Cell& n, const CellPose& np,
+                           double minGapFrac)
 {
    using namespace jsm;
    const double dx = n.x - c.x, dy = n.y - c.y;
@@ -82,15 +102,20 @@ Overlap DirectionalOverlap(const Cell& c, double crot, const Cell& n, double min
    const double ra = RadiusFromLUT(c.radiusLUT, thetaAB - crot);
    const double rb = RadiusFromLUT(n.radiusLUT, thetaAB + PI - n.packRot);
    const double allowedPenetration = (ra + rb) * (1 - minGapFrac);
-   const double clearance = BoundaryClearance(c, crot, n, n.packRot);
+   const double clearance = BoundaryClearance(c, cp, crot, n, np, n.packRot);
    return { -allowedPenetration - clearance, dx / d, dy / d };
 }
 
-double TotalDirOverlap(const Cell& c, const std::vector<const Cell*>& neighbors, double minGapFrac, double packRotTrial)
+// c at the trial rotation against its overlapping neighbours (indices into
+// map.cells / poses).
+double TotalDirOverlap(const Cell& c, const std::vector<Cell>& cells, const std::vector<CellPose>& poses,
+                       const std::vector<int32_t>& neighbors, double minGapFrac, double packRotTrial)
 {
+   CellPose cp;
+   MakePose(c, packRotTrial, cp);
    double total = 0;
-   for (const Cell* n : neighbors) {
-      const double ov = DirectionalOverlap(c, packRotTrial, *n, minGapFrac).overlap;
+   for (int32_t j : neighbors) {
+      const double ov = DirectionalOverlap(c, cp, packRotTrial, cells[j], poses[j], minGapFrac).overlap;
       if (ov > 0) total += ov;
    }
    return total;
@@ -119,6 +144,7 @@ CandidateMap BuildCandidateMap(uint32_t seed, int32_t cx0, int32_t cy0, int32_t 
    CandidateMap m;
    m.cx0 = cx0; m.cy0 = cy0; m.cx1 = cx1; m.cy1 = cy1;
    m.grid.assign((size_t)m.Width() * m.Height(), -1);
+   m.cells.reserve((size_t)m.Width() * m.Height());
    for (int32_t cx = cx0; cx <= cx1; cx++)
       for (int32_t cy = cy0; cy <= cy1; cy++) {
          Cell c = RawCandidate(seed, cx, cy, p);
@@ -155,8 +181,12 @@ void Relax(CandidateMap& map, const Params& p, int iters)
 
    struct Disp { double ax, ay, ar; };
    std::vector<Disp> disp(N);
-   std::vector<const Cell*> neighbors, overlapping;
+   std::vector<CellPose> poses(N);
+   std::vector<int32_t> neighbors, overlapping;
    for (int it = 0; it < iters; it++) {
+      // The poses of this iteration's snapshot.
+      for (size_t i = 0; i < N; i++)
+         if (map.alive[i]) MakePose(map.cells[i], map.cells[i].packRot, poses[i]);
       for (size_t i = 0; i < N; i++) {
          if (!map.alive[i]) continue;
          const Cell& c = map.cells[i];
@@ -166,16 +196,16 @@ void Relax(CandidateMap& map, const Params& p, int iters)
             const Cell& n = map.cells[j];
             const double dxp = n.x - c.x, dyp = n.y - c.y;
             const double maxD = c.rOuter + n.rOuter;
-            if (dxp * dxp + dyp * dyp <= maxD * maxD) neighbors.push_back(&n);
+            if (dxp * dxp + dyp * dyp <= maxD * maxD) neighbors.push_back(j);
          }
 
          double ax = 0, ay = 0, curOverlapSum = 0;
          overlapping.clear();
-         for (const Cell* n : neighbors) {
-            const Overlap o = DirectionalOverlap(c, c.packRot, *n, minGapFrac);
+         for (int32_t j : neighbors) {
+            const Overlap o = DirectionalOverlap(c, poses[i], c.packRot, map.cells[j], poses[j], minGapFrac);
             if (o.overlap > 0) {
                curOverlapSum += o.overlap;
-               overlapping.push_back(n);
+               overlapping.push_back(j);
                ax += -o.ux * o.overlap * 0.5;
                ay += -o.uy * o.overlap * 0.5;
             }
@@ -183,8 +213,8 @@ void Relax(CandidateMap& map, const Params& p, int iters)
 
          double rotDelta = 0;
          if (allowRot && !overlapping.empty()) {
-            const double plus = TotalDirOverlap(c, overlapping, minGapFrac, c.packRot + PACK_ROT_TRIAL);
-            const double minus = TotalDirOverlap(c, overlapping, minGapFrac, c.packRot - PACK_ROT_TRIAL);
+            const double plus = TotalDirOverlap(c, map.cells, poses, overlapping, minGapFrac, c.packRot + PACK_ROT_TRIAL);
+            const double minus = TotalDirOverlap(c, map.cells, poses, overlapping, minGapFrac, c.packRot - PACK_ROT_TRIAL);
             if (plus < curOverlapSum && plus <= minus) rotDelta = PACK_ROT_TRIAL;
             else if (minus < curOverlapSum) rotDelta = -PACK_ROT_TRIAL;
          }
@@ -204,6 +234,9 @@ int Prune(CandidateMap& map, const Params& p)
    const int NR = InteractionChunks(p);
    const double minGapFrac = p.packFrac;
    for (Cell& c : map.cells) EnsureLUT(c);
+   std::vector<CellPose> poses(map.cells.size());
+   for (size_t i = 0; i < map.cells.size(); i++)
+      if (map.alive[i]) MakePose(map.cells[i], map.cells[i].packRot, poses[i]);
    std::vector<uint8_t> toRemove(map.cells.size(), 0);
    for (size_t i = 0; i < map.cells.size(); i++) {
       if (!map.alive[i]) continue;
@@ -217,7 +250,7 @@ int Prune(CandidateMap& map, const Params& p)
             const double dxp = n.x - c.x, dyp = n.y - c.y;
             const double maxD = c.rOuter + n.rOuter;
             if (dxp * dxp + dyp * dyp > maxD * maxD) continue;
-            if (DirectionalOverlap(c, c.packRot, n, minGapFrac).overlap > 0)
+            if (DirectionalOverlap(c, poses[i], c.packRot, n, poses[j], minGapFrac).overlap > 0)
                toRemove[c.priority >= n.priority ? j : i] = 1;
          }
    }

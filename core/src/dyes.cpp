@@ -113,12 +113,18 @@ uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex)
 }
 
 namespace {
-// Log-normal factor with mean 1 and CV cv from two uniforms (Box-Muller).
-double LogNormalMean1(double cv, double u1, double u2)
+// Log-normal factor with mean 1 and CV cv from two uniforms (Box-Muller);
+// sigma and mu (LogNormalParams) are the CV's, computed once per schedule.
+struct LogNormalParams { double sigma, mu; };
+LogNormalParams LogNormalFor(double cv)
 {
-   const double s2 = jsm::log(1 + cv * cv), sigma = jsm::sqrt(s2), mu = -s2 / 2;
+   const double s2 = jsm::log(1 + cv * cv);
+   return { jsm::sqrt(s2), -s2 / 2 };
+}
+double LogNormalMean1(const LogNormalParams& ln, double u1, double u2)
+{
    const double z = jsm::sqrt(-2 * jsm::log(u1)) * jsm::cos(2 * jsm::PI * u2);
-   return jsm::exp(mu + sigma * z);
+   return jsm::exp(ln.mu + ln.sigma * z);
 }
 
 // Inverse-CDF Poisson count of mean m (<= 30) from one uniform, expM =
@@ -150,6 +156,7 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
    auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
    const double pBleach = std::min(1.0, std::max(0.01, kin.bleachProb));
    const double cv = std::max(0.0, kin.photonCV);
+   const LogNormalParams ln = LogNormalFor(cv);
    double t = -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec;
    for (int j = 0; j < DYE_MAX_BLINKS; j++) {
       const uint32_t base = DYE_CH::SCHED0 + (uint32_t)j * DYE_CH::SCHED_STRIDE;
@@ -158,7 +165,7 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
       if (cv > 0) {
          const double u1 = U(base + DYE_CH::BRIGHT1);
          const double u2 = U(base + DYE_CH::BRIGHT2);
-         b = LogNormalMean1(cv, u1, u2);
+         b = LogNormalMean1(ln, u1, u2);
       }
       out.push_back({ t, t + on, b });
       if (U(base + DYE_CH::BLEACH) < pBleach) break;
@@ -181,6 +188,7 @@ void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long 
    auto U = [&](uint32_t bin, uint32_t j, uint32_t ch) { return Unit(Pcg4d(key, bin, j, ch).a); };
    enum : uint32_t { COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5 };
    const double cv = std::max(0.0, kin.photonCV);
+   const LogNormalParams ln = LogNormalFor(cv);
    const double maxOn = PERSIST_ON_CAP * kin.onSec;
    const double m = rate * PERSIST_BIN_SEC;
    // PoissonFromUniform, with exp(-m) once per site and the second uniform
@@ -200,7 +208,7 @@ void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long 
          if (cv > 0) {
             const double u1 = U(bin, jj, BRIGHT1);
             const double u2 = U(bin, jj, BRIGHT2);
-            br = LogNormalMean1(cv, u1, u2);
+            br = LogNormalMean1(ln, u1, u2);
          }
          emit(bin, jj, tOn, on, br);
       }

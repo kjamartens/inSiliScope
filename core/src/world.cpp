@@ -345,12 +345,19 @@ void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& p
                          int block) const
 {
    std::vector<Dye> dyes;
+   // ~1625 lattice sites per block; the labelled fraction of them.
+   dyes.reserve((size_t)(1625 * std::min(1.0, std::max(0.0, p_.labelEfficiency) + std::max(0.0, p_.labelNonBleaching))) + 16);
    DyesInBlock(seed_, c.cx, c.cy, mtIndex, pts, fr, block, p_.labelEfficiency, p_.labelNonBleaching, dyes);
    blk.dyes.reserve(dyes.size());
    blk.zLo = INFINITY; blk.zHi = -INFINITY;
+   // LocalToWorld's cos/sin of packRot once per block, not per dye (its branch kept).
+   const double rot = c.packRot;
+   const bool rotated = !(rot == 0 || std::isnan(rot));
+   const double cr = rotated ? jsm::cos(rot) : 1, sr = rotated ? jsm::sin(rot) : 0;
    for (const Dye& d : dyes) {
       double wx, wy;
-      LocalToWorld(c, d.pos.x, d.pos.y, wx, wy);
+      if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
+      else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
       blk.dyes.push_back({ wx, wy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex, d.k, d.n, d.persistent });
       blk.zLo = std::min(blk.zLo, d.pos.z);
       blk.zHi = std::max(blk.zHi, d.pos.z);
@@ -365,6 +372,7 @@ bool World::Schedule(DyeBlock& b) const
    b.events.clear();
    b.persistent.clear();
    b.maxOn = 0;
+   b.events.reserve(b.dyes.size());
    std::vector<Blink> blinks;
    uint32_t h1 = 0;
    int32_t lastCx = 0, lastCy = 0, lastMt = -1;
@@ -538,16 +546,10 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
 long World::DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                             int nx, int ny, float* out)
 {
-   std::fill(out, out + (size_t)nx * ny, 0.0f);
-   std::vector<WorldDye> dyes;
-   SitesInWindow(x0, y0, x1, y1, zMin, zMax, dyes);
-   const double sx = nx / (x1 - x0), sy = ny / (y1 - y0);
-   for (const WorldDye& d : dyes) {
-      const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
-      const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
-      out[(size_t)iy * nx + ix] += 1;
-   }
-   return (long)dyes.size();
+   // The nz = 1, both-populations case of Density3dInWindow: the same dyes
+   // (SitesInWindow's filter), the same bins, integer counts in any order --
+   // without materialising the site list.
+   return Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, 1, 3u, out);
 }
 
 long World::Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,

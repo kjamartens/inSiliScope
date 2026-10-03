@@ -34,6 +34,8 @@ std::vector<Pt2> CellOutlineLocal(const Cell& c, int n);
 double NearestDistToOutline(const std::vector<Pt2>& pts, double x, double y);
 Pt2 NearestPointOnEllipse(double a, double b, double x, double y);
 double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0);
+// The same with cos(-nucRot), sin(-nucRot) passed in (computed once by a caller with many points).
+double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cosNeg, double sinNeg);
 double CytoHeightAt(const Cell& c, const Params& p, double dEdge, double dNuc);
 
 // The relaxed height grid: nodes (i, j) at local ((i-half)*g, (j-half)*g),
