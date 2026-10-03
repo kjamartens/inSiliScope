@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadWasmScope } from '../../tests/parity/wasm_scope.mjs';
-import { parseInputs, inputDefaults, paramsSource } from '../../tests/parity/load_prototype.mjs';
+import { schemaDefaults, paramsSource } from '../../tests/parity/load_prototype.mjs';
 import { createEngine } from './engine.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -26,7 +26,7 @@ const js = await createEngine({ html: read('web/prototype/index.html'), mt: read
 const viewerParams = new Function('vals',
   'const els = new Proxy({}, { get: (_, k) => ({ value: String(vals[k]), checked: !!vals[k] }) });\n' +
   paramsSource(viewer) + '\nreturn params();');
-const VIEWER_DEFAULTS = inputDefaults(parseInputs(viewer));
+const VIEWER_DEFAULTS = schemaDefaults(viewer);
 const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$|labelNonBleaching$)/; // = index.html
 const packParams = p => Object.fromEntries(Object.entries(p).filter(([k]) => !PACK_KEY_SKIP.test(k)));
 

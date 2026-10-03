@@ -30,6 +30,11 @@ Upcoming ideas:
   Speed (2026-10-02): [x] shared transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD,
   [x] quality levels re-tuned on measured accuracy (grid at lambda/4n), [x] cli/viewer keep world + scene across movies:
   256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
+- 2026-10-03: viewer UI (`web/index.html`, also `web/lab.html`): [x] panel built from one option schema (every option
+  one line, a unit and an (i) tip), [x] groups by sample / sample preparation / microscope / acquisition, collapsible,
+  [x] Default/Advanced and three styles (Compact, Cards, Light) in a ☰ menu, [x] min/max as two-knob sliders, [x] presets
+  (Fluorophore, Cell look, BF quality) with their options indented under them; `engine_check.mjs` reads the defaults
+  from the schema. Next: [ ] tune the new presets' values and the Default/Advanced split after use.
 - 2026-10-01: [x] C++ Gibson-Lanni+Zernike PSF (`Simulation/ZernikePsf.*`, = webSMLM's scalar chirp-Z model) in the
   adapter (no JVM for the default model), cli and viewer (their default PSF now); [x] photonCV 0.5 and WideField
   excitation 4e8 (t1/2 120 s) defaults; [x] the 2x2 overview (map, structures, widefield, SMLM) on the gallery and

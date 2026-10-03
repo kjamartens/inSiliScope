@@ -75,6 +75,25 @@ export function inputDefaults(inputs) {
   return d;
 }
 
+// The viewer (web/index.html) builds its panel from a schema (<script id="uiSchema">, data only): its defaults in
+// the inputDefaults() shape, {id: number | boolean | string}. Pairs give id+'Min'/id+'Max'; presets are UI-only.
+export function schemaDefaults(html) {
+  const open = '<script id="uiSchema">', s = html.indexOf(open);
+  if (s < 0) throw new Error('uiSchema script not found');
+  const src = html.slice(s + open.length, html.indexOf('</script>', s));
+  const { UI_GROUPS } = new Function(src + '\nreturn { UI_GROUPS };')();
+  const d = {};
+  const walk = e => {
+    if (e.kind === 'pair') { d[e.id + 'Min'] = +e.vMin; d[e.id + 'Max'] = +e.vMax; }
+    else if (e.kind === 'check') d[e.id] = !!e.value;
+    else if (e.kind === 'range' || e.kind === 'number') d[e.id] = +e.value;
+    else if (e.kind === 'select') d[e.id] = e.value;
+    for (const k of e.kids || []) walk(k);
+  };
+  for (const g of UI_GROUPS) g.items.forEach(walk);
+  return d;
+}
+
 // Script text that defines the generator and returns its exports + paramsFrom(values).
 export function prototypeScript(html, mtText) {
   return [
