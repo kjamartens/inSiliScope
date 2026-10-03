@@ -279,9 +279,9 @@ void KernelWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
 {
    const int D = 2 * R + 1, n = c_.sizeOversampled;
    out.assign(static_cast<size_t>(D) * D, 0.0f);
-   if (p < 0 || p >= static_cast<int>(c_.planes.size()))
+   if (p < 0 || p >= static_cast<int>(c_.Planes().size()))
       return;
-   const std::vector<float>& P = c_.planes[static_cast<size_t>(p)];
+   const std::vector<float>& P = c_.Planes()[static_cast<size_t>(p)];
    for (int dy = -R; dy <= R; ++dy)
    {
       const int ya = s0_ + dy * r_, yb = std::min(n, ya + r_);

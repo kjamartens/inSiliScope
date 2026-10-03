@@ -186,9 +186,9 @@ int main(int argc, char** argv)
       if (ok)
       {
          double s = 0.0, b = 0.0;
-         for (float v : cache.planes[1])
+         for (float v : cache.Planes()[1])
             s += v;
-         for (float v : cache.blockSums[1])
+         for (float v : cache.BlockSums()[1])
             b += v;
          Check(std::fabs(s - 1.0) < 1e-5 && std::fabs(b - 16.0) < 1e-3, "kernel cache planes sum to 1, block sums to os^2");
       }

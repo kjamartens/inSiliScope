@@ -159,7 +159,7 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return;
-   if (zIndex < 0 || zIndex >= cache.nz || cache.blockSums.size() != static_cast<size_t>(cache.nz))
+   if (zIndex < 0 || zIndex >= cache.nz || cache.BlockSums().size() != static_cast<size_t>(cache.nz))
       return;
 
    const int os = std::max(1, cache.oversampling);
@@ -170,7 +170,7 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
 
    SplatSetupResult st;
    std::vector<float> shiftedSums; // Fft mode only
-   const float* B = cache.blockSums[static_cast<size_t>(zIndex)].data();
+   const float* B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
@@ -180,7 +180,7 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
       const double tx = kc + (st.x0 - xPx - 0.5) * os + 0.5, ty = kc + (st.y0 - yPx - 0.5) * os + 0.5;
       const double rx = RoundHalfUp(tx), ry = RoundHalfUp(ty);
       std::vector<float> shifted =
-         FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry);
+         FftShiftKernelTile(cache.Planes()[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry);
       shiftedSums = sim::BuildBlockSums(shifted.data(), n, os);
       B = shiftedSums.data();
       st.bx = static_cast<int>(rx);
@@ -249,6 +249,7 @@ PsfKernelCache SyntheticKernel(int os, int halfPx, int nz, PsfInterpMode mode)
    c.interpMode = mode;
    const int n = c.sizeOversampled;
    const double kc = (n - 1) / 2.0;
+   PsfKernelPlanes d;
    for (int z = 0; z < nz; ++z)
    {
       const double dz = (z - (nz - 1) / 2.0) * 0.1;
@@ -266,11 +267,12 @@ PsfKernelCache SyntheticKernel(int os, int halfPx, int nz, PsfInterpMode mode)
          }
       for (float& v : pl)
          v = static_cast<float>(v / s);
-      c.blockSums.push_back(BuildBlockSums(pl.data(), n, os));
-      c.planes.push_back(std::move(pl));
+      d.blockSums.push_back(BuildBlockSums(pl.data(), n, os));
+      d.planes.push_back(std::move(pl));
    }
    c.blockSumWidth = n + os - 1;
-   BuildPolyphaseSums(c);
+   BuildPolyphaseSums(d, c.blockSumWidth, os);
+   c.SetData(std::move(d));
    return c;
 }
 

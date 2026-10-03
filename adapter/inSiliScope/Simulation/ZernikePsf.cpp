@@ -386,11 +386,12 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
    outCache.nz = g.nz;
    outCache.zStepNm = req.zStepNm;
    outCache.interpMode = req.interpMode;
-   outCache.planes = std::move(planes);
-   outCache.blockSums.assign(static_cast<size_t>(g.nz), std::vector<float>());
+   PsfKernelPlanes d;
+   d.planes = std::move(planes);
+   d.blockSums.assign(static_cast<size_t>(g.nz), std::vector<float>());
    outCache.blockSumWidth = g.size + g.oversampling - 1;
    ParallelFor(static_cast<unsigned>(g.nz), [&](unsigned z) {
-      std::vector<float>& plane = outCache.planes[z];
+      std::vector<float>& plane = d.planes[z];
       // Photon-normalize (sum 1), as the JVM path does.
       double sum = 0.0;
       for (float v : plane)
@@ -398,9 +399,10 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
       if (sum > 0.0)
          for (float& v : plane)
             v = static_cast<float>(v / sum);
-      outCache.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
+      d.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
    });
-   BuildPolyphaseSums(outCache);
+   BuildPolyphaseSums(d, outCache.blockSumWidth, g.oversampling);
+   outCache.SetData(std::move(d));
    TimingLog("psf.normalize+block-sums", TimingSince(tSums));
    outCache.valid = true;
    return true;

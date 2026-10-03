@@ -27,6 +27,7 @@
 
 #include "Fft2d.h"
 #include "Illumination.h"
+#include "PsfGeneratorBridge.h"
 
 #include <cstdint>
 #include <map>
@@ -40,7 +41,6 @@
 namespace sim {
 
 class CellFieldSource;
-struct PsfKernelCache;
 
 struct WidefieldPhotophysics
 {
@@ -217,7 +217,7 @@ public:
    void Kernel(int p, int R, std::vector<float>& out) const override;
 
 private:
-   const PsfKernelCache& c_;
+   PsfKernelCache c_; // a copy: the arrays are shared, so this keeps the stack alive
    int r_; // oversampled cells per grid cell
    int s0_; // first oversampled index of grid cell 0
 };
