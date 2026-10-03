@@ -33,7 +33,8 @@ Upcoming ideas:
 - 2026-10-03: viewer UI (`web/index.html`, also `web/lab.html`): [x] panel built from one option schema (every option
   one line, a unit and an (i) tip), [x] groups by sample / sample preparation / microscope / acquisition, collapsible,
   [x] Default/Advanced and three styles (Compact, Focus: one group open, Light), mouse-wheel sliders in a ☰ menu, [x] min/max as two-knob sliders, [x] presets
-  (Fluorophore, Cell look, BF quality) with their options indented under them; `engine_check.mjs` reads the defaults
+  (Fluorophore, Cell shape, Cell look, BF quality); [x] world default cytoplasm = "Rounded" (rim 0.2-0.5, mid 2-3.5,
+  slope caps 2/4; prototype + core + block, golden re-frozen) with their options indented under them; `engine_check.mjs` reads the defaults
   from the schema. Next: [ ] tune the new presets' values and the Default/Advanced split after use.
 - 2026-10-01: [x] C++ Gibson-Lanni+Zernike PSF (`Simulation/ZernikePsf.*`, = webSMLM's scalar chirp-Z model) in the
   adapter (no JVM for the default model), cli and viewer (their default PSF now); [x] photonCV 0.5 and WideField

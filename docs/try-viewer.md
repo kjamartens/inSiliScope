@@ -26,7 +26,7 @@ Notes:
   looks: Compact, Focus (one group open at a time, highlighted) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
-  starting points), **Cell look** (cytoplasm height profile) and **BF quality**. The options a preset drives are
+  starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
   "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The first movie with a new PSF computes its kernel first.
