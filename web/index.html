@@ -4,13 +4,12 @@
 <meta charset="utf-8">
 <title>Cell field viewer</title>
 <style>
-  /* UI styles: one DOM, themed by body[data-ui-style] (compact | cards | light). A new style is one block of tokens
-     below plus one entry in UI_STYLES (uiSchema script). The canvas area and its overlays stay dark in every style. */
-  :root{--side-w:360px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#0c0f14;--panel:#11161d;--border:#232a35;--text:#dfe6ee;--muted:#8b97a8;--accent:#4a90d9;
+  /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
+     below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
+  :root{--side-w:380px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#0c0f14;--panel:#11161d;--border:#232a35;--text:#dfe6ee;--muted:#8b97a8;--accent:#4a90d9;
     --link:#8bb8e8;--in-bg:#1a212b;--in-border:#2c3644;--grp-bg:transparent;--grp-head:transparent;--tip-bg:#1d2530;
     --row-gap:4px;--fs:12px;--radius:6px;--guide:#2f3a4a}
-  body[data-ui-style=cards]{--side-w:430px;--lab-w:136px;--lab-w-base:136px;--val-w:74px;--panel:#0f141b;--border:#26303d;--grp-bg:#161d27;--grp-head:#1b2430;
-    --accent:#5aa9e6;--row-gap:7px;--fs:13px;--radius:10px;--guide:#3a4a60}
+  body[data-ui-style=focus]{--panel:#0f141b;--border:#26303d;--grp-bg:#161d27;--grp-head:#1b2430;--accent:#5aa9e6;--guide:#3a4a60}
   body[data-ui-style=light]{--panel:#f5f6f8;--border:#d9dde3;--text:#1f2329;--muted:#5d6672;--accent:#4051b5;
     --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
@@ -47,9 +46,11 @@
   details.grp[open]>summary::before{transform:rotate(90deg)}
   details.grp[open]>summary{border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
   details.grp .body{padding:4px 8px 6px}
-  body[data-ui-style=cards] details.grp{box-shadow:0 1px 3px rgba(0,0,0,.25)}
-  body[data-ui-style=cards] details.grp>summary{padding:8px 10px;border-left:3px solid var(--accent)}
-  body[data-ui-style=cards] details.grp .body{padding:6px 10px 8px}
+  /* focus: the one open group carries the accent: its title in the accent colour, its box a faint tint of it */
+  body[data-ui-style=focus] details.grp[open]{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
+  body[data-ui-style=focus] details.grp[open]>summary{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-bottom-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
+  body[data-ui-style=focus] details.grp[open]>summary::before{color:var(--accent)}
+  body[data-ui-style=focus] #menu [data-act=expand]{display:none}
   /* one option = one line: label (i) | control | value + unit */
   .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
   .opt .lab{display:flex;align-items:center;gap:4px;min-width:0}
@@ -59,14 +60,13 @@
   .opt .ctl select{max-width:150px}
   .opt .val{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
   .opt .val b{color:var(--text);font-weight:500}
-  body[data-ui-style=cards] .opt .val b{background:var(--in-bg);border:1px solid var(--in-border);border-radius:9px;padding:0 6px}
   .opt.wide{grid-template-columns:1fr}
   .opt.wide button{width:100%}
   .opt.check{grid-template-columns:minmax(0,1fr) auto}
   .opt.select,.opt.preset{grid-template-columns:var(--lab-w) minmax(0,1fr)}
   .opt.select select,.opt.preset select{width:100%;max-width:none}
   .opt .val .u{font-size:.9em}
-  .opt.pair .ctl input[type=number]{width:38px;flex:none;padding:2px 3px}
+  .opt.pair .ctl input[type=number]{width:52px;flex:none;padding:2px 3px}
   .opt.pair .ctl .dual{flex:1;min-width:30px;width:auto}
   .opt.pair .ctl{grid-column:2 / 4}
   .opt.pair .ctl .u{flex:none;width:calc(var(--val-w) - 26px);padding-left:2px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -342,7 +342,7 @@ const UI_GROUPS = [
 ];
 
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
-const UI_STYLES = { compact: 'Compact (dark)', cards: 'Cards', light: 'Light' };
+const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
 return { UI_GROUPS, UI_STYLES };
 })();
 </script>
@@ -445,15 +445,25 @@ function renderEntry(e, host, g, parent) {
 }
 
 const panel = $('panel');
+const oneOpen = () => !!(UI_STYLES[document.body.dataset.uiStyle] || {}).oneOpen;
+// Open groups: one remembered group in a oneOpen style, each group's own remembered state otherwise.
+function applyOpen() {
+  if (oneOpen()) {
+    const want = store.get('focusOpen', (groups.find(G => G.det.open) || groups[0]).g.id);
+    for (const G of groups) G.det.open = G.g.id === want;
+  } else for (const G of groups) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
+}
 let curSect = null;
 for (const g of UI_GROUPS) {
   if (g.sect !== undefined) { curSect = { el: h('div', { class: 'sect' }, g.sect), groups: [] }; panel.append(curSect.el); }
   const det = h('details', { class: 'grp', 'data-group': g.id });
-  det.open = store.get('open.' + g.id, g.open ? '1' : '0') === '1';
   det.append(h('summary', {}, g.title));
   const body = h('div', { class: 'body' });
   det.append(body);
-  det.addEventListener('toggle', () => store.set('open.' + g.id, det.open ? '1' : '0'));
+  det.addEventListener('toggle', () => {
+    if (!oneOpen()) store.set('open.' + g.id, det.open ? '1' : '0');
+    else if (det.open) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det) o.det.open = false; }
+  });
   panel.append(det);
   const G = { g, det, sect: curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
   groups.push(G); curSect.groups.push(G);
@@ -525,11 +535,11 @@ const menu = $('menu'), menuBtn = $('menuBtn');
 menu.innerHTML = '<h4>Options</h4>' +
   '<label><input type="radio" name="uiLevel" value="default"> Default</label>' +
   '<label><input type="radio" name="uiLevel" value="advanced"> Advanced</label>' +
-  '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k]}</label>`).join('') +
+  '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="note" id="advNote"></div>';
 function setLevel(v) { document.body.dataset.level = v; store.set('level', v); menu.querySelector(`[name=uiLevel][value=${v}]`).checked = true; sync(); }
-function setStyle(v) { if (!UI_STYLES[v]) v = 'compact'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; window.dispatchEvent(new Event('resize')); }
+function setStyle(v) { if (!UI_STYLES[v]) v = 'compact'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
 menu.addEventListener('change', ev => {
   if (ev.target.name === 'uiLevel') setLevel(ev.target.value);
   if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
@@ -542,6 +552,26 @@ const openMenu = open => { menu.classList.toggle('open', open); menuBtn.setAttri
 menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openMenu(!menu.classList.contains('open')); });
 document.addEventListener('click', ev => { if (!menu.contains(ev.target)) openMenu(false); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape') openMenu(false); });
+
+// ---- mouse wheel on any slider: one step per notch (up = more). Over a two-knob slider it moves the knob
+// nearest the pointer (equal knobs: the max one up, the min one down). ----
+document.addEventListener('wheel', ev => {
+  let el = ev.target;
+  if (!(el instanceof Element)) return;
+  const dir = ev.deltaY < 0 || (ev.deltaY === 0 && ev.deltaX > 0) ? 1 : -1;
+  const dual = el.closest('.dual');
+  if (dual) {
+    const [lo, hi] = dual.querySelectorAll('input');
+    const r = dual.getBoundingClientRect(), f = (ev.clientX - r.left) / r.width;
+    const pos = i => (+i.value - +i.min) / (+i.max - +i.min);
+    el = lo.value === hi.value ? (dir > 0 ? hi : lo) : Math.abs(f - pos(lo)) <= Math.abs(f - pos(hi)) ? lo : hi;
+  }
+  if (el.tagName !== 'INPUT' || el.type !== 'range' || el.disabled) return;
+  ev.preventDefault();
+  const before = el.value, step = +el.step || 1;
+  el.value = +(+el.value + dir * step).toPrecision(12);   // the input clamps and snaps to its step
+  if (el.value !== before) el.dispatchEvent(new Event('input', { bubbles: true }));
+}, { passive: false });
 
 // ---- (i) tooltips: one floating box, on hover and keyboard focus ----
 const tip = h('div', { id: 'tip', role: 'tooltip' });

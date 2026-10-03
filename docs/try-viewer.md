@@ -23,7 +23,8 @@ Notes:
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
   has a unit and an (i) that explains it (hover or Tab to it).
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
-  looks (Compact, Cards, Light). The choices are remembered in your browser.
+  looks: Compact, Focus (one group open at a time, highlighted) and Light. The choices are remembered in your browser.
+  Sliders also follow the mouse wheel, one step per notch.
 - Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
   starting points), **Cell look** (cytoplasm height profile) and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
