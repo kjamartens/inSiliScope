@@ -1,0 +1,21 @@
+name: Feature request
+description: A new structure, imaging option, target feature or other improvement
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where
+      options: [Viewer, Micro-Manager adapter, CLI, webSMLM block, Docs, Build/CI]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like, and what for?
+      description: The problem or use case first, then the feature you have in mind.
+    validations: { required: true }
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: What you do today, or other ways this could work (reference papers or other simulators are welcome).
