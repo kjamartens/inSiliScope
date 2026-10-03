@@ -15,6 +15,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - **BrightField** modality (exploration): transmitted light through the cells' refractive index (only simulated
   structures), partially coherent multislice wave optics, `General_BrightFieldQuality` 1-4; core ABI 6
   (`isc_optical_volume_in_window`). SuperRes/WideField output unchanged.
+- Cytoplasm default is the "Rounded" look: rim height 0.2-0.5 um (was 0.1-0.3), mid height 2-3.5 um (was 1-2), slope
+  caps `cytoMaxSlope` 2 / `cytoDomeSlope` 4 (were 1 / 3). **seed**: default cells are taller and rounder, so packing,
+  microtubules, dyes and every CellField image change for every seed.
+- Viewer UI: options built from one schema (one line each, units, (i) tips), grouped by sample / sample preparation /
+  microscope / acquisition, collapsible; Default/Advanced and three styles (Compact, Focus, Light) in a menu; two-knob
+  min/max sliders; mouse wheel on sliders; presets (Fluorophore, Cell shape, Cell look, BF quality).
 
 ### Earlier history (summary of the dated notes in `CLAUDE.md`)
 

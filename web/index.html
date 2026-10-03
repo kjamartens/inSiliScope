@@ -4,25 +4,96 @@
 <meta charset="utf-8">
 <title>Cell field viewer</title>
 <style>
-  html,body{margin:0;padding:0;background:#0c0f14;color:#dfe6ee;font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
-  #wrap{display:grid;grid-template-columns:300px 1fr;height:100vh}
-  #side{padding:12px;overflow-y:auto;background:#11161d;border-right:1px solid #232a35;box-sizing:border-box}
-  #side h1{font-size:15px;margin:0 0 4px}
-  #side a.back{display:block;font-size:11px;color:#8bb8e8;text-decoration:none;margin:0 0 8px}
+  /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
+     below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
+  :root{--side-w:380px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#0c0f14;--panel:#11161d;--border:#232a35;--text:#dfe6ee;--muted:#8b97a8;--accent:#4a90d9;
+    --link:#8bb8e8;--in-bg:#1a212b;--in-border:#2c3644;--grp-bg:transparent;--grp-head:transparent;--tip-bg:#1d2530;
+    --row-gap:4px;--fs:12px;--radius:6px;--guide:#2f3a4a}
+  body[data-ui-style=focus]{--panel:#0f141b;--border:#26303d;--grp-bg:#161d27;--grp-head:#1b2430;--accent:#5aa9e6;--guide:#3a4a60}
+  body[data-ui-style=light]{--panel:#f5f6f8;--border:#d9dde3;--text:#1f2329;--muted:#5d6672;--accent:#4051b5;
+    --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
+  #wrap{display:grid;grid-template-columns:var(--side-w) 1fr;height:100vh}
+  #side{display:flex;flex-direction:column;min-height:0;background:var(--panel);border-right:1px solid var(--border);box-sizing:border-box;font-size:var(--fs)}
+  #sideTop{position:relative;padding:10px 12px 6px;border-bottom:1px solid var(--border)}
+  #sideTop .bar{display:flex;align-items:center;gap:8px}
+  #sideTop h1{font-size:15px;margin:0;flex:1}
+  #side a.back{display:block;font-size:11px;color:var(--link);text-decoration:none;margin:0 0 6px}
   #side a.back:hover{text-decoration:underline}
-  #side p.sub{font-size:11px;color:#8b97a8;margin:0 0 14px;line-height:1.4}
-  label.row{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
-  input[type=number],input[type=text]{width:70px;background:#1a212b;border:1px solid #2c3644;color:#dfe6ee;border-radius:4px;padding:3px 5px;font-size:12px;font-family:inherit}
-  input[type=range]{width:110px}
-  button{background:#1a212b;border:1px solid #2c3644;color:#dfe6ee;border-radius:4px;padding:5px 8px;font-size:12px;cursor:pointer;font-family:inherit}
-  button:hover{border-color:#4a90d9}
-  fieldset{border:1px solid #232a35;border-radius:6px;margin:10px 0;padding:8px}
-  legend{font-size:11px;color:#8b97a8;padding:0 4px}
-  .pair{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:7px 0;font-size:12px}
-  .pair span.k{flex:1}
-  .pair input{width:56px}
-  .pair select{max-width:170px}
-  #canvasHost{position:relative}
+  #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
+  #side p.sub{font-size:11px;color:var(--muted);margin:6px 0;line-height:1.4}
+  #side p.sub a{color:var(--link)}
+  input[type=number],input[type=text],select{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:var(--fs);font-family:inherit;box-sizing:border-box}
+  input[type=number]{width:64px}
+  input[type=range],input[type=checkbox]{accent-color:var(--accent)}
+  button{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:var(--fs);cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--accent)}
+  /* hamburger menu */
+  #menuBtn{font-size:16px;line-height:1;padding:3px 8px}
+  #menu{display:none;position:absolute;right:12px;top:100%;z-index:20;margin-top:4px;min-width:210px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #menu.open{display:block}
+  #menu h4{margin:6px 0 4px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  #menu label{display:block;margin:3px 0;cursor:pointer}
+  #menu .btns{display:flex;gap:6px;margin-top:8px}
+  #menu .btns button{flex:1;padding:3px 6px}
+  #menu .note{font-size:11px;color:var(--muted);margin-top:6px}
+  /* groups and sections */
+  .sect{margin:12px 0 2px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  details.grp{border:1px solid var(--border);border-radius:var(--radius);margin:6px 0;background:var(--grp-bg)}
+  details.grp>summary{cursor:pointer;padding:5px 8px;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px;background:var(--grp-head);border-radius:var(--radius)}
+  details.grp>summary::-webkit-details-marker{display:none}
+  details.grp>summary::before{content:'▸';color:var(--muted);font-size:10px;transition:transform .12s}
+  details.grp[open]>summary::before{transform:rotate(90deg)}
+  details.grp[open]>summary{border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
+  details.grp .body{padding:4px 8px 6px}
+  /* focus: the one open group carries the accent: its title in the accent colour, its box a faint tint of it */
+  body[data-ui-style=focus] details.grp[open]{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
+  body[data-ui-style=focus] details.grp[open]>summary{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-bottom-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
+  body[data-ui-style=focus] details.grp[open]>summary::before{color:var(--accent)}
+  body[data-ui-style=focus] #menu [data-act=expand]{display:none}
+  /* one option = one line: label (i) | control | value + unit */
+  .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
+  .opt .lab{display:flex;align-items:center;gap:4px;min-width:0}
+  .opt .lab label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .opt .ctl{display:flex;align-items:center;gap:4px;justify-content:flex-end}
+  .opt .ctl input[type=range]{width:100%;min-width:0}
+  .opt .ctl select{max-width:150px}
+  .opt .val{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+  .opt .val b{color:var(--text);font-weight:500}
+  .opt.wide{grid-template-columns:1fr}
+  .opt.wide button{width:100%}
+  .opt.check{grid-template-columns:minmax(0,1fr) auto}
+  .opt.select,.opt.preset{grid-template-columns:var(--lab-w) minmax(0,1fr)}
+  .opt.select select,.opt.preset select{width:100%;max-width:none}
+  .opt .val .u{font-size:.9em}
+  .opt.pair .ctl input[type=number]{width:52px;flex:none;padding:2px 3px}
+  .opt.pair .ctl .dual{flex:1;min-width:30px;width:auto}
+  .opt.pair .ctl{grid-column:2 / 4}
+  .opt.pair .ctl .u{flex:none;width:calc(var(--val-w) - 26px);padding-left:2px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .opt.pair .val{display:none}
+  .info{display:inline-flex;align-items:center;justify-content:center;flex:none;width:13px;height:13px;border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:9px;font-style:italic;font-family:Georgia,serif;cursor:help;user-select:none}
+  .info:hover,.info:focus{color:var(--accent);border-color:var(--accent);outline:none}
+  #tip{position:fixed;z-index:50;display:none;max-width:280px;background:var(--tip-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:11.5px;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none}
+  #tip code{font-size:10.5px;color:var(--muted)}
+  /* preset children: indented under their preset with a guide line */
+  .kids{margin-left:5px;padding-left:9px;border-left:2px solid var(--guide)}
+  .kids .opt{--lab-w:calc(var(--lab-w-base) - 16px)}
+  body[data-level=default] .adv{display:none!important}
+  /* two-knob range slider (two overlaid range inputs) */
+  .dual{position:relative;width:96px;height:18px}
+  .dual .track,.dual .fill{position:absolute;top:8px;height:3px;border-radius:2px}
+  .dual .track{left:0;right:0;background:var(--in-border)}
+  .dual .fill{background:var(--accent)}
+  .dual input{position:absolute;left:0;top:0;width:100%!important;height:18px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+  .dual input::-webkit-slider-runnable-track{background:none;height:18px}
+  .dual input::-moz-range-track{background:none}
+  .dual input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
+  .dual input::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
+  @media (max-width:700px){
+    #wrap{grid-template-columns:1fr;grid-template-rows:45vh 1fr}
+    #side{border-right:none;border-bottom:1px solid var(--border)}
+  }
+  #canvasHost{position:relative;min-height:0}
   canvas{display:block;cursor:grab}
   canvas.dragging{cursor:grabbing}
   /* Three stacked layers, all the same pixel size: #cvBase (grid + microtubules, 2D), #cvGl (cell bodies, WebGL2),
@@ -30,11 +101,12 @@
   #cvBase{position:absolute;top:0;left:0;background:#05070a;pointer-events:none;z-index:0}
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
-  #hud,#legend,#movie{z-index:3}
+  #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
   #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie a{color:#8bb8e8}
+  #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
   #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:#000}
   #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:8px 10px;line-height:1.5;pointer-events:none;white-space:pre}
   #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
@@ -44,129 +116,16 @@
 <body>
 <div id="wrap">
   <div id="side">
-    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
-    <h1>Cell field viewer</h1>
-    <p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in
-    Web Workers). Every cell, microtubule and dye is a pure function of
-    (seed, address): pan anywhere and come back to the same structure. Cells are
-    packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager
-    adapter images. The JS prototype this was ported from is in
-    <a href="prototype/index.html" style="color:#8bb8e8">prototype/</a>.</p>
-
-    <fieldset>
-      <legend>3D view</legend>
-      <label class="row">Tilt (deg) <input type="range" id="tiltDeg" min="0" max="75" step="1" value="0"><span id="tiltDegVal"></span></label>
-      <label class="row">Show cytoplasm <input type="checkbox" id="showCyto" checked></label>
-      <label class="row">Show nucleus <input type="checkbox" id="showNucleus" checked></label>
-      <label class="row">Show microtubules <input type="checkbox" id="showMt" checked></label>
-      <label class="row">Show chunk grid <input type="checkbox" id="showGrid"></label>
-      <label class="row"><button id="resetView" style="width:100%">Reset view to origin</button></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>seed / world</legend>
-      <label class="row">Seed <input type="number" id="seed" value="1249" step="1"></label>
-      <label class="row"><button id="reseed" style="width:100%">Randomize seed</button></label>
-      <label class="row">Chunk size (µm) <input type="number" id="chunkSize" value="26" min="4" max="200" step="1"></label>
-      <label class="row">Cell jitter <input type="range" id="jitter" min="0.1" max="1" step="0.02" value="0.8"><span id="jitterVal"></span></label>
-      <label class="row">Density (occupancy) <input type="range" id="density" min="0.05" max="1" step="0.01" value="0.33"><span id="densityVal"></span></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>cell shape (µm, footprint)</legend>
-      <div class="pair"><span class="k">Diameter min/max</span><input type="number" id="cellDiamMin" value="25" step="0.5"><input type="number" id="cellDiamMax" value="35" step="0.5"></div>
-      <div class="pair"><span class="k">Elongation (short/long) min/max</span><input type="number" id="cellElongMin" value="0.5" step="0.05"><input type="number" id="cellElongMax" value="1" step="0.05"></div>
-      <label class="row">Outline blobbiness <input type="range" id="cellBlob" min="0" max="4" step="0.05" value="1.75"><span id="cellBlobVal"></span></label>
-      <label class="row" title="Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.">Edge roughness <input type="range" id="cellRough" min="0" max="1" step="0.01" value="0.15"><span id="cellRoughVal"></span></label>
-      <label class="row" title="Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.">Edge fractal dimension <input type="range" id="cellFractalDim" min="1" max="2" step="0.01" value="1.35"><span id="cellFractalDimVal"></span></label>
-      <div class="pair"><span class="k">Height min/max</span><input type="number" id="cellHeightMin" value="3" step="0.5"><input type="number" id="cellHeightMax" value="6" step="0.5"></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>nucleus (3D ellipsoid, µm)</legend>
-      <div class="pair"><span class="k">Long axis min/max</span><input type="number" id="nucLongMin" value="8" step="0.5"><input type="number" id="nucLongMax" value="12" step="0.5"></div>
-      <div class="pair"><span class="k">Short/long ratio min/max</span><input type="number" id="nucRatioMin" value="0.6" step="0.05"><input type="number" id="nucRatioMax" value="1" step="0.05"></div>
-      <div class="pair"><span class="k">Height (× long axis) min/max</span><input type="number" id="nucHeightMin" value="0.3" step="0.05"><input type="number" id="nucHeightMax" value="0.5" step="0.05"></div>
-      <label class="row">Offset from cell centre <input type="range" id="nucOffsetFrac" min="0" max="1" step="0.02" value="0.1"><span id="nucOffsetFracVal"></span></label>
-      <label class="row">Cell margin around nucleus (µm) <input type="range" id="nucMargin" min="0.1" max="1.5" step="0.1" value="0.6"><span id="nucMarginVal"></span></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>cytoplasm height (µm, per-cell min/max)</legend>
-      <div class="pair"><span class="k">Rim height min/max</span><input type="number" id="cytoRimHeightMin" value="0.1" step="0.1"><input type="number" id="cytoRimHeightMax" value="0.3" step="0.1"></div>
-      <div class="pair"><span class="k">Edge rise distance min/max</span><input type="number" id="cytoEdgeRiseMin" value="0.1" step="0.05"><input type="number" id="cytoEdgeRiseMax" value="0.5" step="0.05"></div>
-      <div class="pair"><span class="k">Mid height min/max</span><input type="number" id="cytoMidHeightMin" value="1" step="0.05"><input type="number" id="cytoMidHeightMax" value="2" step="0.05"></div>
-      <div class="pair"><span class="k">Dist. from nucleus for mid height min/max (× cell radius)</span><input type="number" id="cytoMidDistanceMin" value="0.1" step="0.05"><input type="number" id="cytoMidDistanceMax" value="0.3" step="0.05"></div>
-      <label class="row">Contour interval <input type="range" id="cytoContourStep" min="0.1" max="1" step="0.05" value="0.25"><span id="cytoContourStepVal"></span></label>
-      <label class="row" title="Max rise of the cytoplasm surface per µm outside the dome (saturating from the edge). 0 = off. Cells grow to make room.">Cytoplasm slope cap <input type="range" id="cytoMaxSlope" min="0" max="2" step="0.05" value="1"><span id="cytoMaxSlopeVal"></span></label>
-      <label class="row" title="Max slope of the dome flank over the nucleus. 0 = off (flank spans only the nucleus margin). Lower = rounder dome but bigger cells.">Nucleus dome slope cap <input type="range" id="cytoDomeSlope" min="0" max="4" step="0.1" value="3"><span id="cytoDomeSlopeVal"></span></label>
-      <label class="row" title="Relaxation length: the height solves h - l^2 lap(h) = raw profile (a membrane pulled toward it), which removes the profile's folds. 0 = raw profile.">Relax length (µm) <input type="range" id="cytoRelaxUm" min="0" max="3" step="0.1" value="1"><span id="cytoRelaxUmVal"></span></label>
-      <label class="row">Mesh rings <input type="range" id="cytoRings" min="4" max="60" step="1" value="60"><span id="cytoRingsVal"></span></label>
-      <label class="row">Mesh angular samples <input type="range" id="cytoTheta" min="32" max="512" step="4" value="256"><span id="cytoThetaVal"></span></label>
-      <label class="row">Show contour lines <input type="checkbox" id="showCytoContours"></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>packing — cells move, rotate, or get removed if still stuck</legend>
-      <label class="row">Enable packing <input type="checkbox" id="enablePacking" checked></label>
-      <label class="row">Allow rotation <input type="checkbox" id="allowPackRotation" checked></label>
-      <label class="row">Min gap (× combined radius) <input type="range" id="packFrac" min="0.6" max="1.1" step="0.02" value="1.00"><span id="packFracVal"></span></label>
-      <label class="row">Relaxation iterations <input type="range" id="relaxIters" min="4" max="150" step="1" value="80"><span id="relaxItersVal"></span></label>
-      <label class="row">Relaxation step <input type="range" id="relaxDamping" min="0.1" max="1" step="0.05" value="0.55"><span id="relaxDampingVal"></span></label>
-    </fieldset>
-
-    <fieldset>
-      <legend>microtubules (µm, per cell)</legend>
-      <label class="row">Density (per µm²) <input type="range" id="mtDensity" min="0" max="2" step="0.005" value="0.9"><span id="mtDensityVal"></span></label>
-      <div class="pair"><span class="k">Start offset from nucleus edge (× cell radius) min/max</span><input type="number" id="mtStartFracMin" value="0" min="0" max="1" step="0.01"><input type="number" id="mtStartFracMax" value="0.3" min="0" max="1" step="0.01"></div>
-      <label class="row">Start position XY jitter (µm) <input type="range" id="mtStartOffsetXY" min="0" max="2" step="0.05" value="0"><span id="mtStartOffsetXYVal"></span></label>
-      <div class="pair"><span class="k">End offset from cell edge (× cell radius) min/max</span><input type="number" id="mtEndFracMin" value="0.01" min="0" max="1" step="0.01"><input type="number" id="mtEndFracMax" value="0.4" min="0" max="1" step="0.01"></div>
-      <label class="row">End direction jitter (deg) <input type="range" id="mtEndJitterDeg" min="0" max="180" step="1" value="145"><span id="mtEndJitterDegVal"></span></label>
-      <label class="row">Wobble turn strength <input type="range" id="mtWobbleTurn" min="0" max="3" step="0.05" value="0.8"><span id="mtWobbleTurnVal"></span></label>
-      <label class="row">Wobble path length × <input type="range" id="mtWobbleFactor" min="0.9" max="1.3" step="0.01" value="1.05"><span id="mtWobbleFactorVal"></span></label>
-      <label class="row">Line thickness (µm) <input type="range" id="mtLineWidth" min="0.02" max="0.5" step="0.01" value="0.02"><span id="mtLineWidthVal"></span></label>
-      <label class="row">Step length (µm) <input type="range" id="mtStepLen" min="0.05" max="1" step="0.01" value="0.05"><span id="mtStepLenVal"></span></label>
-      <label class="row">Path smoothing (µm) <input type="range" id="mtSmoothLen" min="1" max="10" step="0.5" value="1.5"><span id="mtSmoothLenVal"></span></label>
-      <label class="row">Min turn radius (µm) <input type="range" id="mtMinTurnRadius" min="0" max="2" step="0.01" value="0.15"><span id="mtMinTurnRadiusVal"></span></label>
-      <label class="row">Min separation (µm) <input type="range" id="mtMinSeparation" min="0" max="0.5" step="0.01" value="0.05"><span id="mtMinSeparationVal"></span></label>
-      <label class="row">Max height slope (×xy) <input type="range" id="mtMaxZSlope" min="1" max="20" step="0.5" value="5"><span id="mtMaxZSlopeVal"></span></label>
-      <label class="row">Show dyes (zoom in) <input type="checkbox" id="showDyes"></label>
-      <label class="row" title="Fraction of lattice sites carrying a bleaching dye">Labelling, bleaching <input type="range" id="labelEfficiency" min="0" max="1" step="0.005" value="0.1"><span id="labelEfficiencyVal"></span></label>
-      <label class="row" title="Further fraction of lattice sites that are non-bleaching (DNA-PAINT-like: constant supply)">Labelling, non-bleaching <input type="range" id="labelNonBleaching" min="0" max="1" step="0.005" value="0"><span id="labelNonBleachingVal"></span></label>
-    </fieldset>
-
-    <fieldset id="movieFs">
-      <legend>blink movie (camera at the view centre)</legend>
-      <div class="pair"><span class="k">Frames / exposure (ms)</span><input type="number" id="mv_frames" value="10" min="1" max="2000" step="1"><input type="number" id="mv_exposure-ms" value="50" min="1" step="1"></div>
-      <div class="pair"><span class="k">FOV (px) / pixel (nm)</span><input type="number" id="mv_size" value="128" min="8" max="512" step="8"><input type="number" id="mv_pixel-nm" value="100" min="10" step="5"></div>
-      <div class="pair"><span class="k">Photons/s / photon CV</span><input type="number" id="mv_photons-per-sec" value="7500" step="500"><input type="number" id="mv_photon-cv" value="0.5" min="0" step="0.05"></div>
-      <div class="pair"><span class="k">ON / dark time (s)</span><input type="number" id="mv_on-sec" value="0.05" min="0.001" step="0.01"><input type="number" id="mv_off-sec" value="1" min="0" step="0.1"></div>
-      <div class="pair"><span class="k">Bleach prob. / activation rate (per dye, 10⁻³/s)</span><input type="number" id="mv_bleach-prob" value="1" min="0.01" max="1" step="0.05"><input type="number" id="mv_milli-activation-rate" value="10" min="0" max="1000" step="1" title="SimType_CellFieldMilliActivationRatePerDyePerSec"></div>
-      <div class="pair"><span class="k">Z stage (focus above coverslip) / z range (µm, 0 = all)</span><input type="number" id="mv_z" value="0.5" step="0.1"><input type="number" id="mv_z-range-um" value="7" min="0" step="0.5" title="Dyes within ± z range / 2 of the focal plane are rendered (SimType_CellFieldZRangeUm)"></div>
-      <div class="pair"><span class="k">Background (photons/px/s) / start time (s)</span><input type="number" id="mv_background-per-sec" value="0" min="0" step="10"><input type="number" id="mv_start-sec" value="0" min="0" step="1"></div>
-      <div class="pair"><span class="k">Seed (noise)</span><input type="number" id="mv_seed" value="42" step="1"></div>
-      <div class="pair"><span class="k">Imaging modality</span><select id="mv_modality" title="General_ImagingModality: SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells' refractive index (partially coherent multislice wave optics)"><option value="0">SuperRes</option><option value="1">WideField</option><option value="2">BrightField</option></select></div>
-      <div class="pair"><span class="k">PSF</span><select id="mv_psf-model" title="PSFParam_PsfModel: GibsonLanniZernike is the adapter's default (scalar Gibson-Lanni + Zernike, as webSMLM; kernel half width 3 µm here); Gaussian is fast but has no defocus"><option value="3">Gibson-Lanni + Zernike</option><option value="0">Gaussian</option></select></div>
-      <div class="pair"><span class="k">Aberrations</span><select id="mv_psf-zernike-preset" title="PSFParam_PsfZernikePreset"><option value="0">None</option><option value="1">AstigmatismWeak</option><option value="2">AstigmatismModerate</option><option value="3">AstigmatismStrong</option><option value="4">ComaWeak</option><option value="5">ComaStrong</option><option value="6">SphericalWeak</option><option value="7">SphericalStrong</option><option value="8">TrefoilModerate</option><option value="9" selected>MixedRealisticObjective</option><option value="10">SaddlePoint</option><option value="11">ExtendedRange</option><option value="12">ExtendedRangeStrong</option></select></div>
-      <div class="wfRow pair" style="display:none"><span class="k">WF upscaling / z plane (nm)</span><input type="number" id="mv_wf-upscale" value="1" min="1" max="4" step="1"><input type="number" id="mv_wf-plane-nm" value="25" min="5" max="500" step="5"></div>
-      <div class="wfRow pair" style="display:none"><span class="k">WF excitation (photons/µm²/s) / QY</span><input type="number" id="mv_wf-excitation-photons-per-um2-per-sec" value="4e8" min="0" step="1e8"><input type="number" id="mv_wf-quantum-yield" value="0.7" min="0" max="1" step="0.05"></div>
-      <div class="wfRow pair" style="display:none"><span class="k">WF photon budget / ε (M⁻¹cm⁻¹)</span><input type="number" id="mv_wf-photon-budget" value="5000" min="0" step="500" title="Emitted photons per dye before it bleaches (0 = never)"><input type="number" id="mv_wf-extinction-coeff" value="270000" min="1000" max="1000000" step="10000"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">BF quality: <b id="mv_bf-quality-name">3 balanced</b></span><input type="range" id="mv_bf-quality" value="3" min="1" max="4" step="1" title="General_BrightFieldQuality: speed vs precision. 1: thin object, 6 condenser points ... 2: 0.5 µm slices, 12 points; 3: 0.5 µm, 24 points; 4: 0.25 µm slices, 48 points. Sets the source count, grid, geometry samples and slice step unless given below"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">BF sources / slice (µm) (0 / -1 = from quality)</span><input type="number" id="mv_bf-sources" value="0" min="0" max="256" step="1" title="General_BrightFieldSources: condenser source points"><input type="number" id="mv_bf-slice-um" value="-1" min="-1" max="5" step="0.125" title="General_BrightFieldSliceUm: multislice step; 0 = one thin slice"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">BF condenser NA / λ (nm)</span><input type="number" id="mv_bf-condenser-na" value="0.55" min="0" max="1.4" step="0.05" title="General_BrightFieldCondenserNa: 0 = coherent; close to the objective NA flattens a phase object in focus"><input type="number" id="mv_bf-wavelength-nm" value="550" min="300" max="1000" step="10"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">BF lamp (photons/px/s) / absorption (1/µm)</span><input type="number" id="mv_bf-photons-per-px-per-sec" value="40000" min="0" step="5000"><input type="number" id="mv_bf-absorption-per-um" value="0" min="0" step="0.01" title="SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material (unstained: 0)"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">n medium / cytoplasm</span><input type="number" id="mv_bf-n-medium" value="1.337" min="1" max="2" step="0.001"><input type="number" id="mv_bf-n-cytoplasm" value="1.345" min="1" max="2" step="0.001"></div>
-      <div class="bfRow pair" style="display:none"><span class="k">n nucleus / microtubule</span><input type="number" id="mv_bf-n-nucleus" value="1.345" min="1" max="2" step="0.001"><input type="number" id="mv_bf-n-microtubule" value="1.48" min="1" max="2" step="0.01"></div>
-      <label class="row"><button id="mv_make" style="width:100%" title="Renders a movie of the dyes under the view centre with the adapter's own PSF/noise code (the PSF chosen above, sCMOS defaults), in a worker.">Make movie here</button></label>
-    </fieldset>
-
-
-    <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion
-    case for the inSiliScope adapter: the field does not move, the viewport (camera
-    FOV) does, and the same world coordinate always re-derives the same structure.
-    Packing moves and turns overlapping cells apart (never shrinks them) and drops a
-    cell still stuck after relaxation. Dyes are the real labelled sites of the core
-    (13_3 lattice, binder + linker), shown once zoomed in.</p>
+    <div id="sideTop">
+      <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
+      <div class="bar">
+        <h1>Cell field viewer</h1>
+        <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
+      </div>
+      <div id="menu" role="menu"></div>
+    </div>
+    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
+    <div id="panel"></div>
   </div>
 
   <div id="canvasHost">
@@ -190,6 +149,468 @@
 
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
+<script id="uiSchema">
+'use strict';
+// ---- option panel: schema + renderer ------------------------------------------------------------------------------
+// Every option of the side panel is one entry of UI_GROUPS. This script builds #panel from it before the main script
+// runs, with the element ids the main script reads (els, params(), movieSpec(), MOVIE_KEYS), so the generator path
+// does not know the panel changed. One option = one line: label (i) | control | value + unit. Rows marked adv are
+// hidden in the Default level; show() hides rows that do not apply (e.g. WideField rows unless that modality is
+// chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
+// editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
+// This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
+// from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
+const { UI_GROUPS, UI_STYLES } = (() => {
+const $ = id => document.getElementById(id);
+const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
+const SR = () => modality() === 0, WF = () => modality() === 1, BF = () => modality() === 2;
+const fx = d => v => (+v).toFixed(d);
+const offIf0 = d => v => +v ? (+v).toFixed(d) : 'off';
+const pct = v => (100 * v).toFixed(1);
+const adv = true;
+
+const range = (id, label, unit, tip, min, max, step, value, o) => ({ kind: 'range', id, label, unit, tip, min, max, step, value, ...o });
+const num = (id, label, unit, tip, min, max, step, value, o) => ({ kind: 'number', id, label, unit, tip, min, max, step, value, ...o });
+const check = (id, label, tip, value, o) => ({ kind: 'check', id, label, tip, value, ...o });
+const select = (id, label, tip, options, value, o) => ({ kind: 'select', id, label, tip, options, value, ...o });
+const button = (id, label, tip, o) => ({ kind: 'button', id, label, tip, ...o });
+// min/max on one line: two number boxes (ids id+'Min', id+'Max') around a two-knob slider over [lo, hi]
+const pair = (id, label, unit, tip, lo, hi, step, vMin, vMax, o) => ({ kind: 'pair', id, label, unit, tip, lo, hi, step, vMin, vMax, ...o });
+// a UI-only select that writes its kids: presets = { name: { childId: value } }
+const preset = (id, label, tip, presets, kids, o) => ({ kind: 'preset', id, label, tip, presets, kids, ...o });
+
+const BF_QUALITY_NAMES = ['', 'fastest', 'fast', 'balanced', 'precise'];
+const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'AstigmatismStrong', 'ComaWeak', 'ComaStrong',
+  'SphericalWeak', 'SphericalStrong', 'TrefoilModerate', 'MixedRealisticObjective', 'SaddlePoint', 'ExtendedRange',
+  'ExtendedRangeStrong'].map((n, i) => [String(i), n]);
+
+const UI_GROUPS = [
+  { sect: 'Display', id: 'view', title: 'View', open: true, items: [
+    range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression. Display only.', 0, 75, 1, 0, { fmt: fx(0) }),
+    check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
+    check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
+    check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
+    check('showDyes', 'Show dyes', 'Draw the labelled dye sites of the core (red), once zoomed in far enough (≥ 120 px/µm).', false),
+    check('showGrid', 'Show chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv }),
+    check('showCytoContours', 'Show height contour lines', 'Draw contour lines of the cytoplasm height.', false, { adv }),
+    range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2) }),
+    button('resetView', 'Reset view to origin', 'Back to world position (0, 0) at the default zoom.'),
+  ] },
+
+  { sect: 'Sample', id: 'field', title: 'Specimen: cell field', open: true, items: [
+    num('seed', 'World seed', 'integer', 'Every cell, microtubule and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
+    button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
+    range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>SimType_CellFieldOccupancy</code>', 0.05, 1, 0.01, 0.33, { fmt: v => (100 * v).toFixed(0) }),
+    range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, fmt: fx(2) }),
+    num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>SimType_CellFieldChunkSizeUm</code>', 4, 200, 1, 26, { adv }),
+  ] },
+  { id: 'shape', title: 'Cell shape', open: true, items: [
+    preset('cellShape', 'Cell shape', 'Sets the footprint and outline (the rows below) to a typical cell shape. Rough starting points, not measured values; editing a row shows "Custom".', {
+      'Default': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
+      'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 0.3, cellRough: 0.05, cellFractalDim: 1.2 },
+      'Elongated': { cellDiamMin: 30, cellDiamMax: 50, cellElongMin: 0.25, cellElongMax: 0.5, cellHeightMin: 2, cellHeightMax: 4, cellBlob: 1, cellRough: 0.15, cellFractalDim: 1.35 },
+      'Spread, lobed': { cellDiamMin: 35, cellDiamMax: 55, cellElongMin: 0.5, cellElongMax: 1, cellHeightMin: 2, cellHeightMax: 4, cellBlob: 3, cellRough: 0.3, cellFractalDim: 1.45 },
+      'Small, compact': { cellDiamMin: 12, cellDiamMax: 18, cellElongMin: 0.7, cellElongMax: 1, cellHeightMin: 4, cellHeightMax: 8, cellBlob: 0.75, cellRough: 0.1, cellFractalDim: 1.3 },
+      'Irregular, rough': { cellDiamMin: 25, cellDiamMax: 40, cellElongMin: 0.4, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 2.5, cellRough: 0.5, cellFractalDim: 1.6 },
+    }, [
+      pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max.', 5, 80, 0.5, 25, 35),
+      pair('cellElong', 'Elongation', 'ratio', 'Short-to-long axis ratio of the footprint, per cell (1 = round).', 0.1, 1, 0.05, 0.5, 1),
+      pair('cellHeight', 'Height', 'µm', 'Cell height, drawn per cell between min and max.', 0.5, 15, 0.5, 3, 6),
+      range('cellBlob', 'Blobbiness', 'a.u.', 'Amplitude of the large lobes of the outline (0 = smooth ellipse).', 0, 4, 0.05, 1.75, { fmt: fx(2) }),
+      range('cellRough', 'Roughness', '× blob', 'Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.', 0, 1, 0.01, 0.15, { adv, fmt: fx(2) }),
+      range('cellFractalDim', 'Fractal dim.', 'D', "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.", 1, 2, 0.01, 1.35, { adv, fmt: fx(2) }),
+    ]),
+  ] },
+  { id: 'nucleus', title: 'Nucleus', items: [
+    pair('nucLong', 'Long axis', 'µm', 'Long axis of the nucleus ellipsoid, per cell.', 2, 30, 0.5, 8, 12),
+    pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1, { adv }),
+    pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.3, 0.5, { adv }),
+    range('nucOffsetFrac', 'Centre offset', '× cell r', 'Random offset of the nucleus from the cell centre, up to this fraction of the cell radius.', 0, 1, 0.02, 0.1, { adv, fmt: fx(2) }),
+    range('nucMargin', 'Margin', 'µm', 'Cytoplasm clearance around the nucleus on every side, and the least cytoplasm above it.', 0.1, 1.5, 0.1, 0.6, { adv, fmt: fx(1) }),
+  ] },
+  { id: 'cyto', title: 'Cytoplasm', items: [
+    preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {
+      'Rounded': { cytoRimHeightMin: 0.2, cytoRimHeightMax: 0.5, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5, cytoMidHeightMin: 2, cytoMidHeightMax: 3.5, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3, cytoMaxSlope: 2, cytoDomeSlope: 4 },
+      'Classic': { cytoRimHeightMin: 0.1, cytoRimHeightMax: 0.3, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5, cytoMidHeightMin: 1, cytoMidHeightMax: 2, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3, cytoMaxSlope: 1, cytoDomeSlope: 3 },
+      'Flat, spread': { cytoRimHeightMin: 0.05, cytoRimHeightMax: 0.15, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5, cytoMidHeightMin: 0.5, cytoMidHeightMax: 1, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3, cytoMaxSlope: 0.5, cytoDomeSlope: 2 },
+      'Fried egg': { cytoRimHeightMin: 0.05, cytoRimHeightMax: 0.15, cytoEdgeRiseMin: 0.2, cytoEdgeRiseMax: 0.6, cytoMidHeightMin: 0.4, cytoMidHeightMax: 0.8, cytoMidDistanceMin: 0.05, cytoMidDistanceMax: 0.15, cytoMaxSlope: 0.5, cytoDomeSlope: 4 },
+      'Tall, compact': { cytoRimHeightMin: 0.4, cytoRimHeightMax: 0.8, cytoEdgeRiseMin: 0.3, cytoEdgeRiseMax: 0.8, cytoMidHeightMin: 3, cytoMidHeightMax: 5, cytoMidDistanceMin: 0.2, cytoMidDistanceMax: 0.4, cytoMaxSlope: 3, cytoDomeSlope: 6 },
+      'Thin lamella': { cytoRimHeightMin: 0.03, cytoRimHeightMax: 0.08, cytoEdgeRiseMin: 0.5, cytoEdgeRiseMax: 1.5, cytoMidHeightMin: 0.3, cytoMidHeightMax: 0.6, cytoMidDistanceMin: 0.4, cytoMidDistanceMax: 0.6, cytoMaxSlope: 0.3, cytoDomeSlope: 2.5 },
+    }, [
+      pair('cytoRimHeight', 'Rim height', 'µm', 'Cytoplasm height at the cell edge, per cell.', 0, 2, 0.05, 0.2, 0.5, { adv }),
+      pair('cytoEdgeRise', 'Edge rise', 'µm', 'Distance from the edge over which the cytoplasm rises to the rim height, per cell.', 0, 3, 0.05, 0.1, 0.5, { adv }),
+      pair('cytoMidHeight', 'Mid height', 'µm', 'Cytoplasm height at the mid-height distance, per cell.', 0, 6, 0.05, 2, 3.5, { adv }),
+      pair('cytoMidDistance', 'Mid dist.', '× cell r', 'Distance from the nucleus at which the mid height is reached, as a fraction of the cell radius, per cell.', 0, 1, 0.05, 0.1, 0.3, { adv }),
+      range('cytoMaxSlope', 'Slope cap', 'µm/µm', 'Max rise of the cytoplasm surface per µm outside the dome (saturating from the edge). 0 = off. Cells grow to make room.', 0, 3, 0.05, 2, { adv, fmt: offIf0(2) }),
+      range('cytoDomeSlope', 'Dome slope', 'µm/µm', 'Max slope of the dome flank over the nucleus. 0 = off (the flank spans only the nucleus margin). Lower = rounder dome but bigger cells.', 0, 6, 0.1, 4, { adv, fmt: offIf0(1) }),
+    ]),
+    range('cytoRelaxUm', 'Relax length', 'µm', 'Relaxation length l: the height solves h − l²∇²h = raw profile (a membrane pulled toward it), which removes the profile\'s folds. 0 = raw profile.', 0, 3, 0.1, 1, { adv, fmt: offIf0(1) }),
+    range('cytoRings', 'Mesh rings', 'rings', 'Radial resolution of the polar cytoplasm mesh.', 4, 60, 1, 60, { adv, fmt: fx(0) }),
+    range('cytoTheta', 'Mesh angles', 'samples', 'Angular resolution of the polar cytoplasm mesh.', 32, 512, 4, 256, { adv, fmt: fx(0) }),
+  ] },
+  { id: 'packing', title: 'Cell packing', adv, items: [
+    check('enablePacking', 'Enable packing', 'Move and turn overlapping cells apart (never shrinks them); a cell still stuck after relaxation is dropped.', true),
+    check('allowPackRotation', 'Allow rotation', 'Packing may also turn cells.', true),
+    range('packFrac', 'Min gap', '× r₁+r₂', 'Smallest allowed centre distance of two cells, as a fraction of their combined radius.', 0.6, 1.1, 0.02, 1, { fmt: fx(2) }),
+    range('relaxIters', 'Relax iterations', 'iter.', 'Packing relaxation steps before stuck cells are dropped.', 4, 150, 1, 80, { fmt: fx(0) }),
+    range('relaxDamping', 'Relaxation step', 'frac.', 'Fraction of the overlap resolved per relaxation step.', 0.1, 1, 0.05, 0.55, { fmt: fx(2) }),
+  ] },
+  { id: 'mt', title: 'Microtubules', items: [
+    range('mtDensity', 'Density', '/µm²', 'Microtubules per µm² of cell footprint.', 0, 2, 0.005, 0.9, { fmt: fx(3) }),
+    pair('mtStartFrac', 'Start offset', '× cell r', 'Start distance from the nucleus edge, as a fraction of the cell radius, per microtubule.', 0, 1, 0.01, 0, 0.3, { adv, bounded: true }),
+    range('mtStartOffsetXY', 'Start XY jitter', 'µm', 'Random lateral offset of the start point, so microtubules starting near the same place do not all leave from one point.', 0, 2, 0.05, 0, { adv, fmt: fx(2) }),
+    pair('mtEndFrac', 'End offset', '× cell r', 'End distance inside the cell edge, as a fraction of the cell radius, per microtubule.', 0, 1, 0.01, 0.01, 0.4, { adv, bounded: true }),
+    range('mtEndJitterDeg', 'End dir. jitter', '°', 'Random azimuth of the end relative to the start direction; up to 180° lets ends land anywhere around the nucleus.', 0, 180, 1, 145, { adv, fmt: fx(0) }),
+    range('mtWobbleTurn', 'Wobble strength', 'a.u.', 'Strength of the random turning along the path.', 0, 3, 0.05, 0.8, { adv, fmt: fx(2) }),
+    range('mtWobbleFactor', 'Path length', '×', 'Path length relative to the straight start-to-end distance (at least 1).', 0.9, 1.3, 0.01, 1.05, { adv, fmt: fx(2) }),
+    range('mtStepLen', 'Step length', 'µm', 'Step of the path tracer: smaller is smoother and slower.', 0.05, 1, 0.01, 0.05, { adv, fmt: fx(2) }),
+    range('mtSmoothLen', 'Path smoothing', 'µm', 'Smoothing length of the traced path (in xy and height).', 1, 10, 0.5, 1.5, { adv, fmt: fx(1) }),
+    range('mtMinTurnRadius', 'Min turn radius', 'µm', 'Tightest bend a microtubule may make (they are stiff). 0 = no limit.', 0, 2, 0.01, 0.15, { adv, fmt: fx(2) }),
+    range('mtMinSeparation', 'Min separation', 'µm', 'Distance kept between microtubules.', 0, 0.5, 0.01, 0.05, { adv, fmt: fx(2) }),
+    range('mtMaxZSlope', 'Max z slope', '× xy', 'Largest height change per unit of lateral path.', 1, 20, 0.5, 5, { adv, fmt: fx(1) }),
+    range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
+  ] },
+
+  { sect: 'Sample preparation', id: 'label', title: 'Labelling & fluorophore', open: true, items: [
+    preset('fluoPreset', 'Fluorophore', 'Sets labelling and blinking (the rows below) for a type of experiment. Rough starting points, not measured dye values; editing a row shows "Custom".', {
+      'Default': { labelEfficiency: 0.1, labelNonBleaching: 0, 'mv_milli-activation-rate': 10, 'mv_photons-per-sec': 7500, 'mv_on-sec': 0.05, 'mv_off-sec': 1, 'mv_bleach-prob': 1, 'mv_photon-cv': 0.5 },
+      'dSTORM-like': { labelEfficiency: 0.1, labelNonBleaching: 0, 'mv_milli-activation-rate': 2, 'mv_photons-per-sec': 50000, 'mv_on-sec': 0.03, 'mv_off-sec': 2, 'mv_bleach-prob': 0.1, 'mv_photon-cv': 0.5 },
+      'PALM-like': { labelEfficiency: 0.3, labelNonBleaching: 0, 'mv_milli-activation-rate': 1, 'mv_photons-per-sec': 20000, 'mv_on-sec': 0.03, 'mv_off-sec': 0.5, 'mv_bleach-prob': 0.5, 'mv_photon-cv': 0.6 },
+      'DNA-PAINT-like': { labelEfficiency: 0, labelNonBleaching: 0.3, 'mv_milli-activation-rate': 10, 'mv_photons-per-sec': 10000, 'mv_on-sec': 0.3, 'mv_off-sec': 1, 'mv_bleach-prob': 1, 'mv_photon-cv': 0.3 },
+    }, [
+      range('labelEfficiency', 'Bleaching', '%', 'Share of lattice sites carrying a bleaching dye. <code>SimType_CellFieldLabelingPctBleaching</code>', 0, 1, 0.005, 0.1, { fmt: pct }),
+      range('labelNonBleaching', 'Non-bleaching', '%', 'Further share of lattice sites that never bleach (DNA-PAINT-like: constant supply). <code>SimType_CellFieldLabelingPctNonBleaching</code>', 0, 1, 0.005, 0, { fmt: pct }),
+      num('mv_milli-activation-rate', 'Activation rate', '10⁻³/s', 'Rate at which each dark dye switches on, in 10⁻³ per second. <code>SimType_CellFieldMilliActivationRatePerDyePerSec</code>', 0, 1000, 1, 10, { adv, show: SR }),
+      num('mv_photons-per-sec', 'Brightness', 'ph/s', 'Photons per second a dye emits while ON. <code>FluoParam_PhotonsPerSecond</code>', null, null, 500, 7500, { adv, show: SR }),
+      num('mv_on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). <code>FluoParam_OnLifetimeSec</code>', 0.001, null, 0.01, 0.05, { adv, show: SR }),
+      num('mv_off-sec', 'Dark time', 's', 'Mean dark time between two blinks of one molecule. <code>FluoParam_OffLifetimeSec</code>', 0, null, 0.1, 1, { adv, show: SR }),
+      num('mv_bleach-prob', 'Bleach prob.', '/blink', 'Probability that a molecule bleaches after a blink: 1 = one blink per molecule, lower = a geometric number of blinks. <code>FluoParam_BlinkBleachProb</code>', 0.01, 1, 0.05, 1, { adv, show: SR }),
+      num('mv_photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness. <code>FluoParam_PhotonCV</code>', 0, null, 0.05, 0.5, { adv, show: SR }),
+    ]),
+    num('mv_wf-quantum-yield', 'Quantum yield', 'frac.', 'Fluorescence quantum yield of the dye. <code>FluoParam_WideFieldQuantumYield</code>', 0, 1, 0.05, 0.7, { show: WF, cls: 'wfRow' }),
+    num('mv_wf-extinction-coeff', 'Extinction ε', 'M⁻¹cm⁻¹', 'Molar extinction coefficient; with the excitation flux it sets how often a dye absorbs. <code>FluoParam_WideFieldExtinctionCoeff</code>', 1000, 1000000, 10000, 270000, { adv, show: WF, cls: 'wfRow' }),
+    num('mv_wf-photon-budget', 'Photon budget', 'photons', 'Photons a dye emits before it bleaches (0 = never). <code>FluoParam_WideFieldPhotonBudget</code>', 0, null, 500, 5000, { adv, show: WF, cls: 'wfRow' }),
+  ] },
+  { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
+    num('mv_bf-n-medium', 'Medium', 'n', 'Refractive index of the medium around the cells. <code>SimType_CellFieldIndexMedium</code>', 1, 2, 0.001, 1.337, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>SimType_CellFieldIndexCytoplasm</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>SimType_CellFieldIndexNucleus</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-microtubule', 'Microtubule', 'n', 'Refractive index of microtubule material. <code>SimType_CellFieldIndexMicrotubule</code>', 1, 2, 0.01, 1.48, { adv, show: BF, cls: 'bfRow' }),
+    num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
+  ] },
+
+  { sect: 'Microscope', id: 'illum', title: 'Illumination', open: true, items: [
+    select('mv_modality', 'Modality', 'SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
+      [['0', 'SuperRes'], ['1', 'WideField'], ['2', 'BrightField']], '0'),
+    num('mv_wf-excitation-photons-per-um2-per-sec', 'Excitation', 'ph/µm²/s', 'WideField excitation photon flux at the sample. <code>FluoParam_WideFieldExcitationPhotonsPerUm2PerSec</code>', 0, null, 1e8, '4e8', { show: WF, cls: 'wfRow' }),
+    num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 40000, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.55, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
+    num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>Background_BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
+  ] },
+  { id: 'objective', title: 'Objective & PSF', items: [
+    select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>PSFParam_PsfModel</code>',
+      [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
+        select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>PSFParam_PsfZernikePreset</code>', ZERNIKE_PRESETS, '9'),
+      ] }),
+  ] },
+  { id: 'camera', title: 'Camera', items: [
+    num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
+    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane. <code>General_PixelSizeNm</code>', 10, null, 5, 100, { adv }),
+    num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
+  ] },
+  { id: 'formation', title: 'Image formation', items: [
+    num('mv_wf-upscale', 'WF upscaling', '× per px', 'WideField grid cells per camera pixel, per axis. <code>General_WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: WF, cls: 'wfRow' }),
+    num('mv_wf-plane-nm', 'WF z plane', 'nm', 'Thickness of the WideField dye planes. <code>General_WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: WF, cls: 'wfRow' }),
+    range('mv_bf-quality', 'BF quality', '', 'Speed vs precision. 1: thin object, 6 condenser points; 2: 0.5 µm slices, 12 points; 3: 0.5 µm, 24 points; 4: 0.25 µm slices, 48 points (slow). Sets the source count, grid, geometry samples and slice step; picking a level resets the two overrides below. <code>General_BrightFieldQuality</code>',
+      1, 4, 1, 3, { show: BF, cls: 'bfRow', valId: 'mv_bf-quality-name',
+        fmt: v => v + ' ' + BF_QUALITY_NAMES[+v] + (+$('mv_bf-sources').value !== 0 || +$('mv_bf-slice-um').value !== -1 ? ' *' : ''),
+        apply: () => ({ 'mv_bf-sources': 0, 'mv_bf-slice-um': -1 }),
+        kids: [
+          num('mv_bf-sources', 'Sources', 'points', 'Condenser source points; 0 = from the quality level (6/12/24/48). <code>General_BrightFieldSources</code>', 0, 256, 1, 0, { adv, show: BF, cls: 'bfRow' }),
+          num('mv_bf-slice-um', 'Slice step', 'µm', 'Multislice step; 0 = one thin slice, −1 = from the quality level (0/0.5/0.5/0.25). <code>General_BrightFieldSliceUm</code>', -1, 5, 0.125, -1, { adv, show: BF, cls: 'bfRow' }),
+        ] }),
+  ] },
+
+  { sect: 'Acquisition', id: 'acq', title: 'Acquisition', open: true, items: [
+    num('mv_frames', 'Frames', 'frames', 'Number of camera frames.', 1, 2000, 1, 10),
+    num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the playback frame time, at least 30 ms).', 1, null, 1, 50),
+    num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus.', null, null, 0.1, 0.5),
+    num('mv_z-range-um', 'Dye z range', 'µm', 'Only dyes within ± range/2 of the focal plane are rendered (0 = all). <code>SimType_CellFieldZRangeUm</code>', 0, null, 0.5, 7, { adv }),
+    num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame.', 0, null, 1, 0, { adv }),
+    button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
+  ] },
+
+  { sect: '', id: 'about', title: 'About', items: [
+    { kind: 'html', html: `<p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in Web Workers). Every cell,
+      microtubule and dye is a pure function of (seed, address): pan anywhere and come back to the same structure. Cells
+      are packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager adapter images. The JS prototype
+      this was ported from is in <a href="prototype/index.html">prototype/</a>.</p>
+      <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion case for the inSiliScope adapter:
+      the field does not move, the viewport (camera FOV) does, and the same world coordinate always re-derives the same
+      structure. Packing moves and turns overlapping cells apart (never shrinks them) and drops a cell still stuck after
+      relaxation. Dyes are the real labelled sites of the core (13_3 lattice, binder + linker), shown once zoomed in.</p>` },
+  ] },
+];
+
+// Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
+const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
+return { UI_GROUPS, UI_STYLES };
+})();
+</script>
+<script id="uiPanel">
+'use strict';
+(function () {
+const $ = id => document.getElementById(id);
+
+// ---- persistence (per viewer; may be unavailable) ----
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('isc.ui.' + k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('isc.ui.' + k, v); } catch (e) { /* private window etc. */ } },
+};
+
+// ---- rendering ----
+function h(tag, attrs, html) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) e.setAttribute(k, attrs[k] === true ? '' : attrs[k]);
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+const entries = [];   // every rendered entry, kids included: { ...entry, row, group, parent }
+const groups = [];    // { g, det, sect }
+
+function labelCell(e, forId) {
+  const lab = h('div', { class: 'lab' });
+  lab.append(h('label', forId ? { for: forId } : {}, e.label));
+  if (e.tip) lab.append(h('span', { class: 'info', tabindex: 0, role: 'note', 'aria-label': e.label + ' info', 'data-tip': e.tip }, 'i'));
+  return lab;
+}
+function inputAttrs(e, id, value) {
+  return { type: e.kind === 'range' ? 'range' : 'number', id, min: e.min, max: e.max, step: e.step, value: value };
+}
+function renderEntry(e, host, g, parent) {
+  const r = { ...e, group: g, parent };
+  let row;
+  if (e.kind === 'html') {
+    row = h('div', {}, e.html);
+  } else if (e.kind === 'button') {
+    row = h('div', { class: 'opt wide' });
+    row.append(h('button', { id: e.id, title: e.tip }, e.label));
+  } else {
+    row = h('div', { class: 'opt ' + e.kind });
+    const ctl = h('div', { class: 'ctl' }), val = h('div', { class: 'val' });
+    if (e.kind === 'range') {
+      ctl.append(h('input', inputAttrs(e, e.id, e.value)));
+      val.append(h('b', { id: e.valId || e.id + 'Val' }), document.createTextNode(e.unit ? ' ' : ''), h('span', { class: 'u' }, e.unit));
+    } else if (e.kind === 'number') {
+      ctl.append(h('input', inputAttrs(e, e.id, e.value)));
+      val.append(h('span', { class: 'u' }, e.unit));
+    } else if (e.kind === 'check') {
+      ctl.append(h('input', { type: 'checkbox', id: e.id, checked: !!e.value }));
+    } else if (e.kind === 'select' || e.kind === 'preset') {
+      const s = h('select', { id: e.id });
+      const opts = e.kind === 'preset' ? Object.keys(e.presets).map(n => [n, n]).concat([['custom', 'Custom']]) : e.options;
+      for (const [v, t] of opts) s.append(h('option', { value: v, selected: v === e.value, disabled: v === 'custom' }, t));
+      ctl.append(s);
+    } else if (e.kind === 'pair') {
+      const bounds = e.bounded ? { min: e.lo, max: e.hi } : {};   // bounded: the boxes are limited to the slider range too
+      const bMin = h('input', { type: 'number', id: e.id + 'Min', step: e.step, value: e.vMin, ...bounds });
+      const bMax = h('input', { type: 'number', id: e.id + 'Max', step: e.step, value: e.vMax, ...bounds });
+      const dual = h('div', { class: 'dual' });
+      const lo = h('input', { type: 'range', min: e.lo, max: e.hi, step: e.step, 'aria-label': e.label + ' min' });
+      const hi = h('input', { type: 'range', min: e.lo, max: e.hi, step: e.step, 'aria-label': e.label + ' max' });
+      const fill = h('div', { class: 'fill' });
+      dual.append(h('div', { class: 'track' }), fill, lo, hi);
+      ctl.append(bMin, dual, bMax, h('span', { class: 'u' }, e.unit));   // spans the value column too (CSS)
+      const span = e.hi - e.lo;
+      const syncDual = () => {
+        lo.value = +bMin.value; hi.value = +bMax.value;   // clamped to [lo, hi] by the input itself
+        const a = (+lo.value - e.lo) / span, b = (+hi.value - e.lo) / span;
+        fill.style.left = (100 * Math.min(a, b)) + '%'; fill.style.width = (100 * Math.abs(b - a)) + '%';
+      };
+      const fromSlider = (src, box, other, isLo) => () => {
+        let v = +src.value;
+        if (isLo ? v > +other.value : v < +other.value) { v = +other.value; src.value = v; }
+        box.value = v;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      lo.addEventListener('input', fromSlider(lo, bMin, hi, true));
+      hi.addEventListener('input', fromSlider(hi, bMax, lo, false));
+      bMin.addEventListener('input', syncDual); bMax.addEventListener('input', syncDual);
+      r.syncDual = syncDual;
+    }
+    row.prepend(labelCell(e, e.kind === 'pair' ? e.id + 'Min' : e.id));
+    row.append(ctl, val);
+  }
+  if (e.adv || (g && g.adv)) row.classList.add('adv');
+  if (e.cls) row.classList.add(e.cls);
+  r.row = row;
+  host.append(row);
+  entries.push(r);
+  if (e.kids) {
+    const kids = h('div', { class: 'kids' });
+    r.kidsEl = kids;
+    host.append(kids);
+    r.kidEntries = e.kids.map(k => renderEntry(k, kids, g, r));
+  }
+  return r;
+}
+
+const panel = $('panel');
+const oneOpen = () => !!(UI_STYLES[document.body.dataset.uiStyle] || {}).oneOpen;
+// Open groups: one remembered group in a oneOpen style, each group's own remembered state otherwise.
+function applyOpen() {
+  if (oneOpen()) {
+    const want = store.get('focusOpen', (groups.find(G => G.det.open) || groups[0]).g.id);
+    for (const G of groups) G.det.open = G.g.id === want;
+  } else for (const G of groups) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
+}
+let curSect = null;
+for (const g of UI_GROUPS) {
+  if (g.sect !== undefined) { curSect = { el: h('div', { class: 'sect' }, g.sect), groups: [] }; panel.append(curSect.el); }
+  const det = h('details', { class: 'grp', 'data-group': g.id });
+  det.append(h('summary', {}, g.title));
+  const body = h('div', { class: 'body' });
+  det.append(body);
+  det.addEventListener('toggle', () => {
+    if (!oneOpen()) store.set('open.' + g.id, det.open ? '1' : '0');
+    else if (det.open) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det) o.det.open = false; }
+  });
+  panel.append(det);
+  const G = { g, det, sect: curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
+  groups.push(G); curSect.groups.push(G);
+}
+
+// ---- values, presets, visibility ----
+const byId = {};
+for (const r of entries) if (r.id) byId[r.id] = r;
+function setValue(id, v) {
+  const el = $(id);
+  if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function presetMatch(r) {
+  for (const name in r.presets) {
+    const vals = r.presets[name];
+    if (Object.keys(vals).every(id => Math.abs(+$(id).value - vals[id]) < 1e-9)) return name;
+  }
+  return 'custom';
+}
+const isShown = r => (!r.show || r.show()) && (!r.parent || isShown(r.parent));
+const isDefault = r => r.kind === 'pair'
+  ? +$(r.id + 'Min').value === r.vMin && +$(r.id + 'Max').value === r.vMax
+  : r.kind === 'check' ? $(r.id).checked === !!r.value
+  : r.kind === 'select' ? $(r.id).value === r.value
+  : +$(r.id).value === +r.value;
+function sync() {
+  const level = document.body.dataset.level;
+  for (const r of entries) {
+    if (r.kind === 'range' && r.row) {
+      const b = $(r.valId || r.id + 'Val'), v = $(r.id).value;
+      const t = r.fmt ? r.fmt(v) : String(v);
+      b.textContent = t;
+      const u = r.row.querySelector('.u');
+      if (u) u.style.display = isNaN(parseFloat(t)) ? 'none' : '';
+    }
+    if (r.kind === 'pair' && r.syncDual) r.syncDual();
+    if (r.kind === 'preset') $(r.id).value = presetMatch(r);
+    if (r.row && r.kind !== 'html') r.row.style.display = isShown(r) ? '' : 'none';
+    if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
+  }
+  for (const G of groups) {
+    const any = G.g.items.length && entries.some(r => r.group === G.g &&
+      (r.kind === 'html' || isShown(r) && (level === 'advanced' || !(r.adv || G.g.adv))));
+    G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
+  }
+  for (const S of new Set(groups.map(G => G.sect))) S.el.style.display = S.el.textContent && S.groups.some(G => G.det.style.display !== 'none') ? '' : 'none';
+  const nDiff = entries.filter(r => (r.adv || (r.group && r.group.adv)) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
+  const note = $('advNote');
+  if (note) note.textContent = level === 'default' && nDiff ? `${nDiff} hidden advanced option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
+}
+for (const r of entries) {
+  if (!r.id || r.kind === 'button' || r.kind === 'html') continue;
+  const ids = r.kind === 'pair' ? [r.id + 'Min', r.id + 'Max'] : [r.id];
+  for (const id of ids) {
+    const el = $(id);
+    if (r.kind === 'preset') el.addEventListener('change', () => {
+      const vals = r.presets[el.value];
+      if (vals) for (const k in vals) setValue(k, vals[k]);
+    });
+    if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
+    // A preset select fires input before change: syncing on that input would match its unchanged kids and put the
+    // old preset back before change applies the new one, so a preset syncs only after applying (on change).
+    if (r.kind !== 'preset') el.addEventListener('input', sync);
+    el.addEventListener('change', sync);
+  }
+}
+
+// ---- hamburger menu: level, style, expand/collapse ----
+const menu = $('menu'), menuBtn = $('menuBtn');
+menu.innerHTML = '<h4>Options</h4>' +
+  '<label><input type="radio" name="uiLevel" value="default"> Default</label>' +
+  '<label><input type="radio" name="uiLevel" value="advanced"> Advanced</label>' +
+  '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
+  '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
+  '<div class="note" id="advNote"></div>';
+function setLevel(v) { document.body.dataset.level = v; store.set('level', v); menu.querySelector(`[name=uiLevel][value=${v}]`).checked = true; sync(); }
+function setStyle(v) { if (!UI_STYLES[v]) v = 'compact'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
+menu.addEventListener('change', ev => {
+  if (ev.target.name === 'uiLevel') setLevel(ev.target.value);
+  if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
+});
+menu.addEventListener('click', ev => {
+  const act = ev.target.dataset && ev.target.dataset.act;
+  if (act) for (const G of groups) G.det.open = act === 'expand';
+});
+const openMenu = open => { menu.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', open); };
+menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openMenu(!menu.classList.contains('open')); });
+document.addEventListener('click', ev => { if (!menu.contains(ev.target)) openMenu(false); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') openMenu(false); });
+
+// ---- mouse wheel on any slider: one step per notch (up = more). Over a two-knob slider it moves the knob
+// nearest the pointer (equal knobs: the max one up, the min one down). ----
+document.addEventListener('wheel', ev => {
+  let el = ev.target;
+  if (!(el instanceof Element)) return;
+  const dir = ev.deltaY < 0 || (ev.deltaY === 0 && ev.deltaX > 0) ? 1 : -1;
+  const dual = el.closest('.dual');
+  if (dual) {
+    const [lo, hi] = dual.querySelectorAll('input');
+    const r = dual.getBoundingClientRect(), f = (ev.clientX - r.left) / r.width;
+    const pos = i => (+i.value - +i.min) / (+i.max - +i.min);
+    el = lo.value === hi.value ? (dir > 0 ? hi : lo) : Math.abs(f - pos(lo)) <= Math.abs(f - pos(hi)) ? lo : hi;
+  }
+  if (el.tagName !== 'INPUT' || el.type !== 'range' || el.disabled) return;
+  ev.preventDefault();
+  const before = el.value, step = +el.step || 1;
+  el.value = +(+el.value + dir * step).toPrecision(12);   // the input clamps and snaps to its step
+  if (el.value !== before) el.dispatchEvent(new Event('input', { bubbles: true }));
+}, { passive: false });
+
+// ---- (i) tooltips: one floating box, on hover and keyboard focus ----
+const tip = h('div', { id: 'tip', role: 'tooltip' });
+document.body.append(tip);
+function showTip(t) {
+  tip.innerHTML = t.dataset.tip; tip.style.display = 'block';
+  const a = t.getBoundingClientRect(), b = tip.getBoundingClientRect();
+  let x = a.left - 8, y = a.bottom + 6;
+  if (x + b.width > innerWidth - 8) x = innerWidth - 8 - b.width;
+  if (y + b.height > innerHeight - 8) y = a.top - 6 - b.height;
+  tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
+}
+const hideTip = () => { tip.style.display = 'none'; };
+panel.addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+panel.addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
+panel.addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+panel.addEventListener('focusout', hideTip);
+panel.addEventListener('scroll', hideTip);
+
+document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
+setStyle(store.get('style', 'compact'));
+setLevel(document.body.dataset.level);
+window.uiSync = sync;
+})();
+</script>
 <script id="mainScript">
 'use strict';
 
@@ -1331,38 +1752,8 @@ cv.addEventListener('wheel', e => {
 }, { passive: false });
 
 // ---- wiring -------------------------------------------------------------------
-function syncLabels() {
-  els.jitterVal.textContent = (+els.jitter.value).toFixed(2);
-  els.densityVal.textContent = (+els.density.value).toFixed(2);
-  els.cellBlobVal.textContent = (+els.cellBlob.value).toFixed(2);
-  els.nucOffsetFracVal.textContent = (+els.nucOffsetFrac.value).toFixed(2);
-  els.nucMarginVal.textContent = (+els.nucMargin.value).toFixed(1) + ' um';
-  els.cytoMaxSlopeVal.textContent = +els.cytoMaxSlope.value ? (+els.cytoMaxSlope.value).toFixed(2) : 'off';
-  els.cytoDomeSlopeVal.textContent = +els.cytoDomeSlope.value ? (+els.cytoDomeSlope.value).toFixed(1) : 'off';
-  els.cytoRelaxUmVal.textContent = +els.cytoRelaxUm.value ? (+els.cytoRelaxUm.value).toFixed(1) + ' um' : 'off';
-  els.cellRoughVal.textContent = (+els.cellRough.value).toFixed(2);
-  els.cellFractalDimVal.textContent = (+els.cellFractalDim.value).toFixed(2);
-  els.cytoRingsVal.textContent = els.cytoRings.value;
-  els.cytoThetaVal.textContent = els.cytoTheta.value;
-  els.cytoContourStepVal.textContent = (+els.cytoContourStep.value).toFixed(2) + ' um';
-  els.packFracVal.textContent = (+els.packFrac.value).toFixed(2);
-  els.relaxItersVal.textContent = els.relaxIters.value;
-  els.relaxDampingVal.textContent = (+els.relaxDamping.value).toFixed(2);
-  els.mtDensityVal.textContent = (+els.mtDensity.value).toFixed(3) + ' /um²';
-  els.mtStartOffsetXYVal.textContent = (+els.mtStartOffsetXY.value).toFixed(2) + ' um';
-  els.mtEndJitterDegVal.textContent = els.mtEndJitterDeg.value + '°';
-  els.mtWobbleTurnVal.textContent = (+els.mtWobbleTurn.value).toFixed(2);
-  els.mtWobbleFactorVal.textContent = (+els.mtWobbleFactor.value).toFixed(2) + '×';
-  els.mtLineWidthVal.textContent = (+els.mtLineWidth.value).toFixed(2) + ' um';
-  els.mtStepLenVal.textContent = (+els.mtStepLen.value).toFixed(2) + ' um';
-  els.mtSmoothLenVal.textContent = (+els.mtSmoothLen.value).toFixed(1) + ' um';
-  els.mtMinTurnRadiusVal.textContent = (+els.mtMinTurnRadius.value).toFixed(2) + ' um';
-  els.mtMinSeparationVal.textContent = (+els.mtMinSeparation.value).toFixed(2) + ' um';
-  els.mtMaxZSlopeVal.textContent = (+els.mtMaxZSlope.value).toFixed(1) + '×';
-  els.labelEfficiencyVal.textContent = (100 * els.labelEfficiency.value).toFixed(1) + ' %';
-  els.labelNonBleachingVal.textContent = (100 * els.labelNonBleaching.value).toFixed(1) + ' %';
-  els.tiltDegVal.textContent = els.tiltDeg.value + '°';
-}
+// Value readouts, preset states and row visibility live with the panel (uiSchema script).
+function syncLabels() { uiSync(); }
 Object.keys(els).forEach(id => {
   const el = els[id];
   if (!el || id === 'reseed' || id === 'resetView' || id.endsWith('Val')) return;
@@ -1571,14 +1962,6 @@ function drawMovieFov() {
 document.getElementById('mv_make').addEventListener('click', makeMovie);
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
-});
-document.getElementById('mv_modality').addEventListener('change', e => {
-  for (const r of document.querySelectorAll('.wfRow')) r.style.display = e.target.value === '1' ? '' : 'none';
-  for (const r of document.querySelectorAll('.bfRow')) r.style.display = e.target.value === '2' ? '' : 'none';
-});
-const BF_QUALITY_NAMES = ['', 'fastest', 'fast', 'balanced', 'precise (slow)'];
-document.getElementById('mv_bf-quality').addEventListener('input', e => {
-  document.getElementById('mv_bf-quality-name').textContent = e.target.value + ' ' + BF_QUALITY_NAMES[+e.target.value];
 });
 document.getElementById('mv_play').addEventListener('click', toggleMoviePlay);
 document.getElementById('mv_slider').addEventListener('input', e => { if (movie) showMovieFrame(+e.target.value); });

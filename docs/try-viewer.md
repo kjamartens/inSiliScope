@@ -18,8 +18,18 @@ to the `insiliscope_cli` output with the same settings). **[Open it full screen]
 
 Notes:
 
+- The options are grouped the way a microscope is set up: display, sample (cell field, cell shape, nucleus,
+  cytoplasm, packing, microtubules), sample preparation (labelling and fluorophore, refractive index), microscope
+  (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
+  has a unit and an (i) that explains it (hover or Tab to it).
+- The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
+  looks: Compact, Focus (one group open at a time, highlighted) and Light. The choices are remembered in your browser.
+  Sliders also follow the mouse wheel, one step per notch.
+- Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
+  starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
+  indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
-  "PSF / aberrations" selects; Gaussian is the fast option). The first movie with a new PSF computes its kernel first.
+  "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The first movie with a new PSF computes its kernel first.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.

@@ -22,13 +22,13 @@ struct Params {
    double nucHeightMin = 0.3, nucHeightMax = 0.5;
    double nucOffsetFrac = 0.1;
    double nucMargin = 0.6;
-   // Cytoplasm
-   double cytoRimHeightMin = 0.1, cytoRimHeightMax = 0.3;
+   // Cytoplasm: the viewer's "Rounded" look since 2026-10-03 (was rim 0.1-0.3, mid 1-2, slope caps 1 and 3)
+   double cytoRimHeightMin = 0.2, cytoRimHeightMax = 0.5;
    double cytoEdgeRiseMin = 0.1, cytoEdgeRiseMax = 0.5;
-   double cytoMidHeightMin = 1, cytoMidHeightMax = 2;
+   double cytoMidHeightMin = 2, cytoMidHeightMax = 3.5;
    double cytoMidDistanceMin = 0.1, cytoMidDistanceMax = 0.3;
-   double cytoMaxSlope = 1;
-   double cytoDomeSlope = 3;
+   double cytoMaxSlope = 2;
+   double cytoDomeSlope = 4;
    double cytoRelaxUm = 1;         // screened-Poisson relaxation length; 0 = raw profile
    double cytoRings = 60;
    double cytoTheta = 256;
