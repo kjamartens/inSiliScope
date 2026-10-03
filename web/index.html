@@ -525,7 +525,9 @@ for (const r of entries) {
       if (vals) for (const k in vals) setValue(k, vals[k]);
     });
     if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
-    el.addEventListener('input', sync);
+    // A preset select fires input before change: syncing on that input would match its unchanged kids and put the
+    // old preset back before change applies the new one, so a preset syncs only after applying (on change).
+    if (r.kind !== 'preset') el.addEventListener('input', sync);
     el.addEventListener('change', sync);
   }
 }
