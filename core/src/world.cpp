@@ -77,6 +77,27 @@ const MtFrames& CellAssets::Frames(size_t i)
    return *frames[i];
 }
 
+const std::vector<CellAssets::BlockMid>& CellAssets::Mids(size_t i)
+{
+   if (mids.size() != mts.size()) mids.resize(mts.size());
+   std::vector<BlockMid>& m = mids[i];
+   if (m.empty() && mts[i].pts.size() >= 2) {
+      const std::vector<Pt3>& pts = mts[i].pts;
+      const MtFrames& fr = Frames(i);
+      const double len = fr.Length();
+      const int nBlocks = (int)std::ceil(len / DYE_BLOCK_UM);
+      m.reserve((size_t)std::max(0, nBlocks));
+      for (int b = 0; b < nBlocks; b++) {
+         // Every point of block b lies within half a block (arc) of its midpoint.
+         const Pt3 mid = PointAtArc(pts, fr, std::min((b + 0.5) * DYE_BLOCK_UM, len));
+         double wx, wy;
+         LocalToWorld(cell, mid.x, mid.y, wx, wy);
+         m.push_back({ wx, wy, mid.z });
+      }
+   }
+   return m;
+}
+
 World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeCacheDyes)
    : seed_(seed), p_(p), assetCap_(std::max<size_t>(1, assetCacheCells)), dyeCap_(dyeCacheDyes),
      pool_(AcquireWorkerPool())
@@ -137,6 +158,14 @@ const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
 
 void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<Cell>& out)
 {
+   std::vector<const Cell*> ptrs;
+   CellsInRectPtr(x0, y0, x1, y1, ptrs);
+   out.reserve(out.size() + ptrs.size());
+   for (const Cell* c : ptrs) out.push_back(*c);
+}
+
+void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vector<const Cell*>& out)
+{
    PoolScope scope(pool_);
    const double S = p_.chunkSize, reach = CellReachUm(p_);
    const int32_t cxLo = (int32_t)std::floor((x0 - reach) / S), cxHi = (int32_t)std::floor((x1 + reach) / S);
@@ -151,6 +180,9 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
    for (int32_t bx = bx0; bx <= bx1; bx++)
       for (int32_t by = by0; by <= by1; by++)
          if (!blocks_.count(std::make_pair(bx, by))) missing.push_back(std::make_pair(bx, by));
+   // The block cache's reset (PackedBlock) must not happen in the loop below:
+   // the pointers returned would dangle. Reset here if it would.
+   if (blocks_.size() + missing.size() >= BLOCK_CACHE_MAX) blocks_.clear();
    if (missing.size() > 1 && (int)missing.size() >= WorldThreads() / 2) {
       std::vector<std::vector<Cell>> built(missing.size());
       ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = PackBlock(missing[i].first, missing[i].second); });
@@ -159,7 +191,7 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
    for (int32_t bx = bx0; bx <= bx1; bx++)
       for (int32_t by = by0; by <= by1; by++)
          for (const Cell& c : PackedBlock(bx, by))
-            if (RectDist(c.x, c.y, x0, y0, x1, y1) <= c.rOuter) out.push_back(c);
+            if (RectDist(c.x, c.y, x0, y0, x1, y1) <= c.rOuter) out.push_back(&c);
    packPrebuilt_.clear();
 }
 
@@ -186,15 +218,16 @@ CellAssets& World::Assets(const Cell& c)
    return *assets_.front().second;
 }
 
-void World::PrebuildAssets(const std::vector<Cell>& cells)
+void World::PrebuildAssets(const std::vector<const Cell*>& cells)
 {
    std::vector<const Cell*> missing;
-   for (const Cell& c : cells) {
+   for (const Cell* cp : cells) {
+      const Cell& c = *cp;
       const auto key = std::make_pair(c.cx, c.cy);
       bool known = assetPrebuilt_.count(key) > 0;
       for (auto it = assets_.begin(); !known && it != assets_.end(); ++it) known = it->first == key;
       if (!known) {
-         missing.push_back(&c);
+         missing.push_back(cp);
          assetPrebuilt_[key] = nullptr;
       }
    }
@@ -213,8 +246,8 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
                             const BlockPrep& prep, const BlockNeeds& needs, Fn fn)
 {
    query_++;
-   std::vector<Cell> cells;
-   CellsInRect(x0, y0, x1, y1, cells);
+   std::vector<const Cell*> cells;
+   CellsInRectPtr(x0, y0, x1, y1, cells);
    // The assets of the cells not cached, built in parallel (Assets takes them
    // in the usual order). Not under a deadline: that walk may stop early.
    if (!deadline_) PrebuildAssets(cells);
@@ -222,24 +255,20 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
    struct Item { DyeBlock* b; int mt, block; };
    std::vector<Item> batch;
    std::vector<size_t> work;
-   for (const Cell& c : cells) {
+   for (const Cell* cp : cells) {
+      const Cell& c = *cp;
       if (PastDeadline()) break;
       CellAssets& A = Assets(c);
       const double centreDist = RectDist(c.x, c.y, x0, y0, x1, y1);
       batch.clear();
       for (size_t i = 0; i < A.mts.size(); i++) {
-         const std::vector<Pt3>& pts = A.mts[i].pts;
-         if (pts.size() < 2 || centreDist > A.mtReach[i] + DYE_REACH_UM) continue;
-         const MtFrames& fr = A.Frames(i);
-         const double len = fr.Length();
-         const int nBlocks = (int)std::ceil(len / DYE_BLOCK_UM);
-         for (int b = 0; b < nBlocks; b++) {
-            // Every point of block b lies within half a block (arc) of its midpoint.
-            const Pt3 mid = PointAtArc(pts, fr, std::min((b + 0.5) * DYE_BLOCK_UM, len));
+         if (A.mts[i].pts.size() < 2 || centreDist > A.mtReach[i] + DYE_REACH_UM) continue;
+         // The blocks' midpoints (world x, y and z), kept with the assets.
+         const std::vector<CellAssets::BlockMid>& mids = A.Mids(i);
+         for (int b = 0; b < (int)mids.size(); b++) {
+            const CellAssets::BlockMid& mid = mids[(size_t)b];
             if (mid.z + blockReach < zMin || mid.z - blockReach >= zMax) continue;
-            double wx, wy;
-            LocalToWorld(c, mid.x, mid.y, wx, wy);
-            if (RectDist(wx, wy, x0, y0, x1, y1) > blockReach) continue;
+            if (RectDist(mid.wx, mid.wy, x0, y0, x1, y1) > blockReach) continue;
             if (PastDeadline()) break;
             batch.push_back({ &FindDyeBlock(c, (int)i, b), (int)i, b });
          }
@@ -602,14 +631,15 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
    PoolScope scope(pool_);
    const size_t plane = (size_t)nx * ny, chan = plane * nz;
    std::fill(out, out + chan * 3, 0.0f);
-   std::vector<Cell> cells;
-   CellsInRect(x0, y0, x1, y1, cells);
+   std::vector<const Cell*> cells;
+   CellsInRectPtr(x0, y0, x1, y1, cells);
    PrebuildAssets(cells);
    const double px = (x1 - x0) / nx, py = (y1 - y0) / ny, dz = (zMax - zMin) / nz;
    const double subW = 1.0 / ((double)sub * sub);
    const double mtArea = jsm::PI * (MT_RADIUS_NM / 1000) * (MT_RADIUS_NM / 1000);
    const double mtStep = 0.5 * std::min(px, std::min(py, dz));
-   for (const Cell& c : cells) {
+   for (const Cell* cp : cells) {
+      const Cell& c = *cp;
       CellAssets& A = Assets(c);
       const CytoMesh& mesh = A.geom.mesh;
       const bool rotated = !(c.packRot == 0 || std::isnan(c.packRot));

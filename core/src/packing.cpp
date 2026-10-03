@@ -144,13 +144,20 @@ CandidateMap BuildCandidateMap(uint32_t seed, int32_t cx0, int32_t cy0, int32_t 
 {
    CandidateMap m;
    m.cx0 = cx0; m.cy0 = cy0; m.cx1 = cx1; m.cy1 = cy1;
-   m.grid.assign((size_t)m.Width() * m.Height(), -1);
-   m.cells.reserve((size_t)m.Width() * m.Height());
+   const size_t W = (size_t)m.Width(), H = (size_t)m.Height();
+   m.grid.assign(W * H, -1);
+   // Every candidate is a pure function of (seed, chunk, params): made in
+   // parallel, then taken in the JS insertion order (cx-major, then cy).
+   std::vector<Cell> raw(W * H);
+   ParallelFor(W * H, 8, [&](size_t idx) {
+      raw[idx] = RawCandidate(seed, cx0 + (int32_t)(idx / H), cy0 + (int32_t)(idx % H), p);
+   });
+   m.cells.reserve(W * H);
    for (int32_t cx = cx0; cx <= cx1; cx++)
       for (int32_t cy = cy0; cy <= cy1; cy++) {
-         Cell c = RawCandidate(seed, cx, cy, p);
+         const Cell& c = raw[(size_t)(cx - cx0) * H + (size_t)(cy - cy0)];
          if (!c.present) continue;
-         m.grid[(size_t)(cx - cx0) * m.Height() + (cy - cy0)] = (int32_t)m.cells.size();
+         m.grid[(size_t)(cx - cx0) * H + (size_t)(cy - cy0)] = (int32_t)m.cells.size();
          m.cells.push_back(c);
       }
    m.alive.assign(m.cells.size(), 1);

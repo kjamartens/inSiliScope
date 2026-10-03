@@ -28,6 +28,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,12 @@ struct CellAssets {
    std::vector<double> mtReach;              // per MT: max distance of a point from the cell centre (um)
    std::vector<std::unique_ptr<MtFrames>> frames;   // built lazily, per MT
    const MtFrames& Frames(size_t i);
+   // Per MT, built lazily with Frames(i): the world x, y and the z of every
+   // 1 um dye block's arc midpoint -- the values the block walk of a query
+   // used to compute again for every block of every query.
+   struct BlockMid { double wx, wy, z; };
+   std::vector<std::vector<BlockMid>> mids;
+   const std::vector<BlockMid>& Mids(size_t i);
 };
 
 struct WorldDye {
@@ -167,6 +174,21 @@ private:
       bool generated = false;               // dyes filled in (ForEachDyeBlock)
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
+   struct BlockKeyHash {
+      size_t operator()(const BlockKey& k) const
+      {
+         uint64_t h = 0x9E3779B97F4A7C15ull;
+         for (int32_t v : k) {
+            h ^= (uint32_t)v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+            h *= 0xBF58476D1CE4E5B9ull;
+         }
+         return (size_t)(h ^ (h >> 31));
+      }
+   };
+   // The cells the public CellsInRect returns, as pointers into blocks_
+   // (valid until the next block is packed; the walks here pack nothing
+   // after it ran).
+   void CellsInRectPtr(double x0, double y0, double x1, double y1, std::vector<const Cell*>& out);
    // Makes b.pEvents cover time bins [b0, b1] (the query ends at t1), and
    // extends them ahead of time at a per-block point of their last bin
    // (shortFirst: a first build reaches only one bin ahead). True if it built
@@ -178,7 +200,7 @@ private:
    std::vector<Cell> PackBlock(int32_t bx, int32_t by) const;
    // Builds the assets of those cells not cached yet, in parallel, for the
    // next Assets() calls to take (they keep the usual order).
-   void PrebuildAssets(const std::vector<Cell>& cells);
+   void PrebuildAssets(const std::vector<const Cell*>& cells);
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
    // For every 1 um dye block that can reach the rect/z range, in a fixed
    // order: prep(DyeBlock&) -- work on that block alone, run in parallel
@@ -208,7 +230,7 @@ private:
    std::list<std::pair<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>>> assets_;
    // LRU of dye blocks (most recent first), bounded by the number of dyes held
    std::list<std::pair<BlockKey, DyeBlock>> dyeLru_;
-   std::map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator> dyeIndex_;
+   std::unordered_map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator, BlockKeyHash> dyeIndex_;
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
    uint64_t evictions_ = 0, kinVersion_ = 0;

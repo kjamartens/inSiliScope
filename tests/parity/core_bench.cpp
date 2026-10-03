@@ -46,6 +46,10 @@ int main(int argc, char** argv)
    Params p;
    NormalizeParams(p);
    std::printf("core bench: seed %u, window %.1f um, threads %d\n", seed, W, WorldThreads());
+   // The worker pool a World installs for its calls (parallel.h), so the
+   // standalone packing/asset phases below run as they do inside a World.
+   const std::shared_ptr<WorkerPool> pool = AcquireWorkerPool();
+   PoolScope scope(pool);
 
    // --- Packing of block (0, 0), as World::PackBlock does it.
    {
