@@ -508,6 +508,14 @@ private:
    double fracX_ = 0.0, fracY_ = 0.0;
    double axisX_ = 0.0, axisY_ = 0.0;
    std::vector<float> illum_, dD_, wp_;
+   // dD_ takes few distinct values (the illumination pattern's levels):
+   // dDLevels_ lists them and dDLevel_[i] indexes dD_[i]'s (empty when there
+   // are more than kMaxDoseLevels), so FreshBleachWeights evaluates the
+   // bleaching integral once per level instead of once per column.
+   std::vector<float> dDLevels_;
+   std::vector<uint16_t> dDLevel_;
+   static constexpr size_t kMaxDoseLevels = 256;
+   void IndexFrameDoses();
    // FFT sizes (levels: n / 1, 2, 4), kernel radius.
    unsigned nx_ = 0, ny_ = 0;
    int R_ = 0;

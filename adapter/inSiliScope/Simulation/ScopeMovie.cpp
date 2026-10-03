@@ -534,38 +534,84 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
    info.description = desc;
 
    NoiseSetup noise(S.seed, W, H, p);
-   std::vector<float> photons, wb;
-   std::vector<uint16_t> adu;
    const std::vector<BlinkEvent> none;
-   TimingSum tBg, tWeights, tRender, tNoise, tWrite;
+   TimingSum tWeights, tRender, tWrite, tAnchor;
    const unsigned long spawns0 = ParallelForSpawns().load();
-   for (long f = 0; f < N; f++)
+   // Frames are independent given their bleach coefficients (counter-based
+   // noise), so they render in parallel batches; a frame whose weights no
+   // longer fit the anchored basis is rendered alone through RenderFrame,
+   // which re-anchors exactly as the serial loop did, and the next batch
+   // starts after it. Without bleaching dyes the weights are never read
+   // (BleachCoefficients returns at once), so one vector serves every frame.
+   const bool noBleaching = m.scene.BleachingDyes() == 0;
+   std::vector<float> wb0;
+   m.scene.FreshBleachWeights(m.framesBefore0, wb0);
+#if defined(__EMSCRIPTEN__)
+   const long batch = 1; // serial anyway: one frame of buffers
+#else
+   const long batch = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+#endif
+   std::vector<std::vector<float>> photons(static_cast<size_t>(std::min(batch, std::max(N, 1L))));
+   std::vector<std::vector<uint16_t>> adu(photons.size());
+   std::vector<std::vector<double>> coef(photons.size());
+   std::vector<float> wb;
+   const double zStage = O("z");
+   bool more = true;
+   for (long f = 0; f < N && more;)
    {
-      tBg.Start();
-      RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                        0.0, 0.0, nullptr, O("z"));
-      tBg.Stop();
+      // Frames f .. f+nb-1 fit the current basis; `misfit` says f+nb does not.
+      long nb = 0;
+      bool misfit = false;
       tWeights.Start();
-      m.scene.FreshBleachWeights(m.framesBefore0 + f, wb);
+      while (nb < batch && f + nb < N)
+      {
+         const std::vector<float>* use = &wb0;
+         if (!noBleaching)
+         {
+            m.scene.FreshBleachWeights(m.framesBefore0 + (f + nb), wb);
+            use = &wb;
+         }
+         if (!m.scene.BleachCoefficients(*use, coef[static_cast<size_t>(nb)]))
+         {
+            misfit = true;
+            break;
+         }
+         ++nb;
+      }
       tWeights.Stop();
       tRender.Start();
-      m.scene.RenderFrame(wb, photons);
+      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+         const long fr = f + static_cast<long>(k);
+         RenderPhotonImage(photons[k], W, H, none, fr, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
+         m.scene.RenderCoefficients(coef[k], photons[k]);
+         ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                         noise.noiseSeed, static_cast<uint32_t>(fr));
+      });
       tRender.Stop();
-      tNoise.Start();
-      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                      static_cast<uint32_t>(f));
-      tNoise.Stop();
       tWrite.Start();
-      const bool more = onFrame(f, adu);
+      for (long k = 0; k < nb && more; k++)
+         more = onFrame(f + k, adu[static_cast<size_t>(k)]);
       tWrite.Stop();
-      if (!more)
-         break;
+      f += nb;
+      if (misfit && more && f < N)
+      {
+         // The frame that did not fit: re-anchor the basis on it (RenderFrame).
+         tAnchor.Start();
+         RenderPhotonImage(photons[0], W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
+         m.scene.RenderFrame(wb, photons[0]);
+         ApplyNoiseChain(photons[0], adu[0], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                         noise.noiseSeed, static_cast<uint32_t>(f));
+         tAnchor.Stop();
+         more = onFrame(f, adu[0]);
+         f++;
+      }
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
-   tBg.Log("wf.frame.background");
    tWeights.Log("wf.frame.bleach-weights");
-   tRender.Log("wf.frame.render");
-   tNoise.Log("wf.frame.noise");
+   tRender.Log("wf.frame.render+noise (batches)");
+   tAnchor.Log("wf.frame.re-anchor");
    tWrite.Log("wf.frame.onFrame");
    if (TimingEnabled())
    {

@@ -771,7 +771,10 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    }
    const bool weightsChanged = fftChanged || rectChanged || wp != wp_ || dD != dD_;
    illum_.swap(ill);
+   const bool doseChanged = dD != dD_;
    dD_.swap(dD);
+   if (doseChanged || dDLevel_.size() != dD_.size())
+      IndexFrameDoses();
    if (weightsChanged)
    {
       wp_.swap(wp);
@@ -1410,10 +1413,37 @@ bool WidefieldScene::SetImages(std::vector<std::vector<float>>& imgs)
 
 // ---- Bleaching -----------------------------------------------------------------
 
+void WidefieldScene::IndexFrameDoses()
+{
+   dDLevels_.clear();
+   dDLevel_.clear();
+   std::vector<float> levels(dD_.begin(), dD_.end());
+   std::sort(levels.begin(), levels.end());
+   levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
+   if (levels.size() > kMaxDoseLevels)
+      return;
+   dDLevels_ = levels;
+   dDLevel_.resize(dD_.size());
+   for (size_t i = 0; i < dD_.size(); ++i)
+      dDLevel_[i] = static_cast<uint16_t>(std::lower_bound(levels.begin(), levels.end(), dD_[i]) - levels.begin());
+}
+
 void WidefieldScene::FreshBleachWeights(double framesBefore, std::vector<float>& wb) const
 {
    wb.resize(dD_.size());
    const double B = spec_.phot.photonBudget;
+   if (dDLevel_.size() == dD_.size() && !dDLevels_.empty())
+   {
+      // The same expression per column as below, evaluated once per distinct
+      // dose (dDLevels_[dDLevel_[i]] == dD_[i] exactly).
+      std::vector<float> perLevel(dDLevels_.size());
+      for (size_t l = 0; l < dDLevels_.size(); ++l)
+         perLevel[l] = static_cast<float>(
+            WidefieldBleachingPhotons(spec_.eta, B, framesBefore * dDLevels_[l], dDLevels_[l]));
+      for (size_t i = 0; i < dD_.size(); ++i)
+         wb[i] = perLevel[dDLevel_[i]];
+      return;
+   }
    for (size_t i = 0; i < dD_.size(); ++i)
       wb[i] = static_cast<float>(WidefieldBleachingPhotons(spec_.eta, B, framesBefore * dD_[i], dD_[i]));
 }
