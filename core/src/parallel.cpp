@@ -147,7 +147,7 @@ PoolScope::~PoolScope() { t_pool = prev_; }
 class WorkerPool {};
 std::shared_ptr<WorkerPool> AcquireWorkerPool() { return nullptr; }
 PoolScope::PoolScope(const std::shared_ptr<WorkerPool>&) : prev_(nullptr) {}
-PoolScope::~PoolScope() {}
+PoolScope::~PoolScope() { (void)prev_; }
 
 #endif
 

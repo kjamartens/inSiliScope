@@ -43,20 +43,30 @@ double CellReachUm(const Params& p)
    return 2 * worstSemiMajor * CELL_MOD_MAX * (p.cellRough > 0 && p.cellBlob > 0 ? 1 + TAIL_MAX : 1) + p.chunkSize;
 }
 
-// A cell's geometry and microtubules (a pure function of seed, cell, params).
-std::unique_ptr<CellAssets> BuildCellAssets(uint32_t seed, const Cell& c, const Params& p)
+// The microtubules of a cell's assets (and their reach), on demand.
+void EnsureMts(uint32_t seed, CellAssets& a, const Params& p)
+{
+   if (a.mtsBuilt) return;
+   a.mts = BuildMicrotubulesForCell(seed, a.cell, p, a.geom);
+   a.mtReach.resize(a.mts.size());
+   a.frames.resize(a.mts.size());
+   a.mids.clear();
+   for (size_t i = 0; i < a.mts.size(); i++) {
+      double r = 0;
+      for (const Pt3& q : a.mts[i].pts) r = std::max(r, jsm::hypot(q.x, q.y));
+      a.mtReach[i] = r;
+   }
+   a.mtsBuilt = true;
+}
+
+// A cell's geometry and (withMts) microtubules: a pure function of seed,
+// cell, params.
+std::unique_ptr<CellAssets> BuildCellAssets(uint32_t seed, const Cell& c, const Params& p, bool withMts)
 {
    std::unique_ptr<CellAssets> a(new CellAssets());
    a->cell = c;
    a->geom = BuildMtCellGeom(c, p);
-   a->mts = BuildMicrotubulesForCell(seed, c, p, a->geom);
-   a->mtReach.resize(a->mts.size());
-   a->frames.resize(a->mts.size());
-   for (size_t i = 0; i < a->mts.size(); i++) {
-      double r = 0;
-      for (const Pt3& q : a->mts[i].pts) r = std::max(r, jsm::hypot(q.x, q.y));
-      a->mtReach[i] = r;
-   }
+   if (withMts) EnsureMts(seed, *a, p);
    return a;
 }
 
@@ -195,14 +205,16 @@ void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vect
    packPrebuilt_.clear();
 }
 
-CellAssets& World::Assets(const Cell& c)
+CellAssets& World::Assets(const Cell& c, bool withMts)
 {
    PoolScope scope(pool_);
    const auto key = std::make_pair(c.cx, c.cy);
    for (auto it = assets_.begin(); it != assets_.end(); ++it) {
       if (it->first != key) continue;
       if (it != assets_.begin()) assets_.splice(assets_.begin(), assets_, it);
-      return *assets_.front().second;
+      CellAssets& a = *assets_.front().second;
+      if (withMts) EnsureMts(seed_, a, p_);
+      return a;
    }
    std::unique_ptr<CellAssets> a;
    auto pre = assetPrebuilt_.find(key);
@@ -210,8 +222,9 @@ CellAssets& World::Assets(const Cell& c)
       a = std::move(pre->second);
       assetPrebuilt_.erase(pre);
    } else {
-      a = BuildCellAssets(seed_, c, p_);
+      a = BuildCellAssets(seed_, c, p_, withMts);
    }
+   if (withMts) EnsureMts(seed_, *a, p_);
    stats_.cellsBuilt++;
    assets_.emplace_front(key, std::move(a));
    while (assets_.size() > assetCap_) assets_.pop_back();
@@ -221,21 +234,30 @@ CellAssets& World::Assets(const Cell& c)
 void World::PrebuildAssets(const std::vector<const Cell*>& cells)
 {
    std::vector<const Cell*> missing;
+   std::vector<CellAssets*> partial;   // cached from a mesh-only request: microtubules still to build
    for (const Cell* cp : cells) {
       const Cell& c = *cp;
       const auto key = std::make_pair(c.cx, c.cy);
       bool known = assetPrebuilt_.count(key) > 0;
-      for (auto it = assets_.begin(); !known && it != assets_.end(); ++it) known = it->first == key;
+      CellAssets* have = nullptr;
+      for (auto it = assets_.begin(); !known && it != assets_.end(); ++it)
+         if (it->first == key) { known = true; have = it->second.get(); }
       if (!known) {
          missing.push_back(cp);
          assetPrebuilt_[key] = nullptr;
+      } else if (have && !have->mtsBuilt) {
+         partial.push_back(have);
       }
    }
    assetPrebuilt_.clear();
    // Few cells: each cell's microtubules run in parallel instead (see CellsInRect).
-   if (missing.size() > 1 && (int)missing.size() >= WorldThreads() / 2) {
+   const size_t work = missing.size() + partial.size();
+   if (work > 1 && (int)work >= WorldThreads() / 2) {
       std::vector<std::unique_ptr<CellAssets>> built(missing.size());
-      ParallelFor(missing.size(), 1, [&](size_t i) { built[i] = BuildCellAssets(seed_, *missing[i], p_); });
+      ParallelFor(work, 1, [&](size_t i) {
+         if (i < missing.size()) built[i] = BuildCellAssets(seed_, *missing[i], p_, true);
+         else EnsureMts(seed_, *partial[i - missing.size()], p_);
+      });
       for (size_t i = 0; i < missing.size(); i++)
          assetPrebuilt_[std::make_pair(missing[i]->cx, missing[i]->cy)] = std::move(built[i]);
    }
@@ -509,6 +531,43 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
    for (const Cell& c : PackedBlock(FloorDiv(cx, PACK_BLOCK_CHUNKS), FloorDiv(cy, PACK_BLOCK_CHUNKS)))
       if (c.cx == cx && c.cy == cy) { out = c; return true; }
    return false;
+}
+
+const std::vector<Cell>& World::BlockCells(int32_t bx, int32_t by)
+{
+   PoolScope scope(pool_);
+   return PackedBlock(bx, by);
+}
+
+bool World::SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped)
+{
+   skipped = false;
+   const auto key = std::make_pair(bx, by);
+   if (blocks_.count(key)) { skipped = true; return true; }
+   if (n < 0 || stride < 5 || (n > 0 && !rows)) return false;
+   // Relax moves x, y, packRot and Prune drops cells: everything else of a
+   // packed cell is RawCandidate's, recomputed here from the address.
+   std::vector<Cell> cells;
+   cells.reserve((size_t)n);
+   int32_t prevCx = 0, prevCy = 0;
+   for (int32_t i = 0; i < n; i++) {
+      const double* r = rows + (size_t)i * stride;
+      const double dcx = r[0], dcy = r[1];
+      if (!(std::fabs(dcx) < 1e9) || !(std::fabs(dcy) < 1e9) || dcx != std::floor(dcx) || dcy != std::floor(dcy)) return false;
+      const int32_t cx = (int32_t)dcx, cy = (int32_t)dcy;
+      if (FloorDiv(cx, PACK_BLOCK_CHUNKS) != bx || FloorDiv(cy, PACK_BLOCK_CHUNKS) != by) return false;
+      if (i > 0 && !(cx > prevCx || (cx == prevCx && cy > prevCy))) return false;
+      if (!std::isfinite(r[2]) || !std::isfinite(r[3]) || !std::isfinite(r[4])) return false;
+      prevCx = cx; prevCy = cy;
+      Cell c = RawCandidate(seed_, cx, cy, p_);
+      if (!c.present) return false;
+      c.x = r[2]; c.y = r[3]; c.packRot = r[4];
+      cells.push_back(c);
+   }
+   if (blocks_.size() >= BLOCK_CACHE_MAX) blocks_.clear();
+   blocks_.emplace(key, std::move(cells));
+   stats_.blocksInjected++;
+   return true;
 }
 
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,

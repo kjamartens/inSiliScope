@@ -10,7 +10,9 @@
  * non-bleaching (persistent) sites. ABI 4: isc_world_set_dye_cache, isc_world_prefetch.
  * ABI 5: isc_density3d_in_window (z-resolved, per population; WideField).
  * ABI 6: isc_optical_volume_in_window (cytoplasm/nucleus/microtubule volume
- * fractions per voxel; BrightField).
+ * fractions per voxel; BrightField). ABI 7: isc_world_pack_block /
+ * isc_world_set_block (hand a packed block from one world to another, so
+ * several worlds of one seed -- the viewer's workers -- pack each block once).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -31,7 +33,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 6
+#define ISC_ABI_VERSION 7
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -86,6 +88,22 @@ ISC_API int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes);
 #define ISC_CELL_STRIDE 14
 ISC_API int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double* out, int32_t cap);
+
+/* ABI 7. The packed cells of one 8x8-chunk block (bx, by) -- the chunks
+ * [8 bx, 8 bx + 7] x [8 by, 8 by + 7] -- as ISC_CELL_STRIDE rows (the layout
+ * of isc_cells_in_window), in the block's order; packs it if needed. Same
+ * cap/return convention, -1 on bad arguments. */
+ISC_API int32_t isc_world_pack_block(IscWorld* w, int32_t bx, int32_t by, double* out, int32_t cap);
+
+/* ABI 7. Installs the packed cells of block (bx, by) as another world of the
+ * same seed and parameters packed them (rows as isc_world_pack_block writes
+ * them; only cx, cy, x, y and packRot are read, each cell's shape is
+ * recomputed from its address), so this world does not pack that block.
+ * Returns 1 when installed, 0 when the block was cached already (nothing
+ * changes), -1 when a row is not a present cell of that block or the rows
+ * are out of order (nothing changes). A cache only: every answer stays a
+ * pure function of (seed, params, window). */
+ISC_API int32_t isc_world_set_block(IscWorld* w, int32_t bx, int32_t by, const double* rows, int32_t n);
 
 /* Labelled dyes in the window, ISC_SITE_STRIDE doubles each: x, y, z, id (a
  * per-dye uint32 hash, stable across windows; the seed of its blink

@@ -39,6 +39,9 @@ constexpr int PACK_BLOCK_CHUNKS = 8;
 struct CellAssets {
    Cell cell;                                // shape + packed pose
    MtCellGeom geom;                          // direction table, area, cytoplasm mesh
+   // The microtubules (and what hangs off them) are built on demand: the
+   // viewer's cytoplasm-mesh request does not need them (World::Assets).
+   bool mtsBuilt = false;
    std::vector<Microtubule> mts;
    std::vector<double> mtReach;              // per MT: max distance of a point from the cell centre (um)
    std::vector<std::unique_ptr<MtFrames>> frames;   // built lazily, per MT
@@ -75,6 +78,7 @@ struct PersistentEvent {
 
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
+   long blocksInjected = 0;     // packed blocks taken from another world (SetPackedBlock)
    long dyeBlocks = 0;          // 1 um dye blocks generated (cache misses)
    long dyeBlockHits = 0;       // served from the cache
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
@@ -128,6 +132,17 @@ public:
    // The packed cell of chunk (cx, cy); false if that chunk holds none.
    bool FindCell(int32_t cx, int32_t cy, Cell& out);
 
+   // The packed cells of 8x8-chunk block (bx, by), in the block's order
+   // (packed now if not cached).
+   const std::vector<Cell>& BlockCells(int32_t bx, int32_t by);
+   // Installs block (bx, by) from rows another world of the same seed and
+   // params packed (`stride` doubles each: cx, cy, x, y, packRot first, as
+   // the C ABI's cell rows); each cell's shape is recomputed from its
+   // address. skipped = the block was cached already (nothing changes).
+   // False (nothing changes) if a row is not a present cell of the block or
+   // the rows are out of the block's (cx, then cy) order. Caches only.
+   bool SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped);
+
    // Labelled-dye counts on an nx x ny grid over the rect (row-major, y
    // outer); returns the total.
    long DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
@@ -153,7 +168,9 @@ public:
    long OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                               int nx, int ny, int nz, int sub, float* out);
 
-   CellAssets& Assets(const Cell& c);
+   // The cell's assets; withMts = false may leave the microtubules unbuilt
+   // (the cytoplasm mesh alone, for the viewer).
+   CellAssets& Assets(const Cell& c, bool withMts = true);
    void DropCaches();
    const WorldStats& Stats() const { return stats_; }
 

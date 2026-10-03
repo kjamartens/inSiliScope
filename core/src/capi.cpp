@@ -82,6 +82,14 @@ bool BadRect(double x0, double y0, double x1, double y1)
 {
    return !(x1 > x0) || !(y1 > y0) || !std::isfinite(x0) || !std::isfinite(x1) || !std::isfinite(y0) || !std::isfinite(y1);
 }
+
+// One ISC_CELL_STRIDE row.
+void WriteCellRow(const isc::Cell& c, double* o)
+{
+   o[0] = c.cx; o[1] = c.cy; o[2] = c.x; o[3] = c.y; o[4] = c.packRot; o[5] = c.rOuter;
+   o[6] = c.height; o[7] = c.nucOffX; o[8] = c.nucOffY; o[9] = c.nucRot;
+   o[10] = c.nucLong; o[11] = c.nucShort; o[12] = c.nucHeight; o[13] = c.nucZ;
+}
 } // namespace
 
 int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out, int32_t cap)
@@ -90,14 +98,34 @@ int32_t isc_cells_in_window(IscWorld* w, double x0, double y0, double x1, double
    try {
       std::vector<isc::Cell> cells;
       w->w.CellsInRect(x0, y0, x1, y1, cells);
-      for (size_t i = 0; i < cells.size() && (int32_t)i < cap; i++) {
-         const isc::Cell& c = cells[i];
-         double* o = out + i * ISC_CELL_STRIDE;
-         o[0] = c.cx; o[1] = c.cy; o[2] = c.x; o[3] = c.y; o[4] = c.packRot; o[5] = c.rOuter;
-         o[6] = c.height; o[7] = c.nucOffX; o[8] = c.nucOffY; o[9] = c.nucRot;
-         o[10] = c.nucLong; o[11] = c.nucShort; o[12] = c.nucHeight; o[13] = c.nucZ;
-      }
+      for (size_t i = 0; i < cells.size() && (int32_t)i < cap; i++)
+         WriteCellRow(cells[i], out + i * ISC_CELL_STRIDE);
       return (int32_t)cells.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_world_pack_block(IscWorld* w, int32_t bx, int32_t by, double* out, int32_t cap)
+{
+   if (!w || (cap > 0 && !out)) return -1;
+   try {
+      const std::vector<isc::Cell>& cells = w->w.BlockCells(bx, by);
+      for (size_t i = 0; i < cells.size() && (int32_t)i < cap; i++)
+         WriteCellRow(cells[i], out + i * ISC_CELL_STRIDE);
+      return (int32_t)cells.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_world_set_block(IscWorld* w, int32_t bx, int32_t by, const double* rows, int32_t n)
+{
+   if (!w || n < 0 || (n > 0 && !rows)) return -1;
+   try {
+      bool skipped = false;
+      if (!w->w.SetPackedBlock(bx, by, rows, n, ISC_CELL_STRIDE, skipped)) return -1;
+      return skipped ? 0 : 1;
    } catch (...) {
       return -1;
    }
@@ -194,7 +222,7 @@ int32_t isc_cell_mesh(IscWorld* w, int32_t cx, int32_t cy, int32_t dims[2], doub
    try {
       isc::Cell c;
       if (!w->w.FindCell(cx, cy, c)) return -1;
-      const isc::CytoMesh& m = w->w.Assets(c).geom.mesh;
+      const isc::CytoMesh& m = w->w.Assets(c, false).geom.mesh;   // the mesh alone: no microtubules
       dims[0] = m.rings; dims[1] = m.n;
       const size_t nv = m.h.size();
       for (size_t v = 0; v < nv && (int32_t)v < capVerts; v++) {

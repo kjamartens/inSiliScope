@@ -946,6 +946,116 @@ void EdgeAndHeight()
    Check(!lapRaw.empty() && a < 0.5 * b, msg);
 }
 
+// ABI 7: a world that takes another world's packed blocks (as the viewer's
+// workers take the pack worker's) answers exactly as that world, packs nothing
+// for them, and rejects rows that are not its own cells.
+void BlockInjection()
+{
+   Params p;
+   World a(1249, p), b(1249, p), c(1249, p), other(7, p);
+   const double x0 = -30, y0 = -30, x1 = 30, y1 = 30;
+   std::vector<Cell> ca, cb;
+   a.CellsInRect(x0, y0, x1, y1, ca);
+   // Every block a 60 um rect can touch (reach ~100 um): [-2, 1]^2.
+   int installed = 0, skipped = 0, rejected = 0;
+   for (int32_t bx = -2; bx <= 1; bx++)
+      for (int32_t by = -2; by <= 1; by++) {
+         const std::vector<Cell>& cells = a.BlockCells(bx, by);
+         std::vector<double> rows(cells.size() * 5);
+         for (size_t i = 0; i < cells.size(); i++) {
+            rows[5 * i] = cells[i].cx; rows[5 * i + 1] = cells[i].cy;
+            rows[5 * i + 2] = cells[i].x; rows[5 * i + 3] = cells[i].y; rows[5 * i + 4] = cells[i].packRot;
+         }
+         bool sk = false;
+         if (b.SetPackedBlock(bx, by, rows.data(), (int32_t)cells.size(), 5, sk)) installed += sk ? 0 : 1, skipped += sk ? 1 : 0;
+         else rejected++;
+         // The same rows from the other seed's point of view: not its cells.
+         const std::vector<Cell>& oc = other.BlockCells(bx, by);
+         std::vector<double> orows(oc.size() * 5);
+         for (size_t i = 0; i < oc.size(); i++) {
+            orows[5 * i] = oc[i].cx; orows[5 * i + 1] = oc[i].cy; orows[5 * i + 2] = oc[i].x;
+            orows[5 * i + 3] = oc[i].y; orows[5 * i + 4] = oc[i].packRot;
+         }
+         if (!oc.empty() && c.SetPackedBlock(bx, by, orows.data(), (int32_t)oc.size(), 5, sk)) installed = -1000;
+      }
+   Check(installed == 16 && skipped == 0 && rejected == 0, "block injection: 16 blocks installed, none rejected");
+   b.CellsInRect(x0, y0, x1, y1, cb);
+   bool same = ca.size() == cb.size();
+   for (size_t i = 0; same && i < ca.size(); i++) {
+      const Cell &u = ca[i], &v = cb[i];
+      same = u.cx == v.cx && u.cy == v.cy && u.x == v.x && u.y == v.y && u.packRot == v.packRot && u.rOuter == v.rOuter &&
+             u.semiMajor == v.semiMajor && u.semiMinor == v.semiMinor && u.modFloor == v.modFloor && u.height == v.height &&
+             u.nucOffX == v.nucOffX && u.nucOffY == v.nucOffY && u.nucRot == v.nucRot && u.nucZ == v.nucZ &&
+             u.cytoMidHeight == v.cytoMidHeight && u.priority == v.priority && u.tailBound == v.tailBound;
+   }
+   Check(same && !ca.empty(), "block injection: the same cells (every field) as the world that packed them");
+   Check(b.Stats().blocksPacked == 0 && b.Stats().blocksInjected == 16, "block injection: nothing packed by the taker");
+   if (!ca.empty()) {
+      CellAssets& A = a.Assets(ca[0]);
+      CellAssets& B = b.Assets(cb[0], false);   // mesh only ...
+      Check(A.geom.mesh.h == B.geom.mesh.h && !B.mtsBuilt, "block injection: the same cytoplasm mesh; mesh-only assets have no microtubules yet");
+      CellAssets& B2 = b.Assets(cb[0]);   // ... then the microtubules on demand
+      bool sameMt = B2.mtsBuilt && A.mts.size() == B2.mts.size();
+      for (size_t i = 0; sameMt && i < A.mts.size(); i++) {
+         sameMt = A.mts[i].pts.size() == B2.mts[i].pts.size();
+         for (size_t q = 0; sameMt && q < A.mts[i].pts.size(); q++)
+            sameMt = A.mts[i].pts[q].x == B2.mts[i].pts[q].x && A.mts[i].pts[q].z == B2.mts[i].pts[q].z;
+      }
+      Check(sameMt, "block injection: the same microtubules, built on demand after the mesh");
+   }
+   std::vector<WorldDye> da, db;
+   a.SitesInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, da);
+   b.SitesInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, db);
+   Check(!da.empty() && SameDyes(da, db), "block injection: the same dyes");
+   Kinetics k;
+   a.SetKinetics(k);
+   b.SetKinetics(k);
+   std::vector<WorldEvent> ea, eb;
+   a.EventsInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, 0, 3, ea);
+   b.EventsInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, 0, 3, eb);
+   bool sameEv = ea.size() == eb.size();
+   for (size_t i = 0; sameEv && i < ea.size(); i++)
+      sameEv = ea[i].x == eb[i].x && ea[i].tOn == eb[i].tOn && ea[i].brightness == eb[i].brightness && ea[i].id == eb[i].id;
+   Check(!ea.empty() && sameEv, "block injection: the same events in the same order");
+   bool sk = false;
+   const std::vector<Cell>& again = a.BlockCells(0, 0);
+   std::vector<double> rows(again.size() * 5, 0.0);
+   for (size_t i = 0; i < again.size(); i++) { rows[5 * i] = again[i].cx; rows[5 * i + 1] = again[i].cy; }
+   Check(b.SetPackedBlock(0, 0, rows.data(), (int32_t)again.size(), 5, sk) && sk, "block injection: a cached block is skipped");
+   Check(c.Stats().blocksInjected == 0, "block injection: another seed's rows are rejected, nothing installed");
+   std::vector<Cell> cc;
+   c.CellsInRect(x0, y0, x1, y1, cc);
+   Check(cc.size() == ca.size() && c.Stats().blocksPacked > 0, "block injection: the rejecting world still packs its own");
+   b.DropCaches();
+   cb.clear();
+   b.CellsInRect(x0, y0, x1, y1, cb);
+   Check(cb.size() == ca.size() && cb[0].x == ca[0].x && b.Stats().blocksPacked > 0,
+         "block injection: after dropping the caches the taker packs the same cells itself");
+
+   // Through the C ABI.
+   IscParams* ip = isc_params_new();
+   IscWorld* wa = isc_world_new(1249, ip);
+   IscWorld* wb = isc_world_new(1249, ip);
+   bool abiOk = true;
+   for (int32_t bx = -2; bx <= 1 && abiOk; bx++)
+      for (int32_t by = -2; by <= 1 && abiOk; by++) {
+         const int32_t n = isc_world_pack_block(wa, bx, by, nullptr, 0);
+         std::vector<double> buf((size_t)std::max(0, n) * ISC_CELL_STRIDE);
+         abiOk = n >= 0 && isc_world_pack_block(wa, bx, by, buf.data(), n) == n && isc_world_set_block(wb, bx, by, buf.data(), n) == 1 &&
+                 isc_world_set_block(wb, bx, by, buf.data(), n) == 0;
+      }
+   const int32_t na = isc_cells_in_window(wa, x0, y0, x1, y1, nullptr, 0), nb = isc_cells_in_window(wb, x0, y0, x1, y1, nullptr, 0);
+   std::vector<double> ra((size_t)std::max(0, na) * ISC_CELL_STRIDE), rb((size_t)std::max(0, nb) * ISC_CELL_STRIDE);
+   isc_cells_in_window(wa, x0, y0, x1, y1, ra.data(), na);
+   isc_cells_in_window(wb, x0, y0, x1, y1, rb.data(), nb);
+   Check(abiOk && na > 0 && na == nb && std::memcmp(ra.data(), rb.data(), ra.size() * sizeof(double)) == 0,
+         "C ABI: isc_world_pack_block -> isc_world_set_block reproduces isc_cells_in_window");
+   Check(isc_world_set_block(wb, 5, 5, ra.data(), 1) == -1, "C ABI: a row outside the block is rejected");
+   isc_world_free(wa);
+   isc_world_free(wb);
+   isc_params_free(ip);
+}
+
 int main()
 {
    Determinism();
@@ -957,6 +1067,7 @@ int main()
    CacheUnderLoad();
    Threads();
    CApi();
+   BlockInjection();
    Density3d();
    OpticalVolume();
    EdgeAndHeight();
