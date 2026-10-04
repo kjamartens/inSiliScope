@@ -193,6 +193,10 @@ enum CellFieldNumber
 };
 extern const char* g_PropCellFieldNumber[CF_COUNT];
 extern const char* g_PropCellFieldPacking;
+extern const char* g_PropDiskCache;
+extern const char* g_DiskCacheOff;
+extern const char* g_DiskCacheCells;
+extern const char* g_DiskCacheCellsAndPsf;
 
 // Imaging modality (General_ImagingModality): SuperRes renders the dyes'
 // blinks, WideField every labelled dye at once (Simulation/WidefieldRender.h;
@@ -375,6 +379,7 @@ public:
    int OnPsfMaskWaist(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCellFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDiskCache(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnWideFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -520,6 +525,7 @@ private:
 
    // ---- live mode -----------------------------------------------------------
    void StartLiveProducer();
+   void StartPsfPreload();
    void StopLiveProducer();
    void LiveProducerLoop();
 
@@ -565,6 +571,10 @@ private:
    bool stackLoop_ = true;
    bool endOfStackReached_ = false;
    std::thread stackGenThread_;
+   // The PSF kernel of the current PSFParam_ values, computed (or read from
+   // the disk cache) in the background from Initialize() on, so the first
+   // frame finds it in ComputePsfKernelCache's memo (StartPsfPreload).
+   std::thread psfPreloadThread_;
 
    // Live-mode: always-running background producer thread + swap buffer,
    // decoupled from MM's Snap/Live/sequence pull cadence.
@@ -766,6 +776,8 @@ private:
    // above the coverslip).
    std::atomic<double> cellField_[CF_COUNT];
    bool cellFieldPacking_ = true;
+   // General_DiskCache: 0 Off, 1 Cells (packed blocks on disk), 2 CellsAndPsf.
+   std::atomic<int> diskCacheMode_{1};
 
    // Imaging modality (General_ImagingModality: 0 SuperRes, 1 WideField,
    // 2 BrightField) and the WideField / BrightField numbers, indexed by

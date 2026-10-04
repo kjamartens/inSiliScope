@@ -7,6 +7,7 @@ else()
 endif()
 
 add_library(insiliscope_core STATIC
+  src/blockstore.cpp
   src/capi.cpp
   src/cells.cpp
   src/cytomesh.cpp
@@ -34,12 +35,19 @@ if(MSVC)
 else()
   target_compile_options(insiliscope_core PUBLIC -ffp-contract=off -fno-fast-math -Wall)
 endif()
+if(EMSCRIPTEN)
+  # WASM SIMD for the core too (the render code had it): f64x2 lanes are
+  # IEEE-exact and nothing reassociates without fast-math, so the same bits
+  # (ctest golden_vectors under Node). Needs a SIMD-capable browser (every
+  # current one; Safari since 16.4), as the viewer module already did.
+  target_compile_options(insiliscope_core PRIVATE -msimd128)
+endif()
 
 # WASM module: only the C ABI, for the viewer / webSMLM (and M0 size numbers).
 if(EMSCRIPTEN)
   add_executable(insiliscope_wasm src/wasm_entry.cpp)
   target_link_libraries(insiliscope_wasm PRIVATE insiliscope_core)
-  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_kinetics,_isc_events_in_window,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_malloc,_free")
+  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_kinetics,_isc_events_in_window,_isc_world_pack_block,_isc_world_set_block,_isc_world_set_cache_dir,_isc_world_flush_cache,_isc_world_version,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_malloc,_free")
   set(ISC_EXPORTS "${ISC_EXPORTS}" PARENT_SCOPE)   # cli/ links the viewer module with the same list
   target_link_options(insiliscope_wasm PRIVATE
     -O3

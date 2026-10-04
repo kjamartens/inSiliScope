@@ -80,13 +80,14 @@ console.log(`${'metric'.padEnd(w0)}  ${'working'.padStart(10)}  ${(sb ? baseRef 
 for (const r of rows) console.log(`${r.name.padEnd(w0)}  ${r.a.padStart(10)}  ${r.b.padStart(12)}  ${r.d}`);
 // Imaging smoke test of the JS reference (web/prototype/scope): SR, WideField and BrightField movies run, finite, not flat.
 // (Equality with the C++ is tests/parity/scope_parity.mjs, run in the port.)
+const imagingP = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js')); // one world for the three
 for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 frames=2 modality=WideField psf-kernel-half-width-nm=1500',
   'size=32 frames=2 modality=BrightField bf-quality=1']) {
   const c = workCells[0], t = performance.now();
   const full = `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} ${spec}`;
   let lo = Infinity, hi = -Infinity, nan = 0;
   try {
-    const info = renderScopeMovie(loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js')), full, (f, adu, photons) => {
+    const info = renderScopeMovie(imagingP, full, (f, adu, photons) => {
       for (let i = 0; i < adu.length; i++) { lo = Math.min(lo, adu[i]); hi = Math.max(hi, adu[i]); if (!Number.isFinite(photons[i])) nan++; }
     });
     if (nan) bad(`imaging ${spec}: ${nan} non-finite photon values`);

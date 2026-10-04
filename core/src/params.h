@@ -2,6 +2,8 @@
 // (index.html inputs, after params()'s own min/max normalisation).
 #pragma once
 
+#include <cstdint>
+
 namespace isc {
 
 struct Params {
@@ -65,5 +67,11 @@ void NormalizeParams(Params& p);
 
 // Set a field by its (JS prototype) name; booleans take 0/1. False if unknown.
 bool SetParam(Params& p, const char* name, double value);
+
+// A 64-bit hash of the fields a cell's packed pose depends on: everything
+// but the microtubule (mt*) and labelling (label*) parameters, which only
+// shape what hangs off a packed cell (the viewer's pack key makes the same
+// cut). Keys the packed-block store (blockstore.h).
+uint64_t PackingFingerprint(const Params& p);
 
 } // namespace isc

@@ -1,6 +1,7 @@
 #include "cytomesh.h"
 
 #include "jsmath.h"
+#include "parallel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -103,8 +104,12 @@ Pt2 NearestPointOnEllipse(double a, double b, double x, double y)
 
 double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0)
 {
+   return NucleusSignedDistLocal(c, lx0, ly0, jsm::cos(-c.nucRot), jsm::sin(-c.nucRot));
+}
+
+double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cr, double sr)
+{
    const double dx = lx0 - c.nucOffX, dy = ly0 - c.nucOffY;
-   const double cr = jsm::cos(-c.nucRot), sr = jsm::sin(-c.nucRot);
    const double lx = dx * cr - dy * sr, ly = dx * sr + dy * cr;
    const double a = c.nucLong / 2, b = c.nucShort / 2;
    const Pt2 e = NearestPointOnEllipse(a, b, lx, ly);
@@ -120,7 +125,8 @@ double CytoHeightAt(const Cell& c, const Params& p, double dEdge, double dNuc)
    const double inner = CytoDomeReach(c, p);
    double midDist = std::max(0.0, c.cytoMidDistFrac) * c.rOuter;
    if (slopeOn) midDist = std::max(midDist, 1.5 * std::max(0.0, c.cytoMidHeight - c.cytoRimHeight) / p.cytoMaxSlope);
-   const double hEdge = c.cytoRimHeight * (1 - jsm::exp(-dEdge / riseScale));
+   const double edgeRise = jsm::exp(-dEdge / riseScale);   // shared by hEdge and edgeCeiling below
+   const double hEdge = c.cytoRimHeight * (1 - edgeRise);
    double hEnv = 0;
    if (dNuc <= 0) hEnv = c.height;
    else if (dNuc < inner) hEnv = lerp(c.cytoMidHeight, c.height, Smoothstep(1 - dNuc / inner));
@@ -131,7 +137,7 @@ double CytoHeightAt(const Cell& c, const Params& p, double dEdge, double dNuc)
    hCyto = std::max(hEdge, hCyto);
    if (slopeOn) hCyto = std::min(hCyto, CytoSlopeCeiling(c, p, dEdge));
    const double h = std::min(c.height, std::max(hCyto, hEnv));
-   const double edgeCeiling = c.height * (1 - jsm::exp(-dEdge / riseScale));
+   const double edgeCeiling = c.height * (1 - edgeRise);
    return std::min(h, edgeCeiling);
 }
 
@@ -238,21 +244,24 @@ CytoHeightGrid BuildCytoHeightGrid(const Cell& c, const Params& p)
    const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
    const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2), nrz = c.nucHeight / 2;
    std::vector<double> ht(NN, 0.0), ob(NN, 0.0);
-   for (int j = 0; j < N; j++) {
+   // Every node is independent (reads the shared tables, writes its own
+   // ht/ob): rows in parallel, serial inside another ParallelFor.
+   ParallelFor((size_t)N, 8, [&](size_t jj) {
+      const int j = (int)jj;
       for (int i = 0; i < N; i++) {
          const size_t v = (size_t)j * N + i;
          if (!inside[v]) continue;
          const double x = (i - half) * g, y = (j - half) * g;
          const double dEdge = std::max(0.0, std::sqrt(d2[v]) * g - 0.5 * g);
          const double dc = jsm::hypot(x - c.nucOffX, y - c.nucOffY);
-         const double dNuc = dc < nucReach ? NucleusSignedDistLocal(c, x, y) : dc;
+         const double dNuc = dc < nucReach ? NucleusSignedDistLocal(c, x, y, ncr, nsr) : dc;
          ht[v] = CytoHeightAt(c, p, dEdge, dNuc);
          const double ex = x - c.nucOffX, ey = y - c.nucOffY;
          const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
          const double q = 1 - ux * ux - uy * uy;
          if (q > 0) ob[v] = c.nucZ + nrz * std::sqrt(q) + margin;
       }
-   }
+   });
    std::vector<double> h(NN, 0.0);
    const double ell = std::max(0.0, p.cytoRelaxUm);
    if (!(ell > 0)) {

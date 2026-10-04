@@ -200,7 +200,7 @@ function mtNucleusClearance(p) {
 // interpolate straight through it.
 function mtNucleusFootprintBlend(cell, x, y) {
   const dxN = x - cell.nucOffX, dyN = y - cell.nucOffY;
-  const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
+  const nt = nucTrig(cell), cr = nt.cn, sr = nt.sn; // index.html: the cell's nucleus frame, cached
   const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
   const a = cell.nucLong / 2, b = cell.nucShort / 2;
   const norm = Math.hypot(lx / Math.max(1e-6, a), ly / Math.max(1e-6, b));
@@ -239,9 +239,9 @@ function mtEnforceMinTurnRadius(pts, minRadius) {
   const n = pts.length;
   if (!(minRadius > 0) || n < 3) return;
   const endX = pts[n - 1].x, endY = pts[n - 1].y;
+  const segX = new Float64Array(n - 1), segY = new Float64Array(n - 1), segLen = new Float64Array(n - 1);
 
   for (let round = 0; round < 8; round++) {
-    const segX = new Array(n - 1), segY = new Array(n - 1), segLen = new Array(n - 1);
     for (let i = 1; i < n; i++) {
       segX[i - 1] = pts[i].x - pts[i - 1].x;
       segY[i - 1] = pts[i].y - pts[i - 1].y;
@@ -249,21 +249,26 @@ function mtEnforceMinTurnRadius(pts, minRadius) {
     }
 
     let changed = false;
+    // The previous segment's angle is the last iteration's curAng when that
+    // segment was neither skipped nor clamped (the same atan2 of the same
+    // values); after a clamp it is recomputed from the new segment.
+    let carried = NaN, haveCarried = false;
     for (let i = 1; i < segX.length; i++) {
       const prevLen = segLen[i - 1], curLen = segLen[i];
-      if (prevLen < 1e-9 || curLen < 1e-9) continue;
-      const prevAng = Math.atan2(segY[i - 1], segX[i - 1]);
+      if (prevLen < 1e-9 || curLen < 1e-9) { haveCarried = false; continue; }
+      const prevAng = haveCarried ? carried : Math.atan2(segY[i - 1], segX[i - 1]);
       const curAng = Math.atan2(segY[i], segX[i]);
       let dAng = curAng - prevAng;
       while (dAng > Math.PI) dAng -= 2 * Math.PI;
       while (dAng < -Math.PI) dAng += 2 * Math.PI;
       const avgLen = (prevLen + curLen) / 2;
       const cap = 2 * Math.asin(Math.min(1, avgLen / (2 * minRadius)));
-      if (Math.abs(dAng) <= cap) continue;
+      if (Math.abs(dAng) <= cap) { carried = curAng; haveCarried = true; continue; }
       const clampedAng = prevAng + Math.sign(dAng) * cap;
       segX[i] = Math.cos(clampedAng) * curLen;
       segY[i] = Math.sin(clampedAng) * curLen;
       changed = true;
+      haveCarried = false;
     }
 
     for (let i = 1; i < n; i++) {
@@ -534,9 +539,11 @@ function mtCountForCell(seed, cx, cy, cell, p, geom) {
 // knownInside: the caller has just checked this point against the outline
 // (the cut in buildMicrotubule); skip that check again unless the nucleus
 // push moves it (speed only).
-function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
+// hg (optional): the cell's relaxed height grid (getCytoGeometry(cell, p).mesh.hg),
+// when the caller has it -- sampleCytoMeshHeight looks it up per call.
+function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false, hg = null) {
   const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
-  const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
+  const nt = nucTrig(cell), cr = nt.cn, sr = nt.sn;
   const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
   const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
   const nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
@@ -550,7 +557,7 @@ function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
     const scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
     const lx2 = lx * scale, ly2 = ly * scale;
     pt.z = cell.nucZ + nz * rz * scale;
-    const cr2 = Math.cos(cell.nucRot), sr2 = Math.sin(cell.nucRot);
+    const cr2 = nt.cp, sr2 = nt.sp;
     pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
     pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
     knownInside = false;
@@ -569,7 +576,7 @@ function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
   // cytoHeightAt() alone would return, so clamping
   // against the raw function let a point sit above the surface actually
   // drawn (a real, reported "pokes out of the dome" bug).
-  const topH = Math.max(0, sampleCytoMeshHeight(cell, p, pt.x, pt.y));
+  const topH = Math.max(0, hg ? sampleCytoHeightGrid(hg, pt.x, pt.y) : sampleCytoMeshHeight(cell, p, pt.x, pt.y));
   if (pt.z < 0) pt.z = 0;
   else if (pt.z > topH) pt.z = topH * MT_CONTAIN_MARGIN;
 }
@@ -662,7 +669,8 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // artifact). Interpolating a FRACTION and re-deriving z from the LOCAL
   // ceiling at every point instead means z always rides whatever slope is
   // actually there, by construction.
-  const startTopH = Math.max(0, sampleCytoMeshHeight(cell, p, startX, startY));
+  const hg = getCytoGeometry(cell, p).mesh.hg; // sampleCytoMeshHeight's grid, looked up once per microtubule
+  const startTopH = Math.max(0, sampleCytoHeightGrid(hg, startX, startY));
   const fracStart = startTopH > 1e-9 ? Math.min(1, Math.max(0, startZ / startTopH)) : 0;
   const fracEnd = next(); // endZ = fracEnd * (local ceiling at endX,endY) -- see the per-point loop below
 
@@ -757,8 +765,8 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // as a cheap first line of defence that reduces how much work that pass
   // has to do.
   const stepTurnCap = p.mtMinTurnRadius > 0 ? 2 * Math.asin(Math.min(1, stepLen / (2 * p.mtMinTurnRadius))) : Math.PI;
-  let heading = straightLen > 1e-9 ? [dx / straightLen, dy / straightLen] : [1, 0];
-  const raw = [[0, 0]];
+  let hx = straightLen > 1e-9 ? dx / straightLen : 1, hy = straightLen > 1e-9 ? dy / straightLen : 0;
+  const rawX = new Float64Array(steps + 1), rawY = new Float64Array(steps + 1); // raw[0] = (0, 0)
   for (let i = 1; i <= steps; i++) {
     if (turnMag > 0) {
       const n1 = next() * 2 - 1;
@@ -766,10 +774,12 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
       if (turnAngle > stepTurnCap) turnAngle = stepTurnCap;
       else if (turnAngle < -stepTurnCap) turnAngle = -stepTurnCap;
       const cosT = Math.cos(turnAngle), sinT = Math.sin(turnAngle);
-      heading = [heading[0] * cosT - heading[1] * sinT, heading[0] * sinT + heading[1] * cosT];
+      const nhx = hx * cosT - hy * sinT;
+      hy = hx * sinT + hy * cosT;
+      hx = nhx;
     }
-    const prev = raw[i - 1];
-    raw.push([prev[0] + heading[0] * stepLen, prev[1] + heading[1] * stepLen]);
+    rawX[i] = rawX[i - 1] + hx * stepLen;
+    rawY[i] = rawY[i - 1] + hy * stepLen;
   }
 
   // Brownian-bridge-style correction: the free walk above generally does NOT
@@ -778,7 +788,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // low-frequency correction that pins both endpoints EXACTLY without
   // fighting the walk's own local wiggles/loops, the same "de-trend a free
   // random walk" construction a Brownian bridge uses.
-  const driftX = dx - raw[steps][0], driftY = dy - raw[steps][1];
+  const driftX = dx - rawX[steps], driftY = dy - rawY[steps];
 
   // Finalize xy BEFORE computing z (which needs to sample the ceiling/
   // nucleus footprint at the path's own ACTUAL, post-correction position,
@@ -788,7 +798,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const s = t * t * (3 - 2 * t); // smoothstep
-    ptsXY[i] = { x: startX + raw[i][0] + driftX * s, y: startY + raw[i][1] + driftY * s };
+    ptsXY[i] = { x: startX + rawX[i] + driftX * s, y: startY + rawY[i] + driftY * s };
   }
   mtEnforceMinTurnRadius(ptsXY, p.mtMinTurnRadius);
 
@@ -890,7 +900,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
     const t = i / steps;
     const s = t * t * (3 - 2 * t); // smoothstep
     const x = ptsXY[i].x, y = ptsXY[i].y;
-    const ceilH = Math.max(0, sampleCytoMeshHeight(cell, p, x, y));
+    const ceilH = Math.max(0, sampleCytoHeightGrid(hg, x, y));
     let z;
     if (i === 0) {
       // The START point is deliberately excluded from the override -- its z
@@ -1043,7 +1053,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // no-op here in the ordinary case (nothing left in `pts` violates it) --
   // kept as-is rather than split out, since the collision-nudge pass still
   // needs the full three-way clamp for points it moves after this point.
-  for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true);
+  for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true, hg);
 
   return { pts, priority: next() };
 }
@@ -1273,12 +1283,13 @@ function buildMicrotubulesForCell(seed, cx, cy, cell, p) {
     // containment check every other z-adjusting pass in this file re-applies)
     // since pulling z toward a neighbour's own value is not guaranteed to
     // land inside THIS point's own footprint/nucleus/height bounds.
+    const hg = getCytoGeometry(cell, p).mesh.hg;
     for (const pts of paths) {
       mtTrimSteepEnds(pts, p.mtMaxZSlope);
       mtLimitZSlopeRealized(pts, p.mtMaxZSlope);
       // Every point is inside the outline from an earlier clamp (the cut, or
       // the clamp after a collision nudge); the two steps above change z only.
-      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true);
+      for (let i = 0; i < pts.length; i++) mtClampIntoCytoplasm(cell, p, geom, pts[i], true, hg);
     }
   }
   mtResultCache.set(key, { sig, paths });

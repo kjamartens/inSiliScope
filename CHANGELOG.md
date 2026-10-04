@@ -4,6 +4,38 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Performance pass (2026-10-03/04), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`,
+  `scope_parity` SR 100 %, golden vectors): the diffraction-PSF splat reads a column-polyphase copy of the kernel block
+  sums with vectorised row loops and an AVX2 copy chosen at run time (~2x per blink); the kernel memo shares one
+  immutable copy of the planes; the cli/viewer keep world, scene and PSF across SR and WideField movies as they did for
+  BrightField; WideField frames render in parallel batches; the chirp-Z PSF kernel is batched and pruned (0.65 -> 0.46 s);
+  BrightField setup is parallel. Core: a worker pool instead of threads per call, parallel packing relaxation and
+  microtubule generation, lazy microtubules for mesh queries, hoisted trig and tables (packing block 88 -> 19 ms,
+  cold cells 207 -> 78 ms, cold dyes 225 -> 48 ms native; WASM packing 741 -> 408 ms); **core ABI 7**
+  `isc_world_pack_block` / `isc_world_set_block` hand packed blocks between worlds. Viewer: one WASM compile shared by
+  the workers, the pack worker's blocks injected into the others (no duplicate packing), cell assets as typed arrays
+  (no per-vertex objects), LUT movie playback. JS references refactored bit-exactly (no BigInt, cached noise maps:
+  the parity cases run 2x faster). Build: Release by default, link-time optimisation (`ISC_LTO`), WASM SIMD for the
+  core. Measured (12 threads): SR 128 px 200 frames 3.3 -> 1.4 s, 256 px 10.3 -> 4.5 s, 1000 frames 10.7 -> 7.1 s,
+  WideField 256 px 200 frames 3.3 -> 1.8 s, BrightField 256 px level 3 0.59 -> 0.47 s, level 4 2.0 -> 1.4 s. Dev
+  tooling: `ISC_TIMING=1` prints a movie's phase times, `sr_render_check --bench`, `isc_core_bench` and
+  `tools/bench_core.mjs` (per-phase core timing, native and WASM), `tools/bench.py` gained 1000-frame SR, 200-frame WF
+  and BrightField configs.
+- Viewer: the cells of a new seed (or new cell parameters) are packed one block per job on every worker instead of the
+  whole window on one, nearest the view first, and drawn as the blocks arrive (2026-10-04).
+- Viewer drawing (2026-10-04): microtubule paths are built once per tilt/rotation/detail level and reused across
+  zooms, the painter's order of the cytoplasm quads is a comparator-free typed sort, the dyes are one path and one
+  fill. Same picture, smoother panning and zooming.
+- Viewer: a BrightField movie is split across the browser's workers (each computes a share of the condenser source
+  points from the movie worker's phase screens; the images are summed in the same order, so the frames are identical to
+  the single-worker ones), 2026-10-04.
+- Persistent caches and PSF preload (2026-10-04), output unchanged. **Core ABI 8**: `isc_world_set_cache_dir` keeps a
+  world's packed cell positions in a small per-user file (five numbers per cell; validated when read back), so a rerun
+  with the same seed and cell parameters starts with the cells in place; `isc_world_version`. MM `General_DiskCache`
+  (`Off` / `Cells`, the default / `CellsAndPsf`, which adds the ~200 MB PSF kernel file), cli `--disk-cache 0|1|2` and
+  `--prepare 1` (build the world, pack the field of view, compute the kernel; no movie). The adapter computes the PSF
+  kernel in the background from `Initialize()`; the viewer does the same in its movie worker when it loads and when a
+  PSF setting changes, and remembers the packed cells in local storage across reloads.
 - Licensing clarified: own source BSD-3-Clause; the distributed DLL is GPL-3.0 as a whole (it embeds PSFGenerator).
 - Renamed to inSiliScope everywhere.
 - Release automation: tests, DLL, webSMLM block, gallery and benchmarks built on a `v*` tag and published as GitHub

@@ -9,8 +9,11 @@
 
 #include "ScopeMovie.h"
 
+#include "CacheDir.h"
+
 #include "BrightfieldRender.h"
 #include "Parallel.h"
+#include "Timing.h"
 
 #include "CellFieldSource.h"
 #include "PsfGeneratorBridge.h"
@@ -41,6 +44,8 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
    static const std::vector<ScopeOption> opts = {
       { "seed", 42, "SimType_RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)" },
       { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
+      { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
+      { "prepare", 0, "1 = build the world and the PSF kernel only (warms the memo and the disk cache), no frames" },
       { "x", 0, "FOV centre x, world um (XY stage position)" },
       { "y", 0, "FOV centre y, world um" },
       { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
@@ -229,6 +234,8 @@ void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frame
 {
    w = h = static_cast<unsigned>(std::min(2048.0, std::max(1.0, ScopeSpecGet(spec, "size"))));
    frames = static_cast<long>(std::min(100000.0, std::max(1.0, ScopeSpecGet(spec, "frames"))));
+   if (ScopeSpecGet(spec, "prepare") >= 1)
+      frames = 0;   // prepare: the world and the PSF kernel only
 }
 
 namespace {
@@ -295,6 +302,8 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    const double worldSeed = O("world-seed");
    cf.seed = worldSeed >= 0 ? static_cast<uint32_t>(static_cast<uint64_t>(worldSeed))
                             : static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x43454C4CULL);
+   cf.cacheDir = O("disk-cache") >= 1 ? DefaultCacheDir() : std::string();
+   SetPsfKernelDiskCacheDir(O("disk-cache") >= 2 ? DefaultCacheDir() : std::string());   // "" under Emscripten
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
@@ -406,21 +415,81 @@ bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& e
    return ComputePsfKernelCache(req, cache, err);
 }
 
+namespace {
+// Movies made by one process (the cli; the viewer's worker, one after the
+// other) share one world, one WideField scene and one BrightField scene, so
+// a repeat, or a new focus, frame count, PSF or noise setting, reuses the
+// built cells, microtubules, dyes, dye tiles and spectra (2026-10-03: SR
+// and WideField too; BrightField since 2026-10-02). The answers are the
+// same as with fresh objects (every answer of the core is a pure function
+// of seed, params and window; the caches are for speed only); a mutex keeps
+// concurrent callers serial.
+struct MovieCache
+{
+   std::mutex mutex;
+   CellFieldSource source;
+   CellFieldSettings world;
+   bool haveWorld = false;
+   uint64_t version = 0;
+   BrightfieldScene brightfield;
+   // WideField: the scene (dye tiles, kernel and plane spectra, images) and
+   // the PSF it was built with; wfPsfVersion changes when the PSF object does.
+   WidefieldScene widefield;
+   std::unique_ptr<WidefieldPsf> wfPsf;
+   PsfKernelCache wfPsfCache;
+   int wfUpscale = 0;
+   double wfGauss[4] = { 0, 0, 0, 0 };
+   bool wfGpuMode = false, wfHasScene = false;
+   long wfPsfVersion = 0;
+};
+
+MovieCache& SharedMovieCache()
+{
+   static MovieCache c;
+   return c;
+}
+
+// Configures the shared source; bumps the version when the world changes.
+bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
+{
+   if (!c.haveWorld || !c.world.SameWorld(cf))
+      ++c.version;
+   c.world = cf;
+   c.haveWorld = true;
+   if (!c.source.Configure(cf, err))
+   {
+      c.haveWorld = false;
+      return false;
+   }
+   return true;
+}
+} // namespace
+
 // WideField: every labelled dye emits; a fresh sample (dose f x dD at frame
 // f), square illumination over the FOV, the same PSF as SR, same noise.
 struct WidefieldMovie::Impl
 {
    ScopeSpec spec;
    ScopeSetup S;
-   CellFieldSource source;
+   // The shared world and WideField scene (MovieCache), held for this
+   // movie's lifetime: Begin locks, the destructor unlocks (the viewer's
+   // isc_wf_begin .. isc_wf_end steps are one session).
+   MovieCache& cache;
+   std::unique_lock<std::mutex> lock;
+   CellFieldSource& source;
    WidefieldSceneSpec ws;
-   PsfKernelCache psfCache; // before psf: KernelWidefieldPsf refers to it
-   std::unique_ptr<WidefieldPsf> psf;
+   PsfKernelCache& psfCache;
+   std::unique_ptr<WidefieldPsf>& psf;
    std::unique_ptr<SquareIllumination> ill;
-   WidefieldScene scene;
+   WidefieldScene& scene;
    double framesBefore0 = 0.0;
    std::chrono::steady_clock::time_point t0;
    double setupSec = 0.0;
+   Impl()
+      : cache(SharedMovieCache()), lock(cache.mutex, std::defer_lock), source(cache.source),
+        psfCache(cache.wfPsfCache), psf(cache.wfPsf), scene(cache.widefield)
+   {
+   }
 };
 
 WidefieldMovie::WidefieldMovie() : impl_(new Impl) {}
@@ -439,8 +508,15 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    m.S = MakeScopeSetup(spec);
    const ScopeSetup& S = m.S;
-   if (!m.source.Configure(S.cf, err))
+   auto tPhase = TimingClock::now();
+   if (!m.lock.owns_lock() && !m.lock.try_lock())
+   {
+      err = "WideField: another movie is being rendered in this process";
       return false;
+   }
+   if (!ConfigureShared(m.cache, S.cf, err))
+      return false;
+   TimingLog("wf.configure", TimingSince(tPhase));
    const double um = S.p.pixelSizeNm / 1000.0;
    WidefieldSceneSpec& ws = m.ws;
    ws.originXUm = S.q.originXUm;
@@ -460,28 +536,62 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    ws.phot.extinctionCoeff = std::max(0.0, O("wf-extinction-coeff"));
    ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
    ws.exposureSec = S.p.frameDurationSec;
+   ws.worldVersion = static_cast<long>(m.cache.version);
    m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
-   if (!ScopePsfKernel(spec, m.psfCache, err))
+   tPhase = TimingClock::now();
+   PsfKernelCache kc;
+   if (!ScopePsfKernel(spec, kc, err))
       return false;
-   if (m.psfCache.valid)
+   TimingLog("wf.psf-kernel", TimingSince(tPhase));
+   if (kc.valid)
    {
       // As the camera's MakeWidefieldPsf: the upscale must divide the oversampling.
-      ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(m.psfCache.oversampling, ws.grid.upscale);
-      m.psf.reset(new KernelWidefieldPsf(m.psfCache, ws.grid.upscale));
+      ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(kc.oversampling, ws.grid.upscale);
    }
-   else
-      m.psf.reset(new GaussianWidefieldPsf(um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index")));
-   m.scene.SetGpuMode(gpuMode);
+   // The WidefieldPsf (and with it the scene's kernel spectra) is kept across
+   // movies while the kernel stack (its serial) and the grid pitch, or the
+   // Gaussian's parameters, are unchanged.
+   MovieCache& c = m.cache;
+   const double gauss[4] = { um / ws.grid.upscale, O("wavelength-nm"), O("na"), O("immersion-index") };
+   const bool samePsf = c.wfPsf && c.wfPsfCache.valid == kc.valid &&
+                        (kc.valid ? (c.wfPsfCache.Serial() == kc.Serial() && c.wfUpscale == ws.grid.upscale)
+                                  : std::equal(gauss, gauss + 4, c.wfGauss));
+   if (!samePsf)
+   {
+      c.wfPsfCache = kc;
+      c.wfUpscale = ws.grid.upscale;
+      std::copy(gauss, gauss + 4, c.wfGauss);
+      if (kc.valid)
+         c.wfPsf.reset(new KernelWidefieldPsf(c.wfPsfCache, ws.grid.upscale));
+      else
+         c.wfPsf.reset(new GaussianWidefieldPsf(gauss[0], gauss[1], gauss[2], gauss[3]));
+      ++c.wfPsfVersion;
+   }
+   ws.psfVersion = c.wfPsfVersion;
+   // The scene's FFT sizes depend on the mode (GPU: powers of two): a mode
+   // change starts from a fresh scene.
+   if (!c.wfHasScene || c.wfGpuMode != gpuMode)
+   {
+      c.widefield = WidefieldScene();
+      c.widefield.SetGpuMode(gpuMode);
+      c.wfGpuMode = gpuMode;
+      c.wfHasScene = true;
+   }
    m.scene.SetDeferImages(gpuMode);
+   tPhase = TimingClock::now();
    if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
       return false;
+   TimingLog("wf.scene-update", TimingSince(tPhase));
    // The bleach basis, anchored at the first frame (a job then has every
    // channel the frames need).
    m.framesBefore0 = std::max(0.0, O("start-sec")) / S.expSec;
    std::vector<float> wb;
+   tPhase = TimingClock::now();
    m.scene.FreshBleachWeights(m.framesBefore0, wb);
    m.scene.SetBleachWeights(wb);
+   TimingLog("wf.bleach-anchor", TimingSince(tPhase));
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   TimingLog("wf.setup", m.setupSec);
    return true;
 }
 
@@ -524,21 +634,91 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
    info.description = desc;
 
    NoiseSetup noise(S.seed, W, H, p);
-   std::vector<float> photons, wb;
-   std::vector<uint16_t> adu;
    const std::vector<BlinkEvent> none;
-   for (long f = 0; f < N; f++)
+   TimingSum tWeights, tRender, tWrite, tAnchor;
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   // Frames are independent given their bleach coefficients (counter-based
+   // noise), so they render in parallel batches; a frame whose weights no
+   // longer fit the anchored basis is rendered alone through RenderFrame,
+   // which re-anchors exactly as the serial loop did, and the next batch
+   // starts after it. Without bleaching dyes the weights are never read
+   // (BleachCoefficients returns at once), so one vector serves every frame.
+   const bool noBleaching = m.scene.BleachingDyes() == 0;
+   std::vector<float> wb0;
+   m.scene.FreshBleachWeights(m.framesBefore0, wb0);
+#if defined(__EMSCRIPTEN__)
+   const long batch = 1; // serial anyway: one frame of buffers
+#else
+   const long batch = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+#endif
+   std::vector<std::vector<float>> photons(static_cast<size_t>(std::min(batch, std::max(N, 1L))));
+   std::vector<std::vector<uint16_t>> adu(photons.size());
+   std::vector<std::vector<double>> coef(photons.size());
+   std::vector<float> wb;
+   const double zStage = O("z");
+   bool more = true;
+   for (long f = 0; f < N && more;)
    {
-      RenderPhotonImage(photons, W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                        0.0, 0.0, nullptr, O("z"));
-      m.scene.FreshBleachWeights(m.framesBefore0 + f, wb);
-      m.scene.RenderFrame(wb, photons);
-      ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                      static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
-         break;
+      // Frames f .. f+nb-1 fit the current basis; `misfit` says f+nb does not.
+      long nb = 0;
+      bool misfit = false;
+      tWeights.Start();
+      while (nb < batch && f + nb < N)
+      {
+         const std::vector<float>* use = &wb0;
+         if (!noBleaching)
+         {
+            m.scene.FreshBleachWeights(m.framesBefore0 + (f + nb), wb);
+            use = &wb;
+         }
+         if (!m.scene.BleachCoefficients(*use, coef[static_cast<size_t>(nb)]))
+         {
+            misfit = true;
+            break;
+         }
+         ++nb;
+      }
+      tWeights.Stop();
+      tRender.Start();
+      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+         const long fr = f + static_cast<long>(k);
+         RenderPhotonImage(photons[k], W, H, none, fr, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
+         m.scene.RenderCoefficients(coef[k], photons[k]);
+         ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                         noise.noiseSeed, static_cast<uint32_t>(fr));
+      });
+      tRender.Stop();
+      tWrite.Start();
+      for (long k = 0; k < nb && more; k++)
+         more = onFrame(f + k, adu[static_cast<size_t>(k)]);
+      tWrite.Stop();
+      f += nb;
+      if (misfit && more && f < N)
+      {
+         // The frame that did not fit: re-anchor the basis on it (RenderFrame).
+         tAnchor.Start();
+         RenderPhotonImage(photons[0], W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
+         m.scene.RenderFrame(wb, photons[0]);
+         ApplyNoiseChain(photons[0], adu[0], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                         noise.noiseSeed, static_cast<uint32_t>(f));
+         tAnchor.Stop();
+         more = onFrame(f, adu[0]);
+         f++;
+      }
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
+   tWeights.Log("wf.frame.bleach-weights");
+   tRender.Log("wf.frame.render+noise (batches)");
+   tAnchor.Log("wf.frame.re-anchor");
+   tWrite.Log("wf.frame.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "dyes %ld, ParallelFor spawns %lu", info.dyes, ParallelForSpawns().load() - spawns0);
+      TimingLog("wf.total", info.totalSec, b);
+   }
    return true;
 }
 
@@ -585,64 +765,23 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
-namespace {
-// Movies made by one process (the cli; the viewer's worker, one after the
-// other) share one world and one BrightField scene, so a repeat, or a new
-// focus, frame count or noise setting, reuses the built cells and the
-// multislice. The answers are the same as with fresh objects (the caches
-// are for speed only); a mutex keeps concurrent callers serial.
-struct MovieCache
-{
-   std::mutex mutex;
-   CellFieldSource source;
-   CellFieldSettings world;
-   bool haveWorld = false;
-   uint64_t version = 0;
-   BrightfieldScene brightfield;
-};
-
-MovieCache& SharedMovieCache()
-{
-   static MovieCache c;
-   return c;
-}
-
-// Configures the shared source; bumps the version when the world changes.
-bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
-{
-   if (!c.haveWorld || !c.world.SameWorld(cf))
-      ++c.version;
-   c.world = cf;
-   c.haveWorld = true;
-   if (!c.source.Configure(cf, err))
-   {
-      c.haveWorld = false;
-      return false;
-   }
-   return true;
-}
-} // namespace
-
-bool RenderBrightfieldMovie(const ScopeSpec& spec,
-                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
-                            ScopeMovieInfo& info, std::string& err)
+// The frames of a BrightField movie from its scene: the image at the spec's
+// focus (computed, or assembled by SetImageFromSources), times the lamp,
+// then the camera noise per frame.
+static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const BrightfieldSpec& bs,
+                              BrightfieldScene& scene, std::chrono::steady_clock::time_point t0,
+                              unsigned long spawns0,
+                              const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                              ScopeMovieInfo& info, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
-   const auto t0 = std::chrono::steady_clock::now();
-   const ScopeSetup S = MakeScopeSetup(spec);
    const SimulationParams& p = S.p;
-   MovieCache& cache = SharedMovieCache();
-   std::lock_guard<std::mutex> lock(cache.mutex);
-   if (!ConfigureShared(cache, S.cf, err))
-      return false;
-   BrightfieldSpec bs;
-   if (!ScopeBrightfieldSpec(spec, bs, err))
-      return false;
-   BrightfieldScene& scene = cache.brightfield;
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   if (!scene.Update(cache.source, bs, cache.version, err) || !scene.Image(focusUm, trans, err))
+   auto tPhase = TimingClock::now();
+   if (!scene.Image(focusUm, trans, err))
       return false;
+   TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
    const double flux = std::max(0.0, O("bf-photons-per-px-per-sec")) * S.expSec;
@@ -667,15 +806,155 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
    for (size_t i = 0; i < trans.size(); ++i)
       photons[i] = static_cast<float>(trans[i] * flux);
    std::vector<uint16_t> adu;
+   TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
+      tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
-      if (!onFrame(f, adu))
+      tNoise.Stop();
+      tWrite.Start();
+      const bool more = onFrame(f, adu);
+      tWrite.Stop();
+      if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   tNoise.Log("bf.frame.noise");
+   tWrite.Log("bf.frame.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "ParallelFor spawns %lu", ParallelForSpawns().load() - spawns0);
+      TimingLog("bf.total", info.totalSec, b);
+   }
    return true;
+}
+
+bool RenderBrightfieldMovie(const ScopeSpec& spec,
+                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   const ScopeSetup S = MakeScopeSetup(spec);
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, S.cf, err))
+      return false;
+   BrightfieldSpec bs;
+   if (!ScopeBrightfieldSpec(spec, bs, err))
+      return false;
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   const auto tPhase = TimingClock::now();
+   if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+      return false;
+   TimingLog("bf.scene-update", TimingSince(tPhase));
+   return BrightfieldFrames(spec, S, bs, cache.brightfield, t0, spawns0, onFrame, info, err);
+}
+
+struct BrightfieldMovie::Impl
+{
+   ScopeSpec spec;
+   ScopeSetup S;
+   BrightfieldSpec bs;
+   MovieCache* cache = nullptr;           // Begin: the shared scene, under lock
+   std::unique_lock<std::mutex> lock;
+   BrightfieldScene own;                  // BeginFromPhase: a scene of this object alone
+   BrightfieldScene* scene = nullptr;
+   std::chrono::steady_clock::time_point t0;
+   unsigned long spawns0 = 0;
+};
+
+BrightfieldMovie::BrightfieldMovie() : impl_(new Impl) {}
+BrightfieldMovie::~BrightfieldMovie() = default;
+
+bool BrightfieldMovie::Begin(const ScopeSpec& spec, bool deferSources, std::string& err)
+{
+   Impl& m = *impl_;
+   m.t0 = std::chrono::steady_clock::now();
+   m.spec = spec;
+   m.S = MakeScopeSetup(spec);
+   if (!ScopeBrightfieldSpec(spec, m.bs, err))
+      return false;
+   m.cache = &SharedMovieCache();
+   m.lock = std::unique_lock<std::mutex>(m.cache->mutex);
+   if (!ConfigureShared(*m.cache, m.S.cf, err))
+      return false;
+   m.spawns0 = ParallelForSpawns().load();
+   const auto tPhase = TimingClock::now();
+   if (!m.cache->brightfield.Update(m.cache->source, m.bs, m.cache->version, deferSources, err))
+      return false;
+   TimingLog("bf.scene-update", TimingSince(tPhase));
+   m.scene = &m.cache->brightfield;
+   return true;
+}
+
+bool BrightfieldMovie::BeginFromPhase(const ScopeSpec& spec, int slices, double zTopUm, double objectZUm,
+                                      const std::vector<float>& phase, const std::vector<float>& atten,
+                                      std::string& err)
+{
+   Impl& m = *impl_;
+   m.t0 = std::chrono::steady_clock::now();
+   m.spec = spec;
+   m.S = MakeScopeSetup(spec);
+   if (!ScopeBrightfieldSpec(spec, m.bs, err))
+      return false;
+   if (!m.own.UpdateFromPhase(m.bs, slices, zTopUm, objectZUm, phase, atten, true, err))
+      return false;
+   m.scene = &m.own;
+   return true;
+}
+
+unsigned BrightfieldMovie::Width() const { return impl_->S.W; }
+unsigned BrightfieldMovie::Height() const { return impl_->S.H; }
+long BrightfieldMovie::Frames() const { return impl_->S.N; }
+int BrightfieldMovie::Sources() const { return impl_->scene ? impl_->scene->Sources() : 0; }
+int BrightfieldMovie::Slices() const { return impl_->scene ? impl_->scene->Slices() : 0; }
+unsigned BrightfieldMovie::GridNx() const { return impl_->scene ? impl_->scene->GridNx() : 0; }
+unsigned BrightfieldMovie::GridNy() const { return impl_->scene ? impl_->scene->GridNy() : 0; }
+double BrightfieldMovie::ZTopUm() const { return impl_->scene ? impl_->scene->ZTopUm() : 0.0; }
+double BrightfieldMovie::ObjectZUm() const { return impl_->scene ? impl_->scene->ObjectZUm() : 0.0; }
+const std::vector<float>& BrightfieldMovie::Phase() const
+{
+   static const std::vector<float> none;
+   return impl_->scene ? impl_->scene->Phase() : none;
+}
+const std::vector<float>& BrightfieldMovie::Atten() const
+{
+   static const std::vector<float> none;
+   return impl_->scene ? impl_->scene->Atten() : none;
+}
+
+bool BrightfieldMovie::SourceImage(int s, std::vector<float>& out, std::string& err)
+{
+   if (!impl_->scene)
+   {
+      err = "BrightField: not begun.";
+      return false;
+   }
+   return impl_->scene->SourceImageAt(impl_->S.q.zCullCentreUm, s, out, err);
+}
+
+bool BrightfieldMovie::SetSourceImages(const float* slots)
+{
+   return impl_->scene && impl_->scene->SetImageFromSources(impl_->S.q.zCullCentreUm, slots);
+}
+
+bool BrightfieldMovie::ImageCached() const
+{
+   return impl_->scene && impl_->scene->HasImage(impl_->S.q.zCullCentreUm);
+}
+
+bool BrightfieldMovie::Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                              ScopeMovieInfo& info, std::string& err)
+{
+   Impl& m = *impl_;
+   if (!m.scene)
+   {
+      err = "BrightField: not begun.";
+      return false;
+   }
+   return BrightfieldFrames(m.spec, m.S, m.bs, *m.scene, m.t0, m.spawns0, onFrame, info, err);
 }
 
 namespace {
@@ -826,10 +1105,48 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
    return true;
 }
 
+// prepare=1: the shared world (MovieCache) and, for SR/WideField, the PSF
+// kernel (ComputePsfKernelCache's memo and, with disk-cache 2, its file), so
+// a movie that follows finds both ready. No frames.
+static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   const ScopeSetup S = MakeScopeSetup(spec);
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, S.cf, err))
+      return false;
+   // The FOV's cells: packs (or takes from the block store) the blocks the
+   // movie's query will touch. Assets and dyes stay with the movie (they
+   // depend on its z range and kinetics).
+   if (isc_cells_in_window(cache.source.World(), S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, nullptr, 0) < 0)
+   {
+      err = "cell-field query failed";
+      return false;
+   }
+   const double tWorld = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   if (ScopeSpecGet(spec, "modality") != 2)
+   {
+      PsfKernelCache kernel;
+      if (!ScopePsfKernel(spec, kernel, err))
+         return false;
+   }
+   info = ScopeMovieInfo();
+   info.width = S.W;
+   info.height = S.H;
+   info.frames = 0;
+   info.querySec = tWorld;
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   info.description = "prepared";
+   return true;
+}
+
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   if (O("prepare") >= 1)
+      return PrepareScope(spec, info, err);
    const auto t0 = std::chrono::steady_clock::now();
    if (O("modality") == 1)
    {
@@ -845,23 +1162,43 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    const unsigned W = S.W, H = S.H;
    const long N = S.N, seed = S.seed;
    const double expSec = S.expSec, t0Sec = S.t0Sec;
-   CellFieldSource source;
    std::vector<BlinkEvent> events;
-   if (!source.Configure(cf, err))
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   auto tPhase = TimingClock::now();
+   // The shared world (MovieCache): a repeat movie, or one with other
+   // imaging settings, reuses the built cells, microtubules and dyes.
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, cf, err))
       return false;
+   CellFieldSource& source = cache.source;
+   TimingLog("sr.configure", TimingSince(tPhase));
    // The PSF kernel computes while the cell field is queried (as the
    // camera's stack generation does); serially under Emscripten.
    PsfKernelCache psfCache;
    std::string psfErr;
    bool psfOk = true;
+   double psfSec = 0.0, eventsSec = 0.0;
+   tPhase = TimingClock::now();
 #if defined(__EMSCRIPTEN__)
    psfOk = ScopePsfKernel(spec, psfCache, psfErr);
+   psfSec = TimingSince(tPhase);
+   const auto tEv = TimingClock::now();
    const bool eventsOk = psfOk && source.Events(q, events);
+   eventsSec = TimingSince(tEv);
 #else
-   std::thread psfThread([&]() { psfOk = ScopePsfKernel(spec, psfCache, psfErr); });
+   std::thread psfThread([&]() {
+      const auto tk = TimingClock::now();
+      psfOk = ScopePsfKernel(spec, psfCache, psfErr);
+      psfSec = TimingSince(tk);
+   });
    const bool eventsOk = source.Events(q, events);
+   eventsSec = TimingSince(tPhase);
    psfThread.join();
 #endif
+   TimingLog("sr.psf-kernel", psfSec, psfCache.valid ? "GibsonLanniZernike" : "Gaussian");
+   TimingLog("sr.events-query", eventsSec);
+   TimingLog("sr.psf+query-wall", TimingSince(tPhase));
    if (!psfOk)
    {
       err = psfErr;
@@ -898,34 +1235,58 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    PixelReadNoiseMap rnMap;
    rnMap.Generate(W, H, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng);
    const uint32_t noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+   tPhase = TimingClock::now();
    const std::vector<std::vector<uint32_t>> buckets = BucketEventsByFrame(events, N);
+   TimingLog("sr.noise-maps+buckets", TimingSince(tPhase));
+   TimingSum tRender, tWrite;
 
    // Frames are independent (own events, counter-based noise), so a batch
    // is made on all cores (serial under Emscripten) and handed over in order.
    const double zStage = O("z");
-   const long batch = 32;
-   std::vector<std::vector<uint16_t>> adu(static_cast<size_t>(std::min(batch, std::max(N, 1L))));
+   // A batch of frames per ParallelFor: a few frames per core, so the idle
+   // tail of a batch is a small share (serial under Emscripten: one at a time).
+#if defined(__EMSCRIPTEN__)
+   const long batch = 1;
+#else
+   const long batch = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+#endif
+   const size_t slots = static_cast<size_t>(std::min(batch, std::max(N, 1L)));
+   std::vector<std::vector<uint16_t>> adu(slots);
+   std::vector<std::vector<float>> photons(slots);   // per-slot buffers, kept across batches
+   std::vector<std::vector<BlinkEvent>> fe(slots);
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
+      tRender.Start();
       ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
-         std::vector<BlinkEvent> fe;
+         fe[k].clear();
          for (uint32_t i : buckets[static_cast<size_t>(f)])
-            fe.push_back(events[i]);
-         std::vector<float> photons;
-         RenderPhotonImage(photons, W, H, fe, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                           0.0, 0.0, kernel, zStage);
-         ApplyNoiseChain(photons, adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
+            fe[k].push_back(events[i]);
+         RenderPhotonImage(photons[k], W, H, fe[k], f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, kernel, zStage);
+         ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
                          static_cast<uint32_t>(f));
       });
+      tRender.Stop();
+      tWrite.Start();
       bool more = true;
       for (long k = 0; k < nb && more; k++)
          more = onFrame(f0 + k, adu[static_cast<size_t>(k)]);
+      tWrite.Stop();
       if (!more)
          break;
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   tRender.Log("sr.render-batches");
+   tWrite.Log("sr.onFrame");
+   if (TimingEnabled())
+   {
+      char b[96];
+      std::snprintf(b, sizeof b, "blinks %zu, ParallelFor spawns %lu", events.size(),
+                    ParallelForSpawns().load() - spawns0);
+      TimingLog("sr.total", info.totalSec, b);
+   }
    return true;
 }
 

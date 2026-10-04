@@ -105,7 +105,8 @@ that finishes them.
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
 - Docs: `docs/` is the mkdocs-material site (physics pages, quickstart, extending; `docs/dev/` is excluded history);
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
-  with `spec/` when a model changes; add a gallery entry for every new CLI option.
+  with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
+  preparation switches need none).
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 
@@ -214,8 +215,10 @@ across movies: 256 px level 3 is 0.7 s cli cold / 0.9 s in the viewer (was 3 s /
 `CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
 the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase
-grating vs theory, thin and multislice), `cli_tiff_bf`, `world_checks` OpticalVolume, `tests/web/viewer_bf_movie.mjs`,
-`tools/test_cellfield_stage.py`. Not built with MSBuild or checked in Micro-Manager Studio yet.
+grating vs theory, thin and multislice, the worker split bit for bit), `cli_tiff_bf`, `world_checks` OpticalVolume,
+`tests/web/viewer_bf_movie.mjs` (the split movie = the single-worker one), `tools/test_cellfield_stage.py`. The viewer
+splits a BF movie's condenser sources across its workers (2026-10-04, spec/PORT.md 15: `BrightfieldMovie`, the
+`isc_bf_*` exports). Not built with MSBuild or checked in Micro-Manager Studio yet.
 
 **Cell edges and height (2026-10-01, spec/ALGORITHM.md):** the outline has a fractal tail (harmonics 6-64, amplitude
 `cellRough` (0.15) x `cellBlob` x k^-(2.5-D), D = `cellFractalDim` 1.35, multiplicative after the coarse clamp, bit-exact
@@ -241,6 +244,55 @@ computed; live CPU frames render and add noise in row bands on all cores (`Rende
 its twiddles (~1.6x) and, in live mode, transforms lines on all cores; the cli renders frames in
 parallel batches. Checked: cli TIFFs and `adapter_pixel_hash` (+ CellField configs) unchanged, ctest
 `sr_render`, `world_checks` `Threads`.
+
+**Performance pass (2026-10-03/04), every output bit-identical** (21 cli reference TIFFs by pixel sha256,
+`adapter_pixel_hash`, `scope_parity` SR 100 %, golden vectors, `world_checks` 8 threads = 1 thread, ctest `sr_render`
+and `zernike_psf` memcmp against verbatim copies of the previous splat and chirp-Z): only hoisting, caching, data
+re-layouts, vectorised independent lanes and threads whose results are consumed in serial order; no reassociation,
+FMA (`world_checks` `NoContraction` guards the flags, LTO included), sampler or default changes. Render engine: the SR
+splat reads a column-polyphase copy of the kernel block sums (`Simulation/SplatKernel.h/.inl`; SSE2 and an AVX2 copy
+chosen at run time, `SplatAvx2.cpp` the only `/arch:AVX2` TU); the kernel memo shares one immutable `PsfKernelPlanes`
+(a `PsfKernelCache` copy is a pointer); `ScopeMovie`'s `MovieCache` keeps world, scene and PSF across SR/WF/BF movies;
+WF frames render in parallel batches with serial bleach coefficients (no per-frame weights without bleaching dyes);
+the chirp-Z kernel transforms 4 lines at a time with pruned zero stages and a bit-reversal table (`ChirpZ.h`,
+`Fft1dBatched`); BF setup loops are parallel with explicit complex products. Core: a process-wide `WorkerPool`
+(`AcquireWorkerPool`; joined when the last `World` is freed, so the DLL unloads; a `PoolScope` in the `World`
+query methods), parallel `Relax`/candidates/microtubules/mesh fill, hoisted trig, lazy microtubules in `CellAssets`,
+per-microtubule block midpoints, pointer `CellsInRect`, hashed `dyeIndex_`; **ABI 7** `isc_world_pack_block` /
+`isc_world_set_block` (spec/PORT.md 6.5). Viewer: the WASM is compiled once and shared with the workers
+(`instantiateWasm`), packing blocks are packed one per job on any worker (pack + cell workers, nearest the view first,
+the map grows as they arrive; 2026-10-04) and injected into the other workers' worlds (no re-packing), assets
+travel as typed arrays (mesh interleaved, outline = its outer ring, microtubules xyz/lens), LUT movie playback on
+`requestAnimationFrame`; microtubule `Path2D`s are built in cell-local um per (tilt, rotation, detail level) and stroked
+under `ctx.scale` (a zoom reuses them), the quad painter's order is a typed-array key sort, the dyes one path + one fill. JS references (prototype, scope): bit-exact refactors (uint32 Mersenne twister, cached noise
+maps, scalar pcg lane, trig memos, typed scratch). Build: Release by default, `ISC_LTO` (IPO where supported),
+`-msimd128` for the core under Emscripten, 96 MB initial heap for the viewer module. Tooling: `ISC_TIMING=1`
+(`Simulation/Timing.h`: phase times of a cli/viewer movie), `isc_core_bench`, `tools/bench_core.mjs`,
+`sr_render_check --bench`, `tools/bench.py` configs `sr-128px-1000f`, `wf-256px-200f`, `bf-256px-q3/q4`. Measured
+(12 threads): SR 128 px 200 f 3.3 -> 1.4 s, 256 px 10.3 -> 4.5 s, 1000 f 10.7 -> 7.1 s (the 7000 nm splat is
+memory-bound), WF 256 px 20 f 2.7 -> 1.7 s, 200 f 3.3 -> 1.8 s, BF 256 px level 3 0.59 -> 0.47 s, level 4 2.0 -> 1.4 s;
+core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 ms; viewer BF 256 px level 3
+0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
+
+**Persistent caches and PSF preload (2026-10-04), output unchanged.** Core ABI 8: `isc_world_set_cache_dir(w, dir)` keeps a
+world's packed blocks in `dir/packed_blocks.bin` (`core/src/blockstore.*`: five numbers per cell, cx, cy, x, y, packRot;
+one file per directory keyed by seed, the packing parameters (`PackingFingerprint`: every parameter but `mt*`/`label*`)
+and `ISC_WORLD_VERSION`; FIFO cap 4096 blocks, a few MB; rewritten whole every 16 new blocks, at
+`isc_world_flush_cache` and when the world is freed; a block read back is validated like `isc_world_set_block`, so a
+stale or damaged file costs a repack, never a wrong cell), `isc_world_version()` = `ISC_WORLD_VERSION` (the date
+`spec/golden` was last re-frozen: **bump it with every change that moves a cell**, the block caches are keyed on it; the
+JS twin is `WORLD_VERSION` in `web/prototype/scope/world.js`, `engine_check` compares them). Hosts: the per-user cache
+directory is `Simulation/CacheDir.h` (`$ISC_CACHE_DIR`, else `%LOCALAPPDATA%\inSiliScope\cache` /
+`~/.cache/insiliscope`; `ISC_CACHE=0` disables); cli `--disk-cache 0|1|2` (default 1 = blocks; 2 adds the PSF kernel:
+`psf_kernel.bin`, one file of up to 512 MB, the adapter's default kernel is 200 MB and reads back in ~0.35 s instead of
+0.6 s of compute -- opt-in because of its size), `--prepare 1` builds the world, packs the FOV's blocks and computes the
+kernel, no frames; MM `General_DiskCache` = `Off` | `Cells` (default) | `CellsAndPsf`. The viewer keeps the same five
+numbers per cell in `localStorage` (`isc.packedBlocks.v1`, one entry, 3000 blocks, keyed by its pack key and
+`self.ISC_WORLD_VERSION` from the module) and hands them to the pack job, so a reload packs nothing. PSF preload: the
+adapter computes (or reads) the kernel of the current `PSFParam_` values on a background thread from `Initialize()`
+(`StartPsfPreload`; `ComputePsfKernelCache` makes a concurrent requester of the same kernel wait for the thread in
+flight instead of computing twice), the viewer sends a `prepare=1` movie job to its movie worker when the workers come
+up and when a PSF control changes. Options that change no output (`disk-cache`, `prepare`) need no gallery entry.
 
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
@@ -269,7 +321,7 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   every property that sat in webSMLM's flat "User parameters" group
   (density, pixel size, labeling efficiency, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), the WideField
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, `DiskCache`, etc.), the WideField
   modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
   `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
   `PhotonsPerPxPerSec`/`Aberrations`, and the

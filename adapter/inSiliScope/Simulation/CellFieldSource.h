@@ -42,6 +42,10 @@ struct CellFieldSettings
    double bleachProb = 1.0;
    double photonCV = 0.5;
 
+   // Directory of the core's packed-block store (isc_world_set_cache_dir, ABI
+   // 8; CacheDir.h names the per-user default): "" = none. Not part of
+   // SameWorld: switching it keeps the world.
+   std::string cacheDir;
    bool SameWorld(const CellFieldSettings& o) const { return seed == o.seed && params == o.params; }
    bool SameKinetics(const CellFieldSettings& o) const
    {
@@ -120,6 +124,7 @@ public:
 private:
    IscWorld* world_ = nullptr;
    CellFieldSettings settings_;
+   bool cacheDirApplied_ = false;   // settings_.cacheDir given to world_ (a new world starts without)
    std::vector<double> buf_;
 };
 

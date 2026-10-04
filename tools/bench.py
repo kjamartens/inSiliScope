@@ -12,6 +12,10 @@ CONFIGS = [
     ("wf-128px-20f", {"size": 128, "frames": 20, "modality": "WideField"}),
     ("wf-256px-20f", {"size": 256, "frames": 20, "modality": "WideField"}),
     ("wf-128px-x2", {"size": 128, "frames": 20, "modality": "WideField", "wf-upscale": 2}),
+    ("sr-128px-1000f", {"size": 128, "frames": 1000}),
+    ("wf-256px-200f", {"size": 256, "frames": 200, "modality": "WideField"}),
+    ("bf-256px-q3", {"size": 256, "frames": 3, "modality": "BrightField", "bf-quality": 3}),
+    ("bf-256px-q4", {"size": 256, "frames": 3, "modality": "BrightField", "bf-quality": 4}),
 ]
 
 

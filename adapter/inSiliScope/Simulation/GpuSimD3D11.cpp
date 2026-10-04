@@ -362,7 +362,7 @@ std::unique_ptr<GpuSimulator> GpuSimulator::Create(std::string& outInfo)
 
 bool GpuSimulator::SetKernel(const PsfKernelCache& cache, std::string& outError)
 {
-   if (!cache.valid || cache.blockSums.empty())
+   if (!cache.valid || cache.BlockSums().empty())
    {
       outError = "no kernel block sums";
       return false;
@@ -375,8 +375,8 @@ bool GpuSimulator::SetKernel(const PsfKernelCache& cache, std::string& outError)
    m.camRad = cache.halfWidthOversampled / m.os;
    m.planeStride = static_cast<uint32_t>(m.bw) * static_cast<uint32_t>(m.bh);
    std::vector<float> all;
-   all.reserve(static_cast<size_t>(m.planeStride) * cache.blockSums.size());
-   for (const std::vector<float>& p : cache.blockSums)
+   all.reserve(static_cast<size_t>(m.planeStride) * cache.BlockSums().size());
+   for (const std::vector<float>& p : cache.BlockSums())
       all.insert(all.end(), p.begin(), p.end());
    return m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
                            outError);

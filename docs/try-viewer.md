@@ -29,16 +29,21 @@ Notes:
   starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
-  "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The first movie with a new PSF computes its kernel first.
+  "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current
+  PSF settings is computed in the background as soon as the page is ready and whenever those settings change, so a
+  movie usually finds it ready.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
-- Brightfield movies run on the CPU (one core in the browser); the **BF quality** slider trades speed for precision
-  (1: thin object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes about a
-  second once the cells are built (the first movie at a new place also builds them); repeating a movie is instant.
+- Brightfield movies run on the CPU, spread over the browser's workers (the condenser source points are shared out;
+  the movie's info line says how many workers took part); the **BF quality** slider trades speed for precision (1: thin
+  object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
+  once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
+  SMLM and widefield movies also reuse the cells of the previous movie.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
-  at the same position.
+  at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
+  one entry per seed and cell settings), so a reload shows the same field without packing it again.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
 - The original JS prototype the core was ported from is at [`viewer/prototype/`](../viewer/prototype/index.html); it is
   the reference implementation that the golden vectors are frozen from.

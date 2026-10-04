@@ -203,8 +203,36 @@ function pcg4d(a, b, c, d) {
 // draw is for" instead of "which draw in sequence" since a chunk needs a
 // handful of INDEPENDENT numbers rather than a long stream.
 function hashUnit(seed, cx, cy, k) {
-  const [a] = pcg4d(seed | 0, cx | 0, cy | 0, k | 0);
+  const a = pcg4dA(seed | 0, cx | 0, cy | 0, k | 0);
   return ((a >>> 9) + 0.5) * 1.1920928955078125e-7; // 2^-23, matches CounterRng
+}
+// pcg4d's first word alone (what hashUnit draws): the same integer operations
+// in the same order for lane a -- lanes b, c, d enter it only through the
+// products kept here -- without the 4-element array per draw.
+function pcg4dA(a, b, c, d) {
+  a = Math.imul(a, 1664525) + 1013904223 | 0;
+  b = Math.imul(b, 1664525) + 1013904223 | 0;
+  c = Math.imul(c, 1664525) + 1013904223 | 0;
+  d = Math.imul(d, 1664525) + 1013904223 | 0;
+  a = a + Math.imul(b, d) | 0;
+  b = b + Math.imul(c, a) | 0;
+  c = c + Math.imul(a, b) | 0;
+  d = d + Math.imul(b, c) | 0;
+  a ^= a >>> 16; b ^= b >>> 16; c ^= c >>> 16; d ^= d >>> 16;
+  a = a + Math.imul(b, d) | 0;
+  return a >>> 0;
+}
+// cos/sin(-nucRot) and cos/sin(nucRot) of the cell last asked for: the
+// per-point nucleus tests (nucleusSignedDistLocal here, mtNucleusFootprintBlend
+// and mtClampIntoCytoplasm in microtubules.js) evaluate the same four values
+// for every point of a cell -- cached per cell object, the same expressions.
+let nucTrigCell = null, nucTrigVal = null;
+function nucTrig(c) {
+  if (c !== nucTrigCell) {
+    nucTrigCell = c;
+    nucTrigVal = { cn: Math.cos(-c.nucRot), sn: Math.sin(-c.nucRot), cp: Math.cos(c.nucRot), sp: Math.sin(c.nucRot) };
+  }
+  return nucTrigVal;
 }
 // A cheap deterministic stream for when a chunk needs many draws (a
 // microtubule's own random walk) -- still address-based (seed,cx,cy,base),
@@ -513,11 +541,12 @@ function envelopNucleus(c, marginUm, extraUm = 0) {
   // 256 samples with the fractal tail on (its harmonics go to k = 64).
   const N = c.tailBound > 0 ? 256 : 32;
   let neededFloor = CELL_MOD_MIN;
+  const cnr = Math.cos(c.nucRot), snr = Math.sin(c.nucRot); // once, not per sample
   for (let i = 0; i < N; i++) {
     const th = (i / N) * Math.PI * 2;
     const lx = Math.cos(th) * (c.nucLong / 2), ly = Math.sin(th) * (c.nucShort / 2);
-    const wx = c.nucOffX + lx * Math.cos(c.nucRot) - ly * Math.sin(c.nucRot);
-    const wy = c.nucOffY + lx * Math.sin(c.nucRot) + ly * Math.cos(c.nucRot);
+    const wx = c.nucOffX + lx * cnr - ly * snr;
+    const wy = c.nucOffY + lx * snr + ly * cnr;
     const dist = Math.hypot(wx, wy);
     const angle = Math.atan2(wy, wx);
     const phi = angle - c.rot;
@@ -654,7 +683,7 @@ function nearestPointOnEllipse(a, b, x, y) {
 // (packing-relaxed) position.
 function nucleusSignedDistLocal(c, lx0, ly0) {
   const dx = lx0 - c.nucOffX, dy = ly0 - c.nucOffY;
-  const cr = Math.cos(-c.nucRot), sr = Math.sin(-c.nucRot);
+  const nt = nucTrig(c), cr = nt.cn, sr = nt.sn;
   const lx = dx * cr - dy * sr, ly = dx * sr + dy * cr;
   const a = c.nucLong / 2, b = c.nucShort / 2;
   const [ex, ey] = nearestPointOnEllipse(a, b, lx, ly);
@@ -1238,11 +1267,20 @@ function ensureCollisionOutline(c) {
 // tops out at k=5, so OUTLINE_SAMPLE_N=16 per side comfortably resolves
 // every real lobe/dimple the outline can have.
 const OUTLINE_SAMPLE_N = 16;
+// cos/sin of a cell's packRot, kept on the cell for the rotation it was
+// computed at (the relaxation evaluates them for every neighbour pair; the
+// same expressions, computed once per rotation value).
+function packRotTrig(c, rot) {
+  if (c._rotFor !== rot) { c._rotFor = rot; c._rotCos = Math.cos(rot); c._rotSin = Math.sin(rot); }
+  return c;
+}
 function boundaryClearance(c, n) {
   let minGap = Infinity;
   const crot = c.packRot || 0, nrot = n.packRot || 0;
-  const cCos = Math.cos(crot), cSin = Math.sin(crot);
-  const nCos = Math.cos(nrot), nSin = Math.sin(nrot);
+  packRotTrig(c, crot);
+  packRotTrig(n, nrot);
+  const cCos = c._rotCos, cSin = c._rotSin;
+  const nCos = n._rotCos, nSin = n._rotSin;
   const cPts = ensureCollisionOutline(c), nPts = ensureCollisionOutline(n);
   const cLUT = ensureRadiusLUT(c), nLUT = ensureRadiusLUT(n);
   for (let i = 0; i < OUTLINE_SAMPLE_N; i++) {
@@ -1272,6 +1310,8 @@ function boundaryClearance(c, n) {
 // to sit up to (ra+rb)*(1-minGapFrac) INTO each other before it counts as a
 // violation -- same tolerance semantics the old circle model had, just
 // applied to the real clearance instead of an approximated one.
+// One result object, overwritten per call (the callers read it at once).
+const DIR_OVERLAP = { overlap: 0, ux: 0, uy: 0 };
 function directionalOverlap(c, n, minGapFrac) {
   const dx = n.x - c.x, dy = n.y - c.y;
   const d = Math.hypot(dx, dy) || 1e-6;
@@ -1280,7 +1320,10 @@ function directionalOverlap(c, n, minGapFrac) {
   const rb = radiusFromLUT(ensureRadiusLUT(n), thetaAB + Math.PI - (n.packRot || 0));
   const allowedPenetration = (ra + rb) * (1 - minGapFrac);
   const clearance = boundaryClearance(c, n);
-  return { overlap: -allowedPenetration - clearance, ux: dx / d, uy: dy / d };
+  DIR_OVERLAP.overlap = -allowedPenetration - clearance;
+  DIR_OVERLAP.ux = dx / d;
+  DIR_OVERLAP.uy = dy / d;
+  return DIR_OVERLAP;
 }
 
 // Trial rotation step for the hill-climb below, and the sum of every
@@ -1356,8 +1399,12 @@ function relax(map, p, iters) {
     chunkNbrs.set(key, list);
   }
 
+  // Displacements indexed by the map's iteration order (the same order both
+  // loops below walk), in typed arrays made once per call.
+  const nCells = map.size;
+  const dispX = new Float64Array(nCells), dispY = new Float64Array(nCells), dispR = new Float64Array(nCells);
   for (let it = 0; it < iters; it++) {
-    const disp = new Map();
+    let ci = 0;
     for (const [key, c] of map) {
       // Cheap circle-sum broad-phase reject before the several-times-more-
       // expensive directional check below: NR itself has to be sized for the
@@ -1403,10 +1450,13 @@ function relax(map, p, iters) {
         else if (minus < curOverlapSum) rotDelta = -PACK_ROT_TRIAL;
       }
 
-      disp.set(key, [ax * damping, ay * damping, rotDelta * damping]);
+      dispX[ci] = ax * damping; dispY[ci] = ay * damping; dispR[ci] = rotDelta * damping;
+      ci++;
     }
-    for (const [key, c] of map) {
-      const [ax, ay, ar] = disp.get(key);
+    ci = 0;
+    for (const c of map.values()) {
+      const ax = dispX[ci], ay = dispY[ci], ar = dispR[ci];
+      ci++;
       c.x += ax; c.y += ay;
       if (ar) c.packRot = (c.packRot || 0) + ar;
     }

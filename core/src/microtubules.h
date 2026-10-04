@@ -48,6 +48,9 @@ struct MtCellGeom {
    double dirTotal = 0;
    double areaUm2 = 0;
    CytoMesh mesh;
+   // cos/sin(-nucRot) and cos/sin(nucRot), as the per-point nucleus tests
+   // compute them (once per cell here instead of once per point).
+   double nucCosNeg = 1, nucSinNeg = 0, nucCosPos = 1, nucSinPos = 0;
 };
 
 MtCellGeom BuildMtCellGeom(const Cell& c, const Params& p);

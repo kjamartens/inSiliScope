@@ -82,6 +82,20 @@ static bool SameSpec(const BrightfieldSpec& a, const BrightfieldSpec& b)
           a.absorptionPerUm == b.absorptionPerUm;
 }
 
+namespace {
+// u[i] *= m[i] with std::complex's operations written out (ar*br - ai*bi,
+// ar*bi + ai*br): the same bits for finite values, and a plain loop the
+// compiler vectorises (libstdc++/libc++ route operator* through __mulsc3).
+inline void MulInPlace(cfloat* u, const cfloat* m, size_t n)
+{
+   for (size_t i = 0; i < n; ++i)
+   {
+      const float ar = u[i].real(), ai = u[i].imag(), br = m[i].real(), bi = m[i].imag();
+      u[i] = cfloat(ar * br - ai * bi, ar * bi + ai * br);
+   }
+}
+} // namespace
+
 // Rows [row0, row1): 1D FFTs along x, 16 rows at a time in a small
 // interleaved buffer (cache resident).
 void BrightfieldScene::FftRows(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1, bool conjIn,
@@ -210,7 +224,7 @@ bool BrightfieldScene::Begin(const BrightfieldSpec& spec, std::string& err)
 }
 
 bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion,
-                              std::string& err)
+                              bool deferSources, std::string& err)
 {
    if (valid_ && srcId_ == &src && worldVersion_ == worldVersion && SameSpec(spec_, spec))
       return true;
@@ -308,37 +322,40 @@ bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec,
             }
          }
    }
-   Finish();
+   Finish(deferSources);
    srcId_ = &src;
    worldVersion_ = worldVersion;
    setupMs_ = Ms(t0);
    return true;
 }
 
-bool BrightfieldScene::UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm,
-                                       const std::vector<float>& phase, std::string& err)
+bool BrightfieldScene::UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm, double objectZUm,
+                                       const std::vector<float>& phase, const std::vector<float>& atten,
+                                       bool deferSources, std::string& err)
 {
    const auto t0 = std::chrono::steady_clock::now();
    if (!Begin(spec, err))
       return false;
-   if (slices < 1 || !(zTopUm > 0) || phase.size() != static_cast<size_t>(nx_) * ny_ * slices)
+   if (slices < 1 || !(zTopUm > 0) || phase.size() != static_cast<size_t>(nx_) * ny_ * slices ||
+       (!atten.empty() && atten.size() != phase.size()))
    {
       err = "BrightField: bad phase slices.";
       return false;
    }
    slices_ = slices;
    dz_ = zTopUm / slices;
-   objectZ_ = 0.5 * dz_;
+   objectZ_ = objectZUm;
    phase_ = phase;
-   atten_.clear();
-   Finish();
+   atten_ = atten;
+   Finish(deferSources);
    srcId_ = nullptr;
    setupMs_ = Ms(t0);
    return true;
 }
 
-// Sources, pupil, kz, and the thin spectrum or the exit spectra.
-void BrightfieldScene::Finish()
+// Sources, pupil, kz, and the thin spectrum or the exit spectra (deferred:
+// empty slots, filled by EnsureExitFields / SourceImageAt).
+void BrightfieldScene::Finish(bool deferSources)
 {
    const BrightfieldQuality q = spec_.Resolved();
    const size_t N = static_cast<size_t>(nx_) * ny_;
@@ -370,11 +387,12 @@ void BrightfieldScene::Finish()
          bandCols_.push_back(ix);
    }
 
-   // Detection pupil and the medium's kz.
+   // Detection pupil and the medium's kz (rows in parallel: per element).
    pupil_.assign(N, cfloat(0, 0));
    kz_.assign(N, -1.0f);
    const double kMed = k0_ * spec.nMedium, kNa = k0_ * spec.na;
-   for (unsigned iy = 0; iy < ny_; ++iy)
+   const ZernikeModeTable zmodes(spec.zernike);
+   ParallelFor(ny_, [&](unsigned iy) {
       for (unsigned ix = 0; ix < nx_; ++ix)
       {
          const double kx = 2 * kPi * Freq(ix, nx_) / Lx, ky = 2 * kPi * Freq(iy, ny_) / Ly;
@@ -385,10 +403,11 @@ void BrightfieldScene::Finish()
          const double rho = std::sqrt(kr2) / kNa;
          if (rho <= 1.0 && kz_[i] >= 0)
          {
-            const double w = 2 * kPi * ZernikeWavefrontWaves(spec.zernike, rho, std::atan2(ky, kx));
+            const double w = 2 * kPi * zmodes.Waves(rho, std::atan2(ky, kx));
             pupil_[i] = cfloat(static_cast<float>(std::cos(w)), static_cast<float>(std::sin(w)));
          }
       }
+   });
 
    // Thin object: one transmittance spectrum that every source shifts.
    thinSpec_.clear();
@@ -408,27 +427,43 @@ void BrightfieldScene::Finish()
    }
    else
    {
-      // Shared by every source: the slice step and the slice transmittances.
+      // Shared by every source: the slice step and the slice transmittances
+      // (per element; rows in parallel).
       prop_.resize(N);
-      for (size_t i = 0; i < N; ++i)
-         prop_[i] = kz_[i] >= 0 ? std::polar(1.0f, static_cast<float>(kz_[i] * dz_)) : cfloat(0, 0);
+      ParallelFor(ny_, [&](unsigned y) {
+         for (size_t i = static_cast<size_t>(y) * nx_; i < static_cast<size_t>(y + 1) * nx_; ++i)
+            prop_[i] = kz_[i] >= 0 ? std::polar(1.0f, static_cast<float>(kz_[i] * dz_)) : cfloat(0, 0);
+      });
       trans_.clear();
       if (static_cast<double>(N) * slices_ * sizeof(cfloat) <= kTransCacheBytes)
       {
          trans_.resize(N * slices_);
-         for (size_t i = 0; i < N * slices_; ++i)
-            trans_[i] = std::polar(atten_.empty() ? 1.0f : atten_[i], phase_[i]);
+         ParallelFor(static_cast<unsigned>(slices_) * ny_, [&](unsigned r) {
+            for (size_t i = static_cast<size_t>(r) * nx_; i < static_cast<size_t>(r + 1) * nx_; ++i)
+               trans_[i] = std::polar(atten_.empty() ? 1.0f : atten_[i], phase_[i]);
+         });
       }
    }
    if (slices_ > 1 && static_cast<double>(src_.size()) * N * sizeof(cfloat) <= kExitCacheBytes)
    {
-      exit_.resize(src_.size());
-      ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
-         std::vector<cfloat> work;
-         ExitField(src_[s], exit_[s], work);
-      });
+      exit_.assign(src_.size(), std::vector<cfloat>());
+      if (!deferSources)
+         EnsureExitFields();
    }
    valid_ = true;
+}
+
+void BrightfieldScene::EnsureExitFields()
+{
+   if (slices_ == 1 || exit_.size() != src_.size())
+      return;
+   ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
+      if (exit_[s].empty())
+      {
+         std::vector<cfloat> work;
+         ExitField(src_[s], exit_[s], work);
+      }
+   });
 }
 
 // Propagates source s's plane wave down through the slices (top first):
@@ -452,11 +487,7 @@ void BrightfieldScene::ExitField(const Source& s, std::vector<cfloat>& u, std::v
    for (int k = slices_ - 1; k >= 0; --k)
    {
       if (!trans_.empty())
-      {
-         const cfloat* t = &trans_[static_cast<size_t>(k) * N];
-         for (size_t i = 0; i < N; ++i)
-            u[i] *= t[i];
-      }
+         MulInPlace(u.data(), &trans_[static_cast<size_t>(k) * N], N);
       else
       {
          const float* ph = &phase_[static_cast<size_t>(k) * N];
@@ -469,8 +500,7 @@ void BrightfieldScene::ExitField(const Source& s, std::vector<cfloat>& u, std::v
       FftForward(u.data(), work, true);
       if (k == 0)
          break;
-      for (size_t i = 0; i < N; ++i)
-         u[i] *= prop_[i];
+      MulInPlace(u.data(), prop_.data(), N);
       FftInverse(u.data(), work, 0, ny_);
    }
 }
@@ -482,25 +512,27 @@ void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, st
    const Source& sp = src_[s];
    if (slices_ == 1)
    {
-      // E(k) = T(k - k_s): a circular shift of the transmittance spectrum.
+      // E(k) = T(k - k_s): a circular shift of the transmittance spectrum
+      // (the shifted column index tabulated once per source).
       u.resize(N);
+      std::vector<unsigned> sxs(nx_);
+      for (unsigned x = 0; x < nx_; ++x)
+         sxs[x] = static_cast<unsigned>(((static_cast<int>(x) - sp.mx) % static_cast<int>(nx_) + static_cast<int>(nx_)) % static_cast<int>(nx_));
       for (unsigned y = 0; y < ny_; ++y)
       {
          const unsigned sy = static_cast<unsigned>(((static_cast<int>(y) - sp.my) % static_cast<int>(ny_) + static_cast<int>(ny_)) % static_cast<int>(ny_));
+         const cfloat* src = &thinSpec_[static_cast<size_t>(sy) * nx_];
+         cfloat* dst = &u[static_cast<size_t>(y) * nx_];
          for (unsigned x = 0; x < nx_; ++x)
-         {
-            const unsigned sx = static_cast<unsigned>(((static_cast<int>(x) - sp.mx) % static_cast<int>(nx_) + static_cast<int>(nx_)) % static_cast<int>(nx_));
-            u[static_cast<size_t>(y) * nx_ + x] = thinSpec_[static_cast<size_t>(sy) * nx_ + sx];
-         }
+            dst[x] = src[sxs[x]];
       }
    }
-   else if (!exit_.empty())
+   else if (!exit_.empty() && !exit_[s].empty())
       u = exit_[s];
    else
       ExitField(sp, u, work);
    // Pupil and defocus to the focal plane (Image), zero outside the band.
-   for (size_t i = 0; i < N; ++i)
-      u[i] *= defocus[i];
+   MulInPlace(u.data(), defocus.data(), N);
    const unsigned W = spec_.width, H = spec_.height;
    FftInverse(u.data(), work, margin_, margin_ + H * up_);
    const float norm = 1.0f / static_cast<float>(up_ * up_);
@@ -510,7 +542,10 @@ void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, st
          float acc = 0.0f;
          for (unsigned b = 0; b < up_; ++b)
             for (unsigned a = 0; a < up_; ++a)
-               acc += std::norm(u[static_cast<size_t>(margin_ + j * up_ + b) * nx_ + margin_ + i * up_ + a]);
+            {
+               const cfloat v = u[static_cast<size_t>(margin_ + j * up_ + b) * nx_ + margin_ + i * up_ + a];
+               acc += v.real() * v.real() + v.imag() * v.imag();   // std::norm's operations
+            }
          camOut[static_cast<size_t>(j) * W + i] = acc * norm;
       }
 }
@@ -529,19 +564,63 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
    }
    const auto t0 = std::chrono::steady_clock::now();
    const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
-   // From the lowest screen (objectZ_ above the coverslip: its slice's
-   // mid-plane, or the thin screen's height) to the focal plane, travelling
-   // down: distance objectZ_ - focus. Shared by every source.
-   const size_t N = static_cast<size_t>(nx_) * ny_;
-   const double d = objectZ_ - focusUm;
-   std::vector<cfloat> defocus(N);
-   for (size_t i = 0; i < N; ++i)
-      defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
+   std::vector<cfloat> defocus;
+   Defocus(focusUm, defocus);
+   EnsureExitFields();
    std::vector<float> slots(P * src_.size());
    ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
       std::vector<cfloat> u, work;
       SourceImage(static_cast<int>(s), defocus, u, work, &slots[s * P]);
    });
+   SetImageFromSources(focusUm, slots.data());
+   imageMs_ = Ms(t0);
+   out = image_;
+   return true;
+}
+
+// From the lowest screen (objectZ_ above the coverslip: its slice's
+// mid-plane, or the thin screen's height) to the focal plane, travelling
+// down: distance objectZ_ - focus. Shared by every source.
+void BrightfieldScene::Defocus(double focusUm, std::vector<cfloat>& defocus) const
+{
+   const size_t N = static_cast<size_t>(nx_) * ny_;
+   const double d = objectZ_ - focusUm;
+   defocus.resize(N);
+   ParallelFor(ny_, [&](unsigned y) {
+      for (size_t i = static_cast<size_t>(y) * nx_; i < static_cast<size_t>(y + 1) * nx_; ++i)
+         defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
+   });
+}
+
+bool BrightfieldScene::SourceImageAt(double focusUm, int s, std::vector<float>& out, std::string& err)
+{
+   if (!valid_)
+   {
+      err = "BrightField: scene not set up.";
+      return false;
+   }
+   if (s < 0 || s >= static_cast<int>(src_.size()))
+   {
+      err = "BrightField: no such source.";
+      return false;
+   }
+   if (slices_ > 1 && exit_.size() == src_.size() && exit_[static_cast<size_t>(s)].empty())
+   {
+      std::vector<cfloat> work;
+      ExitField(src_[static_cast<size_t>(s)], exit_[static_cast<size_t>(s)], work);
+   }
+   std::vector<cfloat> defocus, u, work;
+   Defocus(focusUm, defocus);
+   out.assign(static_cast<size_t>(spec_.width) * spec_.height, 0.0f);
+   SourceImage(s, defocus, u, work, out.data());
+   return true;
+}
+
+bool BrightfieldScene::SetImageFromSources(double focusUm, const float* slots)
+{
+   if (!valid_ || !slots)
+      return false;
+   const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
    image_.assign(P, 0.0f);
    for (size_t s = 0; s < src_.size(); ++s)
       for (size_t i = 0; i < P; ++i)
@@ -551,8 +630,6 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
       v *= inv;
    haveImage_ = true;
    imageFocus_ = focusUm;
-   imageMs_ = Ms(t0);
-   out = image_;
    return true;
 }
 

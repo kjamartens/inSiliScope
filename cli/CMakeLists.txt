@@ -21,7 +21,21 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/SMLMStructures.cpp
   ${ISC_SIM}/SMLMZernike.cpp
   ${ISC_SIM}/ZernikePsf.cpp
+  ${ISC_SIM}/SplatSse2.cpp
+  ${ISC_SIM}/SplatAvx2.cpp
 )
+# The splat kernel's AVX2 copy (SplatKernel.h): this one file gets the AVX2
+# flag on x86-64 and the dispatcher picks it at run time; everything else
+# keeps the baseline instruction set. No contraction into FMA (/fp:precise
+# without /fp:contract, -ffp-contract=off), so it is bit-exact with the
+# baseline copy (ctest sr_render).
+if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
+  if(MSVC)
+    set_source_files_properties(${ISC_SIM}/SplatAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+  else()
+    set_source_files_properties(${ISC_SIM}/SplatAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+  endif()
+endif()
 
 if(EMSCRIPTEN)
   add_executable(insiliscope_scope_web scope_wasm.cpp ${ISC_SIM_SRC})
@@ -36,9 +50,11 @@ if(EMSCRIPTEN)
     -sMODULARIZE=1 -sEXPORT_NAME=createInsiliscope
     -sENVIRONMENT=web,worker
     -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
-    -sALLOW_MEMORY_GROWTH=1
+    # A movie's PSF stack alone is ~75 MB: start there instead of growing (and
+    # copying the heap) from 16 MB in several steps.
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_scope_options,_isc_scope_movie,_isc_wf_begin,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_wf_begin,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")

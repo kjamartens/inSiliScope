@@ -14,9 +14,11 @@
 // same answers.
 #pragma once
 
+#include "blockstore.h"
 #include "cells.h"
 #include "dyes.h"
 #include "microtubules.h"
+#include "parallel.h"
 #include "params.h"
 
 #include <array>
@@ -27,6 +29,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -37,10 +40,19 @@ constexpr int PACK_BLOCK_CHUNKS = 8;
 struct CellAssets {
    Cell cell;                                // shape + packed pose
    MtCellGeom geom;                          // direction table, area, cytoplasm mesh
+   // The microtubules (and what hangs off them) are built on demand: the
+   // viewer's cytoplasm-mesh request does not need them (World::Assets).
+   bool mtsBuilt = false;
    std::vector<Microtubule> mts;
    std::vector<double> mtReach;              // per MT: max distance of a point from the cell centre (um)
    std::vector<std::unique_ptr<MtFrames>> frames;   // built lazily, per MT
    const MtFrames& Frames(size_t i);
+   // Per MT, built lazily with Frames(i): the world x, y and the z of every
+   // 1 um dye block's arc midpoint -- the values the block walk of a query
+   // used to compute again for every block of every query.
+   struct BlockMid { double wx, wy, z; };
+   std::vector<std::vector<BlockMid>> mids;
+   const std::vector<BlockMid>& Mids(size_t i);
 };
 
 struct WorldDye {
@@ -67,6 +79,8 @@ struct PersistentEvent {
 
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
+   long blocksInjected = 0;     // packed blocks taken from another world (SetPackedBlock)
+   long blocksFromStore = 0;    // packed blocks taken from the disk store (SetCacheDir)
    long dyeBlocks = 0;          // 1 um dye blocks generated (cache misses)
    long dyeBlockHits = 0;       // served from the cache
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
@@ -82,6 +96,17 @@ public:
    // dye cap is soft: blocks the current query uses are never evicted, so a
    // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
+   World(World&&) = default;
+   World& operator=(World&&) = default;
+   ~World();   // flushes the block store
+
+   // Packed blocks kept across runs in dir/packed_blocks.bin (blockstore.h;
+   // the C ABI's isc_world_set_cache_dir). False if the directory cannot be
+   // used; "" turns the store off. Blocks packed so far are not written
+   // retroactively.
+   bool SetCacheDir(const std::string& dir);
+   bool FlushCache();
+   const BlockStore* Store() const { return store_.get(); }
 
    const Params& GetParams() const { return p_; }
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
@@ -120,6 +145,17 @@ public:
    // The packed cell of chunk (cx, cy); false if that chunk holds none.
    bool FindCell(int32_t cx, int32_t cy, Cell& out);
 
+   // The packed cells of 8x8-chunk block (bx, by), in the block's order
+   // (packed now if not cached).
+   const std::vector<Cell>& BlockCells(int32_t bx, int32_t by);
+   // Installs block (bx, by) from rows another world of the same seed and
+   // params packed (`stride` doubles each: cx, cy, x, y, packRot first, as
+   // the C ABI's cell rows); each cell's shape is recomputed from its
+   // address. skipped = the block was cached already (nothing changes).
+   // False (nothing changes) if a row is not a present cell of the block or
+   // the rows are out of the block's (cx, then cy) order. Caches only.
+   bool SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped);
+
    // Labelled-dye counts on an nx x ny grid over the rect (row-major, y
    // outer); returns the total.
    long DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
@@ -145,7 +181,9 @@ public:
    long OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                               int nx, int ny, int nz, int sub, float* out);
 
-   CellAssets& Assets(const Cell& c);
+   // The cell's assets; withMts = false may leave the microtubules unbuilt
+   // (the cytoplasm mesh alone, for the viewer).
+   CellAssets& Assets(const Cell& c, bool withMts = true);
    void DropCaches();
    const WorldStats& Stats() const { return stats_; }
 
@@ -166,6 +204,21 @@ private:
       bool generated = false;               // dyes filled in (ForEachDyeBlock)
    };
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
+   struct BlockKeyHash {
+      size_t operator()(const BlockKey& k) const
+      {
+         uint64_t h = 0x9E3779B97F4A7C15ull;
+         for (int32_t v : k) {
+            h ^= (uint32_t)v + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+            h *= 0xBF58476D1CE4E5B9ull;
+         }
+         return (size_t)(h ^ (h >> 31));
+      }
+   };
+   // The cells the public CellsInRect returns, as pointers into blocks_
+   // (valid until the next block is packed; the walks here pack nothing
+   // after it ran).
+   void CellsInRectPtr(double x0, double y0, double x1, double y1, std::vector<const Cell*>& out);
    // Makes b.pEvents cover time bins [b0, b1] (the query ends at t1), and
    // extends them ahead of time at a per-block point of their last bin
    // (shortFirst: a first build reaches only one bin ahead). True if it built
@@ -177,7 +230,7 @@ private:
    std::vector<Cell> PackBlock(int32_t bx, int32_t by) const;
    // Builds the assets of those cells not cached yet, in parallel, for the
    // next Assets() calls to take (they keep the usual order).
-   void PrebuildAssets(const std::vector<Cell>& cells);
+   void PrebuildAssets(const std::vector<const Cell*>& cells);
    const std::vector<Cell>& PackedBlock(int32_t bx, int32_t by);
    // For every 1 um dye block that can reach the rect/z range, in a fixed
    // order: prep(DyeBlock&) -- work on that block alone, run in parallel
@@ -207,7 +260,7 @@ private:
    std::list<std::pair<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>>> assets_;
    // LRU of dye blocks (most recent first), bounded by the number of dyes held
    std::list<std::pair<BlockKey, DyeBlock>> dyeLru_;
-   std::map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator> dyeIndex_;
+   std::unordered_map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator, BlockKeyHash> dyeIndex_;
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
    uint64_t evictions_ = 0, kinVersion_ = 0;
@@ -229,6 +282,17 @@ private:
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> packPrebuilt_;
    std::map<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>> assetPrebuilt_;
    WorldStats stats_;
+   // The shared worker pool (parallel.h), installed for every public call.
+   std::shared_ptr<WorkerPool> pool_;
+   // The packed-block disk store (SetCacheDir), if any.
+   std::unique_ptr<BlockStore> store_;
+   // The cells of rows (cx, cy, x, y, packRot, ...; `stride` doubles per
+   // row) as SetPackedBlock installs them: validated, rebuilt from their
+   // address, the pose from the row. False if a row is not a present cell of
+   // block (bx, by) in order.
+   bool CellsFromRows(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, std::vector<Cell>& out) const;
+   // A stored block's cells, if the store has valid rows for it.
+   bool StoredBlock(int32_t bx, int32_t by, std::vector<Cell>& out);
 };
 
 // Cell-local (lx, ly) -> world, as the JS localToWorld (packRot, then x/y).

@@ -14,9 +14,11 @@
 
 #include "ZernikePsf.h"
 
+#include "ChirpZ.h"
 #include "FftRadix2.h"
 #include "Parallel.h"
 #include "SMLMZernike.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -107,92 +109,6 @@ double MaskPhase(bool doubleHelix, int maskModes, double maskWaist, double rhoNo
    }
    return (re == 0.0 && im == 0.0) ? 0.0 : std::atan2(im, re);
 }
-
-// Bluestein chirp-Z: out[p] = sum_m in[m] exp(i k_m x_p), k_m = k0 + m dk,
-// x_p = x0 + p dx, m < M, p < P (psfCzt1d), with every input-independent
-// factor tabulated.
-struct CztPlan
-{
-   int M = 0, P = 0, L = 0;
-   FftTwiddles fwd, inv;
-   std::vector<double> preC, preS; // exp(i*(m*dk*x0 + theta*m*m/2))
-   std::vector<double> gRe, gIm;   // FFT of the filter exp(-i*theta*n*n/2)
-   std::vector<double> c1, s1;     // exp(i*theta*p*p/2)
-   std::vector<double> c2, s2;     // exp(i*k0*(x0+p*dx))
-
-   CztPlan(int M_, double dk, double k0, int P_, double dx, double x0) : M(M_), P(P_)
-   {
-      const double theta = dk * dx;
-      L = 1;
-      while (L < M + P - 1)
-         L <<= 1;
-      fwd = MakeTwiddles(L, -1);
-      inv = MakeTwiddles(L, 1);
-      preC.resize(static_cast<size_t>(M));
-      preS.resize(static_cast<size_t>(M));
-      for (int m = 0; m < M; ++m)
-      {
-         const double ang = m * dk * x0 + theta * m * m / 2.0;
-         preC[static_cast<size_t>(m)] = std::cos(ang);
-         preS[static_cast<size_t>(m)] = std::sin(ang);
-      }
-      gRe.assign(static_cast<size_t>(L), 0.0);
-      gIm.assign(static_cast<size_t>(L), 0.0);
-      for (int n = -(M - 1); n < P; ++n)
-      {
-         const double ang = -theta * n * n / 2.0;
-         const int idx = n >= 0 ? n : L + n;
-         gRe[static_cast<size_t>(idx)] = std::cos(ang);
-         gIm[static_cast<size_t>(idx)] = std::sin(ang);
-      }
-      Fft1d(gRe.data(), gIm.data(), fwd);
-      c1.resize(static_cast<size_t>(P));
-      s1.resize(c1.size());
-      c2.resize(c1.size());
-      s2.resize(c1.size());
-      for (int p = 0; p < P; ++p)
-      {
-         const double a1 = theta * p * p / 2.0;
-         c1[static_cast<size_t>(p)] = std::cos(a1);
-         s1[static_cast<size_t>(p)] = std::sin(a1);
-         const double a2 = k0 * (x0 + p * dx);
-         c2[static_cast<size_t>(p)] = std::cos(a2);
-         s2[static_cast<size_t>(p)] = std::sin(a2);
-      }
-   }
-
-   // aRe/aIm: scratch of length L.
-   void Apply(const double* inRe, const double* inIm, double* outRe, double* outIm, double* aRe, double* aIm) const
-   {
-      std::fill(aRe, aRe + L, 0.0);
-      std::fill(aIm, aIm + L, 0.0);
-      for (int m = 0; m < M; ++m)
-      {
-         const double cr = preC[static_cast<size_t>(m)], ci = preS[static_cast<size_t>(m)];
-         aRe[m] = inRe[m] * cr - inIm[m] * ci;
-         aIm[m] = inRe[m] * ci + inIm[m] * cr;
-      }
-      Fft1d(aRe, aIm, fwd);
-      for (int i = 0; i < L; ++i)
-      {
-         const double gr = gRe[static_cast<size_t>(i)], gi = gIm[static_cast<size_t>(i)];
-         const double re = aRe[i] * gr - aIm[i] * gi;
-         const double im = aRe[i] * gi + aIm[i] * gr;
-         aRe[i] = re;
-         aIm[i] = im;
-      }
-      Fft1d(aRe, aIm, inv);
-      for (int p = 0; p < P; ++p)
-      {
-         const double convRe = aRe[p] / L, convIm = aIm[p] / L;
-         const double cc1 = c1[static_cast<size_t>(p)], ss1 = s1[static_cast<size_t>(p)];
-         const double sRe = convRe * cc1 - convIm * ss1, sIm = convRe * ss1 + convIm * cc1;
-         const double cc2 = c2[static_cast<size_t>(p)], ss2 = s2[static_cast<size_t>(p)];
-         outRe[p] = sRe * cc2 - sIm * ss2;
-         outIm[p] = sRe * ss2 + sIm * cc2;
-      }
-   }
-};
 
 struct StackGeometry
 {
@@ -315,43 +231,121 @@ bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::ve
          pupilIm[idx] = std::sin(phase);
       }
 
-      std::vector<double> aRe(static_cast<size_t>(plan.L)), aIm(aRe.size());
-      // Row pass: one CZT over ky per pupil column m -> M x ny intermediate.
+      // The transforms run kBatch lines at a time (CztPlan::Apply<kBatch>:
+      // per line the one-line operations, so the same bits); a short last
+      // batch is padded with zero lines whose outputs are dropped.
+      constexpr int kBatch = 4;
+      std::vector<double> aRe(plan.ScratchPerBatch(kBatch)), aIm(aRe.size());
+      const std::vector<double> zeroLine(static_cast<size_t>(M), 0.0);
+      std::vector<double> lineRe(static_cast<size_t>(M) * kBatch), lineIm(lineRe.size());
+      const int oLen = std::max(nx, ny);
+      std::vector<double> oRe(static_cast<size_t>(oLen) * kBatch), oIm(oRe.size());
+      const double* inR[kBatch];
+      const double* inI[kBatch];
+      double* outR[kBatch];
+      double* outI[kBatch];
+      for (int b = 0; b < kBatch; ++b)
+      {
+         outR[b] = oRe.data() + static_cast<size_t>(b) * oLen;
+         outI[b] = oIm.data() + static_cast<size_t>(b) * oLen;
+      }
+      // Row pass: one CZT over ky per pupil column m -> M x ny intermediate
+      // (all-zero columns transform to exactly zero and are skipped).
       std::vector<double> midRe(static_cast<size_t>(M) * ny, 0.0), midIm(midRe.size(), 0.0);
-      std::vector<double> lineRe(static_cast<size_t>(M)), lineIm(lineRe.size());
-      std::vector<double> oRe(static_cast<size_t>(std::max(nx, ny))), oIm(oRe.size());
+      std::vector<int> cols;
       for (int m = 0; m < M; ++m)
       {
          bool any = false;
-         for (int n = 0; n < M; ++n)
+         for (int n = 0; n < M && !any; ++n)
+            any = inside[static_cast<size_t>(n) * M + m] != 0;
+         if (any)
+            cols.push_back(m);
+      }
+      for (size_t c0 = 0; c0 < cols.size(); c0 += kBatch)
+      {
+         const int nb = static_cast<int>(std::min<size_t>(kBatch, cols.size() - c0));
+         for (int b = 0; b < kBatch; ++b)
          {
-            lineRe[static_cast<size_t>(n)] = pupilRe[static_cast<size_t>(n) * M + m];
-            lineIm[static_cast<size_t>(n)] = pupilIm[static_cast<size_t>(n) * M + m];
-            any = any || inside[static_cast<size_t>(n) * M + m];
+            if (b >= nb)
+            {
+               inR[b] = zeroLine.data();
+               inI[b] = zeroLine.data();
+               continue;
+            }
+            const int m = cols[c0 + static_cast<size_t>(b)];
+            double* lr = lineRe.data() + static_cast<size_t>(b) * M;
+            double* li = lineIm.data() + static_cast<size_t>(b) * M;
+            for (int n = 0; n < M; ++n)
+            {
+               lr[n] = pupilRe[static_cast<size_t>(n) * M + m];
+               li[n] = pupilIm[static_cast<size_t>(n) * M + m];
+            }
+            inR[b] = lr;
+            inI[b] = li;
          }
-         if (!any)
-            continue; // an all-zero column transforms to exactly zero
-         plan.Apply(lineRe.data(), lineIm.data(), oRe.data(), oIm.data(), aRe.data(), aIm.data());
-         for (int y = 0; y < ny; ++y)
+         plan.Apply<kBatch>(inR, inI, outR, outI, aRe.data(), aIm.data());
+         for (int b = 0; b < nb; ++b)
          {
-            midRe[static_cast<size_t>(y) * M + m] = oRe[static_cast<size_t>(y)];
-            midIm[static_cast<size_t>(y) * M + m] = oIm[static_cast<size_t>(y)];
+            const int m = cols[c0 + static_cast<size_t>(b)];
+            for (int y = 0; y < ny; ++y)
+            {
+               midRe[static_cast<size_t>(y) * M + m] = outR[b][y];
+               midIm[static_cast<size_t>(y) * M + m] = outI[b][y];
+            }
          }
       }
       // Column pass: one CZT over kx per intermediate row -> |E|^2.
       std::vector<float>& slice = out[zi];
       slice.assign(static_cast<size_t>(nx) * ny, 0.0f);
-      for (int y = 0; y < ny; ++y)
+      for (int y0 = 0; y0 < ny; y0 += kBatch)
       {
-         plan.Apply(midRe.data() + static_cast<size_t>(y) * M, midIm.data() + static_cast<size_t>(y) * M, oRe.data(),
-                    oIm.data(), aRe.data(), aIm.data());
-         float* row = slice.data() + static_cast<size_t>(y) * nx;
-         for (int x = 0; x < nx; ++x)
-            row[x] = static_cast<float>(oRe[static_cast<size_t>(x)] * oRe[static_cast<size_t>(x)] +
-                                        oIm[static_cast<size_t>(x)] * oIm[static_cast<size_t>(x)]);
+         const int nb = std::min(kBatch, ny - y0);
+         for (int b = 0; b < kBatch; ++b)
+         {
+            const bool live = b < nb;
+            inR[b] = live ? midRe.data() + static_cast<size_t>(y0 + b) * M : zeroLine.data();
+            inI[b] = live ? midIm.data() + static_cast<size_t>(y0 + b) * M : zeroLine.data();
+         }
+         plan.Apply<kBatch>(inR, inI, outR, outI, aRe.data(), aIm.data());
+         for (int b = 0; b < nb; ++b)
+         {
+            float* row = slice.data() + static_cast<size_t>(y0 + b) * nx;
+            const double* r = outR[b];
+            const double* i = outI[b];
+            for (int x = 0; x < nx; ++x)
+               row[x] = static_cast<float>(r[x] * r[x] + i[x] * i[x]);
+         }
       }
    });
    return true;
+}
+
+ZernikeModeTable::ZernikeModeTable(const ZernikeCoefficients& coeffs)
+{
+   for (size_t j = 0; j < coeffs.size(); ++j)
+   {
+      if (coeffs[j] == 0.0)
+         continue;
+      Term t;
+      t.coeff = coeffs[j];
+      IndexToNM(static_cast<int>(j), t.n, t.l);
+      t.m = std::abs(t.l);
+      terms_.push_back(t);
+   }
+}
+
+double ZernikeModeTable::Waves(double rho, double phi) const
+{
+   double w = 0.0;
+   for (const Term& t : terms_)
+   {
+      ZernikeMode zm;
+      zm.n = t.n;
+      zm.l = t.l;
+      zm.m = t.m;
+      w += t.coeff * ZernikeValue(zm, rho, phi);
+   }
+   return w;
 }
 
 double ZernikeWavefrontWaves(const ZernikeCoefficients& coeffs, double rho, double phi)
@@ -373,8 +367,11 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
 {
    outCache = PsfKernelCache();
    std::vector<std::vector<float>> planes;
+   const auto tPlanes = TimingClock::now();
    if (!ComputeZernikePsfPlanes(req, planes, outError))
       return false;
+   TimingLog("psf.zernike-planes", TimingSince(tPlanes));
+   const auto tSums = TimingClock::now();
    const StackGeometry g = GeometryFor(req);
    outCache.oversampling = g.oversampling;
    outCache.halfWidthOversampled = g.halfOv;
@@ -382,11 +379,12 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
    outCache.nz = g.nz;
    outCache.zStepNm = req.zStepNm;
    outCache.interpMode = req.interpMode;
-   outCache.planes = std::move(planes);
-   outCache.blockSums.assign(static_cast<size_t>(g.nz), std::vector<float>());
+   PsfKernelPlanes d;
+   d.planes = std::move(planes);
+   d.blockSums.assign(static_cast<size_t>(g.nz), std::vector<float>());
    outCache.blockSumWidth = g.size + g.oversampling - 1;
    ParallelFor(static_cast<unsigned>(g.nz), [&](unsigned z) {
-      std::vector<float>& plane = outCache.planes[z];
+      std::vector<float>& plane = d.planes[z];
       // Photon-normalize (sum 1), as the JVM path does.
       double sum = 0.0;
       for (float v : plane)
@@ -394,8 +392,11 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
       if (sum > 0.0)
          for (float& v : plane)
             v = static_cast<float>(v / sum);
-      outCache.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
+      d.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
    });
+   BuildPolyphaseSums(d, outCache.blockSumWidth, g.oversampling);
+   outCache.SetData(std::move(d));
+   TimingLog("psf.normalize+block-sums", TimingSince(tSums));
    outCache.valid = true;
    return true;
 }

@@ -644,23 +644,29 @@ function depthColor(z, zmin, zmax, alpha) {
 // segments in whatever frame the mesh itself is in (local, per
 // buildCytoMesh) with z = the iso-level (contour height) -- the caller
 // translates by c.x,c.y before projecting.
+// Reads the mesh's interleaved vertex array (x, y, h at 3*(k*n + i)); returns a flat
+// array of x1, y1, x2, y2, level per segment.
 function marchingSquaresContours(mesh, levels) {
-  const { rings, n, grid } = mesh;
-  const segs = [];
+  const { rings, n, flat: f } = mesh;
+  const segs = [], corner = [0, 0, 0, 0], px = [0, 0], py = [0, 0];
   for (let k = 0; k < rings; k++) {
     for (let i = 0; i < n; i++) {
       const i2 = (i + 1) % n;
-      const p00 = grid[k][i], p10 = grid[k][i2], p11 = grid[k + 1][i2], p01 = grid[k + 1][i];
-      const edges = [[p00, p10], [p10, p11], [p11, p01], [p01, p00]];
-      for (const lvl of levels) {
-        const pts = [];
-        for (const [a, b] of edges) {
-          if ((a.h - lvl) * (b.h - lvl) < 0) {
-            const t = (lvl - a.h) / (b.h - a.h);
-            pts.push([a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t]);
+      // the quad's corners p00, p10, p11, p01; edges (c, c+1 mod 4) in that order
+      corner[0] = 3 * (k * n + i); corner[1] = 3 * (k * n + i2);
+      corner[2] = 3 * ((k + 1) * n + i2); corner[3] = 3 * ((k + 1) * n + i);
+      for (let l = 0; l < levels.length; l++) {
+        const lvl = levels[l];
+        let np = 0;
+        for (let e = 0; e < 4; e++) {
+          const a = corner[e], b = corner[(e + 1) & 3], ah = f[a + 2], bh = f[b + 2];
+          if ((ah - lvl) * (bh - lvl) < 0) {
+            const t = (lvl - ah) / (bh - ah);
+            if (np < 2) { px[np] = f[a] + (f[b] - f[a]) * t; py[np] = f[a + 1] + (f[b + 1] - f[a + 1]) * t; }
+            np++;
           }
         }
-        if (pts.length === 2) segs.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], z: lvl });
+        if (np === 2) segs.push(px[0], py[0], px[1], py[1], lvl);
       }
     }
   }
@@ -849,26 +855,21 @@ function localToWorld(c, lx, ly) {
 function getMeshRender(entry, c) {
   let r = entry.render;
   if (r) return r;
-  const { rings, n, grid } = entry.mesh;
+  const { rings, n, flat } = entry.mesh;
   const nv = (rings + 1) * n, nq = rings * n;
   r = {
     nv, nq, n, rings,
     lx: new Float32Array(nv), ly: new Float32Array(nv), h: new Float32Array(nv),
-    qidx: new Uint32Array(nq * 4), qcol: new Array(nq), qavgH: new Float32Array(nq),
+    qidx: new Uint32Array(nq * 4), qcol: null, qavgH: new Float32Array(nq), // qcol: the 2D path's fill styles, made on first use
     sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords
     order: null, orderKey: '',
   };
-  for (let k = 0; k <= rings; k++) for (let i = 0; i < n; i++) {
-    const v = k * n + i, pt = grid[k][i];
-    r.lx[v] = pt.x; r.ly[v] = pt.y; r.h[v] = pt.h;
-  }
+  for (let v = 0; v < nv; v++) { r.lx[v] = flat[3 * v]; r.ly[v] = flat[3 * v + 1]; r.h[v] = flat[3 * v + 2]; }
   for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
     const q = k * n + i, i2 = (i + 1) % n, b = q * 4;
     const a = k * n + i, bb = k * n + i2, cc = (k + 1) * n + i2, d = (k + 1) * n + i;
     r.qidx[b] = a; r.qidx[b + 1] = bb; r.qidx[b + 2] = cc; r.qidx[b + 3] = d;
-    const avgH = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
-    r.qavgH[q] = avgH;
-    r.qcol[q] = depthColor(avgH, 0, c.height, 0.6);
+    r.qavgH[q] = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
   }
   entry.render = r;
   return r;
@@ -891,9 +892,17 @@ function ensureQuadOrder(r, c, sinT, cosT) {
     for (let j = 0; j < 4; j++) { const v = qidx[b + j]; wy += lx[v] * sr + ly[v] * cr; }
     depth[q] = (wy / 4) * sinT + r.qavgH[q] * cosT;
   }
+  // Sort integer keys (depth quantised to 2^31 steps of its range, then the quad index) with the
+  // typed array's numeric sort: no comparator calls, and exact below 2^53. Quads within one
+  // quantum of depth keep their index order (invisible).
+  let lo = Infinity, hi = -Infinity;
+  for (let q = 0; q < r.nq; q++) { if (depth[q] < lo) lo = depth[q]; if (depth[q] > hi) hi = depth[q]; }
+  const scale = hi > lo ? 2147483647 / (hi - lo) : 0, Q = 1048576;   // 2^20 quads per depth step (nq < 2^20)
+  const keys = new Float64Array(r.nq);
+  for (let q = 0; q < r.nq; q++) keys[q] = Math.round((depth[q] - lo) * scale) * Q + q;
+  keys.sort();
   const idx = new Uint32Array(r.nq);
-  for (let q = 0; q < r.nq; q++) idx[q] = q;
-  idx.sort((a, b) => depth[a] - depth[b]);
+  for (let j = 0; j < r.nq; j++) idx[j] = keys[j] % Q;
   r.order = idx; r.orderKey = key;
 }
 
@@ -901,14 +910,12 @@ function ensureQuadOrder(r, c, sinT, cosT) {
 // (local frame, flat x1,y1,x2,y2,z) and merely transformed per frame.
 function getContourSegs(entry, step) {
   if (entry.contours && entry.contours.step === step) return entry.contours.segs;
-  const { grid } = entry.mesh;
+  const f = entry.mesh.flat;
   let maxH = 0;
-  for (const row of grid) for (const pt of row) if (pt.h > maxH) maxH = pt.h;
+  for (let v = 2; v < f.length; v += 3) if (f[v] > maxH) maxH = f[v];
   const levels = [];
   for (let lvl = step; lvl < maxH; lvl += step) levels.push(lvl);
-  const raw = marchingSquaresContours(entry.mesh, levels);
-  const segs = new Float32Array(raw.length * 5);
-  raw.forEach((s, i) => { segs[i * 5] = s.x1; segs[i * 5 + 1] = s.y1; segs[i * 5 + 2] = s.x2; segs[i * 5 + 3] = s.y2; segs[i * 5 + 4] = s.z; });
+  const segs = new Float32Array(marchingSquaresContours(entry.mesh, levels));
   entry.contours = { step, segs };
   return segs;
 }
@@ -933,9 +940,10 @@ function cellVisible(c) {
 
 // Faint z=0 footprint outline; the caller batches every cell into one path.
 function addOutlinePath(c, entry) {
-  const t = cellXform(c), lo = entry.localOutline;
-  for (let i = 0; i < lo.length; i++) {
-    const lx = lo[i][0], ly = lo[i][1];
+  // The footprint outline is the mesh's outer ring (k = rings: the outline points themselves).
+  const t = cellXform(c), m = entry.mesh, base = 3 * m.rings * m.n, f = m.flat;
+  for (let i = 0; i < m.n; i++) {
+    const lx = f[base + 3 * i], ly = f[base + 3 * i + 1];
     const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
     const sy = t.H2 + (t.oy + lx * t.sr + ly * t.cr) * t.cosT * t.S;
     if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
@@ -961,6 +969,10 @@ function addContourPath(c, entry, step) {
 function drawCellBody2D(c, entry) {
   const r = getMeshRender(entry, c), t = cellXform(c);
   ensureQuadOrder(r, c, t.sinT, t.cosT);
+  if (!r.qcol) {
+    r.qcol = new Array(r.nq);
+    for (let q = 0; q < r.nq; q++) r.qcol[q] = depthColor(r.qavgH[q], 0, c.height, 0.6);
+  }
   const { lx, ly, h, sx, sy, qidx, qcol, order } = r;
   for (let v = 0; v < r.nv; v++) {
     const x = lx[v], y = ly[v];
@@ -1095,6 +1107,7 @@ function drawBodiesGl(cells, p) {
 }
 
 const NUC_SLICES = 9, NUC_PTS = 24;
+const NUC_UNIT = Array.from({ length: NUC_PTS }, (_, i) => { const th = (i / NUC_PTS) * Math.PI * 2; return [Math.cos(th), Math.sin(th)]; });
 function drawNucleus(c) {
   // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
   // other shape field -- see cellOutlineLocal's own comment), so the offset
@@ -1103,6 +1116,7 @@ function drawNucleus(c) {
   // packRot since both are rotations about the same world axis (z).
   const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY);
   const rotTotal = c.nucRot + (c.packRot || 0);
+  const cosR = Math.cos(rotTotal), sinR = Math.sin(rotTotal); // once per cell, not per point
   const rz = c.nucHeight / 2;
   for (let s = 0; s < NUC_SLICES; s++) {
     const t = (s / (NUC_SLICES - 1)) * 2 - 1; // -1..1, bottom to top
@@ -1112,10 +1126,9 @@ function drawNucleus(c) {
     const zAbs = c.nucZ + t * rz;
     const pts = [];
     for (let i = 0; i < NUC_PTS; i++) {
-      const th = (i / NUC_PTS) * Math.PI * 2;
-      const lx = Math.cos(th) * rl, ly = Math.sin(th) * rs;
-      const wx = ncx + lx * Math.cos(rotTotal) - ly * Math.sin(rotTotal);
-      const wy = ncy + lx * Math.sin(rotTotal) + ly * Math.cos(rotTotal);
+      const lx = NUC_UNIT[i][0] * rl, ly = NUC_UNIT[i][1] * rs;
+      const wx = ncx + lx * cosR - ly * sinR;
+      const wy = ncy + lx * sinR + ly * cosR;
       pts.push(project(wx, wy, zAbs));
     }
     ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
@@ -1140,9 +1153,12 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 6) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 6');
+  if (M._isc_abi_version() !== 8) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 8');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
+  // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
+  // dye worker never packs a block the pack worker already did; reset with the world.
+  let injected = new Set();
   function setParam(pp, k, v) {
     const n = M.lengthBytesUTF8(k) + 1, s = M._malloc(n);
     M.stringToUTF8(k, s, n);
@@ -1159,7 +1175,34 @@ function iscEngine(M) {
     world = M._isc_world_new(seed >>> 0, pp);
     M._isc_params_free(pp);
     worldKey = keyOf();
+    injected = new Set();
     return world;
+  }
+  // core/src/world.cpp CellReachUm: how far a cell's footprint can reach from its home chunk.
+  function cellReachUm(p) {
+    const worstSemiMajor = (p.cellDiamMax / 2) / Math.sqrt(Math.max(0.05, p.cellElongMin));
+    return 2 * worstSemiMajor * 1.65 * (p.cellRough > 0 && p.cellBlob > 0 ? 1.3 : 1) + p.chunkSize;
+  }
+  // The 8x8-chunk packing blocks a rect's cell query touches (as World::CellsInRect).
+  function blocksOf(p, [x0, y0, x1, y1]) {
+    const S = p.chunkSize, reach = cellReachUm(p), out = [];
+    const bx0 = Math.floor(Math.floor((x0 - reach) / S) / 8), bx1 = Math.floor(Math.floor((x1 + reach) / S) / 8);
+    const by0 = Math.floor(Math.floor((y0 - reach) / S) / 8), by1 = Math.floor(Math.floor((y1 + reach) / S) / 8);
+    for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
+    return out;
+  }
+  const bfOpen = new Set();   // BrightField sessions begun here (bf-begin), closed by bf-movie / bf-end
+  // Installs packed blocks (the pack worker's rows) this world does not have yet.
+  function inject(w, blocks) {
+    if (!blocks) return;
+    for (const b of blocks) {
+      const key = b.bx + ',' + b.by;
+      if (injected.has(key)) continue;
+      injected.add(key);
+      const n = b.rows.length / 14, ptr = scratch(Math.max(8, b.rows.length * 8));
+      M.HEAPF64.set(b.rows, ptr / 8);
+      M._isc_world_set_block(w, b.bx, b.by, ptr, n);   // 0 = had it, 1 = installed, -1 = not this world's rows
+    }
   }
   function scratch(bytes) {
     if (bytes > bufBytes) {
@@ -1222,23 +1265,36 @@ function iscEngine(M) {
   return {
     // Returns [message, transferList].
     handle(d) {
-      const w = d.type === 'movie' ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      if (d.type === 'block') {
+        // One packing block (8x8 chunks) for the page's scheduler, on whichever worker is free: the
+        // page keeps the rows (for the cell and dye jobs' worlds and its local storage).
+        inject(w, d.blocks);
+        const rows = query((ptr, cap) => M._isc_world_pack_block(w, d.bx, d.by, ptr, cap), 14, 64);
+        return [{ type: 'block', id: d.id, key: d.key, bx: d.bx, by: d.by, rows, version: M.UTF8ToString(M._isc_world_version()) }, [rows.buffer]];
+      }
       if (d.type === 'pack') {
+        inject(w, d.blocks);   // blocks the page remembered from an earlier visit (local storage), if any
         const [x0, y0, x1, y1] = d.rect;
         const cells = query((ptr, cap) => M._isc_cells_in_window(w, x0, y0, x1, y1, ptr, cap), 14, 1024);
-        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells }, [cells.buffer]];
+        // The packed blocks themselves (cached by the query above), for the cell and dye workers to
+        // take over instead of packing them again, and for the page to remember.
+        const blocks = blocksOf(d.p, d.rect).map(([bx, by]) =>
+          ({ bx, by, rows: query((ptr, cap) => M._isc_world_pack_block(w, bx, by, ptr, cap), 14, 64) }));
+        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks, version: M.UTF8ToString(M._isc_world_version()) },
+                [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
       }
       if (d.type === 'cell') {
+        inject(w, d.blocks);
         if (!ints) ints = M._malloc(16);
-        const nOut = M._isc_cell_outline(w, d.cx, d.cy, 0, 0);
-        if (nOut < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
-        const outline = query((ptr, cap) => M._isc_cell_outline(w, d.cx, d.cy, ptr, cap), 2, nOut);
-        const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, 8192);
-        const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1], nv = mesh.length / 3;
-        const mx = new Float64Array(nv), my = new Float64Array(nv), mh = new Float64Array(nv);
-        for (let v = 0; v < nv; v++) { mx[v] = mesh[3 * v]; my[v] = mesh[3 * v + 1]; mh[v] = mesh[3 * v + 2]; }
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, outline, mx, my, mh, mts: null };
-        const transfer = [outline.buffer, mx.buffer, my.buffer, mh.buffer];
+        // The mesh as the core writes it (x, y, h per vertex, vertex k*n + i); its outer ring (k = rings) is
+        // the footprint outline isc_cell_outline would return, so that query is not made.
+        const nv = M._isc_cell_mesh(w, d.cx, d.cy, ints, 0, 0);
+        if (nv < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
+        const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, Math.max(nv, 8192));
+        const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null };
+        const transfer = [mesh.buffer];
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];
@@ -1252,12 +1308,90 @@ function iscEngine(M) {
         return [out, transfer];
       }
       if (d.type === 'sites') {
+        inject(w, d.blocks);
         const [x0, y0, x1, y1] = d.rect;
         const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
       if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
         return wfGpuMovie(d);
+      // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
+      if (d.type === 'bf-begin') {
+        // The movie worker's first half: the world and the scene with the per-source propagation
+        // deferred; the phase screens go to the helpers (bf-sources).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512), info = M._malloc(40), geom = M._malloc(16);
+        M.stringToUTF8(d.spec, s, n);
+        const h = M._isc_bf_begin(s, 1, err, 512);
+        let res;
+        if (h < 0) res = { type: 'bf-begin', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          M._isc_bf_info(h, info, geom);
+          const I = Array.from(M.HEAP32.subarray(info / 4, info / 4 + 9)), G = Array.from(M.HEAPF64.subarray(geom / 8, geom / 8 + 2));
+          const cached = I[8] === 1;   // a repeat: the scene holds the image, no screens to hand out
+          const len = cached ? 0 : I[4] * I[5] * I[6], ph = cached ? 0 : M._isc_bf_phase(h), at = cached ? 0 : M._isc_bf_atten(h);
+          res = { type: 'bf-begin', id: d.id, h, w: I[0], hgt: I[1], frames: I[2], sources: I[3], slices: I[4], nx: I[5], ny: I[6], cached,
+            zTop: G[0], objectZ: G[1], phase: ph ? M.HEAPF32.slice(ph / 4, ph / 4 + len) : null, atten: at ? M.HEAPF32.slice(at / 4, at / 4 + len) : null };
+          bfOpen.add(h);
+        }
+        for (const p of [s, err, info, geom]) M._free(p);
+        return [res, res.phase ? [res.phase.buffer, ...(res.atten ? [res.atten.buffer] : [])] : []];
+      }
+      if (d.type === 'bf-sources') {
+        // A helper's share: a scene from the phase screens alone (no world), the images of the
+        // listed sources (W x H floats each, in the listed order).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        const len = d.phase.length, ph = M._malloc(len * 4), at = d.atten ? M._malloc(len * 4) : 0;
+        M.HEAPF32.set(d.phase, ph / 4);
+        if (at) M.HEAPF32.set(d.atten, at / 4);
+        const h = M._isc_bf_begin_phase(s, d.slices, d.zTop, d.objectZ, ph, at, len, err, 512);
+        let res;
+        if (h < 0) res = { type: 'bf-sources', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          const P = d.w * d.hgt, out = M._malloc(P * 4), images = new Float32Array(P * d.sources.length);
+          let ok = true;
+          d.sources.forEach((src, k) => {
+            if (ok && M._isc_bf_source_image(h, src, out) !== 0) ok = false;
+            if (ok) images.set(M.HEAPF32.subarray(out / 4, out / 4 + P), k * P);
+          });
+          M._free(out);
+          M._isc_bf_end(h);
+          res = ok ? { type: 'bf-sources', id: d.id, sources: d.sources, images } : { type: 'bf-sources', id: d.id, error: 'a source image failed' };
+        }
+        for (const p of [s, err, ph, at]) if (p) M._free(p);
+        return [res, res.images ? [res.images.buffer] : []];
+      }
+      if (d.type === 'bf-movie') {
+        // The movie worker's second half: all sources' images in (or none: computed here), the frames.
+        const h = d.h, info = M._malloc(24), err = M._malloc(512);
+        let res, slots = 0, out = 0;
+        if (!bfOpen.has(h)) res = { type: 'movie', id: d.id, error: 'BrightField session gone' };
+        else {
+          if (d.images) {
+            slots = M._malloc(d.images.length * 4);
+            M.HEAPF32.set(d.images, slots / 4);
+            if (M._isc_bf_set_sources(h, slots) !== 0) console.warn('BrightField: the helpers\' images were rejected; computing here');
+          }
+          const need = M._isc_bf_movie(h, 0, 0, info, err, 512);
+          if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            out = M._malloc(Math.max(2, need * 2));
+            const got = M._isc_bf_movie(h, out, need, info, err, 512);
+            if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+            else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
+              w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: 0, dyes: 0, halfMs: 0, ms: 0,
+              split: d.images ? d.helpers : 0 };
+          }
+          M._isc_bf_end(h);
+          bfOpen.delete(h);
+        }
+        for (const p of [info, err, slots, out]) if (p) M._free(p);
+        return [res, res.frames ? [res.frames.buffer] : []];
+      }
+      if (d.type === 'bf-end') {
+        if (bfOpen.has(d.h)) { M._isc_bf_end(d.h); bfOpen.delete(d.h); }
+        return [{ type: 'bf-end', id: d.id }, []];
+      }
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
@@ -1268,7 +1402,7 @@ function iscEngine(M) {
         const need = M._isc_scope_movie(s, 0, 0, info, err, 512);
         if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {
-          out = M._malloc(need * 2);
+          out = M._malloc(Math.max(2, need * 2));   // prepare=1: need is 0, the call still has to run
           const got = M._isc_scope_movie(s, out, need, info, err, 512);
           if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
           else {
@@ -1276,6 +1410,7 @@ function iscEngine(M) {
             res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1],
               n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4],
               halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0 };
+            if (d.prepare) res.prepared = true;
           }
         }
         for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
@@ -1287,9 +1422,18 @@ function iscEngine(M) {
 }
 
 function genWorkerMain() {
-  const ready = createInsiliscope().then(M => iscEngine(M));
+  // The first message is 'init' with the WebAssembly.Module the main thread compiled once (or null:
+  // this worker decodes and compiles the module's own base64); jobs wait for the engine.
+  let start;
+  const ready = new Promise(r => { start = r; });
   onmessage = e => {
-    ready.then(eng => Promise.resolve(eng.handle(e.data))).then(([out, transfer]) => {
+    const d = e.data;
+    if (d && d.type === 'init') {
+      const opts = d.module ? { instantiateWasm(info, done) { WebAssembly.instantiate(d.module, info).then(inst => done(inst, d.module)); return {}; } } : {};
+      start(createInsiliscope(opts).then(M => iscEngine(M)));
+      return;
+    }
+    ready.then(eng => Promise.resolve(eng.handle(d))).then(([out, transfer]) => {
       postMessage(out, transfer);
     }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
   };
@@ -1298,12 +1442,31 @@ function genWorkerMain() {
 const genWorkers = { ok: false, pack: null, cells: [], busy: [], dyes: null };
 let genBlobUrl = null, mainEngine = null, mainEngineStarting = false;
 function coreReady() { return genWorkers.ok || !!mainEngine; }
+// The WASM binary (the base64 inside the module text) decoded and compiled ONCE here and handed to
+// every worker as a WebAssembly.Module, instead of a decode + compile per worker. null when the
+// browser cannot (the workers then compile it themselves, as before).
+const wasmModulePromise = (() => {
+  try {
+    const m = /data:application\/octet-stream;base64,([A-Za-z0-9+\/=]+)/.exec(self.ISC_MODULE_SRC || '');
+    if (!m || typeof WebAssembly === 'undefined' || !WebAssembly.compile) return Promise.resolve(null);
+    const bin = atob(m[1]), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return WebAssembly.compile(bytes).catch(() => null);
+  } catch (e) { return Promise.resolve(null); }
+})();
+function wasmModuleOptions(mod) {
+  return mod ? { instantiateWasm(info, done) { WebAssembly.instantiate(mod, info).then(inst => done(inst, mod)); return {}; } } : {};
+}
 // self.ISC_ENGINE_URL (set only by web/lab.html, see web/lab/serve.mjs): an ES module with the same
 // handle() protocol (web/lab/engine.js, the JS reference) replaces the WASM engine.
 const engineUrl = () => self.ISC_ENGINE_URL && new URL(self.ISC_ENGINE_URL, location.href).href;
 function spawnGenWorker() {
   const w = engineUrl() ? new Worker(engineUrl(), { type: 'module' }) : new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
+  // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
+  wasmModulePromise.then(mod => {
+    try { w.postMessage({ type: 'init', module: mod }); } catch (e) { w.postMessage({ type: 'init', module: null }); }
+  });
   return w;
 }
 function initGenWorkers() {
@@ -1316,22 +1479,28 @@ function initGenWorkers() {
     }
     const K = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
     genWorkers.pack = spawnGenWorker();
-    genWorkers.pack.onmessage = onPackResult;
+    genWorkers.pack.onmessage = e => onBlockResult(e.data);
     for (let i = 0; i < K; i++) {
       const w = spawnGenWorker();
-      w.onmessage = e => onCellResult(i, e.data);
+      w.onmessage = e => (e.data.type === 'bf-sources' ? onBfSources(e.data) : e.data.type === 'block' ? onBlockResult(e.data) : onCellResult(i, e.data));
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
     genWorkers.dyes = spawnGenWorker();
-    genWorkers.dyes.onmessage = e => (e.data.type === 'movie' ? onMovieResult(e.data) : onDyeResult(e));
+    genWorkers.dyes.onmessage = e => {
+      const t = e.data.type;
+      if (t === 'movie') onMovieResult(e.data);
+      else if (t === 'bf-begin') onBfBegin(e.data);
+      else if (t !== 'bf-end') onDyeResult(e);
+    };
     genWorkers.ok = true;
+    schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
 function disableGenWorkers() {
   genWorkers.ok = false;
   for (const w of [genWorkers.pack, genWorkers.dyes, ...genWorkers.cells]) if (w) w.terminate();
   genWorkers.pack = null; genWorkers.dyes = null; genWorkers.cells = []; genWorkers.busy = [];
-  packPending = null; dyePending = null;
+  blockPending.clear(); dyePending = null;
   assetInflight.clear();
   startMainEngine();
 }
@@ -1345,7 +1514,7 @@ function startMainEngine() {
     return;
   }
   (0, eval)(self.ISC_MODULE_SRC); // defines createInsiliscope
-  createInsiliscope().then(M => { mainEngine = iscEngine(M); requestDraw(); });
+  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); });
 }
 
 // ---- packed-map cache -----------------------------------------------------
@@ -1361,9 +1530,95 @@ const RENDER_CAP = 4000; // safety net: above this many VISIBLE chunks, skip dra
                           // is dozens of path points, so tens of thousands of them per frame would hang the tab outright,
                           // not just run slowly. Zoom in instead; this is a "mock explorer" limit, not a renderer.
 const PACK_PAD_VIEWS = 2;
-let packCache = null;   // {key, ex0..ey1, map}
-let packPending = null; // {id, key, win} in flight on the pack worker
-let packId = 0;
+// ---- packed blocks remembered across reloads (localStorage) -----------------------------
+// The pack worker's blocks, five numbers per cell (cx, cy, x, y, packRot: what isc_world_set_block
+// reads; the cell's shape is recomputed from its address), under one key: the pack key (seed and
+// packing params) and the core's world version. A pack job carries the remembered blocks of its
+// window, so a reload with the same seed and parameters packs nothing; another key overwrites the
+// entry (one entry, at most BLOCK_STORE_MAX blocks, well under a megabyte). The core validates
+// every row it is handed, so a stale entry can only cost a repack, never a wrong cell.
+const BLOCK_STORE_LS = 'isc.packedBlocks.v1', BLOCK_STORE_MAX = 3000;
+let worldVersion = self.ISC_WORLD_VERSION || '';   // from the module; every pack reply confirms it
+let blockStore = null, blockStoreTimer = 0;        // {key, blocks: Map('bx,by' -> Float64Array(5 n))}
+const f64ToB64 = a => btoa(String.fromCharCode(...new Uint8Array(a.buffer, a.byteOffset, a.byteLength)));
+const b64ToF64 = s => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Float64Array(u.buffer); };
+function blockStoreOpen(key) {
+  const full = key + '|' + worldVersion;
+  if (blockStore && blockStore.key === full) return blockStore;
+  blockStore = { key: full, blocks: new Map() };
+  try {
+    const o = JSON.parse(localStorage.getItem(BLOCK_STORE_LS) || 'null');
+    if (o && o.key === full && Array.isArray(o.blocks))
+      for (const [bx, by, b64] of o.blocks) blockStore.blocks.set(bx + ',' + by, b64ToF64(b64));
+  } catch (e) { /* no storage, or an unreadable entry: start empty */ }
+  return blockStore;
+}
+// The remembered blocks within one block of the rect, as the 14-wide rows inject() takes.
+function blockStoreRows(key, p, rect) {
+  if (!worldVersion) return [];
+  const st = blockStoreOpen(key), B = 8 * p.chunkSize, out = [];
+  if (!st.blocks.size) return out;
+  const bx0 = Math.floor(rect[0] / B) - 1, bx1 = Math.floor(rect[2] / B) + 1;
+  const by0 = Math.floor(rect[1] / B) - 1, by1 = Math.floor(rect[3] / B) + 1;
+  for (const [k, r] of st.blocks) {
+    const [bx, by] = k.split(',').map(Number);
+    if (bx < bx0 || bx > bx1 || by < by0 || by > by1) continue;
+    const n = r.length / 5, rows = new Float64Array(14 * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < 5; j++) rows[14 * i + j] = r[5 * i + j];
+    out.push({ bx, by, rows });
+  }
+  return out;
+}
+function blockStoreRowsFor(key, bx, by) {
+  if (!worldVersion) return [];
+  const r = blockStoreOpen(key).blocks.get(bx + ',' + by);
+  if (!r) return [];
+  const n = r.length / 5, rows = new Float64Array(14 * n);
+  for (let i = 0; i < n; i++) for (let j = 0; j < 5; j++) rows[14 * i + j] = r[5 * i + j];
+  return [{ bx, by, rows }];
+}
+function blockStoreRemember(key, version, blocks) {
+  if (version) worldVersion = version;
+  const st = blockStoreOpen(key);
+  for (const b of blocks) {
+    const n = b.rows.length / 14, r = new Float64Array(5 * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < 5; j++) r[5 * i + j] = b.rows[14 * i + j];
+    const k = b.bx + ',' + b.by;
+    st.blocks.delete(k); st.blocks.set(k, r);   // newest last
+  }
+  while (st.blocks.size > BLOCK_STORE_MAX) st.blocks.delete(st.blocks.keys().next().value);
+  clearTimeout(blockStoreTimer);
+  blockStoreTimer = setTimeout(blockStoreSave, 1500);
+}
+function blockStoreSave() {
+  if (!blockStore) return;
+  try {
+    const blocks = [...blockStore.blocks].map(([k, r]) => { const [bx, by] = k.split(',').map(Number); return [bx, by, f64ToB64(r)]; });
+    localStorage.setItem(BLOCK_STORE_LS, JSON.stringify({ key: blockStore.key, blocks }));
+  } catch (e) { /* quota, or no storage: a convenience only */ }
+}
+
+// Packed blocks (8x8 chunks) of the current pack key: blocks is Map('bx,by' -> {bx, by, rows}), map the
+// cells of all of them by chunk ('cx,cy' -> cell); covers says the view's own blocks are all in. Blocks
+// are packed one per job on any worker (the pack worker and the cell workers), nearest the view first,
+// so a new seed shows its first cells after one block instead of after the whole window; the sync
+// path (?nw) still packs the window in one go.
+let packCache = null;
+const blockPending = new Map();   // 'bx,by' -> {id, key}
+let blockRound = 0, packId = 0;
+const BLOCK_CACHE_MAX = 600;      // blocks kept (a few hundred cells each at most)
+// core/src/world.cpp CellReachUm and the blocks a rect's cell query touches (the engine's blocksOf).
+function cellReachUmMain(p) {
+  const worstSemiMajor = (p.cellDiamMax / 2) / Math.sqrt(Math.max(0.05, p.cellElongMin));
+  return 2 * worstSemiMajor * 1.65 * (p.cellRough > 0 && p.cellBlob > 0 ? 1.3 : 1) + p.chunkSize;
+}
+function blocksOfRect(p, [x0, y0, x1, y1]) {
+  const S = p.chunkSize, reach = cellReachUmMain(p), out = [];
+  const bx0 = Math.floor(Math.floor((x0 - reach) / S) / 8), bx1 = Math.floor(Math.floor((x1 + reach) / S) / 8);
+  const by0 = Math.floor(Math.floor((y0 - reach) / S) / 8), by1 = Math.floor(Math.floor((y1 + reach) / S) / 8);
+  for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
+  return out;
+}
 const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$|labelNonBleaching$)/;
 function packKey(seed, p) {
   const o = [seed];
@@ -1401,6 +1656,19 @@ function cellMap(cells) {
   }
   return map;
 }
+// The pack worker's packed blocks a cell or dye job should hand its worker (ABI 7
+// isc_world_set_block): the cell's own block, or every block the dye rect's cell
+// query can touch (reach as core/src/world.cpp CellReachUm). A block not here is
+// packed by that worker itself.
+function blocksForCell(cell) {
+  if (!packCache) return [];
+  const b = packCache.blocks.get(Math.floor(cell.cx / 8) + ',' + Math.floor(cell.cy / 8));
+  return b ? [b] : [];
+}
+function blocksForRect(p, rect) {
+  if (!packCache) return [];
+  return blocksOfRect(p, rect).map(([bx, by]) => packCache.blocks.get(bx + ',' + by)).filter(Boolean);
+}
 // Main-thread path (?nw, or workers unavailable): the core runs here, synchronously.
 // The first cells are in: drop the loading overlay.
 function hideLoading() {
@@ -1413,50 +1681,68 @@ function getPackedMapSync(seed, p, ex0, ey0, ex1, ey1) {
   if (packCovers(packCache, key, ex0, ey0, ex1, ey1)) return packCache;
   if (!mainEngine) return null;
   const win = packWindow(p, ex0, ey0, ex1, ey1);
-  const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect: winRect(p, win), seed, p: packParams(p) });
-  packCache = { key, ex0: win[0], ey0: win[1], ex1: win[2], ey1: win[3], map: cellMap(d.cells) };
+  const rect = winRect(p, win);
+  const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect, seed, p: packParams(p), blocks: blockStoreRows(key, p, rect) });
+  packCache = { key, ex0: win[0], ey0: win[1], ex1: win[2], ey1: win[3], map: cellMap(d.cells), covers: true,
+                blocks: new Map((d.blocks || []).map(b => [b.bx + ',' + b.by, b])) };
+  blockStoreRemember(key, d.version, d.blocks || []);
   hideLoading();
   return packCache;
 }
 // Worker path: returns the best map available right now (possibly stale or
 // not-yet-covering, possibly null) and makes sure a repack is in flight if needed.
+function blockWorkers() { return [genWorkers.pack, ...genWorkers.cells].filter(Boolean); }
 function getPackedMapAsync(seed, p, ex0, ey0, ex1, ey1) {
-  const key = packKey(seed, p), pc = packCache;
-  const covers = packCovers(pc, key, ex0, ey0, ex1, ey1);
-  let want = !covers;
-  if (covers) { // prefetch the next window once within one view of the cached window's edge
-    const coreW = ex1 - ex0 + 1, coreH = ey1 - ey0 + 1;
-    want = ex0 - pc.ex0 < coreW || pc.ex1 - ex1 < coreW || ey0 - pc.ey0 < coreH || pc.ey1 - ey1 < coreH;
+  const key = packKey(seed, p);
+  if (!packCache || packCache.key !== key) {   // a new seed or packing parameters: a fresh cache, late replies are dropped
+    packCache = { key, blocks: new Map(), map: new Map(), covers: false };
+    blockPending.clear();
   }
-  const pend = packPending;
-  const pendingCovers = pend && pend.key === key && ex0 >= pend.win[0] && ey0 >= pend.win[1] && ex1 <= pend.win[2] && ey1 <= pend.win[3];
-  if (want && !pendingCovers) {
-    if (pend && pend.key !== key) { // stale params: abort the running job
-      genWorkers.pack.terminate();
-      genWorkers.pack = spawnGenWorker(); genWorkers.pack.onmessage = onPackResult;
-      packPending = null;
-    }
-    if (!packPending) {
-      const win = packWindow(p, ex0, ey0, ex1, ey1);
-      packPending = { id: ++packId, key, win };
-      genWorkers.pack.postMessage({ type: 'pack', id: packPending.id, key, win, rect: winRect(p, win), seed, p: packParams(p) });
-    }
+  const pc = packCache, S = p.chunkSize, B = 8 * S;
+  const viewBlocks = blocksOfRect(p, winRect(p, [ex0, ey0, ex1, ey1]));
+  pc.covers = viewBlocks.every(([bx, by]) => pc.blocks.has(bx + ',' + by));
+  if (pc.covers) hideLoading();
+  // The padded window's missing blocks, nearest the view centre first, to the workers round robin
+  // (at most two in flight per worker; draw() asks again as blocks arrive).
+  const rect = winRect(p, packWindow(p, ex0, ey0, ex1, ey1));
+  const cxu = (ex0 + ex1 + 1) / 2 * S, cyu = (ey0 + ey1 + 1) / 2 * S;
+  const dist = ([bx, by]) => Math.hypot((bx + 0.5) * B - cxu, (by + 0.5) * B - cyu);
+  const need = blocksOfRect(p, rect).filter(([bx, by]) => !pc.blocks.has(bx + ',' + by) && !blockPending.has(bx + ',' + by));
+  need.sort((a, b) => dist(a) - dist(b));
+  const workers = blockWorkers(), room = Math.max(0, 2 * workers.length - blockPending.size);
+  for (const [bx, by] of need.slice(0, room)) {
+    const k = bx + ',' + by, id = ++packId;
+    blockPending.set(k, { id, key });
+    workers[blockRound++ % workers.length].postMessage({ type: 'block', id, key, bx, by, seed, p: packParams(p),
+                                                        blocks: blockStoreRowsFor(key, bx, by) });
   }
   return pc;
 }
-function onPackResult(e) {
-  const d = e.data;
-  if (!packPending || d.id !== packPending.id) return;
-  packPending = null;
-  packCache = { key: d.key, ex0: d.win[0], ey0: d.win[1], ex1: d.win[2], ey1: d.win[3], map: cellMap(d.cells) };
-  hideLoading();
+function onBlockResult(d) {
+  const k = d.bx + ',' + d.by, pend = blockPending.get(k);
+  if (!pend || pend.id !== d.id) return;
+  blockPending.delete(k);
+  if (!packCache || packCache.key !== d.key) return;
+  const block = { bx: d.bx, by: d.by, rows: d.rows };
+  packCache.blocks.set(k, block);
+  for (const [ck, c] of cellMap(d.rows)) packCache.map.set(ck, c);
+  if (packCache.blocks.size > BLOCK_CACHE_MAX && lastView) {
+    // Drop the blocks farthest from the view and rebuild the cell map from the rest.
+    const p = lastView.p, S = p.chunkSize, B = 8 * S;
+    const cx = (lastView.cx0 + lastView.cx1 + 1) / 2 * S, cy = (lastView.cy0 + lastView.cy1 + 1) / 2 * S;
+    const far = [...packCache.blocks.values()].sort((a, b) => Math.hypot((b.bx + 0.5) * B - cx, (b.by + 0.5) * B - cy) - Math.hypot((a.bx + 0.5) * B - cx, (a.by + 0.5) * B - cy));
+    for (const b of far.slice(0, packCache.blocks.size - BLOCK_CACHE_MAX)) packCache.blocks.delete(b.bx + ',' + b.by);
+    packCache.map = new Map();
+    for (const b of packCache.blocks.values()) for (const [ck, c] of cellMap(b.rows)) packCache.map.set(ck, c);
+  }
+  blockStoreRemember(d.key, d.version, [block]);
   requestDraw();
 }
 
 // ---- per-cell assets (cytoplasm mesh + microtubules) -------------------------
-// assets: chunk key -> {sig, seed, hasMt, entry, mts}. `entry` is the prototype's getCytoGeometry
-// shape ({localOutline, mesh}) plus the render caches hung off it; `mts` the
-// microtubule point arrays. An asset whose sig is out of date (a slider moved) keeps
+// assets: chunk key -> {sig, seed, hasMt, entry, mts}. `entry` holds the mesh as the worker sent
+// it ({rings, n, flat}: x, y, h per vertex; the outer ring is the footprint outline) plus the
+// render caches hung off it; `mts` the microtubules as {xyz, lens}. An asset whose sig is out of date (a slider moved) keeps
 // being drawn until its replacement arrives, unless the SEED changed (then it would
 // be a different world). Bounded to ASSET_MAX, evicting the cells farthest from view.
 const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
@@ -1478,25 +1764,9 @@ function evictAssets() {
   for (const k of keys) { if (assets.size <= ASSET_MAX) break; disposeAsset(assets.get(k)); assets.delete(k); }
 }
 function unpackAsset(d) {
-  const n = d.outline.length / 2, lo = new Array(n);
-  for (let i = 0; i < n; i++) lo[i] = [d.outline[2 * i], d.outline[2 * i + 1]];
-  const grid = new Array(d.rings + 1);
-  for (let k = 0; k <= d.rings; k++) {
-    const row = new Array(d.n);
-    for (let i = 0; i < d.n; i++) { const v = k * d.n + i; row[i] = { x: d.mx[v], y: d.my[v], h: d.mh[v] }; }
-    grid[k] = row;
-  }
-  let mts = null;
-  if (d.mts) {
-    mts = new Array(d.mts.lens.length);
-    let o = 0;
-    for (let i = 0; i < mts.length; i++) {
-      const pts = new Array(d.mts.lens[i]);
-      for (let k = 0; k < pts.length; k++, o += 3) pts[k] = { x: d.mts.xyz[o], y: d.mts.xyz[o + 1], z: d.mts.xyz[o + 2] };
-      mts[i] = pts;
-    }
-  }
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { localOutline: lo, mesh: { rings: d.rings, n: d.n, grid } }, mts };
+  // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
+  // ring is the footprint outline), the microtubules as xyz + lens. No per-vertex or per-point objects.
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh } }, mts: d.mts || null };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -1534,7 +1804,8 @@ function pumpAssets() {
     const { key, cell } = cand[ci++];
     genWorkers.busy[wi] = key;
     assetInflight.set(key, v.sig);
-    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt: v.mt });
+    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt: v.mt,
+      blocks: blocksForCell(cell) });
   }
 }
 // The asset to draw for `cell` right now, or null if none exists yet (the worker will
@@ -1567,18 +1838,25 @@ function noteInteraction() {
   settleTimer = setTimeout(requestDraw, 180);
 }
 const mtPathCache = new WeakMap();
+// The path is built in cell-local micrometres with the tilt and the packing rotation baked in, and
+// stroked under ctx.scale(S, S): a zoom reuses it (the decimation distance in um is quantised to
+// powers of two, so only a doubling of the zoom rebuilds), a tilt or rotation change rebuilds.
+// Returns {path, minUm}.
 function getMtPath2D(mts, cell, t) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
-  const key = t.S + '|' + t.sinT + '|' + t.cr + '|' + t.sr + '|' + minPx;
+  const minUm = Math.pow(2, Math.floor(Math.log2(minPx / t.S)));   // <= minPx on screen at this zoom
+  const key = t.sinT + '|' + t.cr + '|' + t.sr + '|' + minUm;
   const hit = mtPathCache.get(mts);
-  if (hit && hit.key === key) return hit.path;
-  const path = new Path2D(), m2 = minPx * minPx;
-  for (const pts of mts) {
+  if (hit && hit.key === key) return hit;
+  const path = new Path2D(), m2 = minUm * minUm, xyz = mts.xyz, lens = mts.lens;
+  let o = 0;
+  for (let m = 0; m < lens.length; m++) {
+    const len = lens[m];
     let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false;
-    for (let k = 0; k < pts.length; k++) {
-      const lx = pts[k].x, ly = pts[k].y;
-      const sx = (lx * t.cr - ly * t.sr) * t.S;
-      const sy = ((lx * t.sr + ly * t.cr) * t.cosT - pts[k].z * t.sinT) * t.S;
+    for (let k = 0; k < len; k++, o += 3) {
+      const lx = xyz[o], ly = xyz[o + 1];
+      const sx = lx * t.cr - ly * t.sr;
+      const sy = (lx * t.sr + ly * t.cr) * t.cosT - xyz[o + 2] * t.sinT;
       if (k === 0) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; continue; }
       const dx = sx - lastX, dy = sy - lastY;
       if (dx * dx + dy * dy >= m2) { path.lineTo(sx, sy); lastX = sx; lastY = sy; pending = false; }
@@ -1586,8 +1864,9 @@ function getMtPath2D(mts, cell, t) {
     }
     if (pending) path.lineTo(ex, ey); // keep the true end point
   }
-  mtPathCache.set(mts, { key, path });
-  return path;
+  const entry = { key, path, minUm };
+  mtPathCache.set(mts, entry);
+  return entry;
 }
 
 // draw() calls are coalesced to one per animation frame.
@@ -1677,15 +1956,18 @@ function draw() {
   }
   if (els.showMt.checked) {
     ctx.strokeStyle = '#e6c65a';
-    ctx.lineWidth = Math.max(0.6, p.mtLineWidth * pxPerUm);
+    const lw = Math.max(0.6, p.mtLineWidth * pxPerUm);
     ctx.globalAlpha = 0.8;
     for (const { cell, asset } of vis) {
-      const mts = asset.mts || [];
+      const mts = asset.mts;
+      if (!mts) continue;
       const t = cellXform(cell);
-      nMt += mts.length;
+      nMt += mts.lens.length;
       ctx.save();
       ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
-      ctx.stroke(getMtPath2D(mts, cell, t));
+      ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
+      ctx.lineWidth = lw / t.S;
+      ctx.stroke(getMtPath2D(mts, cell, t).path);
       ctx.restore();
     }
     ctx.globalAlpha = 1;
@@ -1719,7 +2001,7 @@ function draw() {
     `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°   ${useGl ? 'GPU' : '2D'}\n` +
     `chunks ${nChunks}   cells ${nCells} (${vis.length} on screen)   microtubules ${nMt}` +
     (!coreReady() ? '   [loading core…]' : '') +
-    (packPending ? '   [packing…]' : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
+    (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
     (withinCap ? '' : '   [view too large: zoom in]') +
     (labelNote ? '   [' + labelNote + ']' : '');
 }
@@ -1803,7 +2085,7 @@ function drawDyes(seed, p, pxPerUm) {
     const rect = [r[0] - px, r[1] - py, r[2] + px, r[3] + py];
     if (genWorkers.ok) {
       dyePending = { id: ++dyeId, key, rect };
-      genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p });
+      genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p, blocks: blocksForRect(p, rect) });
     } else if (mainEngine) {
       const [d] = mainEngine.handle({ type: 'sites', id: 0, key, rect, seed, p });
       dyeCache = { key, rect, sites: d.sites };
@@ -1817,14 +2099,17 @@ function drawDyes(seed, p, pxPerUm) {
   let drawn = 0;
   ctx = ctxTop;
   ctx.fillStyle = '#ff4d4d';
+  // One path of 1.2 px squares and one fill (the same marks as a fillRect per dye, several times faster).
+  const path = new Path2D(), cx0 = W / 2 - view.cx * S, cy0 = H / 2 - view.cy * cosT * S;
   for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
-    const sx = W / 2 + (s[i] - view.cx) * S;
-    const sy = H / 2 + ((s[i + 1] - view.cy) * cosT - s[i + 2] * sinT) * S;
+    const sx = cx0 + s[i] * S;
+    const sy = cy0 + (s[i + 1] * cosT - s[i + 2] * sinT) * S;
     if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
     if (drawn >= DYE_MAX_DRAWN) { note = 'dye cap reached, some not drawn'; break; }
-    ctx.fillRect(sx - 0.6, sy - 0.6, 1.2, 1.2);
+    path.rect(sx - 0.6, sy - 0.6, 1.2, 1.2);
     drawn++;
   }
+  if (drawn) ctx.fill(path);
   return note || `${drawn} dyes`;
 }
 
@@ -1846,7 +2131,7 @@ const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-se
 // cli reproduces a viewer movie with --psf-kernel-half-width-nm 3000.
 const MOVIE_PSF_HALF_WIDTH_NM = 3000;
 const moviePsfSeen = new Set(); // PSFs the worker has computed (it memoizes the last two)
-let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
+let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0, movieAcc = 0;
 function movieSpec() {
   const p = params(), o = [];
   for (const k of MOVIE_KEYS) o.push(k + '=' + (+document.getElementById('mv_' + k).value));
@@ -1855,22 +2140,97 @@ function movieSpec() {
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
   return o.join(' ');
 }
+// The PSF settings a movie's kernel depends on (the worker memoizes the last two kernels).
+function moviePsfKey() {
+  return ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+}
+// PSF kernel preload: the movie worker computes the kernel of the current PSF settings when the
+// workers come up and whenever those settings change (as the adapter does at Initialize), so a
+// movie finds it in the worker's memo. A movie job with prepare=1: no frames, the reply is dropped.
+let prepareTimer = 0, preparePending = null;
+function schedulePrepare() { clearTimeout(prepareTimer); prepareTimer = setTimeout(prepareMovie, 800); }
+function prepareMovie() {
+  if (!genWorkers.ok || document.getElementById('mv_psf-model').value === '0') return;
+  const psfKey = moviePsfKey();
+  if (moviePsfSeen.has(psfKey) || (preparePending && preparePending.psfKey === psfKey)) return;
+  const job = { type: 'movie', id: -(++movieId), spec: movieSpec() + ' prepare=1', prepare: true };
+  preparePending = { id: job.id, psfKey };
+  genWorkers.dyes.postMessage(job);
+}
+// A BrightField movie split across the workers (spec/PORT.md 15): the movie worker builds the world
+// and the phase screens (bf-begin), every cell worker computes a share of the condenser sources from
+// those screens (bf-sources), the movie worker sums the sources' images in source order and renders
+// the frames (bf-movie) -- the same bits as the single-worker path (the same sum, in the same order),
+// in a fraction of the time at quality 3 and 4. Not with the lab's JS engine (`?bfsplit=0` turns it off).
+let bfSplit = null;   // {id, job, h, t0, P, sources, want, got: Map(source -> Float32Array), failed}
+function bfSplitWanted() {
+  // Quality 1 (6 sources, one thin screen) is as quick on one worker as the hand-out costs.
+  const bigEnough = +document.getElementById('mv_bf-quality').value >= 2 || +document.getElementById('mv_bf-sources').value >= 12;
+  return document.getElementById('mv_modality').value === '2' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough &&
+    !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
+}
+function cancelBfSplit() {
+  if (!bfSplit) return;
+  if (bfSplit.h >= 0 && genWorkers.dyes) genWorkers.dyes.postMessage({ type: 'bf-end', id: bfSplit.id, h: bfSplit.h });
+  bfSplit = null;
+}
+function onBfBegin(d) {
+  if (!bfSplit || d.id !== bfSplit.id) { if (d.h >= 0 && genWorkers.dyes) genWorkers.dyes.postMessage({ type: 'bf-end', id: d.id, h: d.h }); return; }
+  if (d.error) { bfSplit = null; onMovieResult({ type: 'movie', id: d.id, error: d.error }); return; }
+  const helpers = genWorkers.cells, K = helpers.length;
+  Object.assign(bfSplit, { h: d.h, P: d.w * d.hgt, sources: d.sources, got: new Map(), want: 0, helpers: 0 });
+  if (d.cached) { bfSplit.failed = true; finishBfSplit(); return; }   // the movie worker has the image already
+  helpers.forEach((w, j) => {
+    const mine = [];
+    for (let s = j; s < d.sources; s += K) mine.push(s);
+    if (!mine.length) return;
+    bfSplit.want++; bfSplit.helpers++;
+    w.postMessage({ type: 'bf-sources', id: d.id, spec: bfSplit.job.spec, slices: d.slices, zTop: d.zTop, objectZ: d.objectZ,
+      w: d.w, hgt: d.hgt, phase: d.phase, atten: d.atten, sources: mine });
+  });
+  if (!bfSplit.want) finishBfSplit();
+}
+function onBfSources(d) {
+  if (!bfSplit || d.id !== bfSplit.id) return;
+  if (d.error) { console.warn('BrightField split: a helper failed (' + d.error + '); the movie worker computes every source'); bfSplit.failed = true; }
+  else d.sources.forEach((s, k) => bfSplit.got.set(s, d.images.subarray(k * bfSplit.P, (k + 1) * bfSplit.P)));
+  if (--bfSplit.want === 0) finishBfSplit();
+}
+function finishBfSplit() {
+  const b = bfSplit;
+  bfSplit = null;
+  let images = null;
+  if (!b.failed && b.got.size === b.sources) {
+    images = new Float32Array(b.P * b.sources);
+    for (let s = 0; s < b.sources; s++) images.set(b.got.get(s), s * b.P);
+  }
+  genWorkers.dyes.postMessage({ type: 'bf-movie', id: b.id, h: b.h, spec: b.job.spec, rect: b.job.rect, images, helpers: b.helpers },
+                              images ? [images.buffer] : []);
+}
 function makeMovie() {
+  cancelBfSplit();
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
   // ?wfgpu=any: WideField also on a software WebGPU adapter (tests).
   const job = { type: 'movie', id: ++movieId, spec, rect, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
   moviePending = job;
-  const psfKey = ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+  const psfKey = moviePsfKey();
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
   moviePsfSeen.add(psfKey);
   document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
-  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  job.t0 = performance.now();
+  if (bfSplitWanted()) { bfSplit = { id: job.id, job, h: -1 }; genWorkers.dyes.postMessage({ type: 'bf-begin', id: job.id, spec }); }
+  else if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
 function onMovieResult(d) {
+  if (d.prepared || (preparePending && d.id === preparePending.id)) {   // a preload: the kernel is in the worker's memo now
+    if (preparePending && d.id === preparePending.id) { if (!d.error) moviePsfSeen.add(preparePending.psfKey); preparePending = null; }
+    return;
+  }
   if (!moviePending || d.id !== moviePending.id) return;
+  if (d.split !== undefined) d.ms = performance.now() - moviePending.t0;   // a split movie: timed here (the workers' clocks differ)
   moviePending = null;
   document.getElementById('mv_make').textContent = 'Make movie here';
   if (d.error) { alert('movie failed: ' + d.error); return; }
@@ -1887,7 +2247,7 @@ function onMovieResult(d) {
   cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
-  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? 'BrightField (transmitted light)' : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
+  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})` : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
                            : `${d.blinks} blinks`;
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
@@ -1895,22 +2255,50 @@ function onMovieResult(d) {
   showMovieFrame(0);
   requestDraw();
 }
+// One ImageData per movie size and a grey LUT per display range (the same ADU -> byte
+// mapping as before: ImageData's round-half-to-even clamp), written through a 32-bit view.
+let movieImg = null, movieU32 = null, movieLut = null, movieLutKey = '';
+const PIX_LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function showMovieFrame(f) {
   const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
-  const img = g.createImageData(d.w, d.h), px = d.w * d.h, off = f * px, k = 255 / (d.hi - d.lo);
-  for (let i = 0; i < px; i++) {
-    const v = Math.max(0, Math.min(255, (d.frames[off + i] - d.lo) * k));
-    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = v; img.data[4 * i + 3] = 255;
+  if (!movieImg || movieImg.width !== d.w || movieImg.height !== d.h) {
+    movieImg = g.createImageData(d.w, d.h);
+    movieU32 = new Uint32Array(movieImg.data.buffer);
   }
-  g.putImageData(img, 0, 0);
+  const lutKey = d.lo + '|' + d.hi;
+  if (movieLutKey !== lutKey) {
+    movieLut = new Uint32Array(65536);
+    const k = 255 / (d.hi - d.lo);
+    for (let a = 0; a < 65536; a++) {
+      const v = Math.max(0, Math.min(255, (a - d.lo) * k)), fl = Math.floor(v);
+      const b = fl + 0.5 < v ? fl + 1 : v < fl + 0.5 ? fl : (fl & 1) ? fl + 1 : fl; // Uint8ClampedArray's rounding
+      movieLut[a] = PIX_LE ? (0xff000000 | (b << 16) | (b << 8) | b) >>> 0 : ((b << 24) | (b << 16) | (b << 8) | 0xff) >>> 0;
+    }
+    movieLutKey = lutKey;
+  }
+  const px = d.w * d.h, off = f * px, fr = d.frames, u32 = movieU32, lut = movieLut;
+  for (let i = 0; i < px; i++) u32[i] = lut[fr[off + i]];
+  g.putImageData(movieImg, 0, 0);
   document.getElementById('mv_fno').textContent = `${f + 1}/${d.n}`;
 }
 function toggleMoviePlay() {
   const b = document.getElementById('mv_play'), sl = document.getElementById('mv_slider');
-  if (movieTimer) { clearInterval(movieTimer); movieTimer = 0; b.textContent = '▶'; return; }
+  if (movieRaf) { cancelAnimationFrame(movieRaf); movieRaf = 0; b.textContent = '▶'; return; }
   b.textContent = '❚❚';
   const ms = Math.max(30, +document.getElementById('mv_exposure-ms').value);
-  movieTimer = setInterval(() => { if (!movie) return; sl.value = (+sl.value + 1) % movie.n; showMovieFrame(+sl.value); }, ms);
+  movieLast = performance.now(); movieAcc = 0;
+  const tick = now => {
+    if (!movie) { movieRaf = 0; return; }
+    movieAcc += now - movieLast; movieLast = now;
+    if (movieAcc >= ms) {
+      const steps = Math.floor(movieAcc / ms);
+      movieAcc -= steps * ms;
+      sl.value = (+sl.value + steps) % movie.n;
+      showMovieFrame(+sl.value);
+    }
+    movieRaf = requestAnimationFrame(tick);
+  };
+  movieRaf = requestAnimationFrame(tick);
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
 // the spec in the first page's ImageDescription (the cli writes the same layout).
@@ -1960,6 +2348,7 @@ function drawMovieFov() {
   ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
+for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm']) document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
 });
@@ -1968,7 +2357,7 @@ document.getElementById('mv_slider').addEventListener('input', e => { if (movie)
 document.getElementById('mv_save').addEventListener('click', saveMovieTiff);
 document.getElementById('mv_close').addEventListener('click', e => {
   e.preventDefault(); document.getElementById('movie').style.display = 'none';
-  if (movieTimer) toggleMoviePlay();
+  if (movieRaf) toggleMoviePlay();
   requestDraw();
 });
 

@@ -20,6 +20,9 @@ const C = await loadWasmScope(read('web/insiliscope_module.js'));
 const s = viewer.indexOf('\nfunction iscEngine(M) {'), e = viewer.indexOf('\n}\n', s);
 if (s < 0 || e < 0) throw new Error('iscEngine not found in web/index.html');
 const wasm = new Function(viewer.slice(s, e + 3) + '\nreturn iscEngine;')()(C.M);
+// A second WASM engine (its own world) that only ever receives blocks a pack job returned: it must
+// answer as the packing engine does (ABI 7 isc_world_set_block).
+const wasm2 = new Function(viewer.slice(s, e + 3) + '\nreturn iscEngine;')()(C.M);
 const js = await createEngine({ html: read('web/prototype/index.html'), mt: read('web/prototype/microtubules.js') });
 
 // The viewer's params() at its own defaults (what its UI sends), optionally with overrides.
@@ -64,6 +67,10 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const [pj, pw] = both({ type: 'pack', id: 1, key: 'k', win: [0, 0, 3, 2], rect, seed, p: packParams(p) });
   const nCells = pw.cells.length / 14;
   report(!diff(pj, pw) && nCells > 0, `${name}: pack, ${nCells} cells ${diff(pj, pw)}`);
+  // One block per job (the viewer's scheduler): the same rows as the pack reply's block.
+  const b0 = pw.blocks[0];
+  const [bj, bw] = both({ type: 'block', id: 2, key: 'k', bx: b0.bx, by: b0.by, seed, p: packParams(p) });
+  report(!diff(bj, bw) && !diff(bw.rows, b0.rows), `${name}: block job (${b0.bx}, ${b0.by}): identical, = the pack reply's rows ${diff(bj, bw) || diff(bw.rows, b0.rows)}`);
   let bad = '', nMt = 0;
   for (let i = 0; i < Math.min(quick ? 2 : 4, nCells) && !bad; i++) {
     const cx = pw.cells[14 * i], cy = pw.cells[14 * i + 1];
@@ -77,6 +84,21 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const c0 = [pw.cells[2], pw.cells[3]];
   const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p });
   report(!diff(sj, sw) && sw.sites.length > 0, `${name}: sites, ${sw.sites.length / 4} dyes ${diff(sj, sw)}`);
+  // Injection: a fresh engine fed the pack job's blocks answers the cell and sites jobs identically.
+  const cx = pw.cells[0], cy = pw.cells[1];
+  const cellJob = { type: 'cell', key: cx + ',' + cy, sig: 's', seed, p, cx, cy, mt: true, blocks: pw.blocks };
+  const sitesJob = { type: 'sites', id: 4, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, blocks: pw.blocks };
+  const ci = wasm2.handle(structuredClone(cellJob))[0], cw2 = wasm.handle(structuredClone(cellJob))[0];
+  const si = wasm2.handle(structuredClone(sitesJob))[0], sw2 = wasm.handle(structuredClone(sitesJob))[0];
+  const cjI = js.handle(structuredClone(cellJob))[0], sjI = js.handle(structuredClone(sitesJob))[0];
+  report(pw.blocks.length > 0 && !diff(ci, cw2) && !diff(si, sw2) && !diff(cjI, cw2) && !diff(sjI, sw2),
+    `${name}: ${pw.blocks.length} packed blocks injected into a fresh world: cell and sites identical ${diff(ci, cw2) || diff(si, sw2) || diff(cjI, cw2) || diff(sjI, sw2)}`);
+  // A pack job carrying remembered blocks (the viewer's local storage after a reload): a fresh engine
+  // installs them and answers exactly as the one that packed them (version included).
+  const wasm3 = new Function(viewer.slice(s, e + 3) + '\nreturn iscEngine;')()(C.M);
+  const pw3 = wasm3.handle(structuredClone({ type: 'pack', id: 1, key: 'k', win: [0, 0, 3, 2], rect, seed, p: packParams(p), blocks: pw.blocks }))[0];
+  report(!diff(pw3, pw) && typeof pw.version === 'string' && pw.version.length >= 10,
+    `${name}: pack with remembered blocks handed in: identical reply, world version ${pw.version} ${diff(pw3, pw)}`);
 }
 
 // Movies through handle(), the viewer's spec form (p.* = its params()). WideField takes the WASM CPU path

@@ -12,6 +12,7 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
+#include "Simulation/CacheDir.h"
 #include "Simulation/SharedStageState.h"
 
 #include "CameraImageMetadata.h"
@@ -108,6 +109,10 @@ const char* g_PsfInterpCubic = "Cubic";
 const char* g_PsfInterpFft = "Fft";
 
 const char* g_PropUseGpu = "General_UseGpu";
+const char* g_PropDiskCache = "General_DiskCache";
+const char* g_DiskCacheOff = "Off";
+const char* g_DiskCacheCells = "Cells";
+const char* g_DiskCacheCellsAndPsf = "CellsAndPsf";
 const char* g_PropGpuStatus = "General_GpuStatus";
 const char* g_UseGpuOn = "On";
 const char* g_UseGpuOff = "Off";
@@ -716,6 +721,18 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnGpuStatus);
    CreateStringProperty(g_PropGpuStatus, "", true, pAct);
 
+   // Persistent caches in the per-user cache directory (Simulation/CacheDir.h:
+   // $ISC_CACHE_DIR, else %LOCALAPPDATA%\inSiliScope\cache). Cells = the
+   // packed cell positions of the CellField world (five numbers per cell, a
+   // few MB at most: a restart with the same seed and cell parameters packs
+   // nothing); CellsAndPsf adds the diffraction PSF kernel (one file of up
+   // to ~200 MB, so the kernel is read instead of computed at start).
+   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDiskCache);
+   CreateStringProperty(g_PropDiskCache, g_DiskCacheCells, false, pAct);
+   AddAllowedValue(g_PropDiskCache, g_DiskCacheOff);
+   AddAllowedValue(g_PropDiskCache, g_DiskCacheCells);
+   AddAllowedValue(g_PropDiskCache, g_DiskCacheCellsAndPsf);
+
    // GibsonLanniZernike-only pupil phase mask (engineered PSF) -- see
    // Simulation/PsfGeneratorBridge.h's PsfMaskType. DoubleHelix is webSMLM's
    // Gauss-Laguerre double-helix mask: two lobes rotating ~60 degrees over
@@ -760,6 +777,13 @@ int CInSiliScopeCamera::Initialize()
    // default) does need its always-on producer thread running from the
    // start, since unlike stack generation it isn't a one-shot job with a
    // natural "trigger" point.
+   // The diffraction PSF kernel is computed (or read from the disk cache,
+   // General_DiskCache = CellsAndPsf) in the background from here on, so
+   // the first snap, stack or live frame finds it in the memo instead of
+   // waiting for it; a live loop asking for the same kernel meanwhile waits
+   // for this thread rather than computing it again.
+   sim::SetPsfKernelDiskCacheDir(diskCacheMode_.load() >= 2 ? sim::DefaultCacheDir() : std::string());
+   StartPsfPreload();
    if (acqMode_ == SMLM_MODE_LIVE)
       StartLiveProducer();
 
@@ -770,6 +794,8 @@ int CInSiliScopeCamera::Shutdown()
 {
    StopSequenceAcquisition();
    StopLiveProducer();
+   if (psfPreloadThread_.joinable())
+      psfPreloadThread_.join();
    if (stackGenThread_.joinable())
       stackGenThread_.join();
    initialized_ = false;
