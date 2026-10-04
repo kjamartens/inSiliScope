@@ -253,9 +253,6 @@ export class World {
       const A = this.cellAssets(c);
       const rotated = !(c.packRot === 0 || Number.isNaN(c.packRot) || c.packRot == null);
       const cr = rotated ? Math.cos(c.packRot) : 1, sr = rotated ? Math.sin(c.packRot) : 0;
-      const ncr = Math.cos(-c.nucRot), nsr = Math.sin(-c.nucRot);
-      const na = Math.max(1e-6, c.nucLong / 2), nb = Math.max(1e-6, c.nucShort / 2);
-      const nrz = c.nucHeight / 2;
       // CellInnerRadiusBound (speed only): closer to the centre is inside without evaluating the outline.
       const rIn = (c.semiMinor < c.semiMajor ? c.semiMinor : c.semiMajor) * c.modFloor * (1 - c.tailBound) * (1 - 1e-12);
       const ix0 = Math.max(0, Math.floor((c.x - c.rOuter - x0) / px));
@@ -273,13 +270,10 @@ export class World {
               if (rr > c.rOuter || (rr > rIn && rr > g.cellRadiusAt(c, Math.atan2(ly, lx)))) continue;
               const h = g.sampleCytoMeshHeight(c, p, lx, ly);
               if (!(h > 0)) continue;
-              // Nucleus chord through this column, clipped to the body.
-              const ex = lx - c.nucOffX, ey = ly - c.nucOffY;
-              const ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
-              const q = 1 - ux * ux - uy * uy;
+              // Nucleus chord through this column (g.nucleusColumnLocal: the shaped nucleus), clipped to the body.
+              const half = g.nucleusColumnLocal(c, lx, ly);
               let zn0 = 0, zn1 = 0;
-              if (q > 0 && nrz > 0) {
-                const half = nrz * Math.sqrt(q);
+              if (half > 0) {
                 zn0 = Math.max(0.0, c.nucZ - half);
                 zn1 = Math.min(h, c.nucZ + half);
                 if (zn1 < zn0) zn0 = zn1 = 0;

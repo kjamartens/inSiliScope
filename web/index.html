@@ -227,6 +227,10 @@ const UI_GROUPS = [
     pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.3, 0.5, { adv }),
     range('nucOffsetFrac', 'Centre offset', '× cell r', 'Random offset of the nucleus from the cell centre, up to this fraction of the cell radius.', 0, 1, 0.02, 0.1, { adv, fmt: fx(2) }),
     range('nucMargin', 'Margin', 'µm', 'Cytoplasm clearance around the nucleus on every side, and the least cytoplasm above it.', 0.1, 1.5, 0.1, 0.6, { adv, fmt: fx(1) }),
+    pair('nucIrreg', 'Irregularity', 'rms', 'How far the nucleus outline strays from an ellipse: rms deviation of its radius, as a fraction, per cell. 0 = ellipse.', 0, 0.3, 0.01, 0.03, 0.12),
+    pair('nucBend', 'Kidney bend', 'a.u.', 'Bean/kidney bend of the nucleus, per cell: the middle shifts sideways against the ends by 3/4 of this times the short semi-axis. 0 = straight.', 0, 1, 0.05, 0, 0.5),
+    range('nucSmooth', 'Lobe smoothness', 'slope', 'How the irregularity spreads over lobes: amplitude of k lobes ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.', 0, 4, 0.1, 2.5, { adv, fmt: fx(1) }),
+    range('nucThickIrreg', 'Height irreg.', 'rms', 'Lumpiness of the nucleus top and bottom: rms relative variation of its thickness at the edge (tilt, bumps). 0 = ellipsoid profile.', 0, 0.4, 0.01, 0.1, { adv, fmt: fx(2) }),
   ] },
   { id: 'cyto', title: 'Cytoplasm', items: [
     preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {
@@ -684,6 +688,7 @@ const els = {};
  'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
  'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
+ 'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucThickIrreg',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
  'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
@@ -720,6 +725,12 @@ function params() {
     nucHeightMax: Math.max(+els.nucHeightMin.value, +els.nucHeightMax.value),
     nucOffsetFrac: +els.nucOffsetFrac.value,
     nucMargin: +els.nucMargin.value,
+    nucIrregMin: +els.nucIrregMin.value,
+    nucIrregMax: Math.max(+els.nucIrregMin.value, +els.nucIrregMax.value),
+    nucBendMin: +els.nucBendMin.value,
+    nucBendMax: Math.max(+els.nucBendMin.value, +els.nucBendMax.value),
+    nucSmooth: +els.nucSmooth.value,
+    nucThickIrreg: +els.nucThickIrreg.value,
     cytoRimHeightMin: +els.cytoRimHeightMin.value,
     cytoRimHeightMax: Math.max(+els.cytoRimHeightMin.value, +els.cytoRimHeightMax.value),
     cytoEdgeRiseMin: +els.cytoEdgeRiseMin.value,
@@ -1095,7 +1106,28 @@ function drawBodiesGl(cells, p) {
 }
 
 const NUC_SLICES = 9, NUC_PTS = 24;
-function drawNucleus(c) {
+function drawNucleus(c, asset) {
+  // The engine's nucleus surface rings (asset.nuc: cell-local x, y, z, nucPts per ring, ball sections bottom to
+  // top) when it sends them -- the shaped nucleus -- placed like the cytoplasm mesh (localToWorld), each ring
+  // coloured by its mean depth. Without them: the plain ellipsoid from the pack record.
+  if (asset && asset.nuc) {
+    const a = asset.nuc, np = asset.nucPts;
+    for (let o = 0; o < a.length; o += np * 3) {
+      const pts = [];
+      let zSum = 0;
+      for (let i = 0; i < np; i++) {
+        const k = o + 3 * i, [wx, wy] = localToWorld(c, a[k], a[k + 1]);
+        pts.push(project(wx, wy, a[k + 2]));
+        zSum += a[k + 2];
+      }
+      const zAbs = zSum / np;
+      ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
+      ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
+      ctx.lineWidth = 1;
+      polyPath(pts); ctx.fill(); ctx.stroke();
+    }
+    return;
+  }
   // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
   // other shape field -- see cellOutlineLocal's own comment), so the offset
   // itself has to be rotated by packRot too, same as localToWorld does for
@@ -1496,7 +1528,8 @@ function unpackAsset(d) {
       mts[i] = pts;
     }
   }
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { localOutline: lo, mesh: { rings: d.rings, n: d.n, grid } }, mts };
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { localOutline: lo, mesh: { rings: d.rings, n: d.n, grid } }, mts,
+    nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -1710,7 +1743,7 @@ function draw() {
     for (const { cell, asset } of vis) addContourPath(cell, asset.entry, p.cytoContourStep);
     ctx.stroke();
   }
-  if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
+  if (els.showNucleus.checked) for (const { cell, asset } of vis) drawNucleus(cell, asset);
 
   drawMovieFov();
   drawScaleBar(pxPerUm);

@@ -15,7 +15,8 @@ const MT_OPEN = 'window.__MT_SRC = function () {';
 // Generator exports (functions/values declared at the generator's top level).
 export const GEN_EXPORTS = ['pcg4d', 'hashUnit', 'hashStream', 'rawCandidate', 'buildCandidateMap', 'packMap',
   'interactionChunks', 'getCytoGeometry', 'sampleCytoMeshHeight', 'cellOutlineLocal', 'ensureCytoCacheFresh',
-  'cytoCache', 'getMtCellGeometry', 'buildMicrotubulesForCell', 'buildMicrotubuleLabelPoints', 'CELL_MOD_MAX', 'TAIL_MAX', 'cellRadiusAt'];
+  'cytoCache', 'getMtCellGeometry', 'buildMicrotubulesForCell', 'buildMicrotubuleLabelPoints', 'CELL_MOD_MAX', 'TAIL_MAX', 'cellRadiusAt',
+  'nucleusColumnLocal', 'nucleusRingsLocal'];
 
 function sliceOrThrow(text, a, b, what) {
   if (a < 0 || b < 0 || b <= a) throw new Error(what + ' markers not found');
@@ -107,7 +108,8 @@ export function prototypeScript(html, mtText) {
     paramsSource(html),
     '  return params();',
     '}',
-    `return { paramsFrom, gen: { ${GEN_EXPORTS.join(', ')} } };`,
+    // typeof guard: an older prototype (the lab's baseline ref) may lack a newer export.
+    `return { paramsFrom, gen: { ${GEN_EXPORTS.map(n => `${n}: typeof ${n} === 'undefined' ? undefined : ${n}`).join(', ')} } };`,
   ].join('\n');
 }
 

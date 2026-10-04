@@ -42,7 +42,9 @@ export function makeField(P) {
       const [nx, ny] = toWorld(c, c.nucOffX, c.nucOffY);
       const cell = {
         cx: c.cx, cy: c.cy, x: c.x, y: c.y, packRot: c.packRot || 0, height: c.height, outline,
-        nuc: { x: nx, y: ny, a: c.nucLong / 2, b: c.nucShort / 2, rot: c.nucRot + (c.packRot || 0), z: c.nucZ, h: c.nucHeight },
+        nuc: { x: nx, y: ny, a: c.nucLong / 2, b: c.nucShort / 2, rot: c.nucRot + (c.packRot || 0), z: c.nucZ, h: c.nucHeight,
+          // footprint outline (world), shaped nucleus only
+          poly: c.nucShaped ? c.nucPoly.filter((_, i) => i % 4 === 0).map(([lx, ly]) => toWorld(c, lx, ly)) : null },
       };
       if (withMts) {
         const local = g.buildMicrotubulesForCell(seed, c.cx, c.cy, c, p);

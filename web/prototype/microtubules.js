@@ -203,7 +203,7 @@ function mtNucleusFootprintBlend(cell, x, y) {
   const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
   const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
   const a = cell.nucLong / 2, b = cell.nucShort / 2;
-  const norm = Math.hypot(lx / Math.max(1e-6, a), ly / Math.max(1e-6, b));
+  const norm = cell.nucShaped ? nucBallLocal(cell, x, y).s : Math.hypot(lx / Math.max(1e-6, a), ly / Math.max(1e-6, b));
   const t = Math.min(1, Math.max(0, (norm - 1) / MT_NUCLEUS_CLEAR_BLEND));
   return smoothstep(1 - t);
 }
@@ -387,6 +387,17 @@ function mtShoelaceArea(pts) {
 // centre, world/local-frame convention -- same "theta minus own rotation"
 // form as cellRadiusAt's base-ellipse term).
 function mtNucleusRadiusAt(cell, theta) {
+  if (cell.nucShaped) {
+    // Shaped nucleus (index.html, nucShapeInit): bisect along the ray for the
+    // footprint boundary (ball radius s = 1).
+    const ux = Math.cos(theta), uy = Math.sin(theta);
+    let lo = 0, hi = cell.nucReach * 1.01 + 1e-6;
+    for (let it = 0; it < MT_BISECT_ITERS; it++) {
+      const mid = (lo + hi) / 2;
+      if (nucBallLocal(cell, cell.nucOffX + ux * mid, cell.nucOffY + uy * mid).s < 1) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
   const a = cell.nucLong / 2, b = cell.nucShort / 2;
   const phi = theta - cell.nucRot;
   return (a * b) / Math.hypot(b * Math.cos(phi), a * Math.sin(phi));
@@ -483,7 +494,7 @@ const mtGeomCache = new Map();
 function mtCellShapeSig(cell) {
   return [cell.semiMajor, cell.semiMinor, cell.rot, cell.harmAmp.join(','), cell.harmPh.join(','), cell.tailAc.join(','), cell.tailAs.join(','),
     cell.modFloor, cell.nucOffX, cell.nucOffY, cell.nucLong, cell.nucShort, cell.nucRot,
-    cell.nucZ, cell.nucHeight, cell.rOuter].join('|');
+    cell.nucZ, cell.nucHeight, cell.rOuter, cell.nucShaped ? cell.nucShapeSig : ''].join('|');
 }
 function getMtCellGeometry(cell) {
   const key = cell.cx + ',' + cell.cy;
@@ -535,25 +546,38 @@ function mtCountForCell(seed, cx, cy, cell, p, geom) {
 // (the cut in buildMicrotubule); skip that check again unless the nucleus
 // push moves it (speed only).
 function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
-  const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
-  const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
-  const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-  const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
-  const nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
-  const nx = lx / Math.max(1e-6, a), ny = ly / Math.max(1e-6, b);
-  const ellNorm = Math.sqrt(nx * nx + ny * ny + nz * nz);
-  if (ellNorm < 1) {
-    // Pushing OUT of the nucleus needs the normalized radius to end up
-    // GREATER than 1 (outside), so the margin divides rather than multiplies
-    // here -- the opposite direction from the footprint/height clamps below,
-    // which pull a point back INSIDE their own outer bound.
-    const scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
-    const lx2 = lx * scale, ly2 = ly * scale;
-    pt.z = cell.nucZ + nz * rz * scale;
-    const cr2 = Math.cos(cell.nucRot), sr2 = Math.sin(cell.nucRot);
-    pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
-    pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
-    knownInside = false;
+  if (cell.nucShaped) {
+    // Same push-out in the shaped nucleus's ball coordinates (s, zeta), mapped back.
+    const B = nucBallLocal(cell, pt.x, pt.y);
+    const zeta = (pt.z - cell.nucZ) / Math.max(1e-6, (cell.nucHeight / 2) * B.H);
+    const n = Math.sqrt(B.s * B.s + zeta * zeta);
+    if (n < 1) {
+      const scale = (n > 1e-9 ? 1 / n : 1) / MT_CONTAIN_MARGIN;
+      const q = nucMapLocal(cell, B.s * scale, B.C, B.S, zeta * scale);
+      pt.x = q[0]; pt.y = q[1]; pt.z = q[2];
+      knownInside = false;
+    }
+  } else {
+    const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
+    const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
+    const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
+    const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
+    const nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
+    const nx = lx / Math.max(1e-6, a), ny = ly / Math.max(1e-6, b);
+    const ellNorm = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (ellNorm < 1) {
+      // Pushing OUT of the nucleus needs the normalized radius to end up
+      // GREATER than 1 (outside), so the margin divides rather than multiplies
+      // here -- the opposite direction from the footprint/height clamps below,
+      // which pull a point back INSIDE their own outer bound.
+      const scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
+      const lx2 = lx * scale, ly2 = ly * scale;
+      pt.z = cell.nucZ + nz * rz * scale;
+      const cr2 = Math.cos(cell.nucRot), sr2 = Math.sin(cell.nucRot);
+      pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
+      pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
+      knownInside = false;
+    }
   }
 
   const dist = Math.hypot(pt.x, pt.y);
@@ -614,12 +638,20 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const cosPsi = 1 - 2 * next();
   const sinPsi = Math.sqrt(Math.max(0, 1 - cosPsi * cosPsi));
   const aN = cell.nucLong / 2, bN = cell.nucShort / 2, rzN = cell.nucHeight / 2;
-  const lx0 = aN * sinPsi * Math.cos(phi0), ly0 = bN * sinPsi * Math.sin(phi0), lz0 = rzN * cosPsi;
-  const crN = Math.cos(cell.nucRot), srN = Math.sin(cell.nucRot);
-  const surfX = cell.nucOffX + lx0 * crN - ly0 * srN;
-  const surfY = cell.nucOffY + lx0 * srN + ly0 * crN;
-  const surfZ = cell.nucZ + lz0;
-  const outward = mtNormalize3([surfX - cell.nucOffX, surfY - cell.nucOffY, lz0]);
+  let surfX, surfY, surfZ, dzOut;
+  if (cell.nucShaped) {
+    // The same ball point (sinPsi, phi0, cosPsi) on the shaped nucleus's surface.
+    [surfX, surfY, surfZ] = nucMapLocal(cell, sinPsi, Math.cos(phi0), Math.sin(phi0), cosPsi);
+    dzOut = surfZ - cell.nucZ;
+  } else {
+    const lx0 = aN * sinPsi * Math.cos(phi0), ly0 = bN * sinPsi * Math.sin(phi0), lz0 = rzN * cosPsi;
+    const crN = Math.cos(cell.nucRot), srN = Math.sin(cell.nucRot);
+    surfX = cell.nucOffX + lx0 * crN - ly0 * srN;
+    surfY = cell.nucOffY + lx0 * srN + ly0 * crN;
+    surfZ = cell.nucZ + lz0;
+    dzOut = lz0;
+  }
+  const outward = mtNormalize3([surfX - cell.nucOffX, surfY - cell.nucOffY, dzOut]);
 
   const rNuc0 = mtNucleusRadiusAt(cell, theta0); // 2D equatorial reference, only used below to scale how far "out" means
   const rCell0 = mtRayCellBoundaryFromNucleus(cell, theta0, rNuc0);
@@ -855,8 +887,8 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // actually starts. `canGoUnder` requires real clearance beneath the
   // nucleus (basal side) before that option is even offered, overriding a
   // below-the-equator start if there's nowhere to go.
-  const nucTopZ = cell.nucZ + cell.nucHeight / 2;
-  const nucBottomZ = cell.nucZ - cell.nucHeight / 2;
+  const nucTopZ = cell.nucZ + cell.nucHalfZ;      // nucHalfZ: nucHeight/2, or the shaped nucleus's half-extent
+  const nucBottomZ = cell.nucZ - cell.nucHalfZ;
   const nucClearance = mtNucleusClearance(p);
   const canGoUnder = nucBottomZ - nucClearance > 0;
   const goOverNucleus = !canGoUnder || cosPsi >= 0;
