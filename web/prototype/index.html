@@ -116,8 +116,8 @@
     <fieldset>
       <legend>microtubules (µm, per cell)</legend>
       <label class="row">Density (per µm²) <input type="range" id="mtDensity" min="0" max="2" step="0.005" value="0.9"><span id="mtDensityVal"></span></label>
-      <label class="row">Start: decay length from nucleus (µm) <input type="range" id="mtStartDecayUm" min="0.02" max="3" step="0.01" value="0.5"><span id="mtStartDecayUmVal"></span></label>
-      <label class="row">End: decay length from cell edge (µm) <input type="range" id="mtEndDecayUm" min="0.1" max="10" step="0.1" value="1.5"><span id="mtEndDecayUmVal"></span></label>
+      <label class="row">Start: decay length from nucleus (% cell size) <input type="range" id="mtStartDecayPct" min="0.05" max="10" step="0.05" value="1.6"><span id="mtStartDecayPctVal"></span></label>
+      <label class="row">End: decay length from cell edge (% cell size) <input type="range" id="mtEndDecayPct" min="0.5" max="50" step="0.5" value="20"><span id="mtEndDecayPctVal"></span></label>
       <label class="row">Direction concentration κ <input type="range" id="mtDirKappa" min="0" max="10" step="0.1" value="1.5"><span id="mtDirKappaVal"></span></label>
       <label class="row">Wobble turn strength <input type="range" id="mtWobbleTurn" min="0" max="3" step="0.05" value="0.8"><span id="mtWobbleTurnVal"></span></label>
       <label class="row">Wobble path length × <input type="range" id="mtWobbleFactor" min="0.9" max="1.3" step="0.01" value="1.05"><span id="mtWobbleFactorVal"></span></label>
@@ -1786,7 +1786,7 @@ const els = {};
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
  'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
  'enablePacking', 'allowPackRotation', 'packFrac', 'packFracVal', 'relaxIters', 'relaxItersVal', 'relaxDamping', 'relaxDampingVal',
- 'mtDensity', 'mtDensityVal', 'mtStartDecayUm', 'mtStartDecayUmVal', 'mtEndDecayUm', 'mtEndDecayUmVal',
+ 'mtDensity', 'mtDensityVal', 'mtStartDecayPct', 'mtStartDecayPctVal', 'mtEndDecayPct', 'mtEndDecayPctVal',
  'mtDirKappa', 'mtDirKappaVal', 'mtWobbleTurn', 'mtWobbleTurnVal',
  'mtWobbleFactor', 'mtWobbleFactorVal', 'mtLineWidth', 'mtLineWidthVal', 'mtStepLen', 'mtStepLenVal', 'mtSmoothLen', 'mtSmoothLenVal',
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
@@ -1847,8 +1847,8 @@ function params() {
     relaxIters: +els.relaxIters.value,
     relaxDamping: +els.relaxDamping.value,
     mtDensity: +els.mtDensity.value,
-    mtStartDecayUm: +els.mtStartDecayUm.value,
-    mtEndDecayUm: +els.mtEndDecayUm.value,
+    mtStartDecayPct: +els.mtStartDecayPct.value,
+    mtEndDecayPct: +els.mtEndDecayPct.value,
     mtDirKappa: +els.mtDirKappa.value,
     mtWobbleTurn: +els.mtWobbleTurn.value,
     mtWobbleFactor: Math.max(1, +els.mtWobbleFactor.value),
@@ -2723,8 +2723,8 @@ function syncLabels() {
   els.relaxItersVal.textContent = els.relaxIters.value;
   els.relaxDampingVal.textContent = (+els.relaxDamping.value).toFixed(2);
   els.mtDensityVal.textContent = (+els.mtDensity.value).toFixed(3) + ' /um²';
-  els.mtStartDecayUmVal.textContent = (+els.mtStartDecayUm.value).toFixed(2) + ' um';
-  els.mtEndDecayUmVal.textContent = (+els.mtEndDecayUm.value).toFixed(1) + ' um';
+  els.mtStartDecayPctVal.textContent = (+els.mtStartDecayPct.value).toFixed(2) + ' %';
+  els.mtEndDecayPctVal.textContent = (+els.mtEndDecayPct.value).toFixed(1) + ' %';
   els.mtDirKappaVal.textContent = (+els.mtDirKappa.value).toFixed(1);
   els.mtWobbleTurnVal.textContent = (+els.mtWobbleTurn.value).toFixed(2);
   els.mtWobbleFactorVal.textContent = (+els.mtWobbleFactor.value).toFixed(2) + '×';

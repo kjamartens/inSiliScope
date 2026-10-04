@@ -142,7 +142,10 @@ fraction in from the edge along a jittered azimuth from a cytoplasm-weighted dir
 shaped nucleus. Now both are points of the cytoplasm, weighted by distance to a surface, and the direction comes from
 choosing the end:
 
-- **Start** (`mtSampleStart`): density `~ exp(-d / mtStartDecayUm)` over the cytoplasm volume, `d` =
+- **Decay lengths** (`mtDecayLen(pct, geom)`): `max(MT_MIN_DECAY_UM, pct / 100 x sizeUm)`, `sizeUm` = the cell's
+  equivalent diameter `2 sqrt(area / pi)` (geometry cache, shoelace area of the 48-point outline). At the default
+  cell sizes (mean equivalent diameter 30.4 um, p10-p90 26-35 um) the defaults 1.6 % and 20 % are ~0.5 and ~6 um.
+- **Start** (`mtSampleStart`): density `~ exp(-d / lambda)`, `lambda = mtDecayLen(mtStartDecayPct)`, over the cytoplasm volume, `d` =
   `mtNucleusGap(cell, x, y, z)` (approximate distance to the nucleus surface, -1 inside; see its comment: in the
   nucleus shape coordinates, lateral gap `gl = (s - W(zeta)) rDir` and vertical gap `gv` to the column, combined
   `gl gv / hypot(gl, gv)`; `rDir` = |`nucMapLocal(c, 1, C, S, 0)` - centre|; the plain ellipsoid with f = 0, H = 1).
@@ -152,7 +155,7 @@ choosing the end:
   when it is the closest valid one so far; valid = `mtInCytoplasm` (`z > 0`, inside the outline and under the
   ceiling, both x `MT_CONTAIN_MARGIN`). At most `MT_SAMPLE_TRIES` (128) tries, then the closest valid candidate,
   else the rim point at `nucLong / 2 / margin` along `nucRot`, z = `nucZ`. `lambda >= MT_MIN_DECAY_UM` (0.02).
-- **End** (`mtSampleEnd`): per try three draws `theta = 2 pi u1`, `d = -lambda log(1 - u2)`, `u3`;
+- **End** (`mtSampleEnd`, `lambda = mtDecayLen(mtEndDecayPct)`): per try three draws `theta = 2 pi u1`, `d = -lambda log(1 - u2)`, `u3`;
   `r = cellRadiusAt(theta) x margin - d`; accepted if `r > 0`, `u3 rMax < r` (area element) and outside the nucleus
   footprint (`nucleusColumnLocal` null). `rMax` = max of `cellRadiusAt` over 512 angles x margin (geometry cache).
   128 tries, then the last candidate.
@@ -168,8 +171,8 @@ choosing the end:
 
   | Param | Default | Slider | Meaning |
   |---|---|---|---|
-  | `mtStartDecayUm` | 0.5 | 0.02..3 | start density falls off as exp(-distance to the nucleus / this) |
-  | `mtEndDecayUm` | 1.5 | 0.1..10 | end density falls off as exp(-distance to the edge / this) |
+  | `mtStartDecayPct` | 1.6 | 0.05..10 | start density falls off as exp(-distance to the nucleus / L), L = this % of the equivalent diameter |
+  | `mtEndDecayPct` | 20 | 0.5..50 | end density falls off as exp(-distance to the edge / L), same L convention |
   | `mtDirKappa` | 1.5 | 0..10 | weight exp(kappa (cos a - 1)) of the end's direction; 0 = any |
 
 - Port: the param table, cli/viewer options, `tests/parity/js_reference.mjs` (`PARAM_KEYS`, the min/max pairs in

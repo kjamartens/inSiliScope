@@ -74,7 +74,7 @@ const SCENARIOS = [
   { name: 'defaults', overrides: {} },
   {
     name: 'bug-report (high density, wide start shell)',
-    overrides: { mtDensity: 0.825, mtStartDecayUm: 2.0, mtEndDecayUm: 4, mtMinSeparation: 0.5 },
+    overrides: { mtDensity: 0.825, mtStartDecayPct: 6.5, mtEndDecayPct: 13, mtMinSeparation: 0.5 },
   },
   {
     // Any end direction (kappa 0) + Wobble turn strength are what actually
@@ -83,7 +83,7 @@ const SCENARIOS = [
     // otherwise rarely run against the one code path it exists to catch a
     // regression in.
     name: 'nucleus-crossing (any direction)',
-    overrides: { mtDensity: 0.3, mtDirKappa: 0, mtWobbleTurn: 0.6, mtStartDecayUm: 0.3, mtEndDecayUm: 4 },
+    overrides: { mtDensity: 0.3, mtDirKappa: 0, mtWobbleTurn: 0.6, mtStartDecayPct: 1, mtEndDecayPct: 13 },
   },
 ];
 

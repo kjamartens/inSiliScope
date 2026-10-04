@@ -84,7 +84,7 @@ const MT_END_CANDIDATES = 12;
 // Kept deliberately SMALL (measured, not guessed): near the nucleus, many
 // microtubules' own FIXED start points are packed tighter than a typical
 // mtMinSeparation by construction once density gets even moderately high
-// (mtStartDecayUm concentrates the starts in a thin shell around the nucleus)
+// (mtStartDecayPct concentrates the starts in a thin shell around the nucleus)
 // -- those specific conflicts can never actually resolve (neither
 // point is allowed to move), so a round involving them never converges to
 // "no violation found" and always burns its FULL round budget. Measured
@@ -485,11 +485,18 @@ function mtInCytoplasm(cell, p, x, y, z) {
   return z < Math.max(0, sampleCytoMeshHeight(cell, p, x, y)) * MT_CONTAIN_MARGIN;
 }
 
-// START: a point of the cytoplasm volume (nucleus excluded) with density ~ exp(-d / mtStartDecayUm), d = the
+// Decay length (um) of a start/end density: pct % of the cell's equivalent diameter (geom.sizeUm), so the same
+// setting fits small and large cells. At the default cell sizes (equivalent diameter ~30 um) 1.6 % is ~0.5 um
+// and 20 % ~6 um.
+function mtDecayLen(pct, geom) {
+  return Math.max(MT_MIN_DECAY_UM, pct / 100 * geom.sizeUm);
+}
+
+// START: a point of the cytoplasm volume (nucleus excluded) with density ~ exp(-d / lambda), d = the
 // distance to the nucleus surface (mtNucleusGap): uniform candidates in the nucleus's bounding box grown by
 // MT_DECAY_SPAN decay lengths, kept with probability exp(-d / lambda). Four draws per candidate, always.
 function mtSampleStart(cell, p, geom, next) {
-  const lam = Math.max(MT_MIN_DECAY_UM, p.mtStartDecayUm);
+  const lam = mtDecayLen(p.mtStartDecayPct, geom);
   const L = Math.min(MT_DECAY_SPAN * lam, geom.rMax);
   const nb = geom.nucBox;
   const x0 = nb[0] - L, x1 = nb[2] + L, y0 = nb[1] - L, y1 = nb[3] + L, z1 = cell.nucZ + cell.nucUp + L;
@@ -511,11 +518,11 @@ function mtSampleStart(cell, p, geom, next) {
 }
 
 // END (x, y only; its z is a fraction of the local ceiling): a footprint point outside the nucleus footprint with
-// density ~ exp(-d / mtEndDecayUm), d = the radial gap to the outline (inside by MT_CONTAIN_MARGIN). Polar
+// density ~ exp(-d / lambda), d = the radial gap to the outline (inside by MT_CONTAIN_MARGIN). Polar
 // proposal: theta uniform, d exponential (inverse CDF), kept with probability r / rMax (the area element).
 // Three draws per candidate, always.
 function mtSampleEnd(cell, p, geom, next) {
-  const lam = Math.max(MT_MIN_DECAY_UM, p.mtEndDecayUm);
+  const lam = mtDecayLen(p.mtEndDecayPct, geom);
   let x = 0, y = 0;
   for (let t = 0; t < MT_SAMPLE_TRIES; t++) {
     const th = next() * Math.PI * 2, d = -lam * Math.log(1 - next()), u = next();
@@ -554,8 +561,8 @@ function mtPickEnd(cell, p, geom, next, S) {
   return cands[MT_END_CANDIDATES - 1];
 }
 
-// Per-cell geometry cache (local outline, footprint area, nucleus bounding box,
-// largest outline radius) -- same reasoning as index.html's own cytoCache:
+// Per-cell geometry cache (local outline, footprint area and equivalent diameter,
+// nucleus bounding box, largest outline radius) -- same reasoning as index.html's own cytoCache:
 // these fields are a pure function of the cell's own already-resolved shape
 // (semiMajor/semiMinor/rot/harmAmp/harmPh/modFloor/nucleus fields), not of its
 // current (packing-relaxed) x,y, so they are not recomputed on every draw()
@@ -595,6 +602,7 @@ function getMtCellGeometry(cell) {
     sig,
     localOutline,
     areaUm2: mtShoelaceArea(localOutline),
+    sizeUm: 2 * Math.sqrt(mtShoelaceArea(localOutline) / Math.PI),   // equivalent diameter (same area as the footprint)
     nucBox: mtNucleusBox(cell),
     rMax: rMax * MT_CONTAIN_MARGIN,
   };
@@ -995,7 +1003,7 @@ function mtBuildSpatialIndex(mts, cellSize) {
 // The grid turns the TOTAL cost into O(N), but a single bucket can still
 // hold many points if a lot of microtubules happen to pass close together
 // (routine right near the nucleus, where every path's start end is confined
-// to a thin shell by mtStartDecayUm) -- checking all of THOSE against each
+// to a thin shell by mtStartDecayPct) -- checking all of THOSE against each
 // other is locally O(bucket^2), the same blow-up the grid exists to avoid,
 // just scoped to one crowded neighbourhood instead of the whole cell.
 // MT_COLLISION_OP_BUDGET bails out of the CURRENT round once total pairwise
@@ -1138,7 +1146,7 @@ function mtResultSig(seed, cell, p) {
   // without it here, changing nucMargin alone would silently keep serving a
   // cached microtubule set built against the old clearance/height field.
   return [seed, mtCellShapeSig(cell), p.mtDensity,
-    p.mtStartDecayUm, p.mtEndDecayUm, p.mtDirKappa, p.mtWobbleTurn,
+    p.mtStartDecayPct, p.mtEndDecayPct, p.mtDirKappa, p.mtWobbleTurn,
     p.mtWobbleFactor, p.mtStepLen, p.mtSmoothLen, p.mtMinTurnRadius, p.mtMinSeparation, p.mtMaxZSlope, p.nucMargin, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta].join('|');
 }
 
