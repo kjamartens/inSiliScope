@@ -125,6 +125,50 @@ per point by a nominal-step slope limiter (removed) and clamped per point.
   For each: `need[i] = max(0, lo[i] - z[i])` (or `z[i] - hi[i]`), 0 at the endpoints; `ramp` = forward then
   backward running max of `need` minus `MT_NUC_RAMP_SLOPE` (1) x xy step length; box-smooth `ramp` (interior),
   `corr[i] = max(smoothed, need[i])` (endpoints: `ramp`); `z[i] += corr[i]` (or `-=`) for interior points only.
+- **`mtBoxSmooth`** uses a symmetric window `h = min(half, i, n - 1 - i)`: a window cut on one side pulled the
+  first points toward the inner values, a jump next to the fixed endpoint (the old z smoothing had this too).
+
+### Start and end points, direction
+
+The start was a point on the nucleus ellipsoid moved out by a fraction of the centre-to-edge distance, the end a
+fraction in from the edge along a jittered azimuth from a cytoplasm-weighted direction table. Neither fits the
+shaped nucleus. Now both are points of the cytoplasm, weighted by distance to a surface, and the direction comes from
+choosing the end:
+
+- **Start** (`mtSampleStart`): density `~ exp(-d / mtStartDecayUm)` over the cytoplasm volume, `d` =
+  `mtNucleusGap(cell, x, y, z)` (approximate distance to the nucleus surface, -1 inside; see its comment: in the
+  nucleus shape coordinates, lateral gap `gl = (s - W(zeta)) rDir` and vertical gap `gv` to the column, combined
+  `gl gv / hypot(gl, gv)`; `rDir` = |`nucMapLocal(c, 1, C, S, 0)` - centre|; the plain ellipsoid with f = 0, H = 1).
+  Rejection: per try four draws `x, y, z, u` (always, in that order), uniform in the nucleus bounding box
+  (`mtNucleusBox`: polygon or rotated ellipse) grown by `L = min(5 lambda, rMax)`, `z` in `[0, nucZ + nucUp + L)`;
+  inside the nucleus: next try; `accept = u < exp(-d / lambda)`; a rejected candidate is still kept as the fallback
+  when it is the closest valid one so far; valid = `mtInCytoplasm` (`z > 0`, inside the outline and under the
+  ceiling, both x `MT_CONTAIN_MARGIN`). At most `MT_SAMPLE_TRIES` (128) tries, then the closest valid candidate,
+  else the rim point at `nucLong / 2 / margin` along `nucRot`, z = `nucZ`. `lambda >= MT_MIN_DECAY_UM` (0.02).
+- **End** (`mtSampleEnd`): per try three draws `theta = 2 pi u1`, `d = -lambda log(1 - u2)`, `u3`;
+  `r = cellRadiusAt(theta) x margin - d`; accepted if `r > 0`, `u3 rMax < r` (area element) and outside the nucleus
+  footprint (`nucleusColumnLocal` null). `rMax` = max of `cellRadiusAt` over 512 angles x margin (geometry cache).
+  128 tries, then the last candidate.
+- **Pick** (`mtPickEnd`): `MT_END_CANDIDATES` (12) ends in sequence, then one draw `u`; weight
+  `exp(mtDirKappa (cos a - 1))`, `a` between start -> end and nucleus centre -> start in xy (cos = 0 if either is
+  shorter than 1e-9); the first candidate whose running weight sum exceeds `u x sum`.
+- Draw order per microtubule (one `hashStream`, as before): start tries, end tries x 12, pick, `fracEnd`, then the
+  walk. The start z is the sampled one (`fracStart = z / ceiling`).
+- `goOverNucleus` (step above) uses the sampled start z.
+- Removed: `buildMtDirectionTable`, `mtSampleDirection`, `mtRayCellBoundaryFromNucleus`, `mtNucleusRadiusAt`,
+  `MT_N_DIR`, `MT_MARCH_STEPS`, `MT_BISECT_ITERS`, the geometry cache's `dirTable`.
+- Params: removed `mtStartFracMin/Max`, `mtStartOffsetXY`, `mtEndFracMin/Max`, `mtEndJitterDeg`; new:
+
+  | Param | Default | Slider | Meaning |
+  |---|---|---|---|
+  | `mtStartDecayUm` | 0.5 | 0.02..3 | start density falls off as exp(-distance to the nucleus / this) |
+  | `mtEndDecayUm` | 1.5 | 0.1..10 | end density falls off as exp(-distance to the edge / this) |
+  | `mtDirKappa` | 1.5 | 0..10 | weight exp(kappa (cos a - 1)) of the end's direction; 0 = any |
+
+- Port: the param table, cli/viewer options, `tests/parity/js_reference.mjs` (`PARAM_KEYS`, the min/max pairs in
+  `normalise`) and `tests/parity/make_cases.mjs` (`mtsparse`'s `mtStartOffsetXY`, `mtvar`'s `mtEndJitterDeg`).
+- `web/tools/check_cellfield_microtubules.mjs`: scenarios use the new params; its nucleus test is now
+  `nucleusColumnLocal` (the old centred-ellipsoid test was wrong for the shaped nucleus).
 
 ## Outside the prototype (JS only)
 
@@ -132,6 +176,8 @@ per point by a nominal-step slope limiter (removed) and clamped per point.
   - Nucleus panel: Gap below, Irregularity, Kidney bend and Widest point pairs and Top/bottom asym., plus Lobe
     smoothness and Height irreg. (advanced).
   - `params()` gains the 11 new keys; the current WASM ignores them (`nonCore`).
+  - Microtubules panel: Start near nucleus, End near edge, Direction focus replace Start offset, Start XY jitter,
+    End offset and End dir. jitter.
   - `drawNucleus(cell, asset)` draws `asset.nuc` (surface rings from the engine's `cell` reply) when present,
     else the old ellipsoid from the pack record.
   - View panel: an x–z checkbox at the end of the Tilt line shows a side view (x–z, seen along y, equal x and z
