@@ -100,18 +100,17 @@ export async function createEngine(src = {}) {
         inject(w, d.blocks);
         const c = findCell(w, d.cx, d.cy);
         if (!c) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
-        const o = g.cellOutlineLocal(c, Math.max(8, Math.round(w.p.cytoTheta)));
-        const outline = new Float64Array(o.length * 2);
-        o.forEach((q, i) => { outline[2 * i] = q[0]; outline[2 * i + 1] = q[1]; });
         g.ensureCytoCacheFresh(w.seed, w.p);
+        // The mesh interleaved as isc_cell_mesh writes it (x, y, h per vertex k*n + i); its outer ring is
+        // the footprint outline (cellOutlineLocal at cytoTheta), so no outline field.
         const mesh = g.getCytoGeometry(c, w.p).mesh, nv = (mesh.rings + 1) * mesh.n;
-        const mx = new Float64Array(nv), my = new Float64Array(nv), mh = new Float64Array(nv);
+        const flat = new Float64Array(nv * 3);
         for (let k = 0; k <= mesh.rings; k++) for (let i = 0; i < mesh.n; i++) {
-          const v = k * mesh.n + i, q = mesh.grid[k][i];
-          mx[v] = q.x; my[v] = q.y; mh[v] = q.h;
+          const v = 3 * (k * mesh.n + i), q = mesh.grid[k][i];
+          flat[v] = q.x; flat[v + 1] = q.y; flat[v + 2] = q.h;
         }
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings: mesh.rings, n: mesh.n, outline, mx, my, mh, mts: null };
-        const transfer = [outline.buffer, mx.buffer, my.buffer, mh.buffer];
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings: mesh.rings, n: mesh.n, mesh: flat, mts: null };
+        const transfer = [flat.buffer];
         if (d.mt) {
           const paths = w.cellAssets(c).mts;
           let total = 0;

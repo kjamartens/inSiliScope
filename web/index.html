@@ -644,23 +644,29 @@ function depthColor(z, zmin, zmax, alpha) {
 // segments in whatever frame the mesh itself is in (local, per
 // buildCytoMesh) with z = the iso-level (contour height) -- the caller
 // translates by c.x,c.y before projecting.
+// Reads the mesh's interleaved vertex array (x, y, h at 3*(k*n + i)); returns a flat
+// array of x1, y1, x2, y2, level per segment.
 function marchingSquaresContours(mesh, levels) {
-  const { rings, n, grid } = mesh;
-  const segs = [];
+  const { rings, n, flat: f } = mesh;
+  const segs = [], corner = [0, 0, 0, 0], px = [0, 0], py = [0, 0];
   for (let k = 0; k < rings; k++) {
     for (let i = 0; i < n; i++) {
       const i2 = (i + 1) % n;
-      const p00 = grid[k][i], p10 = grid[k][i2], p11 = grid[k + 1][i2], p01 = grid[k + 1][i];
-      const edges = [[p00, p10], [p10, p11], [p11, p01], [p01, p00]];
-      for (const lvl of levels) {
-        const pts = [];
-        for (const [a, b] of edges) {
-          if ((a.h - lvl) * (b.h - lvl) < 0) {
-            const t = (lvl - a.h) / (b.h - a.h);
-            pts.push([a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t]);
+      // the quad's corners p00, p10, p11, p01; edges (c, c+1 mod 4) in that order
+      corner[0] = 3 * (k * n + i); corner[1] = 3 * (k * n + i2);
+      corner[2] = 3 * ((k + 1) * n + i2); corner[3] = 3 * ((k + 1) * n + i);
+      for (let l = 0; l < levels.length; l++) {
+        const lvl = levels[l];
+        let np = 0;
+        for (let e = 0; e < 4; e++) {
+          const a = corner[e], b = corner[(e + 1) & 3], ah = f[a + 2], bh = f[b + 2];
+          if ((ah - lvl) * (bh - lvl) < 0) {
+            const t = (lvl - ah) / (bh - ah);
+            if (np < 2) { px[np] = f[a] + (f[b] - f[a]) * t; py[np] = f[a + 1] + (f[b + 1] - f[a + 1]) * t; }
+            np++;
           }
         }
-        if (pts.length === 2) segs.push({ x1: pts[0][0], y1: pts[0][1], x2: pts[1][0], y2: pts[1][1], z: lvl });
+        if (np === 2) segs.push(px[0], py[0], px[1], py[1], lvl);
       }
     }
   }
@@ -849,26 +855,21 @@ function localToWorld(c, lx, ly) {
 function getMeshRender(entry, c) {
   let r = entry.render;
   if (r) return r;
-  const { rings, n, grid } = entry.mesh;
+  const { rings, n, flat } = entry.mesh;
   const nv = (rings + 1) * n, nq = rings * n;
   r = {
     nv, nq, n, rings,
     lx: new Float32Array(nv), ly: new Float32Array(nv), h: new Float32Array(nv),
-    qidx: new Uint32Array(nq * 4), qcol: new Array(nq), qavgH: new Float32Array(nq),
+    qidx: new Uint32Array(nq * 4), qcol: null, qavgH: new Float32Array(nq), // qcol: the 2D path's fill styles, made on first use
     sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords
     order: null, orderKey: '',
   };
-  for (let k = 0; k <= rings; k++) for (let i = 0; i < n; i++) {
-    const v = k * n + i, pt = grid[k][i];
-    r.lx[v] = pt.x; r.ly[v] = pt.y; r.h[v] = pt.h;
-  }
+  for (let v = 0; v < nv; v++) { r.lx[v] = flat[3 * v]; r.ly[v] = flat[3 * v + 1]; r.h[v] = flat[3 * v + 2]; }
   for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
     const q = k * n + i, i2 = (i + 1) % n, b = q * 4;
     const a = k * n + i, bb = k * n + i2, cc = (k + 1) * n + i2, d = (k + 1) * n + i;
     r.qidx[b] = a; r.qidx[b + 1] = bb; r.qidx[b + 2] = cc; r.qidx[b + 3] = d;
-    const avgH = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
-    r.qavgH[q] = avgH;
-    r.qcol[q] = depthColor(avgH, 0, c.height, 0.6);
+    r.qavgH[q] = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
   }
   entry.render = r;
   return r;
@@ -901,14 +902,12 @@ function ensureQuadOrder(r, c, sinT, cosT) {
 // (local frame, flat x1,y1,x2,y2,z) and merely transformed per frame.
 function getContourSegs(entry, step) {
   if (entry.contours && entry.contours.step === step) return entry.contours.segs;
-  const { grid } = entry.mesh;
+  const f = entry.mesh.flat;
   let maxH = 0;
-  for (const row of grid) for (const pt of row) if (pt.h > maxH) maxH = pt.h;
+  for (let v = 2; v < f.length; v += 3) if (f[v] > maxH) maxH = f[v];
   const levels = [];
   for (let lvl = step; lvl < maxH; lvl += step) levels.push(lvl);
-  const raw = marchingSquaresContours(entry.mesh, levels);
-  const segs = new Float32Array(raw.length * 5);
-  raw.forEach((s, i) => { segs[i * 5] = s.x1; segs[i * 5 + 1] = s.y1; segs[i * 5 + 2] = s.x2; segs[i * 5 + 3] = s.y2; segs[i * 5 + 4] = s.z; });
+  const segs = new Float32Array(marchingSquaresContours(entry.mesh, levels));
   entry.contours = { step, segs };
   return segs;
 }
@@ -933,9 +932,10 @@ function cellVisible(c) {
 
 // Faint z=0 footprint outline; the caller batches every cell into one path.
 function addOutlinePath(c, entry) {
-  const t = cellXform(c), lo = entry.localOutline;
-  for (let i = 0; i < lo.length; i++) {
-    const lx = lo[i][0], ly = lo[i][1];
+  // The footprint outline is the mesh's outer ring (k = rings: the outline points themselves).
+  const t = cellXform(c), m = entry.mesh, base = 3 * m.rings * m.n, f = m.flat;
+  for (let i = 0; i < m.n; i++) {
+    const lx = f[base + 3 * i], ly = f[base + 3 * i + 1];
     const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
     const sy = t.H2 + (t.oy + lx * t.sr + ly * t.cr) * t.cosT * t.S;
     if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
@@ -961,6 +961,10 @@ function addContourPath(c, entry, step) {
 function drawCellBody2D(c, entry) {
   const r = getMeshRender(entry, c), t = cellXform(c);
   ensureQuadOrder(r, c, t.sinT, t.cosT);
+  if (!r.qcol) {
+    r.qcol = new Array(r.nq);
+    for (let q = 0; q < r.nq; q++) r.qcol[q] = depthColor(r.qavgH[q], 0, c.height, 0.6);
+  }
   const { lx, ly, h, sx, sy, qidx, qcol, order } = r;
   for (let v = 0; v < r.nv; v++) {
     const x = lx[v], y = ly[v];
@@ -1095,6 +1099,7 @@ function drawBodiesGl(cells, p) {
 }
 
 const NUC_SLICES = 9, NUC_PTS = 24;
+const NUC_UNIT = Array.from({ length: NUC_PTS }, (_, i) => { const th = (i / NUC_PTS) * Math.PI * 2; return [Math.cos(th), Math.sin(th)]; });
 function drawNucleus(c) {
   // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
   // other shape field -- see cellOutlineLocal's own comment), so the offset
@@ -1103,6 +1108,7 @@ function drawNucleus(c) {
   // packRot since both are rotations about the same world axis (z).
   const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY);
   const rotTotal = c.nucRot + (c.packRot || 0);
+  const cosR = Math.cos(rotTotal), sinR = Math.sin(rotTotal); // once per cell, not per point
   const rz = c.nucHeight / 2;
   for (let s = 0; s < NUC_SLICES; s++) {
     const t = (s / (NUC_SLICES - 1)) * 2 - 1; // -1..1, bottom to top
@@ -1112,10 +1118,9 @@ function drawNucleus(c) {
     const zAbs = c.nucZ + t * rz;
     const pts = [];
     for (let i = 0; i < NUC_PTS; i++) {
-      const th = (i / NUC_PTS) * Math.PI * 2;
-      const lx = Math.cos(th) * rl, ly = Math.sin(th) * rs;
-      const wx = ncx + lx * Math.cos(rotTotal) - ly * Math.sin(rotTotal);
-      const wy = ncy + lx * Math.sin(rotTotal) + ly * Math.cos(rotTotal);
+      const lx = NUC_UNIT[i][0] * rl, ly = NUC_UNIT[i][1] * rs;
+      const wx = ncx + lx * cosR - ly * sinR;
+      const wy = ncy + lx * sinR + ly * cosR;
       pts.push(project(wx, wy, zAbs));
     }
     ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
@@ -1264,15 +1269,14 @@ function iscEngine(M) {
       if (d.type === 'cell') {
         inject(w, d.blocks);
         if (!ints) ints = M._malloc(16);
-        const nOut = M._isc_cell_outline(w, d.cx, d.cy, 0, 0);
-        if (nOut < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
-        const outline = query((ptr, cap) => M._isc_cell_outline(w, d.cx, d.cy, ptr, cap), 2, nOut);
-        const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, 8192);
-        const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1], nv = mesh.length / 3;
-        const mx = new Float64Array(nv), my = new Float64Array(nv), mh = new Float64Array(nv);
-        for (let v = 0; v < nv; v++) { mx[v] = mesh[3 * v]; my[v] = mesh[3 * v + 1]; mh[v] = mesh[3 * v + 2]; }
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, outline, mx, my, mh, mts: null };
-        const transfer = [outline.buffer, mx.buffer, my.buffer, mh.buffer];
+        // The mesh as the core writes it (x, y, h per vertex, vertex k*n + i); its outer ring (k = rings) is
+        // the footprint outline isc_cell_outline would return, so that query is not made.
+        const nv = M._isc_cell_mesh(w, d.cx, d.cy, ints, 0, 0);
+        if (nv < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
+        const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, Math.max(nv, 8192));
+        const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null };
+        const transfer = [mesh.buffer];
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];
@@ -1534,9 +1538,9 @@ function onPackResult(e) {
 }
 
 // ---- per-cell assets (cytoplasm mesh + microtubules) -------------------------
-// assets: chunk key -> {sig, seed, hasMt, entry, mts}. `entry` is the prototype's getCytoGeometry
-// shape ({localOutline, mesh}) plus the render caches hung off it; `mts` the
-// microtubule point arrays. An asset whose sig is out of date (a slider moved) keeps
+// assets: chunk key -> {sig, seed, hasMt, entry, mts}. `entry` holds the mesh as the worker sent
+// it ({rings, n, flat}: x, y, h per vertex; the outer ring is the footprint outline) plus the
+// render caches hung off it; `mts` the microtubules as {xyz, lens}. An asset whose sig is out of date (a slider moved) keeps
 // being drawn until its replacement arrives, unless the SEED changed (then it would
 // be a different world). Bounded to ASSET_MAX, evicting the cells farthest from view.
 const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
@@ -1558,25 +1562,9 @@ function evictAssets() {
   for (const k of keys) { if (assets.size <= ASSET_MAX) break; disposeAsset(assets.get(k)); assets.delete(k); }
 }
 function unpackAsset(d) {
-  const n = d.outline.length / 2, lo = new Array(n);
-  for (let i = 0; i < n; i++) lo[i] = [d.outline[2 * i], d.outline[2 * i + 1]];
-  const grid = new Array(d.rings + 1);
-  for (let k = 0; k <= d.rings; k++) {
-    const row = new Array(d.n);
-    for (let i = 0; i < d.n; i++) { const v = k * d.n + i; row[i] = { x: d.mx[v], y: d.my[v], h: d.mh[v] }; }
-    grid[k] = row;
-  }
-  let mts = null;
-  if (d.mts) {
-    mts = new Array(d.mts.lens.length);
-    let o = 0;
-    for (let i = 0; i < mts.length; i++) {
-      const pts = new Array(d.mts.lens[i]);
-      for (let k = 0; k < pts.length; k++, o += 3) pts[k] = { x: d.mts.xyz[o], y: d.mts.xyz[o + 1], z: d.mts.xyz[o + 2] };
-      mts[i] = pts;
-    }
-  }
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { localOutline: lo, mesh: { rings: d.rings, n: d.n, grid } }, mts };
+  // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
+  // ring is the footprint outline), the microtubules as xyz + lens. No per-vertex or per-point objects.
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh } }, mts: d.mts || null };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -1653,13 +1641,15 @@ function getMtPath2D(mts, cell, t) {
   const key = t.S + '|' + t.sinT + '|' + t.cr + '|' + t.sr + '|' + minPx;
   const hit = mtPathCache.get(mts);
   if (hit && hit.key === key) return hit.path;
-  const path = new Path2D(), m2 = minPx * minPx;
-  for (const pts of mts) {
+  const path = new Path2D(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
+  let o = 0;
+  for (let m = 0; m < lens.length; m++) {
+    const len = lens[m];
     let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false;
-    for (let k = 0; k < pts.length; k++) {
-      const lx = pts[k].x, ly = pts[k].y;
+    for (let k = 0; k < len; k++, o += 3) {
+      const lx = xyz[o], ly = xyz[o + 1];
       const sx = (lx * t.cr - ly * t.sr) * t.S;
-      const sy = ((lx * t.sr + ly * t.cr) * t.cosT - pts[k].z * t.sinT) * t.S;
+      const sy = ((lx * t.sr + ly * t.cr) * t.cosT - xyz[o + 2] * t.sinT) * t.S;
       if (k === 0) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; continue; }
       const dx = sx - lastX, dy = sy - lastY;
       if (dx * dx + dy * dy >= m2) { path.lineTo(sx, sy); lastX = sx; lastY = sy; pending = false; }
@@ -1761,9 +1751,10 @@ function draw() {
     ctx.lineWidth = Math.max(0.6, p.mtLineWidth * pxPerUm);
     ctx.globalAlpha = 0.8;
     for (const { cell, asset } of vis) {
-      const mts = asset.mts || [];
+      const mts = asset.mts;
+      if (!mts) continue;
       const t = cellXform(cell);
-      nMt += mts.length;
+      nMt += mts.lens.length;
       ctx.save();
       ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
       ctx.stroke(getMtPath2D(mts, cell, t));
@@ -1927,7 +1918,7 @@ const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-se
 // cli reproduces a viewer movie with --psf-kernel-half-width-nm 3000.
 const MOVIE_PSF_HALF_WIDTH_NM = 3000;
 const moviePsfSeen = new Set(); // PSFs the worker has computed (it memoizes the last two)
-let movie = null, moviePending = null, movieId = 0, movieTimer = 0;
+let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0, movieAcc = 0;
 function movieSpec() {
   const p = params(), o = [];
   for (const k of MOVIE_KEYS) o.push(k + '=' + (+document.getElementById('mv_' + k).value));
@@ -1976,22 +1967,50 @@ function onMovieResult(d) {
   showMovieFrame(0);
   requestDraw();
 }
+// One ImageData per movie size and a grey LUT per display range (the same ADU -> byte
+// mapping as before: ImageData's round-half-to-even clamp), written through a 32-bit view.
+let movieImg = null, movieU32 = null, movieLut = null, movieLutKey = '';
+const PIX_LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function showMovieFrame(f) {
   const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
-  const img = g.createImageData(d.w, d.h), px = d.w * d.h, off = f * px, k = 255 / (d.hi - d.lo);
-  for (let i = 0; i < px; i++) {
-    const v = Math.max(0, Math.min(255, (d.frames[off + i] - d.lo) * k));
-    img.data[4 * i] = img.data[4 * i + 1] = img.data[4 * i + 2] = v; img.data[4 * i + 3] = 255;
+  if (!movieImg || movieImg.width !== d.w || movieImg.height !== d.h) {
+    movieImg = g.createImageData(d.w, d.h);
+    movieU32 = new Uint32Array(movieImg.data.buffer);
   }
-  g.putImageData(img, 0, 0);
+  const lutKey = d.lo + '|' + d.hi;
+  if (movieLutKey !== lutKey) {
+    movieLut = new Uint32Array(65536);
+    const k = 255 / (d.hi - d.lo);
+    for (let a = 0; a < 65536; a++) {
+      const v = Math.max(0, Math.min(255, (a - d.lo) * k)), fl = Math.floor(v);
+      const b = fl + 0.5 < v ? fl + 1 : v < fl + 0.5 ? fl : (fl & 1) ? fl + 1 : fl; // Uint8ClampedArray's rounding
+      movieLut[a] = PIX_LE ? (0xff000000 | (b << 16) | (b << 8) | b) >>> 0 : ((b << 24) | (b << 16) | (b << 8) | 0xff) >>> 0;
+    }
+    movieLutKey = lutKey;
+  }
+  const px = d.w * d.h, off = f * px, fr = d.frames, u32 = movieU32, lut = movieLut;
+  for (let i = 0; i < px; i++) u32[i] = lut[fr[off + i]];
+  g.putImageData(movieImg, 0, 0);
   document.getElementById('mv_fno').textContent = `${f + 1}/${d.n}`;
 }
 function toggleMoviePlay() {
   const b = document.getElementById('mv_play'), sl = document.getElementById('mv_slider');
-  if (movieTimer) { clearInterval(movieTimer); movieTimer = 0; b.textContent = '▶'; return; }
+  if (movieRaf) { cancelAnimationFrame(movieRaf); movieRaf = 0; b.textContent = '▶'; return; }
   b.textContent = '❚❚';
   const ms = Math.max(30, +document.getElementById('mv_exposure-ms').value);
-  movieTimer = setInterval(() => { if (!movie) return; sl.value = (+sl.value + 1) % movie.n; showMovieFrame(+sl.value); }, ms);
+  movieLast = performance.now(); movieAcc = 0;
+  const tick = now => {
+    if (!movie) { movieRaf = 0; return; }
+    movieAcc += now - movieLast; movieLast = now;
+    if (movieAcc >= ms) {
+      const steps = Math.floor(movieAcc / ms);
+      movieAcc -= steps * ms;
+      sl.value = (+sl.value + steps) % movie.n;
+      showMovieFrame(+sl.value);
+    }
+    movieRaf = requestAnimationFrame(tick);
+  };
+  movieRaf = requestAnimationFrame(tick);
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
 // the spec in the first page's ImageDescription (the cli writes the same layout).
@@ -2049,7 +2068,7 @@ document.getElementById('mv_slider').addEventListener('input', e => { if (movie)
 document.getElementById('mv_save').addEventListener('click', saveMovieTiff);
 document.getElementById('mv_close').addEventListener('click', e => {
   e.preventDefault(); document.getElementById('movie').style.display = 'none';
-  if (movieTimer) toggleMoviePlay();
+  if (movieRaf) toggleMoviePlay();
   requestDraw();
 });
 
