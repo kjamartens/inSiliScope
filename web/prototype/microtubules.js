@@ -547,16 +547,8 @@ function mtCountForCell(seed, cx, cy, cell, p, geom) {
 // push moves it (speed only).
 function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
   if (cell.nucShaped) {
-    // Same push-out in the shaped nucleus's ball coordinates (s, zeta), mapped back.
-    const B = nucBallLocal(cell, pt.x, pt.y);
-    const zeta = (pt.z - cell.nucZ) / Math.max(1e-6, (cell.nucHeight / 2) * B.H);
-    const n = Math.sqrt(B.s * B.s + zeta * zeta);
-    if (n < 1) {
-      const scale = (n > 1e-9 ? 1 / n : 1) / MT_CONTAIN_MARGIN;
-      const q = nucMapLocal(cell, B.s * scale, B.C, B.S, zeta * scale);
-      pt.x = q[0]; pt.y = q[1]; pt.z = q[2];
-      knownInside = false;
-    }
+    // The same radial push in the shaped nucleus's own coordinates (index.html, nucPushOutLocal).
+    if (nucPushOutLocal(cell, pt, MT_CONTAIN_MARGIN)) knownInside = false;
   } else {
     const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
     const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
@@ -640,8 +632,10 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const aN = cell.nucLong / 2, bN = cell.nucShort / 2, rzN = cell.nucHeight / 2;
   let surfX, surfY, surfZ, dzOut;
   if (cell.nucShaped) {
-    // The same ball point (sinPsi, phi0, cosPsi) on the shaped nucleus's surface.
-    [surfX, surfY, surfZ] = nucMapLocal(cell, sinPsi, Math.cos(phi0), Math.sin(phi0), cosPsi);
+    // The same sphere point (sinPsi, phi0, cosPsi) on the shaped nucleus's surface: the section width there
+    // is sinPsi widened by the top/bottom asymmetry (nucSectionW).
+    const sg = sinPsi + (1 - sinPsi) * (cosPsi < 0 ? cell.nucFBot : cell.nucFTop);
+    [surfX, surfY, surfZ] = nucMapLocal(cell, sg, Math.cos(phi0), Math.sin(phi0), cosPsi);
     dzOut = surfZ - cell.nucZ;
   } else {
     const lx0 = aN * sinPsi * Math.cos(phi0), ly0 = bN * sinPsi * Math.sin(phi0), lz0 = rzN * cosPsi;
@@ -887,8 +881,8 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // actually starts. `canGoUnder` requires real clearance beneath the
   // nucleus (basal side) before that option is even offered, overriding a
   // below-the-equator start if there's nowhere to go.
-  const nucTopZ = cell.nucZ + cell.nucHalfZ;      // nucHalfZ: nucHeight/2, or the shaped nucleus's half-extent
-  const nucBottomZ = cell.nucZ - cell.nucHalfZ;
+  const nucTopZ = cell.nucZ + cell.nucUp;         // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
+  const nucBottomZ = cell.nucZ - cell.nucDown;
   const nucClearance = mtNucleusClearance(p);
   const canGoUnder = nucBottomZ - nucClearance > 0;
   const goOverNucleus = !canGoUnder || cosPsi >= 0;

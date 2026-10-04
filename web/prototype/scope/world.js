@@ -271,11 +271,11 @@ export class World {
               const h = g.sampleCytoMeshHeight(c, p, lx, ly);
               if (!(h > 0)) continue;
               // Nucleus chord through this column (g.nucleusColumnLocal: the shaped nucleus), clipped to the body.
-              const half = g.nucleusColumnLocal(c, lx, ly);
+              const col = g.nucleusColumnLocal(c, lx, ly);   // [below, above] nucZ, or null
               let zn0 = 0, zn1 = 0;
-              if (half > 0) {
-                zn0 = Math.max(0.0, c.nucZ - half);
-                zn1 = Math.min(h, c.nucZ + half);
+              if (col && (col[0] > 0 || col[1] > 0)) {
+                zn0 = Math.max(0.0, c.nucZ - col[0]);
+                zn1 = Math.min(h, c.nucZ + col[1]);
                 if (zn1 < zn0) zn0 = zn1 = 0;
               }
               const k0 = Math.max(0, Math.floor((0 - zMin) / dz));

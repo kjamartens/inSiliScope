@@ -81,10 +81,11 @@
       <div class="pair"><span class="k">Height (× long axis) min/max</span><input type="number" id="nucHeightMin" value="0.3" step="0.05"><input type="number" id="nucHeightMax" value="0.5" step="0.05"></div>
       <label class="row">Offset from cell centre <input type="range" id="nucOffsetFrac" min="0" max="1" step="0.02" value="0.1"><span id="nucOffsetFracVal"></span></label>
       <label class="row">Cell margin around nucleus (µm) <input type="range" id="nucMargin" min="0.1" max="1.5" step="0.1" value="0.6"><span id="nucMarginVal"></span></label>
-      <div class="pair" title="Rms deviation of the outline radius from the ellipse (fraction), per cell. 0 = ellipse."><span class="k">Outline irregularity min/max</span><input type="number" id="nucIrregMin" value="0.03" min="0" max="0.3" step="0.01"><input type="number" id="nucIrregMax" value="0.12" min="0" max="0.3" step="0.01"></div>
-      <div class="pair" title="Kidney/bean bend: shift of the middle against the ends, in short semi-axes x 3/4, per cell."><span class="k">Kidney bend min/max</span><input type="number" id="nucBendMin" value="0" min="0" max="1" step="0.05"><input type="number" id="nucBendMax" value="0.5" min="0" max="1" step="0.05"></div>
+      <div class="pair" title="Rms deviation of the outline radius from the ellipse (fraction), per cell. 0 = ellipse."><span class="k">Outline irregularity min/max</span><input type="number" id="nucIrregMin" value="0.03" min="0" max="0.3" step="0.01"><input type="number" id="nucIrregMax" value="0.2" min="0" max="0.3" step="0.01"></div>
+      <div class="pair" title="Kidney/bean bend: shift of the middle against the ends, in short semi-axes x 3/4, per cell."><span class="k">Kidney bend min/max</span><input type="number" id="nucBendMin" value="0" min="0" max="1" step="0.05"><input type="number" id="nucBendMax" value="0.3" min="0" max="1" step="0.05"></div>
       <label class="row" title="Spectral slope of the irregularity: amplitude of lobe order k ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.">Lobe smoothness <input type="range" id="nucSmooth" min="0" max="4" step="0.1" value="2.5"><span id="nucSmoothVal"></span></label>
       <label class="row" title="Rms relative variation of the nucleus thickness at its edge (lumpy top, tilt). 0 = ellipsoid profile.">Height irregularity <input type="range" id="nucThickIrreg" min="0" max="0.4" step="0.01" value="0.1"><span id="nucThickIrregVal"></span></label>
+      <label class="row" title="Top/bottom asymmetry: > 0 widens the sections below the middle toward the mid-section by this fraction of the gap (a flatter, wider base), < 0 the sections above it. 0 = symmetric.">Top/bottom asymmetry <input type="range" id="nucAsym" min="-0.9" max="0.9" step="0.05" value="0.5"><span id="nucAsymVal"></span></label>
     </fieldset>
 
     <fieldset>
@@ -470,29 +471,38 @@ function cellTailAt(c, theta) {
 // ---- Nucleus shape -------------------------------------------------------------
 // Real nuclei are not ellipsoids: their mid-section outlines are egg-, bean- or
 // rounded-triangle-shaped, smooth, with deviations of a few to ~10 % of the
-// radius (issue 12; e.g. control nuclei in PMC5625896, Fig. 1). The nucleus is
-// the image of the unit ball under one smooth map, so every query (inside test,
-// column chord, surface point, push-out) stays closed form and cheap:
-//   ball (s cos t, s sin t, zeta), s^2 + zeta^2 <= 1
-//   -> footprint (u, v) = s R(t) (cos t, sin t)       lobes, R(t) = 1 + sum_{k=2..K} w_k (Rc_k cos kt + Rs_k sin kt)
-//   -> x = a u,  y = b (v + bend (u^2 - 1/4))           kidney bend: a shear, exactly invertible; -1/4 keeps
-//                                                       the centroid (mean u^2 over the disc)
-//   -> z = nucZ + rz H zeta                             thickness, H = 1 + sum_{k=1..K} w'_k s^k (Hc_k cos kt + Hs_k sin kt)
+// radius (issue 12; e.g. control nuclei in PMC5625896, Fig. 1), and adherent
+// nuclei are wider at the bottom than at the top. Coordinates of the shape:
+// footprint radius sigma (1 = the outline), direction t, height zeta in [-1, 1]:
+//   (u, v) = sigma R(t) (cos t, sin t)                lobes, R(t) = 1 + sum_{k=2..K} w_k (Rc_k cos kt + Rs_k sin kt)
+//   x = a u,  y = b (v + bend (u^2 - 1/4))            kidney bend: a shear, exactly invertible; -1/4 keeps
+//                                                     the centroid (mean u^2 over the disc)
+//   z = nucZ + rz H zeta                              thickness, H = 1 + sum_{k=1..K} w'_k sigma^k (Hc_k cos kt + Hs_k sin kt)
 // with a = nucLong/2, b = nucShort/2, rz = nucHeight/2, in the nucleus frame
-// (rotated by nucRot, offset by nucOff). Horizontal sections are the footprint
-// scaled by s (the outline shape holds through the whole height), the s^k makes
-// H single-valued at the centre (Re((s e^{it})^k): smooth). Coefficients: unit-
-// variance uniform draws (2u-1)sqrt(3) x a k^-nucSmooth spectrum normalised to
-// sum w^2 = 1, so the footprint's rms relative radius deviation is the per-cell
-// irregularity (nucIrreg range) and the edge thickness's is nucThickIrreg.
-// cos kt / sin kt by complex multiplication (no trig per query); both sums are
-// soft-clamped (t / sqrt(1 + (t/max)^2), as cellTailAt) so R, H stay positive.
-// All three amplitudes 0: c.nucShaped is false and every caller keeps the
-// plain-ellipsoid code path it had before (bit-identical output).
+// (rotated by nucRot, offset by nucOff). Inside: sigma < W(zeta), where the
+// section width W(zeta) = q + (1 - q) f, q = sqrt(1 - zeta^2): the ellipsoid's q,
+// widened toward the mid-section by the fraction f of the gap -- f = nucAsym on
+// the bottom half (nucAsym > 0), -nucAsym on the top half (nucAsym < 0), else 0
+// (|nucAsym| <= NUC_ASYM_MAX; 1 would be vertical walls below the middle). No
+// section is ever wider than the mid-section. Each column is one interval (W is
+// monotone in |zeta| on each side): its extent on a side is sqrt(1 - qs^2),
+// qs = max(0, (sigma - f) / (1 - f)). Horizontal sections are the footprint
+// scaled by W (the outline shape holds through the whole height); the sigma^k
+// makes H single-valued at the centre (Re((sigma e^{it})^k): smooth).
+// Coefficients: unit-variance uniform draws (2u-1)sqrt(3) x a k^-nucSmooth
+// spectrum normalised to sum w^2 = 1, so the footprint's rms relative radius
+// deviation is the per-cell irregularity (nucIrreg range) and the edge
+// thickness's is nucThickIrreg. cos kt / sin kt by complex multiplication (no
+// trig per query); both sums are soft-clamped (t / sqrt(1 + (t/max)^2), as
+// cellTailAt) so R, H stay positive. All amplitudes 0 and nucAsym 0: c.nucShaped
+// is false and every caller keeps the plain-ellipsoid code path it had before
+// (bit-identical output).
 const NUC_K = 8;                     // highest lobe order
 const NUC_R_MAX = 0.5, NUC_H_MAX = 0.6;
+const NUC_ASYM_MAX = 0.9;
 const NUC_SHAPE_STREAM = 52;         // hashStream base (TAIL_* use 50, 51)
 const NUC_POLY_N = 256;              // footprint polygon (signed distance, envelope; >= 4 per period of the cell tail's k = 64)
+const NUC_PUSH_ITERS = 24;           // bisection steps of the push-out (nucPushOutLocal)
 const SQRT3 = Math.sqrt(3);
 function nucSpectrum(k0, gamma) {
   const w = new Array(NUC_K + 1).fill(0);
@@ -508,8 +518,10 @@ function nucShapeInit(c, seed, cx, cy, p) {
   const irr = lerp(Math.max(0, p.nucIrregMin), Math.max(0, p.nucIrregMax), next());
   c.nucBend = lerp(p.nucBendMin, p.nucBendMax, next());
   const thick = Math.max(0, p.nucThickIrreg);
-  c.nucShaped = irr > 0 || c.nucBend !== 0 || thick > 0;
-  c.nucHalfZ = c.nucHeight / 2;
+  const asym = Math.min(NUC_ASYM_MAX, Math.max(-NUC_ASYM_MAX, p.nucAsym || 0));
+  c.nucFBot = Math.max(0, asym); c.nucFTop = Math.max(0, -asym);
+  c.nucShaped = irr > 0 || c.nucBend !== 0 || thick > 0 || asym !== 0;
+  c.nucUp = c.nucDown = c.nucHeight / 2;
   if (!c.nucShaped) return;
   const gamma = Math.max(0, p.nucSmooth);
   const wR = nucSpectrum(2, gamma), wH = nucSpectrum(1, gamma);
@@ -524,19 +536,20 @@ function nucShapeInit(c, seed, cx, cy, p) {
     c.nucHs[k] = thick * wH[k] * (2 * next() - 1) * SQRT3;
   }
   c.nucCos = Math.cos(c.nucRot); c.nucSin = Math.sin(c.nucRot);
-  // Vertical half-extent: max of H sqrt(1 - s^2) over the footprint (sampled).
-  let ext = 1;
-  if (thick > 0) {
-    ext = 0;
+  // Vertical extents above/below nucZ: max of H x the column's extent over the footprint (sampled).
+  if (thick > 0 || asym !== 0) {
+    let up = 0, down = 0;
     for (let i = 0; i < 64; i++) {
       const th = (i / 64) * Math.PI * 2, C = Math.cos(th), S = Math.sin(th);
       for (let j = 0; j < 16; j++) {
-        const s = j / 16;
-        ext = Math.max(ext, nucThickAt(c, s, C, S) * Math.sqrt(1 - s * s));
+        const sg = j / 16, H = nucThickAt(c, sg, C, S);
+        up = Math.max(up, H * nucColumnExt(sg, c.nucFTop));
+        down = Math.max(down, H * nucColumnExt(sg, c.nucFBot));
       }
     }
+    c.nucUp = (c.nucHeight / 2) * up;
+    c.nucDown = (c.nucHeight / 2) * down;
   }
-  c.nucHalfZ = (c.nucHeight / 2) * ext;
   // Footprint polygon (cell-local) and its farthest point from the nucleus centre.
   c.nucPoly = [];
   c.nucReach = 0;
@@ -546,7 +559,7 @@ function nucShapeInit(c, seed, cx, cy, p) {
     c.nucPoly.push([q[0], q[1]]);
     c.nucReach = Math.max(c.nucReach, Math.hypot(q[0] - c.nucOffX, q[1] - c.nucOffY));
   }
-  c.nucShapeSig = [c.nucBend, c.nucHalfZ].concat(c.nucRc, c.nucRs, c.nucHc, c.nucHs).join(',');
+  c.nucShapeSig = [c.nucBend, c.nucFBot, c.nucFTop, c.nucUp, c.nucDown].concat(c.nucRc, c.nucRs, c.nucHc, c.nucHs).join(',');
 }
 // Footprint radius factor R at direction (C, S) = (cos t, sin t).
 function nucFootR(c, C, S) {
@@ -558,9 +571,9 @@ function nucFootR(c, C, S) {
   const q = t / NUC_R_MAX;
   return 1 + t / Math.sqrt(1 + q * q);
 }
-// Thickness factor H at ball radius s, direction (C, S).
-function nucThickAt(c, s, C, S) {
-  const wr = s * C, wi = s * S;
+// Thickness factor H at footprint radius sigma, direction (C, S).
+function nucThickAt(c, sg, C, S) {
+  const wr = sg * C, wi = sg * S;
   let pc = 1, ps = 0, t = 0;
   for (let k = 1; k <= NUC_K; k++) {
     const n = pc * wr - ps * wi; ps = pc * wi + ps * wr; pc = n;
@@ -569,16 +582,27 @@ function nucThickAt(c, s, C, S) {
   const q = t / NUC_H_MAX;
   return 1 + t / Math.sqrt(1 + q * q);
 }
-// Ball point (s, t, zeta) -> cell-local [x, y, z].
-function nucMapLocal(c, s, C, S, zeta) {
+// Section width W(zeta) (|zeta| <= 1) on the side whose widening is f.
+function nucSectionW(zeta, f) {
+  const q = Math.sqrt(Math.max(0, 1 - zeta * zeta));
+  return q + (1 - q) * f;
+}
+// |zeta| extent of the column at footprint radius sigma (< 1) on the side whose widening is f.
+function nucColumnExt(sg, f) {
+  if (sg <= f) return 1;
+  const qs = (sg - f) / (1 - f);
+  return Math.sqrt(Math.max(0, 1 - qs * qs));
+}
+// Shape point (sigma, t, zeta) -> cell-local [x, y, z].
+function nucMapLocal(c, sg, C, S, zeta) {
   const a = c.nucLong / 2, b = c.nucShort / 2;
   const R = nucFootR(c, C, S);
-  const u = s * R * C, v = s * R * S;
+  const u = sg * R * C, v = sg * R * S;
   const x = a * u, y = b * (v + c.nucBend * (u * u - 0.25));
   return [c.nucOffX + x * c.nucCos - y * c.nucSin, c.nucOffY + x * c.nucSin + y * c.nucCos,
-    c.nucZ + (c.nucHeight / 2) * nucThickAt(c, s, C, S) * zeta];
+    c.nucZ + (c.nucHeight / 2) * nucThickAt(c, sg, C, S) * zeta];
 }
-// Cell-local (x, y) -> {s, C, S, H}: ball radius and direction of the column through it, and its H.
+// Cell-local (x, y) -> {s, C, S, H}: footprint radius sigma (as s) and direction of the column through it, and its H.
 function nucBallLocal(c, lx0, ly0) {
   const dx = lx0 - c.nucOffX, dy = ly0 - c.nucOffY;
   const x = dx * c.nucCos + dy * c.nucSin, y = -dx * c.nucSin + dy * c.nucCos;
@@ -589,8 +613,8 @@ function nucBallLocal(c, lx0, ly0) {
   const s = rho / nucFootR(c, C, S);
   return { s, C, S, H: nucThickAt(c, s, C, S) };
 }
-// Half-height of the nucleus chord through cell-local (lx, ly) (centred on
-// c.nucZ), or -1 outside the footprint.
+// The nucleus chord through cell-local (lx, ly): [extent below c.nucZ, extent
+// above it] (um), or null outside the footprint.
 function nucleusColumnLocal(c, lx, ly) {
   if (!c.nucShaped) {
     const ncr = Math.cos(-c.nucRot), nsr = Math.sin(-c.nucRot);
@@ -598,18 +622,43 @@ function nucleusColumnLocal(c, lx, ly) {
     const ex = lx - c.nucOffX, ey = ly - c.nucOffY;
     const ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
     const q = 1 - ux * ux - uy * uy;
-    return q > 0 ? (c.nucHeight / 2) * Math.sqrt(q) : -1;
+    if (!(q > 0)) return null;
+    const half = (c.nucHeight / 2) * Math.sqrt(q);
+    return [half, half];
   }
   const B = nucBallLocal(c, lx, ly);
-  return B.s < 1 ? (c.nucHeight / 2) * B.H * Math.sqrt(1 - B.s * B.s) : -1;
+  if (!(B.s < 1)) return null;
+  const rzH = (c.nucHeight / 2) * B.H;
+  return [rzH * nucColumnExt(B.s, c.nucFBot), rzH * nucColumnExt(B.s, c.nucFTop)];
 }
-// Surface rings for drawing (cell-local {x,y,z}): `slices` horizontal ball
-// sections (zeta from -1 to 1) of `pts` points each; the poles are skipped.
+// Shaped nucleus only: pushes cell-local `pt` ({x,y,z}, mutated) out of the
+// nucleus if inside, radially from the centre in (sigma, zeta) -- the ellipsoid
+// path's push in normalised coordinates, generalised: the boundary scale lam
+// (bisection, NUC_PUSH_ITERS steps) divided by `margin` (< 1). Returns whether it moved.
+function nucPushOutLocal(c, pt, margin) {
+  const B = nucBallLocal(c, pt.x, pt.y);
+  const zeta = (pt.z - c.nucZ) / Math.max(1e-6, (c.nucHeight / 2) * B.H);
+  const inside = (sg, z) => Math.abs(z) < 1 && sg < nucSectionW(z, z < 0 ? c.nucFBot : c.nucFTop);
+  if (!inside(B.s, zeta)) return false;
+  const m = Math.max(B.s, Math.abs(zeta));
+  if (!(m > 1e-9)) return false;   // the very centre: no direction (as the ellipsoid path)
+  let lo = 1, hi = 1 / m;          // inside at lo, outside (or on the boundary) at hi
+  for (let it = 0; it < NUC_PUSH_ITERS; it++) {
+    const mid = (lo + hi) / 2;
+    if (inside(B.s * mid, zeta * mid)) lo = mid; else hi = mid;
+  }
+  const lam = hi / margin;
+  const q = nucMapLocal(c, B.s * lam, B.C, B.S, zeta * lam);
+  pt.x = q[0]; pt.y = q[1]; pt.z = q[2];
+  return true;
+}
+// Surface rings for drawing (cell-local {x,y,z}): `slices` horizontal sections
+// (zeta from -1 to 1) of `pts` points each; sections narrower than 5 % are skipped.
 function nucleusRingsLocal(c, slices, pts) {
   const rings = [];
   for (let sl = 0; sl < slices; sl++) {
     const zeta = (sl / (slices - 1)) * 2 - 1;
-    const s = Math.sqrt(Math.max(0, 1 - zeta * zeta));
+    const s = c.nucShaped ? nucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop) : Math.sqrt(Math.max(0, 1 - zeta * zeta));
     if (s < 0.05) continue;
     const ring = [];
     for (let i = 0; i < pts; i++) {
@@ -645,12 +694,12 @@ function envelopNucleus(c, marginUm, extraUm = 0) {
   // nucleus -- the slope-cap run-out, see cytoSlopeRunout(). Purely lateral; the vertical
   // envelope below still only needs `margin`.
 
-  // Vertical: keep the nucleus's [nucZ-rz, nucZ+rz] within [margin, height-margin]
-  // (rz = c.nucHalfZ: nucHeight/2, or the shaped nucleus's own half-extent).
-  const rz = c.nucHalfZ;
-  const neededHeight = 2 * rz + 2 * margin;
+  // Vertical: keep the nucleus's [nucZ-down, nucZ+up] within [margin, height-margin]
+  // (up = down = nucHeight/2, or the shaped nucleus's own extents, see nucShapeInit).
+  const up = c.nucUp, down = c.nucDown;
+  const neededHeight = down + up + 2 * margin;
   if (c.height < neededHeight) c.height = neededHeight;
-  c.nucZ = Math.min(Math.max(c.nucZ, rz + margin), c.height - rz - margin);
+  c.nucZ = Math.min(Math.max(c.nucZ, down + margin), c.height - up - margin);
 
   // Lateral: sample the nucleus's own outline (in the cell's local frame,
   // i.e. relative to the cell centre) and make sure the cell's own outline
@@ -1114,8 +1163,19 @@ function buildCytoHeightGrid(c, p) {
       const dNuc = dc < nucReach ? nucleusSignedDistLocal(c, x, y) : dc;
       ht[v] = cytoHeightAt(c, p, dEdge, dNuc);
       if (dc < nucReach) {
-        const half = nucleusColumnLocal(c, x, y);
-        if (half >= 0) ob[v] = c.nucZ + half + margin;
+        if (!c.nucShaped) {
+          const col = nucleusColumnLocal(c, x, y);
+          if (col) ob[v] = c.nucZ + col[1] + margin;
+        } else {
+          // Shaped: the highest nucleus top within half a grid step (3 x 3 samples), so the bilinear
+          // surface between nodes clears a steep rim too (a wide top: nucAsym < 0).
+          let top = -Infinity;
+          for (let sj = -1; sj <= 1; sj++) for (let si = -1; si <= 1; si++) {
+            const col = nucleusColumnLocal(c, x + si * g / 2, y + sj * g / 2);
+            if (col) top = Math.max(top, col[1]);
+          }
+          if (top > -Infinity) ob[v] = c.nucZ + top + margin;
+        }
       }
     }
   }
@@ -1258,7 +1318,7 @@ function cytoGeometrySignature(seed, p) {
   return [seed, p.cellDiamMin, p.cellDiamMax, p.cellElongMin, p.cellElongMax, p.cellBlob,
     p.cellHeightMin, p.cellHeightMax, p.nucLongMin, p.nucLongMax, p.nucRatioMin, p.nucRatioMax,
     p.nucHeightMin, p.nucHeightMax, p.nucOffsetFrac, p.nucMargin,
-    p.nucIrregMin, p.nucIrregMax, p.nucBendMin, p.nucBendMax, p.nucSmooth, p.nucThickIrreg,
+    p.nucIrregMin, p.nucIrregMax, p.nucBendMin, p.nucBendMax, p.nucSmooth, p.nucThickIrreg, p.nucAsym,
     p.cytoRimHeightMin, p.cytoRimHeightMax, p.cytoEdgeRiseMin, p.cytoEdgeRiseMax,
     p.cytoMidHeightMin, p.cytoMidHeightMax, p.cytoMidDistanceMin, p.cytoMidDistanceMax, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta, p.cellRough, p.cellFractalDim].join('|');
 }
@@ -1711,7 +1771,7 @@ const els = {};
  'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
  'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
- 'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucSmoothVal', 'nucThickIrreg', 'nucThickIrregVal',
+ 'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucSmoothVal', 'nucThickIrreg', 'nucThickIrregVal', 'nucAsym', 'nucAsymVal',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
  'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
@@ -1754,6 +1814,7 @@ function params() {
     nucBendMax: Math.max(+els.nucBendMin.value, +els.nucBendMax.value),
     nucSmooth: +els.nucSmooth.value,
     nucThickIrreg: +els.nucThickIrreg.value,
+    nucAsym: +els.nucAsym.value,
     cytoRimHeightMin: +els.cytoRimHeightMin.value,
     cytoRimHeightMax: Math.max(+els.cytoRimHeightMin.value, +els.cytoRimHeightMax.value),
     cytoEdgeRiseMin: +els.cytoEdgeRiseMin.value,
@@ -2641,6 +2702,7 @@ function syncLabels() {
   els.nucMarginVal.textContent = (+els.nucMargin.value).toFixed(1) + ' um';
   els.nucSmoothVal.textContent = (+els.nucSmooth.value).toFixed(1);
   els.nucThickIrregVal.textContent = (+els.nucThickIrreg.value).toFixed(2);
+  els.nucAsymVal.textContent = (+els.nucAsym.value).toFixed(2);
   els.cytoMaxSlopeVal.textContent = +els.cytoMaxSlope.value ? (+els.cytoMaxSlope.value).toFixed(2) : 'off';
   els.cytoDomeSlopeVal.textContent = +els.cytoDomeSlope.value ? (+els.cytoDomeSlope.value).toFixed(1) : 'off';
   els.cytoRelaxUmVal.textContent = +els.cytoRelaxUm.value ? (+els.cytoRelaxUm.value).toFixed(1) + ' um' : 'off';
