@@ -6,7 +6,7 @@
 // the C++ files named in each module's header when merging (web/lab/README.md, tests/parity/scope_parity.mjs).
 import { World } from './world.js';
 import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE } from './psf.js';
-import { bucketEventsByFrame, renderPhotonImage, NoiseMaps, applyNoiseChain } from './render.js';
+import { bucketEventsByFrame, renderPhotonImage, noiseMaps, applyNoiseChain } from './render.js';
 import { renderWidefieldMovie } from './widefield.js';
 import { renderBrightfieldMovie } from './brightfield.js';
 
@@ -207,10 +207,18 @@ export function scopeKernel(spec, onPlane) {
   }
   return { ...hit.cache, interpMode: req.interpMode };
 }
+// The labelling fractions enter only the dye draw (World.dyeBlock): a change of
+// those alone keeps the world's cells and microtubules and redraws the dyes.
+const LABEL_PARAMS = new Set(['labelEfficiency', 'labelNonBleaching']);
 export function scopeWorld(P, S) {
-  const key = JSON.stringify([S.worldSeed, S.worldParams]);
-  if (!worldMemo || worldMemo.P !== P || worldMemo.key !== key) worldMemo = { P, key, world: new World(P, S.worldSeed, S.worldParams, S.kin) };
-  else if (JSON.stringify(worldMemo.world.kin) !== JSON.stringify(S.kin)) worldMemo.world.setKinetics(S.kin);
+  const geom = Object.fromEntries(Object.entries(S.worldParams).filter(([k]) => !LABEL_PARAMS.has(k)));
+  const geomKey = JSON.stringify([S.worldSeed, geom]), key = JSON.stringify([S.worldSeed, S.worldParams]);
+  if (!worldMemo || worldMemo.P !== P || worldMemo.geomKey !== geomKey)
+    worldMemo = { P, geomKey, key, world: new World(P, S.worldSeed, S.worldParams, S.kin) };
+  else {
+    if (worldMemo.key !== key) { worldMemo.world.p = S.worldParams; worldMemo.world.dyeBlocks.clear(); worldMemo.key = key; }
+    if (JSON.stringify(worldMemo.world.kin) !== JSON.stringify(S.kin)) worldMemo.world.setKinetics(S.kin);
+  }
   return worldMemo.world;
 }
 
@@ -238,7 +246,7 @@ export function renderScopeMovie(P, specIn, onFrame, opts = {}) {
   const events = cellFieldEvents(world, S.q);
   if (opts.onEvents) opts.onEvents(events, S);
   const querySec = (performance.now() - t0) / 1000;
-  const maps = new NoiseMaps(S.seed, S.W, S.H, S.cam);
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
   const buckets = bucketEventsByFrame(events, S.N);
   const zStage = S.O('z');
   for (let f = 0; f < S.N; f++) {

@@ -11,7 +11,7 @@
 // float32; this keeps float32 where the C++ stores values and rounds each 1D FFT pass to float32, so images
 // agree to float rounding (not bit for bit).
 import { scopePsfRequest, scopeWorld } from './scope_movie.js';
-import { NoiseMaps, applyNoiseChain } from './render.js';
+import { noiseMaps, applyNoiseChain } from './render.js';
 import { roundZernike, zernikeWavefrontWaves, NUM_ZERNIKE } from './psf.js';
 import { fft1, fastSize } from './widefield.js';
 
@@ -228,9 +228,16 @@ export class BrightfieldScene {
 
   // Source s's plane wave propagated down through the slices (top first): screen, then dz to the next screen.
   // Returns the spectrum just below the lowest screen.
+  // One field buffer per scene: the sources are processed one after the other and
+  // every element is written before it is read.
+  fieldBuffers() {
+    const N = this.nx * this.ny;
+    if (!this.uR || this.uR.length !== N) { this.uR = new Float64Array(N); this.uI = new Float64Array(N); }
+    return [this.uR, this.uI];
+  }
   exitField(s) {
     const nx = this.nx, ny = this.ny, N = nx * ny;
-    const uR = new Float64Array(N), uI = new Float64Array(N);
+    const [uR, uI] = this.fieldBuffers();
     const exR = new Float32Array(nx), exI = new Float32Array(nx);
     for (let x = 0; x < nx; ++x) { const a = f32(2 * kPi * s.mx * x / nx); exR[x] = Math.cos(a); exI[x] = Math.sin(a); }
     for (let y = 0; y < ny; ++y) {
@@ -258,14 +265,13 @@ export class BrightfieldScene {
     const nx = this.nx, ny = this.ny, N = nx * ny, sp = this.src[s];
     let uR, uI;
     if (this.slices === 1) {
-      // E(k) = T(k - k_s): a circular shift of the transmittance spectrum.
-      uR = new Float64Array(N); uI = new Float64Array(N);
+      // E(k) = T(k - k_s): a circular shift of the transmittance spectrum (the column index tabulated).
+      [uR, uI] = this.fieldBuffers();
+      const sxs = new Int32Array(nx);
+      for (let x = 0; x < nx; ++x) sxs[x] = (((x - sp.mx) % nx) + nx) % nx;
       for (let y = 0; y < ny; ++y) {
-        const sy = (((y - sp.my) % ny) + ny) % ny;
-        for (let x = 0; x < nx; ++x) {
-          const sx = (((x - sp.mx) % nx) + nx) % nx;
-          uR[y * nx + x] = this.thinR[sy * nx + sx]; uI[y * nx + x] = this.thinI[sy * nx + sx];
-        }
+        const sy = (((y - sp.my) % ny) + ny) % ny, so = sy * nx, o = y * nx;
+        for (let x = 0; x < nx; ++x) { uR[o + x] = this.thinR[so + sxs[x]]; uI[o + x] = this.thinI[so + sxs[x]]; }
       }
     } else [uR, uI] = this.exitField(sp);
     // Pupil and defocus to the focal plane, zero where evanescent.
@@ -333,7 +339,7 @@ export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
   const flux = Math.max(0.0, S.O('bf-photons-per-px-per-sec')) * S.expSec;
   const photons = new Float32Array(trans.length);
   for (let i = 0; i < trans.length; ++i) photons[i] = trans[i] * flux;
-  const maps = new NoiseMaps(S.seed, S.W, S.H, S.cam);
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
   for (let f = 0; f < S.N; f++) {
     if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);

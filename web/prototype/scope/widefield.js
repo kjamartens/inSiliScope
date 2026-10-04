@@ -8,7 +8,7 @@
 // Not mirrored (speed only in the C++): spectra caches, focus bands (gated off for diffraction PSFs),
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
 import { scopeKernel, scopeWorld } from './scope_movie.js';
-import { NoiseMaps, applyNoiseChain } from './render.js';
+import { noiseMaps, applyNoiseChain } from './render.js';
 
 const AVOGADRO = 6.02214076e23;
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
@@ -98,9 +98,10 @@ function fftPlan(n) {
   let m = n;
   for (const r of [4, 2, 3, 5]) while (m % r === 0) { factors.push(r); m /= r; }
   if (m !== 1) throw new Error('FFT size ' + n + ' is not 2^a 3^b 5^c');
-  const wr = new Float64Array(n), wi = new Float64Array(n);
-  for (let k = 0; k < n; k++) { const a = -2 * Math.PI * k / n; wr[k] = Math.cos(a); wi[k] = Math.sin(a); }
-  p = { n, factors, wr, wi, sr: new Float64Array(n), si: new Float64Array(n) };
+  const wr = new Float64Array(n), wi = new Float64Array(n), wiNeg = new Float64Array(n);
+  for (let k = 0; k < n; k++) { const a = -2 * Math.PI * k / n; wr[k] = Math.cos(a); wi[k] = Math.sin(a); wiNeg[k] = -wi[k]; }
+  // wiNeg = -sign * wi for sign = +1 (negation is exact); tr/ti: the radix-sized scratch of the butterflies.
+  p = { n, factors, wr, wi, wiNeg, sr: new Float64Array(n), si: new Float64Array(n), tr: new Float64Array(8), ti: new Float64Array(8) };
   planCache.set(n, p);
   return p;
 }
@@ -109,17 +110,18 @@ function fftRec(p, xr, xi, off, stride, n, or, oi, oo, fi, tstep, sign) {
   if (n === 1) { or[oo] = xr[off]; oi[oo] = xi[off]; return; }
   const r = p.factors[fi], m = n / r;
   for (let q = 0; q < r; q++) fftRec(p, xr, xi, off + q * stride, stride * r, m, or, oi, oo + q * m, fi + 1, tstep * r, sign);
-  const N = p.n, tr = new Float64Array(r), ti = new Float64Array(r);
+  // The children are done: the plan's scratch is free. wis = -sign * wi, per element.
+  const N = p.n, tr = p.tr, ti = p.ti, wr = p.wr, wis = sign < 0 ? p.wi : p.wiNeg;
   for (let k = 0; k < m; k++) {
     for (let q = 0; q < r; q++) {
-      const idx = (q * k * tstep) % N, cr = p.wr[idx], ci = -sign * p.wi[idx];
+      const idx = (q * k * tstep) % N, cr = wr[idx], ci = wis[idx];
       const ar = or[oo + q * m + k], ai = oi[oo + q * m + k];
       tr[q] = ar * cr - ai * ci; ti[q] = ar * ci + ai * cr;
     }
     for (let u = 0; u < r; u++) {
       let sr = 0, si = 0;
       for (let q = 0; q < r; q++) {
-        const idx = ((q * u * m) * tstep) % N, cr = p.wr[idx], ci = -sign * p.wi[idx];
+        const idx = ((q * u * m) * tstep) % N, cr = wr[idx], ci = wis[idx];
         sr += tr[q] * cr - ti[q] * ci; si += tr[q] * ci + ti[q] * cr;
       }
       or[oo + u * m + k] = sr; oi[oo + u * m + k] = si;
@@ -371,12 +373,13 @@ export function renderWidefieldMovie(P, spec, S, onFrame, opts = {}) {
   // One-group basis coefficient: wb[iMax] / phi[iMax] (BleachCoefficients).
   let iMax = 0;
   for (let i = 1; i < n2; i++) if (Math.abs(wb0[i]) > Math.abs(wb0[iMax])) iMax = i;
-  const maps = new NoiseMaps(S.seed, S.W, S.H, S.cam);
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
   const bg = S.p.backgroundPhotons;
   for (let f = 0; f < S.N; f++) {
     const cam = new Float32Array(S.W * S.H).fill(bg);
-    const wb = freshWeights(framesBefore0 + f);
-    const a = wb0[iMax] !== 0 ? wb[iMax] / wb0[iMax] : 0.0;
+    // Only the anchor column's weight is used: freshWeights' value there (a float32).
+    const wbMax = Math.fround(bleachingPhotons(ws.eta, B, (framesBefore0 + f) * dD[iMax], dD[iMax]));
+    const a = wb0[iMax] !== 0 ? wbMax / wb0[iMax] : 0.0;
     renderImages(images, a, cam);
     if (onFrame(f, applyNoiseChain(cam, S.cam, maps, f), cam) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);

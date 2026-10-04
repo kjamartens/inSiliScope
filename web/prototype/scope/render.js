@@ -64,6 +64,20 @@ export class NoiseMaps {
   }
 }
 
+// The maps of (seed, W, H, camera), made once: a pure function of those, so a repeat
+// movie (the viewer, the lab) does not draw them again.
+const noiseMapCache = new Map();
+export function noiseMaps(seed, W, H, cam) {
+  const key = seed + '|' + W + '|' + H + '|' + JSON.stringify(cam);
+  let m = noiseMapCache.get(key);
+  if (!m) {
+    if (noiseMapCache.size >= 8) noiseMapCache.delete(noiseMapCache.keys().next().value);
+    m = new NoiseMaps(seed, W, H, cam);
+    noiseMapCache.set(key, m);
+  }
+  return m;
+}
+
 // Photon image -> uint16 ADU (counter-based draws per (seed, frame, pixel)).
 export function applyNoiseChain(photons, cam, maps, frame) {
   const n = photons.length, out = new Uint16Array(n);
