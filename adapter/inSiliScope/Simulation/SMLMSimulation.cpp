@@ -280,7 +280,6 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
       g.plane = zIndex;
       g.nTaps = st.nTaps;
       g.photons = static_cast<float>(photons);
-      g.camRad = cache.Radius(zIndex);
       for (int k = 0; k < 4; ++k)
       {
          g.wx[k] = static_cast<float>(st.wx[k]);

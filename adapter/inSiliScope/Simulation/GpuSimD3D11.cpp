@@ -46,7 +46,7 @@ struct FrameInfo
 struct Em
 {
    int x0; int y0; int bx; int by;
-   int plane; int nt; float photons; int camRad;
+   int plane; int nt; float photons; float pad;
    float4 wx; float4 wy;
 };
 
@@ -141,7 +141,7 @@ void main(uint3 id : SV_DispatchThreadID)
    {
       Em em = Ems[e];
       int dx = X - em.x0, dy = Y - em.y0;
-      if (abs(dx) > em.camRad || abs(dy) > em.camRad)
+      if (abs(dx) > CamRad || abs(dy) > CamRad)
          continue;
       int r0 = em.by + dy * Os + Off, c0 = em.bx + dx * Os + Off;
       uint base = (uint)em.plane * PlaneStride;

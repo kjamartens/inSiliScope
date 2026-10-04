@@ -133,7 +133,6 @@ sim::PsfGeneratorRequest CInSiliScopeCamera::BuildPsfGeneratorRequest() const
    req.sampleIndex = psfSampleIndex_.load();
    req.workingDistanceUm = psfWorkingDistanceUm_.load();
    req.sampleDepthNm = psfSampleDepthNm_.load();
-   req.splatCutoff = psfSplatCutoff_.load();
 
    // GibsonLanniZernike-only (ignored otherwise); see the comment on
    // psfZernikeCoefficients_ in InSiliScopeCamera.h.
@@ -2371,13 +2370,6 @@ int CInSiliScopeCamera::OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::Acti
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfKernelHalfWidthNm_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfKernelHalfWidthNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnPsfSplatCutoff(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(psfSplatCutoff_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfSplatCutoff_ = std::min(0.1, std::max(0.0, v)); InvalidateStack(); }
    return DEVICE_OK;
 }
 

@@ -43,16 +43,9 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 The command line and the viewer use the same PSF as the adapter: `GibsonLanniZernike` by default (the same C++ code and
 kernel cache), with options named after the `PSFParam_` properties (`psf-model`, `psf-zernike-preset`, `zern.<j>`,
 `psf-mask`, `psf-oversampling`, `psf-kernel-half-width-nm`, `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
-`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`, `psf-splat-cutoff`; `insiliscope_cli --help` lists them).
-`psf-model=0` selects the Gaussian; `RichardsWolf`/`GibsonLanni` need PSFGenerator's JVM and exist only in the adapter.
-The viewer uses a 3 um kernel half width (instead of 7 um) to save browser memory.
-
-Drawing a blink adds its kernel plane over a window of camera pixels. `PSFParam_PsfSplatCutoff` (cli/viewer
-`psf-splat-cutoff`, default 1e-6) lets that window stop where every value of the plane is below that fraction of its
-peak. For the Gibson-Lanni kernels the default changes nothing: the Airy tail stays above 1e-5 of the peak out to 7 um,
-so every blink is drawn over the whole window. Larger values trade light for speed (at a 7 um half width, 1e-4 draws
-in-focus blinks over 27 instead of 70 pixels but leaves up to 1.5 % of their light out; 1e-3: 13 pixels, 3.5 %), which
-biases photon counts: keep the default for quantitative work.
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
+selects the Gaussian; `RichardsWolf`/`GibsonLanni` need PSFGenerator's JVM and exist only in the adapter. The viewer uses
+a 3 um kernel half width (instead of 7 um) to save browser memory.
 
 ## WideField imaging
 

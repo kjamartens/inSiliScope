@@ -56,7 +56,6 @@ const char* g_PropPsfModel = "PSFParam_PsfModel";
 const char* g_PropPsfImmersionIndex = "PSFParam_PsfImmersionIndex";
 const char* g_PropPsfOversampling = "PSFParam_PsfOversampling";
 const char* g_PropPsfKernelHalfWidthNm = "PSFParam_PsfKernelHalfWidthNm";
-const char* g_PropPsfSplatCutoff = "PSFParam_PsfSplatCutoff";
 const char* g_PropPsfGeneratorJavaHome = "PSFParam_PsfGeneratorJavaHome";
 const char* g_PropPsfZRangeUm = "PSFParam_PsfZRangeUm";
 const char* g_PropPsfZStepUm = "PSFParam_PsfZStepUm";
@@ -530,15 +529,6 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfKernelHalfWidthNm);
    CreateFloatProperty(g_PropPsfKernelHalfWidthNm, psfKernelHalfWidthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropPsfKernelHalfWidthNm, 100.0, 20000.0);
-
-   // Adaptive splat footprint (2026-10-04): per kernel plane, the splat of a
-   // blink stops where the plane's block sums fall below this fraction of
-   // its peak (sharp planes draw a small window, defocused ones a wide one).
-   // 0 draws the whole window (the frames of before). See
-   // PsfGeneratorBridge.h ApplySplatCutoff.
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfSplatCutoff);
-   CreateFloatProperty(g_PropPsfSplatCutoff, psfSplatCutoff_.load(), false, pAct);
-   SetPropertyLimits(g_PropPsfSplatCutoff, 0.0, 0.1);
 
    // PSFGenerator itself (and this project's bridge class) are embedded in
    // this DLL -- nothing to point at except, optionally, a specific JRE/JDK

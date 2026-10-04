@@ -193,7 +193,6 @@ enum CellFieldNumber
 };
 extern const char* g_PropCellFieldNumber[CF_COUNT];
 extern const char* g_PropCellFieldPacking;
-extern const char* g_PropPsfSplatCutoff;
 extern const char* g_PropDiskCache;
 extern const char* g_DiskCacheOff;
 extern const char* g_DiskCacheCells;
@@ -328,7 +327,6 @@ public:
    int OnPsfImmersionIndex(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfOversampling(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfKernelHalfWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnPsfSplatCutoff(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfGeneratorJavaHome(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfZRangeUm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfZStepUm(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -813,7 +811,6 @@ private:
    // can grow further. Atomic like the other photometric PSF params it now
    // sits alongside (it used to be a plain int pixel count).
    std::atomic<double> psfKernelHalfWidthNm_{7000.0};
-   std::atomic<double> psfSplatCutoff_{1e-6};   // PSFParam_PsfSplatCutoff (PsfGeneratorRequest::splatCutoff)
    // JRE/JDK install root override for locating jvm.dll (empty =
    // auto-detect; see sim::FindJavaHome in PsfGeneratorBridge.cpp).
    // PSFGenerator itself and this project's bridge class are embedded in

@@ -147,11 +147,6 @@ struct PsfGeneratorRequest
    // so SplatPsfKernel's caller (RenderPhotonImage) doesn't need a separate
    // parameter of its own for it.
    PsfInterpMode interpMode = PsfInterpMode::Nearest;
-   // Adaptive splat footprint (2026-10-04): a blink's splat skips the kernel
-   // taps of camera pixels whose block sums are all below this fraction of
-   // the plane's peak (PsfKernelCache::radii, ApplySplatCutoff). 0 = the
-   // whole kernel window. Not part of the kernel (like interpMode).
-   double splatCutoff = 1e-6;
 };
 
 // The arrays of one kernel stack, shared (immutable) by every copy of the
@@ -202,16 +197,6 @@ struct PsfKernelCache
    // than needing its own separate parameter.
    PsfInterpMode interpMode = PsfInterpMode::Nearest;
    int blockSumWidth = 0;
-   // Per plane, the splat's half-width in camera pixels for the request's
-   // splatCutoff (ApplySplatCutoff): every block sum farther out is below
-   // cutoff x the plane's peak. Empty: the whole window.
-   std::vector<int> radii;
-   double radiiCutoff = -1.0;
-   int Radius(int z) const
-   {
-      const int full = halfWidthOversampled / (oversampling > 1 ? oversampling : 1);
-      return (z >= 0 && static_cast<size_t>(z) < radii.size()) ? radii[static_cast<size_t>(z)] : full;
-   }
    // The planes, block sums and polyphase sums (shared, immutable).
    std::shared_ptr<const PsfKernelPlanes> data;
 
@@ -339,17 +324,9 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height,
 // Fft the shifted plane's block sums, its line transforms on all cores when
 // parallelFft --, SplatRows adds the rows [rowLo, rowHi) of the splat. Every
 // pixel gets exactly the value SplatPsfKernel gives it.
-// Fills cache.radii for `cutoff` (0 or less: every plane keeps the whole
-// window). Per plane: the farthest block sum at or above cutoff x the
-// plane's peak, in camera pixels from the centre, rounded up, plus one (a
-// pixel's taps reach less than a pixel past its offset); never more than the
-// window. The JS reference (psf.js applySplatCutoff) is the same arithmetic.
-void ApplySplatCutoff(PsfKernelCache& cache, double cutoff);
-
 struct SplatPlan
 {
    SplatSetupResult st;
-   int camRad = 0;                  // the plane's half-width in camera pixels (PsfKernelCache::Radius)
    const float* B = nullptr;        // block sums read (the plane's, or shiftedSums)
    const float* P = nullptr;        // the plane's polySums (nullptr: Fft, or none built)
    std::vector<float> shiftedSums;  // Fft only

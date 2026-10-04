@@ -106,7 +106,6 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "bf-absorption-per-um", 0, "SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)" },
       { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (PSF and WideField collection efficiency)" },
       { "psf-model", 3, "PSFParam_PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter's JVM)" },
-      { "psf-splat-cutoff", 1e-6, "PSFParam_PsfSplatCutoff: a blink's splat skips the kernel taps below this fraction of the plane's peak (0 = the whole kernel window; the default omits well under 1e-4 of a blink's light)" },
       { "psf-zernike-preset", 9, "PSFParam_PsfZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)" },
       { "psf-mask", 0, "PSFParam_PsfMaskType: 0 = None, 1 = DoubleHelix (names accepted)" },
       { "psf-mask-modes", 5, "PSFParam_PsfMaskModes: double-helix Gauss-Laguerre modes (2-8)" },
@@ -383,7 +382,6 @@ bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::strin
    req.sampleIndex = O("psf-sample-index");
    req.workingDistanceUm = O("psf-working-distance-um");
    req.sampleDepthNm = O("psf-sample-depth-nm");
-   req.splatCutoff = std::min(0.1, std::max(0.0, O("psf-splat-cutoff")));
    const std::vector<std::string>& presets = ZernikePresetNames();
    const int preset = static_cast<int>(O("psf-zernike-preset"));
    if (preset < 0 || preset >= static_cast<int>(presets.size()))

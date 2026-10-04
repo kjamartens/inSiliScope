@@ -29,10 +29,6 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - Viewer: a BrightField movie is split across the browser's workers (each computes a share of the condenser source
   points from the movie worker's phase screens; the images are summed in the same order, so the frames are identical to
   the single-worker ones), 2026-10-04.
-- `PSFParam_PsfSplatCutoff` (cli/viewer `psf-splat-cutoff`, default 1e-6): a blink's PSF can be drawn over the camera
-  pixels where its kernel plane is above this fraction of the plane's peak instead of the whole kernel window. At the
-  default nothing changes for the Gibson-Lanni kernels (their tail stays above 1e-5 of the peak within 7 um); larger
-  values (1e-4 and up) shrink in-focus blinks to a third of the window at the price of 1.5 % or more of their light.
 - Persistent caches and PSF preload (2026-10-04), output unchanged. **Core ABI 8**: `isc_world_set_cache_dir` keeps a
   world's packed cell positions in a small per-user file (five numbers per cell; validated when read back), so a rerun
   with the same seed and cell parameters starts with the cells in place; `isc_world_version`. MM `General_DiskCache`

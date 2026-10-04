@@ -312,7 +312,6 @@ const UI_GROUPS = [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>PSFParam_PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
         select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>PSFParam_PsfZernikePreset</code>', ZERNIKE_PRESETS, '9'),
-        num('mv_psf-splat-cutoff', 'Splat cutoff', '', 'A blink is drawn only where its kernel plane is above this fraction of the peak. The default (and 0) draws the whole window for the Gibson-Lanni PSF; 1e-4 and up shrink in-focus blinks at the price of a percent or more of their light (biases photon counts). <code>PSFParam_PsfSplatCutoff</code>', 0, 0.01, 0.000001, 0.000001, { adv: true }),
       ] }),
   ] },
   { id: 'camera', title: 'Camera', items: [
@@ -2124,7 +2123,7 @@ function drawDyes(seed, p, pxPerUm) {
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
   'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed', 'modality',
   'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
-  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset', 'psf-splat-cutoff', 'bf-quality', 'bf-sources', 'bf-slice-um',
+  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset', 'bf-quality', 'bf-sources', 'bf-slice-um',
   'bf-condenser-na', 'bf-wavelength-nm', 'bf-photons-per-px-per-sec', 'bf-absorption-per-um', 'bf-n-medium',
   'bf-n-cytoplasm', 'bf-n-nucleus', 'bf-n-microtubule'];
 // The PSF kernel's half width: 3 um here instead of the adapter's 7 um keeps
