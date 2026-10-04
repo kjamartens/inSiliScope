@@ -191,7 +191,7 @@ choosing the end:
     End offset and End dir. jitter.
   - `drawNucleus(cell, asset)` draws `asset.nuc` (surface rings from the engine's `cell` reply) when present,
     else the old ellipsoid from the pack record.
-  - View panel: an x–z checkbox at the end of the Tilt line shows a side view (x–z, seen along y, equal x and z
+  - View panel: an x–z checkbox (on by default) at the end of the Tilt line shows a side view (x–z, seen along y, equal x and z
     scale) along the bottom 20 % of the canvas: cytoplasm envelope, nuclei, microtubules and dyes, cut to the
     view's y range (`drawXZ`). Display only; works on the current WASM too (ellipsoid nuclei). The port mentions it
     in `docs/try-viewer.md`. The nucleus is drawn from the engine's rings, which reach both poles (no caps).

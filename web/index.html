@@ -194,7 +194,7 @@ const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'Asti
 const UI_GROUPS = [
   { sect: 'Display', id: 'view', title: 'View', open: true, items: [
     range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression. Display only.', 0, 75, 1, 0, { fmt: fx(0),
-      side: { id: 'showXZ', label: 'x–z', tip: 'Side view (x–z) of everything in view along the bottom of the canvas, seen along y; x and z at the same scale as the view. Display only.', value: false } }),
+      side: { id: 'showXZ', label: 'x–z', tip: 'Side view (x–z) of everything in view along the bottom of the canvas, seen along y; x and z at the same scale as the view. Display only.', value: true } }),
     check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
     check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
     check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
