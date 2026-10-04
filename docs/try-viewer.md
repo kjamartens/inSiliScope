@@ -36,10 +36,11 @@ Notes:
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
-- Brightfield movies run on the CPU (one core in the browser); the **BF quality** slider trades speed for precision
-  (1: thin object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes under a
-  second once the cells are built (level 4 about 2.5 s; the first movie at a new place also builds the cells);
-  repeating a movie is instant, and SMLM and widefield movies also reuse the cells of the previous movie.
+- Brightfield movies run on the CPU, spread over the browser's workers (the condenser source points are shared out;
+  the movie's info line says how many workers took part); the **BF quality** slider trades speed for precision (1: thin
+  object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
+  once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
+  SMLM and widefield movies also reuse the cells of the previous movie.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

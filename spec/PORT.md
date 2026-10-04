@@ -689,3 +689,15 @@ Spec, model, quality table and the list of missing structures: [BRIGHTFIELD.md](
   pose, image per focus). No GPU path, no drift, CellField only.
 - [ ] Visual check in Micro-Manager Studio; [ ] MSBuild of the DLL (only the Linux test `.so` was built);
   [ ] waveorder weak-phase comparison; [ ] GPU path; [ ] stage-move prefetch.
+
+**Worker split in the viewer (2026-10-04, output bit-identical).** `BrightfieldScene::Image` is, per source, an
+independent propagation and inverse FFT, then a sum over the sources in source order. `BrightfieldMovie`
+(ScopeMovie.h) and the WASM exports `isc_bf_begin` / `isc_bf_info` / `isc_bf_phase` / `isc_bf_atten` /
+`isc_bf_begin_phase` / `isc_bf_source_image` / `isc_bf_set_sources` / `isc_bf_movie` / `isc_bf_end` let the viewer
+spread that work: its movie worker builds the world and the scene with the per-source propagation deferred
+(`Update(..., deferSources)`) and hands out the phase screens (`Phase`, `Atten`, slices, zTop, objectZ); every cell
+worker builds a scene from those screens alone (`UpdateFromPhase`, no world) and computes its share of the sources
+(`SourceImageAt`, a round-robin split); the movie worker takes all sources' images and forms the image exactly as
+`Image` does (`SetImageFromSources`: the same float sum in source order), then renders the frames. ctest
+`brightfield` checks the three paths bit for bit; `tests/web/viewer_bf_movie.mjs` checks the split movie equals the
+single-worker one (`?bfsplit=0`). Not with the lab's JS engine.

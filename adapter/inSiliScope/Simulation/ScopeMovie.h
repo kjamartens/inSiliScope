@@ -124,4 +124,42 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
                             const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                             ScopeMovieInfo& info, std::string& err);
 
+// BrightField movie in steps, for the viewer's worker split (spec/PORT.md
+// 15): Begin builds the shared world and scene with the per-source
+// propagation deferred and exposes the phase screens; a helper's
+// BeginFromPhase builds a scene from those screens alone (no world) and
+// SourceImage computes one source's camera image; SetSourceImages forms the
+// image from all sources' images (Sources() x Width x Height floats) exactly
+// as the single-worker path does; Render makes the frames. Begin holds the
+// movie cache's lock until the object is destroyed.
+class BrightfieldMovie
+{
+public:
+   BrightfieldMovie();
+   ~BrightfieldMovie();
+   bool Begin(const ScopeSpec& spec, bool deferSources, std::string& err);
+   bool BeginFromPhase(const ScopeSpec& spec, int slices, double zTopUm, double objectZUm,
+                       const std::vector<float>& phase, const std::vector<float>& atten, std::string& err);
+   unsigned Width() const;
+   unsigned Height() const;
+   long Frames() const;
+   int Sources() const;
+   int Slices() const;
+   unsigned GridNx() const;
+   unsigned GridNy() const;
+   double ZTopUm() const;
+   double ObjectZUm() const;
+   const std::vector<float>& Phase() const;
+   const std::vector<float>& Atten() const;
+   bool SourceImage(int s, std::vector<float>& out, std::string& err);
+   bool SetSourceImages(const float* slots);
+   bool ImageCached() const;   // the scene already holds the image at the movie's focus (a repeat): no sources to compute
+   bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
+               std::string& err);
+
+private:
+   struct Impl;
+   std::unique_ptr<Impl> impl_;
+};
+
 } // namespace sim

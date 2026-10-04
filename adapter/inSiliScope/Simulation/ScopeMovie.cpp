@@ -767,30 +767,20 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
-bool RenderBrightfieldMovie(const ScopeSpec& spec,
-                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
-                            ScopeMovieInfo& info, std::string& err)
+// The frames of a BrightField movie from its scene: the image at the spec's
+// focus (computed, or assembled by SetImageFromSources), times the lamp,
+// then the camera noise per frame.
+static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const BrightfieldSpec& bs,
+                              BrightfieldScene& scene, std::chrono::steady_clock::time_point t0,
+                              unsigned long spawns0,
+                              const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                              ScopeMovieInfo& info, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
-   const auto t0 = std::chrono::steady_clock::now();
-   const ScopeSetup S = MakeScopeSetup(spec);
    const SimulationParams& p = S.p;
-   MovieCache& cache = SharedMovieCache();
-   std::lock_guard<std::mutex> lock(cache.mutex);
-   if (!ConfigureShared(cache, S.cf, err))
-      return false;
-   BrightfieldSpec bs;
-   if (!ScopeBrightfieldSpec(spec, bs, err))
-      return false;
-   BrightfieldScene& scene = cache.brightfield;
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   const unsigned long spawns0 = ParallelForSpawns().load();
    auto tPhase = TimingClock::now();
-   if (!scene.Update(cache.source, bs, cache.version, err))
-      return false;
-   TimingLog("bf.scene-update", TimingSince(tPhase));
-   tPhase = TimingClock::now();
    if (!scene.Image(focusUm, trans, err))
       return false;
    TimingLog("bf.image", TimingSince(tPhase));
@@ -841,6 +831,132 @@ bool RenderBrightfieldMovie(const ScopeSpec& spec,
       TimingLog("bf.total", info.totalSec, b);
    }
    return true;
+}
+
+bool RenderBrightfieldMovie(const ScopeSpec& spec,
+                            const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   const ScopeSetup S = MakeScopeSetup(spec);
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, S.cf, err))
+      return false;
+   BrightfieldSpec bs;
+   if (!ScopeBrightfieldSpec(spec, bs, err))
+      return false;
+   const unsigned long spawns0 = ParallelForSpawns().load();
+   const auto tPhase = TimingClock::now();
+   if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+      return false;
+   TimingLog("bf.scene-update", TimingSince(tPhase));
+   return BrightfieldFrames(spec, S, bs, cache.brightfield, t0, spawns0, onFrame, info, err);
+}
+
+struct BrightfieldMovie::Impl
+{
+   ScopeSpec spec;
+   ScopeSetup S;
+   BrightfieldSpec bs;
+   MovieCache* cache = nullptr;           // Begin: the shared scene, under lock
+   std::unique_lock<std::mutex> lock;
+   BrightfieldScene own;                  // BeginFromPhase: a scene of this object alone
+   BrightfieldScene* scene = nullptr;
+   std::chrono::steady_clock::time_point t0;
+   unsigned long spawns0 = 0;
+};
+
+BrightfieldMovie::BrightfieldMovie() : impl_(new Impl) {}
+BrightfieldMovie::~BrightfieldMovie() = default;
+
+bool BrightfieldMovie::Begin(const ScopeSpec& spec, bool deferSources, std::string& err)
+{
+   Impl& m = *impl_;
+   m.t0 = std::chrono::steady_clock::now();
+   m.spec = spec;
+   m.S = MakeScopeSetup(spec);
+   if (!ScopeBrightfieldSpec(spec, m.bs, err))
+      return false;
+   m.cache = &SharedMovieCache();
+   m.lock = std::unique_lock<std::mutex>(m.cache->mutex);
+   if (!ConfigureShared(*m.cache, m.S.cf, err))
+      return false;
+   m.spawns0 = ParallelForSpawns().load();
+   const auto tPhase = TimingClock::now();
+   if (!m.cache->brightfield.Update(m.cache->source, m.bs, m.cache->version, deferSources, err))
+      return false;
+   TimingLog("bf.scene-update", TimingSince(tPhase));
+   m.scene = &m.cache->brightfield;
+   return true;
+}
+
+bool BrightfieldMovie::BeginFromPhase(const ScopeSpec& spec, int slices, double zTopUm, double objectZUm,
+                                      const std::vector<float>& phase, const std::vector<float>& atten,
+                                      std::string& err)
+{
+   Impl& m = *impl_;
+   m.t0 = std::chrono::steady_clock::now();
+   m.spec = spec;
+   m.S = MakeScopeSetup(spec);
+   if (!ScopeBrightfieldSpec(spec, m.bs, err))
+      return false;
+   if (!m.own.UpdateFromPhase(m.bs, slices, zTopUm, objectZUm, phase, atten, true, err))
+      return false;
+   m.scene = &m.own;
+   return true;
+}
+
+unsigned BrightfieldMovie::Width() const { return impl_->S.W; }
+unsigned BrightfieldMovie::Height() const { return impl_->S.H; }
+long BrightfieldMovie::Frames() const { return impl_->S.N; }
+int BrightfieldMovie::Sources() const { return impl_->scene ? impl_->scene->Sources() : 0; }
+int BrightfieldMovie::Slices() const { return impl_->scene ? impl_->scene->Slices() : 0; }
+unsigned BrightfieldMovie::GridNx() const { return impl_->scene ? impl_->scene->GridNx() : 0; }
+unsigned BrightfieldMovie::GridNy() const { return impl_->scene ? impl_->scene->GridNy() : 0; }
+double BrightfieldMovie::ZTopUm() const { return impl_->scene ? impl_->scene->ZTopUm() : 0.0; }
+double BrightfieldMovie::ObjectZUm() const { return impl_->scene ? impl_->scene->ObjectZUm() : 0.0; }
+const std::vector<float>& BrightfieldMovie::Phase() const
+{
+   static const std::vector<float> none;
+   return impl_->scene ? impl_->scene->Phase() : none;
+}
+const std::vector<float>& BrightfieldMovie::Atten() const
+{
+   static const std::vector<float> none;
+   return impl_->scene ? impl_->scene->Atten() : none;
+}
+
+bool BrightfieldMovie::SourceImage(int s, std::vector<float>& out, std::string& err)
+{
+   if (!impl_->scene)
+   {
+      err = "BrightField: not begun.";
+      return false;
+   }
+   return impl_->scene->SourceImageAt(impl_->S.q.zCullCentreUm, s, out, err);
+}
+
+bool BrightfieldMovie::SetSourceImages(const float* slots)
+{
+   return impl_->scene && impl_->scene->SetImageFromSources(impl_->S.q.zCullCentreUm, slots);
+}
+
+bool BrightfieldMovie::ImageCached() const
+{
+   return impl_->scene && impl_->scene->HasImage(impl_->S.q.zCullCentreUm);
+}
+
+bool BrightfieldMovie::Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                              ScopeMovieInfo& info, std::string& err)
+{
+   Impl& m = *impl_;
+   if (!m.scene)
+   {
+      err = "BrightField: not begun.";
+      return false;
+   }
+   return BrightfieldFrames(m.spec, m.S, m.bs, *m.scene, m.t0, m.spawns0, onFrame, info, err);
 }
 
 namespace {

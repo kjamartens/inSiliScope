@@ -200,6 +200,25 @@ int main()
             Check(ok && again == img && ms < 50, "same spec and focus: cached");
             ok = ok && a.Image(-1.0, again, err);
             Check(ok && again != img, "a focus change changes the image");
+            // The worker split (BrightfieldMovie, the viewer): a scene with the
+            // per-source propagation deferred, its sources' images one by one,
+            // a scene built from the first scene's phase screens alone, and
+            // the image assembled from the sources' images: all bit for bit.
+            BrightfieldScene d, e;
+            ok = ok && d.Update(src, FieldSpec(q), 1, true, err);
+            ok = ok && e.UpdateFromPhase(FieldSpec(q), a.Slices(), a.ZTopUm(), a.ObjectZUm(), a.Phase(), a.Atten(), true, err);
+            const size_t P = img.size();
+            std::vector<float> slotsD(P * static_cast<size_t>(a.Sources())), slotsE(slotsD.size()), one;
+            for (int s = 0; ok && s < a.Sources(); ++s)
+            {
+               ok = d.SourceImageAt(0.5, s, one, err) && one.size() == P;
+               if (ok) std::copy(one.begin(), one.end(), slotsD.begin() + static_cast<size_t>(s) * P);
+               ok = ok && e.SourceImageAt(0.5, s, one, err) && one.size() == P;
+               if (ok) std::copy(one.begin(), one.end(), slotsE.begin() + static_cast<size_t>(s) * P);
+            }
+            Check(ok && slotsD == slotsE, "worker split: a scene from the phase screens gives the same source images");
+            ok = ok && d.SetImageFromSources(0.5, slotsE.data()) && d.Image(0.5, again, err);
+            Check(ok && again == img, "worker split: the image assembled from the sources' images = the whole scene's, bit for bit");
          }
       }
       if (!ok)

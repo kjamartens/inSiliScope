@@ -21,6 +21,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
   tooling: `ISC_TIMING=1` prints a movie's phase times, `sr_render_check --bench`, `isc_core_bench` and
   `tools/bench_core.mjs` (per-phase core timing, native and WASM), `tools/bench.py` gained 1000-frame SR, 200-frame WF
   and BrightField configs.
+- Viewer drawing (2026-10-04): microtubule paths are built once per tilt/rotation/detail level and reused across
+  zooms, the painter's order of the cytoplasm quads is a comparator-free typed sort, the dyes are one path and one
+  fill. Same picture, smoother panning and zooming.
+- Viewer: a BrightField movie is split across the browser's workers (each computes a share of the condenser source
+  points from the movie worker's phase screens; the images are summed in the same order, so the frames are identical to
+  the single-worker ones), 2026-10-04.
 - `PSFParam_PsfSplatCutoff` (cli/viewer `psf-splat-cutoff`, default 1e-6): a blink's PSF can be drawn over the camera
   pixels where its kernel plane is above this fraction of the plane's peak instead of the whole kernel window. At the
   default nothing changes for the Gibson-Lanni kernels (their tail stays above 1e-5 of the peak within 7 um); larger

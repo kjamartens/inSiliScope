@@ -224,7 +224,7 @@ bool BrightfieldScene::Begin(const BrightfieldSpec& spec, std::string& err)
 }
 
 bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion,
-                              std::string& err)
+                              bool deferSources, std::string& err)
 {
    if (valid_ && srcId_ == &src && worldVersion_ == worldVersion && SameSpec(spec_, spec))
       return true;
@@ -322,37 +322,40 @@ bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec,
             }
          }
    }
-   Finish();
+   Finish(deferSources);
    srcId_ = &src;
    worldVersion_ = worldVersion;
    setupMs_ = Ms(t0);
    return true;
 }
 
-bool BrightfieldScene::UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm,
-                                       const std::vector<float>& phase, std::string& err)
+bool BrightfieldScene::UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm, double objectZUm,
+                                       const std::vector<float>& phase, const std::vector<float>& atten,
+                                       bool deferSources, std::string& err)
 {
    const auto t0 = std::chrono::steady_clock::now();
    if (!Begin(spec, err))
       return false;
-   if (slices < 1 || !(zTopUm > 0) || phase.size() != static_cast<size_t>(nx_) * ny_ * slices)
+   if (slices < 1 || !(zTopUm > 0) || phase.size() != static_cast<size_t>(nx_) * ny_ * slices ||
+       (!atten.empty() && atten.size() != phase.size()))
    {
       err = "BrightField: bad phase slices.";
       return false;
    }
    slices_ = slices;
    dz_ = zTopUm / slices;
-   objectZ_ = 0.5 * dz_;
+   objectZ_ = objectZUm;
    phase_ = phase;
-   atten_.clear();
-   Finish();
+   atten_ = atten;
+   Finish(deferSources);
    srcId_ = nullptr;
    setupMs_ = Ms(t0);
    return true;
 }
 
-// Sources, pupil, kz, and the thin spectrum or the exit spectra.
-void BrightfieldScene::Finish()
+// Sources, pupil, kz, and the thin spectrum or the exit spectra (deferred:
+// empty slots, filled by EnsureExitFields / SourceImageAt).
+void BrightfieldScene::Finish(bool deferSources)
 {
    const BrightfieldQuality q = spec_.Resolved();
    const size_t N = static_cast<size_t>(nx_) * ny_;
@@ -443,13 +446,24 @@ void BrightfieldScene::Finish()
    }
    if (slices_ > 1 && static_cast<double>(src_.size()) * N * sizeof(cfloat) <= kExitCacheBytes)
    {
-      exit_.resize(src_.size());
-      ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
-         std::vector<cfloat> work;
-         ExitField(src_[s], exit_[s], work);
-      });
+      exit_.assign(src_.size(), std::vector<cfloat>());
+      if (!deferSources)
+         EnsureExitFields();
    }
    valid_ = true;
+}
+
+void BrightfieldScene::EnsureExitFields()
+{
+   if (slices_ == 1 || exit_.size() != src_.size())
+      return;
+   ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
+      if (exit_[s].empty())
+      {
+         std::vector<cfloat> work;
+         ExitField(src_[s], exit_[s], work);
+      }
+   });
 }
 
 // Propagates source s's plane wave down through the slices (top first):
@@ -513,7 +527,7 @@ void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, st
             dst[x] = src[sxs[x]];
       }
    }
-   else if (!exit_.empty())
+   else if (!exit_.empty() && !exit_[s].empty())
       u = exit_[s];
    else
       ExitField(sp, u, work);
@@ -550,21 +564,63 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
    }
    const auto t0 = std::chrono::steady_clock::now();
    const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
-   // From the lowest screen (objectZ_ above the coverslip: its slice's
-   // mid-plane, or the thin screen's height) to the focal plane, travelling
-   // down: distance objectZ_ - focus. Shared by every source.
-   const size_t N = static_cast<size_t>(nx_) * ny_;
-   const double d = objectZ_ - focusUm;
-   std::vector<cfloat> defocus(N);
-   ParallelFor(ny_, [&](unsigned y) {
-      for (size_t i = static_cast<size_t>(y) * nx_; i < static_cast<size_t>(y + 1) * nx_; ++i)
-         defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
-   });
+   std::vector<cfloat> defocus;
+   Defocus(focusUm, defocus);
+   EnsureExitFields();
    std::vector<float> slots(P * src_.size());
    ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
       std::vector<cfloat> u, work;
       SourceImage(static_cast<int>(s), defocus, u, work, &slots[s * P]);
    });
+   SetImageFromSources(focusUm, slots.data());
+   imageMs_ = Ms(t0);
+   out = image_;
+   return true;
+}
+
+// From the lowest screen (objectZ_ above the coverslip: its slice's
+// mid-plane, or the thin screen's height) to the focal plane, travelling
+// down: distance objectZ_ - focus. Shared by every source.
+void BrightfieldScene::Defocus(double focusUm, std::vector<cfloat>& defocus) const
+{
+   const size_t N = static_cast<size_t>(nx_) * ny_;
+   const double d = objectZ_ - focusUm;
+   defocus.resize(N);
+   ParallelFor(ny_, [&](unsigned y) {
+      for (size_t i = static_cast<size_t>(y) * nx_; i < static_cast<size_t>(y + 1) * nx_; ++i)
+         defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
+   });
+}
+
+bool BrightfieldScene::SourceImageAt(double focusUm, int s, std::vector<float>& out, std::string& err)
+{
+   if (!valid_)
+   {
+      err = "BrightField: scene not set up.";
+      return false;
+   }
+   if (s < 0 || s >= static_cast<int>(src_.size()))
+   {
+      err = "BrightField: no such source.";
+      return false;
+   }
+   if (slices_ > 1 && exit_.size() == src_.size() && exit_[static_cast<size_t>(s)].empty())
+   {
+      std::vector<cfloat> work;
+      ExitField(src_[static_cast<size_t>(s)], exit_[static_cast<size_t>(s)], work);
+   }
+   std::vector<cfloat> defocus, u, work;
+   Defocus(focusUm, defocus);
+   out.assign(static_cast<size_t>(spec_.width) * spec_.height, 0.0f);
+   SourceImage(s, defocus, u, work, out.data());
+   return true;
+}
+
+bool BrightfieldScene::SetImageFromSources(double focusUm, const float* slots)
+{
+   if (!valid_ || !slots)
+      return false;
+   const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
    image_.assign(P, 0.0f);
    for (size_t s = 0; s < src_.size(); ++s)
       for (size_t i = 0; i < P; ++i)
@@ -574,8 +630,6 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
       v *= inv;
    haveImage_ = true;
    imageFocus_ = focusUm;
-   imageMs_ = Ms(t0);
-   out = image_;
    return true;
 }
 

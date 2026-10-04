@@ -30,6 +30,24 @@ struct WfSession
 std::map<int32_t, std::unique_ptr<WfSession>> g_wf;
 int32_t g_wfNext = 1;
 
+// A BrightField movie split across the viewer's workers (sim::BrightfieldMovie):
+// the movie worker begins (phase screens out), helpers begin from the
+// screens and compute some sources' images, the movie worker takes them
+// all and renders the frames.
+struct BfSession
+{
+   sim::BrightfieldMovie movie;
+   sim::ScopeSpec spec;
+   std::vector<float> img;
+};
+std::map<int32_t, std::unique_ptr<BfSession>> g_bf;
+int32_t g_bfNext = 1;
+BfSession* Bf(int32_t h)
+{
+   auto it = g_bf.find(h);
+   return it == g_bf.end() ? nullptr : it->second.get();
+}
+
 WfSession* Wf(int32_t h)
 {
    auto it = g_wf.find(h);
@@ -270,6 +288,132 @@ ISC_API int32_t isc_wf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
       return Fail(errOut, errCap, "exception");
    }
 }
+
+// ---- BrightField in steps (the worker split) ----
+// The movie worker: the shared world and scene for spec, the per-source
+// propagation deferred (defer != 0). Returns a handle, or -1 (message in errOut).
+ISC_API int32_t isc_bf_begin(const char* spec, int32_t defer, char* errOut, int32_t errCap)
+{
+   try {
+      std::unique_ptr<BfSession> b(new BfSession);
+      std::string err;
+      if (!spec || !sim::ParseScopeSpec(spec, b->spec, err)) return Fail(errOut, errCap, err.empty() ? "no spec" : err);
+      if (!b->movie.Begin(b->spec, defer != 0, err)) return Fail(errOut, errCap, err);
+      const int32_t h = g_bfNext++;
+      g_bf[h] = std::move(b);
+      return h;
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
+// A helper: the same scene from the movie worker's phase screens (no world).
+// phase: slices x gridNx x gridNy floats; atten: the same or null.
+ISC_API int32_t isc_bf_begin_phase(const char* spec, int32_t slices, double zTopUm, double objectZUm, const float* phase,
+                                   const float* atten, int32_t n, char* errOut, int32_t errCap)
+{
+   try {
+      if (!phase || n <= 0) return Fail(errOut, errCap, "no phase screens");
+      std::unique_ptr<BfSession> b(new BfSession);
+      std::string err;
+      if (!spec || !sim::ParseScopeSpec(spec, b->spec, err)) return Fail(errOut, errCap, err.empty() ? "no spec" : err);
+      std::vector<float> ph(phase, phase + n), at;
+      if (atten) at.assign(atten, atten + n);
+      if (!b->movie.BeginFromPhase(b->spec, slices, zTopUm, objectZUm, ph, at, err)) return Fail(errOut, errCap, err);
+      const int32_t h = g_bfNext++;
+      g_bf[h] = std::move(b);
+      return h;
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
+// info[0..8]: width, height, frames, sources, slices, gridNx, gridNy, atten (0/1),
+// image already cached at the movie's focus (0/1: a repeat needs no helpers);
+// geom[0..1]: zTopUm, objectZUm. The phase screens through isc_bf_phase /
+// isc_bf_atten (pointers valid while the session lives; slices x gridNx x gridNy).
+ISC_API int32_t isc_bf_info(int32_t h, int32_t* info, double* geom)
+{
+   BfSession* b = Bf(h);
+   if (!b || !info || !geom) return -1;
+   info[0] = (int32_t)b->movie.Width();
+   info[1] = (int32_t)b->movie.Height();
+   info[2] = (int32_t)b->movie.Frames();
+   info[3] = b->movie.Sources();
+   info[4] = b->movie.Slices();
+   info[5] = (int32_t)b->movie.GridNx();
+   info[6] = (int32_t)b->movie.GridNy();
+   info[7] = b->movie.Atten().empty() ? 0 : 1;
+   info[8] = b->movie.ImageCached() ? 1 : 0;
+   geom[0] = b->movie.ZTopUm();
+   geom[1] = b->movie.ObjectZUm();
+   return 0;
+}
+ISC_API const float* isc_bf_phase(int32_t h)
+{
+   BfSession* b = Bf(h);
+   return b && !b->movie.Phase().empty() ? b->movie.Phase().data() : nullptr;
+}
+ISC_API const float* isc_bf_atten(int32_t h)
+{
+   BfSession* b = Bf(h);
+   return b && !b->movie.Atten().empty() ? b->movie.Atten().data() : nullptr;
+}
+
+// Source s's camera image (width x height floats) at the movie's focus.
+ISC_API int32_t isc_bf_source_image(int32_t h, int32_t s, float* out)
+{
+   BfSession* b = Bf(h);
+   if (!b || !out) return -1;
+   try {
+      std::string err;
+      if (!b->movie.SourceImage(s, b->img, err)) return -1;
+      std::memcpy(out, b->img.data(), b->img.size() * sizeof(float));
+      return 0;
+   } catch (...) {
+      return -1;
+   }
+}
+
+// All sources' images (sources x width x height floats, source-major): the
+// movie's image is formed from them as the single-worker path forms it.
+ISC_API int32_t isc_bf_set_sources(int32_t h, const float* slots)
+{
+   BfSession* b = Bf(h);
+   if (!b || !slots) return -1;
+   try {
+      return b->movie.SetSourceImages(slots) ? 0 : -1;
+   } catch (...) {
+      return -1;
+   }
+}
+
+// The frames, as isc_scope_movie (without images set, the scene computes them).
+ISC_API int32_t isc_bf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_t* info, char* errOut, int32_t errCap)
+{
+   BfSession* b = Bf(h);
+   if (!b) return Fail(errOut, errCap, "no such session");
+   try {
+      const unsigned w = b->movie.Width(), hh = b->movie.Height();
+      const long n = b->movie.Frames();
+      const double need = static_cast<double>(w) * hh * n;
+      if (need > 2.0e9) return Fail(errOut, errCap, "movie too large");
+      if (info) { info[0] = (int32_t)w; info[1] = (int32_t)hh; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
+      if (!out || capPixels < need) return static_cast<int32_t>(need);
+      sim::ScopeMovieInfo mi;
+      std::string err;
+      const bool ok = b->movie.Render([&](long f, const std::vector<uint16_t>& adu) {
+         std::memcpy(out + static_cast<size_t>(f) * w * hh, adu.data(), adu.size() * 2);
+         return true;
+      }, mi, err);
+      if (!ok) return Fail(errOut, errCap, err);
+      return static_cast<int32_t>(need);
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
+ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
 
 ISC_API void isc_wf_end(int32_t h)
 {

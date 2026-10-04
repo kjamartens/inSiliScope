@@ -215,8 +215,10 @@ across movies: 256 px level 3 is 0.7 s cli cold / 0.9 s in the viewer (was 3 s /
 `CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
 the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase
-grating vs theory, thin and multislice), `cli_tiff_bf`, `world_checks` OpticalVolume, `tests/web/viewer_bf_movie.mjs`,
-`tools/test_cellfield_stage.py`. Not built with MSBuild or checked in Micro-Manager Studio yet.
+grating vs theory, thin and multislice, the worker split bit for bit), `cli_tiff_bf`, `world_checks` OpticalVolume,
+`tests/web/viewer_bf_movie.mjs` (the split movie = the single-worker one), `tools/test_cellfield_stage.py`. The viewer
+splits a BF movie's condenser sources across its workers (2026-10-04, spec/PORT.md 15: `BrightfieldMovie`, the
+`isc_bf_*` exports). Not built with MSBuild or checked in Micro-Manager Studio yet.
 
 **Cell edges and height (2026-10-01, spec/ALGORITHM.md):** the outline has a fractal tail (harmonics 6-64, amplitude
 `cellRough` (0.15) x `cellBlob` x k^-(2.5-D), D = `cellFractalDim` 1.35, multiplicative after the coarse clamp, bit-exact
@@ -260,7 +262,8 @@ per-microtubule block midpoints, pointer `CellsInRect`, hashed `dyeIndex_`; **AB
 `isc_world_set_block` (spec/PORT.md 6.5). Viewer: the WASM is compiled once and shared with the workers
 (`instantiateWasm`), the pack worker's blocks are injected into the other workers' worlds (no re-packing), assets
 travel as typed arrays (mesh interleaved, outline = its outer ring, microtubules xyz/lens), LUT movie playback on
-`requestAnimationFrame`. JS references (prototype, scope): bit-exact refactors (uint32 Mersenne twister, cached noise
+`requestAnimationFrame`; microtubule `Path2D`s are built in cell-local um per (tilt, rotation, detail level) and stroked
+under `ctx.scale` (a zoom reuses them), the quad painter's order is a typed-array key sort, the dyes one path + one fill. JS references (prototype, scope): bit-exact refactors (uint32 Mersenne twister, cached noise
 maps, scalar pcg lane, trig memos, typed scratch). Build: Release by default, `ISC_LTO` (IPO where supported),
 `-msimd128` for the core under Emscripten, 96 MB initial heap for the viewer module. Tooling: `ISC_TIMING=1`
 (`Simulation/Timing.h`: phase times of a cli/viewer movie), `isc_core_bench`, `tools/bench_core.mjs`,

@@ -893,9 +893,17 @@ function ensureQuadOrder(r, c, sinT, cosT) {
     for (let j = 0; j < 4; j++) { const v = qidx[b + j]; wy += lx[v] * sr + ly[v] * cr; }
     depth[q] = (wy / 4) * sinT + r.qavgH[q] * cosT;
   }
+  // Sort integer keys (depth quantised to 2^31 steps of its range, then the quad index) with the
+  // typed array's numeric sort: no comparator calls, and exact below 2^53. Quads within one
+  // quantum of depth keep their index order (invisible).
+  let lo = Infinity, hi = -Infinity;
+  for (let q = 0; q < r.nq; q++) { if (depth[q] < lo) lo = depth[q]; if (depth[q] > hi) hi = depth[q]; }
+  const scale = hi > lo ? 2147483647 / (hi - lo) : 0, Q = 1048576;   // 2^20 quads per depth step (nq < 2^20)
+  const keys = new Float64Array(r.nq);
+  for (let q = 0; q < r.nq; q++) keys[q] = Math.round((depth[q] - lo) * scale) * Q + q;
+  keys.sort();
   const idx = new Uint32Array(r.nq);
-  for (let q = 0; q < r.nq; q++) idx[q] = q;
-  idx.sort((a, b) => depth[a] - depth[b]);
+  for (let j = 0; j < r.nq; j++) idx[j] = keys[j] % Q;
   r.order = idx; r.orderKey = key;
 }
 
@@ -1184,6 +1192,7 @@ function iscEngine(M) {
     for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
     return out;
   }
+  const bfOpen = new Set();   // BrightField sessions begun here (bf-begin), closed by bf-movie / bf-end
   // Installs packed blocks (the pack worker's rows) this world does not have yet.
   function inject(w, blocks) {
     if (!blocks) return;
@@ -1257,7 +1266,7 @@ function iscEngine(M) {
   return {
     // Returns [message, transferList].
     handle(d) {
-      const w = d.type === 'movie' ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'pack') {
         inject(w, d.blocks);   // blocks the page remembered from an earlier visit (local storage), if any
         const [x0, y0, x1, y1] = d.rect;
@@ -1300,6 +1309,83 @@ function iscEngine(M) {
       }
       if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
         return wfGpuMovie(d);
+      // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
+      if (d.type === 'bf-begin') {
+        // The movie worker's first half: the world and the scene with the per-source propagation
+        // deferred; the phase screens go to the helpers (bf-sources).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512), info = M._malloc(40), geom = M._malloc(16);
+        M.stringToUTF8(d.spec, s, n);
+        const h = M._isc_bf_begin(s, 1, err, 512);
+        let res;
+        if (h < 0) res = { type: 'bf-begin', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          M._isc_bf_info(h, info, geom);
+          const I = Array.from(M.HEAP32.subarray(info / 4, info / 4 + 9)), G = Array.from(M.HEAPF64.subarray(geom / 8, geom / 8 + 2));
+          const cached = I[8] === 1;   // a repeat: the scene holds the image, no screens to hand out
+          const len = cached ? 0 : I[4] * I[5] * I[6], ph = cached ? 0 : M._isc_bf_phase(h), at = cached ? 0 : M._isc_bf_atten(h);
+          res = { type: 'bf-begin', id: d.id, h, w: I[0], hgt: I[1], frames: I[2], sources: I[3], slices: I[4], nx: I[5], ny: I[6], cached,
+            zTop: G[0], objectZ: G[1], phase: ph ? M.HEAPF32.slice(ph / 4, ph / 4 + len) : null, atten: at ? M.HEAPF32.slice(at / 4, at / 4 + len) : null };
+          bfOpen.add(h);
+        }
+        for (const p of [s, err, info, geom]) M._free(p);
+        return [res, res.phase ? [res.phase.buffer, ...(res.atten ? [res.atten.buffer] : [])] : []];
+      }
+      if (d.type === 'bf-sources') {
+        // A helper's share: a scene from the phase screens alone (no world), the images of the
+        // listed sources (W x H floats each, in the listed order).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        const len = d.phase.length, ph = M._malloc(len * 4), at = d.atten ? M._malloc(len * 4) : 0;
+        M.HEAPF32.set(d.phase, ph / 4);
+        if (at) M.HEAPF32.set(d.atten, at / 4);
+        const h = M._isc_bf_begin_phase(s, d.slices, d.zTop, d.objectZ, ph, at, len, err, 512);
+        let res;
+        if (h < 0) res = { type: 'bf-sources', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          const P = d.w * d.hgt, out = M._malloc(P * 4), images = new Float32Array(P * d.sources.length);
+          let ok = true;
+          d.sources.forEach((src, k) => {
+            if (ok && M._isc_bf_source_image(h, src, out) !== 0) ok = false;
+            if (ok) images.set(M.HEAPF32.subarray(out / 4, out / 4 + P), k * P);
+          });
+          M._free(out);
+          M._isc_bf_end(h);
+          res = ok ? { type: 'bf-sources', id: d.id, sources: d.sources, images } : { type: 'bf-sources', id: d.id, error: 'a source image failed' };
+        }
+        for (const p of [s, err, ph, at]) if (p) M._free(p);
+        return [res, res.images ? [res.images.buffer] : []];
+      }
+      if (d.type === 'bf-movie') {
+        // The movie worker's second half: all sources' images in (or none: computed here), the frames.
+        const h = d.h, info = M._malloc(24), err = M._malloc(512);
+        let res, slots = 0, out = 0;
+        if (!bfOpen.has(h)) res = { type: 'movie', id: d.id, error: 'BrightField session gone' };
+        else {
+          if (d.images) {
+            slots = M._malloc(d.images.length * 4);
+            M.HEAPF32.set(d.images, slots / 4);
+            if (M._isc_bf_set_sources(h, slots) !== 0) console.warn('BrightField: the helpers\' images were rejected; computing here');
+          }
+          const need = M._isc_bf_movie(h, 0, 0, info, err, 512);
+          if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            out = M._malloc(Math.max(2, need * 2));
+            const got = M._isc_bf_movie(h, out, need, info, err, 512);
+            if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
+            else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
+              w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: 0, dyes: 0, halfMs: 0, ms: 0,
+              split: d.images ? d.helpers : 0 };
+          }
+          M._isc_bf_end(h);
+          bfOpen.delete(h);
+        }
+        for (const p of [info, err, slots, out]) if (p) M._free(p);
+        return [res, res.frames ? [res.frames.buffer] : []];
+      }
+      if (d.type === 'bf-end') {
+        if (bfOpen.has(d.h)) { M._isc_bf_end(d.h); bfOpen.delete(d.h); }
+        return [{ type: 'bf-end', id: d.id }, []];
+      }
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
@@ -1390,11 +1476,16 @@ function initGenWorkers() {
     genWorkers.pack.onmessage = onPackResult;
     for (let i = 0; i < K; i++) {
       const w = spawnGenWorker();
-      w.onmessage = e => onCellResult(i, e.data);
+      w.onmessage = e => (e.data.type === 'bf-sources' ? onBfSources(e.data) : onCellResult(i, e.data));
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
     genWorkers.dyes = spawnGenWorker();
-    genWorkers.dyes.onmessage = e => (e.data.type === 'movie' ? onMovieResult(e.data) : onDyeResult(e));
+    genWorkers.dyes.onmessage = e => {
+      const t = e.data.type;
+      if (t === 'movie') onMovieResult(e.data);
+      else if (t === 'bf-begin') onBfBegin(e.data);
+      else if (t !== 'bf-end') onDyeResult(e);
+    };
     genWorkers.ok = true;
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
@@ -1705,20 +1796,25 @@ function noteInteraction() {
   settleTimer = setTimeout(requestDraw, 180);
 }
 const mtPathCache = new WeakMap();
+// The path is built in cell-local micrometres with the tilt and the packing rotation baked in, and
+// stroked under ctx.scale(S, S): a zoom reuses it (the decimation distance in um is quantised to
+// powers of two, so only a doubling of the zoom rebuilds), a tilt or rotation change rebuilds.
+// Returns {path, minUm}.
 function getMtPath2D(mts, cell, t) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
-  const key = t.S + '|' + t.sinT + '|' + t.cr + '|' + t.sr + '|' + minPx;
+  const minUm = Math.pow(2, Math.floor(Math.log2(minPx / t.S)));   // <= minPx on screen at this zoom
+  const key = t.sinT + '|' + t.cr + '|' + t.sr + '|' + minUm;
   const hit = mtPathCache.get(mts);
-  if (hit && hit.key === key) return hit.path;
-  const path = new Path2D(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
+  if (hit && hit.key === key) return hit;
+  const path = new Path2D(), m2 = minUm * minUm, xyz = mts.xyz, lens = mts.lens;
   let o = 0;
   for (let m = 0; m < lens.length; m++) {
     const len = lens[m];
     let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false;
     for (let k = 0; k < len; k++, o += 3) {
       const lx = xyz[o], ly = xyz[o + 1];
-      const sx = (lx * t.cr - ly * t.sr) * t.S;
-      const sy = ((lx * t.sr + ly * t.cr) * t.cosT - xyz[o + 2] * t.sinT) * t.S;
+      const sx = lx * t.cr - ly * t.sr;
+      const sy = (lx * t.sr + ly * t.cr) * t.cosT - xyz[o + 2] * t.sinT;
       if (k === 0) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; continue; }
       const dx = sx - lastX, dy = sy - lastY;
       if (dx * dx + dy * dy >= m2) { path.lineTo(sx, sy); lastX = sx; lastY = sy; pending = false; }
@@ -1726,8 +1822,9 @@ function getMtPath2D(mts, cell, t) {
     }
     if (pending) path.lineTo(ex, ey); // keep the true end point
   }
-  mtPathCache.set(mts, { key, path });
-  return path;
+  const entry = { key, path, minUm };
+  mtPathCache.set(mts, entry);
+  return entry;
 }
 
 // draw() calls are coalesced to one per animation frame.
@@ -1817,7 +1914,7 @@ function draw() {
   }
   if (els.showMt.checked) {
     ctx.strokeStyle = '#e6c65a';
-    ctx.lineWidth = Math.max(0.6, p.mtLineWidth * pxPerUm);
+    const lw = Math.max(0.6, p.mtLineWidth * pxPerUm);
     ctx.globalAlpha = 0.8;
     for (const { cell, asset } of vis) {
       const mts = asset.mts;
@@ -1826,7 +1923,9 @@ function draw() {
       nMt += mts.lens.length;
       ctx.save();
       ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
-      ctx.stroke(getMtPath2D(mts, cell, t));
+      ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
+      ctx.lineWidth = lw / t.S;
+      ctx.stroke(getMtPath2D(mts, cell, t).path);
       ctx.restore();
     }
     ctx.globalAlpha = 1;
@@ -1958,14 +2057,17 @@ function drawDyes(seed, p, pxPerUm) {
   let drawn = 0;
   ctx = ctxTop;
   ctx.fillStyle = '#ff4d4d';
+  // One path of 1.2 px squares and one fill (the same marks as a fillRect per dye, several times faster).
+  const path = new Path2D(), cx0 = W / 2 - view.cx * S, cy0 = H / 2 - view.cy * cosT * S;
   for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
-    const sx = W / 2 + (s[i] - view.cx) * S;
-    const sy = H / 2 + ((s[i + 1] - view.cy) * cosT - s[i + 2] * sinT) * S;
+    const sx = cx0 + s[i] * S;
+    const sy = cy0 + (s[i + 1] * cosT - s[i + 2] * sinT) * S;
     if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
     if (drawn >= DYE_MAX_DRAWN) { note = 'dye cap reached, some not drawn'; break; }
-    ctx.fillRect(sx - 0.6, sy - 0.6, 1.2, 1.2);
+    path.rect(sx - 0.6, sy - 0.6, 1.2, 1.2);
     drawn++;
   }
+  if (drawn) ctx.fill(path);
   return note || `${drawn} dyes`;
 }
 
@@ -2013,7 +2115,58 @@ function prepareMovie() {
   preparePending = { id: job.id, psfKey };
   genWorkers.dyes.postMessage(job);
 }
+// A BrightField movie split across the workers (spec/PORT.md 15): the movie worker builds the world
+// and the phase screens (bf-begin), every cell worker computes a share of the condenser sources from
+// those screens (bf-sources), the movie worker sums the sources' images in source order and renders
+// the frames (bf-movie) -- the same bits as the single-worker path (the same sum, in the same order),
+// in a fraction of the time at quality 3 and 4. Not with the lab's JS engine (`?bfsplit=0` turns it off).
+let bfSplit = null;   // {id, job, h, t0, P, sources, want, got: Map(source -> Float32Array), failed}
+function bfSplitWanted() {
+  // Quality 1 (6 sources, one thin screen) is as quick on one worker as the hand-out costs.
+  const bigEnough = +document.getElementById('mv_bf-quality').value >= 2 || +document.getElementById('mv_bf-sources').value >= 12;
+  return document.getElementById('mv_modality').value === '2' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough &&
+    !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
+}
+function cancelBfSplit() {
+  if (!bfSplit) return;
+  if (bfSplit.h >= 0 && genWorkers.dyes) genWorkers.dyes.postMessage({ type: 'bf-end', id: bfSplit.id, h: bfSplit.h });
+  bfSplit = null;
+}
+function onBfBegin(d) {
+  if (!bfSplit || d.id !== bfSplit.id) { if (d.h >= 0 && genWorkers.dyes) genWorkers.dyes.postMessage({ type: 'bf-end', id: d.id, h: d.h }); return; }
+  if (d.error) { bfSplit = null; onMovieResult({ type: 'movie', id: d.id, error: d.error }); return; }
+  const helpers = genWorkers.cells, K = helpers.length;
+  Object.assign(bfSplit, { h: d.h, P: d.w * d.hgt, sources: d.sources, got: new Map(), want: 0, helpers: 0 });
+  if (d.cached) { bfSplit.failed = true; finishBfSplit(); return; }   // the movie worker has the image already
+  helpers.forEach((w, j) => {
+    const mine = [];
+    for (let s = j; s < d.sources; s += K) mine.push(s);
+    if (!mine.length) return;
+    bfSplit.want++; bfSplit.helpers++;
+    w.postMessage({ type: 'bf-sources', id: d.id, spec: bfSplit.job.spec, slices: d.slices, zTop: d.zTop, objectZ: d.objectZ,
+      w: d.w, hgt: d.hgt, phase: d.phase, atten: d.atten, sources: mine });
+  });
+  if (!bfSplit.want) finishBfSplit();
+}
+function onBfSources(d) {
+  if (!bfSplit || d.id !== bfSplit.id) return;
+  if (d.error) { console.warn('BrightField split: a helper failed (' + d.error + '); the movie worker computes every source'); bfSplit.failed = true; }
+  else d.sources.forEach((s, k) => bfSplit.got.set(s, d.images.subarray(k * bfSplit.P, (k + 1) * bfSplit.P)));
+  if (--bfSplit.want === 0) finishBfSplit();
+}
+function finishBfSplit() {
+  const b = bfSplit;
+  bfSplit = null;
+  let images = null;
+  if (!b.failed && b.got.size === b.sources) {
+    images = new Float32Array(b.P * b.sources);
+    for (let s = 0; s < b.sources; s++) images.set(b.got.get(s), s * b.P);
+  }
+  genWorkers.dyes.postMessage({ type: 'bf-movie', id: b.id, h: b.h, spec: b.job.spec, rect: b.job.rect, images, helpers: b.helpers },
+                              images ? [images.buffer] : []);
+}
 function makeMovie() {
+  cancelBfSplit();
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
@@ -2024,7 +2177,9 @@ function makeMovie() {
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
   moviePsfSeen.add(psfKey);
   document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
-  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  job.t0 = performance.now();
+  if (bfSplitWanted()) { bfSplit = { id: job.id, job, h: -1 }; genWorkers.dyes.postMessage({ type: 'bf-begin', id: job.id, spec }); }
+  else if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
 function onMovieResult(d) {
@@ -2033,6 +2188,7 @@ function onMovieResult(d) {
     return;
   }
   if (!moviePending || d.id !== moviePending.id) return;
+  if (d.split !== undefined) d.ms = performance.now() - moviePending.t0;   // a split movie: timed here (the workers' clocks differ)
   moviePending = null;
   document.getElementById('mv_make').textContent = 'Make movie here';
   if (d.error) { alert('movie failed: ' + d.error); return; }
@@ -2049,7 +2205,7 @@ function onMovieResult(d) {
   cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
-  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? 'BrightField (transmitted light)' : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
+  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})` : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
                            : `${d.blinks} blinks`;
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
