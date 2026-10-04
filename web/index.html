@@ -231,7 +231,7 @@ const UI_GROUPS = [
     pair('nucBend', 'Kidney bend', 'a.u.', 'Bean/kidney bend of the nucleus, per cell: the middle shifts sideways against the ends by 3/4 of this times the short semi-axis. 0 = straight.', 0, 1, 0.05, 0, 0.3),
     range('nucSmooth', 'Lobe smoothness', 'slope', 'How the irregularity spreads over lobes: amplitude of k lobes ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.', 0, 4, 0.1, 2.5, { adv, fmt: fx(1) }),
     range('nucThickIrreg', 'Height irreg.', 'rms', 'Lumpiness of the nucleus top and bottom: rms relative variation of its thickness at the edge (tilt, bumps). 0 = ellipsoid profile.', 0, 0.4, 0.01, 0.1, { adv, fmt: fx(2) }),
-    range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.5, { fmt: fx(2) }),
+    range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.8, { fmt: fx(2) }),
   ] },
   { id: 'cyto', title: 'Cytoplasm', items: [
     preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {

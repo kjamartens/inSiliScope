@@ -78,7 +78,7 @@ lobes, a kidney bend, an uneven thickness and a top/bottom asymmetry, carried in
   | `nucBendMin`/`nucBendMax` | 0 / 0.3 | kidney bend, per cell |
   | `nucSmooth` | 2.5 | spectral slope |
   | `nucThickIrreg` | 0.1 | rms relative thickness variation at the edge |
-  | `nucAsym` | 0.5 | top/bottom asymmetry, -0.9..0.9: > 0 a wider base, < 0 a wider top |
+  | `nucAsym` | 0.8 | top/bottom asymmetry, -0.9..0.9: > 0 a wider base, < 0 a wider top |
 
   The slider extremes (irregularity 0.3, bend 1, height 0.4, smoothness 0, asymmetry +-0.9) were checked: the
   nucleus is enveloped laterally and vertically, no microtubule point lies inside it, and the cytoplasm stays
