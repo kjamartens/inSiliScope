@@ -12,6 +12,8 @@
 //
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
+#include "ChirpZ.h"
+#include "FftRadix2.h"
 #include "SMLMZernike.h"
 #include "ZernikePsf.h"
 
@@ -22,6 +24,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -37,6 +40,135 @@ void Check(bool ok, const std::string& what)
 }
 
 sim::PsfGeneratorRequest FixtureRequest();
+
+namespace ref {
+// The pre-2026-10-04 one-line chirp-Z (ZernikePsf.cpp's CztPlan::Apply with
+// the one-line Fft1d, bit reversal computed in the loop), verbatim.
+void Fft1d(double* re, double* im, const sim::FftTwiddles& tw)
+{
+   const int n = tw.n;
+   for (int i = 1, j = 0; i < n; ++i)
+   {
+      int bit = n >> 1;
+      for (; j & bit; bit >>= 1)
+         j ^= bit;
+      j ^= bit;
+      if (i < j)
+      {
+         std::swap(re[i], re[j]);
+         std::swap(im[i], im[j]);
+      }
+   }
+   for (int len = 2; len <= n; len <<= 1)
+   {
+      const int half = len / 2;
+      const double* tc = tw.c.data() + (half - 1);
+      const double* ts = tw.s.data() + (half - 1);
+      for (int i = 0; i < n; i += len)
+      {
+         double* ar = re + i;
+         double* ai = im + i;
+         double* br = re + i + half;
+         double* bi = im + i + half;
+         for (int k = 0; k < half; ++k)
+         {
+            const double cr = tc[k], ci = ts[k];
+            const double vr = br[k] * cr - bi[k] * ci, vi = br[k] * ci + bi[k] * cr;
+            br[k] = ar[k] - vr;
+            bi[k] = ai[k] - vi;
+            ar[k] += vr;
+            ai[k] += vi;
+         }
+      }
+   }
+}
+
+void Apply(const sim::CztPlan& p, const double* inRe, const double* inIm, double* outRe, double* outIm, double* aRe,
+           double* aIm)
+{
+   const int L = p.L, M = p.M, P = p.P;
+   std::fill(aRe, aRe + L, 0.0);
+   std::fill(aIm, aIm + L, 0.0);
+   for (int m = 0; m < M; ++m)
+   {
+      const double cr = p.preC[static_cast<size_t>(m)], ci = p.preS[static_cast<size_t>(m)];
+      aRe[m] = inRe[m] * cr - inIm[m] * ci;
+      aIm[m] = inRe[m] * ci + inIm[m] * cr;
+   }
+   Fft1d(aRe, aIm, p.fwd);
+   for (int i = 0; i < L; ++i)
+   {
+      const double gr = p.gRe[static_cast<size_t>(i)], gi = p.gIm[static_cast<size_t>(i)];
+      const double re = aRe[i] * gr - aIm[i] * gi;
+      const double im = aRe[i] * gi + aIm[i] * gr;
+      aRe[i] = re;
+      aIm[i] = im;
+   }
+   Fft1d(aRe, aIm, p.inv);
+   for (int q = 0; q < P; ++q)
+   {
+      const double convRe = aRe[q] / L, convIm = aIm[q] / L;
+      const double cc1 = p.c1[static_cast<size_t>(q)], ss1 = p.s1[static_cast<size_t>(q)];
+      const double sRe = convRe * cc1 - convIm * ss1, sIm = convRe * ss1 + convIm * cc1;
+      const double cc2 = p.c2[static_cast<size_t>(q)], ss2 = p.s2[static_cast<size_t>(q)];
+      outRe[q] = sRe * cc2 - sIm * ss2;
+      outIm[q] = sRe * ss2 + sIm * cc2;
+   }
+}
+} // namespace ref
+
+// Random pupil-like lines through the batched transform (and its pruned
+// first stages) must equal the one-line transform bit for bit: the fixture's
+// geometry (M 64, P 65) and the adapter default's (P 841).
+void ChirpZBitExact()
+{
+   std::mt19937_64 rng(5);
+   std::uniform_real_distribution<double> u(-1.0, 1.0);
+   for (int P : {65, 841})
+   {
+      const sim::CztPlan plan(64, 0.0123, -0.3936, P, 1.6667e-8, -7.0e-6);
+      constexpr int B = 4;
+      std::vector<double> in[2 * B], out[2 * B], want[2 * B];
+      const double* inR[B];
+      const double* inI[B];
+      double* outR[B];
+      double* outI[B];
+      for (int b = 0; b < B; ++b)
+      {
+         in[b].resize(64);
+         in[B + b].resize(64);
+         for (int m = 0; m < 64; ++m)
+         {
+            // Zeros outside a disk, as the pupil has.
+            const bool inside = (m - 32) * (m - 32) + (b * 7 - 14) * (b * 7 - 14) < 30 * 30;
+            in[b][m] = inside ? u(rng) : 0.0;
+            in[B + b][m] = inside ? u(rng) : 0.0;
+         }
+         out[b].resize(P); out[B + b].resize(P); want[b].resize(P); want[B + b].resize(P);
+         inR[b] = in[b].data(); inI[b] = in[B + b].data(); outR[b] = out[b].data(); outI[b] = out[B + b].data();
+      }
+      std::vector<double> aRe(plan.ScratchPerBatch(B)), aIm(aRe.size());
+      plan.Apply<B>(inR, inI, outR, outI, aRe.data(), aIm.data());
+      bool same = true;
+      for (int b = 0; b < B; ++b)
+      {
+         ref::Apply(plan, inR[b], inI[b], want[b].data(), want[B + b].data(), aRe.data(), aIm.data());
+         same = same && std::memcmp(want[b].data(), out[b].data(), P * sizeof(double)) == 0 &&
+                std::memcmp(want[B + b].data(), out[B + b].data(), P * sizeof(double)) == 0;
+      }
+      // One line alone (B = 1), too.
+      std::vector<double> o1(P), o1i(P);
+      double* o1p[1] = {o1.data()};
+      double* o1ip[1] = {o1i.data()};
+      plan.Apply<1>(inR, inI, o1p, o1ip, aRe.data(), aIm.data());
+      same = same && std::memcmp(want[0].data(), o1.data(), P * sizeof(double)) == 0 &&
+             std::memcmp(want[B].data(), o1i.data(), P * sizeof(double)) == 0;
+      char buf[160];
+      std::snprintf(buf, sizeof(buf), "chirp-Z batched (4 lines, pruned %d-blocks) and single = the one-line transform bit for bit, P = %d",
+                    plan.sparseBlock, P);
+      Check(same, buf);
+   }
+}
 
 // The adapter's default request (BuildPsfGeneratorRequest at its defaults):
 // 70 px half width x os 6, 71 planes, MixedRealisticObjective (or the
@@ -193,6 +325,8 @@ int main(int argc, char** argv)
          Check(std::fabs(s - 1.0) < 1e-5 && std::fabs(b - 16.0) < 1e-3, "kernel cache planes sum to 1, block sums to os^2");
       }
    }
+
+   ChirpZBitExact();
 
    if (argc > 2 && std::strcmp(argv[2], "--bench") == 0)
    {

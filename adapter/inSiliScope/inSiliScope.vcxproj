@@ -177,6 +177,7 @@
     <ClInclude Include="Simulation\SMLMZernike.h" />
     <ClInclude Include="Simulation\ZernikePsf.h" />
     <ClInclude Include="Simulation\FftRadix2.h" />
+    <ClInclude Include="Simulation\ChirpZ.h" />
     <ClInclude Include="Simulation\SMLMCounterRng.h" />
     <ClInclude Include="Simulation\GpuSimD3D11.h" />
     <ClInclude Include="Simulation\SMLMBackground.h" />
