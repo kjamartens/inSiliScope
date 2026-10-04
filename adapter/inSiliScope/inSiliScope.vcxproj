@@ -118,6 +118,7 @@
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
+    <ClCompile Include="..\..\core\src\blockstore.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
     <ClCompile Include="..\..\core\src\cytomesh.cpp" />
@@ -136,6 +137,10 @@
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
     <ClCompile Include="Simulation\SMLMZernike.cpp" />
     <ClCompile Include="Simulation\ZernikePsf.cpp" />
+    <ClCompile Include="Simulation\SplatSse2.cpp" />
+    <ClCompile Include="Simulation\SplatAvx2.cpp">
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <ClCompile Include="Simulation\GpuSimD3D11.cpp" />
     <ClCompile Include="Simulation\SMLMBackground.cpp" />
   </ItemGroup>
@@ -146,6 +151,9 @@
     <ClInclude Include="Simulation\CellFieldSource.h" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\Parallel.h" />
+    <ClInclude Include="Simulation\Timing.h" />
+    <ClInclude Include="Simulation\SplatKernel.h" />
+    <ClInclude Include="Simulation\SplatKernel.inl" />
     <ClInclude Include="Simulation\Illumination.h" />
     <ClInclude Include="Simulation\BrightfieldRender.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
@@ -170,6 +178,7 @@
     <ClInclude Include="Simulation\SMLMZernike.h" />
     <ClInclude Include="Simulation\ZernikePsf.h" />
     <ClInclude Include="Simulation\FftRadix2.h" />
+    <ClInclude Include="Simulation\ChirpZ.h" />
     <ClInclude Include="Simulation\SMLMCounterRng.h" />
     <ClInclude Include="Simulation\GpuSimD3D11.h" />
     <ClInclude Include="Simulation\SMLMBackground.h" />

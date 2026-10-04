@@ -78,12 +78,43 @@ class BrightfieldScene
 public:
    // Builds the slices and the per-source exit fields for spec (world
    // `worldVersion` of src). A repeat with the same spec and version is free.
-   bool Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, std::string& err);
-   // Test hook: the same scene from given phase slices instead of the world:
-   // phase[k * GridNx * GridNy + i] = k0 dz dn of slice k (k = 0 lowest),
-   // dz = zTopUm / slices; grid size as Update would choose (GridFor).
+   bool Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, std::string& err)
+   {
+      return Update(src, spec, worldVersion, false, err);
+   }
+   // deferSources: the per-source propagation (the exit fields) is left to
+   // Image / SourceImageAt, which compute it on demand (the viewer's worker
+   // split, spec/PORT.md 15: another scene gets the phase screens through
+   // UpdateFromPhase and computes some of the sources).
+   bool Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, bool deferSources,
+               std::string& err);
+   // The same scene from given phase slices instead of the world (the checks,
+   // and the worker split): phase[k * GridNx * GridNy + i] = k0 dz dn of slice
+   // k (k = 0 lowest), dz = zTopUm / slices; atten the amplitude factor per
+   // element (empty: 1); objectZUm the height of the lowest screen (Update's
+   // ObjectZUm: the phase-weighted mean for a thin screen); grid size as
+   // Update would choose (GridFor).
    bool UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm, const std::vector<float>& phase,
+                        std::string& err)
+   {
+      return UpdateFromPhase(spec, slices, zTopUm, 0.5 * zTopUm / std::max(1, slices), phase, std::vector<float>(),
+                             false, err);
+   }
+   bool UpdateFromPhase(const BrightfieldSpec& spec, int slices, double zTopUm, double objectZUm,
+                        const std::vector<float>& phase, const std::vector<float>& atten, bool deferSources,
                         std::string& err);
+   // The scene's screens, for another scene's UpdateFromPhase.
+   const std::vector<float>& Phase() const { return phase_; }
+   const std::vector<float>& Atten() const { return atten_; }
+   double ZTopUm() const { return dz_ * slices_; }
+   // One source's transmitted intensity per camera pixel at focusUm (its
+   // exit field computed on demand); SetImageFromSources forms the image of
+   // all sources (Sources() x width x height floats, source-major) exactly
+   // as Image() does (the same sum in source order), and caches it for
+   // Image(focusUm).
+   bool SourceImageAt(double focusUm, int s, std::vector<float>& out, std::string& err);
+   bool SetImageFromSources(double focusUm, const float* slots);
+   bool HasImage(double focusUm) const { return valid_ && haveImage_ && imageFocus_ == focusUm; }
    static void GridFor(const BrightfieldSpec& spec, unsigned& nx, unsigned& ny, unsigned& marginCells);
    // Grid cells per camera pixel: the quality's upscale, raised until the
    // pitch is <= lambda / (4 n_medium) (the propagating field and the
@@ -119,7 +150,9 @@ private:
                 bool conjOut) const;
    void ExitField(const Source& s, std::vector<cfloat>& u, std::vector<cfloat>& work) const;
    bool Begin(const BrightfieldSpec& spec, std::string& err);
-   void Finish();
+   void Finish(bool deferSources);
+   void Defocus(double focusUm, std::vector<cfloat>& defocus) const;
+   void EnsureExitFields();   // the deferred per-source propagation (parallel over the sources)
    void SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u, std::vector<cfloat>& work,
                     float* camOut) const;
 

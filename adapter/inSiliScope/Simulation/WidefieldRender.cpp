@@ -15,6 +15,7 @@
 #include "insiliscope/insiliscope.h"
 
 #include "Parallel.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -278,9 +279,9 @@ void KernelWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
 {
    const int D = 2 * R + 1, n = c_.sizeOversampled;
    out.assign(static_cast<size_t>(D) * D, 0.0f);
-   if (p < 0 || p >= static_cast<int>(c_.planes.size()))
+   if (p < 0 || p >= static_cast<int>(c_.Planes().size()))
       return;
-   const std::vector<float>& P = c_.planes[static_cast<size_t>(p)];
+   const std::vector<float>& P = c_.Planes()[static_cast<size_t>(p)];
    for (int dy = -R; dy <= R; ++dy)
    {
       const int ya = s0_ + dy * r_, yb = std::min(n, ya + r_);
@@ -687,11 +688,16 @@ bool WidefieldScene::Update(CellFieldSource& src, const IlluminationPattern& pat
       WidefieldGridSpec column = g;
       column.zMinUm = kColumnMinUm;
       column.zMaxUm = kColumnMaxUm;
+      const auto tTiles = TimingClock::now();
       if (!tiles_->Planes(src, column, spec.worldVersion, dyes_, err))
          return false;
+      TimingLog("wf.scene.dye-tiles", TimingSince(tTiles));
    }
    rect_ = g;
-   return Finish(spec, pattern, psf, rectChanged, err);
+   const auto tFinish = TimingClock::now();
+   const bool ok = Finish(spec, pattern, psf, rectChanged, err);
+   TimingLog("wf.scene.finish", TimingSince(tFinish));
+   return ok;
 }
 
 bool WidefieldScene::UpdateFromGrid(const WidefieldDyeGrid& grid, const IlluminationPattern& pattern,
@@ -750,7 +756,9 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    {
       const unsigned oldX = nx_, oldY = ny_;
       const int oldR = R_;
+      const auto tFft = TimingClock::now();
       SetupFft(psf, spec.kernelCapUm, samePsf);
+      TimingLog("wf.scene.setup-fft", TimingSince(tFft));
       fftChanged = rectChanged || !samePsf || nx_ != oldX || ny_ != oldY || R_ != oldR ||
                    spec.psfVersion != kernelsVersion_;
       if (fftChanged)
@@ -763,7 +771,10 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    }
    const bool weightsChanged = fftChanged || rectChanged || wp != wp_ || dD != dD_;
    illum_.swap(ill);
+   const bool doseChanged = dD != dD_;
    dD_.swap(dD);
+   if (doseChanged || dDLevel_.size() != dD_.size())
+      IndexFrameDoses();
    if (weightsChanged)
    {
       wp_.swap(wp);
@@ -785,7 +796,11 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    if (weightsChanged || moved || psfChanged)
       ++imagesVersion_;
    if (weightsChanged || focusChanged || moved || psfChanged)
+   {
+      const auto tRefocus = TimingClock::now();
       Refocus(psf);
+      TimingLog("wf.scene.refocus", TimingSince(tRefocus));
+   }
    return true;
 }
 
@@ -1398,10 +1413,37 @@ bool WidefieldScene::SetImages(std::vector<std::vector<float>>& imgs)
 
 // ---- Bleaching -----------------------------------------------------------------
 
+void WidefieldScene::IndexFrameDoses()
+{
+   dDLevels_.clear();
+   dDLevel_.clear();
+   std::vector<float> levels(dD_.begin(), dD_.end());
+   std::sort(levels.begin(), levels.end());
+   levels.erase(std::unique(levels.begin(), levels.end()), levels.end());
+   if (levels.size() > kMaxDoseLevels)
+      return;
+   dDLevels_ = levels;
+   dDLevel_.resize(dD_.size());
+   for (size_t i = 0; i < dD_.size(); ++i)
+      dDLevel_[i] = static_cast<uint16_t>(std::lower_bound(levels.begin(), levels.end(), dD_[i]) - levels.begin());
+}
+
 void WidefieldScene::FreshBleachWeights(double framesBefore, std::vector<float>& wb) const
 {
    wb.resize(dD_.size());
    const double B = spec_.phot.photonBudget;
+   if (dDLevel_.size() == dD_.size() && !dDLevels_.empty())
+   {
+      // The same expression per column as below, evaluated once per distinct
+      // dose (dDLevels_[dDLevel_[i]] == dD_[i] exactly).
+      std::vector<float> perLevel(dDLevels_.size());
+      for (size_t l = 0; l < dDLevels_.size(); ++l)
+         perLevel[l] = static_cast<float>(
+            WidefieldBleachingPhotons(spec_.eta, B, framesBefore * dDLevels_[l], dDLevels_[l]));
+      for (size_t i = 0; i < dD_.size(); ++i)
+         wb[i] = perLevel[dDLevel_[i]];
+      return;
+   }
    for (size_t i = 0; i < dD_.size(); ++i)
       wb[i] = static_cast<float>(WidefieldBleachingPhotons(spec_.eta, B, framesBefore * dD_[i], dD_[i]));
 }

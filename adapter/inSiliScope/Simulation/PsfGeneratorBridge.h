@@ -29,7 +29,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -147,23 +149,11 @@ struct PsfGeneratorRequest
    PsfInterpMode interpMode = PsfInterpMode::Nearest;
 };
 
-// One oversampled PSF kernel (or Z-stack of them), as computed by the
-// embedded PSFGenerator JVM bridge -- see ComputePsfKernelCache. Every
-// plane is raw (unnormalized) computed intensity; SplatPsfKernel
-// normalizes the downsampled, per-emitter kernel to sum to 1 before
-// scaling by photon count, so an absolute input scale doesn't matter.
-struct PsfKernelCache
+// The arrays of one kernel stack, shared (immutable) by every copy of the
+// PsfKernelCache that refers to it: the memo, the camera, the WideField PSF
+// and the GPU host hand the same hundreds of MB around by pointer.
+struct PsfKernelPlanes
 {
-   bool valid = false;
-   int oversampling = 1;
-   int halfWidthOversampled = 0; // half-width of each plane, oversampled px
-   int sizeOversampled = 0;      // 2*halfWidthOversampled + 1
-   int nz = 1;
-   double zStepNm = 0.0;
-   // Copied from PsfGeneratorRequest::interpMode by ComputePsfKernelCache --
-   // SplatPsfKernel's caller (RenderPhotonImage) reads it from here rather
-   // than needing its own separate parameter.
-   PsfInterpMode interpMode = PsfInterpMode::Nearest;
    // planes[z] has sizeOversampled*sizeOversampled floats, row-major (x
    // fastest), each normalized to sum 1 (a photon probability mass per
    // oversampled cell) by ComputePsfKernelCache.
@@ -178,7 +168,49 @@ struct PsfKernelCache
    // 16 reads per pixel instead of 16*os^2 for Cubic. Float, as the GPU
    // holds them too, so CPU and GPU interpolate the same numbers.
    std::vector<std::vector<float>> blockSums;
+   // Column-polyphase copy of blockSums (2026-10-03, speed only): with
+   // qw = blockSumWidth / os, polySums[z][(r*os + p)*qw + q] =
+   // blockSums[z][r*W + q*os + p]. The splat's taps for consecutive camera
+   // pixels are os columns apart in blockSums and adjacent here, so a pixel
+   // row is a few contiguous multiply-add loops (SplatKernel.h). Empty when
+   // W is not a multiple of os (never for the kernels built here).
+   std::vector<std::vector<float>> polySums;
+   // Process-wide unique per stack (PsfKernelCache::SetData), so a consumer
+   // can tell a new kernel from a repeat without comparing the arrays.
+   uint64_t serial = 0;
+};
+
+// One oversampled PSF kernel (or Z-stack of them), as computed by
+// ComputePsfKernelCache (ZernikePsf.h in C++, or the embedded PSFGenerator
+// JVM bridge). Every plane is normalized to sum 1 (see PsfKernelPlanes), so
+// a splat of N photons deposits N. Cheap to copy: the arrays are shared.
+struct PsfKernelCache
+{
+   bool valid = false;
+   int oversampling = 1;
+   int halfWidthOversampled = 0; // half-width of each plane, oversampled px
+   int sizeOversampled = 0;      // 2*halfWidthOversampled + 1
+   int nz = 1;
+   double zStepNm = 0.0;
+   // Copied from PsfGeneratorRequest::interpMode by ComputePsfKernelCache --
+   // SplatPsfKernel's caller (RenderPhotonImage) reads it from here rather
+   // than needing its own separate parameter.
+   PsfInterpMode interpMode = PsfInterpMode::Nearest;
    int blockSumWidth = 0;
+   // The planes, block sums and polyphase sums (shared, immutable).
+   std::shared_ptr<const PsfKernelPlanes> data;
+
+   const std::vector<std::vector<float>>& Planes() const { return data ? data->planes : NoPlanes(); }
+   const std::vector<std::vector<float>>& BlockSums() const { return data ? data->blockSums : NoPlanes(); }
+   const std::vector<std::vector<float>>& PolySums() const { return data ? data->polySums : NoPlanes(); }
+   uint64_t Serial() const { return data ? data->serial : 0; }
+   // Takes the arrays of a freshly built stack (assigns their serial).
+   void SetData(PsfKernelPlanes&& d);
+   static const std::vector<std::vector<float>>& NoPlanes()
+   {
+      static const std::vector<std::vector<float>> none;
+      return none;
+   }
 
    // Index of the nominally in-focus plane (nz/2) -- used until per-
    // emitter/global Z is wired up (steps 2-3).
@@ -240,8 +272,26 @@ int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double waveleng
 // what any fitter could achieve, not a measurement of one.
 std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, double bgPerPx, double cameraPxNm);
 
-// Builds the block sums of one plane (see PsfKernelCache::blockSums).
+// Opt-in disk store of the last computed kernel: one file, psf_kernel.bin in
+// `dir` (made if needed), rewritten whole after a compute whose planes fit
+// in 512 MB (the adapter's default kernel is ~200 MB) and read on a memo miss
+// when the request and the kernel code version match (the block and
+// polyphase sums are rebuilt from the planes). "" (the default) = none. The
+// hosts set it from General_DiskCache = CellsAndPsf / --disk-cache 2
+// (CacheDir.h); nothing under Emscripten. ComputePsfKernelCache also makes a
+// second requester of a kernel another thread is computing wait for that
+// thread (the adapter's start-up preload and its live loop ask for the same
+// kernel) instead of computing it twice.
+void SetPsfKernelDiskCacheDir(const std::string& dir);
+std::string PsfKernelDiskCacheDir();
+
+// Builds the block sums of one plane (see PsfKernelPlanes::blockSums).
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os);
+// The column-polyphase copy of one plane's block sums (bw x bw; see
+// PsfKernelPlanes::polySums). Empty when bw is not a multiple of os.
+std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os);
+// Fills d.polySums from d.blockSums (every plane; bw = the block-sum width).
+void BuildPolyphaseSums(PsfKernelPlanes& d, int bw, int os);
 
 // Everything about one emitter's splat that does not depend on the camera
 // pixel -- webSMLM's simSplatSetup(): the centre pixel (x0, y0) =
@@ -278,6 +328,7 @@ struct SplatPlan
 {
    SplatSetupResult st;
    const float* B = nullptr;        // block sums read (the plane's, or shiftedSums)
+   const float* P = nullptr;        // the plane's polySums (nullptr: Fft, or none built)
    std::vector<float> shiftedSums;  // Fft only
 };
 bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,

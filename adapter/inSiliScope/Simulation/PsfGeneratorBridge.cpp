@@ -1,13 +1,16 @@
 #include "PsfGeneratorBridge.h"
 #include "FftRadix2.h"
+#include "SplatKernel.h"
 #include "ZernikePsf.h"
 #include "Parallel.h"
 #include "PsfResource.h"
+#include "Timing.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -16,6 +19,10 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#if !defined(__EMSCRIPTEN__)
+#include <filesystem>
+#include <fstream>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -628,12 +635,13 @@ bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& ou
       outCache.nz = nz;
       outCache.zStepNm = req.zStepNm;
       outCache.interpMode = req.interpMode;
-      outCache.planes.assign(static_cast<size_t>(nz), std::vector<float>(planeFloats));
-      outCache.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
+      PsfKernelPlanes d;
+      d.planes.assign(static_cast<size_t>(nz), std::vector<float>(planeFloats));
+      d.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
       outCache.blockSumWidth = size + oversampling - 1;
       for (int z = 0; z < nz; ++z)
       {
-         std::vector<float>& plane = outCache.planes[static_cast<size_t>(z)];
+         std::vector<float>& plane = d.planes[static_cast<size_t>(z)];
          std::memcpy(plane.data(), flat.data() + static_cast<size_t>(z) * planeFloats, planeFloats * sizeof(float));
          // Photon-normalize (sum 1): each entry becomes a probability mass,
          // so a splat of N photons deposits N (minus what leaves the image).
@@ -643,8 +651,10 @@ bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& ou
          if (sum > 0.0)
             for (float& v : plane)
                v = static_cast<float>(v / sum);
-         outCache.blockSums[static_cast<size_t>(z)] = BuildBlockSums(plane.data(), size, oversampling);
+         d.blockSums[static_cast<size_t>(z)] = BuildBlockSums(plane.data(), size, oversampling);
       }
+      BuildPolyphaseSums(d, outCache.blockSumWidth, oversampling);
+      outCache.SetData(std::move(d));
       outCache.valid = true;
       ok = true;
    } while (false);
@@ -673,13 +683,149 @@ bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
           a.zStepNm == b.zStepNm;
 }
 
+// ---- the opt-in disk store of the last kernel (SetPsfKernelDiskCacheDir) ----
+std::mutex g_psfDiskMutex;
+std::string g_psfDiskDir;
+#if !defined(__EMSCRIPTEN__)
+constexpr char kPsfFileMagic[8] = { 'I', 'S', 'C', 'P', 'S', 'F', '0', '1' };
+// Bump when the kernel computation changes (ZernikePsf.cpp, the JVM models'
+// request mapping): planes stored by an older version are not taken.
+constexpr const char* kPsfKernelCodeVersion = "2026-10-04";
+constexpr double kPsfDiskMaxBytes = 512.0 * 1024 * 1024;
+
+uint64_t FnvMix(uint64_t h, const void* data, size_t n)
+{
+   const unsigned char* b = static_cast<const unsigned char*>(data);
+   for (size_t i = 0; i < n; i++)
+   {
+      h ^= b[i];
+      h *= 1099511628211ull;
+   }
+   return h;
+}
+
+// The request as SameKernel compares it, plus the code version.
+uint64_t KernelFingerprint(const PsfGeneratorRequest& r)
+{
+   uint64_t h = 14695981039346656037ull;
+   h = FnvMix(h, kPsfKernelCodeVersion, std::strlen(kPsfKernelCodeVersion));
+   const int32_t ints[6] = { static_cast<int32_t>(r.model), static_cast<int32_t>(r.maskType), r.maskModes,
+                             r.oversampling, r.kernelHalfWidthPx, r.nz };
+   h = FnvMix(h, ints, sizeof ints);
+   const double dbls[9] = { r.wavelengthNm, r.na, r.immersionIndex, r.sampleIndex, r.workingDistanceUm,
+                            r.sampleDepthNm, r.pixelSizeNm, r.maskWaist, r.zStepNm };
+   h = FnvMix(h, dbls, sizeof dbls);
+   h = FnvMix(h, r.zernikeCoefficients.data(), r.zernikeCoefficients.size());
+   return h;
+}
+
+std::filesystem::path PsfDiskPath()
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   if (g_psfDiskDir.empty())
+      return std::filesystem::path();
+   return std::filesystem::u8path(g_psfDiskDir) / "psf_kernel.bin";
+}
+#endif
+
+bool LoadKernelFromDisk(const PsfGeneratorRequest& req, PsfKernelCache& out)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)req; (void)out;
+   return false;
+#else
+   namespace fs = std::filesystem;
+   const fs::path path = PsfDiskPath();
+   if (path.empty())
+      return false;
+   std::ifstream in(path, std::ios::binary);
+   if (!in)
+      return false;
+   char magic[8];
+   uint64_t fp = 0;
+   int32_t geom[5] = { 0, 0, 0, 0, 0 };   // oversampling, halfWidthOversampled, sizeOversampled, nz, blockSumWidth
+   double zStepNm = 0.0;
+   in.read(magic, 8);
+   in.read(reinterpret_cast<char*>(&fp), 8);
+   in.read(reinterpret_cast<char*>(geom), sizeof geom);
+   in.read(reinterpret_cast<char*>(&zStepNm), 8);
+   if (!in || std::memcmp(magic, kPsfFileMagic, 8) != 0 || fp != KernelFingerprint(req))
+      return false;
+   const int os = geom[0], half = geom[1], size = geom[2], nz = geom[3], bw = geom[4];
+   if (os < 1 || os > 64 || half < 0 || size != 2 * half + 1 || size > 8192 || nz < 1 || nz > 4096 || bw != size + os - 1)
+      return false;
+   PsfKernelPlanes d;
+   d.planes.assign(static_cast<size_t>(nz), std::vector<float>());
+   for (int z = 0; z < nz; z++)
+   {
+      d.planes[z].resize(static_cast<size_t>(size) * size);
+      in.read(reinterpret_cast<char*>(d.planes[z].data()), static_cast<std::streamsize>(d.planes[z].size() * sizeof(float)));
+      if (!in)
+         return false;
+   }
+   d.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
+   ParallelFor(static_cast<unsigned>(nz), [&](unsigned z) { d.blockSums[z] = BuildBlockSums(d.planes[z].data(), size, os); });
+   BuildPolyphaseSums(d, bw, os);
+   out = PsfKernelCache();
+   out.oversampling = os;
+   out.halfWidthOversampled = half;
+   out.sizeOversampled = size;
+   out.nz = nz;
+   out.zStepNm = zStepNm;
+   out.interpMode = req.interpMode;
+   out.blockSumWidth = bw;
+   out.SetData(std::move(d));
+   out.valid = true;
+   return true;
+#endif
+}
+
+void SaveKernelToDisk(const PsfGeneratorRequest& req, const PsfKernelCache& c)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)req; (void)c;
+#else
+   namespace fs = std::filesystem;
+   const fs::path path = PsfDiskPath();
+   if (path.empty() || !c.valid || c.Planes().empty())
+      return;
+   const double bytes = static_cast<double>(c.nz) * c.sizeOversampled * c.sizeOversampled * sizeof(float);
+   if (bytes > kPsfDiskMaxBytes)
+      return;
+   std::error_code ec;
+   fs::create_directories(path.parent_path(), ec);
+   const fs::path tmp = path.string() + ".tmp";
+   {
+      std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+      if (!out)
+         return;
+      const uint64_t fp = KernelFingerprint(req);
+      const int32_t geom[5] = { c.oversampling, c.halfWidthOversampled, c.sizeOversampled, c.nz, c.blockSumWidth };
+      out.write(kPsfFileMagic, 8);
+      out.write(reinterpret_cast<const char*>(&fp), 8);
+      out.write(reinterpret_cast<const char*>(geom), sizeof geom);
+      out.write(reinterpret_cast<const char*>(&c.zStepNm), 8);
+      for (const std::vector<float>& plane : c.Planes())
+         out.write(reinterpret_cast<const char*>(plane.data()), static_cast<std::streamsize>(plane.size() * sizeof(float)));
+      if (!out)
+         return;
+   }
+   fs::rename(tmp, path, ec);
+   if (ec)
+      fs::remove(tmp, ec);
+#endif
+}
+
 // The last few kernels computed in this process: a live-mode config change
 // or a new stack that leaves the PSF parameters alone (exposure, gain,
-// seed, ...) gets the kernel it would recompute.
+// seed, ...) gets the kernel it would recompute. inFlight: the requests
+// being computed right now (a second requester waits for the first).
 struct KernelMemo
 {
    std::mutex mutex;
+   std::condition_variable cv;
    std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const PsfKernelCache>>> entries; // most recent first
+   std::vector<PsfGeneratorRequest> inFlight;
 };
 
 KernelMemo& Memo()
@@ -728,32 +874,90 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
 
 } // namespace
 
+void SetPsfKernelDiskCacheDir(const std::string& dir)
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   g_psfDiskDir = dir;
+}
+
+std::string PsfKernelDiskCacheDir()
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   return g_psfDiskDir;
+}
+
 bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
                             const std::function<void(const std::string&)>& logCallback)
 {
    outError.clear();
-   {
-      KernelMemo& m = Memo();
-      std::lock_guard<std::mutex> g(m.mutex);
-      for (size_t i = 0; i < m.entries.size(); ++i)
-      {
-         if (!SameKernel(m.entries[i].first, req))
-            continue;
-         outCache = *m.entries[i].second;
-         outCache.interpMode = req.interpMode;
-         std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
-         if (logCallback)
-            logCallback("PSF: kernel unchanged, reusing the one already computed.");
-         return true;
-      }
-   }
-   if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
-      return false;
+   const auto tStart = TimingClock::now();
    KernelMemo& m = Memo();
+   {
+      std::unique_lock<std::mutex> g(m.mutex);
+      for (;;)
+      {
+         bool hit = false;
+         for (size_t i = 0; i < m.entries.size() && !hit; ++i)
+         {
+            if (!SameKernel(m.entries[i].first, req))
+               continue;
+            outCache = *m.entries[i].second;
+            outCache.interpMode = req.interpMode;
+            std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
+            hit = true;
+         }
+         if (hit)
+         {
+            if (logCallback)
+               logCallback("PSF: kernel unchanged, reusing the one already computed.");
+            TimingLog("psf.memo-hit", TimingSince(tStart));
+            return true;
+         }
+         // Another thread is computing this very kernel (the adapter's
+         // start-up preload and its live loop, or two stacks): wait for it
+         // and take its memo entry instead of computing a second time.
+         bool busy = false;
+         for (const PsfGeneratorRequest& r : m.inFlight)
+            busy = busy || SameKernel(r, req);
+         if (!busy)
+            break;
+         m.cv.wait(g);
+      }
+      m.inFlight.push_back(req);
+   }
+   struct InFlightGuard
+   {
+      KernelMemo& m;
+      const PsfGeneratorRequest& req;
+      ~InFlightGuard()
+      {
+         std::lock_guard<std::mutex> g(m.mutex);
+         for (auto it = m.inFlight.begin(); it != m.inFlight.end(); ++it)
+            if (SameKernel(*it, req)) { m.inFlight.erase(it); break; }
+         m.cv.notify_all();
+      }
+   } inFlight{ m, req };
+   if (LoadKernelFromDisk(req, outCache))
+   {
+      if (logCallback)
+         logCallback("PSF: kernel read from the disk cache (" + PsfKernelDiskCacheDir() + ").");
+      TimingLog("psf.disk-hit", TimingSince(tStart));
+   }
+   else
+   {
+      if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
+         return false;
+      TimingLog("psf.compute", TimingSince(tStart));
+      const auto tDisk = TimingClock::now();
+      SaveKernelToDisk(req, outCache);
+      TimingLog("psf.disk-store", TimingSince(tDisk));
+   }
+   const auto tStore = TimingClock::now();
    std::lock_guard<std::mutex> g(m.mutex);
    m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
    if (m.entries.size() > kKernelMemoEntries)
       m.entries.resize(kKernelMemoEntries);
+   TimingLog("psf.memo-store", TimingSince(tStore));
    return true;
 }
 
@@ -799,6 +1003,38 @@ std::vector<float> BuildBlockSums(const float* kernel, int n, int os)
       }
    }
    return out;
+}
+
+std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os)
+{
+   std::vector<float> out;
+   if (bw <= 0 || os <= 0 || bw % os != 0)
+      return out;
+   const int qw = bw / os;
+   out.resize(static_cast<size_t>(bw) * bw);
+   for (int r = 0; r < bw; ++r)
+   {
+      const float* src = blockSums + static_cast<size_t>(r) * bw;
+      float* dst = out.data() + static_cast<size_t>(r) * os * qw;
+      for (int c = 0; c < bw; ++c)
+         dst[static_cast<size_t>(c % os) * qw + c / os] = src[c];
+   }
+   return out;
+}
+
+void BuildPolyphaseSums(PsfKernelPlanes& d, int bw, int os)
+{
+   d.polySums.assign(d.blockSums.size(), std::vector<float>());
+   ParallelFor(static_cast<unsigned>(d.blockSums.size()), [&](unsigned z) {
+      d.polySums[z] = BuildPolyphaseSums(d.blockSums[z].data(), bw, os);
+   });
+}
+
+void PsfKernelCache::SetData(PsfKernelPlanes&& d)
+{
+   static std::atomic<uint64_t> serial{0};
+   d.serial = ++serial;
+   data = std::make_shared<const PsfKernelPlanes>(std::move(d));
 }
 
 namespace {
@@ -988,12 +1224,16 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return false;
-   if (zIndex < 0 || zIndex >= cache.nz || cache.blockSums.size() != static_cast<size_t>(cache.nz))
+   if (zIndex < 0 || zIndex >= cache.nz || cache.BlockSums().size() != static_cast<size_t>(cache.nz))
       return false;
 
    const int os = std::max(1, cache.oversampling);
    const int n = cache.sizeOversampled;
-   plan.B = cache.blockSums[static_cast<size_t>(zIndex)].data();
+   const std::vector<std::vector<float>>& poly = cache.PolySums();
+   plan.B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
+   plan.P = nullptr;
+   if (poly.size() == static_cast<size_t>(cache.nz) && !poly[static_cast<size_t>(zIndex)].empty())
+      plan.P = poly[static_cast<size_t>(zIndex)].data();
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
@@ -1003,9 +1243,10 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
       const double tx = kc + (plan.st.x0 - xPx - 0.5) * os + 0.5, ty = kc + (plan.st.y0 - yPx - 0.5) * os + 0.5;
       const double rx = RoundHalfUp(tx), ry = RoundHalfUp(ty);
       std::vector<float> shifted =
-         FftShiftKernelTile(cache.planes[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry, parallelFft);
+         FftShiftKernelTile(cache.Planes()[static_cast<size_t>(zIndex)].data(), n, tx - rx, ty - ry, parallelFft);
       plan.shiftedSums = BuildBlockSums(shifted.data(), n, os);
       plan.B = plan.shiftedSums.data();
+      plan.P = nullptr;
       plan.st.bx = static_cast<int>(rx);
       plan.st.by = static_cast<int>(ry);
    }
@@ -1016,86 +1257,35 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
    return true;
 }
 
-namespace {
-
-// One camera pixel's interpolated block-sum read: taps j in [jLo, jHi) and i
-// in [iLo, iHi) (the taps inside the block-sum array), in index order --
-// the order and the operations of the original all-taps loop, which skipped
-// the same taps.
-inline double SplatPixel(const float* B, int bw, int r0, int c0, int jLo, int jHi, int iLo, int iHi,
-                         const double* wx, const double* wy)
-{
-   double sum = 0.0;
-   for (int j = jLo; j < jHi; ++j)
-   {
-      const float* brow = B + static_cast<size_t>(r0 + j) * bw;
-      double row = 0.0;
-      for (int i = iLo; i < iHi; ++i)
-         row += wx[i] * brow[c0 + i];
-      sum += wy[j] * row;
-   }
-   return sum;
-}
-
-template <int NT>
-inline double SplatPixelFull(const float* B, int bw, int r0, int c0, int jLo, int jHi, const double* wx,
-                             const double* wy)
-{
-   double sum = 0.0;
-   for (int j = jLo; j < jHi; ++j)
-   {
-      const float* brow = B + static_cast<size_t>(r0 + j) * bw + c0;
-      double row = 0.0;
-      for (int i = 0; i < NT; ++i)
-         row += wx[i] * brow[i];
-      sum += wy[j] * row;
-   }
-   return sum;
-}
-
-template <int NT>
-void SplatRowsT(std::vector<float>& img, unsigned width, int yLo, int yHi, const PsfKernelCache& cache,
-                const SplatPlan& plan, double totalPhotons)
-{
-   const int os = std::max(1, cache.oversampling);
-   const int camRad = cache.halfWidthOversampled / os;
-   const int off = os - 1;
-   const int bw = cache.blockSumWidth;
-   const SplatSetupResult& st = plan.st;
-   const float* B = plan.B;
-   const int dyLo = std::max(-camRad, yLo - st.y0), dyHi = std::min(camRad, yHi - 1 - st.y0);
-   const int dxLo = std::max(-camRad, -st.x0), dxHi = std::min(camRad, static_cast<int>(width) - 1 - st.x0);
-   for (int dy = dyLo; dy <= dyHi; ++dy)
-   {
-      const int r0 = st.by + dy * os + off;
-      const int jLo = std::max(0, -r0), jHi = std::min(NT, bw - r0);
-      float* rowOut = img.data() + static_cast<size_t>(st.y0 + dy) * width;
-      for (int dx = dxLo; dx <= dxHi; ++dx)
-      {
-         const int c0 = st.bx + dx * os + off;
-         const int iLo = std::max(0, -c0), iHi = std::min(NT, bw - c0);
-         double sum;
-         if (iLo == 0 && iHi == NT)
-            sum = SplatPixelFull<NT>(B, bw, r0, c0, jLo, jHi, st.wx, st.wy);
-         else
-            sum = SplatPixel(B, bw, r0, c0, jLo, jHi, iLo, iHi, st.wx, st.wy);
-         rowOut[st.x0 + dx] += static_cast<float>(totalPhotons * sum);
-      }
-   }
-}
-
-} // namespace
-
 void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int rowLo, int rowHi,
                const PsfKernelCache& cache, const SplatPlan& plan, double totalPhotons)
 {
-   const int yLo = std::max(0, rowLo), yHi = std::min(static_cast<int>(height), rowHi);
-   switch (plan.st.nTaps)
-   {
-   case 1: SplatRowsT<1>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   case 2: SplatRowsT<2>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   default: SplatRowsT<4>(img, width, yLo, yHi, cache, plan, totalPhotons); break;
-   }
+   // The per-pixel arithmetic lives in SplatKernel.inl (two copies: the
+   // baseline instruction set and AVX2, chosen here at run time; identical
+   // results, ctest sr_render).
+   SplatArgs a;
+   a.img = img.data();
+   a.width = width;
+   a.yLo = std::max(0, rowLo);
+   a.yHi = std::min(static_cast<int>(height), rowHi);
+   a.os = std::max(1, cache.oversampling);
+   a.camRad = cache.halfWidthOversampled / a.os;
+   a.bw = cache.blockSumWidth;
+   a.qw = a.bw % a.os == 0 ? a.bw / a.os : 0;
+   a.B = plan.B;
+   a.P = a.qw > 0 ? plan.P : nullptr;
+   a.x0 = plan.st.x0;
+   a.y0 = plan.st.y0;
+   a.bx = plan.st.bx;
+   a.by = plan.st.by;
+   a.nTaps = plan.st.nTaps;
+   a.wx = plan.st.wx;
+   a.wy = plan.st.wy;
+   a.photons = totalPhotons;
+   if (splat_avx2::Available())
+      splat_avx2::SplatRows(a);
+   else
+      splat_sse2::SplatRows(a);
 }
 
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
@@ -1164,7 +1354,7 @@ std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, do
                                            std::vector<double>(static_cast<size_t>(bw) * bh, 0.0));
    for (int k = 0; k < cache.nz; ++k)
    {
-      const std::vector<float>& s = cache.planes[static_cast<size_t>(k)];
+      const std::vector<float>& s = cache.Planes()[static_cast<size_t>(k)];
       std::vector<double>& img = binned[static_cast<size_t>(k)];
       for (int y = 0; y < bh * os; ++y)
          for (int x = 0; x < bw * os; ++x)

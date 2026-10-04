@@ -28,6 +28,13 @@ inline int& ParallelDepth()
    return depth;
 }
 
+// Number of ParallelFor calls that spawned threads (ISC_TIMING summaries).
+inline std::atomic<unsigned long>& ParallelForSpawns()
+{
+   static std::atomic<unsigned long> n{0};
+   return n;
+}
+
 template <class Fn>
 void ParallelFor(unsigned n, Fn fn)
 {
@@ -42,6 +49,7 @@ void ParallelFor(unsigned n, Fn fn)
          fn(i);
       return;
    }
+   ParallelForSpawns().fetch_add(1, std::memory_order_relaxed);
    std::atomic<unsigned> next{0};
    auto worker = [&]() {
       ++ParallelDepth();

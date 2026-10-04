@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // The viewer's "Make movie here" in BrightField mode, end to end in headless
 // Chromium: the BF rows show, the quality slider is sent (quality 1 and 3),
-// both make a movie and the info line says BrightField.
+// both make a movie and the info line says BrightField; the movie split
+// across the workers (the default) equals the single-worker movie
+// (?bfsplit=0) frame for frame.
 //   node tests/web/viewer_bf_movie.mjs
 import http from 'node:http';
 import fs from 'node:fs';
@@ -21,11 +23,12 @@ const server = http.createServer((req, res) => {
 const port = server.address().port;
 const browser = await chromium.launch();
 let fail = 0;
-for (const [quality, want] of [['1', /BrightField/], ['3', /BrightField/]]) {
+const frames = {};
+for (const [quality, want, query] of [['1', /BrightField/, ''], ['3', /BrightField/, ''], ['3', /BrightField/, '?bfsplit=0']]) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`http://localhost:${port}/index.html`);
+  await page.goto(`http://localhost:${port}/index.html${query}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   const shown = await page.evaluate(q => {
     document.getElementById('mv_modality').value = '2';
@@ -42,10 +45,17 @@ for (const [quality, want] of [['1', /BrightField/], ['3', /BrightField/]]) {
   await page.click('#mv_make', { force: true });
   await page.waitForFunction(() => /frames/.test(document.getElementById('mv_info').textContent), null, { timeout: 600000 });
   const info = await page.evaluate(() => document.getElementById('mv_info').textContent);
+  frames[quality + query] = await page.evaluate(() => Array.from(movie.frames));
   const ok = shown && want.test(info) && !errors.length;
   if (!ok) fail++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'}  viewer BrightField quality ${quality}: ${info}${errors.length ? ' errors: ' + errors.join('; ') : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'}  viewer BrightField quality ${quality}${query}: ${info}${errors.length ? ' errors: ' + errors.join('; ') : ''}`);
   await page.close();
+}
+{
+  const a = frames['3'], b = frames['3?bfsplit=0'];
+  const same = a && b && a.length === b.length && a.every((v, i) => v === b[i]);
+  if (!same) fail++;
+  console.log(`${same ? 'ok  ' : 'FAIL'}  viewer BrightField quality 3: the movie split across the workers = the single-worker movie, ${a ? a.length : 0} pixels${same ? ' identical' : ' DIFFER'}`);
 }
 await browser.close();
 server.close();

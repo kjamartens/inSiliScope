@@ -4,6 +4,7 @@
 #include "rng.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace isc {
 
@@ -31,6 +32,24 @@ void NormalizeParams(Params& p)
    p.mtMinTurnRadius = std::max(0.0, p.mtMinTurnRadius);
    p.mtMaxZSlope = std::max(1.0, p.mtMaxZSlope);
 }
+
+namespace {
+// The tail's spectral factors (k/5)^-tailExp, k = TAIL_K0 .. TAIL_K0+N_TAIL-1,
+// as exp(-tailExp * log(k/5)) (fdlibm, bit-exact; not pow): a pure function
+// of the parameters, tabulated once per thread per tailExp instead of per
+// candidate.
+const double* TailFactors(double tailExp)
+{
+   thread_local double cachedExp = std::numeric_limits<double>::quiet_NaN();
+   thread_local double table[N_TAIL];
+   if (!(cachedExp == tailExp)) {
+      for (int i = 0; i < N_TAIL; i++)
+         table[i] = jsm::exp(-tailExp * jsm::log((double)(TAIL_K0 + i) / 5));
+      cachedExp = tailExp;
+   }
+   return table;
+}
+} // namespace
 
 Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
 {
@@ -60,13 +79,13 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
    // Fractal tail; (k/5)^-e as exp(-e*log(k/5)) (fdlibm, bit-exact; not pow).
    if (p.cellRough > 0 && p.cellBlob > 0) {
       const double tailExp = 2.5 - std::min(2.0, std::max(1.0, p.cellFractalDim));
+      const double* tail = TailFactors(tailExp);
       HashStream nextA(seed, cx, cy, TAIL_AMP_STREAM), nextP(seed, cx, cy, TAIL_PH_STREAM);
       double sum = 0;
       for (int i = 0; i < N_TAIL; i++) {
-         const int k = TAIL_K0 + i;
          const double u = nextA.Next();
          const double ph = nextP.Next() * PI * 2;
-         const double a = u * p.cellRough * p.cellBlob / 5 * exp(-tailExp * log((double)k / 5));
+         const double a = u * p.cellRough * p.cellBlob / 5 * tail[i];
          c.tailAc[i] = a * cos(ph);
          c.tailAs[i] = a * sin(ph);
          sum += a;
@@ -201,12 +220,13 @@ void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams)
    // Evaluated after the vertical step: it needs the final c.height.
    const double extraUm = runoutParams ? CytoSlopeRunout(c, *runoutParams) : 0;
    const int N = c.tailBound > 0 ? 256 : 32;   // the tail's harmonics go to k = 64
+   const double cnr = cos(c.nucRot), snr = sin(c.nucRot);   // once, not per sample
    double neededFloor = CELL_MOD_MIN;
    for (int i = 0; i < N; i++) {
       const double th = ((double)i / N) * PI * 2;
       const double lx = cos(th) * (c.nucLong / 2), ly = sin(th) * (c.nucShort / 2);
-      const double wx = c.nucOffX + lx * cos(c.nucRot) - ly * sin(c.nucRot);
-      const double wy = c.nucOffY + lx * sin(c.nucRot) + ly * cos(c.nucRot);
+      const double wx = c.nucOffX + lx * cnr - ly * snr;
+      const double wy = c.nucOffY + lx * snr + ly * cnr;
       const double dist = hypot(wx, wy);
       const double angle = atan2(wy, wx);
       const double phi = angle - c.rot;

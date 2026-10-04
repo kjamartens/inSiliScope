@@ -20,6 +20,17 @@ Upcoming ideas:
   recomputes it), [x] stack query concurrent with the PSF computation, [x] live CPU render + noise in
   row bands on all cores, [x] bounds-check-free splat, [x] Fft placement: tabulated twiddles, line
   transforms on all cores in live mode, [x] cli frames in parallel batches.
+- Performance pass (2026-10-03/04), every output bit-identical (21 cli reference TIFFs, adapter_pixel_hash,
+  scope_parity SR 100 %, golden vectors, memcmp checks against the previous splat and chirp-Z; CLAUDE.md): [x] polyphase
+  + AVX2 splat, [x] shared kernel memo, [x] MovieCache for SR/WF, [x] WF frame batches, [x] core hoisting, [x] core
+  worker pool + parallel relax/microtubules, [x] query path (lazy microtubules, block midpoints), [x] ABI 7 block
+  injection, [x] viewer: one WASM compile, no re-packing, typed-array assets, LUT playback, [x] batched pruned chirp-Z,
+  [x] parallel BF setup, [x] JS prototype and imaging-reference refactors, [x] build flags (Release default, LTO,
+  core SIMD). Next: [ ] `wf_gpu.js` lazy copies and smaller upfront buffers, [ ] WF warm-up query if the cold tile
+  fill shows in `ISC_TIMING`, [ ] a generated `sincos` (`tools/gen_jsmath.py`), [ ] candidate reuse across packing
+  blocks, [x] per-block packing on any idle viewer worker (2026-10-04). Persistent caches (2026-10-04): [x] core ABI 8 packed-block
+  store (cli, MM `General_DiskCache`, viewer local storage), [x] opt-in PSF kernel file, [x] PSF preload at MM
+  `Initialize()` and at viewer load / PSF change, [x] cli `--prepare`.
 - more targets
 - brightfield (exploration, 2026-10-01, spec/BRIGHTFIELD.md): [x] package survey (waveorder, chromatix, TorchOptics,
   PyWolf, holopy, CytoPacq/SimuCell: none embeddable, chromatix-style multislice ported), [x] core ABI 6 optical volume,

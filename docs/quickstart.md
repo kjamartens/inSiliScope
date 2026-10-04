@@ -19,6 +19,12 @@ Open the [viewer](try-viewer.md). Nothing to install.
 
 Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `CamParam_`, `PSFParam_`, `Background_`.
 
+The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not
+wait for it. `General_DiskCache` (default `Cells`) keeps the packed cell positions of the field in a small per-user file
+(`%LOCALAPPDATA%\inSiliScope\cache`, or `$ISC_CACHE_DIR`), so a restart with the same seed and cell parameters starts
+with the cells in place; `CellsAndPsf` also stores the PSF kernel (one file of ~200 MB at the defaults, read in about
+half the time it takes to compute); `Off` writes nothing.
+
 From Python (pymmcore-plus):
 
 ```python
@@ -41,7 +47,11 @@ cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native --target insiliscope_cli
 build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128 --seed 42
 build/native/cli/insiliscope_cli --help          # every option and its default
+build/native/cli/insiliscope_cli --prepare 1 --disk-cache 2   # warm the caches (world, cells, PSF kernel), no movie
 ```
+
+The CLI keeps the packed cell positions in the same per-user cache directory as the adapter (`--disk-cache 1`, the
+default); `--disk-cache 2` adds the PSF kernel, `0` writes nothing.
 
 ## webSMLM
 

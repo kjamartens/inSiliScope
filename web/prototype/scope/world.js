@@ -7,6 +7,9 @@ import { buildMtFrames, pointAtArc, dyesInBlock, dyeSchedule, persistentGen, dye
   MT_RADIUS_NM, MT_BINDER_NM, MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP, DEFAULT_KINETICS } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
+// = ISC_WORLD_VERSION (core/include/insiliscope/insiliscope.h): the generator's version, the
+// date spec/golden was last re-frozen. Bump both when a cell moves (engine_check compares them).
+export const WORLD_VERSION = '2026-10-04';
 const DYE_REACH_UM = (MT_RADIUS_NM + MT_BINDER_NM + MT_LINKER_MAX_NM) * 1e-3;
 const floorDiv = (a, b) => Math.floor(a / b);
 
@@ -72,6 +75,23 @@ export class World {
     let b = this.blocks.get(key);
     if (!b) { b = this.packBlock(bx, by); this.blocks.set(key, b); }
     return b;
+  }
+
+  // isc_world_set_block (ABI 7): block (bx, by) as another world of the same seed and params packed it
+  // (rows of 14 per cell as cellsInRect's: only cx, cy, x, y, packRot are read -- relax moves those and
+  // prune drops cells; every other field is rawCandidate's, recomputed here). Skipped if cached.
+  setPackedBlock(bx, by, rows) {
+    const key = bx + ',' + by;
+    if (this.blocks.has(key)) return false;
+    const cells = [];
+    for (let i = 0; i < rows.length; i += 14) {
+      const c = this.g.rawCandidate(this.seed, rows[i], rows[i + 1], this.p);
+      if (!c.present) throw new Error('setPackedBlock: not a cell of this world');
+      c.x = rows[i + 2]; c.y = rows[i + 3]; c.packRot = rows[i + 4];
+      cells.push(c);
+    }
+    this.blocks.set(key, cells);
+    return true;
   }
 
   // Cells whose footprint circle (rOuter) meets the rect, in the C++ order.

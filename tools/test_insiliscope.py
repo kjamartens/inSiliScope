@@ -213,6 +213,7 @@ for name, expected in [
     ("Background_DecaySec", "0"),
     ("Background_OutOfFocusRatio", "0"),
     ("General_UseGpu", "On"),
+    ("General_DiskCache", "Cells"),
     ("PSFParam_PsfInterp", "Cubic"),
     ("PSFParam_PsfModel", "GibsonLanniZernike"),
     ("PSFParam_PsfOversampling", "6"),

@@ -108,6 +108,19 @@ int main(int argc, char** argv)
                   sim::ScopeSpecGet(spec, "x"), sim::ScopeSpecGet(spec, "y"), json.size());
       return 0;
    }
+   if (sim::ScopeSpecGet(spec, "prepare") >= 1) {
+      // The world and the PSF kernel only (warms the memo and, with
+      // --disk-cache 2, the kernel file); no TIFF.
+      sim::ScopeMovieInfo info;
+      std::string err;
+      if (!sim::RenderScopeMovie(spec, [](long, const std::vector<uint16_t>&) { return true; }, info, err)) {
+         std::fprintf(stderr, "%s\n", err.c_str());
+         return 1;
+      }
+      std::printf("prepared: world %.2f s, PSF kernel %.2f s (disk-cache %g)\n", info.querySec, info.totalSec - info.querySec,
+                  sim::ScopeSpecGet(spec, "disk-cache"));
+      return 0;
+   }
    if (out.empty()) { Usage(); return 2; }
 
    TiffWriter tif(out);

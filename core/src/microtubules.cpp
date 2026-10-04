@@ -1,5 +1,7 @@
 #include "microtubules.h"
 
+#include "parallel.h"
+
 #include "jsmath.h"
 #include "rng.h"
 
@@ -24,10 +26,10 @@ inline uint32_t ToU32(double d) { return (uint32_t)(int64_t)d; }
 
 double MtNucleusClearance(const Params& p) { return std::max(0.05, 0.5 * p.nucMargin); }
 
-double MtNucleusFootprintBlend(const Cell& c, double x, double y)
+double MtNucleusFootprintBlend(const Cell& c, const MtCellGeom& g, double x, double y)
 {
    const double dxN = x - c.nucOffX, dyN = y - c.nucOffY;
-   const double cr = jsm::cos(-c.nucRot), sr = jsm::sin(-c.nucRot);
+   const double cr = g.nucCosNeg, sr = g.nucSinNeg;
    const double lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
    const double a = c.nucLong / 2, b = c.nucShort / 2;
    const double norm = jsm::hypot(lx / std::max(1e-6, a), ly / std::max(1e-6, b));
@@ -194,7 +196,7 @@ double MtSampleDirection(const MtCellGeom& g, double u1, double u2)
 void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt, bool knownInside = false)
 {
    const double dxN = pt.x - c.nucOffX, dyN = pt.y - c.nucOffY;
-   const double cr = jsm::cos(-c.nucRot), sr = jsm::sin(-c.nucRot);
+   const double cr = g.nucCosNeg, sr = g.nucSinNeg;
    const double lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
    const double a = c.nucLong / 2, b = c.nucShort / 2, rz = c.nucHeight / 2;
    const double nz = (pt.z - c.nucZ) / std::max(1e-6, rz);
@@ -204,7 +206,7 @@ void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt, bool know
       const double scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
       const double lx2 = lx * scale, ly2 = ly * scale;
       pt.z = c.nucZ + nz * rz * scale;
-      const double cr2 = jsm::cos(c.nucRot), sr2 = jsm::sin(c.nucRot);
+      const double cr2 = g.nucCosPos, sr2 = g.nucSinPos;
       pt.x = c.nucOffX + lx2 * cr2 - ly2 * sr2;
       pt.y = c.nucOffY + lx2 * sr2 + ly2 * cr2;
       knownInside = false;
@@ -365,6 +367,10 @@ MtCellGeom BuildMtCellGeom(const Cell& c, const Params& p)
    g.dirTotal = g.dirCum[MT_N_DIR];
    g.areaUm2 = MtShoelaceArea(CellOutlineLocal(c, 48));
    g.mesh = BuildCytoMesh(c, p);
+   g.nucCosNeg = jsm::cos(-c.nucRot);
+   g.nucSinNeg = jsm::sin(-c.nucRot);
+   g.nucCosPos = jsm::cos(c.nucRot);
+   g.nucSinPos = jsm::sin(c.nucRot);
    return g;
 }
 
@@ -473,7 +479,7 @@ Microtubule MtGenerateOne(uint32_t seed, int mtIndex, int resampleRound, const C
    const bool canGoUnder = nucBottomZ - nucClearance > 0;
    const bool goOverNucleus = !canGoUnder || cosPsi >= 0;
    auto applyNucleusOverride = [&](double x, double y, double zNormal, double ceilH) {
-      const double blend = MtNucleusFootprintBlend(c, x, y);
+      const double blend = MtNucleusFootprintBlend(c, g, x, y);
       if (blend <= 0) return zNormal;
       const double target = goOverNucleus
          ? std::max(zNormal, std::min(ceilH, nucTopZ + nucClearance))
@@ -555,16 +561,20 @@ std::vector<Microtubule> BuildMicrotubulesForCell(uint32_t seed, const Cell& c, 
    if (!c.present) return mts;
    const int count = std::min(MT_MAX_PER_CELL, MtCountForCell(seed, c, p, g));
    if (count <= 0) return mts;
-   mts.reserve((size_t)count);
-   for (int i = 0; i < count; i++) mts.push_back(MtGenerateOne(seed, i, 0, c, p, g));
+   // Every microtubule draws from its own stream (seed, cell, index) and
+   // reads only the cell, the parameters and the geometry: generated in
+   // parallel into its slot, consumed in index order below.
+   mts.resize((size_t)count);
+   ParallelFor((size_t)count, 4, [&](size_t i) { mts[i] = MtGenerateOne(seed, (int)i, 0, c, p, g); });
    MtResolveCollisions(seed, c, p, mts, g);
-   for (Microtubule& m : mts) {
+   ParallelFor(mts.size(), 4, [&](size_t i) {
+      Microtubule& m = mts[i];
       MtTrimSteepEnds(m.pts, p.mtMaxZSlope);
       MtLimitZSlopeRealized(m.pts, p.mtMaxZSlope);
       // Inside the outline from an earlier clamp (the cut, or the clamp after
       // a collision nudge); the two steps above change z only.
       for (Pt3& pt : m.pts) MtClampIntoCytoplasm(c, g, pt, true);
-   }
+   });
    return mts;
 }
 

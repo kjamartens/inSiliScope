@@ -13,6 +13,9 @@
 // host libm is the same one, e.g. glibc under both Node and native Linux).
 #pragma once
 
+#include <cmath>
+#include <limits>
+
 namespace isc {
 namespace jsm {
 
@@ -24,10 +27,25 @@ double atan2(double y, double x);
 double exp(double x);
 double log(double x);
 double cbrt(double x);
-double hypot(double x, double y);          // V8 Math.hypot, 2 args
 double hypot(double x, double y, double z); // V8 Math.hypot, 3 args (Kahan sum)
 double pow(double x, double y);             // std::pow: NOT bit-exact with JS, see above
-double sqrt(double x);                      // IEEE, exact everywhere
+
+// IEEE sqrt: exact everywhere. Inline (it is called per sample in the hot loops).
+inline double sqrt(double x) { return std::sqrt(x); }
+
+// V8's two-argument Math.hypot (src/builtins/math.tq, FastMathHypot). Inline:
+// the packing's clearance loop calls it ~34 times per cell pair.
+inline double hypot(double x, double y)
+{
+   const double a = std::fabs(x), b = std::fabs(y);
+   const double inf = std::numeric_limits<double>::infinity();
+   if (a == inf || b == inf) return inf;
+   if (std::isnan(a) || std::isnan(b)) return std::numeric_limits<double>::quiet_NaN();
+   const double max = a > b ? a : b;
+   if (max == 0) return 0;
+   const double an = a / max, bn = b / max;
+   return std::sqrt(an * an + bn * bn) * max;
+}
 
 constexpr double PI = 3.141592653589793;
 constexpr double LN2 = 0.6931471805599453;

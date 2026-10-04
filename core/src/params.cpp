@@ -28,6 +28,25 @@ const Field kFields[] = {
 #undef FLAG
 } // namespace
 
+uint64_t PackingFingerprint(const Params& p)
+{
+   uint64_t h = 14695981039346656037ull;
+   auto mix = [&](const void* data, size_t n) {
+      const unsigned char* b = static_cast<const unsigned char*>(data);
+      for (size_t i = 0; i < n; i++) {
+         h ^= b[i];
+         h *= 1099511628211ull;
+      }
+   };
+   for (const Field& f : kFields) {
+      if (std::strncmp(f.name, "mt", 2) == 0 || std::strncmp(f.name, "label", 5) == 0) continue;
+      const double v = f.num ? p.*(f.num) : (p.*(f.flag) ? 1.0 : 0.0);
+      mix(f.name, std::strlen(f.name));
+      mix(&v, sizeof v);
+   }
+   return h;
+}
+
 bool SetParam(Params& p, const char* name, double value)
 {
    for (const Field& f : kFields) {
