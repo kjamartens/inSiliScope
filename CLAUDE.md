@@ -290,6 +290,18 @@ adapter computes (or reads) the kernel of the current `PSFParam_` values on a ba
 flight instead of computing twice), the viewer sends a `prepare=1` movie job to its movie worker when the workers come
 up and when a PSF control changes. Options that change no output (`disk-cache`, `prepare`) need no gallery entry.
 
+**Adaptive splat footprint (2026-10-04), output unchanged at the default.** `PSFParam_PsfSplatCutoff` (cli/viewer
+`psf-splat-cutoff`, default 1e-6; an advanced viewer control): per kernel plane, the splat of a blink stops at the
+camera-pixel radius beyond which every block sum is below cutoff x the plane's peak (`ApplySplatCutoff` ->
+`PsfKernelCache::radii`, `SplatPlan::camRad`, the GPU emitter's `camRad`; the JS twin `psf.js applySplatCutoff` is
+the same arithmetic, a `scope_parity` case runs it at 1e-3). The kernel itself is untouched (the cutoff is not part
+of the memo key, like `interpMode`). **Measured on the GibsonLanniZernike kernels the default cuts nothing**: the
+scalar Airy tail stays above 1e-5 of the plane peak out to 7 um, so the default is a no-op (21 reference TIFFs and
+`adapter_pixel_hash` unchanged) and the option only trades light for speed at larger values: at 7 um, cutoff 1e-4
+shrinks the in-focus planes to 27 of 70 px but leaves up to 1.5 % of a blink's light outside the window, 1e-3 to
+13 px and 3.5 %, 3e-3 to 9 px and 4.8 % (`ISC_TIMING=1 --prepare 1` prints the radii and the worst omitted fraction).
+A quantitative SMLM movie should keep the default or 0 (whole window).
+
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
@@ -341,7 +353,7 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,
   `CicElectrons`, `BitDepth`).
 - `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
-  (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
+  (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`, `PsfSplatCutoff`,
   `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including
   `PsfGeneratorJavaHome`, which has no direct webSMLM analog but is
   PSF-generator-specific machinery).

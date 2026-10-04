@@ -398,11 +398,40 @@ export function fftShiftKernelTile(kernel, n, shiftX, shiftY) {
   return out;
 }
 
-// PlanSplat: setup + the block sums to read (Fft: of the shifted plane). null if nothing to draw.
+// ApplySplatCutoff: per plane, the splat's half-width in camera pixels for `cutoff`
+// (0: the whole window): the farthest block sum at or above cutoff x the plane's peak,
+// in camera pixels from the centre, rounded up, plus one. Returns the cache (radii set).
+export function applySplatCutoff(cache, cutoff) {
+  if (!cache.valid || cache.radiiCutoff === cutoff) return cache;
+  const os = Math.max(1, cache.oversampling), camRad = Math.trunc(cache.halfWidthOversampled / os), bw = cache.blockSumWidth;
+  const radii = new Int32Array(cache.nz).fill(camRad);
+  cache.radii = radii; cache.radiiCutoff = cutoff;
+  if (!(cutoff > 0.0) || cache.blockSums.length !== cache.nz || bw <= 0) return cache;
+  const half = (bw - 1) / 2.0;
+  for (let z = 0; z < cache.nz; z++) {
+    const B = cache.blockSums[z];
+    if (B.length !== bw * bw) continue;
+    let peak = 0.0;
+    for (let i = 0; i < B.length; i++) if (B[i] > peak) peak = B[i];
+    const thr = cutoff * peak;
+    let maxDist = 0.0;   // camera pixels: the farthest block at or above the threshold
+    for (let a = 0; a < bw; a++) {
+      const da = Math.abs(a - half), row = a * bw;
+      for (let b = 0; b < bw; b++) if (B[row + b] >= thr) { const d = Math.max(da, Math.abs(b - half)); if (d > maxDist) maxDist = d; }
+    }
+    radii[z] = Math.min(camRad, Math.ceil(maxDist / os) + 1);
+  }
+  return cache;
+}
+const planeRadius = (cache, zIndex) => cache.radii && zIndex < cache.radii.length ? cache.radii[zIndex]
+  : Math.trunc(cache.halfWidthOversampled / Math.max(1, cache.oversampling));
+
+// PlanSplat: setup + the block sums to read (Fft: of the shifted plane) + the plane's
+// splat half-width. null if nothing to draw.
 export function planSplat(cache, zIndex, xPx, yPx, totalPhotons, interpMode) {
   if (!cache.valid || totalPhotons <= 0.0) return null;
   if (zIndex < 0 || zIndex >= cache.nz) return null;
-  const os = Math.max(1, cache.oversampling), n = cache.sizeOversampled;
+  const os = Math.max(1, cache.oversampling), n = cache.sizeOversampled, camRad = planeRadius(cache, zIndex);
   if (interpMode === PSF_INTERP.Fft) {
     const st = splatSetup(cache, xPx, yPx, PSF_INTERP.Nearest);
     const kc = (n - 1) / 2.0;
@@ -410,18 +439,17 @@ export function planSplat(cache, zIndex, xPx, yPx, totalPhotons, interpMode) {
     const rx = roundHalfUp(tx), ry = roundHalfUp(ty);
     const shifted = fftShiftKernelTile(cache.planes[zIndex], n, tx - rx, ty - ry);
     st.bx = rx; st.by = ry;
-    return { st, B: buildBlockSums(shifted, n, os) };
+    return { st, B: buildBlockSums(shifted, n, os), camRad };
   }
-  return { st: splatSetup(cache, xPx, yPx, interpMode), B: cache.blockSums[zIndex] };
+  return { st: splatSetup(cache, xPx, yPx, interpMode), B: cache.blockSums[zIndex], camRad };
 }
 
 // SplatRows over rows [rowLo, rowHi): img (Float32Array) += photons x interpolated block sums.
 export function splatRows(img, width, height, rowLo, rowHi, cache, plan, totalPhotons) {
   const yLo = Math.max(0, rowLo), yHi = Math.min(height, rowHi);
   const os = Math.max(1, cache.oversampling);
-  const camRad = Math.trunc(cache.halfWidthOversampled / os);
   const off = os - 1, bw = cache.blockSumWidth;
-  const { st, B } = plan, NT = st.nTaps, wx = st.wx, wy = st.wy;
+  const { st, B, camRad } = plan, NT = st.nTaps, wx = st.wx, wy = st.wy;
   const dyLo = Math.max(-camRad, yLo - st.y0), dyHi = Math.min(camRad, yHi - 1 - st.y0);
   const dxLo = Math.max(-camRad, -st.x0), dxHi = Math.min(camRad, width - 1 - st.x0);
   for (let dy = dyLo; dy <= dyHi; ++dy) {

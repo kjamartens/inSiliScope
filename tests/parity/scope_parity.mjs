@@ -62,6 +62,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 const CASES = [
   ['SR Gaussian', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-model=0', 0.999],
   ['SR GibsonLanniZernike, Cubic', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-kernel-half-width-nm=2500', 0.999],
+  ['SR GibsonLanniZernike, splat cutoff 1e-3 (truncated footprint)', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-kernel-half-width-nm=2500 psf-splat-cutoff=1e-3', 0.999],
   ['SR double helix, Linear, bleaching dyes', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear labeling-pct-bleaching=5 milli-activation-rate=20 bleach-prob=0.3 zern.5=0.2', 0.999],
   ['WideField GibsonLanniZernike', 'world-seed=1249 x=63 y=3 size=48 frames=3 modality=WideField psf-kernel-half-width-nm=2500 labeling-pct-bleaching=10', 0.999],
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 modality=1 psf-model=0 wf-upscale=2', 0.999],

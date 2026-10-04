@@ -662,8 +662,9 @@ defaults: `psf-model` (0 Gaussian, 3 GibsonLanniZernike; 1/2 need the JVM and ar
 `psf-zernike-preset` (index or name), `zern.<j>` (one coefficient, waves, replacing the preset's),
 `psf-mask`, `psf-mask-modes`, `psf-mask-waist`, `psf-oversampling`, `psf-kernel-half-width-nm` (rounded
 and grown by the shared `PsfKernelHalfWidthPx`), `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
-`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`; `wavelength-nm`, `na`, `immersion-index`
-as before. `ScopePsfRequest` builds the same `PsfGeneratorRequest` as the camera's
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`, `psf-splat-cutoff` (2026-10-04: the splat's
+per-plane footprint, `PSFParam_PsfSplatCutoff`, default 1e-6; 0 = the whole window); `wavelength-nm`, `na`,
+`immersion-index` as before. `ScopePsfRequest` builds the same `PsfGeneratorRequest` as the camera's
 `BuildPsfGeneratorRequest`. The SR movie computes the kernel while the cell field is queried (native).
 The viewer sends `psf-kernel-half-width-nm=3000` (kernel stack ~75 MB instead of ~400 MB of WASM
 memory); a cli run reproduces a viewer movie with that option. Check: ctest `zernike_psf`.

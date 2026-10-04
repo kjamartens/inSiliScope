@@ -5,7 +5,7 @@
 // This is the JS REFERENCE for imaging. Iterate on photophysics/PSF/camera here (web/lab), then port to
 // the C++ files named in each module's header when merging (web/lab/README.md, tests/parity/scope_parity.mjs).
 import { World } from './world.js';
-import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE } from './psf.js';
+import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE, applySplatCutoff } from './psf.js';
 import { bucketEventsByFrame, renderPhotonImage, noiseMaps, applyNoiseChain } from './render.js';
 import { renderWidefieldMovie } from './widefield.js';
 import { renderBrightfieldMovie } from './brightfield.js';
@@ -81,6 +81,7 @@ export const SCOPE_OPTIONS = [
   ['psf-mask-modes', 5, 'PSFParam_PsfMaskModes: double-helix Gauss-Laguerre modes (2-8)'],
   ['psf-mask-waist', 1.0, 'PSFParam_PsfMaskWaist: double-helix waist, pupil radii'],
   ['psf-oversampling', 6, 'PSFParam_PsfOversampling: kernel samples per camera pixel, per axis (1-16)'],
+  ['psf-splat-cutoff', 1e-6, 'PSFParam_PsfSplatCutoff: a blink\'s splat skips the kernel taps below this fraction of the plane\'s peak (0 = the whole kernel window)'],
   ['psf-kernel-half-width-nm', 7000, 'PSFParam_PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)'],
   ['psf-z-range-um', 7.0, 'PSFParam_PsfZRangeUm: span of the PSF z stack'],
   ['psf-z-step-um', 0.1, 'PSFParam_PsfZStepUm: PSF z plane spacing'],
@@ -192,6 +193,7 @@ export function scopePsfRequest(spec) {
     sampleIndex: O('psf-sample-index'), workingDistanceUm: O('psf-working-distance-um'), sampleDepthNm: O('psf-sample-depth-nm'),
     zernike, maskType: O('psf-mask') === 1 ? 1 : 0, maskModes: Math.trunc(Math.min(8, Math.max(2, O('psf-mask-modes')))),
     maskWaist: O('psf-mask-waist'), interpMode: Math.trunc(Math.min(3, Math.max(0, O('psf-interp')))),
+    splatCutoff: Math.min(0.1, Math.max(0, O('psf-splat-cutoff'))),
   };
 }
 
@@ -201,14 +203,14 @@ let worldMemo = null;
 export function scopeKernel(spec, onPlane) {
   const req = scopePsfRequest(spec);
   if (!req) return null;
-  const key = JSON.stringify({ ...req, interpMode: 0 });
+  const key = JSON.stringify({ ...req, interpMode: 0, splatCutoff: 0 });
   let hit = kernelMemo.find(e => e.key === key);
   if (!hit) {
     hit = { key, cache: buildZernikeKernelCache(req, onPlane) };
     kernelMemo.unshift(hit);
     kernelMemo.length = Math.min(kernelMemo.length, 2);
   }
-  return { ...hit.cache, interpMode: req.interpMode };
+  return applySplatCutoff({ ...hit.cache, interpMode: req.interpMode, radii: null, radiiCutoff: -1 }, req.splatCutoff);
 }
 // The labelling fractions enter only the dye draw (World.dyeBlock): a change of
 // those alone keeps the world's cells and microtubules and redraws the dyes.

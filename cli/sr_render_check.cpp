@@ -345,6 +345,62 @@ bool SameFloats(const std::vector<float>& a, const std::vector<float>& b)
 
 } // namespace
 
+// Adaptive splat footprint (ApplySplatCutoff): cutoff 0 keeps every plane's
+// whole window (the frames of before, bit for bit); 1e-6 shrinks the sharp
+// planes most and omits a negligible part of a blink's light.
+void CutoffCheck()
+{
+   const unsigned W = 48, H = 40;
+   PsfKernelCache full = SyntheticKernel(6, 12, 7, PsfInterpMode::Cubic);
+   const int camRad = full.halfWidthOversampled / full.oversampling;
+   ApplySplatCutoff(full, 0.0);
+   bool whole = full.radii.size() == 7;
+   for (int z : full.radii)
+      whole = whole && z == camRad;
+   Check(whole, "splat cutoff 0: every plane keeps the whole window");
+   PsfKernelCache cut = full;
+   ApplySplatCutoff(cut, 1e-6);
+   bool within = cut.radii.size() == 7, any = false;
+   for (int r : cut.radii)
+   {
+      within = within && r >= 1 && r <= camRad;
+      any = any || r < camRad;
+   }
+   const bool sharpest = cut.radii[3] <= cut.radii[0] && cut.radii[3] <= cut.radii[6];
+   char b[160];
+   std::snprintf(b, sizeof b, "splat cutoff 1e-6: radii within the window (%d), smaller for the sharp planes (%d %d %d %d %d %d %d)",
+                 camRad, cut.radii[0], cut.radii[1], cut.radii[2], cut.radii[3], cut.radii[4], cut.radii[5], cut.radii[6]);
+   Check(within && any && sharpest, b);
+   PsfKernelCache none = full;
+   none.radii.clear();
+   none.radiiCutoff = -1.0;
+   std::vector<float> imgNone(W * H, 0.0f), imgFull(W * H, 0.0f), imgCut(W * H, 0.0f);
+   std::mt19937_64 rng(11);
+   std::uniform_real_distribution<double> ux(-6.0, W + 6.0), uy(-6.0, H + 6.0), up(1.0, 2000.0);
+   std::uniform_int_distribution<int> uz(0, 6);
+   for (int e = 0; e < 300; ++e)
+   {
+      const double x = ux(rng), y = uy(rng), ph = up(rng);
+      const int z = uz(rng);
+      SplatPsfKernel(imgNone, W, H, none, z, x, y, ph, PsfInterpMode::Cubic);
+      SplatPsfKernel(imgFull, W, H, full, z, x, y, ph, PsfInterpMode::Cubic);
+      SplatPsfKernel(imgCut, W, H, cut, z, x, y, ph, PsfInterpMode::Cubic);
+   }
+   Check(std::memcmp(imgNone.data(), imgFull.data(), imgNone.size() * sizeof(float)) == 0,
+         "splat cutoff 0: frames identical to the whole-window splat");
+   double sumF = 0, sumC = 0, maxF = 0, maxD = 0;
+   for (size_t i = 0; i < imgFull.size(); ++i)
+   {
+      sumF += imgFull[i];
+      sumC += imgCut[i];
+      maxF = std::max(maxF, static_cast<double>(imgFull[i]));
+      maxD = std::max(maxD, std::fabs(static_cast<double>(imgFull[i]) - imgCut[i]));
+   }
+   std::snprintf(b, sizeof b, "splat cutoff 1e-6: light kept to %.2e of the total, max pixel change %.2e of the peak",
+                 std::fabs(sumC - sumF) / sumF, maxD / maxF);
+   Check(std::fabs(sumC - sumF) / sumF < 1e-4 && maxD / maxF < 1e-4, b);
+}
+
 int main(int argc, char** argv)
 {
    if (argc > 1 && std::strcmp(argv[1], "--bench") == 0)
@@ -352,6 +408,7 @@ int main(int argc, char** argv)
       Bench();
       return 0;
    }
+   CutoffCheck();
    const unsigned W = 48, H = 40;
    std::mt19937_64 rng(7);
    std::uniform_real_distribution<double> ux(-12.0, W + 12.0), uy(-12.0, H + 12.0), up(1.0, 2000.0);

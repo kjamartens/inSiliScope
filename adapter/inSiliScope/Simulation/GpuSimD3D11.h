@@ -50,7 +50,8 @@ struct GpuSplatEmitter
 {
    int32_t x0, y0, bx, by;
    int32_t plane, nTaps;
-   float photons, pad;
+   float photons;
+   int32_t camRad;   // the plane's splat half-width in camera pixels (PsfKernelCache::Radius)
    float wx[4];
    float wy[4];
 };

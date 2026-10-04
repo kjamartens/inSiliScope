@@ -903,6 +903,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
                continue;
             outCache = *m.entries[i].second;
             outCache.interpMode = req.interpMode;
+            ApplySplatCutoff(outCache, req.splatCutoff);
             std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
             hit = true;
          }
@@ -952,6 +953,7 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
       SaveKernelToDisk(req, outCache);
       TimingLog("psf.disk-store", TimingSince(tDisk));
    }
+   ApplySplatCutoff(outCache, req.splatCutoff);
    const auto tStore = TimingClock::now();
    std::lock_guard<std::mutex> g(m.mutex);
    m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
@@ -1219,6 +1221,77 @@ SplatSetupResult SplatSetup(const PsfKernelCache& cache, double xPx, double yPx,
    return r;
 }
 
+void ApplySplatCutoff(PsfKernelCache& cache, double cutoff)
+{
+   if (!cache.valid || cache.radiiCutoff == cutoff)
+      return;
+   const int os = std::max(1, cache.oversampling), camRad = cache.halfWidthOversampled / os, bw = cache.blockSumWidth;
+   const std::vector<std::vector<float>>& sums = cache.BlockSums();
+   cache.radii.assign(static_cast<size_t>(cache.nz), camRad);
+   cache.radiiCutoff = cutoff;
+   if (!(cutoff > 0.0) || sums.size() != static_cast<size_t>(cache.nz) || bw <= 0)
+      return;
+   const double half = (bw - 1) / 2.0;
+   for (int z = 0; z < cache.nz; ++z)
+   {
+      const std::vector<float>& B = sums[static_cast<size_t>(z)];
+      if (B.size() != static_cast<size_t>(bw) * bw)
+         continue;
+      float peak = 0.0f;
+      for (float v : B)
+         if (v > peak)
+            peak = v;
+      const double thr = cutoff * static_cast<double>(peak);
+      double maxDist = 0.0;   // camera pixels: the farthest block at or above the threshold
+      for (int a = 0; a < bw; ++a)
+      {
+         const double da = std::fabs(a - half);
+         const float* row = B.data() + static_cast<size_t>(a) * bw;
+         for (int b = 0; b < bw; ++b)
+            if (static_cast<double>(row[b]) >= thr)
+            {
+               const double d = std::max(da, std::fabs(b - half));
+               if (d > maxDist)
+                  maxDist = d;
+            }
+      }
+      cache.radii[static_cast<size_t>(z)] = std::min(camRad, static_cast<int>(std::ceil(maxDist / os)) + 1);
+   }
+   if (TimingEnabled())
+   {
+      // Diagnostics: the radii and the largest part of a plane's light the windows leave out.
+      int lo = camRad, hi = 0;
+      double worstOut = 0.0;
+      const std::vector<std::vector<float>>& planes = cache.Planes();
+      for (int z = 0; z < cache.nz; ++z)
+      {
+         const int r = cache.radii[static_cast<size_t>(z)];
+         lo = std::min(lo, r);
+         hi = std::max(hi, r);
+         if (planes.size() != static_cast<size_t>(cache.nz))
+            continue;
+         const std::vector<float>& pl = planes[static_cast<size_t>(z)];
+         const int n = cache.sizeOversampled;
+         const double c = (n - 1) / 2.0, lim = (r + 0.5) * os;
+         double out = 0.0, tot = 0.0;
+         for (int y = 0; y < n; ++y)
+            for (int x = 0; x < n; ++x)
+            {
+               const double v = pl[static_cast<size_t>(y) * n + x];
+               tot += v;
+               if (std::fabs(x - c) > lim || std::fabs(y - c) > lim)
+                  out += v;
+            }
+         if (tot > 0.0)
+            worstOut = std::max(worstOut, out / tot);
+      }
+      char b[160];
+      std::snprintf(b, sizeof b, "splat radii %d..%d of %d camera px (cutoff %g, %d planes), light outside the window <= %.2e",
+                    lo, hi, camRad, cutoff, cache.nz, worstOut);
+      TimingLog("psf.splat-cutoff", 0.0, b);
+   }
+}
+
 bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,
                PsfInterpMode interpMode, SplatPlan& plan, bool parallelFft)
 {
@@ -1232,6 +1305,7 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
    const std::vector<std::vector<float>>& poly = cache.PolySums();
    plan.B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
    plan.P = nullptr;
+   plan.camRad = cache.Radius(zIndex);
    if (poly.size() == static_cast<size_t>(cache.nz) && !poly[static_cast<size_t>(zIndex)].empty())
       plan.P = poly[static_cast<size_t>(zIndex)].data();
    if (interpMode == PsfInterpMode::Fft)
@@ -1269,7 +1343,7 @@ void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int row
    a.yLo = std::max(0, rowLo);
    a.yHi = std::min(static_cast<int>(height), rowHi);
    a.os = std::max(1, cache.oversampling);
-   a.camRad = cache.halfWidthOversampled / a.os;
+   a.camRad = plan.camRad;
    a.bw = cache.blockSumWidth;
    a.qw = a.bw % a.os == 0 ? a.bw / a.os : 0;
    a.B = plan.B;
