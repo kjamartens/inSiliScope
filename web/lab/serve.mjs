@@ -3,7 +3,8 @@
 // --open opens /web/lab.html in the default browser (`cmake --build --preset lab` passes it).
 // Serves the repo root. /web/lab.html is web/index.html (the viewer) on the JS reference: its WASM module tag
 // becomes self.ISC_ENGINE_URL = 'lab/engine.js', plus lab/lab_html.js (badge, reload on save). /web/lab/ is the
-// A/B page; /baseline/<path> serves <path> as of the git ref --base (A/B against main); /__lab/events is a
+// A/B page; /baseline/<path> serves <path> as of the git ref --base (A/B against main); /__lab/info is the checkout
+// (branch, commit, uncommitted files: lab.html's About line) and the baseline ref; /__lab/events is a
 // server-sent-event stream that fires on every save under web/prototype, web/lab, or of web/index.html / wf_gpu.js.
 import http from 'http';
 import fs from 'fs';
@@ -59,10 +60,14 @@ http.createServer((req, res) => {
     return;
   }
   if (p === '/__lab/info') {
-    let head = '', dirty = '';
+    let head = '', dirty = '', sha = '', subject = '', changed = '';
     try { head = git('rev-parse', '--abbrev-ref', 'HEAD').toString().trim(); } catch {}
     try { dirty = git('status', '--porcelain', '--', 'web/prototype').toString(); } catch {}
-    return send(res, 200, JSON.stringify({ base: BASE, baseSha, head, prototypeDirty: dirty.trim().split('\n').filter(Boolean) }), 'application/json');
+    try { [sha, subject] = git('log', '-1', '--format=%h%n%s').toString().trim().split('\n'); } catch {}
+    try { changed = git('status', '--porcelain', '--untracked-files=no').toString(); } catch {}
+    return send(res, 200, JSON.stringify({ base: BASE, baseSha, head, sha, subject,
+      changedFiles: changed.trim().split('\n').filter(Boolean).length,
+      prototypeDirty: dirty.trim().split('\n').filter(Boolean) }), 'application/json');
   }
   if (p === '/web/lab.html') {
     try { return send(res, 200, labHtml(), 'text/html'); } catch (e) { return send(res, 500, String(e.message)); }
