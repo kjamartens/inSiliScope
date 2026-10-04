@@ -50,7 +50,9 @@ if(EMSCRIPTEN)
     -sMODULARIZE=1 -sEXPORT_NAME=createInsiliscope
     -sENVIRONMENT=web,worker
     -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
-    -sALLOW_MEMORY_GROWTH=1
+    # A movie's PSF stack alone is ~75 MB: start there instead of growing (and
+    # copying the heap) from 16 MB in several steps.
+    -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB
     -sFILESYSTEM=0
     "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_scope_options,_isc_scope_movie,_isc_wf_begin,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"

@@ -5,6 +5,31 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Single-configuration generators (Ninja, Makefiles) build Release unless told
+# otherwise: an unoptimised core is 10-30x slower and never what anyone wants.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Link-time optimisation where the toolchain has it (MSVC /GL + /LTCG, GCC and
+# Clang -flto, Emscripten's wasm-ld LTO): the core's small jsm:: wrappers and
+# the per-dye/per-point helpers inline across translation units. Contraction
+# into fused multiply-adds stays off through LTO (-ffp-contract=off is
+# recorded per function; MSVC /fp:precise without /fp:contract never
+# contracts), which ctest world_checks asserts (NoContraction). ISC_LTO=OFF
+# turns it off.
+option(ISC_LTO "Link-time optimisation for the core, the cli and the WASM modules" ON)
+if(ISC_LTO)
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT isc_ipo_ok OUTPUT isc_ipo_msg LANGUAGES CXX)
+  if(isc_ipo_ok)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF)
+  else()
+    message(STATUS "insiliscope: no link-time optimisation (${isc_ipo_msg})")
+  endif()
+endif()
+
 option(ISC_BUILD_TESTS "Build the parity harness" ON)
 if(ISC_BUILD_TESTS)
   enable_testing()

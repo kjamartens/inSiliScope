@@ -95,7 +95,7 @@ void Apply(const sim::CztPlan& p, const double* inRe, const double* inIm, double
       aRe[m] = inRe[m] * cr - inIm[m] * ci;
       aIm[m] = inRe[m] * ci + inIm[m] * cr;
    }
-   Fft1d(aRe, aIm, p.fwd);
+   ref::Fft1d(aRe, aIm, p.fwd); // qualified: ADL on sim::FftTwiddles finds sim::Fft1d too
    for (int i = 0; i < L; ++i)
    {
       const double gr = p.gRe[static_cast<size_t>(i)], gi = p.gIm[static_cast<size_t>(i)];
@@ -104,7 +104,7 @@ void Apply(const sim::CztPlan& p, const double* inRe, const double* inIm, double
       aRe[i] = re;
       aIm[i] = im;
    }
-   Fft1d(aRe, aIm, p.inv);
+   ref::Fft1d(aRe, aIm, p.inv);
    for (int q = 0; q < P; ++q)
    {
       const double convRe = aRe[q] / L, convIm = aIm[q] / L;

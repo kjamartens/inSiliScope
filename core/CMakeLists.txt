@@ -34,6 +34,13 @@ if(MSVC)
 else()
   target_compile_options(insiliscope_core PUBLIC -ffp-contract=off -fno-fast-math -Wall)
 endif()
+if(EMSCRIPTEN)
+  # WASM SIMD for the core too (the render code had it): f64x2 lanes are
+  # IEEE-exact and nothing reassociates without fast-math, so the same bits
+  # (ctest golden_vectors under Node). Needs a SIMD-capable browser (every
+  # current one; Safari since 16.4), as the viewer module already did.
+  target_compile_options(insiliscope_core PRIVATE -msimd128)
+endif()
 
 # WASM module: only the C ABI, for the viewer / webSMLM (and M0 size numbers).
 if(EMSCRIPTEN)

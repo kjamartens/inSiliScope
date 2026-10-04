@@ -1056,8 +1056,21 @@ void BlockInjection()
    isc_params_free(ip);
 }
 
+// The build must not contract a*b - c into a fused multiply-add anywhere
+// (every "same bits as the JS" argument depends on it, link-time optimisation
+// included): with x = 1 + 2^-27, x*x rounds to 1 + 2^-26 and x*x - 1 is
+// exactly 2^-26; a fused evaluation keeps the 2^-54 term.
+void NoContraction()
+{
+   volatile double x = 1.0 + 7.450580596923828125e-9; // 1 + 2^-27
+   const double xv = x;
+   volatile double r = xv * xv - 1.0;
+   Check(r == 1.490116119384765625e-8, "no floating-point contraction (x*x - 1 with x = 1 + 2^-27 is exactly 2^-26)");
+}
+
 int main()
 {
+   NoContraction();
    Determinism();
    PackingOff();
    DyeStatistics();
