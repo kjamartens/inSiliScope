@@ -1145,7 +1145,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 7) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 7');
+  if (M._isc_abi_version() !== 8) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 8');
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
@@ -1258,13 +1258,15 @@ function iscEngine(M) {
     handle(d) {
       const w = d.type === 'movie' ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'pack') {
+        inject(w, d.blocks);   // blocks the page remembered from an earlier visit (local storage), if any
         const [x0, y0, x1, y1] = d.rect;
         const cells = query((ptr, cap) => M._isc_cells_in_window(w, x0, y0, x1, y1, ptr, cap), 14, 1024);
         // The packed blocks themselves (cached by the query above), for the cell and dye workers to
-        // take over instead of packing them again.
+        // take over instead of packing them again, and for the page to remember.
         const blocks = blocksOf(d.p, d.rect).map(([bx, by]) =>
           ({ bx, by, rows: query((ptr, cap) => M._isc_world_pack_block(w, bx, by, ptr, cap), 14, 64) }));
-        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks }, [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
+        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks, version: M.UTF8ToString(M._isc_world_version()) },
+                [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
       }
       if (d.type === 'cell') {
         inject(w, d.blocks);
@@ -1307,7 +1309,7 @@ function iscEngine(M) {
         const need = M._isc_scope_movie(s, 0, 0, info, err, 512);
         if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {
-          out = M._malloc(need * 2);
+          out = M._malloc(Math.max(2, need * 2));   // prepare=1: need is 0, the call still has to run
           const got = M._isc_scope_movie(s, out, need, info, err, 512);
           if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
           else {
@@ -1315,6 +1317,7 @@ function iscEngine(M) {
             res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1],
               n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4],
               halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0 };
+            if (d.prepare) res.prepared = true;
           }
         }
         for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
@@ -1392,6 +1395,7 @@ function initGenWorkers() {
     genWorkers.dyes = spawnGenWorker();
     genWorkers.dyes.onmessage = e => (e.data.type === 'movie' ? onMovieResult(e.data) : onDyeResult(e));
     genWorkers.ok = true;
+    schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
 function disableGenWorkers() {
@@ -1428,6 +1432,66 @@ const RENDER_CAP = 4000; // safety net: above this many VISIBLE chunks, skip dra
                           // is dozens of path points, so tens of thousands of them per frame would hang the tab outright,
                           // not just run slowly. Zoom in instead; this is a "mock explorer" limit, not a renderer.
 const PACK_PAD_VIEWS = 2;
+// ---- packed blocks remembered across reloads (localStorage) -----------------------------
+// The pack worker's blocks, five numbers per cell (cx, cy, x, y, packRot: what isc_world_set_block
+// reads; the cell's shape is recomputed from its address), under one key: the pack key (seed and
+// packing params) and the core's world version. A pack job carries the remembered blocks of its
+// window, so a reload with the same seed and parameters packs nothing; another key overwrites the
+// entry (one entry, at most BLOCK_STORE_MAX blocks, well under a megabyte). The core validates
+// every row it is handed, so a stale entry can only cost a repack, never a wrong cell.
+const BLOCK_STORE_LS = 'isc.packedBlocks.v1', BLOCK_STORE_MAX = 3000;
+let worldVersion = self.ISC_WORLD_VERSION || '';   // from the module; every pack reply confirms it
+let blockStore = null, blockStoreTimer = 0;        // {key, blocks: Map('bx,by' -> Float64Array(5 n))}
+const f64ToB64 = a => btoa(String.fromCharCode(...new Uint8Array(a.buffer, a.byteOffset, a.byteLength)));
+const b64ToF64 = s => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new Float64Array(u.buffer); };
+function blockStoreOpen(key) {
+  const full = key + '|' + worldVersion;
+  if (blockStore && blockStore.key === full) return blockStore;
+  blockStore = { key: full, blocks: new Map() };
+  try {
+    const o = JSON.parse(localStorage.getItem(BLOCK_STORE_LS) || 'null');
+    if (o && o.key === full && Array.isArray(o.blocks))
+      for (const [bx, by, b64] of o.blocks) blockStore.blocks.set(bx + ',' + by, b64ToF64(b64));
+  } catch (e) { /* no storage, or an unreadable entry: start empty */ }
+  return blockStore;
+}
+// The remembered blocks within one block of the rect, as the 14-wide rows inject() takes.
+function blockStoreRows(key, p, rect) {
+  if (!worldVersion) return [];
+  const st = blockStoreOpen(key), B = 8 * p.chunkSize, out = [];
+  if (!st.blocks.size) return out;
+  const bx0 = Math.floor(rect[0] / B) - 1, bx1 = Math.floor(rect[2] / B) + 1;
+  const by0 = Math.floor(rect[1] / B) - 1, by1 = Math.floor(rect[3] / B) + 1;
+  for (const [k, r] of st.blocks) {
+    const [bx, by] = k.split(',').map(Number);
+    if (bx < bx0 || bx > bx1 || by < by0 || by > by1) continue;
+    const n = r.length / 5, rows = new Float64Array(14 * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < 5; j++) rows[14 * i + j] = r[5 * i + j];
+    out.push({ bx, by, rows });
+  }
+  return out;
+}
+function blockStoreRemember(key, version, blocks) {
+  if (version) worldVersion = version;
+  const st = blockStoreOpen(key);
+  for (const b of blocks) {
+    const n = b.rows.length / 14, r = new Float64Array(5 * n);
+    for (let i = 0; i < n; i++) for (let j = 0; j < 5; j++) r[5 * i + j] = b.rows[14 * i + j];
+    const k = b.bx + ',' + b.by;
+    st.blocks.delete(k); st.blocks.set(k, r);   // newest last
+  }
+  while (st.blocks.size > BLOCK_STORE_MAX) st.blocks.delete(st.blocks.keys().next().value);
+  clearTimeout(blockStoreTimer);
+  blockStoreTimer = setTimeout(blockStoreSave, 1500);
+}
+function blockStoreSave() {
+  if (!blockStore) return;
+  try {
+    const blocks = [...blockStore.blocks].map(([k, r]) => { const [bx, by] = k.split(',').map(Number); return [bx, by, f64ToB64(r)]; });
+    localStorage.setItem(BLOCK_STORE_LS, JSON.stringify({ key: blockStore.key, blocks }));
+  } catch (e) { /* quota, or no storage: a convenience only */ }
+}
+
 let packCache = null;   // {key, ex0..ey1, map, blocks: [{bx, by, rows}] the pack worker packed}
 let packPending = null; // {id, key, win} in flight on the pack worker
 let packId = 0;
@@ -1497,8 +1561,10 @@ function getPackedMapSync(seed, p, ex0, ey0, ex1, ey1) {
   if (packCovers(packCache, key, ex0, ey0, ex1, ey1)) return packCache;
   if (!mainEngine) return null;
   const win = packWindow(p, ex0, ey0, ex1, ey1);
-  const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect: winRect(p, win), seed, p: packParams(p) });
+  const rect = winRect(p, win);
+  const [d] = mainEngine.handle({ type: 'pack', id: 0, key, win, rect, seed, p: packParams(p), blocks: blockStoreRows(key, p, rect) });
   packCache = { key, ex0: win[0], ey0: win[1], ex1: win[2], ey1: win[3], map: cellMap(d.cells), blocks: d.blocks || [] };
+  blockStoreRemember(key, d.version, d.blocks || []);
   hideLoading();
   return packCache;
 }
@@ -1521,9 +1587,10 @@ function getPackedMapAsync(seed, p, ex0, ey0, ex1, ey1) {
       packPending = null;
     }
     if (!packPending) {
-      const win = packWindow(p, ex0, ey0, ex1, ey1);
+      const win = packWindow(p, ex0, ey0, ex1, ey1), rect = winRect(p, win);
       packPending = { id: ++packId, key, win };
-      genWorkers.pack.postMessage({ type: 'pack', id: packPending.id, key, win, rect: winRect(p, win), seed, p: packParams(p) });
+      genWorkers.pack.postMessage({ type: 'pack', id: packPending.id, key, win, rect, seed, p: packParams(p),
+                                    blocks: blockStoreRows(key, p, rect) });
     }
   }
   return pc;
@@ -1533,6 +1600,7 @@ function onPackResult(e) {
   if (!packPending || d.id !== packPending.id) return;
   packPending = null;
   packCache = { key: d.key, ex0: d.win[0], ey0: d.win[1], ex1: d.win[2], ey1: d.win[3], map: cellMap(d.cells), blocks: d.blocks || [] };
+  blockStoreRemember(d.key, d.version, d.blocks || []);
   hideLoading();
   requestDraw();
 }
@@ -1927,6 +1995,23 @@ function movieSpec() {
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
   return o.join(' ');
 }
+// The PSF settings a movie's kernel depends on (the worker memoizes the last two kernels).
+function moviePsfKey() {
+  return ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+}
+// PSF kernel preload: the movie worker computes the kernel of the current PSF settings when the
+// workers come up and whenever those settings change (as the adapter does at Initialize), so a
+// movie finds it in the worker's memo. A movie job with prepare=1: no frames, the reply is dropped.
+let prepareTimer = 0, preparePending = null;
+function schedulePrepare() { clearTimeout(prepareTimer); prepareTimer = setTimeout(prepareMovie, 800); }
+function prepareMovie() {
+  if (!genWorkers.ok || document.getElementById('mv_psf-model').value === '0') return;
+  const psfKey = moviePsfKey();
+  if (moviePsfSeen.has(psfKey) || (preparePending && preparePending.psfKey === psfKey)) return;
+  const job = { type: 'movie', id: -(++movieId), spec: movieSpec() + ' prepare=1', prepare: true };
+  preparePending = { id: job.id, psfKey };
+  genWorkers.dyes.postMessage(job);
+}
 function makeMovie() {
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
@@ -1934,7 +2019,7 @@ function makeMovie() {
   // ?wfgpu=any: WideField also on a software WebGPU adapter (tests).
   const job = { type: 'movie', id: ++movieId, spec, rect, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
   moviePending = job;
-  const psfKey = ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+  const psfKey = moviePsfKey();
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
   moviePsfSeen.add(psfKey);
   document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
@@ -1942,6 +2027,10 @@ function makeMovie() {
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
 function onMovieResult(d) {
+  if (d.prepared || (preparePending && d.id === preparePending.id)) {   // a preload: the kernel is in the worker's memo now
+    if (preparePending && d.id === preparePending.id) { if (!d.error) moviePsfSeen.add(preparePending.psfKey); preparePending = null; }
+    return;
+  }
   if (!moviePending || d.id !== moviePending.id) return;
   moviePending = null;
   document.getElementById('mv_make').textContent = 'Make movie here';
@@ -2060,6 +2149,7 @@ function drawMovieFov() {
   ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
+for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm']) document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
 });

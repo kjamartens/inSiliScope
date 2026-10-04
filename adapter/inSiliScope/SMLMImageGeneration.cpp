@@ -12,6 +12,7 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
+#include "Simulation/CacheDir.h"
 #include "Simulation/SharedStageState.h"
 
 #include <algorithm>
@@ -260,6 +261,7 @@ sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
    s.onSec = std::max(1e-6, onLifetimeSec_.load());
    s.offSec = std::max(0.0, offLifetimeSec_.load());
    s.bleachProb = blinkBleachProb_.load();
+   s.cacheDir = diskCacheMode_.load() >= 1 ? sim::DefaultCacheDir() : std::string();
    s.photonCV = photonCV_.load();
    return s;
 }
@@ -2842,6 +2844,43 @@ int CInSiliScopeCamera::OnCellFieldPacking(MM::PropertyBase* pProp, MM::ActionTy
       pProp->Get(s);
       cellFieldPacking_ = (s == "On");
       InvalidateStack();
+   }
+   return DEVICE_OK;
+}
+
+void CInSiliScopeCamera::StartPsfPreload()
+{
+   if (psfPreloadThread_.joinable())
+      psfPreloadThread_.join();
+   const sim::PsfGeneratorRequest req = BuildPsfGeneratorRequest();
+   if (req.model == sim::PsfModelKind::Gaussian)
+      return;
+   psfPreloadThread_ = std::thread([this, req]() {
+      sim::PsfKernelCache cache;
+      std::string err;
+      auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
+      LogMessage("PSF: preloading the kernel of the current PSF settings in the background.");
+      if (!sim::ComputePsfKernelCache(req, cache, err, logCallback))
+         LogMessage("PSF preload failed (the first frame computes the kernel instead): " + err, false);
+   });
+}
+
+int CInSiliScopeCamera::OnDiskCache(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      const int m = diskCacheMode_.load();
+      pProp->Set(m <= 0 ? g_DiskCacheOff : m == 1 ? g_DiskCacheCells : g_DiskCacheCellsAndPsf);
+   }
+   else if (eAct == MM::AfterSet)
+   {
+      std::string s;
+      pProp->Get(s);
+      diskCacheMode_ = s == g_DiskCacheOff ? 0 : s == g_DiskCacheCellsAndPsf ? 2 : 1;
+      sim::SetPsfKernelDiskCacheDir(diskCacheMode_.load() >= 2 ? sim::DefaultCacheDir() : std::string());
+      // The sources pick the directory up with their next settings (a
+      // cache only: no output changes, so no stack invalidation).
+      liveConfigVersion_.fetch_add(1, std::memory_order_relaxed);
    }
    return DEVICE_OK;
 }

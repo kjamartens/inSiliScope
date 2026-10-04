@@ -20,6 +20,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <tuple>
@@ -1056,6 +1058,94 @@ void BlockInjection()
    isc_params_free(ip);
 }
 
+// The packed-block disk store (ABI 8): a second world of the same key takes
+// every block from the file (same cells, nothing packed); another key or a
+// damaged file means a repack and a rewritten file.
+void BlockStoreTest()
+{
+   namespace fs = std::filesystem;
+   std::error_code ec;
+   const fs::path dir = fs::temp_directory_path(ec) /
+      ("isc_blockstore_" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count()));
+   const std::string d = dir.u8string();
+   Params p;
+#if defined(__EMSCRIPTEN__)
+   // No file system in the viewer's WASM: never a store (the page keeps its own in local storage).
+   World w0(1249, p);
+   Check(!w0.SetCacheDir(d) && w0.Store() == nullptr, "block store: none under Emscripten (no file system)");
+   return;
+#endif
+   auto sameCells = [](const std::vector<Cell>& a, const std::vector<Cell>& b) {
+      bool same = a.size() == b.size() && !a.empty();
+      for (size_t i = 0; same && i < a.size(); i++) {
+         const Cell &u = a[i], &v = b[i];
+         same = u.cx == v.cx && u.cy == v.cy && u.x == v.x && u.y == v.y && u.packRot == v.packRot && u.rOuter == v.rOuter &&
+                u.nucOffX == v.nucOffX && u.priority == v.priority && u.tailBound == v.tailBound;
+      }
+      return same;
+   };
+   std::vector<Cell> ca, cb, cc, cd;
+   long packedA = 0;
+   {
+      World a(1249, p);
+      Check(a.SetCacheDir(d) && a.Store() && !a.Store()->Path().empty(), "block store: cache directory made and accepted");
+      a.CellsInRect(-30, -30, 30, 30, ca);
+      packedA = a.Stats().blocksPacked;
+      const bool flushed = a.FlushCache();
+      char m0[200];
+      std::snprintf(m0, sizeof m0, "block store: every touched block packed and written (packed %ld, from store %ld, flush %d, pending %zu, stored %zu)",
+                    packedA, a.Stats().blocksFromStore, (int)flushed, a.Store()->Pending(), a.Store()->Size());
+      Check(packedA == 4 && a.Stats().blocksFromStore == 0 && flushed, m0);   // a 60 um rect reaches 2x2 blocks
+   }   // (the destructor flushes too)
+   Check(fs::file_size(dir / BLOCK_STORE_FILE, ec) > 20 && fs::file_size(dir / BLOCK_STORE_FILE, ec) < 64 * 1024,
+         "block store: a small file (5 doubles per cell)");
+   {
+      World b(1249, p);
+      const bool okB = b.SetCacheDir(d);
+      char m1[200];
+      std::snprintf(m1, sizeof m1, "block store: a new world of the same key loads the blocks (ok %d, loaded %zu)", (int)okB, b.Store() ? b.Store()->Size() : (size_t)0);
+      Check(okB && (long)b.Store()->Size() == packedA, m1);
+      b.CellsInRect(-30, -30, 30, 30, cb);
+      Check(sameCells(ca, cb) && b.Stats().blocksPacked == 0 && b.Stats().blocksFromStore == packedA,
+            "block store: the same cells (every field), nothing packed, every block taken from the file");
+      // Microtubule and labelling parameters do not touch the pose: same key.
+      Params p2 = p;
+      p2.mtDensity = 0.4; p2.labelEfficiency = 0.5;
+      World b2(1249, p2);
+      Check(b2.SetCacheDir(d) && (long)b2.Store()->Size() == packedA, "block store: mt*/label* parameters keep the key");
+   }
+   {
+      Params p3 = p;
+      p3.packFrac = 0.9;   // a packing parameter: another key
+      World c(1249, p3);
+      Check(c.SetCacheDir(d) && c.Store()->Size() == 0, "block store: a packing parameter changes the key (file ignored)");
+      c.CellsInRect(-30, -30, 30, 30, cc);
+      Check(c.Stats().blocksPacked == packedA && c.Stats().blocksFromStore == 0 && !sameCells(ca, cc), "block store: repacked with the other parameters");
+   }   // overwrites the file with the p3 key
+   {
+      World e(1249, p);
+      Check(e.SetCacheDir(d) && e.Store()->Size() == 0, "block store: the file now holds the other key");
+   }
+   {
+      std::ofstream f(dir / BLOCK_STORE_FILE, std::ios::binary | std::ios::trunc);
+      f << "ISCBLK01 garbage garbage garbage garbage";
+   }
+   {
+      World g(1249, p);
+      Check(g.SetCacheDir(d) && g.Store()->Size() == 0, "block store: a damaged file is ignored");
+      g.CellsInRect(-30, -30, 30, 30, cd);
+      Check(sameCells(ca, cd) && g.Stats().blocksPacked == packedA, "block store: ... and the world packs as usual");
+      Check(g.SetCacheDir(std::string()) && g.Store() == nullptr, "block store: \"\" turns the store off");
+   }
+   {
+      World h(1249, p);
+      Check(h.SetCacheDir(d) && (long)h.Store()->Size() == packedA, "block store: the damaged file was rewritten with the blocks");
+      h.SetCacheDir(std::string());
+   }
+   fs::remove_all(dir, ec);
+   Check(!fs::exists(dir, ec), "block store: test directory removed");
+}
+
 // The build must not contract a*b - c into a fused multiply-add anywhere
 // (every "same bits as the JS" argument depends on it, link-time optimisation
 // included): with x = 1 + 2^-27, x*x rounds to 1 + 2^-26 and x*x - 1 is
@@ -1071,6 +1161,7 @@ void NoContraction()
 int main()
 {
    NoContraction();
+   BlockStoreTest();
    Determinism();
    PackingOff();
    DyeStatistics();

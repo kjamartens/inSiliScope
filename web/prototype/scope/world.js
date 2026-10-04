@@ -7,6 +7,9 @@ import { buildMtFrames, pointAtArc, dyesInBlock, dyeSchedule, persistentGen, dye
   MT_RADIUS_NM, MT_BINDER_NM, MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP, DEFAULT_KINETICS } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
+// = ISC_WORLD_VERSION (core/include/insiliscope/insiliscope.h): the generator's version, the
+// date spec/golden was last re-frozen. Bump both when a cell moves (engine_check compares them).
+export const WORLD_VERSION = '2026-10-04';
 const DYE_REACH_UM = (MT_RADIUS_NM + MT_BINDER_NM + MT_LINKER_MAX_NM) * 1e-3;
 const floorDiv = (a, b) => Math.floor(a / b);
 

@@ -22,7 +22,9 @@ const check = process.argv.includes('--check');
 // LF line endings: Emscripten on Windows writes a few CRLFs into the glue, the Linux build (CI's --check) does not.
 const mod = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
 if (/[^\x09\x0a\x0d\x20-\x7e]/.test(mod)) throw new Error('module is not plain ASCII (SINGLE_FILE_BINARY_ENCODE=0?)');
-const abi = /#define ISC_ABI_VERSION (\d+)/.exec(fs.readFileSync(path.join(ROOT, 'core/include/insiliscope/insiliscope.h'), 'utf8'))[1];
+const header = fs.readFileSync(path.join(ROOT, 'core/include/insiliscope/insiliscope.h'), 'utf8');
+const abi = /#define ISC_ABI_VERSION (\d+)/.exec(header)[1];
+const worldVersion = /#define ISC_WORLD_VERSION "([^"]+)"/.exec(header)[1];
 const cache = fs.readFileSync(path.join(ROOT, 'build/wasm/CMakeCache.txt'), 'utf8');
 const tc = (/CMAKE_TOOLCHAIN_FILE:\w+=(.+)/.exec(cache) || [])[1];
 const verFile = tc && path.resolve(path.dirname(tc.trim()), '../../../emscripten-version.txt');
@@ -39,6 +41,8 @@ const text =
 // The module as source text (WASM inlined as base64): evaluating it defines
 // createInsiliscope(); the viewer does that on the main thread and in each worker.
 self.ISC_MODULE_SRC = ${JSON.stringify(mod)};
+// The generator's version (ISC_WORLD_VERSION): keys the viewer's packed-block store in local storage.
+self.ISC_WORLD_VERSION = ${JSON.stringify(worldVersion)};
 // The WideField GPU kernels (adapter/inSiliScope/Simulation/WidefieldGpu.wgsl), for web/wf_gpu.js.
 self.ISC_WF_WGSL = ${JSON.stringify(wgsl)};
 `;

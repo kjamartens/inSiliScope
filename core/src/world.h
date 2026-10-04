@@ -14,6 +14,7 @@
 // same answers.
 #pragma once
 
+#include "blockstore.h"
 #include "cells.h"
 #include "dyes.h"
 #include "microtubules.h"
@@ -79,6 +80,7 @@ struct PersistentEvent {
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
    long blocksInjected = 0;     // packed blocks taken from another world (SetPackedBlock)
+   long blocksFromStore = 0;    // packed blocks taken from the disk store (SetCacheDir)
    long dyeBlocks = 0;          // 1 um dye blocks generated (cache misses)
    long dyeBlockHits = 0;       // served from the cache
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
@@ -94,6 +96,17 @@ public:
    // dye cap is soft: blocks the current query uses are never evicted, so a
    // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
+   World(World&&) = default;
+   World& operator=(World&&) = default;
+   ~World();   // flushes the block store
+
+   // Packed blocks kept across runs in dir/packed_blocks.bin (blockstore.h;
+   // the C ABI's isc_world_set_cache_dir). False if the directory cannot be
+   // used; "" turns the store off. Blocks packed so far are not written
+   // retroactively.
+   bool SetCacheDir(const std::string& dir);
+   bool FlushCache();
+   const BlockStore* Store() const { return store_.get(); }
 
    const Params& GetParams() const { return p_; }
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
@@ -271,6 +284,15 @@ private:
    WorldStats stats_;
    // The shared worker pool (parallel.h), installed for every public call.
    std::shared_ptr<WorkerPool> pool_;
+   // The packed-block disk store (SetCacheDir), if any.
+   std::unique_ptr<BlockStore> store_;
+   // The cells of rows (cx, cy, x, y, packRot, ...; `stride` doubles per
+   // row) as SetPackedBlock installs them: validated, rebuilt from their
+   // address, the pose from the row. False if a row is not a present cell of
+   // block (bx, by) in order.
+   bool CellsFromRows(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, std::vector<Cell>& out) const;
+   // A stored block's cells, if the store has valid rows for it.
+   bool StoredBlock(int32_t bx, int32_t by, std::vector<Cell>& out);
 };
 
 // Cell-local (lx, ly) -> world, as the JS localToWorld (packRot, then x/y).

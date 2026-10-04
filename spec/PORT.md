@@ -521,6 +521,27 @@ block is packed once per page, not once per worker (`web/index.html` `iscEngine.
 microtubules, dyes and events byte-identically with `blocksPacked == 0`, still after `DropCaches`; foreign
 rows are rejected; the C ABI round trip is checked too (`wasm_abi_smoke.mjs` under Node).
 
+### 6.6 Packed blocks across runs (ABI 8, 2026-10-04)
+`isc_world_set_cache_dir(w, dir)` gives a world a disk store of its packed blocks (`core/src/blockstore.*`):
+`dir/packed_blocks.bin` holds, per block, five doubles per cell (cx, cy, x, y, packRot -- all that Relax and
+Prune produce; the shape is RawCandidate's), under a 64-bit key of `ISC_WORLD_VERSION`, the seed and
+`PackingFingerprint(params)` (every parameter except the `mt*` and `label*` ones, which only shape what hangs
+off a packed cell -- the viewer's pack key makes the same cut). A block the store has is installed through
+the same validation as `isc_world_set_block` (counted in `WorldStats::blocksFromStore`, `blocksPacked`
+untouched); a row that fails it is dropped and the block repacked. Blocks packed later are added and the file
+rewritten whole (temp file + rename) every 16 new blocks, at `isc_world_flush_cache` and in the world's
+destructor; FIFO cap `BLOCK_STORE_MAX` = 4096 blocks (a few MB), one file per directory, so a world of another
+key overwrites it ("keep the last one"). `isc_world_version()` returns `ISC_WORLD_VERSION` (the C header), the
+date `spec/golden` was last re-frozen: bump it with every change that moves a cell; `web/prototype/scope/world.js`
+carries the same string as `WORLD_VERSION` and `engine_check` compares the two. Nothing under Emscripten: the
+viewer keeps the same five numbers per cell in the browser's `localStorage` (one entry, its pack key plus the
+module's `ISC_WORLD_VERSION`, at most 3000 blocks) and hands them to its pack job (`inject` before the query),
+which also makes `engine_check`'s "pack with remembered blocks" case. Hosts (CellFieldSettings::cacheDir,
+`Simulation/CacheDir.h`): cli `--disk-cache` 0/1/2 (default 1; 2 adds the opt-in PSF kernel file, see
+PsfGeneratorBridge.h), MM `General_DiskCache` Off/Cells/CellsAndPsf. `world_checks` `BlockStoreTest`: a second
+world of the same key takes every block from the file (same cells, nothing packed), mt*/label* changes keep the
+key, a packing parameter changes it, a damaged file is ignored and rewritten.
+
 ## 12. Known gaps to keep in mind (not for the first pass)
 
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.

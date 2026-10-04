@@ -18,6 +18,7 @@ struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; std::vector<
 extern "C" {
 
 int32_t isc_abi_version(void) { return ISC_ABI_VERSION; }
+const char* isc_world_version(void) { return ISC_WORLD_VERSION; }
 
 void isc_pcg4d(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t out[4])
 {
@@ -126,6 +127,26 @@ int32_t isc_world_set_block(IscWorld* w, int32_t bx, int32_t by, const double* r
       bool skipped = false;
       if (!w->w.SetPackedBlock(bx, by, rows, n, ISC_CELL_STRIDE, skipped)) return -1;
       return skipped ? 0 : 1;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_world_set_cache_dir(IscWorld* w, const char* dir)
+{
+   if (!w) return -1;
+   try {
+      return w->w.SetCacheDir(dir ? std::string(dir) : std::string()) ? 0 : -1;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_world_flush_cache(IscWorld* w)
+{
+   if (!w) return -1;
+   try {
+      return w->w.FlushCache() ? 0 : -1;
    } catch (...) {
       return -1;
    }

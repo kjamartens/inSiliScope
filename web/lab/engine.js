@@ -10,7 +10,7 @@
 //
 // Loaded as a module worker it answers postMessage(job) like the viewer's Blob workers (genWorkerMain).
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
-import { World, PACK_BLOCK_CHUNKS } from '../prototype/scope/world.js';
+import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
 import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
 
 async function text(url) {
@@ -77,6 +77,7 @@ export async function createEngine(src = {}) {
       const res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: info.width, h: info.height,
         n: info.frames, blinks: info.blinks ?? 0, dyes: info.dyes ?? 0,
         halfMs: Number.isFinite(half) ? Math.trunc(Math.min(2e9, half * 1000)) : -1, ms: performance.now() - t0 };
+      if (d.prepare) res.prepared = true;
       if (info.dyes != null) res.gpu = 'CPU'; // WideField: the JS reference has no WebGPU path
       return [res, [frames.buffer]];
     } catch (e) {
@@ -90,11 +91,13 @@ export async function createEngine(src = {}) {
       if (d.type === 'movie') return movie(d);
       const w = useWorld(d.seed, d.p);
       if (d.type === 'pack') {
+        inject(w, d.blocks);   // blocks the page remembered (its local storage), if any
         const [x0, y0, x1, y1] = d.rect;
         const list = w.cellsInRect(x0, y0, x1, y1), cells = new Float64Array(list.length * 14);
         list.forEach((c, i) => cells.set(row(c), i * 14));
         const blocks = blocksOf(w, d.rect);
-        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks }, [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
+        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks, version: WORLD_VERSION },
+                [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
       }
       if (d.type === 'cell') {
         inject(w, d.blocks);

@@ -21,13 +21,19 @@
 
 namespace sim {
 
+// Set from a host without an environment (the viewer's WASM: isc_timing).
+inline bool& TimingForced()
+{
+   static bool forced = false;
+   return forced;
+}
 inline bool TimingEnabled()
 {
-   static const bool on = [] {
+   static const bool env = [] {
       const char* e = std::getenv("ISC_TIMING");
       return e && *e && *e != '0';
    }();
-   return on;
+   return env || TimingForced();
 }
 
 using TimingClock = std::chrono::steady_clock;

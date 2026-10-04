@@ -105,7 +105,8 @@ that finishes them.
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
 - Docs: `docs/` is the mkdocs-material site (physics pages, quickstart, extending; `docs/dev/` is excluded history);
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
-  with `spec/` when a model changes; add a gallery entry for every new CLI option.
+  with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
+  preparation switches need none).
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 
@@ -269,6 +270,26 @@ memory-bound), WF 256 px 20 f 2.7 -> 1.7 s, 200 f 3.3 -> 1.8 s, BF 256 px level 
 core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 ms; viewer BF 256 px level 3
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
+**Persistent caches and PSF preload (2026-10-04), output unchanged.** Core ABI 8: `isc_world_set_cache_dir(w, dir)` keeps a
+world's packed blocks in `dir/packed_blocks.bin` (`core/src/blockstore.*`: five numbers per cell, cx, cy, x, y, packRot;
+one file per directory keyed by seed, the packing parameters (`PackingFingerprint`: every parameter but `mt*`/`label*`)
+and `ISC_WORLD_VERSION`; FIFO cap 4096 blocks, a few MB; rewritten whole every 16 new blocks, at
+`isc_world_flush_cache` and when the world is freed; a block read back is validated like `isc_world_set_block`, so a
+stale or damaged file costs a repack, never a wrong cell), `isc_world_version()` = `ISC_WORLD_VERSION` (the date
+`spec/golden` was last re-frozen: **bump it with every change that moves a cell**, the block caches are keyed on it; the
+JS twin is `WORLD_VERSION` in `web/prototype/scope/world.js`, `engine_check` compares them). Hosts: the per-user cache
+directory is `Simulation/CacheDir.h` (`$ISC_CACHE_DIR`, else `%LOCALAPPDATA%\inSiliScope\cache` /
+`~/.cache/insiliscope`; `ISC_CACHE=0` disables); cli `--disk-cache 0|1|2` (default 1 = blocks; 2 adds the PSF kernel:
+`psf_kernel.bin`, one file of up to 512 MB, the adapter's default kernel is 200 MB and reads back in ~0.35 s instead of
+0.6 s of compute -- opt-in because of its size), `--prepare 1` builds the world, packs the FOV's blocks and computes the
+kernel, no frames; MM `General_DiskCache` = `Off` | `Cells` (default) | `CellsAndPsf`. The viewer keeps the same five
+numbers per cell in `localStorage` (`isc.packedBlocks.v1`, one entry, 3000 blocks, keyed by its pack key and
+`self.ISC_WORLD_VERSION` from the module) and hands them to the pack job, so a reload packs nothing. PSF preload: the
+adapter computes (or reads) the kernel of the current `PSFParam_` values on a background thread from `Initialize()`
+(`StartPsfPreload`; `ComputePsfKernelCache` makes a concurrent requester of the same kernel wait for the thread in
+flight instead of computing twice), the viewer sends a `prepare=1` movie job to its movie worker when the workers come
+up and when a PSF control changes. Options that change no output (`disk-cache`, `prepare`) need no gallery entry.
+
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
@@ -296,7 +317,7 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   every property that sat in webSMLM's flat "User parameters" group
   (density, pixel size, labeling efficiency, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, etc.), the WideField
+  (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, `DiskCache`, etc.), the WideField
   modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
   `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
   `PhotonsPerPxPerSec`/`Aberrations`, and the

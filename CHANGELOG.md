@@ -21,6 +21,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
   tooling: `ISC_TIMING=1` prints a movie's phase times, `sr_render_check --bench`, `isc_core_bench` and
   `tools/bench_core.mjs` (per-phase core timing, native and WASM), `tools/bench.py` gained 1000-frame SR, 200-frame WF
   and BrightField configs.
+- Persistent caches and PSF preload (2026-10-04), output unchanged. **Core ABI 8**: `isc_world_set_cache_dir` keeps a
+  world's packed cell positions in a small per-user file (five numbers per cell; validated when read back), so a rerun
+  with the same seed and cell parameters starts with the cells in place; `isc_world_version`. MM `General_DiskCache`
+  (`Off` / `Cells`, the default / `CellsAndPsf`, which adds the ~200 MB PSF kernel file), cli `--disk-cache 0|1|2` and
+  `--prepare 1` (build the world, pack the field of view, compute the kernel; no movie). The adapter computes the PSF
+  kernel in the background from `Initialize()`; the viewer does the same in its movie worker when it loads and when a
+  PSF setting changes, and remembers the packed cells in local storage across reloads.
 - Licensing clarified: own source BSD-3-Clause; the distributed DLL is GPL-3.0 as a whole (it embeds PSFGenerator).
 - Renamed to inSiliScope everywhere.
 - Release automation: tests, DLL, webSMLM block, gallery and benchmarks built on a `v*` tag and published as GitHub

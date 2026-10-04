@@ -69,6 +69,7 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
       world_ = w;
       settings_ = s;
       settings_.activationRatePerSec = -1; // force the kinetics below
+      cacheDirApplied_ = false;
    }
    if (!settings_.SameKinetics(s))
    {
@@ -78,6 +79,14 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
          return false;
       }
       settings_ = s;
+   }
+   if (!cacheDirApplied_ || settings_.cacheDir != s.cacheDir)
+   {
+      // The packed-block store (a cache only); an unusable directory means
+      // no store, not an error.
+      isc_world_set_cache_dir(world_, s.cacheDir.c_str());
+      settings_.cacheDir = s.cacheDir;
+      cacheDirApplied_ = true;
    }
    return true;
 }

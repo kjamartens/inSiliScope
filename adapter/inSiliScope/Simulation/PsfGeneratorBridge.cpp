@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -18,6 +19,10 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#if !defined(__EMSCRIPTEN__)
+#include <filesystem>
+#include <fstream>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -678,13 +683,149 @@ bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
           a.zStepNm == b.zStepNm;
 }
 
+// ---- the opt-in disk store of the last kernel (SetPsfKernelDiskCacheDir) ----
+std::mutex g_psfDiskMutex;
+std::string g_psfDiskDir;
+#if !defined(__EMSCRIPTEN__)
+constexpr char kPsfFileMagic[8] = { 'I', 'S', 'C', 'P', 'S', 'F', '0', '1' };
+// Bump when the kernel computation changes (ZernikePsf.cpp, the JVM models'
+// request mapping): planes stored by an older version are not taken.
+constexpr const char* kPsfKernelCodeVersion = "2026-10-04";
+constexpr double kPsfDiskMaxBytes = 512.0 * 1024 * 1024;
+
+uint64_t FnvMix(uint64_t h, const void* data, size_t n)
+{
+   const unsigned char* b = static_cast<const unsigned char*>(data);
+   for (size_t i = 0; i < n; i++)
+   {
+      h ^= b[i];
+      h *= 1099511628211ull;
+   }
+   return h;
+}
+
+// The request as SameKernel compares it, plus the code version.
+uint64_t KernelFingerprint(const PsfGeneratorRequest& r)
+{
+   uint64_t h = 14695981039346656037ull;
+   h = FnvMix(h, kPsfKernelCodeVersion, std::strlen(kPsfKernelCodeVersion));
+   const int32_t ints[6] = { static_cast<int32_t>(r.model), static_cast<int32_t>(r.maskType), r.maskModes,
+                             r.oversampling, r.kernelHalfWidthPx, r.nz };
+   h = FnvMix(h, ints, sizeof ints);
+   const double dbls[9] = { r.wavelengthNm, r.na, r.immersionIndex, r.sampleIndex, r.workingDistanceUm,
+                            r.sampleDepthNm, r.pixelSizeNm, r.maskWaist, r.zStepNm };
+   h = FnvMix(h, dbls, sizeof dbls);
+   h = FnvMix(h, r.zernikeCoefficients.data(), r.zernikeCoefficients.size());
+   return h;
+}
+
+std::filesystem::path PsfDiskPath()
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   if (g_psfDiskDir.empty())
+      return std::filesystem::path();
+   return std::filesystem::u8path(g_psfDiskDir) / "psf_kernel.bin";
+}
+#endif
+
+bool LoadKernelFromDisk(const PsfGeneratorRequest& req, PsfKernelCache& out)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)req; (void)out;
+   return false;
+#else
+   namespace fs = std::filesystem;
+   const fs::path path = PsfDiskPath();
+   if (path.empty())
+      return false;
+   std::ifstream in(path, std::ios::binary);
+   if (!in)
+      return false;
+   char magic[8];
+   uint64_t fp = 0;
+   int32_t geom[5] = { 0, 0, 0, 0, 0 };   // oversampling, halfWidthOversampled, sizeOversampled, nz, blockSumWidth
+   double zStepNm = 0.0;
+   in.read(magic, 8);
+   in.read(reinterpret_cast<char*>(&fp), 8);
+   in.read(reinterpret_cast<char*>(geom), sizeof geom);
+   in.read(reinterpret_cast<char*>(&zStepNm), 8);
+   if (!in || std::memcmp(magic, kPsfFileMagic, 8) != 0 || fp != KernelFingerprint(req))
+      return false;
+   const int os = geom[0], half = geom[1], size = geom[2], nz = geom[3], bw = geom[4];
+   if (os < 1 || os > 64 || half < 0 || size != 2 * half + 1 || size > 8192 || nz < 1 || nz > 4096 || bw != size + os - 1)
+      return false;
+   PsfKernelPlanes d;
+   d.planes.assign(static_cast<size_t>(nz), std::vector<float>());
+   for (int z = 0; z < nz; z++)
+   {
+      d.planes[z].resize(static_cast<size_t>(size) * size);
+      in.read(reinterpret_cast<char*>(d.planes[z].data()), static_cast<std::streamsize>(d.planes[z].size() * sizeof(float)));
+      if (!in)
+         return false;
+   }
+   d.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
+   ParallelFor(static_cast<unsigned>(nz), [&](unsigned z) { d.blockSums[z] = BuildBlockSums(d.planes[z].data(), size, os); });
+   BuildPolyphaseSums(d, bw, os);
+   out = PsfKernelCache();
+   out.oversampling = os;
+   out.halfWidthOversampled = half;
+   out.sizeOversampled = size;
+   out.nz = nz;
+   out.zStepNm = zStepNm;
+   out.interpMode = req.interpMode;
+   out.blockSumWidth = bw;
+   out.SetData(std::move(d));
+   out.valid = true;
+   return true;
+#endif
+}
+
+void SaveKernelToDisk(const PsfGeneratorRequest& req, const PsfKernelCache& c)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)req; (void)c;
+#else
+   namespace fs = std::filesystem;
+   const fs::path path = PsfDiskPath();
+   if (path.empty() || !c.valid || c.Planes().empty())
+      return;
+   const double bytes = static_cast<double>(c.nz) * c.sizeOversampled * c.sizeOversampled * sizeof(float);
+   if (bytes > kPsfDiskMaxBytes)
+      return;
+   std::error_code ec;
+   fs::create_directories(path.parent_path(), ec);
+   const fs::path tmp = path.string() + ".tmp";
+   {
+      std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+      if (!out)
+         return;
+      const uint64_t fp = KernelFingerprint(req);
+      const int32_t geom[5] = { c.oversampling, c.halfWidthOversampled, c.sizeOversampled, c.nz, c.blockSumWidth };
+      out.write(kPsfFileMagic, 8);
+      out.write(reinterpret_cast<const char*>(&fp), 8);
+      out.write(reinterpret_cast<const char*>(geom), sizeof geom);
+      out.write(reinterpret_cast<const char*>(&c.zStepNm), 8);
+      for (const std::vector<float>& plane : c.Planes())
+         out.write(reinterpret_cast<const char*>(plane.data()), static_cast<std::streamsize>(plane.size() * sizeof(float)));
+      if (!out)
+         return;
+   }
+   fs::rename(tmp, path, ec);
+   if (ec)
+      fs::remove(tmp, ec);
+#endif
+}
+
 // The last few kernels computed in this process: a live-mode config change
 // or a new stack that leaves the PSF parameters alone (exposure, gain,
-// seed, ...) gets the kernel it would recompute.
+// seed, ...) gets the kernel it would recompute. inFlight: the requests
+// being computed right now (a second requester waits for the first).
 struct KernelMemo
 {
    std::mutex mutex;
+   std::condition_variable cv;
    std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const PsfKernelCache>>> entries; // most recent first
+   std::vector<PsfGeneratorRequest> inFlight;
 };
 
 KernelMemo& Memo()
@@ -733,32 +874,85 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
 
 } // namespace
 
+void SetPsfKernelDiskCacheDir(const std::string& dir)
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   g_psfDiskDir = dir;
+}
+
+std::string PsfKernelDiskCacheDir()
+{
+   std::lock_guard<std::mutex> g(g_psfDiskMutex);
+   return g_psfDiskDir;
+}
+
 bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCache, std::string& outError,
                             const std::function<void(const std::string&)>& logCallback)
 {
    outError.clear();
    const auto tStart = TimingClock::now();
-   {
-      KernelMemo& m = Memo();
-      std::lock_guard<std::mutex> g(m.mutex);
-      for (size_t i = 0; i < m.entries.size(); ++i)
-      {
-         if (!SameKernel(m.entries[i].first, req))
-            continue;
-         outCache = *m.entries[i].second;
-         outCache.interpMode = req.interpMode;
-         std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
-         if (logCallback)
-            logCallback("PSF: kernel unchanged, reusing the one already computed.");
-         TimingLog("psf.memo-hit", TimingSince(tStart));
-         return true;
-      }
-   }
-   if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
-      return false;
-   TimingLog("psf.compute", TimingSince(tStart));
-   const auto tStore = TimingClock::now();
    KernelMemo& m = Memo();
+   {
+      std::unique_lock<std::mutex> g(m.mutex);
+      for (;;)
+      {
+         bool hit = false;
+         for (size_t i = 0; i < m.entries.size() && !hit; ++i)
+         {
+            if (!SameKernel(m.entries[i].first, req))
+               continue;
+            outCache = *m.entries[i].second;
+            outCache.interpMode = req.interpMode;
+            std::rotate(m.entries.begin(), m.entries.begin() + i, m.entries.begin() + i + 1);
+            hit = true;
+         }
+         if (hit)
+         {
+            if (logCallback)
+               logCallback("PSF: kernel unchanged, reusing the one already computed.");
+            TimingLog("psf.memo-hit", TimingSince(tStart));
+            return true;
+         }
+         // Another thread is computing this very kernel (the adapter's
+         // start-up preload and its live loop, or two stacks): wait for it
+         // and take its memo entry instead of computing a second time.
+         bool busy = false;
+         for (const PsfGeneratorRequest& r : m.inFlight)
+            busy = busy || SameKernel(r, req);
+         if (!busy)
+            break;
+         m.cv.wait(g);
+      }
+      m.inFlight.push_back(req);
+   }
+   struct InFlightGuard
+   {
+      KernelMemo& m;
+      const PsfGeneratorRequest& req;
+      ~InFlightGuard()
+      {
+         std::lock_guard<std::mutex> g(m.mutex);
+         for (auto it = m.inFlight.begin(); it != m.inFlight.end(); ++it)
+            if (SameKernel(*it, req)) { m.inFlight.erase(it); break; }
+         m.cv.notify_all();
+      }
+   } inFlight{ m, req };
+   if (LoadKernelFromDisk(req, outCache))
+   {
+      if (logCallback)
+         logCallback("PSF: kernel read from the disk cache (" + PsfKernelDiskCacheDir() + ").");
+      TimingLog("psf.disk-hit", TimingSince(tStart));
+   }
+   else
+   {
+      if (!ComputePsfKernelCacheUncached(req, outCache, outError, logCallback))
+         return false;
+      TimingLog("psf.compute", TimingSince(tStart));
+      const auto tDisk = TimingClock::now();
+      SaveKernelToDisk(req, outCache);
+      TimingLog("psf.disk-store", TimingSince(tDisk));
+   }
+   const auto tStore = TimingClock::now();
    std::lock_guard<std::mutex> g(m.mutex);
    m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
    if (m.entries.size() > kKernelMemoEntries)

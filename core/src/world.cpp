@@ -115,6 +115,51 @@ World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeC
    NormalizeParams(p_);
 }
 
+World::~World()
+{
+   if (store_) store_->Flush();
+}
+
+bool World::SetCacheDir(const std::string& dir)
+{
+   if (store_) {
+      store_->Flush();
+      store_.reset();
+   }
+   if (dir.empty()) return true;
+   std::unique_ptr<BlockStore> s(new BlockStore());
+   if (!s->Open(dir, BlockStoreKey(seed_, PackingFingerprint(p_)))) return false;
+   store_ = std::move(s);
+   return true;
+}
+
+bool World::FlushCache() { return store_ ? store_->Flush() : false; }
+
+namespace {
+// The store's rows of packed cells: cx, cy, x, y, packRot.
+std::vector<double> StoreRows(const std::vector<Cell>& cells)
+{
+   std::vector<double> rows;
+   rows.reserve(cells.size() * BLOCK_STORE_STRIDE);
+   for (const Cell& c : cells) {
+      rows.push_back(c.cx); rows.push_back(c.cy);
+      rows.push_back(c.x); rows.push_back(c.y); rows.push_back(c.packRot);
+   }
+   return rows;
+}
+} // namespace
+
+bool World::StoredBlock(int32_t bx, int32_t by, std::vector<Cell>& out)
+{
+   const std::vector<double>* rows = store_->Find(bx, by);
+   if (!rows) return false;
+   if (CellsFromRows(bx, by, rows->data(), (int32_t)(rows->size() / BLOCK_STORE_STRIDE), BLOCK_STORE_STRIDE, out))
+      return true;
+   store_->Erase(bx, by);   // not this world's cells (another core version, a damaged file): repack
+   out.clear();
+   return false;
+}
+
 void World::DropCaches()
 {
    blocks_.clear();
@@ -159,10 +204,14 @@ const std::vector<Cell>& World::PackedBlock(int32_t bx, int32_t by)
    if (pre != packPrebuilt_.end()) {
       cells = std::move(pre->second);
       packPrebuilt_.erase(pre);
+   } else if (store_ && StoredBlock(bx, by, cells)) {
+      stats_.blocksFromStore++;
+      return blocks_.emplace(key, std::move(cells)).first->second;
    } else {
       cells = PackBlock(bx, by);
    }
    stats_.blocksPacked++;
+   if (store_) store_->Put(bx, by, StoreRows(cells));
    return blocks_.emplace(key, std::move(cells)).first->second;
 }
 
@@ -189,7 +238,8 @@ void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vect
    std::vector<std::pair<int32_t, int32_t>> missing;
    for (int32_t bx = bx0; bx <= bx1; bx++)
       for (int32_t by = by0; by <= by1; by++)
-         if (!blocks_.count(std::make_pair(bx, by))) missing.push_back(std::make_pair(bx, by));
+         if (!blocks_.count(std::make_pair(bx, by)) && !(store_ && store_->Find(bx, by)))
+            missing.push_back(std::make_pair(bx, by));
    // The block cache's reset (PackedBlock) must not happen in the loop below:
    // the pointers returned would dangle. Reset here if it would.
    if (blocks_.size() + missing.size() >= BLOCK_CACHE_MAX) blocks_.clear();
@@ -203,6 +253,7 @@ void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vect
          for (const Cell& c : PackedBlock(bx, by))
             if (RectDist(c.x, c.y, x0, y0, x1, y1) <= c.rOuter) out.push_back(&c);
    packPrebuilt_.clear();
+   if (store_ && store_->Pending() >= 16) store_->Flush();
 }
 
 CellAssets& World::Assets(const Cell& c, bool withMts)
@@ -544,10 +595,21 @@ bool World::SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n
    skipped = false;
    const auto key = std::make_pair(bx, by);
    if (blocks_.count(key)) { skipped = true; return true; }
+   std::vector<Cell> cells;
+   if (!CellsFromRows(bx, by, rows, n, stride, cells)) return false;
+   if (blocks_.size() >= BLOCK_CACHE_MAX) blocks_.clear();
+   if (store_) store_->Put(bx, by, StoreRows(cells));
+   blocks_.emplace(key, std::move(cells));
+   stats_.blocksInjected++;
+   return true;
+}
+
+bool World::CellsFromRows(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, std::vector<Cell>& cells) const
+{
    if (n < 0 || stride < 5 || (n > 0 && !rows)) return false;
    // Relax moves x, y, packRot and Prune drops cells: everything else of a
    // packed cell is RawCandidate's, recomputed here from the address.
-   std::vector<Cell> cells;
+   cells.clear();
    cells.reserve((size_t)n);
    int32_t prevCx = 0, prevCy = 0;
    for (int32_t i = 0; i < n; i++) {
@@ -564,9 +626,6 @@ bool World::SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n
       c.x = r[2]; c.y = r[3]; c.packRot = r[4];
       cells.push_back(c);
    }
-   if (blocks_.size() >= BLOCK_CACHE_MAX) blocks_.clear();
-   blocks_.emplace(key, std::move(cells));
-   stats_.blocksInjected++;
    return true;
 }
 

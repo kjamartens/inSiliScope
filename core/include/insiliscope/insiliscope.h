@@ -13,6 +13,8 @@
  * fractions per voxel; BrightField). ABI 7: isc_world_pack_block /
  * isc_world_set_block (hand a packed block from one world to another, so
  * several worlds of one seed -- the viewer's workers -- pack each block once).
+ * ABI 8: isc_world_set_cache_dir / isc_world_flush_cache (packed blocks kept
+ * in a small per-user file across runs), isc_world_version.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -33,9 +35,16 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 7
+#define ISC_ABI_VERSION 8
 
 ISC_API int32_t isc_abi_version(void);
+
+/* The generator's version: the date spec/golden was last re-frozen. Bump it
+ * with every change that moves a cell (packing, RawCandidate): the packed
+ * block caches (isc_world_set_cache_dir, the viewer's local storage) are
+ * keyed on it, so stale poses are never taken for current ones. */
+#define ISC_WORLD_VERSION "2026-10-04"
+ISC_API const char* isc_world_version(void);
 
 /* ---- RNG (bit-exact with the JS prototype) ---- */
 ISC_API void isc_pcg4d(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t out[4]);
@@ -104,6 +113,20 @@ ISC_API int32_t isc_world_pack_block(IscWorld* w, int32_t bx, int32_t by, double
  * are out of order (nothing changes). A cache only: every answer stays a
  * pure function of (seed, params, window). */
 ISC_API int32_t isc_world_set_block(IscWorld* w, int32_t bx, int32_t by, const double* rows, int32_t n);
+
+/* ABI 8. Keeps this world's packed blocks in dir/packed_blocks.bin (the
+ * directory is made if needed): blocks found there -- written by an earlier
+ * run of the same seed, parameters and ISC_WORLD_VERSION -- are installed as
+ * isc_world_set_block would (validated; a bad row costs a repack, never a
+ * wrong cell), blocks packed from now on are added and written every 16
+ * blocks, at isc_world_flush_cache and when the world is freed. One file per
+ * directory, rewritten whole, at most 4096 blocks (a few MB): a world of
+ * another key overwrites it. Five numbers per cell (cx, cy, x, y, packRot),
+ * nothing else is stored. NULL or "" turns it off. Returns 0, or -1 when the
+ * directory cannot be used (no store then; WASM has none). */
+ISC_API int32_t isc_world_set_cache_dir(IscWorld* w, const char* dir);
+/* ABI 8. Writes the pending blocks now. 0, -1 without a store or on an I/O error. */
+ISC_API int32_t isc_world_flush_cache(IscWorld* w);
 
 /* Labelled dyes in the window, ISC_SITE_STRIDE doubles each: x, y, z, id (a
  * per-dye uint32 hash, stable across windows; the seed of its blink

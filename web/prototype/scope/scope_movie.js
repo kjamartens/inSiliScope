@@ -14,6 +14,8 @@ import { renderBrightfieldMovie } from './brightfield.js';
 export const SCOPE_OPTIONS = [
   ['seed', 42, 'SimType_RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)'],
   ['world-seed', -1, 'cell-field world seed used as is (the viewer\'s seed); -1 = derive it from seed'],
+  ['disk-cache', 1, 'per-user cache on disk (the C++ hosts; no file here): 0 = none, 1 = the packed cell positions, 2 = also the PSF kernel'],
+  ['prepare', 0, '1 = build the world and the PSF kernel only (warms the caches), no frames'],
   ['x', 0, 'FOV centre x, world um (XY stage position)'],
   ['y', 0, 'FOV centre y, world um'],
   ['z', 0.5, 'Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)'],
@@ -118,7 +120,8 @@ const getter = spec => n => (n in spec ? spec[n] : (DEFAULTS[n] ?? 0));
 export function scopeDims(spec) {
   const O = getter(spec);
   const w = Math.min(2048, Math.max(1, O('size'))) >>> 0;
-  return { width: w, height: w, frames: Math.trunc(Math.min(100000, Math.max(1, O('frames')))) };
+  const frames = O('prepare') >= 1 ? 0 : Math.trunc(Math.min(100000, Math.max(1, O('frames'))));
+  return { width: w, height: w, frames };
 }
 
 // MakeScopeSetup: frame-equivalent parameters, world settings, the FOV query.
@@ -238,6 +241,14 @@ export function renderScopeMovie(P, specIn, onFrame, opts = {}) {
   const spec = parseSpec(specIn);
   const t0 = performance.now();
   const S = scopeSetup(P, spec);
+  if (S.O('prepare') >= 1) {
+    // The world (scopeWorld's memo) and, for SR/WideField, the PSF kernel; no frames (PrepareScope).
+    scopeWorld(P, S);
+    const tWorld = (performance.now() - t0) / 1000;
+    const kernel = S.O('modality') === 2 ? null : scopeKernel(spec);
+    return { width: S.W, height: S.H, frames: 0, blinks: 0, querySec: tWorld, totalSec: (performance.now() - t0) / 1000,
+      psf: kernel ? 'GibsonLanniZernike' : 'Gaussian' };
+  }
   if (S.O('modality') === 1) return renderWidefieldMovie(P, spec, S, onFrame, opts);
   if (S.O('modality') === 2) return renderBrightfieldMovie(P, spec, S, onFrame, opts);
   const kernel = scopeKernel(spec, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)));

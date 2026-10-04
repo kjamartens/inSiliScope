@@ -60,7 +60,9 @@ sampler or a default. Measure first: `ISC_TIMING=1` makes a cli or viewer movie 
 (`Simulation/Timing.h`), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
 `sr_render_check --bench` the splat, `tools/bench.py` whole movies. A consumer with several worlds (the viewer's
 workers) packs each block once and hands the rows around with ABI 7 `isc_world_pack_block` / `isc_world_set_block`
-(spec/PORT.md 6.5).
+(spec/PORT.md 6.5); across runs the same rows live in a small per-user file (ABI 8 `isc_world_set_cache_dir`, spec/PORT.md
+6.6) or, in the viewer, in local storage. Both are keyed on `ISC_WORLD_VERSION`: bump it (and `WORLD_VERSION` in
+`web/prototype/scope/world.js`) with every change that moves a cell, i.e. whenever `spec/golden` is re-frozen.
 
 ## Bit-exactness and `world_version`
 

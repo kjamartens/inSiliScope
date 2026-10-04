@@ -118,6 +118,7 @@
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
+    <ClCompile Include="..\..\core\src\blockstore.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
     <ClCompile Include="..\..\core\src\cytomesh.cpp" />

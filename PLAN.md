@@ -28,7 +28,9 @@ Upcoming ideas:
   [x] parallel BF setup, [x] JS prototype and imaging-reference refactors, [x] build flags (Release default, LTO,
   core SIMD). Next: [ ] `wf_gpu.js` lazy copies and smaller upfront buffers, [ ] WF warm-up query if the cold tile
   fill shows in `ISC_TIMING`, [ ] a generated `sincos` (`tools/gen_jsmath.py`), [ ] candidate reuse across packing
-  blocks, [ ] per-block packing on any idle viewer worker.
+  blocks, [ ] per-block packing on any idle viewer worker. Persistent caches (2026-10-04): [x] core ABI 8 packed-block
+  store (cli, MM `General_DiskCache`, viewer local storage), [x] opt-in PSF kernel file, [x] PSF preload at MM
+  `Initialize()` and at viewer load / PSF change, [x] cli `--prepare`.
 - more targets
 - brightfield (exploration, 2026-10-01, spec/BRIGHTFIELD.md): [x] package survey (waveorder, chromatix, TorchOptics,
   PyWolf, holopy, CytoPacq/SimuCell: none embeddable, chromatix-style multislice ported), [x] core ABI 6 optical volume,

@@ -9,6 +9,8 @@
 
 #include "ScopeMovie.h"
 
+#include "CacheDir.h"
+
 #include "BrightfieldRender.h"
 #include "Parallel.h"
 #include "Timing.h"
@@ -42,6 +44,8 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
    static const std::vector<ScopeOption> opts = {
       { "seed", 42, "SimType_RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)" },
       { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
+      { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
+      { "prepare", 0, "1 = build the world and the PSF kernel only (warms the memo and the disk cache), no frames" },
       { "x", 0, "FOV centre x, world um (XY stage position)" },
       { "y", 0, "FOV centre y, world um" },
       { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
@@ -230,6 +234,8 @@ void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frame
 {
    w = h = static_cast<unsigned>(std::min(2048.0, std::max(1.0, ScopeSpecGet(spec, "size"))));
    frames = static_cast<long>(std::min(100000.0, std::max(1.0, ScopeSpecGet(spec, "frames"))));
+   if (ScopeSpecGet(spec, "prepare") >= 1)
+      frames = 0;   // prepare: the world and the PSF kernel only
 }
 
 namespace {
@@ -296,6 +302,8 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    const double worldSeed = O("world-seed");
    cf.seed = worldSeed >= 0 ? static_cast<uint32_t>(static_cast<uint64_t>(worldSeed))
                             : static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x43454C4CULL);
+   cf.cacheDir = O("disk-cache") >= 1 ? DefaultCacheDir() : std::string();
+   SetPsfKernelDiskCacheDir(O("disk-cache") >= 2 ? DefaultCacheDir() : std::string());   // "" under Emscripten
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
@@ -981,10 +989,48 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
    return true;
 }
 
+// prepare=1: the shared world (MovieCache) and, for SR/WideField, the PSF
+// kernel (ComputePsfKernelCache's memo and, with disk-cache 2, its file), so
+// a movie that follows finds both ready. No frames.
+static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   const ScopeSetup S = MakeScopeSetup(spec);
+   MovieCache& cache = SharedMovieCache();
+   std::lock_guard<std::mutex> lock(cache.mutex);
+   if (!ConfigureShared(cache, S.cf, err))
+      return false;
+   // The FOV's cells: packs (or takes from the block store) the blocks the
+   // movie's query will touch. Assets and dyes stay with the movie (they
+   // depend on its z range and kinetics).
+   if (isc_cells_in_window(cache.source.World(), S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, nullptr, 0) < 0)
+   {
+      err = "cell-field query failed";
+      return false;
+   }
+   const double tWorld = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   if (ScopeSpecGet(spec, "modality") != 2)
+   {
+      PsfKernelCache kernel;
+      if (!ScopePsfKernel(spec, kernel, err))
+         return false;
+   }
+   info = ScopeMovieInfo();
+   info.width = S.W;
+   info.height = S.H;
+   info.frames = 0;
+   info.querySec = tWorld;
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   info.description = "prepared";
+   return true;
+}
+
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   if (O("prepare") >= 1)
+      return PrepareScope(spec, info, err);
    const auto t0 = std::chrono::steady_clock::now();
    if (O("modality") == 1)
    {

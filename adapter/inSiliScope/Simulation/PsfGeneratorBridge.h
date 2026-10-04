@@ -272,6 +272,19 @@ int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double waveleng
 // what any fitter could achieve, not a measurement of one.
 std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, double bgPerPx, double cameraPxNm);
 
+// Opt-in disk store of the last computed kernel: one file, psf_kernel.bin in
+// `dir` (made if needed), rewritten whole after a compute whose planes fit
+// in 512 MB (the adapter's default kernel is ~200 MB) and read on a memo miss
+// when the request and the kernel code version match (the block and
+// polyphase sums are rebuilt from the planes). "" (the default) = none. The
+// hosts set it from General_DiskCache = CellsAndPsf / --disk-cache 2
+// (CacheDir.h); nothing under Emscripten. ComputePsfKernelCache also makes a
+// second requester of a kernel another thread is computing wait for that
+// thread (the adapter's start-up preload and its live loop ask for the same
+// kernel) instead of computing it twice.
+void SetPsfKernelDiskCacheDir(const std::string& dir);
+std::string PsfKernelDiskCacheDir();
+
 // Builds the block sums of one plane (see PsfKernelPlanes::blockSums).
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os);
 // The column-polyphase copy of one plane's block sums (bw x bw; see

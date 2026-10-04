@@ -2,6 +2,7 @@
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
 #include "ScopeMovie.h"
+#include "Timing.h"
 #include "WidefieldRender.h"
 
 #include "insiliscope/insiliscope.h"
@@ -58,6 +59,10 @@ extern "C" {
 
 // Named options, one per line: name \t default \t help. Returns the length
 // (without the terminating 0); writes at most cap bytes.
+// Phase timing (Simulation/Timing.h) on or off: the WASM has no ISC_TIMING
+// environment; lines go to stderr (the console in a browser, Node's stderr).
+ISC_API void isc_timing(int32_t on) { sim::TimingForced() = on != 0; }
+
 ISC_API int32_t isc_scope_options(char* out, int32_t cap)
 {
    std::string s;

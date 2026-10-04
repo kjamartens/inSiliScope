@@ -89,6 +89,12 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const cjI = js.handle(structuredClone(cellJob))[0], sjI = js.handle(structuredClone(sitesJob))[0];
   report(pw.blocks.length > 0 && !diff(ci, cw2) && !diff(si, sw2) && !diff(cjI, cw2) && !diff(sjI, sw2),
     `${name}: ${pw.blocks.length} packed blocks injected into a fresh world: cell and sites identical ${diff(ci, cw2) || diff(si, sw2) || diff(cjI, cw2) || diff(sjI, sw2)}`);
+  // A pack job carrying remembered blocks (the viewer's local storage after a reload): a fresh engine
+  // installs them and answers exactly as the one that packed them (version included).
+  const wasm3 = new Function(viewer.slice(s, e + 3) + '\nreturn iscEngine;')()(C.M);
+  const pw3 = wasm3.handle(structuredClone({ type: 'pack', id: 1, key: 'k', win: [0, 0, 3, 2], rect, seed, p: packParams(p), blocks: pw.blocks }))[0];
+  report(!diff(pw3, pw) && typeof pw.version === 'string' && pw.version.length >= 10,
+    `${name}: pack with remembered blocks handed in: identical reply, world version ${pw.version} ${diff(pw3, pw)}`);
 }
 
 // Movies through handle(), the viewer's spec form (p.* = its params()). WideField takes the WASM CPU path
