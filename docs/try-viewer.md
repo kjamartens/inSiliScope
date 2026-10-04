@@ -43,6 +43,9 @@ Notes:
   SMLM and widefield movies also reuse the cells of the previous movie.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's y range seen along y, at equal x and z scale.
+- Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
+  cells far to near, and the microtubules depth-tested on the GPU, so a nucleus shows through the cytoplasm above it
+  and a nearer cell covers a farther one. The dyes are drawn on top.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

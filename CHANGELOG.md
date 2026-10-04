@@ -4,6 +4,11 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer depth order (issue 9, 2026-10-05): the cytoplasm surface, nucleus surface, outline and contour lines of a cell
+  are painted back to front in one order and the cells far to near; microtubules are opaque ribbons in a z-buffer
+  (WebGL2, simplified to a quarter pixel per zoom level). The nucleus no longer draws in front of the cytoplasm, and
+  cells no longer overlap in the wrong order when tilted. The x-z side view draws each cell inside out (nucleus and
+  microtubules under the translucent cytoplasm). Display only.
 - **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
   widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
   `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it

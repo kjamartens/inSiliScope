@@ -859,85 +859,122 @@ function drawScaleBar(pxPerUm) {
   ctx.fillText(`${chosen} µm`, (x1 + x2) / 2, y - tick - 4 * devicePixelRatio);
 }
 
-function polyPath(pts) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
+// ---- per-cell scene: geometry, depth order, 2D and WebGL2 painters -------------
+// Depth order (issue 9). Everything translucent of one cell -- the cytoplasm surface quads, the nucleus surface
+// quads, the footprint outline and the cytoplasm contour lines -- is painted back to front in ONE merged order
+// (there is no z-buffer for translucent surfaces), and the cells are painted far to near (by their y: footprints do
+// not overlap, so the farther cell is the one with the smaller y). Microtubules are opaque lines in a z-buffer on
+// the GPU (drawn first, the translucent surfaces then depth-test against them); the 2D fallback paints each cell's
+// microtubules under its own surfaces. Depth (nearness to the camera) is y*sin(tilt) + z*cos(tilt).
+//
+// draw() runs on every pan/zoom event, so nothing here may redo work that a pan/zoom cannot change. Everything
+// below hangs off the asset's `entry` (one per chunk): flat typed-array copies of the geometry (`render`), its
+// depth order (only depends on tilt + packRot -- the cell's own translation adds the same constant to every
+// primitive -- and the contour step), and the GPU buffers.
+const NUC_PTS = 48, NUC_RINGS = 17;   // the plain-ellipsoid fallback (no rings from the engine)
+const MT_TOL_PX = 0.35;               // the GPU microtubules' path tolerance (screen px, quantised to powers of 2 in um)
+const LINE_DEPTH_BIAS = 0.25;         // um: a contour line sorts after the surface quads it lies on
+const COL_OUTLINE = [90, 169, 230, 0.25], COL_CONTOUR = [20, 30, 45, 0.55];
+const ALPHA_CYTO = 0.6, ALPHA_NUC = 0.5;
+
+// The nucleus surface rings in the cell's local frame (x, y, z per point, np points per ring, bottom pole to top
+// pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record.
+function nucRingsLocal(c, entry) {
+  if (entry.nuc) return { xyz: entry.nuc, np: entry.nucPts };
+  const xyz = new Float64Array(NUC_RINGS * NUC_PTS * 3), ct = Math.cos(c.nucRot), st = Math.sin(c.nucRot), rz = c.nucHeight / 2;
+  for (let s = 0; s < NUC_RINGS; s++) {
+    const t = s / (NUC_RINGS - 1) * 2 - 1, f = Math.sqrt(Math.max(0, 1 - t * t));
+    for (let i = 0; i < NUC_PTS; i++) {
+      const a = (i / NUC_PTS) * Math.PI * 2, lx = Math.cos(a) * (c.nucLong / 2) * f, ly = Math.sin(a) * (c.nucShort / 2) * f, o = 3 * (s * NUC_PTS + i);
+      xyz[o] = c.nucOffX + lx * ct - ly * st; xyz[o + 1] = c.nucOffY + lx * st + ly * ct; xyz[o + 2] = c.nucZ + t * rz;
+    }
+  }
+  return { xyz, np: NUC_PTS };
 }
 
-// Rotates a point out of the cell's cached LOCAL frame (the frame every
-// cell mesh/outline (from the core) is built in, independent of the
-// cell's actual position -- see cellOutlineLocal's own comment) into world
-// space by the packing-only c.packRot, then translates by c.x,c.y. Applying
-// the rotation here at draw time, rather than baking it into the cached
-// local geometry, is what lets relax() turn a cell every iteration without
-// invalidating the per-cell asset cache.
-function localToWorld(c, lx, ly) {
-  const rot = c.packRot || 0;
-  if (!rot) return [c.x + lx, c.y + ly];
-  const cr = Math.cos(rot), sr = Math.sin(rot);
-  return [c.x + lx * cr - ly * sr, c.y + lx * sr + ly * cr];
-}
-
-// ---- per-cell mesh render cache + WebGL2 cell-body layer ---------------------
-// draw() runs on every pan/zoom event, so nothing here may redo work that a
-// pan/zoom cannot change. Everything below hangs off the asset's `entry`
-// (one per chunk, dropped by clearCytoCache): flat typed-array copy of the mesh
-// (`render`), its depth-sorted quad order (only depends on tilt + packRot, both
-// constant during a drag -- the sort key's translation term is the same for every
-// quad, so it never enters it), cached contour segments, and the GPU buffers.
+// Quads 0..nqC-1 are the cytoplasm mesh (vertices 0..nvC-1, vertex k*n + i), quads nqC..nq-1 the nucleus
+// (vertices nvC.., ring by ring). lx, ly, h: local x, y and height of every vertex.
 function getMeshRender(entry, c) {
   let r = entry.render;
   if (r) return r;
   const { rings, n, flat } = entry.mesh;
-  const nv = (rings + 1) * n, nq = rings * n;
+  const nvC = (rings + 1) * n, nqC = rings * n;
+  const nuc = nucRingsLocal(c, entry), np = nuc.np, nr = nuc.xyz.length / (3 * np);
+  const nv = nvC + nr * np, nq = nqC + Math.max(0, nr - 1) * np;
   r = {
-    nv, nq, n, rings,
+    nv, nq, nvC, nqC, n, rings,
     lx: new Float32Array(nv), ly: new Float32Array(nv), h: new Float32Array(nv),
-    qidx: new Uint32Array(nq * 4), qcol: null, qavgH: new Float32Array(nq), // qcol: the 2D path's fill styles, made on first use
-    sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords
-    order: null, orderKey: '',
+    qidx: new Uint32Array(nq * 4), qavgH: new Float32Array(nq), qcol: null, // qcol: the 2D path's fill styles, made on first use
+    sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords (2D path)
+    lines: null, order: null, orderKey: '',
   };
-  for (let v = 0; v < nv; v++) { r.lx[v] = flat[3 * v]; r.ly[v] = flat[3 * v + 1]; r.h[v] = flat[3 * v + 2]; }
+  for (let v = 0; v < nvC; v++) { r.lx[v] = flat[3 * v]; r.ly[v] = flat[3 * v + 1]; r.h[v] = flat[3 * v + 2]; }
+  for (let v = 0; v < nr * np; v++) { r.lx[nvC + v] = nuc.xyz[3 * v]; r.ly[nvC + v] = nuc.xyz[3 * v + 1]; r.h[nvC + v] = nuc.xyz[3 * v + 2]; }
+  const quad = (q, a, b, cc, d) => {
+    const o = q * 4;
+    r.qidx[o] = a; r.qidx[o + 1] = b; r.qidx[o + 2] = cc; r.qidx[o + 3] = d;
+    r.qavgH[q] = (r.h[a] + r.h[b] + r.h[cc] + r.h[d]) / 4;
+  };
   for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
-    const q = k * n + i, i2 = (i + 1) % n, b = q * 4;
-    const a = k * n + i, bb = k * n + i2, cc = (k + 1) * n + i2, d = (k + 1) * n + i;
-    r.qidx[b] = a; r.qidx[b + 1] = bb; r.qidx[b + 2] = cc; r.qidx[b + 3] = d;
-    r.qavgH[q] = (r.h[a] + r.h[bb] + r.h[cc] + r.h[d]) / 4;
+    const i2 = (i + 1) % n;
+    quad(k * n + i, k * n + i, k * n + i2, (k + 1) * n + i2, (k + 1) * n + i);
+  }
+  for (let k = 0; k + 1 < nr; k++) for (let i = 0; i < np; i++) {
+    const i2 = (i + 1) % np, b = nvC + k * np, b1 = b + np;
+    quad(nqC + k * np + i, b + i, b + i2, b1 + i2, b1 + i);
   }
   entry.render = r;
   return r;
 }
 
-// Back-to-front order (see the note this replaced: no z-buffer anywhere, so quads
-// are painted farthest first). Depth is y*sin(tilt) + z*cos(tilt); the cell's own
-// world y adds the same constant to every quad, so only the packRot-rotated
-// local y and the height matter.
-function ensureQuadOrder(r, c, sinT, cosT) {
+// Line primitives: the footprint outline (the mesh's outer ring, nO segments) then the contour segments of `step`.
+// seg: xa, ya, za, xb, yb, zb per line, local frame.
+function getLines(r, entry, step) {
+  if (r.lines && r.lines.step === step) return r.lines;
+  const cs = getContourSegs(entry, step), nO = r.n, nl = nO + cs.length / 5, seg = new Float32Array(nl * 6);
+  const base = r.rings * r.n;
+  for (let i = 0; i < nO; i++) {
+    const a = base + i, b = base + (i + 1) % nO, o = 6 * i;
+    seg[o] = r.lx[a]; seg[o + 1] = r.ly[a]; seg[o + 2] = r.h[a]; seg[o + 3] = r.lx[b]; seg[o + 4] = r.ly[b]; seg[o + 5] = r.h[b];
+  }
+  for (let j = 0, o = 6 * nO; j < cs.length; j += 5, o += 6) {
+    seg[o] = cs[j]; seg[o + 1] = cs[j + 1]; seg[o + 2] = cs[j + 4]; seg[o + 3] = cs[j + 2]; seg[o + 4] = cs[j + 3]; seg[o + 5] = cs[j + 4];
+  }
+  return (r.lines = { step, nO, nl, seg });
+}
+
+// Back-to-front order of all primitives (ids 0..nq-1 the quads, nq.. the lines). The cell's own world y adds the
+// same constant to every primitive, so only the packRot-rotated local y and the height matter.
+function ensureOrder(r, entry, c, sinT, cosT, step) {
   const rot = c.packRot || 0;
-  const key = sinT.toFixed(6) + '|' + rot;
+  const L = getLines(r, entry, step);
+  const key = sinT.toFixed(6) + '|' + rot + '|' + step;
   if (r.orderKey === key) return;
-  const cr = Math.cos(rot), sr = Math.sin(rot);
-  const depth = new Float32Array(r.nq);
-  const { lx, ly, qidx } = r;
+  const cr = Math.cos(rot), sr = Math.sin(rot), N = r.nq + L.nl;
+  const depth = new Float32Array(N);
+  const { lx, ly, qidx } = r, seg = L.seg;
   for (let q = 0; q < r.nq; q++) {
     const b = q * 4;
     let wy = 0;
     for (let j = 0; j < 4; j++) { const v = qidx[b + j]; wy += lx[v] * sr + ly[v] * cr; }
     depth[q] = (wy / 4) * sinT + r.qavgH[q] * cosT;
   }
-  // Sort integer keys (depth quantised to 2^31 steps of its range, then the quad index) with the
-  // typed array's numeric sort: no comparator calls, and exact below 2^53. Quads within one
-  // quantum of depth keep their index order (invisible).
+  for (let l = 0; l < L.nl; l++) {
+    const o = 6 * l;
+    const wy = ((seg[o] + seg[o + 3]) * sr + (seg[o + 1] + seg[o + 4]) * cr) / 2;
+    depth[r.nq + l] = wy * sinT + (seg[o + 2] + seg[o + 5]) / 2 * cosT + LINE_DEPTH_BIAS;
+  }
+  // Sort integer keys (depth quantised to 2^31 steps of its range, then the primitive id) with the typed array's
+  // numeric sort: no comparator calls, and exact below 2^53. Primitives within one quantum of depth keep their id
+  // order (invisible).
   let lo = Infinity, hi = -Infinity;
-  for (let q = 0; q < r.nq; q++) { if (depth[q] < lo) lo = depth[q]; if (depth[q] > hi) hi = depth[q]; }
-  const scale = hi > lo ? 2147483647 / (hi - lo) : 0, Q = 1048576;   // 2^20 quads per depth step (nq < 2^20)
-  const keys = new Float64Array(r.nq);
-  for (let q = 0; q < r.nq; q++) keys[q] = Math.round((depth[q] - lo) * scale) * Q + q;
+  for (let q = 0; q < N; q++) { if (depth[q] < lo) lo = depth[q]; if (depth[q] > hi) hi = depth[q]; }
+  const scale = hi > lo ? 2147483647 / (hi - lo) : 0, Q = 1048576;   // 2^20 ids per depth step (N < 2^20)
+  const keys = new Float64Array(N);
+  for (let q = 0; q < N; q++) keys[q] = Math.round((depth[q] - lo) * scale) * Q + q;
   keys.sort();
-  const idx = new Uint32Array(r.nq);
-  for (let j = 0; j < r.nq; j++) idx[j] = keys[j] % Q;
+  const idx = new Uint32Array(N);
+  for (let j = 0; j < N; j++) idx[j] = keys[j] % Q;
   r.order = idx; r.orderKey = key;
 }
 
@@ -973,83 +1010,123 @@ function cellVisible(c) {
   return sx + r >= 0 && sx - r <= cv.width && sy + r >= 0 && sy - r <= cv.height;
 }
 
-// Faint z=0 footprint outline; the caller batches every cell into one path.
-function addOutlinePath(c, entry) {
-  // The footprint outline is the mesh's outer ring (k = rings: the outline points themselves).
-  const t = cellXform(c), m = entry.mesh, base = 3 * m.rings * m.n, f = m.flat;
-  for (let i = 0; i < m.n; i++) {
-    const lx = f[base + 3 * i], ly = f[base + 3 * i + 1];
-    const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
-    const sy = t.H2 + (t.oy + lx * t.sr + ly * t.cr) * t.cosT * t.S;
-    if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-  }
-  ctx.closePath();
+// What to draw: bit 1 cytoplasm surface, 2 nucleus, 4 footprint outline, 8 contour lines.
+function sceneMask(p) {
+  const cyto = els.showCyto.checked;
+  return (cyto ? 1 | 4 : 0) | (els.showNucleus.checked ? 2 : 0) | (cyto && p.showCytoContours ? 8 : 0);
 }
+const rgba = ([r, g, b, a]) => `rgba(${r},${g},${b},${a})`;
 
-function addContourPath(c, entry, step) {
-  const segs = getContourSegs(entry, step), t = cellXform(c);
-  for (let i = 0; i < segs.length; i += 5) {
-    const z = segs[i + 4];
-    for (let e = 0; e < 2; e++) {
-      const lx = segs[i + e * 2], ly = segs[i + e * 2 + 1];
-      const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
-      const sy = t.H2 + ((t.oy + lx * t.sr + ly * t.cr) * t.cosT - z * t.sinT) * t.S;
-      if (e === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-    }
+// 2D fallback: one cell, its microtubules first, then its translucent primitives in the cached depth order
+// (screen coords computed once per vertex). The caller paints the cells far to near.
+function drawCell2D(c, asset, p, mask, mtW) {
+  const entry = asset.entry, r = getMeshRender(entry, c), t = cellXform(c);
+  if (mtW && asset.mts) {
+    ctx.save();
+    ctx.strokeStyle = '#e6c65a'; ctx.globalAlpha = 0.8;
+    ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
+    ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
+    ctx.lineWidth = mtW / t.S;
+    ctx.stroke(getMtPath2D(asset.mts, c, t).path);
+    ctx.restore();
   }
-}
-
-// 2D fallback: height-mapped surface, one filled quad per (ring, theta) cell in
-// the cached depth order, screen coords computed once per VERTEX (not per quad).
-function drawCellBody2D(c, entry) {
-  const r = getMeshRender(entry, c), t = cellXform(c);
-  ensureQuadOrder(r, c, t.sinT, t.cosT);
+  if (!(mask & 15)) return;
+  ensureOrder(r, entry, c, t.sinT, t.cosT, p.cytoContourStep);
   if (!r.qcol) {
     r.qcol = new Array(r.nq);
-    for (let q = 0; q < r.nq; q++) r.qcol[q] = depthColor(r.qavgH[q], 0, c.height, 0.6);
+    for (let q = 0; q < r.nq; q++) r.qcol[q] = depthColor(r.qavgH[q], 0, c.height, q < r.nqC ? ALPHA_CYTO : ALPHA_NUC);
   }
-  const { lx, ly, h, sx, sy, qidx, qcol, order } = r;
+  const { lx, ly, h, sx, sy, qidx, qcol, order, nq, nqC } = r, L = r.lines, seg = L.seg;
   for (let v = 0; v < r.nv; v++) {
     const x = lx[v], y = ly[v];
     sx[v] = t.ox + (x * t.cr - y * t.sr) * t.S;
     sy[v] = t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - h[v] * t.sinT) * t.S;
   }
-  let last = null;
+  const lsx = (x, y) => t.ox + (x * t.cr - y * t.sr) * t.S;
+  const lsy = (x, y, z) => t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - z * t.sinT) * t.S;
+  const contourW = Math.max(1, 0.04 * t.S), outline = rgba(COL_OUTLINE), contour = rgba(COL_CONTOUR);
+  let last = null, open = 0;   // open: the kind (4/8) of the line path being collected, stroked at the next change
+  const flush = () => {
+    if (!open) return;
+    ctx.strokeStyle = open === 4 ? outline : contour; ctx.lineWidth = open === 4 ? 1 : contourW;
+    ctx.stroke(); open = 0;
+  };
   for (let j = 0; j < order.length; j++) {
-    const q = order[j], b = q * 4;
-    const col = qcol[q];
-    if (col !== last) { ctx.fillStyle = col; last = col; }
-    ctx.beginPath();
-    ctx.moveTo(sx[qidx[b]], sy[qidx[b]]);
-    ctx.lineTo(sx[qidx[b + 1]], sy[qidx[b + 1]]);
-    ctx.lineTo(sx[qidx[b + 2]], sy[qidx[b + 2]]);
-    ctx.lineTo(sx[qidx[b + 3]], sy[qidx[b + 3]]);
-    ctx.fill();
+    const q = order[j];
+    if (q < nq) {
+      if (!(mask & (q < nqC ? 1 : 2))) continue;
+      flush();
+      const b = q * 4, col = qcol[q];
+      if (col !== last) { ctx.fillStyle = col; last = col; }
+      ctx.beginPath();
+      ctx.moveTo(sx[qidx[b]], sy[qidx[b]]);
+      ctx.lineTo(sx[qidx[b + 1]], sy[qidx[b + 1]]);
+      ctx.lineTo(sx[qidx[b + 2]], sy[qidx[b + 2]]);
+      ctx.lineTo(sx[qidx[b + 3]], sy[qidx[b + 3]]);
+      ctx.fill();
+    } else {
+      const l = q - nq, kind = l < L.nO ? 4 : 8;
+      if (!(mask & kind)) continue;
+      if (open !== kind) { flush(); ctx.beginPath(); open = kind; }
+      const o = 6 * l;
+      ctx.moveTo(lsx(seg[o], seg[o + 1]), lsy(seg[o], seg[o + 1], seg[o + 2]));
+      ctx.lineTo(lsx(seg[o + 3], seg[o + 4]), lsy(seg[o + 3], seg[o + 4], seg[o + 5]));
+    }
   }
+  flush();
 }
 
-// ---- WebGL2 cell-body layer (#cvGl) ------------------------------------------
-// The same shaded mesh, drawn on the GPU: static vertex buffer per cell
-// (local x,y,height + depth colour), an index buffer in the cached back-to-front
-// order (re-uploaded only when tilt/packRot change), alpha-blended in that order so
-// the look matches the painter's-algorithm 2D path. Pan/zoom only change uniforms.
+// ---- WebGL2 scene layer (#cvGl) ------------------------------------------------
+// The same scene on the GPU. Microtubules: one instanced quad per segment (a screen-space ribbon of the drawn
+// width), opaque, written to the depth buffer. Then per cell (far to near) one vertex buffer -- mesh vertices
+// (local x, y, height + colour) and four vertices per line, which the vertex shader widens to a ribbon -- drawn
+// with an index buffer in the cached back-to-front order (rebuilt only when tilt/packRot/what is shown change),
+// alpha-blended, depth-tested against the microtubules but not written. Pan/zoom only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null;
+const GL_COMMON = `
+uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale, u_dscale;
+vec2 worldOf(vec3 p) { return vec2(p.x * u_rot.x - p.y * u_rot.y, p.x * u_rot.y + p.y * u_rot.x) + u_off; }
+vec2 screenOf(vec3 p, vec2 w) { return vec2(u_canvas.x * 0.5 + w.x * u_scale, u_canvas.y * 0.5 + (w.y * u_tilt.y - p.z * u_tilt.x) * u_scale); }
+vec4 clipOf(vec2 s, float depth) {   // depth = nearness (y sin + z cos, um); nearer = smaller NDC z
+  return vec4(s.x / u_canvas.x * 2.0 - 1.0, 1.0 - s.y / u_canvas.y * 2.0, clamp(-depth * u_dscale, -1.0, 1.0), 1.0);
+}`;
 const GL_VS = `#version 300 es
-in vec3 a_pos; in vec4 a_col;
-uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale;
-out vec4 v_col;
+in vec3 a_pos; in vec3 a_oth; in vec2 a_ext; in vec4 a_col;
+uniform float u_lineHalfW;
+out vec4 v_col;` + GL_COMMON + `
 void main() {
-  vec2 w = vec2(a_pos.x * u_rot.x - a_pos.y * u_rot.y, a_pos.x * u_rot.y + a_pos.y * u_rot.x) + u_off;
-  float sx = u_canvas.x * 0.5 + w.x * u_scale;
-  float sy = u_canvas.y * 0.5 + (w.y * u_tilt.y - a_pos.z * u_tilt.x) * u_scale;
-  gl_Position = vec4(sx / u_canvas.x * 2.0 - 1.0, 1.0 - sy / u_canvas.y * 2.0, 0.0, 1.0);
+  vec2 w = worldOf(a_pos), s = screenOf(a_pos, w);
+  if (a_ext.x != 0.0) {   // a line vertex: a_ext = (side, 1 = contour width / 0 = 1 px), a_oth = the other end
+    vec2 d = screenOf(a_oth, worldOf(a_oth)) - s;
+    float L = length(d);
+    d = L > 1e-6 ? d / L : vec2(1.0, 0.0);
+    s += vec2(-d.y, d.x) * a_ext.x * (a_ext.y > 0.5 ? u_lineHalfW : 0.5);
+  }
+  gl_Position = clipOf(s, w.y * u_tilt.x + a_pos.z * u_tilt.y);
   v_col = a_col;
+}`;
+const GL_MT_VS = `#version 300 es
+in vec4 a_p0; in vec4 a_p1;   // one segment per instance: its end points (local xyz; w = 0: no segment)
+uniform float u_halfW;` + GL_COMMON + `
+void main() {
+  if (a_p0.w < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+  float e = float(gl_VertexID >> 1), side = float(gl_VertexID & 1) * 2.0 - 1.0;
+  vec2 w0 = worldOf(a_p0.xyz), w1 = worldOf(a_p1.xyz), s0 = screenOf(a_p0.xyz, w0), s1 = screenOf(a_p1.xyz, w1);
+  vec2 d = s1 - s0;
+  float L = length(d);
+  d = L > 1e-6 ? d / L : vec2(1.0, 0.0);
+  vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW;   // square caps close the joints
+  gl_Position = clipOf(s, mix(w0.y, w1.y, e) * u_tilt.x + mix(a_p0.z, a_p1.z, e) * u_tilt.y);
 }`;
 const GL_FS = `#version 300 es
 precision mediump float;
 in vec4 v_col; out vec4 o;
 void main() { o = vec4(v_col.rgb * v_col.a, v_col.a); }`; // premultiplied
+const GL_MT_FS = `#version 300 es
+precision mediump float;
+uniform vec4 u_col; out vec4 o;
+void main() { o = vec4(u_col.rgb * u_col.a, u_col.a); }`;
 function setLayerMode(gpu) {
   useGl = gpu;
   cvGl.style.display = gpu ? 'block' : 'none';
@@ -1058,140 +1135,203 @@ function setLayerMode(gpu) {
   ctx = ctxTop;
 }
 function initGl() {
-  try { gl = cvGl.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false }); } catch (e) { gl = null; }
+  try { gl = cvGl.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: true, depth: true }); } catch (e) { gl = null; }
   if (!gl) return false;
   const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
-  const vs = sh(gl.VERTEX_SHADER, GL_VS), fs = sh(gl.FRAGMENT_SHADER, GL_FS);
-  if (!vs || !fs) return false;
-  glProg = gl.createProgram();
-  gl.attachShader(glProg, vs); gl.attachShader(glProg, fs);
-  gl.bindAttribLocation(glProg, 0, 'a_pos'); gl.bindAttribLocation(glProg, 1, 'a_col');
-  gl.linkProgram(glProg);
-  if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) return false;
-  glU = {};
-  for (const n of ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale']) glU[n] = gl.getUniformLocation(glProg, n);
+  const link = (vsSrc, fsSrc, attrs, unis) => {
+    const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
+    if (!vs || !fs) return null;
+    const pr = gl.createProgram();
+    gl.attachShader(pr, vs); gl.attachShader(pr, fs);
+    attrs.forEach((a, i) => gl.bindAttribLocation(pr, i, a));
+    gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    const u = {};
+    for (const n of ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', ...unis]) u[n] = gl.getUniformLocation(pr, n);
+    return { pr, u };
+  };
+  const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW']);
+  const b = link(GL_MT_VS, GL_MT_FS, ['a_p0', 'a_p1'], ['u_halfW', 'u_col']);
+  if (!a || !b) return false;
+  glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u;
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
-    for (const a of assets.values()) if (a.entry) a.entry.gl = null; // buffers died with the context
+    for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; } // buffers died with the context
     setLayerMode(false); requestDraw();
   });
   return true;
 }
 function freeMeshGl(entry) {
-  const g = entry.gl;
-  if (!g) return;
-  entry.gl = null;
+  const g = entry.gl, m = entry.mtGl;
+  entry.gl = null; entry.mtGl = null;
   if (!gl || gl.isContextLost()) return;
-  gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); gl.deleteVertexArray(g.vao);
+  if (g) { gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); gl.deleteVertexArray(g.vao); }
+  if (m) for (const l of m.values()) { gl.deleteBuffer(l.vbo); gl.deleteVertexArray(l.vao); }
 }
-function ensureMeshGl(entry, c) {
-  const r = getMeshRender(entry, c);
-  const t = cellXform(c);
-  ensureQuadOrder(r, c, t.sinT, t.cosT);
+const GL_STRIDE = 36; // a_pos 3f, a_oth 3f, a_ext 2f, a_col 4 x u8
+function ensureMeshGl(entry, c, mask, step) {
+  const r = getMeshRender(entry, c), t = cellXform(c);
+  ensureOrder(r, entry, c, t.sinT, t.cosT, step);
+  const L = r.lines;
   let g = entry.gl;
   if (!g) {
-    g = entry.gl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), nIdx: 0, orderKey: '' };
-    const buf = new ArrayBuffer(r.nv * 16), f = new Float32Array(buf), u8 = new Uint8Array(buf);
-    const alpha = Math.round(0.6 * 255);
-    for (let v = 0; v < r.nv; v++) {
-      f[v * 4] = r.lx[v]; f[v * 4 + 1] = r.ly[v]; f[v * 4 + 2] = r.h[v];
-      const [R, G, B] = depthRGB(r.h[v], 0, c.height);
-      u8[v * 16 + 12] = R; u8[v * 16 + 13] = G; u8[v * 16 + 14] = B; u8[v * 16 + 15] = alpha;
-    }
+    g = entry.gl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), nIdx: 0, idxKey: '', step: null };
     gl.bindVertexArray(g.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, g.vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 16, 12);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, GL_STRIDE, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, GL_STRIDE, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, GL_STRIDE, 24);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, GL_STRIDE, 32);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
   }
-  if (g.orderKey !== r.orderKey) {
-    const idx = new Uint32Array(r.nq * 6), { order, qidx } = r;
-    for (let j = 0; j < r.nq; j++) {
-      const b = order[j] * 4, o = j * 6;
-      idx[o] = qidx[b]; idx[o + 1] = qidx[b + 1]; idx[o + 2] = qidx[b + 2];
-      idx[o + 3] = qidx[b]; idx[o + 4] = qidx[b + 2]; idx[o + 5] = qidx[b + 3];
+  if (g.step !== L.step) {   // vertices: the mesh's, then 4 per line (A+, A-, B+, B-)
+    const nvt = r.nv + 4 * L.nl, buf = new ArrayBuffer(nvt * GL_STRIDE), f = new Float32Array(buf), u8 = new Uint8Array(buf);
+    const S = GL_STRIDE / 4;
+    for (let v = 0; v < r.nv; v++) {
+      const o = v * S;
+      f[o] = f[o + 3] = r.lx[v]; f[o + 1] = f[o + 4] = r.ly[v]; f[o + 2] = f[o + 5] = r.h[v];
+      const [R, G, B] = depthRGB(r.h[v], 0, c.height), ob = v * GL_STRIDE + 32;
+      u8[ob] = R; u8[ob + 1] = G; u8[ob + 2] = B; u8[ob + 3] = Math.round((v < r.nvC ? ALPHA_CYTO : ALPHA_NUC) * 255);
+    }
+    const seg = L.seg;
+    for (let l = 0; l < L.nl; l++) {
+      const isO = l < L.nO, col = isO ? COL_OUTLINE : COL_CONTOUR, s6 = 6 * l;
+      for (let k = 0; k < 4; k++) {
+        const v = r.nv + 4 * l + k, o = v * S, me = k < 2 ? 0 : 3, other = 3 - me;
+        f[o] = seg[s6 + me]; f[o + 1] = seg[s6 + me + 1]; f[o + 2] = seg[s6 + me + 2];
+        f[o + 3] = seg[s6 + other]; f[o + 4] = seg[s6 + other + 1]; f[o + 5] = seg[s6 + other + 2];
+        f[o + 6] = k & 1 ? -1 : 1; f[o + 7] = isO ? 0 : 1;
+        const ob = v * GL_STRIDE + 32;
+        u8[ob] = col[0]; u8[ob + 1] = col[1]; u8[ob + 2] = col[2]; u8[ob + 3] = Math.round(col[3] * 255);
+      }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, g.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
+    g.step = L.step; g.idxKey = '';
+  }
+  const idxKey = r.orderKey + '|' + mask;
+  if (g.idxKey !== idxKey) {
+    const { order, qidx, nq, nqC } = r, idx = new Uint32Array(order.length * 6);
+    let o = 0;
+    for (let j = 0; j < order.length; j++) {
+      const q = order[j];
+      if (q < nq) {
+        if (!(mask & (q < nqC ? 1 : 2))) continue;
+        const b = q * 4;
+        idx[o++] = qidx[b]; idx[o++] = qidx[b + 1]; idx[o++] = qidx[b + 2];
+        idx[o++] = qidx[b]; idx[o++] = qidx[b + 2]; idx[o++] = qidx[b + 3];
+      } else {
+        const l = q - nq;
+        if (!(mask & (l < L.nO ? 4 : 8))) continue;
+        const v0 = r.nv + 4 * l;   // A+ B- B+ / A+ B+ A- (see the vertex shader: B's normal is flipped)
+        idx[o++] = v0; idx[o++] = v0 + 3; idx[o++] = v0 + 2;
+        idx[o++] = v0; idx[o++] = v0 + 2; idx[o++] = v0 + 1;
+      }
     }
     gl.bindVertexArray(g.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.DYNAMIC_DRAW);
-    g.nIdx = idx.length; g.orderKey = r.orderKey;
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx.subarray(0, o), gl.DYNAMIC_DRAW);
+    g.nIdx = o; g.idxKey = idxKey;
   }
   return g;
 }
-function drawBodiesGl(cells, p) {
+// The microtubule points of one cell, simplified (Douglas-Peucker in 3D) to within tolUm of the traced path, each
+// microtubule's ends kept, as x, y, z, w (w = 1: a segment starts here). The paths are smooth (traced in 0.05 um
+// steps, smoothed over ~1.5 um), so a quarter-pixel tolerance drops most points. Up to two levels per cell stay on
+// the GPU.
+function ensureMtGl(entry, mts, tolUm) {
+  const m = entry.mtGl || (entry.mtGl = new Map());
+  let l = m.get(tolUm);
+  if (l) { m.delete(tolUm); m.set(tolUm, l); return l; }
+  const xyz = mts.xyz, lens = mts.lens, t2 = tolUm * tolUm, keep = new Uint8Array(xyz.length / 3), stack = [];
+  for (let k = 0, s0 = 0; k < lens.length; s0 += lens[k++]) {
+    const len = lens[k];
+    keep[s0] = keep[s0 + len - 1] = 1;
+    stack.push(s0, s0 + len - 1);
+    while (stack.length) {
+      const j = stack.pop(), i = stack.pop();
+      if (j - i < 2) continue;
+      const ax = xyz[3 * i], ay = xyz[3 * i + 1], az = xyz[3 * i + 2];
+      const dx = xyz[3 * j] - ax, dy = xyz[3 * j + 1] - ay, dz = xyz[3 * j + 2] - az, dd = dx * dx + dy * dy + dz * dz;
+      let worst = 0, wi = -1;
+      for (let q = i + 1; q < j; q++) {
+        const px = xyz[3 * q] - ax, py = xyz[3 * q + 1] - ay, pz = xyz[3 * q + 2] - az;
+        const u = dd > 0 ? Math.min(1, Math.max(0, (px * dx + py * dy + pz * dz) / dd)) : 0;
+        const ex = px - u * dx, ey = py - u * dy, ez = pz - u * dz, e2 = ex * ex + ey * ey + ez * ez;
+        if (e2 > worst) { worst = e2; wi = q; }
+      }
+      if (worst > t2) { keep[wi] = 1; stack.push(i, wi, wi, j); }
+    }
+  }
+  const out = new Float32Array(xyz.length / 3 * 4);
+  let w = 0;
+  for (let k = 0, s0 = 0; k < lens.length; s0 += lens[k++]) {
+    for (let q = s0, e = s0 + lens[k] - 1; q <= e; q++) {
+      if (!keep[q]) continue;
+      out[w] = xyz[3 * q]; out[w + 1] = xyz[3 * q + 1]; out[w + 2] = xyz[3 * q + 2]; out[w + 3] = q < e ? 1 : 0;
+      w += 4;
+    }
+  }
+  l = { vbo: gl.createBuffer(), vao: gl.createVertexArray(), count: Math.max(0, w / 4 - 1) };
+  gl.bindVertexArray(l.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, l.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, w), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 16, 16); gl.vertexAttribDivisor(1, 1);
+  gl.bindVertexArray(null);
+  m.set(tolUm, l);
+  if (m.size > 2) { const [k0, l0] = m.entries().next().value; gl.deleteBuffer(l0.vbo); gl.deleteVertexArray(l0.vao); m.delete(k0); }
+  return l;
+}
+// cells: far to near.
+function drawSceneGl(cells, p, mask, mtW) {
   const W = cvGl.width, H = cvGl.height, S = view.scale * devicePixelRatio;
+  const sinT = Math.sin(view.tiltRad), cosT = Math.cos(view.tiltRad);
+  // depth range: the view's y extent (the tilt-widened half height) and the cells' heights, with margin
+  const D = (H / devicePixelRatio / 2) / view.scale / Math.max(0.15, cosT) + 200;
   gl.viewport(0, 0, W, H);
-  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.disable(gl.DEPTH_TEST);
+  gl.clearColor(0, 0, 0, 0); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // premultiplied over
-  gl.useProgram(glProg);
-  gl.uniform2f(glU.u_canvas, W, H);
-  gl.uniform1f(glU.u_scale, S);
-  gl.uniform2f(glU.u_tilt, Math.sin(view.tiltRad), Math.cos(view.tiltRad));
-  for (const { cell: c, asset } of cells) {
-    const g = ensureMeshGl(asset.entry, c);
+  gl.enable(gl.DEPTH_TEST);
+  const common = (u, c) => {
     const rot = c.packRot || 0;
-    gl.uniform2f(glU.u_off, c.x - view.cx, c.y - view.cy);
-    gl.uniform2f(glU.u_rot, Math.cos(rot), Math.sin(rot));
-    gl.bindVertexArray(g.vao);
-    gl.drawElements(gl.TRIANGLES, g.nIdx, gl.UNSIGNED_INT, 0);
+    gl.uniform2f(u.u_off, c.x - view.cx, c.y - view.cy);
+    gl.uniform2f(u.u_rot, Math.cos(rot), Math.sin(rot));
+  };
+  const frame = u => {
+    gl.uniform2f(u.u_canvas, W, H); gl.uniform1f(u.u_scale, S);
+    gl.uniform2f(u.u_tilt, sinT, cosT); gl.uniform1f(u.u_dscale, 1 / D);
+  };
+  if (mtW) {   // opaque pass: microtubules, depth written
+    gl.useProgram(glMtProg); frame(glMtU);
+    gl.uniform1f(glMtU.u_halfW, mtW / 2);
+    gl.uniform4f(glMtU.u_col, 0xe6 / 255, 0xc6 / 255, 0x5a / 255, 0.8);
+    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    const tolUm = Math.pow(2, Math.max(-10, Math.floor(Math.log2(MT_TOL_PX / S))));   // <= MT_TOL_PX on screen
+    for (const { cell: c, asset } of cells) {
+      if (!asset.mts) continue;
+      const l = ensureMtGl(asset.entry, asset.mts, tolUm);
+      if (!l.count) continue;
+      common(glMtU, c);
+      gl.bindVertexArray(l.vao);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
+    }
+  }
+  if (mask & 15) {   // translucent pass: per cell, back to front; tested against the microtubules, not written
+    gl.useProgram(glProg); frame(glU);
+    gl.uniform1f(glU.u_lineHalfW, Math.max(1, 0.04 * S) / 2);
+    gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+    for (const { cell: c, asset } of cells) {
+      const g = ensureMeshGl(asset.entry, c, mask, p.cytoContourStep);
+      if (!g.nIdx) continue;
+      common(glU, c);
+      gl.bindVertexArray(g.vao);
+      gl.drawElements(gl.TRIANGLES, g.nIdx, gl.UNSIGNED_INT, 0);
+    }
+    gl.depthMask(true);
   }
   gl.bindVertexArray(null);
-}
-
-const NUC_SLICES = 17, NUC_PTS = 24;
-const NUC_UNIT = Array.from({ length: NUC_PTS }, (_, i) => { const th = (i / NUC_PTS) * Math.PI * 2; return [Math.cos(th), Math.sin(th)]; });
-function drawNucleus(c, asset) {
-  // The engine's nucleus surface rings (asset.nuc: cell-local x, y, z, nucPts per ring, ball sections bottom to
-  // top) when it sends them -- the shaped nucleus -- placed like the cytoplasm mesh (localToWorld), each ring
-  // coloured by its mean depth. Without them: the plain ellipsoid from the pack record.
-  if (asset && asset.nuc) {
-    const a = asset.nuc, np = asset.nucPts;
-    for (let o = 0; o < a.length; o += np * 3) {
-      const pts = [];
-      let zSum = 0;
-      for (let i = 0; i < np; i++) {
-        const k = o + 3 * i, [wx, wy] = localToWorld(c, a[k], a[k + 1]);
-        pts.push(project(wx, wy, a[k + 2]));
-        zSum += a[k + 2];
-      }
-      const zAbs = zSum / np;
-      ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
-      ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
-      ctx.lineWidth = 1;
-      polyPath(pts); ctx.fill(); ctx.stroke();
-    }
-    return;
-  }
-  // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
-  // other shape field -- see cellOutlineLocal's own comment), so the offset
-  // itself has to be rotated by packRot too, same as localToWorld does for
-  // the cytoplasm mesh; the nucleus's own rotation (c.nucRot) simply adds to
-  // packRot since both are rotations about the same world axis (z).
-  const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY);
-  const rotTotal = c.nucRot + (c.packRot || 0);
-  const cosR = Math.cos(rotTotal), sinR = Math.sin(rotTotal); // once per cell, not per point
-  const rz = c.nucHeight / 2;
-  for (let s = 0; s < NUC_SLICES; s++) {
-    const t = (s / (NUC_SLICES - 1)) * 2 - 1; // -1..1, bottom to top
-    const factor = Math.sqrt(Math.max(0, 1 - t * t));
-    if (factor < 0.05) continue;
-    const rl = (c.nucLong / 2) * factor, rs = (c.nucShort / 2) * factor;
-    const zAbs = c.nucZ + t * rz;
-    const pts = [];
-    for (let i = 0; i < NUC_PTS; i++) {
-      const lx = NUC_UNIT[i][0] * rl, ly = NUC_UNIT[i][1] * rs;
-      const wx = ncx + lx * cosR - ly * sinR;
-      const wy = ncy + lx * sinR + ly * cosR;
-      pts.push(project(wx, wy, zAbs));
-    }
-    ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
-    ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
-    ctx.lineWidth = 1;
-    polyPath(pts); ctx.fill(); ctx.stroke();
-  }
 }
 
 // ---- x-z side view (#cvXZ) -----------------------------------------------------
@@ -1216,9 +1356,9 @@ function getXZProfile(entry, c, yl, yh) {
   let G = entry.xzGeom;
   if (!G || G.rot !== rot) {
     const r = getMeshRender(entry, c), cr = Math.cos(rot), sr = Math.sin(rot);
-    const x = new Float32Array(r.nv), y = new Float32Array(r.nv);
+    const x = new Float32Array(r.nvC), y = new Float32Array(r.nvC);   // the cytoplasm's vertices
     let xlo = Infinity, xhi = -Infinity, ylo = Infinity, yhi = -Infinity;
-    for (let v = 0; v < r.nv; v++) {
+    for (let v = 0; v < r.nvC; v++) {
       x[v] = r.lx[v] * cr - r.ly[v] * sr; y[v] = r.lx[v] * sr + r.ly[v] * cr;
       xlo = Math.min(xlo, x[v]); xhi = Math.max(xhi, x[v]); ylo = Math.min(ylo, y[v]); yhi = Math.max(yhi, y[v]);
     }
@@ -1251,13 +1391,16 @@ function getXZProfile(entry, c, yl, yh) {
   return (entry.xz = { key, x0, dx, top });
 }
 // Microtubules in the x-z frame (screen px relative to the cell centre, y = -z), only their stretches with
-// y - c.y in [yl, yh]. One Path2D per cell, rebuilt when the zoom, packRot or slab changes.
+// y - c.y in [yl, yh]. One Path2D per cell and slab (the parts behind and in front of the nucleus), rebuilt when the
+// zoom, packRot or slab changes.
 const mtPathCacheXZ = new WeakMap();
 function getMtPathXZ(mts, t, yl, yh) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
   const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh;
-  const hit = mtPathCacheXZ.get(mts);
-  if (hit && hit.key === key) return hit.path;
+  let hits = mtPathCacheXZ.get(mts);
+  if (!hits) mtPathCacheXZ.set(mts, hits = new Map());
+  const hit = hits.get(key);
+  if (hit) return hit;
   const path = new Path2D(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
   let o = 0;
   for (let m = 0; m < lens.length; m++) {
@@ -1272,36 +1415,22 @@ function getMtPathXZ(mts, t, yl, yh) {
       if (dx * dx + dy * dy >= m2 || k === len - 1) { path.lineTo(sx, sy); lastX = sx; lastY = sy; }
     }
   }
-  mtPathCacheXZ.set(mts, { key, path });
+  if (hits.size >= 4) hits.delete(hits.keys().next().value);
+  hits.set(key, path);
   return path;
 }
 // The nucleus as horizontal sections bottom to top, each ring cut to world y in [y0, y1] and reduced to its
-// leftmost and rightmost point: { xl, zl, xr, zr }. From the engine's rings when it sends them (both poles
-// included, so they reach the true top and bottom of a shaped nucleus), else the pack record's ellipsoid
-// (poles included).
-function nucXZSections(c, asset, y0, y1) {
-  const rings = [];
-  if (asset && asset.nuc) {
-    const a = asset.nuc, np = asset.nucPts, cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
-    for (let o = 0; o < a.length; o += np * 3) {
-      const ring = [];
-      for (let i = 0; i < np; i++) {
-        const k = o + 3 * i;
-        ring.push([c.x + a[k] * cr - a[k + 1] * sr, c.y + a[k] * sr + a[k + 1] * cr, a[k + 2]]);
-      }
-      rings.push(ring);
+// leftmost and rightmost point: { xl, zl, xr, zr }. From nucRingsLocal (both poles included, so they reach the true
+// top and bottom of a shaped nucleus).
+function nucXZSections(c, entry, y0, y1) {
+  const rings = [], { xyz: a, np } = nucRingsLocal(c, entry), cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
+  for (let o = 0; o < a.length; o += np * 3) {
+    const ring = [];
+    for (let i = 0; i < np; i++) {
+      const k = o + 3 * i;
+      ring.push([c.x + a[k] * cr - a[k + 1] * sr, c.y + a[k] * sr + a[k + 1] * cr, a[k + 2]]);
     }
-  } else {
-    const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY), th = c.nucRot + (c.packRot || 0);
-    const ct = Math.cos(th), st = Math.sin(th), rz = c.nucHeight / 2;
-    for (let s = 0; s <= 16; s++) {
-      const t = s / 8 - 1, f = Math.sqrt(Math.max(0, 1 - t * t)), ring = [];
-      for (let i = 0; i < NUC_PTS; i++) {
-        const a = (i / NUC_PTS) * Math.PI * 2, lx = Math.cos(a) * (c.nucLong / 2) * f, ly = Math.sin(a) * (c.nucShort / 2) * f;
-        ring.push([ncx + lx * ct - ly * st, ncy + lx * st + ly * ct, c.nucZ + t * rz]);
-      }
-      rings.push(ring);
-    }
+    rings.push(ring);
   }
   const out = [];
   for (const ring of rings) {
@@ -1334,9 +1463,33 @@ function drawXZ(vis, p) {
   for (let z = step; Y(z) > 0; z += step) { g.moveTo(0, Y(z)); g.lineTo(W, Y(z)); }
   g.stroke(); g.setLineDash([]);
 
-  const order = vis.slice().sort((a, b) => a.cell.y - b.cell.y); // far (small y) first
+  // Far (small y) cells first; within a cell, inside out: the microtubules behind the nucleus centre, the nucleus,
+  // the microtubules in front of it, then the cytoplasm (translucent, it holds all of them).
+  const order = vis.slice().sort((a, b) => a.cell.y - b.cell.y);
   for (const { cell: c, asset } of order) {
     const yl = y0 - c.y, yh = y1 - c.y;
+    const mts = els.showMt.checked && asset.mts, t = cellXform(c);
+    const nucY = c.nucOffX * t.sr + c.nucOffY * t.cr;   // the nucleus centre's y - c.y
+    const strokeMts = (a, b) => {
+      if (!mts || a > b) return;
+      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8;
+      g.lineWidth = Math.max(0.6, p.mtLineWidth * S);
+      g.save(); g.translate(t.ox, z0);
+      g.stroke(getMtPathXZ(mts, t, a, b));
+      g.restore(); g.globalAlpha = 1;
+    };
+    strokeMts(yl, Math.min(yh, nucY));
+    if (els.showNucleus.checked) {
+      const sec = nucXZSections(c, asset.entry, y0, y1);
+      for (let k = 0; k + 1 < sec.length; k++) {
+        const a = sec[k], b = sec[k + 1];
+        g.fillStyle = depthColor((a.zl + a.zr + b.zl + b.zr) / 4, 0, c.height, 0.55);
+        g.beginPath();
+        g.moveTo(X(a.xl), Y(a.zl)); g.lineTo(X(a.xr), Y(a.zr)); g.lineTo(X(b.xr), Y(b.zr)); g.lineTo(X(b.xl), Y(b.zl));
+        g.closePath(); g.fill();
+      }
+    }
+    strokeMts(Math.max(yl, nucY), yh);
     if (els.showCyto.checked) {
       const pr = getXZProfile(asset.entry, c, yl, yh);
       if (pr) {
@@ -1359,24 +1512,6 @@ function drawXZ(vis, p) {
         }
         g.fillStyle = 'rgba(90,169,230,0.22)'; g.fill();
         g.strokeStyle = 'rgba(90,169,230,0.75)'; g.lineWidth = 1; g.stroke();
-      }
-    }
-    if (els.showMt.checked && asset.mts) {
-      const t = cellXform(c);
-      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8;
-      g.lineWidth = Math.max(0.6, p.mtLineWidth * S);
-      g.save(); g.translate(t.ox, z0);
-      g.stroke(getMtPathXZ(asset.mts, t, yl, yh));
-      g.restore(); g.globalAlpha = 1;
-    }
-    if (els.showNucleus.checked) {
-      const sec = nucXZSections(c, asset, y0, y1);
-      for (let k = 0; k + 1 < sec.length; k++) {
-        const a = sec[k], b = sec[k + 1];
-        g.fillStyle = depthColor((a.zl + a.zr + b.zl + b.zr) / 4, 0, c.height, 0.55);
-        g.beginPath();
-        g.moveTo(X(a.xl), Y(a.zl)); g.lineTo(X(a.xr), Y(a.zr)); g.lineTo(X(b.xr), Y(b.zr)); g.lineTo(X(b.xl), Y(b.zl));
-        g.closePath(); g.fill();
       }
     }
   }
@@ -2024,8 +2159,8 @@ function unpackAsset(d) {
   // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
   // ring is the footprint outline), the microtubules as xyz + lens, the nucleus rings as xyz. No per-vertex or
   // per-point objects.
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh } }, mts: d.mts || null,
-    nuc: d.nuc || null, nucPts: d.nucPts || 0 };
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0 },
+    mts: d.mts || null, nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -2206,54 +2341,18 @@ function draw() {
   pumpAssets();
   if (els.showXZ.checked) drawXZ(vis, p); // before the dyes, which add their x-z points to it
 
-  // Pass 1 (base layer): footprint outlines + microtubules, each batched into ONE path.
-  ctx = bg;
-  if (els.showCyto.checked) {
-    ctx.strokeStyle = 'rgba(90,169,230,0.25)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (const { cell, asset } of vis) addOutlinePath(cell, asset.entry);
-    ctx.stroke();
-  }
-  if (els.showMt.checked) {
-    ctx.strokeStyle = '#e6c65a';
-    const lw = Math.max(0.6, p.mtLineWidth * pxPerUm);
-    ctx.globalAlpha = 0.8;
-    for (const { cell, asset } of vis) {
-      const mts = asset.mts;
-      if (!mts) continue;
-      const t = cellXform(cell);
-      nMt += mts.lens.length;
-      ctx.save();
-      ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
-      ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
-      ctx.lineWidth = lw / t.S;
-      ctx.stroke(getMtPath2D(mts, cell, t).path);
-      ctx.restore();
-    }
-    ctx.globalAlpha = 1;
-  }
-  if (els.showDyes.checked) labelNote = drawDyes(seed, p, pxPerUm);
-
-  // Pass 2: cell bodies -- GPU layer, or the 2D fallback on the top canvas.
-  if (useGl) {
-    if (els.showCyto.checked) drawBodiesGl(vis, p);
-    else { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
-  } else if (els.showCyto.checked) {
+  // The scene: cells far to near (see "per-cell scene" above) -- the GPU layer, or the 2D fallback on the top
+  // canvas. Then the dyes on top.
+  const far = vis.slice().sort((a, b) => a.cell.y - b.cell.y);
+  const mask = sceneMask(p), mtW = els.showMt.checked ? Math.max(0.6, p.mtLineWidth * pxPerUm) : 0;
+  if (mtW) for (const { asset } of vis) if (asset.mts) nMt += asset.mts.lens.length;
+  if (useGl) drawSceneGl(far, p, mask, mtW);
+  else {
     ctx = ctxTop;
-    for (const { cell, asset } of vis) drawCellBody2D(cell, asset.entry);
+    for (const { cell, asset } of far) drawCell2D(cell, asset, p, mask, mtW);
   }
-
-  // Pass 3 (top layer): contours, nuclei, scale bar.
   ctx = ctxTop;
-  if (els.showCyto.checked && p.showCytoContours) {
-    ctx.strokeStyle = 'rgba(20,30,45,0.55)';
-    ctx.lineWidth = Math.max(1, 0.04 * pxPerUm);
-    ctx.beginPath();
-    for (const { cell, asset } of vis) addContourPath(cell, asset.entry, p.cytoContourStep);
-    ctx.stroke();
-  }
-  if (els.showNucleus.checked) for (const { cell, asset } of vis) drawNucleus(cell, asset);
+  if (els.showDyes.checked) labelNote = drawDyes(seed, p, pxPerUm);
 
   drawMovieFov();
   drawScaleBar(pxPerUm);
