@@ -74,6 +74,23 @@ export class World {
     return b;
   }
 
+  // isc_world_set_block (ABI 7): block (bx, by) as another world of the same seed and params packed it
+  // (rows of 14 per cell as cellsInRect's: only cx, cy, x, y, packRot are read -- relax moves those and
+  // prune drops cells; every other field is rawCandidate's, recomputed here). Skipped if cached.
+  setPackedBlock(bx, by, rows) {
+    const key = bx + ',' + by;
+    if (this.blocks.has(key)) return false;
+    const cells = [];
+    for (let i = 0; i < rows.length; i += 14) {
+      const c = this.g.rawCandidate(this.seed, rows[i], rows[i + 1], this.p);
+      if (!c.present) throw new Error('setPackedBlock: not a cell of this world');
+      c.x = rows[i + 2]; c.y = rows[i + 3]; c.packRot = rows[i + 4];
+      cells.push(c);
+    }
+    this.blocks.set(key, cells);
+    return true;
+  }
+
   // Cells whose footprint circle (rOuter) meets the rect, in the C++ order.
   cellsInRect(x0, y0, x1, y1) {
     const S = this.p.chunkSize, reach = this.cellReachUm();

@@ -48,6 +48,24 @@ export async function createEngine(src = {}) {
     for (const c of w.packedBlock(Math.floor(cx / B), Math.floor(cy / B))) if (c.cx === cx && c.cy === cy) return c;
     return null;
   }
+  const row = c => [c.cx, c.cy, c.x, c.y, c.packRot, c.rOuter, c.height, c.nucOffX, c.nucOffY, c.nucRot, c.nucLong,
+    c.nucShort, c.nucHeight, c.nucZ];
+  // The packing blocks a rect's cell query touches (World::CellsInRect), with their cells as rows.
+  function blocksOf(w, [x0, y0, x1, y1]) {
+    const S = w.p.chunkSize, reach = w.cellReachUm(), B = PACK_BLOCK_CHUNKS, out = [];
+    const bx0 = Math.floor(Math.floor((x0 - reach) / S) / B), bx1 = Math.floor(Math.floor((x1 + reach) / S) / B);
+    const by0 = Math.floor(Math.floor((y0 - reach) / S) / B), by1 = Math.floor(Math.floor((y1 + reach) / S) / B);
+    for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) {
+      const cells = w.packedBlock(bx, by), rows = new Float64Array(cells.length * 14);
+      cells.forEach((c, i) => rows.set(row(c), i * 14));
+      out.push({ bx, by, rows });
+    }
+    return out;
+  }
+  // The pack worker's blocks a cell/sites job carries (iscEngine's inject).
+  function inject(w, blocks) {
+    if (blocks) for (const b of blocks) w.setPackedBlock(b.bx, b.by, b.rows);
+  }
 
   function movie(d) {
     const t0 = performance.now();
@@ -74,11 +92,12 @@ export async function createEngine(src = {}) {
       if (d.type === 'pack') {
         const [x0, y0, x1, y1] = d.rect;
         const list = w.cellsInRect(x0, y0, x1, y1), cells = new Float64Array(list.length * 14);
-        list.forEach((c, i) => cells.set([c.cx, c.cy, c.x, c.y, c.packRot, c.rOuter, c.height, c.nucOffX, c.nucOffY,
-          c.nucRot, c.nucLong, c.nucShort, c.nucHeight, c.nucZ], i * 14));
-        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells }, [cells.buffer]];
+        list.forEach((c, i) => cells.set(row(c), i * 14));
+        const blocks = blocksOf(w, d.rect);
+        return [{ type: 'pack', id: d.id, key: d.key, win: d.win, cells, blocks }, [cells.buffer, ...blocks.map(b => b.rows.buffer)]];
       }
       if (d.type === 'cell') {
+        inject(w, d.blocks);
         const c = findCell(w, d.cx, d.cy);
         if (!c) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
         const o = g.cellOutlineLocal(c, Math.max(8, Math.round(w.p.cytoTheta)));
@@ -106,6 +125,7 @@ export async function createEngine(src = {}) {
         return [out, transfer];
       }
       if (d.type === 'sites') {
+        inject(w, d.blocks);
         const [x0, y0, x1, y1] = d.rect;
         const list = w.sitesInWindow(x0, y0, x1, y1, -Infinity, Infinity), sites = new Float64Array(list.length * 4);
         list.forEach((s, i) => { sites[4 * i] = s.x; sites[4 * i + 1] = s.y; sites[4 * i + 2] = s.z; sites[4 * i + 3] = s.id; });
@@ -120,6 +140,7 @@ export async function createEngine(src = {}) {
 if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
   const ready = createEngine();
   self.onmessage = e => {
+    if (e.data && e.data.type === 'init') return;   // the viewer's shared-WASM handshake: nothing to do here
     ready.then(eng => eng.handle(e.data)).then(([out, transfer]) => postMessage(out, transfer))
       .catch(err => setTimeout(() => { throw err; }));
   };
