@@ -183,8 +183,9 @@ choosing the end:
 ## Outside the prototype (JS only)
 
 - `web/index.html` (the viewer):
-  - Nucleus panel: Gap below, Irregularity, Kidney bend and Widest point pairs and Top/bottom asym., plus Lobe
-    smoothness and Height irreg. (advanced).
+  - Nucleus panel: Gap below, Irregularity, Kidney bend and Widest point pairs, Top/bottom asym., Lobe smoothness
+    and Height irreg., all advanced; Short/long axis moved from advanced to the basic rows.
+  - The default UI style is Focus (one group open), was Compact; a style saved in the browser still applies.
   - `params()` gains the 11 new keys; the current WASM ignores them (`nonCore`).
   - Microtubules panel: Start near nucleus, End near edge, Direction focus replace Start offset, Start XY jitter,
     End offset and End dir. jitter.

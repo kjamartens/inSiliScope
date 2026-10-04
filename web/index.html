@@ -230,17 +230,17 @@ const UI_GROUPS = [
   ] },
   { id: 'nucleus', title: 'Nucleus', items: [
     pair('nucLong', 'Long axis', 'µm', 'Long axis of the nucleus ellipsoid, per cell.', 2, 30, 0.5, 8, 12),
-    pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1, { adv }),
+    pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1),
     pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.2, 0.3, { adv }),
     range('nucOffsetFrac', 'Centre offset', '× cell r', 'Random offset of the nucleus from the cell centre, up to this fraction of the cell radius.', 0, 1, 0.02, 0.1, { adv, fmt: fx(2) }),
-    pair('nucBase', 'Gap below', 'µm', 'Gap between the coverslip and the bottom of the nucleus (the basal cytoplasm layer), per cell.', 0, 2, 0.05, 0.4, 0.9),
+    pair('nucBase', 'Gap below', 'µm', 'Gap between the coverslip and the bottom of the nucleus (the basal cytoplasm layer), per cell.', 0, 2, 0.05, 0.4, 0.9, { adv }),
     range('nucMargin', 'Margin', 'µm', 'Cytoplasm clearance around the sides and top of the nucleus (the gap below it is set separately).', 0.1, 1.5, 0.1, 0.5, { adv, fmt: fx(1) }),
-    pair('nucIrreg', 'Irregularity', 'rms', 'How far the nucleus outline strays from an ellipse: rms deviation of its radius, as a fraction, per cell. 0 = ellipse.', 0, 0.3, 0.01, 0.03, 0.2),
-    pair('nucBend', 'Kidney bend', 'a.u.', 'Bean/kidney bend of the nucleus, per cell: the middle shifts sideways against the ends by 3/4 of this times the short semi-axis. 0 = straight.', 0, 1, 0.05, 0, 0.3),
+    pair('nucIrreg', 'Irregularity', 'rms', 'How far the nucleus outline strays from an ellipse: rms deviation of its radius, as a fraction, per cell. 0 = ellipse.', 0, 0.3, 0.01, 0.03, 0.2, { adv }),
+    pair('nucBend', 'Kidney bend', 'a.u.', 'Bean/kidney bend of the nucleus, per cell: the middle shifts sideways against the ends by 3/4 of this times the short semi-axis. 0 = straight.', 0, 1, 0.05, 0, 0.3, { adv }),
     range('nucSmooth', 'Lobe smoothness', 'slope', 'How the irregularity spreads over lobes: amplitude of k lobes ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.', 0, 4, 0.1, 2.5, { adv, fmt: fx(1) }),
     range('nucThickIrreg', 'Height irreg.', 'rms', 'Lumpiness of the nucleus top and bottom: rms relative variation of its thickness at the edge (tilt, bumps). 0 = ellipsoid profile.', 0, 0.4, 0.01, 0.1, { adv, fmt: fx(2) }),
-    range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.5, { fmt: fx(2) }),
-    pair('nucWidest', 'Widest point', '× height', 'Height of the widest section of the nucleus as a fraction of its height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top.', 0, 1, 0.05, 0.2, 0.4),
+    range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.5, { adv, fmt: fx(2) }),
+    pair('nucWidest', 'Widest point', '× height', 'Height of the widest section of the nucleus as a fraction of its height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top.', 0, 1, 0.05, 0.2, 0.4, { adv }),
   ] },
   { id: 'cyto', title: 'Cytoplasm', items: [
     preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {
@@ -572,7 +572,7 @@ menu.innerHTML = '<h4>Options</h4>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="note" id="advNote"></div>';
 function setLevel(v) { document.body.dataset.level = v; store.set('level', v); menu.querySelector(`[name=uiLevel][value=${v}]`).checked = true; sync(); }
-function setStyle(v) { if (!UI_STYLES[v]) v = 'compact'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
+function setStyle(v) { if (!UI_STYLES[v]) v = 'focus'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
 menu.addEventListener('change', ev => {
   if (ev.target.name === 'uiLevel') setLevel(ev.target.value);
   if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
@@ -625,7 +625,7 @@ panel.addEventListener('focusout', hideTip);
 panel.addEventListener('scroll', hideTip);
 
 document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
-setStyle(store.get('style', 'compact'));
+setStyle(store.get('style', 'focus'));
 setLevel(document.body.dataset.level);
 window.uiSync = sync;
 })();
