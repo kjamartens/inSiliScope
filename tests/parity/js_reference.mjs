@@ -23,13 +23,14 @@ const g = proto.gen;
 
 // ---- defaults from the page's inputs ----
 const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax',
-  'cellBlob', 'cellRough', 'cellFractalDim', 'cellHeightMin', 'cellHeightMax', 'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax',
-  'nucHeightMin', 'nucHeightMax', 'nucOffsetFrac', 'nucMargin', 'cytoRimHeightMin', 'cytoRimHeightMax',
+  'cellBlob', 'cellRough', 'cellFractalDim', 'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax',
+  'nucHeightMin', 'nucHeightMax', 'nucOffsetFrac', 'nucMargin', 'nucBaseMin', 'nucBaseMax', 'nucIrregMin', 'nucIrregMax',
+  'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucThickIrreg', 'nucAsym', 'nucWidestMin', 'nucWidestMax',
+  'cytoRimHeightMin', 'cytoRimHeightMax',
   'cytoEdgeRiseMin', 'cytoEdgeRiseMax', 'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin',
   'cytoMidDistanceMax', 'cytoMaxSlope', 'cytoDomeSlope', 'cytoRelaxUm', 'cytoRings', 'cytoTheta',
   'enablePacking', 'allowPackRotation', 'packFrac', 'relaxIters', 'relaxDamping',
-  'mtDensity', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtEndFracMin', 'mtEndFracMax',
-  'mtEndJitterDeg', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
+  'mtDensity', 'mtStartDecayPct', 'mtEndDecayPct', 'mtDirKappa', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
   'mtMinSeparation', 'mtMaxZSlope'];
 const defaults = {};
 for (const k of PARAM_KEYS) if (k in proto.defaults) defaults[k] = proto.defaults[k];
@@ -38,10 +39,10 @@ if (missing.length) throw new Error('defaults not found in page: ' + missing.joi
 
 function normalise(p) {
   for (const [lo, hi] of [['cellDiamMin', 'cellDiamMax'], ['cellElongMin', 'cellElongMax'],
-    ['cellHeightMin', 'cellHeightMax'], ['nucLongMin', 'nucLongMax'], ['nucRatioMin', 'nucRatioMax'],
+    ['nucLongMin', 'nucLongMax'], ['nucRatioMin', 'nucRatioMax'], ['nucBaseMin', 'nucBaseMax'],
+    ['nucIrregMin', 'nucIrregMax'], ['nucBendMin', 'nucBendMax'], ['nucWidestMin', 'nucWidestMax'],
     ['nucHeightMin', 'nucHeightMax'], ['cytoRimHeightMin', 'cytoRimHeightMax'], ['cytoEdgeRiseMin', 'cytoEdgeRiseMax'],
-    ['cytoMidHeightMin', 'cytoMidHeightMax'], ['cytoMidDistanceMin', 'cytoMidDistanceMax'],
-    ['mtStartFracMin', 'mtStartFracMax'], ['mtEndFracMin', 'mtEndFracMax']])
+    ['cytoMidHeightMin', 'cytoMidHeightMax'], ['cytoMidDistanceMin', 'cytoMidDistanceMax']])
     p[hi] = Math.max(p[lo], p[hi]);
   // floors from params()
   p.mtWobbleFactor = Math.max(1, p.mtWobbleFactor);

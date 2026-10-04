@@ -13,6 +13,8 @@ import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
 import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
 
+const NUC_SLICES = 17, NUC_PTS = 48; // nucleus rings sent with each cell (both poles included)
+
 async function text(url) {
   const r = await fetch(url, { cache: 'no-store' });
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
@@ -118,8 +120,12 @@ export async function createEngine(src = {}) {
           const v = 3 * (k * mesh.n + i), q = mesh.grid[k][i];
           flat[v] = q.x; flat[v + 1] = q.y; flat[v + 2] = q.h;
         }
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings: mesh.rings, n: mesh.n, mesh: flat, mts: null };
-        const transfer = [flat.buffer];
+        // Nucleus surface rings (cell-local x, y, z; the viewer draws these when present, else its ellipsoid).
+        const rings = g.nucleusRingsLocal(c, NUC_SLICES, NUC_PTS), nuc = new Float64Array(rings.length * NUC_PTS * 3);
+        rings.forEach((r, k) => r.forEach((q, i) => nuc.set([q.x, q.y, q.z], (k * NUC_PTS + i) * 3)));
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings: mesh.rings, n: mesh.n, mesh: flat, mts: null,
+          nuc, nucPts: NUC_PTS };
+        const transfer = [flat.buffer, nuc.buffer];
         if (d.mt) {
           const paths = w.cellAssets(c).mts;
           let total = 0;

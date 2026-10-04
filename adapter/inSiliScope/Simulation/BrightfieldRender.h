@@ -66,7 +66,7 @@ struct BrightfieldSpec
    ZernikeCoefficients zernike = {}; // detection pupil aberrations, waves
    // Specimen: refractive indices and absorption (1/um of cell material, on
    // intensity).
-   double nMedium = 1.337, nCytoplasm = 1.345, nNucleus = 1.345, nMicrotubule = 1.48;
+   double nMedium = 1.337, nCytoplasm = 1.35, nNucleus = 1.35, nMicrotubule = 1.48;
    double absorptionPerUm = 0.0;
 
    // The values after the quality level fills the 0 fields.

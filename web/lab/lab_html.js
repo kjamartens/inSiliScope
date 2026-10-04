@@ -1,7 +1,8 @@
 // web/lab.html only (added by web/lab/serve.mjs after the viewer's own script): a badge saying the page runs on
 // the JS reference, and a reload on every save (web/prototype, web/lab, web/index.html) that keeps the view and
 // every control you changed. Only controls that differ from their HTML default are restored, so a default you
-// edit in web/index.html shows up. Click the badge to forget the saved state.
+// edit in web/index.html shows up. Click the badge to forget the saved state. The About section gets a line with the
+// checkout the page is served from: branch, commit, uncommitted files (/__lab/info).
 (() => {
   const KEY = 'isc-lab-state';
   const controls = () => document.querySelectorAll('input[id], select[id]');
@@ -34,7 +35,11 @@
 
   restore();
   addEventListener('pagehide', save); // F5 keeps the state too
-  new EventSource('/__lab/events').onmessage = () => { save(); location.reload(); };
+  const es = new EventSource('/__lab/events');
+  es.onmessage = () => { save(); location.reload(); };
+  // A restarted lab server (serve.mjs takes over the port) says a new hello: reload onto it.
+  let server = null;
+  es.addEventListener('hello', e => { if (server && server !== e.data) { save(); location.reload(); } server = e.data; });
 
   document.title = 'insiliscope lab (JS)';
   const b = document.createElement('div');
@@ -45,4 +50,17 @@
     'font:12px system-ui,sans-serif;background:#d97706;color:#fff;opacity:0.9';
   b.onclick = () => { try { sessionStorage.removeItem(KEY); } catch {} removeEventListener('pagehide', save); location.reload(); };
   document.body.appendChild(b);
+
+  // About: the checkout this page is served from (read on every load, so a branch switch + reload shows).
+  fetch('/__lab/info', { cache: 'no-store' }).then(r => r.json()).then(i => {
+    const about = document.querySelector('details[data-group="about"]');
+    if (!about || !i.sha) return;
+    const tag = document.createElement('code');
+    tag.textContent = `${i.head} @ ${i.sha}` + (i.changedFiles ? ` + ${i.changedFiles} uncommitted file${i.changedFiles > 1 ? 's' : ''}` : '');
+    tag.style.cssText = 'padding:1px 6px;border-radius:4px;background:#d97706;color:#fff';
+    const line = document.createElement('p');
+    line.className = 'sub';
+    line.append('Lab build: ', tag, ` ${i.subject}`);
+    about.appendChild(line);
+  }).catch(() => {});
 })();

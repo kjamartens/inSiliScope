@@ -10,6 +10,9 @@ cmake --build --preset lab         # starts the dev server and opens lab.html (a
 node web/lab/serve.mjs [--open]    # the same without CMake (--base <git ref> for the A/B page, default origin/main)
 ```
 
+Starting it again restarts it: a lab already on the port is stopped and replaced, and its open pages reload onto
+the new one (so `--open` opens no extra tab). Something other than a lab on the port: pass `--port <n>`.
+
 ### lab.html: the viewer on the JS reference (http://localhost:8123/web/lab.html)
 
 `web/index.html` itself (same page, UI, drawing and movies: the server swaps only its WASM module for

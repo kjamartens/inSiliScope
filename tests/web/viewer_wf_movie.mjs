@@ -35,7 +35,7 @@ for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', /\(CPU\)/]]) {
     document.getElementById('mv_frames').value = '3';
   });
   await page.waitForTimeout(2000);
-  await page.click('#mv_make', { force: true });
+  await page.evaluate(() => document.getElementById('mv_make').click());   // the button may sit in a folded group (Focus style)
   await page.waitForFunction(() => /frames/.test(document.getElementById('mv_info').textContent), null, { timeout: 600000 });
   const info = await page.evaluate(() => document.getElementById('mv_info').textContent);
   const ok = want.test(info) && !errors.length;

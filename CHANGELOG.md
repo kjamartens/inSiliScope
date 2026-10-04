@@ -4,6 +4,20 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
+  widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
+  `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it
+  (`cellHeightMin/Max` removed); nucleus height 0.2-0.3 x long axis, margin 0.5 um. Microtubules start in the cytoplasm
+  near the nucleus and end near the edge, sampled by distance (`mtStartDecayPct`, `mtEndDecayPct`) with the end picked
+  by direction (`mtDirKappa`; replace `mtStartFracMin/Max`, `mtStartOffsetXY`, `mtEndFracMin/Max`, `mtEndJitterDeg`),
+  and ride over or under the nucleus on a smooth envelope. **Core ABI 9** `isc_cell_nucleus_rings`; the optical
+  volume (BrightField) follows the shaped nucleus. MM properties `SimType_CellFieldNuc*` (11) and
+  `SimType_CellFieldMicrotubule{StartDecayPct,EndDecayPct,DirKappa}`. Viewer: the nucleus drawn from the core's rings, an x-z side view
+  (on by default), the Focus style by default.
+- Adapter live mode: a frame taken after a property change no longer can be one still rendered with the old settings
+  (frames carry the configuration they were rendered with; same idea as the z-sequence epoch), 2026-10-05.
+- **seed** BrightField defaults (2026-10-05): lamp 80000 photons/px/s (was 40000), condenser NA 0.4 (was 0.55),
+  cytoplasm and nucleus index 1.35 (were 1.345).
 - Performance pass (2026-10-03/04), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`,
   `scope_parity` SR 100 %, golden vectors): the diffraction-PSF splat reads a column-polyphase copy of the kernel block
   sums with vectorised row loops and an AVX2 copy chosen at run time (~2x per blink); the kernel memo shares one

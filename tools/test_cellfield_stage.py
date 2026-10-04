@@ -85,6 +85,17 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
               "SimType_CellFieldFocusHeightUm", "SimType_CellFieldMilliActivationRatePerDyePerSec", "SimType_CellFieldZRangeUm",
               "SimType_CellFieldLabelingPctNonBleaching"):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
+    # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
+    for p, v in (("SimType_CellFieldNucBaseMinUm", 0.4), ("SimType_CellFieldNucBaseMaxUm", 0.9),
+                 ("SimType_CellFieldNucIrregMin", 0.03), ("SimType_CellFieldNucIrregMax", 0.2),
+                 ("SimType_CellFieldNucBendMin", 0.0), ("SimType_CellFieldNucBendMax", 0.3),
+                 ("SimType_CellFieldNucSmooth", 2.5), ("SimType_CellFieldNucThickIrreg", 0.1),
+                 ("SimType_CellFieldNucAsym", 0.5), ("SimType_CellFieldNucWidestMin", 0.2),
+                 ("SimType_CellFieldNucWidestMax", 0.4), ("SimType_CellFieldMicrotubuleStartDecayPct", 1.6),
+                 ("SimType_CellFieldMicrotubuleEndDecayPct", 20.0), ("SimType_CellFieldMicrotubuleDirKappa", 1.5)):
+        assert core.hasProperty(cam, p), f"missing camera property {p}"
+        got = float(core.getProperty(cam, p))
+        assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
     for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
     assert "CellField" in core.getAllowedPropertyValues(cam, "SimType_Pattern")
@@ -253,7 +264,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     # limited (~3.5% against ~1-2% cell contrast) and close foci swap.
     core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
     _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_BrightFieldQuality", "3")
     core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
     core.setProperty(cam, "General_ImagingModality", "SuperRes")
@@ -370,10 +381,10 @@ def _widefield_checks(core, cam, xy, x0, y0):
 def _brightfield_checks(core, cam, z):
     """BrightField (transmitted light): its properties, the lamp's flux scaling
     the frame, defocus changing the cells' contrast, live = precomputed."""
-    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.55),
-                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 40000.0),
+    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.4),
+                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 80000.0),
                  ("General_BrightFieldSliceUm", -1.0), ("SimType_CellFieldIndexMedium", 1.337),
-                 ("SimType_CellFieldIndexCytoplasm", 1.345), ("SimType_CellFieldIndexNucleus", 1.345),
+                 ("SimType_CellFieldIndexCytoplasm", 1.35), ("SimType_CellFieldIndexNucleus", 1.35),
                  ("SimType_CellFieldIndexMicrotubule", 1.48), ("SimType_CellFieldAbsorptionPerUm", 0.0)):
         got = float(core.getProperty(cam, p))
         assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
@@ -419,12 +430,12 @@ def _brightfield_checks(core, cam, z):
     assert corr(pm, fm) > 0.8, f"precomputed and live BrightField should agree (corr {corr(pm, fm):.3f})"
     print(f"BrightField OK: lamp x2 -> signal x{ratio:.3f}, contrast {rel(f0):.3f} (focus 0) / {rel(fm):.3f} "
           f"(-3 um), live vs precomputed corr {corr(pm, fm):.3f}")
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setPosition(z, 1.5)
 
 
-def _zsequence_checks(core, cam, z, modality, positions=(0.5, 2.0, 3.5, 5.0)):
+def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
     """A hardware z stack: the ZStage is sequenceable, the camera takes one
     sequence position per frame (live and precomputed modes), and the stage
     returns to where it was when the sequence stops."""
@@ -433,7 +444,8 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 2.0, 3.5, 5.0)):
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
     core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
     core.setExposure(20.0)
-    # A thin slab makes every position a distinct dye layer (the Gaussian
+    # Positions inside the cells (the dome top is the nucleus top + 0.5 um, at most ~5 um since 2026-10-05: 3.5 and
+    # 5 um held few dyes and their frames matched at random). A thin slab makes every position a distinct dye layer (the Gaussian
     # WideField PSF, what the Linux test build has, ignores defocus).
     z_range = core.getProperty(cam, "SimType_CellFieldZRangeUm")
     core.setProperty(cam, "SimType_CellFieldZRangeUm", "0.5")

@@ -28,14 +28,14 @@ constexpr int CYTO_RELAX_SWEEPS[3] = { 40, 20, 20 };   // 4g, 2g, g
 // prototype rounds (ring/theta counts, window sizes).
 double JsRound(double x);
 
-struct Pt2 { double x, y; };
-
 std::vector<Pt2> CellOutlineLocal(const Cell& c, int n);
 double NearestDistToOutline(const std::vector<Pt2>& pts, double x, double y);
 Pt2 NearestPointOnEllipse(double a, double b, double x, double y);
 double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0);
-// The same with cos(-nucRot), sin(-nucRot) passed in (computed once by a caller with many points).
-double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cosNeg, double sinNeg);
+// The same with cos(-nucRot), sin(-nucRot) and, for a shaped nucleus, its
+// footprint polygon (NucFootprintPolygon) passed in by a caller with many points.
+double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cosNeg, double sinNeg,
+                              const std::vector<Pt2>* poly);
 double CytoHeightAt(const Cell& c, const Params& p, double dEdge, double dNuc);
 
 // The relaxed height grid: nodes (i, j) at local ((i-half)*g, (j-half)*g),

@@ -69,25 +69,23 @@ const MT_CH_COUNT = 500;
 const MT_STREAM_BASE = 1000;
 const MT_RESAMPLE_SPACING = 100000;
 
-// Direction weighting: how many azimuth bins to score around the nucleus
-// centre (see buildMtDirectionTable) -- 64 matches the default cytoTheta's own
-// resolution choice in index.html for the same reason (smooth enough at any
-// reasonable zoom without the ray-march cost blowing up).
-const MT_N_DIR = 64;
-// Steps for the coarse linear march (+ a bisection refine) that finds where a
-// ray from the nucleus centre exits the cell's own blobby footprint -- see
-// rayCellBoundaryFromNucleus.
-const MT_MARCH_STEPS = 24;
-const MT_BISECT_ITERS = 24;
+/// Start and end sampling (mtSampleStart / mtSampleEnd): rejection sampling, at most MT_SAMPLE_TRIES candidates
+// per point (then the closest valid one); the sampled region reaches MT_DECAY_SPAN decay lengths (exp(-5) = 0.7%
+// acceptance at its edge); decay lengths are floored at MT_MIN_DECAY_UM. An end is chosen from
+// MT_END_CANDIDATES sampled ends by its direction from the start (mtDirKappa).
+const MT_SAMPLE_TRIES = 128;
+const MT_DECAY_SPAN = 5;
+const MT_MIN_DECAY_UM = 0.02;
+const MT_END_CANDIDATES = 12;
 
-// Minimum-separation pass: bounded like the cell generator's own relax()/
+/ Minimum-separation pass: bounded like the cell generator's own relax()/
 // prune() (see index.html's own comments on PRUNE_ROUNDS) -- best-effort, not
 // a hard guarantee, so a pathological configuration can't hang the tab.
 // Kept deliberately SMALL (measured, not guessed): near the nucleus, many
 // microtubules' own FIXED start points are packed tighter than a typical
 // mtMinSeparation by construction once density gets even moderately high
-// (mtStartFracMax confines every start to a thin band right at the nucleus
-// edge) -- those specific conflicts can never actually resolve (neither
+// (mtStartDecayPct concentrates the starts in a thin shell around the nucleus)
+// -- those specific conflicts can never actually resolve (neither
 // point is allowed to move), so a round involving them never converges to
 // "no violation found" and always burns its FULL round budget. Measured
 // directly: at mtDensity=0.2 (well under half of the new 2/um^2 ceiling) the
@@ -138,16 +136,11 @@ const MT_MAX_PER_CELL = 5000;
 // floating-point rounding).
 const MT_CONTAIN_MARGIN = 0.98;
 
-// How far beyond the nucleus's own lateral (equatorial) footprint the
-// "must clear the nucleus vertically" rule (see mtNucleusFootprintBlend,
-// used by mtGenerateOne below) ramps back down to 0 -- expressed as a
-// fraction of the nucleus's own equatorial radius in that direction, so it
-// scales with nucleus size rather than being a fixed um value. Wide enough
-// for a smooth, visually continuous rise/fall as a path enters/leaves the
-// footprint (no visible kink at the exact ellipse boundary), narrow enough
-// that it only affects paths genuinely passing near the nucleus, not the
-// whole cell.
-const MT_NUCLEUS_CLEAR_BLEND = 0.4;
+// Slope of the ramp by which mtObstacleEnvelope lifts a path over (or lowers it under) an obstacle: z changes
+// at most this much per um moved in xy before the box smoothing rounds the ramp off.
+const MT_OBST_RAMP_SLOPE = 1;
+// Arc length (um, in xy) over which an obstacle's clearance grows from 0 at the start to its full value.
+const MT_OBST_CLEAR_RAMP_UM = 1;
 
 // How much vertical clearance a microtubule keeps from the nucleus surface
 // while riding over/under it (see mtGenerateOne) -- half of the cell's own
@@ -163,49 +156,116 @@ const MT_NUCLEUS_CLEAR_BLEND = 0.4;
 // comment below for why this has to run on the FINAL rendered geometry, not
 // just the raw random walk that feeds it.
 
-// Slope limiter ceiling -- now the settable `p.mtMaxZSlope` ("Max height
-// slope (xxy)", slider 1-20 step 0.5, default 5, both wired in index.html): z may
+// Slope limiter ceiling -- the settable `p.mtMaxZSlope` ("Max height slope
+// (xxy)", slider 1-20 step 0.5, default 5, both wired in index.html): z may
 // change at most this many times the lateral distance moved between two
-// consecutive points. Used by TWO separate passes -- see each one's own
-// comment for why one alone isn't enough:
-//  1. The post-generation smoothing pass inside mtGenerateOne (below, `const
-//     maxDz = ... * stepLen`), which bounds dz against the path's own
-//     NOMINAL step length, not the REALIZED lateral distance actually moved
-//     -- deliberately, since a persistent random walk can double back to
-//     near-zero net lateral movement between two consecutive points, and
-//     bounding purely by realized distance there would mask a genuine height
-//     change rather than spread it out (see that pass's own comment).
-//  2. `mtLimitZSlopeRealized` (below), a FINAL safety net run once per path
-//     in buildMicrotubulesForCell, after collision resolution -- on the
-//     REALIZED lateral distance between the truly final points. Added
-//     because #1's own nominal-stepLen basis, plus points collision
-//     resolution (`mtNudgeRoundGrid`) moves AFTER #1 already ran with no
-//     slope recheck of its own, could still leave a real, reported "massive
-//     change in z in one or a few steps" on the rendered geometry -- exactly
-//     the ratio a viewer's own eye reads as "how steep is this segment", and
-//     the same ratio tools/check_cellfield_microtubules.mjs's own step-slope
-//     check measures.
+// consecutive points. `mtLimitZSlopeRealized` (below) enforces it once per
+// path in buildMicrotubulesForCell, after collision resolution, on the
+// REALIZED lateral distance between the final points -- the ratio a viewer's
+// own eye reads as "how steep is this segment", and the same ratio
+// tools/check_cellfield_microtubules.mjs's own step-slope check measures.
 
 function mtNucleusClearance(p) {
   return Math.max(0.05, 0.5 * p.nucMargin);
 }
 
-// 1 when (x,y) sits within the nucleus's own LATERAL (equatorial) elliptical
-// footprint -- ignoring z entirely, unlike mtClampIntoCytoplasm's full 3D
-// ellipsoid check -- ramping smoothly down to 0 by MT_NUCLEUS_CLEAR_BLEND
-// beyond its edge. Used to decide how strongly a path point's z should be
-// pulled toward clearing the nucleus vertically (mtGenerateOne) rather than
-// following the ordinary fraction-of-local-ceiling height model, which on
-// its own has no idea the nucleus sits in the way and would happily
-// interpolate straight through it.
-function mtNucleusFootprintBlend(cell, x, y) {
-  const dxN = x - cell.nucOffX, dyN = y - cell.nucOffY;
-  const nt = nucTrig(cell), cr = nt.cn, sr = nt.sn; // index.html: the cell's nucleus frame, cached
-  const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-  const a = cell.nucLong / 2, b = cell.nucShort / 2;
-  const norm = Math.hypot(lx / Math.max(1e-6, a), ly / Math.max(1e-6, b));
-  const t = Math.min(1, Math.max(0, (norm - 1) / MT_NUCLEUS_CLEAR_BLEND));
-  return smoothstep(1 - t);
+// Moving average over `vals` of every interior point; set(i, mean) receives the results (the endpoints are left
+// alone). The window i-h..i+h is symmetric, h = min(half, i, n-1-i): it shrinks toward the ends, so a slope there
+// is kept (a window cut on one side only pulled the first points toward the inner values, a jump next to the
+// fixed endpoint). Prefix sums, in index order.
+function mtBoxSmooth(vals, half, set) {
+  const n = vals.length;
+  if (n < 3 || !(half > 0)) return;
+  const cum = new Array(n + 1);
+  cum[0] = 0;
+  for (let i = 0; i < n; i++) cum[i + 1] = cum[i] + vals[i];
+  for (let i = 1; i < n - 1; i++) {
+    const h = Math.min(half, i, n - 1 - i);
+    set(i, (cum[i + h + 1] - cum[i - h]) / (2 * h + 1));
+  }
+}
+
+// ---- Obstacles a path rides over or under ------------------------------------
+// Anything a microtubule must not pass through and gets around by going over or under it, at a height that
+// is one z interval per (x, y) column. The nucleus is the only one so far; a new structure (e.g. the ER) adds
+// a maker like mtNucleusObstacle to mtObstacles. An obstacle is a plain object:
+//   column(x, y)    -> [bottom, top] (absolute z, um, cell-local x/y) of the obstacle over this point, or null
+//   clearance       -> gap (um) a path keeps above top / below bottom
+//   goOver(startZ)  -> true: the path rides over it, false: under; decided once per path from its start height,
+//                      so it never flip-flops
+// The bounds (mtObstacleBounds) and the smooth correction (mtObstacleEnvelope) are generic; the final safety net
+// (mtClampIntoCytoplasm) still knows only the nucleus, so a new obstacle that must never be entered also needs a
+// push-out there.
+function mtNucleusObstacle(cell, p) {
+  const clearance = mtNucleusClearance(p);
+  const bottomZ = cell.nucZ - cell.nucDown;   // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
+  return {
+    column(x, y) {
+      const col = nucleusColumnLocal(cell, x, y);
+      return col ? [cell.nucZ - col[0], cell.nucZ + col[1]] : null;
+    },
+    clearance,
+    // Over when the path starts above the nucleus's widest section, or when there is no room below it.
+    goOver(startZ) { return bottomZ - clearance <= 0 || startZ >= cell.nucZ; },
+  };
+}
+function mtObstacles(cell, p) {
+  return [mtNucleusObstacle(cell, p)];
+}
+
+// Height bounds of a path (pts[i].z before the correction, ceil[i] = the cytoplasm ceiling there): hi[i] = the
+// ceiling x MT_CONTAIN_MARGIN; per obstacle whose column covers point i, going over raises lo[i] to top +
+// clearance, going under lowers hi[i] to bottom - clearance (at most half the room below the bottom). The
+// clearance fades in over the first MT_OBST_CLEAR_RAMP_UM (xy arc): a start next to an obstacle (closer than
+// the clearance) leaves it gradually instead of jumping to the full clearance at the first step. Where bounds
+// conflict (over one obstacle, under another above it, or no room under the ceiling), lo is cut to hi.
+function mtObstacleBounds(pts, ceil, obstacles) {
+  const n = pts.length;
+  const over = obstacles.map(o => o.goOver(pts[0].z));
+  const lo = new Array(n).fill(-Infinity), hi = new Array(n);
+  let arc = 0;
+  for (let i = 0; i < n; i++) {
+    if (i > 0) arc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    hi[i] = ceil[i] * MT_CONTAIN_MARGIN;
+    const fade = Math.min(1, arc / MT_OBST_CLEAR_RAMP_UM);
+    for (let k = 0; k < obstacles.length; k++) {
+      const col = obstacles[k].column(pts[i].x, pts[i].y);
+      if (!col) continue;
+      const clr = obstacles[k].clearance * fade;
+      if (over[k]) lo[i] = Math.max(lo[i], col[1] + clr);
+      else hi[i] = Math.min(hi[i], col[0] - Math.min(clr, 0.5 * col[0]));
+    }
+  }
+  for (let i = 0; i < n; i++) lo[i] = Math.min(lo[i], hi[i]);
+  return { lo, hi };
+}
+
+// Keeps a path's interior z within [lo[i], hi[i]] (mtObstacleBounds: the obstacle columns it rides over or
+// under, and the cytoplasm ceiling) with smooth corrections instead of per-point clamps, which turned every rim
+// crossing into a kink. For each side: the shortfall need[i] is spread into a ramp of slope MT_OBST_RAMP_SLOPE per um in xy
+// (forward and backward running maxima: the smallest correction >= need that changes no faster than the
+// ramp), box-smoothed over `half` points to round its corners, then raised back to need where the smoothing
+// cut a peak. Lift first (lo), then lower (hi). Endpoints never move.
+function mtObstacleEnvelope(pts, lo, hi, half) {
+  const n = pts.length;
+  if (n < 3) return;
+  const ds = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) ds[i] = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const need = new Array(n), ramp = new Array(n);
+  for (const sign of [1, -1]) {
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      need[i] = i === 0 || i === n - 1 ? 0 : Math.max(0, sign > 0 ? lo[i] - pts[i].z : pts[i].z - hi[i]);
+      if (need[i] > 0) any = true;
+    }
+    if (!any) continue;
+    ramp[0] = need[0];
+    for (let i = 1; i < n; i++) ramp[i] = Math.max(need[i], ramp[i - 1] - MT_OBST_RAMP_SLOPE * ds[i]);
+    for (let i = n - 2; i >= 0; i--) ramp[i] = Math.max(ramp[i], ramp[i + 1] - MT_OBST_RAMP_SLOPE * ds[i + 1]);
+    const corr = ramp.slice();
+    mtBoxSmooth(ramp, half, (i, v) => { corr[i] = Math.max(v, need[i]); });
+    for (let i = 1; i < n - 1; i++) pts[i].z += sign * corr[i];
+  }
 }
 
 // Post-process curvature limiter, run on the FINAL rendered (x,y) of a
@@ -330,21 +390,15 @@ function mtTrimSteepEnds(pts, maxSlope) {
   }
 }
 
-// Final safety-net slope limiter -- see MT_MAX_Z_SLOPE's own comment above
-// for why this is a SEPARATE pass from mtGenerateOne's own nominal-stepLen
-// version, not a duplicate: this one runs ONCE PER PATH in
+// Final slope limiter (see mtMaxZSlope above): runs ONCE PER PATH in
 // buildMicrotubulesForCell, AFTER collision resolution has finished moving
 // points around, and measures the ratio against the REALIZED lateral
-// distance between the truly final pair of points -- catching whatever a
-// post-generation nudge (or a doubled-back realized step the nominal check's
-// own stepLen basis was never meant to police) leaves behind. Same
-// alternating-sweep relaxation idiom as the nominal-stepLen version (a
+// distance between the final pair of points. Alternating-sweep relaxation (a
 // violation can span several points; each pass propagates the correction one
-// step further). Endpoints (i=0/i=n-1) are never moved -- same reasoning as
-// every other postprocess pass in this file: their z is a deliberate,
-// meaningful value (nucleus-surface start, independently-drawn end). See
-// `mtTrimSteepEnds` above for the complementary fix when the endpoint ITSELF
-// is the unfixable offender, which must run first.
+// step further). Endpoints (i=0/i=n-1) are never moved -- their z is a
+// deliberate value (the sampled start and end). See `mtTrimSteepEnds` above
+// for the complementary fix when the endpoint ITSELF is the unfixable
+// offender, which must run first.
 // `maxSlope<=0` (not reachable via the slider, whose minimum is 1, but kept
 // as a safe no-op for a directly-scripted config) skips this entirely.
 function mtLimitZSlopeRealized(pts, maxSlope) {
@@ -360,10 +414,9 @@ function mtLimitZSlopeRealized(pts, maxSlope) {
       const dNxt = Math.hypot(nxt.x - cur.x, nxt.y - cur.y) * maxSlope;
       const lo = Math.max(prev.z - dPrev, nxt.z - dNxt);
       const hi = Math.min(prev.z + dPrev, nxt.z + dNxt);
-      // Same "leave it, containment clamp still guards it" reasoning as the
-      // nominal-stepLen pass's own lo>hi case: the two neighbours are
-      // themselves too far apart in z for any single value to satisfy both
-      // slope budgets against their OWN realized distances at once.
+      // lo>hi: the two neighbours are themselves too far apart in z for any
+      // single value to satisfy both slope budgets at once -- left alone (the
+      // containment clamp still guards it).
       if (lo > hi) continue;
       if (cur.z < lo) { cur.z = lo; changed = true; }
       else if (cur.z > hi) { cur.z = hi; changed = true; }
@@ -388,107 +441,157 @@ function mtShoelaceArea(pts) {
   return Math.abs(area) / 2;
 }
 
-// Nucleus radius at LOCAL azimuth theta (measured from the nucleus's own
-// centre, world/local-frame convention -- same "theta minus own rotation"
-// form as cellRadiusAt's base-ellipse term).
-function mtNucleusRadiusAt(cell, theta) {
-  const a = cell.nucLong / 2, b = cell.nucShort / 2;
-  const phi = theta - cell.nucRot;
-  return (a * b) / Math.hypot(b * Math.cos(phi), a * Math.sin(phi));
+/// Approximate distance (um) from cell-local (x, y, z) to the nucleus surface, or -1 inside the nucleus. In the
+// nucleus's shape coordinates (index.html "Nucleus shape"; the plain ellipsoid is f = 0, H = 1, no lobes): the
+// gap gl along the footprint direction at this height (to the section W(zeta)) and the vertical gap gv to the
+// column below/above, combined as the distance to the plane through both intercepts, gl gv / hypot(gl, gv) (exact
+// for a locally flat surface). Outside the footprint there is no column: gl alone, or above the top/below the
+// bottom, the nearer of the rim and the pole's edge. Same inside test as mtClampIntoCytoplasm.
+function mtNucleusGap(cell, x, y, z) {
+  const up = z >= cell.nucZ;
+  let s, rDir, ext, f;
+  if (cell.nucShaped) {
+    const B = nucBallLocal(cell, x, y);
+    s = B.s;
+    const q = nucMapLocal(cell, 1, B.C, B.S, 0);
+    rDir = Math.hypot(q[0] - cell.nucOffX, q[1] - cell.nucOffY);
+    ext = (cell.nucHeight / 2) * (up ? cell.nucKUp : cell.nucKDown) * (s < 1 ? B.H : nucThickAt(cell, 1, B.C, B.S));
+    f = up ? cell.nucFTop : cell.nucFBot;
+  } else {
+    const a = Math.max(1e-6, cell.nucLong / 2), b = Math.max(1e-6, cell.nucShort / 2);
+    const dx = x - cell.nucOffX, dy = y - cell.nucOffY;
+    const cr = Math.cos(cell.nucRot), sr = Math.sin(cell.nucRot);
+    const u = (dx * cr + dy * sr) / a, v = (-dx * sr + dy * cr) / b;
+    s = Math.hypot(u, v);
+    const C = s > 1e-12 ? u / s : 1, S = s > 1e-12 ? v / s : 0;
+    rDir = Math.hypot(a * C, b * S);
+    ext = cell.nucHeight / 2;
+    f = 0;
+  }
+  const zeta = Math.abs(z - cell.nucZ) / Math.max(1e-6, ext);
+  if (zeta < 1) {
+    const W = nucSectionW(zeta, f);
+    if (s < W) return -1;
+    const gl = (s - W) * rDir;
+    if (s >= 1) return gl;
+    const gv = (zeta - nucColumnExt(s, f)) * ext;
+    const h = Math.hypot(gl, gv);
+    return h > 1e-12 ? gl * gv / h : 0;
+  }
+  if (s < 1) return (zeta - nucColumnExt(s, f)) * ext;
+  return Math.min(Math.hypot((s - 1) * rDir, zeta * ext), Math.hypot((s - f) * rDir, (zeta - 1) * ext));
 }
 
-// Distance from the NUCLEUS centre to the cell's own (blobby, possibly
-// off-centre-relative) footprint boundary along azimuth theta -- marches a
-// ray p(t) = nucCenter + t*(cos theta, sin theta) outward from the nucleus's
-// own edge (rNucStart) and tests hypot(p) > cellRadiusAt(cell, angle-from-
-// CELL-centre) (cellRadiusAt's own convention measures from the local origin,
-// i.e. the cell centre, not the nucleus centre -- p is already in that same
-// local frame since the nucleus offset is centre-relative), refined by
-// bisection once the boundary is bracketed. Falls back to the last sampled t
-// in the (never expected in practice, envelopNucleus guarantees clearance)
-// case the march never exits within the capped search radius.
-function mtRayCellBoundaryFromNucleus(cell, theta, rNucStart) {
-  const ux = Math.cos(theta), uy = Math.sin(theta);
-  const maxT = (cell.rOuter + Math.hypot(cell.nucOffX, cell.nucOffY)) * 1.3 + 1;
-  const dt = Math.max(1e-3, (maxT - rNucStart) / MT_MARCH_STEPS);
-  let prevT = rNucStart, tLo = null, tHi = null;
-  for (let s = 0; s <= MT_MARCH_STEPS; s++) {
-    const t = rNucStart + s * dt;
-    const px = cell.nucOffX + ux * t, py = cell.nucOffY + uy * t;
-    const ang = Math.atan2(py, px);
-    const rc = cellRadiusAt(cell, ang);
-    const dist = Math.hypot(px, py);
-    if (dist > rc) { tHi = t; tLo = s === 0 ? t : prevT; break; }
-    prevT = t;
-  }
-  if (tHi === null) return prevT;
-  for (let it = 0; it < MT_BISECT_ITERS; it++) {
-    const mid = (tLo + tHi) / 2;
-    const px = cell.nucOffX + ux * mid, py = cell.nucOffY + uy * mid;
-    const ang = Math.atan2(py, px);
-    const rc = cellRadiusAt(cell, ang);
-    const dist = Math.hypot(px, py);
-    if (dist > rc) tHi = mid; else tLo = mid;
-  }
-  return (tLo + tHi) / 2;
+// Inside the cytoplasm volume (footprint, ceiling, coverslip; the nucleus is checked by the caller), with the
+// containment margin so a sampled point is never re-clamped.
+function mtInCytoplasm(cell, p, x, y, z) {
+  if (!(z > 0)) return false;
+  if (!(Math.hypot(x, y) < cellRadiusAt(cell, Math.atan2(y, x)) * MT_CONTAIN_MARGIN)) return false;
+  return z < Math.max(0, sampleCytoMeshHeight(cell, p, x, y)) * MT_CONTAIN_MARGIN;
 }
 
-// Once per cell: a discrete weight table over MT_N_DIR azimuth bins around the
-// nucleus centre, weight(theta) = max(0, rCellFromNucleus(theta) -
-// rNuc(theta)) -- the cytoplasm "thickness" in that direction, i.e. how much
-// room a microtubule has to grow into. Directions with more cytoplasm are
-// proportionally more likely to be drawn (see mtSampleDirection). Returns a
-// cumulative-weight array for fast inverse-CDF sampling.
-function buildMtDirectionTable(cell) {
-  const bins = new Array(MT_N_DIR);
-  const cum = new Array(MT_N_DIR + 1);
-  cum[0] = 0;
-  for (let i = 0; i < MT_N_DIR; i++) {
-    const theta = (i / MT_N_DIR) * Math.PI * 2;
-    const rNuc = mtNucleusRadiusAt(cell, theta);
-    const rCell = mtRayCellBoundaryFromNucleus(cell, theta, rNuc);
-    const w = Math.max(0, rCell - rNuc);
-    bins[i] = { theta, rNuc, rCell, w };
-    cum[i + 1] = cum[i] + w;
-  }
-  return { bins, cum, total: cum[MT_N_DIR] };
+// Decay length (um) of a start/end density: pct % of the cell's equivalent diameter (geom.sizeUm), so the same
+// setting fits small and large cells. At the default cell sizes (equivalent diameter ~30 um) 1.6 % is ~0.5 um
+// and 20 % ~6 um.
+function mtDecayLen(pct, geom) {
+  return Math.max(MT_MIN_DECAY_UM, pct / 100 * geom.sizeUm);
 }
 
-// Draws one azimuth from the direction table: u1 picks a weighted bin
-// (inverse-CDF, binary search), u2 jitters continuously within that bin's own
-// angular width so microtubules aren't confined to MT_N_DIR fixed headings.
-// Falls back to a uniform draw if every bin has zero weight (a degenerate
-// cell where the nucleus fills essentially the whole footprint).
-function mtSampleDirection(table, u1, u2) {
-  if (table.total <= 1e-9) return u1 * Math.PI * 2;
-  const target = u1 * table.total;
-  let lo = 0, hi = MT_N_DIR;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (table.cum[mid + 1] < target) lo = mid + 1; else hi = mid;
+// START: a point of the cytoplasm volume (nucleus excluded) with density ~ exp(-d / lambda), d = the
+// distance to the nucleus surface (mtNucleusGap): uniform candidates in the nucleus's bounding box grown by
+// MT_DECAY_SPAN decay lengths, kept with probability exp(-d / lambda). Four draws per candidate, always.
+function mtSampleStart(cell, p, geom, next) {
+  const lam = mtDecayLen(p.mtStartDecayPct, geom);
+  const L = Math.min(MT_DECAY_SPAN * lam, geom.rMax);
+  const nb = geom.nucBox;
+  const x0 = nb[0] - L, x1 = nb[2] + L, y0 = nb[1] - L, y1 = nb[3] + L, z1 = cell.nucZ + cell.nucUp + L;
+  let best = null, bestD = Infinity;
+  for (let t = 0; t < MT_SAMPLE_TRIES; t++) {
+    const x = lerp(x0, x1, next()), y = lerp(y0, y1, next()), z = z1 * next(), u = next();
+    const d = mtNucleusGap(cell, x, y, z);
+    if (d < 0) continue;
+    const accept = u < Math.exp(-d / lam);
+    if (!accept && !(d < bestD)) continue;
+    if (!mtInCytoplasm(cell, p, x, y, z)) continue;
+    if (accept) return { x, y, z };
+    best = { x, y, z }; bestD = d;
   }
-  const i = Math.min(MT_N_DIR - 1, lo);
-  const binWidth = (Math.PI * 2) / MT_N_DIR;
-  return table.bins[i].theta + (u2 - 0.5) * binWidth;
+  if (best) return best;
+  // Nothing inside the cytoplasm (a degenerate cell): just outside the nucleus rim, at its widest section.
+  const cr = Math.cos(cell.nucRot), sr = Math.sin(cell.nucRot), r = cell.nucLong / 2 / MT_CONTAIN_MARGIN;
+  return { x: cell.nucOffX + r * cr, y: cell.nucOffY + r * sr, z: cell.nucZ };
 }
 
-// Per-cell geometry cache (direction table, local outline, footprint area) --
-// same reasoning as index.html's own cytoCache: these fields are a pure
-// function of the cell's own already-resolved shape (semiMajor/semiMinor/rot/
-// harmAmp/harmPh/modFloor/nucleus fields), not of its current (packing-
-// relaxed) x,y, so recomputing this ray-marched table from scratch on every
-// draw() call (including every frame of a plain pan/zoom/tilt drag where
-// nothing shape-related has changed) would reintroduce the exact
-// "incredibly slow when moving around" problem cytoCache itself was built to
-// fix. Keyed on chunk id, invalidated by a signature over the cell's own
+// END (x, y only; its z is a fraction of the local ceiling): a footprint point outside the nucleus footprint with
+// density ~ exp(-d / lambda), d = the radial gap to the outline (inside by MT_CONTAIN_MARGIN). Polar
+// proposal: theta uniform, d exponential (inverse CDF), kept with probability r / rMax (the area element).
+// Three draws per candidate, always.
+function mtSampleEnd(cell, p, geom, next) {
+  const lam = mtDecayLen(p.mtEndDecayPct, geom);
+  let x = 0, y = 0;
+  for (let t = 0; t < MT_SAMPLE_TRIES; t++) {
+    const th = next() * Math.PI * 2, d = -lam * Math.log(1 - next()), u = next();
+    const rc = cellRadiusAt(cell, th) * MT_CONTAIN_MARGIN;
+    const r = rc - d;
+    x = Math.cos(th) * Math.max(0, r); y = Math.sin(th) * Math.max(0, r);
+    if (!(r > 0) || !(u * geom.rMax < r)) continue;
+    if (nucleusColumnLocal(cell, x, y)) continue;
+    return { x, y };
+  }
+  return { x, y };
+}
+
+// The end for a start S: MT_END_CANDIDATES ends from mtSampleEnd, one picked with weight
+// exp(mtDirKappa (cos a - 1)), a = the angle in xy between S -> end and the outward direction at S (from the
+// nucleus centre). kappa 0: any end (paths cross over and under the nucleus); large: roughly radial.
+function mtPickEnd(cell, p, geom, next, S) {
+  const kappa = Math.max(0, p.mtDirKappa);
+  const ox = S.x - cell.nucOffX, oy = S.y - cell.nucOffY, oL = Math.hypot(ox, oy);
+  const cands = new Array(MT_END_CANDIDATES), w = new Array(MT_END_CANDIDATES);
+  let sum = 0;
+  for (let k = 0; k < MT_END_CANDIDATES; k++) {
+    const E = mtSampleEnd(cell, p, geom, next);
+    const ex = E.x - S.x, ey = E.y - S.y, eL = Math.hypot(ex, ey);
+    const cos = oL > 1e-9 && eL > 1e-9 ? (ex * ox + ey * oy) / (eL * oL) : 0;
+    cands[k] = E;
+    w[k] = Math.exp(kappa * (cos - 1));
+    sum += w[k];
+  }
+  const target = next() * sum;
+  let acc = 0;
+  for (let k = 0; k < MT_END_CANDIDATES; k++) {
+    acc += w[k];
+    if (target < acc) return cands[k];
+  }
+  return cands[MT_END_CANDIDATES - 1];
+}
+
+// Per-cell geometry cache (local outline, footprint area and equivalent diameter,
+// nucleus bounding box, largest outline radius) -- same reasoning as index.html's own cytoCache:
+// these fields are a pure function of the cell's own already-resolved shape
+// (semiMajor/semiMinor/rot/harmAmp/harmPh/modFloor/nucleus fields), not of its
+// current (packing-relaxed) x,y, so they are not recomputed on every draw()
+// call. Keyed on chunk id, invalidated by a signature over the cell's own
 // resolved numeric fields (not on index.html's `p` directly, keeping this
 // file self-contained).
 const MT_GEOM_CACHE_MAX = 6000;
+const MT_RMAX_SAMPLES = 512;
 const mtGeomCache = new Map();
 function mtCellShapeSig(cell) {
   return [cell.semiMajor, cell.semiMinor, cell.rot, cell.harmAmp.join(','), cell.harmPh.join(','), cell.tailAc.join(','), cell.tailAs.join(','),
     cell.modFloor, cell.nucOffX, cell.nucOffY, cell.nucLong, cell.nucShort, cell.nucRot,
-    cell.nucZ, cell.nucHeight, cell.rOuter].join('|');
+    cell.nucZ, cell.nucHeight, cell.rOuter, cell.nucShaped ? cell.nucShapeSig : ''].join('|');
+}
+// Nucleus footprint bounding box [x0, y0, x1, y1], cell-local: the polygon (shaped) or the rotated ellipse.
+function mtNucleusBox(cell) {
+  if (cell.nucShaped) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of cell.nucPoly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    return [x0, y0, x1, y1];
+  }
+  const a = cell.nucLong / 2, b = cell.nucShort / 2, cr = Math.cos(cell.nucRot), sr = Math.sin(cell.nucRot);
+  const hx = Math.hypot(a * cr, b * sr), hy = Math.hypot(a * sr, b * cr);
+  return [cell.nucOffX - hx, cell.nucOffY - hy, cell.nucOffX + hx, cell.nucOffY + hy];
 }
 function getMtCellGeometry(cell) {
   const key = cell.cx + ',' + cell.cy;
@@ -497,11 +600,16 @@ function getMtCellGeometry(cell) {
   if (entry && entry.sig === sig) return entry;
   if (mtGeomCache.size > MT_GEOM_CACHE_MAX) mtGeomCache.clear();
   const localOutline = cellOutlineLocal(cell, 48);
+  // Largest outline radius (x the containment margin, as mtSampleEnd uses it): its acceptance r / rMax.
+  let rMax = 0;
+  for (let i = 0; i < MT_RMAX_SAMPLES; i++) rMax = Math.max(rMax, cellRadiusAt(cell, (i / MT_RMAX_SAMPLES) * Math.PI * 2));
   const fresh = {
     sig,
-    dirTable: buildMtDirectionTable(cell),
     localOutline,
     areaUm2: mtShoelaceArea(localOutline),
+    sizeUm: 2 * Math.sqrt(mtShoelaceArea(localOutline) / Math.PI),   // equivalent diameter (same area as the footprint)
+    nucBox: mtNucleusBox(cell),
+    rMax: rMax * MT_CONTAIN_MARGIN,
   };
   mtGeomCache.set(key, fresh);
   return fresh;
@@ -542,25 +650,30 @@ function mtCountForCell(seed, cx, cy, cell, p, geom) {
 // hg (optional): the cell's relaxed height grid (getCytoGeometry(cell, p).mesh.hg),
 // when the caller has it -- sampleCytoMeshHeight looks it up per call.
 function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false, hg = null) {
-  const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
-  const nt = nucTrig(cell), cr = nt.cn, sr = nt.sn;
-  const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-  const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
-  const nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
-  const nx = lx / Math.max(1e-6, a), ny = ly / Math.max(1e-6, b);
-  const ellNorm = Math.sqrt(nx * nx + ny * ny + nz * nz);
-  if (ellNorm < 1) {
-    // Pushing OUT of the nucleus needs the normalized radius to end up
-    // GREATER than 1 (outside), so the margin divides rather than multiplies
-    // here -- the opposite direction from the footprint/height clamps below,
-    // which pull a point back INSIDE their own outer bound.
-    const scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
-    const lx2 = lx * scale, ly2 = ly * scale;
-    pt.z = cell.nucZ + nz * rz * scale;
-    const cr2 = nt.cp, sr2 = nt.sp;
-    pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
-    pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
-    knownInside = false;
+  if (cell.nucShaped) {
+    // The same radial push in the shaped nucleus's own coordinates (index.html, nucPushOutLocal).
+    if (nucPushOutLocal(cell, pt, MT_CONTAIN_MARGIN)) knownInside = false;
+  } else {
+    const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
+    const nt = nucTrig(cell), cr = nt.cn, sr = nt.sn;
+    const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
+    const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
+    const nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
+    const nx = lx / Math.max(1e-6, a), ny = ly / Math.max(1e-6, b);
+    const ellNorm = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (ellNorm < 1) {
+      // Pushing OUT of the nucleus needs the normalized radius to end up
+      // GREATER than 1 (outside), so the margin divides rather than multiplies
+      // here -- the opposite direction from the footprint/height clamps below,
+      // which pull a point back INSIDE their own outer bound.
+      const scale = (ellNorm > 1e-9 ? 1 / ellNorm : 1) / MT_CONTAIN_MARGIN;
+      const lx2 = lx * scale, ly2 = ly * scale;
+      pt.z = cell.nucZ + nz * rz * scale;
+      const cr2 = nt.cp, sr2 = nt.sp;
+      pt.x = cell.nucOffX + lx2 * cr2 - ly2 * sr2;
+      pt.y = cell.nucOffY + lx2 * sr2 + ly2 * cr2;
+      knownInside = false;
+    }
   }
 
   const dist = Math.hypot(pt.x, pt.y);
@@ -581,80 +694,22 @@ function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false, hg = null)
   else if (pt.z > topH) pt.z = topH * MT_CONTAIN_MARGIN;
 }
 
-// Builds one microtubule's full geometry (steps 2-6 of the design): a weighted
-// starting direction from the nucleus centre, a start position near the
-// nucleus edge, an end direction (jittered -- see End direction jitter,
-// widened up to 180 deg so an end can genuinely land on the far side of the
-// nucleus, not just a nearby azimuth) and end position near the cell edge,
-// and a free correlated-random-walk path in XY (real loops/U-bends allowed)
-// between them, corrected to land exactly on both endpoints. z comes from
-// the fraction-of-local-ceiling model (see the per-point loop below) with an
-// over/under-the-nucleus override applied wherever a point's (x,y) passes
-// near or over the nucleus's own lateral footprint -- see
-// mtNucleusFootprintBlend's own comment -- and the whole path is then
-// clamped to stay inside the cell's own cytoplasm volume throughout.
-// `resampleRound`
-// (0 = first attempt) reseeds the whole draw sequence when the collision pass
-// below needs to regenerate this microtubule from scratch.
+// Builds one microtubule's full geometry: a start in the cytoplasm near the
+// nucleus (mtSampleStart), an end near the cell edge picked by its direction
+// from the start (mtPickEnd), and a free correlated-random-walk path in XY
+// (real loops/U-bends allowed) between them, corrected to land exactly on both
+// endpoints. z comes from the fraction-of-local-ceiling model (see the
+// per-point loop below), kept over or under obstacles by mtObstacleEnvelope,
+// and the whole path is then clamped to stay inside the cell's own cytoplasm
+// volume throughout. `resampleRound` (0 = first attempt) reseeds the whole
+// draw sequence when the collision pass below needs to regenerate this
+// microtubule from scratch.
 function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const next = hashStream(seed, cx, cy, MT_STREAM_BASE + mtIndex + resampleRound * MT_RESAMPLE_SPACING);
 
-  const theta0 = mtSampleDirection(geom.dirTable, next(), next());
-  // The START point is a genuine 3D point on the nucleus ELLIPSOID's surface
-  // (standard parametrization: azimuth theta0 -- still the weighted-by-
-  // cytoplasm direction from buildMtDirectionTable, unchanged -- plus a polar
-  // angle psi drawn uniform-on-sphere via cosPsi=1-2u), not azimuth-with-an-
-  // independently-random-Z. That older version put every start point on the
-  // nucleus's own EQUATORIAL ring regardless of its (unrelated) Z draw --
-  // geometrically inconsistent (a ring-radius point paired with a near-pole Z
-  // sits outside the true ellipsoid, or just reads as "microtubules only
-  // start at the equator" once the containment clamp corrects it) and, more
-  // visibly, a real cause of the whole population sitting flat near one
-  // height: with every start already pinned near mid-height, a path only
-  // reached the cytoplasm dome's own mid-height slope (see cytoHeightAt) if
-  // its own random wobble happened to climb there, so the slope's own
-  // mid-region routinely went uncovered (confirmed against a real screenshot
-  // showing exactly that gap). Starting genuinely above/below the nucleus
-  // too means a path travelling from a raised start down to its low, near-
-  // the-edge end has to CROSS that slope by construction.
-  const phi0 = theta0 - cell.nucRot;
-  const cosPsi = 1 - 2 * next();
-  const sinPsi = Math.sqrt(Math.max(0, 1 - cosPsi * cosPsi));
-  const aN = cell.nucLong / 2, bN = cell.nucShort / 2, rzN = cell.nucHeight / 2;
-  const lx0 = aN * sinPsi * Math.cos(phi0), ly0 = bN * sinPsi * Math.sin(phi0), lz0 = rzN * cosPsi;
-  const crN = Math.cos(cell.nucRot), srN = Math.sin(cell.nucRot);
-  const surfX = cell.nucOffX + lx0 * crN - ly0 * srN;
-  const surfY = cell.nucOffY + lx0 * srN + ly0 * crN;
-  const surfZ = cell.nucZ + lz0;
-  const outward = mtNormalize3([surfX - cell.nucOffX, surfY - cell.nucOffY, lz0]);
-
-  const rNuc0 = mtNucleusRadiusAt(cell, theta0); // 2D equatorial reference, only used below to scale how far "out" means
-  const rCell0 = mtRayCellBoundaryFromNucleus(cell, theta0, rNuc0);
-  const startFrac = lerp(p.mtStartFracMin, p.mtStartFracMax, next());
-  const startDist = startFrac * rCell0;
-  let startX = surfX + outward[0] * startDist;
-  let startY = surfY + outward[1] * startDist;
-  let startZ = surfZ + outward[2] * startDist;
-
-  // Small random XY offset (settable, up to mtStartOffsetXY) on top of the
-  // surface-derived position -- otherwise every microtubule starting near
-  // the same (theta0,psi) still emerges from EXACTLY the same point, so nothing
-  // can ever cross above/below another one right at the nucleus. Applied in
-  // the WORLD xy plane (not the nucleus's own local surface tangent) since
-  // it only needs to scatter starts apart, not stay tangent to the ellipsoid.
-  const offR = next() * Math.max(0, p.mtStartOffsetXY);
-  const offAng = next() * Math.PI * 2;
-  startX += Math.cos(offAng) * offR;
-  startY += Math.sin(offAng) * offR;
-
-  const jitterRad = (next() * 2 - 1) * p.mtEndJitterDeg * Math.PI / 180;
-  const thetaEnd = theta0 + jitterRad;
-  const rNucEnd = mtNucleusRadiusAt(cell, thetaEnd);
-  const rCell1 = mtRayCellBoundaryFromNucleus(cell, thetaEnd, rNucEnd);
-  const endFrac = lerp(p.mtEndFracMin, p.mtEndFracMax, next());
-  const endR = Math.max(0, rCell1 - endFrac * rCell1);
-  const endX = cell.nucOffX + Math.cos(thetaEnd) * endR;
-  const endY = cell.nucOffY + Math.sin(thetaEnd) * endR;
+  const S = mtSampleStart(cell, p, geom, next);
+  const E = mtPickEnd(cell, p, geom, next, S);
+  const startX = S.x, startY = S.y, endX = E.x, endY = E.y;
 
   // z is tracked as a FRACTION of the LOCAL cytoplasm ceiling (0 = floor,
   // 1 = the actual rendered height right at that (x,y)), not an absolute
@@ -671,7 +726,7 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   // actually there, by construction.
   const hg = getCytoGeometry(cell, p).mesh.hg; // sampleCytoMeshHeight's grid, looked up once per microtubule
   const startTopH = Math.max(0, sampleCytoHeightGrid(hg, startX, startY));
-  const fracStart = startTopH > 1e-9 ? Math.min(1, Math.max(0, startZ / startTopH)) : 0;
+  const fracStart = startTopH > 1e-9 ? Math.min(1, Math.max(0, S.z / startTopH)) : 0;
   const fracEnd = next(); // endZ = fracEnd * (local ceiling at endX,endY) -- see the per-point loop below
 
   const dx = endX - startX, dy = endY - startY;
@@ -842,181 +897,33 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const fracNoiseInnovScale = Math.sqrt(Math.max(0, 1 - fracNoiseDecay * fracNoiseDecay));
   let fracNoise = 0;
 
-  // Over/under-the-nucleus crossings: the fraction-of-local-ceiling model
-  // above has no idea the nucleus sits in the way -- left alone, a path
-  // whose (x,y) happens to swing over the nucleus footprint (more likely the
-  // wider End direction jitter/Wobble settings are pushed, since those are
-  // what let an end azimuth land on a genuinely different side of the
-  // nucleus than the start) would just interpolate straight through empty
-  // fraction-space with no awareness it's passing over solid nucleus volume
-  // -- a real, reported gap ("basically no microtubules cross over/under the
-  // nucleus"). `goOverNucleus` commits to ONE side for the whole path (not
-  // drawn per point) so it doesn't flip-flop -- but it is tied to `cosPsi`
-  // (the START point's own hemisphere on the nucleus ellipsoid, drawn
-  // above), NOT an independent coin flip. An independent flip was a real,
-  // reported bug: the start point sits ON the nucleus surface, so it's
-  // still deep inside the blend zone at the very next (i=1) point -- if the
-  // flip disagreed with which hemisphere the start actually landed on (e.g.
-  // start drawn near the nucleus's underside but the flip said "go over"),
-  // the override forced an enormous, instantaneous jump right at the
-  // beginning of the path (an "incredibly sudden, fully vertical drop/rise")
-  // to reconcile the two. Matching the flip to cosPsi's own sign means the
-  // override's very first application already agrees with where the path
-  // actually starts. `canGoUnder` requires real clearance beneath the
-  // nucleus (basal side) before that option is even offered, overriding a
-  // below-the-equator start if there's nowhere to go.
-  const nucTopZ = cell.nucZ + cell.nucHeight / 2;
-  const nucBottomZ = cell.nucZ - cell.nucHeight / 2;
-  const nucClearance = mtNucleusClearance(p);
-  const canGoUnder = nucBottomZ - nucClearance > 0;
-  const goOverNucleus = !canGoUnder || cosPsi >= 0;
-
-  // The target is a FLOOR (over) / CEILING (under) applied to zNormal, not an
-  // independent absolute height -- a real, reported bug in an earlier
-  // version blended toward a FIXED value (nucTopZ+clearance regardless of
-  // what zNormal happened to be nearby), so once a path left the blend zone
-  // it had to snap from that fixed value back to whatever zNormal
-  // independently was there -- often very different, since zNormal only
-  // depends on the frac interpolation, not on distance from the nucleus, and
-  // can be small even where the ceiling is still tall right next to the
-  // nucleus. Squeezed into the blend zone's short lateral width, that
-  // mismatch showed up as an "incredibly sudden, fully vertical drop."
-  // Anchoring to zNormal instead means the target EQUALS zNormal whenever
-  // zNormal already clears the nucleus (no intervention, no mismatch to snap
-  // back from) and only pulls it toward the clearance boundary when it
-  // doesn't -- continuous by construction at the point intervention
-  // starts/stops.
-  function applyNucleusOverride(x, y, zNormal, ceilH) {
-    const blend = mtNucleusFootprintBlend(cell, x, y);
-    if (blend <= 0) return zNormal;
-    const target = goOverNucleus
-      ? Math.max(zNormal, Math.min(ceilH, nucTopZ + nucClearance))
-      : Math.min(zNormal, Math.max(0, nucBottomZ - nucClearance));
-    return lerp(zNormal, target, blend);
-  }
-
+  // z without the nucleus: the fraction profile (start and end fractions, the noise above), then box-smoothed
+  // (window from Path smoothing, in points of this path's own stepLen; endpoints kept).
   const pts = new Array(steps + 1);
+  const ceil = new Array(steps + 1);
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const s = t * t * (3 - 2 * t); // smoothstep
     const x = ptsXY[i].x, y = ptsXY[i].y;
-    const ceilH = Math.max(0, sampleCytoHeightGrid(hg, x, y));
-    let z;
-    if (i === 0) {
-      // The START point is deliberately excluded from the override -- its z
-      // already comes from a specific, meaningful construction (a genuine
-      // point on the nucleus ellipsoid's own surface, uniform-on-sphere) that
-      // this shouldn't second-guess; applying a floor/ceiling here would
-      // pull every "over" start up toward the pole regardless of where psi
-      // actually placed it, reintroducing the equatorial-clustering bug that
-      // construction exists to avoid (see its own comment above).
-      z = fracStart * ceilH;
-    } else if (i === steps) {
-      // The END point, unlike the start, has NO structural tie to the
-      // nucleus -- fracEnd is a free, independent draw -- so there is
-      // nothing meaningful about it this override could second-guess. A
-      // real, reported bug: leaving it out entirely meant that whenever the
-      // path was STILL inside the blend zone right up to the last point
-      // (the second-to-last point correctly pulled up/down to clear the
-      // nucleus), the true end simply reverted to its own unrelated
-      // fracEnd*ceilH with no continuity at all -- the same class of "sudden
-      // vertical drop" as the start-point bug, just at the finish instead of
-      // the beginning. Routing it through the same override fixes that.
-      z = applyNucleusOverride(x, y, fracEnd * ceilH, ceilH);
-    } else {
+    ceil[i] = Math.max(0, sampleCytoHeightGrid(hg, x, y));
+    let frac;
+    if (i === 0) frac = fracStart;
+    else if (i === steps) frac = fracEnd;
+    else {
       fracNoise = fracNoiseDecay * fracNoise + fracNoiseAmp * fracNoiseInnovScale * (next() * 2 - 1);
-      const frac = Math.min(1, Math.max(0, lerp(fracStart, fracEnd, s) + fracNoise * Math.sin(Math.PI * t)));
-      z = applyNucleusOverride(x, y, frac * ceilH, ceilH);
+      frac = Math.min(1, Math.max(0, lerp(fracStart, fracEnd, s) + fracNoise * Math.sin(Math.PI * t)));
     }
-    pts[i] = { x, y, z };
+    pts[i] = { x, y, z: frac * ceil[i] };
   }
-
-  // Explicit z smoothing (postprocess, on top of the OU reparametrization
-  // above) -- a real, separate finding: the OU process keeps fracNoise's
-  // STATIONARY amplitude constant regardless of corrLen (Path smoothing),
-  // shaping only its FREQUENCY, and its own per-step innovation scale
-  // (`fracNoiseInnovScale = sqrt(1-decay^2)`, decay=exp(-stepLen/corrLen))
-  // only shrinks as sqrt(stepLen/corrLen) as corrLen grows past stepLen --
-  // a SLOW rate. At a small Step length (0.1 um by default) this stays
-  // substantial (~26% of the full noise amplitude still injected FRESH
-  // every single step) even at the slider's own maximum, since reducing it
-  // to, say, 5% would need corrLen roughly 800x stepLen -- far outside any
-  // practical slider range. A real, reported "even with very high Path
-  // smoothing there is a lot of small jitter" confirmed this directly
-  // (measured: z's own local curvature only dropped from a comparable
-  // frac-noise-driven contribution, not toward zero, as Path smoothing was
-  // pushed to its max). This is NOT the same bug the OU reparametrization
-  // fixed (that one was an ASYMMETRY -- z decorrelating faster than xy at a
-  // smaller Step length -- not present-but-too-weak smoothing at any Step
-  // length) so it needed a separate fix: a plain box-filter moving average
-  // directly over z, window size in POINTS derived from the same Path
-  // smoothing slider and this path's own stepLen (so it stays a real-um
-  // window regardless of Step length, same reasoning as everywhere else in
-  // this file), endpoints excluded. This directly suppresses whatever
-  // high-frequency content survives the OU process's own frequency-shaping,
-  // regardless of how small Step length is set -- complementary to, not a
-  // replacement for, the OU fix (which is still what keeps z from getting
-  // WORSE at a smaller Step length in the first place).
   const smoothWinPts = Math.max(0, Math.round(p.mtSmoothLen / stepLen));
-  if (smoothWinPts > 0) {
-    const zOrig = pts.map(pt => pt.z);
-    const half = Math.max(1, Math.round(smoothWinPts / 2));
-    for (let i = 1; i < pts.length - 1; i++) {
-      const lo = Math.max(0, i - half), hi = Math.min(pts.length - 1, i + half);
-      let sum = 0, n = 0;
-      for (let j = lo; j <= hi; j++) { sum += zOrig[j]; n++; }
-      pts[i].z = sum / n;
-    }
-  }
+  if (smoothWinPts > 0) mtBoxSmooth(pts.map(pt => pt.z), Math.max(1, Math.round(smoothWinPts / 2)), (i, v) => { pts[i].z = v; });
 
-  // Slope limiter (postprocess, on top of the anchored floor/ceiling above):
-  // even anchored to zNormal, a microtubule whose free wobble happens to
-  // swing back near the nucleus at a point where the surrounding
-  // fraction-based height is naturally low still needs a genuinely large z
-  // change concentrated in the short lateral distance the blend zone spans
-  // to clear the nucleus in time -- still a real, visible "sudden, near-
-  // vertical drop" even though the anchor fix above removed the WORSE
-  // fixed-target mismatch case. A few iterative smoothing passes (same
-  // "relax toward neighbours" idiom as mtNudgeRoundGrid's own collision
-  // resolution elsewhere in this file) cap z's rate of change per step,
-  // pulling an over-steep interior point toward whatever range both its
-  // neighbours' own slope budgets allow, rather than leaving one segment to
-  // absorb an entire height change alone. Endpoints (i=0/i=steps) are
-  // excluded, same reasoning as the override above -- their z is a
-  // deliberate, meaningful value this shouldn't second-guess.
-  //
-  // Uses the microtubule's own NOMINAL per-step distance (stepLen), not the
-  // REALIZED lateral distance between each specific pair of points, as the
-  // reference -- a persistent random walk with real turning can occasionally
-  // double back enough that two consecutive points land almost on top of
-  // each other in xy (realized lateral distance near 0), and bounding z
-  // purely by THAT distance would then force z arbitrarily close to its
-  // neighbours too, masking a genuine height change rather than smoothing it
-  // out over a few more steps. stepLen is fixed for the whole path, so this
-  // is a per-step budget, not a per-realized-distance one. Sweeps back and
-  // forth (alternating direction each pass, the standard way to propagate a
-  // 1D range constraint faster than always scanning the same direction) so a
-  // violation spanning several points converges in a handful of passes
-  // rather than needing one pass per point.
-  const maxDz = Math.max(1, p.mtMaxZSlope) * stepLen;
-  for (let pass = 0; pass < 20; pass++) {
-    let changed = false;
-    const forward = pass % 2 === 0;
-    for (let k = 1; k < pts.length - 1; k++) {
-      const i = forward ? k : pts.length - 1 - k;
-      const prev = pts[i - 1], cur = pts[i], nxt = pts[i + 1];
-      const lo = Math.max(prev.z - maxDz, nxt.z - maxDz);
-      const hi = Math.min(prev.z + maxDz, nxt.z + maxDz);
-      // lo>hi means the two neighbours are themselves too far apart in z for
-      // ANY single value to satisfy both slope budgets at once -- left alone
-      // rather than force an arbitrary compromise; the containment clamp
-      // below still keeps whatever value remains valid regardless.
-      if (lo > hi) continue;
-      if (cur.z < lo) { cur.z = lo; changed = true; }
-      else if (cur.z > hi) { cur.z = hi; changed = true; }
-    }
-    if (!changed) break;
-  }
+  // Over or under the obstacles (the nucleus): wherever (x, y) is over one, z must clear its column (top +
+  // clearance when going over, bottom - clearance when going under), and everywhere z stays under the cytoplasm
+  // ceiling (mtObstacleBounds). mtObstacleEnvelope lifts/lowers z by a smooth ramp, so a path climbs over the
+  // nucleus well before the rim instead of being pushed up point by point at it.
+  const { lo, hi } = mtObstacleBounds(pts, ceil, mtObstacles(cell, p));
+  mtObstacleEnvelope(pts, lo, hi, Math.max(1, Math.round(0.5 * p.mtSmoothLen / stepLen)));
 
   // Truncate at the cell's own OUTER EDGE rather than clamp-and-continue past
   // it. The free walk above has genuine excursions beyond the footprint
@@ -1106,7 +1013,7 @@ function mtBuildSpatialIndex(mts, cellSize) {
 // The grid turns the TOTAL cost into O(N), but a single bucket can still
 // hold many points if a lot of microtubules happen to pass close together
 // (routine right near the nucleus, where every path's start end is confined
-// to a narrow band by mtStartFracMax) -- checking all of THOSE against each
+// to a thin shell by mtStartDecayPct) -- checking all of THOSE against each
 // other is locally O(bucket^2), the same blow-up the grid exists to avoid,
 // just scoped to one crowded neighbourhood instead of the whole cell.
 // MT_COLLISION_OP_BUDGET bails out of the CURRENT round once total pairwise
@@ -1248,8 +1155,8 @@ function mtResultSig(seed, cell, p) {
   // (mtNucleusClearance) directly -- a real, previously-latent staleness gap:
   // without it here, changing nucMargin alone would silently keep serving a
   // cached microtubule set built against the old clearance/height field.
-  return [seed, mtCellShapeSig(cell), p.mtDensity, p.mtStartFracMin, p.mtStartFracMax,
-    p.mtStartOffsetXY, p.mtEndFracMin, p.mtEndFracMax, p.mtEndJitterDeg, p.mtWobbleTurn,
+  return [seed, mtCellShapeSig(cell), p.mtDensity,
+    p.mtStartDecayPct, p.mtEndDecayPct, p.mtDirKappa, p.mtWobbleTurn,
     p.mtWobbleFactor, p.mtStepLen, p.mtSmoothLen, p.mtMinTurnRadius, p.mtMinSeparation, p.mtMaxZSlope, p.nucMargin, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta].join('|');
 }
 

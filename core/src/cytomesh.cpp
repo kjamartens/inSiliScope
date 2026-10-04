@@ -104,11 +104,32 @@ Pt2 NearestPointOnEllipse(double a, double b, double x, double y)
 
 double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0)
 {
-   return NucleusSignedDistLocal(c, lx0, ly0, jsm::cos(-c.nucRot), jsm::sin(-c.nucRot));
+   if (c.nucShaped) {
+      const std::vector<Pt2> poly = NucFootprintPolygon(c);
+      return NucleusSignedDistLocal(c, lx0, ly0, 1, 0, &poly);
+   }
+   return NucleusSignedDistLocal(c, lx0, ly0, jsm::cos(-c.nucRot), jsm::sin(-c.nucRot), nullptr);
 }
 
-double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cr, double sr)
+double NucleusSignedDistLocal(const Cell& c, double lx0, double ly0, double cr, double sr, const std::vector<Pt2>* poly)
 {
+   if (c.nucShaped) {
+      // Nearest point on the footprint polygon (squared distances, one sqrt).
+      const std::vector<Pt2>& P = *poly;
+      double best = std::numeric_limits<double>::infinity();
+      const size_t n = P.size();
+      for (size_t i = 0, j = n - 1; i < n; j = i++) {
+         const double ax = P[j].x, ay = P[j].y, ex = P[i].x - ax, ey = P[i].y - ay;
+         const double len2 = ex * ex + ey * ey;
+         double t = len2 > 1e-12 ? ((lx0 - ax) * ex + (ly0 - ay) * ey) / len2 : 0;
+         t = std::max(0.0, std::min(1.0, t));
+         const double qx = lx0 - (ax + ex * t), qy = ly0 - (ay + ey * t);
+         const double d2 = qx * qx + qy * qy;
+         if (d2 < best) best = d2;
+      }
+      const double dist = std::sqrt(best);
+      return NucBallLocal(c, lx0, ly0).s < 1 ? -dist : dist;
+   }
    const double dx = lx0 - c.nucOffX, dy = ly0 - c.nucOffY;
    const double lx = dx * cr - dy * sr, ly = dx * sr + dy * cr;
    const double a = c.nucLong / 2, b = c.nucShort / 2;
@@ -240,9 +261,10 @@ CytoHeightGrid BuildCytoHeightGrid(const Cell& c, const Params& p)
    const double inner = CytoDomeReach(c, p);
    double midDist = std::max(0.0, c.cytoMidDistFrac) * c.rOuter;
    if (p.cytoMaxSlope > 0) midDist = std::max(midDist, 1.5 * std::max(0.0, c.cytoMidHeight - c.cytoRimHeight) / p.cytoMaxSlope);
-   const double nucReach = std::max(c.nucLong, c.nucShort) / 2 + inner + midDist + g;
+   const double nucReach = (c.nucShaped ? c.nucReach : std::max(c.nucLong, c.nucShort) / 2) + inner + midDist + g;
    const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
-   const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2), nrz = c.nucHeight / 2;
+   std::vector<Pt2> poly;
+   if (c.nucShaped) poly = NucFootprintPolygon(c);
    std::vector<double> ht(NN, 0.0), ob(NN, 0.0);
    // Every node is independent (reads the shared tables, writes its own
    // ht/ob): rows in parallel, serial inside another ParallelFor.
@@ -254,12 +276,23 @@ CytoHeightGrid BuildCytoHeightGrid(const Cell& c, const Params& p)
          const double x = (i - half) * g, y = (j - half) * g;
          const double dEdge = std::max(0.0, std::sqrt(d2[v]) * g - 0.5 * g);
          const double dc = jsm::hypot(x - c.nucOffX, y - c.nucOffY);
-         const double dNuc = dc < nucReach ? NucleusSignedDistLocal(c, x, y, ncr, nsr) : dc;
+         const double dNuc = dc < nucReach ? NucleusSignedDistLocal(c, x, y, ncr, nsr, &poly) : dc;
          ht[v] = CytoHeightAt(c, p, dEdge, dNuc);
-         const double ex = x - c.nucOffX, ey = y - c.nucOffY;
-         const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
-         const double q = 1 - ux * ux - uy * uy;
-         if (q > 0) ob[v] = c.nucZ + nrz * std::sqrt(q) + margin;
+         if (dc < nucReach) {
+            double below, above;
+            if (!c.nucShaped) {
+               if (NucleusColumnLocal(c, x, y, below, above)) ob[v] = c.nucZ + above + margin;
+            } else {
+               // Shaped: the highest nucleus top within half a grid step (3 x 3
+               // samples), so the bilinear surface between nodes clears a steep
+               // rim too (a wide top: nucAsym < 0).
+               double top = -std::numeric_limits<double>::infinity();
+               for (int sj = -1; sj <= 1; sj++)
+                  for (int si = -1; si <= 1; si++)
+                     if (NucleusColumnLocal(c, x + si * g / 2, y + sj * g / 2, below, above)) top = std::max(top, above);
+               if (top > -std::numeric_limits<double>::infinity()) ob[v] = c.nucZ + top + margin;
+            }
+         }
       }
    });
    std::vector<double> h(NN, 0.0);

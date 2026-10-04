@@ -71,6 +71,9 @@
   .opt.pair .ctl{grid-column:2 / 4}
   .opt.pair .ctl .u{flex:none;width:calc(var(--val-w) - 26px);padding-left:2px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .opt.pair .val{display:none}
+  .opt.hasSide{grid-template-columns:var(--lab-w) minmax(0,1fr) minmax(34px,auto) auto}
+  .opt label.side{display:flex;align-items:center;gap:2px;justify-self:end;color:var(--muted);white-space:nowrap;cursor:pointer}
+  .opt label.side input{margin:0}
   .info{display:inline-flex;align-items:center;justify-content:center;flex:none;width:13px;height:13px;border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:9px;font-style:italic;font-family:Georgia,serif;cursor:help;user-select:none}
   .info:hover,.info:focus{color:var(--accent);border-color:var(--accent);outline:none}
   #tip{position:fixed;z-index:50;display:none;max-width:280px;background:var(--tip-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:11.5px;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none}
@@ -101,6 +104,9 @@
   #cvBase{position:absolute;top:0;left:0;background:#05070a;pointer-events:none;z-index:0}
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
+  /* x-z side view: the bottom --xz-h of the canvas area (the three layers above shrink to the rest) */
+  #cvXZ{position:absolute;left:0;bottom:0;display:none;background:#05070a;border-top:1px solid #232a35;box-sizing:border-box;z-index:2}
+  #canvasHost.xz #legend,#canvasHost.xz #movie{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
   #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
@@ -132,6 +138,7 @@
     <canvas id="cvBase"></canvas>
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
+    <canvas id="cvXZ"></canvas>
     <div id="hud"></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
     <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
@@ -186,7 +193,8 @@ const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'Asti
 
 const UI_GROUPS = [
   { sect: 'Display', id: 'view', title: 'View', open: true, items: [
-    range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression. Display only.', 0, 75, 1, 0, { fmt: fx(0) }),
+    range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression. Display only.', 0, 75, 1, 0, { fmt: fx(0),
+      side: { id: 'showXZ', label: 'x–z', tip: 'Side view (x–z) of everything in view along the bottom of the canvas, seen along y; x and z at the same scale as the view. Display only.', value: true } }),
     check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
     check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
     check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
@@ -206,16 +214,15 @@ const UI_GROUPS = [
   ] },
   { id: 'shape', title: 'Cell shape', open: true, items: [
     preset('cellShape', 'Cell shape', 'Sets the footprint and outline (the rows below) to a typical cell shape. Rough starting points, not measured values; editing a row shows "Custom".', {
-      'Default': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
-      'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 0.3, cellRough: 0.05, cellFractalDim: 1.2 },
-      'Elongated': { cellDiamMin: 30, cellDiamMax: 50, cellElongMin: 0.25, cellElongMax: 0.5, cellHeightMin: 2, cellHeightMax: 4, cellBlob: 1, cellRough: 0.15, cellFractalDim: 1.35 },
-      'Spread, lobed': { cellDiamMin: 35, cellDiamMax: 55, cellElongMin: 0.5, cellElongMax: 1, cellHeightMin: 2, cellHeightMax: 4, cellBlob: 3, cellRough: 0.3, cellFractalDim: 1.45 },
-      'Small, compact': { cellDiamMin: 12, cellDiamMax: 18, cellElongMin: 0.7, cellElongMax: 1, cellHeightMin: 4, cellHeightMax: 8, cellBlob: 0.75, cellRough: 0.1, cellFractalDim: 1.3 },
-      'Irregular, rough': { cellDiamMin: 25, cellDiamMax: 40, cellElongMin: 0.4, cellElongMax: 1, cellHeightMin: 3, cellHeightMax: 6, cellBlob: 2.5, cellRough: 0.5, cellFractalDim: 1.6 },
+      'Default': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
+      'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellBlob: 0.3, cellRough: 0.05, cellFractalDim: 1.2 },
+      'Elongated': { cellDiamMin: 30, cellDiamMax: 50, cellElongMin: 0.25, cellElongMax: 0.5, cellBlob: 1, cellRough: 0.15, cellFractalDim: 1.35 },
+      'Spread, lobed': { cellDiamMin: 35, cellDiamMax: 55, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 3, cellRough: 0.3, cellFractalDim: 1.45 },
+      'Small, compact': { cellDiamMin: 12, cellDiamMax: 18, cellElongMin: 0.7, cellElongMax: 1, cellBlob: 0.75, cellRough: 0.1, cellFractalDim: 1.3 },
+      'Irregular, rough': { cellDiamMin: 25, cellDiamMax: 40, cellElongMin: 0.4, cellElongMax: 1, cellBlob: 2.5, cellRough: 0.5, cellFractalDim: 1.6 },
     }, [
       pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max.', 5, 80, 0.5, 25, 35),
       pair('cellElong', 'Elongation', 'ratio', 'Short-to-long axis ratio of the footprint, per cell (1 = round).', 0.1, 1, 0.05, 0.5, 1),
-      pair('cellHeight', 'Height', 'µm', 'Cell height, drawn per cell between min and max.', 0.5, 15, 0.5, 3, 6),
       range('cellBlob', 'Blobbiness', 'a.u.', 'Amplitude of the large lobes of the outline (0 = smooth ellipse).', 0, 4, 0.05, 1.75, { fmt: fx(2) }),
       range('cellRough', 'Roughness', '× blob', 'Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.', 0, 1, 0.01, 0.15, { adv, fmt: fx(2) }),
       range('cellFractalDim', 'Fractal dim.', 'D', "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.", 1, 2, 0.01, 1.35, { adv, fmt: fx(2) }),
@@ -223,10 +230,17 @@ const UI_GROUPS = [
   ] },
   { id: 'nucleus', title: 'Nucleus', items: [
     pair('nucLong', 'Long axis', 'µm', 'Long axis of the nucleus ellipsoid, per cell.', 2, 30, 0.5, 8, 12),
-    pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1, { adv }),
-    pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.3, 0.5, { adv }),
+    pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1),
+    pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.2, 0.3, { adv }),
     range('nucOffsetFrac', 'Centre offset', '× cell r', 'Random offset of the nucleus from the cell centre, up to this fraction of the cell radius.', 0, 1, 0.02, 0.1, { adv, fmt: fx(2) }),
-    range('nucMargin', 'Margin', 'µm', 'Cytoplasm clearance around the nucleus on every side, and the least cytoplasm above it.', 0.1, 1.5, 0.1, 0.6, { adv, fmt: fx(1) }),
+    pair('nucBase', 'Gap below', 'µm', 'Gap between the coverslip and the bottom of the nucleus (the basal cytoplasm layer), per cell.', 0, 2, 0.05, 0.4, 0.9, { adv }),
+    range('nucMargin', 'Margin', 'µm', 'Cytoplasm clearance around the sides and top of the nucleus (the gap below it is set separately).', 0.1, 1.5, 0.1, 0.5, { adv, fmt: fx(1) }),
+    pair('nucIrreg', 'Irregularity', 'rms', 'How far the nucleus outline strays from an ellipse: rms deviation of its radius, as a fraction, per cell. 0 = ellipse.', 0, 0.3, 0.01, 0.03, 0.2, { adv }),
+    pair('nucBend', 'Kidney bend', 'a.u.', 'Bean/kidney bend of the nucleus, per cell: the middle shifts sideways against the ends by 3/4 of this times the short semi-axis. 0 = straight.', 0, 1, 0.05, 0, 0.3, { adv }),
+    range('nucSmooth', 'Lobe smoothness', 'slope', 'How the irregularity spreads over lobes: amplitude of k lobes ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.', 0, 4, 0.1, 2.5, { adv, fmt: fx(1) }),
+    range('nucThickIrreg', 'Height irreg.', 'rms', 'Lumpiness of the nucleus top and bottom: rms relative variation of its thickness at the edge (tilt, bumps). 0 = ellipsoid profile.', 0, 0.4, 0.01, 0.1, { adv, fmt: fx(2) }),
+    range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.5, { adv, fmt: fx(2) }),
+    pair('nucWidest', 'Widest point', '× height', 'Height of the widest section of the nucleus as a fraction of its height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top.', 0, 1, 0.05, 0.2, 0.4, { adv }),
   ] },
   { id: 'cyto', title: 'Cytoplasm', items: [
     preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {
@@ -257,10 +271,9 @@ const UI_GROUPS = [
   ] },
   { id: 'mt', title: 'Microtubules', items: [
     range('mtDensity', 'Density', '/µm²', 'Microtubules per µm² of cell footprint.', 0, 2, 0.005, 0.9, { fmt: fx(3) }),
-    pair('mtStartFrac', 'Start offset', '× cell r', 'Start distance from the nucleus edge, as a fraction of the cell radius, per microtubule.', 0, 1, 0.01, 0, 0.3, { adv, bounded: true }),
-    range('mtStartOffsetXY', 'Start XY jitter', 'µm', 'Random lateral offset of the start point, so microtubules starting near the same place do not all leave from one point.', 0, 2, 0.05, 0, { adv, fmt: fx(2) }),
-    pair('mtEndFrac', 'End offset', '× cell r', 'End distance inside the cell edge, as a fraction of the cell radius, per microtubule.', 0, 1, 0.01, 0.01, 0.4, { adv, bounded: true }),
-    range('mtEndJitterDeg', 'End dir. jitter', '°', 'Random azimuth of the end relative to the start direction; up to 180° lets ends land anywhere around the nucleus.', 0, 180, 1, 145, { adv, fmt: fx(0) }),
+    range('mtStartDecayPct', 'Start near nucleus', '% size', 'Starts lie in the cytoplasm, more likely near the nucleus: the start density falls off as exp(-distance to the nucleus / L), L = this % of the equivalent diameter of the cell (1.6 % = ~0.5 µm for a 30 µm cell).', 0.05, 10, 0.05, 1.6, { adv, fmt: fx(2) }),
+    range('mtEndDecayPct', 'End near edge', '% size', 'Ends lie in the cytoplasm, more likely near the cell edge: the end density falls off as exp(-distance to the edge / L), L = this % of the equivalent diameter of the cell (20 % = ~6 µm for a 30 µm cell).', 0.5, 50, 0.5, 20, { adv, fmt: fx(1) }),
+    range('mtDirKappa', 'Direction focus', 'κ', 'How strongly a microtubule heads away from the nucleus: the end is picked from candidates with weight exp(κ (cos angle - 1)), angle between start-to-end and outward. 0 = any direction, crossing over and under the nucleus.', 0, 10, 0.1, 1.5, { adv, fmt: fx(1) }),
     range('mtWobbleTurn', 'Wobble strength', 'a.u.', 'Strength of the random turning along the path.', 0, 3, 0.05, 0.8, { adv, fmt: fx(2) }),
     range('mtWobbleFactor', 'Path length', '×', 'Path length relative to the straight start-to-end distance (at least 1).', 0.9, 1.3, 0.01, 1.05, { adv, fmt: fx(2) }),
     range('mtStepLen', 'Step length', 'µm', 'Step of the path tracer: smaller is smoother and slower.', 0.05, 1, 0.01, 0.05, { adv, fmt: fx(2) }),
@@ -293,8 +306,8 @@ const UI_GROUPS = [
   ] },
   { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
     num('mv_bf-n-medium', 'Medium', 'n', 'Refractive index of the medium around the cells. <code>SimType_CellFieldIndexMedium</code>', 1, 2, 0.001, 1.337, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>SimType_CellFieldIndexCytoplasm</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>SimType_CellFieldIndexNucleus</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>SimType_CellFieldIndexCytoplasm</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>SimType_CellFieldIndexNucleus</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
     num('mv_bf-n-microtubule', 'Microtubule', 'n', 'Refractive index of microtubule material. <code>SimType_CellFieldIndexMicrotubule</code>', 1, 2, 0.01, 1.48, { adv, show: BF, cls: 'bfRow' }),
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
@@ -303,8 +316,8 @@ const UI_GROUPS = [
     select('mv_modality', 'Modality', 'SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
       [['0', 'SuperRes'], ['1', 'WideField'], ['2', 'BrightField']], '0'),
     num('mv_wf-excitation-photons-per-um2-per-sec', 'Excitation', 'ph/µm²/s', 'WideField excitation photon flux at the sample. <code>FluoParam_WideFieldExcitationPhotonsPerUm2PerSec</code>', 0, null, 1e8, '4e8', { show: WF, cls: 'wfRow' }),
-    num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 40000, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.55, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
     num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>Background_BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
   ] },
@@ -441,6 +454,12 @@ function renderEntry(e, host, g, parent) {
     }
     row.prepend(labelCell(e, e.kind === 'pair' ? e.id + 'Min' : e.id));
     row.append(ctl, val);
+    if (e.side) {   // a small checkbox at the line's right end (e.g. Tilt | x-z)
+      const l = h('label', { class: 'side', title: e.side.tip });
+      l.append(h('input', { type: 'checkbox', id: e.side.id, checked: !!e.side.value }), document.createTextNode(e.side.label));
+      row.classList.add('hasSide');
+      row.append(l);
+    }
   }
   if (e.adv || (g && g.adv)) row.classList.add('adv');
   if (e.cls) row.classList.add(e.cls);
@@ -553,7 +572,7 @@ menu.innerHTML = '<h4>Options</h4>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="note" id="advNote"></div>';
 function setLevel(v) { document.body.dataset.level = v; store.set('level', v); menu.querySelector(`[name=uiLevel][value=${v}]`).checked = true; sync(); }
-function setStyle(v) { if (!UI_STYLES[v]) v = 'compact'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
+function setStyle(v) { if (!UI_STYLES[v]) v = 'focus'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
 menu.addEventListener('change', ev => {
   if (ev.target.name === 'uiLevel') setLevel(ev.target.value);
   if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
@@ -606,7 +625,7 @@ panel.addEventListener('focusout', hideTip);
 panel.addEventListener('scroll', hideTip);
 
 document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
-setStyle(store.get('style', 'compact'));
+setStyle(store.get('style', 'focus'));
 setLevel(document.body.dataset.level);
 window.uiSync = sync;
 })();
@@ -678,6 +697,7 @@ const cv = document.getElementById('cv');
 const cvBase = document.getElementById('cvBase'), cvGl = document.getElementById('cvGl');
 const ctxTop = cv.getContext('2d');
 const ctxBase = cvBase.getContext('2d');
+const cvXZ = document.getElementById('cvXZ'), ctxXZ = cvXZ.getContext('2d');
 let ctx = ctxTop; // the layer the shared helpers (drawScaleBar, drawMtLabels, ...) currently paint on
 const hud = document.getElementById('hud');
 const host = document.getElementById('canvasHost');
@@ -687,21 +707,20 @@ const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px pe
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
  'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
- 'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
- 'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
+ 'nucOffsetFrac', 'nucOffsetFracVal', 'nucBaseMin', 'nucBaseMax', 'nucMargin', 'nucMarginVal',
+ 'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucThickIrreg', 'nucAsym', 'nucWidestMin', 'nucWidestMax',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
  'cytoContourStep', 'cytoContourStepVal', 'cytoMaxSlope', 'cytoMaxSlopeVal', 'cytoDomeSlope', 'cytoDomeSlopeVal', 'cytoRelaxUm', 'cytoRelaxUmVal', 'cytoRings', 'cytoRingsVal', 'cytoTheta', 'cytoThetaVal', 'showCytoContours',
  'enablePacking', 'allowPackRotation', 'packFrac', 'packFracVal', 'relaxIters', 'relaxItersVal', 'relaxDamping', 'relaxDampingVal',
- 'mtDensity', 'mtDensityVal', 'mtStartFracMin', 'mtStartFracMax', 'mtStartOffsetXY', 'mtStartOffsetXYVal',
- 'mtEndFracMin', 'mtEndFracMax',
- 'mtEndJitterDeg', 'mtEndJitterDegVal', 'mtWobbleTurn', 'mtWobbleTurnVal',
+ 'mtDensity', 'mtDensityVal', 'mtStartDecayPct', 'mtStartDecayPctVal', 'mtEndDecayPct', 'mtEndDecayPctVal',
+ 'mtDirKappa', 'mtDirKappaVal', 'mtWobbleTurn', 'mtWobbleTurnVal',
  'mtWobbleFactor', 'mtWobbleFactorVal', 'mtLineWidth', 'mtLineWidthVal', 'mtStepLen', 'mtStepLenVal', 'mtSmoothLen', 'mtSmoothLenVal',
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
- 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
+ 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -716,8 +735,6 @@ function params() {
     cellBlob: +els.cellBlob.value,
     cellRough: +els.cellRough.value,
     cellFractalDim: Math.min(2, Math.max(1, +els.cellFractalDim.value)),
-    cellHeightMin: +els.cellHeightMin.value,
-    cellHeightMax: Math.max(+els.cellHeightMin.value, +els.cellHeightMax.value),
     nucLongMin: +els.nucLongMin.value,
     nucLongMax: Math.max(+els.nucLongMin.value, +els.nucLongMax.value),
     nucRatioMin: +els.nucRatioMin.value,
@@ -726,6 +743,17 @@ function params() {
     nucHeightMax: Math.max(+els.nucHeightMin.value, +els.nucHeightMax.value),
     nucOffsetFrac: +els.nucOffsetFrac.value,
     nucMargin: +els.nucMargin.value,
+    nucBaseMin: +els.nucBaseMin.value,
+    nucBaseMax: Math.max(+els.nucBaseMin.value, +els.nucBaseMax.value),
+    nucIrregMin: +els.nucIrregMin.value,
+    nucIrregMax: Math.max(+els.nucIrregMin.value, +els.nucIrregMax.value),
+    nucBendMin: +els.nucBendMin.value,
+    nucBendMax: Math.max(+els.nucBendMin.value, +els.nucBendMax.value),
+    nucSmooth: +els.nucSmooth.value,
+    nucThickIrreg: +els.nucThickIrreg.value,
+    nucAsym: +els.nucAsym.value,
+    nucWidestMin: +els.nucWidestMin.value,
+    nucWidestMax: Math.max(+els.nucWidestMin.value, +els.nucWidestMax.value),
     cytoRimHeightMin: +els.cytoRimHeightMin.value,
     cytoRimHeightMax: Math.max(+els.cytoRimHeightMin.value, +els.cytoRimHeightMax.value),
     cytoEdgeRiseMin: +els.cytoEdgeRiseMin.value,
@@ -747,12 +775,9 @@ function params() {
     relaxIters: +els.relaxIters.value,
     relaxDamping: +els.relaxDamping.value,
     mtDensity: +els.mtDensity.value,
-    mtStartFracMin: +els.mtStartFracMin.value,
-    mtStartFracMax: Math.max(+els.mtStartFracMin.value, +els.mtStartFracMax.value),
-    mtStartOffsetXY: +els.mtStartOffsetXY.value,
-    mtEndFracMin: +els.mtEndFracMin.value,
-    mtEndFracMax: Math.max(+els.mtEndFracMin.value, +els.mtEndFracMax.value),
-    mtEndJitterDeg: +els.mtEndJitterDeg.value,
+    mtStartDecayPct: +els.mtStartDecayPct.value,
+    mtEndDecayPct: +els.mtEndDecayPct.value,
+    mtDirKappa: +els.mtDirKappa.value,
     mtWobbleTurn: +els.mtWobbleTurn.value,
     mtWobbleFactor: Math.max(1, +els.mtWobbleFactor.value),
     mtLineWidth: Math.max(0.001, +els.mtLineWidth.value),
@@ -766,16 +791,26 @@ function params() {
   };
 }
 
+const XZ_FRAC = 0.2, XZ_MIN_PX = 80; // x-z side view: share of the canvas area's height (CSS px floor)
 function resizeCanvas() {
   const r = host.getBoundingClientRect();
+  const xzH = els.showXZ.checked ? Math.max(XZ_MIN_PX, Math.round(r.height * XZ_FRAC)) : 0;
+  const mainH = r.height - xzH; // the view (and so the FOV) is the area above the side view
   cv.width = Math.round(r.width * devicePixelRatio);
-  cv.height = Math.round(r.height * devicePixelRatio);
+  cv.height = Math.round(mainH * devicePixelRatio);
   cv.style.width = r.width + 'px';
-  cv.style.height = r.height + 'px';
+  cv.style.height = mainH + 'px';
   for (const c of [cvBase, cvGl]) {
     c.width = cv.width; c.height = cv.height;
     c.style.width = cv.style.width; c.style.height = cv.style.height;
   }
+  cvXZ.style.display = xzH ? 'block' : 'none';
+  if (xzH) {
+    cvXZ.width = cv.width; cvXZ.height = Math.round(xzH * devicePixelRatio);
+    cvXZ.style.width = r.width + 'px'; cvXZ.style.height = xzH + 'px';
+  }
+  host.classList.toggle('xz', !!xzH);
+  host.style.setProperty('--xz-h', xzH + 'px');
   requestDraw();
 }
 
@@ -1106,9 +1141,30 @@ function drawBodiesGl(cells, p) {
   gl.bindVertexArray(null);
 }
 
-const NUC_SLICES = 9, NUC_PTS = 24;
+const NUC_SLICES = 17, NUC_PTS = 24;
 const NUC_UNIT = Array.from({ length: NUC_PTS }, (_, i) => { const th = (i / NUC_PTS) * Math.PI * 2; return [Math.cos(th), Math.sin(th)]; });
-function drawNucleus(c) {
+function drawNucleus(c, asset) {
+  // The engine's nucleus surface rings (asset.nuc: cell-local x, y, z, nucPts per ring, ball sections bottom to
+  // top) when it sends them -- the shaped nucleus -- placed like the cytoplasm mesh (localToWorld), each ring
+  // coloured by its mean depth. Without them: the plain ellipsoid from the pack record.
+  if (asset && asset.nuc) {
+    const a = asset.nuc, np = asset.nucPts;
+    for (let o = 0; o < a.length; o += np * 3) {
+      const pts = [];
+      let zSum = 0;
+      for (let i = 0; i < np; i++) {
+        const k = o + 3 * i, [wx, wy] = localToWorld(c, a[k], a[k + 1]);
+        pts.push(project(wx, wy, a[k + 2]));
+        zSum += a[k + 2];
+      }
+      const zAbs = zSum / np;
+      ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
+      ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
+      ctx.lineWidth = 1;
+      polyPath(pts); ctx.fill(); ctx.stroke();
+    }
+    return;
+  }
   // c.nucOffX/Y are defined in the cell's cached LOCAL frame (like every
   // other shape field -- see cellOutlineLocal's own comment), so the offset
   // itself has to be rotated by packRot too, same as localToWorld does for
@@ -1138,6 +1194,203 @@ function drawNucleus(c) {
   }
 }
 
+// ---- x-z side view (#cvXZ) -----------------------------------------------------
+// The field of view seen from the front, along y (larger y = nearer, as at tilt 90°): x as in the view above (same
+// centre, same px/um), z up at the same px/um, the coverslip (z = 0) near the bottom. Only what lies in the view's
+// y range (its z = 0 footprint) is drawn: cytoplasm, nuclei and microtubules are cut at its top and bottom edges,
+// the dyes are the ones drawn above. Far first. Display only.
+const XZ_BIN_UM = 0.1, XZ_FLOOR_PX = 14;
+// Parameter range [t0, t1] of the segment ya -> yb inside [lo, hi], or null.
+function clipY(ya, yb, lo, hi) {
+  if (ya === yb) return ya >= lo && ya <= hi ? [0, 1] : null;
+  let t0 = (lo - ya) / (yb - ya), t1 = (hi - ya) / (yb - ya);
+  if (t0 > t1) [t0, t1] = [t1, t0];
+  t0 = Math.max(0, t0); t1 = Math.min(1, t1);
+  return t0 <= t1 ? [t0, t1] : null;
+}
+// Upper envelope of the cytoplasm mesh over x (relative to c.x, packRot applied) for its part with y - c.y in
+// [yl, yh], in XZ_BIN_UM bins (-1 = nothing there): every mesh edge is clipped to the slab and sampled at the bin
+// centres it spans. Cached per packRot and slab (one key for every slab that holds the whole cell); null if none.
+function getXZProfile(entry, c, yl, yh) {
+  const rot = c.packRot || 0;
+  let G = entry.xzGeom;
+  if (!G || G.rot !== rot) {
+    const r = getMeshRender(entry, c), cr = Math.cos(rot), sr = Math.sin(rot);
+    const x = new Float32Array(r.nv), y = new Float32Array(r.nv);
+    let xlo = Infinity, xhi = -Infinity, ylo = Infinity, yhi = -Infinity;
+    for (let v = 0; v < r.nv; v++) {
+      x[v] = r.lx[v] * cr - r.ly[v] * sr; y[v] = r.lx[v] * sr + r.ly[v] * cr;
+      xlo = Math.min(xlo, x[v]); xhi = Math.max(xhi, x[v]); ylo = Math.min(ylo, y[v]); yhi = Math.max(yhi, y[v]);
+    }
+    G = entry.xzGeom = { rot, r, x, y, xlo, xhi, ylo, yhi };
+    entry.xz = null;
+  }
+  if (G.yhi < yl || G.ylo > yh) return null;
+  const key = G.ylo >= yl && G.yhi <= yh ? 'all' : yl + '|' + yh;
+  if (entry.xz && entry.xz.key === key) return entry.xz;
+  const { r: { n, rings, h }, x, y } = G;
+  const dx = XZ_BIN_UM, x0 = G.xlo, nb = Math.max(1, Math.ceil((G.xhi - G.xlo) / dx)), top = new Float32Array(nb).fill(-1);
+  const edge = (a, b) => {
+    const t = clipY(y[a], y[b], yl, yh);
+    if (!t) return;
+    const ex = x[b] - x[a], eh = h[b] - h[a];
+    let xa = x[a] + ex * t[0], xb = x[a] + ex * t[1], ha = h[a] + eh * t[0], hb = h[a] + eh * t[1];
+    if (xa > xb) { [xa, xb] = [xb, xa]; [ha, hb] = [hb, ha]; }
+    const i1 = Math.min(nb - 1, Math.floor((xb - x0) / dx));
+    for (let i = Math.max(0, Math.floor((xa - x0) / dx)); i <= i1; i++) {
+      const xc = Math.min(xb, Math.max(xa, x0 + (i + 0.5) * dx));
+      const hc = xb > xa ? ha + (hb - ha) * (xc - xa) / (xb - xa) : Math.max(ha, hb);
+      if (hc > top[i]) top[i] = hc;
+    }
+  };
+  for (let k = 0; k <= rings; k++) for (let i = 0; i < n; i++) {
+    const v = k * n + i;
+    edge(v, k * n + (i + 1) % n);
+    if (k < rings) edge(v, v + n);
+  }
+  return (entry.xz = { key, x0, dx, top });
+}
+// Microtubules in the x-z frame (screen px relative to the cell centre, y = -z), only their stretches with
+// y - c.y in [yl, yh]. One Path2D per cell, rebuilt when the zoom, packRot or slab changes.
+const mtPathCacheXZ = new WeakMap();
+function getMtPathXZ(mts, t, yl, yh) {
+  const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
+  const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh;
+  const hit = mtPathCacheXZ.get(mts);
+  if (hit && hit.key === key) return hit.path;
+  const path = new Path2D(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
+  let o = 0;
+  for (let m = 0; m < lens.length; m++) {
+    const len = lens[m];
+    let down = false, lastX = 0, lastY = 0;
+    for (let k = 0; k < len; k++, o += 3) {
+      const lx = xyz[o], ly = xyz[o + 1], wy = lx * t.sr + ly * t.cr;
+      if (wy < yl || wy > yh) { down = false; continue; }
+      const sx = (lx * t.cr - ly * t.sr) * t.S, sy = -xyz[o + 2] * t.S;
+      if (!down) { path.moveTo(sx, sy); down = true; lastX = sx; lastY = sy; continue; }
+      const dx = sx - lastX, dy = sy - lastY;
+      if (dx * dx + dy * dy >= m2 || k === len - 1) { path.lineTo(sx, sy); lastX = sx; lastY = sy; }
+    }
+  }
+  mtPathCacheXZ.set(mts, { key, path });
+  return path;
+}
+// The nucleus as horizontal sections bottom to top, each ring cut to world y in [y0, y1] and reduced to its
+// leftmost and rightmost point: { xl, zl, xr, zr }. From the engine's rings when it sends them (both poles
+// included, so they reach the true top and bottom of a shaped nucleus), else the pack record's ellipsoid
+// (poles included).
+function nucXZSections(c, asset, y0, y1) {
+  const rings = [];
+  if (asset && asset.nuc) {
+    const a = asset.nuc, np = asset.nucPts, cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
+    for (let o = 0; o < a.length; o += np * 3) {
+      const ring = [];
+      for (let i = 0; i < np; i++) {
+        const k = o + 3 * i;
+        ring.push([c.x + a[k] * cr - a[k + 1] * sr, c.y + a[k] * sr + a[k + 1] * cr, a[k + 2]]);
+      }
+      rings.push(ring);
+    }
+  } else {
+    const [ncx, ncy] = localToWorld(c, c.nucOffX, c.nucOffY), th = c.nucRot + (c.packRot || 0);
+    const ct = Math.cos(th), st = Math.sin(th), rz = c.nucHeight / 2;
+    for (let s = 0; s <= 16; s++) {
+      const t = s / 8 - 1, f = Math.sqrt(Math.max(0, 1 - t * t)), ring = [];
+      for (let i = 0; i < NUC_PTS; i++) {
+        const a = (i / NUC_PTS) * Math.PI * 2, lx = Math.cos(a) * (c.nucLong / 2) * f, ly = Math.sin(a) * (c.nucShort / 2) * f;
+        ring.push([ncx + lx * ct - ly * st, ncy + lx * st + ly * ct, c.nucZ + t * rz]);
+      }
+      rings.push(ring);
+    }
+  }
+  const out = [];
+  for (const ring of rings) {
+    const s = { xl: Infinity, zl: 0, xr: -Infinity, zr: 0 };
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i], q = ring[(i + 1) % ring.length], t = clipY(p[1], q[1], y0, y1);
+      if (!t) continue;
+      for (const u of t) {
+        const x = p[0] + (q[0] - p[0]) * u, z = p[2] + (q[2] - p[2]) * u;
+        if (x < s.xl) { s.xl = x; s.zl = z; }
+        if (x > s.xr) { s.xr = x; s.zr = z; }
+      }
+    }
+    if (s.xl <= s.xr) out.push(s);
+  }
+  return out;
+}
+function drawXZ(vis, p) {
+  const g = ctxXZ, W = cvXZ.width, H = cvXZ.height, dpr = devicePixelRatio, S = view.scale * dpr;
+  const z0 = H - XZ_FLOOR_PX * dpr, X = wx => W / 2 + (wx - view.cx) * S, Y = z => z0 - z * S;
+  // the view's y range at z = 0 (as draw() computes it)
+  const halfH = (cv.height / dpr / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
+  const y0 = view.cy - halfH, y1 = view.cy + halfH;
+  g.clearRect(0, 0, W, H);
+  // z grid: a 1-2-5 step at least ~26 CSS px apart
+  let step = 0.1;
+  for (const m of [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]) { step = m; if (m * S >= 26 * dpr) break; }
+  g.strokeStyle = 'rgba(58,68,84,0.6)'; g.lineWidth = 1; g.setLineDash([3 * dpr, 4 * dpr]);
+  g.beginPath();
+  for (let z = step; Y(z) > 0; z += step) { g.moveTo(0, Y(z)); g.lineTo(W, Y(z)); }
+  g.stroke(); g.setLineDash([]);
+
+  const order = vis.slice().sort((a, b) => a.cell.y - b.cell.y); // far (small y) first
+  for (const { cell: c, asset } of order) {
+    const yl = y0 - c.y, yh = y1 - c.y;
+    if (els.showCyto.checked) {
+      const pr = getXZProfile(asset.entry, c, yl, yh);
+      if (pr) {
+        const { x0, dx, top } = pr, ox = X(c.x), nb = top.length;
+        const grp = Math.max(1, Math.floor(1 / (dx * S))); // bins per screen pixel when zoomed out
+        g.beginPath();
+        for (let i = 0; i < nb;) {   // one closed outline per run of non-empty bins
+          if (top[i] < 0) { i++; continue; }
+          let j = i;
+          while (j < nb && top[j] >= 0) j++;
+          g.moveTo(ox + (x0 + i * dx) * S, z0);
+          for (let k = i; k < j; k += grp) {
+            const e = Math.min(j, k + grp);
+            let m = 0;
+            for (let q = k; q < e; q++) m = Math.max(m, top[q]);
+            g.lineTo(ox + (x0 + (k + e) / 2 * dx) * S, z0 - m * S);
+          }
+          g.lineTo(ox + (x0 + j * dx) * S, z0); g.closePath();
+          i = j;
+        }
+        g.fillStyle = 'rgba(90,169,230,0.22)'; g.fill();
+        g.strokeStyle = 'rgba(90,169,230,0.75)'; g.lineWidth = 1; g.stroke();
+      }
+    }
+    if (els.showMt.checked && asset.mts) {
+      const t = cellXform(c);
+      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8;
+      g.lineWidth = Math.max(0.6, p.mtLineWidth * S);
+      g.save(); g.translate(t.ox, z0);
+      g.stroke(getMtPathXZ(asset.mts, t, yl, yh));
+      g.restore(); g.globalAlpha = 1;
+    }
+    if (els.showNucleus.checked) {
+      const sec = nucXZSections(c, asset, y0, y1);
+      for (let k = 0; k + 1 < sec.length; k++) {
+        const a = sec[k], b = sec[k + 1];
+        g.fillStyle = depthColor((a.zl + a.zr + b.zl + b.zr) / 4, 0, c.height, 0.55);
+        g.beginPath();
+        g.moveTo(X(a.xl), Y(a.zl)); g.lineTo(X(a.xr), Y(a.zr)); g.lineTo(X(b.xr), Y(b.zr)); g.lineTo(X(b.xl), Y(b.zl));
+        g.closePath(); g.fill();
+      }
+    }
+  }
+
+  // coverslip, z labels, title
+  g.strokeStyle = '#8b97a8'; g.lineWidth = Math.max(1, dpr);
+  g.beginPath(); g.moveTo(0, z0); g.lineTo(W, z0); g.stroke();
+  g.fillStyle = '#8b97a8'; g.font = `${10 * dpr}px system-ui, Segoe UI, sans-serif`;
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  for (let z = step, i = 1; Y(z) > 6 * dpr; z += step, i++) g.fillText(`${+(i * step).toFixed(1)} µm`, 4 * dpr, Y(z));
+  g.textBaseline = 'top'; g.fillText('z = 0 (coverslip)', 4 * dpr, z0 + 2 * dpr);
+  g.textAlign = 'right'; g.fillText('x–z of the view, seen along y', W - 6 * dpr, z0 + 2 * dpr);
+}
+
 // ---- generator: the insiliscope core (WASM) in Web Workers -----------------------
 // insiliscope_module.js holds the core's Emscripten module as source text
 // (ISC_MODULE_SRC, WASM inlined as base64). Each worker evaluates that text, then
@@ -1153,7 +1406,8 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 8) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 8');
+  if (M._isc_abi_version() !== 9) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 9');
+  const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
@@ -1293,8 +1547,11 @@ function iscEngine(M) {
         if (nv < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
         const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, Math.max(nv, 8192));
         const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null };
-        const transfer = [mesh.buffer];
+        // The nucleus surface rings (ABI 9; cell-local x, y, z, both poles included).
+        const nuc = query((ptr, cap) => M._isc_cell_nucleus_rings(w, d.cx, d.cy, ISC_NUC_SLICES, ISC_NUC_PTS, ptr, cap), 3,
+                          ISC_NUC_SLICES * ISC_NUC_PTS);
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null, nuc, nucPts: ISC_NUC_PTS };
+        const transfer = [mesh.buffer, nuc.buffer];
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];
@@ -1765,8 +2022,10 @@ function evictAssets() {
 }
 function unpackAsset(d) {
   // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
-  // ring is the footprint outline), the microtubules as xyz + lens. No per-vertex or per-point objects.
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh } }, mts: d.mts || null };
+  // ring is the footprint outline), the microtubules as xyz + lens, the nucleus rings as xyz. No per-vertex or
+  // per-point objects.
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh } }, mts: d.mts || null,
+    nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -1913,6 +2172,7 @@ function draw() {
   ctx = ctxTop;
   if (coreCount > RENDER_CAP) {
     if (useGl) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
+    if (els.showXZ.checked) drawXZ([], p);
     drawScaleBar(pxPerUm);
     hud.textContent =
       `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°\n` +
@@ -1944,6 +2204,7 @@ function draw() {
   lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mt: wantMt };
   evictAssets();
   pumpAssets();
+  if (els.showXZ.checked) drawXZ(vis, p); // before the dyes, which add their x-z points to it
 
   // Pass 1 (base layer): footprint outlines + microtubules, each batched into ONE path.
   ctx = bg;
@@ -1992,7 +2253,7 @@ function draw() {
     for (const { cell, asset } of vis) addContourPath(cell, asset.entry, p.cytoContourStep);
     ctx.stroke();
   }
-  if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
+  if (els.showNucleus.checked) for (const { cell, asset } of vis) drawNucleus(cell, asset);
 
   drawMovieFov();
   drawScaleBar(pxPerUm);
@@ -2007,31 +2268,34 @@ function draw() {
 }
 
 // ---- pan / zoom -------------------------------------------------------------
-let dragging = false, lastX = 0, lastY = 0;
-cv.addEventListener('pointerdown', e => {
-  dragging = true; lastX = e.clientX; lastY = e.clientY;
-  cv.setPointerCapture(e.pointerId);
-  cv.classList.add('dragging');
-});
-cv.addEventListener('pointermove', e => {
-  if (!dragging) return;
-  const dx = e.clientX - lastX, dy = e.clientY - lastY;
-  lastX = e.clientX; lastY = e.clientY;
-  view.cx -= dx / view.scale;
-  view.cy -= dy / (view.scale * Math.max(0.15, Math.cos(view.tiltRad)));
-  noteInteraction(); requestDraw();
-});
+// The x-z side view pans and zooms the same view (a drag there moves x only).
+let dragging = null, lastX = 0, lastY = 0;
+for (const c of [cv, cvXZ]) {
+  c.addEventListener('pointerdown', e => {
+    dragging = c; lastX = e.clientX; lastY = e.clientY;
+    c.setPointerCapture(e.pointerId);
+    c.classList.add('dragging');
+  });
+  c.addEventListener('pointermove', e => {
+    if (dragging !== c) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    view.cx -= dx / view.scale;
+    if (c === cv) view.cy -= dy / (view.scale * Math.max(0.15, Math.cos(view.tiltRad)));
+    noteInteraction(); requestDraw();
+  });
+  c.addEventListener('wheel', e => {
+    e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    view.scale = Math.max(0.3, view.scale * factor);
+    noteInteraction(); requestDraw();
+  }, { passive: false });
+}
 window.addEventListener('pointerup', () => {
   if (!dragging) return;
-  dragging = false;
-  cv.classList.remove('dragging');
+  dragging.classList.remove('dragging');
+  dragging = null;
 });
-cv.addEventListener('wheel', e => {
-  e.preventDefault();
-  const factor = Math.exp(-e.deltaY * 0.0015);
-  view.scale = Math.max(0.3, view.scale * factor);
-  noteInteraction(); requestDraw();
-}, { passive: false });
 
 // ---- wiring -------------------------------------------------------------------
 // Value readouts, preset states and row visibility live with the panel (uiSchema script).
@@ -2096,20 +2360,22 @@ function drawDyes(seed, p, pxPerUm) {
   if (!c || c.key !== key) return note;
   const s = c.sites, W = cv.width, H = cv.height, S = view.scale * devicePixelRatio;
   const cosT = Math.cos(view.tiltRad), sinT = Math.sin(view.tiltRad);
+  const xz = els.showXZ.checked, xz0 = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio;
   let drawn = 0;
   ctx = ctxTop;
-  ctx.fillStyle = '#ff4d4d';
+  ctx.fillStyle = '#ff4d4d'; ctxXZ.fillStyle = '#ff4d4d';
   // One path of 1.2 px squares and one fill (the same marks as a fillRect per dye, several times faster).
-  const path = new Path2D(), cx0 = W / 2 - view.cx * S, cy0 = H / 2 - view.cy * cosT * S;
+  const path = new Path2D(), pathXZ = xz ? new Path2D() : null, cx0 = W / 2 - view.cx * S, cy0 = H / 2 - view.cy * cosT * S;
   for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
     const sx = cx0 + s[i] * S;
     const sy = cy0 + (s[i + 1] * cosT - s[i + 2] * sinT) * S;
     if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
     if (drawn >= DYE_MAX_DRAWN) { note = 'dye cap reached, some not drawn'; break; }
     path.rect(sx - 0.6, sy - 0.6, 1.2, 1.2);
+    if (xz) pathXZ.rect(sx - 0.6, xz0 - s[i + 2] * S - 0.6, 1.2, 1.2);
     drawn++;
   }
-  if (drawn) ctx.fill(path);
+  if (drawn) { ctx.fill(path); if (xz) ctxXZ.fill(pathXZ); }
   return note || `${drawn} dyes`;
 }
 
@@ -2362,6 +2628,7 @@ document.getElementById('mv_close').addEventListener('click', e => {
 });
 
 window.addEventListener('resize', resizeCanvas);
+els.showXZ.addEventListener('input', resizeCanvas);
 syncLabels();
 if (/[?&]nw/.test(location.search)) startMainEngine(); // ?nw runs the core on the main thread (for testing)
 else initGenWorkers();

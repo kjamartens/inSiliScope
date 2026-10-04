@@ -328,7 +328,9 @@ function drawPane(key, el) {
     c.outline.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)));
     ctx.closePath(); ctx.fillStyle = 'rgba(90,169,230,0.07)'; ctx.fill(); ctx.strokeStyle = '#2d4a66'; ctx.lineWidth = 1; ctx.stroke();
     const n = c.nuc;
-    ctx.beginPath(); ctx.ellipse(X(n.x), Y(n.y), n.a * s, n.b * s, n.rot, 0, 2 * Math.PI);
+    ctx.beginPath();
+    if (n.poly) { n.poly.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))); ctx.closePath(); }
+    else ctx.ellipse(X(n.x), Y(n.y), n.a * s, n.b * s, n.rot, 0, 2 * Math.PI);
     ctx.strokeStyle = 'rgba(230,162,60,0.6)'; ctx.stroke();
   }
   ctx.lineWidth = Math.max(0.6, 0.05 * s);
@@ -476,6 +478,8 @@ async function boot() {
   // Hot reload: prototype edits reload the working workers in place (state kept); lab edits reload the page.
   try {
     const es = new EventSource('/__lab/events');
+    let server = null;   // a restarted lab server (new hello): reload onto it
+    es.addEventListener('hello', e => { if (server && server !== e.data) location.reload(); server = e.data; });
     es.onmessage = async e => {
       const m = JSON.parse(e.data);
       if (m.dir === 'web/lab') return location.reload();

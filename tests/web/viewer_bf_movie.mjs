@@ -42,7 +42,7 @@ for (const [quality, want, query] of [['1', /BrightField/, ''], ['3', /BrightFie
       document.getElementById('mv_bf-quality-name').textContent.startsWith(q);
   }, quality);
   await page.waitForTimeout(2000);
-  await page.click('#mv_make', { force: true });
+  await page.evaluate(() => document.getElementById('mv_make').click());   // the button may sit in a folded group (Focus style)
   await page.waitForFunction(() => /frames/.test(document.getElementById('mv_info').textContent), null, { timeout: 600000 });
   const info = await page.evaluate(() => document.getElementById('mv_info').textContent);
   frames[quality + query] = await page.evaluate(() => Array.from(movie.frames));

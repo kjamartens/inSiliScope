@@ -5,10 +5,29 @@ and mapped to the world by the cell's packing rotation and position.
 
 ## Nucleus
 
-A 3D ellipsoid per cell: long axis, short/long ratio and height (as a fraction of the long axis) are drawn from ranges
-(defaults: long axis 8-12 um, ratio 0.6-1, height 0.3-0.6 of the long axis). Nucleus size is *correlated* with cell size by
+A shaped ellipsoid per cell: long axis, short/long ratio and height (as a fraction of the long axis) are drawn from ranges
+(defaults: long axis 8-12 um, ratio 0.6-1, height 0.2-0.3 of the long axis). Nucleus size is *correlated* with cell size by
 reusing the same hash draw (same percentile of both ranges), and offset from the cell centroid by up to a fraction of the
-cell radius. A lateral/vertical envelopment step guarantees the whole ellipsoid stays inside the cell with a margin.
+cell radius.
+
+Real nuclei are not ellipsoids: their outlines are smooth egg, bean or rounded-triangle shapes with radius deviations of
+a few to ~10 %, and adherent nuclei are wider at the base. Each nucleus therefore gets, from its own hash stream:
+
+- **lobes**: the footprint radius is \(1 + \sum_{k=2}^{8} (a_k \cos k	heta + b_k \sin k	heta)\) (soft-clamped), with a
+  \(k^{-\gamma}\) spectrum (`nucSmooth`, default 2.5) normalised so the rms relative deviation is the cell's
+  irregularity (`nucIrregMin`-`nucIrregMax`, default 0.03-0.2);
+- a **kidney bend** (`nucBendMin`-`nucBendMax`, 0-0.3): an invertible shear of the outline;
+- an **uneven thickness** (`nucThickIrreg`, 0.1 rms at the edge);
+- a **wider base** (`nucAsym`, 0.5: sections below the widest one are widened toward it; negative values widen the top)
+  and a **lowered widest point** (`nucWidestMin`-`nucWidestMax`, 0.2-0.4 of the height above the bottom).
+
+All shape terms at 0 (and the widest point at 0.5) give the plain ellipsoid. The nucleus sits on a thin basal layer of
+cytoplasm: its bottom is `nucBaseMin`-`nucBaseMax` (0.4-0.9 um) above the coverslip, and the dome top follows the
+nucleus top plus the margin (`nucMargin`, 0.5 um). A lateral envelopment step keeps the whole footprint inside the cell
+outline with that margin.
+
+In Micro-Manager these are the `SimType_CellFieldNuc*` properties (`NucBaseMinUm`/`MaxUm`, `NucIrregMin`/`Max`,
+`NucBendMin`/`Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`, `NucWidestMin`/`Max`); in the cli and viewer, `p.<name>`.
 
 ## Cytoplasm
 
@@ -23,18 +42,23 @@ the brightfield volume all use this relaxed height, not the raw analytic one.
 
 ## Microtubules
 
-Each microtubule is a 3D path, anchored at the nucleus surface:
+Each microtubule is a 3D path from near the nucleus to near the cell edge:
 
-1. **Start** on the nucleus ellipsoid (azimuth weighted by how much cytoplasm lies in each direction; polar angle uniform on
-   the sphere), pushed outward by a random distance.
-2. **End** near the cell edge with an end-direction jitter (up to 180 deg, so microtubules can cross over or under the nucleus).
+1. **Start**: a point of the cytoplasm volume with density \(\propto e^{-d/\lambda}\), \(d\) the distance to the nucleus
+   surface and \(\lambda\) = `mtStartDecayPct` (1.6 %) of the cell's equivalent diameter (~0.5 um).
+2. **End**: twelve candidate points of the footprint outside the nucleus, density \(\propto e^{-d/\lambda}\) with \(d\) the
+   distance to the outline (`mtEndDecayPct`, 20 %, ~6 um); one is picked with weight \(e^{\kappa(\cos a - 1)}\), \(a\) the
+   angle between start-to-end and the outward direction at the start (`mtDirKappa`, 1.5; 0 = any direction, so paths
+   also cross over or under the nucleus).
+   Micro-Manager: `SimType_CellFieldMicrotubuleStartDecayPct`, `...EndDecayPct`, `...DirKappa`.
 3. **Path**: a correlated random walk in \(xy\) with a bounded turn radius, forced onto both endpoints with a
    Brownian-bridge drift correction. The persistence length is shared between the heading walk and \(z\), implemented so that
    the correlation length is fixed in real um regardless of step length (a discretised Ornstein-Uhlenbeck process in arc length;
    the heading kick scales as \(\sqrt{\ell_{step}/\ell_{corr}}\), the worm-like-chain relation).
 4. **Height** is a *fraction of the local cytoplasm ceiling*, interpolated between start and end and converted using the
-   ceiling at each point, so paths ride the actual slope; over/under-nucleus crossings apply a floor/ceiling on top; a moving
-   average and a slope cap remove residual jitter.
+   ceiling at each point, so paths ride the actual slope, then box-smoothed. Where a path crosses the nucleus it rides over
+   (or, starting low, under) it with a clearance, lifted or lowered by a smooth ramp rather than point by point (a generic
+   obstacle interface: the nucleus is the first obstacle). A slope cap removes residual jitter.
 5. Points are kept inside the cell volume; the walk is truncated at the first exit from the footprint (no edge hugging); a
    bounded minimum-separation pass separates microtubules in 3D.
 

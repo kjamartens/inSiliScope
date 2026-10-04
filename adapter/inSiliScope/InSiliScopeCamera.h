@@ -189,9 +189,26 @@ enum CellFieldNumber
    CF_MILLI_ACTIVATION_RATE,
    CF_Z_RANGE_UM,
    CF_LABELING_PCT_NONBLEACHING,
+   // Nucleus shape and microtubule start/end (2026-10-05): core parameters of the same names (CellFieldParamNames).
+   CF_NUC_BASE_MIN_UM,
+   CF_NUC_BASE_MAX_UM,
+   CF_NUC_IRREG_MIN,
+   CF_NUC_IRREG_MAX,
+   CF_NUC_BEND_MIN,
+   CF_NUC_BEND_MAX,
+   CF_NUC_SMOOTH,
+   CF_NUC_THICK_IRREG,
+   CF_NUC_ASYM,
+   CF_NUC_WIDEST_MIN,
+   CF_NUC_WIDEST_MAX,
+   CF_MT_START_DECAY_PCT,
+   CF_MT_END_DECAY_PCT,
+   CF_MT_DIR_KAPPA,
    CF_COUNT
 };
 extern const char* g_PropCellFieldNumber[CF_COUNT];
+// The core parameter each CellField number sets as is (nullptr: handled by hand in BuildCellFieldSettings).
+extern const char* g_CellFieldCoreParam[CF_COUNT];
 extern const char* g_PropCellFieldPacking;
 extern const char* g_PropDiskCache;
 extern const char* g_DiskCacheOff;
@@ -588,6 +605,10 @@ private:
    std::atomic<bool> liveSeqCapture_{false};
    std::atomic<bool> liveSeqSkipStale_{false};
    long liveFrameEpoch_ = 0;
+   // The liveConfigVersion_ the frame in the front buffer was rendered with
+   // (under frontFrameLock_): a frame taken after a property change skips
+   // frames that were already being rendered with the old settings.
+   long liveFrameConfig_ = 0;
    // The z sequence the precomputed stack was made for (-1: none).
    std::atomic<long> stackZSeqVersion_{-1};
    // WideField caches shared by the stack worker, the live loop and its

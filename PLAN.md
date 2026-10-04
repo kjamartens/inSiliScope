@@ -41,6 +41,10 @@ Upcoming ideas:
   Speed (2026-10-02): [x] shared transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD,
   [x] quality levels re-tuned on measured accuracy (grid at lambda/4n), [x] cli/viewer keep world + scene across movies:
   256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
+- 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
+  follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
+  envelope (generic obstacle interface), [x] ported to the core bit-exactly (ABI 9 nucleus rings, optical volume),
+  [x] viewer x-z side view; [x] BrightField defaults lamp 80k, condenser NA 0.4, indices 1.35.
 - 2026-10-03: viewer UI (`web/index.html`, also `web/lab.html`): [x] panel built from one option schema (every option
   one line, a unit and an (i) tip), [x] groups by sample / sample preparation / microscope / acquisition, collapsible,
   [x] Default/Advanced and three styles (Compact, Focus: one group open, Light), mouse-wheel sliders in a ☰ menu, [x] min/max as two-knob sliders, [x] presets

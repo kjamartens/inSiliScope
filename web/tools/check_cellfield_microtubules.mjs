@@ -6,7 +6,7 @@
 //
 // What it checks, and why:
 //  1. CONTAINMENT -- every generated point must sit (a) within the cell's own
-//     blobby footprint (cellRadiusAt), (b) outside the nucleus ellipsoid, and
+//     blobby footprint (cellRadiusAt), (b) outside the nucleus, and
 //     (c) at or below sampleCytoMeshHeight(cell,p,x,y) -- the ACTUAL rendered
 //     (smoothed) cytoplasm height, not the raw analytic cytoHeightAt(). This
 //     is not circular even though mtClampIntoCytoplasm() now clamps against
@@ -73,17 +73,17 @@ const SEED = 1234;
 const SCENARIOS = [
   { name: 'defaults', overrides: {} },
   {
-    name: 'bug-report (high density, large offset)',
-    overrides: { mtDensity: 0.825, mtStartFracMax: 0.3, mtStartOffsetXY: 2.0, mtEndFracMin: 0.3, mtMinSeparation: 0.5 },
+    name: 'bug-report (high density, wide start shell)',
+    overrides: { mtDensity: 0.825, mtStartDecayPct: 6.5, mtEndDecayPct: 13, mtMinSeparation: 0.5 },
   },
   {
-    // Wide End direction jitter + Wobble turn strength are what actually
-    // exercise the over/under-the-nucleus crossing rule (see
-    // mtNucleusFootprintBlend's own comment) -- neither scenario above
-    // touches it, so the step-slope check below would otherwise never run
-    // against the one code path it exists to catch a regression in.
-    name: 'nucleus-crossing (wide jitter)',
-    overrides: { mtDensity: 0.3, mtEndJitterDeg: 180, mtWobbleTurn: 0.6, mtStartFracMax: 0.15, mtEndFracMax: 0.6 },
+    // Any end direction (kappa 0) + Wobble turn strength are what actually
+    // exercise the over/under-the-nucleus crossing (mtNucleusEnvelope) --
+    // neither scenario above leans on it, so the step-slope check below would
+    // otherwise rarely run against the one code path it exists to catch a
+    // regression in.
+    name: 'nucleus-crossing (any direction)',
+    overrides: { mtDensity: 0.3, mtDirKappa: 0, mtWobbleTurn: 0.6, mtStartDecayPct: 1, mtEndDecayPct: 13 },
   },
 ];
 
@@ -164,14 +164,10 @@ async function main() {
             const dist = Math.hypot(pt.x, pt.y);
             const radialViol = dist - rc;
 
-            // (b) nucleus ellipsoid exclusion (must be OUTSIDE, norm >= 1)
-            const dxN = pt.x - cell.nucOffX, dyN = pt.y - cell.nucOffY;
-            const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
-            const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-            const a = cell.nucLong / 2, b = cell.nucShort / 2, rz = cell.nucHeight / 2;
-            const nx = lx / Math.max(1e-6, a), ny = ly / Math.max(1e-6, b), nz = (pt.z - cell.nucZ) / Math.max(1e-6, rz);
-            const ellNorm = Math.sqrt(nx * nx + ny * ny + nz * nz);
-            const nucViol = 1 - ellNorm; // positive means INSIDE (a violation)
+            // (b) nucleus exclusion: the nucleus chord through this column (nucleusColumnLocal, exact for the
+            // shaped nucleus and the ellipsoid); the violation is the depth inside it (um), positive = inside
+            const col = nucleusColumnLocal(cell, pt.x, pt.y);
+            const nucViol = col ? Math.min(pt.z - (cell.nucZ - col[0]), cell.nucZ + col[1] - pt.z) : -Infinity;
 
             // (c) height ceiling -- the SAME function the clamp now calls
             const ceilH = Math.max(0, sampleCytoMeshHeight(cell, p, pt.x, pt.y));

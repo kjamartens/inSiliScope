@@ -787,13 +787,22 @@ void OpticalVolume()
          if (ch < 2) worst = std::max(worst, std::fabs(s / nz - flat[ch * plane + i]));
       }
    Check(worst < 1e-5, "optical volume: nz = 1 equals the mean over z");
-   // Nucleus volume of each cell entirely inside the window vs its ellipsoid.
+   // Nucleus volume of each cell entirely inside the window vs a direct
+   // quadrature of its column (NucleusColumnLocal; the shaped nucleus) on a
+   // 0.05 um grid. Region: within nucleus reach + 1 um of the nucleus centre.
    std::vector<Cell> cs;
    a.CellsInRect(x0, y0, x1, y1, cs);
    double want = 0;
-   for (const Cell& q : cs)
-      if (q.x - q.rOuter > x0 && q.x + q.rOuter < x1 && q.y - q.rOuter > y0 && q.y + q.rOuter < y1)
-         want += 4.0 / 3 * jsm::PI * (q.nucLong / 2) * (q.nucShort / 2) * (q.nucHeight / 2);
+   auto nucR = [](const Cell& q) { return std::max(q.nucLong / 2, q.nucShaped ? q.nucReach : 0.0) + 1; };
+   for (const Cell& q : cs) {
+      if (!(q.x - q.rOuter > x0 && q.x + q.rOuter < x1 && q.y - q.rOuter > y0 && q.y + q.rOuter < y1)) continue;
+      const double R = nucR(q), hq = 0.05;
+      for (double yy = -R + hq / 2; yy < R; yy += hq)
+         for (double xx = -R + hq / 2; xx < R; xx += hq) {
+            double below, above;
+            if (NucleusColumnLocal(q, q.nucOffX + xx, q.nucOffY + yy, below, above)) want += (below + above) * hq * hq;
+         }
+   }
    std::vector<float> fine(3 * plane);
    double got = 0, gotAll = 0;
    a.OpticalVolumeInWindow(x0, y0, x1, y1, zLo, zHi, nx, ny, 1, 4, fine.data());
@@ -806,14 +815,12 @@ void OpticalVolume()
             const double wx = x0 + (ix + 0.5) * (x1 - x0) / nx - q.x, wy = y0 + (iy + 0.5) * (y1 - y0) / ny - q.y;
             const double cr = std::cos(q.packRot), sr = std::sin(q.packRot);
             const double lx = wx * cr + wy * sr - q.nucOffX, ly = -wx * sr + wy * cr - q.nucOffY;
-            const double nr = std::cos(q.nucRot), ns = std::sin(q.nucRot);
-            const double u = (lx * nr + ly * ns) / (q.nucLong / 2 + 1), v = (-lx * ns + ly * nr) / (q.nucShort / 2 + 1);
-            if (u * u + v * v <= 1) got += fine[plane + (size_t)iy * nx + ix] * vox;
+            if (lx * lx + ly * ly <= nucR(q) * nucR(q)) got += fine[plane + (size_t)iy * nx + ix] * vox;
          }
    }
    for (size_t i = 0; i < plane; i++) gotAll += fine[plane + i] * vox;
-   Check(want > 0 && std::fabs(got / want - 1) < 0.02, "optical volume: nucleus volume = ellipsoid volume (2%)");
-   std::printf("      nucleus volume %.2f um^3 vs ellipsoids %.2f (window %.2f)\n", got, want, gotAll);
+   Check(want > 0 && std::fabs(got / want - 1) < 0.02, "optical volume: nucleus volume = its column integral (2%)");
+   std::printf("      nucleus volume %.2f um^3 vs column integrals %.2f (window %.2f)\n", got, want, gotAll);
    IscParams* ip = isc_params_new();
    IscWorld* w = isc_world_new(31, ip);
    std::vector<float> o(3 * 16 * 16 * 2);

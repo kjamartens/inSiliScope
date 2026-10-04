@@ -255,6 +255,23 @@ int32_t isc_cell_mesh(IscWorld* w, int32_t cx, int32_t cy, int32_t dims[2], doub
    }
 }
 
+int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
+                               double* out, int32_t capPts)
+{
+   if (!w || slices < 2 || pts < 1 || (capPts > 0 && !out)) return -1;
+   try {
+      isc::Cell c;
+      if (!w->w.FindCell(cx, cy, c)) return -1;
+      const std::vector<isc::Pt3> r = isc::NucleusRingsLocal(c, slices, pts);
+      for (size_t i = 0; i < r.size() && (int32_t)i < capPts; i++) {
+         out[3 * i] = r[i].x; out[3 * i + 1] = r[i].y; out[3 * i + 2] = r[i].z;
+      }
+      return (int32_t)r.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
 int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, double* xyz, int32_t capPts,
                               int32_t* lens, int32_t capMts, int32_t* totalPts)
 {

@@ -124,7 +124,7 @@ cellFractalDim` (default 1.35, clamped to [1, 2]), `cellRough` default 0.15.
 - Draws: two `hashStream`s (bases 50 and 51), clear of every CH channel and
   microtubule stream. With `cellRough = 0` nothing changes (bit-identical outline).
 
-**Nucleus**: a true 3D ellipsoid per cell — long axis, short/long ratio, and height
+**Nucleus** (the original ellipsoid; since 2026-10-05 a shaped ellipsoid, see "Nucleus shape" below): a true 3D ellipsoid per cell — long axis, short/long ratio, and height
 (as a fraction of the long axis) are tunable in the sidebar (defaults: long axis
 8–12 µm, ratio 0.6–1, height 0.3–0.6× long axis). **Nucleus size is correlated with
 cell size, not an independent draw**: both reuse the exact same underlying hash draw
@@ -221,7 +221,8 @@ relaxation window gets too large; `RENDER_CAP` skips drawing entirely once the
 without it, zooming out far enough genuinely hangs the tab (found by an automated
 stress test, not a theoretical concern). Zoom in if either message appears.
 
-**Microtubules** (`microtubules.js`, kept independent of the cell/nucleus/cytoplasm
+**Microtubules** (start, end and the over/under-nucleus rule superseded on 2026-10-05, see "Microtubule starts, ends
+and the obstacle envelope" below; `microtubules.js`, kept independent of the cell/nucleus/cytoplasm
 generator in `index.html` on purpose — see that file's own header comment): rebuilt
 from scratch, genuinely 3D and anchored to the real nucleus/cytoplasm geometry rather
 than a free-wandering flat random walk. Per cell: a discrete azimuth-weight table is
@@ -481,6 +482,74 @@ looked visibly broken (still-overlapping, under-relaxed cells) for the whole dra
 only "snapped" correct on release — worse than just paying the full cost, which turned
 out cheap enough at the chunk counts `CHUNK_CAP` allows through anyway.
 
+## Nucleus shape (2026-10-05, issue 12)
+
+Supersedes the plain ellipsoid above (it remains the special case with every shape term off). Real nuclei have smooth
+egg-, bean- or rounded-triangle-shaped outlines with radius deviations of a few to ~10 % (e.g. the control nuclei in
+PMC5625896, Fig. 1), and adherent nuclei are wider at the base.
+
+**Shape coordinates**: footprint radius `s` (1 = the outline), direction `t`, height `zeta` in [-1, 1]. A point maps to
+the footprint `(u, v) = s R(t) (cos t, sin t)`, then the bend `x = a u, y = b (v + bend (u^2 - 1/4))` (a shear: exactly
+invertible, and -1/4 keeps the centroid, the mean of u^2 over the disc), then `z = nucZ + rz k H zeta`, in the nucleus
+frame (`nucRot`, `nucOff`; a, b, rz = nucLong/2, nucShort/2, nucHeight/2).
+
+- `R(t) = 1 + soft(sum_{k=2..8} Rc_k cos kt + Rs_k sin kt)`, soft clamp at 0.5; `H(s, t) = 1 + soft(sum_{k=1..8}
+  s^k (Hc_k cos kt + Hs_k sin kt))`, soft clamp at 0.6 (`soft(t) = t / sqrt(1 + (t/max)^2)`, as the cell's fractal
+  tail). The `s^k` makes H single-valued at the centre. `cos kt`, `sin kt` and `(s e^{it})^k` come from complex-multiply
+  recurrences: only + - * /, so the C++ is bit-exact with the JS without any trig per query.
+- `k = 2w` below the widest section, `2(1 - w)` above it: `w` (`nucWidestMin/Max`) is the widest section's height as a
+  fraction of the nucleus height, and the total height stays `nucHeight` (times H).
+- Inside: `|zeta| < 1` and `s < W(zeta) = q + (1 - q) f`, `q = sqrt(1 - zeta^2)`: the ellipsoid's section, widened
+  toward the mid-section by the fraction f of the gap (`f = nucAsym` on the bottom half when positive, `-nucAsym` on the
+  top half when negative, `|nucAsym| <= 0.9`; 1 would be vertical walls). No section is wider than the mid-section, so
+  the footprint outline (s = 1) is the widest extent and every column is one interval: on a side with widening f its
+  |zeta| extent is 1 for `s <= f`, else `sqrt(1 - qs^2)`, `qs = (s - f) / (1 - f)`.
+- Coefficients: unit-variance uniform draws `(2u - 1) sqrt(3)` times a `k^-nucSmooth` spectrum (`exp(-gamma log k)`)
+  normalised to `sum w_k^2 = 1`, so the footprint's rms relative radius deviation is the per-cell irregularity and the
+  edge thickness's is `nucThickIrreg`. One hash stream per cell (base 52; the tail uses 50/51), drawn in the order
+  irregularity, bend, widest point, Rc/Rs k = 2..8, Hc/Hs k = 1..8.
+- All amplitudes 0, `nucAsym` 0 and `w` 0.5 leave `nucShaped` false: every caller then runs its old ellipsoid code.
+
+**Placement.** The nucleus sits on a thin basal layer of cytoplasm: its bottom is `nucBase` (`nucBaseMin/Max`, the old
+`NUC_ZFRAC` channel) above the coverslip, `nucZ = nucBase + nucDown`, and the dome top is `nucBase + nucDown + nucUp +
+nucMargin` (then floored by the rim/mid heights as before). `nucUp`/`nucDown` are `rz kUp`/`rz kDown` times the largest
+`H x column extent` on a 64 x 16 sample grid. This replaced a provisional `nucZ = height x [0.4, 0.6]` with a separately
+drawn cell height, which left the nucleus floating; `cellHeightMin/Max` and the `HEIGHT` hash channel (6) are gone.
+
+**Users.** The lateral envelope walks the 256-point footprint polygon (the mid-section is the widest, so the asymmetry
+does not change it); the signed distance for the cytoplasm profile is the nearest point on that polygon, the sign from
+`s < 1`; the relaxed height grid's obstacle is the nucleus top + margin, maximised over 3 x 3 samples at +-g/2 around a
+node so the bilinear surface between nodes clears a steep rim (a wide top); the optical volume (BrightField) takes the
+asymmetric chord `[nucZ - below, nucZ + above]`; the microtubule push-out works radially in (s, zeta): the boundary scale
+by bisection (24 steps), divided by the containment margin. Drawing uses horizontal sections at `s = W(zeta)`,
+`zeta = -cos(pi i / (n - 1))`, both poles included (ABI 9 `isc_cell_nucleus_rings`).
+
+## Microtubule starts, ends and the obstacle envelope (2026-10-05)
+
+Supersedes the direction table, the start on the nucleus ellipsoid, the end-direction jitter and the per-point
+over/under-nucleus override described above: none of them fit a shaped nucleus, and the override made paths jagged
+where they met it (a footprint blend, a nominal-step slope limiter and per-point clamps fighting each other).
+
+- **Decay lengths** are a percentage of the cell's equivalent diameter `2 sqrt(area / pi)` (48-point outline), floored
+  at 0.02 um, so one setting fits small and large cells (defaults 1.6 % and 20 %: ~0.5 and ~6 um).
+- **Start**: a point of the cytoplasm volume with density `exp(-d / lambda)`, `d` = an approximate distance to the
+  nucleus surface (`mtNucleusGap`: in shape coordinates, the lateral gap `(s - W(zeta)) rDir` and the vertical gap to the
+  column, combined as `gl gv / hypot(gl, gv)`, exact for a locally flat surface). Rejection sampling in the nucleus
+  bounding box grown by `min(5 lambda, rMax)`, four draws per try always (so the stream position never depends on the
+  geometry), at most 128 tries, then the closest valid candidate.
+- **End**: a footprint point outside the nucleus footprint with density `exp(-d / lambda)`, `d` the radial gap to the
+  outline: theta uniform, `d` exponential by inverse CDF, accepted with probability `r / rMax` (the polar area element).
+  Twelve candidates, one picked with weight `exp(kappa (cos a - 1))`, `a` the angle between start -> end and centre ->
+  start (`mtDirKappa`; 0 = any direction, so paths cross over and under the nucleus).
+- **z**: the fraction-of-ceiling profile with its noise, box-smoothed with a symmetric window that shrinks toward the
+  ends (a window cut on one side pulled the first points toward the inner values: a jump next to the fixed endpoint),
+  then the **obstacle envelope**: per point a lower bound (top + clearance when riding over an obstacle) and an upper
+  bound (ceiling x margin; bottom - clearance when going under); the shortfall is spread into a ramp of slope 1 (forward
+  and backward running maxima), box-smoothed and raised back to the shortfall, lift first, then lower. The clearance
+  fades in over the first 1 um of arc, so a start next to the nucleus leaves it gradually. Over or under is decided once
+  per path (over when the start is above `nucZ` or there is no room below). Obstacles are a generic interface
+  (`column(x, y)`, `clearance`, `goOver`), so the ER or other structures can join later.
+
 ## BrightField (2026-10-01)
 
 Transmitted light is computed from the world's own geometry only (core `isc_optical_volume_in_window`: cytoplasm,
@@ -512,11 +581,11 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   just not mutually separated) once a cell's total point count crosses
   `MT_COLLISION_MAX_TOTAL_POINTS` — real headroom is needed for `mtDensity`'s own
   2/µm² ceiling, which can put hundreds of thousands of points in one large cell.
-- Direction weighting only accounts for lateral room (cytoplasm thickness in a given
+- (Obsolete since 2026-10-05: the direction table is gone.) Direction weighting only accounts for lateral room (cytoplasm thickness in a given
   azimuth), not the cytoplasm's own height at that azimuth — a direction that's wide
   but very thin (close to the tapered cell edge) is weighted the same as an equally
   wide but tall one.
-- Over/under-the-nucleus crossings (see above) need **End direction jitter** pushed well
+- (Obsolete since 2026-10-05: ends are picked by `mtDirKappa`.) Over/under-the-nucleus crossings (see above) need **End direction jitter** pushed well
   past its old 90° range to become common — at the default 20° almost every microtubule
   is still structurally radial (start and end azimuths close together) and rarely needs
   to cross the nucleus's footprint at all, so the new clearance rule mostly sits idle
