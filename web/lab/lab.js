@@ -478,6 +478,8 @@ async function boot() {
   // Hot reload: prototype edits reload the working workers in place (state kept); lab edits reload the page.
   try {
     const es = new EventSource('/__lab/events');
+    let server = null;   // a restarted lab server (new hello): reload onto it
+    es.addEventListener('hello', e => { if (server && server !== e.data) location.reload(); server = e.data; });
     es.onmessage = async e => {
       const m = JSON.parse(e.data);
       if (m.dir === 'web/lab') return location.reload();

@@ -35,7 +35,11 @@
 
   restore();
   addEventListener('pagehide', save); // F5 keeps the state too
-  new EventSource('/__lab/events').onmessage = () => { save(); location.reload(); };
+  const es = new EventSource('/__lab/events');
+  es.onmessage = () => { save(); location.reload(); };
+  // A restarted lab server (serve.mjs takes over the port) says a new hello: reload onto it.
+  let server = null;
+  es.addEventListener('hello', e => { if (server && server !== e.data) { save(); location.reload(); } server = e.data; });
 
   document.title = 'insiliscope lab (JS)';
   const b = document.createElement('div');
