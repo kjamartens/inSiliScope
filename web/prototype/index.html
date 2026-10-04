@@ -78,15 +78,16 @@
       <legend>nucleus (shaped ellipsoid, µm)</legend>
       <div class="pair"><span class="k">Long axis min/max</span><input type="number" id="nucLongMin" value="8" step="0.5"><input type="number" id="nucLongMax" value="12" step="0.5"></div>
       <div class="pair"><span class="k">Short/long ratio min/max</span><input type="number" id="nucRatioMin" value="0.6" step="0.05"><input type="number" id="nucRatioMax" value="1" step="0.05"></div>
-      <div class="pair"><span class="k">Height (× long axis) min/max</span><input type="number" id="nucHeightMin" value="0.3" step="0.05"><input type="number" id="nucHeightMax" value="0.5" step="0.05"></div>
+      <div class="pair"><span class="k">Height (× long axis) min/max</span><input type="number" id="nucHeightMin" value="0.2" step="0.05"><input type="number" id="nucHeightMax" value="0.3" step="0.05"></div>
       <label class="row">Offset from cell centre <input type="range" id="nucOffsetFrac" min="0" max="1" step="0.02" value="0.1"><span id="nucOffsetFracVal"></span></label>
-      <label class="row">Cell margin around nucleus (µm) <input type="range" id="nucMargin" min="0.1" max="1.5" step="0.1" value="0.6"><span id="nucMarginVal"></span></label>
+      <div class="pair" title="Gap between the coverslip and the bottom of the nucleus, per cell (the basal cytoplasm layer)."><span class="k">Gap below nucleus (µm) min/max</span><input type="number" id="nucBaseMin" value="0.4" min="0" max="2" step="0.05"><input type="number" id="nucBaseMax" value="0.9" min="0" max="2" step="0.05"></div>
+      <label class="row">Cell margin around nucleus (µm) <input type="range" id="nucMargin" min="0.1" max="1.5" step="0.1" value="0.5"><span id="nucMarginVal"></span></label>
       <div class="pair" title="Rms deviation of the outline radius from the ellipse (fraction), per cell. 0 = ellipse."><span class="k">Outline irregularity min/max</span><input type="number" id="nucIrregMin" value="0.03" min="0" max="0.3" step="0.01"><input type="number" id="nucIrregMax" value="0.2" min="0" max="0.3" step="0.01"></div>
       <div class="pair" title="Kidney/bean bend: shift of the middle against the ends, in short semi-axes x 3/4, per cell."><span class="k">Kidney bend min/max</span><input type="number" id="nucBendMin" value="0" min="0" max="1" step="0.05"><input type="number" id="nucBendMax" value="0.3" min="0" max="1" step="0.05"></div>
       <label class="row" title="Spectral slope of the irregularity: amplitude of lobe order k ~ k^-smoothness. High = egg/oval shapes, low = many small lobes.">Lobe smoothness <input type="range" id="nucSmooth" min="0" max="4" step="0.1" value="2.5"><span id="nucSmoothVal"></span></label>
       <label class="row" title="Rms relative variation of the nucleus thickness at its edge (lumpy top, tilt). 0 = ellipsoid profile.">Height irregularity <input type="range" id="nucThickIrreg" min="0" max="0.4" step="0.01" value="0.1"><span id="nucThickIrregVal"></span></label>
-      <label class="row" title="Top/bottom asymmetry: > 0 widens the sections below the middle toward the mid-section by this fraction of the gap (a flatter, wider base), < 0 the sections above it. 0 = symmetric.">Top/bottom asymmetry <input type="range" id="nucAsym" min="-0.9" max="0.9" step="0.05" value="0.8"><span id="nucAsymVal"></span></label>
-      <div class="pair" title="Height of the widest section as a fraction of the nucleus height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top."><span class="k">Widest point height min/max</span><input type="number" id="nucWidestMin" value="0.2" min="0" max="1" step="0.05"><input type="number" id="nucWidestMax" value="0.35" min="0" max="1" step="0.05"></div>
+      <label class="row" title="Top/bottom asymmetry: > 0 widens the sections below the middle toward the mid-section by this fraction of the gap (a flatter, wider base), < 0 the sections above it. 0 = symmetric.">Top/bottom asymmetry <input type="range" id="nucAsym" min="-0.9" max="0.9" step="0.05" value="0.5"><span id="nucAsymVal"></span></label>
+      <div class="pair" title="Height of the widest section as a fraction of the nucleus height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top."><span class="k">Widest point height min/max</span><input type="number" id="nucWidestMin" value="0.2" min="0" max="1" step="0.05"><input type="number" id="nucWidestMax" value="0.4" min="0" max="1" step="0.05"></div>
     </fieldset>
 
     <fieldset>
@@ -350,7 +351,11 @@ function rawCandidate(seed, cx, cy, p) {
   c.nucOffX = Math.cos(offAng) * offR;
   c.nucOffY = Math.sin(offAng) * offR;
   c.nucRot = hashUnit(seed, cx, cy, CH.NUC_ROT) * Math.PI * 2;
-  c.nucZ = c.height * lerp(0.4, 0.6, hashUnit(seed, cx, cy, CH.NUC_ZFRAC)); // provisional, clamped by envelopNucleus below
+  // Gap between the coverslip and the nucleus bottom (per cell; NUC_ZFRAC channel). Adherent nuclei sit on a thin
+  // basal layer of cytoplasm; envelopNucleus places the nucleus there (nucZ = nucDown + nucBase) and grows the cell
+  // for the top margin. nucZ is set there, once the shape's extents are known.
+  c.nucBase = Math.max(0, lerp(p.nucBaseMin, p.nucBaseMax, hashUnit(seed, cx, cy, CH.NUC_ZFRAC)));
+  c.nucZ = 0;
   nucShapeInit(c, seed, cx, cy, p); // lobes, bend, thickness (see nucShapeInit); independent of nucZ
 
   // Cytoplasm height profile targets are sampled PER CELL (own hash channels,
@@ -658,14 +663,16 @@ function nucPushOutLocal(c, pt, margin) {
   pt.x = q[0]; pt.y = q[1]; pt.z = q[2];
   return true;
 }
-// Surface rings for drawing (cell-local {x,y,z}): `slices` horizontal sections
-// (zeta from -1 to 1) of `pts` points each; sections narrower than 5 % are skipped.
+// Surface rings for drawing (cell-local {x,y,z}): `slices` horizontal sections of
+// `pts` points each, bottom to top, at zeta = -cos(pi i / (slices - 1)) (even in
+// polar angle: denser toward the poles, where the outline turns). Both poles are
+// included -- a ring that has shrunk to a point there, or the flat base of a
+// widened bottom -- so the rings reach the true top and bottom of the nucleus.
 function nucleusRingsLocal(c, slices, pts) {
   const rings = [];
   for (let sl = 0; sl < slices; sl++) {
-    const zeta = (sl / (slices - 1)) * 2 - 1;
+    const zeta = -Math.cos(Math.PI * sl / (slices - 1));
     const s = c.nucShaped ? nucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop) : Math.sqrt(Math.max(0, 1 - zeta * zeta));
-    if (s < 0.05) continue;
     const ring = [];
     for (let i = 0; i < pts; i++) {
       const th = (i / pts) * Math.PI * 2, C = Math.cos(th), S = Math.sin(th);
@@ -700,12 +707,12 @@ function envelopNucleus(c, marginUm, extraUm = 0) {
   // nucleus -- the slope-cap run-out, see cytoSlopeRunout(). Purely lateral; the vertical
   // envelope below still only needs `margin`.
 
-  // Vertical: keep the nucleus's [nucZ-down, nucZ+up] within [margin, height-margin]
-  // (up = down = nucHeight/2, or the shaped nucleus's own extents, see nucShapeInit).
+  // Vertical: the nucleus bottom sits c.nucBase above the coverslip, and the dome top (c.height) is the nucleus
+  // top plus `margin` -- recomputed from the nucleus, not the drawn cell height, so the dome never floats far
+  // above a low nucleus (up = down = nucHeight/2, or the shaped nucleus's own extents, see nucShapeInit).
   const up = c.nucUp, down = c.nucDown;
-  const neededHeight = down + up + 2 * margin;
-  if (c.height < neededHeight) c.height = neededHeight;
-  c.nucZ = Math.min(Math.max(c.nucZ, down + margin), c.height - up - margin);
+  c.height = c.nucBase + down + up + margin;
+  c.nucZ = c.nucBase + down;
 
   // Lateral: sample the nucleus's own outline (in the cell's local frame,
   // i.e. relative to the cell centre) and make sure the cell's own outline
@@ -1323,7 +1330,7 @@ let cytoCacheSig = null;
 function cytoGeometrySignature(seed, p) {
   return [seed, p.cellDiamMin, p.cellDiamMax, p.cellElongMin, p.cellElongMax, p.cellBlob,
     p.cellHeightMin, p.cellHeightMax, p.nucLongMin, p.nucLongMax, p.nucRatioMin, p.nucRatioMax,
-    p.nucHeightMin, p.nucHeightMax, p.nucOffsetFrac, p.nucMargin,
+    p.nucHeightMin, p.nucHeightMax, p.nucOffsetFrac, p.nucMargin, p.nucBaseMin, p.nucBaseMax,
     p.nucIrregMin, p.nucIrregMax, p.nucBendMin, p.nucBendMax, p.nucSmooth, p.nucThickIrreg, p.nucAsym, p.nucWidestMin, p.nucWidestMax,
     p.cytoRimHeightMin, p.cytoRimHeightMax, p.cytoEdgeRiseMin, p.cytoEdgeRiseMax,
     p.cytoMidHeightMin, p.cytoMidHeightMax, p.cytoMidDistanceMin, p.cytoMidDistanceMax, p.cytoMaxSlope, p.cytoDomeSlope, p.cytoRelaxUm, p.cytoRings, p.cytoTheta, p.cellRough, p.cellFractalDim].join('|');
@@ -1776,7 +1783,7 @@ const els = {};
  'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
  'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
- 'nucOffsetFrac', 'nucOffsetFracVal', 'nucMargin', 'nucMarginVal',
+ 'nucOffsetFrac', 'nucOffsetFracVal', 'nucBaseMin', 'nucBaseMax', 'nucMargin', 'nucMarginVal',
  'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucSmoothVal', 'nucThickIrreg', 'nucThickIrregVal', 'nucAsym', 'nucAsymVal', 'nucWidestMin', 'nucWidestMax',
  'cytoRimHeightMin', 'cytoRimHeightMax', 'cytoEdgeRiseMin', 'cytoEdgeRiseMax',
  'cytoMidHeightMin', 'cytoMidHeightMax', 'cytoMidDistanceMin', 'cytoMidDistanceMax',
@@ -1814,6 +1821,8 @@ function params() {
     nucHeightMax: Math.max(+els.nucHeightMin.value, +els.nucHeightMax.value),
     nucOffsetFrac: +els.nucOffsetFrac.value,
     nucMargin: +els.nucMargin.value,
+    nucBaseMin: +els.nucBaseMin.value,
+    nucBaseMax: Math.max(+els.nucBaseMin.value, +els.nucBaseMax.value),
     nucIrregMin: +els.nucIrregMin.value,
     nucIrregMax: Math.max(+els.nucIrregMin.value, +els.nucIrregMax.value),
     nucBendMin: +els.nucBendMin.value,
@@ -2195,7 +2204,7 @@ function drawBodiesGl(cells, p) {
   gl.bindVertexArray(null);
 }
 
-const NUC_SLICES = 9, NUC_PTS = 48;
+const NUC_SLICES = 17, NUC_PTS = 48;
 function drawNucleus(c) {
   // The surface rings come from the generator in the cell's cached LOCAL
   // frame (see cellOutlineLocal's own comment), so they are placed with

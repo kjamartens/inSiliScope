@@ -13,7 +13,7 @@ import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { World, PACK_BLOCK_CHUNKS } from '../prototype/scope/world.js';
 import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
 
-const NUC_SLICES = 9, NUC_PTS = 48; // nucleus rings sent with each cell (the viewer's NUC_SLICES)
+const NUC_SLICES = 17, NUC_PTS = 48; // nucleus rings sent with each cell (both poles included)
 
 async function text(url) {
   const r = await fetch(url, { cache: 'no-store' });

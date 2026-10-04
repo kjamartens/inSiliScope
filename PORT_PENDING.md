@@ -41,8 +41,11 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   normalised to `sum w_k^2 = 1` (separately over k = 2..8 for R and k = 1..8 for H). `amp` is
   `lerp(nucIrregMin, nucIrregMax, u)` for R and `nucThickIrreg` for H; `nucBend = lerp(nucBendMin, nucBendMax, u)`.
 - **Derived per-cell fields:**
-  - `nucShaped`: any amplitude non-zero, `nucAsym != 0`, or `w != 0.5`. When false, every caller keeps its old ellipsoid code,
-    and the output is bit-identical to main (checked: 2.6M values over 5 cells, meshes and microtubules).
+  - `nucShaped`: any amplitude non-zero, `nucAsym != 0`, or `w != 0.5`. When false, every caller keeps its old
+    ellipsoid code. That was bit-identical to main (2.6M values over 5 cells) until the vertical placement below
+    changed; now no setting reproduces main.
+  - `nucBase`: the gap between the coverslip and the nucleus bottom, `lerp(nucBaseMin, nucBaseMax, u)` on the old
+    `NUC_ZFRAC` channel (36), which no longer draws a fraction of the cell height.
   - `nucFBot`/`nucFTop`: the widening f of each half.
   - `nucKUp`/`nucKDown`: the vertical scales above/below the widest section (see Model).
   - `nucUp`/`nucDown`: the vertical extents above/below `nucZ`: `rz kUp` (`rz kDown`) times the max of
@@ -53,8 +56,13 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   - `nucCos`/`nucSin`.
   - `nucShapeSig`: a cache key.
 - **Users of the nucleus:**
-  - `envelopNucleus`: the vertical step keeps `[nucZ - nucDown, nucZ + nucUp]` inside the margin; the lateral step
-    walks `nucPoly`. The mid-section is the widest, so the asymmetry leaves the footprint unchanged.
+  - `envelopNucleus`, vertical step: `nucZ = nucBase + nucDown` (the nucleus bottom sits `nucBase` above the
+    coverslip) and the dome top `c.height = nucBase + nucDown + nucUp + margin`. The cell height is recomputed from
+    the nucleus, so the drawn `cellHeightMin/Max` (CH.HEIGHT) no longer reaches the output (only the later floor
+    `max(height, cytoRimHeight, cytoMidHeight)` can still raise it). This replaces the provisional
+    `nucZ = height x lerp(0.4, 0.6)`, which left the nucleus floating.
+  - `envelopNucleus`, lateral step: walks `nucPoly`. The mid-section is the widest, so the asymmetry leaves the
+    footprint unchanged.
   - `nucleusSignedDistLocal`: nearest point on `nucPoly` (squared distances, one sqrt), with the sign from `s < 1`.
   - `buildCytoHeightGrid`: `nucReach`, and the obstacle `nucZ + top + margin`. Shaped: `top` is the max of the
     column top over 3 x 3 samples at +-g/2 around the node, so the bilinear surface clears a steep rim (a wide
@@ -64,9 +72,10 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   - `nucPushOutLocal(c, pt, margin)`: `zeta = (z - nucZ) / (rz k H)` with k by the side of nucZ; pushes the point
     out radially from the centre in (s, zeta): the boundary scale
     by bisection (24 steps, from 1 to `1 / max(s, |zeta|)`), divided by the margin.
-  - `nucleusRingsLocal(c, slices, pts)`: drawing rings, the horizontal sections at `s = W(zeta)` (those under
-    0.05 dropped).
-  - `cytoGeometrySignature`: gains the 9 new params.
+  - `nucleusRingsLocal(c, slices, pts)`: drawing rings, the horizontal sections at `s = W(zeta)`,
+    `zeta = -cos(pi i / (slices - 1))` (even in polar angle), both poles included, so the rings reach the true
+    top and bottom.
+  - `cytoGeometrySignature`: gains the 11 new params.
 - `microtubules.js`:
   - `mtNucleusRadiusAt`: bisection along the ray to s = 1, `MT_BISECT_ITERS` steps, bracket `[0, 1.01 nucReach]`.
   - `mtNucleusFootprintBlend`: uses `s`.
@@ -85,28 +94,33 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   | `nucBendMin`/`nucBendMax` | 0 / 0.3 | kidney bend, per cell |
   | `nucSmooth` | 2.5 | spectral slope |
   | `nucThickIrreg` | 0.1 | rms relative thickness variation at the edge |
-  | `nucAsym` | 0.8 | top/bottom asymmetry, -0.9..0.9: > 0 a wider base, < 0 a wider top |
-  | `nucWidestMin`/`nucWidestMax` | 0.2 / 0.35 | height of the widest section (fraction of the height), per cell |
+  | `nucAsym` | 0.5 | top/bottom asymmetry, -0.9..0.9: > 0 a wider base, < 0 a wider top |
+  | `nucWidestMin`/`nucWidestMax` | 0.2 / 0.4 | height of the widest section (fraction of the height), per cell |
+  | `nucBaseMin`/`nucBaseMax` | 0.4 / 0.9 | gap below the nucleus (um, slider 0..2), per cell |
+
+  Changed defaults of existing params: `nucHeightMin/Max` 0.2 / 0.3 (were 0.3 / 0.5), `nucMargin` 0.5 (was 0.6;
+  it now applies to the sides and top only).
 
   The slider extremes (irregularity 0.3, bend 1, height 0.4, smoothness 0, asymmetry +-0.9, widest point 0 and
   1) were checked: the
   nucleus is enveloped laterally and vertically, no microtubule point lies inside it, and the cytoplasm stays
-  at least 0.9 x margin above its top (measured minimum gap 0.59 um at margin 0.6: grid rounding).
+  at least 0.9 x margin above its top (measured minimum gap at the defaults 0.52 um, margin 0.5: grid rounding).
 
 ## Outside the prototype (JS only)
 
 - `web/index.html` (the viewer):
-  - Nucleus panel: Irregularity, Kidney bend and Widest point pairs and Top/bottom asym., plus Lobe smoothness
-    and Height irreg. (advanced).
-  - `params()` gains the 9 new keys; the current WASM ignores them (`nonCore`).
+  - Nucleus panel: Gap below, Irregularity, Kidney bend and Widest point pairs and Top/bottom asym., plus Lobe
+    smoothness and Height irreg. (advanced).
+  - `params()` gains the 11 new keys; the current WASM ignores them (`nonCore`).
   - `drawNucleus(cell, asset)` draws `asset.nuc` (surface rings from the engine's `cell` reply) when present,
     else the old ellipsoid from the pack record.
   - View panel: an x–z checkbox at the end of the Tilt line shows a side view (x–z, seen along y, equal x and z
     scale) along the bottom 20 % of the canvas: cytoplasm envelope, nuclei, microtubules and dyes, cut to the
     view's y range (`drawXZ`). Display only; works on the current WASM too (ellipsoid nuclei). The port mentions it
-    in `docs/try-viewer.md`.
+    in `docs/try-viewer.md`. The nucleus is drawn from the engine's rings, which reach both poles (no caps).
+  - The ellipsoid fallback draws 17 sections (was 9).
 - `web/lab/engine.js`: the `cell` reply gains `nuc` (Float64Array of rings x 48 points x xyz, cell-local; the
-  `nucleusRingsLocal(c, 9, 48)` sections) and `nucPts`.
+  `nucleusRingsLocal(c, 17, 48)` sections) and `nucPts`.
 - `web/lab/field.js`, `lab.js`: the A/B top view draws the footprint polygon.
 - `tests/parity/load_prototype.mjs`:
   - exports `nucleusColumnLocal` and `nucleusRingsLocal`;
@@ -120,14 +134,16 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
 - Core:
   - port `nucShapeInit`, `nucFootR`, `nucThickAt`, `nucSectionW`, `nucColumnExt`, `nucMapLocal`, `nucBallLocal`
     and `nucPushOutLocal`, plus the callers above;
-  - add the 9 params to the param table (`isc_params_set`);
+  - add the 11 params to the param table (`isc_params_set`);
   - the bend and the recurrences use only + - * / sqrt, and the spectrum uses `jsm::exp`/`jsm::log`.
 - ABI: a nucleus-ring query for the viewer's `cell` job (`nuc`, `nucPts`), or the viewer draws nothing new.
   The ellipsoid fallback stays for the pack record.
 - Optical volume (ABI 6): the asymmetric chord from the shaped nucleus.
 - Adapter: `SimType_CellFieldNucIrregMin/Max`, `NucBendMin/Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`,
-  `NucWidestMin/Max`, or
+  `NucWidestMin/Max`, `NucBaseMin/Max`, or
   whatever the CellField param bridge exposes. cli: the matching options.
-- Re-freeze `spec/golden`, because the defaults change every cell's shape.
+- Re-freeze `spec/golden`, because the defaults change every cell's shape and height.
+- Decide what the cell `Height` control (`cellHeightMin/Max`) should mean now that the dome follows the nucleus
+  (remove it, or make it a floor).
 - Update `spec/ALGORITHM.md` and `docs/physics` (cell model), and add a gallery entry.
 - `web/lab/engine_check.mjs` fails until then (lab engine vs main's WASM: shapes differ at the defaults).
