@@ -74,12 +74,12 @@ GPU), self-checks against the CPU at startup and falls back to the CPU on any fa
 Transmitted light through the cells (`General_ImagingModality = BrightField`; CellField only). Only simulated
 structures make contrast: the core's optical volume gives, per voxel, the volume fractions of cytoplasm, nucleus and
 microtubule, and the renderer turns them into refractive-index slices (`SimType_CellFieldIndexMedium` 1.337,
-`...Cytoplasm` 1.345, `...Nucleus` 1.345, `...Microtubule` 1.48; optional absorption `SimType_CellFieldAbsorptionPerUm`).
+`...Cytoplasm` 1.35, `...Nucleus` 1.35, `...Microtubule` 1.48; optional absorption `SimType_CellFieldAbsorptionPerUm`).
 Structures that dominate real brightfield images (nucleoli, lipid droplets, vesicles, mitochondria...) are absent until
 the world simulates them.
 
 The model is scalar wave optics with partially coherent Koehler illumination (Abbe): the condenser aperture
-(`General_BrightFieldCondenserNa`, default 0.55) is sampled by equal-area source points; each tilted plane wave is
+(`General_BrightFieldCondenserNa`, default 0.4) is sampled by equal-area source points; each tilted plane wave is
 propagated down through the slices (multislice / beam propagation: phase screen, then the angular-spectrum step
 \(e^{i k_z \Delta z}\)); the exit field is refocused to the focal plane and filtered by the objective pupil (NA and the
 PSF's Zernike aberrations); the intensities of all source points add:

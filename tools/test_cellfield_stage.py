@@ -253,7 +253,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     # limited (~3.5% against ~1-2% cell contrast) and close foci swap.
     core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
     _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_BrightFieldQuality", "3")
     core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
     core.setProperty(cam, "General_ImagingModality", "SuperRes")
@@ -370,10 +370,10 @@ def _widefield_checks(core, cam, xy, x0, y0):
 def _brightfield_checks(core, cam, z):
     """BrightField (transmitted light): its properties, the lamp's flux scaling
     the frame, defocus changing the cells' contrast, live = precomputed."""
-    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.55),
-                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 40000.0),
+    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.4),
+                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 80000.0),
                  ("General_BrightFieldSliceUm", -1.0), ("SimType_CellFieldIndexMedium", 1.337),
-                 ("SimType_CellFieldIndexCytoplasm", 1.345), ("SimType_CellFieldIndexNucleus", 1.345),
+                 ("SimType_CellFieldIndexCytoplasm", 1.35), ("SimType_CellFieldIndexNucleus", 1.35),
                  ("SimType_CellFieldIndexMicrotubule", 1.48), ("SimType_CellFieldAbsorptionPerUm", 0.0)):
         got = float(core.getProperty(cam, p))
         assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
@@ -419,7 +419,7 @@ def _brightfield_checks(core, cam, z):
     assert corr(pm, fm) > 0.8, f"precomputed and live BrightField should agree (corr {corr(pm, fm):.3f})"
     print(f"BrightField OK: lamp x2 -> signal x{ratio:.3f}, contrast {rel(f0):.3f} (focus 0) / {rel(fm):.3f} "
           f"(-3 um), live vs precomputed corr {corr(pm, fm):.3f}")
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setPosition(z, 1.5)
 

@@ -67,7 +67,9 @@ const CASES = [
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 modality=1 psf-model=0 wf-upscale=2', 0.999],
   ['WideField upscale 3, bleaching from t = 30 s', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=1 psf-kernel-half-width-nm=2500 wf-upscale=3 start-sec=30 labeling-pct-bleaching=20 wf-photon-budget=500', 0.999],
   ['BrightField thin object (quality 1)', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField bf-quality=1', 0.995],
-  ['BrightField multislice (quality 3), defocused', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField z=2', 0.995],
+  // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the
+  // photon count (the ~1e-5 relative intensity difference flips more Poisson draws), 99.35% at 80000.
+  ['BrightField multislice (quality 3), defocused', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField z=2 bf-photons-per-px-per-sec=40000', 0.995],
   ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=2 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {

@@ -37,12 +37,12 @@ column samples per voxel; pure geometry, no optical constants in the core). The 
 
     phi_k = k0 dz [ f_c (n_c - n_m) + f_n (n_n - n_m) + f_mt (n_mt - n_c) ],   a_k = exp(-mu dz (f_c + f_n) / 2)
 
-(a tube displaces cytoplasm, hence `n_mt - n_c`). Defaults (`SimType_CellField*`): medium 1.337, cytoplasm 1.345,
-nucleus 1.345 (since 2026-10-01; were 1.360 / 1.355 -- cytoplasm and nucleus are both ~1.34-1.36 in measurements, e.g.
+(a tube displaces cytoplasm, hence `n_mt - n_c`). Defaults (`SimType_CellField*`): medium 1.337, cytoplasm 1.35,
+nucleus 1.35 (since 2026-10-05; 1.345 from 2026-10-01, 1.360 / 1.355 before -- cytoplasm and nucleus are both ~1.34-1.36 in measurements, e.g.
 HeLa by Schuermann et al. 2016, and the lower values give realistic, weak BF contrast), microtubule 1.48
 (protein-dense tube; an estimate), absorption 0 (unstained cells).
 
-**Illumination.** Koehler, partially coherent: the condenser aperture (`General_BrightFieldCondenserNa`, default 0.55)
+**Illumination.** Koehler, partially coherent: the condenser aperture (`General_BrightFieldCondenserNa`, default 0.4 since 2026-10-05, was 0.55)
 is sampled by `N` source points on an equal-area Fibonacci disk (Abbe's method), each a tilted plane wave snapped to the
 FFT grid (so it is periodic). Monochromatic (`General_BrightFieldWavelengthNm`, 550 nm). Flat field.
 
@@ -54,8 +54,8 @@ thin screen sits at the phase-weighted mean height (from 8 sub-slices), not at m
 **Imaging.** Detection pupil `|k| <= k0 NA` (`PSFParam_PsfNa`) with the PSF's Zernike aberrations
 (`General_BrightFieldAberrations`, default on: same objective), refocused to the focal plane `Z` (the `ZStage`, + the
 `SimType_CellFieldFocusHeightUm` offset) by `exp(i kz (z_obj - Z))`; intensity `|.|^2` per source, binned to camera
-pixels, averaged over sources (empty field = 1). Photons = intensity x `General_BrightFieldPhotonsPerPxPerSec` x
-exposure, then the usual camera chain (`ApplyNoiseChain`). Fluorescence background, haze and illumination profile
+pixels, averaged over sources (empty field = 1). Photons = intensity x `General_BrightFieldPhotonsPerPxPerSec`
+(default 80000 since 2026-10-05, was 40000) x exposure, then the usual camera chain (`ApplyNoiseChain`). Fluorescence background, haze and illumination profile
 (`Background_*`, `FluoParam_Illum*`) do not apply.
 
 **Grid.** `General_BrightFieldUpscaling` cells per pixel -- a minimum: `UpscaleFor` raises it until the pitch is
