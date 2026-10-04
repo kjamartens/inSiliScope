@@ -272,6 +272,23 @@ loop-invariant `exp(-m)` of the persistent-bin Poisson draw and the per-protofil
 linker `pow` hoisted (same operands, same bits): a 1000-frame 128 px stack query 2.1 -> 0.35 s,
 a 40 um stage jump 5.2 -> 1.2 s (4 cores).
 
+**Worker pool and parallel generation (2026-10-04, output bit-identical):** `ParallelFor` runs on a
+process-wide pool of sleeping workers (`WorkerPool`; `AcquireWorkerPool` hands every `World` the one pool
+through a static `weak_ptr`, joined when the last world is freed, so a host DLL can still unload; the
+`World` query methods install it with a `PoolScope`, and without one `ParallelFor` spawns per call as
+before). Parallel now, each item a pure function of its address consumed in the serial order: `Relax`'s
+displacement loop (Jacobi: items read the iteration's snapshot of poses, `cos/sin(packRot)` and the 16
+collision points computed once per cell per iteration instead of per pair), `BuildCandidateMap`, the
+microtubules of a cell (one item per microtubule on its own hash stream; the collision pass stays serial),
+the mesh node fill. Hoisted (same operands, same bits): the nucleus trig in `EnvelopNucleus`, the cytoplasm
+mesh and the microtubule clamp, the outline tail factors (a table per `tailExp`), the dye pose per cell, the
+log-normal parameters per schedule call. `CellAssets` builds the microtubules lazily (`isc_cell_mesh` asks
+for the geometry only) and keeps per-microtubule 1 um block midpoints (`BlockMid`), which `ForEachDyeBlock`
+scans instead of walking arcs; `CellsInRect` hands out pointers; `dyeIndex_` is a hash map.
+`isc_core_bench` (native, 12 threads): packing block 88 -> 19 ms, cold cells 207 -> 78 ms, a cell's
+microtubules 232 -> 19 ms, cold dyes 225 -> 48 ms, steady events 0.9 -> 0.1 ms per frame; `tools/bench_core.mjs`
+(WASM, serial): packing 741 -> 408 ms, assets 538 -> 286 ms, cold dyes 110 -> 67 ms.
+
 ### 6.2 Query, per frame
 ```
 std::vector<BlinkEvent> CellFieldSource::EventsForFrame(long f, StagePose pose, double fovWUm, double fovHUm,
@@ -487,6 +504,23 @@ cached dyes become voxels with nothing crossing the ABI per dye. Infinite z limi
 Used by the WideField modality (section 13). `world_checks` (`Density3d`): z-sum = 2D query, bleaching
 + persistent = all per voxel, equals hand-binning `SitesInWindow`, nz = 1 slab = 2D query.
 
+### 6.5 Packed blocks across worlds (ABI 7, 2026-10-04)
+`isc_world_pack_block(w, bx, by, out, capRows)` writes the cells of packing block `(bx, by)` (8 x 8 chunks,
+`bx = floor(cx / 8)`) as `ISC_CELL_STRIDE` rows in `isc_cells_in_window`'s layout -- the whole block, cx-major
+then cy, the count returned with the usual cap convention. `isc_world_set_block(w, bx, by, rows, n)` installs
+such rows in another world of the same seed and parameters: a packed cell is `RawCandidate(seed, cx, cy, p)`
+with `x, y, packRot` overwritten (`Relax` changes nothing else, `Prune` only `alive`), so the receiver rebuilds
+each cell from its address and takes only the pose from the row. Returns 1 installed, 0 when the block was
+already cached, -1 when the rows are not that block's (a chunk outside the block, an order not strictly
+increasing in (cx, cy), a non-finite value, a candidate absent at this seed), leaving the world unchanged.
+Installed blocks count in `WorldStats::blocksInjected` (not `blocksPacked`) and `DropCaches` drops them like
+any cache. The viewer's pack worker packs the window's blocks once and returns them with its cells; cell and
+dye jobs carry the rows of the blocks they touch and the other workers install them instead of packing, so a
+block is packed once per page, not once per worker (`web/index.html` `iscEngine.inject`, `web/lab/engine.js`
+`World.setPackedBlock`). `world_checks` `BlockInjection`: a world fed another's rows answers cells, mesh,
+microtubules, dyes and events byte-identically with `blocksPacked == 0`, still after `DropCaches`; foreign
+rows are rejected; the C ABI round trip is checked too (`wasm_abi_smoke.mjs` under Node).
+
 ## 12. Known gaps to keep in mind (not for the first pass)
 
 * Motion blur during an exposure while the stage moves; per-frame stage jitter.
@@ -563,7 +597,10 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
   checked against the basis (1e-5 of the peak weight) and re-anchors when it does not fit, so a frame is
   always the image of its own weights.
 * **Stack** = fresh sample (frame f starts at dose f dD), reproducible, never touches the live map; Z read
-  per batch of frames; frames rendered in parallel between re-anchors. **Live**: `BleachField`,
+  per batch of frames; frames rendered in parallel between re-anchors (since 2026-10-04 the cli/viewer
+  movie too: each frame's bleach coefficients serially, then a batch of frames in parallel, the frame
+  that re-anchors alone; with no bleaching dyes the weights of `Begin` are reused, no `exp` per frame; and
+  the cli/viewer keep the scene, PSF and world across movies as BrightField does). **Live**: `BleachField`,
   world-anchored dose in sparse 256^2 tiles of the grid pitch, deposited over the pattern support after
   each frame; reset on a world change or a pitch change. The producer renders the frame (a weighted sum)
   and hands background, noise and publication to a finisher thread that overlaps the next frame's scene

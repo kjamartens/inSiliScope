@@ -4,12 +4,23 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
-- Performance pass (2026-10-03), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`, `scope_parity`
-  SR 100 %): the diffraction-PSF splat reads a column-polyphase copy of the kernel block sums with vectorised row loops
-  and an AVX2 copy chosen at run time (`Simulation/SplatKernel.h`; ~2x per blink single-threaded, the 12-thread cli is
-  then limited by memory bandwidth at the 7000 nm kernel). Dev tooling: `ISC_TIMING=1` prints phase times of a cli/viewer
-  movie, `sr_render_check --bench`, `isc_core_bench` and `tools/bench_core.mjs` (per-phase core timing, native and WASM),
-  `tools/bench.py` gained 1000-frame SR, 200-frame WF and BrightField configs.
+- Performance pass (2026-10-03/04), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`,
+  `scope_parity` SR 100 %, golden vectors): the diffraction-PSF splat reads a column-polyphase copy of the kernel block
+  sums with vectorised row loops and an AVX2 copy chosen at run time (~2x per blink); the kernel memo shares one
+  immutable copy of the planes; the cli/viewer keep world, scene and PSF across SR and WideField movies as they did for
+  BrightField; WideField frames render in parallel batches; the chirp-Z PSF kernel is batched and pruned (0.65 -> 0.46 s);
+  BrightField setup is parallel. Core: a worker pool instead of threads per call, parallel packing relaxation and
+  microtubule generation, lazy microtubules for mesh queries, hoisted trig and tables (packing block 88 -> 19 ms,
+  cold cells 207 -> 78 ms, cold dyes 225 -> 48 ms native; WASM packing 741 -> 408 ms); **core ABI 7**
+  `isc_world_pack_block` / `isc_world_set_block` hand packed blocks between worlds. Viewer: one WASM compile shared by
+  the workers, the pack worker's blocks injected into the others (no duplicate packing), cell assets as typed arrays
+  (no per-vertex objects), LUT movie playback. JS references refactored bit-exactly (no BigInt, cached noise maps:
+  the parity cases run 2x faster). Build: Release by default, link-time optimisation (`ISC_LTO`), WASM SIMD for the
+  core. Measured (12 threads): SR 128 px 200 frames 3.3 -> 1.4 s, 256 px 10.3 -> 4.5 s, 1000 frames 10.7 -> 7.1 s,
+  WideField 256 px 200 frames 3.3 -> 1.8 s, BrightField 256 px level 3 0.59 -> 0.47 s, level 4 2.0 -> 1.4 s. Dev
+  tooling: `ISC_TIMING=1` prints a movie's phase times, `sr_render_check --bench`, `isc_core_bench` and
+  `tools/bench_core.mjs` (per-phase core timing, native and WASM), `tools/bench.py` gained 1000-frame SR, 200-frame WF
+  and BrightField configs.
 - Licensing clarified: own source BSD-3-Clause; the distributed DLL is GPL-3.0 as a whole (it embeds PSFGenerator).
 - Renamed to inSiliScope everywhere.
 - Release automation: tests, DLL, webSMLM block, gallery and benchmarks built on a `v*` tag and published as GitHub

@@ -75,19 +75,23 @@ computed once and shared by every source (they were per source: millions of sin/
 columns at a time in a cache-resident buffer (no full-array transposes), and only transform the columns of the
 propagating band |kx| < k0 n where the rest is zero or discarded; the image's inverse only makes the FOV rows; the FFT
 butterflies vectorize (WASM SIMD in the viewer). The cli/viewer keep one world and one scene across movies, so a repeat,
-or a new frame count or noise setting, reuses the cells and the multislice.
+or a new frame count or noise setting, reuses the cells and the multislice. 2026-10-04 (output unchanged): the setup
+loops (detection pupil, slice transmittances, propagator, per-focus defocus, taper) run in parallel, the complex products
+are written out (no `__mulsc3` call per element in WASM) and the thin path's shifted column index is a table; with the
+core's worker pool and parallel cell generation the 256 px level 3 movie is 0.47 s cli cold (was 0.59) and level 4
+1.4 s (was 2.0) in `tools/bench.py`; in the viewer 0.7 s and 2.5 s (were 0.9 and 3.7).
 
 ## Quality: speed vs precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`)
 
 One number sets four knobs (each can be overridden: `bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`, and
 `bf-margin-um`; MM `General_BrightFieldSources`/`Upscaling`/`GeometrySamples`/`SliceUm`, 0 / -1 = from the quality).
 
-| Level | Sources | Geometry samples | Slice step | Margin | 256 px cli, 4 cores (cold) | 256 px viewer (1 core, cells built) | error / cell contrast |
+| Level | Sources | Geometry samples | Slice step | Margin | 256 px cli, 12 threads (cold, whole process) | 256 px viewer (1 core, cells built) | error / cell contrast |
 |---|---|---|---|---|---|---|---|
-| 1 fastest | 6 | 1 | thin (1 screen) | 3 um | 0.4 s | 0.1 s | 0.9-1.2 |
-| 2 | 12 | 1 | 0.5 um | 3 um | 0.55 s | 0.5 s | 0.30-0.33 |
-| 3 default | 24 | 2 | 0.5 um | 3 um | 0.7 s | 0.9 s | 0.25-0.28 |
-| 4 | 48 | 2 | 0.25 um | 4 um | 1.9 s | 3.6-3.9 s | 0.13-0.15 |
+| 1 fastest | 6 | 1 | thin (1 screen) | 3 um | 0.3 s | 0.1 s | 0.9-1.2 |
+| 2 | 12 | 1 | 0.5 um | 3 um | 0.45 s | 0.4 s | 0.30-0.33 |
+| 3 default | 24 | 2 | 0.5 um | 3 um | 0.55 s | 0.7 s | 0.25-0.28 |
+| 4 | 48 | 2 | 0.25 um | 4 um | 1.7 s | 2.5 s | 0.13-0.15 |
 
 All levels use the lambda / 4n grid (upscale 1 at 100 nm pixels). Error: rms difference of the noise-free image from a
 reference (96 sources, 0.125 um slices, 4 samples, 6 um margin; level 5 in `BrightfieldQualityLevel`, for checks, not
@@ -95,8 +99,9 @@ exposed: cli/viewer/MM clamp the quality to 4) over the cell's own rms contrast,
 nucleus), seed 42, focus 0.5 and 2 um. The slice step is the main lever (0.5 -> 0.125 um halves the error), then the
 source count; the grid upscale and the geometry samples change nothing measurable. Before 2026-10-02 the levels were
 12 sources / 1 um slices (2: error 0.45), 24 / 0.5 um on a 2x grid (3: 0.27, 3.0 s cli, ~12 s in the viewer) and
-48 / 0.25 um on a 2x grid (4: 0.14, 10 s). The cli's cold time includes building the cells (~0.4 s; ~1.5 s in the
-viewer, whose first level-3 movie at a new place takes 2.4 s); the viewer and MM keep them. Level 1 is a single thin screen: a flat lamella and a 6 um nucleus dome cannot both be at its one height, so
+48 / 0.25 um on a 2x grid (4: 0.14, 10 s); before 2026-10-04 the table's 4-core cli times were 0.4 / 0.55 / 0.7 /
+1.9 s (`tools/bench.py` on one 12-thread machine: level 3 0.59 -> 0.47 s, level 4 2.0 -> 1.4 s). The cli's cold time includes building the cells (~0.1 s; ~0.7 s in the viewer, whose first level-3 movie at a new
+place takes about 1.5 s); the viewer and MM keep them. Level 1 is a single thin screen: a flat lamella and a 6 um nucleus dome cannot both be at its one height, so
 it misplaces focus by up to a few um; use >= 2 for z stacks.
 
 ## Camera: why the default per-pixel gain spread is 0.5%

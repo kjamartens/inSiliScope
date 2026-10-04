@@ -89,12 +89,12 @@ PSF's Zernike aberrations); the intensities of all source points add:
 Since the specimen propagation does not depend on focus, a focus change costs one inverse FFT per source point.
 One number trades speed for precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`):
 
-| Quality | Source points | Grid cells/pixel | Slice step | 256 px setup / per focus (4 cores) |
+| Quality | Source points | Grid cells/pixel | Slice step | 256 px setup / per focus (12 threads) |
 |---|---|---|---|---|
-| 1 | 6 | 1 | one thin screen | 0.3 s / 10 ms |
-| 2 | 12 | 1 | 1 um | 0.4 s / 12 ms |
-| 3 (default) | 24 | 2 | 0.5 um | 2.9 s / 0.12 s |
-| 4 | 48 | 2 | 0.25 um | 10 s / 0.24 s |
+| 1 | 6 | 1 | one thin screen | 0.19 s / 6 ms |
+| 2 | 12 | 1 | 0.5 um | 0.3 s / 10 ms |
+| 3 (default) | 24 | 2 | 0.5 um | 0.4 s / 16 ms |
+| 4 | 48 | 2 | 0.25 um | 1.5 s / 33 ms |
 
 Each knob can also be set alone (`bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`). A weak phase object in focus
 shows almost no contrast; defocus brings it out with opposite signs above and below focus, as in a real microscope.

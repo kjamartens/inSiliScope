@@ -50,6 +50,18 @@ workflow renders it. The 2x2 overview at the top of the gallery and on the Home 
 `overview` block (`tools/build_overview.py`; `--suggest` proposes a spot); `build_gallery.py --only overview` renders
 just that.
 
+## Performance work
+
+Speed-ups keep every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`, `scope_parity`'s SR 100 %,
+`world_checks` 8 threads = 1 thread): hoist values computed identically, cache pure functions of (seed, address,
+parameters), vectorise independent lanes, thread work that is consumed in serial order, re-lay data; never reassociate,
+fuse (ctest `world_checks` `NoContraction` guards the build flags, link-time optimisation included), or change a
+sampler or a default. Measure first: `ISC_TIMING=1` makes a cli or viewer movie print its phase times
+(`Simulation/Timing.h`), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
+`sr_render_check --bench` the splat, `tools/bench.py` whole movies. A consumer with several worlds (the viewer's
+workers) packs each block once and hands the rows around with ABI 7 `isc_world_pack_block` / `isc_world_set_block`
+(spec/PORT.md 6.5).
+
 ## Bit-exactness and `world_version`
 
 The existing content is bit-exact with the JS prototype and frozen by golden vectors. Content with no JS counterpart
