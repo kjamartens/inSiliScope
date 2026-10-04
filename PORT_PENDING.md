@@ -114,16 +114,23 @@ Paths were jagged where they met the nucleus: z followed the fraction-of-ceiling
 per point by a nominal-step slope limiter (removed) and clamped per point.
 
 - **z of a path** (`mtGenerateOne`): the fraction profile with its noise as before, box-smoothed (`mtBoxSmooth`,
-  prefix sums, window `round(mtSmoothLen / stepLen)` halved, endpoints kept), then `mtNucleusEnvelope`.
-- **Bounds:** `hi[i]` = ceiling x `MT_CONTAIN_MARGIN` everywhere. Where `nucleusColumnLocal` has a column:
-  - going over: `lo[i] = min(hi[i], nucZ + above + clr)`;
-  - going under: `hi[i] = min(hi[i], bottom - min(clr, bottom / 2))`, `bottom = nucZ - below`.
+  prefix sums, window `round(mtSmoothLen / stepLen)` halved, endpoints kept), then `mtObstacleBounds` and
+  `mtObstacleEnvelope`.
+- **Obstacles** (`mtObstacles(cell, p)`, generic so other structures, e.g. the ER, can be added later): objects with
+  `column(x, y)` -> `[bottom, top]` absolute z or null, `clearance`, `goOver(startZ)`. Only the nucleus for now
+  (`mtNucleusObstacle`): column `[nucZ - below, nucZ + above]` from `nucleusColumnLocal`, clearance
+  `mtNucleusClearance`, over when `nucZ - nucDown - clearance <= 0` or the start z >= `nucZ`. In C++ an interface
+  or a small tagged struct; the loop over obstacles is in list order.
+- **Bounds** (`mtObstacleBounds(pts, ceil, obstacles)`): `goOver` once per obstacle from `pts[0].z`; per point
+  `hi[i]` = ceiling x `MT_CONTAIN_MARGIN`, `fade = min(1, arc / MT_OBST_CLEAR_RAMP_UM)` (1 um, xy arc from the start),
+  and for each obstacle with a column, `clr = clearance x fade`:
+  - going over: `lo[i] = max(lo[i], top + clr)`;
+  - going under: `hi[i] = min(hi[i], bottom - min(clr, bottom / 2))`.
 
-  `clr` = `mtNucleusClearance` x `min(1, arc / MT_NUC_CLEAR_RAMP_UM)` (1 um, xy arc from the start). The path goes
-  over when `bottom of the nucleus - full clearance <= 0` or its start z >= `nucZ`.
-- **`mtNucleusEnvelope(pts, lo, hi, half)`**, `half = max(1, round(mtSmoothLen / 2 / stepLen))`: lift, then lower.
+  Then `lo[i] = min(lo[i], hi[i])` for every point (conflicting bounds: the upper one wins).
+- **`mtObstacleEnvelope(pts, lo, hi, half)`**, `half = max(1, round(mtSmoothLen / 2 / stepLen))`: lift, then lower.
   For each: `need[i] = max(0, lo[i] - z[i])` (or `z[i] - hi[i]`), 0 at the endpoints; `ramp` = forward then
-  backward running max of `need` minus `MT_NUC_RAMP_SLOPE` (1) x xy step length; box-smooth `ramp` (interior),
+  backward running max of `need` minus `MT_OBST_RAMP_SLOPE` (1) x xy step length; box-smooth `ramp` (interior),
   `corr[i] = max(smoothed, need[i])` (endpoints: `ramp`); `z[i] += corr[i]` (or `-=`) for interior points only.
 - **`mtBoxSmooth`** uses a symmetric window `h = min(half, i, n - 1 - i)`: a window cut on one side pulled the
   first points toward the inner values, a jump next to the fixed endpoint (the old z smoothing had this too).

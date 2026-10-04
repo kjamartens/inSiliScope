@@ -136,11 +136,11 @@ const MT_MAX_PER_CELL = 5000;
 // floating-point rounding).
 const MT_CONTAIN_MARGIN = 0.98;
 
-// Slope of the ramp by which mtNucleusEnvelope lifts a path over (or lowers it under) the nucleus: z changes
+// Slope of the ramp by which mtObstacleEnvelope lifts a path over (or lowers it under) an obstacle: z changes
 // at most this much per um moved in xy before the box smoothing rounds the ramp off.
-const MT_NUC_RAMP_SLOPE = 1;
-// Arc length (um, in xy) over which the nucleus clearance grows from 0 at the start to its full value.
-const MT_NUC_CLEAR_RAMP_UM = 1;
+const MT_OBST_RAMP_SLOPE = 1;
+// Arc length (um, in xy) over which an obstacle's clearance grows from 0 at the start to its full value.
+const MT_OBST_CLEAR_RAMP_UM = 1;
 
 // How much vertical clearance a microtubule keeps from the nucleus surface
 // while riding over/under it (see mtGenerateOne) -- half of the cell's own
@@ -185,13 +185,68 @@ function mtBoxSmooth(vals, half, set) {
   }
 }
 
-// Keeps a path's interior z within [lo[i], hi[i]] (the nucleus column it rides over or under, and the
-// cytoplasm ceiling) with smooth corrections instead of per-point clamps, which turned every rim crossing into
-// a kink. For each side: the shortfall need[i] is spread into a ramp of slope MT_NUC_RAMP_SLOPE per um in xy
+// ---- Obstacles a path rides over or under ------------------------------------
+// Anything a microtubule must not pass through and gets around by going over or under it, at a height that
+// is one z interval per (x, y) column. The nucleus is the only one so far; a new structure (e.g. the ER) adds
+// a maker like mtNucleusObstacle to mtObstacles. An obstacle is a plain object:
+//   column(x, y)    -> [bottom, top] (absolute z, um, cell-local x/y) of the obstacle over this point, or null
+//   clearance       -> gap (um) a path keeps above top / below bottom
+//   goOver(startZ)  -> true: the path rides over it, false: under; decided once per path from its start height,
+//                      so it never flip-flops
+// The bounds (mtObstacleBounds) and the smooth correction (mtObstacleEnvelope) are generic; the final safety net
+// (mtClampIntoCytoplasm) still knows only the nucleus, so a new obstacle that must never be entered also needs a
+// push-out there.
+function mtNucleusObstacle(cell, p) {
+  const clearance = mtNucleusClearance(p);
+  const bottomZ = cell.nucZ - cell.nucDown;   // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
+  return {
+    column(x, y) {
+      const col = nucleusColumnLocal(cell, x, y);
+      return col ? [cell.nucZ - col[0], cell.nucZ + col[1]] : null;
+    },
+    clearance,
+    // Over when the path starts above the nucleus's widest section, or when there is no room below it.
+    goOver(startZ) { return bottomZ - clearance <= 0 || startZ >= cell.nucZ; },
+  };
+}
+function mtObstacles(cell, p) {
+  return [mtNucleusObstacle(cell, p)];
+}
+
+// Height bounds of a path (pts[i].z before the correction, ceil[i] = the cytoplasm ceiling there): hi[i] = the
+// ceiling x MT_CONTAIN_MARGIN; per obstacle whose column covers point i, going over raises lo[i] to top +
+// clearance, going under lowers hi[i] to bottom - clearance (at most half the room below the bottom). The
+// clearance fades in over the first MT_OBST_CLEAR_RAMP_UM (xy arc): a start next to an obstacle (closer than
+// the clearance) leaves it gradually instead of jumping to the full clearance at the first step. Where bounds
+// conflict (over one obstacle, under another above it, or no room under the ceiling), lo is cut to hi.
+function mtObstacleBounds(pts, ceil, obstacles) {
+  const n = pts.length;
+  const over = obstacles.map(o => o.goOver(pts[0].z));
+  const lo = new Array(n).fill(-Infinity), hi = new Array(n);
+  let arc = 0;
+  for (let i = 0; i < n; i++) {
+    if (i > 0) arc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    hi[i] = ceil[i] * MT_CONTAIN_MARGIN;
+    const fade = Math.min(1, arc / MT_OBST_CLEAR_RAMP_UM);
+    for (let k = 0; k < obstacles.length; k++) {
+      const col = obstacles[k].column(pts[i].x, pts[i].y);
+      if (!col) continue;
+      const clr = obstacles[k].clearance * fade;
+      if (over[k]) lo[i] = Math.max(lo[i], col[1] + clr);
+      else hi[i] = Math.min(hi[i], col[0] - Math.min(clr, 0.5 * col[0]));
+    }
+  }
+  for (let i = 0; i < n; i++) lo[i] = Math.min(lo[i], hi[i]);
+  return { lo, hi };
+}
+
+// Keeps a path's interior z within [lo[i], hi[i]] (mtObstacleBounds: the obstacle columns it rides over or
+// under, and the cytoplasm ceiling) with smooth corrections instead of per-point clamps, which turned every rim
+// crossing into a kink. For each side: the shortfall need[i] is spread into a ramp of slope MT_OBST_RAMP_SLOPE per um in xy
 // (forward and backward running maxima: the smallest correction >= need that changes no faster than the
 // ramp), box-smoothed over `half` points to round its corners, then raised back to need where the smoothing
 // cut a peak. Lift first (lo), then lower (hi). Endpoints never move.
-function mtNucleusEnvelope(pts, lo, hi, half) {
+function mtObstacleEnvelope(pts, lo, hi, half) {
   const n = pts.length;
   if (n < 3) return;
   const ds = new Array(n).fill(0);
@@ -205,8 +260,8 @@ function mtNucleusEnvelope(pts, lo, hi, half) {
     }
     if (!any) continue;
     ramp[0] = need[0];
-    for (let i = 1; i < n; i++) ramp[i] = Math.max(need[i], ramp[i - 1] - MT_NUC_RAMP_SLOPE * ds[i]);
-    for (let i = n - 2; i >= 0; i--) ramp[i] = Math.max(ramp[i], ramp[i + 1] - MT_NUC_RAMP_SLOPE * ds[i + 1]);
+    for (let i = 1; i < n; i++) ramp[i] = Math.max(need[i], ramp[i - 1] - MT_OBST_RAMP_SLOPE * ds[i]);
+    for (let i = n - 2; i >= 0; i--) ramp[i] = Math.max(ramp[i], ramp[i + 1] - MT_OBST_RAMP_SLOPE * ds[i + 1]);
     const corr = ramp.slice();
     mtBoxSmooth(ramp, half, (i, v) => { corr[i] = Math.max(v, need[i]); });
     for (let i = 1; i < n - 1; i++) pts[i].z += sign * corr[i];
@@ -629,7 +684,7 @@ function mtClampIntoCytoplasm(cell, p, geom, pt, knownInside = false) {
 // from the start (mtPickEnd), and a free correlated-random-walk path in XY
 // (real loops/U-bends allowed) between them, corrected to land exactly on both
 // endpoints. z comes from the fraction-of-local-ceiling model (see the
-// per-point loop below), kept over or under the nucleus by mtNucleusEnvelope,
+// per-point loop below), kept over or under obstacles by mtObstacleEnvelope,
 // and the whole path is then clamped to stay inside the cell's own cytoplasm
 // volume throughout. `resampleRound` (0 = first attempt) reseeds the whole
 // draw sequence when the collision pass below needs to regenerate this
@@ -845,31 +900,12 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const smoothWinPts = Math.max(0, Math.round(p.mtSmoothLen / stepLen));
   if (smoothWinPts > 0) mtBoxSmooth(pts.map(pt => pt.z), Math.max(1, Math.round(smoothWinPts / 2)), (i, v) => { pts[i].z = v; });
 
-  // Over or under the nucleus: wherever (x, y) is over the nucleus footprint, z must clear its column (top +
+  // Over or under the obstacles (the nucleus): wherever (x, y) is over one, z must clear its column (top +
   // clearance when going over, bottom - clearance when going under), and everywhere z stays under the cytoplasm
-  // ceiling. One side per path, from where it starts (above or below the nucleus's widest section), so it never
-  // flip-flops. mtNucleusEnvelope lifts/lowers z by a smooth ramp, so a path climbs over the nucleus well before
-  // the rim instead of being pushed up point by point at it.
-  const nucBottomZ = cell.nucZ - cell.nucDown;   // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
-  const nucClearance = mtNucleusClearance(p);
-  const goOverNucleus = nucBottomZ - nucClearance <= 0 || pts[0].z >= cell.nucZ;
-  // The clearance fades in over the first MT_NUC_CLEAR_RAMP_UM (xy arc): a start next to the nucleus (closer than
-  // the clearance) leaves it gradually instead of jumping to the full clearance at the first step.
-  const lo = new Array(steps + 1).fill(-Infinity), hi = new Array(steps + 1);
-  let arc = 0;
-  for (let i = 0; i <= steps; i++) {
-    if (i > 0) arc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    hi[i] = ceil[i] * MT_CONTAIN_MARGIN;
-    const col = nucleusColumnLocal(cell, pts[i].x, pts[i].y);
-    if (!col) continue;
-    const clr = nucClearance * Math.min(1, arc / MT_NUC_CLEAR_RAMP_UM);
-    if (goOverNucleus) lo[i] = Math.min(hi[i], cell.nucZ + col[1] + clr);
-    else {
-      const bottom = cell.nucZ - col[0];
-      hi[i] = Math.min(hi[i], bottom - Math.min(clr, 0.5 * bottom));
-    }
-  }
-  mtNucleusEnvelope(pts, lo, hi, Math.max(1, Math.round(0.5 * p.mtSmoothLen / stepLen)));
+  // ceiling (mtObstacleBounds). mtObstacleEnvelope lifts/lowers z by a smooth ramp, so a path climbs over the
+  // nucleus well before the rim instead of being pushed up point by point at it.
+  const { lo, hi } = mtObstacleBounds(pts, ceil, mtObstacles(cell, p));
+  mtObstacleEnvelope(pts, lo, hi, Math.max(1, Math.round(0.5 * p.mtSmoothLen / stepLen)));
 
   // Truncate at the cell's own OUTER EDGE rather than clamp-and-continue past
   // it. The free walk above has genuine excursions beyond the footprint
