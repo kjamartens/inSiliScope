@@ -159,6 +159,37 @@ const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldMilliActivationRatePerDyePerSec",
    "SimType_CellFieldZRangeUm",
    "SimType_CellFieldLabelingPctNonBleaching",
+   "SimType_CellFieldNucBaseMinUm",
+   "SimType_CellFieldNucBaseMaxUm",
+   "SimType_CellFieldNucIrregMin",
+   "SimType_CellFieldNucIrregMax",
+   "SimType_CellFieldNucBendMin",
+   "SimType_CellFieldNucBendMax",
+   "SimType_CellFieldNucSmooth",
+   "SimType_CellFieldNucThickIrreg",
+   "SimType_CellFieldNucAsym",
+   "SimType_CellFieldNucWidestMin",
+   "SimType_CellFieldNucWidestMax",
+   "SimType_CellFieldMicrotubuleStartDecayPct",
+   "SimType_CellFieldMicrotubuleEndDecayPct",
+   "SimType_CellFieldMicrotubuleDirKappa",
+};
+const char* g_CellFieldCoreParam[CF_COUNT] = {
+   nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+   "nucBaseMin",
+   "nucBaseMax",
+   "nucIrregMin",
+   "nucIrregMax",
+   "nucBendMin",
+   "nucBendMax",
+   "nucSmooth",
+   "nucThickIrreg",
+   "nucAsym",
+   "nucWidestMin",
+   "nucWidestMax",
+   "mtStartDecayPct",
+   "mtEndDecayPct",
+   "mtDirKappa",
 };
 const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
@@ -212,8 +243,9 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    // at 0.01/s at t = 0, but constant (persistent sites never run out);
    // a 7 um z slab around the focal plane (0 = every dye, no z limit), and no
    // focus offset: ZStage = 0 puts the coverslip in focus (the ZStage starts
-   // at 0.5 um).
-   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0 };
+   // at 0.5 um). Then the nucleus shape and microtubule start/end: the core's defaults (core/src/params.h).
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0,
+      0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
    // WideField: grid 1 cell/pixel, 25 nm dye planes; 4e8 photons/um^2/s
@@ -642,10 +674,13 @@ int CInSiliScopeCamera::Initialize()
    SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
 
    // CellField pattern (spec/PORT.md 9). The rest of the world's parameters
-   // stay at the prototype defaults until someone needs them.
+   // stay at the prototype defaults until someone needs them. A min above its
+   // max acts as the min (the core's NormalizeParams).
    {
-      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.0, -10.0, 0.0, 0.0, 0.0 };
-      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 1000.0, 50.0, 100.0 };
+      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.0, -10.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0 };
+      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 1000.0, 50.0, 100.0,
+         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0 };
       for (long i = 0; i < CF_COUNT; ++i)
       {
          CreateFloatProperty(g_PropCellFieldNumber[i], cellField_[i].load(), false,

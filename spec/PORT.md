@@ -554,8 +554,10 @@ The nucleus is a shaped ellipsoid (spec/ALGORITHM.md "Nucleus shape"; `core/src/
 slices, pts, out, cap)` returns its drawing rings (horizontal sections, both poles included, cell-local xyz) for the
 viewer's `cell` job, which draws them instead of its ellipsoid (the pack record keeps the plain ellipsoid's numbers for
 the fallback). `isc_optical_volume_in_window` takes the asymmetric nucleus chord. `ISC_WORLD_VERSION` 2026-10-05.
-No new MM properties: the CellField bridge exposes a handful of world parameters (section 9) and the nucleus shape is
-not among them; the cli/viewer set every core parameter by name (`p.nucIrregMin=...`).
+MM properties (one indexed handler, `g_CellFieldCoreParam` names the core parameter each sets):
+`SimType_CellFieldNucBaseMinUm/MaxUm`, `NucIrregMin/Max`, `NucBendMin/Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`,
+`NucWidestMin/Max`, `MicrotubuleStartDecayPct`, `MicrotubuleEndDecayPct`, `MicrotubuleDirKappa` (the core's defaults,
+the viewer's slider ranges). The cli/viewer set every core parameter by name (`p.nucIrregMin=...`).
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 

@@ -257,6 +257,8 @@ sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
       {"labelNonBleaching", cellField_[CF_LABELING_PCT_NONBLEACHING].load() / 100.0},
       {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
    };
+   for (int i = 0; i < CF_COUNT; ++i)
+      if (g_CellFieldCoreParam[i]) s.params.push_back({g_CellFieldCoreParam[i], cellField_[i].load()});
    s.activationRatePerSec = cellField_[CF_MILLI_ACTIVATION_RATE].load() / 1000.0; // property in 1e-3/s
    s.onSec = std::max(1e-6, onLifetimeSec_.load());
    s.offSec = std::max(0.0, offLifetimeSec_.load());
@@ -1361,13 +1363,15 @@ void CInSiliScopeCamera::LiveProducerLoop()
    };
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics). Called by the producer, or by wfFinisher (one at a time).
-   auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex) {
+   auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
+                         long config) {
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
          liveFrameW_ = fw;
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
+         liveFrameConfig_ = config;
       }
       liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
       MM::MMTime publishTime = GetCurrentMMTime();
@@ -1773,7 +1777,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          const long frameIndex = liveFrameCounter_.load(std::memory_order_relaxed);
          const sim::CameraNoiseParams camNow = params.Camera();
          wfFinisher = std::thread([this, &publish, &offsetMap, &gainMap, &readNoiseMap, dyes = std::move(dyes), extras,
-                                   params, w, h, camNow, liveNoiseSeed, noiseFrame, frameEpoch, frameIndex]() {
+                                   params, w, h, camNow, liveNoiseSeed, noiseFrame, frameEpoch, frameIndex,
+                                   currentConfigVersion]() {
             std::vector<float> img;
             const std::vector<sim::BlinkEvent> none;
             sim::RenderPhotonImage(img, w, h, none, frameIndex, params.pixelSizeNm, params.psfSigmaPx,
@@ -1783,7 +1788,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                img[i] += dyes[i];
             std::vector<uint16_t> frame;
             sim::ApplyNoiseChain(img, frame, w, h, camNow, offsetMap, gainMap, readNoiseMap, liveNoiseSeed, noiseFrame);
-            publish(frame, w, h, frameEpoch, frameIndex);
+            publish(frame, w, h, frameEpoch, frameIndex, currentConfigVersion);
          });
          rendered = true;
          publishedAsync = true;
@@ -1837,7 +1842,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       {
          if (wfFinisher.joinable())
             wfFinisher.join(); // keep the publication order
-         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed));
+         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion);
       }
 
       ++liveFrameCounter_;
@@ -1903,6 +1908,9 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       std::vector<uint16_t> frameCopy;
       unsigned w, h;
       long seq;
+      // Only frames rendered with the settings of this moment: one already in
+      // flight when a property changed would show the old settings.
+      const long configNow = liveConfigVersion_.load(std::memory_order_relaxed);
       for (;;)
       {
          {
@@ -1910,7 +1918,8 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             seq = liveFrameSeq_.load(std::memory_order_relaxed);
             // A z-sequence acquisition takes only frames rendered after it
             // started (their focus is the sequence's).
-            const bool stale = interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load();
+            const bool stale = (interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load()) ||
+                               liveFrameConfig_ < configNow;
             if (stale && seq != lastConsumedLiveFrameSeq_)
                lastConsumedLiveFrameSeq_ = seq;
             else if (seq != lastConsumedLiveFrameSeq_)

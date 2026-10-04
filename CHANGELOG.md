@@ -11,8 +11,11 @@ Versions follow semver; while 0.x, any release may change output for a given see
   near the nucleus and end near the edge, sampled by distance (`mtStartDecayPct`, `mtEndDecayPct`) with the end picked
   by direction (`mtDirKappa`; replace `mtStartFracMin/Max`, `mtStartOffsetXY`, `mtEndFracMin/Max`, `mtEndJitterDeg`),
   and ride over or under the nucleus on a smooth envelope. **Core ABI 9** `isc_cell_nucleus_rings`; the optical
-  volume (BrightField) follows the shaped nucleus. Viewer: the nucleus drawn from the core's rings, an x-z side view
+  volume (BrightField) follows the shaped nucleus. MM properties `SimType_CellFieldNuc*` (11) and
+  `SimType_CellFieldMicrotubule{StartDecayPct,EndDecayPct,DirKappa}`. Viewer: the nucleus drawn from the core's rings, an x-z side view
   (on by default), the Focus style by default.
+- Adapter live mode: a frame taken after a property change no longer can be one still rendered with the old settings
+  (frames carry the configuration they were rendered with; same idea as the z-sequence epoch), 2026-10-05.
 - **seed** BrightField defaults (2026-10-05): lamp 80000 photons/px/s (was 40000), condenser NA 0.4 (was 0.55),
   cytoplasm and nucleus index 1.35 (were 1.345).
 - Performance pass (2026-10-03/04), every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`,

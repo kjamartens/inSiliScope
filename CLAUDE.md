@@ -234,7 +234,7 @@ index-space smoothing left folds). Cli/viewer: `p.cellRough`, `p.cellFractalDim`
 the nucleus top + `nucMargin` (`cellHeight*` and hash channel 6 are gone). Microtubules start/end by distance-weighted
 rejection sampling (`mtStartDecayPct`, `mtEndDecayPct`, `mtDirKappa`) and ride over/under the nucleus on a smooth
 envelope (generic obstacle interface). Core ABI 9 `isc_cell_nucleus_rings` (viewer drawing); `ISC_WORLD_VERSION`
-2026-10-05.
+2026-10-05. MM: `SimType_CellFieldNuc*` and `SimType_CellFieldMicrotubule{Start,End}DecayPct`/`DirKappa` (core defaults).
 
 **PSF in the cli/viewer (2026-10-01):** `ScopeMovie` uses the adapter's default `GibsonLanniZernike` (C++,
 `Simulation/ZernikePsf.*`, same kernel cache and render calls as the adapter) for SR and WideField; options
@@ -340,7 +340,10 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   `ResolutionSpacingsNm`, `StructureZRangeNm`, `StructureSizeNm`, all
   `Nup*`, and the `CellField*` properties of the `CellField` pattern, including
   the specimen's BrightField optics `CellFieldIndexMedium`/`IndexCytoplasm`/
-  `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`), plus
+  `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`, the nucleus shape
+  `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
+  `NucThickIrreg`/`NucAsym`/`NucWidestMin`/`Max` and the microtubule ends
+  `CellFieldMicrotubuleStartDecayPct`/`EndDecayPct`/`DirKappa`), plus
   `DriftNmPerSec` and `RandomSeed`.
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
   `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,

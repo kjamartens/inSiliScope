@@ -26,6 +26,9 @@ cytoplasm: its bottom is `nucBaseMin`-`nucBaseMax` (0.4-0.9 um) above the covers
 nucleus top plus the margin (`nucMargin`, 0.5 um). A lateral envelopment step keeps the whole footprint inside the cell
 outline with that margin.
 
+In Micro-Manager these are the `SimType_CellFieldNuc*` properties (`NucBaseMinUm`/`MaxUm`, `NucIrregMin`/`Max`,
+`NucBendMin`/`Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`, `NucWidestMin`/`Max`); in the cli and viewer, `p.<name>`.
+
 ## Cytoplasm
 
 A height field over the cell footprint: dome over the nucleus (slope capped, `cytoDomeSlope`), a saturating rise from the
@@ -47,6 +50,7 @@ Each microtubule is a 3D path from near the nucleus to near the cell edge:
    distance to the outline (`mtEndDecayPct`, 20 %, ~6 um); one is picked with weight \(e^{\kappa(\cos a - 1)}\), \(a\) the
    angle between start-to-end and the outward direction at the start (`mtDirKappa`, 1.5; 0 = any direction, so paths
    also cross over or under the nucleus).
+   Micro-Manager: `SimType_CellFieldMicrotubuleStartDecayPct`, `...EndDecayPct`, `...DirKappa`.
 3. **Path**: a correlated random walk in \(xy\) with a bounded turn radius, forced onto both endpoints with a
    Brownian-bridge drift correction. The persistence length is shared between the heading walk and \(z\), implemented so that
    the correlation length is fixed in real um regardless of step length (a discretised Ornstein-Uhlenbeck process in arc length;
