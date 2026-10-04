@@ -138,16 +138,11 @@ const MT_MAX_PER_CELL = 5000;
 // floating-point rounding).
 const MT_CONTAIN_MARGIN = 0.98;
 
-// How far beyond the nucleus's own lateral (equatorial) footprint the
-// "must clear the nucleus vertically" rule (see mtNucleusFootprintBlend,
-// used by mtGenerateOne below) ramps back down to 0 -- expressed as a
-// fraction of the nucleus's own equatorial radius in that direction, so it
-// scales with nucleus size rather than being a fixed um value. Wide enough
-// for a smooth, visually continuous rise/fall as a path enters/leaves the
-// footprint (no visible kink at the exact ellipse boundary), narrow enough
-// that it only affects paths genuinely passing near the nucleus, not the
-// whole cell.
-const MT_NUCLEUS_CLEAR_BLEND = 0.4;
+// Slope of the ramp by which mtNucleusEnvelope lifts a path over (or lowers it under) the nucleus: z changes
+// at most this much per um moved in xy before the box smoothing rounds the ramp off.
+const MT_NUC_RAMP_SLOPE = 1;
+// Arc length (um, in xy) over which the nucleus clearance grows from 0 at the start to its full value.
+const MT_NUC_CLEAR_RAMP_UM = 1;
 
 // How much vertical clearance a microtubule keeps from the nucleus surface
 // while riding over/under it (see mtGenerateOne) -- half of the cell's own
@@ -163,49 +158,59 @@ const MT_NUCLEUS_CLEAR_BLEND = 0.4;
 // comment below for why this has to run on the FINAL rendered geometry, not
 // just the raw random walk that feeds it.
 
-// Slope limiter ceiling -- now the settable `p.mtMaxZSlope` ("Max height
-// slope (xxy)", slider 1-20 step 0.5, default 5, both wired in index.html): z may
+// Slope limiter ceiling -- the settable `p.mtMaxZSlope` ("Max height slope
+// (xxy)", slider 1-20 step 0.5, default 5, both wired in index.html): z may
 // change at most this many times the lateral distance moved between two
-// consecutive points. Used by TWO separate passes -- see each one's own
-// comment for why one alone isn't enough:
-//  1. The post-generation smoothing pass inside mtGenerateOne (below, `const
-//     maxDz = ... * stepLen`), which bounds dz against the path's own
-//     NOMINAL step length, not the REALIZED lateral distance actually moved
-//     -- deliberately, since a persistent random walk can double back to
-//     near-zero net lateral movement between two consecutive points, and
-//     bounding purely by realized distance there would mask a genuine height
-//     change rather than spread it out (see that pass's own comment).
-//  2. `mtLimitZSlopeRealized` (below), a FINAL safety net run once per path
-//     in buildMicrotubulesForCell, after collision resolution -- on the
-//     REALIZED lateral distance between the truly final points. Added
-//     because #1's own nominal-stepLen basis, plus points collision
-//     resolution (`mtNudgeRoundGrid`) moves AFTER #1 already ran with no
-//     slope recheck of its own, could still leave a real, reported "massive
-//     change in z in one or a few steps" on the rendered geometry -- exactly
-//     the ratio a viewer's own eye reads as "how steep is this segment", and
-//     the same ratio tools/check_cellfield_microtubules.mjs's own step-slope
-//     check measures.
+// consecutive points. `mtLimitZSlopeRealized` (below) enforces it once per
+// path in buildMicrotubulesForCell, after collision resolution, on the
+// REALIZED lateral distance between the final points -- the ratio a viewer's
+// own eye reads as "how steep is this segment", and the same ratio
+// tools/check_cellfield_microtubules.mjs's own step-slope check measures.
 
 function mtNucleusClearance(p) {
   return Math.max(0.05, 0.5 * p.nucMargin);
 }
 
-// 1 when (x,y) sits within the nucleus's own LATERAL (equatorial) elliptical
-// footprint -- ignoring z entirely, unlike mtClampIntoCytoplasm's full 3D
-// ellipsoid check -- ramping smoothly down to 0 by MT_NUCLEUS_CLEAR_BLEND
-// beyond its edge. Used to decide how strongly a path point's z should be
-// pulled toward clearing the nucleus vertically (mtGenerateOne) rather than
-// following the ordinary fraction-of-local-ceiling height model, which on
-// its own has no idea the nucleus sits in the way and would happily
-// interpolate straight through it.
-function mtNucleusFootprintBlend(cell, x, y) {
-  const dxN = x - cell.nucOffX, dyN = y - cell.nucOffY;
-  const cr = Math.cos(-cell.nucRot), sr = Math.sin(-cell.nucRot);
-  const lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-  const a = cell.nucLong / 2, b = cell.nucShort / 2;
-  const norm = cell.nucShaped ? nucBallLocal(cell, x, y).s : Math.hypot(lx / Math.max(1e-6, a), ly / Math.max(1e-6, b));
-  const t = Math.min(1, Math.max(0, (norm - 1) / MT_NUCLEUS_CLEAR_BLEND));
-  return smoothstep(1 - t);
+// Moving average over `vals` (window i-half..i+half, cut at the ends) of every interior point; set(i, mean)
+// receives the results (the endpoints are left alone). Prefix sums, in index order.
+function mtBoxSmooth(vals, half, set) {
+  const n = vals.length;
+  if (n < 3 || !(half > 0)) return;
+  const cum = new Array(n + 1);
+  cum[0] = 0;
+  for (let i = 0; i < n; i++) cum[i + 1] = cum[i] + vals[i];
+  for (let i = 1; i < n - 1; i++) {
+    const a = Math.max(0, i - half), b = Math.min(n - 1, i + half);
+    set(i, (cum[b + 1] - cum[a]) / (b - a + 1));
+  }
+}
+
+// Keeps a path's interior z within [lo[i], hi[i]] (the nucleus column it rides over or under, and the
+// cytoplasm ceiling) with smooth corrections instead of per-point clamps, which turned every rim crossing into
+// a kink. For each side: the shortfall need[i] is spread into a ramp of slope MT_NUC_RAMP_SLOPE per um in xy
+// (forward and backward running maxima: the smallest correction >= need that changes no faster than the
+// ramp), box-smoothed over `half` points to round its corners, then raised back to need where the smoothing
+// cut a peak. Lift first (lo), then lower (hi). Endpoints never move.
+function mtNucleusEnvelope(pts, lo, hi, half) {
+  const n = pts.length;
+  if (n < 3) return;
+  const ds = new Array(n).fill(0);
+  for (let i = 1; i < n; i++) ds[i] = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const need = new Array(n), ramp = new Array(n);
+  for (const sign of [1, -1]) {
+    let any = false;
+    for (let i = 0; i < n; i++) {
+      need[i] = i === 0 || i === n - 1 ? 0 : Math.max(0, sign > 0 ? lo[i] - pts[i].z : pts[i].z - hi[i]);
+      if (need[i] > 0) any = true;
+    }
+    if (!any) continue;
+    ramp[0] = need[0];
+    for (let i = 1; i < n; i++) ramp[i] = Math.max(need[i], ramp[i - 1] - MT_NUC_RAMP_SLOPE * ds[i]);
+    for (let i = n - 2; i >= 0; i--) ramp[i] = Math.max(ramp[i], ramp[i + 1] - MT_NUC_RAMP_SLOPE * ds[i + 1]);
+    const corr = ramp.slice();
+    mtBoxSmooth(ramp, half, (i, v) => { corr[i] = Math.max(v, need[i]); });
+    for (let i = 1; i < n - 1; i++) pts[i].z += sign * corr[i];
+  }
 }
 
 // Post-process curvature limiter, run on the FINAL rendered (x,y) of a
@@ -325,21 +330,15 @@ function mtTrimSteepEnds(pts, maxSlope) {
   }
 }
 
-// Final safety-net slope limiter -- see MT_MAX_Z_SLOPE's own comment above
-// for why this is a SEPARATE pass from mtGenerateOne's own nominal-stepLen
-// version, not a duplicate: this one runs ONCE PER PATH in
+// Final slope limiter (see mtMaxZSlope above): runs ONCE PER PATH in
 // buildMicrotubulesForCell, AFTER collision resolution has finished moving
 // points around, and measures the ratio against the REALIZED lateral
-// distance between the truly final pair of points -- catching whatever a
-// post-generation nudge (or a doubled-back realized step the nominal check's
-// own stepLen basis was never meant to police) leaves behind. Same
-// alternating-sweep relaxation idiom as the nominal-stepLen version (a
+// distance between the final pair of points. Alternating-sweep relaxation (a
 // violation can span several points; each pass propagates the correction one
-// step further). Endpoints (i=0/i=n-1) are never moved -- same reasoning as
-// every other postprocess pass in this file: their z is a deliberate,
-// meaningful value (nucleus-surface start, independently-drawn end). See
-// `mtTrimSteepEnds` above for the complementary fix when the endpoint ITSELF
-// is the unfixable offender, which must run first.
+// step further). Endpoints (i=0/i=n-1) are never moved -- their z is a
+// deliberate value (the sampled start and end). See `mtTrimSteepEnds` above
+// for the complementary fix when the endpoint ITSELF is the unfixable
+// offender, which must run first.
 // `maxSlope<=0` (not reachable via the slider, whose minimum is 1, but kept
 // as a safe no-op for a directly-scripted config) skips this entirely.
 function mtLimitZSlopeRealized(pts, maxSlope) {
@@ -355,10 +354,9 @@ function mtLimitZSlopeRealized(pts, maxSlope) {
       const dNxt = Math.hypot(nxt.x - cur.x, nxt.y - cur.y) * maxSlope;
       const lo = Math.max(prev.z - dPrev, nxt.z - dNxt);
       const hi = Math.min(prev.z + dPrev, nxt.z + dNxt);
-      // Same "leave it, containment clamp still guards it" reasoning as the
-      // nominal-stepLen pass's own lo>hi case: the two neighbours are
-      // themselves too far apart in z for any single value to satisfy both
-      // slope budgets against their OWN realized distances at once.
+      // lo>hi: the two neighbours are themselves too far apart in z for any
+      // single value to satisfy both slope budgets at once -- left alone (the
+      // containment clamp still guards it).
       if (lo > hi) continue;
       if (cur.z < lo) { cur.z = lo; changed = true; }
       else if (cur.z > hi) { cur.z = hi; changed = true; }
@@ -858,181 +856,52 @@ function mtGenerateOne(seed, cx, cy, mtIndex, resampleRound, cell, p, geom) {
   const fracNoiseInnovScale = Math.sqrt(Math.max(0, 1 - fracNoiseDecay * fracNoiseDecay));
   let fracNoise = 0;
 
-  // Over/under-the-nucleus crossings: the fraction-of-local-ceiling model
-  // above has no idea the nucleus sits in the way -- left alone, a path
-  // whose (x,y) happens to swing over the nucleus footprint (more likely the
-  // wider End direction jitter/Wobble settings are pushed, since those are
-  // what let an end azimuth land on a genuinely different side of the
-  // nucleus than the start) would just interpolate straight through empty
-  // fraction-space with no awareness it's passing over solid nucleus volume
-  // -- a real, reported gap ("basically no microtubules cross over/under the
-  // nucleus"). `goOverNucleus` commits to ONE side for the whole path (not
-  // drawn per point) so it doesn't flip-flop -- but it is tied to `cosPsi`
-  // (the START point's own hemisphere on the nucleus ellipsoid, drawn
-  // above), NOT an independent coin flip. An independent flip was a real,
-  // reported bug: the start point sits ON the nucleus surface, so it's
-  // still deep inside the blend zone at the very next (i=1) point -- if the
-  // flip disagreed with which hemisphere the start actually landed on (e.g.
-  // start drawn near the nucleus's underside but the flip said "go over"),
-  // the override forced an enormous, instantaneous jump right at the
-  // beginning of the path (an "incredibly sudden, fully vertical drop/rise")
-  // to reconcile the two. Matching the flip to cosPsi's own sign means the
-  // override's very first application already agrees with where the path
-  // actually starts. `canGoUnder` requires real clearance beneath the
-  // nucleus (basal side) before that option is even offered, overriding a
-  // below-the-equator start if there's nowhere to go.
-  const nucTopZ = cell.nucZ + cell.nucUp;         // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
-  const nucBottomZ = cell.nucZ - cell.nucDown;
-  const nucClearance = mtNucleusClearance(p);
-  const canGoUnder = nucBottomZ - nucClearance > 0;
-  const goOverNucleus = !canGoUnder || cosPsi >= 0;
-
-  // The target is a FLOOR (over) / CEILING (under) applied to zNormal, not an
-  // independent absolute height -- a real, reported bug in an earlier
-  // version blended toward a FIXED value (nucTopZ+clearance regardless of
-  // what zNormal happened to be nearby), so once a path left the blend zone
-  // it had to snap from that fixed value back to whatever zNormal
-  // independently was there -- often very different, since zNormal only
-  // depends on the frac interpolation, not on distance from the nucleus, and
-  // can be small even where the ceiling is still tall right next to the
-  // nucleus. Squeezed into the blend zone's short lateral width, that
-  // mismatch showed up as an "incredibly sudden, fully vertical drop."
-  // Anchoring to zNormal instead means the target EQUALS zNormal whenever
-  // zNormal already clears the nucleus (no intervention, no mismatch to snap
-  // back from) and only pulls it toward the clearance boundary when it
-  // doesn't -- continuous by construction at the point intervention
-  // starts/stops.
-  function applyNucleusOverride(x, y, zNormal, ceilH) {
-    const blend = mtNucleusFootprintBlend(cell, x, y);
-    if (blend <= 0) return zNormal;
-    const target = goOverNucleus
-      ? Math.max(zNormal, Math.min(ceilH, nucTopZ + nucClearance))
-      : Math.min(zNormal, Math.max(0, nucBottomZ - nucClearance));
-    return lerp(zNormal, target, blend);
-  }
-
+  // z without the nucleus: the fraction profile (start and end fractions, the noise above), then box-smoothed
+  // (window from Path smoothing, in points of this path's own stepLen; endpoints kept).
   const pts = new Array(steps + 1);
+  const ceil = new Array(steps + 1);
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const s = t * t * (3 - 2 * t); // smoothstep
     const x = ptsXY[i].x, y = ptsXY[i].y;
-    const ceilH = Math.max(0, sampleCytoMeshHeight(cell, p, x, y));
-    let z;
-    if (i === 0) {
-      // The START point is deliberately excluded from the override -- its z
-      // already comes from a specific, meaningful construction (a genuine
-      // point on the nucleus ellipsoid's own surface, uniform-on-sphere) that
-      // this shouldn't second-guess; applying a floor/ceiling here would
-      // pull every "over" start up toward the pole regardless of where psi
-      // actually placed it, reintroducing the equatorial-clustering bug that
-      // construction exists to avoid (see its own comment above).
-      z = fracStart * ceilH;
-    } else if (i === steps) {
-      // The END point, unlike the start, has NO structural tie to the
-      // nucleus -- fracEnd is a free, independent draw -- so there is
-      // nothing meaningful about it this override could second-guess. A
-      // real, reported bug: leaving it out entirely meant that whenever the
-      // path was STILL inside the blend zone right up to the last point
-      // (the second-to-last point correctly pulled up/down to clear the
-      // nucleus), the true end simply reverted to its own unrelated
-      // fracEnd*ceilH with no continuity at all -- the same class of "sudden
-      // vertical drop" as the start-point bug, just at the finish instead of
-      // the beginning. Routing it through the same override fixes that.
-      z = applyNucleusOverride(x, y, fracEnd * ceilH, ceilH);
-    } else {
+    ceil[i] = Math.max(0, sampleCytoMeshHeight(cell, p, x, y));
+    let frac;
+    if (i === 0) frac = fracStart;
+    else if (i === steps) frac = fracEnd;
+    else {
       fracNoise = fracNoiseDecay * fracNoise + fracNoiseAmp * fracNoiseInnovScale * (next() * 2 - 1);
-      const frac = Math.min(1, Math.max(0, lerp(fracStart, fracEnd, s) + fracNoise * Math.sin(Math.PI * t)));
-      z = applyNucleusOverride(x, y, frac * ceilH, ceilH);
+      frac = Math.min(1, Math.max(0, lerp(fracStart, fracEnd, s) + fracNoise * Math.sin(Math.PI * t)));
     }
-    pts[i] = { x, y, z };
+    pts[i] = { x, y, z: frac * ceil[i] };
   }
-
-  // Explicit z smoothing (postprocess, on top of the OU reparametrization
-  // above) -- a real, separate finding: the OU process keeps fracNoise's
-  // STATIONARY amplitude constant regardless of corrLen (Path smoothing),
-  // shaping only its FREQUENCY, and its own per-step innovation scale
-  // (`fracNoiseInnovScale = sqrt(1-decay^2)`, decay=exp(-stepLen/corrLen))
-  // only shrinks as sqrt(stepLen/corrLen) as corrLen grows past stepLen --
-  // a SLOW rate. At a small Step length (0.1 um by default) this stays
-  // substantial (~26% of the full noise amplitude still injected FRESH
-  // every single step) even at the slider's own maximum, since reducing it
-  // to, say, 5% would need corrLen roughly 800x stepLen -- far outside any
-  // practical slider range. A real, reported "even with very high Path
-  // smoothing there is a lot of small jitter" confirmed this directly
-  // (measured: z's own local curvature only dropped from a comparable
-  // frac-noise-driven contribution, not toward zero, as Path smoothing was
-  // pushed to its max). This is NOT the same bug the OU reparametrization
-  // fixed (that one was an ASYMMETRY -- z decorrelating faster than xy at a
-  // smaller Step length -- not present-but-too-weak smoothing at any Step
-  // length) so it needed a separate fix: a plain box-filter moving average
-  // directly over z, window size in POINTS derived from the same Path
-  // smoothing slider and this path's own stepLen (so it stays a real-um
-  // window regardless of Step length, same reasoning as everywhere else in
-  // this file), endpoints excluded. This directly suppresses whatever
-  // high-frequency content survives the OU process's own frequency-shaping,
-  // regardless of how small Step length is set -- complementary to, not a
-  // replacement for, the OU fix (which is still what keeps z from getting
-  // WORSE at a smaller Step length in the first place).
   const smoothWinPts = Math.max(0, Math.round(p.mtSmoothLen / stepLen));
-  if (smoothWinPts > 0) {
-    const zOrig = pts.map(pt => pt.z);
-    const half = Math.max(1, Math.round(smoothWinPts / 2));
-    for (let i = 1; i < pts.length - 1; i++) {
-      const lo = Math.max(0, i - half), hi = Math.min(pts.length - 1, i + half);
-      let sum = 0, n = 0;
-      for (let j = lo; j <= hi; j++) { sum += zOrig[j]; n++; }
-      pts[i].z = sum / n;
-    }
-  }
+  if (smoothWinPts > 0) mtBoxSmooth(pts.map(pt => pt.z), Math.max(1, Math.round(smoothWinPts / 2)), (i, v) => { pts[i].z = v; });
 
-  // Slope limiter (postprocess, on top of the anchored floor/ceiling above):
-  // even anchored to zNormal, a microtubule whose free wobble happens to
-  // swing back near the nucleus at a point where the surrounding
-  // fraction-based height is naturally low still needs a genuinely large z
-  // change concentrated in the short lateral distance the blend zone spans
-  // to clear the nucleus in time -- still a real, visible "sudden, near-
-  // vertical drop" even though the anchor fix above removed the WORSE
-  // fixed-target mismatch case. A few iterative smoothing passes (same
-  // "relax toward neighbours" idiom as mtNudgeRoundGrid's own collision
-  // resolution elsewhere in this file) cap z's rate of change per step,
-  // pulling an over-steep interior point toward whatever range both its
-  // neighbours' own slope budgets allow, rather than leaving one segment to
-  // absorb an entire height change alone. Endpoints (i=0/i=steps) are
-  // excluded, same reasoning as the override above -- their z is a
-  // deliberate, meaningful value this shouldn't second-guess.
-  //
-  // Uses the microtubule's own NOMINAL per-step distance (stepLen), not the
-  // REALIZED lateral distance between each specific pair of points, as the
-  // reference -- a persistent random walk with real turning can occasionally
-  // double back enough that two consecutive points land almost on top of
-  // each other in xy (realized lateral distance near 0), and bounding z
-  // purely by THAT distance would then force z arbitrarily close to its
-  // neighbours too, masking a genuine height change rather than smoothing it
-  // out over a few more steps. stepLen is fixed for the whole path, so this
-  // is a per-step budget, not a per-realized-distance one. Sweeps back and
-  // forth (alternating direction each pass, the standard way to propagate a
-  // 1D range constraint faster than always scanning the same direction) so a
-  // violation spanning several points converges in a handful of passes
-  // rather than needing one pass per point.
-  const maxDz = Math.max(1, p.mtMaxZSlope) * stepLen;
-  for (let pass = 0; pass < 20; pass++) {
-    let changed = false;
-    const forward = pass % 2 === 0;
-    for (let k = 1; k < pts.length - 1; k++) {
-      const i = forward ? k : pts.length - 1 - k;
-      const prev = pts[i - 1], cur = pts[i], nxt = pts[i + 1];
-      const lo = Math.max(prev.z - maxDz, nxt.z - maxDz);
-      const hi = Math.min(prev.z + maxDz, nxt.z + maxDz);
-      // lo>hi means the two neighbours are themselves too far apart in z for
-      // ANY single value to satisfy both slope budgets at once -- left alone
-      // rather than force an arbitrary compromise; the containment clamp
-      // below still keeps whatever value remains valid regardless.
-      if (lo > hi) continue;
-      if (cur.z < lo) { cur.z = lo; changed = true; }
-      else if (cur.z > hi) { cur.z = hi; changed = true; }
+  // Over or under the nucleus: wherever (x, y) is over the nucleus footprint, z must clear its column (top +
+  // clearance when going over, bottom - clearance when going under), and everywhere z stays under the cytoplasm
+  // ceiling. One side per path, from where it starts (above or below the nucleus's widest section), so it never
+  // flip-flops. mtNucleusEnvelope lifts/lowers z by a smooth ramp, so a path climbs over the nucleus well before
+  // the rim instead of being pushed up point by point at it.
+  const nucBottomZ = cell.nucZ - cell.nucDown;   // nucUp/nucDown: nucHeight/2, or the shaped nucleus's extents
+  const nucClearance = mtNucleusClearance(p);
+  const goOverNucleus = nucBottomZ - nucClearance <= 0 || pts[0].z >= cell.nucZ;
+  // The clearance fades in over the first MT_NUC_CLEAR_RAMP_UM (xy arc): a start next to the nucleus (closer than
+  // the clearance) leaves it gradually instead of jumping to the full clearance at the first step.
+  const lo = new Array(steps + 1).fill(-Infinity), hi = new Array(steps + 1);
+  let arc = 0;
+  for (let i = 0; i <= steps; i++) {
+    if (i > 0) arc += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    hi[i] = ceil[i] * MT_CONTAIN_MARGIN;
+    const col = nucleusColumnLocal(cell, pts[i].x, pts[i].y);
+    if (!col) continue;
+    const clr = nucClearance * Math.min(1, arc / MT_NUC_CLEAR_RAMP_UM);
+    if (goOverNucleus) lo[i] = Math.min(hi[i], cell.nucZ + col[1] + clr);
+    else {
+      const bottom = cell.nucZ - col[0];
+      hi[i] = Math.min(hi[i], bottom - Math.min(clr, 0.5 * bottom));
     }
-    if (!changed) break;
   }
+  mtNucleusEnvelope(pts, lo, hi, Math.max(1, Math.round(0.5 * p.mtSmoothLen / stepLen)));
 
   // Truncate at the cell's own OUTER EDGE rather than clamp-and-continue past
   // it. The free walk above has genuine excursions beyond the footprint

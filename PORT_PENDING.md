@@ -107,6 +107,25 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   nucleus is enveloped laterally and vertically, no microtubule point lies inside it, and the cytoplasm stays
   at least 0.9 x margin above its top (measured minimum gap at the defaults 0.52 um, margin 0.5: grid rounding).
 
+## Microtubules near the nucleus (`microtubules.js`)
+
+Paths were jagged where they met the nucleus: z followed the fraction-of-ceiling profile, was pulled toward
+"clear the nucleus" by a footprint blend (`mtNucleusFootprintBlend`, `MT_NUCLEUS_CLEAR_BLEND`, removed), then capped
+per point by a nominal-step slope limiter (removed) and clamped per point.
+
+- **z of a path** (`mtGenerateOne`): the fraction profile with its noise as before, box-smoothed (`mtBoxSmooth`,
+  prefix sums, window `round(mtSmoothLen / stepLen)` halved, endpoints kept), then `mtNucleusEnvelope`.
+- **Bounds:** `hi[i]` = ceiling x `MT_CONTAIN_MARGIN` everywhere. Where `nucleusColumnLocal` has a column:
+  - going over: `lo[i] = min(hi[i], nucZ + above + clr)`;
+  - going under: `hi[i] = min(hi[i], bottom - min(clr, bottom / 2))`, `bottom = nucZ - below`.
+
+  `clr` = `mtNucleusClearance` x `min(1, arc / MT_NUC_CLEAR_RAMP_UM)` (1 um, xy arc from the start). The path goes
+  over when `bottom of the nucleus - full clearance <= 0` or its start z >= `nucZ`.
+- **`mtNucleusEnvelope(pts, lo, hi, half)`**, `half = max(1, round(mtSmoothLen / 2 / stepLen))`: lift, then lower.
+  For each: `need[i] = max(0, lo[i] - z[i])` (or `z[i] - hi[i]`), 0 at the endpoints; `ramp` = forward then
+  backward running max of `need` minus `MT_NUC_RAMP_SLOPE` (1) x xy step length; box-smooth `ramp` (interior),
+  `corr[i] = max(smoothed, need[i])` (endpoints: `ramp`); `z[i] += corr[i]` (or `-=`) for interior points only.
+
 ## Outside the prototype (JS only)
 
 - `web/index.html` (the viewer):
