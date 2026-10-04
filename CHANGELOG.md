@@ -21,6 +21,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   tooling: `ISC_TIMING=1` prints a movie's phase times, `sr_render_check --bench`, `isc_core_bench` and
   `tools/bench_core.mjs` (per-phase core timing, native and WASM), `tools/bench.py` gained 1000-frame SR, 200-frame WF
   and BrightField configs.
+- Viewer: the cells of a new seed (or new cell parameters) are packed one block per job on every worker instead of the
+  whole window on one, nearest the view first, and drawn as the blocks arrive (2026-10-04).
 - Viewer drawing (2026-10-04): microtubule paths are built once per tilt/rotation/detail level and reused across
   zooms, the painter's order of the cytoplasm quads is a comparator-free typed sort, the dyes are one path and one
   fill. Same picture, smoother panning and zooming.

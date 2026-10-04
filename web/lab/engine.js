@@ -90,6 +90,12 @@ export async function createEngine(src = {}) {
     handle(d) {
       if (d.type === 'movie') return movie(d);
       const w = useWorld(d.seed, d.p);
+      if (d.type === 'block') {
+        inject(w, d.blocks);
+        const cells = w.packedBlock(d.bx, d.by), rows = new Float64Array(cells.length * 14);
+        cells.forEach((c, i) => rows.set(row(c), i * 14));
+        return [{ type: 'block', id: d.id, key: d.key, bx: d.bx, by: d.by, rows, version: WORLD_VERSION }, [rows.buffer]];
+      }
       if (d.type === 'pack') {
         inject(w, d.blocks);   // blocks the page remembered (its local storage), if any
         const [x0, y0, x1, y1] = d.rect;

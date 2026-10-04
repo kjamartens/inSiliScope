@@ -28,7 +28,7 @@ Upcoming ideas:
   [x] parallel BF setup, [x] JS prototype and imaging-reference refactors, [x] build flags (Release default, LTO,
   core SIMD). Next: [ ] `wf_gpu.js` lazy copies and smaller upfront buffers, [ ] WF warm-up query if the cold tile
   fill shows in `ISC_TIMING`, [ ] a generated `sincos` (`tools/gen_jsmath.py`), [ ] candidate reuse across packing
-  blocks, [ ] per-block packing on any idle viewer worker. Persistent caches (2026-10-04): [x] core ABI 8 packed-block
+  blocks, [x] per-block packing on any idle viewer worker (2026-10-04). Persistent caches (2026-10-04): [x] core ABI 8 packed-block
   store (cli, MM `General_DiskCache`, viewer local storage), [x] opt-in PSF kernel file, [x] PSF preload at MM
   `Initialize()` and at viewer load / PSF change, [x] cli `--prepare`. [x] Adaptive splat footprint
   (`PSFParam_PsfSplatCutoff`, default 1e-6: a no-op for the Gibson-Lanni tail, see CLAUDE.md; larger values trade light

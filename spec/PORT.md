@@ -514,10 +514,12 @@ each cell from its address and takes only the pose from the row. Returns 1 insta
 already cached, -1 when the rows are not that block's (a chunk outside the block, an order not strictly
 increasing in (cx, cy), a non-finite value, a candidate absent at this seed), leaving the world unchanged.
 Installed blocks count in `WorldStats::blocksInjected` (not `blocksPacked`) and `DropCaches` drops them like
-any cache. The viewer's pack worker packs the window's blocks once and returns them with its cells; cell and
-dye jobs carry the rows of the blocks they touch and the other workers install them instead of packing, so a
-block is packed once per page, not once per worker (`web/index.html` `iscEngine.inject`, `web/lab/engine.js`
-`World.setPackedBlock`). `world_checks` `BlockInjection`: a world fed another's rows answers cells, mesh,
+any cache. The viewer packs each block of its padded window as one job (`block` -> `isc_world_pack_block`) on
+whichever worker comes next (the pack worker and the cell workers, nearest the view first, two in flight per
+worker), keeps the rows and grows its cell map as they arrive; cell and dye jobs carry the rows of the blocks
+they touch and their workers install them instead of packing, so a block is packed once per page, not once
+per worker (`web/index.html` `iscEngine.inject`, `web/lab/engine.js` `World.setPackedBlock`; the `?nw` path
+still packs its window in one `pack` job). `world_checks` `BlockInjection`: a world fed another's rows answers cells, mesh,
 microtubules, dyes and events byte-identically with `blocksPacked == 0`, still after `DropCaches`; foreign
 rows are rejected; the C ABI round trip is checked too (`wasm_abi_smoke.mjs` under Node).
 

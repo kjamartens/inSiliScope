@@ -67,6 +67,10 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const [pj, pw] = both({ type: 'pack', id: 1, key: 'k', win: [0, 0, 3, 2], rect, seed, p: packParams(p) });
   const nCells = pw.cells.length / 14;
   report(!diff(pj, pw) && nCells > 0, `${name}: pack, ${nCells} cells ${diff(pj, pw)}`);
+  // One block per job (the viewer's scheduler): the same rows as the pack reply's block.
+  const b0 = pw.blocks[0];
+  const [bj, bw] = both({ type: 'block', id: 2, key: 'k', bx: b0.bx, by: b0.by, seed, p: packParams(p) });
+  report(!diff(bj, bw) && !diff(bw.rows, b0.rows), `${name}: block job (${b0.bx}, ${b0.by}): identical, = the pack reply's rows ${diff(bj, bw) || diff(bw.rows, b0.rows)}`);
   let bad = '', nMt = 0;
   for (let i = 0; i < Math.min(quick ? 2 : 4, nCells) && !bad; i++) {
     const cx = pw.cells[14 * i], cy = pw.cells[14 * i + 1];

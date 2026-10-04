@@ -260,7 +260,8 @@ the chirp-Z kernel transforms 4 lines at a time with pruned zero stages and a bi
 query methods), parallel `Relax`/candidates/microtubules/mesh fill, hoisted trig, lazy microtubules in `CellAssets`,
 per-microtubule block midpoints, pointer `CellsInRect`, hashed `dyeIndex_`; **ABI 7** `isc_world_pack_block` /
 `isc_world_set_block` (spec/PORT.md 6.5). Viewer: the WASM is compiled once and shared with the workers
-(`instantiateWasm`), the pack worker's blocks are injected into the other workers' worlds (no re-packing), assets
+(`instantiateWasm`), packing blocks are packed one per job on any worker (pack + cell workers, nearest the view first,
+the map grows as they arrive; 2026-10-04) and injected into the other workers' worlds (no re-packing), assets
 travel as typed arrays (mesh interleaved, outline = its outer ring, microtubules xyz/lens), LUT movie playback on
 `requestAnimationFrame`; microtubule `Path2D`s are built in cell-local um per (tilt, rotation, detail level) and stroked
 under `ctx.scale` (a zoom reuses them), the quad painter's order is a typed-array key sort, the dyes one path + one fill. JS references (prototype, scope): bit-exact refactors (uint32 Mersenne twister, cached noise
