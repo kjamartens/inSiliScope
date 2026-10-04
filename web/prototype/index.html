@@ -71,7 +71,6 @@
       <label class="row">Outline blobbiness <input type="range" id="cellBlob" min="0" max="4" step="0.05" value="1.75"><span id="cellBlobVal"></span></label>
       <label class="row" title="Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.">Edge roughness <input type="range" id="cellRough" min="0" max="1" step="0.01" value="0.15"><span id="cellRoughVal"></span></label>
       <label class="row" title="Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.">Edge fractal dimension <input type="range" id="cellFractalDim" min="1" max="2" step="0.01" value="1.35"><span id="cellFractalDimVal"></span></label>
-      <div class="pair"><span class="k">Height min/max</span><input type="number" id="cellHeightMin" value="3" step="0.5"><input type="number" id="cellHeightMax" value="6" step="0.5"></div>
     </fieldset>
 
     <fieldset>
@@ -285,7 +284,7 @@ function rawCandidate(seed, cx, cy, p) {
   c.semiMajor = baseR / Math.sqrt(elong);
   c.semiMinor = c.semiMajor * elong;
   c.rot = hashUnit(seed, cx, cy, CH.ROT) * Math.PI * 2;
-  c.height = lerp(p.cellHeightMin, p.cellHeightMax, hashUnit(seed, cx, cy, CH.HEIGHT));
+  c.height = 0; // the dome top: set by envelopNucleus from the nucleus (nucleus top + nucMargin); CH.HEIGHT is retired
   c.harmAmp = HARM_K.map((k, i) => hashUnit(seed, cx, cy, CH.HARM_AMP + i) * p.cellBlob / k);
   c.harmPh = HARM_K.map((k, i) => hashUnit(seed, cx, cy, CH.HARM_PH + i) * Math.PI * 2);
   // Fractal tail (see TAIL_K0). (k/5)^-e as exp(-e*log(k/5)): fdlibm on both
@@ -1329,7 +1328,7 @@ const cytoCache = new Map();
 let cytoCacheSig = null;
 function cytoGeometrySignature(seed, p) {
   return [seed, p.cellDiamMin, p.cellDiamMax, p.cellElongMin, p.cellElongMax, p.cellBlob,
-    p.cellHeightMin, p.cellHeightMax, p.nucLongMin, p.nucLongMax, p.nucRatioMin, p.nucRatioMax,
+    p.nucLongMin, p.nucLongMax, p.nucRatioMin, p.nucRatioMax,
     p.nucHeightMin, p.nucHeightMax, p.nucOffsetFrac, p.nucMargin, p.nucBaseMin, p.nucBaseMax,
     p.nucIrregMin, p.nucIrregMax, p.nucBendMin, p.nucBendMax, p.nucSmooth, p.nucThickIrreg, p.nucAsym, p.nucWidestMin, p.nucWidestMax,
     p.cytoRimHeightMin, p.cytoRimHeightMax, p.cytoEdgeRiseMin, p.cytoEdgeRiseMax,
@@ -1781,7 +1780,6 @@ const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px pe
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
  'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
- 'cellHeightMin', 'cellHeightMax',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
  'nucOffsetFrac', 'nucOffsetFracVal', 'nucBaseMin', 'nucBaseMax', 'nucMargin', 'nucMarginVal',
  'nucIrregMin', 'nucIrregMax', 'nucBendMin', 'nucBendMax', 'nucSmooth', 'nucSmoothVal', 'nucThickIrreg', 'nucThickIrregVal', 'nucAsym', 'nucAsymVal', 'nucWidestMin', 'nucWidestMax',
@@ -1811,8 +1809,6 @@ function params() {
     cellBlob: +els.cellBlob.value,
     cellRough: +els.cellRough.value,
     cellFractalDim: Math.min(2, Math.max(1, +els.cellFractalDim.value)),
-    cellHeightMin: +els.cellHeightMin.value,
-    cellHeightMax: Math.max(+els.cellHeightMin.value, +els.cellHeightMax.value),
     nucLongMin: +els.nucLongMin.value,
     nucLongMax: Math.max(+els.nucLongMin.value, +els.nucLongMax.value),
     nucRatioMin: +els.nucRatioMin.value,

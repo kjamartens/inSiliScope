@@ -57,10 +57,11 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   - `nucShapeSig`: a cache key.
 - **Users of the nucleus:**
   - `envelopNucleus`, vertical step: `nucZ = nucBase + nucDown` (the nucleus bottom sits `nucBase` above the
-    coverslip) and the dome top `c.height = nucBase + nucDown + nucUp + margin`. The cell height is recomputed from
-    the nucleus, so the drawn `cellHeightMin/Max` (CH.HEIGHT) no longer reaches the output (only the later floor
-    `max(height, cytoRimHeight, cytoMidHeight)` can still raise it). This replaces the provisional
-    `nucZ = height x lerp(0.4, 0.6)`, which left the nucleus floating.
+    coverslip) and the dome top `c.height = nucBase + nucDown + nucUp + margin` (the later floor
+    `max(height, cytoRimHeight, cytoMidHeight)` still applies). This replaces the provisional
+    `nucZ = height x lerp(0.4, 0.6)`, which left the nucleus floating. The cell-height draw is gone with it:
+    `cellHeightMin/Max` are removed (prototype input, viewer control and its Cell shape presets) and `CH.HEIGHT` (6)
+    is retired, not reused.
   - `envelopNucleus`, lateral step: walks `nucPoly`. The mid-section is the widest, so the asymmetry leaves the
     footprint unchanged.
   - `nucleusSignedDistLocal`: nearest point on `nucPoly` (squared distances, one sqrt), with the sign from `s < 1`.
@@ -143,7 +144,8 @@ lobes, a kidney bend, an uneven thickness, a top/bottom asymmetry and a lowered 
   `NucWidestMin/Max`, `NucBaseMin/Max`, or
   whatever the CellField param bridge exposes. cli: the matching options.
 - Re-freeze `spec/golden`, because the defaults change every cell's shape and height.
-- Decide what the cell `Height` control (`cellHeightMin/Max`) should mean now that the dome follows the nucleus
-  (remove it, or make it a floor).
+- Remove `cellHeightMin/Max` from the core's param table, the adapter (`SimType_CellField...` height properties,
+  if any) and the cli/docs/gallery, and from `tests/parity/js_reference.mjs` (its `PARAM_KEYS`/`normalise` list
+  them and throw on a missing page default; it also needs the new nucleus params).
 - Update `spec/ALGORITHM.md` and `docs/physics` (cell model), and add a gallery entry.
 - `web/lab/engine_check.mjs` fails until then (lab engine vs main's WASM: shapes differ at the defaults).
