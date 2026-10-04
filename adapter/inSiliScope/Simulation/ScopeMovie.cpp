@@ -1081,21 +1081,29 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    // Frames are independent (own events, counter-based noise), so a batch
    // is made on all cores (serial under Emscripten) and handed over in order.
    const double zStage = O("z");
-   const long batch = 32;
-   std::vector<std::vector<uint16_t>> adu(static_cast<size_t>(std::min(batch, std::max(N, 1L))));
+   // A batch of frames per ParallelFor: a few frames per core, so the idle
+   // tail of a batch is a small share (serial under Emscripten: one at a time).
+#if defined(__EMSCRIPTEN__)
+   const long batch = 1;
+#else
+   const long batch = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+#endif
+   const size_t slots = static_cast<size_t>(std::min(batch, std::max(N, 1L)));
+   std::vector<std::vector<uint16_t>> adu(slots);
+   std::vector<std::vector<float>> photons(slots);   // per-slot buffers, kept across batches
+   std::vector<std::vector<BlinkEvent>> fe(slots);
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
       tRender.Start();
       ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
-         std::vector<BlinkEvent> fe;
+         fe[k].clear();
          for (uint32_t i : buckets[static_cast<size_t>(f)])
-            fe.push_back(events[i]);
-         std::vector<float> photons;
-         RenderPhotonImage(photons, W, H, fe, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink, p.backgroundPhotons,
-                           0.0, 0.0, kernel, zStage);
-         ApplyNoiseChain(photons, adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
+            fe[k].push_back(events[i]);
+         RenderPhotonImage(photons[k], W, H, fe[k], f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
+                           p.backgroundPhotons, 0.0, 0.0, kernel, zStage);
+         ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
                          static_cast<uint32_t>(f));
       });
       tRender.Stop();

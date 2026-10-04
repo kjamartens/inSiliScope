@@ -320,6 +320,34 @@ bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::ve
    return true;
 }
 
+ZernikeModeTable::ZernikeModeTable(const ZernikeCoefficients& coeffs)
+{
+   for (size_t j = 0; j < coeffs.size(); ++j)
+   {
+      if (coeffs[j] == 0.0)
+         continue;
+      Term t;
+      t.coeff = coeffs[j];
+      IndexToNM(static_cast<int>(j), t.n, t.l);
+      t.m = std::abs(t.l);
+      terms_.push_back(t);
+   }
+}
+
+double ZernikeModeTable::Waves(double rho, double phi) const
+{
+   double w = 0.0;
+   for (const Term& t : terms_)
+   {
+      ZernikeMode zm;
+      zm.n = t.n;
+      zm.l = t.l;
+      zm.m = t.m;
+      w += t.coeff * ZernikeValue(zm, rho, phi);
+   }
+   return w;
+}
+
 double ZernikeWavefrontWaves(const ZernikeCoefficients& coeffs, double rho, double phi)
 {
    double w = 0.0;

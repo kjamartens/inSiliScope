@@ -46,4 +46,19 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
 // the PSF uses; the BrightField detection pupil takes it.
 double ZernikeWavefrontWaves(const ZernikeCoefficients& coeffs, double rho, double phi);
 
+// The nonzero terms of a coefficient set with their (n, l, m) resolved once,
+// for many evaluations of the same wavefront (BrightField's detection pupil):
+// Waves(rho, phi) == ZernikeWavefrontWaves(coeffs, rho, phi), the same
+// operations in the same order.
+class ZernikeModeTable
+{
+public:
+   explicit ZernikeModeTable(const ZernikeCoefficients& coeffs);
+   double Waves(double rho, double phi) const;
+
+private:
+   struct Term { double coeff; int n, l, m; };
+   std::vector<Term> terms_;
+};
+
 } // namespace sim
