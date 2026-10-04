@@ -90,7 +90,16 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < 1024; i++) g3s += M.HEAPF32[g3 / 4 + i];
   M._free(g3);
   const cstr = p => { const u = new Uint8Array(M.HEAP32.buffer, p, 64); let i = 0; while (i < 64 && u[i]) i++; return String.fromCharCode(...u.subarray(0, i)); };
-  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && M._isc_abi_version() === 8 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+  // ABI 9: the nucleus rings of the window's first cell (17 x 24 finite points).
+  const cb = M._malloc(Math.max(1, nc) * 14 * 8);
+  M._isc_cells_in_window(w, win[0], win[1], win[2], win[3], cb, nc);
+  const rb = M._malloc(17 * 24 * 3 * 8);
+  const nr = M._isc_cell_nucleus_rings(w, M.HEAPF64[cb / 8], M.HEAPF64[cb / 8 + 1], 17, 24, rb, 17 * 24);
+  let ringsOk = nr === 17 * 24;
+  for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
+  M._free(cb); M._free(rb);
+  const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
+    M._isc_abi_version() === 9 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;

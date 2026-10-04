@@ -58,22 +58,23 @@ const emver = verFile && fs.existsSync(verFile) ? fs.readFileSync(verFile, 'utf8
 function cellFieldFactory(SRC) {
   'use strict';
   const ABI = __ABI__;
-  // webSMLM's CF_PARAMS (cell_field_sim defaults as tuned there, build 2026-09-24f), passed
+  // webSMLM's CF_PARAMS (cell_field_sim defaults as tuned there, build 2026-09-24f; the shaped nucleus and
+  // microtubule start/end sampling of 2026-10-05 at the core's defaults), passed
   // explicitly so a change of the core's own defaults cannot move webSMLM's field. Every lattice
   // site carries a dye (labelEfficiency 1), as in the JS it replaces: webSMLM applies its own
   // labelling efficiency to the returned sites.
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
     cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
-    cellHeightMin: 3, cellHeightMax: 6,
-    nucLongMin: 8, nucLongMax: 12, nucRatioMin: 0.6, nucRatioMax: 1, nucHeightMin: 0.3, nucHeightMax: 0.5,
-    nucOffsetFrac: 0.1, nucMargin: 0.6,
+    nucLongMin: 8, nucLongMax: 12, nucRatioMin: 0.6, nucRatioMax: 1, nucHeightMin: 0.2, nucHeightMax: 0.3,
+    nucOffsetFrac: 0.1, nucMargin: 0.5, nucBaseMin: 0.4, nucBaseMax: 0.9,
+    nucIrregMin: 0.03, nucIrregMax: 0.2, nucBendMin: 0, nucBendMax: 0.3, nucSmooth: 2.5, nucThickIrreg: 0.1,
+    nucAsym: 0.5, nucWidestMin: 0.2, nucWidestMax: 0.4,
     cytoRimHeightMin: 0.2, cytoRimHeightMax: 0.5, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5,
     cytoMidHeightMin: 2, cytoMidHeightMax: 3.5, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3,
     cytoMaxSlope: 2, cytoDomeSlope: 4, cytoRelaxUm: 1, cytoRings: 60, cytoTheta: 256,
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
-    mtDensity: 0.9, mtStartFracMin: 0, mtStartFracMax: 0.3, mtStartOffsetXY: 0,
-    mtEndFracMin: 0.01, mtEndFracMax: 0.4, mtEndJitterDeg: 145, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
+    mtDensity: 0.9, mtStartDecayPct: 1.6, mtEndDecayPct: 20, mtDirKappa: 1.5, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
     labelEfficiency: 1, labelNonBleaching: 0,
   };

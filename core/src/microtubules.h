@@ -19,9 +19,14 @@ namespace isc {
 constexpr uint32_t MT_CH_COUNT = 500;
 constexpr uint32_t MT_STREAM_BASE = 1000;
 constexpr uint32_t MT_RESAMPLE_SPACING = 100000;
-constexpr int MT_N_DIR = 64;
-constexpr int MT_MARCH_STEPS = 24;
-constexpr int MT_BISECT_ITERS = 24;
+// Start/end sampling: at most MT_SAMPLE_TRIES candidates per point; the start
+// region reaches MT_DECAY_SPAN decay lengths; decay lengths are floored at
+// MT_MIN_DECAY_UM; an end is picked from MT_END_CANDIDATES by its direction.
+constexpr int MT_SAMPLE_TRIES = 128;
+constexpr double MT_DECAY_SPAN = 5;
+constexpr double MT_MIN_DECAY_UM = 0.02;
+constexpr int MT_END_CANDIDATES = 12;
+constexpr int MT_RMAX_SAMPLES = 512;
 constexpr int MT_NUDGE_ROUNDS = 5;
 constexpr int MT_RESAMPLE_ROUNDS = 2;
 constexpr int MT_POST_RESAMPLE_NUDGE_ROUNDS = 3;
@@ -30,10 +35,11 @@ constexpr size_t MT_COLLISION_MAX_TOTAL_POINTS = 8000;   // collision pass skipp
 constexpr int MT_MAX_STEPS_PER_MT = 1500;
 constexpr int MT_MAX_PER_CELL = 5000;
 constexpr double MT_CONTAIN_MARGIN = 0.98;
-constexpr double MT_NUCLEUS_CLEAR_BLEND = 0.4;
+// Obstacle envelope (mtObstacleEnvelope): ramp slope (z per um in xy) and the
+// xy arc over which an obstacle's clearance fades in from the start.
+constexpr double MT_OBST_RAMP_SLOPE = 1;
+constexpr double MT_OBST_CLEAR_RAMP_UM = 1;
 constexpr int MT_MAX_END_TRIM = 50;
-
-struct Pt3 { double x, y, z; };
 
 struct Microtubule {
    std::vector<Pt3> pts;
@@ -43,10 +49,10 @@ struct Microtubule {
 // Shape-only per-cell data the generator needs (JS getMtCellGeometry +
 // the smoothed cytoplasm mesh it clamps against).
 struct MtCellGeom {
-   double dirTheta[MT_N_DIR];
-   double dirCum[MT_N_DIR + 1];
-   double dirTotal = 0;
    double areaUm2 = 0;
+   double sizeUm = 0;          // equivalent diameter 2 sqrt(area / pi)
+   double nucBox[4] = {};      // nucleus footprint bounding box x0, y0, x1, y1
+   double rMax = 0;            // largest outline radius x MT_CONTAIN_MARGIN
    CytoMesh mesh;
    // cos/sin(-nucRot) and cos/sin(nucRot), as the per-point nucleus tests
    // compute them (once per cell here instead of once per point).

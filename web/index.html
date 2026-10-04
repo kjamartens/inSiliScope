@@ -306,8 +306,8 @@ const UI_GROUPS = [
   ] },
   { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
     num('mv_bf-n-medium', 'Medium', 'n', 'Refractive index of the medium around the cells. <code>SimType_CellFieldIndexMedium</code>', 1, 2, 0.001, 1.337, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>SimType_CellFieldIndexCytoplasm</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>SimType_CellFieldIndexNucleus</code>', 1, 2, 0.001, 1.345, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>SimType_CellFieldIndexCytoplasm</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>SimType_CellFieldIndexNucleus</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
     num('mv_bf-n-microtubule', 'Microtubule', 'n', 'Refractive index of microtubule material. <code>SimType_CellFieldIndexMicrotubule</code>', 1, 2, 0.01, 1.48, { adv, show: BF, cls: 'bfRow' }),
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
@@ -316,8 +316,8 @@ const UI_GROUPS = [
     select('mv_modality', 'Modality', 'SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
       [['0', 'SuperRes'], ['1', 'WideField'], ['2', 'BrightField']], '0'),
     num('mv_wf-excitation-photons-per-um2-per-sec', 'Excitation', 'ph/µm²/s', 'WideField excitation photon flux at the sample. <code>FluoParam_WideFieldExcitationPhotonsPerUm2PerSec</code>', 0, null, 1e8, '4e8', { show: WF, cls: 'wfRow' }),
-    num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 40000, { show: BF, cls: 'bfRow' }),
-    num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.55, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
+    num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
     num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>Background_BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
   ] },
@@ -1406,7 +1406,8 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 8) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 8');
+  if (M._isc_abi_version() !== 9) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 9');
+  const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
@@ -1546,8 +1547,11 @@ function iscEngine(M) {
         if (nv < 0) return [{ type: 'cell', key: d.key, sig: d.sig, seed: d.seed, missing: true }, []];
         const mesh = query((ptr, cap) => M._isc_cell_mesh(w, d.cx, d.cy, ints, ptr, cap), 3, Math.max(nv, 8192));
         const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
-        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null };
-        const transfer = [mesh.buffer];
+        // The nucleus surface rings (ABI 9; cell-local x, y, z, both poles included).
+        const nuc = query((ptr, cap) => M._isc_cell_nucleus_rings(w, d.cx, d.cy, ISC_NUC_SLICES, ISC_NUC_PTS, ptr, cap), 3,
+                          ISC_NUC_SLICES * ISC_NUC_PTS);
+        const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null, nuc, nucPts: ISC_NUC_PTS };
+        const transfer = [mesh.buffer, nuc.buffer];
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];

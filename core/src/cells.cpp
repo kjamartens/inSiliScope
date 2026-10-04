@@ -4,6 +4,7 @@
 #include "rng.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace isc {
@@ -16,16 +17,17 @@ void NormalizeParams(Params& p)
 {
    p.cellDiamMax = std::max(p.cellDiamMin, p.cellDiamMax);
    p.cellElongMax = std::max(p.cellElongMin, p.cellElongMax);
-   p.cellHeightMax = std::max(p.cellHeightMin, p.cellHeightMax);
    p.nucLongMax = std::max(p.nucLongMin, p.nucLongMax);
    p.nucRatioMax = std::max(p.nucRatioMin, p.nucRatioMax);
    p.nucHeightMax = std::max(p.nucHeightMin, p.nucHeightMax);
+   p.nucBaseMax = std::max(p.nucBaseMin, p.nucBaseMax);
+   p.nucIrregMax = std::max(p.nucIrregMin, p.nucIrregMax);
+   p.nucBendMax = std::max(p.nucBendMin, p.nucBendMax);
+   p.nucWidestMax = std::max(p.nucWidestMin, p.nucWidestMax);
    p.cytoRimHeightMax = std::max(p.cytoRimHeightMin, p.cytoRimHeightMax);
    p.cytoEdgeRiseMax = std::max(p.cytoEdgeRiseMin, p.cytoEdgeRiseMax);
    p.cytoMidHeightMax = std::max(p.cytoMidHeightMin, p.cytoMidHeightMax);
    p.cytoMidDistanceMax = std::max(p.cytoMidDistanceMin, p.cytoMidDistanceMax);
-   p.mtStartFracMax = std::max(p.mtStartFracMin, p.mtStartFracMax);
-   p.mtEndFracMax = std::max(p.mtEndFracMin, p.mtEndFracMax);
    p.mtWobbleFactor = std::max(1.0, p.mtWobbleFactor);
    p.mtStepLen = std::max(0.02, p.mtStepLen);
    p.mtSmoothLen = std::max(0.0, p.mtSmoothLen);
@@ -51,6 +53,10 @@ const double* TailFactors(double tailExp)
 }
 } // namespace
 
+namespace {
+void NucShapeInit(Cell& c, uint32_t seed, int32_t cx, int32_t cy, const Params& p);
+}
+
 Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
 {
    using namespace jsm;
@@ -73,7 +79,7 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
    c.semiMajor = baseR / sqrt(elong);
    c.semiMinor = c.semiMajor * elong;
    c.rot = H(CH::ROT) * PI * 2;
-   c.height = lerp(p.cellHeightMin, p.cellHeightMax, H(CH::HEIGHT));
+   c.height = 0;   // the dome top: set by EnvelopNucleus from the nucleus (CH::HEIGHT is retired)
    for (int i = 0; i < N_HARM; i++) c.harmAmp[i] = H(CH::HARM_AMP + i) * p.cellBlob / HARM_K[i];
    for (int i = 0; i < N_HARM; i++) c.harmPh[i] = H(CH::HARM_PH + i) * PI * 2;
    // Fractal tail; (k/5)^-e as exp(-e*log(k/5)) (fdlibm, bit-exact; not pow).
@@ -125,7 +131,11 @@ Cell RawCandidate(uint32_t seed, int32_t cx, int32_t cy, const Params& p)
    c.nucOffX = cos(offAng) * offR;
    c.nucOffY = sin(offAng) * offR;
    c.nucRot = H(CH::NUC_ROT) * PI * 2;
-   c.nucZ = c.height * lerp(0.4, 0.6, H(CH::NUC_ZFRAC)); // provisional, clamped by EnvelopNucleus
+   // Gap between the coverslip and the nucleus bottom (NUC_ZFRAC channel);
+   // EnvelopNucleus sets nucZ once the shape's extents are known.
+   c.nucBase = std::max(0.0, lerp(p.nucBaseMin, p.nucBaseMax, H(CH::NUC_ZFRAC)));
+   c.nucZ = 0;
+   NucShapeInit(c, seed, cx, cy, p);
 
    // Per-cell cytoplasm targets, sampled before EnvelopNucleus (the slope
    // run-out needs cytoMidHeight).
@@ -203,30 +213,38 @@ double CytoSlopeRunout(const Cell& c, const Params& p)
    return std::max(0.0, CytoDomeReach(c, p) + ceilRun - margin);
 }
 
-// Keeps the nucleus ellipsoid inside the cell with >= margin clearance.
-// Vertically grows height / re-clamps nucZ; laterally raises the per-cell
-// modulation floor (not a whole-cell scale, see spec) and only scales the
-// cell as a last resort.
+// Keeps the nucleus inside the cell with >= margin clearance. Vertically
+// places the nucleus bottom nucBase above the coverslip and sets the dome top
+// to the nucleus top + margin; laterally raises the per-cell modulation floor
+// (not a whole-cell scale, see spec) and only scales the cell as a last resort.
 void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams)
 {
    using namespace jsm;
    const double margin = std::max(0.1, marginUm);
 
-   const double rz = c.nucHeight / 2;
-   const double neededHeight = c.nucHeight + 2 * margin;
-   if (c.height < neededHeight) c.height = neededHeight;
-   c.nucZ = std::min(std::max(c.nucZ, rz + margin), c.height - rz - margin);
+   // up = down = nucHeight/2, or the shaped nucleus's own extents (NucShapeInit).
+   const double up = c.nucUp, down = c.nucDown;
+   c.height = c.nucBase + down + up + margin;
+   c.nucZ = c.nucBase + down;
 
    // Evaluated after the vertical step: it needs the final c.height.
    const double extraUm = runoutParams ? CytoSlopeRunout(c, *runoutParams) : 0;
-   const int N = c.tailBound > 0 ? 256 : 32;   // the tail's harmonics go to k = 64
+   // The tail's harmonics go to k = 64; a shaped nucleus walks its footprint polygon.
+   const int N = c.nucShaped ? NUC_POLY_N : c.tailBound > 0 ? 256 : 32;
+   std::vector<Pt2> poly;
+   if (c.nucShaped) poly = NucFootprintPolygon(c);
    const double cnr = cos(c.nucRot), snr = sin(c.nucRot);   // once, not per sample
    double neededFloor = CELL_MOD_MIN;
    for (int i = 0; i < N; i++) {
-      const double th = ((double)i / N) * PI * 2;
-      const double lx = cos(th) * (c.nucLong / 2), ly = sin(th) * (c.nucShort / 2);
-      const double wx = c.nucOffX + lx * cnr - ly * snr;
-      const double wy = c.nucOffY + lx * snr + ly * cnr;
+      double wx, wy;
+      if (c.nucShaped) {
+         wx = poly[(size_t)i].x; wy = poly[(size_t)i].y;
+      } else {
+         const double th = ((double)i / N) * PI * 2;
+         const double lx = cos(th) * (c.nucLong / 2), ly = sin(th) * (c.nucShort / 2);
+         wx = c.nucOffX + lx * cnr - ly * snr;
+         wy = c.nucOffY + lx * snr + ly * cnr;
+      }
       const double dist = hypot(wx, wy);
       const double angle = atan2(wy, wx);
       const double phi = angle - c.rot;
@@ -246,6 +264,213 @@ void EnvelopNucleus(Cell& c, double marginUm, const Params* runoutParams)
       c.semiMajor *= k;
       c.semiMinor *= k;
    }
+}
+
+
+// ---- Nucleus shape -------------------------------------------------------
+// Shape coordinates: footprint radius s (1 = the outline), direction t,
+// height zeta in [-1, 1]:
+//   (u, v) = s R(t) (cos t, sin t)          lobes, R = 1 + soft(sum_{k=2..8} Rc_k cos kt + Rs_k sin kt)
+//   x = a u, y = b (v + bend (u^2 - 1/4))   kidney bend: a shear, exactly invertible
+//   z = nucZ + rz k H zeta                  k = kDown (zeta < 0) or kUp, H = 1 + soft(sum_{k=1..8} s^k (...))
+// in the nucleus frame (nucRot, nucOff); a, b, rz = nucLong/2, nucShort/2,
+// nucHeight/2. Inside: |zeta| < 1 and s < W(zeta) = q + (1 - q) f,
+// q = sqrt(1 - zeta^2), f = the widening of that half (nucFBot / nucFTop).
+// cos kt / sin kt and (s e^{it})^k by complex multiplication (+ - * only), the
+// spectrum by jsm::exp/log: bit-exact with the prototype. spec/ALGORITHM.md.
+namespace {
+const double SQRT3 = std::sqrt(3.0);
+
+void NucSpectrum(int k0, double gamma, double w[NUC_K + 1])
+{
+   for (int k = 0; k <= NUC_K; k++) w[k] = 0;
+   double sum = 0;
+   for (int k = k0; k <= NUC_K; k++) { w[k] = jsm::exp(-gamma * jsm::log((double)k)); sum += w[k] * w[k]; }
+   const double norm = std::sqrt(sum);
+   for (int k = k0; k <= NUC_K; k++) w[k] /= norm;
+}
+
+// Draws the per-cell shape (after nucLong/Short/Height/Rot/Off are set).
+// Draw order: irregularity, bend, widest point, Rc/Rs k = 2..8, Hc/Hs k = 1..8.
+void NucShapeInit(Cell& c, uint32_t seed, int32_t cx, int32_t cy, const Params& p)
+{
+   HashStream next(seed, cx, cy, NUC_SHAPE_STREAM);
+   const double irr = lerp(std::max(0.0, p.nucIrregMin), std::max(0.0, p.nucIrregMax), next.Next());
+   c.nucBend = lerp(p.nucBendMin, p.nucBendMax, next.Next());
+   // Widest section's height as a fraction of the nucleus height: the part
+   // below it is 2w x rz tall, the part above 2(1 - w) x rz.
+   const double wide = std::min(1.0, std::max(0.0, lerp(p.nucWidestMin, p.nucWidestMax, next.Next())));
+   c.nucKDown = 2 * wide; c.nucKUp = 2 * (1 - wide);
+   const double thick = std::max(0.0, p.nucThickIrreg);
+   const double asym = std::isnan(p.nucAsym) ? 0 : std::min(NUC_ASYM_MAX, std::max(-NUC_ASYM_MAX, p.nucAsym));
+   c.nucFBot = std::max(0.0, asym); c.nucFTop = std::max(0.0, -asym);
+   c.nucShaped = irr > 0 || c.nucBend != 0 || thick > 0 || asym != 0 || wide != 0.5;
+   c.nucUp = c.nucDown = c.nucHeight / 2;
+   if (!c.nucShaped) return;
+   const double gamma = std::max(0.0, p.nucSmooth);
+   double wR[NUC_K + 1], wH[NUC_K + 1];
+   NucSpectrum(2, gamma, wR);
+   NucSpectrum(1, gamma, wH);
+   for (int k = 2; k <= NUC_K; k++) {
+      c.nucRc[k] = irr * wR[k] * (2 * next.Next() - 1) * SQRT3;
+      c.nucRs[k] = irr * wR[k] * (2 * next.Next() - 1) * SQRT3;
+   }
+   for (int k = 1; k <= NUC_K; k++) {
+      c.nucHc[k] = thick * wH[k] * (2 * next.Next() - 1) * SQRT3;
+      c.nucHs[k] = thick * wH[k] * (2 * next.Next() - 1) * SQRT3;
+   }
+   c.nucCos = jsm::cos(c.nucRot); c.nucSin = jsm::sin(c.nucRot);
+   // Vertical extents above/below nucZ: max of H x the column's extent over the footprint (sampled), x kUp/kDown.
+   double up = 1, down = 1;
+   if (thick > 0 || asym != 0) {
+      up = 0; down = 0;
+      for (int i = 0; i < 64; i++) {
+         const double th = ((double)i / 64) * jsm::PI * 2, C = jsm::cos(th), S = jsm::sin(th);
+         for (int j = 0; j < 16; j++) {
+            const double sg = (double)j / 16, H = NucThickAt(c, sg, C, S);
+            up = std::max(up, H * NucColumnExt(sg, c.nucFTop));
+            down = std::max(down, H * NucColumnExt(sg, c.nucFBot));
+         }
+      }
+   }
+   c.nucUp = (c.nucHeight / 2) * c.nucKUp * up;
+   c.nucDown = (c.nucHeight / 2) * c.nucKDown * down;
+   // The farthest footprint point from the nucleus centre.
+   c.nucReach = 0;
+   for (const Pt2& q : NucFootprintPolygon(c))
+      c.nucReach = std::max(c.nucReach, jsm::hypot(q.x - c.nucOffX, q.y - c.nucOffY));
+}
+} // namespace
+
+double NucFootR(const Cell& c, double C, double S)
+{
+   double pc = C, ps = S, t = 0;
+   for (int k = 2; k <= NUC_K; k++) {
+      const double n = pc * C - ps * S; ps = pc * S + ps * C; pc = n;
+      t += c.nucRc[k] * pc + c.nucRs[k] * ps;
+   }
+   const double q = t / NUC_R_MAX;
+   return 1 + t / std::sqrt(1 + q * q);
+}
+
+double NucThickAt(const Cell& c, double sg, double C, double S)
+{
+   const double wr = sg * C, wi = sg * S;
+   double pc = 1, ps = 0, t = 0;
+   for (int k = 1; k <= NUC_K; k++) {
+      const double n = pc * wr - ps * wi; ps = pc * wi + ps * wr; pc = n;
+      t += c.nucHc[k] * pc + c.nucHs[k] * ps;
+   }
+   const double q = t / NUC_H_MAX;
+   return 1 + t / std::sqrt(1 + q * q);
+}
+
+double NucSectionW(double zeta, double f)
+{
+   const double q = std::sqrt(std::max(0.0, 1 - zeta * zeta));
+   return q + (1 - q) * f;
+}
+
+double NucColumnExt(double sg, double f)
+{
+   if (sg <= f) return 1;
+   const double qs = (sg - f) / (1 - f);
+   return std::sqrt(std::max(0.0, 1 - qs * qs));
+}
+
+Pt3 NucMapLocal(const Cell& c, double sg, double C, double S, double zeta)
+{
+   const double a = c.nucLong / 2, b = c.nucShort / 2;
+   const double R = NucFootR(c, C, S);
+   const double u = sg * R * C, v = sg * R * S;
+   const double x = a * u, y = b * (v + c.nucBend * (u * u - 0.25));
+   return { c.nucOffX + x * c.nucCos - y * c.nucSin, c.nucOffY + x * c.nucSin + y * c.nucCos,
+            c.nucZ + (c.nucHeight / 2) * (zeta < 0 ? c.nucKDown : c.nucKUp) * NucThickAt(c, sg, C, S) * zeta };
+}
+
+NucBall NucBallLocal(const Cell& c, double lx0, double ly0)
+{
+   const double dx = lx0 - c.nucOffX, dy = ly0 - c.nucOffY;
+   const double x = dx * c.nucCos + dy * c.nucSin, y = -dx * c.nucSin + dy * c.nucCos;
+   const double u = x / std::max(1e-6, c.nucLong / 2);
+   const double v = y / std::max(1e-6, c.nucShort / 2) - c.nucBend * (u * u - 0.25);
+   const double rho = std::sqrt(u * u + v * v);
+   const double C = rho > 1e-12 ? u / rho : 1, S = rho > 1e-12 ? v / rho : 0;
+   const double s = rho / NucFootR(c, C, S);
+   return { s, C, S, NucThickAt(c, s, C, S) };
+}
+
+bool NucleusColumnLocal(const Cell& c, double lx, double ly, double& below, double& above)
+{
+   if (!c.nucShaped) {
+      const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
+      const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2);
+      const double ex = lx - c.nucOffX, ey = ly - c.nucOffY;
+      const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
+      const double q = 1 - ux * ux - uy * uy;
+      if (!(q > 0)) return false;
+      below = above = (c.nucHeight / 2) * std::sqrt(q);
+      return true;
+   }
+   const NucBall B = NucBallLocal(c, lx, ly);
+   if (!(B.s < 1)) return false;
+   const double rzH = (c.nucHeight / 2) * B.H;
+   below = rzH * c.nucKDown * NucColumnExt(B.s, c.nucFBot);
+   above = rzH * c.nucKUp * NucColumnExt(B.s, c.nucFTop);
+   return true;
+}
+
+bool NucPushOutLocal(const Cell& c, Pt3& pt, double margin)
+{
+   const NucBall B = NucBallLocal(c, pt.x, pt.y);
+   const double zeta = (pt.z - c.nucZ) / std::max(1e-6, (c.nucHeight / 2) * B.H * (pt.z < c.nucZ ? c.nucKDown : c.nucKUp));
+   auto inside = [&](double sg, double z) {
+      return std::fabs(z) < 1 && sg < NucSectionW(z, z < 0 ? c.nucFBot : c.nucFTop);
+   };
+   if (!inside(B.s, zeta)) return false;
+   const double m = std::max(B.s, std::fabs(zeta));
+   if (!(m > 1e-9)) return false;   // the very centre: no direction (as the ellipsoid path)
+   double lo = 1, hi = 1 / m;       // inside at lo, outside (or on the boundary) at hi
+   for (int it = 0; it < NUC_PUSH_ITERS; it++) {
+      const double mid = (lo + hi) / 2;
+      if (inside(B.s * mid, zeta * mid)) lo = mid; else hi = mid;
+   }
+   const double lam = hi / margin;
+   pt = NucMapLocal(c, B.s * lam, B.C, B.S, zeta * lam);
+   return true;
+}
+
+std::vector<Pt2> NucFootprintPolygon(const Cell& c)
+{
+   std::vector<Pt2> poly((size_t)NUC_POLY_N);
+   for (int i = 0; i < NUC_POLY_N; i++) {
+      const double th = ((double)i / NUC_POLY_N) * jsm::PI * 2;
+      const Pt3 q = NucMapLocal(c, 1, jsm::cos(th), jsm::sin(th), 0);
+      poly[(size_t)i] = { q.x, q.y };
+   }
+   return poly;
+}
+
+std::vector<Pt3> NucleusRingsLocal(const Cell& c, int slices, int pts)
+{
+   std::vector<Pt3> out;
+   out.reserve((size_t)slices * pts);
+   const double cr = jsm::cos(c.nucRot), sr = jsm::sin(c.nucRot);
+   for (int sl = 0; sl < slices; sl++) {
+      const double zeta = -jsm::cos(jsm::PI * sl / (slices - 1));
+      const double s = c.nucShaped ? NucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop)
+                                   : std::sqrt(std::max(0.0, 1 - zeta * zeta));
+      for (int i = 0; i < pts; i++) {
+         const double th = ((double)i / pts) * jsm::PI * 2, C = jsm::cos(th), S = jsm::sin(th);
+         if (!c.nucShaped) {
+            const double lx = C * (c.nucLong / 2) * s, ly = S * (c.nucShort / 2) * s;
+            out.push_back({ c.nucOffX + lx * cr - ly * sr, c.nucOffY + lx * sr + ly * cr, c.nucZ + zeta * c.nucHeight / 2 });
+         } else {
+            out.push_back(NucMapLocal(c, s, C, S, zeta));
+         }
+      }
+   }
+   return out;
 }
 
 } // namespace isc

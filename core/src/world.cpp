@@ -762,9 +762,6 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
       const CytoMesh& mesh = A.geom.mesh;
       const bool rotated = !(c.packRot == 0 || std::isnan(c.packRot));
       const double cr = rotated ? jsm::cos(c.packRot) : 1, sr = rotated ? jsm::sin(c.packRot) : 0;
-      const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
-      const double na = std::max(1e-6, c.nucLong / 2), nb = std::max(1e-6, c.nucShort / 2);
-      const double nrz = c.nucHeight / 2;
       const double rIn = CellInnerRadiusBound(c);
       const int ix0 = std::max(0, (int)std::floor((c.x - c.rOuter - x0) / px));
       const int ix1 = std::min(nx - 1, (int)std::floor((c.x + c.rOuter - x0) / px));
@@ -784,15 +781,11 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
                      if (rr > c.rOuter || (rr > rIn && rr > CellRadiusAt(c, jsm::atan2(ly, lx)))) continue;
                      const double h = SampleCytoMeshHeight(c, mesh, lx, ly);
                      if (!(h > 0)) continue;
-                     // Nucleus chord through this column, clipped to the body.
-                     const double ex = lx - c.nucOffX, ey = ly - c.nucOffY;
-                     const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb;
-                     const double q = 1 - ux * ux - uy * uy;
-                     double zn0 = 0, zn1 = 0;
-                     if (q > 0 && nrz > 0) {
-                        const double half = nrz * std::sqrt(q);
-                        zn0 = std::max(0.0, c.nucZ - half);
-                        zn1 = std::min(h, c.nucZ + half);
+                     // Nucleus chord through this column (the shaped nucleus), clipped to the body.
+                     double below = 0, above = 0, zn0 = 0, zn1 = 0;
+                     if (NucleusColumnLocal(c, lx, ly, below, above) && (below > 0 || above > 0)) {
+                        zn0 = std::max(0.0, c.nucZ - below);
+                        zn1 = std::min(h, c.nucZ + above);
                         if (zn1 < zn0) zn0 = zn1 = 0;
                      }
                      const int k0 = std::max(0, (int)std::floor((0 - zMin) / dz));

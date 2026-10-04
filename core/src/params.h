@@ -17,13 +17,20 @@ struct Params {
    double cellBlob = 1.75;
    double cellRough = 0.15;        // fractal edge tail amplitude (x cellBlob); 0 = off
    double cellFractalDim = 1.35;   // box-counting dimension of the tail, [1, 2]
-   double cellHeightMin = 3, cellHeightMax = 6;
    // Nucleus
    double nucLongMin = 8, nucLongMax = 12;
    double nucRatioMin = 0.6, nucRatioMax = 1;
-   double nucHeightMin = 0.3, nucHeightMax = 0.5;
+   double nucHeightMin = 0.2, nucHeightMax = 0.3;
    double nucOffsetFrac = 0.1;
-   double nucMargin = 0.6;
+   double nucMargin = 0.5;          // sides and top
+   double nucBaseMin = 0.4, nucBaseMax = 0.9;       // gap between the coverslip and the nucleus bottom (um)
+   // Nucleus shape (cells.h "Nucleus shape"; all 0, nucAsym 0 and widest 0.5 = the plain ellipsoid)
+   double nucIrregMin = 0.03, nucIrregMax = 0.2;    // rms relative radius deviation
+   double nucBendMin = 0, nucBendMax = 0.3;         // kidney bend
+   double nucSmooth = 2.5;                          // spectral slope of the lobes
+   double nucThickIrreg = 0.1;                      // rms relative thickness variation at the edge
+   double nucAsym = 0.5;                            // > 0 a wider base, < 0 a wider top (-0.9..0.9)
+   double nucWidestMin = 0.2, nucWidestMax = 0.4;   // height of the widest section (fraction of the height)
    // Cytoplasm: the viewer's "Rounded" look since 2026-10-03 (was rim 0.1-0.3, mid 1-2, slope caps 1 and 3)
    double cytoRimHeightMin = 0.2, cytoRimHeightMax = 0.5;
    double cytoEdgeRiseMin = 0.1, cytoEdgeRiseMax = 0.5;
@@ -42,10 +49,9 @@ struct Params {
    double relaxDamping = 0.55;
    // Microtubules (microtubules.js)
    double mtDensity = 0.9;          // per um^2 of footprint
-   double mtStartFracMin = 0, mtStartFracMax = 0.3;
-   double mtStartOffsetXY = 0;
-   double mtEndFracMin = 0.01, mtEndFracMax = 0.4;
-   double mtEndJitterDeg = 145;
+   double mtStartDecayPct = 1.6;    // start density ~ exp(-gap to the nucleus / L), L = this % of the equivalent diameter
+   double mtEndDecayPct = 20;       // end density ~ exp(-gap to the outline / L), same L convention
+   double mtDirKappa = 1.5;         // end direction weight exp(kappa (cos a - 1)); 0 = any
    double mtWobbleTurn = 0.8;
    double mtWobbleFactor = 1.05;
    double mtStepLen = 0.05;

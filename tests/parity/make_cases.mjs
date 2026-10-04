@@ -17,11 +17,17 @@ const PARAM_SETS = {
   dense: { density: 0.9, chunkSize: 20, jitter: 1, cellElongMin: 0.3 },
   // Microtubules: sparse enough that the collision pass runs (it is skipped
   // above 8000 points per cell), with a wide separation so it nudges and resamples.
-  mtsparse: { mtDensity: 0.03, mtMinSeparation: 0.25, mtStartOffsetXY: 0.3 },
-  mtvar: { mtDensity: 0.3, mtStepLen: 0.1, cellBlob: 2.5, mtEndJitterDeg: 60, mtWobbleTurn: 1.6, mtSmoothLen: 4,
+  mtsparse: { mtDensity: 0.03, mtMinSeparation: 0.25, mtStartDecayPct: 4 },
+  mtvar: { mtDensity: 0.3, mtStepLen: 0.1, cellBlob: 2.5, mtDirKappa: 6, mtEndDecayPct: 5, mtWobbleTurn: 1.6, mtSmoothLen: 4,
            nucMargin: 1.2, cytoMaxSlope: 0.5, cytoDomeSlope: 1.5, mtMaxZSlope: 2 },
   mtflat: { mtDensity: 0.1, mtWobbleTurn: 0, mtMinTurnRadius: 0, mtSmoothLen: 0, cytoRelaxUm: 0, cellRough: 0,
             cytoMaxSlope: 0, cytoDomeSlope: 0, cytoRings: 20, cytoTheta: 48, mtMinSeparation: 0.3 },
+  // Nucleus: the plain ellipsoid (every shape term off), and the shape at its slider extremes.
+  nucplain: { nucIrregMin: 0, nucIrregMax: 0, nucBendMin: 0, nucBendMax: 0, nucThickIrreg: 0, nucAsym: 0,
+              nucWidestMin: 0.5, nucWidestMax: 0.5, mtDensity: 0.1 },
+  nucwild: { nucIrregMin: 0.3, nucIrregMax: 0.3, nucBendMin: 1, nucBendMax: 1, nucSmooth: 0, nucThickIrreg: 0.4,
+             nucAsym: -0.9, nucWidestMin: 1, nucWidestMax: 1, nucHeightMin: 0.4, nucHeightMax: 0.4, mtDensity: 0.1,
+             mtDirKappa: 0 },
 };
 for (const [name, kv] of Object.entries(PARAM_SETS))
   out.push(['params', name, ...Object.entries(kv).map(([k, v]) => `${k}=${v}`)].join(' '));
@@ -59,6 +65,9 @@ out.push('cells m02 90210 mtvar 400 -800 403 -797 2');
 out.push('cells m03 5 mtflat -1000000 1000000 -999997 1000003 2');
 out.push('cells m04 424242 mtsparse 12 12 20 20 3');
 out.push('cells m05 77 rough -4 -4 0 0 2');
+out.push('cells m06 2024 nucplain -2 -2 2 2 2');
+out.push('cells m07 9001 nucwild -2 -2 2 2 2');
+out.push('case n00 4711 nucwild -6 -6 7 7');
 out.push('case r00 31337 rough -6 -6 7 7');
 
 fs.writeFileSync(process.argv[2], out.join('\n') + '\n');

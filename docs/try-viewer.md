@@ -23,7 +23,7 @@ Notes:
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
   has a unit and an (i) that explains it (hover or Tab to it).
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
-  looks: Compact, Focus (one group open at a time, highlighted) and Light. The choices are remembered in your browser.
+  looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
   starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
@@ -41,6 +41,8 @@ Notes:
   object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
   once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
   SMLM and widefield movies also reuse the cells of the previous movie.
+- The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
+  microtubules and dyes of the view's y range seen along y, at equal x and z scale.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

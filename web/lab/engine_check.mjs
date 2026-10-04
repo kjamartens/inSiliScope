@@ -80,7 +80,7 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   }
   const [mj, mw] = both({ type: 'cell', key: 'none', sig: 's', seed, p, cx: 9999, cy: 9999, mt: true });
   bad = bad || (diff(mj, mw) && `missing cell${diff(mj, mw)}`);
-  report(!bad, `${name}: cell assets (outline, mesh, ${nMt} microtubules, a missing cell) ${bad}`);
+  report(!bad, `${name}: cell assets (mesh, nucleus rings, ${nMt} microtubules, a missing cell) ${bad}`);
   const c0 = [pw.cells[2], pw.cells[3]];
   const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p });
   report(!diff(sj, sw) && sw.sites.length > 0, `${name}: sites, ${sw.sites.length / 4} dyes ${diff(sj, sw)}`);

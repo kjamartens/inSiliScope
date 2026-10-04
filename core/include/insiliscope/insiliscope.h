@@ -14,7 +14,9 @@
  * isc_world_set_block (hand a packed block from one world to another, so
  * several worlds of one seed -- the viewer's workers -- pack each block once).
  * ABI 8: isc_world_set_cache_dir / isc_world_flush_cache (packed blocks kept
- * in a small per-user file across runs), isc_world_version.
+ * in a small per-user file across runs), isc_world_version. ABI 9:
+ * isc_cell_nucleus_rings (the shaped nucleus's surface, for drawing); the
+ * optical volume's nucleus chord follows the shaped nucleus.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -35,7 +37,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 8
+#define ISC_ABI_VERSION 9
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -43,7 +45,7 @@ ISC_API int32_t isc_abi_version(void);
  * with every change that moves a cell (packing, RawCandidate): the packed
  * block caches (isc_world_set_cache_dir, the viewer's local storage) are
  * keyed on it, so stale poses are never taken for current ones. */
-#define ISC_WORLD_VERSION "2026-10-04"
+#define ISC_WORLD_VERSION "2026-10-05"
 ISC_API const char* isc_world_version(void);
 
 /* ---- RNG (bit-exact with the JS prototype) ---- */
@@ -178,6 +180,12 @@ ISC_API int32_t isc_cell_mesh(IscWorld* w, int32_t cx, int32_t cy, int32_t dims[
  * receives the total point count. Returns the microtubule count. */
 ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, double* xyz, int32_t capPts,
                                       int32_t* lens, int32_t capMts, int32_t* totalPts);
+/* Nucleus surface (ABI 9): `slices` horizontal sections of `pts` points each,
+ * bottom to top (zeta = -cos(pi i / (slices - 1)): both poles included), as
+ * x, y, z triples, index k*pts + i (up to capPts points). Returns
+ * slices*pts. */
+ISC_API int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
+                                       double* out, int32_t capPts);
 
 /* Labelled-dye counts on an nx x ny grid over the window (row-major, row = y),
  * written to out[nx*ny]. Returns the total count, or -1 on bad arguments. */

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace isc {
@@ -24,20 +25,113 @@ double Smoothstep(double t)
 // JS ToInt32 of an integral double (Math.imul's argument conversion).
 inline uint32_t ToU32(double d) { return (uint32_t)(int64_t)d; }
 
+struct Pt2m { double x, y; };
+
 double MtNucleusClearance(const Params& p) { return std::max(0.05, 0.5 * p.nucMargin); }
 
-double MtNucleusFootprintBlend(const Cell& c, const MtCellGeom& g, double x, double y)
+// Moving average of every interior point (endpoints left alone), window
+// i-h..i+h, h = min(half, i, n-1-i) (symmetric: it shrinks toward the ends).
+// Prefix sums in index order, as mtBoxSmooth.
+template <class Set>
+void MtBoxSmooth(const std::vector<double>& vals, long half, Set set)
 {
-   const double dxN = x - c.nucOffX, dyN = y - c.nucOffY;
-   const double cr = g.nucCosNeg, sr = g.nucSinNeg;
-   const double lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
-   const double a = c.nucLong / 2, b = c.nucShort / 2;
-   const double norm = jsm::hypot(lx / std::max(1e-6, a), ly / std::max(1e-6, b));
-   const double t = std::min(1.0, std::max(0.0, (norm - 1) / MT_NUCLEUS_CLEAR_BLEND));
-   return Smoothstep(1 - t);
+   const long n = (long)vals.size();
+   if (n < 3 || !(half > 0)) return;
+   std::vector<double> cum((size_t)n + 1);
+   cum[0] = 0;
+   for (long i = 0; i < n; i++) cum[(size_t)i + 1] = cum[(size_t)i] + vals[(size_t)i];
+   for (long i = 1; i < n - 1; i++) {
+      const long h = std::min(half, std::min(i, n - 1 - i));
+      set((size_t)i, (cum[(size_t)(i + h + 1)] - cum[(size_t)(i - h)]) / (double)(2 * h + 1));
+   }
 }
 
-struct Pt2m { double x, y; };
+// ---- Obstacles a path rides over or under (mtObstacles) ----
+// Anything a microtubule must not pass through and gets around by going over
+// or under it, one z interval per (x, y) column. The nucleus is the only one
+// so far; a new structure adds a subclass to the list in MtGenerateOne (list
+// order matters: the bounds loop over it in order).
+struct MtObstacle {
+   double clearance = 0;
+   virtual ~MtObstacle() = default;
+   // [bottom, top] (absolute z, cell-local x/y) of the obstacle over this point; false if none.
+   virtual bool Column(double x, double y, double& bottom, double& top) const = 0;
+   // Over (true) or under, decided once per path from its start height.
+   virtual bool GoOver(double startZ) const = 0;
+};
+
+struct MtNucleusObstacle final : MtObstacle {
+   const Cell& c;
+   double bottomZ;
+   MtNucleusObstacle(const Cell& cell, const Params& p) : c(cell), bottomZ(cell.nucZ - cell.nucDown)
+   {
+      clearance = MtNucleusClearance(p);
+   }
+   bool Column(double x, double y, double& bottom, double& top) const override
+   {
+      double below, above;
+      if (!NucleusColumnLocal(c, x, y, below, above)) return false;
+      bottom = c.nucZ - below; top = c.nucZ + above;
+      return true;
+   }
+   // Over when the path starts above the widest section, or there is no room below.
+   bool GoOver(double startZ) const override { return bottomZ - clearance <= 0 || startZ >= c.nucZ; }
+};
+
+// mtObstacleBounds: hi = ceiling x margin; per obstacle over point i, lo up to
+// top + clearance (over) or hi down to bottom - clearance (under, at most half
+// the room below); the clearance fades in over MT_OBST_CLEAR_RAMP_UM of xy arc.
+void MtObstacleBounds(const std::vector<Pt3>& pts, const std::vector<double>& ceil,
+                      const std::vector<const MtObstacle*>& obstacles, std::vector<double>& lo, std::vector<double>& hi)
+{
+   const size_t n = pts.size();
+   std::vector<char> over(obstacles.size());
+   for (size_t k = 0; k < obstacles.size(); k++) over[k] = obstacles[k]->GoOver(pts[0].z);
+   lo.assign(n, -std::numeric_limits<double>::infinity());
+   hi.assign(n, 0.0);
+   double arc = 0;
+   for (size_t i = 0; i < n; i++) {
+      if (i > 0) arc += jsm::hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      hi[i] = ceil[i] * MT_CONTAIN_MARGIN;
+      const double fade = std::min(1.0, arc / MT_OBST_CLEAR_RAMP_UM);
+      for (size_t k = 0; k < obstacles.size(); k++) {
+         double bottom, top;
+         if (!obstacles[k]->Column(pts[i].x, pts[i].y, bottom, top)) continue;
+         const double clr = obstacles[k]->clearance * fade;
+         if (over[k]) lo[i] = std::max(lo[i], top + clr);
+         else hi[i] = std::min(hi[i], bottom - std::min(clr, 0.5 * bottom));
+      }
+   }
+   for (size_t i = 0; i < n; i++) lo[i] = std::min(lo[i], hi[i]);
+}
+
+// mtObstacleEnvelope: keeps interior z within [lo, hi] by smooth corrections:
+// the shortfall spread into a ramp of slope MT_OBST_RAMP_SLOPE per um in xy
+// (forward and backward running maxima), box-smoothed over `half` points, then
+// raised back to the shortfall. Lift first (lo), then lower (hi). Endpoints
+// never move.
+void MtObstacleEnvelope(std::vector<Pt3>& pts, const std::vector<double>& lo, const std::vector<double>& hi, long half)
+{
+   const size_t n = pts.size();
+   if (n < 3) return;
+   std::vector<double> ds(n, 0.0);
+   for (size_t i = 1; i < n; i++) ds[i] = jsm::hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+   std::vector<double> need(n), ramp(n), corr(n);
+   for (const int sign : { 1, -1 }) {
+      bool any = false;
+      for (size_t i = 0; i < n; i++) {
+         need[i] = i == 0 || i == n - 1 ? 0 : std::max(0.0, sign > 0 ? lo[i] - pts[i].z : pts[i].z - hi[i]);
+         if (need[i] > 0) any = true;
+      }
+      if (!any) continue;
+      ramp[0] = need[0];
+      for (size_t i = 1; i < n; i++) ramp[i] = std::max(need[i], ramp[i - 1] - MT_OBST_RAMP_SLOPE * ds[i]);
+      for (size_t i = n - 1; i-- > 0;) ramp[i] = std::max(ramp[i], ramp[i + 1] - MT_OBST_RAMP_SLOPE * ds[i + 1]);
+      corr = ramp;
+      MtBoxSmooth(ramp, half, [&](size_t i, double v) { corr[i] = std::max(v, need[i]); });
+      for (size_t i = 1; i + 1 < n; i++) pts[i].z += sign * corr[i];
+   }
+}
 
 void MtEnforceMinTurnRadius(std::vector<Pt2m>& pts, double minRadius)
 {
@@ -142,59 +236,145 @@ double MtShoelaceArea(const std::vector<Pt2>& pts)
    return std::fabs(area) / 2;
 }
 
-double MtNucleusRadiusAt(const Cell& c, double theta)
+// Approximate distance (um) from cell-local (x, y, z) to the nucleus surface,
+// or -1 inside (mtNucleusGap): in the nucleus shape coordinates, the lateral
+// gap to the section at this height and the vertical gap to the column,
+// combined as gl gv / hypot(gl, gv). The plain ellipsoid is f = 0, H = 1.
+double MtNucleusGap(const Cell& c, double x, double y, double z)
 {
-   const double a = c.nucLong / 2, b = c.nucShort / 2;
-   const double phi = theta - c.nucRot;
-   return (a * b) / jsm::hypot(b * jsm::cos(phi), a * jsm::sin(phi));
+   using namespace jsm;
+   const bool up = z >= c.nucZ;
+   double s, rDir, ext, f;
+   if (c.nucShaped) {
+      const NucBall B = NucBallLocal(c, x, y);
+      s = B.s;
+      const Pt3 q = NucMapLocal(c, 1, B.C, B.S, 0);
+      rDir = hypot(q.x - c.nucOffX, q.y - c.nucOffY);
+      ext = (c.nucHeight / 2) * (up ? c.nucKUp : c.nucKDown) * (s < 1 ? B.H : NucThickAt(c, 1, B.C, B.S));
+      f = up ? c.nucFTop : c.nucFBot;
+   } else {
+      const double a = std::max(1e-6, c.nucLong / 2), b = std::max(1e-6, c.nucShort / 2);
+      const double dx = x - c.nucOffX, dy = y - c.nucOffY;
+      const double cr = cos(c.nucRot), sr = sin(c.nucRot);
+      const double u = (dx * cr + dy * sr) / a, v = (-dx * sr + dy * cr) / b;
+      s = hypot(u, v);
+      const double C = s > 1e-12 ? u / s : 1, S = s > 1e-12 ? v / s : 0;
+      rDir = hypot(a * C, b * S);
+      ext = c.nucHeight / 2;
+      f = 0;
+   }
+   const double zeta = std::fabs(z - c.nucZ) / std::max(1e-6, ext);
+   if (zeta < 1) {
+      const double W = NucSectionW(zeta, f);
+      if (s < W) return -1;
+      const double gl = (s - W) * rDir;
+      if (s >= 1) return gl;
+      const double gv = (zeta - NucColumnExt(s, f)) * ext;
+      const double h = hypot(gl, gv);
+      return h > 1e-12 ? gl * gv / h : 0;
+   }
+   if (s < 1) return (zeta - NucColumnExt(s, f)) * ext;
+   return std::min(hypot((s - 1) * rDir, zeta * ext), hypot((s - f) * rDir, (zeta - 1) * ext));
 }
 
-double MtRayCellBoundaryFromNucleus(const Cell& c, double theta, double rNucStart)
+// Inside the cytoplasm volume (footprint, ceiling, coverslip) with the containment margin.
+bool MtInCytoplasm(const Cell& c, const MtCellGeom& g, double x, double y, double z)
 {
-   const double ux = jsm::cos(theta), uy = jsm::sin(theta);
-   const double maxT = (c.rOuter + jsm::hypot(c.nucOffX, c.nucOffY)) * 1.3 + 1;
-   const double dt = std::max(1e-3, (maxT - rNucStart) / MT_MARCH_STEPS);
-   double prevT = rNucStart, tLo = 0, tHi = 0;
-   bool found = false;
-   for (int s = 0; s <= MT_MARCH_STEPS; s++) {
-      const double t = rNucStart + s * dt;
-      const double px = c.nucOffX + ux * t, py = c.nucOffY + uy * t;
-      const double ang = jsm::atan2(py, px);
-      const double rc = CellRadiusAt(c, ang);
-      const double dist = jsm::hypot(px, py);
-      if (dist > rc) { tHi = t; tLo = s == 0 ? t : prevT; found = true; break; }
-      prevT = t;
-   }
-   if (!found) return prevT;
-   for (int it = 0; it < MT_BISECT_ITERS; it++) {
-      const double mid = (tLo + tHi) / 2;
-      const double px = c.nucOffX + ux * mid, py = c.nucOffY + uy * mid;
-      const double ang = jsm::atan2(py, px);
-      const double rc = CellRadiusAt(c, ang);
-      const double dist = jsm::hypot(px, py);
-      if (dist > rc) tHi = mid; else tLo = mid;
-   }
-   return (tLo + tHi) / 2;
+   if (!(z > 0)) return false;
+   if (!(jsm::hypot(x, y) < CellRadiusAt(c, jsm::atan2(y, x)) * MT_CONTAIN_MARGIN)) return false;
+   return z < std::max(0.0, SampleCytoMeshHeight(c, g.mesh, x, y)) * MT_CONTAIN_MARGIN;
 }
 
-double MtSampleDirection(const MtCellGeom& g, double u1, double u2)
+// Decay length: pct % of the cell's equivalent diameter, floored.
+double MtDecayLen(double pct, const MtCellGeom& g) { return std::max(MT_MIN_DECAY_UM, pct / 100 * g.sizeUm); }
+
+// START: a cytoplasm point with density ~ exp(-gap to the nucleus / lambda):
+// uniform candidates in the nucleus box grown by MT_DECAY_SPAN lambda, four
+// draws each (x, y, z, u), always; the closest valid rejected one is the
+// fallback.
+Pt3 MtSampleStart(const Cell& c, const Params& p, const MtCellGeom& g, HashStream& next)
 {
-   if (g.dirTotal <= 1e-9) return u1 * jsm::PI * 2;
-   const double target = u1 * g.dirTotal;
-   int lo = 0, hi = MT_N_DIR;
-   while (lo < hi) {
-      const int mid = (lo + hi) >> 1;
-      if (g.dirCum[mid + 1] < target) lo = mid + 1; else hi = mid;
+   const double lam = MtDecayLen(p.mtStartDecayPct, g);
+   const double L = std::min(MT_DECAY_SPAN * lam, g.rMax);
+   const double* nb = g.nucBox;
+   const double x0 = nb[0] - L, x1 = nb[2] + L, y0 = nb[1] - L, y1 = nb[3] + L, z1 = c.nucZ + c.nucUp + L;
+   bool haveBest = false;
+   Pt3 best{ 0, 0, 0 };
+   double bestD = std::numeric_limits<double>::infinity();
+   for (int t = 0; t < MT_SAMPLE_TRIES; t++) {
+      const double x = lerp(x0, x1, next.Next());
+      const double y = lerp(y0, y1, next.Next());
+      const double z = z1 * next.Next();
+      const double u = next.Next();
+      const double d = MtNucleusGap(c, x, y, z);
+      if (d < 0) continue;
+      const bool accept = u < jsm::exp(-d / lam);
+      if (!accept && !(d < bestD)) continue;
+      if (!MtInCytoplasm(c, g, x, y, z)) continue;
+      if (accept) return { x, y, z };
+      best = { x, y, z }; bestD = d; haveBest = true;
    }
-   const int i = std::min(MT_N_DIR - 1, lo);
-   const double binWidth = (jsm::PI * 2) / MT_N_DIR;
-   return g.dirTheta[i] + (u2 - 0.5) * binWidth;
+   if (haveBest) return best;
+   // Nothing inside the cytoplasm (a degenerate cell): just outside the nucleus rim.
+   const double cr = jsm::cos(c.nucRot), sr = jsm::sin(c.nucRot), r = c.nucLong / 2 / MT_CONTAIN_MARGIN;
+   return { c.nucOffX + r * cr, c.nucOffY + r * sr, c.nucZ };
+}
+
+// END (x, y): a footprint point outside the nucleus footprint, density ~
+// exp(-gap to the outline / lambda); polar proposal, three draws each.
+Pt2m MtSampleEnd(const Cell& c, const Params& p, const MtCellGeom& g, HashStream& next)
+{
+   const double lam = MtDecayLen(p.mtEndDecayPct, g);
+   double x = 0, y = 0;
+   for (int t = 0; t < MT_SAMPLE_TRIES; t++) {
+      const double th = next.Next() * jsm::PI * 2;
+      const double d = -lam * jsm::log(1 - next.Next());
+      const double u = next.Next();
+      const double rc = CellRadiusAt(c, th) * MT_CONTAIN_MARGIN;
+      const double r = rc - d;
+      x = jsm::cos(th) * std::max(0.0, r); y = jsm::sin(th) * std::max(0.0, r);
+      if (!(r > 0) || !(u * g.rMax < r)) continue;
+      double below, above;
+      if (NucleusColumnLocal(c, x, y, below, above)) continue;
+      return { x, y };
+   }
+   return { x, y };
+}
+
+// The end for start S: MT_END_CANDIDATES ends, one picked with weight
+// exp(mtDirKappa (cos a - 1)), a = angle between S -> end and centre -> S.
+Pt2m MtPickEnd(const Cell& c, const Params& p, const MtCellGeom& g, HashStream& next, const Pt3& S)
+{
+   const double kappa = std::max(0.0, p.mtDirKappa);
+   const double ox = S.x - c.nucOffX, oy = S.y - c.nucOffY, oL = jsm::hypot(ox, oy);
+   Pt2m cands[MT_END_CANDIDATES];
+   double w[MT_END_CANDIDATES];
+   double sum = 0;
+   for (int k = 0; k < MT_END_CANDIDATES; k++) {
+      const Pt2m E = MtSampleEnd(c, p, g, next);
+      const double ex = E.x - S.x, ey = E.y - S.y, eL = jsm::hypot(ex, ey);
+      const double cs = oL > 1e-9 && eL > 1e-9 ? (ex * ox + ey * oy) / (eL * oL) : 0;
+      cands[k] = E;
+      w[k] = jsm::exp(kappa * (cs - 1));
+      sum += w[k];
+   }
+   const double target = next.Next() * sum;
+   double acc = 0;
+   for (int k = 0; k < MT_END_CANDIDATES; k++) {
+      acc += w[k];
+      if (target < acc) return cands[k];
+   }
+   return cands[MT_END_CANDIDATES - 1];
 }
 
 // knownInside: the caller has just checked this point against the outline
 // (the cut below); skip that check again unless the nucleus push moves it.
 void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt, bool knownInside = false)
 {
+   if (c.nucShaped) {
+      // The same radial push in the shaped nucleus's own coordinates.
+      if (NucPushOutLocal(c, pt, MT_CONTAIN_MARGIN)) knownInside = false;
+   } else {
    const double dxN = pt.x - c.nucOffX, dyN = pt.y - c.nucOffY;
    const double cr = g.nucCosNeg, sr = g.nucSinNeg;
    const double lx = dxN * cr - dyN * sr, ly = dxN * sr + dyN * cr;
@@ -210,6 +390,7 @@ void MtClampIntoCytoplasm(const Cell& c, const MtCellGeom& g, Pt3& pt, bool know
       pt.x = c.nucOffX + lx2 * cr2 - ly2 * sr2;
       pt.y = c.nucOffY + lx2 * sr2 + ly2 * cr2;
       knownInside = false;
+   }
    }
    const double dist = jsm::hypot(pt.x, pt.y);
    const double rc = knownInside || dist <= CellInnerRadiusBound(c) ? dist : CellRadiusAt(c, jsm::atan2(pt.y, pt.x));
@@ -355,17 +536,23 @@ void MtResolveCollisions(uint32_t seed, const Cell& c, const Params& p, std::vec
 MtCellGeom BuildMtCellGeom(const Cell& c, const Params& p)
 {
    MtCellGeom g;
-   g.dirCum[0] = 0;
-   for (int i = 0; i < MT_N_DIR; i++) {
-      const double theta = ((double)i / MT_N_DIR) * jsm::PI * 2;
-      const double rNuc = MtNucleusRadiusAt(c, theta);
-      const double rCell = MtRayCellBoundaryFromNucleus(c, theta, rNuc);
-      const double w = std::max(0.0, rCell - rNuc);
-      g.dirTheta[i] = theta;
-      g.dirCum[i + 1] = g.dirCum[i] + w;
+   const std::vector<Pt2> outline = CellOutlineLocal(c, 48);
+   g.areaUm2 = MtShoelaceArea(outline);
+   g.sizeUm = 2 * std::sqrt(g.areaUm2 / jsm::PI);   // equivalent diameter
+   double rMax = 0;
+   for (int i = 0; i < MT_RMAX_SAMPLES; i++) rMax = std::max(rMax, CellRadiusAt(c, ((double)i / MT_RMAX_SAMPLES) * jsm::PI * 2));
+   g.rMax = rMax * MT_CONTAIN_MARGIN;
+   if (c.nucShaped) {
+      double x0 = std::numeric_limits<double>::infinity(), y0 = x0, x1 = -x0, y1 = -x0;
+      for (const Pt2& q : NucFootprintPolygon(c)) {
+         x0 = std::min(x0, q.x); y0 = std::min(y0, q.y); x1 = std::max(x1, q.x); y1 = std::max(y1, q.y);
+      }
+      g.nucBox[0] = x0; g.nucBox[1] = y0; g.nucBox[2] = x1; g.nucBox[3] = y1;
+   } else {
+      const double a = c.nucLong / 2, b = c.nucShort / 2, cr = jsm::cos(c.nucRot), sr = jsm::sin(c.nucRot);
+      const double hx = jsm::hypot(a * cr, b * sr), hy = jsm::hypot(a * sr, b * cr);
+      g.nucBox[0] = c.nucOffX - hx; g.nucBox[1] = c.nucOffY - hy; g.nucBox[2] = c.nucOffX + hx; g.nucBox[3] = c.nucOffY + hy;
    }
-   g.dirTotal = g.dirCum[MT_N_DIR];
-   g.areaUm2 = MtShoelaceArea(CellOutlineLocal(c, 48));
    g.mesh = BuildCytoMesh(c, p);
    g.nucCosNeg = jsm::cos(-c.nucRot);
    g.nucSinNeg = jsm::sin(-c.nucRot);
@@ -388,48 +575,12 @@ Microtubule MtGenerateOne(uint32_t seed, int mtIndex, int resampleRound, const C
    using namespace jsm;
    HashStream next(seed, c.cx, c.cy, MT_STREAM_BASE + (uint32_t)mtIndex + (uint32_t)resampleRound * MT_RESAMPLE_SPACING);
 
-   const double u1 = next.Next();
-   const double u2 = next.Next();
-   const double theta0 = MtSampleDirection(g, u1, u2);
-   const double phi0 = theta0 - c.nucRot;
-   const double cosPsi = 1 - 2 * next.Next();
-   const double sinPsi = sqrt(std::max(0.0, 1 - cosPsi * cosPsi));
-   const double aN = c.nucLong / 2, bN = c.nucShort / 2, rzN = c.nucHeight / 2;
-   const double lx0 = aN * sinPsi * cos(phi0), ly0 = bN * sinPsi * sin(phi0), lz0 = rzN * cosPsi;
-   const double crN = cos(c.nucRot), srN = sin(c.nucRot);
-   const double surfX = c.nucOffX + lx0 * crN - ly0 * srN;
-   const double surfY = c.nucOffY + lx0 * srN + ly0 * crN;
-   const double surfZ = c.nucZ + lz0;
-   double ox = surfX - c.nucOffX, oy = surfY - c.nucOffY, oz = lz0;
-   {
-      const double n = NormOr1(hypot(ox, oy, oz));
-      ox = ox / n; oy = oy / n; oz = oz / n;
-   }
-
-   const double rNuc0 = MtNucleusRadiusAt(c, theta0);
-   const double rCell0 = MtRayCellBoundaryFromNucleus(c, theta0, rNuc0);
-   const double startFrac = lerp(p.mtStartFracMin, p.mtStartFracMax, next.Next());
-   const double startDist = startFrac * rCell0;
-   double startX = surfX + ox * startDist;
-   double startY = surfY + oy * startDist;
-   const double startZ = surfZ + oz * startDist;
-
-   const double offR = next.Next() * std::max(0.0, p.mtStartOffsetXY);
-   const double offAng = next.Next() * PI * 2;
-   startX += cos(offAng) * offR;
-   startY += sin(offAng) * offR;
-
-   const double jitterRad = (next.Next() * 2 - 1) * p.mtEndJitterDeg * PI / 180;
-   const double thetaEnd = theta0 + jitterRad;
-   const double rNucEnd = MtNucleusRadiusAt(c, thetaEnd);
-   const double rCell1 = MtRayCellBoundaryFromNucleus(c, thetaEnd, rNucEnd);
-   const double endFrac = lerp(p.mtEndFracMin, p.mtEndFracMax, next.Next());
-   const double endR = std::max(0.0, rCell1 - endFrac * rCell1);
-   const double endX = c.nucOffX + cos(thetaEnd) * endR;
-   const double endY = c.nucOffY + sin(thetaEnd) * endR;
+   const Pt3 S = MtSampleStart(c, p, g, next);
+   const Pt2m E = MtPickEnd(c, p, g, next, S);
+   const double startX = S.x, startY = S.y, endX = E.x, endY = E.y;
 
    const double startTopH = std::max(0.0, SampleCytoMeshHeight(c, g.mesh, startX, startY));
-   const double fracStart = startTopH > 1e-9 ? std::min(1.0, std::max(0.0, startZ / startTopH)) : 0;
+   const double fracStart = startTopH > 1e-9 ? std::min(1.0, std::max(0.0, S.z / startTopH)) : 0;
    const double fracEnd = next.Next();
 
    const double dx = endX - startX, dy = endY - startY;
@@ -473,71 +624,40 @@ Microtubule MtGenerateOne(uint32_t seed, int mtIndex, int resampleRound, const C
    const double fracNoiseInnovScale = sqrt(std::max(0.0, 1 - fracNoiseDecay * fracNoiseDecay));
    double fracNoise = 0;
 
-   const double nucTopZ = c.nucZ + c.nucHeight / 2;
-   const double nucBottomZ = c.nucZ - c.nucHeight / 2;
-   const double nucClearance = MtNucleusClearance(p);
-   const bool canGoUnder = nucBottomZ - nucClearance > 0;
-   const bool goOverNucleus = !canGoUnder || cosPsi >= 0;
-   auto applyNucleusOverride = [&](double x, double y, double zNormal, double ceilH) {
-      const double blend = MtNucleusFootprintBlend(c, g, x, y);
-      if (blend <= 0) return zNormal;
-      const double target = goOverNucleus
-         ? std::max(zNormal, std::min(ceilH, nucTopZ + nucClearance))
-         : std::min(zNormal, std::max(0.0, nucBottomZ - nucClearance));
-      return lerp(zNormal, target, blend);
-   };
-
+   // z without the nucleus: the fraction profile, then box-smoothed (endpoints kept).
    Microtubule mt;
    std::vector<Pt3>& pts = mt.pts;
    pts.resize((size_t)steps + 1);
+   std::vector<double> ceil((size_t)steps + 1);
    for (int i = 0; i <= steps; i++) {
       const double t = (double)i / steps;
       const double s = t * t * (3 - 2 * t);
       const double x = ptsXY[i].x, y = ptsXY[i].y;
-      const double ceilH = std::max(0.0, SampleCytoMeshHeight(c, g.mesh, x, y));
-      double z;
-      if (i == 0) {
-         z = fracStart * ceilH;
-      } else if (i == steps) {
-         z = applyNucleusOverride(x, y, fracEnd * ceilH, ceilH);
-      } else {
+      ceil[i] = std::max(0.0, SampleCytoMeshHeight(c, g.mesh, x, y));
+      double frac;
+      if (i == 0) frac = fracStart;
+      else if (i == steps) frac = fracEnd;
+      else {
          const double u = next.Next();
          fracNoise = fracNoiseDecay * fracNoise + fracNoiseAmp * fracNoiseInnovScale * (u * 2 - 1);
-         const double frac = std::min(1.0, std::max(0.0, lerp(fracStart, fracEnd, s) + fracNoise * sin(PI * t)));
-         z = applyNucleusOverride(x, y, frac * ceilH, ceilH);
+         frac = std::min(1.0, std::max(0.0, lerp(fracStart, fracEnd, s) + fracNoise * sin(PI * t)));
       }
-      pts[i] = { x, y, z };
+      pts[i] = { x, y, frac * ceil[i] };
    }
-
    const double smoothWinPts = std::max(0.0, JsRound(p.mtSmoothLen / stepLen));
    if (smoothWinPts > 0) {
-      std::vector<double> zOrig(pts.size());
-      for (size_t i = 0; i < pts.size(); i++) zOrig[i] = pts[i].z;
-      const long half = (long)std::max(1.0, JsRound(smoothWinPts / 2));
-      const long last = (long)pts.size() - 1;
-      for (long i = 1; i < last; i++) {
-         const long lo = std::max(0L, i - half), hi = std::min(last, i + half);
-         double sum = 0; int n = 0;
-         for (long j = lo; j <= hi; j++) { sum += zOrig[j]; n++; }
-         pts[i].z = sum / n;
-      }
+      std::vector<double> z(pts.size());
+      for (size_t i = 0; i < pts.size(); i++) z[i] = pts[i].z;
+      MtBoxSmooth(z, (long)std::max(1.0, JsRound(smoothWinPts / 2)), [&](size_t i, double v) { pts[i].z = v; });
    }
 
-   const double maxDz = std::max(1.0, p.mtMaxZSlope) * stepLen;
-   for (int pass = 0; pass < 20; pass++) {
-      bool changed = false;
-      const bool forward = pass % 2 == 0;
-      const size_t n = pts.size();
-      for (size_t k = 1; k + 1 < n; k++) {
-         const size_t i = forward ? k : n - 1 - k;
-         const Pt3& prev = pts[i - 1]; Pt3& cur = pts[i]; const Pt3& nxt = pts[i + 1];
-         const double lo = std::max(prev.z - maxDz, nxt.z - maxDz);
-         const double hi = std::min(prev.z + maxDz, nxt.z + maxDz);
-         if (lo > hi) continue;
-         if (cur.z < lo) { cur.z = lo; changed = true; }
-         else if (cur.z > hi) { cur.z = hi; changed = true; }
-      }
-      if (!changed) break;
+   // Over or under the obstacles (the nucleus), under the ceiling, by a smooth ramp.
+   {
+      const MtNucleusObstacle nucleus(c, p);
+      const std::vector<const MtObstacle*> obstacles{ &nucleus };
+      std::vector<double> lo, hi;
+      MtObstacleBounds(pts, ceil, obstacles, lo, hi);
+      MtObstacleEnvelope(pts, lo, hi, (long)std::max(1.0, JsRound(0.5 * p.mtSmoothLen / stepLen)));
    }
 
    // Truncate at the first exit through the cell outline.

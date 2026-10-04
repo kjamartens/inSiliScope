@@ -138,12 +138,16 @@ Put these in a `CellFieldParams` struct with these defaults; expose only a curat
 properties (section 9) and keep the rest as constants until asked.
 
 Field: `chunkSize 26`, `jitter 0.8`, `density (occupancy) 0.33`.
-Cell: diameter 25-35, elongation (short/long) 0.5-1, `cellBlob 1.75`, `cellRough 0.15` (fractal edge tail, x blob, 0 = off), `cellFractalDim 1.35` (its box-counting dimension, 1-2), height 3-6.
-Nucleus: long axis 8-12, short/long 0.6-1, height 0.3-0.5 x long axis, offset 0.1, margin 1.5.
+Cell: diameter 25-35, elongation (short/long) 0.5-1, `cellBlob 1.75`, `cellRough 0.15` (fractal edge tail, x blob, 0 = off), `cellFractalDim 1.35` (its box-counting dimension, 1-2). The cell height is no longer drawn (2026-10-05): the dome top follows the nucleus.
+Nucleus: long axis 8-12, short/long 0.6-1, height 0.2-0.3 x long axis (0.3-0.5 before 2026-10-05), offset 0.1, margin 0.5
+(sides and top; 0.6 before), gap below `nucBaseMin/Max` 0.4-0.9; shape (2026-10-05, spec/ALGORITHM.md "Nucleus shape"):
+`nucIrregMin/Max` 0.03-0.2, `nucBendMin/Max` 0-0.3, `nucSmooth` 2.5, `nucThickIrreg` 0.1, `nucAsym` 0.5,
+`nucWidestMin/Max` 0.2-0.4.
 Cytoplasm (defaults "Rounded" since 2026-10-03; were rim 0.1-0.3, mid 1-2, slope caps 1 and 3): rim height 0.2-0.5, edge rise 0.1-0.5, mid height 2-3.5, mid distance 0.1-0.3 x cell radius, `nucMargin` 0.6. `cytoMaxSlope` (default 2 µm/µm, slider 0-3, 0 = off) caps how fast the cytoplasm may rise outside the nucleus dome, and `cytoDomeSlope` (default 4, slider 0-6, 0 = off) separately caps the dome flank over the nucleus (falls from `c.height` to mid height along a smoothstep of reach `1.5·(H-mid)/cytoDomeSlope`, ≥ `nucMargin`). Cytoplasm cap: the edge rise is `Hc(1-exp(-s·dEdge/Hc))` with `Hc = 2·cytoMidHeight` (saturating, so no linear pyramid), the rim→mid ramp is stretched to keep its peak slope ≤ s, and `envelopNucleus(c, margin, cytoSlopeRunout)` pushes the outline out so the nucleus is always ≥ dome reach + `2·mid·ln2/cytoMaxSlope` from the edge. The four `cyto*` per-cell fields are now sampled before `envelopNucleus`. `cytoRelaxUm` (default 1 µm, slider 0-3, 0 = raw profile; replaced `cytoSmoothPasses` on 2026-10-01) is the screened-Poisson relaxation length of the height grid (0.25 µm, `CYTO_GRID_UM`; spec/ALGORITHM.md "Cytoplasm height: relaxation"); `cytoRings` (default 60, slider 4-60) is the drawn mesh's radial ring count; `cytoTheta` (default 256 since 2026-10-01, was 128; slider 32-512) is its angular sample count (and `isc_cell_outline`'s).
 Packing: enabled, min gap 1.0, relax iterations 80 (slider to 150), step (damping) 0.55, rotation allowed.
-Microtubules: density 0.9 /µm², start offset 0-0.3, start XY jitter 0, end offset 0.01-0.4,
-end direction jitter 145 deg, wobble turn 0.8, wobble path x1.05, step length 0.05, path smoothing 1.5,
+Microtubules: density 0.9 /µm², start decay `mtStartDecayPct` 1.6 % and end decay `mtEndDecayPct` 20 % of the
+equivalent diameter, direction concentration `mtDirKappa` 1.5 (these replaced start offset, start XY jitter, end offset
+and end direction jitter on 2026-10-05), wobble turn 0.8, wobble path x1.05, step length 0.05, path smoothing 1.5,
 min turn radius 0.15, min separation 0.05, max z slope 5, line width (draw only, skip).
 
 ### 4.3 The viewport-dependence trap (do not port this part as-is)
@@ -543,6 +547,15 @@ which also makes `engine_check`'s "pack with remembered blocks" case. Hosts (Cel
 PsfGeneratorBridge.h), MM `General_DiskCache` Off/Cells/CellsAndPsf. `world_checks` `BlockStoreTest`: a second
 world of the same key takes every block from the file (same cells, nothing packed), mt*/label* changes keep the
 key, a packing parameter changes it, a damaged file is ignored and rewritten.
+
+### 6.7 Nucleus surface (ABI 9, 2026-10-05)
+The nucleus is a shaped ellipsoid (spec/ALGORITHM.md "Nucleus shape"; `core/src/cells.cpp` `NucShapeInit` and the
+`Nuc*` functions, bit-exact with the prototype's `nucShapeInit`/`nucMapLocal`/...). `isc_cell_nucleus_rings(w, cx, cy,
+slices, pts, out, cap)` returns its drawing rings (horizontal sections, both poles included, cell-local xyz) for the
+viewer's `cell` job, which draws them instead of its ellipsoid (the pack record keeps the plain ellipsoid's numbers for
+the fallback). `isc_optical_volume_in_window` takes the asymmetric nucleus chord. `ISC_WORLD_VERSION` 2026-10-05.
+No new MM properties: the CellField bridge exposes a handful of world parameters (section 9) and the nucleus shape is
+not among them; the cli/viewer set every core parameter by name (`p.nucIrregMin=...`).
 
 ## 12. Known gaps to keep in mind (not for the first pass)
 

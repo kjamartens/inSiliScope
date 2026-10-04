@@ -211,7 +211,8 @@ screen (1 slice) at the phase-weighted height; margin taper against wrap-around.
 <= lambda/4n (`UpscaleFor`; upscale is a minimum). Speed (2026-10-02, spec/BRIGHTFIELD.md Cost): shared slice
 transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD, and the cli/viewer keep one world + scene
 across movies: 256 px level 3 is 0.7 s cli cold / 0.9 s in the viewer (was 3 s / 12 s), same accuracy. Defaults
-`SimType_CellFieldIndexCytoplasm`/`IndexNucleus` 1.345 (were 1.360 / 1.355).
+`SimType_CellFieldIndexCytoplasm`/`IndexNucleus` 1.35 (2026-10-05; were 1.345, before that 1.360 / 1.355);
+`General_BrightFieldCondenserNa` 0.4 (was 0.55), `General_BrightFieldPhotonsPerPxPerSec` 80000 (was 40000).
 `CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
 the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU, no drift. Checks: ctest `brightfield` (weak phase
@@ -226,6 +227,14 @@ complex recurrence `CellTailAt`), and the cytoplasm height is relaxed on a 0.25 
 `h - l^2 lap h = raw`, l = `cytoRelaxUm` 1 um, exact boundary, nucleus obstacle; replaced `cytoSmoothPasses`, whose
 index-space smoothing left folds). Cli/viewer: `p.cellRough`, `p.cellFractalDim`, `p.cytoRelaxUm` (viewer sliders);
 `cytoTheta` (drawn mesh) default 256.
+
+**Nucleus shape and microtubule ends (2026-10-05, issue 12, spec/ALGORITHM.md):** the nucleus is a shaped ellipsoid
+(lobes k 2-8, kidney bend, thickness k 1-8 by bit-exact complex recurrences, wider base `nucAsym`, widest point
+`nucWidest*`; all off = the old ellipsoid, `nucShaped` false), sitting `nucBase*` above the coverslip with the dome top at
+the nucleus top + `nucMargin` (`cellHeight*` and hash channel 6 are gone). Microtubules start/end by distance-weighted
+rejection sampling (`mtStartDecayPct`, `mtEndDecayPct`, `mtDirKappa`) and ride over/under the nucleus on a smooth
+envelope (generic obstacle interface). Core ABI 9 `isc_cell_nucleus_rings` (viewer drawing); `ISC_WORLD_VERSION`
+2026-10-05.
 
 **PSF in the cli/viewer (2026-10-01):** `ScopeMovie` uses the adapter's default `GibsonLanniZernike` (C++,
 `Simulation/ZernikePsf.*`, same kernel cache and render calls as the adapter) for SR and WideField; options
