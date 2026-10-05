@@ -8,7 +8,7 @@ hide:
 
 The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt and turn it for a 3D view,
 then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
-to the `insiliscope_cli` output with the same settings). **[Open it full screen](../viewer/index.html)** for more room.
+to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
 
 <div class="isc-viewer">
   <div class="isc-viewer-loading">Loading the viewer (about 1 MB of WebAssembly)…</div>
@@ -55,6 +55,21 @@ Notes:
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
   cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
   above it and a nearer cell covers a farther one.
+- The **Animation** tab (next to Settings) builds short animations of one cell for talks: the view orbits the cell
+  while its structures appear. An animation is a list of **cycles**, each bound to a structure (microtubules, nucleus,
+  cytoplasm) and made of **steps**. A step lasts some seconds, moves the camera (turning by the cycle's orbit, tilting,
+  zooming) and can **sweep a plane** through the cell (up, down, side to side, or along the screen's axes) with a slab
+  of some thickness; every layer of the step is shown **ahead** of the plane, **in the slab** and/or **behind** it (its
+  wake), with its own colour and opacity. A step without a sweep makes its layers pop in (fading). Typical: the
+  simulated microtubules building up bottom to top while the view turns, then a slab moving back down. Duplicate a cycle
+  and switch its structure to repeat it for the nucleus; "keep shown after" leaves a layer on for later cycles. Ready-made
+  cycles: orbit, pop in, build up, moving slab, side to side, up then down. The timeline under the view plays and
+  scrubs it (Space, arrows, [ and ]; once, loop or ping-pong); the dimmed border shows the export frame. **Export**
+  renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
+  or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
+  are kept in the browser, with undo/redo, and saved or opened as `.json` files. Image layers made from simulated
+  data (WideField and SMLM slices, thresholded WideField, localizations) come in later steps of this feature.
+- The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

@@ -4,6 +4,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer Animation tab (issue 11, phase 2, 2026-10-05): animations of one cell as cycles of steps (camera moves, plane
+  sweeps with per-layer zones ahead / in the slab / behind, pop-ins with fades, captions), previewed on a timeline under
+  the view and exported frame by frame off screen as MP4 (H.264), WebM (VP9/VP8) or GIF (self-written muxers and GIF
+  encoder over WebCodecs, no libraries), with scale bar, captions, plane position and legend overlays; undo/redo, local
+  storage, `.json` save/open. The movie player saves GIF and MP4 too. `web/anim/`, `web/encode/`; checks
+  `tests/web/anim_unit.mjs`, `encode_unit.mjs` (CI job `viewer-js`), `viewer_anim_export.mjs` (browser).
 - Viewer rotation, z clip and detail budget (issue 11, phase 1, 2026-10-05): the view turns about the vertical through
   its centre (Rotation, Shift-drag) and tilts up to 90° (was 75°); a Z clip draws only what lies between two heights
   (clipped per fragment on the GPU); only the 5 cells nearest the view centre (Detailed cells, 0 = all) get their

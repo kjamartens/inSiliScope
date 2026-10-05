@@ -100,6 +100,10 @@ function buildLayers(structures) {
   return out;
 }
 const LAYERS = buildLayers(STRUCTURES);
+// The registry the animation editor and evaluator read: layers by id, and per structure its label, layers and primary
+// (ground-truth geometry) rep, what a cycle's '$.gt' means.
+const REGISTRY = { layers: LAYERS, structures: new Map(STRUCTURES.map(s => [s.id, { id: s.id, label: s.label, primary: s.reps[0],
+  dyes: !!s.dyes, layers: [...LAYERS.values()].filter(L => L.structure === s.id).map(L => L.id) }])) };
 
 // ---- themes ---------------------------------------------------------------------------------------------------------
 // color: [r, g, b] 0-255, or null = the renderer's own colouring (depth colours for surfaces). opacity 0-1. width
@@ -136,7 +140,8 @@ function resolveStyle(theme, id, ...over) {
 }
 
 // ---- clip intervals -> uniform tables ------------------------------------------------------------------------------
-// state.layers: { id: { style?, intervals?: [{lo, hi, style?}] } }, absent = hidden; no intervals = everywhere.
+// state.layers: { id: { style?, alpha?, intervals?: [{lo, hi, style?}] } }, absent = hidden; no intervals = everywhere;
+// alpha multiplies every interval's opacity (fades).
 // Returns {n: Float32Array(N_KINDS) interval counts (0 = hidden), iv: Float32Array(N_KINDS*IV_MAX*2) [lo, hi],
 // st: Float32Array(N_KINDS*IV_MAX*4) rgb 0-1 (r < 0: the renderer's own colour) + opacity, layer: per kind the
 // resolved layer style (width/size)}. The intervals are along state.sweep's axis (absolute um); +-1e30 = open.
@@ -157,7 +162,7 @@ function packZones(state) {
       iv[2 * o] = Math.max(-BIG, I.lo === undefined ? -BIG : I.lo); iv[2 * o + 1] = Math.min(BIG, I.hi === undefined ? BIG : I.hi);
       const c = s.color;
       st[4 * o] = c ? c[0] / 255 : -1; st[4 * o + 1] = c ? c[1] / 255 : 0; st[4 * o + 2] = c ? c[2] / 255 : 0;
-      st[4 * o + 3] = s.opacity === undefined ? 1 : s.opacity;
+      st[4 * o + 3] = (s.opacity === undefined ? 1 : s.opacity) * (L.alpha === undefined ? 1 : L.alpha);
     });
   }
   return { n, iv, st, layer };
@@ -194,6 +199,6 @@ function detailSet(cells, px, py, N, prev) {
   return { set: new Set(N > 0 ? order.slice(0, N) : order), order };
 }
 
-globalThis.IscScene = { DEG, makeCamera, REPS, STRUCTURES, LAYERS, KIND, N_KINDS, IV_MAX, IMPLEMENTED, buildLayers, THEMES,
+globalThis.IscScene = { DEG, makeCamera, REPS, STRUCTURES, LAYERS, REGISTRY, KIND, N_KINDS, IV_MAX, IMPLEMENTED, buildLayers, THEMES,
   themeOf, resolveStyle, hexToRgb, packZones, axisVector, axisInView, zoneSlot, detailSet, DETAIL_HYST, BIG };
 })();

@@ -117,6 +117,12 @@
   #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:8px 10px;line-height:1.5;pointer-events:none;white-space:pre}
   #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
   .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  /* sidebar tabs: the settings panel and the animation editor (web/anim/editor.js styles its own panel) */
+  #tabs{display:flex;gap:4px;margin-top:8px}
+  #tabs button{flex:1;padding:4px 6px;border-radius:5px 5px 0 0;border-bottom:none;color:var(--muted)}
+  #tabs button.on{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--in-bg))}
+  #animPanel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
+  #animBar{position:absolute;left:0;right:0;bottom:0;height:46px;display:none;z-index:3;box-sizing:border-box}
 </style>
 </head>
 <body>
@@ -129,9 +135,11 @@
         <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       </div>
       <div id="menu" role="menu"></div>
+      <div id="tabs" role="tablist"><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
     </div>
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
     <div id="panel"></div>
+    <div id="animPanel" hidden></div>
   </div>
 
   <div id="canvasHost">
@@ -141,9 +149,10 @@
     <canvas id="cvXZ"></canvas>
     <div id="hud"></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
-    <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
+    <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
+    <div id="animBar"></div>
     <div id="legend">
       <span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
@@ -157,6 +166,11 @@
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
+<script src="anim/sequence.js"></script>
+<script src="encode/gif.js"></script>
+<script src="encode/mp4.js"></script>
+<script src="encode/webm.js"></script>
+<script src="encode/video.js"></script>
 <script id="uiSchema">
 'use strict';
 // ---- option panel: schema + renderer ------------------------------------------------------------------------------
@@ -627,16 +641,17 @@ function showTip(t) {
   tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
 }
 const hideTip = () => { tip.style.display = 'none'; };
-panel.addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
-panel.addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
-panel.addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
-panel.addEventListener('focusout', hideTip);
+$('side').addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+$('side').addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
+$('side').addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+$('side').addEventListener('focusout', hideTip);
 panel.addEventListener('scroll', hideTip);
 
 document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
 setStyle(store.get('style', 'focus'));
 setLevel(document.body.dataset.level);
 window.uiSync = sync;
+window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the animation editor (web/anim/editor.js)
 })();
 </script>
 <script id="mainScript">
@@ -832,8 +847,9 @@ function stateFromUI() {
 const XZ_FRAC = 0.2, XZ_MIN_PX = 80; // x-z side view: share of the canvas area's height (CSS px floor)
 function resizeCanvas() {
   const r = host.getBoundingClientRect();
-  const xzH = els.showXZ.checked ? Math.max(XZ_MIN_PX, Math.round(r.height * XZ_FRAC)) : 0;
-  const mainH = r.height - xzH; // the view (and so the FOV) is the area above the side view
+  const barH = animBarH();   // the animation timeline (web/anim/editor.js) under the view, when shown
+  const xzH = els.showXZ.checked && !previewState ? Math.max(XZ_MIN_PX, Math.round((r.height - barH) * XZ_FRAC)) : 0;
+  const mainH = r.height - xzH - barH; // the view (and so the FOV) is the area above the side view
   cv.width = Math.round(r.width * devicePixelRatio);
   cv.height = Math.round(mainH * devicePixelRatio);
   cv.style.width = r.width + 'px';
@@ -847,8 +863,8 @@ function resizeCanvas() {
     cvXZ.width = cv.width; cvXZ.height = Math.round(xzH * devicePixelRatio);
     cvXZ.style.width = r.width + 'px'; cvXZ.style.height = xzH + 'px';
   }
-  host.classList.toggle('xz', !!xzH);
-  host.style.setProperty('--xz-h', xzH + 'px');
+  host.classList.toggle('xz', !!(xzH + barH));
+  host.style.setProperty('--xz-h', (xzH + barH) + 'px');
   requestDraw();
 }
 
@@ -857,9 +873,11 @@ function resizeCanvas() {
 // cos(tilt), z lifting a point by sin(tilt). Tilt 0, rotation 0 is the plain top-down view. renderFrame() sets it;
 // every projection below goes through it.
 let curCam = null;
+// cam.fovUm: the frame's width in um; with cam.frameAspect (an animation previewed on the screen) the frame of that
+// aspect is fitted into W x H instead.
 function cameraFor(cam, W, H) {
   const c = cam || {}, pv = c.pivot || [view.cx, view.cy, 0];
-  const S = c.fovUm ? W / c.fovUm : (c.scale || view.scale) * devicePixelRatio;
+  const S = c.fovUm ? (c.frameAspect ? Math.min(W / c.fovUm, H * c.frameAspect / c.fovUm) : W / c.fovUm) : (c.scale || view.scale) * devicePixelRatio;
   return IscScene.makeCamera({ px: pv[0], py: pv[1], pz: pv[2] || 0, az: (c.azimuthDeg || 0) * Math.PI / 180,
     tilt: (c.tiltDeg || 0) * Math.PI / 180, S, W, H });
 }
@@ -872,29 +890,31 @@ function project(x, y, z) { return curCam.project(x, y, z); }
 // tilt (only y is foreshortened by cos(tilt)), so a horizontal bar stays
 // metrically correct at any tilt.
 const SCALE_NICE = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
-function drawScaleBar(pxPerUm) {
-  const targetPx = 140 * devicePixelRatio;
+function drawScaleBar(pxPerUm) { drawScaleBarOn(ctx, cv.width, cv.height, pxPerUm, devicePixelRatio); }
+// On any 2D context of W x H px (an exported frame too): k = px per CSS px of the bar's margins, ticks and text.
+function drawScaleBarOn(g, W, H, pxPerUm, k) {
+  const targetPx = 140 * k;
   let chosen = SCALE_NICE[0];
   for (const v of SCALE_NICE) { if (v * pxPerUm <= targetPx) chosen = v; else break; }
   const barPx = chosen * pxPerUm;
-  const m = 18 * devicePixelRatio;
-  const y = cv.height - m;
-  const x2 = cv.width - m, x1 = x2 - barPx;
-  const tick = 5 * devicePixelRatio;
+  const m = 18 * k;
+  const y = H - m;
+  const x2 = W - m, x1 = x2 - barPx;
+  const tick = 5 * k;
 
-  ctx.strokeStyle = '#dfe6ee';
-  ctx.lineWidth = Math.max(2, 2 * devicePixelRatio);
-  ctx.beginPath();
-  ctx.moveTo(x1, y); ctx.lineTo(x2, y);
-  ctx.moveTo(x1, y - tick); ctx.lineTo(x1, y + tick);
-  ctx.moveTo(x2, y - tick); ctx.lineTo(x2, y + tick);
-  ctx.stroke();
+  g.strokeStyle = '#dfe6ee';
+  g.lineWidth = Math.max(2, 2 * k);
+  g.beginPath();
+  g.moveTo(x1, y); g.lineTo(x2, y);
+  g.moveTo(x1, y - tick); g.lineTo(x1, y + tick);
+  g.moveTo(x2, y - tick); g.lineTo(x2, y + tick);
+  g.stroke();
 
-  ctx.fillStyle = '#dfe6ee';
-  ctx.font = `${12 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(`${chosen} µm`, (x1 + x2) / 2, y - tick - 4 * devicePixelRatio);
+  g.fillStyle = '#dfe6ee';
+  g.font = `${12 * k}px system-ui, Segoe UI, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'bottom';
+  g.fillText(`${chosen} µm`, (x1 + x2) / 2, y - tick - 4 * k);
 }
 
 // ---- per-cell scene: geometry, depth order, 2D and WebGL2 painters -------------
@@ -1430,7 +1450,8 @@ function ensureMtGl(entry, mts, tolUm) {
 let dyeGl = null;
 // cells: far to near, each {cell, asset, hide, alpha, detailed}.
 function drawSceneGl(cells, p, F) {
-  const cam = F.cam, Z = F.Z, W = cvGl.width, H = cvGl.height;
+  const cam = F.cam, Z = F.Z, W = cam.W, H = cam.H;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, F.fbo || null);
   // depth range: the view's turned y extent (the tilt-widened half height) and the cells' heights, with margin
   const D = cam.halfV() + 200;
   gl.viewport(0, 0, W, H);
@@ -1494,6 +1515,7 @@ function drawSceneGl(cells, p, F) {
     gl.depthMask(true);
   }
   gl.bindVertexArray(null);
+  if (F.fbo) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
 // ---- x-z side view (#cvXZ) -----------------------------------------------------
@@ -2476,7 +2498,8 @@ function renderFrame(st, target) {
   target = target || {};
   const p = params();
   const seed = (+els.seed.value) | 0;
-  const S0 = p.chunkSize, W = cv.width, H = cv.height;
+  const off = !!target.fbo;   // an off-screen frame (export): GL only, no 2D layers
+  const S0 = p.chunkSize, W = target.W || cv.width, H = target.H || cv.height;
   const cam = curCam = cameraFor(st.camera, W, H);
   view.tiltRad = cam.tilt; view.azRad = cam.az; view.pz = cam.pz;
   frameExact = !!target.final; orderStale = false;
@@ -2487,8 +2510,10 @@ function renderFrame(st, target) {
     cvBase.style.background = themeBg; cvXZ.style.background = themeBg;
     if (!useGl) cv.style.background = themeBg;
   }
-  ctxTop.clearRect(0, 0, W, H);
-  if (useGl) ctxBase.clearRect(0, 0, W, H);
+  if (!off) {
+    ctxTop.clearRect(0, 0, W, H);
+    if (useGl) ctxBase.clearRect(0, 0, W, H);
+  }
 
   const [rx0, ry0, rx1, ry1] = cam.visibleRect();
   const cx0 = Math.floor(rx0 / S0) - 1, cx1 = Math.ceil(rx1 / S0) + 1;
@@ -2498,7 +2523,7 @@ function renderFrame(st, target) {
   const bg = useGl ? ctxBase : ctxTop;
   const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
-    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map() };
+    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   const hudHead = `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/um   ` +
     `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `   rotation ${azDeg}°` : '') + `   ${useGl ? 'GPU' : '2D'}`;
@@ -2590,6 +2615,8 @@ function renderFrame(st, target) {
   }
   ctx = ctxTop;
 
+  if (!off && st.camera.frameAspect) drawFrameMask(cam, st.camera.frameAspect);
+  if (!off && afterDraw) afterDraw(ctxTop, st, cam);
   if (st.ui) {
     drawMovieFov();
     drawScaleBar(pxPerUm);
@@ -2603,13 +2630,161 @@ function renderFrame(st, target) {
       (labelNote ? '   [' + labelNote + ']' : '');
   }
   lastFrame = { cam, F, vis };
-  return { loading: nLoading + (covers ? 0 : 1), dyes: wantDyes && (dyePending || !dyeSel) ? 1 : 0 };
+  // loading: cells whose asset is on its way, the view's blocks not all packed, blocks still packing (a neighbour
+  // in one of them would pop in later)
+  return { loading: nLoading + (covers ? 0 : 1) + blockPending.size, dyes: wantDyes && (dyePending || !dyeSel) ? 1 : 0 };
 }
 
 function draw() {
   renderFrame(previewState || stateFromUI());
   if (orderStale) requestDraw();   // some cells kept last frame's depth order: finish them next frame
 }
+
+// ---- the scene API of the animation tab (web/anim/editor.js) ------------------------------------------------------
+// The editor previews an animation by handing draw() its frame state (setPreview: the camera follows the animation,
+// pan/zoom/turn are locked, the x-z strip makes room for the timeline), and exports it frame by frame off screen
+// (captureFrame: the same renderFrame into a multisampled framebuffer of the export size, read back and composited
+// over the theme's background).
+let afterDraw = null;          // (ctx, state, cam): the animation's overlays on a previewed frame
+let animBarShown = false;
+const ANIM_BAR_H = 46;
+function animBarH() { return animBarShown ? ANIM_BAR_H : 0; }
+// The animation frame (aspect w/h, width fovUm) on the screen, device px: {x, y, w, h}.
+function frameRect(cam, aspect, fovUm) {
+  const w = fovUm * cam.S, h = w / aspect;
+  return { x: cam.W2 - w / 2, y: cam.H2 - h / 2, w, h };
+}
+function drawFrameMask(cam, aspect) {
+  const st = previewState, f = frameRect(cam, aspect, st.camera.fovUm), W = cam.W, H = cam.H;
+  ctx = ctxTop;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, Math.max(0, f.y)); ctx.fillRect(0, f.y + f.h, W, Math.max(0, H - f.y - f.h));
+  ctx.fillRect(0, f.y, Math.max(0, f.x), f.h); ctx.fillRect(f.x + f.w, f.y, Math.max(0, W - f.x - f.w), f.h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1;
+  ctx.strokeRect(f.x + 0.5, f.y + 0.5, f.w - 1, f.h - 1);
+}
+let capFb = null;
+function captureFbo(W, H) {
+  if (capFb && capFb.W === W && capFb.H === H && capFb.gl === gl) return capFb;
+  if (capFb && capFb.gl === gl && !gl.isContextLost()) {
+    for (const f of [capFb.ms, capFb.rs]) gl.deleteFramebuffer(f);
+    for (const r of [capFb.msCol, capFb.msDep, capFb.rsCol]) gl.deleteRenderbuffer(r);
+  }
+  const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0);
+  const rb = (fmt, ms) => {
+    const r = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, r);
+    if (ms && samples) gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, fmt, W, H);
+    else gl.renderbufferStorage(gl.RENDERBUFFER, fmt, W, H);
+    return r;
+  };
+  const ms = gl.createFramebuffer(), msCol = rb(gl.RGBA8, true), msDep = rb(gl.DEPTH_COMPONENT24, true);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, ms);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msCol);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, msDep);
+  const okMs = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  const rs = gl.createFramebuffer(), rsCol = rb(gl.RGBA8, false);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rs);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, rsCol);
+  const okRs = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (!okMs || !okRs) throw new Error(`cannot render a ${W} x ${H} frame on this GPU`);
+  return (capFb = { gl, W, H, ms, rs, msCol, msDep, rsCol, buf: new Uint8Array(W * H * 4) });
+}
+// One animation frame of W x H device px into o.canvas (made if absent), opaque on the theme's background.
+// Returns {canvas, info (renderFrame's: what is still loading), cam}.
+function captureFrame(st, o) {
+  if (!useGl || !gl || gl.isContextLost()) throw new Error('exporting an animation needs WebGL2');
+  const W = o.width, H = o.height, fb = captureFbo(W, H);
+  const info = renderFrame(st, { final: o.final !== false, W, H, fbo: fb.ms, pxScale: o.pxScale || Math.max(1, W / 1280) });
+  const cam = curCam;
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb.ms); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fb.rs);
+  gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb.rs);
+  gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, fb.buf);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const cnv = o.canvas || document.createElement('canvas');
+  if (cnv.width !== W || cnv.height !== H) { cnv.width = W; cnv.height = H; }
+  const g = cnv.getContext('2d'), img = g.createImageData(W, H), d = img.data, b = fb.buf, bg = IscScene.themeOf(st.theme).bg;
+  for (let y = 0; y < H; y++) {   // GL rows run bottom up; premultiplied colour over the background
+    let s = (H - 1 - y) * W * 4, t = y * W * 4;
+    for (let x = 0; x < W; x++, s += 4, t += 4) {
+      const k = 1 - b[s + 3] / 255;
+      d[t] = b[s] + bg[0] * k; d[t + 1] = b[s + 1] + bg[1] * k; d[t + 2] = b[s + 2] + bg[2] * k; d[t + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return { canvas: cnv, info, cam };
+}
+// The cell (chunk key 'cx,cy') under a screen point: the packed cell whose footprint holds it.
+function pickCell(clientX, clientY) {
+  if (!packCache || !curCam) return null;
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio;
+  const [x, y] = curCam.unproject((clientX - r.left) * dpr, (clientY - r.top) * dpr, 0);
+  let best = null, bd = Infinity;
+  for (const c of packCache.map.values()) {
+    const dx = x - c.x, dy = y - c.y, d = Math.hypot(dx, dy);
+    if (d > c.rOuter || d >= bd) continue;
+    const a = assets.get(c.cx + ',' + c.cy);
+    if (a && a.entry && a.entry.mesh) {
+      const tab = footprintPolar(a.entry), rot = -(c.packRot || 0);
+      const lx = dx * Math.cos(rot) - dy * Math.sin(rot), ly = dx * Math.sin(rot) + dy * Math.cos(rot);
+      if (d > tab[((Math.floor(Math.atan2(ly, lx) / (2 * Math.PI) * FOOT_BINS) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS] + 0.2) continue;
+    }
+    best = c.cx + ',' + c.cy; bd = d;
+  }
+  return best;
+}
+function nearestCell(x, y) {
+  if (!packCache) return null;
+  let best = null, bd = Infinity;
+  for (const c of packCache.map.values()) { const d = Math.hypot(c.x - x, c.y - y); if (d < bd) { bd = d; best = c.cx + ',' + c.cy; } }
+  return best;
+}
+// A cell's extent (world um): x, y from its outline (the bounding circle until its asset is in), z from the coverslip
+// to its top; precise: whether the outline was known.
+function cellBounds(key) {
+  const c = packCache && packCache.map.get(key);
+  if (!c) return null;
+  const a = assets.get(key), out = { x: [c.x - c.rOuter, c.x + c.rOuter], y: [c.y - c.rOuter, c.y + c.rOuter], z: [0, c.height],
+    center: [c.x, c.y, c.height / 2], diam: 2 * c.rOuter, precise: false };
+  if (a && a.entry && a.entry.mesh) {
+    const { rings, n, flat } = a.entry.mesh, cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, R = 0, top = 0;
+    for (let i = 0; i < n; i++) {
+      const o = 3 * (rings * n + i), lx = flat[o], ly = flat[o + 1], wx = c.x + lx * cr - ly * sr, wy = c.y + lx * sr + ly * cr;
+      x0 = Math.min(x0, wx); x1 = Math.max(x1, wx); y0 = Math.min(y0, wy); y1 = Math.max(y1, wy); R = Math.max(R, Math.hypot(lx, ly));
+    }
+    for (let v = 2; v < flat.length; v += 3) top = Math.max(top, flat[v]);
+    Object.assign(out, { x: [x0, x1], y: [y0, y1], z: [0, Math.max(top, c.height)], diam: 2 * R, precise: true });
+    out.center[2] = out.z[1] / 2;
+  }
+  return out;
+}
+let pickHandler = null;   // a one-shot click on the view picks a cell (the editor's "Pick on map")
+window.iscScene = {
+  registry: IscScene.REGISTRY, themes: IscScene.THEMES, canvas: cv,
+  stateFromUI, renderFrame, captureFrame, frameRect, pickCell, nearestCell, cellBounds, requestDraw,
+  hasGl: () => useGl,
+  // the packed cells around the view are all in (so "the cell nearest the centre" will not change)
+  packingIdle: () => !!(packCache && packCache.covers && !blockPending.size && packCache.map.size),
+  setPreview(st) {
+    const was = !!previewState;
+    previewState = st || null; cameraLocked = !!st;
+    hud.style.display = st ? 'none' : ''; document.getElementById('legend').style.display = st ? 'none' : '';
+    if (was !== !!st) resizeCanvas(); else requestDraw();
+  },
+  setAnimBar(shown) { if (animBarShown !== !!shown) { animBarShown = !!shown; resizeCanvas(); } },
+  setAfterDraw(fn) { afterDraw = fn; requestDraw(); },
+  setPlaying(b) { animPlaying = !!b; },
+  armPick(fn) { pickHandler = fn; cv.style.cursor = fn ? 'crosshair' : ''; },
+  getView() {
+    return { cx: view.cx, cy: view.cy, pz: +els.pivotZ.value || 0, az: +els.azimuthDeg.value, tilt: +els.tiltDeg.value,
+      scale: view.scale, cssW: cv.width / devicePixelRatio, cssH: cv.height / devicePixelRatio };
+  },
+  scaleBar: (g, W, H, pxPerUm, k) => drawScaleBarOn(g, W, H, pxPerUm, k),
+  seed: () => (+els.seed.value) | 0,
+};
 
 // ---- pan / zoom / turn ------------------------------------------------------
 // Drag pans (the scene follows the pointer), Shift-drag turns (sideways) and tilts (up and down) the view about its
@@ -2620,6 +2795,7 @@ let dragging = null, dragMode = 'pan', lastX = 0, lastY = 0, orbitAz = 0, orbitT
 function setInput(el, v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }
 for (const c of [cv, cvXZ]) {
   c.addEventListener('pointerdown', e => {
+    if (pickHandler && c === cv) { const h = pickHandler; iscScene.armPick(null); h(pickCell(e.clientX, e.clientY)); return; }
     dragging = c; lastX = e.clientX; lastY = e.clientY;
     dragMode = e.shiftKey && c === cv ? 'orbit' : 'pan';
     orbitAz = +els.azimuthDeg.value; orbitTilt = +els.tiltDeg.value;
@@ -3059,6 +3235,39 @@ function saveMovieTiff(e) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
+// The movie as shown in the player (its display range through the grey LUT), scaled up by a whole factor to at
+// least 512 px (nearest neighbour: crisp pixels), as a GIF (256 greys: exactly the display) or a video at the
+// playback rate (WebCodecs; WebM or GIF where the browser cannot encode H.264).
+async function saveMovieVideo(e, format) {
+  e.preventDefault();
+  if (!movie) return;
+  const d = movie, k = Math.max(1, Math.ceil(512 / Math.max(d.w, d.h))), W = d.w * k, H = d.h * k;
+  const fps = Math.min(50, 1000 / Math.max(30, +document.getElementById('mv_exposure-ms').value));
+  const link = document.getElementById(format === 'gif' ? 'mv_gif' : 'mv_mp4'), label = link.textContent;
+  const src = document.createElement('canvas'), big = document.createElement('canvas');
+  src.width = d.w; src.height = d.h; big.width = W + (W & 1); big.height = H + (H & 1);
+  const gs = src.getContext('2d'), gb = big.getContext('2d');
+  gb.imageSmoothingEnabled = false;
+  const greys = [];
+  for (let v = 0; v < 256; v++) greys.push([v, v, v]);
+  try {
+    const sink = await IscEncode.createSink({ format, width: big.width, height: big.height, fps, quality: 'high',
+      gif: { width: big.width, height: big.height, fps, dither: 'none', keys: greys } });
+    if (sink.wantsPalette) sink.palette([]);
+    for (let f = 0; f < d.n; f++) {
+      link.textContent = `${Math.round(100 * f / d.n)} %`;
+      showMovieFrame(f);
+      gs.drawImage(document.getElementById('mv_cv'), 0, 0);
+      gb.fillStyle = '#000'; gb.fillRect(0, 0, big.width, big.height);
+      gb.drawImage(src, 0, 0, W, H);
+      await sink.addFrame(big);
+    }
+    const blob = await sink.finish();
+    IscEncode.download(blob, `insiliscope_${d.w}x${d.h}x${d.n}.${sink.ext}`);
+    if (sink.fellBack) console.warn('movie export:', sink.fellBack);
+  } catch (err) { alert('export failed: ' + (err.message || err)); }
+  finally { link.textContent = label; showMovieFrame(+document.getElementById('mv_slider').value); }
+}
 // The world rect a movie's pixels cover: SuperRes/WideField pixel i is centred at originX + i px (originX = x - W
 // px / 2), so their rect sits half a pixel below movie.rect; BrightField pixel i spans [originX + i px, + (i+1) px).
 function movieWorldRect(m) {
@@ -3085,6 +3294,8 @@ document.getElementById('mv_psf-model').addEventListener('change', e => {
 document.getElementById('mv_play').addEventListener('click', toggleMoviePlay);
 document.getElementById('mv_slider').addEventListener('input', e => { if (movie) showMovieFrame(+e.target.value); });
 document.getElementById('mv_save').addEventListener('click', saveMovieTiff);
+document.getElementById('mv_gif').addEventListener('click', e => saveMovieVideo(e, 'gif'));
+document.getElementById('mv_mp4').addEventListener('click', e => saveMovieVideo(e, 'mp4'));
 document.getElementById('mv_close').addEventListener('click', e => {
   e.preventDefault(); document.getElementById('movie').style.display = 'none';
   if (movieRaf) toggleMoviePlay();
@@ -3099,5 +3310,6 @@ else initGenWorkers();
 setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D fallback (for testing)
 resizeCanvas();
 </script>
+<script src="anim/editor.js"></script>
 </body>
 </html>

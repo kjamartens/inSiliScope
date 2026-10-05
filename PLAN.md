@@ -43,7 +43,7 @@ Upcoming ideas:
   256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
 - Issue 11, viewer z-slicing and layered animations (2026-10-05, viewer only): [x] phase 1: one camera with rotation
   (`web/scene/core.js`), tilt to 90°, Z clip per fragment, detail budget (5 central cells), scope and look, structure /
-  layer registry, dyes on the GPU; [ ] phase 2: Animation tab (sequences of cycles and steps: camera moves, plane
+  layer registry, dyes on the GPU; [x] phase 2: Animation tab (sequences of cycles and steps: camera moves, plane
   sweeps with ahead / in-slab / behind layers), preview timeline, MP4 / WebM / GIF export (also for the movie player);
   [ ] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [ ] phase 4: thresholded WF isosurface,
   SMLM localizations (multi-plane acquisition, precision noise).

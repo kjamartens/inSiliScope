@@ -29,6 +29,11 @@ view centre, tilt, pivot height), the structure/layer registry (`structure.rep` 
 structure, data layers of structures with dyes), the themes and the packing of per-layer clip intervals into the
 shaders' tables.
 
+`anim/` is the Animation tab: `sequence.js` the sequence model and its pure evaluator (DOM-free,
+`tests/web/anim_unit.mjs`), `editor.js` the editor, timeline, preview and export. `encode/` holds the export encoders
+(`gif.js`, `mp4.js`, `webm.js`: DOM-free, `tests/web/encode_unit.mjs`; `video.js`: WebCodecs sinks with fallbacks).
+`tests/web/viewer_anim_export.mjs` exports and plays back in a browser (`--channel=chrome` for H.264).
+
 `prototype/` is the original JS prototype (`index.html` generator half + `microtubules.js`): the
 **reference implementation** the core is ported from and tested against (`tests/parity`,
 `spec/golden`), so its generator changes only deliberately (see [spec/PORT.md](../spec/PORT.md)).
