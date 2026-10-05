@@ -33,7 +33,8 @@ that finishes them.
 - `spec/` -- [ALGORITHM.md](spec/ALGORITHM.md) (the *why* of every algorithm; do not "simplify" what it
   says was fixed on purpose), [BRIGHTFIELD.md](spec/BRIGHTFIELD.md) (BF model, quality levels, missing structures), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
-- `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
+- `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
+  the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`); `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus

@@ -6,7 +6,7 @@ hide:
 
 # Viewer
 
-The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt for a 3D impression,
+The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt and turn it for a 3D view,
 then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
 to the `insiliscope_cli` output with the same settings). **[Open it full screen](../viewer/index.html)** for more room.
 
@@ -41,11 +41,20 @@ Notes:
   object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
   once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
   SMLM and widefield movies also reuse the cells of the previous movie.
+- **Tilt** (0 = straight down, 90 = from the side) and **Rotation** (about the vertical through the view centre) turn
+  the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
+  between two heights above the coverslip; drag both knobs together for a slab moving through the cells (its full
+  0-20 um range is off). The advanced **Turn height** sets the height of the point the view turns about.
+- **Detailed cells** (default 5): only the cells nearest the view centre get their microtubules, nucleus and dyes;
+  the others show their cytoplasm, so a zoomed-out, turned view stays fast. 0 draws every cell in full. Advanced:
+  **Scope** draws all cells, the centre cell with faint neighbours, or the centre cell alone; **Look** switches between
+  the depth colours and bright colours on black.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
-  microtubules and dyes of the view's y range seen along y, at equal x and z scale.
+  microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
+  horizontal and z scale; the Z clip shows as a band.
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
-  cells far to near, and the microtubules depth-tested on the GPU, so a nucleus shows through the cytoplasm above it
-  and a nearer cell covers a farther one. The dyes are drawn on top.
+  cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
+  above it and a nearer cell covers a farther one.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

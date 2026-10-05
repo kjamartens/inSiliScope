@@ -4,6 +4,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer rotation, z clip and detail budget (issue 11, phase 1, 2026-10-05): the view turns about the vertical through
+  its centre (Rotation, Shift-drag) and tilts up to 90° (was 75°); a Z clip draws only what lies between two heights
+  (clipped per fragment on the GPU); only the 5 cells nearest the view centre (Detailed cells, 0 = all) get their
+  microtubules, nucleus and dyes (every visible cell had them before); advanced Scope (all / centre cell + faint
+  neighbours / centre cell) and Look (depth colours / dark fluorescence). Dyes are depth-tested on the GPU. One camera
+  (`web/scene/core.js`, with the structure/layer registry the animation tab builds on); at rotation 0 the image is
+  the previous one. Display only.
 - Viewer depth order (issue 9, 2026-10-05): the cytoplasm surface, nucleus surface, outline and contour lines of a cell
   are painted back to front in one order and the cells far to near; microtubules are opaque ribbons in a z-buffer
   (WebGL2, simplified to a quarter pixel per zoom level). The nucleus no longer draws in front of the cytoplasm, and

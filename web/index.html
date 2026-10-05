@@ -156,6 +156,7 @@
 
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
+<script src="scene/core.js"></script>
 <script id="uiSchema">
 'use strict';
 // ---- option panel: schema + renderer ------------------------------------------------------------------------------
@@ -193,8 +194,16 @@ const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'Asti
 
 const UI_GROUPS = [
   { sect: 'Display', id: 'view', title: 'View', open: true, items: [
-    range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression. Display only.', 0, 75, 1, 0, { fmt: fx(0),
-      side: { id: 'showXZ', label: 'x–z', tip: 'Side view (x–z) of everything in view along the bottom of the canvas, seen along y; x and z at the same scale as the view. Display only.', value: true } }),
+    range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression: 0 = straight down, 90 = from the side. Shift-drag on the view tilts and turns it. Display only.', 0, 90, 1, 0, { fmt: fx(0),
+      side: { id: 'showXZ', label: 'x–z', tip: 'Side view of everything in view along the bottom of the canvas, seen along the view\'s depth (along y when not turned); horizontal and z at the same scale as the view. Display only.', value: true } }),
+    range('azimuthDeg', 'Rotation', '°', 'Turns the view about the vertical axis through the view centre (Shift-drag sideways on the view). Display only.', -180, 180, 1, 0, { fmt: fx(0) }),
+    pair('zClip', 'Z clip', 'µm', 'Draw only what lies between these heights above the coverslip (cytoplasm, nucleus, microtubules, dyes). Drag both knobs together for a moving slab; the full range is off. Display only.', 0, 20, 0.1, 0, 20, { bounded: true }),
+    num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nucleus and dyes; the rest show their cytoplasm. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5),
+    select('sceneScope', 'Scope', 'Which cells are drawn: all of them, the centre cell with faint neighbours, or the centre cell alone. Display only.',
+      [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv }),
+    select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
+      [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence']], 'viewer', { adv }),
+    num('pivotZ', 'Turn height', 'µm', 'Height of the point the view turns and tilts about (it stays at the centre of the canvas). Display only.', 0, 20, 0.5, 0, { adv }),
     check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
     check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
     check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
@@ -702,7 +711,8 @@ let ctx = ctxTop; // the layer the shared helpers (drawScaleBar, drawMtLabels, .
 const hud = document.getElementById('hud');
 const host = document.getElementById('canvasHost');
 
-const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0 }; // world center (um), px per um
+// world center (um) = the pivot the view turns about, CSS px per um, tilt and rotation (radians), pivot height (um)
+const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
 
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
@@ -720,7 +730,8 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
- 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
+ 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
+ 'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -791,6 +802,33 @@ function params() {
   };
 }
 
+// Display-only settings of the View group: never part of params(), which keys the worlds and the cell assets.
+const ZCLIP_LO = 0, ZCLIP_HI = 20;   // the Z clip slider's range; its full range means no clip
+function viewParams() {
+  const zl = +els.zClipMin.value, zh = Math.max(zl, +els.zClipMax.value);
+  return {
+    tiltDeg: +els.tiltDeg.value, azimuthDeg: +els.azimuthDeg.value, pivotZ: +els.pivotZ.value || 0,
+    zClip: zl <= ZCLIP_LO && zh >= ZCLIP_HI ? null : [zl, zh],
+    detailCells: Math.max(0, Math.round(+els.detailCells.value || 0)), scope: els.sceneScope.value || 'all',
+    theme: els.theme.value || 'viewer',
+  };
+}
+// The main view as a scene state (the renderer's input; an animation hands renderFrame its own). layers: the
+// registry's layer ids that are shown (web/scene/core.js), each optionally with a style and clip intervals.
+function stateFromUI() {
+  const v = viewParams(), p = params(), layers = {};
+  if (els.showCyto.checked) {
+    layers['cyto.surface'] = {}; layers['cyto.outline'] = {};
+    if (p.showCytoContours) layers['cyto.contours'] = {};
+  }
+  if (els.showNucleus.checked) layers['nucleus.surface'] = {};
+  if (els.showMt.checked) layers['mt.lines'] = {};
+  if (els.showDyes.checked) layers['mt.dyes'] = {};
+  return { camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
+    scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, sweep: null, layers,
+    grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
+}
+
 const XZ_FRAC = 0.2, XZ_MIN_PX = 80; // x-z side view: share of the canvas area's height (CSS px floor)
 function resizeCanvas() {
   const r = host.getBoundingClientRect();
@@ -814,18 +852,18 @@ function resizeCanvas() {
   requestDraw();
 }
 
-// Simple oblique projection: x is unaffected by tilt, y is foreshortened by
-// cos(tilt) and z lifts the point on screen by sin(tilt) -- tilt=0 reduces
-// exactly to the original pure top-down view (cos=1, sin=0), tilt>0 reveals
-// height (cell body extrusion, nucleus ellipsoid) the way an isometric-ish
-// camera looking down at an angle would. No azimuth rotation, deliberately
-// kept to the minimum needed to make "in 3D" legible.
-function project(x, y, z) {
-  const dpr = devicePixelRatio;
-  const sx = cv.width / 2 + (x - view.cx) * view.scale * dpr;
-  const sy = cv.height / 2 + ((y - view.cy) * Math.cos(view.tiltRad) - z * Math.sin(view.tiltRad)) * view.scale * dpr;
-  return [sx, sy];
+// The camera of the frame being drawn (web/scene/core.js makeCamera): orthographic, turned by the rotation about
+// the vertical through the view centre, then tilted: x along the turned horizontal, the turned y foreshortened by
+// cos(tilt), z lifting a point by sin(tilt). Tilt 0, rotation 0 is the plain top-down view. renderFrame() sets it;
+// every projection below goes through it.
+let curCam = null;
+function cameraFor(cam, W, H) {
+  const c = cam || {}, pv = c.pivot || [view.cx, view.cy, 0];
+  const S = c.fovUm ? W / c.fovUm : (c.scale || view.scale) * devicePixelRatio;
+  return IscScene.makeCamera({ px: pv[0], py: pv[1], pz: pv[2] || 0, az: (c.azimuthDeg || 0) * Math.PI / 180,
+    tilt: (c.tiltDeg || 0) * Math.PI / 180, S, W, H });
 }
+function project(x, y, z) { return curCam.project(x, y, z); }
 
 // Scale bar: picks a "nice" round length (1-2-5 sequence) that renders at
 // roughly TARGET_PX on screen at the current zoom, drawn bottom-right in
@@ -862,20 +900,37 @@ function drawScaleBar(pxPerUm) {
 // ---- per-cell scene: geometry, depth order, 2D and WebGL2 painters -------------
 // Depth order (issue 9). Everything translucent of one cell -- the cytoplasm surface quads, the nucleus surface
 // quads, the footprint outline and the cytoplasm contour lines -- is painted back to front in ONE merged order
-// (there is no z-buffer for translucent surfaces), and the cells are painted far to near (by their y: footprints do
-// not overlap, so the farther cell is the one with the smaller y). Microtubules are opaque lines in a z-buffer on
-// the GPU (drawn first, the translucent surfaces then depth-test against them); the 2D fallback paints each cell's
-// microtubules under its own surfaces. Depth (nearness to the camera) is y*sin(tilt) + z*cos(tilt).
+// (there is no z-buffer for translucent surfaces), and the cells are painted far to near (by their turned y:
+// footprints do not overlap, so the farther cell is the one with the smaller turned y). Microtubules and dyes are
+// opaque in a z-buffer on the GPU (drawn first, the translucent surfaces then depth-test against them); the 2D
+// fallback paints each cell's microtubules under its own surfaces. Depth (nearness to the camera) is
+// v*sin(tilt) + (z - pivot z)*cos(tilt), v the turned y (the camera, web/scene/core.js).
+//
+// Clipping (issue 11). Every primitive belongs to a layer kind (IscScene.KIND: cytoplasm surface, nucleus, outline,
+// contours, microtubules, dyes). A frame's state gives each shown kind up to IV_MAX intervals along one axis, each
+// with its own colour and opacity, plus a z range (the Z clip): the GPU tests them per fragment (GL_CLIP), so a sweep
+// or a slider move is a uniform update and never touches a buffer; the 2D fallback tests per primitive.
 //
 // draw() runs on every pan/zoom event, so nothing here may redo work that a pan/zoom cannot change. Everything
 // below hangs off the asset's `entry` (one per chunk): flat typed-array copies of the geometry (`render`), its
-// depth order (only depends on tilt + packRot -- the cell's own translation adds the same constant to every
-// primitive -- and the contour step), and the GPU buffers.
+// depth order and the GPU buffers. The order depends only on the cell's effective rotation (packRot minus the
+// view's rotation), the tilt and the contour step -- the cell's own translation adds the same constant to every
+// primitive. While the view turns it is re-sorted per ORDER_Q of rotation or tilt: the detailed cells at once, the
+// others within ORDER_BUDGET_MS per frame (the rest keep their last order a frame longer); an exact frame (export)
+// always sorts at its true angle.
 const NUC_PTS = 48, NUC_RINGS = 17;   // the plain-ellipsoid fallback (no rings from the engine)
 const MT_TOL_PX = 0.35;               // the GPU microtubules' path tolerance (screen px, quantised to powers of 2 in um)
 const LINE_DEPTH_BIAS = 0.25;         // um: a contour line sorts after the surface quads it lies on
 const COL_OUTLINE = [90, 169, 230, 0.25], COL_CONTOUR = [20, 30, 45, 0.55];
 const ALPHA_CYTO = 0.6, ALPHA_NUC = 0.5;
+const ORDER_Q = 0.5 * Math.PI / 180, ORDER_BUDGET_MS = 4;
+// kinds a cell outside the detail budget does not draw (nucleus, microtubules, dyes); a faint neighbour also
+// drops its contour lines
+const K = IscScene.KIND, IV = IscScene.IV_MAX;
+const HIDE_PLAIN = (1 << K['nucleus.surface']) | (1 << K['mt.lines']) | (1 << K['mt.dyes']);
+const HIDE_GHOST = HIDE_PLAIN | (1 << K['cyto.contours']);
+let frameExact = false, sortDeadline = Infinity, orderStale = false;
+let animPlaying = false;   // an animation preview is playing (the camera moves every frame)
 
 // The nucleus surface rings in the cell's local frame (x, y, z per point, np points per ring, bottom pole to top
 // pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record.
@@ -893,7 +948,8 @@ function nucRingsLocal(c, entry) {
 }
 
 // Quads 0..nqC-1 are the cytoplasm mesh (vertices 0..nvC-1, vertex k*n + i), quads nqC..nq-1 the nucleus
-// (vertices nvC.., ring by ring). lx, ly, h: local x, y and height of every vertex.
+// (vertices nvC.., ring by ring). lx, ly, h: local x, y and height of every vertex; qcx, qcy, qavgH: each quad's
+// centre (local x, y, height).
 function getMeshRender(entry, c) {
   let r = entry.render;
   if (r) return r;
@@ -904,9 +960,10 @@ function getMeshRender(entry, c) {
   r = {
     nv, nq, nvC, nqC, n, rings,
     lx: new Float32Array(nv), ly: new Float32Array(nv), h: new Float32Array(nv),
-    qidx: new Uint32Array(nq * 4), qavgH: new Float32Array(nq), qcol: null, // qcol: the 2D path's fill styles, made on first use
+    qidx: new Uint32Array(nq * 4), qavgH: new Float32Array(nq), qcx: new Float32Array(nq), qcy: new Float32Array(nq),
+    qcol: null, qcolA: [-1, -1], // the 2D path's depth-colour fill styles per quad, for the alpha of kind 0 / 1
     sx: new Float32Array(nv), sy: new Float32Array(nv), // reused per-frame screen coords (2D path)
-    lines: null, order: null, orderKey: '',
+    lines: null, order: null, orderKey: '', orderStep: null,
   };
   for (let v = 0; v < nvC; v++) { r.lx[v] = flat[3 * v]; r.ly[v] = flat[3 * v + 1]; r.h[v] = flat[3 * v + 2]; }
   for (let v = 0; v < nr * np; v++) { r.lx[nvC + v] = nuc.xyz[3 * v]; r.ly[nvC + v] = nuc.xyz[3 * v + 1]; r.h[nvC + v] = nuc.xyz[3 * v + 2]; }
@@ -914,6 +971,8 @@ function getMeshRender(entry, c) {
     const o = q * 4;
     r.qidx[o] = a; r.qidx[o + 1] = b; r.qidx[o + 2] = cc; r.qidx[o + 3] = d;
     r.qavgH[q] = (r.h[a] + r.h[b] + r.h[cc] + r.h[d]) / 4;
+    r.qcx[q] = (r.lx[a] + r.lx[b] + r.lx[cc] + r.lx[d]) / 4;
+    r.qcy[q] = (r.ly[a] + r.ly[b] + r.ly[cc] + r.ly[d]) / 4;
   };
   for (let k = 0; k < rings; k++) for (let i = 0; i < n; i++) {
     const i2 = (i + 1) % n;
@@ -943,39 +1002,44 @@ function getLines(r, entry, step) {
   return (r.lines = { step, nO, nl, seg });
 }
 
-// Back-to-front order of all primitives (ids 0..nq-1 the quads, nq.. the lines). The cell's own world y adds the
-// same constant to every primitive, so only the packRot-rotated local y and the height matter.
-function ensureOrder(r, entry, c, sinT, cosT, step) {
-  const rot = c.packRot || 0;
+// Ids sorted by ascending depth (far first): a stable two-pass LSD radix sort of the depths quantised to 22 bits,
+// so primitives within one quantum keep their id order (invisible).
+function orderByDepth(depth) {
+  const N = depth.length;
+  let lo = Infinity, hi = -Infinity;
+  for (let q = 0; q < N; q++) { const d = depth[q]; if (d < lo) lo = d; if (d > hi) hi = d; }
+  const scale = hi > lo ? 4194303 / (hi - lo) : 0, key = new Uint32Array(N), a = new Uint32Array(N), b = new Uint32Array(N);
+  for (let q = 0; q < N; q++) key[q] = Math.round((depth[q] - lo) * scale);
+  const cnt = new Uint32Array(2048);
+  for (let q = 0; q < N; q++) cnt[key[q] & 2047]++;
+  for (let i = 0, s = 0; i < 2048; i++) { const c = cnt[i]; cnt[i] = s; s += c; }
+  for (let q = 0; q < N; q++) b[cnt[key[q] & 2047]++] = q;
+  cnt.fill(0);
+  for (let q = 0; q < N; q++) cnt[key[q] >>> 11]++;
+  for (let i = 0, s = 0; i < 2048; i++) { const c = cnt[i]; cnt[i] = s; s += c; }
+  for (let j = 0; j < N; j++) { const q = b[j]; a[cnt[key[q] >>> 11]++] = q; }
+  return a;
+}
+
+// Back-to-front order of all primitives (ids 0..nq-1 the quads, nq.. the lines) for the cell transform t (its
+// effective rotation and the tilt). `must`: sort now even past this frame's budget (a detailed cell).
+function ensureOrder(r, entry, t, step, must) {
   const L = getLines(r, entry, step);
-  const key = sinT.toFixed(6) + '|' + rot + '|' + step;
+  const q = !frameExact && (performance.now() < interactingUntil || animPlaying);   // in motion: per ORDER_Q only
+  const rot = q ? Math.round(t.rot / ORDER_Q) * ORDER_Q : t.rot;
+  const tilt = q ? Math.round(t.tilt / ORDER_Q) * ORDER_Q : t.tilt;
+  const key = rot + '|' + tilt + '|' + step;
   if (r.orderKey === key) return;
-  const cr = Math.cos(rot), sr = Math.sin(rot), N = r.nq + L.nl;
-  const depth = new Float32Array(N);
-  const { lx, ly, qidx } = r, seg = L.seg;
-  for (let q = 0; q < r.nq; q++) {
-    const b = q * 4;
-    let wy = 0;
-    for (let j = 0; j < 4; j++) { const v = qidx[b + j]; wy += lx[v] * sr + ly[v] * cr; }
-    depth[q] = (wy / 4) * sinT + r.qavgH[q] * cosT;
-  }
+  if (r.order && r.orderStep === step && !must && performance.now() > sortDeadline) { orderStale = true; return; }
+  const cr = Math.cos(rot), sr = Math.sin(rot), sinT = Math.sin(tilt), cosT = Math.cos(tilt), N = r.nq + L.nl;
+  const depth = new Float32Array(N), { qcx, qcy, qavgH } = r, seg = L.seg;
+  for (let q = 0; q < r.nq; q++) depth[q] = (qcx[q] * sr + qcy[q] * cr) * sinT + qavgH[q] * cosT;
   for (let l = 0; l < L.nl; l++) {
     const o = 6 * l;
     const wy = ((seg[o] + seg[o + 3]) * sr + (seg[o + 1] + seg[o + 4]) * cr) / 2;
     depth[r.nq + l] = wy * sinT + (seg[o + 2] + seg[o + 5]) / 2 * cosT + LINE_DEPTH_BIAS;
   }
-  // Sort integer keys (depth quantised to 2^31 steps of its range, then the primitive id) with the typed array's
-  // numeric sort: no comparator calls, and exact below 2^53. Primitives within one quantum of depth keep their id
-  // order (invisible).
-  let lo = Infinity, hi = -Infinity;
-  for (let q = 0; q < N; q++) { if (depth[q] < lo) lo = depth[q]; if (depth[q] > hi) hi = depth[q]; }
-  const scale = hi > lo ? 2147483647 / (hi - lo) : 0, Q = 1048576;   // 2^20 ids per depth step (N < 2^20)
-  const keys = new Float64Array(N);
-  for (let q = 0; q < N; q++) keys[q] = Math.round((depth[q] - lo) * scale) * Q + q;
-  keys.sort();
-  const idx = new Uint32Array(N);
-  for (let j = 0; j < N; j++) idx[j] = keys[j] % Q;
-  r.order = idx; r.orderKey = key;
+  r.order = orderByDepth(depth); r.orderKey = key; r.orderStep = step;
 }
 
 // Marching-squares segments depend only on the mesh + step, so they are cached
@@ -992,72 +1056,98 @@ function getContourSegs(entry, step) {
   return segs;
 }
 
-// Screen transform of one cell's local-frame point, inlined (the old per-point
-// localToWorld()+project() allocated two arrays per call).
+// One cell in the frame's camera: its effective rotation (packRot - view rotation), the turned-frame offset of its
+// centre from the pivot (ou, oy, um) and its centre's screen x (ox).
 function cellXform(c) {
-  const rot = c.packRot || 0, S = view.scale * devicePixelRatio;
-  return {
-    cr: Math.cos(rot), sr: Math.sin(rot), S,
-    ox: cv.width / 2 + (c.x - view.cx) * S, oy: c.y - view.cy,
-    H2: cv.height / 2, sinT: Math.sin(view.tiltRad), cosT: Math.cos(view.tiltRad),
-  };
+  const k = curCam, rot = k.cellRot(c.packRot), ou = k.u(c.x, c.y);
+  return { rot, tilt: k.tilt, cr: Math.cos(rot), sr: Math.sin(rot), S: k.S, ou, oy: k.v(c.x, c.y),
+    ox: k.W2 + ou * k.S, H2: k.H2, sinT: k.st, cosT: k.ct, pz: k.pz };
 }
 
 function cellVisible(c) {
-  const S = view.scale * devicePixelRatio, cosT = Math.cos(view.tiltRad);
-  const sx = cv.width / 2 + (c.x - view.cx) * S, sy = cv.height / 2 + (c.y - view.cy) * cosT * S;
-  const r = (c.rOuter + c.height + 1) * S; // rOuter bounds the outline; height lifts it on screen when tilted
-  return sx + r >= 0 && sx - r <= cv.width && sy + r >= 0 && sy - r <= cv.height;
+  const k = curCam, sx = k.W2 + k.u(c.x, c.y) * k.S, sy = k.H2 + (k.v(c.x, c.y) * k.ct + k.pz * k.st) * k.S;
+  const r = (c.rOuter + c.height + 1) * k.S; // rOuter bounds the outline; height lifts it on screen when tilted
+  return sx + r >= 0 && sx - r <= k.W && sy + r >= 0 && sy - r <= k.H;
 }
 
-// What to draw: bit 1 cytoplasm surface, 2 nucleus, 4 footprint outline, 8 contour lines.
-function sceneMask(p) {
-  const cyto = els.showCyto.checked;
-  return (cyto ? 1 | 4 : 0) | (els.showNucleus.checked ? 2 : 0) | (cyto && p.showCytoContours ? 8 : 0);
-}
 const rgba = ([r, g, b, a]) => `rgba(${r},${g},${b},${a})`;
+// A frame's CSS colour of style slot o (flat colours; null for the renderer's own colouring), times mul.
+function slotCss(F, o, mul, fallback) {
+  const key = o + '|' + mul;
+  let s = F.css.get(key);
+  if (s !== undefined) return s;
+  const st = F.Z.st, a = st[4 * o + 3] * mul;
+  s = st[4 * o] < 0 ? (fallback ? rgba([fallback[0], fallback[1], fallback[2], a]) : null)
+    : rgba([Math.round(st[4 * o] * 255), Math.round(st[4 * o + 1] * 255), Math.round(st[4 * o + 2] * 255), a]);
+  F.css.set(key, s);
+  return s;
+}
 
 // 2D fallback: one cell, its microtubules first, then its translucent primitives in the cached depth order
-// (screen coords computed once per vertex). The caller paints the cells far to near.
-function drawCell2D(c, asset, p, mask, mtW) {
-  const entry = asset.entry, r = getMeshRender(entry, c), t = cellXform(c);
-  if (mtW && asset.mts) {
+// (screen coords computed once per vertex), each in the style of the clip interval holding its centre. The caller
+// paints the cells far to near. cf: {hide (kind bits), alpha (multiplier), detailed}.
+function drawCell2D(c, asset, p, F, cf) {
+  const entry = asset.entry, r = getMeshRender(entry, c), t = cellXform(c), Z = F.Z;
+  const on = k => Z.n[k] > 0 && !((cf.hide >> k) & 1);
+  const kMt = K['mt.lines'];
+  if (on(kMt) && F.mtW && asset.mts) {
+    const o = kMt * IV;
     ctx.save();
-    ctx.strokeStyle = '#e6c65a'; ctx.globalAlpha = 0.8;
-    ctx.translate(t.ox, t.H2 + t.oy * t.cosT * t.S);
+    ctx.strokeStyle = slotCss(F, o, cf.alpha, [230, 198, 90]);
+    ctx.translate(t.ox, t.H2 + (t.oy * t.cosT + t.pz * t.sinT) * t.S);
     ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
-    ctx.lineWidth = mtW / t.S;
-    ctx.stroke(getMtPath2D(asset.mts, c, t).path);
+    ctx.lineWidth = F.mtW / t.S;
+    ctx.stroke(getMtPath2D(asset.mts, c, t, F.zc).path);
     ctx.restore();
   }
-  if (!(mask & 15)) return;
-  ensureOrder(r, entry, c, t.sinT, t.cosT, p.cytoContourStep);
-  if (!r.qcol) {
-    r.qcol = new Array(r.nq);
-    for (let q = 0; q < r.nq; q++) r.qcol[q] = depthColor(r.qavgH[q], 0, c.height, q < r.nqC ? ALPHA_CYTO : ALPHA_NUC);
-  }
-  const { lx, ly, h, sx, sy, qidx, qcol, order, nq, nqC } = r, L = r.lines, seg = L.seg;
+  if (!(on(0) || on(1) || on(2) || on(3))) return;
+  ensureOrder(r, entry, t, p.cytoContourStep, cf.detailed);
+  const { lx, ly, h, sx, sy, qidx, order, nq, nqC, qcx, qcy, qavgH } = r, L = r.lines, seg = L.seg;
   for (let v = 0; v < r.nv; v++) {
     const x = lx[v], y = ly[v];
     sx[v] = t.ox + (x * t.cr - y * t.sr) * t.S;
-    sy[v] = t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - h[v] * t.sinT) * t.S;
+    sy[v] = t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - (h[v] - t.pz) * t.sinT) * t.S;
   }
   const lsx = (x, y) => t.ox + (x * t.cr - y * t.sr) * t.S;
-  const lsy = (x, y, z) => t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - z * t.sinT) * t.S;
-  const contourW = Math.max(1, 0.04 * t.S), outline = rgba(COL_OUTLINE), contour = rgba(COL_CONTOUR);
-  let last = null, open = 0;   // open: the kind (4/8) of the line path being collected, stroked at the next change
+  const lsy = (x, y, z) => t.H2 + ((t.oy + x * t.sr + y * t.cr) * t.cosT - (z - t.pz) * t.sinT) * t.S;
+  // the style slot of a primitive with local centre (x, y, z), or -1 (clipped away)
+  const ax = F.ax, zl = F.zc[0], zh = F.zc[1];
+  const open1 = k => Z.n[k] === 1 && Z.iv[2 * k * IV] <= -1e29 && Z.iv[2 * k * IV + 1] >= 1e29;
+  const everywhere = [0, 1, 2, 3].map(open1);
+  const slotOf = (k, x, y, z) => {
+    if (z < zl || z > zh) return -1;
+    if (everywhere[k]) return k * IV;
+    const s = ax[0] * (t.ou + x * t.cr - y * t.sr) + ax[1] * (t.oy + x * t.sr + y * t.cr) + ax[2] * z + ax[3];
+    return IscScene.zoneSlot(Z, k, s);
+  };
+  // depth-colour fill styles per quad, for the alpha its kind's slot asks
+  const depthFill = (q, k, a) => {
+    if (!r.qcol) r.qcol = new Array(r.nq);
+    if (r.qcolA[k] !== a) {
+      const q0 = k === 0 ? 0 : nqC, q1 = k === 0 ? nqC : nq;
+      for (let i = q0; i < q1; i++) r.qcol[i] = depthColor(r.qavgH[i], 0, c.height, a);
+      r.qcolA[k] = a;
+    }
+    return r.qcol[q];
+  };
+  const contourW = Math.max(1, 0.04 * t.S);
+  let last = null, open = -1, openCss = null;   // open: the kind (2/3) of the line path being collected
   const flush = () => {
-    if (!open) return;
-    ctx.strokeStyle = open === 4 ? outline : contour; ctx.lineWidth = open === 4 ? 1 : contourW;
-    ctx.stroke(); open = 0;
+    if (open < 0) return;
+    ctx.strokeStyle = openCss; ctx.lineWidth = open === 2 ? 1 : contourW;
+    ctx.stroke(); open = -1;
   };
   for (let j = 0; j < order.length; j++) {
     const q = order[j];
     if (q < nq) {
-      if (!(mask & (q < nqC ? 1 : 2))) continue;
+      const k = q < nqC ? 0 : 1;
+      if (!on(k)) continue;
+      const o = slotOf(k, qcx[q], qcy[q], qavgH[q]);
+      if (o < 0) continue;
       flush();
-      const b = q * 4, col = qcol[q];
+      const col = Z.st[4 * o] < 0 ? depthFill(q, k, Z.st[4 * o + 3] * cf.alpha) : slotCss(F, o, cf.alpha);
       if (col !== last) { ctx.fillStyle = col; last = col; }
+      const b = q * 4;
       ctx.beginPath();
       ctx.moveTo(sx[qidx[b]], sy[qidx[b]]);
       ctx.lineTo(sx[qidx[b + 1]], sy[qidx[b + 1]]);
@@ -1065,12 +1155,14 @@ function drawCell2D(c, asset, p, mask, mtW) {
       ctx.lineTo(sx[qidx[b + 3]], sy[qidx[b + 3]]);
       ctx.fill();
     } else {
-      const l = q - nq, kind = l < L.nO ? 4 : 8;
-      if (!(mask & kind)) continue;
-      if (open !== kind) { flush(); ctx.beginPath(); open = kind; }
-      const o = 6 * l;
-      ctx.moveTo(lsx(seg[o], seg[o + 1]), lsy(seg[o], seg[o + 1], seg[o + 2]));
-      ctx.lineTo(lsx(seg[o + 3], seg[o + 4]), lsy(seg[o + 3], seg[o + 4], seg[o + 5]));
+      const l = q - nq, k = l < L.nO ? 2 : 3;
+      if (!on(k)) continue;
+      const o6 = 6 * l, o = slotOf(k, (seg[o6] + seg[o6 + 3]) / 2, (seg[o6 + 1] + seg[o6 + 4]) / 2, (seg[o6 + 2] + seg[o6 + 5]) / 2);
+      if (o < 0) continue;
+      const css = slotCss(F, o, cf.alpha, k === 2 ? COL_OUTLINE : COL_CONTOUR);
+      if (open !== k || openCss !== css) { flush(); ctx.beginPath(); open = k; openCss = css; }
+      ctx.moveTo(lsx(seg[o6], seg[o6 + 1]), lsy(seg[o6], seg[o6 + 1], seg[o6 + 2]));
+      ctx.lineTo(lsx(seg[o6 + 3], seg[o6 + 4]), lsy(seg[o6 + 3], seg[o6 + 4], seg[o6 + 5]));
     }
   }
   flush();
@@ -1078,23 +1170,44 @@ function drawCell2D(c, asset, p, mask, mtW) {
 
 // ---- WebGL2 scene layer (#cvGl) ------------------------------------------------
 // The same scene on the GPU. Microtubules: one instanced quad per segment (a screen-space ribbon of the drawn
-// width), opaque, written to the depth buffer. Then per cell (far to near) one vertex buffer -- mesh vertices
-// (local x, y, height + colour) and four vertices per line, which the vertex shader widens to a ribbon -- drawn
-// with an index buffer in the cached back-to-front order (rebuilt only when tilt/packRot/what is shown change),
-// alpha-blended, depth-tested against the microtubules but not written. Pan/zoom only change uniforms.
+// width), opaque, written to the depth buffer; dyes: one instanced square each, the same. Then per cell (far to
+// near) one vertex buffer -- mesh vertices (local x, y, height + colour) and four vertices per line, which the
+// vertex shader widens to a ribbon -- drawn with an index buffer in the cached back-to-front order (rebuilt only
+// when the cell's effective rotation, the tilt or the contour step change), alpha-blended, depth-tested against
+// the microtubules but not written. Pan/zoom, what is shown and every clip interval only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null;
+// u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
+// (sin, cos) of the tilt, u_pz: the pivot height. worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
-uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale, u_dscale;
+uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale, u_dscale, u_pz;
 vec2 worldOf(vec3 p) { return vec2(p.x * u_rot.x - p.y * u_rot.y, p.x * u_rot.y + p.y * u_rot.x) + u_off; }
-vec2 screenOf(vec3 p, vec2 w) { return vec2(u_canvas.x * 0.5 + w.x * u_scale, u_canvas.y * 0.5 + (w.y * u_tilt.y - p.z * u_tilt.x) * u_scale); }
-vec4 clipOf(vec2 s, float depth) {   // depth = nearness (y sin + z cos, um); nearer = smaller NDC z
+vec2 screenOf(vec3 p, vec2 w) { return vec2(u_canvas.x * 0.5 + w.x * u_scale, u_canvas.y * 0.5 + (w.y * u_tilt.y - (p.z - u_pz) * u_tilt.x) * u_scale); }
+float depthOf(vec3 p, vec2 w) { return w.y * u_tilt.x + (p.z - u_pz) * u_tilt.y; }
+vec4 clipOf(vec2 s, float depth) {   // depth = nearness (v sin + z cos, um); nearer = smaller NDC z
   return vec4(s.x / u_canvas.x * 2.0 - 1.0, 1.0 - s.y / u_canvas.y * 2.0, clamp(-depth * u_dscale, -1.0, 1.0), 1.0);
+}`;
+// The clip test (fragment shaders): w = (u, v, z), the turned-frame offset from the pivot and the absolute height.
+// The style of the interval holding the fragment, or alpha -1 (not drawn). rgb < 0: the vertex's own colour.
+const GL_CLIP = `
+uniform vec4 u_axis; uniform vec2 u_zclip; uniform float u_ivN[${IscScene.N_KINDS}];
+uniform vec2 u_iv[${IscScene.N_KINDS * IV}]; uniform vec4 u_ivSt[${IscScene.N_KINDS * IV}];
+uniform int u_hide; uniform float u_cellA;
+vec4 zoneStyle(int kind, vec3 w) {
+  if (((u_hide >> kind) & 1) != 0 || w.z < u_zclip.x || w.z > u_zclip.y) return vec4(0.0, 0.0, 0.0, -1.0);
+  float s = dot(u_axis.xyz, w) + u_axis.w;
+  int n = int(u_ivN[kind]);
+  for (int j = 0; j < ${IV}; j++) {
+    if (j >= n) break;
+    vec2 r = u_iv[kind * ${IV} + j];
+    if (s >= r.x && s <= r.y) return u_ivSt[kind * ${IV} + j];
+  }
+  return vec4(0.0, 0.0, 0.0, -1.0);
 }`;
 const GL_VS = `#version 300 es
 in vec3 a_pos; in vec3 a_oth; in vec2 a_ext; in vec4 a_col;
-uniform float u_lineHalfW;
-out vec4 v_col;` + GL_COMMON + `
+uniform float u_lineHalfW; uniform ivec3 u_kindStart;   // first vertex of the nucleus, the outline, the contours
+out vec4 v_col; out vec3 v_w; flat out int v_kind;` + GL_COMMON + `
 void main() {
   vec2 w = worldOf(a_pos), s = screenOf(a_pos, w);
   if (a_ext.x != 0.0) {   // a line vertex: a_ext = (side, 1 = contour width / 0 = 1 px), a_oth = the other end
@@ -1103,12 +1216,13 @@ void main() {
     d = L > 1e-6 ? d / L : vec2(1.0, 0.0);
     s += vec2(-d.y, d.x) * a_ext.x * (a_ext.y > 0.5 ? u_lineHalfW : 0.5);
   }
-  gl_Position = clipOf(s, w.y * u_tilt.x + a_pos.z * u_tilt.y);
-  v_col = a_col;
+  gl_Position = clipOf(s, depthOf(a_pos, w));
+  v_col = a_col; v_w = vec3(w, a_pos.z);
+  v_kind = gl_VertexID < u_kindStart.x ? 0 : gl_VertexID < u_kindStart.y ? 1 : gl_VertexID < u_kindStart.z ? 2 : 3;
 }`;
 const GL_MT_VS = `#version 300 es
 in vec4 a_p0; in vec4 a_p1;   // one segment per instance: its end points (local xyz; w = 0: no segment)
-uniform float u_halfW;` + GL_COMMON + `
+uniform float u_halfW; out vec3 v_w;` + GL_COMMON + `
 void main() {
   if (a_p0.w < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   float e = float(gl_VertexID >> 1), side = float(gl_VertexID & 1) * 2.0 - 1.0;
@@ -1117,16 +1231,39 @@ void main() {
   float L = length(d);
   d = L > 1e-6 ? d / L : vec2(1.0, 0.0);
   vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW;   // square caps close the joints
-  gl_Position = clipOf(s, mix(w0.y, w1.y, e) * u_tilt.x + mix(a_p0.z, a_p1.z, e) * u_tilt.y);
+  gl_Position = clipOf(s, mix(depthOf(a_p0.xyz, w0), depthOf(a_p1.xyz, w1), e));
+  v_w = mix(vec3(w0, a_p0.z), vec3(w1, a_p1.z), e);
+}`;
+// Points (dyes; later localizations): one square of u_ptHalf device px per instance, a_pt = world x, y relative to
+// an origin (u_off/u_rot carry that origin's turned offset and the view rotation), z.
+const GL_PT_VS = `#version 300 es
+in vec4 a_pt; uniform float u_ptHalf; out vec3 v_w;` + GL_COMMON + `
+void main() {
+  vec2 w = worldOf(a_pt.xyz), s = screenOf(a_pt.xyz, w);
+  s += vec2(float(gl_VertexID & 1) * 2.0 - 1.0, float(gl_VertexID >> 1) * 2.0 - 1.0) * u_ptHalf;
+  gl_Position = clipOf(s, depthOf(a_pt.xyz, w));
+  v_w = vec3(w, a_pt.z);
 }`;
 const GL_FS = `#version 300 es
-precision mediump float;
-in vec4 v_col; out vec4 o;
-void main() { o = vec4(v_col.rgb * v_col.a, v_col.a); }`; // premultiplied
-const GL_MT_FS = `#version 300 es
-precision mediump float;
-uniform vec4 u_col; out vec4 o;
-void main() { o = vec4(u_col.rgb * u_col.a, u_col.a); }`;
+precision highp float;
+in vec4 v_col; in vec3 v_w; flat in int v_kind; out vec4 o;` + GL_CLIP + `
+void main() {
+  vec4 st = zoneStyle(v_kind, v_w);
+  if (st.a < 0.0) discard;
+  float a = st.a * u_cellA;
+  o = vec4((st.r < 0.0 ? v_col.rgb : st.rgb) * a, a);   // premultiplied
+}`;
+const glFsKind = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; out vec4 o;` + GL_CLIP + `
+void main() {
+  vec4 st = zoneStyle(${kind}, v_w);
+  if (st.a < 0.0) discard;
+  float a = st.a * u_cellA;
+  o = vec4(max(st.rgb, 0.0) * a, a);
+}`;
+const GL_UNIFORMS = ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', 'u_pz',
+  'u_axis', 'u_zclip', 'u_ivN', 'u_iv', 'u_ivSt', 'u_hide', 'u_cellA'];
 function setLayerMode(gpu) {
   useGl = gpu;
   cvGl.style.display = gpu ? 'block' : 'none';
@@ -1137,7 +1274,11 @@ function setLayerMode(gpu) {
 function initGl() {
   try { gl = cvGl.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: true, depth: true }); } catch (e) { gl = null; }
   if (!gl) return false;
-  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null; };
+  const sh = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (gl.getShaderParameter(s, gl.COMPILE_STATUS)) return s;
+    console.warn('shader:', gl.getShaderInfoLog(s)); return null;
+  };
   const link = (vsSrc, fsSrc, attrs, unis) => {
     const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
     if (!vs || !fs) return null;
@@ -1145,18 +1286,20 @@ function initGl() {
     gl.attachShader(pr, vs); gl.attachShader(pr, fs);
     attrs.forEach((a, i) => gl.bindAttribLocation(pr, i, a));
     gl.linkProgram(pr);
-    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) { console.warn('program:', gl.getProgramInfoLog(pr)); return null; }
     const u = {};
-    for (const n of ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', ...unis]) u[n] = gl.getUniformLocation(pr, n);
+    for (const n of [...GL_UNIFORMS, ...unis]) u[n] = gl.getUniformLocation(pr, n);
     return { pr, u };
   };
-  const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW']);
-  const b = link(GL_MT_VS, GL_MT_FS, ['a_p0', 'a_p1'], ['u_halfW', 'u_col']);
-  if (!a || !b) return false;
-  glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u;
+  const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
+  const b = link(GL_MT_VS, glFsKind(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW']);
+  const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
+  if (!a || !b || !d) return false;
+  glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
     for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; } // buffers died with the context
+    dyeGl = null;
     setLayerMode(false); requestDraw();
   });
   return true;
@@ -1169,13 +1312,14 @@ function freeMeshGl(entry) {
   if (m) for (const l of m.values()) { gl.deleteBuffer(l.vbo); gl.deleteVertexArray(l.vao); }
 }
 const GL_STRIDE = 36; // a_pos 3f, a_oth 3f, a_ext 2f, a_col 4 x u8
-function ensureMeshGl(entry, c, mask, step) {
-  const r = getMeshRender(entry, c), t = cellXform(c);
-  ensureOrder(r, entry, c, t.sinT, t.cosT, step);
+// Every kind is in the index buffer (what is shown is a uniform), so it changes only with the depth order.
+function ensureMeshGl(entry, c, t, step, must) {
+  const r = getMeshRender(entry, c);
+  ensureOrder(r, entry, t, step, must);
   const L = r.lines;
   let g = entry.gl;
   if (!g) {
-    g = entry.gl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), nIdx: 0, idxKey: '', step: null };
+    g = entry.gl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), nIdx: 0, idxKey: '', idxLen: 0, idx: null, step: null };
     gl.bindVertexArray(g.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, g.vbo);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, GL_STRIDE, 0);
@@ -1209,29 +1353,27 @@ function ensureMeshGl(entry, c, mask, step) {
     gl.bufferData(gl.ARRAY_BUFFER, buf, gl.STATIC_DRAW);
     g.step = L.step; g.idxKey = '';
   }
-  const idxKey = r.orderKey + '|' + mask;
-  if (g.idxKey !== idxKey) {
-    const { order, qidx, nq, nqC } = r, idx = new Uint32Array(order.length * 6);
+  if (g.idxKey !== r.orderKey) {
+    const { order, qidx, nq } = r, need = order.length * 6;
+    const idx = g.idx && g.idx.length === need ? g.idx : new Uint32Array(need);
     let o = 0;
     for (let j = 0; j < order.length; j++) {
       const q = order[j];
       if (q < nq) {
-        if (!(mask & (q < nqC ? 1 : 2))) continue;
         const b = q * 4;
         idx[o++] = qidx[b]; idx[o++] = qidx[b + 1]; idx[o++] = qidx[b + 2];
         idx[o++] = qidx[b]; idx[o++] = qidx[b + 2]; idx[o++] = qidx[b + 3];
       } else {
-        const l = q - nq;
-        if (!(mask & (l < L.nO ? 4 : 8))) continue;
-        const v0 = r.nv + 4 * l;   // A+ B- B+ / A+ B+ A- (see the vertex shader: B's normal is flipped)
+        const v0 = r.nv + 4 * (q - nq);   // A+ B- B+ / A+ B+ A- (see the vertex shader: B's normal is flipped)
         idx[o++] = v0; idx[o++] = v0 + 3; idx[o++] = v0 + 2;
         idx[o++] = v0; idx[o++] = v0 + 2; idx[o++] = v0 + 1;
       }
     }
     gl.bindVertexArray(g.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx.subarray(0, o), gl.DYNAMIC_DRAW);
-    g.nIdx = o; g.idxKey = idxKey;
+    if (g.idxLen === need) gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx);
+    else { gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.DYNAMIC_DRAW); g.idxLen = need; }
+    g.idx = idx; g.nIdx = need; g.idxKey = r.orderKey;
   }
   return g;
 }
@@ -1283,49 +1425,69 @@ function ensureMtGl(entry, mts, tolUm) {
   if (m.size > 2) { const [k0, l0] = m.entries().next().value; gl.deleteBuffer(l0.vbo); gl.deleteVertexArray(l0.vao); m.delete(k0); }
   return l;
 }
-// cells: far to near.
-function drawSceneGl(cells, p, mask, mtW) {
-  const W = cvGl.width, H = cvGl.height, S = view.scale * devicePixelRatio;
-  const sinT = Math.sin(view.tiltRad), cosT = Math.cos(view.tiltRad);
-  // depth range: the view's y extent (the tilt-widened half height) and the cells' heights, with margin
-  const D = (H / devicePixelRatio / 2) / view.scale / Math.max(0.15, cosT) + 200;
+// The dyes to draw on the GPU (drawDyes keeps it current): {vbo, vao, count, key, ox, oy}, positions relative to
+// the origin (ox, oy) so float32 keeps them exact.
+let dyeGl = null;
+// cells: far to near, each {cell, asset, hide, alpha, detailed}.
+function drawSceneGl(cells, p, F) {
+  const cam = F.cam, Z = F.Z, W = cvGl.width, H = cvGl.height;
+  // depth range: the view's turned y extent (the tilt-widened half height) and the cells' heights, with margin
+  const D = cam.halfV() + 200;
   gl.viewport(0, 0, W, H);
   gl.clearColor(0, 0, 0, 0); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA); // premultiplied over
   gl.enable(gl.DEPTH_TEST);
-  const common = (u, c) => {
-    const rot = c.packRot || 0;
-    gl.uniform2f(u.u_off, c.x - view.cx, c.y - view.cy);
-    gl.uniform2f(u.u_rot, Math.cos(rot), Math.sin(rot));
-  };
   const frame = u => {
-    gl.uniform2f(u.u_canvas, W, H); gl.uniform1f(u.u_scale, S);
-    gl.uniform2f(u.u_tilt, sinT, cosT); gl.uniform1f(u.u_dscale, 1 / D);
+    gl.uniform2f(u.u_canvas, W, H); gl.uniform1f(u.u_scale, cam.S);
+    gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_dscale, 1 / D); gl.uniform1f(u.u_pz, cam.pz);
+    gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+    gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
+    gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
   };
-  if (mtW) {   // opaque pass: microtubules, depth written
+  const cellU = (u, c, cf) => {
+    const rot = cam.cellRot(c.packRot);
+    gl.uniform2f(u.u_off, cam.u(c.x, c.y), cam.v(c.x, c.y));
+    gl.uniform2f(u.u_rot, Math.cos(rot), Math.sin(rot));
+    gl.uniform1i(u.u_hide, cf.hide); gl.uniform1f(u.u_cellA, cf.alpha);
+  };
+  const kMt = K['mt.lines'], kDye = K['mt.dyes'];
+  if (Z.n[kMt] && F.mtW) {   // opaque pass: microtubules, depth written
     gl.useProgram(glMtProg); frame(glMtU);
-    gl.uniform1f(glMtU.u_halfW, mtW / 2);
-    gl.uniform4f(glMtU.u_col, 0xe6 / 255, 0xc6 / 255, 0x5a / 255, 0.8);
+    gl.uniform1f(glMtU.u_halfW, F.mtW / 2);
     gl.depthFunc(gl.LESS); gl.depthMask(true);
-    const tolUm = Math.pow(2, Math.max(-10, Math.floor(Math.log2(MT_TOL_PX / S))));   // <= MT_TOL_PX on screen
-    for (const { cell: c, asset } of cells) {
-      if (!asset.mts) continue;
+    const tolUm = Math.pow(2, Math.max(-10, Math.floor(Math.log2(MT_TOL_PX / cam.S))));   // <= MT_TOL_PX on screen
+    for (const cf of cells) {
+      const { cell: c, asset } = cf;
+      if (!asset.mts || ((cf.hide >> kMt) & 1)) continue;
       const l = ensureMtGl(asset.entry, asset.mts, tolUm);
       if (!l.count) continue;
-      common(glMtU, c);
+      cellU(glMtU, c, cf);
       gl.bindVertexArray(l.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
     }
   }
-  if (mask & 15) {   // translucent pass: per cell, back to front; tested against the microtubules, not written
+  if (Z.n[kDye] && dyeGl && dyeGl.count) {   // opaque pass: dyes, depth written
+    gl.useProgram(glPtProg); frame(glPtU);
+    gl.uniform2f(glPtU.u_off, cam.u(dyeGl.ox, dyeGl.oy), cam.v(dyeGl.ox, dyeGl.oy));
+    gl.uniform2f(glPtU.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
+    gl.uniform1f(glPtU.u_ptHalf, ((Z.layer[kDye] && Z.layer[kDye].size) || 1.2) / 2 * F.pxScale);
+    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    gl.bindVertexArray(dyeGl.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, dyeGl.count);
+  }
+  if ([0, 1, 2, 3].some(k => Z.n[k])) {   // translucent pass: per cell, back to front; tested against the opaque pass, not written
     gl.useProgram(glProg); frame(glU);
-    gl.uniform1f(glU.u_lineHalfW, Math.max(1, 0.04 * S) / 2);
+    gl.uniform1f(glU.u_lineHalfW, Math.max(1, 0.04 * cam.S) / 2);
     gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
-    for (const { cell: c, asset } of cells) {
-      const g = ensureMeshGl(asset.entry, c, mask, p.cytoContourStep);
+    for (const cf of cells) {
+      const { cell: c, asset } = cf;
+      if (![0, 1, 2, 3].some(k => Z.n[k] && !((cf.hide >> k) & 1))) continue;
+      const t = cellXform(c), g = ensureMeshGl(asset.entry, c, t, p.cytoContourStep, cf.detailed);
       if (!g.nIdx) continue;
-      common(glU, c);
+      const r = asset.entry.render;
+      cellU(glU, c, cf);
+      gl.uniform3i(glU.u_kindStart, r.nvC, r.nv, r.nv + 4 * r.lines.nO);
       gl.bindVertexArray(g.vao);
       gl.drawElements(gl.TRIANGLES, g.nIdx, gl.UNSIGNED_INT, 0);
     }
@@ -1335,10 +1497,11 @@ function drawSceneGl(cells, p, mask, mtW) {
 }
 
 // ---- x-z side view (#cvXZ) -----------------------------------------------------
-// The field of view seen from the front, along y (larger y = nearer, as at tilt 90°): x as in the view above (same
-// centre, same px/um), z up at the same px/um, the coverslip (z = 0) near the bottom. Only what lies in the view's
-// y range (its z = 0 footprint) is drawn: cytoplasm, nuclei and microtubules are cut at its top and bottom edges,
-// the dyes are the ones drawn above. Far first. Display only.
+// The field of view seen from the front, along the view's turned y (larger turned y = nearer, as at tilt 90°): the
+// horizontal as in the view above (same centre, same px/um), z up at the same px/um, the coverslip (z = 0) near the
+// bottom. Only what lies in the view's turned-y range (its z = 0 footprint) is drawn: cytoplasm, nuclei and
+// microtubules are cut at its top and bottom edges, the dyes are the ones drawn above. Far first. The Z clip is a
+// band (what lies outside it is not drawn). Display only.
 const XZ_BIN_UM = 0.1, XZ_FLOOR_PX = 14;
 // Parameter range [t0, t1] of the segment ya -> yb inside [lo, hi], or null.
 function clipY(ya, yb, lo, hi) {
@@ -1348,26 +1511,33 @@ function clipY(ya, yb, lo, hi) {
   t0 = Math.max(0, t0); t1 = Math.min(1, t1);
   return t0 <= t1 ? [t0, t1] : null;
 }
-// Upper envelope of the cytoplasm mesh over x (relative to c.x, packRot applied) for its part with y - c.y in
-// [yl, yh], in XZ_BIN_UM bins (-1 = nothing there): every mesh edge is clipped to the slab and sampled at the bin
-// centres it spans. Cached per packRot and slab (one key for every slab that holds the whole cell); null if none.
-function getXZProfile(entry, c, yl, yh) {
-  const rot = c.packRot || 0;
+// Upper envelope of the cytoplasm mesh over the turned x (relative to the cell centre, rotation rot applied) for
+// its part with turned y - the centre's in [yl, yh], in XZ_BIN_UM bins (-1 = nothing there): every mesh edge is
+// clipped to the slab and sampled at the bin centres it spans. Cached per rotation and slab; null if none.
+// While the view moves, the side view rebuilds within XZ_BUDGET_MS per frame and draws the rest from their last
+// rotation (a frame or two late: xzLate()).
+const XZ_BUDGET_MS = 3;
+let xzDeadline = Infinity;
+const xzLate = () => performance.now() > xzDeadline && (orderStale = true);
+function getXZProfile(entry, c, rot, yl, yh) {
+  const rq = rot;
   let G = entry.xzGeom;
-  if (!G || G.rot !== rot) {
-    const r = getMeshRender(entry, c), cr = Math.cos(rot), sr = Math.sin(rot);
+  const stale = !!G && G.rot !== rq;
+  if (stale && entry.xz && xzLate()) return entry.xz;
+  if (!G || stale) {
+    const r = getMeshRender(entry, c), cr = Math.cos(rq), sr = Math.sin(rq);
     const x = new Float32Array(r.nvC), y = new Float32Array(r.nvC);   // the cytoplasm's vertices
     let xlo = Infinity, xhi = -Infinity, ylo = Infinity, yhi = -Infinity;
     for (let v = 0; v < r.nvC; v++) {
       x[v] = r.lx[v] * cr - r.ly[v] * sr; y[v] = r.lx[v] * sr + r.ly[v] * cr;
       xlo = Math.min(xlo, x[v]); xhi = Math.max(xhi, x[v]); ylo = Math.min(ylo, y[v]); yhi = Math.max(yhi, y[v]);
     }
-    G = entry.xzGeom = { rot, r, x, y, xlo, xhi, ylo, yhi };
+    G = entry.xzGeom = { rot: rq, r, x, y, xlo, xhi, ylo, yhi };
     entry.xz = null;
   }
   if (G.yhi < yl || G.ylo > yh) return null;
   const key = G.ylo >= yl && G.yhi <= yh ? 'all' : yl + '|' + yh;
-  if (entry.xz && entry.xz.key === key) return entry.xz;
+  if (entry.xz && (entry.xz.key === key || xzLate())) return entry.xz;
   const { r: { n, rings, h }, x, y } = G;
   const dx = XZ_BIN_UM, x0 = G.xlo, nb = Math.max(1, Math.ceil((G.xhi - G.xlo) / dx)), top = new Float32Array(nb).fill(-1);
   const edge = (a, b) => {
@@ -1390,56 +1560,52 @@ function getXZProfile(entry, c, yl, yh) {
   }
   return (entry.xz = { key, x0, dx, top });
 }
-// Microtubules in the x-z frame (screen px relative to the cell centre, y = -z), only their stretches with
-// y - c.y in [yl, yh]. One Path2D per cell and slab (the parts behind and in front of the nucleus), rebuilt when the
-// zoom, packRot or slab changes.
+// Microtubules in the x-z frame (screen px relative to the cell centre, y = -z), only their stretches with turned
+// y - the centre's in [yl, yh] and z in the clip [zl, zh]. One Path2D per cell and slab (tag: the parts behind
+// and in front of the nucleus), rebuilt when the zoom, rotation, slab or clip changes (past the frame's budget:
+// the tag's last path).
 const mtPathCacheXZ = new WeakMap();
-function getMtPathXZ(mts, t, yl, yh) {
+function getMtPathXZ(mts, t, yl, yh, zc, tag) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
-  const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh;
+  const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh + '|' + zc[0] + '|' + zc[1];
   let hits = mtPathCacheXZ.get(mts);
   if (!hits) mtPathCacheXZ.set(mts, hits = new Map());
   const hit = hits.get(key);
   if (hit) return hit;
+  if (hits.has(tag) && xzLate()) return hits.get(tag);
   const path = new Path2D(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
   let o = 0;
   for (let m = 0; m < lens.length; m++) {
     const len = lens[m];
     let down = false, lastX = 0, lastY = 0;
     for (let k = 0; k < len; k++, o += 3) {
-      const lx = xyz[o], ly = xyz[o + 1], wy = lx * t.sr + ly * t.cr;
-      if (wy < yl || wy > yh) { down = false; continue; }
-      const sx = (lx * t.cr - ly * t.sr) * t.S, sy = -xyz[o + 2] * t.S;
+      const lx = xyz[o], ly = xyz[o + 1], wy = lx * t.sr + ly * t.cr, z = xyz[o + 2];
+      if (wy < yl || wy > yh || z < zc[0] || z > zc[1]) { down = false; continue; }
+      const sx = (lx * t.cr - ly * t.sr) * t.S, sy = -z * t.S;
       if (!down) { path.moveTo(sx, sy); down = true; lastX = sx; lastY = sy; continue; }
       const dx = sx - lastX, dy = sy - lastY;
       if (dx * dx + dy * dy >= m2 || k === len - 1) { path.lineTo(sx, sy); lastX = sx; lastY = sy; }
     }
   }
-  if (hits.size >= 4) hits.delete(hits.keys().next().value);
-  hits.set(key, path);
+  if (hits.size >= 6) for (const k of hits.keys()) if (k !== 'back' && k !== 'front') { hits.delete(k); break; }
+  hits.set(key, path); hits.set(tag, path);
   return path;
 }
-// The nucleus as horizontal sections bottom to top, each ring cut to world y in [y0, y1] and reduced to its
-// leftmost and rightmost point: { xl, zl, xr, zr }. From nucRingsLocal (both poles included, so they reach the true
-// top and bottom of a shaped nucleus).
-function nucXZSections(c, entry, y0, y1) {
-  const rings = [], { xyz: a, np } = nucRingsLocal(c, entry), cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
+// The nucleus as horizontal sections bottom to top, each ring cut to turned y in [y0, y1] (relative to the pivot)
+// and reduced to its leftmost and rightmost point along the turned x: { xl, zl, xr, zr } (turned x relative to the
+// pivot). From nucRingsLocal (both poles included, so they reach the true top and bottom of a shaped nucleus).
+function nucXZSections(c, entry, t, y0, y1) {
+  const out = [], { xyz: a, np } = nucRingsLocal(c, entry), cr = t.cr, sr = t.sr;
   for (let o = 0; o < a.length; o += np * 3) {
-    const ring = [];
-    for (let i = 0; i < np; i++) {
-      const k = o + 3 * i;
-      ring.push([c.x + a[k] * cr - a[k + 1] * sr, c.y + a[k] * sr + a[k + 1] * cr, a[k + 2]]);
-    }
-    rings.push(ring);
-  }
-  const out = [];
-  for (const ring of rings) {
     const s = { xl: Infinity, zl: 0, xr: -Infinity, zr: 0 };
-    for (let i = 0; i < ring.length; i++) {
-      const p = ring[i], q = ring[(i + 1) % ring.length], t = clipY(p[1], q[1], y0, y1);
-      if (!t) continue;
-      for (const u of t) {
-        const x = p[0] + (q[0] - p[0]) * u, z = p[2] + (q[2] - p[2]) * u;
+    for (let i = 0; i < np; i++) {
+      const k = o + 3 * i, k2 = o + 3 * ((i + 1) % np);
+      const px = t.ou + a[k] * cr - a[k + 1] * sr, py = t.oy + a[k] * sr + a[k + 1] * cr, pz = a[k + 2];
+      const qx = t.ou + a[k2] * cr - a[k2 + 1] * sr, qy = t.oy + a[k2] * sr + a[k2 + 1] * cr, qz = a[k2 + 2];
+      const tt = clipY(py, qy, y0, y1);
+      if (!tt) continue;
+      for (const u of tt) {
+        const x = px + (qx - px) * u, z = pz + (qz - pz) * u;
         if (x < s.xl) { s.xl = x; s.zl = z; }
         if (x > s.xr) { s.xr = x; s.zr = z; }
       }
@@ -1448,12 +1614,24 @@ function nucXZSections(c, entry, y0, y1) {
   }
   return out;
 }
-function drawXZ(vis, p) {
-  const g = ctxXZ, W = cvXZ.width, H = cvXZ.height, dpr = devicePixelRatio, S = view.scale * dpr;
-  const z0 = H - XZ_FLOOR_PX * dpr, X = wx => W / 2 + (wx - view.cx) * S, Y = z => z0 - z * S;
-  // the view's y range at z = 0 (as draw() computes it)
-  const halfH = (cv.height / dpr / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
-  const y0 = view.cy - halfH, y1 = view.cy + halfH;
+// While the view turns (a drag, a playing animation) the side view is drawn at the rotation rounded to XZ_TURN_Q,
+// so its per-cell paths and profiles are rebuilt once per step instead of on every frame.
+const XZ_TURN_Q = 3 * Math.PI / 180;
+function drawXZ(vis, p, F) {
+  const moving = !frameExact && (performance.now() < interactingUntil || animPlaying);
+  const azq = moving ? Math.round(F.cam.az / XZ_TURN_Q) * XZ_TURN_Q : F.cam.az;
+  if (azq === F.cam.az) return drawXZWith(vis, p, F, F.cam);
+  const c0 = F.cam, cam = IscScene.makeCamera({ px: c0.px, py: c0.py, pz: c0.pz, az: azq, tilt: c0.tilt, S: c0.S, W: c0.W, H: c0.H });
+  curCam = cam;
+  try { drawXZWith(vis, p, F, cam); } finally { curCam = c0; }
+}
+function drawXZWith(vis, p, F, cam) {
+  const g = ctxXZ, W = cvXZ.width, H = cvXZ.height, dpr = devicePixelRatio, S = cam.S;
+  const z0 = H - XZ_FLOOR_PX * dpr, X = u => W / 2 + u * S, Y = z => z0 - z * S;
+  // the view's turned-y range at z = 0 (as renderFrame computes it), relative to the pivot
+  const halfH = cam.halfV(), y0 = -halfH, y1 = halfH;
+  const zc = F.zc, clipped = zc[0] > -1e29 || zc[1] < 1e29;
+  xzDeadline = !frameExact && (performance.now() < interactingUntil || animPlaying) ? performance.now() + XZ_BUDGET_MS : Infinity;
   g.clearRect(0, 0, W, H);
   // z grid: a 1-2-5 step at least ~26 CSS px apart
   let step = 0.1;
@@ -1462,25 +1640,29 @@ function drawXZ(vis, p) {
   g.beginPath();
   for (let z = step; Y(z) > 0; z += step) { g.moveTo(0, Y(z)); g.lineTo(W, Y(z)); }
   g.stroke(); g.setLineDash([]);
+  const Z = F.Z, on = (k, cf) => Z.n[k] > 0 && !((cf.hide >> k) & 1);
+  if (clipped) { g.save(); g.beginPath(); g.rect(0, Y(Math.min(zc[1], 1e6)), W, Y(Math.max(zc[0], -1e6)) - Y(Math.min(zc[1], 1e6))); g.clip(); }
 
-  // Far (small y) cells first; within a cell, inside out: the microtubules behind the nucleus centre, the nucleus,
-  // the microtubules in front of it, then the cytoplasm (translucent, it holds all of them).
-  const order = vis.slice().sort((a, b) => a.cell.y - b.cell.y);
-  for (const { cell: c, asset } of order) {
-    const yl = y0 - c.y, yh = y1 - c.y;
-    const mts = els.showMt.checked && asset.mts, t = cellXform(c);
-    const nucY = c.nucOffX * t.sr + c.nucOffY * t.cr;   // the nucleus centre's y - c.y
-    const strokeMts = (a, b) => {
+  // Far (small turned y) cells first; within a cell, inside out: the microtubules behind the nucleus centre, the
+  // nucleus, the microtubules in front of it, then the cytoplasm (translucent, it holds all of them).
+  const order = vis.slice().sort((a, b) => cam.v(a.cell.x, a.cell.y) - cam.v(b.cell.x, b.cell.y));
+  for (const cf of order) {
+    const { cell: c, asset } = cf, t = cellXform(c);
+    const yl = y0 - t.oy, yh = y1 - t.oy;
+    const mts = on(K['mt.lines'], cf) && asset.mts;
+    const nucY = c.nucOffX * t.sr + c.nucOffY * t.cr;   // the nucleus centre's turned y - the cell centre's
+    g.globalAlpha = cf.alpha;
+    const strokeMts = (a, b, tag) => {
       if (!mts || a > b) return;
-      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8;
+      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8 * cf.alpha;
       g.lineWidth = Math.max(0.6, p.mtLineWidth * S);
       g.save(); g.translate(t.ox, z0);
-      g.stroke(getMtPathXZ(mts, t, a, b));
-      g.restore(); g.globalAlpha = 1;
+      g.stroke(getMtPathXZ(mts, t, a, b, zc, tag));
+      g.restore(); g.globalAlpha = cf.alpha;
     };
-    strokeMts(yl, Math.min(yh, nucY));
-    if (els.showNucleus.checked) {
-      const sec = nucXZSections(c, asset.entry, y0, y1);
+    strokeMts(yl, Math.min(yh, nucY), 'back');
+    if (on(K['nucleus.surface'], cf)) {
+      const sec = nucXZSections(c, asset.entry, t, y0, y1);
       for (let k = 0; k + 1 < sec.length; k++) {
         const a = sec[k], b = sec[k + 1];
         g.fillStyle = depthColor((a.zl + a.zr + b.zl + b.zr) / 4, 0, c.height, 0.55);
@@ -1489,11 +1671,11 @@ function drawXZ(vis, p) {
         g.closePath(); g.fill();
       }
     }
-    strokeMts(Math.max(yl, nucY), yh);
-    if (els.showCyto.checked) {
-      const pr = getXZProfile(asset.entry, c, yl, yh);
+    strokeMts(Math.max(yl, nucY), yh, 'front');
+    if (on(K['cyto.surface'], cf)) {
+      const pr = getXZProfile(asset.entry, c, t.rot, yl, yh);
       if (pr) {
-        const { x0, dx, top } = pr, ox = X(c.x), nb = top.length;
+        const { x0, dx, top } = pr, ox = t.ox, nb = top.length;
         const grp = Math.max(1, Math.floor(1 / (dx * S))); // bins per screen pixel when zoomed out
         g.beginPath();
         for (let i = 0; i < nb;) {   // one closed outline per run of non-empty bins
@@ -1514,6 +1696,14 @@ function drawXZ(vis, p) {
         g.strokeStyle = 'rgba(90,169,230,0.75)'; g.lineWidth = 1; g.stroke();
       }
     }
+    g.globalAlpha = 1;
+  }
+  if (clipped) {
+    g.restore();
+    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1; g.setLineDash([5 * dpr, 4 * dpr]);
+    g.beginPath();
+    for (const z of zc) if (Math.abs(z) < 1e6 && Y(z) > 0 && Y(z) < H) { g.moveTo(0, Y(z)); g.lineTo(W, Y(z)); }
+    g.stroke(); g.setLineDash([]);
   }
 
   // coverslip, z labels, title
@@ -1523,7 +1713,7 @@ function drawXZ(vis, p) {
   g.textAlign = 'left'; g.textBaseline = 'middle';
   for (let z = step, i = 1; Y(z) > 6 * dpr; z += step, i++) g.fillText(`${+(i * step).toFixed(1)} µm`, 4 * dpr, Y(z));
   g.textBaseline = 'top'; g.fillText('z = 0 (coverslip)', 4 * dpr, z0 + 2 * dpr);
-  g.textAlign = 'right'; g.fillText('x–z of the view, seen along y', W - 6 * dpr, z0 + 2 * dpr);
+  g.textAlign = 'right'; g.fillText(cam.az ? 'side view, seen along the turned y' : 'x–z of the view, seen along y', W - 6 * dpr, z0 + 2 * dpr);
 }
 
 // ---- generator: the insiliscope core (WASM) in Web Workers -----------------------
@@ -2146,7 +2336,7 @@ function assetSig(seed, p) {
   for (const k in p) if (!ASSET_SIG_SKIP.test(k)) o.push(k + '=' + p[k]);
   return o.join('|');
 }
-let lastView = null; // {seed, p, sig, map, cx0..cy1, mt} -- what pumpAssets() prioritises against
+let lastView = null; // {seed, p, sig, map, cx0..cy1, mtKeys, detail} -- what pumpAssets() prioritises against
 function disposeAsset(a) { if (a && a.entry) freeMeshGl(a.entry); }
 function evictAssets() {
   if (assets.size <= ASSET_MAX || !lastView) return;
@@ -2174,8 +2364,10 @@ function onCellResult(wi, d) {
   }
   pumpAssets();
 }
-// Sends the most wanted missing assets (visible first, then a prefetch ring; each
-// nearest the view centre first) to whichever cell workers are idle.
+// Sends the most wanted missing assets to whichever cell workers are idle: the detailed cells first (with their
+// microtubules), then the other visible cells (cytoplasm only: no microtubules there), then a prefetch ring; each
+// nearest the view centre first. v.mtKeys: the cells whose asset should carry microtubules (the detailed ones and
+// the next few, so a cell entering the budget has them already).
 function pumpAssets() {
   if (!genWorkers.ok || !lastView) return;
   const v = lastView;
@@ -2186,19 +2378,19 @@ function pumpAssets() {
   for (let cx = v.cx0 - px; cx <= v.cx1 + px; cx++) for (let cy = v.cy0 - py; cy <= v.cy1 + py; cy++) {
     const key = cx + ',' + cy, cell = v.map.get(key);
     if (!cell) continue;
-    const a = assets.get(key);
-    if ((a && a.sig === v.sig && (a.hasMt || !v.mt)) || assetInflight.get(key) === v.sig) continue;
+    const a = assets.get(key), mt = v.mtKeys.has(key);
+    if ((a && a.sig === v.sig && (a.hasMt || !mt)) || assetInflight.get(key) === v.sig) continue;
     const inView = cx >= v.cx0 && cx <= v.cx1 && cy >= v.cy0 && cy <= v.cy1;
-    cand.push({ key, cell, rank: (inView ? 0 : 1e6) + Math.hypot(cx - mx, cy - my) });
+    cand.push({ key, cell, mt, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cx - mx, cy - my) });
   }
   cand.sort((a, b) => a.rank - b.rank);
   let ci = 0;
   for (let wi = 0; wi < genWorkers.busy.length && ci < cand.length; wi++) {
     if (genWorkers.busy[wi]) continue;
-    const { key, cell } = cand[ci++];
+    const { key, cell, mt } = cand[ci++];
     genWorkers.busy[wi] = key;
     assetInflight.set(key, v.sig);
-    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt: v.mt,
+    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt,
       blocks: blocksForCell(cell) });
   }
 }
@@ -2232,26 +2424,28 @@ function noteInteraction() {
   settleTimer = setTimeout(requestDraw, 180);
 }
 const mtPathCache = new WeakMap();
-// The path is built in cell-local micrometres with the tilt and the packing rotation baked in, and
+// The path is built in cell-local micrometres with the tilt and the effective rotation baked in, and
 // stroked under ctx.scale(S, S): a zoom reuses it (the decimation distance in um is quantised to
-// powers of two, so only a doubling of the zoom rebuilds), a tilt or rotation change rebuilds.
-// Returns {path, minUm}.
-function getMtPath2D(mts, cell, t) {
+// powers of two, so only a doubling of the zoom rebuilds), a tilt, rotation or Z clip change rebuilds
+// (the clip lifts the pen outside [zc0, zc1]). Returns {path, minUm}.
+function getMtPath2D(mts, cell, t, zc) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
   const minUm = Math.pow(2, Math.floor(Math.log2(minPx / t.S)));   // <= minPx on screen at this zoom
-  const key = t.sinT + '|' + t.cr + '|' + t.sr + '|' + minUm;
+  const zl = zc ? zc[0] : -Infinity, zh = zc ? zc[1] : Infinity;
+  const key = t.sinT + '|' + t.cr + '|' + t.sr + '|' + minUm + '|' + zl + '|' + zh;
   const hit = mtPathCache.get(mts);
   if (hit && hit.key === key) return hit;
   const path = new Path2D(), m2 = minUm * minUm, xyz = mts.xyz, lens = mts.lens;
   let o = 0;
   for (let m = 0; m < lens.length; m++) {
     const len = lens[m];
-    let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false;
+    let lastX = 0, lastY = 0, ex = 0, ey = 0, pending = false, first = true;
     for (let k = 0; k < len; k++, o += 3) {
-      const lx = xyz[o], ly = xyz[o + 1];
+      const lx = xyz[o], ly = xyz[o + 1], z = xyz[o + 2];
+      if (z < zl || z > zh) { if (pending) path.lineTo(ex, ey); pending = false; first = true; continue; }
       const sx = lx * t.cr - ly * t.sr;
-      const sy = (lx * t.sr + ly * t.cr) * t.cosT - xyz[o + 2] * t.sinT;
-      if (k === 0) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; continue; }
+      const sy = (lx * t.sr + ly * t.cr) * t.cosT - z * t.sinT;
+      if (first) { path.moveTo(sx, sy); lastX = sx; lastY = sy; pending = false; first = false; continue; }
       const dx = sx - lastX, dy = sy - lastY;
       if (dx * dx + dy * dy >= m2) { path.lineTo(sx, sy); lastX = sx; lastY = sy; pending = false; }
       else { ex = sx; ey = sy; pending = true; }
@@ -2271,34 +2465,55 @@ function requestDraw() {
   requestAnimationFrame(() => { drawQueued = false; draw(); });
 }
 
-function draw() {
+// A frame drawn from a scene state: stateFromUI() for the main view, an animation's own for its preview and
+// export. state: {camera: {pivot: [x, y, z], azimuthDeg, tiltDeg, scale (CSS px/um) | fovUm}, scope ('all' |
+// 'ghosts' | 'target'), target ('cx,cy' | null: the cell nearest the pivot), detailCells (N, 0 = all), theme,
+// zClip ([lo, hi] | null), sweep ({axis} | null), layers ({id: {style, intervals}}), grid, xz, ui (the main view's
+// HUD, FOV box, scale bar)}. target: {final: exact depth orders (export), pxScale: device px per line/point px}.
+// Returns {loading, dyes}: what is still on its way (cells, dyes) -- an animation waits for both to be 0.
+let previewState = null, detailPrev = null, lastFrame = null, lastThemeBg = '';
+function renderFrame(st, target) {
+  target = target || {};
   const p = params();
   const seed = (+els.seed.value) | 0;
-  const S = p.chunkSize;
-  view.tiltRad = (+els.tiltDeg.value) * Math.PI / 180;
-  ctxTop.clearRect(0, 0, cv.width, cv.height);
-  if (useGl) ctxBase.clearRect(0, 0, cv.width, cv.height);
+  const S0 = p.chunkSize, W = cv.width, H = cv.height;
+  const cam = curCam = cameraFor(st.camera, W, H);
+  view.tiltRad = cam.tilt; view.azRad = cam.az; view.pz = cam.pz;
+  frameExact = !!target.final; orderStale = false;
+  sortDeadline = frameExact ? Infinity : performance.now() + ORDER_BUDGET_MS;
+  const themeBg = rgba([...IscScene.themeOf(st.theme).bg, 1]);
+  if (themeBg !== lastThemeBg) {
+    lastThemeBg = themeBg;
+    cvBase.style.background = themeBg; cvXZ.style.background = themeBg;
+    if (!useGl) cv.style.background = themeBg;
+  }
+  ctxTop.clearRect(0, 0, W, H);
+  if (useGl) ctxBase.clearRect(0, 0, W, H);
 
-  const halfWUm = (cv.width / devicePixelRatio / 2) / view.scale;
-  const halfHUm = (cv.height / devicePixelRatio / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
-  const cx0 = Math.floor((view.cx - halfWUm) / S) - 1, cx1 = Math.ceil((view.cx + halfWUm) / S) + 1;
-  const cy0 = Math.floor((view.cy - halfHUm) / S) - 1, cy1 = Math.ceil((view.cy + halfHUm) / S) + 1;
+  const [rx0, ry0, rx1, ry1] = cam.visibleRect();
+  const cx0 = Math.floor(rx0 / S0) - 1, cx1 = Math.ceil(rx1 / S0) + 1;
+  const cy0 = Math.floor(ry0 / S0) - 1, cy1 = Math.ceil(ry1 / S0) + 1;
   const coreCount = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
-  const pxPerUm = view.scale * devicePixelRatio;
-  const sinT = Math.sin(view.tiltRad);
+  const pxPerUm = cam.S;
   const bg = useGl ? ctxBase : ctxTop;
+  const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
+  const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
+    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map() };
+  const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
+  const hudHead = `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/um   ` +
+    `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `   rotation ${azDeg}°` : '') + `   ${useGl ? 'GPU' : '2D'}`;
 
-  if (els.showGrid.checked && coreCount <= RENDER_CAP) {
+  if (st.grid && coreCount <= RENDER_CAP) {
     ctx = bg;
     ctx.strokeStyle = '#3a4454';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let cx = cx0; cx <= cx1; cx++) {
-      const [ax, ay] = project(cx * S, cy0 * S, 0), [bx, by] = project(cx * S, cy1 * S, 0);
+      const [ax, ay] = project(cx * S0, cy0 * S0, 0), [bx, by] = project(cx * S0, cy1 * S0, 0);
       ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
     }
     for (let cy = cy0; cy <= cy1; cy++) {
-      const [ax, ay] = project(cx0 * S, cy * S, 0), [bx, by] = project(cx1 * S, cy * S, 0);
+      const [ax, ay] = project(cx0 * S0, cy * S0, 0), [bx, by] = project(cx1 * S0, cy * S0, 0);
       ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
     }
     ctx.stroke();
@@ -2307,71 +2522,107 @@ function draw() {
   ctx = ctxTop;
   if (coreCount > RENDER_CAP) {
     if (useGl) { gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
-    if (els.showXZ.checked) drawXZ([], p);
-    drawScaleBar(pxPerUm);
-    hud.textContent =
-      `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°\n` +
-      `${coreCount} chunks in view — zoom in to render (cap ${RENDER_CAP})`;
-    return;
+    if (st.xz) drawXZ([], p, F);
+    if (st.ui) {
+      drawScaleBar(pxPerUm);
+      hud.textContent = hudHead + '\n' + `${coreCount} chunks in view — zoom in to render (cap ${RENDER_CAP})`;
+    }
+    return { loading: 1, dyes: 0 };
   }
 
   const withinCap = coreCount <= CHUNK_CAP;
-  let map = new Map();
+  let map = new Map(), covers = false;
   if (withinCap) {
     const pc = genWorkers.ok ? getPackedMapAsync(seed, p, cx0, cy0, cx1, cy1) : getPackedMapSync(seed, p, cx0, cy0, cx1, cy1);
-    if (pc) map = pc.map; // no map yet => empty until the pack worker delivers
+    if (pc) { map = pc.map; covers = !!pc.covers; } // no map yet => empty until the pack worker delivers
   }
 
-  const nChunks = coreCount;
+  // Visible cells only: a cell whose bounding circle is off-screen costs nothing. The detail budget: the N cells
+  // nearest the pivot get the detailed structures (microtubules, nucleus, dyes), the rest their cytoplasm (or, as
+  // faint neighbours, a ghost of it). A visible cell whose mesh/microtubules the workers have not delivered yet
+  // is skipped (pops in when ready) rather than computed here -- see getAsset(). The map holds every cell of the
+  // (padded) window, whatever its home chunk.
   let nCells = 0, nMt = 0, nLoading = 0, labelNote = '';
-
-  // Visible cells only: a cell whose bounding circle is off-screen costs nothing.
-  // A visible cell whose mesh/microtubules the workers have not delivered yet is
-  // skipped (pops in when ready) rather than computed here -- see getAsset(). The
-  // map holds every cell of the (padded) window, whatever its home chunk.
-  const vis = [], sig = assetSig(seed, p), wantMt = els.showMt.checked;
-  for (const [key, cell] of map) {
+  const visCells = [];
+  for (const cell of map.values()) {
     if (cell.cx >= cx0 && cell.cx <= cx1 && cell.cy >= cy0 && cell.cy <= cy1) nCells++;
-    if (!cellVisible(cell)) continue;
-    const asset = getAsset(cell, key, seed, p, sig, wantMt);
-    if (asset) vis.push({ cx: cell.cx, cy: cell.cy, cell, asset }); else nLoading++;
+    if (cellVisible(cell)) visCells.push(cell);
   }
-  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mt: wantMt };
+  const scope = st.scope || 'all', N = st.detailCells === undefined ? 5 : st.detailCells;
+  const det = scope !== 'all' && st.target ? { set: new Set([st.target]), order: [st.target] }
+    : IscScene.detailSet(visCells, cam.px, cam.py, scope === 'all' ? N : 1, detailPrev);
+  detailPrev = det.set;
+  const target0 = scope === 'all' ? null : (st.target || det.order[0] || null);
+  const sig = assetSig(seed, p), mtKeys = new Set();
+  if (st.layers['mt.lines']) {
+    for (const k of det.set) mtKeys.add(k);
+    if (scope === 'all' && N > 0) for (const k of det.order.slice(N, N + 3)) mtKeys.add(k);
+  }
+  const ghostA = st.ghostOpacity !== undefined ? st.ghostOpacity : IscScene.themeOf(st.theme).ghost.opacity;
+  const vis = [];
+  for (const cell of visCells) {
+    const key = cell.cx + ',' + cell.cy, detailed = det.set.has(key);
+    if (scope === 'target' && key !== target0) continue;
+    const asset = getAsset(cell, key, seed, p, sig, mtKeys.has(key));
+    if (!asset) { nLoading++; continue; }
+    vis.push(detailed ? { cx: cell.cx, cy: cell.cy, cell, asset, hide: 0, alpha: 1, detailed: true }
+      : { cx: cell.cx, cy: cell.cy, cell, asset, hide: scope === 'ghosts' ? HIDE_GHOST : HIDE_PLAIN,
+          alpha: scope === 'ghosts' ? ghostA : 1, detailed: false });
+    if (mtKeys.has(key) && detailed && !asset.hasMt) nLoading++;
+  }
+  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, detail: det.set };
   evictAssets();
   pumpAssets();
-  if (els.showXZ.checked) drawXZ(vis, p); // before the dyes, which add their x-z points to it
+  if (st.xz) drawXZ(vis, p, F); // before the dyes, which add their x-z points to it
 
   // The scene: cells far to near (see "per-cell scene" above) -- the GPU layer, or the 2D fallback on the top
-  // canvas. Then the dyes on top.
-  const far = vis.slice().sort((a, b) => a.cell.y - b.cell.y);
-  const mask = sceneMask(p), mtW = els.showMt.checked ? Math.max(0.6, p.mtLineWidth * pxPerUm) : 0;
-  if (mtW) for (const { asset } of vis) if (asset.mts) nMt += asset.mts.lens.length;
-  if (useGl) drawSceneGl(far, p, mask, mtW);
+  // canvas. The dyes in the GPU's opaque pass, or on top in 2D.
+  const far = vis.slice().sort((a, b) => cam.v(a.cell.x, a.cell.y) - cam.v(b.cell.x, b.cell.y));
+  const kMt = K['mt.lines'];
+  if (F.mtW) for (const { asset, hide } of vis) if (asset.mts && !((hide >> kMt) & 1)) nMt += asset.mts.lens.length;
+  const wantDyes = Z.n[K['mt.dyes']] > 0;
+  if (wantDyes) labelNote = updateDyes(seed, p, F, vis); else dyeSel = null;
+  if (useGl) drawSceneGl(far, p, F);
   else {
     ctx = ctxTop;
-    for (const { cell, asset } of far) drawCell2D(cell, asset, p, mask, mtW);
+    for (const cf of far) drawCell2D(cf.cell, cf.asset, p, F, cf);
+    if (wantDyes) labelNote = drawDyes2D(F) || labelNote;
   }
   ctx = ctxTop;
-  if (els.showDyes.checked) labelNote = drawDyes(seed, p, pxPerUm);
 
-  drawMovieFov();
-  drawScaleBar(pxPerUm);
-
-  hud.textContent =
-    `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${view.scale.toFixed(2)} px/um   tilt ${(+els.tiltDeg.value)}°   ${useGl ? 'GPU' : '2D'}\n` +
-    `chunks ${nChunks}   cells ${nCells} (${vis.length} on screen)   microtubules ${nMt}` +
-    (!coreReady() ? '   [loading core…]' : '') +
-    (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
-    (withinCap ? '' : '   [view too large: zoom in]') +
-    (labelNote ? '   [' + labelNote + ']' : '');
+  if (st.ui) {
+    drawMovieFov();
+    drawScaleBar(pxPerUm);
+    const nDet = vis.filter(v => v.detailed).length;
+    hud.textContent = hudHead + '\n' +
+      `chunks ${coreCount}   cells ${nCells} (${vis.length} on screen${scope === 'all' && N > 0 ? `, ${nDet} detailed` : ''})   microtubules ${nMt}` +
+      (st.zClip ? `   z ${st.zClip[0]}–${st.zClip[1]} µm` : '') +
+      (!coreReady() ? '   [loading core…]' : '') +
+      (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
+      (withinCap ? '' : '   [view too large: zoom in]') +
+      (labelNote ? '   [' + labelNote + ']' : '');
+  }
+  lastFrame = { cam, F, vis };
+  return { loading: nLoading + (covers ? 0 : 1), dyes: wantDyes && (dyePending || !dyeSel) ? 1 : 0 };
 }
 
-// ---- pan / zoom -------------------------------------------------------------
-// The x-z side view pans and zooms the same view (a drag there moves x only).
-let dragging = null, lastX = 0, lastY = 0;
+function draw() {
+  renderFrame(previewState || stateFromUI());
+  if (orderStale) requestDraw();   // some cells kept last frame's depth order: finish them next frame
+}
+
+// ---- pan / zoom / turn ------------------------------------------------------
+// Drag pans (the scene follows the pointer), Shift-drag turns (sideways) and tilts (up and down) the view about its
+// centre, the wheel zooms. The side view pans and zooms the same view (a drag there moves along its horizontal only).
+// While an animation previews (cameraLocked), the camera is the animation's.
+const ORBIT_DEG_PER_PX = 0.4;
+let dragging = null, dragMode = 'pan', lastX = 0, lastY = 0, orbitAz = 0, orbitTilt = 0, cameraLocked = false;
+function setInput(el, v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }
 for (const c of [cv, cvXZ]) {
   c.addEventListener('pointerdown', e => {
     dragging = c; lastX = e.clientX; lastY = e.clientY;
+    dragMode = e.shiftKey && c === cv ? 'orbit' : 'pan';
+    orbitAz = +els.azimuthDeg.value; orbitTilt = +els.tiltDeg.value;
     c.setPointerCapture(e.pointerId);
     c.classList.add('dragging');
   });
@@ -2379,12 +2630,22 @@ for (const c of [cv, cvXZ]) {
     if (dragging !== c) return;
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
-    view.cx -= dx / view.scale;
-    if (c === cv) view.cy -= dy / (view.scale * Math.max(0.15, Math.cos(view.tiltRad)));
+    if (cameraLocked) return;
+    if (dragMode === 'orbit') {
+      orbitAz += dx * ORBIT_DEG_PER_PX;
+      if (orbitAz > 180) orbitAz -= 360; else if (orbitAz < -180) orbitAz += 360;
+      orbitTilt = Math.min(90, Math.max(0, orbitTilt + dy * ORBIT_DEG_PER_PX));
+      setInput(els.azimuthDeg, orbitAz); setInput(els.tiltDeg, orbitTilt);
+    } else {
+      const k = curCam || cameraFor(null, cv.width, cv.height), dpr = devicePixelRatio;
+      if (c === cv) { const [ddx, ddy] = k.panDelta(dx * dpr, dy * dpr); view.cx += ddx; view.cy += ddy; }
+      else { const du = -dx / view.scale; view.cx += k.ca * du; view.cy += k.sa * du; }
+    }
     noteInteraction(); requestDraw();
   });
   c.addEventListener('wheel', e => {
     e.preventDefault();
+    if (cameraLocked) return;
     const factor = Math.exp(-e.deltaY * 0.0015);
     view.scale = Math.max(0.3, view.scale * factor);
     noteInteraction(); requestDraw();
@@ -2415,69 +2676,163 @@ els.resetView.addEventListener('click', () => {
 });
 
 // ---- dyes -----------------------------------------------------------------------
-// The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip,
-// linker; labelEfficiency of the sites), shown once zoomed in far enough that a
-// view holds a drawable number of them. Fetched by the dye worker for the view
-// padded by DYE_PAD views each side and reused while the view stays inside it.
+// The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip, linker; labelEfficiency of the
+// sites) of the detailed cells. Fetched by the dye worker for a window -- the view (the main view, once zoomed in
+// far enough that it holds a drawable number of them) or the detailed cells' box (an animation frame), padded by
+// DYE_PAD each side -- and reused while the window holds the one needed; then kept to the detailed cells'
+// footprints (selectDyes). Drawn on the GPU (the points program: clipped and depth-tested like the rest of the
+// scene) or on the 2D canvas, their x-z marks on the side view.
 const DYE_MIN_PX_PER_UM = 120;
-const DYE_MAX_DRAWN = 150000;
+const DYE_MAX_DRAWN = 150000, DYE_MAX_GPU = 4000000;
 const DYE_PAD = 0.25;
-let dyeCache = null;    // {key, rect, sites}
+let dyeCache = null;    // {key, rect, sites, id}
 let dyePending = null;  // {id, key, rect}
 let dyeId = 0;
+let dyeSel = null;      // {key, ox, oy, pts: Float32Array (x - ox, y - oy, z, 0 per dye), n}
 function dyeKey(seed, p) { return assetSig(seed, p) + '|' + p.labelEfficiency + '|' + p.labelNonBleaching; }
 function onDyeResult(e) {
   const d = e.data;
   if (!dyePending || d.id !== dyePending.id) return;
   dyePending = null;
-  dyeCache = { key: d.key, rect: d.rect, sites: d.sites };
+  dyeCache = { key: d.key, rect: d.rect, sites: d.sites, id: d.id };
   requestDraw();
 }
-// Draws the cached dyes (red) and makes sure the right window is cached or on its
-// way; returns a HUD note ('' if none).
-function drawDyes(seed, p, pxPerUm) {
-  if (pxPerUm < DYE_MIN_PX_PER_UM) return 'zoom in to show dyes';
-  const halfW = (cv.width / devicePixelRatio / 2) / view.scale;
-  const halfH = (cv.height / devicePixelRatio / 2) / view.scale / Math.max(0.15, Math.cos(view.tiltRad));
-  const r = [view.cx - halfW, view.cy - halfH, view.cx + halfW, view.cy + halfH];
+// A cell's footprint as a polar table in its local frame: the outline's largest radius per angle bin (from the
+// mesh's outer ring), cached on the asset entry.
+const FOOT_BINS = 512;
+function footprintPolar(entry) {
+  if (entry.polar) return entry.polar;
+  const { rings, n, flat } = entry.mesh, tab = new Float32Array(FOOT_BINS), TAU = 2 * Math.PI;
+  const bin = a => ((Math.floor(a / TAU * FOOT_BINS) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS;
+  for (let i = 0; i < n; i++) {
+    const a = 3 * (rings * n + i), b = 3 * (rings * n + (i + 1) % n);
+    const ax = flat[a], ay = flat[a + 1], bx = flat[b], by = flat[b + 1];
+    const ra = Math.hypot(ax, ay), rb = Math.hypot(bx, by);
+    let ta = Math.atan2(ay, ax), tb = Math.atan2(by, bx);
+    if (tb - ta > Math.PI) tb -= TAU; else if (ta - tb > Math.PI) tb += TAU;
+    const steps = Math.max(1, Math.ceil(Math.abs(tb - ta) / TAU * FOOT_BINS) + 1);
+    for (let s = 0; s <= steps; s++) {
+      const f = s / steps, k = bin(ta + (tb - ta) * f), r = ra + (rb - ra) * f;
+      if (r > tab[k]) tab[k] = r;
+    }
+  }
+  return (entry.polar = tab);
+}
+// The cached sites inside the given cells' footprints (all of them for cells = null), relative to the window centre.
+function selectDyes(c, cells, key) {
+  const s = c.sites, ox = (c.rect[0] + c.rect[2]) / 2, oy = (c.rect[1] + c.rect[3]) / 2;
+  const pts = new Float32Array(s.length);
+  const polys = cells && cells.map(v => ({ c: v.cell, tab: footprintPolar(v.asset.entry), cr: Math.cos(-(v.cell.packRot || 0)),
+    sr: Math.sin(-(v.cell.packRot || 0)), r2: (v.cell.rOuter + 0.5) * (v.cell.rOuter + 0.5) }));
+  const k = FOOT_BINS / (2 * Math.PI);
+  let n = 0;
+  for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
+    const x = s[i], y = s[i + 1];
+    if (polys) {
+      let inside = false;
+      for (const P of polys) {
+        const dx = x - P.c.x, dy = y - P.c.y;
+        if (dx * dx + dy * dy > P.r2) continue;
+        const lx = dx * P.cr - dy * P.sr, ly = dx * P.sr + dy * P.cr, rr = P.tab[((Math.floor(Math.atan2(ly, lx) * k) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS] + 0.1;
+        if (lx * lx + ly * ly <= rr * rr) { inside = true; break; }
+      }
+      if (!inside) continue;
+    }
+    pts[4 * n] = x - ox; pts[4 * n + 1] = y - oy; pts[4 * n + 2] = s[i + 2];
+    n++;
+  }
+  return { key, ox, oy, pts: pts.subarray(0, 4 * n), n };
+}
+// Makes sure the right window is cached or on its way, keeps the selection (and its GPU copy) current and draws the
+// x-z marks; returns a HUD note ('' if none).
+function updateDyes(seed, p, F, vis) {
+  const cam = F.cam, st = F.st;
+  if (st.ui && cam.S < DYE_MIN_PX_PER_UM) { dyeSel = null; return 'zoom in to show dyes'; }
+  const limit = (st.scope || 'all') !== 'all' || (st.detailCells === undefined ? 5 : st.detailCells) > 0;
+  const cells = limit ? vis.filter(v => v.detailed) : null;
+  let r = cam.visibleRect();
+  if (cells) {
+    if (!cells.length) { dyeSel = null; return ''; }
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const { cell: c } of cells) { b[0] = Math.min(b[0], c.x - c.rOuter); b[1] = Math.min(b[1], c.y - c.rOuter); b[2] = Math.max(b[2], c.x + c.rOuter); b[3] = Math.max(b[3], c.y + c.rOuter); }
+    r = st.ui ? [Math.max(r[0], b[0]), Math.max(r[1], b[1]), Math.min(r[2], b[2]), Math.min(r[3], b[3])] : b;
+    if (r[2] <= r[0] || r[3] <= r[1]) { dyeSel = null; return ''; }
+  }
   const key = dyeKey(seed, p);
-  const covers = c => c && c.key === key && r[0] >= c.rect[0] && r[1] >= c.rect[1] && r[2] <= c.rect[2] && r[3] <= c.rect[3];
+  const has = c => c && c.key === key && r[0] >= c.rect[0] && r[1] >= c.rect[1] && r[2] <= c.rect[2] && r[3] <= c.rect[3];
   let note = '';
-  if (!covers(dyeCache) && !covers(dyePending)) {
-    const px = 2 * halfW * DYE_PAD, py = 2 * halfH * DYE_PAD;
+  if (!has(dyeCache) && !has(dyePending)) {
+    const px = (r[2] - r[0]) * DYE_PAD, py = (r[3] - r[1]) * DYE_PAD;
     const rect = [r[0] - px, r[1] - py, r[2] + px, r[3] + py];
     if (genWorkers.ok) {
       dyePending = { id: ++dyeId, key, rect };
       genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p, blocks: blocksForRect(p, rect) });
     } else if (mainEngine) {
       const [d] = mainEngine.handle({ type: 'sites', id: 0, key, rect, seed, p });
-      dyeCache = { key, rect, sites: d.sites };
+      dyeCache = { key, rect, sites: d.sites, id: --dyeId };
     }
   }
   if (dyePending) note = 'loading dyes…';
   const c = dyeCache;
-  if (!c || c.key !== key) return note;
-  const s = c.sites, W = cv.width, H = cv.height, S = view.scale * devicePixelRatio;
-  const cosT = Math.cos(view.tiltRad), sinT = Math.sin(view.tiltRad);
-  const xz = els.showXZ.checked, xz0 = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio;
-  let drawn = 0;
-  ctx = ctxTop;
-  ctx.fillStyle = '#ff4d4d'; ctxXZ.fillStyle = '#ff4d4d';
-  // One path of 1.2 px squares and one fill (the same marks as a fillRect per dye, several times faster).
-  const path = new Path2D(), pathXZ = xz ? new Path2D() : null, cx0 = W / 2 - view.cx * S, cy0 = H / 2 - view.cy * cosT * S;
-  for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
-    const sx = cx0 + s[i] * S;
-    const sy = cy0 + (s[i + 1] * cosT - s[i + 2] * sinT) * S;
+  if (!c || c.key !== key) { dyeSel = null; return note; }
+  const selKey = c.id + '|' + (cells ? cells.map(v => v.cx + ',' + v.cy).sort().join(';') : 'all');
+  if (!dyeSel || dyeSel.key !== selKey) dyeSel = selectDyes(c, cells, selKey);
+  if (useGl && gl) {
+    if (!dyeGl) {
+      dyeGl = { vbo: gl.createBuffer(), vao: gl.createVertexArray(), count: 0, key: '', ox: 0, oy: 0 };
+      gl.bindVertexArray(dyeGl.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, dyeGl.vbo);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+      gl.bindVertexArray(null);
+    }
+    if (dyeGl.key !== dyeSel.key) {
+      const n = Math.min(dyeSel.n, DYE_MAX_GPU);
+      gl.bindBuffer(gl.ARRAY_BUFFER, dyeGl.vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, dyeSel.pts.subarray(0, 4 * n), gl.STATIC_DRAW);
+      Object.assign(dyeGl, { count: n, key: dyeSel.key, ox: dyeSel.ox, oy: dyeSel.oy });
+      if (n < dyeSel.n) note = 'dye cap reached, some not drawn';
+    }
+  }
+  if (st.xz) {   // x-z marks: the dyes in the view's turned-y range and the Z clip
+    const pts = dyeSel.pts, ox = dyeSel.ox, oy = dyeSel.oy, S = cam.S, W = cvXZ.width, hv = cam.halfV();
+    const z0 = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio, path = new Path2D();
+    let drawn = 0;
+    for (let i = 0; i < pts.length && drawn < DYE_MAX_DRAWN; i += 4) {
+      const x = pts[i] + ox, y = pts[i + 1] + oy, z = pts[i + 2], v = cam.v(x, y);
+      if (v < -hv || v > hv || z < F.zc[0] || z > F.zc[1]) continue;
+      const sx = W / 2 + cam.u(x, y) * S;
+      if (sx < 0 || sx > W) continue;
+      path.rect(sx - 0.6, z0 - z * S - 0.6, 1.2, 1.2);
+      drawn++;
+    }
+    ctxXZ.fillStyle = '#ff4d4d';
+    if (drawn) ctxXZ.fill(path);
+  }
+  return note || `${dyeSel.n} dyes`;
+}
+// The 2D fallback's dyes: one path of squares and one fill per style slot.
+function drawDyes2D(F) {
+  if (!dyeSel) return '';
+  const cam = F.cam, Z = F.Z, kD = K['mt.dyes'], pts = dyeSel.pts, ox = dyeSel.ox, oy = dyeSel.oy, W = cam.W, H = cam.H;
+  const size = ((Z.layer[kD] && Z.layer[kD].size) || 1.2) * F.pxScale, half = size / 2, paths = new Map();
+  let drawn = 0, note = '';
+  for (let i = 0; i < pts.length; i += 4) {
+    const x = pts[i] + ox, y = pts[i + 1] + oy, z = pts[i + 2];
+    if (z < F.zc[0] || z > F.zc[1]) continue;
+    const [sx, sy] = cam.project(x, y, z);
     if (sx < 0 || sy < 0 || sx > W || sy > H) continue;
+    const ax = F.ax, o = IscScene.zoneSlot(Z, kD, ax[0] * cam.u(x, y) + ax[1] * cam.v(x, y) + ax[2] * z + ax[3]);
+    if (o < 0) continue;
     if (drawn >= DYE_MAX_DRAWN) { note = 'dye cap reached, some not drawn'; break; }
-    path.rect(sx - 0.6, sy - 0.6, 1.2, 1.2);
-    if (xz) pathXZ.rect(sx - 0.6, xz0 - s[i + 2] * S - 0.6, 1.2, 1.2);
+    let path = paths.get(o);
+    if (!path) paths.set(o, path = new Path2D());
+    path.rect(sx - half, sy - half, size, size);
     drawn++;
   }
-  if (drawn) { ctx.fill(path); if (xz) ctxXZ.fill(pathXZ); }
-  return note || `${drawn} dyes`;
+  ctx = ctxTop;
+  for (const [o, path] of paths) { ctx.fillStyle = slotCss(F, o, 1, [255, 77, 77]); ctx.fill(path); }
+  return note;
 }
-
 
 // ---- blink movie ---------------------------------------------------------------
 // "These fluorophore settings, a few frames of blinking here": the dyes under the
@@ -2704,13 +3059,23 @@ function saveMovieTiff(e) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
-// Outline of the movie's FOV on the map while the player is open.
+// The world rect a movie's pixels cover: SuperRes/WideField pixel i is centred at originX + i px (originX = x - W
+// px / 2), so their rect sits half a pixel below movie.rect; BrightField pixel i spans [originX + i px, + (i+1) px).
+function movieWorldRect(m) {
+  const pxm = /(?:^| )pixel-nm=([0-9.eE+-]+)/.exec(m.spec || ''), px = pxm ? +pxm[1] / 1000 : 0;
+  const half = /(^| )modality=2( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
+  return [x0 - half, y0 - half, x1 - half, y1 - half];
+}
+// Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
   if (!movie || document.getElementById('movie').style.display === 'none') return;
-  const [x0, y0, x1, y1] = movie.rect, [ax, ay] = project(x0, y0, 0), [bx, by] = project(x1, y1, 0);
+  const [x0, y0, x1, y1] = movieWorldRect(movie);
   ctx = ctxTop;
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, devicePixelRatio);
-  ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].forEach(([x, y], i) => { const [sx, sy] = project(x, y, 0); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+  ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
 for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm']) document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);

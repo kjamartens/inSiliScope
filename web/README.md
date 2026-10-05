@@ -1,6 +1,6 @@
 # Cell-field viewer
 
-Pan/zoom/tilt viewer for the infinite cell field. Open `index.html` directly in a browser -- no build
+Pan/zoom/tilt/turn viewer for the infinite cell field. Open `index.html` directly in a browser -- no build
 step, no server.
 
 The generator is the **insiliscope core** (`core/`, C++) compiled to WASM: `insiliscope_module.js` holds
@@ -23,6 +23,11 @@ Rebuild the module after a core change:
     source ~/emsdk/emsdk_env.sh
     cmake --preset wasm && cmake --build --preset wasm
     node tools/embed_web_module.mjs          # --check: fail if web/insiliscope_module.js is stale
+
+`scene/core.js` is the viewer's scene core (DOM-free, `tests/web/scene_core_check.mjs`): the camera (rotation about the
+view centre, tilt, pivot height), the structure/layer registry (`structure.rep` ids: geometry layers of every
+structure, data layers of structures with dyes), the themes and the packing of per-layer clip intervals into the
+shaders' tables.
 
 `prototype/` is the original JS prototype (`index.html` generator half + `microtubules.js`): the
 **reference implementation** the core is ported from and tested against (`tests/parity`,

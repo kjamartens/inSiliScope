@@ -41,6 +41,12 @@ Upcoming ideas:
   Speed (2026-10-02): [x] shared transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD,
   [x] quality levels re-tuned on measured accuracy (grid at lambda/4n), [x] cli/viewer keep world + scene across movies:
   256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
+- Issue 11, viewer z-slicing and layered animations (2026-10-05, viewer only): [x] phase 1: one camera with rotation
+  (`web/scene/core.js`), tilt to 90°, Z clip per fragment, detail budget (5 central cells), scope and look, structure /
+  layer registry, dyes on the GPU; [ ] phase 2: Animation tab (sequences of cycles and steps: camera moves, plane
+  sweeps with ahead / in-slab / behind layers), preview timeline, MP4 / WebM / GIF export (also for the movie player);
+  [ ] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [ ] phase 4: thresholded WF isosurface,
+  SMLM localizations (multi-plane acquisition, precision noise).
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
   envelope (generic obstacle interface), [x] ported to the core bit-exactly (ABI 9 nucleus rings, optical volume),

@@ -6,7 +6,8 @@
 // becomes self.ISC_ENGINE_URL = 'lab/engine.js', plus lab/lab_html.js (badge, reload on save). /web/lab/ is the
 // A/B page; /baseline/<path> serves <path> as of the git ref --base (A/B against main); /__lab/info is the checkout
 // (branch, commit, uncommitted files: lab.html's About line) and the baseline ref; /__lab/events is a
-// server-sent-event stream that fires on every save under web/prototype, web/lab, or of web/index.html / wf_gpu.js.
+// server-sent-event stream that fires on every save under web/prototype, web/lab, web/scene, web/anim, web/encode, or
+// of web/index.html / wf_gpu.js.
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -38,7 +39,7 @@ const notify = (dir, f) => {
     for (const c of clients) c.write(msg);
   }, 80);
 };
-for (const dir of ['web/prototype', 'web/lab']) fs.watch(path.join(ROOT, dir), { recursive: true }, (_, f) => notify(dir, f));
+for (const dir of ['web/prototype', 'web/lab', 'web/scene', 'web/anim', 'web/encode'].filter(d => fs.existsSync(path.join(ROOT, d)))) fs.watch(path.join(ROOT, dir), { recursive: true }, (_, f) => notify(dir, f));
 fs.watch(path.join(ROOT, 'web'), (_, f) => { if (f === 'index.html' || f === 'wf_gpu.js') notify('web', f); });
 
 const MODULE_TAG = '<script src="insiliscope_module.js"></script>';
