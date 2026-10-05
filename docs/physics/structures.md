@@ -79,13 +79,13 @@ Sites are **never materialised for a whole field**. A dye's identity is a hash o
 dimer)`; whether it is labelled, whether it ever activates and what it does are decided from hashes first, and 3D positions are
 only computed for dyes that will emit. The unit of generation is a *block*: 1 um of one microtubule.
 
-**Labelling populations.** One draw per site, \(u\):
-
-- \(u < f_{bleach}\): a **bleaching** dye (PALM/dSTORM-like, finite lifetime);
-- \(f_{bleach} \le u < f_{bleach} + f_{persist}\): a **persistent** site (DNA-PAINT-like: never bleaches, constant supply of binding events);
-- otherwise unlabelled.
-
-The bleaching set never depends on the persistent fraction. Defaults: 0% bleaching, 70% persistent.
+**Labelling.** Each structure carries one label (issue 16): a share of its sites (`density`, cli/viewer `mt-label-pct`,
+MM `SimType_CellFieldMicrotubuleLabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them
+(the same threshold as before, so a density equal to the old bleaching + persistent fractions gives the same dyes);
+a second, nested FLUOR draw keeps the dye's fluorescent fraction (none at fraction 1). What the dyes do depends on the
+label's mode (dSTORM, PALM, DNA-PAINT, WideField): [Photophysics](photophysics.md). Each dye also has an orientation
+(free, fixed or random, with a wobble cone; its own draws), not used by the renderer yet. Default: DNA-PAINT on 70% of
+the sites.
 
 ## Adding the missing structures
 

@@ -9,7 +9,7 @@ Upcoming ideas:
   (Spectra, LightPath, DyeLibrary + generated DyeLibraryData.inc, FluorescenceMovie: blinks per kernel group, mean-field and
   per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
   [x] cli/viewer module/block (ABI 10 in the viewer, sites stride 5, labels on sites jobs, the WebGPU mean-field path
-  per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [ ] adapter, [ ] checks + benchmarks, [ ] docs.
+  per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [x] adapter, [x] checks + benchmarks, [x] docs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

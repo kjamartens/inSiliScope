@@ -4,6 +4,26 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Labels, dyes and the light path (issue 16, 2026-10-05). Each structure (the microtubules for now) carries a
+  label: a dye of the new library (`data/dyes/`: FPbase spectra, literature kinetics, every value with a reference or
+  marked as an estimate) in a mode -- dSTORM (initial ON, intensity-scaled times), PALM (pre-converted state, 405 nm
+  and primed activation), DNA-PAINT (imager binding at k_on c, the free imager's flat background; depletion and
+  exclusion from cells ignored) or WideField (every dye at once, bleaching by its photon budget). Lasers, dichroic,
+  emission filter and camera QE curve (presets for both) set excitation, detected fraction and each state's PSF
+  wavelength; continuous populations render mean-field or per dye. Movies, stacks and live mode start 60 s after the
+  illumination. **Core ABI 10** (`isc_world_set_label`, events stride 10, `isc_continuous_in_window`, sites stride 5;
+  `isc_world_set_kinetics` and the `labelEfficiency`/`labelNonBleaching` params removed); webSMLM block abiVersion 10.
+  cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`, `mt-imager-nm`, `mt-orient*`, `dye1..3.source`, dye-field
+  overrides, `laser-*`, `light-preset`, `dichroic`, `em-filter`, `camera-preset`, `qe-curve`, `mean-field-*`;
+  removed `photons-per-sec`, `on-sec`, `off-sec`, `bleach-prob`, `photon-cv`, `wavelength-nm`, `milli-activation-rate`,
+  `labeling-pct-*`, `wf-excitation-*`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`; `modality` is
+  Fluorescence | BrightField. MM: new `SimType_CellFieldMicrotubule*`, `FluoParam_Microtubule_*`,
+  `FluoParam_Dye{1,2,3}_*`, `Optics_*` (new prefix; the illumination profile moved from `FluoParam_Illum*`),
+  `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`; removed `FluoParam_PhotonsPerSecond`, `OnLifetimeSec`,
+  `OffLifetimeSec`, `BlinkBleachProb`, `PhotonCV`, `FluoParam_WideField*`, `PSFParam_PsfEmissionWavelengthNm`,
+  `SimType_CellFieldLabelingPct*`, `MilliActivationRatePerDyePerSec`; live mode no longer keeps a world-anchored
+  bleach map (bleaching is a function of time, as in the JS). Default: DNA-PAINT ATTO 655, 70 % of the sites, 1.43 nM.
+  Hardware configurations that set the removed properties must be re-made.
 - MM adapter: the non-CellField patterns are gone (issue 16, 2026-10-05): `SimType_Pattern` and its Circle, Lines, Grid,
   Random, CustomPoints, Spiral, Star, Heart, ResolutionTarget, TiltedPlane, Uniform3D, Shell, NUP, Calibration9Spots and
   FilamentsRing values, with `SimType_CustomPointsFile`, `SimType_ResolutionSpacingsNm`, `General_EmitterDensityPerSec`,

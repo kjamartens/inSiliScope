@@ -7,7 +7,8 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
   are kept out until they are (nucleoli, lipid droplets, vesicles/granules, mitochondria, chromatin, membrane ruffles,
   actin; full list in `spec/BRIGHTFIELD.md`). Then: a GPU path, destination prefetch on stage moves, phase contrast and
   DIC (pupil/source changes on the same engine), a numeric check against waveorder in the weak-phase limit.
-- **Delineate dSTORM, PALM, DNA-PAINT and SPT** as explicit labelling/kinetics presets on top of the blink model.
+- **Labels**: SPT (the `motion` field is reserved), off-target labelling (reserved), dye orientation in the PSF
+  (orientations are drawn but not rendered), labels on more structures, imager depletion and its exclusion from cells.
 - **Excitation profile** as a first-class, modality-neutral `IlluminationPattern` beyond the square field (TIRF, light sheet).
 - **Widefield**: a defocus law for the optional Gaussian PSF (`WidefieldGaussianSigmaUm`), drift, and a check of the Direct3D 11
   path on more GPUs.

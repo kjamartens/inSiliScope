@@ -557,6 +557,39 @@ nucleus, microtubule volume fractions), never from added texture: a structure th
 appear in brightfield. Multislice + Abbe source sum, thin screen at the phase-weighted height, margin taper against
 wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 
+## Labels, dyes and the light path (2026-10-05, issue 16)
+
+- **Draws nest, so labelling is monotone.** A site is labelled iff its LABEL draw `u < density` -- the threshold the old
+  bleaching + persistent split used, so `density = e + p` reproduces the old dye set exactly. The fluorescent fraction
+  is a second draw (FLUOR) taken only for labelled dyes, and skipped at fraction 1, so a lower fraction removes dyes
+  from a fixed set instead of reshuffling it. Initial ON, aux (bleach budget / pre-state budget) and orientation have
+  their own channels: changing one never moves another.
+- **Schedules are windowed.** A blinking dye's schedule is generated only for the blinks of `[tLo, 2 tMax)` around the
+  query (a 70 % AF647 field is millions of dyes; whole lifetimes ran the JS out of memory). Determinism holds because
+  the schedule is still a pure function of the dye and the window bounds only decide which blinks are emitted; the
+  cover check (`horizon >= tMax && tLo <= t0`) lets a cached schedule answer a later query. DNA-PAINT keeps its 1 s
+  bins (any window is O(window)).
+- **Continuous populations are a separate query** (`continuousInWindow`), made per call and only for populations that
+  reach the per-dye path, so the dense case (mean field) never materialises per-dye windows.
+- **Mean field vs per dye is a cost switch, not a model switch.** Both give the same mean (the grid spans the FOV + the
+  2 um margin since issue 16 so the PSF tails match the per-dye path; checked within 1 % total, ~4 % per pixel at low
+  labelling); the per-dye path keeps shot noise per dye where it matters (sparse), the mean field keeps dense frames
+  affordable. The switch is per frame on the expected emitters (density in the focal slab, or the count in the z range).
+- **The per-dye running image** adds and removes unit splats only where windows start or end (a double accumulator,
+  float-rounded unit splats) instead of re-splatting every dye every frame; partial frames are added by overlap.
+- **The QE lives in the detected fraction**, so a dye's detected rate already holds QE(lambda) and the noise chain runs
+  at QE 1 (BrightField, which has no dye spectrum, uses the curve at the lamp wavelength). The flat background is
+  multiplied by the QE at the filter's centre.
+- **One PSF per effective wavelength, rounded to 2 nm**: two dye states closer than that share a kernel (the kernel memo
+  holds groups + 1), which keeps multi-state movies to a few kernels without a visible difference.
+- **dSTORM times scale with the excitation rate** relative to the measurement's (Dempsey et al. 2011), so photons per
+  blink and duty cycle stay as measured whatever the laser power; PALM activation is linear in the 405 nm intensity
+  (plus the primed term).
+- **Movies start at 60 s** (`start-sec`), past the dSTORM initial ON phase: the default movie shows the steady state
+  without the user knowing about initial ON. The windowed schedules make the late start free.
+- **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
+  illuminated chamber height. Documented as such rather than modelled half-way.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

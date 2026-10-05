@@ -49,6 +49,7 @@ nav:
   - Physics:
       - World model: physics/world-model.md
       - Structures: physics/structures.md
+      - Dyes and light path: physics/dyes-and-light-path.md
       - Photophysics: physics/photophysics.md
       - Optics and PSF: physics/optics.md
       - Camera and background: physics/camera.md

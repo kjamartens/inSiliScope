@@ -25,8 +25,9 @@ Notes:
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
   looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
-- Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
-  starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
+- **Microtubule label** picks the dye and its mode; a pick loads the dye's fields, the mode's labelling and its light
+  preset (lasers, dichroic, filter under **Light path**, with the spectra plotted). **Dye slots** hold edited copies of
+  library dyes. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
   "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current

@@ -37,7 +37,8 @@ that finishes them.
   fetched by `tools/fetch_fpbase.mjs`, built into `web/prototype/scope/dye_library_data.js` by `tools/gen_dye_library.mjs
   [--check]`) and `references.json` (the project reference list, rendered to `docs/references.md`).
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
-- `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
+- `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
+  JS number for number), plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
   coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
@@ -162,16 +163,34 @@ to 0.5 um on `Initialize()`, so a fresh session starts 0.5 um above the coversli
 FilamentsRing; `SimType_Pattern`, `General_EmitterDensityPerSec`, `General_LabelingEfficiencyPct`,
 `SimType_Structure*`/`Nup*`, the background haze/cell contrast/out-of-focus population) and
 `Simulation/SMLMPatterns.*`/`SMLMStructures.*`/`EmitterModel` are gone; the cell field is the only specimen.
-The blink rate comes from the dyes -- `SimType_CellFieldLabelingPctBleaching` (bleaching dyes, % of
-lattice sites, default 0), `SimType_CellFieldLabelingPctNonBleaching` (persistent, DNA-PAINT-like sites:
-constant supply, default 70) and `SimType_CellFieldMilliActivationRatePerDyePerSec` (rate at which each
-dark dye switches on, in 1e-3/s, 0-1000, default 1.43: 1e-3 activations per lattice site per second,
-the former 10% bleaching x 0.01/s at t = 0; core ABI 3, now 4; spec/PORT.md 6.3). The cli/viewer movie options
-are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
-(the viewer passes its own labelling sliders).
 
-**WideField modality (2026-09-27):** `General_ImagingModality` = `SuperRes` (default, the blinks) |
-`WideField`: every labelled dye of the `CellField` pattern emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
+**Labels, dyes and light path (issue 16, phase 3, 2026-10-05; spec/PORT.md 16):** each structure (the microtubules
+for now) carries one label: a dye of the library (`data/dyes/`, generated into `Simulation/DyeLibraryData.inc` by
+`tools/gen_dye_library.mjs`) in a mode -- dSTORM, PALM (optional pre state), DNA-PAINT (persistent sites, imager
+binding at kon x c, free-imager background) or WideField (every dye emits, bleaching by its photon budget). Core ABI 10:
+`isc_world_set_label` (16-double `ISC_LABEL_*` vector), events stride 10 (+ structure, state, aux),
+`isc_continuous_in_window` (pre states, dSTORM initial ON, WideField windows), sites stride 5. The light path
+(`Simulation/Spectra.*`, `LightPath.*`: lasers, dichroic, emission filter, camera QE curve) gives each dye state's
+excitation rate, detected fraction and PSF wavelength (kernels at 2 nm steps). Engine: `FluorescenceMovie`
+(`Simulation/ScopeMovie.*`): blink groups per (structure, state) splatted with their own kernel, continuous
+populations mean-field (`WidefieldScene`) or per dye (`General_MeanField*` switch), the imager offset, then noise at QE
+1 (the QE is in the light path). The old properties (`FluoParam_PhotonsPerSecond`, `OnLifetimeSec`,
+`BlinkBleachProb`, `OffLifetimeSec`, `PhotonCV`, `PSFParam_PsfEmissionWavelengthNm`, `SimType_CellFieldLabelingPct*`,
+`MilliActivationRatePerDyePerSec`, `FluoParam_WideField*`) and the WideField modality are gone: `General_ImagingModality`
+is `Fluorescence` | `BrightField`, WideField is a label mode. MM (`ScopeProperties.cpp`, the viewer's behaviour): the
+`SimType_CellFieldMicrotubule{Dye,LabelMode,LabelingPct,ImagerNm,Orientation,...}` properties, the dye fields
+`FluoParam_Microtubule_*` and slots `FluoParam_Dye{1,2,3}_*` (a dye pick or mode change reloads them from the library,
+sets the labelling to the mode's suggestion and applies the mode's light preset), `Optics_*` (lasers, geometry,
+chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the stack's
+and live mode's clock start at 60 s (cli/viewer `start-sec`, default 60). Live mode renders one `FluorescenceMovie`
+frame per tick at the stage pose and clock: bleaching is a function of time (as in the JS), there is no
+world-anchored bleach map any more. The GPU splat is used when a movie is one blink group without continuous
+populations; mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
+`mt-imager-nm`, `mt-orient*`, `dye<N>.source`, dye overrides `mt-dye.<field>`/`dye<N>.<field>`, `laser-<nm>`,
+`light-preset` (`auto` = the dye mode's), `dichroic`, `em-filter`, `qe-curve`, `camera-preset`, `mean-field-*`.
+
+**WideField modality (2026-09-27; since issue 16 the WideField label mode, rendered mean-field by the same
+`WidefieldScene`; the photophysics properties and the live bleach map below are history):** every labelled dye emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
 default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
 `isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
 cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
@@ -337,26 +356,34 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
   `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
   `PhotonsPerPxPerSec`/`Aberrations`, and the
-  `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`.
+  `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`, and the
+  mean-field switch `MeanFieldDensityPerUm2`/`SlabNm`/`MaxEmitters`.
 - `SimType_` -- webSMLM's "Simulation type" group: the specimen, i.e. the
-  `CellField*` properties of the cell field, including
+  `CellField*` properties of the cell field (with the microtubules' label:
+  `CellFieldMicrotubuleDye`/`LabelMode`/`LabelingPct`/`ImagerNm`/
+  `Orientation`/`OrientPolarDeg`/`OrientAzimuthDeg`/`WobbleConeDeg`/`Motion`), including
   the specimen's BrightField optics `CellFieldIndexMedium`/`IndexCytoplasm`/
   `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`, the nucleus shape
   `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
   `NucThickIrreg`/`NucAsym`/`NucWidestMin`/`Max` and the microtubule ends
   `CellFieldMicrotubuleStartDecayPct`/`EndDecayPct`/`DirKappa`), plus
   `DriftNmPerSec` and `RandomSeed`.
-- `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
-  `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
-  `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its
-  illumination profile in this group too), and the WideField photophysics
-  `WideFieldExcitationPhotonsPerUm2PerSec`, `WideFieldQuantumYield`,
-  `WideFieldPhotonBudget`, `WideFieldExtinctionCoeff`, and the read-only
-  `WideFieldHalfTimeSec` derived from them (-1 = never bleaches).
+- `FluoParam_` -- webSMLM's "Fluorophore parameters" group: the dyes. The
+  microtubules' dye fields `Microtubule_FluorescentPct`/`Qy`/`ExtCoeff`/
+  `OnSec`/`OffSec`/`BleachProb`/`InitialOnSec`/`Activation405`/
+  `SpontActivation`/`Primed`/`PrePhotonBudget`/`Kon`/`PhotonCv`/
+  `PhotonBudget`, the read-only `Microtubule_DetectedPct`/
+  `EffectiveEmissionNm`/`PhotonsPerSecOn`, and the slots `Dye{1,2,3}_Source`
+  plus the same fields (`Dye1_OnSec`, ...).
+- `Optics_` -- the light path (issue 16; no webSMLM group): `Laser{405,488,
+  561,640,730}KWcm2`, `LaserCustomNm`/`KWcm2`, `IlluminationGeometry`,
+  `ChamberHeightUm`, `Dichroic`/`DichroicEdgeNm`, `EmissionFilter`/
+  `EmissionLoNm`/`HiNm`, `Preset`, and the illumination profile
+  `IlluminationProfile`/`IlluminationFwhmPct` (were `FluoParam_Illum*`).
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
   offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
-  std-pct properties, and the EMCCD ones (`CameraType`, `EmGain`,
-  `CicElectrons`, `BitDepth`).
+  std-pct properties, the EMCCD ones (`CameraType`, `EmGain`,
+  `CicElectrons`, `BitDepth`), `CameraPreset` and `QeCurve`.
 - `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
   (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
   `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including
@@ -375,7 +402,7 @@ own property surface. Allowed-*value* strings (e.g. `Circle`, `Gaussian`,
 group prefix.
 
 **Keep this convention up to date**: any new MM property added to this
-device must get one of the six prefixes above (pick by which webSMLM UI
+device must get one of the seven prefixes above (pick by which webSMLM UI
 section the analogous concept would sit in, or `General_` if there's no
 webSMLM analog at all) -- update this section's bullet list and, if the
 mapping to webSMLM's groups shifts, `PARITY.md` in the websmlm repo too.

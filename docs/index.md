@@ -37,10 +37,14 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   [World model](physics/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
-- **Three modalities.** *SuperRes*: blinking dyes with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default, double
-  helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *WideField*: every labelled dye at once, 3D PSF convolution, photobleaching in physical units.
-  *BrightField* (exploration): transmitted light through the cells' refractive index, partially coherent multislice wave
-  optics, a speed/precision quality setting.
+- **Dyes and a light path.** Each structure's label is a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
+  mEGFP, ...) in a mode: *dSTORM*, *PALM* (with the pre-converted state), *DNA-PAINT* (with the free imager's background)
+  or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's
+  QE curve decide what is excited and detected, and at which wavelength (the PSF follows). See
+  [Dyes and light path](physics/dyes-and-light-path.md).
+- **Two modalities.** *Fluorescence* with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default,
+  double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *BrightField* (exploration): transmitted light through
+  the cells' refractive index, partially coherent multislice wave optics, a speed/precision quality setting.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
 - **Built to extend.** Targets, photophysics and modalities are separate layers; see [Extending](extending.md).
 

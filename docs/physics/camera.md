@@ -28,7 +28,14 @@ rebuilds.
 A flat background (`Background_BackgroundPhotonsPerSec`) multiplies an illumination field and fades with time:
 
 - **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`Background_DecaySec`);
-- **illumination**: a peak-normalised profile (`FluoParam_IllumProfile`, `IllumFwhmPct`) multiplies background and emitters.
+- **illumination** (Micro-Manager adapter): a peak-normalised profile (`Optics_IlluminationProfile`,
+  `Optics_IlluminationFwhmPct`) multiplies background and blinks.
+
+For fluorescence the background is in detected photons: it is multiplied by the camera's QE at the emission filter's
+centre, and the noise chain runs at QE 1 because each dye's detected fraction already holds the QE curve
+([Dyes and light path](dyes-and-light-path.md)). Camera presets (`camera-preset`, MM `CamParam_CameraPreset`:
+Kinetix22, iXon Ultra 897, Custom) set the noise values and the QE curve (`qe-curve`, MM `CamParam_QeCurve`;
+`Custom` = flat at `qe`). BrightField uses the curve's QE at its lamp wavelength.
 
 Out-of-focus light needs no extra population: every dye of the cell field sits at its own depth and is drawn with the
 defocused PSF.
