@@ -202,11 +202,12 @@ export class World {
   }
 
   // The block's blinks (sorted by tOn, ties in dye order), or its persistent (DNA-PAINT) dyes, by its structure's
-  // label mode. Blinks are scheduled up to a horizon (twice the end of the latest query): a dye's blinks before it do
-  // not depend on it (dyeSchedule tMax), so a longer query re-schedules the block with a later horizon and gets the
-  // same earlier blinks. Millions of bleaching dyes cost their blinks in the movie's span, not their lifetimes.
-  schedule(b, tMax = Infinity) {
-    if (b.scheduled && b.horizon >= tMax) return;
+  // label mode. Only the blinks of a time window are kept: those ending after its start tLo and starting before its
+  // horizon (twice the query end). A dye's blinks in the window do not depend on it (dyeSchedule is sequential from
+  // t = 0 and stops at the horizon), so a query outside the window re-schedules the block and gets the same blinks.
+  // Millions of bleaching dyes cost their blinks in the movie's span, not their lifetimes.
+  schedule(b, tLo = -Infinity, tMax = Infinity) {
+    if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo) return;
     const horizon = 2 * tMax;
     b.events = []; b.persistent = []; b.maxOn = 0;
     const label = this.labels[b.structure], s = b.structure;
@@ -217,6 +218,7 @@ export class World {
         blinks.length = 0;
         labelSchedule(b.h1, b.k[i], b.nIdx[i], label, blinks, null, horizon);
         for (const bl of blinks) {
+          if (!(bl.tOff > tLo)) continue;
           b.events.push({ x: b.x[i], y: b.y[i], z: b.z[i], tOn: bl.tOn, tOff: bl.tOff, brightness: bl.brightness, id: b.id[i],
             structure: s, state: 0, aux: 0 });
           b.maxOn = Math.max(b.maxOn, bl.tOff - bl.tOn);
@@ -226,21 +228,7 @@ export class World {
     }
     b.scheduled = true;
     b.horizon = horizon;
-  }
-
-  // The block's continuous windows (dye order), made on first use (only the per-dye path needs them).
-  continuousOf(b) {
-    if (b.continuous) return b.continuous;
-    const label = this.labels[b.structure], s = b.structure, out = [], cont = [];
-    if (label.mode !== 'DNA-PAINT')
-      for (let i = 0; i < b.n; i++) {
-        cont.length = 0;
-        labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont);
-        for (const w of cont)
-          out.push({ x: b.x[i], y: b.y[i], z: b.z[i], tOn: w.tOn, tOff: w.tOff, brightness: 1, id: b.id[i], structure: s,
-            state: w.state, aux: w.aux });
-      }
-    return (b.continuous = out);
+    b.tLo = tLo;
   }
 
   // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um: [{x, y, z, id, cx, cy, mtIndex, k, n, theta,
@@ -258,7 +246,7 @@ export class World {
     const inWin = d => d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1;
     this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
       if (!b.n || b.zHi < zMin || b.zLo >= zMax) return;
-      this.schedule(b, t1);
+      this.schedule(b, t0, t1);
       const kin = this.labels[b.structure].kinetics;
       const persist = kin.activationRatePerSec > 0 && t1 > t0;
       const maxOn = PERSIST_ON_CAP * kin.onSec;
@@ -282,13 +270,20 @@ export class World {
     return out;
   }
 
-  // The continuous windows of the dyes in the window (every time; dye order per block): [{x, y, z, tOn, tOff,
-  // brightness 1, id, structure, state (EVENT_STATE PRE / INITIAL_ON / ALWAYS_ON), aux}].
-  continuousInWindow(x0, y0, x1, y1, zMin, zMax) {
-    const out = [];
-    this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
-      if (!b.n || b.zHi < zMin || b.zLo >= zMax) return;
-      for (const e of this.continuousOf(b)) if (e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1) out.push(e);
+  // The continuous windows of the dyes in the window that end after tMin (dye order per block; made on each call,
+  // not cached: only the per-dye path asks): [{x, y, z, tOn, tOff, brightness 1, id, structure, state (EVENT_STATE PRE /
+  // INITIAL_ON / ALWAYS_ON), aux}]. ALWAYS_ON windows end at infinity here (their bleach is the imaging side's).
+  continuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin = -Infinity) {
+    const out = [], cont = [];
+    this.forEachDye(x0, y0, x1, y1, zMin, zMax, (b, i) => {
+      const label = this.labels[b.structure];
+      if (label.mode === 'DNA-PAINT') return;
+      cont.length = 0;
+      labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont);
+      for (const w of cont)
+        if (w.tOff > tMin)
+          out.push({ x: b.x[i], y: b.y[i], z: b.z[i], tOn: w.tOn, tOff: w.tOff, brightness: 1, id: b.id[i], structure: b.structure,
+            state: w.state, aux: w.aux });
     });
     return out;
   }

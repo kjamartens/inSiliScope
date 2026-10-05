@@ -37,7 +37,7 @@ export const SCOPE_OPTIONS = [
   ['size', 128, 'FOV width = height, pixels'],
   ['frames', 1000, 'number of frames'],
   ['exposure-ms', 50, 'frame duration, ms (simulated time per frame)'],
-  ['start-sec', 0, 'simulated time of the first frame, s'],
+  ['start-sec', 60, 'simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)'],
   ['pixel-nm', 100, 'pixel size, nm'],
   ['background-per-sec', 0, 'Background_BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)'],
   ['na', 1.4, 'PSFParam_PsfNa: numerical aperture'],
@@ -360,7 +360,7 @@ export function cellFieldEvents(world, q) {
 }
 export function cellFieldContinuous(world, q) {
   const [zMin, zMax] = zWindow(q);
-  return world.continuousInWindow(q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax).map(e => toFov(q, e));
+  return world.continuousInWindow(q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec).map(e => toFov(q, e));
 }
 
 // RenderScopeMovie: onFrame(f, Uint16Array, photons) for every frame (return false to stop). Returns info.

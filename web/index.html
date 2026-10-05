@@ -455,7 +455,7 @@ const UI_GROUPS = [
     num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the playback frame time, at least 30 ms).', 1, null, 1, 50),
     num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus.', null, null, 0.1, 0.5),
     num('mv_z-range-um', 'Dye z range', 'µm', 'Only dyes within ± range/2 of the focal plane are rendered (0 = all). <code>SimType_CellFieldZRangeUm</code>', 0, null, 0.5, 7, { adv }),
-    num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame.', 0, null, 1, 0, { adv }),
+    num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame after the illumination starts. 60 s: past the dSTORM initial ON phase and the first PALM conversions, near steady state; 0 shows the start (every dSTORM dye ON).', 0, null, 1, 60, { adv }),
     button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
   ] },
 

@@ -79,6 +79,11 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
   a dye pick or mode change loads the dye mode's preset. MM: `Optics_Preset` (writes the Optics_ properties; auto on a
   dye/mode change, like the density).
 
+- **Start at 60 s** (user, the general default): `start-sec` 60 (cli/viewer; MM: the stack's and live mode's clock
+  start there too), past the dSTORM initial ON. Schedules keep only blinks of the window [query start, 2 x query end]
+  (`schedule(b, tLo, tMax)`); `continuousInWindow(..., tMin)` makes only the windows still open at the movie start (no
+  cache). Cost: negligible (0.7 s vs 2.2 s at t = 0 for AF647 at 128 px in JS).
+
 ## The port must
 
 1. **Core** (`core/src/dyes.*`, `world.*`, `params.*`, `capi.cpp`, `insiliscope.h`): the label model above,
