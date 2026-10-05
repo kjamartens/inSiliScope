@@ -274,6 +274,10 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
     _widefield_checks(core, cam, xy, x0, y0)
+    # The z sequences and BrightField at the FOV with the most structure (the
+    # history check left the stage at a spot of its own).
+    core.setXYPosition(xy, x0, y0)
+    _wait_idle(core, xy)
     _zsequence_checks(core, cam, z, "Fluorescence")
     _brightfield_checks(core, cam, z)
     # BrightField: foci through and around the cells (above them the
@@ -458,6 +462,10 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
     core.setProperty(cam, "General_ImagingModality", modality)
     if modality == "Fluorescence":
         _label(core, cam, **GFP)
+        # A budget that never runs out: the stacks above have bleached this
+        # spot's mEGFP (its clock is minutes), and the references and the
+        # sequence must see the same dyes.
+        core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "1e12")
     core.setExposure(20.0)
     # Positions inside the cells (the dome top is the nucleus top + 0.5 um, at most ~5 um since 2026-10-05: 3.5 and
     # 5 um held few dyes and their frames matched at random). A thin slab makes every position a distinct dye layer (the Gaussian

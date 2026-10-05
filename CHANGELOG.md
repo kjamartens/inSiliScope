@@ -4,6 +4,10 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- MM adapter, live mode (2026-10-05): a snap takes a frame started after the snap was called, and a sequence
+  acquisition frames started after it began. The first snap after a stage move used to return a frame already in
+  flight at the old pose, and consecutive snaps could share illumination clocks (the history looked as if an idle
+  live loop bleached).
 - **seed** Presets and the EMCCD gain (2026-10-05). DNA-PAINT light presets and the default 640 nm line 1 kW/cm² (were
   0.16); PALM suggested labelling 25 % (was 5 %) and its 405 nm line 0.002 kW/cm² (was 0.01). The camera gain (e⁻/ADU) is
   per photoelectron for sCMOS and EMCCD alike; the iXon preset's is 0.0066 (about 150 ADU per photoelectron) in dSTORM,

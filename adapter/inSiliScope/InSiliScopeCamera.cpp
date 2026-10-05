@@ -784,6 +784,9 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    // the camera steps it one position per frame.
    const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
    liveSeqEpoch_ = sim::GetSharedStageState().BeginSequenceAcquisition();
+   // Live: the first frame is one started from here (the pose, focus and
+   // settings of this moment).
+   liveSeqStartTicks_ = sim::SharedStageState::Clock::now().time_since_epoch().count();
    liveSeqSkipStale_ = zseq.armed;
    liveSeqCapture_ = true;
    if (acqMode_ == SMLM_MODE_LIVE)

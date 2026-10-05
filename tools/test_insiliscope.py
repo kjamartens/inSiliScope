@@ -263,12 +263,16 @@ print(f"Labelling OK: mean signal {sig_full:.3f} -> {sig_low:.3f} ADU from 70% t
 # ActualFrameIntervalMs stays close to Exposure.
 core.setProperty("SMLMCam", "General_AcqMode", "Live")
 core.setProperty("SMLMCam", "Exposure", "20")
-core.startSequenceAcquisition(20, 20.0, True)
-while core.isSequenceRunning():
-    time.sleep(0.02)
-time.sleep(0.2)
-while core.getRemainingImageCount() > 0:
-    core.popNextImage()
+# Twice: the first frames after switching to Live build the world and
+# prefetch the dyes around the FOV (seconds, timing-dependent); the interval
+# (a mean over the last 10 frames) is measured on the warm loop.
+for _ in range(2):
+    core.startSequenceAcquisition(20, 20.0, True)
+    while core.isSequenceRunning():
+        time.sleep(0.02)
+    time.sleep(0.2)
+    while core.getRemainingImageCount() > 0:
+        core.popNextImage()
 interval_ms = core.getProperty("SMLMCam", "General_ActualFrameIntervalMs")
 assert float(interval_ms) < 100.0, (
     f"expected ActualFrameIntervalMs to stay within ~5x of the 20ms Exposure live, got {interval_ms}ms"

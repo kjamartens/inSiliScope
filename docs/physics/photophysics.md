@@ -62,7 +62,9 @@ by the illumination profile (in 1/16 steps). Every dye's schedule is read at its
 photoconverts and uses up dyes only where the light fell: bleach a region, move away and come back, and it is still
 dim; a place never lit starts at clock 0 (dSTORM dyes in their initial ON phase, PALM proteins unconverted, WideField
 dyes unbleached). A live frame lights the FOV and its 2 um margin for one exposure when it is taken (a snap or a
-sequence acquisition; an idle live loop lights nothing); a stack reads the history and adds its whole duration (so a
+sequence acquisition; an idle live loop lights nothing). A snap takes a frame started after it was called, a sequence
+acquisition frames started after it began, so the first frame after a stage move shows the new place and each snap's
+clocks include the light of the one before; a stack reads the history and adds its whole duration (so a
 stack is reproducible only on a freshly loaded device). Clocks are in seconds at the light path's current settings: a
 later change of laser power does not rescale the time already accumulated. The history is cleared when the world
 changes (seed, cell parameters). Precision: tile 0.25 um; the lit rect is the stage pose's, drift is not followed.

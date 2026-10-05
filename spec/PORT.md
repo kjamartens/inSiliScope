@@ -772,7 +772,8 @@ mean-field path per scene, `movie-progress` from the WASM); webSMLM block abiVer
 **Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties): a `ScopeSpec` from the properties drives
 `FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
 light per 0.25 um tile, a place never lit at 0; a live frame adds its exposure over its lit rect (FOV + 2.5 um) when it
-is taken, a stack its duration after rendering; live renders one movie frame per tick; `General_ImagingModality` =
+is taken (a snap takes a frame started after the call, a sequence only frames started after it began: never one in
+flight at the old pose or clocks), a stack its duration after rendering; live renders one movie frame per tick; `General_ImagingModality` =
 Fluorescence | BrightField.
 
 Checks: ctest `world_checks` (label determinism, FLUOR nesting, modes, cache under load, threads), `widefield`

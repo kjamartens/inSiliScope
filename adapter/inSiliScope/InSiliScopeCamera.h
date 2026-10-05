@@ -30,6 +30,7 @@
 #include "Simulation/IlluminationHistory.h"
 #include "Simulation/ScopeMovie.h"
 #include "Simulation/SMLMSimulation.h"
+#include "Simulation/SharedStageState.h"
 #include "Simulation/SMLMZernike.h"
 #include "Simulation/WidefieldGpuD3D11.h"
 #include "Simulation/WidefieldRender.h"
@@ -363,8 +364,9 @@ private:
    void SyncHistoryWorld();
    void ApplyLightPreset(const std::string& id);
    void ApplyCameraPreset(int index);
+   // The camera preset's gain for the current imaging (sim::CameraPresetGain).
    void ApplyModeGain();
-   double EmGain() const;   // the camera preset's pre-amplifier sensitivity / the gain   // the camera preset's gain for the current imaging (sim::CameraPresetGain)
+   double EmGain() const;   // the camera preset's pre-amplifier sensitivity / the gain
    void NotifyOption(const std::string& option);
    double OptionValue(const std::string& option) const;
    void SetOptionValue(const std::string& option, double v);
@@ -511,6 +513,14 @@ private:
    // (under frontFrameLock_): a frame taken after a property change skips
    // frames that were already being rendered with the old settings.
    long liveFrameConfig_ = 0;
+   // When the frame in the front buffer started (under frontFrameLock_): its
+   // stage pose, focus, settings and illumination clocks were read after this.
+   // A snap takes only a frame started after the snap was called, a sequence
+   // acquisition only frames started after it began (liveSeqStartTicks_,
+   // steady_clock ticks): a frame already in flight shows the pose and clocks
+   // from before a stage move or the previous snap's light.
+   sim::SharedStageState::Clock::time_point liveFrameStart_{};
+   std::atomic<long long> liveSeqStartTicks_{0};
    // The light a live frame shone (under frontFrameLock_): its lit rect, its
    // exposure and the profile's dose weight. It goes into the illumination
    // history only when the frame is taken (a snap or a sequence acquisition:

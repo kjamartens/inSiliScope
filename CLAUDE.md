@@ -186,7 +186,8 @@ clocks come from the **illumination history** (`Simulation/IlluminationHistory.*
 per 0.25 um tile of the world, weighted by the illumination profile (1/16 steps); a place never lit is at clock 0
 (fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). A live frame adds its exposure to its lit
 rect (FOV + 2 um margin + 0.5 um) when it is taken (a snap or a sequence acquisition: an idle live loop bleaches
-nothing); a stack reads the history and then adds its frames (stacks are reproducible only on a fresh device). The
+nothing; a snap takes only a frame started after the call, a sequence only frames started after it began,
+`liveFrameStart_`); a stack reads the history and then adds its frames (stacks are reproducible only on a fresh device). The
 engine reads each dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a
 mean-field population weighted per grid column in one convolution). Reset on a world change (seed, cell parameters).
 cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`

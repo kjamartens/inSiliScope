@@ -13,6 +13,7 @@
 
 #include "InSiliScopeCamera.h"
 #include "Simulation/CacheDir.h"
+#include "Simulation/DyeLibrary.h"
 #include "Simulation/SharedStageState.h"
 #include "insiliscope/insiliscope.h"
 
@@ -830,11 +831,12 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics).
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
-                         long config, LitFrame& lit) {
+                         long config, LitFrame& lit, sim::SharedStageState::Clock::time_point started) {
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
          std::swap(liveFrameLit_, lit);
+         liveFrameStart_ = started;
          liveFrameW_ = fw;
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
@@ -861,6 +863,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
 
    while (liveProducerRun_.load())
    {
+      // Everything this frame reads (settings, pose, focus, clocks) is read
+      // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
+      const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
       MM::MMTime tickStart = GetCurrentMMTime();
       sim::SimulationParams params = SnapshotParams();
       unsigned w = FullWidth();
@@ -1064,7 +1069,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
       }
       cellFieldTimeSec += params.frameDurationSec;
-      publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, lit);
+      publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, lit,
+              frameStart);
       ++liveFrameCounter_;
 
       double exposureMs = GetExposure();
@@ -1136,8 +1142,16 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       long seq;
       LitFrame lit;
       // Only frames rendered with the settings of this moment: one already in
-      // flight when a property changed would show the old settings.
+      // flight when a property changed would show the old settings. A snap
+      // takes a frame started after it was called (one in flight would show
+      // the stage pose before a move, and its illumination clocks would miss
+      // the previous snap's light); a sequence acquisition, frames started
+      // after it began.
       const long configNow = liveConfigVersion_.load(std::memory_order_relaxed);
+      const sim::SharedStageState::Clock::time_point takeAfter =
+         interruptible ? sim::SharedStageState::Clock::time_point(
+                            sim::SharedStageState::Clock::duration(liveSeqStartTicks_.load()))
+                       : sim::SharedStageState::Clock::now();
       for (;;)
       {
          {
@@ -1146,7 +1160,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             // A z-sequence acquisition takes only frames rendered after it
             // started (their focus is the sequence's).
             const bool stale = (interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load()) ||
-                               liveFrameConfig_ < configNow;
+                               liveFrameConfig_ < configNow || liveFrameStart_ < takeAfter;
             if (stale && seq != lastConsumedLiveFrameSeq_)
                lastConsumedLiveFrameSeq_ = seq;
             else if (seq != lastConsumedLiveFrameSeq_)

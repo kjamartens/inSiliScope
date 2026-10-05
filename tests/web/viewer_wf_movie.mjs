@@ -33,9 +33,15 @@ for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', process.env.ISC_CHROM
   await page.goto(`http://localhost:${port}/index.html${query}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   await page.evaluate(() => {
-    const dye = document.getElementById('mv_mt-dye');
-    dye.value = String([...dye.options].findIndex(o => o.textContent.includes('mEGFP') || o.value === 'mEGFP'));
-    dye.dispatchEvent(new Event('change'));
+    // The mode first: the Dye select lists only the dyes with data for it (DNA-PAINT by default).
+    const pick = (id, test) => {
+      const sel = document.getElementById(id);
+      sel.value = [...sel.options].find(test).value;
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    pick('mv_mt-mode', o => o.textContent === 'WideField');
+    pick('mv_mt-dye', o => o.textContent.includes('mEGFP'));
     document.getElementById('mv_size').value = '32';
     document.getElementById('mv_frames').value = '3';
   });
