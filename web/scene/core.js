@@ -131,7 +131,7 @@ const THEMES = {
     'mt.lines': { color: [80, 255, 225], opacity: 1 },
     'mt.dyes': { color: [255, 90, 210], opacity: 1, size: 1.4 },
     'mt.wfSlice': { color: [255, 225, 110], opacity: 1, blend: 'add', gamma: 0.6 },
-    'mt.srFrames': { color: [255, 220, 120], opacity: 1, blend: 'add', gamma: 1 },
+    'mt.srFrames': { color: [255, 220, 120], opacity: 1, blend: 'alpha', gamma: 1 },   // always opaque (the renderer)
     'cell.bfSlice': { color: [235, 235, 235], opacity: 0.85, blend: 'alpha', gamma: 1 },
     'mt.wfIso': { color: [255, 90, 200], opacity: 0.5, level: 1 },
     'mt.locs': { color: [255, 200, 80], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },

@@ -415,6 +415,19 @@ function stepCard(cy, st, si) {
     col.addEventListener('input', () => { L.style = Object.assign({}, L.style || {}, { color: col.value }); changed(false, false); });
     col.addEventListener('change', () => changed(false));
     const cc = td(); cc.append(col); tr.append(cc);
+    const RL = R.layers.get(id);
+    if (RL && RL.prim === 'slice' && RL.rep !== 'srFrames') {   // image slices: black see-through (added as light) or opaque; SMLM frames are always opaque
+      const bl = h('input', { type: 'checkbox', title: 'Black see-through: the image adds as light, so its black shows what lies behind. Off: the slice is opaque.' });
+      bl.checked = base.blend === 'add';
+      bl.addEventListener('change', () => { L.style = Object.assign({}, L.style || {}, { blend: bl.checked ? 'add' : 'alpha' }); changed(false); });
+      cc.append(bl);
+    }
+    if (RL && RL.rep === 'wfSlice') {   // the z-stack summed over its planes instead of the plane at the sweep
+      const sz = h('input', { type: 'checkbox', title: 'Sum over z: the WideField z-stack summed over all its planes instead of the plane at the sweep.' });
+      sz.checked = !!base.sumZ;
+      sz.addEventListener('change', () => { L.style = Object.assign({}, L.style || {}, { sumZ: sz.checked }); changed(false); });
+      cc.append(sz);
+    }
     const op = numIn(() => (L.style && L.style.opacity !== undefined ? L.style.opacity : ''), v => { L.style = Object.assign({}, L.style || {}); if (v === null) delete L.style.opacity; else L.style.opacity = Math.max(0, Math.min(1, v)); }, { min: 0, max: 1, step: 0.05, placeholder: (+base.opacity).toFixed(2) });
     const co = td(); co.append(op); tr.append(co);
     const cx = td(); cx.append(btn('✕', 'Remove', () => { st.layers.splice(li, 1); changed(true); }, 'mini')); tr.append(cx);

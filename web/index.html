@@ -231,15 +231,17 @@ const UI_GROUPS = [
 
   { id: 'data', title: 'Data layers', items: [
     check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
+    check('wfSumZ', 'Sum over z', 'Show the WideField z-stack summed over all its planes (divided by their number, so the display range still fits) instead of the plane at the slice height; still drawn at the slice height.', false),
     check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
-    check('showWfIso', 'WideField thresholded', 'The WideField z-stack smoothed and thresholded (Otsu\'s level x the level below) as a surface: what a segmentation of the stack would give.', false),
-    range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the WideField surface relative to Otsu\'s.', 0.3, 3, 0.05, 1, { fmt: fx(2) }),
+    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false),
+    range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2) }),
     check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false),
     check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv }),
     num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv }),
     num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized.', 50, 2000, 50, 400, { adv }),
     check('showBfSlice', 'BrightField slice', 'The simulated BrightField image of the cell (all structures) with focus at the slice height. Needs its z-stack: Acquire.', false),
     range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown).', 0, 15, 0.05, 1.5, { fmt: fx(2) }),
+    check('opaqueSlices', 'Opaque slices', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false),
     check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true),
     num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv }),
     num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack.', 0.1, 2, 0.1, 0.4, { adv }),
@@ -770,7 +772,7 @@ const els = {};
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
- 'showWfSlice', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
+ 'showWfSlice', 'wfSumZ', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'captureNm']
   .forEach(id => { els[id] = document.getElementById(id); });
 
@@ -864,9 +866,10 @@ function stateFromUI() {
   if (els.showNucleus.checked) layers['nucleus.surface'] = {};
   if (els.showMt.checked) layers['mt.lines'] = {};
   if (els.showDyes.checked) layers['mt.dyes'] = {};
-  if (els.showWfSlice.checked) layers['mt.wfSlice'] = {};
+  const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
+  if (els.showWfSlice.checked) layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, els.wfSumZ.checked ? { sumZ: true } : {}) };
   if (els.showSrFrames.checked) layers['mt.srFrames'] = {};
-  if (els.showBfSlice.checked) layers['cell.bfSlice'] = {};
+  if (els.showBfSlice.checked) layers['cell.bfSlice'] = Object.assign({}, sliceStyle);
   if (els.showWfIso.checked) layers['mt.wfIso'] = { style: { level: +els.isoLevel.value } };
   if (els.showLocs.checked) layers['mt.locs'] = { style: { spread: els.locSpread.checked } };
   return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
@@ -1308,13 +1311,17 @@ const GL_SLICE_FS = `#version 300 es
 precision highp float; precision highp usampler3D;
 in vec3 v_s; out vec4 o;
 uniform usampler3D u_tex; uniform sampler2D u_mask;
-uniform int u_nz, u_F, u_frame, u_sr, u_useMask; uniform float u_lo, u_hi, u_gamma, u_add; uniform vec4 u_col;
+uniform int u_nz, u_F, u_frame, u_sr, u_sum, u_useMask; uniform float u_lo, u_hi, u_gamma, u_add; uniform vec4 u_col;
 void main() {
   ivec3 sz = textureSize(u_tex, 0);
   int i = int(floor(v_s.x)), j = int(floor(v_s.y));
   if (i < 0 || j < 0 || i >= sz.x || j >= sz.y) discard;
   float kz = clamp(v_s.z, 0.0, float(u_nz - 1)), v;
-  if (u_sr == 1) {
+  if (u_sum == 1) {   // the sum over z, divided by the number of planes (the planes' display range still fits)
+    v = 0.0;
+    for (int k = 0; k < 1024; k++) { if (k >= u_nz) break; v += float(texelFetch(u_tex, ivec3(i, j, k * u_F), 0).r); }
+    v /= float(u_nz);
+  } else if (u_sr == 1) {
     int k = int(floor(kz + 0.5));
     v = float(texelFetch(u_tex, ivec3(i, j, k * u_F + u_frame), 0).r);
   } else {
@@ -1431,7 +1438,7 @@ function initGl() {
   const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
   const b = link(GL_MT_VS, glFsKind(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW']);
   const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
-  const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr',
+  const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr', 'u_sum',
     'u_useMask', 'u_lo', 'u_hi', 'u_gamma', 'u_add', 'u_col']);
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
@@ -3630,7 +3637,9 @@ function drawDataGl(F, target) {
     poly.forEach((p, i) => { v[3 * i] = p[0] - stack.texOx; v[3 * i + 1] = p[1] - stack.texOy; v[3 * i + 2] = p[2]; });
     const style = IscScene.resolveStyle(st.theme, id, st.layers[id].style, (st.layers[id].intervals || [])[0] && st.layers[id].intervals[0].style);
     const alpha = (st.layers[id].alpha === undefined ? 1 : st.layers[id].alpha) * (style.opacity === undefined ? 1 : style.opacity);
-    const col = style.color || [255, 255, 255], add = style.blend === 'add', cam = F.cam, u = glSliceU;
+    // 'add': the image adds as light, black is see-through; SMLM frames are always drawn opaque (mostly black, they
+    // would hide nothing and their blinks would float in the cell)
+    const col = style.color || [255, 255, 255], add = style.blend === 'add' && kind !== 'sr', cam = F.cam, u = glSliceU;
     gl.useProgram(glSliceProg);
     gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
     gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
@@ -3638,6 +3647,7 @@ function drawDataGl(F, target) {
     gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
     gl.uniform1f(u.u_px, stack.px); gl.uniform1f(u.u_z0, z0); gl.uniform1f(u.u_dz, stack.zs.length > 1 ? stack.zs[1] - stack.zs[0] : 1);
     gl.uniform1i(u.u_nz, stack.zs.length); gl.uniform1i(u.u_F, stack.F); gl.uniform1i(u.u_sr, kind === 'sr' ? 1 : 0);
+    gl.uniform1i(u.u_sum, kind === 'wf' && style.sumZ ? 1 : 0);
     gl.uniform1i(u.u_frame, ((st.srFrame || 0) % stack.F + stack.F) % stack.F);
     gl.uniform1f(u.u_lo, stack.lo); gl.uniform1f(u.u_hi, stack.hi); gl.uniform1f(u.u_gamma, style.gamma || 1);
     gl.uniform4f(u.u_col, col[0] / 255, col[1] / 255, col[2] / 255, alpha); gl.uniform1f(u.u_add, add ? 1 : 0);
@@ -3690,8 +3700,8 @@ function dataStatus(layerIds, key, over) {
 }
 
 // ---- thresholded WideField surface and SMLM localizations (issue 11) -------------------------------------------
-// The surface: the WideField z-stack smoothed, thresholded at Otsu's level (x the layer's level) and meshed (surface
-// nets, web/scene/compute.js) in a compute worker; drawn as its front layer (a depth pass, then the colour where the
+// The surface: the cell segmented from the WideField z-stack (in-focus texture at Otsu's level x the layer's level,
+// filled from the coverslip; web/scene/compute.js) and meshed (surface nets) in a compute worker; drawn as its front layer (a depth pass, then the colour where the
 // depth is the surface's own), lit from the camera, clipped like every layer. The localizations: the blinks of the
 // cell's dyes (the core's events) seen by a multi-plane SMLM acquisition -- focus positions every SMLM step, N frames
 // each, a blink localized per frame within the capture range of the focus, displaced by its precision (photons,

@@ -3,7 +3,7 @@
 // web/scene/compute.js in Node: surface nets on a sphere (area and enclosed volume within 2 %, closed: every edge
 // shared by two triangles, normals outward), the same for a sphere cut by the grid's border (padding closes it),
 // Otsu on a bimodal mix, and the localization emulation (capture range, frame windows, the empirical spread = the
-// precision model, determinism).
+// precision model, determinism), and the WideField segmentation (in-focus texture, filled from the coverslip).
 //   node tests/web/scene_compute_check.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -90,5 +90,27 @@ function meshStats(m) {
   const ratio = Math.sqrt(spread / model);
   check(Math.abs(ratio - 1) < 0.05, `localizations: empirical x spread / model sigma = ${ratio.toFixed(3)}`);
   check(Buffer.from(a.locs.buffer).equals(Buffer.from(b.locs.buffer)), 'localizations: deterministic');
+}
+// 5. the WideField segmentation: a cell 1.6 um tall in its centre, 0.4 um at its rim; its in-focus planes are textured
+// (spots, fading over 0.3 um above the cell), out of focus only their mean shows (as for a thin, wide cell), so the
+// intensity alone is the same in every plane. The heights follow the texture; nothing outside the footprint.
+{
+  const W = 96, nz = 16, px = 0.1, dz = 0.2, P = W * W, data = new Uint16Array(P * nz), mask = new Uint8Array(P);
+  let r = 3;
+  const rnd = () => ((r = (Math.imul(r, 1103515245) + 12345) >>> 0) / 4294967296);
+  const spots = new Float32Array(P);
+  for (let p = 0; p < P; p++) spots[p] = rnd() < 0.08 ? 60 : 0;
+  const tex = C.blurXY(spots, W, W, 1, 1);
+  let mean = 0; for (let p = 0; p < P; p++) mean += tex[p] / P;
+  const R = p => Math.hypot((p % W + 0.5) * px - 4.8, (Math.floor(p / W) + 0.5) * px - 4.8), hTrue = p => (R(p) < 2 ? 1.6 : 0.4);
+  for (let p = 0; p < P; p++) mask[p] = R(p) < 4.2 ? 1 : 0;
+  for (let k = 0; k < nz; k++) for (let p = 0; p < P; p++)
+    data[k * P + p] = 120 + mean + (mask[p] ? (tex[p] - mean) * Math.exp(-0.5 * (Math.max(0, k * dz - hTrue(p)) / 0.3) ** 2) : 0);
+  const m = C.isoFromStack({ data, w: W, h: W, nz, F: 1, px, dz, z0: 0, lo: 100, level: 1, mask, down: 1 });
+  const med = sel => { const v = []; for (let p = 0; p < P; p++) if (sel(p)) v.push(m.heights[p]); v.sort((a, b) => a - b); return v[v.length >> 1]; };
+  const hi = med(p => R(p) < 1), lo = med(p => R(p) > 3 && R(p) < 3.8);
+  let out = 0; for (let p = 0; p < P; p++) if (!mask[p] && m.heights[p] > 0) out++;
+  check(Math.abs(hi - 1.6) < 0.35 && Math.abs(lo - 0.4) < 0.3 && out === 0 && m.idx.length > 0,
+    `WideField segmentation: centre ${hi.toFixed(2)} um (1.6), rim ${lo.toFixed(2)} um (0.4), ${out} columns outside the footprint`);
 }
 process.exit(fail ? 1 : 0);

@@ -82,9 +82,14 @@ Notes:
   cell and settings; **Acquire** makes them now) with the movie settings
   (Microscope, Acquisition): one movie per focus position over the cell's box, WideField and BrightField planes the
   mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
-  acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM planes start with fresh dyes
-  by default (advanced: sequential, where bleaching dyes run out in later planes). **WideField thresholded** is the
-  WideField z-stack smoothed and thresholded (Otsu's level x the Threshold slider) as a surface. **SMLM localizations**
+  acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM frames are drawn opaque;
+  in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slices" is
+  on (in an animation step: the checkbox next to a slice's colour). "Sum over z" shows the WideField z-stack summed over
+  its planes instead of the plane at the slice height (in an animation step: the second checkbox of a WideField slice). SMLM planes start with fresh dyes
+  by default (advanced: sequential, where bleaching dyes run out in later planes). **WideField thresholded** segments the
+  cell from the WideField z-stack: out-of-focus light of a thin cell is nearly the same in every plane, so it thresholds
+  the in-focus fine structure of each plane (Otsu's level x the Threshold slider) and fills each column from the
+  coverslip up to its highest in-focus point. **SMLM localizations**
   emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
   within the capture range (±400 nm) is localized per frame, displaced by its precision (from its photons and defocus);
   drawn coloured by height, or as Gaussian spots of their precision.

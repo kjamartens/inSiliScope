@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// Data-layer computations (issue 11), DOM-free: the thresholded WideField surface (Gaussian smoothing, Otsu's
-// threshold, naive surface nets: one vertex per cell the surface crosses, at the mean of its edge crossings, and one
+// Data-layer computations (issue 11), DOM-free: the segmented WideField surface (in-focus texture, Otsu's
+// threshold, filled from the coverslip; naive surface nets: one vertex per cell the surface crosses, at the mean of its edge crossings, and one
 // quad per crossed grid edge -- no case tables, closed wherever the field is closed) and the SMLM localizations of a
 // multi-plane acquisition (each blink, per camera frame it overlaps, within the capture range of a focus position:
 // a localization displaced by its precision, which follows the photons and the defocus). Pure functions of their
@@ -110,28 +110,96 @@ function surfaceNets(f, nx, ny, nz, level, sx, sy, sz, z0, pad, maxTris) {
   }
   return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), idx: new Uint32Array(idx), truncated: false };
 }
-// The thresholded surface of a stack: o = {data (Uint16, nz planes of w*h, frames per plane F: plane p = frame p*F),
-// w, h, nz, F, px, dz, z0, lo, hi, level (x Otsu), mask (Uint8 w*h or null), down (xy step, 1 or 2)}.
-function isoFromStack(o) {
-  const down = Math.max(1, o.down || 1), nx = Math.floor(o.w / down), ny = Math.floor(o.h / down), nz = o.nz, P = o.w * o.h;
-  const f = new Float32Array(nx * ny * nz), valid = new Uint8Array(nx * ny);
-  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    let s = 0, n = 0;
-    for (let b = 0; b < down; b++) for (let a = 0; a < down; a++) {
-      const x = i * down + a, y = j * down + b;
-      if (o.mask && !o.mask[y * o.w + x]) continue;
-      s += o.data[k * o.F * P + y * o.w + x]; n++;
-    }
-    f[i + nx * (j + ny * k)] = n ? s / n - o.lo : 0;
-    if (n) valid[i + nx * j] = 1;
+// Separable Gaussian in x and y only, per plane (sigma in voxels); edges clamped. Wide kernels (sigma > 3) are three
+// box filters of the same variance (running sums), narrow ones the direct sum over 3 sigma.
+function blurXY(f, nx, ny, nz, sig) {
+  const bh = sig > 3 ? Math.max(1, Math.round((Math.sqrt(4 * sig * sig + 1) - 1) / 2)) : 0, bw = 2 * bh + 1;
+  const r = bh ? 3 * bh + 1 : Math.max(1, Math.ceil(3 * sig)), K = new Float64Array(2 * r + 1);
+  let s = 0;
+  for (let i = -r; i <= r; i++) s += K[i + r] = Math.exp(-i * i / (2 * sig * sig));
+  for (let i = 0; i < K.length; i++) K[i] /= s;
+  const P = nx * ny, out = new Float32Array(f.length), n = Math.max(nx, ny), L = n + 2 * r;
+  const line = new Float32Array(L + 1), box = new Float32Array(L), res = new Float32Array(n);
+  // one line (length len, stride st from base) of src into dst, through a clamped copy padded by r: line[i + r] = src[i]
+  const pass = (src, dst, base, len, st) => {
+    for (let i = -r; i < len + r; i++) line[i + r] = src[base + Math.min(len - 1, Math.max(0, i)) * st];
+    if (bh) {
+      for (let it = 1; it <= 3; it++) {   // after pass it, line is valid on [it bh, len + 2r - it bh)
+        const lo = it * bh, hi = len + 2 * r - lo;
+        let acc = 0;
+        for (let q = lo - bh; q <= lo + bh; q++) acc += line[q];
+        for (let j = lo; j < hi; j++) { box[j] = acc / bw; acc += line[j + bh + 1] - line[j - bh]; }
+        for (let j = lo; j < hi; j++) line[j] = box[j];
+      }
+      for (let i = 0; i < len; i++) res[i] = line[i + r];
+    } else for (let i = 0; i < len; i++) { let v = 0; for (let q = 0; q <= 2 * r; q++) v += K[q] * line[i + q]; res[i] = v; }
+    for (let i = 0; i < len; i++) dst[base + i * st] = res[i];
+  };
+  // y lines run along rows of a transposed copy (contiguous)
+  const t = new Float32Array(P), u = new Float32Array(P);
+  for (let k = 0; k < nz; k++) {
+    const o = k * P, src = f.subarray(o, o + P), dst = out.subarray(o, o + P);
+    for (let j = 0; j < ny; j++) pass(src, t, j * nx, nx, 1);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) u[i * ny + j] = t[j * nx + i];
+    for (let i = 0; i < nx; i++) pass(u, t, i * ny, ny, 1);
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) dst[j * nx + i] = t[i * ny + j];
   }
-  const g = smooth3d(f, nx, ny, nz);
+  return out;
+}
+// The segmented cell of a WideField stack. The out-of-focus light of a thin, wide cell is nearly the same in every
+// plane (a uniform sheet stays uniform out of focus), so a threshold on the intensity finds a column through the whole
+// stack. What changes with focus is the fine structure: each plane is band-passed (DoG 0.2 / 0.5 um), its local
+// energy (0.6 um) divided by the local mean (shot noise grows with it) is the in-focus texture; Otsu's level over the
+// cell's voxels (x 0.65 x the layer's level) marks the in-focus voxels. An adherent cell is filled from the coverslip:
+// per column the height is the highest in-focus voxel (interpolated) less 0.2 um (half the in-focus depth), smoothed
+// over 1 um within the footprint, and the surface is height - z = 0.
+// o = {data (Uint16, nz planes of w*h, frames per plane F: plane p = frame p*F), w, h, nz, F, px, dz, z0, lo, level
+// (x the default), mask (Uint8 w*h or null), down (xy step, 1 or 2)}. Returns the surface nets mesh plus heights (um
+// above z0, 0 = no cell) on its nx x ny grid.
+function isoFromStack(o) {
+  const down = Math.max(1, o.down || 1), W = o.w, H = o.h, nz = o.nz, P = W * H, px = o.px;
+  const f = new Float32Array(P * nz);
+  let sum = 0, cnt = 0;
+  for (let k = 0; k < nz; k++) for (let p = 0; p < P; p++) {
+    const v = Math.max(0, o.data[k * o.F * P + p] - o.lo);
+    f[k * P + p] = v;
+    if (!o.mask || o.mask[p]) { sum += v; cnt++; }
+  }
+  const a = blurXY(f, W, H, nz, 0.2 / px), b = blurXY(f, W, H, nz, 0.5 / px);
+  for (let i = 0; i < f.length; i++) { const d = a[i] - b[i]; a[i] = d * d; }
+  const e = blurXY(a, W, H, nz, 0.6 / px), m = blurXY(f, W, H, nz, 0.6 / px), floor = Math.max(1, 0.2 * sum / Math.max(1, cnt));
   let hi = 0;
-  for (let i = 0; i < g.length; i++) if (g[i] > hi) hi = g[i];
-  const th = otsu(g, 0, hi, valid, nx * ny) * (o.level || 1);   // the threshold from the cell's voxels only
-  const m = surfaceNets(g, nx, ny, nz, th, o.px * down, o.px * down, o.dz, o.z0, -1, o.maxTris || 3e6);
-  m.threshold = th + o.lo; m.down = down;
-  return m;
+  for (let i = 0; i < e.length; i++) { e[i] /= m[i] + floor; if ((!o.mask || o.mask[i % P]) && e[i] > hi) hi = e[i]; }
+  const th = otsu(e, 0, hi, o.mask, P) * 0.65 * (o.level || 1);
+  // the height of each column (um above z0), then smoothed within the footprint (normalized convolution)
+  const hgt = new Float32Array(P), wgt = new Float32Array(P);
+  for (let p = 0; p < P; p++) {
+    if (o.mask && !o.mask[p]) continue;
+    wgt[p] = 1;
+    let top = -1;
+    for (let k = nz - 1; k >= 0; k--) if (e[k * P + p] > th) { top = k; break; }
+    if (top < 0) continue;
+    const v0 = e[top * P + p], v1 = top + 1 < nz ? e[(top + 1) * P + p] : 0;
+    hgt[p] = Math.max(0, (top + Math.min(1, (v0 - th) / Math.max(1e-12, v0 - v1))) * o.dz - 0.2);
+  }
+  const hs = blurXY(hgt, W, H, 1, 1 / px), ws = blurXY(wgt, W, H, 1, 1 / px);
+  // the field height - z on the (downsampled) grid; outside the footprint and where the cell is thinner than half a
+  // plane it is below the level
+  const nx = Math.floor(W / down), ny = Math.floor(H / down), g = new Float32Array(nx * ny * nz), heights = new Float32Array(nx * ny);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    let s = 0, n = 0;
+    for (let bb = 0; bb < down; bb++) for (let aa = 0; aa < down; aa++) {
+      const p = (j * down + bb) * W + i * down + aa;
+      if (o.mask && !o.mask[p]) continue;
+      s += hs[p] / Math.max(1e-6, ws[p]); n++;
+    }
+    const h = n ? s / n : 0, ok = n && h > o.dz / 2;
+    heights[i + nx * j] = ok ? h : 0;
+    for (let k = 0; k < nz; k++) g[i + nx * (j + ny * k)] = ok ? h - k * o.dz : -1;
+  }
+  const mesh = surfaceNets(g, nx, ny, nz, 0, px * down, px * down, o.dz, o.z0, -1, o.maxTris || 3e6);
+  mesh.threshold = th; mesh.down = down; mesh.heights = heights; mesh.nx = nx; mesh.ny = ny;
+  return mesh;
 }
 
 // ---- localizations ----
@@ -175,6 +243,6 @@ function emulateLocs(ev, o) {
   }
   return { locs: new Float32Array(out), n: out.length / 8, capped: false };
 }
-return { smooth3d, otsu, surfaceNets, isoFromStack, pcg4d, emulateLocs };
+return { smooth3d, blurXY, otsu, surfaceNets, isoFromStack, pcg4d, emulateLocs };
 }
 globalThis.IscCompute = iscComputeDefine();
