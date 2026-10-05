@@ -5,17 +5,26 @@ usage: bench.py --cli build/native/cli/insiliscope_cli --version v0.1.0 --out be
 """
 import argparse, json, os, platform, subprocess, tempfile, time
 
+# Since issue 16 (phase 3) the defaults are DNA-PAINT ATTO 655 with its imager background; the sr-* names stay for
+# the history (their output and cost changed then). wf-*: the default dye in WideField mode (mean field).
+WF = {"mt-mode": 3}
 CONFIGS = [
     ("sr-128px-200f", {"size": 128, "frames": 200}),
     ("sr-256px-200f", {"size": 256, "frames": 200}),
-    ("sr-dense-128px", {"size": 128, "frames": 200, "milli-activation-rate": 14.3}),
-    ("wf-128px-20f", {"size": 128, "frames": 20, "modality": "WideField"}),
-    ("wf-256px-20f", {"size": 256, "frames": 20, "modality": "WideField"}),
-    ("wf-128px-x2", {"size": 128, "frames": 20, "modality": "WideField", "wf-upscale": 2}),
+    ("sr-dense-128px", {"size": 128, "frames": 200, "mt-imager-nm": 14.3}),
+    ("wf-128px-20f", {"size": 128, "frames": 20, **WF}),
+    ("wf-256px-20f", {"size": 256, "frames": 20, **WF}),
+    ("wf-128px-x2", {"size": 128, "frames": 20, **WF, "wf-upscale": 2}),
     ("sr-128px-1000f", {"size": 128, "frames": 1000}),
-    ("wf-256px-200f", {"size": 256, "frames": 200, "modality": "WideField"}),
+    ("wf-256px-200f", {"size": 256, "frames": 200, **WF}),
     ("bf-256px-q3", {"size": 256, "frames": 3, "modality": "BrightField", "bf-quality": 3}),
     ("bf-256px-q4", {"size": 256, "frames": 3, "modality": "BrightField", "bf-quality": 4}),
+    # Issue 16: each mode, the PALM green state, two groups (blinks + the dSTORM initial-ON mean field).
+    ("dstorm-128px-1000f", {"size": 128, "frames": 1000, "mt-dye": "AF647", "light-preset": "auto"}),
+    ("palm-green-128px-1000f", {"size": 128, "frames": 1000, "mt-dye": "mEos3.2", "light-preset": "auto",
+                                "laser-488": 0.5}),
+    ("paint-bg-128px-1000f", {"size": 128, "frames": 1000, "mt-imager-nm": 5}),
+    ("wf-2group-256px-200f", {"size": 256, "frames": 200, "mt-dye": "AF647", "light-preset": "auto", "start-sec": 0}),
 ]
 
 

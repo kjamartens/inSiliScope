@@ -1,6 +1,15 @@
 Upcoming ideas:
 
-- cleanup of code of mm of non-cell-field i think
+- [x] cleanup of code of mm of non-cell-field (2026-10-05, issue 16 phase 0: the legacy patterns are gone).
+- Issue 16, structures / dyes / light path (branch `claude/multi-dye`; plan in the PR): [x] phase 0 legacy MM patterns
+  removed (CellField output unchanged), [x] phase 1 dye/filter/camera data from FPbase + generators (data/dyes, data/references.json), [x] phase 2 JS
+  model (labels per structure, modes dSTORM/PALM/DNA-PAINT/WideField, light path, camera presets, mean-field switch,
+  imager background, orientation/off-target/SPT plumbing) under `PORT_PENDING.md`, phase 3 port: [x] core ABI 10
+  (labels, windowed schedules, continuous windows; `tests/parity/label_parity.mjs` bit-exact with the JS), [x] engine
+  (Spectra, LightPath, DyeLibrary + generated DyeLibraryData.inc, FluorescenceMovie: blinks per kernel group, mean-field and
+  per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
+  [x] cli/viewer module/block (ABI 10 in the viewer, sites stride 5, labels on sites jobs, the WebGPU mean-field path
+  per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [x] adapter, [x] checks + benchmarks, [x] docs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

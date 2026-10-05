@@ -106,7 +106,7 @@ check(/, 3 detailed\)/.test(det), 'detail budget: 3 detailed cells in a zoomed-o
 const eq = await page.evaluate(async () => {
   const over = { wfAverage: 1, stepUm: 0.5 };
   const [st] = await iscScene.acquireData(['mt.wfSlice'], __key, over, null);
-  const p = 2, spec = movieSpec(Object.assign({}, st.ov, { z: st.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p, 'start-sec': 0 }));
+  const p = 2, spec = movieSpec(Object.assign({}, st.ov, { z: st.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p, 'start-sec': st.t0 }));
   const d = await movieJob(spec), P = st.size * st.size;
   let n = 0; for (let i = 0; i < P; i++) if (d.frames[i] !== st.data[p * P + i]) n++;
   return { n, P, nz: st.zs.length };

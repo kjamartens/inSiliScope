@@ -12,12 +12,19 @@ Open the [viewer](try-viewer.md). Nothing to install.
    `RichardsWolf` and `GibsonLanni` models (the DLL embeds PSFGenerator and starts, or attaches to, a JVM).
 2. In the Hardware Configuration Wizard add the module **inSiliScope** and the devices `Camera`, `XYStage` and `ZStage`.
    The devices share state in-process; no linking is needed.
-3. Choose the `CellField` pattern (the default), take a snapshot, move the XY stage, change the Z stage. The Z stage
+3. Take a snapshot of the cell field (the only specimen), move the XY stage, change the Z stage. The Z stage
    position is the focal plane height above the coverslip (0 = coverslip in focus; it starts at 0.5 um).
-4. Switch `General_ImagingModality` between `SuperRes`, `WideField` and `BrightField` (transmitted light;
+4. Pick the microtubules' label: `SimType_CellFieldMicrotubuleDye` (AF647, mEos3.2, ATTO655, mEGFP, ...) and
+   `SimType_CellFieldMicrotubuleLabelMode` (the dye's default, dSTORM, PALM, DNA-PAINT or WideField). A dye or mode
+   change loads the dye's fields (`FluoParam_Microtubule_*`), the mode's labelling and its light preset
+   (`Optics_Preset`: lasers, dichroic, emission filter). The default is DNA-PAINT with an ATTO 655 imager.
+5. Switch `General_ImagingModality` between `Fluorescence` and `BrightField` (transmitted light;
    `General_BrightFieldQuality` 1-4 trades speed for precision).
 
-Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `CamParam_`, `PSFParam_`, `Background_`.
+Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`,
+`Background_`. The camera remembers how long each place of the sample has been lit (snaps, live
+acquisition and stacks add to it): imaging bleaches and uses up dyes where you imaged, a place never lit starts fresh
+(dSTORM dyes first in their bright initial ON phase).
 
 The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not
 wait for it. `General_DiskCache` (default `Cells`) keeps the packed cell positions of the field in a small per-user file

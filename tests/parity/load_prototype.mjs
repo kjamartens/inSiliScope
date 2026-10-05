@@ -78,11 +78,15 @@ export function inputDefaults(inputs) {
 
 // The viewer (web/index.html) builds its panel from a schema (<script id="uiSchema">, data only): its defaults in
 // the inputDefaults() shape, {id: number | boolean | string}. Pairs give id+'Min'/id+'Max'; presets are UI-only.
-export function schemaDefaults(html) {
+// The schema reads the dye library (self.ISC_DYE_DATA, web/dye_library.js; issue 16): dyeLibraryText is that
+// script's text (Node), else the page's own global.
+export function schemaDefaults(html, dyeLibraryText = null) {
   const open = '<script id="uiSchema">', s = html.indexOf(open);
   if (s < 0) throw new Error('uiSchema script not found');
   const src = html.slice(s + open.length, html.indexOf('</script>', s));
-  const { UI_GROUPS } = new Function(src + '\nreturn { UI_GROUPS };')();
+  const self = { ISC_DYE_DATA: globalThis.ISC_DYE_DATA };
+  if (dyeLibraryText) new Function('self', dyeLibraryText)(self);
+  const { UI_GROUPS } = new Function('self', src + '\nreturn { UI_GROUPS };')(self);
   const d = {};
   const walk = e => {
     if (e.kind === 'pair') { d[e.id + 'Min'] = +e.vMin; d[e.id + 'Max'] = +e.vMax; }

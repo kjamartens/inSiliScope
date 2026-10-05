@@ -4,6 +4,58 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- MM adapter, live mode (2026-10-05): a snap takes a frame started after the snap was called, and a sequence
+  acquisition frames started after it began. The first snap after a stage move used to return a frame already in
+  flight at the old pose, and consecutive snaps could share illumination clocks (the history looked as if an idle
+  live loop bleached).
+- **seed** Presets and the EMCCD gain (2026-10-05). DNA-PAINT light presets and the default 640 nm line 1 kW/cm² (were
+  0.16); PALM suggested labelling 25 % (was 5 %) and its 405 nm line 0.002 kW/cm² (was 0.01). The camera gain (e⁻/ADU) is
+  per photoelectron for sCMOS and EMCCD alike; the iXon preset's is 0.0066 (about 150 ADU per photoelectron) in dSTORM,
+  PALM and DNA-PAINT and 0.1 in WideField and BrightField (a mode or modality change re-applies it), and the EM gain is
+  no longer a value of its own: the preset's pre-amplifier sensitivity (1 e⁻/ADU) / the gain. MM `CamParam_EmGain` is
+  read-only; cli `em-gain` defaults to -1 (derived). The per-pixel gain floor is 4 % of the nominal gain (0.01 at the
+  default 0.25: unchanged).
+- Viewer (2026-10-05): **Preview PSF** (Objective & PSF, Advanced): the movie's own kernel (new WASM export
+  `isc_scope_psf_preview`) oversampled beside its camera-pixel splat, with a z slider, in the movie player. The label
+  group reads labelled sites, mode, dye (the dyes with data for that mode), orientation; Illumination and Light path
+  are one group whose preset is also the modality (BrightField, lasers off); the chamber height sits under Geometry;
+  the QE curve select became a "use" checkbox beside the flat QE; the EM gain input is a derived readout; About is its
+  own section.
+
+- **seed** Labels, dyes and the light path (issue 16, 2026-10-05). Each structure (the microtubules for now) carries a
+  label: a dye of the new library (`data/dyes/`: FPbase spectra, literature kinetics, every value with a reference or
+  marked as an estimate) in a mode -- dSTORM (initial ON, intensity-scaled times), PALM (pre-converted state, 405 nm
+  and primed activation), DNA-PAINT (imager binding at k_on c, the free imager's flat background; depletion and
+  exclusion from cells ignored) or WideField (every dye at once, bleaching by its photon budget). Lasers, dichroic,
+  emission filter and camera QE curve (presets for both) set excitation, detected fraction and each state's PSF
+  wavelength; continuous populations render mean-field or per dye. cli/viewer movies start 60 s after the
+  illumination (`start-sec`); the MM adapter keeps a world-anchored illumination history instead (below). **Core ABI 10** (`isc_world_set_label`, events stride 10, `isc_continuous_in_window`, sites stride 5;
+  `isc_world_set_kinetics` and the `labelEfficiency`/`labelNonBleaching` params removed); webSMLM block abiVersion 10.
+  cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`, `mt-imager-nm`, `mt-orient*`, `dye1..3.source`, dye-field
+  overrides, `laser-*`, `light-preset`, `dichroic`, `em-filter`, `camera-preset`, `qe-curve`, `mean-field-*`;
+  removed `photons-per-sec`, `on-sec`, `off-sec`, `bleach-prob`, `photon-cv`, `wavelength-nm`, `milli-activation-rate`,
+  `labeling-pct-*`, `wf-excitation-*`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`; `modality` is
+  Fluorescence | BrightField. MM: new `SimType_CellFieldMicrotubule*`, `FluoParam_Microtubule_*`,
+  `FluoParam_Dye{1,2,3}_*`, `Optics_*` (new prefix; the illumination profile moved from `FluoParam_Illum*`),
+  `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`; removed `FluoParam_PhotonsPerSecond`, `OnLifetimeSec`,
+  `OffLifetimeSec`, `BlinkBleachProb`, `PhotonCV`, `FluoParam_WideField*`, `PSFParam_PsfEmissionWavelengthNm`,
+  `SimType_CellFieldLabelingPct*`, `MilliActivationRatePerDyePerSec`; the live WideField bleach map is replaced by
+  an illumination history for every label mode: each place's dyes run on the seconds of light it has had (snaps,
+  sequence acquisitions and stacks add to it; a place never lit starts fresh at 0), so imaging bleaches and uses up
+  dyes only where you imaged; stacks continue it (reproducible on a fresh device). Default: DNA-PAINT ATTO 655, 70 % of the sites, 1.43 nM.
+  Hardware configurations that set the removed properties must be re-made.
+- MM adapter: the non-CellField patterns are gone (issue 16, 2026-10-05): `SimType_Pattern` and its Circle, Lines, Grid,
+  Random, CustomPoints, Spiral, Star, Heart, ResolutionTarget, TiltedPlane, Uniform3D, Shell, NUP, Calibration9Spots and
+  FilamentsRing values, with `SimType_CustomPointsFile`, `SimType_ResolutionSpacingsNm`, `General_EmitterDensityPerSec`,
+  `General_LabelingEfficiencyPct`, `SimType_Structure*`, `SimType_Nup*` and the background extras that needed them
+  (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`, `OutOfFocusRatio`, `OutOfFocusDepthNm`). The cell field is
+  the only specimen; its output is unchanged (`adapter_pixel_hash` CellField configs identical). Hardware
+  configurations that set the removed properties must be re-made.
+- Viewer data layers and animations on labels, dyes and the light path (issue 11 on issue 16, 2026-10-05): WideField
+  stacks image the microtubule dye in WideField mode and SMLM stacks in its blinking mode (with that mode's light preset);
+  BrightField is modality 1. Localizations take the label's kinetics (the `events` job carries whole labels,
+  `isc_world_set_label`) and the dye's detected photons through the light path; SMLM planes start at the movie's start
+  time. Dyes take the dye's emission colour in every look; the animation legend names the dye and mode.
 - Viewer animations, more presets and automatic data (issue 11, 2026-10-05): 18 more cycle presets (27) and 5 more
   ready-made sequences; checked data layers and animations that need data acquire it by themselves.
 - Viewer thresholded surface and localizations (issue 11, phase 4, 2026-10-05): the WideField z-stack smoothed,

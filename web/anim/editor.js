@@ -119,7 +119,8 @@ function drawOverlays(g, r, f, cam, k, ov) {
       const e = f.layers[id], iv = (e.intervals || []).find(x => x && x.style);
       const L = R.layers.get(id), st = IscScene.resolveStyle(f.theme, id, seq.styles[id], e.style, iv && iv.style), c = st.color || [200, 200, 200];
       g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; g.fillRect(r.x + fs, y - fs * 0.7, fs * 0.7, fs * 0.7);
-      g.fillStyle = 'rgba(223,230,238,0.9)'; g.fillText(L ? L.label : id, r.x + fs * 2, y);
+      g.fillStyle = 'rgba(223,230,238,0.9)'; const note = S.layerNote ? S.layerNote(id) : '';
+      g.fillText((L ? L.label : id) + (note ? ' (' + note + ')' : ''), r.x + fs * 2, y);
       y -= fs * 1.2;
     }
   }

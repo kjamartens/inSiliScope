@@ -1,0 +1,139 @@
+{
+  "about": "Project reference list (BSD-3-Clause). Every sourced value in data/ carries one of these keys; docs/references.md is generated from this file by tools/gen_dye_library.mjs. 'checked' says how the citation (and, where stated, the values taken from it) was verified.",
+  "references": {
+    "lambert2019": {
+      "authors": "Lambert TJ",
+      "year": 2019,
+      "title": "FPbase: a community-editable fluorescent protein database",
+      "journal": "Nature Methods", "volume": "16", "pages": "277-278",
+      "doi": "10.1038/s41592-019-0352-8",
+      "url": "https://www.fpbase.org",
+      "use": "dye and fluorescent-protein spectra, peak wavelengths, extinction coefficients, quantum yields, lifetimes; filter and camera QE curves (data CC BY-SA 4.0)",
+      "checked": "citation via Europe PMC; data fetched from the FPbase GraphQL API by tools/fetch_fpbase.mjs"
+    },
+    "dempsey2011": {
+      "authors": "Dempsey GT, Vaughan JC, Chen KH, Bates M, Zhuang X",
+      "year": 2011,
+      "title": "Evaluation of fluorophores for optimal performance in localization-based super-resolution imaging",
+      "journal": "Nature Methods", "volume": "8", "pages": "1027-1036",
+      "doi": "10.1038/nmeth.1768", "pmcid": "PMC3272503",
+      "use": "dSTORM switching: detected photons per cycle, equilibrium duty cycle, switching cycles (Table 1, GLOX + 10 mM MEA) at their measurement intensities (488 nm 1.2, 561 nm 2.2, 647 nm 0.8 kW/cm^2; Methods); 405 nm activation sensitivity (Table 2); photons per cycle and duty cycle largely independent of intensity (emission, off- and on-switching linear in it; Results, Supplementary Fig. 32): the intensity scaling of dSTORM ON and dark times",
+      "checked": "Table 1 and 2 values, the intensities and the intensity-dependence statements read from the Europe PMC full text (PMC3272503)"
+    },
+    "turkowyd2017": {
+      "authors": "Turkowyd B, Balinovic A, Virant D, Carnero HGG, Caldana F, Endesfelder M, Bourgeois D, Endesfelder U",
+      "year": 2017,
+      "title": "A General Mechanism of Photoconversion of Green-to-Red Fluorescent Proteins Based on Blue and Infrared Light Reduces Phototoxicity in Live-Cell Single-Molecule Imaging",
+      "journal": "Angewandte Chemie International Edition", "volume": "56", "pages": "11634-11639",
+      "doi": "10.1002/anie.201702870",
+      "use": "primed conversion (blue priming + near-infrared conversion) of green-to-red FPs; Dendra2-type proteins convert well, wild-type mEos-type poorly (residue 69)",
+      "checked": "citation and abstract via Europe PMC; no rate constants taken from it (the primed coefficients are estimates)"
+    },
+    "dempsey2015": {
+      "authors": "Dempsey WP, Georgieva L, Helbling PM, Sonay AY, Truong TV, Haffner M, Pantazis P",
+      "year": 2015,
+      "title": "In vivo single-cell labeling by confined primed conversion",
+      "journal": "Nature Methods", "volume": "12", "pages": "645-648",
+      "doi": "10.1038/nmeth.3405",
+      "use": "discovery of primed conversion (Dendra2, 488 nm + 730 nm)",
+      "checked": "citation and abstract via Europe PMC"
+    },
+    "jungmann2010": {
+      "authors": "Jungmann R, Steinhauer C, Scheible M, Kuzyk A, Tinnefeld P, Simmel FC",
+      "year": 2010,
+      "title": "Single-molecule kinetics and super-resolution microscopy by fluorescence imaging of transient binding on DNA origami",
+      "journal": "Nano Letters", "volume": "10", "pages": "4756-4761",
+      "doi": "10.1021/nl103427w",
+      "use": "DNA-PAINT binding kinetics (association rate of the order of 1e6 /M/s)",
+      "checked": "citation via Europe PMC; the full text was not available, so the k_on used is an order-of-magnitude estimate"
+    },
+    "jungmann2014": {
+      "authors": "Jungmann R, Avendaño MS, Woehrstein JB, Dai M, Shih WM, Yin P",
+      "year": 2014,
+      "title": "Multiplexed 3D cellular super-resolution imaging with DNA-PAINT and Exchange-PAINT",
+      "journal": "Nature Methods", "volume": "11", "pages": "313-318",
+      "doi": "10.1038/nmeth.2835", "pmcid": "PMC4153392",
+      "use": "DNA-PAINT imagers (ATTO 655, Cy3B/ATTO 542-type) in cells",
+      "checked": "citation via Europe PMC"
+    },
+    "schnitzbauer2017": {
+      "authors": "Schnitzbauer J, Strauss MT, Schlichthaerle T, Schueder F, Jungmann R",
+      "year": 2017,
+      "title": "Super-resolution microscopy with DNA-PAINT",
+      "journal": "Nature Protocols", "volume": "12", "pages": "1198-1228",
+      "doi": "10.1038/nprot.2017.024",
+      "use": "DNA-PAINT protocol: imager concentrations (sub-nM to nM), bright times, unbound-imager background",
+      "checked": "citation via Europe PMC"
+    },
+    "schueder2019": {
+      "authors": "Schueder F, Stein J, Stehr F, Auer A, Sperl B, Strauss MT, Schwille P, Jungmann R",
+      "year": 2019,
+      "title": "An order of magnitude faster DNA-PAINT imaging by optimized sequence design and buffer conditions",
+      "journal": "Nature Methods", "volume": "16", "pages": "1101-1104",
+      "doi": "10.1038/s41592-019-0584-7",
+      "use": "faster association with optimized sequences (context for k_on)",
+      "checked": "citation via Europe PMC"
+    },
+    "zhang2012": {
+      "authors": "Zhang M, Chang H, Zhang Y, Yu J, Wu L, Ji W, Chen J, Liu B, Lu J, Liu Y, Zhang J, Xu P, Xu T",
+      "year": 2012,
+      "title": "Rational design of true monomeric and bright photoactivatable fluorescent proteins",
+      "journal": "Nature Methods", "volume": "9", "pages": "727-729",
+      "doi": "10.1038/nmeth.2021",
+      "use": "mEos3.2",
+      "checked": "citation and abstract via Europe PMC"
+    },
+    "gurskaya2006": {
+      "authors": "Gurskaya NG, Verkhusha VV, Shcheglov AS, Staroverov DB, Chepurnykh TV, Fradkov AF, Lukyanov S, Lukyanov KA",
+      "year": 2006,
+      "title": "Engineering of a monomeric green-to-red photoactivatable fluorescent protein induced by blue light",
+      "journal": "Nature Biotechnology", "volume": "24", "pages": "461-465",
+      "doi": "10.1038/nbt1191",
+      "use": "Dendra2",
+      "checked": "citation via Europe PMC"
+    },
+    "subach2009": {
+      "authors": "Subach FV, Patterson GH, Manley S, Gillette JM, Lippincott-Schwartz J, Verkhusha VV",
+      "year": 2009,
+      "title": "Photoactivatable mCherry for high-resolution two-color fluorescence microscopy",
+      "journal": "Nature Methods", "volume": "6", "pages": "153-159",
+      "doi": "10.1038/nmeth.1298",
+      "use": "PAmCherry1/2 (the PAmCherry2 entry borrows PAmCherry1's On-state spectra: FPbase has none for PAmCherry2)",
+      "checked": "citation via Europe PMC"
+    },
+    "durisic2014": {
+      "authors": "Durisic N, Laparra-Cuervo L, Sandoval-Álvarez A, Borbely JS, Lakadamyali M",
+      "year": 2014,
+      "title": "Single-molecule evaluation of fluorescent protein photoactivation efficiency using an in vivo nanotemplate",
+      "journal": "Nature Methods", "volume": "11", "pages": "156-162",
+      "doi": "10.1038/nmeth.2784",
+      "use": "photoactivation efficiency of mEos2/3.1/3.2, Dendra2, mMaple, PA-GFP, PA-mCherry (the fluorescent fraction of the PALM entries)",
+      "checked": "citation and abstract via Europe PMC; the full text was not available, so the fractions used are estimates of the reported range"
+    },
+    "bindels2017": {
+      "authors": "Bindels DS, Haarbosch L, van Weeren L, Postma M, Wiese KE, Mastop M, Aumonier S, Gotthard G, Royant A, Hink MA, Gadella TW",
+      "year": 2017,
+      "title": "mScarlet: a bright monomeric red fluorescent protein for cellular imaging",
+      "journal": "Nature Methods", "volume": "14", "pages": "53-56",
+      "doi": "10.1038/nmeth.4074",
+      "use": "mScarlet",
+      "checked": "citation via Europe PMC"
+    },
+    "kinetix-datasheet": {
+      "authors": "Teledyne Photometrics",
+      "year": 2021,
+      "title": "Kinetix sCMOS camera datasheet (Sensitivity / CMS mode)",
+      "url": "https://www.photometrics.com/products/kinetix-family/kinetix",
+      "use": "Kinetix22 preset noise values (read noise 1.2 e-, dark current, conversion gain) -- the adapter's defaults since 2026-09; QE curve via FPbase",
+      "checked": "values as used since the noise model was added (docs/dev/vectorial-psf-plan.md); not re-checked here"
+    },
+    "ixon897-datasheet": {
+      "authors": "Andor Technology (Oxford Instruments)",
+      "year": 2020,
+      "title": "iXon Ultra 897 EMCCD camera specifications",
+      "url": "https://andor.oxinst.com/products/ixon-emccd-cameras/ixon-ultra-897",
+      "use": "iXon Ultra 897 preset (EMCCD read noise, clock-induced charge, dark current at -80 C, EM gain range); QE curve via FPbase",
+      "checked": "typical published values; not re-checked against the current datasheet -- see the preset's notes"
+    }
+  }
+}

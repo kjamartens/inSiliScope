@@ -1,35 +1,15 @@
-// WideField imaging in JS: the mirror of the CPU path of adapter/inSiliScope/Simulation/WidefieldRender.cpp
-// (+ ScopeMovie.cpp WidefieldMovie, Illumination.cpp). Same model and the same discretisation:
-//   dyes binned into world-anchored z planes on 64-cell world tiles (WidefieldDyeTiles) of an upscaled
-//   grid (GridSpecFor), each plane deposited on its two nearest PSF planes with linear weights
-//   (PlanFocus), convolved by FFT (FastSize grid, 2^a 3^b 5^c), shifted to the camera's sub-cell
-//   position by a Fourier phase ramp, cropped, max(0, .) per cell, binned; exact per-frame bleaching
-//   integral (WidefieldBleachingPhotons) with the one-group basis of a square illumination.
+// The mean-field (FFT) image of a population of dyes in JS: the mirror of the CPU path of
+// adapter/inSiliScope/Simulation/WidefieldRender.cpp. Same discretisation: dyes binned into world-anchored z planes
+// on 64-cell world tiles (WidefieldDyeTiles) of an upscaled grid (GridSpecFor), each plane deposited on its two
+// nearest PSF planes with linear weights (PlanFocus), convolved by FFT (FastSize grid, 2^a 3^b 5^c), shifted to the
+// camera's sub-cell position by a Fourier phase ramp, cropped, max(0, .) per cell, binned.
+// Issue 16: no WideField movie of its own any more -- fluorescence.js uses meanFieldImage for every continuous
+// population (WideField labels, PALM pre states, the dSTORM initial ON) above the mean-field density, and scales it
+// per frame by the population's exact mean photons per dye.
 // Not mirrored (speed only in the C++): spectra caches, focus bands (gated off for diffraction PSFs),
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
-import { scopeKernel, scopeWorld } from './scope_movie.js';
-import { noiseMaps, applyNoiseChain } from './render.js';
-
-const AVOGADRO = 6.02214076e23;
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
 const TILE = 64;
-
-export const phot = {
-  crossSectionUm2: e => Math.log(10.0) * 1000.0 * e.extinctionCoeff / AVOGADRO * 1e8,
-  emissionRatePerSec: (e, I) => e.quantumYield * phot.crossSectionUm2(e) * e.excitationPhotonsPerUm2PerSec * I,
-  halfTimeSec(e, I) {
-    const k = phot.emissionRatePerSec(e, I);
-    return !(e.photonBudget > 0) || !(k > 0) ? Infinity : e.photonBudget * Math.log(2.0) / k;
-  },
-};
-export const collectionEfficiency = (na, n) => {
-  const r = Math.min(1.0, Math.max(0.0, na / Math.max(1e-6, n)));
-  return 0.5 * (1.0 - Math.sqrt(1.0 - r * r));
-};
-export function bleachingPhotons(eta, budget, d0, dD) {
-  if (!(budget > 0.0)) return eta * dD;
-  return eta * budget * Math.exp(-d0 / budget) * (1.0 - Math.exp(-dD / budget));
-}
 // TODO(human) in the C++ too: the Gaussian WideField PSF ignores defocus (in-focus sigma, 0.21 lambda / NA).
 export const gaussianSigmaUm = (defocusUm, lambdaNm, na) => 0.21 * lambdaNm / Math.max(0.01, na) / 1000.0;
 
@@ -172,50 +152,56 @@ function gridSpecFor(ws, sq) {
   return g;
 }
 
-// WidefieldDyeTiles::Fill + Planes: per world plane k, per population (0 bleaching, 1 persistent),
-// Map(cell -> count) in grid-rect cells. Binned exactly as the C++ (tile rect, plane window from the
-// tile's own histogram).
-function dyePlanes(world, g) {
+// WidefieldDyeTiles::Fill + Planes: per world plane k, Map(cell -> count) in grid-rect cells of the dyes of the
+// structures in structureMask (issue 16: one population per structure; the old bleaching/persistent split is a
+// label mode now). Binned exactly as the C++ (tile rect, plane window from the tile's own histogram).
+function dyePlanes(world, g, structureMask) {
   const p = g.pitchUm, dz = g.zPlaneUm;
   const kLo = snapFloor(COLUMN_MIN_UM / dz), kHi = -snapFloor(-COLUMN_MAX_UM / dz), nH = kHi - kLo;
   const planes = new Map();
-  let nB = 0, nP = 0;
+  let nDyes = 0;
   const tx0 = floorDiv(g.ix0, TILE), tx1 = floorDiv(g.ix0 + g.nx - 1, TILE);
   const ty0 = floorDiv(g.iy0, TILE), ty1 = floorDiv(g.iy0 + g.ny - 1, TILE);
   for (let ty = ty0; ty <= ty1; ++ty)
     for (let tx = tx0; tx <= tx1; ++tx) {
       const x0 = (tx * TILE) * p, x1 = ((tx + 1) * TILE) * p, y0 = (ty * TILE) * p, y1 = ((ty + 1) * TILE) * p;
       const zA0 = kLo * dz, zB0 = kHi * dz;
-      const dyes = world.sitesInWindow(x0, y0, x1, y1, zA0, zB0);
-      if (!dyes.length) continue;
-      // 1 x 1 x nH histogram, as Density3d bins it.
+      // Two passes over the tile's dyes (no copies): the 1 x 1 x nH histogram, as Density3d bins it, then the cells.
       const hist = new Float32Array(nH), sz0 = nH / (zB0 - zA0);
-      for (const d of dyes) hist[Math.min(nH - 1, Math.floor((d.z - zA0) * sz0))]++;
+      let any = 0;
+      world.forEachDye(x0, y0, x1, y1, zA0, zB0, (b, i) => {
+        if (!((structureMask >> b.structure) & 1)) return;
+        hist[Math.min(nH - 1, Math.floor((b.z[i] - zA0) * sz0))]++;
+        any++;
+      });
+      if (!any) continue;
       let first = 0, last = nH - 1;
       while (first < nH && hist[first] === 0) ++first;
       while (last > first && hist[last] === 0) --last;
       first = Math.max(0, first - 1); last = Math.min(nH - 1, last + 1);
       const k0 = kLo + first, nz = last - first + 1, zA = k0 * dz, zB = (k0 + nz) * dz;
       const sx = TILE / (x1 - x0), sy = TILE / (y1 - y0), sz = nz > 1 ? nz / (zB - zA) : 0.0;
-      for (const d of dyes) {
-        if (!(d.z >= zA && d.z < zB)) continue;
-        const ix = Math.min(TILE - 1, Math.floor((d.x - x0) * sx)), iy = Math.min(TILE - 1, Math.floor((d.y - y0) * sy));
-        const iz = nz > 1 ? Math.min(nz - 1, Math.floor((d.z - zA) * sz)) : 0;
+      world.forEachDye(x0, y0, x1, y1, zA0, zB0, (b, i) => {
+        if (!((structureMask >> b.structure) & 1)) return;
+        const x = b.x[i], y = b.y[i], z = b.z[i];
+        if (!(z >= zA && z < zB)) return;
+        const ix = Math.min(TILE - 1, Math.floor((x - x0) * sx)), iy = Math.min(TILE - 1, Math.floor((y - y0) * sy));
+        const iz = nz > 1 ? Math.min(nz - 1, Math.floor((z - zA) * sz)) : 0;
         const wx = tx * TILE + ix, wy = ty * TILE + iy;
-        if (wx < g.ix0 || wx >= g.ix0 + g.nx || wy < g.iy0 || wy >= g.iy0 + g.ny) continue;
-        const k = k0 + iz, pop = d.persistent ? 1 : 0;
+        if (wx < g.ix0 || wx >= g.ix0 + g.nx || wy < g.iy0 || wy >= g.iy0 + g.ny) return;
+        const k = k0 + iz;
         let pl = planes.get(k);
-        if (!pl) { pl = [new Map(), new Map()]; planes.set(k, pl); }
+        if (!pl) { pl = new Map(); planes.set(k, pl); }
         const cell = (wy - g.iy0) * g.nx + (wx - g.ix0);
-        pl[pop].set(cell, (pl[pop].get(cell) || 0) + 1);
-        if (pop) nP++; else nB++;
-      }
+        pl.set(cell, (pl.get(cell) || 0) + 1);
+        nDyes++;
+      });
     }
-  return { planes, nBleaching: nB, nPersistent: nP };
+  return { planes, nDyes };
 }
 
-// ---- the scene: images of the persistent channel and the bleaching channel (anchor weights) ----
-function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
+// ---- the scene: the image of one population of dyes with per-cell weights ----
+function sceneImages(ws, g, dyes, psf, weight) {
   const dz = g.zPlaneUm;
   // Kernel radius (SetupFft).
   const cap = Math.max(1, Math.ceil(ws.kernelCapUm / g.pitchUm - 1e-9));
@@ -240,7 +226,7 @@ function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
     if (k < kLo || k >= kHi) continue;
     let t = psf.planeCoord((k + 0.5) * dz - ws.focusWorldUm);
     if (t < psf.minPlane || t > psf.maxPlane) {
-      for (const pop of dyes.planes.get(k)) for (const c of pop.values()) clamped += c;
+      for (const c of dyes.planes.get(k).values()) clamped += c;
       t = Math.min(psf.maxPlane, Math.max(psf.minPlane, t));
     }
     let p0 = Math.floor(t), frac = t - p0;
@@ -260,12 +246,12 @@ function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
     kernelSpec.set(p, s);
     return s;
   };
-  const channel = (pop, weight) => {
-    if (!(pop === 1 ? dyes.nPersistent : dyes.nBleaching)) return null;
+  const channel = weight => {
+    if (!dyes.nDyes) return null;
     // Spatial pre-sum per PSF plane: G_p = sum_k w(k, p) x dyes_k x weight (linear = the C++'s spectrum sum).
     const G = new Map();
     for (const d of deps) {
-      const cells = dyes.planes.get(d.k)[pop];
+      const cells = dyes.planes.get(d.k);
       if (!cells.size) continue;
       for (const [p, w] of [[d.p0, d.w0], [d.p0 + 1, d.w1]]) {
         if (!(w > 0)) continue;
@@ -307,86 +293,44 @@ function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
     for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img[y * cw + x] = Sr[(g.fovY + y) * nx + g.fovX + x] * scale;
     return img;
   };
-  return { persistent: channel(1, wp), bleach: wbAnchor ? channel(0, wbAnchor) : null, cw, ch, u, R, nx, ny, clamped };
+  return { image: channel(weight), cw, ch, u, R, nx, ny, clamped };
 }
 
-// WidefieldImages::Render: cam += bin(max(0, P + a B)).
-function renderImages(im, a, cam) {
-  const { cw, u } = im, W = cw / u, H = im.ch / u;
-  if (!im.persistent && !(im.bleach && a)) return;
-  const af = Math.fround(a);
+// WidefieldImages::Render for one channel: bin(max(0, I)) per camera pixel (photons per unit weight).
+function binnedImage(im, W, H) {
+  const out = new Float32Array(W * H);
+  if (!im.image) return out;
+  const { cw, u } = im;
   for (let Y = 0; Y < H; ++Y) for (let X = 0; X < W; ++X) {
     let acc = 0.0;
-    for (let sy = 0; sy < u; ++sy) for (let sx = 0; sx < u; ++sx) {
-      const i = (Y * u + sy) * cw + X * u + sx;
-      let v = im.persistent ? im.persistent[i] : 0;
-      if (im.bleach && a) v = Math.fround(v + Math.fround(af * im.bleach[i]));
-      acc += Math.max(0, v);
-    }
-    cam[Y * W + X] += acc;
+    for (let sy = 0; sy < u; ++sy) for (let sx = 0; sx < u; ++sx) acc += Math.max(0, im.image[(Y * u + sy) * cw + X * u + sx]);
+    out[Y * W + X] = acc;
   }
+  return out;
 }
 
-// WidefieldMovie::Begin + Render.
-export function renderWidefieldMovie(P, spec, S, onFrame, opts = {}) {
-  const t0 = performance.now();
+// The mean-field image of a structure's dyes (issue 16, WidefieldMeanField): every fluorescent dye of the structures
+// in structureMask with weight 1 on the world-anchored grid, convolved with the PSF at wavelengthNm (the kernel, or the
+// in-focus Gaussian), binned to the camera: W x H photons per (photon per dye). A frame of a continuous population
+// adds (mean detected photons per dye in that frame) x this image. Uniform illumination over the grid (the FOV and
+// its margin, as the per-dye path's emitters).
+export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm) {
   const O = S.O, um = S.p.pixelSizeNm / 1000.0;
   const ws = {
     originXUm: S.q.originXUm, originYUm: S.q.originYUm, width: S.W, height: S.H, pixelUm: um,
     focusWorldUm: S.q.zCullCentreUm, slabCentreUm: S.q.zCullCentreUm, slabHalfUm: S.q.zHalfRangeUm,
     upscale: Math.trunc(Math.min(4, Math.max(1, O('wf-upscale')))), zPlaneNm: Math.min(500, Math.max(5, O('wf-plane-nm'))),
     marginUm: 2.0, kernelCapUm: Math.max(0.1, O('wf-kernel-um')),
-    phot: { excitationPhotonsPerUm2PerSec: Math.max(0, O('wf-excitation-photons-per-um2-per-sec')),
-      quantumYield: Math.min(1, Math.max(0, O('wf-quantum-yield'))), photonBudget: Math.max(0, O('wf-photon-budget')),
-      extinctionCoeff: Math.max(0, O('wf-extinction-coeff')) },
-    eta: collectionEfficiency(O('na'), O('immersion-index')), exposureSec: S.p.frameDurationSec,
   };
-  const sq = { w: S.W * um, h: S.H * um };
-  const kernel = scopeKernel(spec, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)));
+  // The illuminated square spans the FOV and the margin (as the per-dye path's query rect), so the grid does too.
+  const sq = { w: S.W * um + 2 * ws.marginUm, h: S.H * um + 2 * ws.marginUm };
   let psf;
   if (kernel) { ws.upscale = validUpscale(kernel.oversampling, ws.upscale); psf = kernelPsf(kernel, ws.upscale); }
-  else psf = gaussianPsf(um / ws.upscale, O('wavelength-nm'), O('na'));
+  else psf = gaussianPsf(um / ws.upscale, wavelengthNm, O('na'));
   const g = gridSpecFor(ws, sq);
-  const world = scopeWorld(P, S);
-  const dyes = dyePlanes(world, g);
-  // Illumination (cell-centre samples of the square, relative to the axis) and frame dose per grid cell.
-  const n2 = g.nx * g.ny, dD = new Float32Array(n2), wp = new Float32Array(n2);
-  const dD1 = phot.emissionRatePerSec(ws.phot, 1.0) * ws.exposureSec;
-  for (let iy = 0; iy < g.ny; iy++) {
-    const y = g.y0Um - g.axisY + (iy + 0.5) * g.pitchUm;
-    for (let ix = 0; ix < g.nx; ix++) {
-      const x = g.x0Um - g.axisX + (ix + 0.5) * g.pitchUm;
-      const ill = (x >= -sq.w / 2 && x < sq.w / 2 && y >= -sq.h / 2 && y < sq.h / 2) ? 1.0 : 0.0;
-      const i = iy * g.nx + ix;
-      dD[i] = dD1 * ill; wp[i] = ws.eta * dD[i];
-    }
-  }
-  const B = ws.phot.photonBudget;
-  const freshWeights = framesBefore => {
-    const wb = new Float32Array(n2);
-    for (let i = 0; i < n2; i++) wb[i] = bleachingPhotons(ws.eta, B, framesBefore * dD[i], dD[i]);
-    return wb;
-  };
-  const framesBefore0 = Math.max(0.0, O('start-sec')) / S.expSec;
-  const wb0 = freshWeights(framesBefore0);
-  const images = sceneImages(ws, g, dyes, psf, wp, dyes.nBleaching ? wb0 : null);
-  // One-group basis coefficient: wb[iMax] / phi[iMax] (BleachCoefficients).
-  let iMax = 0;
-  for (let i = 1; i < n2; i++) if (Math.abs(wb0[i]) > Math.abs(wb0[iMax])) iMax = i;
-  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
-  const bg = S.p.backgroundPhotons;
-  for (let f = 0; f < S.N; f++) {
-    const cam = new Float32Array(S.W * S.H).fill(bg);
-    // Only the anchor column's weight is used: freshWeights' value there (a float32).
-    const wbMax = Math.fround(bleachingPhotons(ws.eta, B, (framesBefore0 + f) * dD[iMax], dD[iMax]));
-    const a = wb0[iMax] !== 0 ? wbMax / wb0[iMax] : 0.0;
-    renderImages(images, a, cam);
-    if (onFrame(f, applyNoiseChain(cam, S.cam, maps, f), cam) === false) break;
-    if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);
-  }
-  return { width: S.W, height: S.H, frames: S.N, dyes: dyes.nBleaching + dyes.nPersistent, bleachingDyes: dyes.nBleaching,
-    halfTimeSec: phot.halfTimeSec(ws.phot, 1.0), clamped: images.clamped, fft: [images.nx, images.ny], kernelRadius: images.R,
-    totalSec: (performance.now() - t0) / 1000, psf: kernel ? 'GibsonLanniZernike' : 'Gaussian',
-    grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY },
-    images: opts.keepImages ? images : undefined };
+  const dyes = dyePlanes(world, g, structureMask);
+  const ones = new Float32Array(g.nx * g.ny).fill(1);
+  const images = sceneImages(ws, g, dyes, psf, ones);
+  return { image: binnedImage(images, S.W, S.H), dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
+    kernelRadius: images.R, grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY } };
 }

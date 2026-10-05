@@ -1,0 +1,161 @@
+{
+  "about": [
+    "Dye library (BSD-3-Clause). Spectra, peak wavelengths, extinction coefficients (eps, M^-1 cm^-1, at the absorption peak), quantum yields (qy) and lifetimes come from FPbase (refs: lambert2019) unless 'override' gives a value; fpbase_spectra.json holds what was fetched. Kinetics are per mode. Every number names its source in 'refs'/'notes'; 'estimate' marks a value with no measurement behind it (tune it, then cite).",
+    "Modes: dSTORM (bleaching dye: ON at t = 0 for Exp(initialOnSec), then dark; returns at the activation rate; blinks ON Exp(onSec) and bleaches with bleachProb per blink), PALM (photoconversion at the activation rate, then blinks ON Exp(onSec) / dark Exp(offSec), bleachProb per blink; an emissive pre state shines until conversion), DNA-PAINT (persistent site: binding rate k_on x imager concentration, ON Exp(onSec), never bleaches; the free imager adds a uniform background), WideField (always on, bleaches after an exponential photon budget).",
+    "dSTORM blocks hold Dempsey et al. 2011 Table 1 (GLOX + 10 mM MEA): detected photons per switching cycle, equilibrium duty cycle, mean switching cycles. tools/gen_dye_library.mjs turns them into onSec / offSec / bleachProb at the reference light path in 'dstormReference' (ON time fixed, so photons per blink scale with the excitation intensity in a simulation)."
+  ],
+  "dstormReference": {
+    "na": 1.4, "immersionIndex": 1.518, "qe": 0.9,
+    "byLaser": {
+      "488": { "intensityKWcm2": 1.2, "emission": [510, 560] },
+      "561": { "intensityKWcm2": 2.2, "emission": [580.5, 653.5] },
+      "640": { "intensityKWcm2": 0.8, "emission": [662.5, 737.5] }
+    },
+    "notes": "Dempsey et al. 2011 measured Table 1 at 488 nm (1.2 kW/cm^2), 561 nm (2.2 kW/cm^2) and 647 nm (0.8 kW/cm^2; modelled with the 640 nm line) in TIRF, through ET535/50m, FF01-617/73 and ET700/75m (modelled as ideal band passes), on an EMCCD (QE 0.9 assumed). They found photons per switching cycle largely independent of the laser intensity, because the emission rate and the off-switching rate both depend linearly on it, and the duty cycle about constant (on-switching linear too; Results, 'Dependence of switching properties on light intensity', Supplementary Fig. 32). So a dSTORM dye's ON time, spontaneous dark time and initial ON time scale as 1 / (its excitation rate relative to kExcRef, the rate at this reference); the 405 nm activation adds on top. Exceptions they report (Cy3B photons rising with intensity; fewer switching cycles at high intensity for e.g. ATTO 655) are not modelled.",
+    "refs": ["dempsey2011"]
+  },
+  "suggestedLabelingPct": {
+    "DNA-PAINT": 70, "dSTORM": 3, "PALM": 25, "WideField": 70,
+    "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
+  },
+  "dyes": [
+    {
+      "id": "AF647", "name": "Alexa Fluor 647", "category": "organic dye", "defaultMode": "dSTORM",
+      "fpbase": { "dye": "Alexa Fluor 647" },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 3823, "dutyCycle": 0.0005, "switchingCycles": 14,
+                    "activation405PerKWcm2PerSec": 60, "initialOnSec": 2.0, "photonCV": 0.5,
+                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 nm sensitivity '++' (Table 2: >25 % reactivated by 0.25 s at 10-30 W/cm^2, i.e. > ~57 /s per kW/cm^2); initialOnSec (at the reference intensity) estimate." },
+        "WideField": { "photonBudget": 100000, "notes": "estimate (order of magnitude without oxygen scavenging)" }
+      }
+    },
+    {
+      "id": "AF532", "name": "Alexa Fluor 532", "category": "organic dye", "defaultMode": "dSTORM",
+      "fpbase": { "dye": "Alexa Fluor 532" },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "dSTORM": { "laser": 561, "detectedPhotonsPerCycle": 1200, "dutyCycle": 0.001, "switchingCycles": 10,
+                    "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
+                    "notes": "estimate: Alexa 532 is not in Dempsey et al. 2011 Table 1; values in the range of its green/yellow dyes (Alexa 488, Atto 520, Cy3B), 405 sensitivity '+'." , "refs": ["dempsey2011"] },
+        "WideField": { "photonBudget": 100000, "notes": "estimate" }
+      }
+    },
+    {
+      "id": "Cy5", "name": "Cy5", "category": "organic dye", "defaultMode": "dSTORM",
+      "fpbase": { "dye": "Cy5" },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 4254, "dutyCycle": 0.0004, "switchingCycles": 10,
+                    "activation405PerKWcm2PerSec": 60, "initialOnSec": 2.0, "photonCV": 0.5,
+                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 sensitivity '++' (Table 2); initialOnSec estimate." },
+        "WideField": { "photonBudget": 100000, "notes": "estimate" }
+      }
+    },
+    {
+      "id": "ATTO655", "name": "ATTO 655", "category": "organic dye", "defaultMode": "DNA-PAINT",
+      "fpbase": { "dye": "ATTO 655" },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
+                       "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
+                       "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s." },
+        "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 1105, "dutyCycle": 0.0006, "switchingCycles": 17,
+                    "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
+                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 sensitivity '+' (Table 2); initialOnSec estimate." },
+        "WideField": { "photonBudget": 100000, "notes": "estimate" }
+      }
+    },
+    {
+      "id": "ATTO542", "name": "ATTO 542", "category": "organic dye", "defaultMode": "DNA-PAINT",
+      "fpbase": { "dye": "ATTO 542" },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
+                       "refs": ["jungmann2010", "schnitzbauer2017"], "notes": "as ATTO 655 (estimate)" },
+        "WideField": { "photonBudget": 100000, "notes": "estimate" }
+      }
+    },
+    {
+      "id": "mEos3.2", "name": "mEos3.2", "category": "photoconvertible FP", "defaultMode": "PALM",
+      "fpbase": { "protein": "mEos3.2", "main": "mEos3.2 (Red)", "pre": "mEos3.2 (Green)" },
+      "fluorescentFraction": 0.6,
+      "modes": {
+        "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.5, "photonCV": 0.5,
+                  "spontaneousActivationPerSec": 1e-5, "activation405PerKWcm2PerSec": 1.0,
+                  "primed": { "primeNm": [470, 510], "convertNm": [690, 780], "perKWcm2SqPerSec": 0.01 },
+                  "prePhotonBudget": 200000,
+                  "refs": ["zhang2012", "durisic2014", "turkowyd2017"],
+                  "notes": "fluorescent fraction: estimate in the range of durisic2014; ON/OFF/bleach and 405 rate: estimates; primed conversion weak for mEos-type proteins (turkowyd2017; coefficient an estimate)." },
+        "WideField": { "photonBudget": 100000, "state": "pre", "notes": "the green state as a widefield FP (estimate)" }
+      }
+    },
+    {
+      "id": "Dendra2", "name": "Dendra2", "category": "photoconvertible FP", "defaultMode": "PALM",
+      "fpbase": { "protein": "Dendra2", "main": "Dendra2 (Red)", "pre": "Dendra2 (Green)" },
+      "fluorescentFraction": 0.5,
+      "modes": {
+        "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.5, "photonCV": 0.5,
+                  "spontaneousActivationPerSec": 1e-5, "activation405PerKWcm2PerSec": 1.0,
+                  "primed": { "primeNm": [470, 510], "convertNm": [690, 780], "perKWcm2SqPerSec": 1.0 },
+                  "prePhotonBudget": 200000,
+                  "refs": ["gurskaya2006", "durisic2014", "dempsey2015", "turkowyd2017"],
+                  "notes": "primed conversion (488 + 730 nm) is efficient for Dendra2 (dempsey2015, turkowyd2017); all rates and the fluorescent fraction are estimates." },
+        "WideField": { "photonBudget": 100000, "state": "pre", "notes": "the green state (estimate)" }
+      }
+    },
+    {
+      "id": "PAmCherry2", "name": "PAmCherry2", "category": "photoactivatable FP", "defaultMode": "PALM",
+      "fpbase": { "protein": "PAmCherry2", "main": "PAmCherry2 (On)", "pre": "PAmCherry2 (Off)",
+                  "spectraFrom": { "main": { "protein": "PAmCherry1", "state": "PAmCherry1 (On)" } } },
+      "fluorescentFraction": 0.5,
+      "modes": {
+        "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.7, "photonCV": 0.5,
+                  "spontaneousActivationPerSec": 1e-5, "activation405PerKWcm2PerSec": 1.0,
+                  "refs": ["subach2009", "durisic2014"],
+                  "notes": "pre state dark (photoactivatable, not convertible). FPbase has no PAmCherry2 spectra: PAmCherry1 (On) spectra used. Rates and fluorescent fraction: estimates." }
+      }
+    },
+    {
+      "id": "mEGFP", "name": "mEGFP", "category": "fluorescent protein", "defaultMode": "WideField",
+      "fpbase": { "protein": "mEGFP" },
+      "fluorescentFraction": 0.8,
+      "modes": { "WideField": { "photonBudget": 100000, "notes": "photon budget and maturation fraction: estimates" } }
+    },
+    {
+      "id": "mScarlet", "name": "mScarlet", "category": "fluorescent protein", "defaultMode": "WideField",
+      "fpbase": { "protein": "mScarlet" },
+      "fluorescentFraction": 0.8,
+      "modes": { "WideField": { "photonBudget": 100000, "refs": ["bindels2017"], "notes": "photon budget and maturation fraction: estimates" } }
+    },
+    {
+      "id": "DAPI", "name": "DAPI", "category": "DNA stain", "defaultMode": "WideField",
+      "fpbase": { "dye": "DAPI" },
+      "fluorescentFraction": 1.0,
+      "modes": { "WideField": { "photonBudget": 100000, "notes": "estimate. FPbase values are for DNA-bound DAPI. Only microtubules carry labels so far: a DNA structure is future work." } }
+    },
+    {
+      "id": "Hoechst33342", "name": "Hoechst 33342", "category": "DNA stain", "defaultMode": "WideField",
+      "fpbase": { "dye": "Hoechst 33342" },
+      "override": { "extCoeff": 46000, "qy": 0.4 },
+      "fluorescentFraction": 1.0,
+      "modes": { "WideField": { "photonBudget": 100000, "notes": "estimate" } },
+      "notes": "FPbase has no extinction coefficient or quantum yield for Hoechst 33342: eps ~46000 at 350 nm and QY ~0.4 (DNA-bound) are estimates of commonly quoted vendor values, not checked against a source."
+    },
+    {
+      "id": "Custom", "name": "Custom (parametric spectra)", "category": "custom", "defaultMode": "DNA-PAINT",
+      "parametric": { "exPeakNm": 650, "emPeakNm": 670, "exWidthNm": 30, "emWidthNm": 35, "extCoeff": 150000, "qy": 0.5 },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5 },
+        "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 3000, "dutyCycle": 0.001, "switchingCycles": 10,
+                    "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5 },
+        "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.5, "photonCV": 0.5,
+                  "spontaneousActivationPerSec": 1e-5, "activation405PerKWcm2PerSec": 1.0 },
+        "WideField": { "photonBudget": 100000 }
+      },
+      "notes": "Skewed-Gaussian excitation/emission shapes from the peaks and widths (no FPbase data); every value is the user's to set."
+    }
+  ],
+  "default": { "dye": "ATTO655", "mode": "DNA-PAINT" }
+}

@@ -25,13 +25,21 @@ Notes:
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
   looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
-- Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
-  starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
+- **Microtubule label**: the labelled share of the sites, then the mode, then the dye (the Dye select lists the dyes
+  with data for that mode), then the dipole orientation. A mode or dye pick loads the dye's fields, the mode's labelling
+  and its light preset (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
+  under Geometry, the DNA-PAINT chamber height in Advanced). The preset is also the modality: "BrightField (lasers
+  off)" images transmitted light, every other preset fluorescence. The label stays
+  available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
+  own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
+  Dipole orientations other than Free are not implemented yet. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
   "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current
   PSF settings is computed in the background as soon as the page is ready and whenever those settings change, so a
-  movie usually finds it ready.
+  movie usually finds it ready. In Advanced, **Preview PSF** shows that kernel in the movie player: the oversampled
+  kernel beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from
+  the focal plane.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
@@ -82,7 +90,10 @@ Notes:
   nearest focus position (blinking; **SMLM frames + localized emitters** adds a faint cross at the true position of
   every emitter localized in the frame shown), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
   cell and settings; **Acquire** makes them now) with the movie settings
-  (Microscope, Acquisition): one movie per focus position over the cell's box, WideField and BrightField planes the
+  (Microscope, Acquisition, the microtubule label): WideField images the structure's dye in WideField mode, SMLM in the
+  structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
+  mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
+  the movie's start time (60 s by default). One movie per focus position over the cell's box, WideField and BrightField planes the
   mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
   acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM frames are drawn opaque;
   in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slices" is
@@ -94,8 +105,10 @@ Notes:
   coverslip up to its highest in-focus point. **SMLM localizations**
   emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
   within the capture range (±400 nm) is localized per frame, displaced by its precision: "Precision xy" and "Precision z"
-  (default 8 and 20 nm) are those of an in-focus blink ON for a whole frame, worse with fewer photons and with defocus;
-  drawn coloured by height, or as Gaussian spots of their precision.
+  (default 8 and 20 nm) are those of an in-focus blink ON for a whole frame (the dye's detected photons per second
+  through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
+  label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
+  emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,

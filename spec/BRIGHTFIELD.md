@@ -1,6 +1,6 @@
 # BrightField (transmitted light) -- spec and status (2026-10-01, exploration branch)
 
-The third imaging modality next to SuperRes and WideField: the cells of the CellField world seen in transmitted
+The imaging modality next to Fluorescence (until issue 16: next to SuperRes and WideField): the cells of the CellField world seen in transmitted
 light, from their refractive index. Code: `adapter/inSiliScope/Simulation/BrightfieldRender.{h,cpp}` (engine),
 core ABI 6 `isc_optical_volume_in_window` (geometry), `ScopeMovie.cpp` (cli/viewer), the adapter's
 `RenderBrightfieldStack` and live loop. Tests: ctest `brightfield`, `cli_tiff_bf`, `world_checks` (OpticalVolume),
@@ -55,8 +55,9 @@ thin screen sits at the phase-weighted mean height (from 8 sub-slices), not at m
 (`General_BrightFieldAberrations`, default on: same objective), refocused to the focal plane `Z` (the `ZStage`, + the
 `SimType_CellFieldFocusHeightUm` offset) by `exp(i kz (z_obj - Z))`; intensity `|.|^2` per source, binned to camera
 pixels, averaged over sources (empty field = 1). Photons = intensity x `General_BrightFieldPhotonsPerPxPerSec`
-(default 80000 since 2026-10-05, was 40000) x exposure, then the usual camera chain (`ApplyNoiseChain`). Fluorescence background, haze and illumination profile
-(`Background_*`, `FluoParam_Illum*`) do not apply.
+(default 80000 since 2026-10-05, was 40000) x exposure, then the usual camera chain (`ApplyNoiseChain`) at the camera
+QE curve's value at the lamp wavelength (issue 16). Fluorescence background, haze and illumination profile
+(`Background_*`, `Optics_Illumination*`) do not apply.
 
 **Grid.** `General_BrightFieldUpscaling` cells per pixel -- a minimum: `UpscaleFor` raises it until the pitch is
 <= lambda / (4 n_medium) (0.103 um at 550 nm). That is enough: the propagating field is band-limited to |k| < k0 n, so

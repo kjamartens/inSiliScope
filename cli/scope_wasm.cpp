@@ -8,21 +8,47 @@
 #include "insiliscope/insiliscope.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <map>
 #include <memory>
 #include <string>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+// A movie's per-frame progress to the page: Module.onMovieProgress(stage, frac,
+// detailJson) when the worker set it (the viewer's movie button, issue 16).
+EM_JS(void, isc_js_movie_progress, (const char* stage, double frac, const char* detail), {
+   if (Module.onMovieProgress) Module.onMovieProgress(UTF8ToString(stage), frac, UTF8ToString(detail));
+});
+#else
+static void isc_js_movie_progress(const char*, double, const char*) {}
+#endif
+
 namespace {
 
-// A WideField movie whose images come from the viewer's WebGPU
-// (web/wf_gpu.js): begin, job (read by the viewer through the getters),
-// set_images (or cpu_images), movie, end.
+// The progress callback of a movie, at most every 150 ms (and the last frame).
+struct Progress
+{
+   std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now() - std::chrono::seconds(1);
+   sim::ScopeProgress fn = [this](const char* stage, double frac, const std::string& detail) {
+      const auto now = std::chrono::steady_clock::now();
+      if (frac < 1 && now - last < std::chrono::milliseconds(150)) return;
+      last = now;
+      isc_js_movie_progress(stage, frac, detail.c_str());
+   };
+};
+
+// A fluorescence movie whose mean-field images come from the viewer's
+// WebGPU (web/wf_gpu.js): begin, then per mean-field scene (select) its job
+// (read by the viewer through the getters) and set_images (or cpu_images),
+// movie, end.
 struct WfSession
 {
-   sim::WidefieldMovie movie;
+   sim::FluorescenceMovie movie;
    sim::ScopeSpec spec;
+   int sel = 0;
    sim::WidefieldGpuJob job;
    std::vector<std::vector<int32_t>> deps;
    std::vector<float> cpu;
@@ -123,10 +149,11 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
       if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
       if (!out || capPixels < need) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
+      Progress prog;
       const bool ok = sim::RenderScopeMovie(s, [&](long f, const std::vector<uint16_t>& adu) {
          std::memcpy(out + static_cast<size_t>(f) * w * h, adu.data(), adu.size() * 2);
          return true;
-      }, mi, err);
+      }, mi, err, &prog.fn);
       if (!ok) return fail(err);
       if (info) {
          info[3] = static_cast<int32_t>(mi.blinks);
@@ -139,8 +166,47 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
    }
 }
 
-// WideField movie in steps (GPU mode: power-of-two FFTs, images deferred).
-// Returns a handle, or -1 (message in errOut).
+// The PSF a movie of `spec` uses (sim::MakeScopePsfPreview, the viewer's
+// Preview PSF). info[0..6] = gaussian, oversampling, size, nz, camSize,
+// zStepNm, lambdaNm. out: the nz planes (size^2 floats each), then the nz
+// camera images (camSize^2 each). Returns the float count; fills out when
+// cap >= that. The preview is kept from the sizing call to the filling call
+// (computed once, freed when delivered). -1 on a failure (message in errOut).
+ISC_API int32_t isc_scope_psf_preview(const char* spec, float* out, int32_t cap, double* info, char* errOut,
+                                      int32_t errCap)
+{
+   static std::string lastSpec;
+   static sim::ScopePsfPreview last;
+   if (!spec) return Fail(errOut, errCap, "no spec");
+   try {
+      if (lastSpec != spec || last.nz == 0) {
+         sim::ScopeSpec s;
+         std::string err;
+         if (!sim::ParseScopeSpec(spec, s, err)) return Fail(errOut, errCap, err);
+         lastSpec.clear();
+         if (!sim::MakeScopePsfPreview(s, last, err)) return Fail(errOut, errCap, err);
+         lastSpec = spec;
+      }
+      const double v[7] = { last.gaussian ? 1.0 : 0.0, double(last.oversampling), double(last.size), double(last.nz),
+                            double(last.camSize), last.zStepNm, last.lambdaNm };
+      if (info) std::memcpy(info, v, sizeof v);
+      const size_t need = last.planes.size() + last.cams.size();
+      if (need > 0x7fffffff) return Fail(errOut, errCap, "PSF preview too large");
+      if (out && static_cast<size_t>(cap) >= need) {
+         std::memcpy(out, last.planes.data(), last.planes.size() * sizeof(float));
+         std::memcpy(out + last.planes.size(), last.cams.data(), last.cams.size() * sizeof(float));
+         last = sim::ScopePsfPreview();   // delivered: free its ~40 MB
+         lastSpec.clear();
+      }
+      return static_cast<int32_t>(need);
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
+// A fluorescence movie in steps (GPU mode: the mean-field scenes with
+// power-of-two FFTs, images deferred). Returns a handle, or -1 (message in
+// errOut).
 ISC_API int32_t isc_wf_begin(const char* spec, char* errOut, int32_t errCap)
 {
    try {
@@ -156,13 +222,29 @@ ISC_API int32_t isc_wf_begin(const char* spec, char* errOut, int32_t errCap)
    }
 }
 
-// The GPU job of the movie's focus. info[0..13] = NX, NY, nx, ny, fovX0,
+// The movie's mean-field scenes (populations that start mean-field; 0: no
+// GPU work), and the one the job/set_images calls below act on.
+ISC_API int32_t isc_wf_scenes(int32_t h)
+{
+   WfSession* w = Wf(h);
+   return w ? w->movie.MeanFieldScenes() : -1;
+}
+
+ISC_API int32_t isc_wf_select(int32_t h, int32_t i)
+{
+   WfSession* w = Wf(h);
+   if (!w || i < 0 || i >= w->movie.MeanFieldScenes()) return -1;
+   w->sel = i;
+   return 0;
+}
+
+// The GPU job of the selected scene. info[0..13] = NX, NY, nx, ny, fovX0,
 // fovY0, cw, ch, kernels, planes, channels, has persistent, dyes, geometry;
 // frac[0..1] = sub-cell shift. 0, or -1 if it cannot run on the GPU.
 ISC_API int32_t isc_wf_job(int32_t h, int32_t* info, double* frac)
 {
    WfSession* w = Wf(h);
-   if (!w || !w->movie.Scene().MakeGpuJob(w->job)) return -1;
+   if (!w || w->sel >= w->movie.MeanFieldScenes() || !w->movie.MeanFieldScene(w->sel).MakeGpuJob(w->job)) return -1;
    const sim::WidefieldGpuJob& j = w->job;
    w->deps.clear();
    for (const auto& ch : j.channels) {
@@ -182,7 +264,7 @@ ISC_API int32_t isc_wf_job(int32_t h, int32_t* info, double* frac)
       const int32_t v[14] = {(int32_t)j.NX, (int32_t)j.NY, (int32_t)j.nx, (int32_t)j.ny, (int32_t)j.fovX0,
                              (int32_t)j.fovY0, (int32_t)j.cw, (int32_t)j.ch, (int32_t)j.kernels.size(),
                              (int32_t)j.planes.size(), (int32_t)j.channels.size(), j.hasPersistent ? 1 : 0,
-                             (int32_t)w->movie.Scene().Dyes(), (int32_t)j.geometry};
+                             (int32_t)w->movie.MeanFieldScene(w->sel).Dyes(), (int32_t)j.geometry};
       std::memcpy(info, v, sizeof v);
    }
    if (frac) {
@@ -233,7 +315,7 @@ ISC_API const int32_t* isc_wf_channel(int32_t h, int32_t c, int32_t* nDeps)
    return w->deps[c].data();
 }
 
-// The images of every job channel, channels * cw * ch floats.
+// The images of every job channel of the selected scene, channels * cw * ch floats.
 ISC_API int32_t isc_wf_set_images(int32_t h, const float* data)
 {
    WfSession* w = Wf(h);
@@ -241,17 +323,18 @@ ISC_API int32_t isc_wf_set_images(int32_t h, const float* data)
    const size_t n = static_cast<size_t>(w->job.cw) * w->job.ch;
    std::vector<std::vector<float>> imgs(w->job.channels.size());
    for (size_t c = 0; c < imgs.size(); c++) imgs[c].assign(data + c * n, data + (c + 1) * n);
-   return w->movie.Scene().SetImages(imgs) ? 0 : -1;
+   return w->movie.SetMeanFieldImages(w->sel, imgs) ? 0 : -1;
 }
 
-// The same images on the CPU (and adopted); copied to out if given.
+// Every scene's images that are still missing, on the CPU; the selected
+// scene's copied to out if given (channels * cw * ch floats).
 ISC_API int32_t isc_wf_cpu_images(int32_t h, float* out)
 {
    WfSession* w = Wf(h);
    if (!w) return -1;
    w->movie.ComputeCpuImages();
-   if (out) {
-      const sim::WidefieldImages& im = w->movie.Scene().Images();
+   if (out && w->sel < w->movie.MeanFieldScenes()) {
+      const sim::WidefieldImages& im = w->movie.MeanFieldScene(w->sel).Images();
       const size_t n = static_cast<size_t>(im.cw) * im.ch;
       size_t c = 0;
       if (!im.persistent.empty()) std::memcpy(out + n * c++, im.persistent.data(), n * 4);
@@ -274,12 +357,14 @@ ISC_API int32_t isc_wf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
       if (!out || capPixels < need) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
       std::string err;
+      Progress prog;
       const bool ok = w->movie.Render([&](long f, const std::vector<uint16_t>& adu) {
          std::memcpy(out + static_cast<size_t>(f) * W * H, adu.data(), adu.size() * 2);
          return true;
-      }, mi, err);
+      }, mi, err, &prog.fn);
       if (!ok) return Fail(errOut, errCap, err);
       if (info) {
+         info[3] = static_cast<int32_t>(mi.blinks);
          info[4] = static_cast<int32_t>(mi.dyes);
          info[5] = std::isfinite(mi.halfTimeSec) ? static_cast<int32_t>(std::min(2.0e9, mi.halfTimeSec * 1000.0)) : -1;
       }

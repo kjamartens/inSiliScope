@@ -12,6 +12,12 @@
 #include <new>
 #include <vector>
 
+static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE == isc::STRUCTURE_MT, "structures");
+static_assert(ISC_STATE_BLINK == isc::STATE_BLINK && ISC_STATE_PRE == isc::STATE_PRE &&
+                 ISC_STATE_INITIAL_ON == isc::STATE_INITIAL_ON && ISC_STATE_ALWAYS_ON == isc::STATE_ALWAYS_ON, "states");
+static_assert(ISC_MODE_DNA_PAINT == (int)isc::LabelMode::DnaPaint && ISC_MODE_WIDEFIELD == (int)isc::LabelMode::WideField &&
+                 ISC_ORIENT_RANDOM == (int)isc::OrientationMode::Random, "modes");
+
 struct IscParams { isc::Params p; };
 struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; std::vector<isc::WorldEvent> events; };
 
@@ -163,7 +169,7 @@ int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double
       if (d.size() > (size_t)INT32_MAX) return -1;
       for (size_t i = 0; i < d.size() && (int32_t)i < cap; i++) {
          double* o = out + i * ISC_SITE_STRIDE;
-         o[0] = d[i].x; o[1] = d[i].y; o[2] = d[i].z; o[3] = d[i].id;
+         o[0] = d[i].x; o[1] = d[i].y; o[2] = d[i].z; o[3] = d[i].id; o[4] = d[i].structure;
       }
       return (int32_t)d.size();
    } catch (...) {
@@ -189,18 +195,69 @@ int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1, double 
    }
 }
 
-int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
-                               double bleachProb, double photonCV)
+int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int32_t n)
 {
-   if (!w || !(activationRatePerSec >= 0) || !(onSec > 0) || !(offSec >= 0) || !(bleachProb > 0) || !(photonCV >= 0) ||
-       !std::isfinite(activationRatePerSec) || !std::isfinite(onSec) || !std::isfinite(offSec) || !std::isfinite(photonCV))
+   if (!w || structure < 0 || structure >= ISC_STRUCT_COUNT || n < 0 || n > ISC_LABEL_COUNT || (n > 0 && !v)) return -1;
+   double x[ISC_LABEL_COUNT];
+   const isc::Label def;
+   x[ISC_LABEL_DENSITY] = def.density;
+   x[ISC_LABEL_FLUORESCENT_FRACTION] = def.fluorescentFraction;
+   x[ISC_LABEL_MODE] = (double)(int)def.mode;
+   x[ISC_LABEL_ACTIVATION_RATE] = def.kin.activationRatePerSec;
+   x[ISC_LABEL_ON_SEC] = def.kin.onSec;
+   x[ISC_LABEL_OFF_SEC] = def.kin.offSec;
+   x[ISC_LABEL_BLEACH_PROB] = def.kin.bleachProb;
+   x[ISC_LABEL_PHOTON_CV] = def.kin.photonCV;
+   x[ISC_LABEL_INITIAL_ON_SEC] = def.kin.initialOnSec;
+   x[ISC_LABEL_PRE_STATE] = def.preState ? 1 : 0;
+   x[ISC_LABEL_ORIENT_MODE] = (double)(int)def.orientation.mode;
+   x[ISC_LABEL_ORIENT_POLAR_DEG] = def.orientation.polarDeg;
+   x[ISC_LABEL_ORIENT_AZIMUTH_DEG] = def.orientation.azimuthDeg;
+   x[ISC_LABEL_WOBBLE_DEG] = def.orientation.wobbleDeg;
+   x[ISC_LABEL_MOTION] = def.motion;
+   x[ISC_LABEL_OFFTARGET_COUNT] = def.offTargetCount;
+   for (int32_t i = 0; i < n; i++) x[i] = v[i];
+   for (double d : x) if (!std::isfinite(d)) return -1;
+   auto isInt = [](double d, int lo, int hi) { return d == std::floor(d) && d >= lo && d <= hi; };
+   if (!isInt(x[ISC_LABEL_MODE], 0, 3) || !isInt(x[ISC_LABEL_ORIENT_MODE], 0, 2) || !(x[ISC_LABEL_DENSITY] >= 0) ||
+       !(x[ISC_LABEL_FLUORESCENT_FRACTION] >= 0) || !(x[ISC_LABEL_ACTIVATION_RATE] >= 0) || !(x[ISC_LABEL_ON_SEC] > 0) ||
+       !(x[ISC_LABEL_OFF_SEC] >= 0) || !(x[ISC_LABEL_BLEACH_PROB] > 0) || !(x[ISC_LABEL_PHOTON_CV] >= 0) ||
+       !(x[ISC_LABEL_INITIAL_ON_SEC] >= 0) || !(x[ISC_LABEL_WOBBLE_DEG] >= 0))
       return -1;
-   isc::Kinetics k;
-   k.activationRatePerSec = activationRatePerSec; k.onSec = onSec; k.offSec = offSec;
-   k.bleachProb = bleachProb; k.photonCV = photonCV;
-   w->w.SetKinetics(k);
-   return 0;
+   isc::Label l;
+   l.density = x[ISC_LABEL_DENSITY];
+   l.fluorescentFraction = x[ISC_LABEL_FLUORESCENT_FRACTION];
+   l.mode = (isc::LabelMode)(int)x[ISC_LABEL_MODE];
+   l.kin.activationRatePerSec = x[ISC_LABEL_ACTIVATION_RATE];
+   l.kin.onSec = x[ISC_LABEL_ON_SEC];
+   l.kin.offSec = x[ISC_LABEL_OFF_SEC];
+   l.kin.bleachProb = x[ISC_LABEL_BLEACH_PROB];
+   l.kin.photonCV = x[ISC_LABEL_PHOTON_CV];
+   l.kin.initialOnSec = x[ISC_LABEL_INITIAL_ON_SEC];
+   l.preState = x[ISC_LABEL_PRE_STATE] != 0;
+   l.orientation.mode = (isc::OrientationMode)(int)x[ISC_LABEL_ORIENT_MODE];
+   l.orientation.polarDeg = x[ISC_LABEL_ORIENT_POLAR_DEG];
+   l.orientation.azimuthDeg = x[ISC_LABEL_ORIENT_AZIMUTH_DEG];
+   l.orientation.wobbleDeg = x[ISC_LABEL_WOBBLE_DEG];
+   // Anything non-zero is "not Static" / "some off-target entries".
+   l.motion = x[ISC_LABEL_MOTION] != 0 ? 1 : 0;
+   l.offTargetCount = x[ISC_LABEL_OFFTARGET_COUNT] != 0 ? 1 : 0;
+   if (isc::LabelNotImplemented(l)) return -2;
+   if (isc::ValidateLabel(l)) return -1;
+   try {
+      return w->w.SetLabel(structure, l) ? 0 : -1;
+   } catch (...) {
+      return -1;
+   }
 }
+
+namespace {
+void WriteEventRow(const isc::WorldEvent& e, double* o)
+{
+   o[0] = e.x; o[1] = e.y; o[2] = e.z; o[3] = e.tOn; o[4] = e.tOff; o[5] = e.brightness; o[6] = e.id;
+   o[7] = e.structure; o[8] = e.state; o[9] = e.aux;
+}
+} // namespace
 
 int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                              double zMin, double zMax, double t0, double t1, double* out, int32_t cap)
@@ -211,11 +268,23 @@ int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, doubl
       e.clear();
       w->w.EventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
       if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) {
-         double* o = out + i * ISC_EVENT_STRIDE;
-         o[0] = e[i].x; o[1] = e[i].y; o[2] = e[i].z;
-         o[3] = e[i].tOn; o[4] = e[i].tOff; o[5] = e[i].brightness; o[6] = e[i].id;
-      }
+      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
+      return (int32_t)e.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                 double zMin, double zMax, double tMin, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || std::isnan(tMin) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::WorldEvent>& e = w->events;
+      e.clear();
+      w->w.ContinuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin, e);
+      if (e.size() > (size_t)INT32_MAX) return -1;
+      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
       return (int32_t)e.size();
    } catch (...) {
       return -1;
@@ -308,15 +377,15 @@ int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double x1, doub
 }
 
 int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
-                                int32_t nx, int32_t ny, int32_t nz, int32_t populations, float* out)
+                                int32_t nx, int32_t ny, int32_t nz, int32_t structureMask, float* out)
 {
-   if (!w || BadRect(x0, y0, x1, y1) || nx <= 0 || ny <= 0 || nz <= 0 || !out || populations < 0 ||
-       (populations & ~(ISC_POP_BLEACHING | ISC_POP_PERSISTENT)) != 0 || !(zMax > zMin) ||
+   if (!w || BadRect(x0, y0, x1, y1) || nx <= 0 || ny <= 0 || nz <= 0 || !out || structureMask < 0 ||
+       (structureMask & ~((1 << ISC_STRUCT_COUNT) - 1)) != 0 || !(zMax > zMin) ||
        (nz > 1 && (!std::isfinite(zMin) || !std::isfinite(zMax))))
       return -1;
    if ((double)nx * ny * nz > 2.0e9) return -1;
    try {
-      const long n = w->w.Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, (unsigned)populations, out);
+      const long n = w->w.Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, (unsigned)structureMask, out);
       return n > INT32_MAX ? -1 : (int32_t)n;
    } catch (...) {
       return -1;

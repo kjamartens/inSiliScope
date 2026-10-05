@@ -109,7 +109,7 @@
   #canvasHost.xz #legend,#canvasHost.xz #movie{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
-  #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
+  #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie a{color:#8bb8e8}
   #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
@@ -157,12 +157,13 @@
       <span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
       <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
-      <span class="sw" style="background:#ff4d4d;margin-left:10px"></span>dye
+      <span class="sw" id="dyeSwatch" style="background:#ff4d4d;margin-left:10px"></span>dye
       <span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid
     </div>
   </div>
 </div>
 
+<script src="dye_library.js"></script>
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
@@ -183,10 +184,128 @@
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
 // This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
 // from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
-const { UI_GROUPS, UI_STYLES } = (() => {
+const { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
-const SR = () => modality() === 0, WF = () => modality() === 1, BF = () => modality() === 2;
+const FL = () => modality() === 0, BF = () => modality() === 1;
+// ---- the dye library (web/dye_library.js, generated from data/dyes by tools/gen_dye_library.mjs) ----
+const DD = self.ISC_DYE_DATA;
+const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
+const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
+// The dye a structure's choice means: a library dye or a user dye's source dye.
+const choiceDye = v => (+v < ND ? DD.dyes[+v] : sourceOf(+v - ND + 1));
+// User dyes (Custom dyes group): the engine's dye slots dye1..dye3 (FluoParam_DyeN_*), none until the user adds one.
+// Each has a name and a default mode (viewer only: the movie gets mt-mode = that mode when the structure's mode is
+// "the dye's default") and every dye field, whatever the mode; a structure picks one by name in its Dye select.
+const N_USER_DYES = 3;
+const USER_DYES = {
+  added: [false, false, false],
+  isUser: v => +v >= ND,
+  slot: v => +v - ND + 1,
+  name: n => ($('ud' + n + '-name') ? $('ud' + n + '-name').value.trim() : '') || 'Dye ' + n,
+  modeIndex: n => +$('ud' + n + '-mode').value,
+};
+const mtChoice = () => ($('mv_mt-dye') ? $('mv_mt-dye').value : String(dyeIndex(DD.dyeDefault.dye)));
+const mtMode = () => {
+  const m = $('mv_mt-mode') ? +$('mv_mt-mode').value : -1, v = mtChoice();
+  if (m >= 0) return MODE_NAMES[m];
+  return USER_DYES.isUser(v) ? MODE_NAMES[USER_DYES.modeIndex(USER_DYES.slot(v))] : choiceDye(v).defaultMode;
+};
+const inMode = (...modes) => () => FL() && modes.includes(mtMode());
+// The Dye select lists the library dyes with data for the structure's mode (every dye runs in every mode, on generic
+// values where the library has none; those are not offered); the user dyes are listed whatever the mode.
+const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
+const firstDyeFor = m => { const i = DD.dyes.findIndex(d => d.defaultMode === m); return i >= 0 ? i : DD.dyes.findIndex((d, j) => dyeHasMode(j, m)); };
+function filterMtDyes() {
+  const sel = $('mv_mt-dye'), m = mtMode();
+  for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
+}
+// Shows the added user dyes in the structures' Dye select (by name), hides the others, and moves a structure off a
+// removed one (to the default library dye).
+function refreshUserDyes() {
+  const sel = $('mv_mt-dye');
+  for (let n = 1; n <= N_USER_DYES; n++) {
+    const o = sel.querySelector('option[value="' + (ND + n - 1) + '"]');
+    o.hidden = o.disabled = !USER_DYES.added[n - 1];
+    o.textContent = USER_DYES.name(n) + ' (custom)';
+  }
+  $('addUserDye').disabled = USER_DYES.added.every(Boolean);
+  if (USER_DYES.isUser(sel.value) && !USER_DYES.added[USER_DYES.slot(sel.value) - 1]) {
+    sel.value = String(dyeIndex(DD.dyeDefault.dye));
+    sel.dispatchEvent(new Event('input', { bubbles: true }));
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+// Dye fields (the option suffixes of mt-dye.<field> / dye<N>.<field>): label, unit, tip, value of a dye in a mode,
+// the modes it applies to (null = all). Picking a dye or a mode loads these rows from the library; edit them after.
+const DYE_FIELD_ROWS = [
+  ['fluorescent-pct', 'Fluorescent', '%', 'Share of the attached labels whose dye is fluorescent (maturation, photoactivation efficiency, dead dyes).', d => 100 * d.fluorescentFraction, null],
+  ['qy', 'Quantum yield', '', 'Fluorescence quantum yield of the dye (main state).', d => d.states.main.qy, null],
+  ['ext-coeff', 'Extinction ε', 'M⁻¹cm⁻¹', 'Molar extinction coefficient at the absorption peak (main state); the excitation spectrum scales it at each laser line.', d => d.states.main.extCoeff, null],
+  ['on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). dSTORM: at Dempsey et al. 2011\'s measurement intensity (0.8 kW/cm² at 640 nm, 2.2 at 561, 1.2 at 488), from their photons per cycle; it (and the dark and initial ON times) scales as 1 / excitation, so photons per blink stay as measured. The light-path readout shows the ON time now.', (d, m) => d.modes[m].onSec, ['dSTORM', 'PALM', 'DNA-PAINT']],
+  ['off-sec', 'Dark time', 's', 'dSTORM: mean spontaneous dark time between blinks (from the duty cycle; 405 nm shortens it). PALM: dark time between the blinks of a converted molecule.', (d, m) => m === 'PALM' ? d.modes[m].offSecBetweenBlinks : d.modes[m].offSec, ['dSTORM', 'PALM']],
+  ['bleach-prob', 'Bleach prob.', '/blink', 'Probability that a molecule bleaches after a blink (1 / mean switching cycles).', (d, m) => d.modes[m].bleachProb, ['dSTORM', 'PALM']],
+  ['initial-on-sec', 'Initial ON', 's', 'dSTORM: every dye starts ON and is pumped dark after an exponential time of this mean (a bright decay over the first seconds). 0 = none.', (d, m) => d.modes[m].initialOnSec, ['dSTORM']],
+  ['activation-405', '405 activation', '/s per kW/cm²', 'Activation (dSTORM: return from the dark state; PALM: photoconversion) per kW/cm² of 405 nm light.', (d, m) => d.modes[m].activation405PerKWcm2PerSec, ['dSTORM', 'PALM']],
+  ['spont-activation', 'Spontaneous act.', '/s', 'PALM: activation without 405 nm light.', (d, m) => d.modes[m].spontaneousActivationPerSec, ['PALM']],
+  ['primed', 'Primed conversion', '/s per (kW/cm²)²', 'PALM: conversion by blue priming x near-infrared light (488 + 730 nm; Turkowyd et al. 2017): rate = this x I(470-510 nm) x I(690-780 nm).', (d, m) => (d.modes[m].primed ? d.modes[m].primed.perKWcm2SqPerSec : 0), ['PALM']],
+  ['pre-photon-budget', 'Pre-state budget', 'photons', 'PALM: photons the pre (e.g. green) state emits before it bleaches (0 = never).', (d, m) => d.modes[m].prePhotonBudget || 0, ['PALM']],
+  ['kon', 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration.', (d, m) => d.modes[m].konPerMPerSec, ['DNA-PAINT']],
+  ['photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness.', (d, m) => d.modes[m].photonCV, ['dSTORM', 'PALM', 'DNA-PAINT']],
+  ['photon-budget', 'Photon budget', 'photons', 'WideField: photons a dye emits before it bleaches (exponential; 0 = never).', (d, m) => d.modes[m].photonBudget, ['WideField']],
+];
+// A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the mode's
+// suggestion (data/dyes suggestedLabelingPct: DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %); the same mode keeps them.
+let lastMtMode = DD.dyeDefault.mode;   // the panel's initial mode
+// It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
+// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
+const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() || mtMode() === 'WideField')
+  ? c.gainElectronsPerAduWideField : c.gainElectronsPerAdu);
+// The sensor in use is an EMCCD: the Sensor select, or the camera preset's type when that says "the preset's".
+const emccdChosen = () => { const t = +$('mv_camera-type').value; return t >= 0 ? t === 1 : DD.cameras[+$('mv_camera-preset').value].type === 'EMCCD'; };
+const cameraModeGain = () => { const c = DD.cameras[+$('mv_camera-preset').value]; return c.gainElectronsPerAduWideField !== undefined ? presetGain(c) : undefined; };
+const modeSuggestion = vals => {
+  const m = mtMode();
+  if (lastMtMode !== null && m !== lastMtMode) {
+    vals['mv_mt-label-pct'] = DD.suggestedLabelingPct[m];
+    if (cameraModeGain() !== undefined) vals['mv_gain'] = cameraModeGain();
+  }
+  lastMtMode = m;
+  return vals;
+};
+// A light preset as panel values: every laser (those it does not name off), the dichroic and the emission filter.
+const lightPresetValues = q => {
+  const o = {};
+  for (const nm of DD.lasers) o['mv_laser-' + nm] = q.lasers[nm] || 0;
+  o['mv_dichroic'] = DD.dichroics.findIndex(f => f.id === q.dichroic);
+  o['mv_em-filter'] = DD.emissionFilters.findIndex(f => f.id === q.emissionFilter);
+  return o;
+};
+// A dye pick or a mode change loads that dye mode's light preset.
+// In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
+const withLightPreset = (vals, d, mode) => BF() ? vals : Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
+const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
+  [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
+const dyeRows = (prefix, modeOf, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) =>
+  num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dyeIndex(DD.dyeDefault.dye)], DD.dyeDefault.mode)[prefix + k],
+    { adv, show: () => !USER_DYES.isUser(mtChoice()) && (!modes || modes.includes(modeOf())), ...extra }));
+// A user dye's fields: every dye field (any mode) plus the pre state's and, for a parametric source (Custom), the
+// spectra. Values from the source in its default mode; a field that mode lacks comes from the first mode that has it.
+// A field the source cannot take (no pre state, measured spectra) is NaN: hidden and not sent.
+const USER_FIELD_ROWS = [
+  ...DYE_FIELD_ROWS,
+  ['pre-qy', 'Pre-state QY', '', 'Quantum yield of the pre state (e.g. the green form of a photoconvertible FP).', d => d.states.pre.qy, null, d => !!d.states.pre],
+  ['pre-ext-coeff', 'Pre-state ε', 'M⁻¹cm⁻¹', 'Extinction coefficient of the pre state at its absorption peak.', d => d.states.pre.extCoeff, null, d => !!d.states.pre],
+  ['ex-peak-nm', 'Excitation peak', 'nm', 'Peak of the parametric excitation spectrum.', d => d.states.main.parametric.exPeakNm, null, d => !!d.states.main.parametric],
+  ['ex-width-nm', 'Excitation width', 'nm', 'Width of the parametric excitation spectrum.', d => d.states.main.parametric.exWidthNm, null, d => !!d.states.main.parametric],
+  ['em-peak-nm', 'Emission peak', 'nm', 'Peak of the parametric emission spectrum.', d => d.states.main.parametric.emPeakNm, null, d => !!d.states.main.parametric],
+  ['em-width-nm', 'Emission width', 'nm', 'Width of the parametric emission spectrum.', d => d.states.main.parametric.emWidthNm, null, d => !!d.states.main.parametric],
+];
+const userDyeValues = (n, d) => Object.fromEntries(USER_FIELD_ROWS.map(([k, , , , get, modes, has]) => {
+  const m = !modes || modes.includes(d.defaultMode) ? d.defaultMode : modes[0];
+  return ['mv_dye' + n + '.' + k, has && !has(d) ? NaN : +(+get(d, m)).toPrecision(6)];
+}));
 const fx = d => v => (+v).toFixed(d);
 const offIf0 = d => v => +v ? (+v).toFixed(d) : 'off';
 const pct = v => (100 * v).toFixed(1);
@@ -197,6 +316,7 @@ const num = (id, label, unit, tip, min, max, step, value, o) => ({ kind: 'number
 const check = (id, label, tip, value, o) => ({ kind: 'check', id, label, tip, value, ...o });
 const select = (id, label, tip, options, value, o) => ({ kind: 'select', id, label, tip, options, value, ...o });
 const button = (id, label, tip, o) => ({ kind: 'button', id, label, tip, ...o });
+const text = (id, label, tip, value, o) => ({ kind: 'text', id, label, tip, value, ...o });
 // min/max on one line: two number boxes (ids id+'Min', id+'Max') around a two-knob slider over [lo, hi]
 const pair = (id, label, unit, tip, lo, hi, step, vMin, vMax, o) => ({ kind: 'pair', id, label, unit, tip, lo, hi, step, vMin, vMax, ...o });
 // a UI-only select that writes its kids: presets = { name: { childId: value } }
@@ -222,7 +342,7 @@ const UI_GROUPS = [
     check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
     check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
     check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
-    check('showDyes', 'Show dyes', 'Draw the labelled dye sites of the core (red), once zoomed in far enough (≥ 120 px/µm).', false),
+    check('showDyes', 'Show dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
     check('showGrid', 'Show chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv }),
     check('showCytoContours', 'Show height contour lines', 'Draw contour lines of the cytoplasm height.', false, { adv }),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2) }),
@@ -338,25 +458,57 @@ const UI_GROUPS = [
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
 
-  { sect: 'Sample preparation', id: 'label', title: 'Labelling & fluorophore', open: true, items: [
-    preset('fluoPreset', 'Fluorophore', 'Sets labelling and blinking (the rows below) for a type of experiment. Rough starting points, not measured dye values; editing a row shows "Custom".', {
-      'Default': { labelEfficiency: 0.1, labelNonBleaching: 0, 'mv_milli-activation-rate': 10, 'mv_photons-per-sec': 7500, 'mv_on-sec': 0.05, 'mv_off-sec': 1, 'mv_bleach-prob': 1, 'mv_photon-cv': 0.5 },
-      'dSTORM-like': { labelEfficiency: 0.1, labelNonBleaching: 0, 'mv_milli-activation-rate': 2, 'mv_photons-per-sec': 50000, 'mv_on-sec': 0.03, 'mv_off-sec': 2, 'mv_bleach-prob': 0.1, 'mv_photon-cv': 0.5 },
-      'PALM-like': { labelEfficiency: 0.3, labelNonBleaching: 0, 'mv_milli-activation-rate': 1, 'mv_photons-per-sec': 20000, 'mv_on-sec': 0.03, 'mv_off-sec': 0.5, 'mv_bleach-prob': 0.5, 'mv_photon-cv': 0.6 },
-      'DNA-PAINT-like': { labelEfficiency: 0, labelNonBleaching: 0.3, 'mv_milli-activation-rate': 10, 'mv_photons-per-sec': 10000, 'mv_on-sec': 0.3, 'mv_off-sec': 1, 'mv_bleach-prob': 1, 'mv_photon-cv': 0.3 },
-    }, [
-      range('labelEfficiency', 'Bleaching', '%', 'Share of lattice sites carrying a bleaching dye. <code>SimType_CellFieldLabelingPctBleaching</code>', 0, 1, 0.005, 0.1, { fmt: pct }),
-      range('labelNonBleaching', 'Non-bleaching', '%', 'Further share of lattice sites that never bleach (DNA-PAINT-like: constant supply). <code>SimType_CellFieldLabelingPctNonBleaching</code>', 0, 1, 0.005, 0, { fmt: pct }),
-      num('mv_milli-activation-rate', 'Activation rate', '10⁻³/s', 'Rate at which each dark dye switches on, in 10⁻³ per second. <code>SimType_CellFieldMilliActivationRatePerDyePerSec</code>', 0, 1000, 1, 10, { adv, show: SR }),
-      num('mv_photons-per-sec', 'Brightness', 'ph/s', 'Photons per second a dye emits while ON. <code>FluoParam_PhotonsPerSecond</code>', null, null, 500, 7500, { adv, show: SR }),
-      num('mv_on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). <code>FluoParam_OnLifetimeSec</code>', 0.001, null, 0.01, 0.05, { adv, show: SR }),
-      num('mv_off-sec', 'Dark time', 's', 'Mean dark time between two blinks of one molecule. <code>FluoParam_OffLifetimeSec</code>', 0, null, 0.1, 1, { adv, show: SR }),
-      num('mv_bleach-prob', 'Bleach prob.', '/blink', 'Probability that a molecule bleaches after a blink: 1 = one blink per molecule, lower = a geometric number of blinks. <code>FluoParam_BlinkBleachProb</code>', 0.01, 1, 0.05, 1, { adv, show: SR }),
-      num('mv_photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness. <code>FluoParam_PhotonCV</code>', 0, null, 0.05, 0.5, { adv, show: SR }),
-    ]),
-    num('mv_wf-quantum-yield', 'Quantum yield', 'frac.', 'Fluorescence quantum yield of the dye. <code>FluoParam_WideFieldQuantumYield</code>', 0, 1, 0.05, 0.7, { show: WF, cls: 'wfRow' }),
-    num('mv_wf-extinction-coeff', 'Extinction ε', 'M⁻¹cm⁻¹', 'Molar extinction coefficient; with the excitation flux it sets how often a dye absorbs. <code>FluoParam_WideFieldExtinctionCoeff</code>', 1000, 1000000, 10000, 270000, { adv, show: WF, cls: 'wfRow' }),
-    num('mv_wf-photon-budget', 'Photon budget', 'photons', 'Photons a dye emits before it bleaches (0 = never). <code>FluoParam_WideFieldPhotonBudget</code>', 0, null, 500, 5000, { adv, show: WF, cls: 'wfRow' }),
+  { sect: 'Sample preparation', id: 'mtlabel', title: 'Microtubule label', open: true, items: [
+    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
+    select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>SimType_CellFieldMicrotubuleLabelMode</code>',
+      MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: filterMtDyes, apply: () => {
+        // A mode the dye has no data for moves the structure to that mode's dye (whose pick loads its values and preset).
+        const v = $('mv_mt-dye').value, m = mtMode();
+        filterMtDyes();
+        if (!USER_DYES.isUser(v) && !dyeHasMode(+v, m)) return { 'mv_mt-dye': firstDyeFor(m) };
+        return withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), m)), choiceDye(v), m);
+      } }),
+    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. <code>SimType_CellFieldMicrotubuleDye</code>',
+      [...DD.dyes.map((d, i) => [String(i), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
+      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
+    num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>SimType_CellFieldMicrotubuleImagerNm</code>', 0, null, 0.1, 1.43, { show: inMode('DNA-PAINT') }),
+    select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation), the only one the images use. <b>Fixed and Random are not implemented yet</b>: they are stored but change nothing (dipole emission and polarisation: future). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. <code>SimType_CellFieldMicrotubuleOrientation</code>',
+      [['0', 'Free'], ['1', 'Fixed (not implemented yet)'], ['2', 'Random (not implemented yet)']], '0', { adv, kids: [
+        num('mv_mt-orient-polar-deg', 'Polar angle', '°', 'Not implemented yet (no effect on the image). Fixed: angle of the dipole from the microtubule axis. <code>SimType_CellFieldMicrotubuleOrientPolarDeg</code>', 0, 180, 1, 90, { adv, show: () => $('mv_mt-orient').value === '1' }),
+        num('mv_mt-orient-azimuth-deg', 'Azimuth', '°', 'Not implemented yet (no effect on the image). Fixed: angle about the axis, from the radial direction. <code>SimType_CellFieldMicrotubuleOrientAzimuthDeg</code>', -180, 180, 1, 0, { adv, show: () => $('mv_mt-orient').value === '1' }),
+        num('mv_mt-wobble-deg', 'Wobble cone', '°', 'Not implemented yet (no effect on the image). Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). <code>SimType_CellFieldMicrotubuleWobbleConeDeg</code>', 0, 90, 1, 0, { adv, show: () => $('mv_mt-orient').value !== '0' }),
+      ] }),
+  ] },
+  { id: 'slots', title: 'Custom dyes', adv, items: [
+    { kind: 'html', html: '<p class="sub">Your own dyes (up to three), picked by a structure\'s Dye by their name. Each starts from a library dye; every value can be edited. <code>FluoParam_DyeN_*</code></p>' },
+    button('addUserDye', '+ Add a dye', 'Adds a custom dye (up to three) and selects it for the microtubules.', { onClick: () => {
+      const n = USER_DYES.added.indexOf(false) + 1;
+      if (n < 1) return;
+      USER_DYES.added[n - 1] = true;
+      refreshUserDyes();
+      const sel = $('mv_mt-dye');
+      sel.value = String(ND + n - 1);
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }, init: refreshUserDyes }),
+    ...[1, 2, 3].flatMap(n => {
+      const def = DD.dyes[dyeIndex(['AF647', 'mEos3.2', 'mEGFP'][n - 1])], P = 'mv_dye' + n + '.', added = () => USER_DYES.added[n - 1];
+      return [text('ud' + n + '-name', 'Name', 'The name this dye goes by in the structures\' Dye select (viewer only).', 'My dye ' + n, {
+        show: added, onInput: refreshUserDyes, kids: [
+        select(P + 'source', 'Start from', 'The library dye this one starts from (its spectra, pre state and values in its default mode); picking one loads them into the rows below, edit them after. Spectra can be edited for the parametric Custom dye. <code>FluoParam_Dye' + n + '_Source</code>',
+          DD.dyes.map((d, i) => [String(i), d.name]), String(dyeIndex(def.id)), { show: added,
+            apply: v => Object.assign(userDyeValues(n, DD.dyes[+v]), { ['ud' + n + '-mode']: MODE_NAMES.indexOf(DD.dyes[+v].defaultMode) }) }),
+        select('ud' + n + '-mode', 'Default mode', 'The mode a structure uses this dye in when its Mode is "the dye\'s default" (viewer only). The values below apply in whatever mode it is used.',
+          MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(def.defaultMode)), { show: added }),
+        ...USER_FIELD_ROWS.map(([k, label, unit, tip, , modes, has]) => num(P + k, label, unit,
+          tip + (modes ? ' (Used in ' + modes.join(', ') + '.)' : ''), 0, null, 'any', userDyeValues(n, def)[P + k],
+          { show: () => added() && (!has || has(sourceOf(n))) })),
+        button('removeUserDye' + n, 'Remove this dye', 'Removes this dye; a structure that used it goes back to the default library dye.', { show: added, onClick: () => {
+          USER_DYES.added[n - 1] = false;
+          refreshUserDyes();
+        } }),
+      ] })];
+    }),
   ] },
   { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
     num('mv_bf-n-medium', 'Medium', 'n', 'Refractive index of the medium around the cells. <code>SimType_CellFieldIndexMedium</code>', 1, 2, 0.001, 1.337, { show: BF, cls: 'bfRow' }),
@@ -366,10 +518,29 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { sect: 'Microscope', id: 'illum', title: 'Illumination', open: true, items: [
-    select('mv_modality', 'Modality', 'SuperRes renders the blinks; WideField has every labelled dye emit at once (FFT convolution per z plane, physical photophysics); BrightField is transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
-      [['0', 'SuperRes'], ['1', 'WideField'], ['2', 'BrightField']], '0'),
-    num('mv_wf-excitation-photons-per-um2-per-sec', 'Excitation', 'ph/µm²/s', 'WideField excitation photon flux at the sample. <code>FluoParam_WideFieldExcitationPhotonsPerUm2PerSec</code>', 0, null, 1e8, '4e8', { show: WF, cls: 'wfRow' }),
+  { sect: 'Microscope', id: 'illum', title: 'Illumination & light path', open: true, items: [
+    select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
+      [['0', 'Fluorescence'], ['1', 'BrightField']], '0', { show: () => false }),   // set by the Preset below (BrightField or a fluorescence preset)
+    preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>General_ImagingModality</code>, <code>Optics_Preset</code>',
+      { ...Object.fromEntries(DD.lightPresets.map(q => [q.name, { ...lightPresetValues(q), 'mv_modality': 0 }])),
+        'BrightField (lasers off)': { ...Object.fromEntries(DD.lasers.map(nm => ['mv_laser-' + nm, 0])), 'mv_modality': 1 } }, []),
+    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Optics_Laser' + nm + 'KWcm2</code>', 0, null, 'any', nm === 640 ? 1 : 0, { show: FL })),
+    num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none). <code>Optics_LaserCustomNm</code>', 0, 1000, 1, 0, { adv, show: FL, kids: [
+      num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample. <code>Optics_LaserCustomKWcm2</code>', 0, null, 'any', 0, { adv, show: FL }),
+    ] }),
+    select('mv_illum-geometry', 'Geometry', 'Illumination geometry: Epi only for now (TIRF/HILO: future). <code>Optics_IlluminationGeometry</code>', [['0', 'Epi']], '0', { adv, show: FL, kids: [
+      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv, show: FL }),
+    ] }),
+    select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
+      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, show: FL, kids: [
+        num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
+      ] }),
+    select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>Optics_EmissionFilter</code>',
+      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { adv, show: FL, kids: [
+        num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>Optics_EmissionLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+        num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>Optics_EmissionHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+      ] }),
+    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>', show: FL },
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
@@ -380,15 +551,40 @@ const UI_GROUPS = [
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
         select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>PSFParam_PsfZernikePreset</code>', ZERNIKE_PRESETS, '9'),
       ] }),
+    button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
   { id: 'camera', title: 'Camera', items: [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane. <code>General_PixelSizeNm</code>', 10, null, 5, 100, { adv }),
     num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
+    select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve and the noise values below (edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>CamParam_CameraPreset</code>',
+      DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
+        apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
+          for (const id in K) if (c[K[id]] !== undefined) o[id] = c[K[id]];
+          if (c.gainElectronsPerAdu !== undefined) o['mv_gain'] = presetGain(c);
+          o['mv_camera-type'] = c.type === 'EMCCD' ? 1 : c.type === 'sCMOS' ? 0 : -1; o.qeFlat = false; return o; },
+        kids: [
+          num('mv_qe', 'Flat QE', 'frac.', 'Ticked: a flat QE(λ) of this value is used in each dye\'s detected fraction; unticked: the camera preset\'s QE curve. Picking a camera unticks it. <code>CamParam_QuantumEfficiency</code>, <code>CamParam_QeCurve</code>', 0.01, 1, 0.01, 0.85, { adv,
+            side: { id: 'qeFlat', label: 'use', tip: 'Use the flat QE value instead of the camera\'s QE curve.', value: false } }),
+          select('mv_camera-type', 'Sensor', 'Noise model: the preset\'s, sCMOS, or EMCCD (gain register). <code>CamParam_CameraType</code>', [['-1', 'the preset\'s'], ['0', 'sCMOS'], ['1', 'EMCCD']], '-1', { adv }),
+          num('mv_read-noise', 'Read noise', 'e⁻', 'Read noise (EMCCD: before the gain). <code>CamParam_ReadNoiseElectrons</code>', 0, null, 0.1, 1.2, { adv }),
+          num('mv_gain', 'Gain', 'e⁻/ADU', 'Photoelectrons per ADU: the whole conversion from detected electrons to counts, for sCMOS and EMCCD alike (the EM gain does not scale the signal, see EM gain). The iXon preset uses 0.0066 (about 150 ADU per photoelectron) for dSTORM, PALM and DNA-PAINT and 0.1 for WideField and BrightField; a mode or BrightField change re-applies it. <code>CamParam_GainPhotonsPerADU</code>', 0.0001, null, 'any', 0.25, { adv }),
+          num('mv_offset', 'Offset', 'ADU', 'Camera offset. <code>CamParam_OffsetADU</code>', 0, null, 1, 100, { adv }),
+          num('mv_offset-std', 'Offset spread', 'ADU', 'Per-pixel offset spread. <code>CamParam_OffsetStdADU</code>', 0, null, 0.1, 0.5, { adv }),
+          num('mv_dark-per-sec', 'Dark current', 'e⁻/px/s', 'Thermal dark current. <code>CamParam_DarkCurrentElectronsPerSec</code>', 0, null, 'any', 1.03, { adv }),
+          num('mv_gain-std-pct', 'Gain spread', '%', 'Per-pixel gain spread (PRNU). <code>CamParam_GainStdPctPerPixel</code>', 0, 50, 0.1, 0.5, { adv }),
+          num('mv_read-noise-std-pct', 'Read-noise spread', '%', 'Per-pixel read-noise spread. <code>CamParam_ReadNoiseStdPctPerPixel</code>', 0, 100, 1, 20, { adv }),
+          { kind: 'html', html: '<div class="sub" id="emGainReadout"></div>', show: () => emccdChosen() },
+          num('mv_cic', 'CIC', 'e⁻/px/frame', 'EMCCD clock-induced charge. <code>CamParam_CicElectrons</code>', 0, 1, 'any', 0.002, { adv }),
+          num('mv_bit-depth', 'Bit depth', 'bits', 'EMCCD ADC bit depth. <code>CamParam_BitDepth</code>', 8, 16, 1, 16, { adv }),
+        ] }),
   ] },
   { id: 'formation', title: 'Image formation', items: [
-    num('mv_wf-upscale', 'WF upscaling', '× per px', 'WideField grid cells per camera pixel, per axis. <code>General_WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: WF, cls: 'wfRow' }),
-    num('mv_wf-plane-nm', 'WF z plane', 'nm', 'Thickness of the WideField dye planes. <code>General_WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: WF, cls: 'wfRow' }),
+    num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>General_WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
+    num('mv_wf-plane-nm', 'Mean-field z plane', 'nm', 'Thickness of the mean-field dye planes. <code>General_WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: FL }),
+    num('mv_mean-field-density-per-um2', 'Mean-field above', '/µm²', 'A continuous population renders mean-field (fast, its mean image) while more than this many of its dyes emit per µm² within the focal slab, per dye (exact windows) below. <code>General_MeanFieldDensityPerUm2</code>', 0, null, 1, 20, { adv, show: FL }),
+    num('mv_mean-field-slab-nm', 'Focal slab', 'nm', 'Thickness of that slab around the focal plane. <code>General_MeanFieldSlabNm</code>', 0, null, 50, 500, { adv, show: FL }),
+    num('mv_mean-field-max-emitters', 'Per-dye cap', 'dyes', 'A second switch to mean-field, a cost cap: a continuous population (WideField dyes, PALM pre states, the dSTORM initial ON) also renders mean-field while more than this many of its dyes are expected to emit in the whole field of view, at any depth within the Dye z range (Acquisition), not only in the focal slab. Per dye, each emitting dye costs two PSF splats, so this keeps dense, defocused populations fast. Either test is enough; populations only dim, so a movie switches at most once, from mean-field to per dye. <code>General_MeanFieldMaxEmitters</code>', 0, null, 100, 5000, { adv, show: FL }),
     range('mv_bf-quality', 'BF quality', '', 'Speed vs precision. 1: thin object, 6 condenser points; 2: 0.5 µm slices, 12 points; 3: 0.5 µm, 24 points; 4: 0.25 µm slices, 48 points (slow). Sets the source count, grid, geometry samples and slice step; picking a level resets the two overrides below. <code>General_BrightFieldQuality</code>',
       1, 4, 1, 3, { show: BF, cls: 'bfRow', valId: 'mv_bf-quality-name',
         fmt: v => v + ' ' + BF_QUALITY_NAMES[+v] + (+$('mv_bf-sources').value !== 0 || +$('mv_bf-slice-um').value !== -1 ? ' *' : ''),
@@ -404,11 +600,11 @@ const UI_GROUPS = [
     num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the playback frame time, at least 30 ms).', 1, null, 1, 50),
     num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus.', null, null, 0.1, 0.5),
     num('mv_z-range-um', 'Dye z range', 'µm', 'Only dyes within ± range/2 of the focal plane are rendered (0 = all). <code>SimType_CellFieldZRangeUm</code>', 0, null, 0.5, 7, { adv }),
-    num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame.', 0, null, 1, 0, { adv }),
+    num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame after the illumination starts. 60 s: past the dSTORM initial ON phase and the first PALM conversions, near steady state; 0 shows the start (every dSTORM dye ON).', 0, null, 1, 60, { adv }),
     button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
   ] },
 
-  { sect: '', id: 'about', title: 'About', items: [
+  { sect: 'About', id: 'about', title: 'About this viewer', items: [
     { kind: 'html', html: `<p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in Web Workers). Every cell,
       microtubule and dye is a pure function of (seed, address): pan anywhere and come back to the same structure. Cells
       are packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager adapter images. The JS prototype
@@ -422,7 +618,10 @@ const UI_GROUPS = [
 
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
-return { UI_GROUPS, UI_STYLES };
+// The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
+const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues,
+  dyeName: () => USER_DYES.isUser(mtChoice()) ? USER_DYES.name(USER_DYES.slot(mtChoice())) : choiceDye(mtChoice()).name };
+return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
 </script>
 <script id="uiPanel">
@@ -463,6 +662,11 @@ function renderEntry(e, host, g, parent) {
   } else if (e.kind === 'button') {
     row = h('div', { class: 'opt wide' });
     row.append(h('button', { id: e.id, title: e.tip }, e.label));
+  } else if (e.kind === 'text') {
+    row = h('div', { class: 'opt text' });
+    const ctl = h('div', { class: 'ctl' });
+    ctl.append(h('input', { type: 'text', id: e.id, value: e.value, maxlength: 40 }));
+    row.append(labelCell(e, e.id), ctl, h('div', { class: 'val' }));
   } else {
     row = h('div', { class: 'opt ' + e.kind });
     const ctl = h('div', { class: 'ctl' }), val = h('div', { class: 'val' });
@@ -587,13 +791,13 @@ function sync() {
     }
     if (r.kind === 'pair' && r.syncDual) r.syncDual();
     if (r.kind === 'preset') $(r.id).value = presetMatch(r);
-    if (r.row && r.kind !== 'html') r.row.style.display = isShown(r) ? '' : 'none';
+    if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
   }
   for (const G of groups) {
     const any = G.g.items.length && entries.some(r => r.group === G.g &&
       (r.kind === 'html' || isShown(r) && (level === 'advanced' || !(r.adv || G.g.adv))));
-    G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
+    G.det.style.display = any && (!G.g.show || G.g.show()) && (level === 'advanced' || !G.g.adv) ? '' : 'none';
   }
   for (const S of new Set(groups.map(G => G.sect))) S.el.style.display = S.el.textContent && S.groups.some(G => G.det.style.display !== 'none') ? '' : 'none';
   const nDiff = entries.filter(r => (r.adv || (r.group && r.group.adv)) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
@@ -601,6 +805,8 @@ function sync() {
   if (note) note.textContent = level === 'default' && nDiff ? `${nDiff} hidden advanced option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
 }
 for (const r of entries) {
+  if (r.kind === 'button' && r.onClick) $(r.id).addEventListener('click', () => { r.onClick(); sync(); });
+  if (r.onInput) $(r.id).addEventListener('input', r.onInput);
   if (!r.id || r.kind === 'button' || r.kind === 'html') continue;
   const ids = r.kind === 'pair' ? [r.id + 'Min', r.id + 'Max'] : [r.id];
   for (const id of ids) {
@@ -616,6 +822,7 @@ for (const r of entries) {
     el.addEventListener('change', sync);
   }
 }
+for (const r of entries) if (r.init) r.init();
 
 // ---- hamburger menu: level, style, expand/collapse ----
 const menu = $('menu'), menuBtn = $('menuBtn');
@@ -776,7 +983,7 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
- 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
+ 'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'showWfSlice', 'wfSumZ', 'showSrFrames', 'showSrFramesLoc', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
@@ -845,9 +1052,16 @@ function params() {
     mtMinTurnRadius: Math.max(0, +els.mtMinTurnRadius.value),
     mtMinSeparation: +els.mtMinSeparation.value,
     mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
-    labelEfficiency: +els.labelEfficiency.value,
-    labelNonBleaching: +els.labelNonBleaching.value,
   };
+}
+// The structures' labels as the world needs them for its dyes (issue 16): one per structure (microtubules), the
+// labelled site fraction and the fluorescent fraction of the dye in use (World.setLabels / isc_world_set_label).
+function labelsForDyes() {
+  const v = +document.getElementById('mv_mt-dye').value, nd = ISC_DYE_DATA.dyes.length;
+  const ffEl = document.getElementById(v < nd ? 'mv_mt-dye.fluorescent-pct' : 'mv_dye' + (v - nd + 1) + '.fluorescent-pct');
+  const base = v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
+  return [{ density: Math.min(1, Math.max(0, +document.getElementById('mv_mt-label-pct').value / 100)),
+    fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d' }];
 }
 
 // Display-only settings of the View group: never part of params(), which keys the worlds and the cell assets.
@@ -1908,15 +2122,15 @@ function drawXZWith(vis, p, F, cam) {
 // Results are cached on the main thread (`packCache`, `assets`, `dyeCache`); draw()
 // only ever READS them, so a pan never waits on the generator. ?nw (or workers that
 // cannot start) runs the same engine on the main thread instead.
-const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
+const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
-// core params); every answer is a pure function of those and the request.
+// core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 9) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 9');
+  if (M._isc_abi_version() !== 10) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 10');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
-  let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0, kinKey = '';
+  let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
   // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
   // dye worker never packs a block the pack worker already did; reset with the world.
   let injected = new Set();
@@ -1935,9 +2149,33 @@ function iscEngine(M) {
     if (world) M._isc_world_free(world);
     world = M._isc_world_new(seed >>> 0, pp);
     M._isc_params_free(pp);
-    worldKey = keyOf(); kinKey = '';
+    worldKey = keyOf();
     injected = new Set();
+    labelKey = '';
     return world;
+  }
+  // The labels a job carries on the world (isc_world_set_label, ABI 10): a sites job's {density, fluorescentFraction}
+  // per structure (which dyes there are; the rest stays the default), or an events job's whole label (dyes.js
+  // makeLabel: mode, kinetics, pre state, orientation; scope_movie.js scopeLabels, as the movie has it).
+  let labelKey = '';
+  const LABEL_MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'], ORIENT_MODES = ['Free', 'Fixed', 'Random'];
+  function labelVector(l) {
+    if (!l.mode) return [l.density, l.fluorescentFraction];
+    const k = l.kinetics, o = l.orientation;
+    return [l.density, l.fluorescentFraction, LABEL_MODES.indexOf(l.mode), k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb,
+      k.photonCV, k.initialOnSec || 0, l.preState ? 1 : 0, ORIENT_MODES.indexOf(o.mode), o.polarDeg, o.azimuthDeg, o.wobbleDeg, 0, 0];
+  }
+  function useLabels(w, labels) {
+    if (!labels) return;
+    const vs = labels.map(labelVector), key = vs.map(v => v.join(',')).join('|');
+    if (key === labelKey) return;
+    const v = M._malloc(8 * 16);
+    vs.forEach((x, s) => {
+      M.HEAPF64.set(x, v / 8);
+      if (M._isc_world_set_label(w, s, v, x.length) !== 0) console.warn('isc_world_set_label rejected', labels[s]);
+    });
+    M._free(v);
+    labelKey = key;
   }
   // core/src/world.cpp CellReachUm: how far a cell's footprint can reach from its home chunk.
   function cellReachUm(p) {
@@ -1987,7 +2225,19 @@ function iscEngine(M) {
   // in WASM (isc_wf_begin), its job on the GPU, the frames back in WASM. Any
   // GPU failure falls back to the CPU images (logged). Resolves like handle().
   let wfHost = null;
-  async function wfGpuMovie(d) {
+  // The movie's per-frame progress (Module.onMovieProgress, called from the C++ every 150 ms) as the lab
+  // engine's 'movie-progress' messages: which backend drew each frame (issue 16).
+  function progressTo(d, post) {
+    M.onMovieProgress = post && !d.prepare ? (stage, frac, detail) => {
+      let info = null;
+      try { info = JSON.parse(detail); } catch (e) { /* none */ }
+      post({ type: 'movie-progress', id: d.id, stage, frac, info });
+    } : null;
+  }
+  // A fluorescence movie whose continuous populations start mean-field: each mean-field scene's convolution
+  // on WebGPU (web/wf_gpu.js; none: no GPU work), the frames in WASM. Any GPU failure falls back to the CPU
+  // images (logged). Resolves like handle().
+  async function wfGpuMovie(d, post) {
     const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(24), err = M._malloc(512);
     M.stringToUTF8(d.spec, s, n);
     const t0 = performance.now();
@@ -1995,19 +2245,28 @@ function iscEngine(M) {
     const h = M._isc_wf_begin(s, err, 512);
     if (h < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
     else {
+      const scenes = M._isc_wf_scenes(h);
       try {
-        if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
-        const host = await wfHost, job = host && self.IscWfGpu.jobFromModule(M, h);
-        if (!job) throw new Error(host ? 'the scene does not fit the GPU kernels' : 'no WebGPU adapter');
-        const imgs = await host.images(job), cs = job.cw * job.ch;
-        img = M._malloc(Math.max(4, imgs.length * cs * 4));
-        imgs.forEach((a, c) => M.HEAPF32.set(a, img / 4 + c * cs));
-        if (M._isc_wf_set_images(h, img) !== 0) throw new Error('images rejected');
-        gpu = host.adapterInfo || 'WebGPU';
+        if (scenes > 0) {
+          if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
+          const host = await wfHost;
+          for (let i = 0; i < scenes; i++) {
+            M._isc_wf_select(h, i);
+            const job = host && self.IscWfGpu.jobFromModule(M, h);
+            if (!job) throw new Error(host ? 'the scene does not fit the GPU kernels' : 'no WebGPU adapter');
+            const imgs = await host.images(job), cs = job.cw * job.ch;
+            if (img) M._free(img);
+            img = M._malloc(Math.max(4, imgs.length * cs * 4));
+            imgs.forEach((a, c) => M.HEAPF32.set(a, img / 4 + c * cs));
+            if (M._isc_wf_set_images(h, img) !== 0) throw new Error('images rejected');
+          }
+          gpu = host.adapterInfo || 'WebGPU';
+        }
       } catch (e) {
-        console.warn('WideField on the CPU:', e.message || e);
+        console.warn('mean-field images on the CPU:', e.message || e);
         M._isc_wf_cpu_images(h, 0);
       }
+      progressTo(d, post);
       const need = M._isc_wf_movie(h, 0, 0, info, err, 512);
       if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
       else {
@@ -2015,18 +2274,40 @@ function iscEngine(M) {
         const got = M._isc_wf_movie(h, out, need, info, err, 512);
         if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
-          w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: 0,
-          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu };
+          w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3],
+          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu: scenes > 0 ? gpu : undefined };
       }
+      M.onMovieProgress = null;
       M._isc_wf_end(h);
     }
     for (const ptr of [s, info, err, out, img]) if (ptr) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
   }
   return {
-    // Returns [message, transferList].
-    handle(d) {
-      const w = d.type === 'movie' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+    // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
+    handle(d, post) {
+      const w = d.type === 'movie' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      if (d.type === 'psf') {
+        // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        let out = 0, res;
+        const need = M._isc_scope_psf_preview ? M._isc_scope_psf_preview(s, 0, 0, info, err, 512) : -2;
+        if (need === -2) res = { type: 'psf', id: d.id, error: 'this viewer module has no PSF preview (regenerate web/insiliscope_module.js)' };
+        else
+        if (need < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          out = M._malloc(Math.max(4, need * 4));
+          if (M._isc_scope_psf_preview(s, out, need, info, err, 512) < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            const v = M.HEAPF64.slice(info / 8, info / 8 + 7), size = v[2], nz = v[3], cam = v[4], np = nz * size * size;
+            res = { type: 'psf', id: d.id, gaussian: v[0] === 1, oversampling: v[1], size, nz, camSize: cam, zStepNm: v[5], lambdaNm: v[6],
+              planes: M.HEAPF32.slice(out / 4, out / 4 + np), cams: M.HEAPF32.slice(out / 4 + np, out / 4 + need) };
+          }
+        }
+        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
+        return [res, res.planes ? [res.planes.buffer, res.cams.buffer] : []];
+      }
       if (d.type === 'block') {
         // One packing block (8x8 chunks) for the page's scheduler, on whichever worker is free: the
         // page keeps the rows (for the cell and dye jobs' worlds and its local storage).
@@ -2073,23 +2354,29 @@ function iscEngine(M) {
       }
       if (d.type === 'sites') {
         inject(w, d.blocks);
+        useLabels(w, d.labels);
         const [x0, y0, x1, y1] = d.rect;
-        const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
+        // x, y, z, id, structure per dye (ABI 10)
+        const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 5, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
       if (d.type === 'events') {
-        // The blinks (x, y, z, tOn, tOff, brightness, id) of the labelled dyes in a box and time window, with the
-        // movie's kinetics (d.kin: activation rate /s, ON s, dark s, bleach probability, brightness CV): the SMLM
-        // localizations' ground truth (the data layers).
+        // The blinks of the fluorescent dyes in a box and time window under the movie's labels (d.labels: one whole
+        // label per structure, scopeLabels'), as x, y, z, tOn, tOff, brightness, id (7 per blink, of the core's
+        // ISC_EVENT_STRIDE 10): the SMLM localizations' ground truth (the data layers).
         inject(w, d.blocks);
-        const k = d.kin, kk = [k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb, k.photonCV].join(',');
-        if (kk !== kinKey) { M._isc_world_set_kinetics(w, k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb, k.photonCV); kinKey = kk; }
+        useLabels(w, d.labels);
         const [x0, y0, x1, y1] = d.rect;
-        const events = query((ptr, cap) => M._isc_events_in_window(w, x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1, ptr, cap), 7, 65536);
+        const raw = query((ptr, cap) => M._isc_events_in_window(w, x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1, ptr, cap), 10, 65536);
+        const n = raw.length / 10, events = new Float64Array(7 * n);
+        for (let i = 0; i < n; i++) events.set(raw.subarray(10 * i, 10 * i + 7), 7 * i);
         return [{ type: 'events', id: d.id, events }, [events.buffer]];
       }
-      if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
-        return wfGpuMovie(d);
+      // A fluorescence movie with WebGPU at hand: its mean-field populations (WideField labels, PALM pre states, the
+      // dSTORM initial ON; issue 16) convolve on the GPU.
+      if (d.type === 'movie' && !d.prepare && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec) && self.IscWfGpu &&
+          self.ISC_WF_WGSL && !d.noGpu)
+        return wfGpuMovie(d, post);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
       if (d.type === 'bf-begin') {
         // The movie worker's first half: the world and the scene with the per-source propagation
@@ -2178,7 +2465,9 @@ function iscEngine(M) {
         if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {
           out = M._malloc(Math.max(2, need * 2));   // prepare=1: need is 0, the call still has to run
+          progressTo(d, post);
           const got = M._isc_scope_movie(s, out, need, info, err, 512);
+          M.onMovieProgress = null;
           if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
           else {
             const frames = M.HEAPU16.slice(out / 2, out / 2 + need);
@@ -2208,7 +2497,7 @@ function genWorkerMain() {
       start(createInsiliscope(opts).then(M => iscEngine(M)));
       return;
     }
-    ready.then(eng => Promise.resolve(eng.handle(d))).then(([out, transfer]) => {
+    ready.then(eng => Promise.resolve(eng.handle(d, m => postMessage(m)))).then(([out, transfer]) => {
       postMessage(out, transfer);
     }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
   };
@@ -2265,6 +2554,8 @@ function initGenWorkers() {
       const t = e.data.type;
       if (t === 'movie') onMovieResult(e.data);
       else if (t === 'events') onEventsResult(e.data);
+      else if (t === 'movie-progress') onMovieProgress(e.data);
+      else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
@@ -2395,7 +2686,7 @@ function blocksOfRect(p, [x0, y0, x1, y1]) {
   for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
   return out;
 }
-const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$|labelNonBleaching$)/;
+const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -2524,7 +2815,7 @@ function onBlockResult(d) {
 const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
 const assets = new Map();
 const assetInflight = new Map(); // key -> sig
-const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$|labelEfficiency$|labelNonBleaching$)/;
+const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$)/;
 function assetSig(seed, p) {
   const o = [seed];
   for (const k in p) if (!ASSET_SIG_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -2693,6 +2984,7 @@ function renderFrame(st, target) {
   const coreCount = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
   const pxPerUm = cam.S;
   const bg = useGl ? ctxBase : ctxTop;
+  IscScene.setDyeColor(labelsForDyes()[0].color);   // the dye layer's theme colour: the dye's emission
   const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
     mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null,
@@ -2949,7 +3241,7 @@ function cellBounds(key) {
 let pickHandler = null;   // a one-shot click on the view picks a cell (the editor's "Pick on map")
 window.iscScene = {
   registry: IscScene.REGISTRY, themes: IscScene.THEMES, canvas: cv,
-  stateFromUI, renderFrame, captureFrame, frameRect, pickCell, nearestCell, cellBounds, requestDraw,
+  stateFromUI, renderFrame, captureFrame, frameRect, pickCell, nearestCell, cellBounds, requestDraw, layerNote,
   hasGl: () => useGl,
   // the packed cells around the view are all in (so "the cell nearest the centre" will not change)
   packingIdle: () => packingIdle(),
@@ -3104,8 +3396,8 @@ els.prevCell.addEventListener('click', () => {
 syncCellButtons();
 
 // ---- dyes -----------------------------------------------------------------------
-// The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip, linker; labelEfficiency of the
-// sites) of the detailed cells. Fetched by the dye worker for a window -- the view (the main view, once zoomed in
+// The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip, linker; the label's site and
+// fluorescent fractions, in the dye's emission colour) of the detailed cells. Fetched by the dye worker for a window -- the view (the main view, once zoomed in
 // far enough that it holds a drawable number of them) or the detailed cells' box (an animation frame), padded by
 // DYE_PAD each side -- and reused while the window holds the one needed; then kept to the detailed cells'
 // footprints (selectDyes). Drawn on the GPU (the points program: clipped and depth-tested like the rest of the
@@ -3117,7 +3409,7 @@ let dyeCache = null;    // {key, rect, sites, id}
 let dyePending = null;  // {id, key, rect}
 let dyeId = 0;
 let dyeSel = null;      // {key, ox, oy, pts: Float32Array (x - ox, y - oy, z, 0 per dye), n}
-function dyeKey(seed, p) { return assetSig(seed, p) + '|' + p.labelEfficiency + '|' + p.labelNonBleaching; }
+function dyeKey(seed, p) { const l = labelsForDyes()[0]; return assetSig(seed, p) + '|' + l.density + '|' + l.fluorescentFraction; }
 function onDyeResult(e) {
   const d = e.data;
   if (!dyePending || d.id !== dyePending.id) return;
@@ -3174,7 +3466,8 @@ function selectDyes(c, cells, key) {
 // Makes sure the right window is cached or on its way, keeps the selection (and its GPU copy) current and draws the
 // x-z marks; returns a HUD note ('' if none).
 function updateDyes(seed, p, F, vis) {
-  const cam = F.cam, st = F.st;
+  const cam = F.cam, st = F.st, dyeColor = labelsForDyes()[0].color;
+  document.getElementById('dyeSwatch').style.background = dyeColor;
   if (st.ui && cam.S < DYE_MIN_PX_PER_UM) { dyeSel = null; return 'zoom in to show dyes'; }
   const limit = (st.scope || 'all') !== 'all' || (st.detailCells === undefined ? 5 : st.detailCells) > 0;
   const cells = limit ? vis.filter(v => v.detailed) : null;
@@ -3194,9 +3487,9 @@ function updateDyes(seed, p, F, vis) {
     const rect = [r[0] - px, r[1] - py, r[2] + px, r[3] + py];
     if (genWorkers.ok) {
       dyePending = { id: ++dyeId, key, rect };
-      genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p, blocks: blocksForRect(p, rect) });
+      genWorkers.dyes.postMessage({ type: 'sites', id: dyePending.id, key, rect, seed, p, labels: labelsForDyes(), blocks: blocksForRect(p, rect) });
     } else if (mainEngine) {
-      const [d] = mainEngine.handle({ type: 'sites', id: 0, key, rect, seed, p });
+      const [d] = mainEngine.handle({ type: 'sites', id: 0, key, rect, seed, p, labels: labelsForDyes() });
       dyeCache = { key, rect, sites: d.sites, id: --dyeId };
     }
   }
@@ -3233,7 +3526,7 @@ function updateDyes(seed, p, F, vis) {
       path.rect(sx - 0.6, z0 - z * S - 0.6, 1.2, 1.2);
       drawn++;
     }
-    ctxXZ.fillStyle = '#ff4d4d';
+    ctxXZ.fillStyle = dyeColor;
     if (drawn) ctxXZ.fill(path);
   }
   return note || `${dyeSel.n} dyes`;
@@ -3268,12 +3561,13 @@ function drawDyes2D(F) {
 // camera's precomputed CellField stack pipeline: its PSF, sCMOS noise), in
 // the dye worker, on the viewer's world (same seed and params). Shown in a small
 // player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
-const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
-  'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'background-per-sec', 'seed', 'modality',
-  'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
-  'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset', 'bf-quality', 'bf-sources', 'bf-slice-um',
-  'bf-condenser-na', 'bf-wavelength-nm', 'bf-photons-per-px-per-sec', 'bf-absorption-per-um', 'bf-n-medium',
-  'bf-n-cytoplasm', 'bf-n-nucleus', 'bf-n-microtubule'];
+// Every mv_<option> control of the panel (UI_GROUPS) is a movie option: its id without the mv_ prefix.
+const MOVIE_KEYS = (() => {
+  const out = [];
+  const walk = e => { if (/^mv_/.test(e.id || '') && ['range', 'number', 'select'].includes(e.kind)) out.push(e.id.slice(3)); (e.kids || []).forEach(walk); };
+  UI_GROUPS.forEach(g => g.items.forEach(walk));
+  return out;
+})();
 // The PSF kernel's half width: 3 um here instead of the adapter's 7 um keeps
 // the kernel stack ~75 MB instead of ~400 MB in the worker's WASM memory. The
 // cli reproduces a viewer movie with --psf-kernel-half-width-nm 3000.
@@ -3283,7 +3577,21 @@ let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0,
 // ov: values that replace the panel's (any MOVIE_KEYS key, x, y): the data layers' z-stacks.
 function movieSpec(ov) {
   const p = params(), o = [], has = k => ov && ov[k] !== undefined;
-  for (const k of MOVIE_KEYS) o.push(k + '=' + (has(k) ? +ov[k] : +document.getElementById('mv_' + k).value));
+  // A custom dye (USER_DYES): its own fields are the dye, so the structure's per-field rows are not sent; a slot the
+  // user has not added is not sent at all; the structure's "dye's default" mode is the custom dye's default mode.
+  const mtDye = +document.getElementById('mv_mt-dye').value, userSlot = USER_DYES.isUser(mtDye) ? USER_DYES.slot(mtDye) : 0;
+  for (const k of MOVIE_KEYS) {
+    let v = has(k) ? ov[k] : document.getElementById('mv_' + k).value;
+    if (v === '' || !Number.isFinite(+v)) continue;   // a dye field that does not apply to the dye's mode
+    const slot = /^dye(\d)\./.exec(k);
+    if (slot && !USER_DYES.added[+slot[1] - 1]) continue;
+    if (userSlot && k.startsWith('mt-dye.')) continue;
+    if (userSlot && k === 'mt-mode' && +v < 0) v = USER_DYES.modeIndex(userSlot);
+    o.push(k + '=' + (+v));
+  }
+  if (ov) for (const k in ov) if (k !== 'x' && k !== 'y' && !MOVIE_KEYS.includes(k)) o.push(k + '=' + (+ov[k]));
+  // The flat QE checkbox (Camera): the Custom camera's flat curve at mv_qe; unticked, the preset's curve (qe-curve -1).
+  if (document.getElementById('qeFlat').checked) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
   o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
@@ -3291,7 +3599,8 @@ function movieSpec(ov) {
 }
 // The PSF settings a movie's kernel depends on (the worker memoizes the last two kernels).
 function moviePsfKey() {
-  return ['psf-model', 'psf-zernike-preset', 'pixel-nm'].map(k => document.getElementById('mv_' + k).value).join();
+  return ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset']
+    .map(k => document.getElementById('mv_' + k).value).join() + ',' + document.getElementById('qeFlat').checked;
 }
 // PSF kernel preload: the movie worker computes the kernel of the current PSF settings when the
 // workers come up and whenever those settings change (as the adapter does at Initialize), so a
@@ -3315,7 +3624,7 @@ let bfSplit = null;   // {id, job, h, t0, P, sources, want, got: Map(source -> F
 function bfSplitWanted() {
   // Quality 1 (6 sources, one thin screen) is as quick on one worker as the hand-out costs.
   const bigEnough = +document.getElementById('mv_bf-quality').value >= 2 || +document.getElementById('mv_bf-sources').value >= 12;
-  return document.getElementById('mv_modality').value === '2' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough &&
+  return document.getElementById('mv_modality').value === '1' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough &&
     !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
 }
 function cancelBfSplit() {
@@ -3367,11 +3676,33 @@ function makeMovie() {
   const psfKey = moviePsfKey();
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
   moviePsfSeen.add(psfKey);
-  document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
+  document.getElementById('mv_make').textContent = (newPsf ? 'Computing PSF, ' : '') + movieBackendsText();
   job.t0 = performance.now();
   if (bfSplitWanted()) { bfSplit = { id: job.id, job, h: -1 }; genWorkers.dyes.postMessage({ type: 'bf-begin', id: job.id, spec }); }
   else if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
+}
+// What a movie will render with (shown on the button while it runs; the worker then reports frame by frame):
+// the SMLM splat for blinks, mean-field (FFT) or per dye for continuous populations, the transmitted-light engine.
+function movieBackendsText() {
+  if (document.getElementById('mv_modality').value === '1') return 'Rendering BrightField (transmitted light)…';
+  const v = +document.getElementById('mv_mt-dye').value, dye = choiceDyeOf(v), m = +document.getElementById('mv_mt-mode').value;
+  const user = USER_DYES.isUser(v) ? USER_DYES.slot(v) : 0, MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+  const mode = m >= 0 ? MODES[m] : user ? MODES[USER_DYES.modeIndex(user)] : dye.defaultMode;
+  const name = user ? USER_DYES.name(user) : dye.name;
+  const parts = { dSTORM: 'SMLM blinks + initial ON (mean-field or per dye)', PALM: 'SMLM blinks' + (dye.states.pre ? ' + pre state (mean-field or per dye)' : ''),
+    'DNA-PAINT': 'SMLM blinks + imager background', WideField: 'WideField dyes (mean-field or per dye)' }[mode];
+  return `Rendering ${name} ${mode}: ${parts}…`;
+}
+function choiceDyeOf(v) {
+  const nd = ISC_DYE_DATA.dyes.length;
+  return v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
+}
+function onMovieProgress(d) {
+  if (!moviePending || d.id !== moviePending.id) return;
+  const b = document.getElementById('mv_make');
+  if (d.stage === 'psf') b.textContent = `Computing PSF ${Math.round(100 * d.frac)} %…`;
+  else if (d.stage === 'frames' && d.info) b.textContent = `Frame ${d.info.frame + 1}/${d.info.frames}: ${d.info.backends.join(' · ') || 'background only'}`;
 }
 function onMovieResult(d) {
   const sj = stackJobs.get(d.id);
@@ -3392,14 +3723,16 @@ function onMovieResult(d) {
   d.lo = sample[Math.floor(sample.length * 0.001)];
   d.hi = Math.max(d.lo + 1, sample[Math.min(sample.length - 1, Math.floor(sample.length * 0.999))]);
   movie = d;
+  document.getElementById('mv_save').style.display = '';
   const cvm = document.getElementById('mv_cv');
   cvm.width = d.w; cvm.height = d.h;
   const scale = Math.max(1, Math.floor(384 / Math.max(d.w, d.h)));
   cvm.style.width = d.w * scale + 'px'; cvm.style.height = d.h * scale + 'px';
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
-  const what = /(^| )modality=2( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})` : d.dyes > 0 ? `WideField${d.gpu ? ' (' + (d.gpu === 'CPU' ? 'CPU' : 'GPU: ' + d.gpu) + ')' : ''}, ${d.dyes} dyes, t½ ${d.halfMs < 0 ? '∞' : (d.halfMs / 1000).toFixed(1) + ' s'}`
-                           : `${d.blinks} blinks`;
+  const what = /(^| )modality=1( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})`
+    : `${d.blinks} blinks${d.summary ? ', ' + d.summary : ''}` +
+      (d.gpu ? (d.gpu === 'CPU' ? ', mean-field (CPU)' : `, mean-field GPU: ${d.gpu}`) : '');
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
   document.getElementById('movie').style.display = 'block';
@@ -3412,6 +3745,7 @@ let movieImg = null, movieU32 = null, movieLut = null, movieLutKey = '';
 const PIX_LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function showMovieFrame(f) {
   const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
+  if (d.psf) { showPsfPlane(f); return; }
   if (!movieImg || movieImg.width !== d.w || movieImg.height !== d.h) {
     movieImg = g.createImageData(d.w, d.h);
     movieU32 = new Uint32Array(movieImg.data.buffer);
@@ -3483,7 +3817,7 @@ function writeTiff16(frames, w, h, n, desc) {
 }
 function saveMovieTiff(e) {
   e.preventDefault();
-  if (!movie) return;
+  if (!movie || movie.psf) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insiliscope viewer ' + movie.spec));
   a.download = `insiliscope_${movie.w}x${movie.h}x${movie.n}.tif`;
@@ -3500,7 +3834,46 @@ function saveMovieTiff(e) {
 // originX + i px (originX = x - W px / 2), of a BrightField image it starts there: texOrigin holds that half pixel.
 const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'mt.srFramesLoc': 'sr', 'cell.bfSlice': 'bf', 'mt.wfIso': 'wf', 'mt.locs': 'loc' };
 const SLICE_LAYERS = ['mt.wfSlice', 'mt.srFrames', 'mt.srFramesLoc', 'cell.bfSlice'];
-const DATA_MODALITY = { sr: 0, wf: 1, bf: 2 };
+// How a data layer images the cell (issue 16: modality 0 = fluorescence, every label in its mode; 1 = BrightField):
+// WideField = the structure's dye in WideField mode, SMLM = the dye in the structure's mode when that blinks, else in
+// its own default blinking mode (DNA-PAINT for a WideField-only dye); a mode other than the panel's brings that dye
+// mode's light preset. The panel's labelling, camera and PSF stay.
+const BLINK_MODES = ['dSTORM', 'PALM', 'DNA-PAINT'];
+function dataMode(kind) {
+  if (kind === 'bf') return null;
+  const m = DYE_UI.mtMode(), dye = DYE_UI.dye();
+  if (kind === 'wf') return 'WideField';
+  return BLINK_MODES.includes(m) ? m : BLINK_MODES.includes(dye.defaultMode) ? dye.defaultMode : 'DNA-PAINT';
+}
+function dataModeOv(kind) {
+  const mode = dataMode(kind);
+  if (!mode) return { modality: 1 };
+  const ov = { modality: 0 };
+  if (mode !== DYE_UI.mtMode()) {
+    ov['mt-mode'] = BLINK_MODES.concat('WideField').indexOf(mode);   // MODE_NAMES order: dSTORM, PALM, DNA-PAINT, WideField
+    const q = ISC_DYE_DATA.lightPresets.find(q => q.id === DYE_UI.dye().modes[mode].lightPreset);
+    if (q) for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(q))) ov[k.slice(3)] = v;
+  }
+  return ov;
+}
+// What a layer shows in the legend besides its name: the dye, and the mode a data layer images it in.
+function layerNote(id) {
+  const kind = id === 'mt.dyes' ? 'dyes' : DATA_KIND[id];
+  if (!kind || kind === 'bf') return '';
+  return kind === 'dyes' ? DYE_UI.dyeName() : DYE_UI.dyeName() + ', ' + dataMode(kind === 'loc' ? 'sr' : kind);
+}
+const dataStartSec = () => Math.max(0, +document.getElementById('mv_start-sec').value || 0);
+// The world labels and photophysics an SMLM data layer's movie has (scope_movie.js scopeLabels on its spec: mode,
+// kinetics from the dye and light path, detected photons per second while ON), for the localizations' blinks; null
+// until the JS reference's modules are in (a redraw follows).
+let dataScopeSM = null;
+import('./prototype/scope/scope_movie.js').then(SM => { dataScopeSM = SM; requestDraw(); }, e => console.warn('scope_movie.js:', e));
+function dataLabelInfo(ov) {
+  if (!dataScopeSM) return null;
+  const SM = dataScopeSM, spec = SM.parseSpec(movieSpec(ov)), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
+  const L = SM.scopeLabels(spec, lp);
+  return { labels: L.map(l => l.label), detectedPerSec: L[0].states.main ? L[0].states.main.detectedPerSec : 0, mode: L[0].mode, dye: L[0].dye.name };
+}
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
 function dataParams(over) {
@@ -3520,11 +3893,12 @@ function stackPlan(kind, key, dp) {
   const nz = Math.max(2, Math.ceil((b.z[1] + 0.2) / step) + 1), zs = [];
   for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
   const F = kind === 'sr' ? dp.srFrames : 1, avg = kind === 'sr' ? 1 : dp.wfAverage, exp = (+document.getElementById('mv_exposure-ms').value || 50) / 1000;
-  const ov = { modality: DATA_MODALITY[kind], size, 'pixel-nm': px * 1000, frames: F * avg, x: cx, y: cy, z: 0, 'start-sec': 0, seed: 0 };
+  const ov = Object.assign(dataModeOv(kind), { size, 'pixel-nm': px * 1000, frames: F * avg, x: cx, y: cy, z: 0, 'start-sec': 0, seed: 0 });
   const base = movieSpec(ov).replace(/(^| )(z|start-sec|seed)=[^ ]*/g, '');
   const tex0 = kind === 'bf' ? 0 : px / 2;
   const seqT = kind === 'sr' && !!dp.sequential;
-  return { kind, key: [kind, key, step, nz, F, avg, seqT ? dp.locFrames : 0, base].join('|'), cell: key, px, size, cx, cy, zs, F, avg, exp, ov, seqT,
+  const t0 = kind === 'bf' ? 0 : dataStartSec();
+  return { kind, key: [kind, key, step, nz, F, avg, seqT ? dp.locFrames : 0, t0, base].join('|'), t0, cell: key, px, size, cx, cy, zs, F, avg, exp, ov, seqT,
     locFrames: dp.locFrames, texOx: cx - size * px / 2 - tex0, texOy: cy - size * px / 2 - tex0 };
 }
 // ---- cache: memory (LRU by bytes) and IndexedDB ----
@@ -3594,7 +3968,7 @@ function acquireStack(plan, onProgress, signal) {
       for (let p = 0; p < nz; p++) {
         if (signal && signal.aborted) throw new DOMException('cancelled', 'AbortError');
         const spec = movieSpec(Object.assign({}, plan.ov, { z: plan.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p,
-          'start-sec': plan.seqT ? p * plan.locFrames * plan.exp : 0 }));
+          'start-sec': plan.t0 + (plan.seqT ? p * plan.locFrames * plan.exp : 0) }));
         const d = await movieJob(spec);
         if (plan.avg > 1) {   // WideField / BrightField: the mean of avg frames (less shot noise on a slice)
           const o = p * P;
@@ -3635,11 +4009,12 @@ function srCrossTex(st, k, f, dp, F) {
   let ev = C.gt.get(k);
   if (ev === undefined) {
     C.gt.set(k, ev = null);
-    const mv = id => +document.getElementById('mv_' + id).value, p = params(), t0 = st.seqT ? k * st.locFrames * st.exp : 0;
+    const p = params(), t0 = (st.t0 || 0) + (st.seqT ? k * st.locFrames * st.exp : 0), info = dataLabelInfo(st.ov);
+    if (!info) { C.gt.delete(k); F.dataMissing.push('emitters'); return null; }
     const rect = [st.texOx, st.texOy, st.texOx + st.size * st.px, st.texOy + st.size * st.px];
-    eventsJob({ rect, zMin: st.zs[k] - dp.captureUm, zMax: st.zs[k] + dp.captureUm, t0, t1: t0 + st.F * st.exp, kin: movieKin(),
+    eventsJob({ rect, zMin: st.zs[k] - dp.captureUm, zMax: st.zs[k] + dp.captureUm, t0, t1: t0 + st.F * st.exp, labels: info.labels,
       seed: (+els.seed.value) | 0, p, blocks: blocksForRect(p, rect) })
-      .then(e => { C.gt.set(k, { e, t0, pps: mv('photons-per-sec') }); requestDraw(); }, () => C.gt.delete(k));
+      .then(e => { C.gt.set(k, { e, t0, pps: info.detectedPerSec }); requestDraw(); }, () => C.gt.delete(k));
   }
   if (!ev) { F.dataMissing.push('emitters'); return null; }
   const key = k + '|' + f + '|' + dp.captureUm;
@@ -3647,7 +4022,7 @@ function srCrossTex(st, k, f, dp, F) {
   const n = st.size * CROSS_UP, img = new Uint8Array(n * n), E = ev.e, fs = ev.t0 + f * st.exp, fe = fs + st.exp, ARM = 2 * CROSS_UP;
   for (let i = 0; i < E.length; i += 7) {
     const ov = Math.min(E[i + 4], fe) - Math.max(E[i + 3], fs);
-    if (ov <= 0 || Math.abs(E[i + 2] - st.zs[k]) > dp.captureUm || ev.pps * ov * E[i + 5] * 0.85 < 100) continue;
+    if (ov <= 0 || Math.abs(E[i + 2] - st.zs[k]) > dp.captureUm || ev.pps * ov * E[i + 5] < 100) continue;
     const X = Math.floor((E[i] - st.texOx) / st.px * CROSS_UP), Y = Math.floor((E[i + 1] - st.texOy) / st.px * CROSS_UP);
     for (let d = -ARM; d <= ARM; d++) {
       if (X + d >= 0 && X + d < n && Y >= 0 && Y < n) img[Y * n + X + d] = 255;
@@ -3906,12 +4281,6 @@ function drawIsoGl(F, stack, e, style, alpha) {
 }
 // ---- localizations ----
 const locStore = new Map();   // key -> {key, cell, ox, oy, locs: Float32Array stride 8, n, z0, z1, gl}
-// the movie settings' blink kinetics, as the core's events query takes them
-function movieKin() {
-  const mv = k => +document.getElementById('mv_' + k).value;
-  return { activationRatePerSec: mv('milli-activation-rate') / 1000, onSec: Math.max(1e-6, mv('on-sec')), offSec: Math.max(0, mv('off-sec')),
-    bleachProb: mv('bleach-prob'), photonCV: mv('photon-cv') };
-}
 function locPlan(key, dp) {
   const b = key && cellBounds(key);
   if (!b || !b.precise) return null;
@@ -3919,16 +4288,19 @@ function locPlan(key, dp) {
   const nz = Math.max(1, Math.ceil(b.z[1] / step) + 1), zs = [];
   for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
   const N = Math.max(1, Math.round(dp.locFrames)), seq = !!dp.sequential, mv = k => +document.getElementById('mv_' + k).value;
-  const kin = movieKin();
-  const rect = [b.x[0] - 0.5, b.y[0] - 0.5, b.x[1] + 0.5, b.y[1] + 0.5];
-  // the precision settings are those of an in-focus blink ON for a whole frame (pps x exposure x QE photons); the
-  // model scales them with 1 / sqrt(photons) and the defocused PSF width
-  const pps = mv('photons-per-sec'), qe = 0.85, sigma0 = 0.21 * 0.66 / 1.4, phRef = Math.max(1, pps * exp * qe);
-  const o = { zs, t0s: zs.map((_, p) => (seq ? p * N * exp : 0)), N, exp, capture: cap, pps, qe,
+  // the labels and photons of the SMLM data layer's movie (its mode, the dye through the light path and camera)
+  const ov = dataModeOv('sr'), info = dataLabelInfo(ov);
+  if (!info) return null;
+  const rect = [b.x[0] - 0.5, b.y[0] - 0.5, b.x[1] + 0.5, b.y[1] + 0.5], t0 = dataStartSec();
+  // the precision settings are those of an in-focus blink ON for a whole frame (detected photons/s x exposure: the
+  // light path's detected fraction includes the camera QE); the model scales them with 1 / sqrt(photons) and the
+  // defocused PSF width
+  const pps = info.detectedPerSec, qe = 1, sigma0 = 0.21 * 0.66 / 1.4, phRef = Math.max(1, pps * exp * qe);
+  const o = { zs, t0s: zs.map((_, p) => t0 + (seq ? p * N * exp : 0)), N, exp, capture: cap, pps, qe,
     sigma0, zR: 0.5, kz: dp.precZUm / dp.precXyUm, factor: dp.precXyUm * Math.sqrt(phRef) / sigma0, minPhotons: 100, seed: mv('seed') | 0, ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
-  const pk = assetSig((+els.seed.value) | 0, params()) + '|' + params().labelEfficiency + '|' + params().labelNonBleaching;
-  return { key: ['loc', key, step, cap, N, seq, JSON.stringify(kin), o.pps, o.seed, pk, dp.precXyUm, dp.precZUm, exp].join('|'), cell: key, rect, kin, o,
-    zMin: -cap, zMax: b.z[1] + cap, t1: seq ? nz * N * exp : N * exp };
+  const pk = assetSig((+els.seed.value) | 0, params());
+  return { key: ['loc', key, step, cap, N, seq, JSON.stringify(info.labels), o.pps, o.seed, pk, dp.precXyUm, dp.precZUm, exp, t0].join('|'), cell: key, rect,
+    labels: info.labels, mode: info.mode, dye: info.dye, o, zMin: -cap, zMax: b.z[1] + cap, t0, t1: t0 + (seq ? nz * N * exp : N * exp) };
 }
 const eventJobs = new Map();
 let eventJobId = 2e9;
@@ -3952,7 +4324,7 @@ function acquireLocs(plan, onProgress, signal) {
     try {
       if (onProgress) onProgress(0, 2);
       const p = params(), seed = (+els.seed.value) | 0;
-      const events = await eventsJob({ rect: plan.rect, zMin: plan.zMin, zMax: plan.zMax, t0: 0, t1: plan.t1, kin: plan.kin, seed, p,
+      const events = await eventsJob({ rect: plan.rect, zMin: plan.zMin, zMax: plan.zMax, t0: plan.t0, t1: plan.t1, labels: plan.labels, seed, p,
         blocks: blocksForRect(p, plan.rect) });
       acqStatus.set(plan.key, { done: 1, total: 2 });
       if (onProgress) onProgress(1, 2);
@@ -4063,12 +4435,12 @@ async function saveMovieVideo(e, format) {
 // px / 2), so their rect sits half a pixel below movie.rect; BrightField pixel i spans [originX + i px, + (i+1) px).
 function movieWorldRect(m) {
   const pxm = /(?:^| )pixel-nm=([0-9.eE+-]+)/.exec(m.spec || ''), px = pxm ? +pxm[1] / 1000 : 0;
-  const half = /(^| )modality=2( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
+  const half = /(^| )modality=1( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
   return [x0 - half, y0 - half, x1 - half, y1 - half];
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
-  if (!movie || document.getElementById('movie').style.display === 'none') return;
+  if (!movie || !movie.rect || document.getElementById('movie').style.display === 'none') return;
   const [x0, y0, x1, y1] = movieWorldRect(movie);
   ctx = ctxTop;
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, devicePixelRatio);
@@ -4078,7 +4450,168 @@ function drawMovieFov() {
   ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
-for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm']) document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
+for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset'])
+  document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
+// The modality (the BrightField preset) re-applies an EMCCD preset's gain: single-molecule vs WideField/BrightField.
+let lastModality = document.getElementById('mv_modality').value;
+document.getElementById('mv_modality').addEventListener('input', e => {
+  if (e.target.value === lastModality) return;
+  lastModality = e.target.value;
+  const g = cameraModeGain(), el = document.getElementById('mv_gain');
+  if (g !== undefined && +el.value !== g) { el.value = g; el.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+// EMCCD: the EM gain is not an input but follows from the gain (C++ EmGainFromGain): the preset's pre-amplifier
+// sensitivity (1 e-/ADU when it has none) / the gain per photoelectron; it divides the read noise.
+function updateEmGainReadout() {
+  const el = document.getElementById('emGainReadout');
+  if (!el) return;
+  const c = ISC_DYE_DATA.cameras[+document.getElementById('mv_camera-preset').value];
+  const preamp = c.preampElectronsPerAdu === undefined ? 1 : c.preampElectronsPerAdu, gain = +document.getElementById('mv_gain').value;
+  const em = gain > 0 ? Math.max(1, preamp / gain) : 1, rn = +document.getElementById('mv_read-noise').value;
+  el.textContent = `EM gain ${em.toFixed(0)}× = pre-amplifier ${preamp} e⁻/ADU ÷ gain; read noise ${(rn / em).toPrecision(2)} e⁻ effective`;
+}
+document.getElementById('panel').addEventListener('input', updateEmGainReadout);
+updateEmGainReadout();
+// The flat QE value applies only while its checkbox is ticked.
+const syncQeFlat = () => { document.getElementById('mv_qe').disabled = !document.getElementById('qeFlat').checked; };
+document.getElementById('qeFlat').addEventListener('input', () => { syncQeFlat(); schedulePrepare(); });
+syncQeFlat();
+// The dyes' colour, density and fluorescent fraction redraw the dye overlay.
+for (const k of ['mt-dye', 'mt-label-pct', 'mt-dye.fluorescent-pct', 'dye1.source', 'dye2.source', 'dye3.source',
+  'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
+  document.getElementById('mv_' + k).addEventListener('input', () => requestDraw());
+
+// ---- PSF preview (Objective & PSF, advanced) ----
+// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview; in lab.html the JS
+// reference's scopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
+// centre, shown in the movie player; the slider is the emitter's defocus. A job for the movie worker (it shares the
+// kernel memo with the movies and works from file:// pages), or the main-thread engine with ?nw.
+let psfJob = null, psfJobId = 0;
+function previewPsf() {
+  const b = document.getElementById('psfPreview');
+  b.textContent = 'Computing PSF…';
+  psfJob = { id: ++psfJobId, spec: movieSpec(), na: 1.4, pixelNm: +document.getElementById('mv_pixel-nm').value,
+    psf: document.getElementById('mv_psf-model').value === '0' ? 'Gaussian (no defocus)'
+      : 'Gibson-Lanni + Zernike, ' + document.getElementById('mv_psf-zernike-preset').selectedOptions[0].textContent };
+  const job = { type: 'psf', id: psfJob.id, spec: psfJob.spec };
+  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onPsfResult)).then(r => onPsfResult(r[0])), 0);
+  else { b.textContent = 'Preview PSF'; alert('PSF preview: the workers are not ready yet.'); }
+}
+function onPsfResult(d) {
+  if (!psfJob || d.id !== psfJob.id) return;
+  const b = document.getElementById('psfPreview');
+  if (d.type === 'psf-progress') { b.textContent = `Computing PSF ${Math.round(100 * d.frac)} %…`; return; }
+  if (d.type !== 'psf') return;
+  const job = psfJob;
+  psfJob = null;
+  b.textContent = 'Preview PSF';
+  if (d.error) { alert('PSF preview failed: ' + d.error); return; }
+  showPsfPreview(Object.assign(d, { title: job.psf, na: job.na, pixelNm: job.pixelNm }));
+}
+// The player shows the two panels side by side at the same scale: the kernel (os x os samples per camera pixel) and
+// the camera pixels drawn os x os each; each panel scaled to its own peak in the plane shown.
+function showPsfPreview(d) {
+  if (movieRaf) toggleMoviePlay();
+  const gap = 6, cw = d.camSize * d.oversampling;
+  movie = { psf: d, n: d.nz, w: d.size + gap + cw, h: Math.max(d.size, cw), rect: null };
+  const cvm = document.getElementById('mv_cv');
+  cvm.width = movie.w; cvm.height = movie.h;
+  const scale = Math.min(1, 768 / movie.w);
+  cvm.style.width = Math.round(movie.w * scale) + 'px'; cvm.style.height = Math.round(movie.h * scale) + 'px';
+  const sl = document.getElementById('mv_slider');
+  sl.max = d.nz - 1; sl.value = (d.nz - 1) >> 1;
+  document.getElementById('mv_save').style.display = 'none';
+  document.getElementById('mv_info').textContent = `PSF: ${d.title}, ${d.lambdaNm} nm, NA ${d.na}. ` +
+    `Left: kernel, ${d.oversampling}x oversampled (${(d.pixelNm / d.oversampling).toFixed(1)} nm); right: ${d.pixelNm} nm camera pixels, ` +
+    `emitter at a pixel centre. Each scaled to its peak.`;
+  document.getElementById('movie').style.display = 'block';
+  showMovieFrame(+sl.value);
+  requestDraw();
+}
+function showPsfPlane(f) {
+  const d = movie.psf, W = movie.w, H = movie.h, g = document.getElementById('mv_cv').getContext('2d');
+  const img = g.createImageData(W, H), u32 = new Uint32Array(img.data.buffer);
+  const grey = v => { const b = Math.max(0, Math.min(255, Math.round(255 * v))); return PIX_LE ? (0xff000000 | (b << 16) | (b << 8) | b) >>> 0 : ((b << 24) | (b << 16) | (b << 8) | 0xff) >>> 0; };
+  u32.fill(PIX_LE ? 0xff2a2018 : 0x18202aff);   // the gap and margins
+  const panel = (data, n, rep, x0) => {
+    let max = 0;
+    for (let i = 0; i < n * n; i++) if (data[i] > max) max = data[i];
+    const k = max > 0 ? 1 / max : 0, y0 = (H - n * rep) >> 1;
+    for (let y = 0; y < n * rep; y++) for (let x = 0; x < n * rep; x++)
+      u32[(y0 + y) * W + x0 + x] = grey(data[((y / rep) | 0) * n + ((x / rep) | 0)] * k);
+  };
+  panel(d.planes.subarray(f * d.size * d.size, (f + 1) * d.size * d.size), d.size, 1, 0);
+  panel(d.cams.subarray(f * d.camSize * d.camSize, (f + 1) * d.camSize * d.camSize), d.camSize, d.oversampling, d.size + 6);
+  g.putImageData(img, 0, 0);
+  const zUm = (f - (d.nz - 1) / 2) * d.zStepNm / 1000;
+  document.getElementById('mv_fno').textContent = d.gaussian ? 'in focus' : `z − focus = ${zUm >= 0 ? "+" : "−"}${Math.abs(zUm).toFixed(2)} µm`;
+}
+document.getElementById('psfPreview').addEventListener('click', previewPsf);
+
+// ---- light path: spectra plot and detection readout (issue 16) ----
+// From the JS reference's own physics (prototype/scope: scopeLightPath, scopeLabels = what a movie uses): the dye's
+// excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
+// and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
+let specMods = null, specTimer = 0;
+function scheduleSpecPlot() { clearTimeout(specTimer); specTimer = setTimeout(drawSpecPlot, 120); }
+async function drawSpecPlot() {
+  const cv2 = document.getElementById('specPlot'), out = document.getElementById('specReadout');
+  if (!cv2 || !cv2.offsetParent) return;
+  try {
+    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
+    const [SM, DL] = await specMods;
+    const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
+    const L = SM.scopeLabels(spec, lp)[0];
+    const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8, bot = H - 16;
+    const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
+    const light = document.body.dataset.uiStyle === 'light';
+    g.clearRect(0, 0, W, H);
+    g.font = '10px sans-serif'; g.fillStyle = light ? '#555' : '#aaa';
+    for (let nm = 400; nm <= 800; nm += 100) { g.fillText(String(nm), X(nm) - 9, H - 3); g.fillRect(X(nm), bot, 1, 3); }
+    const curve = (vals, style, dash, fill) => {
+      g.beginPath();
+      for (let nm = x0; nm <= x1; nm++) { const v = vals[nm - 300] || 0; if (nm === x0) g.moveTo(X(nm), Y(v)); else g.lineTo(X(nm), Y(v)); }
+      if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
+      g.setLineDash(dash || []); g.strokeStyle = style; g.lineWidth = 1.2; g.stroke(); g.setLineDash([]);
+    };
+    curve(lp.emissionFilter.T, null, null, light ? 'rgba(0,120,255,0.12)' : 'rgba(120,180,255,0.16)');
+    curve(lp.dichroic.T, light ? '#888' : '#999', [2, 2]);
+    curve(lp.qe, light ? '#bbb' : '#666', [1, 3]);
+    const col = (L.dye.states.main.emHex || '#ff4d4d');
+    for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
+      const st = L.dye.states[role];
+      if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
+      const sp = DL.stateSpectra(st), c = role === 'main' ? col : (st.emHex || '#4f4');
+      if (sp.ex) curve(sp.ex, c, [3, 3]);
+      if (sp.em) curve(sp.em, c, dash);
+    }
+    for (const l of lp.lasers) {
+      const hue = Math.max(0, Math.min(270, 270 - (l.nm - 400) * 270 / 300));
+      g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
+    }
+    const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
+    const mtv = +document.getElementById('mv_mt-dye').value;
+    const dyeName = USER_DYES.isUser(mtv) ? USER_DYES.name(USER_DYES.slot(mtv)) : L.dye.name;
+    const parts = [`<b>${dyeName}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
+    if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
+    if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
+    if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
+    const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
+    if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
+    if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
+    out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; dichroic dotted, filter shaded, QE dotted grey</span>';
+  } catch (e) {
+    specMods = null;   // try the import again next time
+    // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
+    if (location.protocol === 'file:') out.innerHTML = 'The spectra plot needs the viewer served over http (e.g. <code>node web/lab/serve.mjs</code>, then http://localhost:8123/web/), not opened as a file. Movies are not affected.';
+    else out.textContent = 'light path: ' + (e && e.message || e);
+  }
+}
+document.getElementById('panel').addEventListener('input', scheduleSpecPlot);
+document.getElementById('panel').addEventListener('change', scheduleSpecPlot);
+document.getElementById('panel').addEventListener('toggle', scheduleSpecPlot, true);
+scheduleSpecPlot();
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
 });

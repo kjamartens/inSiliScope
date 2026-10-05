@@ -36,6 +36,11 @@
 namespace isc {
 
 constexpr int PACK_BLOCK_CHUNKS = 8;
+// The structures that carry labels (issue 16; JS world.js STRUCTURES): one
+// label each, indexed by their position. Only the microtubules for now; a new
+// structure (nucleus DNA, NPCs, ...) adds an entry and its site generator.
+constexpr int STRUCTURE_MT = 0;
+constexpr int STRUCTURE_COUNT = 1;
 
 struct CellAssets {
    Cell cell;                                // shape + packed pose
@@ -60,14 +65,17 @@ struct WorldDye {
    uint32_t id;                              // per-dye hash (stable across windows)
    int32_t cx, cy, mtIndex;
    int32_t k, n;                             // lattice address on the microtubule
-   bool persistent;                          // non-bleaching site (Params::labelNonBleaching)
+   int32_t structure;                        // STRUCTURE_*
 };
 
-// One blink of one dye, in world um and simulated seconds.
+// One blink (state STATE_BLINK, aux 0) or continuous window (EventState) of
+// one dye, in world um and simulated seconds.
 struct WorldEvent {
    double x, y, z;
    double tOn, tOff, brightness;
+   double aux;
    uint32_t id;
+   uint8_t structure, state;
 };
 
 // A persistent-site blink cached in its dye block: dye index in the block,
@@ -116,18 +124,24 @@ public:
    // Cells (packed pose) whose footprint circle (rOuter) intersects the rect.
    void CellsInRect(double x0, double y0, double x1, double y1, std::vector<Cell>& out);
 
-   // Labelled dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um. Only the
+   // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um. Only the
    // 1 um blocks of microtubules that reach the rect are decorated.
    void SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                       std::vector<WorldDye>& out);
 
-   // Blinks of the labelled dyes in the rect/z range with tOn < t1 and
-   // tOff > t0 (simulated seconds, see Kinetics). Every blink is a pure
-   // function of its dye's address (and, for persistent sites, its time
-   // bin), so the answer depends only on (seed, params, kinetics, rect, t0,
-   // t1). Appends, ordered by block.
+   // Blinks of the fluorescent dyes in the rect/z range with tOn < t1 and
+   // tOff > t0 (simulated seconds, see Kinetics), state STATE_BLINK. Every
+   // blink is a pure function of its dye's address (and, for DNA-PAINT, its
+   // time bin), so the answer depends only on (seed, params, labels, rect,
+   // t0, t1). Appends, ordered by block.
    void EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                        double t0, double t1, std::vector<WorldEvent>& out);
+
+   // The continuous windows (LabelSchedule: PRE, INITIAL_ON, ALWAYS_ON with
+   // tOff infinite) of the dyes in the rect/z range that end after tMin, dye
+   // order per block, brightness 1. Made on each call (not cached).
+   void ContinuousInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                           std::vector<WorldEvent>& out);
 
    // Warms the caches for the rect/z range (cells, dye blocks, blink
    // schedules, persistent blinks around [t0, t1)) for up to budgetMs, e.g.
@@ -137,10 +151,16 @@ public:
    bool Prefetch(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
                  double budgetMs);
 
-   // Kinetics of the blink schedules. Changing them keeps cells, microtubules
-   // and dye positions cached and only drops the schedules.
-   void SetKinetics(const Kinetics& k);
-   const Kinetics& GetKinetics() const { return kin_; }
+   // The label of a structure (STRUCTURE_*). A change of density or
+   // fluorescent fraction redraws the dyes (cells and microtubules stay
+   // cached); any other change only drops the schedules. False (nothing
+   // changes) for a bad structure or an invalid label (ValidateLabel).
+   bool SetLabel(int structure, const Label& l);
+   const Label& GetLabel(int structure) const { return labels_[(size_t)structure]; }
+
+   // Mean emission dipole of a dye from SitesInWindow (DyeOrientation; false
+   // for Free), cell-local.
+   bool DyeOrientationOf(const WorldDye& d, Pt3& dir);
 
    // The packed cell of chunk (cx, cy); false if that chunk holds none.
    bool FindCell(int32_t cx, int32_t cy, Cell& out);
@@ -156,18 +176,18 @@ public:
    // the rows are out of the block's (cx, then cy) order. Caches only.
    bool SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped);
 
-   // Labelled-dye counts on an nx x ny grid over the rect (row-major, y
-   // outer); returns the total.
+   // Fluorescent-dye counts on an nx x ny grid over the rect (row-major, y
+   // outer), every structure; returns the total.
    long DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                         int nx, int ny, float* out);
 
-   // Labelled-dye counts on an nx x ny x nz grid over the rect and
+   // Fluorescent-dye counts on an nx x ny x nz grid over the rect and
    // [zMin, zMax), out[(k*ny + iy)*nx + ix]; plane k spans
-   // [zMin + k*(zMax-zMin)/nz, ...). populations: bit 0 bleaching dyes, bit 1
-   // persistent sites. Bins straight from the dye blocks (no copy); returns
-   // the total. zMin/zMax may be infinite only with nz = 1.
+   // [zMin + k*(zMax-zMin)/nz, ...). structureMask: bit s = structure s.
+   // Bins straight from the dye blocks (no copy); returns the total.
+   // zMin/zMax may be infinite only with nz = 1.
    long Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
-                          int nx, int ny, int nz, unsigned populations, float* out);
+                          int nx, int ny, int nz, unsigned structureMask, float* out);
 
    // Optical volume (ABI 6, BrightField): per voxel of an nx x ny x nz grid
    // over the rect and [zMin, zMax) (finite), the volume fractions of
@@ -188,13 +208,26 @@ public:
    const WorldStats& Stats() const { return stats_; }
 
 private:
+   // A dye in its block (issue 16: millions of dyes in a dense FOV, so the
+   // cell, microtubule and structure are the block's): world position, id,
+   // and the lattice address kn = k << 24 | n.
+   struct PackedDye {
+      double x, y, z;
+      uint32_t id, kn;
+      int32_t K() const { return (int32_t)(kn >> 24); }
+      int32_t N() const { return (int32_t)(kn & 0xFFFFFFu); }
+   };
    struct DyeBlock {
-      std::vector<WorldDye> dyes;           // world coordinates
+      std::vector<PackedDye> dyes;          // world coordinates
+      int32_t cx = 0, cy = 0, mtIndex = 0;
+      uint32_t h1 = 0;                      // DyeH1 of the microtubule
+      int32_t structure = STRUCTURE_MT;
       double zLo = 0, zHi = 0;              // z range of the dyes
       bool scheduled = false;
-      std::vector<WorldEvent> events;       // every blink of every bleaching dye, by tOn
+      double tLo = 0, horizon = 0;          // the blinks kept: ending after tLo, starting before horizon
+      std::vector<WorldEvent> events;       // those blinks (dSTORM, PALM), by tOn
       double maxOn = 0;                     // longest of those (tOff - tOn)
-      std::vector<uint32_t> persistent;     // indices of the persistent sites
+      bool persistent = false;              // every dye a persistent (DNA-PAINT) site
       // Blinks of all persistent sites starting in time bins [pBin0, pBin1),
       // by tOn (PersistentCover extends them a range of bins at a time).
       std::vector<PersistentEvent> pEvents;
@@ -245,8 +278,26 @@ private:
    DyeBlock& FindDyeBlock(const Cell& c, int mtIndex, int block);
    void GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& pts, const MtFrames& fr, int mtIndex,
                      int block) const;
-   // Builds b's blink schedule; true if it did (touches only b).
-   bool Schedule(DyeBlock& b) const;
+   // Builds b's blink schedule for a query [tLo, tMax) unless the cached one
+   // covers it: the blinks ending after tLo and starting before the horizon
+   // 2 tMax. A dye's blinks there do not depend on the query (DyeSchedule is
+   // sequential from t = 0 and stops at the horizon), so any query history
+   // gives the same blinks. True if it built (touches only b).
+   bool Schedule(DyeBlock& b, double tLo, double tMax) const;
+   static bool ScheduleCovers(const DyeBlock& b, double tLo, double tMax)
+   {
+      return b.scheduled && b.horizon >= tMax && b.tLo <= tLo;
+   }
+   // The DNA-PAINT bin range of a query [t0, t1) for structure s.
+   struct PersistRange { bool persist; long b0, b1; };
+   PersistRange PersistFor(int s, double t0, double t1) const;
+   // Calls fn(block, dye) for every dye in the rect/z range, in block order.
+   template <class Fn>
+   void ForEachDye(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn);
+   static WorldDye DyeAt(const DyeBlock& b, const PackedDye& d)
+   {
+      return { d.x, d.y, d.z, d.id, b.cx, b.cy, b.mtIndex, d.K(), d.N(), b.structure };
+   }
    // The schedule + persistent-cover prep of EventsInWindow/Prefetch, with
    // the build counts added to stats_ afterwards.
    struct PrepCounts { std::atomic<long> schedules{0}, covers{0}; };
@@ -263,7 +314,7 @@ private:
    std::unordered_map<BlockKey, std::list<std::pair<BlockKey, DyeBlock>>::iterator, BlockKeyHash> dyeIndex_;
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
-   uint64_t evictions_ = 0, kinVersion_ = 0;
+   uint64_t evictions_ = 0, labelVersion_ = 0;
    // Prefetch: its time limit while it runs (ForEachDyeBlock stops past it)
    // and the last region it completed.
    bool PastDeadline();
@@ -271,11 +322,11 @@ private:
    bool stopped_ = false;
    struct PrefetchRegion {
       double x0, y0, x1, y1, zMin, zMax;
-      uint64_t evictions, kinVersion;
+      uint64_t evictions, labelVersion;
       bool valid = false;
    };
    PrefetchRegion prefetchDone_ = {};
-   Kinetics kin_;
+   std::array<Label, STRUCTURE_COUNT> labels_;
    std::vector<const PersistentEvent*> persistentScratch_;
    // Built ahead in parallel for the current walk (PackedBlock / Assets take
    // them from here instead of building).

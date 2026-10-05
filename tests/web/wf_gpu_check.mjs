@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The viewer's WideField GPU path (web/wf_gpu.js running WidefieldGpu.wgsl on
 // WebGPU) against the CPU images of the same scene (isc_wf_cpu_images), in
-// headless Chromium (SwiftShader when there is no GPU). Also a movie made from
+// headless Chromium (SwiftShader when there is no GPU; ISC_CHROME=1: the installed Chrome). Also a movie made from
 // the GPU images vs the CPU movie.
 //
 //   node tests/web/wf_gpu_check.mjs          (Playwright; build + embed the module first)
@@ -25,8 +25,10 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 const port = server.address().port;
 
-const browser = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader',
-  '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'] });
+// ISC_CHROME=1: the installed Chrome on the real GPU (Windows: headless Chromium has no WebGPU adapter there).
+const browser = await chromium.launch(process.env.ISC_CHROME ? { channel: 'chrome', args: ['--enable-unsafe-webgpu'] } :
+  { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader',
+    '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'] });
 const page = await browser.newPage();
 page.on('console', m => console.log('[page]', m.text()));
 await page.goto(`http://localhost:${port}/`);
@@ -43,6 +45,10 @@ const r = await page.evaluate(async () => {
     M.stringToUTF8(spec, s, spec.length + 1);
     const h = M._isc_wf_begin(s, err, 512);
     if (h < 0) return { spec, error: M.UTF8ToString(err) };
+    // The movie's mean-field scenes (issue 16: one per continuous population that starts mean-field).
+    const scenes = M._isc_wf_scenes(h);
+    if (scenes < 1) { M._isc_wf_end(h); return { spec, error: 'no mean-field scene' }; }
+    M._isc_wf_select(h, 0);
     let t = performance.now();
     const job = IscWfGpu.jobFromModule(M, h);
     const tJob = performance.now() - t;
@@ -90,8 +96,9 @@ const r = await page.evaluate(async () => {
       rms: Math.sqrt(e2 / s2), max: emax / peak, resident: same2, tJob, tGpu, tGpu2, tCpu,
       movieDiffPx: diff / need, movieMaxAdu: maxd, meanRel };
   };
-  out.cases.push(await run('size=64 frames=4 modality=1 x=-3 y=4 z=0.5 labeling-pct-bleaching=10 labeling-pct-nonbleaching=40'));
-  out.cases.push(await run('size=64 frames=4 modality=1 x=7.37 y=-2.11 z=1.2 wf-upscale=2 labeling-pct-bleaching=20 labeling-pct-nonbleaching=50 start-sec=12'));
+  // A WideField label; and a PALM label whose green pre state is mean-field next to its blinks (two kernel groups).
+  out.cases.push(await run('size=64 frames=4 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto'));
+  out.cases.push(await run('size=64 frames=4 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=50 start-sec=12'));
   return out;
 });
 await browser.close();
@@ -103,9 +110,10 @@ for (const c of r.cases) {
   if (c.error) { console.log('FAIL', c.spec, c.error); fail++; continue; }
   // fp16 plane spectra: <= 1e-3 rms of the image. In a movie a pixel whose
   // Poisson draw sits at a count boundary may land one electron apart, and
-  // the counter stream's following read-noise draw then differs too: a few
-  // % of pixels, the frames' signal the same.
-  const ok = c.rms < 1e-3 && c.max < 5e-3 && c.resident && c.movieDiffPx < 0.05 && c.meanRel < 1e-3;
+  // the counter stream's following read-noise draw then differs too: the
+  // share grows with the photons per pixel (8.9 % for the dense PALM case on
+  // an Intel Iris Xe, 2026-10-05), the frames' signal the same.
+  const ok = c.rms < 1e-3 && c.max < 5e-3 && c.resident && c.movieDiffPx < 0.15 && c.meanRel < 1e-3;
   if (!ok) fail++;
   console.log(`${ok ? 'ok  ' : 'FAIL'}  ${c.spec}\n      ${c.NX}x${c.NY} FFT, ${c.channels} channels, ${c.planes} planes, ${c.kernels} kernels: ` +
     `GPU vs CPU images rms ${c.rms.toExponential(1)}, max ${c.max.toExponential(1)} of peak; resident re-run identical ${c.resident}; ` +

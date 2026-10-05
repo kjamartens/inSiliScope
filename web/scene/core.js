@@ -147,6 +147,12 @@ function hexToRgb(c) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(c));
   return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
 }
+// The dye layer's theme default is the colour of the dye in use (its emission, issue 16), in every theme; a layer's or
+// a step's own colour still wins.
+function setDyeColor(c) {
+  const rgb = hexToRgb(c);
+  if (rgb) for (const t of Object.values(THEMES)) if (t.layers['mt.dyes']) t.layers['mt.dyes'].color = rgb;
+}
 // theme default < layer style < interval style; 'color' may be '#rrggbb', [r, g, b] or null
 function resolveStyle(theme, id, ...over) {
   const out = Object.assign({}, themeOf(theme).layers[id] || { color: null, opacity: 1 });
@@ -215,5 +221,5 @@ function detailSet(cells, px, py, N, prev) {
 }
 
 globalThis.IscScene = { DEG, makeCamera, REPS, STRUCTURES, LAYERS, REGISTRY, KIND, N_KINDS, IV_MAX, IMPLEMENTED, buildLayers, THEMES,
-  themeOf, resolveStyle, hexToRgb, packZones, axisVector, axisInView, zoneSlot, detailSet, DETAIL_HYST, BIG };
+  themeOf, resolveStyle, hexToRgb, setDyeColor, packZones, axisVector, axisInView, zoneSlot, detailSet, DETAIL_HYST, BIG };
 })();

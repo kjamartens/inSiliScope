@@ -22,7 +22,6 @@ const Field kFields[] = {
    FLAG(enablePacking), FLAG(allowPackRotation), NUM(packFrac), NUM(relaxIters), NUM(relaxDamping),
    NUM(mtDensity), NUM(mtStartDecayPct), NUM(mtEndDecayPct), NUM(mtDirKappa), NUM(mtWobbleTurn), NUM(mtWobbleFactor),
    NUM(mtStepLen), NUM(mtSmoothLen), NUM(mtMinTurnRadius), NUM(mtMinSeparation), NUM(mtMaxZSlope),
-   NUM(labelEfficiency), NUM(labelNonBleaching),
 };
 #undef NUM
 #undef FLAG

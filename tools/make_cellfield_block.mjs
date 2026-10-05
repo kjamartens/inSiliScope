@@ -61,8 +61,8 @@ function cellFieldFactory(SRC) {
   // webSMLM's CF_PARAMS (cell_field_sim defaults as tuned there, build 2026-09-24f; the shaped nucleus and
   // microtubule start/end sampling of 2026-10-05 at the core's defaults), passed
   // explicitly so a change of the core's own defaults cannot move webSMLM's field. Every lattice
-  // site carries a dye (labelEfficiency 1), as in the JS it replaces: webSMLM applies its own
-  // labelling efficiency to the returned sites.
+  // site carries a dye (the microtubules' label at density 1, fluorescent fraction 1; core ABI 10), as
+  // in the JS it replaces: webSMLM applies its own labelling efficiency to the returned sites.
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
     cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
@@ -76,8 +76,10 @@ function cellFieldFactory(SRC) {
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
     mtDensity: 0.9, mtStartDecayPct: 1.6, mtEndDecayPct: 20, mtDirKappa: 1.5, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
-    labelEfficiency: 1, labelNonBleaching: 0,
   };
+  // The labelled site fraction (before ABI 10 the params labelEfficiency + labelNonBleaching; still accepted
+  // in opts.params and mapped onto the label's density).
+  const LABEL_KEYS = ['labelEfficiency', 'labelNonBleaching'];
   const PAD_UM = (12.5 + 12 + 5) / 1000;   // MT radius + binder + max linker: dye reach from the centreline
   let M = null, world = 0, worldKey = '';
 
@@ -98,6 +100,7 @@ function cellFieldFactory(SRC) {
     if (world) M._isc_world_free(world);
     const hp = M._isc_params_new();
     for (const k of Object.keys(p)) {
+      if (LABEL_KEYS.indexOf(k) >= 0) continue;
       const s = cstr(k);
       const r = M._isc_params_set(hp, s, +p[k]);
       M._free(s);
@@ -105,6 +108,14 @@ function cellFieldFactory(SRC) {
     }
     world = M._isc_world_new(seed >>> 0, hp);
     M._isc_params_free(hp);
+    const given = LABEL_KEYS.some(k => k in p);
+    const density = given ? Math.min(1, Math.max(0, (+p.labelEfficiency || 0) + (+p.labelNonBleaching || 0))) : 1;
+    const lp = M._malloc(16);
+    M.HEAPF64[lp >> 3] = density;
+    M.HEAPF64[(lp >> 3) + 1] = 1;
+    const r = M._isc_world_set_label(world, 0, lp, 2);   // ISC_LABEL_DENSITY, ISC_LABEL_FLUORESCENT_FRACTION
+    M._free(lp);
+    if (r !== 0) { M._isc_world_free(world); world = 0; throw new Error('CellField: bad label'); }
     worldKey = key;
     return world;
   }
@@ -178,11 +189,12 @@ function cellFieldFactory(SRC) {
     const halfW = w * pxUm / 2, halfH = h * pxUm / 2, slabUm = o.slabNm / 1000;
     const win = { x0: o.xUm - halfW, x1: o.xUm + halfW, y0: o.yUm - halfH, y1: o.yUm + halfH,
                   zLo: o.focusUm - slabUm, zHi: o.focusUm + slabUm };
-    const [n, buf] = query(4, (ptr, cap) =>
+    // x, y, z, id, structure per dye (ABI 10)
+    const [n, buf] = query(5, (ptr, cap) =>
       M._isc_sites_in_window(wd, win.x0, win.y0, win.x1, win.y1, win.zLo, win.zHi, ptr, cap));
     const sites = new Array(n);
     for (let i = 0; i < n; i++) {
-      const X = buf[4 * i], Y = buf[4 * i + 1], Z = buf[4 * i + 2];
+      const X = buf[5 * i], Y = buf[5 * i + 1], Z = buf[5 * i + 2];
       sites[i] = [w / 2 + (X - o.xUm) / pxUm, h / 2 + (Y - o.yUm) / pxUm, (Z - o.focusUm) * 1000];
     }
     const [nCells, cells] = query(14, (ptr, cap) =>

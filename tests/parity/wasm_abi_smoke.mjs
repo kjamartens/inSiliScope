@@ -1,7 +1,7 @@
 // Smoke test of the WASM C ABI as a JS consumer would use it: packs a few
 // parity cases through isc_pack_window and checks them against the JS
 // reference output (build/parity/ref_js.txt from run.mjs), then drives the
-// world queries (cells / sites / density / events in a window, ABI 2).
+// world queries (cells / sites / density / events in a window; labels, ABI 10).
 //   node tests/parity/wasm_abi_smoke.mjs
 import fs from 'fs';
 import path from 'path';
@@ -64,17 +64,21 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
 
 // ---- world queries ----
 {
-  const p = makeParams([['labelEfficiency', 0.05]]);
+  const p = makeParams([]);
   const w = M._isc_world_new(1249, p);
+  // ABI 10: the microtubules' label, PALM at 5 % (density, fluorescent fraction, mode).
+  const lab = M._malloc(16 * 8);
+  M.HEAPF64.set([0.05, 1, 1], lab / 8);
+  if (M._isc_world_set_label(w, 0, lab, 3) !== 0) throw new Error('isc_world_set_label failed');
   const win = [-4, -7, 0, -3, -Infinity, Infinity];   // beside the nucleus of cell (-1,-1)
   const t0 = performance.now();
   const n = M._isc_sites_in_window(w, ...win, 0, 0);
-  const buf = M._malloc(Math.max(1, n) * 4 * 8);
+  const buf = M._malloc(Math.max(1, n) * 5 * 8);
   const n2 = M._isc_sites_in_window(w, ...win, buf, n);
   const ms = performance.now() - t0;
   let sum = 0, zmin = Infinity, zmax = -Infinity;
   for (let i = 0; i < n2; i++) {
-    const o = buf / 8 + i * 4;
+    const o = buf / 8 + i * 5;
     sum += M.HEAPF64[o] + M.HEAPF64[o + 1];
     zmin = Math.min(zmin, M.HEAPF64[o + 2]); zmax = Math.max(zmax, M.HEAPF64[o + 2]);
   }
@@ -83,9 +87,9 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   let gs = 0;
   for (let i = 0; i < 256; i++) gs += M.HEAPF32[g / 4 + i];
   const nc = M._isc_cells_in_window(w, win[0], win[1], win[2], win[3], 0, 0);
-  // ABI 5: z-resolved density, both populations, summed over 4 planes.
+  // ABI 5: z-resolved density (ABI 10: by structure), summed over 4 planes.
   const g3 = M._malloc(16 * 16 * 4 * 4);
-  const n4 = M._isc_density3d_in_window(w, ...win.slice(0, 4), -10, 60, 16, 16, 4, 3, g3);
+  const n4 = M._isc_density3d_in_window(w, ...win.slice(0, 4), -10, 60, 16, 16, 4, 1, g3);
   let g3s = 0;
   for (let i = 0; i < 1024; i++) g3s += M.HEAPF32[g3 / 4 + i];
   M._free(g3);
@@ -99,23 +103,32 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 9 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 10 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
-  M._isc_world_set_kinetics(w, 0.5, 0.05, 0.5, 0.3, 0.4);
+  M.HEAPF64.set([0.05, 1, 1, 0.5, 0.05, 0.5, 0.3, 0.4], lab / 8);
+  M._isc_world_set_label(w, 0, lab, 8);
   const te = performance.now();
   const ne = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, 0, 0);
-  const eb = M._malloc(Math.max(1, ne) * 7 * 8);
+  const eb = M._malloc(Math.max(1, ne) * 10 * 8);
   const ne2 = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, eb, ne);
   let eok = ne > 0 && ne2 === ne;
   for (let i = 0; i < ne2; i++) {
-    const o = eb / 8 + i * 7;
-    eok &&= M.HEAPF64[o + 3] < 1.1 && M.HEAPF64[o + 4] > 1.0 && M.HEAPF64[o + 5] > 0;
+    const o = eb / 8 + i * 10;
+    eok &&= M.HEAPF64[o + 3] < 1.1 && M.HEAPF64[o + 4] > 1.0 && M.HEAPF64[o + 5] > 0 && M.HEAPF64[o + 7] === 0 && M.HEAPF64[o + 8] === 0;
   }
   console.log(`events: ${ne} blinks overlapping [1.0, 1.1) s in ${(performance.now() - te).toFixed(0)} ms -> ${eok ? 'ok' : 'MISMATCH'}`);
   if (!eok) bad++;
   M._free(eb);
+  // ABI 10: continuous windows (dSTORM initial ON, 2 s): one per dye.
+  M.HEAPF64.set([0.05, 1, 0, 0.5, 0.05, 0.5, 0.3, 0.4, 2], lab / 8);
+  M._isc_world_set_label(w, 0, lab, 9);
+  const nw = M._isc_continuous_in_window(w, ...win, -Infinity, 0, 0);
+  const cok = nw === n;
+  console.log(`continuous: ${nw} initial-ON windows for ${n} dyes -> ${cok ? 'ok' : 'MISMATCH'}`);
+  if (!cok) bad++;
+  M._free(lab);
   M._free(buf); M._free(g); M._isc_world_free(w); M._isc_params_free(p);
 }
 process.exit(bad ? 1 : 0);

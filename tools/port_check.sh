@@ -18,10 +18,10 @@ node web/lab/check.mjs
 
 step "native build + ctest"
 if [ "${ISC_NATIVE:-}" = msvc ]; then
-  cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release --output-on-failure
+  cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8 --output-on-failure
 else
   cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build/native &&
-    ctest --test-dir build/native --output-on-failure
+    ctest --test-dir build/native -j 8 --output-on-failure
 fi
 
 EMSDK_ENV="${EMSDK:-$HOME/emsdk}/emsdk_env.sh"
@@ -29,7 +29,8 @@ if [ -f "$EMSDK_ENV" ]; then
   step "WASM build + ctest + viewer module + webSMLM block"
   # shellcheck disable=SC1090
   source "$EMSDK_ENV" >/dev/null
-  cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm --output-on-failure
+  cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8 --output-on-failure
+  node tests/parity/label_parity.mjs
   node tools/embed_web_module.mjs
   node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs
 else
