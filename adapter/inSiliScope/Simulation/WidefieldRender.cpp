@@ -153,7 +153,7 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
    const double x1 = spec.x0Um + spec.nx * spec.pitchUm, y1 = spec.y0Um + spec.ny * spec.pitchUm;
    std::vector<float> hist(static_cast<size_t>(nH));
    const long n = src.Density3d(spec.x0Um, spec.y0Um, x1, y1, kLo * dz, kHi * dz, 1, 1, static_cast<int>(nH),
-                                ISC_POP_BLEACHING | ISC_POP_PERSISTENT, hist.data());
+                                CellFieldSource::AllStructures(), hist.data());
    if (n < 0)
    {
       err = "WideField: dye density query failed";
@@ -178,12 +178,13 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
       return false;
    }
    const double zA = out.k0 * dz, zB = (out.k0 + static_cast<long>(out.nz)) * dz;
-   for (int pop : {ISC_POP_BLEACHING, ISC_POP_PERSISTENT})
+   for (int pop = 0; pop < 2; ++pop)
    {
-      std::vector<float>& g = pop == ISC_POP_BLEACHING ? out.bleaching : out.persistent;
+      std::vector<float>& g = pop == 0 ? out.bleaching : out.persistent;
       g.assign(static_cast<size_t>(cells), 0.0f);
       const long c = src.Density3d(spec.x0Um, spec.y0Um, x1, y1, zA, zB, static_cast<int>(spec.nx),
-                                   static_cast<int>(spec.ny), static_cast<int>(out.nz), pop, g.data());
+                                   static_cast<int>(spec.ny), static_cast<int>(out.nz),
+                                   pop == 0 ? src.BleachingMask() : src.PersistentMask(), g.data());
       if (c < 0)
       {
          err = "WideField: dye density query failed";
@@ -191,7 +192,7 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
       }
       if (c == 0)
          std::vector<float>().swap(g);
-      (pop == ISC_POP_BLEACHING ? out.nBleaching : out.nPersistent) = c;
+      (pop == 0 ? out.nBleaching : out.nPersistent) = c;
    }
    return true;
 }
@@ -421,7 +422,7 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, st
    }
    std::vector<float> hist(static_cast<size_t>(nH));
    const long n = src.Density3d(x0, y0, x1, y1, kLo * dz, kHi * dz, 1, 1, static_cast<int>(nH),
-                                ISC_POP_BLEACHING | ISC_POP_PERSISTENT, hist.data());
+                                CellFieldSource::AllStructures(), hist.data());
    if (n < 0)
    {
       err = "WideField: dye density query failed";
@@ -446,7 +447,7 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, st
    {
       std::fill(g.begin(), g.end(), 0.0f);
       const long c = src.Density3d(x0, y0, x1, y1, k0 * dz, (k0 + static_cast<long>(nz)) * dz, kTile, kTile,
-                                   static_cast<int>(nz), pop == 0 ? ISC_POP_BLEACHING : ISC_POP_PERSISTENT, g.data());
+                                   static_cast<int>(nz), pop == 0 ? src.BleachingMask() : src.PersistentMask(), g.data());
       if (c < 0)
       {
          err = "WideField: dye density query failed";

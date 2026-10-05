@@ -307,8 +307,7 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
-      { "mtDensity", O("mt-density") }, { "labelEfficiency", O("labeling-pct-bleaching") / 100.0 },
-      { "labelNonBleaching", O("labeling-pct-nonbleaching") / 100.0 },
+      { "mtDensity", O("mt-density") },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // p.* pass-through (known core names only), overriding the named ones.
@@ -318,11 +317,14 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
          world[kv.first.substr(2)] = kv.second;
    isc_params_free(probe);
    cf.params.assign(world.begin(), world.end());
-   cf.activationRatePerSec = O("milli-activation-rate") / 1000.0;
-   cf.onSec = std::max(1e-6, O("on-sec"));
-   cf.offSec = std::max(0.0, O("off-sec"));
-   cf.bleachProb = O("bleach-prob");
-   cf.photonCV = O("photon-cv");
+   // Interim (issue 16 port, step 1): the two populations as one label --
+   // DNA-PAINT when any site is persistent, else PALM. Step 2 replaces this.
+   {
+      const double b = O("labeling-pct-bleaching") / 100.0, nb = O("labeling-pct-nonbleaching") / 100.0;
+      cf.labels = { MakeLabelVector(nb > 0 ? ISC_MODE_DNA_PAINT : ISC_MODE_PALM, b + nb, 1.0,
+                                    O("milli-activation-rate") / 1000.0, std::max(1e-6, O("on-sec")),
+                                    std::max(0.0, O("off-sec")), O("bleach-prob"), O("photon-cv")) };
+   }
 
    // The camera's CellFieldQueryFor (no drift).
    const double um = p.pixelSizeNm / 1000.0, margin = 2.0;
@@ -1221,7 +1223,8 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
                  "frames=%ld focus_um=%g activation_rate=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g "
                  "photon_cv=%g psf=%s",
                  seed, cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, t0Sec, N, O("focus-um"),
-                 cf.activationRatePerSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"), cf.photonCV,
+                 O("milli-activation-rate") / 1000.0, O("on-sec"), O("off-sec"), O("bleach-prob"), O("photons-per-sec"),
+                 O("photon-cv"),
                  kernel ? "GibsonLanniZernike" : "Gaussian");
    info.description = desc;
 

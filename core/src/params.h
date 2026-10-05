@@ -59,12 +59,8 @@ struct Params {
    double mtMinTurnRadius = 0.15;
    double mtMinSeparation = 0.05;
    double mtMaxZSlope = 5;
-   // Dyes (no JS counterpart: the JS preview labels 100%). Sparse by default,
-   // see spec/PORT.md 5.2.
-   double labelEfficiency = 0.1;
-   // Non-bleaching (persistent, DNA-PAINT-like) sites, a further fraction of
-   // the lattice sites on top of labelEfficiency (see DyesInBlock).
-   double labelNonBleaching = 0.0;
+   // The labels (density, fluorescent fraction, mode, kinetics) are not
+   // params since issue 16 (ABI 10): World::SetLabel, isc_world_set_label.
 };
 
 // params() in the prototype clamps every "max" to at least its "min",
@@ -75,7 +71,7 @@ void NormalizeParams(Params& p);
 bool SetParam(Params& p, const char* name, double value);
 
 // A 64-bit hash of the fields a cell's packed pose depends on: everything
-// but the microtubule (mt*) and labelling (label*) parameters, which only
+// but the microtubule (mt*) parameters (and the labels, not params), which only
 // shape what hangs off a packed cell (the viewer's pack key makes the same
 // cut). Keys the packed-block store (blockstore.h).
 uint64_t PackingFingerprint(const Params& p);

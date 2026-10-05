@@ -18,6 +18,44 @@
 
 namespace sim {
 
+int CellFieldSettings::LabelMode(int s) const
+{
+   if (s < 0 || static_cast<size_t>(s) >= labels.size() || labels[static_cast<size_t>(s)].size() <= ISC_LABEL_MODE)
+      return ISC_MODE_DNA_PAINT;
+   return static_cast<int>(labels[static_cast<size_t>(s)][ISC_LABEL_MODE]);
+}
+
+std::vector<double> MakeLabelVector(int mode, double density, double fluorescentFraction, double activationRatePerSec,
+                                    double onSec, double offSec, double bleachProb, double photonCV,
+                                    double initialOnSec, bool preState)
+{
+   std::vector<double> v(ISC_LABEL_COUNT, 0.0);
+   v[ISC_LABEL_DENSITY] = density;
+   v[ISC_LABEL_FLUORESCENT_FRACTION] = fluorescentFraction;
+   v[ISC_LABEL_MODE] = mode;
+   v[ISC_LABEL_ACTIVATION_RATE] = activationRatePerSec;
+   v[ISC_LABEL_ON_SEC] = onSec;
+   v[ISC_LABEL_OFF_SEC] = offSec;
+   v[ISC_LABEL_BLEACH_PROB] = bleachProb;
+   v[ISC_LABEL_PHOTON_CV] = photonCV;
+   v[ISC_LABEL_INITIAL_ON_SEC] = initialOnSec;
+   v[ISC_LABEL_PRE_STATE] = preState ? 1.0 : 0.0;
+   v[ISC_LABEL_ORIENT_MODE] = ISC_ORIENT_FREE;
+   v[ISC_LABEL_ORIENT_POLAR_DEG] = 90;
+   return v;
+}
+
+int CellFieldSource::AllStructures() { return (1 << ISC_STRUCT_COUNT) - 1; }
+
+int CellFieldSource::PersistentMask() const
+{
+   int m = 0;
+   for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
+      if (settings_.LabelMode(s) == ISC_MODE_DNA_PAINT)
+         m |= 1 << s;
+   return m;
+}
+
 CellFieldSource::~CellFieldSource()
 {
    isc_world_free(world_);
@@ -68,17 +106,33 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
-      settings_.activationRatePerSec = -1; // force the kinetics below
+      settings_.labels.assign(1, std::vector<double>{ -1.0 }); // force the labels below
       cacheDirApplied_ = false;
    }
-   if (!settings_.SameKinetics(s))
+   if (!settings_.SameLabels(s))
    {
-      if (isc_world_set_kinetics(world_, s.activationRatePerSec, s.onSec, s.offSec, s.bleachProb, s.photonCV) != 0)
+      if (s.labels.size() > static_cast<size_t>(ISC_STRUCT_COUNT))
       {
-         err = "invalid dye kinetics (activation rate must be >= 0, ON time > 0)";
+         err = "more labels than structures";
          return false;
       }
-      settings_ = s;
+      for (int st = 0; st < ISC_STRUCT_COUNT; ++st)
+      {
+         const std::vector<double> none;
+         const std::vector<double>& v = static_cast<size_t>(st) < s.labels.size() ? s.labels[static_cast<size_t>(st)] : none;
+         const int r = isc_world_set_label(world_, st, v.empty() ? nullptr : v.data(), static_cast<int32_t>(v.size()));
+         if (r == -2)
+         {
+            err = "SPT motion and off-target binding are not implemented yet";
+            return false;
+         }
+         if (r != 0)
+         {
+            err = "invalid dye label (density and fraction 0..1, rates >= 0, ON time > 0, a pre state only for PALM)";
+            return false;
+         }
+      }
+      settings_.labels = s.labels;
    }
    if (!cacheDirApplied_ || settings_.cacheDir != s.cacheDir)
    {
@@ -151,11 +205,11 @@ bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double 
 }
 
 long CellFieldSource::Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
-                                int ny, int nz, int populations, float* out)
+                                int ny, int nz, int structureMask, float* out)
 {
    if (!world_)
       return -1;
-   return isc_density3d_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, populations, out);
+   return isc_density3d_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, structureMask, out);
 }
 
 long CellFieldSource::OpticalVolume(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,

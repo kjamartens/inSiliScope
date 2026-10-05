@@ -35,24 +35,26 @@ struct CellFieldSettings
 {
    uint32_t seed = 0;                                   // world seed (derive it from RandomSeed)
    std::vector<std::pair<std::string, double>> params;  // core param names (the prototype's), e.g. mtDensity
-   // Dye blink kinetics, simulated seconds (see isc_world_set_kinetics).
-   double activationRatePerSec = 0.01;   // per dark dye
-   double onSec = 0.05;
-   double offSec = 1.0;
-   double bleachProb = 1.0;
-   double photonCV = 0.5;
+   // One label per structure (index = ISC_STRUCT_*), each in the
+   // isc_world_set_label layout (ISC_LABEL_COUNT doubles; fewer: the rest
+   // default); no entry = the core's default label (ABI 10).
+   std::vector<std::vector<double>> labels;
 
    // Directory of the core's packed-block store (isc_world_set_cache_dir, ABI
    // 8; CacheDir.h names the per-user default): "" = none. Not part of
    // SameWorld: switching it keeps the world.
    std::string cacheDir;
    bool SameWorld(const CellFieldSettings& o) const { return seed == o.seed && params == o.params; }
-   bool SameKinetics(const CellFieldSettings& o) const
-   {
-      return activationRatePerSec == o.activationRatePerSec && onSec == o.onSec && offSec == o.offSec &&
-             bleachProb == o.bleachProb && photonCV == o.photonCV;
-   }
+   bool SameLabels(const CellFieldSettings& o) const { return labels == o.labels; }
+   // The label mode of structure s (ISC_MODE_*; the core default DNA-PAINT
+   // when not given).
+   int LabelMode(int s) const;
 };
+
+// A label in the isc_world_set_label layout (ISC_LABEL_COUNT doubles).
+std::vector<double> MakeLabelVector(int mode, double density, double fluorescentFraction, double activationRatePerSec,
+                                    double onSec, double offSec, double bleachProb, double photonCV,
+                                    double initialOnSec = 0.0, bool preState = false);
 
 // Where and when to look. World um (z = height above the coverslip) and
 // simulated seconds.
@@ -87,8 +89,8 @@ public:
    CellFieldSource& operator=(const CellFieldSource&) = delete;
 
    // (Re)creates the world when the seed or params change (dropping every
-   // cache), and only updates the kinetics when just those change. False
-   // (with err) on an unknown param or a core failure.
+   // cache), and only updates the labels when just those change. False
+   // (with err) on an unknown param, an invalid label or a core failure.
    bool Configure(const CellFieldSettings& s, std::string& err);
    bool Ready() const { return world_ != nullptr; }
    // The configured core world (nullptr before Configure), for geometry
@@ -104,12 +106,18 @@ public:
    // cached.
    bool Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs);
 
-   // Labelled-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
-   // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], populations
-   // ISC_POP_BLEACHING | ISC_POP_PERSISTENT (isc_density3d_in_window).
-   // Returns the total, or -1 on a failure.
+   // Fluorescent-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
+   // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], of the structures in
+   // structureMask (bit s = ISC_STRUCT_s; isc_density3d_in_window). Returns
+   // the total, or -1 on a failure.
    long Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx, int ny, int nz,
-                  int populations, float* out);
+                  int structureMask, float* out);
+   // Every structure's bit.
+   static int AllStructures();
+   // The structures whose dyes never bleach in a WideField image (DNA-PAINT
+   // labels) and the others.
+   int PersistentMask() const;
+   int BleachingMask() const { return AllStructures() & ~PersistentMask(); }
 
    // Volume fractions of cytoplasm, nucleus and microtubules per voxel
    // (isc_optical_volume_in_window, channel-major out[3*nx*ny*nz]; zMin/zMax

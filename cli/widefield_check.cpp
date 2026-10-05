@@ -791,7 +791,7 @@ void GpuJobs()
    CellFieldSource src;
    CellFieldSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
-   cf.params = { { "labelEfficiency", 0.1 }, { "labelNonBleaching", 0.5 } };
+   cf.labels = { MakeLabelVector(ISC_MODE_DNA_PAINT, 0.6, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;
    if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
    WidefieldSceneSpec s = BaseSpec(40, 1);
@@ -834,7 +834,7 @@ void RealWorld()
    CellFieldSource src;
    CellFieldSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
-   cf.params = { { "labelEfficiency", 0.2 }, { "labelNonBleaching", 0.5 } };
+   cf.labels = { MakeLabelVector(ISC_MODE_PALM, 0.7, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;
    if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
    WidefieldSceneSpec s = BaseSpec(48, 1);

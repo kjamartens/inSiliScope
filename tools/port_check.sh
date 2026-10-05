@@ -30,6 +30,7 @@ if [ -f "$EMSDK_ENV" ]; then
   # shellcheck disable=SC1090
   source "$EMSDK_ENV" >/dev/null
   cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm --output-on-failure
+  node tests/parity/label_parity.mjs
   node tools/embed_web_module.mjs
   node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs
 else

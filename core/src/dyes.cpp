@@ -70,14 +70,14 @@ SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t 
 }
 
 void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::vector<Pt3>& pts, const MtFrames& fr,
-                 int blockIndex, double efficiency, double persistentEfficiency, std::vector<Dye>& out)
+                 int blockIndex, double density, double fluorescentFraction, std::vector<Dye>& out)
 {
    if (pts.size() < 2 || blockIndex < 0) return;
    const double total = fr.Length();
    const double blockNm0 = blockIndex * DYE_BLOCK_UM * 1000;
-   efficiency = std::min(1.0, std::max(0.0, efficiency));
-   const double labelledBelow = std::min(1.0, efficiency + std::max(0.0, persistentEfficiency));
-   if (blockNm0 * NM >= total || !(labelledBelow > 0)) return;
+   const double labelledBelow = std::min(1.0, std::max(0.0, density));
+   const double ff = std::min(1.0, std::max(0.0, fluorescentFraction));
+   if (blockNm0 * NM >= total || !(labelledBelow > 0) || !(ff > 0)) return;
    const uint32_t h1 = DyeH1(seed, cx, cy, mtIndex);
    const double phase = MtSeamPhase(seed, cx, cy, mtIndex);
    const double minL3 = jsm::pow(LINK_MIN_UM, 3), maxL3 = jsm::pow(LINK_MAX_UM, 3);
@@ -98,11 +98,12 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
          const uint32_t label = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LABEL).a;
          const double u = Unit(label);
          if (u >= labelledBelow) continue;
+         if (ff < 1.0 && Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::FLUOR).a) >= ff) continue;
          const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
          const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
          const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
          const SiteGeom g = SiteGeometryWith(pts, fr, MtSegmentAt(fr, S), S, ct, st, minL3, maxL3, r1, r2, r3);
-         out.push_back({ g.dye, mtIndex, k, (int32_t)n, label, u >= efficiency });
+         out.push_back({ g.dye, mtIndex, k, (int32_t)n, label, theta });
       }
    }
 }
@@ -150,7 +151,7 @@ long PoissonFromUniform(double m, double u, double u2)
 }
 } // namespace
 
-void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out)
+void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out, double tMax)
 {
    if (!(kin.activationRatePerSec > 0)) return;
    auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
@@ -159,6 +160,7 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
    const LogNormalParams ln = LogNormalFor(cv);
    double t = -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec;
    for (int j = 0; j < DYE_MAX_BLINKS; j++) {
+      if (t >= tMax) break;
       const uint32_t base = DYE_CH::SCHED0 + (uint32_t)j * DYE_CH::SCHED_STRIDE;
       const double on = -jsm::log(U(base + DYE_CH::ON)) * kin.onSec;
       double b = 1;
@@ -171,6 +173,68 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
       if (U(base + DYE_CH::BLEACH) < pBleach) break;
       t += on - jsm::log(U(base + DYE_CH::OFF)) * kin.offSec;
    }
+}
+
+const char* ValidateLabel(const Label& l)
+{
+   const int mode = (int)l.mode, orient = (int)l.orientation.mode;
+   if (mode < 0 || mode > 3) return "label mode is not one of dSTORM, PALM, DNA-PAINT, WideField";
+   if (orient < 0 || orient > 2) return "orientation is not one of Free, Fixed, Random";
+   if (l.motion != 0) return "motion is not implemented yet (only Static)";
+   if (l.offTargetCount != 0) return "off-target binding is not implemented yet (offTarget must be empty)";
+   if (l.preState && l.mode != LabelMode::PALM) return "a pre state needs mode PALM";
+   return nullptr;
+}
+
+bool LabelNotImplemented(const Label& l) { return l.motion != 0 || l.offTargetCount != 0; }
+
+void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::vector<Blink>* blinks,
+                   std::vector<ContWindow>* cont, double tMax)
+{
+   const Kinetics& kin = label.kin;
+   auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
+   if (label.mode == LabelMode::WideField) {
+      if (cont) cont->push_back({ 0.0, INFINITY, STATE_ALWAYS_ON, -jsm::log(U(DYE_CH::AUX)) });
+      return;
+   }
+   if (label.mode == LabelMode::DnaPaint) return;
+   const double shift = label.mode == LabelMode::dSTORM && kin.initialOnSec > 0
+                           ? -jsm::log(U(DYE_CH::INIT_ON)) * kin.initialOnSec : 0.0;
+   if (cont && shift != 0) cont->push_back({ 0.0, shift, STATE_INITIAL_ON, 0.0 });
+   if (blinks) {
+      const size_t first = blinks->size();
+      DyeSchedule(h1, k, n, kin, *blinks, tMax - shift);
+      if (shift != 0)
+         for (size_t i = first; i < blinks->size(); i++) { (*blinks)[i].tOn += shift; (*blinks)[i].tOff += shift; }
+   }
+   // The pre state lasts until the first activation: DyeSchedule's first blink time, the ACT draw.
+   if (cont && label.mode == LabelMode::PALM && label.preState) {
+      const double tOff = kin.activationRatePerSec > 0 ? -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec : INFINITY;
+      cont->push_back({ 0.0, tOff, STATE_PRE, -jsm::log(U(DYE_CH::AUX)) });
+   }
+}
+
+bool DyeOrientation(uint32_t h1, int32_t k, int32_t n, const Label& label, const MtFrames& fr, size_t seg, double theta,
+                    Pt3& dir)
+{
+   const Orientation& o = label.orientation;
+   if (o.mode == OrientationMode::Free) return false;
+   if (o.mode == OrientationMode::Random) {
+      const double cz = 2 * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_U).a) - 1;
+      const double phi = 2 * jsm::PI * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_PHI).a);
+      const double sz = jsm::sqrt(1 - cz * cz);
+      dir = { sz * jsm::cos(phi), sz * jsm::sin(phi), cz };
+      return true;
+   }
+   const Pt3& t = fr.T[seg]; const Pt3& u = fr.U[seg]; const Pt3& v = fr.V[seg];
+   const double ct = jsm::cos(theta), st = jsm::sin(theta);
+   const Pt3 r = { ct * u.x + st * v.x, ct * u.y + st * v.y, ct * u.z + st * v.z };            // radial
+   const Pt3 q = { t.y * r.z - t.z * r.y, t.z * r.x - t.x * r.z, t.x * r.y - t.y * r.x };    // T x r
+   const double pol = o.polarDeg * jsm::PI / 180, az = o.azimuthDeg * jsm::PI / 180;
+   const double sp = jsm::sin(pol), cp = jsm::cos(pol), ca = jsm::cos(az), sa = jsm::sin(az);
+   dir = { cp * t.x + sp * (ca * r.x + sa * q.x), cp * t.y + sp * (ca * r.y + sa * q.y),
+           cp * t.z + sp * (ca * r.z + sa * q.z) };
+   return true;
 }
 
 namespace {

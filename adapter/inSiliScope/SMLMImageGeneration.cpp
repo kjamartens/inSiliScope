@@ -14,6 +14,7 @@
 #include "InSiliScopeCamera.h"
 #include "Simulation/CacheDir.h"
 #include "Simulation/SharedStageState.h"
+#include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -186,18 +187,21 @@ sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
       {"cellDiamMin", cellField_[CF_CELL_DIAM_MIN_UM].load()},
       {"cellDiamMax", cellField_[CF_CELL_DIAM_MAX_UM].load()},
       {"mtDensity", cellField_[CF_MT_DENSITY].load()},
-      {"labelEfficiency", cellField_[CF_LABELING_PCT_BLEACHING].load() / 100.0},
-      {"labelNonBleaching", cellField_[CF_LABELING_PCT_NONBLEACHING].load() / 100.0},
       {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
    };
    for (int i = 0; i < CF_COUNT; ++i)
       if (g_CellFieldCoreParam[i]) s.params.push_back({g_CellFieldCoreParam[i], cellField_[i].load()});
-   s.activationRatePerSec = cellField_[CF_MILLI_ACTIVATION_RATE].load() / 1000.0; // property in 1e-3/s
-   s.onSec = std::max(1e-6, onLifetimeSec_.load());
-   s.offSec = std::max(0.0, offLifetimeSec_.load());
-   s.bleachProb = blinkBleachProb_.load();
+   // Interim (issue 16 port, step 1): the two populations as one label --
+   // DNA-PAINT when any site is persistent, else PALM. Step 4 replaces this.
+   {
+      const double b = cellField_[CF_LABELING_PCT_BLEACHING].load() / 100.0;
+      const double nb = cellField_[CF_LABELING_PCT_NONBLEACHING].load() / 100.0;
+      s.labels = {sim::MakeLabelVector(nb > 0 ? ISC_MODE_DNA_PAINT : ISC_MODE_PALM, b + nb, 1.0,
+                                       cellField_[CF_MILLI_ACTIVATION_RATE].load() / 1000.0, // property in 1e-3/s
+                                       std::max(1e-6, onLifetimeSec_.load()), std::max(0.0, offLifetimeSec_.load()),
+                                       blinkBleachProb_.load(), photonCV_.load())};
+   }
    s.cacheDir = diskCacheMode_.load() >= 1 ? sim::DefaultCacheDir() : std::string();
-   s.photonCV = photonCV_.load();
    return s;
 }
 

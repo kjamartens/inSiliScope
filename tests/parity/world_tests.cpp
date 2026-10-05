@@ -62,11 +62,43 @@ double Ms(std::chrono::steady_clock::time_point t0)
    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 }
 
+// A label of the given mode and density (the other fields the defaults).
+Label MakeLabel(LabelMode mode, double density, const Kinetics& kin = Kinetics(), double fluorescentFraction = 1.0)
+{
+   Label l;
+   l.mode = mode;
+   l.density = density;
+   l.fluorescentFraction = fluorescentFraction;
+   l.kin = kin;
+   return l;
+}
+
+World LabelledWorld(uint32_t seed, const Params& p, const Label& l, size_t assetCells = 48, size_t dyeCap = 2000000)
+{
+   World w(seed, p, assetCells, dyeCap);
+   w.SetLabel(STRUCTURE_MT, l);
+   return w;
+}
+
+// The blinks of dye d overlapping [t0, t1) by brute force: its whole schedule
+// (LabelSchedule; DNA-PAINT: PersistentBlinks), unwindowed.
+void BruteBlinks(uint32_t seed, const WorldDye& d, const Label& l, double t0, double t1, std::vector<WorldEvent>& out)
+{
+   std::vector<Blink> b;
+   const uint32_t h1 = DyeH1(seed, d.cx, d.cy, d.mtIndex);
+   if (l.mode == LabelMode::DnaPaint) PersistentBlinks(h1, d.k, d.n, l.kin, t0, t1, b);
+   else LabelSchedule(h1, d.k, d.n, l, &b, nullptr);
+   for (const Blink& x : b)
+      if (x.tOn < t1 && x.tOff > t0)
+         out.push_back({ d.x, d.y, d.z, x.tOn, x.tOff, x.brightness, 0.0, d.id, (uint8_t)d.structure, STATE_BLINK });
+}
+
 void Determinism()
 {
    Params p;
    const uint32_t seed = 1249;
-   World a(seed, p);
+   const Label l10 = MakeLabel(LabelMode::PALM, 0.1);
+   World a = LabelledWorld(seed, p, l10);
    // A 12.8 um FOV (128 px at 100 nm) beside the nucleus of the first cell
    // near the origin, reaching out towards its edge.
    std::vector<Cell> near;
@@ -98,7 +130,7 @@ void Determinism()
    Check(SameDyes(first, fresh), "after dropping every cache: identical");
 
    // Different history in a fresh world: visit a neighbouring window first.
-   World b(seed, p, 2);
+   World b = LabelledWorld(seed, p, l10, 2);
    std::vector<WorldDye> other, viaB;
    b.SitesInWindow(x0 - 30, y0 + 7, x0 - 30 + W, y0 + 7 + W, -INF, INF, other);
    b.SitesInWindow(x0, y0, x0 + W, y0 + W, -INF, INF, viaB);
@@ -126,21 +158,46 @@ void Determinism()
    for (float v : grid) sum += v;
    Check(n == (long)first.size() && sum == (double)n, "density grid sums to the site count");
 
-   // Efficiency scales the count (hash decided per site: a strict subset).
-   Params p2 = p;
-   p2.labelEfficiency = 0.05;
-   World c(seed, p2);
+   // Density and fluorescent fraction scale the count (hash decided per
+   // site: a strict subset), and nest.
+   std::vector<WorldDye> sf = Sorted(first);
+   auto subsetOf = [&](const std::vector<WorldDye>& v) {
+      size_t subset = 0;
+      for (const WorldDye& d : v)
+         subset += std::binary_search(sf.begin(), sf.end(), d, [](const WorldDye& u, const WorldDye& w) {
+            return std::tie(u.cx, u.cy, u.mtIndex, u.id, u.x) < std::tie(w.cx, w.cy, w.mtIndex, w.id, w.x);
+         });
+      return subset == v.size();
+   };
+   World c = LabelledWorld(seed, p, MakeLabel(LabelMode::PALM, 0.05));
    std::vector<WorldDye> sparse;
    c.SitesInWindow(x0, y0, x0 + W, y0 + W, -INF, INF, sparse);
-   size_t subset = 0;
-   std::vector<WorldDye> sf = Sorted(first);
-   for (const WorldDye& d : sparse)
-      subset += std::binary_search(sf.begin(), sf.end(), d, [](const WorldDye& u, const WorldDye& v) {
-         return std::tie(u.cx, u.cy, u.mtIndex, u.id, u.x) < std::tie(v.cx, v.cy, v.mtIndex, v.id, v.x);
-      });
    const double ratio = (double)sparse.size() / first.size();
-   std::printf("      efficiency 0.05 / 0.1: %zu / %zu dyes (ratio %.3f)\n", sparse.size(), first.size(), ratio);
-   Check(subset == sparse.size() && ratio > 0.4 && ratio < 0.6, "lower efficiency = a subset, about half");
+   std::printf("      density 0.05 / 0.1: %zu / %zu dyes (ratio %.3f)\n", sparse.size(), first.size(), ratio);
+   Check(subsetOf(sparse) && ratio > 0.4 && ratio < 0.6, "lower density = a subset, about half");
+   // FLUOR nesting: a fluorescent fraction keeps a subset of the same dyes;
+   // set on the same world (redraws the dyes, the geometry stays).
+   a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::PALM, 0.1, Kinetics(), 0.5));
+   std::vector<WorldDye> half, quarter;
+   a.SitesInWindow(x0, y0, x0 + W, y0 + W, -INF, INF, half);
+   a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::PALM, 0.1, Kinetics(), 0.25));
+   a.SitesInWindow(x0, y0, x0 + W, y0 + W, -INF, INF, quarter);
+   const double rh = (double)half.size() / first.size(), rq = (double)quarter.size() / half.size();
+   bool nested = true;
+   {
+      std::vector<WorldDye> hs = Sorted(half);
+      for (const WorldDye& d : quarter)
+         nested = nested && std::binary_search(hs.begin(), hs.end(), d, [](const WorldDye& u, const WorldDye& w) {
+            return std::tie(u.cx, u.cy, u.mtIndex, u.id, u.x) < std::tie(w.cx, w.cy, w.mtIndex, w.id, w.x);
+         });
+   }
+   std::printf("      fluorescent fraction 0.5 / 0.25: %zu / %zu dyes (ratios %.3f, %.3f)\n", half.size(), quarter.size(), rh, rq);
+   Check(subsetOf(half) && nested && std::fabs(rh - 0.5) < 0.05 && std::fabs(rq - 0.5) < 0.07,
+         "fluorescent fraction: nested subsets of the same dyes (FLUOR draw)");
+   a.SetLabel(STRUCTURE_MT, l10);
+   std::vector<WorldDye> restored;
+   a.SitesInWindow(x0, y0, x0 + W, y0 + W, -INF, INF, restored);
+   Check(SameDyes(first, restored), "label back to fraction 1: the original dyes");
 }
 
 void PackingOff()
@@ -217,9 +274,9 @@ void DyeStatistics()
       stagger = stagger && std::fabs(std::fmod(MtProtofilamentOffsetNm(k) - MtProtofilamentOffsetNm(k - 1) + 8, 8) - 24.0 / 13) < 1e-12;
    Check(stagger, "13_3 lattice: axial stagger 24/13 nm");
 
-   // Blocks partition the lattice; counts ~ 1625 * L * efficiency.
+   // Blocks partition the lattice; counts ~ 1625 * L * density.
    std::vector<Dye> all;
-   for (int b = 0; b < (int)std::ceil(L); b++) DyesInBlock(11, 2, 3, 0, pts, fr, b, 1.0, 0.0, all);
+   for (int b = 0; b < (int)std::ceil(L); b++) DyesInBlock(11, 2, 3, 0, pts, fr, b, 1.0, 1.0, all);
    long expected = 0;
    for (int k = 0; k < MT_N_PROTOFILAMENTS; k++)
       for (int n = 0;; n++) {
@@ -234,17 +291,31 @@ void DyeStatistics()
    Check((long)all.size() == expected && unique, "blocks partition the lattice (each site exactly once)");
    Check(std::fabs(all.size() / L - 1625) < 5, "about 1625 sites per um");
    std::vector<Dye> some;
-   for (int b = 0; b < (int)std::ceil(L); b++) DyesInBlock(11, 2, 3, 0, pts, fr, b, 0.1, 0.0, some);
+   for (int b = 0; b < (int)std::ceil(L); b++) DyesInBlock(11, 2, 3, 0, pts, fr, b, 0.1, 1.0, some);
    const double mean = 0.1 * expected, sd = std::sqrt(expected * 0.1 * 0.9);
-   std::printf("      efficiency 0.1: %zu labelled (expect %.0f +- %.0f)\n", some.size(), mean, sd);
-   Check(std::fabs(some.size() - mean) < 4 * sd, "labelled count ~ efficiency x sites");
+   std::printf("      density 0.1: %zu labelled (expect %.0f +- %.0f)\n", some.size(), mean, sd);
+   Check(std::fabs(some.size() - mean) < 4 * sd, "labelled count ~ density x sites");
+   // The fluorescent fraction thins the labelled sites (FLUOR), same positions.
+   std::vector<Dye> fl;
+   for (int b = 0; b < (int)std::ceil(L); b++) DyesInBlock(11, 2, 3, 0, pts, fr, b, 0.1, 0.4, fl);
+   bool sub = true;
+   for (const Dye& d : fl) {
+      bool found = false;
+      for (const Dye& e : some) found = found || (e.k == d.k && e.n == d.n && e.pos.x == d.pos.x && e.id == d.id);
+      sub = sub && found;
+   }
+   const double m2 = 0.4 * some.size(), sd2 = std::sqrt(some.size() * 0.4 * 0.6);
+   Check(sub && std::fabs(fl.size() - m2) < 4 * sd2, "fluorescent fraction 0.4: a subset of the labelled dyes, ~0.4 of them");
 }
 
 void CApi()
 {
    IscParams* p = isc_params_new();
-   isc_params_set(p, "labelEfficiency", 0.05);
+   Check(isc_params_set(p, "labelEfficiency", 0.05) == -1, "C ABI: labelEfficiency is not a param any more (ABI 10)");
    IscWorld* w = isc_world_new(1249, p);
+   double lab[ISC_LABEL_COUNT];
+   lab[ISC_LABEL_DENSITY] = 0.05; lab[ISC_LABEL_FLUORESCENT_FRACTION] = 1; lab[ISC_LABEL_MODE] = ISC_MODE_PALM;
+   Check(isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, lab, 3) == 0, "C ABI: a short label (the rest defaults)");
    // 4 x 4 um beside the nucleus of cell (-1,-1) at (-10.1, -5.0), see Determinism().
    const double x0 = -4, y0 = -7, x1 = 0, y1 = -3;
    const int32_t n = isc_sites_in_window(w, x0, y0, x1, y1, -INF, INF, nullptr, 0);
@@ -253,21 +324,52 @@ void CApi()
    std::vector<float> grid(16 * 16);
    const int32_t n3 = isc_density_in_window(w, x0, y0, x1, y1, -INF, INF, 16, 16, grid.data());
    const int32_t nc = isc_cells_in_window(w, x0, y0, x1, y1, nullptr, 0);
-   Check(n > 0 && n2 == n && n3 == n && nc > 0, "C ABI: sites/density/cells agree");
+   bool st = true;
+   for (int32_t i = 0; i < n2; i++) st = st && buf[(size_t)i * ISC_SITE_STRIDE + 4] == ISC_STRUCT_MICROTUBULE;
+   Check(n > 0 && n2 == n && n3 == n && nc > 0 && st, "C ABI: sites/density/cells agree, sites carry their structure");
    Check(isc_sites_in_window(w, 1, 0, 0, 1, -INF, INF, nullptr, 0) == -1, "C ABI: empty rect rejected");
 
-   // Events: the same through the ABI as through World, after a kinetics change.
-   Check(isc_world_set_kinetics(w, 0.5, 0.05, 0.5, 0.3, 0.4) == 0, "C ABI: kinetics accepted");
-   Check(isc_world_set_kinetics(w, -1, 0.05, 0.5, 0.3, 0.4) == -1, "C ABI: bad kinetics rejected");
+   // Labels: accepted, rejected, refused as not implemented.
+   double v[ISC_LABEL_COUNT] = { 0.05, 1, ISC_MODE_PALM, 0.5, 0.05, 0.5, 0.3, 0.4, 0, 0, ISC_ORIENT_FREE, 90, 0, 0, 0, 0 };
+   Check(isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, v, ISC_LABEL_COUNT) == 0, "C ABI: label accepted");
+   double bad[ISC_LABEL_COUNT];
+   auto tryBad = [&](int idx, double val) {
+      std::memcpy(bad, v, sizeof v);
+      bad[idx] = val;
+      return isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, bad, ISC_LABEL_COUNT);
+   };
+   Check(tryBad(ISC_LABEL_ACTIVATION_RATE, -1) == -1 && tryBad(ISC_LABEL_ON_SEC, 0) == -1 && tryBad(ISC_LABEL_MODE, 4) == -1 &&
+            tryBad(ISC_LABEL_MODE, 1.5) == -1 && tryBad(ISC_LABEL_ORIENT_MODE, 3) == -1 &&
+            isc_world_set_label(w, 1, v, ISC_LABEL_COUNT) == -1 && isc_world_set_label(w, 0, v, ISC_LABEL_COUNT + 1) == -1,
+         "C ABI: bad labels rejected (-1)");
+   std::memcpy(bad, v, sizeof v);
+   bad[ISC_LABEL_MODE] = ISC_MODE_DSTORM; bad[ISC_LABEL_PRE_STATE] = 1;
+   Check(isc_world_set_label(w, 0, bad, ISC_LABEL_COUNT) == -1, "C ABI: a pre state without PALM rejected");
+   Check(tryBad(ISC_LABEL_MOTION, 1) == -2 && tryBad(ISC_LABEL_OFFTARGET_COUNT, 1) == -2,
+         "C ABI: motion and off-target refused as not implemented yet (-2)");
    const int32_t ne = isc_events_in_window(w, x0, y0, x1, y1, -INF, INF, 1.0, 1.1, nullptr, 0);
    std::vector<double> ev((size_t)std::max(0, ne) * ISC_EVENT_STRIDE);
    const int32_t ne2 = isc_events_in_window(w, x0, y0, x1, y1, -INF, INF, 1.0, 1.1, ev.data(), ne);
    bool evOk = ne > 0 && ne2 == ne;
    for (int32_t i = 0; evOk && i < ne; i++) {
       const double* e = &ev[(size_t)i * ISC_EVENT_STRIDE];
-      evOk = e[3] < 1.1 && e[4] > 1.0 && e[0] >= x0 && e[0] < x1 && e[1] >= y0 && e[1] < y1 && e[5] > 0;
+      evOk = e[3] < 1.1 && e[4] > 1.0 && e[0] >= x0 && e[0] < x1 && e[1] >= y0 && e[1] < y1 && e[5] > 0 &&
+             e[7] == ISC_STRUCT_MICROTUBULE && e[8] == ISC_STATE_BLINK && e[9] == 0;
    }
-   Check(evOk, "C ABI: events overlap the frame and lie in the window");
+   Check(evOk, "C ABI: events overlap the frame, lie in the window, structure 0, state BLINK, aux 0");
+   // Continuous windows: WideField, every dye one always-on window.
+   v[ISC_LABEL_MODE] = ISC_MODE_WIDEFIELD;
+   Check(isc_world_set_label(w, 0, v, ISC_LABEL_COUNT) == 0, "C ABI: WideField label");
+   const int32_t nw = isc_continuous_in_window(w, x0, y0, x1, y1, -INF, INF, 0, nullptr, 0);
+   std::vector<double> cw((size_t)std::max(0, nw) * ISC_EVENT_STRIDE);
+   const int32_t nw2 = isc_continuous_in_window(w, x0, y0, x1, y1, -INF, INF, 0, cw.data(), nw);
+   bool cwOk = nw == n && nw2 == nw;
+   for (int32_t i = 0; cwOk && i < nw; i++) {
+      const double* e = &cw[(size_t)i * ISC_EVENT_STRIDE];
+      cwOk = e[3] == 0 && std::isinf(e[4]) && e[5] == 1 && e[8] == ISC_STATE_ALWAYS_ON && e[9] > 0;
+   }
+   Check(cwOk && isc_events_in_window(w, x0, y0, x1, y1, -INF, INF, 1.0, 1.1, nullptr, 0) == 0,
+         "C ABI: WideField = one always-on window per dye, no blinks");
 
    // Viewer geometry of one cell.
    std::vector<double> cb((size_t)std::max(0, nc) * ISC_CELL_STRIDE);
@@ -289,56 +391,52 @@ void CApi()
    isc_params_free(p);
 }
 
-// ABI 5: the z-resolved, population-selectable density query (WideField).
+// ABI 5/10: the z-resolved density query by structure (WideField).
 void Density3d()
 {
    IscParams* p = isc_params_new();
-   isc_params_set(p, "labelEfficiency", 0.2);
-   isc_params_set(p, "labelNonBleaching", 0.3);
    IscWorld* w = isc_world_new(1249, p);
+   double lab[2] = { 0.5, 1 };
+   isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, lab, 2);
    const double x0 = -4, y0 = -7, x1 = 0, y1 = -3, zLo = -2, zHi = 14;
    const int nx = 16, ny = 12, nz = 32;
    const size_t n2 = (size_t)nx * ny, n3 = n2 * nz;
-   std::vector<float> all(n3), bl(n3), pe(n3), none(n3, 7.0f), flat(n2), slab(n2);
-   const int32_t na = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_BLEACHING | ISC_POP_PERSISTENT, all.data());
-   const int32_t nb = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_BLEACHING, bl.data());
-   const int32_t np = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, ISC_POP_PERSISTENT, pe.data());
+   std::vector<float> all(n3), none(n3, 7.0f), flat(n2), slab(n2);
+   const int32_t na = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 1 << ISC_STRUCT_MICROTUBULE, all.data());
    const int32_t n0 = isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 0, none.data());
    const int32_t nf = isc_density_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, flat.data());
-   Check(na > 0 && nb > 0 && np > 0 && na == nb + np && nf == na, "density3d: totals (all = bleaching + persistent = 2D)");
-   bool sumZ = true, split = true;
+   Check(na > 0 && nf == na, "density3d: totals (microtubules = 2D)");
+   bool sumZ = true;
    for (size_t i = 0; i < n2; i++) {
       double s = 0;
       for (int k = 0; k < nz; k++) s += all[k * n2 + i];
       sumZ = sumZ && s == flat[i];
    }
-   for (size_t i = 0; i < n3; i++) split = split && all[i] == bl[i] + pe[i];
    Check(sumZ, "density3d: summed over z equals isc_density_in_window");
-   Check(split, "density3d: bleaching + persistent = all, voxel by voxel");
-   Check(n0 == 0 && std::all_of(none.begin(), none.end(), [](float v) { return v == 0.0f; }), "density3d: no population = zeros");
+   Check(n0 == 0 && std::all_of(none.begin(), none.end(), [](float v) { return v == 0.0f; }), "density3d: no structure = zeros");
 
-   // Hand-binning the sites by the persistent flag.
-   World ref(1249, [] { Params q; q.labelEfficiency = 0.2; q.labelNonBleaching = 0.3; return q; }());
+   // Hand-binning the sites.
+   World ref = LabelledWorld(1249, Params(), MakeLabel(LabelMode::DnaPaint, 0.5));
    std::vector<WorldDye> d;
    ref.SitesInWindow(x0, y0, x1, y1, zLo, zHi, d);
-   std::vector<float> hb(n3, 0.0f), hp(n3, 0.0f);
+   std::vector<float> hb(n3, 0.0f);
    for (const WorldDye& e : d) {
       const int ix = std::min(nx - 1, (int)std::floor((e.x - x0) * (nx / (x1 - x0))));
       const int iy = std::min(ny - 1, (int)std::floor((e.y - y0) * (ny / (y1 - y0))));
       const int iz = std::min(nz - 1, (int)std::floor((e.z - zLo) * (nz / (zHi - zLo))));
-      (e.persistent ? hp : hb)[((size_t)iz * ny + iy) * nx + ix] += 1;
+      hb[((size_t)iz * ny + iy) * nx + ix] += 1;
    }
-   Check(hb == bl && hp == pe, "density3d: matches hand-binned SitesInWindow per population");
+   Check(hb == all, "density3d: matches hand-binned SitesInWindow");
 
    // nz = 1 over a slab = the 2D query with the same z limits; infinite z too.
-   const int32_t ns = isc_density3d_in_window(w, x0, y0, x1, y1, 1.0, 3.0, nx, ny, 1, 3, slab.data());
+   const int32_t ns = isc_density3d_in_window(w, x0, y0, x1, y1, 1.0, 3.0, nx, ny, 1, 1, slab.data());
    isc_density_in_window(w, x0, y0, x1, y1, 1.0, 3.0, nx, ny, flat.data());
-   const int32_t ni = isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 1, 3, all.data());
+   const int32_t ni = isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 1, 1, all.data());
    Check(slab == flat && ns > 0 && ni >= na, "density3d: nz = 1 slab equals the 2D query");
-   Check(isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 2, 3, all.data()) == -1 &&
-            isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 4, all.data()) == -1 &&
-            isc_density3d_in_window(w, x0, y0, x1, y1, zHi, zLo, nx, ny, nz, 3, all.data()) == -1,
-         "density3d: bad arguments rejected");
+   Check(isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 2, 1, all.data()) == -1 &&
+            isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 2, all.data()) == -1 &&
+            isc_density3d_in_window(w, x0, y0, x1, y1, zHi, zLo, nx, ny, nz, 1, all.data()) == -1,
+         "density3d: bad arguments rejected (unknown structure bit too)");
    isc_world_free(w);
    isc_params_free(p);
 }
@@ -389,11 +487,28 @@ void KineticsStats()
    b.clear();
    DyeSchedule(DyeH1(7, 1, 2, 3), 4, 5, k, b);
    Check(b.size() <= (size_t)DYE_MAX_BLINKS, "blink count capped");
+   // tMax: the blinks before it are the full schedule's (a prefix).
+   k.bleachProb = 0.05; k.photonCV = 0.3;
+   bool prefix = true;
+   for (int i = 0; i < 2000 && prefix; i++) {
+      std::vector<Blink> full, part;
+      DyeSchedule(DyeH1(7, i, 1, 0), i % 13, i, k, full);
+      const double tMax = 5.0 + (i % 40);
+      DyeSchedule(DyeH1(7, i, 1, 0), i % 13, i, k, part, tMax);
+      size_t m = 0;
+      while (m < full.size() && full[m].tOn < tMax) m++;
+      prefix = part.size() == m;
+      for (size_t j = 0; prefix && j < m; j++)
+         prefix = part[j].tOn == full[j].tOn && part[j].tOff == full[j].tOff && part[j].brightness == full[j].brightness;
+   }
+   Check(prefix, "DyeSchedule(tMax) = the full schedule's blinks starting before tMax");
 }
 
 bool SameEvents(std::vector<WorldEvent> a, std::vector<WorldEvent> b)
 {
-   auto key = [](const WorldEvent& e) { return std::make_tuple(e.id, e.tOn, e.x, e.y, e.z, e.tOff, e.brightness); };
+   auto key = [](const WorldEvent& e) {
+      return std::make_tuple(e.id, e.tOn, e.x, e.y, e.z, e.tOff, e.brightness, e.structure, e.state, e.aux);
+   };
    auto lt = [&](const WorldEvent& x, const WorldEvent& y) { return key(x) < key(y); };
    std::sort(a.begin(), a.end(), lt);
    std::sort(b.begin(), b.end(), lt);
@@ -406,17 +521,17 @@ bool SameEvents(std::vector<WorldEvent> a, std::vector<WorldEvent> b)
 // Caches under load: a window holding more dyes than the dye cache is not
 // regenerated on every query, and the persistent-blink cache (built for a
 // range of time bins) gives PersistentBlinks' answer, also when time jumps
-// back, across range ends and after a kinetics change.
-void CacheUnderLoad()
+// back, across range ends and after a label change. Run for a bleaching
+// (PALM) and a persistent (DNA-PAINT) label.
+void CacheUnderLoad(LabelMode mode, const char* name)
 {
+   std::printf("    %s\n", name);
    Params p;
-   p.labelEfficiency = 0.05;
-   p.labelNonBleaching = 0.05;
    const uint32_t seed = 1249;
    Kinetics k;
    k.activationRatePerSec = 0.2; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
-   World w(seed, p, 48, 1000);   // a dye cache far smaller than the window
-   w.SetKinetics(k);
+   const Label lab = MakeLabel(mode, 0.05, k);
+   World w = LabelledWorld(seed, p, lab, 48, 1000);   // a dye cache far smaller than the window
    std::vector<Cell> near;
    w.CellsInRect(-30, -30, 30, 30, near);
    if (near.empty()) { Check(false, "cells near the origin"); return; }
@@ -430,8 +545,7 @@ void CacheUnderLoad()
    // eviction waits for the end of the query, so the blocks the old and new
    // windows share survive it.
    {
-      World a(seed, p, 48, 1000), b(seed, p, 48, 1000);
-      a.SetKinetics(k); b.SetKinetics(k);
+      World a = LabelledWorld(seed, p, lab, 48, 1000), b = LabelledWorld(seed, p, lab, 48, 1000);
       std::vector<WorldEvent> e;
       a.EventsInWindow(x0, y0, x1, y1, -INF, 1.0, 0, fd, e);
       const long before = a.Stats().dyeBlocks;
@@ -444,8 +558,7 @@ void CacheUnderLoad()
    // (budget-limited or not) answers exactly like one that does not, and
    // the window it completed is then served without building blocks.
    {
-      World a(seed, p, 48, 1000), b(seed, p, 48, 1000);
-      a.SetKinetics(k); b.SetKinetics(k);
+      World a = LabelledWorld(seed, p, lab, 48, 1000), b = LabelledWorld(seed, p, lab, 48, 1000);
       bool same = true, partial = false;
       for (int f = 0; f < 12; f++) {
          const double s = 0.4 * f, t0 = 2 + f * fd;
@@ -464,8 +577,9 @@ void CacheUnderLoad()
       Check(same && SameEvents(ea, eb) && partial && done && a.Stats().dyeBlocks == built,
             "prefetch changes no event; a prefetched window is served from the cache");
    }
-   // Frame after frame, the persistent blinks come from blocks extending
-   // their bins ahead of time (staggered per block): still PersistentBlinks'.
+   // Frame after frame (the persistent blinks from blocks extending their bins
+   // ahead of time, staggered per block; the bleaching ones from windowed
+   // schedules): still the brute force's.
    bool steady = true;
    for (int f = 0; f < 70; f++) {
       ev.clear();
@@ -474,64 +588,49 @@ void CacheUnderLoad()
          std::vector<WorldDye> ds;
          w.SitesInWindow(x0, y0, x1, y1, -INF, INF, ds);
          std::vector<WorldEvent> ref;
-         std::vector<Blink> bl;
          const double t0 = 40 + f * fd, t1 = t0 + fd;
-         for (const WorldDye& d : ds) {
-            bl.clear();
-            if (d.persistent) PersistentBlinks(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), t0, t1, bl);
-            else DyeSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), bl);
-            for (const Blink& x : bl)
-               if (x.tOn < t1 && x.tOff > t0) ref.push_back({ d.x, d.y, d.z, x.tOn, x.tOff, x.brightness, d.id });
-         }
+         for (const WorldDye& d : ds) BruteBlinks(seed, d, w.GetLabel(STRUCTURE_MT), t0, t1, ref);
          steady = steady && SameEvents(ev, ref);
       }
    }
-   Check(steady, "persistent blinks frame by frame across bin extensions = PersistentBlinks");
+   Check(steady, "blinks frame by frame across bin extensions / schedule horizons = brute force");
 
    std::vector<WorldDye> dyes;
    w.SitesInWindow(x0, y0, x1, y1, -INF, INF, dyes);
    auto brute = [&](double t0, double t1) {
       std::vector<WorldEvent> out;
-      std::vector<Blink> b;
-      for (const WorldDye& d : dyes) {
-         b.clear();
-         if (d.persistent) PersistentBlinks(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), t0, t1, b);
-         else DyeSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, w.GetKinetics(), b);
-         for (const Blink& bl : b)
-            if (bl.tOn < t1 && bl.tOff > t0) out.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, d.id });
-      }
+      for (const WorldDye& d : dyes) BruteBlinks(seed, d, w.GetLabel(STRUCTURE_MT), t0, t1, out);
       return out;
    };
    bool same = true;
-   long nPersist = 0;
+   long nEv = 0;
    for (double t : { 3.0, 15.97, 16.0, 31.99, 47.5, 0.02, 200.0, 199.0 }) {
       ev.clear();
       w.EventsInWindow(x0, y0, x1, y1, -INF, INF, t, t + fd, ev);
       same = same && SameEvents(ev, brute(t, t + fd));
-      nPersist += (long)ev.size();
+      nEv += (long)ev.size();
    }
    Kinetics k2 = k;
    k2.activationRatePerSec = 3;   // more blinks per bin: shorter bin ranges
-   w.SetKinetics(k2);
+   w.SetLabel(STRUCTURE_MT, MakeLabel(mode, 0.05, k2));
    for (double t : { 7.3, 7.35, 9.0 }) {
       ev.clear();
       w.EventsInWindow(x0, y0, x1, y1, -INF, INF, t, t + fd, ev);
       same = same && SameEvents(ev, brute(t, t + fd));
    }
-   Check(same && nPersist > 0, "cached persistent blinks = PersistentBlinks (time jumps, range ends, new kinetics)");
+   Check(same && nEv > 0, "cached blinks = brute force (time jumps, range ends, new kinetics)");
 }
 
 // The event query (spec/PORT.md 6.2): brute force equality, determinism,
-// time slicing, and the per-frame cost at the default FOV.
-void EventQuery()
+// time slicing, and the per-frame cost at the default FOV, for one label.
+// PALM without a pre state and DNA-PAINT are the old bleaching dyes and
+// persistent sites (web/lab/label_regression.mjs on the JS).
+void EventQuery(const Label& lab, const char* name)
 {
+   std::printf("    %s\n", name);
    Params p;
    const uint32_t seed = 1249;
-   Kinetics k;
-   k.activationRatePerSec = 1.0 / 30; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
-   p.labelNonBleaching = 0.02;   // some persistent sites too
-   World w(seed, p);
-   w.SetKinetics(k);
+   World w = LabelledWorld(seed, p, lab);
    std::vector<Cell> near;
    w.CellsInRect(-30, -30, 30, 30, near);
    if (near.empty()) { Check(false, "cells near the origin"); return; }
@@ -543,14 +642,7 @@ void EventQuery()
    w.SitesInWindow(x0, y0, x1, y1, zLo, zHi, dyes);
    const double t0 = 2.0, t1 = 2.0 + fd;
    std::vector<WorldEvent> brute;
-   std::vector<Blink> b;
-   for (const WorldDye& d : dyes) {
-      b.clear();
-      if (d.persistent) PersistentBlinks(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, k, t0, t1, b);
-      else DyeSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, k, b);
-      for (const Blink& bl : b)
-         if (bl.tOn < t1 && bl.tOff > t0) brute.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, d.id });
-   }
+   for (const WorldDye& d : dyes) BruteBlinks(seed, d, lab, t0, t1, brute);
    std::vector<WorldEvent> got;
    auto tq = std::chrono::steady_clock::now();
    w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, got);
@@ -586,36 +678,46 @@ void EventQuery()
    }
    Check(SameEvents(whole, sliced), "union of per-frame queries = the multi-frame query");
 
-   // Determinism: away and back, dropped caches, kinetics round trip, other world.
+   // Determinism: away and back, dropped caches, label round trip, other world,
+   // and any query history (a late window first, an early one after).
    std::vector<WorldEvent> again;
    std::vector<WorldDye> far;
    w.SitesInWindow(x0 + 1000, y0, x1 + 1000, y1, -INF, INF, far);
    w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
    Check(SameEvents(got, again), "events: stage 1 mm away and back, identical");
-   Kinetics k2 = k;
-   k2.onSec = 0.2;
-   w.SetKinetics(k2);
+   Label l2 = lab;
+   l2.kin.onSec = 0.2;
+   w.SetLabel(STRUCTURE_MT, l2);
    again.clear();
    w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
    const bool changed = !SameEvents(got, again);
-   w.SetKinetics(k);
+   w.SetLabel(STRUCTURE_MT, lab);
    again.clear();
    w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
-   Check(changed && SameEvents(got, again), "events: kinetics change and back, identical");
+   Check(changed && SameEvents(got, again), "events: label change and back, identical");
    w.DropCaches();
    again.clear();
    w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
    Check(SameEvents(got, again), "events: after dropping every cache, identical");
-   World tiny(seed, p, 1, 1000);   // caches smaller than one FOV
-   tiny.SetKinetics(k);
+   World tiny = LabelledWorld(seed, p, lab, 1, 1000);   // caches smaller than one FOV
    again.clear();
    tiny.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
    Check(SameEvents(got, again), "events: independent of cache sizes");
+   World hist = LabelledWorld(seed, p, lab);
+   std::vector<WorldEvent> late, early, lateRef;
+   hist.EventsInWindow(x0, y0, x1, y1, zLo, zHi, 300, 300 + fd, late);
+   hist.EventsInWindow(x0, y0, x1, y1, zLo, zHi, 0, 400, early);
+   again.clear();
+   hist.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, again);
+   std::vector<WorldEvent> lateAgain;
+   hist.EventsInWindow(x0, y0, x1, y1, zLo, zHi, 300, 300 + fd, lateAgain);
+   for (const WorldDye& d : dyes) BruteBlinks(seed, d, lab, 300, 300 + fd, lateRef);
+   Check(SameEvents(got, again) && SameEvents(late, lateRef) && SameEvents(late, lateAgain),
+         "events: windowed schedules independent of the query history (late, long, early, late)");
 }
 
-// Persistent (non-bleaching, DNA-PAINT-like) sites: a constant blink rate
-// per site at any time, windows answered consistently, and the bleaching
-// dyes unchanged by adding them.
+// Persistent (DNA-PAINT) sites: a constant blink rate per site at any time,
+// windows answered consistently.
 void PersistentSites()
 {
    Kinetics k;
@@ -658,28 +760,159 @@ void PersistentSites()
       for (const Blink& x : whole) same = same && std::find(starts.begin(), starts.end(), x.tOn) != starts.end();
    }
    Check(same, "persistent: a window = the union of its slices");
+}
 
-   // Site fractions: bleaching set unchanged by persistent sites.
-   std::vector<Pt3> pts;
-   for (int i = 0; i <= 100; i++) pts.push_back({ i * 0.05, 0.2 * std::sin(i * 0.1), 1.0 });
-   const MtFrames fr = BuildMtFrames(pts);
-   std::vector<Dye> a, c;
-   for (int blk = 0; blk < 5; blk++) {
-      DyesInBlock(11, 2, 3, 0, pts, fr, blk, 0.1, 0.0, a);
-      DyesInBlock(11, 2, 3, 0, pts, fr, blk, 0.1, 0.3, c);
+// The label model (issue 16; web/lab/label_regression.mjs on the JS): the
+// continuous windows of each mode, orientation statistics, refusals.
+void LabelModel()
+{
+   Params p;
+   const uint32_t seed = 1249;
+   Kinetics kin;
+   kin.activationRatePerSec = 0.05; kin.onSec = 0.05; kin.offSec = 1.0; kin.bleachProb = 0.5; kin.photonCV = 0.5;
+   std::vector<Cell> near;
+   World probe(seed, p);
+   probe.CellsInRect(-30, -30, 30, 30, near);
+   if (near.empty()) { Check(false, "cells near the origin"); return; }
+   const double x0 = near[0].x + 6, y0 = near[0].y - 2, x1 = x0 + 4, y1 = y0 + 4, zLo = -5, zHi = 50;
+
+   // dSTORM: an initial ON window Exp(initialOnSec) per dye, the blinks after it.
+   {
+      Kinetics k = kin;
+      k.initialOnSec = 2;
+      Label l = MakeLabel(LabelMode::dSTORM, 0.1, k);
+      World w = LabelledWorld(seed, p, l);
+      std::vector<WorldDye> s;
+      std::vector<WorldEvent> c, ev;
+      w.SitesInWindow(x0, y0, x1, y1, zLo, zHi, s);
+      w.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, -INF, c);
+      w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, 0, 1e9, ev);
+      double m = 0;
+      bool ok = c.size() == s.size() && !s.empty();
+      for (size_t i = 0; ok && i < c.size(); i++) {
+         m += c[i].tOff;
+         ok = c[i].state == STATE_INITIAL_ON && c[i].tOn == 0 && c[i].id == s[i].id && c[i].x == s[i].x && c[i].aux == 0;
+      }
+      m /= std::max<size_t>(1, c.size());
+      // Every blink starts after its dye's initial ON window ends.
+      bool after = true;
+      for (const WorldEvent& e : ev)
+         for (const WorldEvent& w0 : c)
+            if (w0.id == e.id && w0.x == e.x) after = after && e.tOn >= w0.tOff;
+      std::vector<WorldEvent> late;
+      w.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, 3.0, late);
+      size_t open = 0;
+      for (const WorldEvent& e : c) open += e.tOff > 3.0;
+      std::printf("      dSTORM initial ON: %zu windows for %zu dyes, mean %.3f s (2), %zu blinks, %zu open at 3 s\n",
+                  c.size(), s.size(), m, ev.size(), late.size());
+      Check(ok && std::fabs(m - 2) < 0.2 && after && !ev.empty() && late.size() == open,
+            "dSTORM: initial ON windows ~ Exp(initialOnSec), blinks after them, tMin filter");
    }
-   size_t nb = 0, np = 0;
-   bool subset = true;
-   for (const Dye& d : c) {
-      if (d.persistent) { np++; continue; }
-      nb++;
-      bool found = false;
-      for (const Dye& e : a) found = found || (e.id == d.id && e.k == d.k && e.n == d.n);
-      subset = subset && found;
+   // WideField: one always-on window per dye, aux ~ Exp(1), no blinks.
+   {
+      World w = LabelledWorld(seed, p, MakeLabel(LabelMode::WideField, 0.1, kin));
+      std::vector<WorldDye> s;
+      std::vector<WorldEvent> c, ev;
+      w.SitesInWindow(x0, y0, x1, y1, zLo, zHi, s);
+      w.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, 1e6, c);
+      w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, 0, 100, ev);
+      double ma = 0;
+      bool ok = c.size() == s.size() && !s.empty();
+      for (const WorldEvent& e : c) { ma += e.aux; ok = ok && std::isinf(e.tOff) && e.state == STATE_ALWAYS_ON; }
+      ma /= std::max<size_t>(1, c.size());
+      std::printf("      WideField: %zu always-on windows, mean aux %.3f (1)\n", c.size(), ma);
+      Check(ok && ev.empty() && std::fabs(ma - 1) < 0.08, "WideField: one always-on window per dye, aux ~ Exp(1), no blinks");
    }
-   std::printf("      site fractions 0.1 / 0.3 on 5 um: %zu bleaching, %zu persistent (expect ~812 / ~2437)\n", nb, np);
-   Check(subset && nb == a.size() && std::fabs(np / (3.0 * nb) - 1) < 0.15,
-         "labelNonBleaching adds persistent sites, bleaching dyes unchanged");
+   // PALM with a pre state: the pre window ends at the first blink; without: none.
+   {
+      Label l = MakeLabel(LabelMode::PALM, 0.1, kin);
+      l.preState = true;
+      World w = LabelledWorld(seed, p, l);
+      std::vector<WorldDye> s;
+      std::vector<WorldEvent> c;
+      w.SitesInWindow(x0, y0, x1, y1, zLo, zHi, s);
+      w.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, -INF, c);
+      bool ok = c.size() == s.size() && !s.empty();
+      for (size_t i = 0; ok && i < c.size(); i++) {
+         std::vector<Blink> bl;
+         DyeSchedule(DyeH1(seed, s[i].cx, s[i].cy, s[i].mtIndex), s[i].k, s[i].n, kin, bl);
+         ok = c[i].state == STATE_PRE && c[i].x == s[i].x && c[i].tOff == (bl.empty() ? INF : bl[0].tOn) && c[i].aux > 0;
+      }
+      World w2 = LabelledWorld(seed, p, MakeLabel(LabelMode::PALM, 0.1, kin));
+      std::vector<WorldEvent> c2;
+      w2.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, -INF, c2);
+      Check(ok && c2.empty(), "PALM: the pre state ends at the first blink; no pre state, no windows");
+      // DNA-PAINT has no continuous windows.
+      World w3 = LabelledWorld(seed, p, MakeLabel(LabelMode::DnaPaint, 0.1, kin));
+      std::vector<WorldEvent> c3;
+      w3.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, -INF, c3);
+      Check(c3.empty(), "DNA-PAINT: no continuous windows");
+   }
+   // Orientation: Free = no dipole; Random isotropic (<z^2> = 1/3, <x> = 0);
+   // Fixed unit vectors, polar 90 perpendicular to the axis, polar 0 along it.
+   {
+      Label l = MakeLabel(LabelMode::DnaPaint, 0.7, kin);
+      World w = LabelledWorld(seed, p, l);
+      std::vector<WorldDye> s;
+      w.SitesInWindow(x0, y0, x1, y1, zLo, zHi, s);
+      if (s.size() > 4000) s.resize(4000);
+      Pt3 dir;
+      bool free = !s.empty();
+      for (const WorldDye& d : s) free = free && !w.DyeOrientationOf(d, dir);
+      l.orientation.mode = OrientationMode::Random;
+      l.orientation.wobbleDeg = 20;
+      w.SetLabel(STRUCTURE_MT, l);
+      double z2 = 0, mx = 0;
+      bool unit = true;
+      for (const WorldDye& d : s) {
+         w.DyeOrientationOf(d, dir);
+         z2 += dir.z * dir.z; mx += dir.x;
+         unit = unit && std::fabs(jsm::hypot(dir.x, dir.y, dir.z) - 1) < 1e-12;
+      }
+      z2 /= s.size(); mx /= s.size();
+      // Fixed: against the segment tangent at the dye.
+      auto axisDot = [&](const WorldDye& d, const Pt3& v) {
+         Cell c;
+         w.FindCell(d.cx, d.cy, c);
+         CellAssets& A = w.Assets(c);
+         const MtFrames& fr = A.Frames((size_t)d.mtIndex);
+         const Pt3& t = fr.T[MtSegmentAt(fr, (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3)];
+         return t.x * v.x + t.y * v.y + t.z * v.z;
+      };
+      l.orientation.mode = OrientationMode::Fixed;
+      l.orientation.polarDeg = 90; l.orientation.azimuthDeg = 30;
+      w.SetLabel(STRUCTURE_MT, l);
+      bool perp = true;
+      for (size_t i = 0; i < s.size(); i += 7) {
+         w.DyeOrientationOf(s[i], dir);
+         perp = perp && std::fabs(axisDot(s[i], dir)) < 1e-9 && std::fabs(jsm::hypot(dir.x, dir.y, dir.z) - 1) < 1e-12;
+      }
+      l.orientation.polarDeg = 0;
+      w.SetLabel(STRUCTURE_MT, l);
+      bool along = true;
+      for (size_t i = 0; i < s.size(); i += 7) {
+         w.DyeOrientationOf(s[i], dir);
+         along = along && std::fabs(axisDot(s[i], dir) - 1) < 1e-9;
+      }
+      std::printf("      orientation: Random <z^2> %.3f (1/3) <x> %.3f over %zu dyes\n", z2, mx, s.size());
+      Check(free && unit && std::fabs(z2 - 1.0 / 3) < 0.02 && std::fabs(mx) < 0.03 && perp && along,
+            "orientation: Free none, Random isotropic, Fixed polar 90 / 0 perpendicular to / along the axis");
+   }
+   // Refusals.
+   {
+      Label m;
+      m.motion = 1;
+      Label o;
+      o.offTargetCount = 1;
+      Label pr = MakeLabel(LabelMode::dSTORM, 0.1);
+      pr.preState = true;
+      World w(seed, p);
+      const double d0 = w.GetLabel(STRUCTURE_MT).density;
+      Check(ValidateLabel(m) && LabelNotImplemented(m) && ValidateLabel(o) && LabelNotImplemented(o) && ValidateLabel(pr) &&
+               !LabelNotImplemented(pr) && !w.SetLabel(STRUCTURE_MT, m) && !w.SetLabel(STRUCTURE_MT, pr) &&
+               !w.SetLabel(1, Label()) && w.GetLabel(STRUCTURE_MT).density == d0 && !ValidateLabel(Label()),
+            "labels: SPT motion, off-target and a non-PALM pre state refused (nothing changes)");
+   }
 }
 
 } // namespace
@@ -688,26 +921,27 @@ void PersistentSites()
 // schedules and persistent covers built on several threads) changes nothing:
 // the same events in the same order -- the order the renderer sums them in --
 // and the same build counts as one thread, for stack-sized and frame-sized
-// queries, jumps, a kinetics change and prefetches.
+// queries, jumps, a label change and prefetches.
 bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEvent>& b)
 {
    if (a.size() != b.size()) return false;
    for (size_t i = 0; i < a.size(); i++) {
       const WorldEvent &x = a[i], &y = b[i];
-      if (x.id != y.id || std::memcmp(&x.x, &y.x, 6 * sizeof(double)) != 0) return false;
+      if (x.id != y.id || std::memcmp(&x.x, &y.x, 7 * sizeof(double)) != 0 || x.structure != y.structure ||
+          x.state != y.state)
+         return false;
    }
    return true;
 }
 
-void Threads()
+void Threads(LabelMode mode, double density, const char* name)
 {
+   std::printf("    %s\n", name);
    Params p;
-   p.labelEfficiency = 0.1;
-   p.labelNonBleaching = 0.3;
    Kinetics k;
    k.activationRatePerSec = 0.01; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
-   World a(77, p), b(77, p);
-   a.SetKinetics(k); b.SetKinetics(k);
+   const Label lab = MakeLabel(mode, density, k);
+   World a = LabelledWorld(77, p, lab), b = LabelledWorld(77, p, lab);
    size_t total = 0;
    auto both = [&](const std::function<void(World&, std::vector<WorldEvent>&)>& q) {
       std::vector<WorldEvent> ea, eb;
@@ -723,9 +957,10 @@ void Threads()
    for (int f = 0; f < 30 && same; f++) {
       const double s = f < 10 ? 0.3 * f : f < 20 ? 60 + 0.3 * f : 250;   // a move, a jump, another jump
       same = both([&](World& w, std::vector<WorldEvent>& e) {
-         if (f == 25) w.SetKinetics(Kinetics{ 0.02, 0.05, 0.5, 0.5, 0.2 });
+         if (f == 25) w.SetLabel(STRUCTURE_MT, MakeLabel(mode, density, Kinetics{ 0.02, 0.05, 0.5, 0.5, 0.2, 0.0 }));
          w.EventsInWindow(s - 8, -8, s + 8, 8, 0, 4, 21 + f * 0.05, 21 + (f + 1) * 0.05, e);
          if (f % 4 == 0) w.Prefetch(s - 11, -11, s + 11, 11, -INF, INF, 21 + (f + 1) * 0.05, 21 + (f + 2) * 0.05, 1e9);
+         if (f % 5 == 1) w.ContinuousInWindow(s - 8, -8, s + 8, 8, 0, 4, 0, e);
       });
    }
    const WorldStats &sa = a.Stats(), &sb = b.Stats();
@@ -1016,9 +1251,8 @@ void BlockInjection()
    a.SitesInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, da);
    b.SitesInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, db);
    Check(!da.empty() && SameDyes(da, db), "block injection: the same dyes");
-   Kinetics k;
-   a.SetKinetics(k);
-   b.SetKinetics(k);
+   a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::PALM, 0.1));
+   b.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::PALM, 0.1));
    std::vector<WorldEvent> ea, eb;
    a.EventsInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, 0, 3, ea);
    b.EventsInWindow(x0, y0, x0 + 12.8, y0 + 12.8, -INF, INF, 0, 3, eb);
@@ -1115,11 +1349,12 @@ void BlockStoreTest()
       b.CellsInRect(-30, -30, 30, 30, cb);
       Check(sameCells(ca, cb) && b.Stats().blocksPacked == 0 && b.Stats().blocksFromStore == packedA,
             "block store: the same cells (every field), nothing packed, every block taken from the file");
-      // Microtubule and labelling parameters do not touch the pose: same key.
+      // Microtubule parameters and labels do not touch the pose: same key.
       Params p2 = p;
-      p2.mtDensity = 0.4; p2.labelEfficiency = 0.5;
+      p2.mtDensity = 0.4;
       World b2(1249, p2);
-      Check(b2.SetCacheDir(d) && (long)b2.Store()->Size() == packedA, "block store: mt*/label* parameters keep the key");
+      b2.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::dSTORM, 0.5));
+      Check(b2.SetCacheDir(d) && (long)b2.Store()->Size() == packedA, "block store: mt* parameters and labels keep the key");
    }
    {
       Params p3 = p;
@@ -1174,9 +1409,22 @@ int main()
    DyeStatistics();
    KineticsStats();
    PersistentSites();
-   EventQuery();
-   CacheUnderLoad();
-   Threads();
+   {
+      Kinetics k;
+      k.activationRatePerSec = 1.0 / 30; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
+      EventQuery(MakeLabel(LabelMode::PALM, 0.1, k), "event query: PALM 10 % (the old bleaching dyes)");
+      Kinetics kp = k;
+      kp.activationRatePerSec = 0.02;
+      EventQuery(MakeLabel(LabelMode::DnaPaint, 0.3, kp), "event query: DNA-PAINT 30 % (the old persistent sites)");
+      Kinetics kd = k;
+      kd.initialOnSec = 1.5;
+      EventQuery(MakeLabel(LabelMode::dSTORM, 0.1, kd), "event query: dSTORM 10 % with an initial ON");
+   }
+   CacheUnderLoad(LabelMode::PALM, "caches under load: PALM");
+   CacheUnderLoad(LabelMode::DnaPaint, "caches under load: DNA-PAINT");
+   LabelModel();
+   Threads(LabelMode::PALM, 0.3, "threads: PALM 30 %");
+   Threads(LabelMode::DnaPaint, 0.3, "threads: DNA-PAINT 30 %");
    CApi();
    BlockInjection();
    Density3d();
