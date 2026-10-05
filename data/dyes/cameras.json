@@ -1,0 +1,50 @@
+{
+  "about": "Camera presets (BSD-3-Clause). A preset writes these values into the camera options (CamParam_*); every value stays editable afterwards. qeCurve: an FPbase QE spectrum id (curve in fpbase_spectra.json, CC BY-SA 4.0) used as QE(lambda) in the detected-fraction integral, or 'Flat' = the scalar quantumEfficiency at every wavelength. physicalPixelUm is informational (the sample pixel size stays General_PixelSizeNm).",
+  "presets": [
+    {
+      "id": "Kinetix22",
+      "name": "Teledyne Photometrics Kinetix22 (sCMOS, sensitivity mode)",
+      "type": "sCMOS",
+      "qeCurve": 7447,
+      "quantumEfficiency": 0.85,
+      "readNoiseElectrons": 1.2,
+      "gainElectronsPerAdu": 0.25,
+      "offsetAdu": 100,
+      "offsetStdAdu": 0.5,
+      "darkCurrentElectronsPerSec": 1.03,
+      "gainStdPct": 0.5,
+      "readNoiseStdPct": 20,
+      "bitDepth": 16,
+      "physicalPixelUm": 6.5,
+      "refs": ["kinetix-datasheet", "lambert2019"],
+      "notes": "Today's (pre-issue-16) adapter defaults. The per-pixel spreads (gain 0.5 %, read noise 20 %) are estimates: Photometrics does not publish them."
+    },
+    {
+      "id": "iXonUltra897",
+      "name": "Andor iXon Ultra 897 (EMCCD, 512 x 512, back-illuminated)",
+      "type": "EMCCD",
+      "qeCurve": 1337,
+      "quantumEfficiency": 0.95,
+      "readNoiseElectrons": 50,
+      "gainElectronsPerAdu": 4,
+      "emGain": 300,
+      "cicElectrons": 0.005,
+      "offsetAdu": 100,
+      "offsetStdAdu": 0.5,
+      "darkCurrentElectronsPerSec": 0.00025,
+      "gainStdPct": 0,
+      "readNoiseStdPct": 0,
+      "bitDepth": 16,
+      "physicalPixelUm": 16,
+      "refs": ["ixon897-datasheet", "lambert2019"],
+      "notes": "Typical published values: read noise of the EM amplifier before gain (~50 e- at 10 MHz; under 1 e- effective at EM gain 300), CIC ~0.005 e-/px/frame, dark current 0.00025 e-/px/s at -80 C, ~4 e-/ADU pre-amplifier setting. QE curve: FPbase 'Andor iXon 897 BV, BVF'. Not re-checked against the current datasheet."
+    },
+    {
+      "id": "Custom",
+      "name": "Custom (flat QE = CamParam_QuantumEfficiency)",
+      "type": null,
+      "qeCurve": "Flat"
+    }
+  ],
+  "default": "Kinetix22"
+}

@@ -33,6 +33,9 @@ that finishes them.
 - `spec/` -- [ALGORITHM.md](spec/ALGORITHM.md) (the *why* of every algorithm; do not "simplify" what it
   says was fixed on purpose), [BRIGHTFIELD.md](spec/BRIGHTFIELD.md) (BF model, quality levels, missing structures), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
+- `data/` -- [dyes/](data/dyes/README.md) (dye library, light-path presets, cameras; FPbase spectra under CC BY-SA 4.0,
+  fetched by `tools/fetch_fpbase.mjs`, built into `web/prototype/scope/dye_library_data.js` by `tools/gen_dye_library.mjs
+  [--check]`) and `references.json` (the project reference list, rendered to `docs/references.md`).
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
@@ -123,6 +126,11 @@ tools/port_check.sh`, docs/spec, delete `PORT_PENDING.md`. Imaging (photophysics
 same way in `web/prototype/scope/`: the JS is the reference, the port makes the C++ match it again
 (`scope_parity.mjs`). A C++-only imaging change outside iteration mode must keep `scope_parity.mjs` passing (update
 the JS twin in the same commit).
+
+**References (2026-10-05).** Every literature value, default or model gets a full reference (authors, year, title,
+journal, volume, pages, DOI; which table/figure) in `data/references.json` and its key next to the value (data `refs`,
+code comment, docs). Check citations against the source (Europe PMC full text where open), not from memory; mark values
+with no source as *estimate*. Add references as you use them, not at the end.
 
 Do only what the current milestone asks; don't add UI nobody asked for. Ask before pushing,
 releasing, or touching the source repos (`C:\GitHub\websmlm`, `C:\GitHub\demoCam_SMLM_MM`). CI never opens

@@ -53,6 +53,7 @@ nav:
       - Optics and PSF: physics/optics.md
       - Camera and background: physics/camera.md
       - Validation: physics/validation.md
+      - References: references.md
   - Extending: extending.md
   - Gallery: gallery/index.md
   - Benchmarks: benchmarks.md

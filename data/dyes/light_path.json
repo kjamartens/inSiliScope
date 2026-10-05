@@ -1,0 +1,33 @@
+{
+  "about": "Microscope light-path presets (BSD-3-Clause): laser lines, dichroic mirrors and emission filters. 'ideal' entries are defined here (transmission 0/1 with edges); 'fpbase' entries name an FPbase spectrum id whose curve tools/fetch_fpbase.mjs stores in fpbase_spectra.json (CC BY-SA 4.0). Laser intensities are at the sample, kW/cm^2; a dichroic reflects the excitation (R = 1 - T) and transmits the emission (T).",
+  "lasers": [405, 488, 561, 640, 730],
+  "dichroics": [
+    { "id": "None", "name": "None (all light transmitted, lasers reach the sample)", "ideal": { "type": "none" } },
+    { "id": "LP505", "name": "Ideal long-pass 505 nm", "ideal": { "type": "longpass", "edgeNm": 505 } },
+    { "id": "LP570", "name": "Ideal long-pass 570 nm", "ideal": { "type": "longpass", "edgeNm": 570 } },
+    { "id": "LP650", "name": "Ideal long-pass 650 nm", "ideal": { "type": "longpass", "edgeNm": 650 } },
+    { "id": "Quad", "name": "Ideal quad band 405/488/561/640", "ideal": { "type": "notch", "reflectNm": [[395, 415], [478, 498], [551, 571], [630, 650]] } },
+    { "id": "ChromaZT405-488-561-640rpc", "name": "Chroma ZT405/488/561/640rpc (quad)", "fpbase": 1454, "ref": "lambert2019" },
+    { "id": "ChromaZT488rdc", "name": "Chroma ZT488rdc", "fpbase": 447, "ref": "lambert2019" },
+    { "id": "ChromaZT640rdc", "name": "Chroma ZT640rdc", "fpbase": 439, "ref": "lambert2019" },
+    { "id": "SemrockFF660-Di02", "name": "Semrock FF660-Di02", "fpbase": 1277, "ref": "lambert2019" },
+    { "id": "Custom", "name": "Custom long-pass (edge from dichroic-edge-nm)", "ideal": { "type": "longpass", "edgeNm": null } }
+  ],
+  "emissionFilters": [
+    { "id": "None", "name": "None (all light transmitted)", "ideal": { "type": "none" } },
+    { "id": "BP447-60", "name": "Ideal band pass 447/60", "ideal": { "type": "bandpass", "loNm": 417, "hiNm": 477 } },
+    { "id": "BP525-45", "name": "Ideal band pass 525/45", "ideal": { "type": "bandpass", "loNm": 502.5, "hiNm": 547.5 } },
+    { "id": "BP600-37", "name": "Ideal band pass 600/37", "ideal": { "type": "bandpass", "loNm": 581.5, "hiNm": 618.5 } },
+    { "id": "BP676-37", "name": "Ideal band pass 676/37", "ideal": { "type": "bandpass", "loNm": 657.5, "hiNm": 694.5 } },
+    { "id": "BP700-75", "name": "Ideal band pass 700/75", "ideal": { "type": "bandpass", "loNm": 662.5, "hiNm": 737.5 } },
+    { "id": "SemrockFF02-447-60", "name": "Semrock FF02-447/60", "fpbase": 1804, "ref": "lambert2019" },
+    { "id": "SemrockFF01-525-45", "name": "Semrock FF01-525/45", "fpbase": 904, "ref": "lambert2019" },
+    { "id": "SemrockFF01-600-37", "name": "Semrock FF01-600/37", "fpbase": 990, "ref": "lambert2019" },
+    { "id": "SemrockFF01-676-37", "name": "Semrock FF01-676/37", "fpbase": 1044, "ref": "lambert2019" },
+    { "id": "SemrockFF01-692-40", "name": "Semrock FF01-692/40", "fpbase": 1053, "ref": "lambert2019" },
+    { "id": "ChromaET700-75m", "name": "Chroma ET700/75m", "fpbase": 345, "ref": "lambert2019" },
+    { "id": "ChromaZET405-488-561-640m", "name": "Chroma ZET405/488/561/640m (quad)", "fpbase": 328, "ref": "lambert2019" },
+    { "id": "Custom", "name": "Custom band pass (em-lo-nm .. em-hi-nm)", "ideal": { "type": "bandpass", "loNm": null, "hiNm": null } }
+  ],
+  "defaults": { "dichroic": "LP650", "emissionFilter": "BP676-37" }
+}

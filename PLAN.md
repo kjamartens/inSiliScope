@@ -2,7 +2,7 @@ Upcoming ideas:
 
 - [x] cleanup of code of mm of non-cell-field (2026-10-05, issue 16 phase 0: the legacy patterns are gone).
 - Issue 16, structures / dyes / light path (branch `claude/multi-dye`; plan in the PR): [x] phase 0 legacy MM patterns
-  removed (CellField output unchanged), [ ] phase 1 dye/filter/camera data from FPbase + generators, [ ] phase 2 JS
+  removed (CellField output unchanged), [x] phase 1 dye/filter/camera data from FPbase + generators (data/dyes, data/references.json), [ ] phase 2 JS
   model (labels per structure, modes dSTORM/PALM/DNA-PAINT/WideField, light path, camera presets, mean-field switch,
   imager background, orientation/off-target/SPT plumbing) under `PORT_PENDING.md`, [ ] phase 3 port (core ABI 10,
   engine, adapter, cli, viewer module, block), docs.
