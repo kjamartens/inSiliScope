@@ -708,6 +708,14 @@ async function exportBlob(opts) {
   await prepare(signal, (d, n, label) => opts.onProgress && opts.onProgress(0, 1, `${label}: focus ${d}/${n}`));
   const loop = o.loop === 'pingpong' ? 'pingpong' : 'once', D = Cx.duration * (loop === 'pingpong' ? 2 : 1);
   const N = Math.max(1, Math.min(9000, Math.round(D * fps)));
+  // the cells along the whole camera path (neighbours a tilt or zoom-out brings into view): the cell workers load
+  // only what the last rendered view needs, so walk the path every 1/4 s and wait at each point; no frame stalls later
+  const nPath = Math.max(1, Math.ceil(D * 4));
+  for (let j = 0; j <= nPath; j++) {
+    await readyFrame(toState(A.evalCompiled(Cx, Math.min(D, j / 4), { loop }), false), W, H, cnv, signal);
+    if (opts.onProgress) opts.onProgress(0, 1, `cells along the camera path ${j}/${nPath}`);
+    if (j % 4 === 3) await sleep(0);
+  }
   const bg = IscScene.themeOf(seq.scene.theme).bg;
   const sink = await E.createSink({ format: o.format, width: W, height: H, fps, quality: o.quality, gif: { width: W, height: H, fps, dither: o.gif.dither, keys: [bg, [255, 255, 255]] } });
   const frame = async i => {
