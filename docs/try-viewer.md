@@ -66,7 +66,7 @@ Notes:
   cycles (27): orbits, fly-arounds, turntable, zoom dive, top-view reveal, peel away, x-ray, optical sections, depth scan,
   wipes, outside-in, dye sites, WideField / SMLM / BrightField slices, ground truth vs thresholded or localized, SMLM
   build-up; ready-made sequences under "New from…" (grand tour, ground truth vs data, an SMLM experiment, every
-  modality, turntable). The timeline under the view plays and
+  modality, SMLM slab up / localizations down, turntable). The timeline under the view plays and
   scrubs it (Space, arrows, [ and ]; once, loop or ping-pong); the dimmed border shows the export frame. **Export**
   renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
   or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
@@ -76,6 +76,7 @@ Notes:
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
+- **Random cell** (Display) jumps to a random cell of the field and centres it; **Previous cell** goes back (repeatably).
 - **Data layers** (Display): simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
   the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
   nearest focus position (blinking), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per

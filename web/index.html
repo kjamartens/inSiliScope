@@ -227,6 +227,8 @@ const UI_GROUPS = [
     check('showCytoContours', 'Show height contour lines', 'Draw contour lines of the cytoplasm height.', false, { adv }),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2) }),
     button('resetView', 'Reset view to origin', 'Back to world position (0, 0) at the default zoom.'),
+    button('randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre.'),
+    button('prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'),
   ] },
 
   { id: 'data', title: 'Data layers', items: [
@@ -772,7 +774,7 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
- 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
+ 'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'showWfSlice', 'wfSumZ', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
@@ -2999,7 +3001,7 @@ window.addEventListener('pointerup', () => {
 function syncLabels() { uiSync(); }
 Object.keys(els).forEach(id => {
   const el = els[id];
-  if (!el || id === 'reseed' || id === 'resetView' || id === 'acquireData' || id.endsWith('Val')) return;
+  if (!el || id === 'reseed' || id === 'resetView' || id === 'randomCell' || id === 'prevCell' || id === 'acquireData' || id.endsWith('Val')) return;
   el.addEventListener('input', () => { syncLabels(); requestDraw(); });
 });
 
@@ -3044,6 +3046,31 @@ els.resetView.addEventListener('click', () => {
   view.cx = 0; view.cy = 0; view.scale = 9;
   requestDraw();
 });
+// Random cell: a random point within 2 mm of the origin, then (once its block is packed) centred on the nearest cell.
+// Previous cell: back through the views the jumps left.
+const cellHistory = [];
+let cellJump = 0;
+function syncCellButtons() { els.prevCell.disabled = !cellHistory.length; }
+els.randomCell.addEventListener('click', async () => {
+  cellHistory.push({ cx: view.cx, cy: view.cy, scale: view.scale });
+  syncCellButtons();
+  const id = ++cellJump, a = 2 * Math.PI * Math.random(), r = 2000 * Math.sqrt(Math.random());
+  view.cx = r * Math.cos(a); view.cy = r * Math.sin(a);
+  requestDraw();
+  for (let i = 0; i < 300 && id === cellJump; i++) {   // up to 30 s for the packing there
+    const key = packingIdle() ? nearestCell(view.cx, view.cy) : null, b = key && cellBounds(key);
+    if (b && Math.hypot(b.center[0] - view.cx, b.center[1] - view.cy) < 100) { view.cx = b.center[0]; view.cy = b.center[1]; requestDraw(); return; }
+    await new Promise(res => setTimeout(res, 100));
+  }
+});
+els.prevCell.addEventListener('click', () => {
+  const v = cellHistory.pop();
+  if (!v) return;
+  cellJump++;   // stop a jump still waiting for its cell
+  Object.assign(view, v);
+  syncCellButtons(); requestDraw();
+});
+syncCellButtons();
 
 // ---- dyes -----------------------------------------------------------------------
 // The core's real labelled dyes (isc_sites_in_window: 13_3 lattice, binder tip, linker; labelEfficiency of the
