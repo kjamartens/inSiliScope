@@ -142,10 +142,17 @@ export function labelPhotophysics(eff, lp, o) {
   const kin = { activationRatePerSec: 0, onSec: Math.max(1e-6, m.onSec ?? 0.05), offSec: 1.0, bleachProb: 1.0,
     photonCV: Math.max(0, m.photonCV ?? 0.5), initialOnSec: 0 };
   let kAct = 0;
+  let excitationScale = 1;
   if (mode === 'dSTORM') {
-    // The dark state returns spontaneously (1 / offSec at the reference light path) and faster under 405 nm.
-    kAct = 1 / Math.max(1e-6, m.offSec) + (m.activation405PerKWcm2PerSec ?? 0) * intensityAt(lp, 405);
-    Object.assign(kin, { activationRatePerSec: kAct, offSec: 1 / kAct, bleachProb: m.bleachProb, initialOnSec: m.initialOnSec ?? 0 });
+    // ON time, spontaneous dark time and initial ON time are given at the reference light path (Dempsey et al. 2011's
+    // measurement intensity) and scale as 1 / (excitation rate / kExcRef): off- and on-switching are linear in the
+    // excitation, so photons per blink and the duty cycle stay as measured (dstormReference notes). The 405 nm
+    // activation adds to the return rate.
+    excitationScale = main && m.kExcRef > 0 ? Math.max(1e-6, main.excitationPerSec / m.kExcRef) : 1;
+    kin.onSec = Math.max(1e-6, (m.onSec ?? 0.02) / excitationScale);
+    kAct = excitationScale / Math.max(1e-6, m.offSec) + (m.activation405PerKWcm2PerSec ?? 0) * intensityAt(lp, 405);
+    Object.assign(kin, { activationRatePerSec: kAct, offSec: 1 / kAct, bleachProb: m.bleachProb,
+      initialOnSec: (m.initialOnSec ?? 0) / excitationScale });
   } else if (mode === 'PALM') {
     kAct = (m.spontaneousActivationPerSec ?? 0) + (m.activation405PerKWcm2PerSec ?? 0) * intensityAt(lp, 405);
     if (m.primed) kAct += m.primed.perKWcm2SqPerSec * intensityIn(lp, m.primed.primeNm) * intensityIn(lp, m.primed.convertNm);
@@ -159,7 +166,7 @@ export function labelPhotophysics(eff, lp, o) {
   const states = { main };
   if (pre) states.pre = pre;
   return {
-    label, mode, dye, states, kActPerSec: kAct,
+    label, mode, dye, states, kActPerSec: kAct, excitationScale, onSecNow: kin.onSec,
     photonBudget: m.photonBudget ?? (mode === 'WideField' ? 100000 : 0), prePhotonBudget: m.prePhotonBudget ?? 0,
     // Free imager in solution: uniform, c x N_A x chamber height x pixel area x its detected rate (no depletion, no
     // exclusion from cells; schnitzbauer2017).

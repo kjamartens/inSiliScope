@@ -19,6 +19,14 @@ export const DYE_DATA = {
    }
   },
   {
+   "id": "LP425",
+   "name": "Ideal long-pass 425 nm",
+   "ideal": {
+    "type": "longpass",
+    "edgeNm": 425
+   }
+  },
+  {
    "id": "LP505",
    "name": "Ideal long-pass 505 nm",
    "ideal": {
@@ -52,6 +60,20 @@ export const DYE_DATA = {
      [478,498],
      [551,571],
      [630,650]
+    ]
+   }
+  },
+  {
+   "id": "Penta",
+   "name": "Ideal penta band 405/488/561/640/730",
+   "ideal": {
+    "type": "notch",
+    "reflectNm": [
+     [395,415],
+     [478,498],
+     [551,571],
+     [630,650],
+     [720,740]
     ]
    }
   },
@@ -115,12 +137,30 @@ export const DYE_DATA = {
    }
   },
   {
+   "id": "BP535-50",
+   "name": "Ideal band pass 535/50",
+   "ideal": {
+    "type": "bandpass",
+    "loNm": 510,
+    "hiNm": 560
+   }
+  },
+  {
    "id": "BP600-37",
    "name": "Ideal band pass 600/37",
    "ideal": {
     "type": "bandpass",
     "loNm": 581.5,
     "hiNm": 618.5
+   }
+  },
+  {
+   "id": "BP617-73",
+   "name": "Ideal band pass 617/73",
+   "ideal": {
+    "type": "bandpass",
+    "loNm": 580.5,
+    "hiNm": 653.5
    }
   },
   {
@@ -195,8 +235,147 @@ export const DYE_DATA = {
  ],
  "lightPathDefaults": {
   "dichroic": "LP650",
-  "emissionFilter": "BP676-37"
+  "emissionFilter": "BP676-37",
+  "preset": "PAINT-640"
  },
+ "lightPresets": [
+  {
+   "id": "dSTORM-640",
+   "name": "dSTORM, red (640 nm 2 kW/cm², ET700/75)",
+   "lasers": {
+    "640": 2
+   },
+   "dichroic": "LP650",
+   "emissionFilter": "ChromaET700-75m",
+   "refs": [
+    "dempsey2011"
+   ],
+   "notes": "Dempsey et al. 2011 imaged STORM movies at 1-3 kW/cm^2 (Methods) with ET700/75m for red dyes; 405 nm off: raise it (0.1-30 W/cm^2 in Dempsey et al.) to keep the density of active dyes."
+  },
+  {
+   "id": "dSTORM-561",
+   "name": "dSTORM, orange (561 nm 2.2 kW/cm², 617/73)",
+   "lasers": {
+    "561": 2.2
+   },
+   "dichroic": "LP570",
+   "emissionFilter": "BP617-73",
+   "refs": [
+    "dempsey2011"
+   ],
+   "notes": "Dempsey et al. 2011's yellow-dye conditions: 561 nm at 2.2 kW/cm^2, FF01-617/73 (here ideal)."
+  },
+  {
+   "id": "dSTORM-488",
+   "name": "dSTORM, green (488 nm 1.2 kW/cm², 535/50)",
+   "lasers": {
+    "488": 1.2
+   },
+   "dichroic": "LP505",
+   "emissionFilter": "BP535-50",
+   "refs": [
+    "dempsey2011"
+   ],
+   "notes": "Dempsey et al. 2011's blue-dye conditions: 488 nm at 1.2 kW/cm^2, ET535/50m (here ideal)."
+  },
+  {
+   "id": "PAINT-640",
+   "name": "DNA-PAINT, red (640 nm 0.16 kW/cm², 676/37)",
+   "lasers": {
+    "640": 0.1607
+   },
+   "dichroic": "LP650",
+   "emissionFilter": "BP676-37",
+   "notes": "The default: 0.16 kW/cm^2 gives ATTO 655 the pre-issue-16 default brightness (6375 detected photons/s ON). Typical DNA-PAINT TIRF intensities are higher (estimate)."
+  },
+  {
+   "id": "PAINT-561",
+   "name": "DNA-PAINT, orange (561 nm 0.16 kW/cm², 600/37)",
+   "lasers": {
+    "561": 0.1607
+   },
+   "dichroic": "LP570",
+   "emissionFilter": "BP600-37",
+   "notes": "estimate"
+  },
+  {
+   "id": "PAINT-488",
+   "name": "DNA-PAINT, green (488 nm 0.16 kW/cm², 525/45)",
+   "lasers": {
+    "488": 0.1607
+   },
+   "dichroic": "LP505",
+   "emissionFilter": "BP525-45",
+   "notes": "estimate"
+  },
+  {
+   "id": "PALM-561",
+   "name": "PALM, orange (561 nm 1 kW/cm² + 405 nm 10 W/cm², quad)",
+   "lasers": {
+    "405": 0.01,
+    "561": 1
+   },
+   "dichroic": "ChromaZT405-488-561-640rpc",
+   "emissionFilter": "SemrockFF01-600-37",
+   "notes": "estimate: 561 nm images the converted (red) state, a weak 405 nm converts; the green pre state leaks a little into 600/37."
+  },
+  {
+   "id": "PALM-primed",
+   "name": "PALM, primed conversion (488 nm 10 W/cm² + 730 nm 1 kW/cm² + 561 nm 1 kW/cm²)",
+   "lasers": {
+    "488": 0.01,
+    "561": 1,
+    "730": 1
+   },
+   "dichroic": "Penta",
+   "emissionFilter": "SemrockFF01-600-37",
+   "refs": [
+    "dempsey2015",
+    "turkowyd2017"
+   ],
+   "notes": "estimate of the intensities: blue priming + near-infrared conversion (Dempsey et al. 2015, Turkowyd et al. 2017), no 405 nm."
+  },
+  {
+   "id": "WF-405",
+   "name": "Widefield, blue (405 nm 10 W/cm², 447/60)",
+   "lasers": {
+    "405": 0.01
+   },
+   "dichroic": "LP425",
+   "emissionFilter": "BP447-60",
+   "notes": "estimate"
+  },
+  {
+   "id": "WF-488",
+   "name": "Widefield, green (488 nm 10 W/cm², 525/45)",
+   "lasers": {
+    "488": 0.01
+   },
+   "dichroic": "LP505",
+   "emissionFilter": "BP525-45",
+   "notes": "estimate"
+  },
+  {
+   "id": "WF-561",
+   "name": "Widefield, orange (561 nm 10 W/cm², 600/37)",
+   "lasers": {
+    "561": 0.01
+   },
+   "dichroic": "LP570",
+   "emissionFilter": "BP600-37",
+   "notes": "estimate"
+  },
+  {
+   "id": "WF-640",
+   "name": "Widefield, red (640 nm 10 W/cm², 676/37)",
+   "lasers": {
+    "640": 0.01
+   },
+   "dichroic": "LP650",
+   "emissionFilter": "BP676-37",
+   "notes": "estimate"
+  }
+ ],
  "cameras": [
   {
    "id": "Kinetix22",
@@ -251,22 +430,24 @@ export const DYE_DATA = {
  ],
  "cameraDefault": "Kinetix22",
  "dstormReference": {
-  "intensityKWcm2": 2,
   "na": 1.4,
   "immersionIndex": 1.518,
   "qe": 0.9,
   "byLaser": {
    "488": {
+    "intensityKWcm2": 1.2,
     "emission": [510,560]
    },
    "561": {
+    "intensityKWcm2": 2.2,
     "emission": [580.5,653.5]
    },
    "640": {
+    "intensityKWcm2": 0.8,
     "emission": [662.5,737.5]
    }
   },
-  "notes": "Dempsey et al. 2011 imaged with 488 nm / ET535/50m, 561 nm / FF01-617/73, 647 nm / ET700/75m (Table 1 legend; modelled here as ideal band passes, 640 for 647 nm) on an EMCCD; their excitation intensity is not restated in Table 1, so 2 kW/cm^2 is an estimate of a typical dSTORM intensity.",
+  "notes": "Dempsey et al. 2011 measured Table 1 at 488 nm (1.2 kW/cm^2), 561 nm (2.2 kW/cm^2) and 647 nm (0.8 kW/cm^2; modelled with the 640 nm line) in TIRF, through ET535/50m, FF01-617/73 and ET700/75m (modelled as ideal band passes), on an EMCCD (QE 0.9 assumed). They found photons per switching cycle largely independent of the laser intensity, because the emission rate and the off-switching rate both depend linearly on it, and the duty cycle about constant (on-switching linear too; Results, 'Dependence of switching properties on light intensity', Supplementary Fig. 32). So a dSTORM dye's ON time, spontaneous dark time and initial ON time scale as 1 / (its excitation rate relative to kExcRef, the rate at this reference); the 405 nm activation adds on top. Exceptions they report (Cy3B photons rising with intensity; fewer switching cycles at high intensity for e.g. ATTO 655) are not modelled.",
   "refs": [
    "dempsey2011"
   ]
@@ -305,15 +486,18 @@ export const DYE_DATA = {
      "refs": [
       "dempsey2011"
      ],
-     "notes": "Table 1 (MEA); 405 nm sensitivity '++' (Table 2: >25 % reactivated by 0.25 s at 10-30 W/cm^2, i.e. > ~57 /s per kW/cm^2); initialOnSec estimate.",
-     "onSec": 0.010602177509425702,
-     "offSec": 21.19375284134198,
+     "notes": "Table 1 (MEA); 405 nm sensitivity '++' (Table 2: >25 % reactivated by 0.25 s at 10-30 W/cm^2, i.e. > ~57 /s per kW/cm^2); initialOnSec (at the reference intensity) estimate.",
+     "onSec": 0.026505443773564254,
+     "offSec": 52.984382103354946,
      "bleachProb": 0.07142857142857142,
-     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 360586 photons/s while ON)"
+     "kExcRef": 2202924.7469592094,
+     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 0.8 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 144235 photons/s while ON, excitation 2202925 /s = kExcRef)",
+     "lightPreset": "dSTORM-640"
     },
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate (order of magnitude without oxygen scavenging)"
+     "notes": "estimate (order of magnitude without oxygen scavenging)",
+     "lightPreset": "WF-640"
     },
     "PALM": {
      "onSec": 0.05,
@@ -323,14 +507,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 647 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 647 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 647 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 647 in data/dyes/library.json",
+     "lightPreset": "PAINT-640"
     }
    },
    "notes": null,
@@ -373,14 +559,17 @@ export const DYE_DATA = {
      "refs": [
       "dempsey2011"
      ],
-     "onSec": 0.10905198897223418,
-     "offSec": 108.94293698326194,
+     "onSec": 0.0991381717929402,
+     "offSec": 99.03903362114725,
      "bleachProb": 0.1,
-     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2 kW/cm^2, 561 nm, band 580.5-653.5 nm, NA 1.4, QE 0.9 (detected 11004 photons/s while ON)"
+     "kExcRef": 261311.41692902904,
+     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2.2 kW/cm^2, 561 nm, band 580.5-653.5 nm, NA 1.4, QE 0.9 (detected 12104 photons/s while ON, excitation 261311 /s = kExcRef)",
+     "lightPreset": "dSTORM-488"
     },
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate"
+     "notes": "estimate",
+     "lightPreset": "WF-488"
     },
     "PALM": {
      "onSec": 0.05,
@@ -390,14 +579,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 532 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 532 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 532 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 532 in data/dyes/library.json",
+     "lightPreset": "PAINT-488"
     }
    },
    "notes": null,
@@ -440,14 +631,17 @@ export const DYE_DATA = {
       "dempsey2011"
      ],
      "notes": "Table 1 (MEA); 405 sensitivity '++' (Table 2); initialOnSec estimate.",
-     "onSec": 0.013548157957731002,
-     "offSec": 33.856846736369775,
+     "onSec": 0.033870394894327506,
+     "offSec": 84.64211684092443,
      "bleachProb": 0.1,
-     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 313991 photons/s while ON)"
+     "kExcRef": 2326280.175722249,
+     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 0.8 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 125596 photons/s while ON, excitation 2326280 /s = kExcRef)",
+     "lightPreset": "dSTORM-640"
     },
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate"
+     "notes": "estimate",
+     "lightPreset": "WF-640"
     },
     "PALM": {
      "onSec": 0.05,
@@ -457,14 +651,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for Cy5 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for Cy5 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Cy5 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Cy5 in data/dyes/library.json",
+     "lightPreset": "PAINT-640"
     }
    },
    "notes": null,
@@ -504,7 +700,8 @@ export const DYE_DATA = {
       "schnitzbauer2017",
       "jungmann2014"
      ],
-     "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s."
+     "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s.",
+     "lightPreset": "PAINT-640"
     },
     "dSTORM": {
      "laser": 640,
@@ -518,14 +715,17 @@ export const DYE_DATA = {
       "dempsey2011"
      ],
      "notes": "Table 1 (MEA); 405 sensitivity '+' (Table 2); initialOnSec estimate.",
-     "onSec": 0.008857129702034998,
-     "offSec": 14.753025707022962,
+     "onSec": 0.022142824255087498,
+     "offSec": 36.88256426755741,
      "bleachProb": 0.058823529411764705,
-     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 124758 photons/s while ON)"
+     "kExcRef": 828069.018280288,
+     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 0.8 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 49903 photons/s while ON, excitation 828069 /s = kExcRef)",
+     "lightPreset": "dSTORM-640"
     },
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate"
+     "notes": "estimate",
+     "lightPreset": "WF-640"
     },
     "PALM": {
      "onSec": 0.05,
@@ -535,7 +735,8 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for ATTO 655 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for ATTO 655 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     }
    },
    "notes": null,
@@ -574,11 +775,13 @@ export const DYE_DATA = {
       "jungmann2010",
       "schnitzbauer2017"
      ],
-     "notes": "as ATTO 655 (estimate)"
+     "notes": "as ATTO 655 (estimate)",
+     "lightPreset": "PAINT-561"
     },
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate"
+     "notes": "estimate",
+     "lightPreset": "WF-561"
     },
     "dSTORM": {
      "laser": 640,
@@ -589,7 +792,9 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for ATTO 542 in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for ATTO 542 in data/dyes/library.json",
+     "lightPreset": "dSTORM-561",
+     "kExcRef": 0
     },
     "PALM": {
      "onSec": 0.05,
@@ -599,7 +804,8 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for ATTO 542 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for ATTO 542 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     }
    },
    "notes": null,
@@ -661,12 +867,14 @@ export const DYE_DATA = {
       "durisic2014",
       "turkowyd2017"
      ],
-     "notes": "fluorescent fraction: estimate in the range of durisic2014; ON/OFF/bleach and 405 rate: estimates; primed conversion weak for mEos-type proteins (turkowyd2017; coefficient an estimate)."
+     "notes": "fluorescent fraction: estimate in the range of durisic2014; ON/OFF/bleach and 405 rate: estimates; primed conversion weak for mEos-type proteins (turkowyd2017; coefficient an estimate).",
+     "lightPreset": "PALM-561"
     },
     "WideField": {
      "photonBudget": 100000,
      "state": "pre",
-     "notes": "the green state as a widefield FP (estimate)"
+     "notes": "the green state as a widefield FP (estimate)",
+     "lightPreset": "WF-561"
     },
     "dSTORM": {
      "laser": 640,
@@ -677,14 +885,17 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for mEos3.2 in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mEos3.2 in data/dyes/library.json",
+     "lightPreset": "dSTORM-561",
+     "kExcRef": 0
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEos3.2 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEos3.2 in data/dyes/library.json",
+     "lightPreset": "PAINT-561"
     }
    },
    "notes": null,
@@ -747,12 +958,14 @@ export const DYE_DATA = {
       "dempsey2015",
       "turkowyd2017"
      ],
-     "notes": "primed conversion (488 + 730 nm) is efficient for Dendra2 (dempsey2015, turkowyd2017); all rates and the fluorescent fraction are estimates."
+     "notes": "primed conversion (488 + 730 nm) is efficient for Dendra2 (dempsey2015, turkowyd2017); all rates and the fluorescent fraction are estimates.",
+     "lightPreset": "PALM-561"
     },
     "WideField": {
      "photonBudget": 100000,
      "state": "pre",
-     "notes": "the green state (estimate)"
+     "notes": "the green state (estimate)",
+     "lightPreset": "WF-561"
     },
     "dSTORM": {
      "laser": 640,
@@ -763,14 +976,17 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for Dendra2 in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for Dendra2 in data/dyes/library.json",
+     "lightPreset": "dSTORM-561",
+     "kExcRef": 0
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Dendra2 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Dendra2 in data/dyes/library.json",
+     "lightPreset": "PAINT-561"
     }
    },
    "notes": null,
@@ -825,7 +1041,8 @@ export const DYE_DATA = {
       "subach2009",
       "durisic2014"
      ],
-     "notes": "pre state dark (photoactivatable, not convertible). FPbase has no PAmCherry2 spectra: PAmCherry1 (On) spectra used. Rates and fluorescent fraction: estimates."
+     "notes": "pre state dark (photoactivatable, not convertible). FPbase has no PAmCherry2 spectra: PAmCherry1 (On) spectra used. Rates and fluorescent fraction: estimates.",
+     "lightPreset": "PALM-561"
     },
     "dSTORM": {
      "laser": 640,
@@ -836,19 +1053,23 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for PAmCherry2 in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for PAmCherry2 in data/dyes/library.json",
+     "lightPreset": "dSTORM-561",
+     "kExcRef": 0
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for PAmCherry2 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for PAmCherry2 in data/dyes/library.json",
+     "lightPreset": "PAINT-561"
     },
     "WideField": {
      "photonBudget": 100000,
      "generic": true,
-     "notes": "generic WideField values (estimate): no WideField data for PAmCherry2 in data/dyes/library.json"
+     "notes": "generic WideField values (estimate): no WideField data for PAmCherry2 in data/dyes/library.json",
+     "lightPreset": "WF-561"
     }
    },
    "notes": null,
@@ -881,7 +1102,8 @@ export const DYE_DATA = {
    "modes": {
     "WideField": {
      "photonBudget": 100000,
-     "notes": "photon budget and maturation fraction: estimates"
+     "notes": "photon budget and maturation fraction: estimates",
+     "lightPreset": "WF-488"
     },
     "dSTORM": {
      "laser": 640,
@@ -892,7 +1114,9 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for mEGFP in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mEGFP in data/dyes/library.json",
+     "lightPreset": "dSTORM-488",
+     "kExcRef": 1710.8334611539183
     },
     "PALM": {
      "onSec": 0.05,
@@ -902,14 +1126,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for mEGFP in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for mEGFP in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEGFP in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEGFP in data/dyes/library.json",
+     "lightPreset": "PAINT-488"
     }
    },
    "notes": null,
@@ -945,7 +1171,8 @@ export const DYE_DATA = {
      "refs": [
       "bindels2017"
      ],
-     "notes": "photon budget and maturation fraction: estimates"
+     "notes": "photon budget and maturation fraction: estimates",
+     "lightPreset": "WF-561"
     },
     "dSTORM": {
      "laser": 640,
@@ -956,7 +1183,9 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for mScarlet in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mScarlet in data/dyes/library.json",
+     "lightPreset": "dSTORM-561",
+     "kExcRef": 5420.267302042943
     },
     "PALM": {
      "onSec": 0.05,
@@ -966,14 +1195,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for mScarlet in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for mScarlet in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mScarlet in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mScarlet in data/dyes/library.json",
+     "lightPreset": "PAINT-561"
     }
    },
    "notes": null,
@@ -1006,7 +1237,8 @@ export const DYE_DATA = {
    "modes": {
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate. FPbase values are for DNA-bound DAPI. Only microtubules carry labels so far: a DNA structure is future work."
+     "notes": "estimate. FPbase values are for DNA-bound DAPI. Only microtubules carry labels so far: a DNA structure is future work.",
+     "lightPreset": "WF-405"
     },
     "dSTORM": {
      "laser": 640,
@@ -1017,7 +1249,9 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for DAPI in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for DAPI in data/dyes/library.json",
+     "lightPreset": "dSTORM-488",
+     "kExcRef": 0
     },
     "PALM": {
      "onSec": 0.05,
@@ -1027,14 +1261,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for DAPI in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for DAPI in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for DAPI in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for DAPI in data/dyes/library.json",
+     "lightPreset": "PAINT-488"
     }
    },
    "notes": null,
@@ -1071,7 +1307,8 @@ export const DYE_DATA = {
    "modes": {
     "WideField": {
      "photonBudget": 100000,
-     "notes": "estimate"
+     "notes": "estimate",
+     "lightPreset": "WF-405"
     },
     "dSTORM": {
      "laser": 640,
@@ -1082,7 +1319,9 @@ export const DYE_DATA = {
      "initialOnSec": 2,
      "activation405PerKWcm2PerSec": 20,
      "generic": true,
-     "notes": "generic dSTORM values (estimate): no dSTORM data for Hoechst 33342 in data/dyes/library.json"
+     "notes": "generic dSTORM values (estimate): no dSTORM data for Hoechst 33342 in data/dyes/library.json",
+     "lightPreset": "dSTORM-488",
+     "kExcRef": 0
     },
     "PALM": {
      "onSec": 0.05,
@@ -1092,14 +1331,16 @@ export const DYE_DATA = {
      "spontaneousActivationPerSec": 0.00001,
      "activation405PerKWcm2PerSec": 1,
      "generic": true,
-     "notes": "generic PALM values (estimate): no PALM data for Hoechst 33342 in data/dyes/library.json"
+     "notes": "generic PALM values (estimate): no PALM data for Hoechst 33342 in data/dyes/library.json",
+     "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
-     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Hoechst 33342 in data/dyes/library.json"
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Hoechst 33342 in data/dyes/library.json",
+     "lightPreset": "PAINT-488"
     }
    },
    "notes": "FPbase has no extinction coefficient or quantum yield for Hoechst 33342: eps ~46000 at 350 nm and QY ~0.4 (DNA-bound) are estimates of commonly quoted vendor values, not checked against a source.",
@@ -1135,7 +1376,8 @@ export const DYE_DATA = {
     "DNA-PAINT": {
      "konPerMPerSec": 1000000,
      "onSec": 0.05,
-     "photonCV": 0.5
+     "photonCV": 0.5,
+     "lightPreset": "PAINT-640"
     },
     "dSTORM": {
      "laser": 640,
@@ -1145,10 +1387,12 @@ export const DYE_DATA = {
      "activation405PerKWcm2PerSec": 20,
      "initialOnSec": 2,
      "photonCV": 0.5,
-     "onSec": 0.007473520667298227,
-     "offSec": 7.466047146630928,
+     "onSec": 0.018683801668245566,
+     "offSec": 18.665117866577322,
      "bleachProb": 0.1,
-     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 2 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 401417 photons/s while ON)"
+     "kExcRef": 1310651.1773361715,
+     "derived": "onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at 0.8 kW/cm^2, 640 nm, band 662.5-737.5 nm, NA 1.4, QE 0.9 (detected 160567 photons/s while ON, excitation 1310651 /s = kExcRef)",
+     "lightPreset": "dSTORM-640"
     },
     "PALM": {
      "onSec": 0.05,
@@ -1156,10 +1400,12 @@ export const DYE_DATA = {
      "bleachProb": 0.5,
      "photonCV": 0.5,
      "spontaneousActivationPerSec": 0.00001,
-     "activation405PerKWcm2PerSec": 1
+     "activation405PerKWcm2PerSec": 1,
+     "lightPreset": "PALM-561"
     },
     "WideField": {
-     "photonBudget": 100000
+     "photonBudget": 100000,
+     "lightPreset": "WF-640"
     }
    },
    "notes": "Skewed-Gaussian excitation/emission shapes from the peaks and widths (no FPbase data); every value is the user's to set.",
@@ -1169,6 +1415,13 @@ export const DYE_DATA = {
  "dyeDefault": {
   "dye": "ATTO655",
   "mode": "DNA-PAINT"
+ },
+ "suggestedLabelingPct": {
+  "DNA-PAINT": 70,
+  "dSTORM": 3,
+  "PALM": 5,
+  "WideField": 70,
+  "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
  },
  "spectra": {
   "fp:119": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.0123,0.0125,0.0127,0.0129,0.013,0.0132,0.0134,0.0135,0.0136,0.0138,0.0139,0.014,0.014,0.0141,0.0142,0.0143,0.0144,0.0144,0.0145,0.0145,0.0146,0.0147,0.0147,0.0148,0.0149,0.0149,0.015,0.0151,0.0152,0.0153,0.0154,0.0155,0.0156,0.0158,0.0159,0.0161,0.0163,0.0164,0.0167,0.0169,0.0171,0.0174,0.0177,0.018,0.0183,0.0186,0.019,0.0194,0.0198,0.0203,0.0208,0.0213,0.0218,0.0224,0.023,0.0237,0.0244,0.0251,0.0259,0.0267,0.0275,0.0284,0.0294,0.0304,0.0314,0.0325,0.0336,0.0348,0.036,0.0373,0.0386,0.04,0.0415,0.043,0.0446,0.0463,0.048,0.0498,0.0516,0.0536,0.0556,0.0577,0.0598,0.062,0.0643,0.0667,0.0692,0.0718,0.0744,0.0772,0.0801,0.0832,0.0864,0.09,0.0937,0.0979,0.1023,0.1072,0.1124,0.118,0.1239,0.13,0.1363,0.1426,0.149,0.1551,0.1609,0.1664,0.1714,0.1758,0.1799,0.1834,0.1866,0.1894,0.1921,0.1948,0.1976,0.2006,0.204,0.2079,0.2121,0.2169,0.2219,0.2274,0.2331,0.2392,0.2456,0.2525,0.26,0.2682,0.2772,0.2871,0.2981,0.31,0.3229,0.3366,0.3509,0.3656,0.3805,0.3954,0.4098,0.4234,0.4361,0.4478,0.4583,0.4675,0.4753,0.4815,0.4864,0.4899,0.4925,0.4943,0.4955,0.4963,0.4968,0.4973,0.4982,0.5,0.5028,0.5067,0.5116,0.5173,0.5239,0.5318,0.5414,0.553,0.567,0.5835,0.6022,0.6225,0.6441,0.6666,0.69,0.7146,0.7403,0.7662,0.7914,0.8175,0.8447,0.8726,0.9006,0.9277,0.9519,0.9721,0.9871,0.9965,1,0.9971,0.9869,0.9689,0.9439,0.915,0.8843,0.8503,0.8111,0.7673,0.721,0.6738,0.6266,0.5797,0.5332,0.487,0.4415,0.3976,0.3567,0.3204,0.2889,0.2591,0.2299,0.2031,0.1795,0.1588,0.1404,0.1242,0.1097,0.0965,0.0847,0.0742,0.0652,0.0577,0.0516,0.0466,0.0422,0.0382,0.0344,0.0309,0.0277,0.0249,0.0223,0.0202,0.0182,0.0166,0.0151,0.0138,0.0126,0.0116,0.0107,0.0098,0.009,0.0083,0.0077,0.0071,0.0067,0.0063,0.0061,0.0059,0.0059,0.0059,0.0059,0.006,0.0061,0.0062,0.0062,0.0062,0.0061,0.0058,0.0055,0.0052,0.0047,0.0042,0.0036,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],

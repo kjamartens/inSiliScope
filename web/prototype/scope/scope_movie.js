@@ -16,6 +16,8 @@ import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, DICHROIC_IDS, EMISSI
 import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
 import { sampleAt } from './spectra.js';
 
+const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
+export { LIGHT_PRESET_CHOICES };
 const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Error(`no '${id}'`); return i; };
 // The default 640 nm intensity: ATTO 655 through LP650 + 676/37 on the Kinetix detects 6375 photoelectrons/s while ON,
 // what the single-dye default did (7500 photons/s x QE 0.85; scope/dye_library.js, issue 16).
@@ -44,7 +46,7 @@ export const SCOPE_OPTIONS = [
   // ---- the microtubules' label (SimType_CellFieldMicrotubule*, FluoParam_Microtubule_*) ----
   ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)'],
   ['mt-mode', -1, 'SimType_CellFieldMicrotubuleLabelMode: -1 = the dye\'s default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', 70, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label'],
+  ['mt-label-pct', -1, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 5, WideField 70)'],
   ['mt-imager-nm', DEFAULT_IMAGER_NM, 'SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
   ['mt-orient', 0, 'SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
   ['mt-orient-polar-deg', 90, 'SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis'],
@@ -59,6 +61,7 @@ export const SCOPE_OPTIONS = [
   ...LASER_LINES.map(nm => [`laser-${nm}`, nm === 640 ? DEFAULT_LASER_640_KW : 0, `Optics_Laser${nm}KWcm2: ${nm} nm laser intensity at the sample, kW/cm^2 (0 = off)`]),
   ['laser-custom-nm', 0, 'Optics_LaserCustomNm: wavelength of an extra laser line, nm (0 = none)'],
   ['laser-custom', 0, 'Optics_LaserCustomKWcm2: its intensity, kW/cm^2'],
+  ['light-preset', -1, 'Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, dichroic and em-filter the spec does not give.'],
   ['illum-geometry', 0, 'Optics_IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
   ['chamber-height-um', 5, 'Optics_ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
   ['dichroic', idx(DICHROIC_IDS, DYE_DATA.lightPathDefaults.dichroic), 'Optics_Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)'],
@@ -132,7 +135,7 @@ const NAMES = {
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
   'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
-  dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
+  dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
 };
 const DYE_OVERRIDE = /^(?:([a-z]+)-dye|dye([1-3]))\.([a-z0-9-]+)$/;
@@ -184,8 +187,29 @@ export function scopeCamera(spec) {
     emGain: C('em-gain'), cicElectrons: C('cic'), bitDepth: C('bit-depth') };
 }
 
-// The light path of a spec (LightPath).
+// The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, dichroic, emissionFilter}.
+export function scopeLightPreset(spec) {
+  const O = getter(spec), i = Math.trunc(O('light-preset'));
+  if (i < 0) return null;
+  let id = LIGHT_PRESET_CHOICES[i];
+  if (id === 'auto') {
+    const { slots, byStructure } = dyeOverrides(spec), P = STRUCTURES[0].prefix;
+    const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
+    id = eff.dye.modes[eff.mode].lightPreset;
+  }
+  const q = DYE_DATA.lightPresets.find(x => x.id === id);
+  if (!q) throw new Error(`light preset ${i} out of range`);
+  return q;
+}
+// The light path of a spec (LightPath): the light preset's values for the options the spec does not give.
 export function scopeLightPath(spec, camera = scopeCamera(spec)) {
+  const q = scopeLightPreset(spec);
+  if (q) {
+    spec = { ...spec };
+    for (const nm of LASER_LINES) if (!(`laser-${nm}` in spec)) spec[`laser-${nm}`] = q.lasers[nm] ?? 0;
+    if (!('dichroic' in spec)) spec.dichroic = DICHROIC_IDS.indexOf(q.dichroic);
+    if (!('em-filter' in spec)) spec['em-filter'] = EMISSION_FILTER_IDS.indexOf(q.emissionFilter);
+  }
   const O = getter(spec);
   const lasers = LASER_LINES.map(nm => ({ nm, kWPerCm2: Math.max(0, O(`laser-${nm}`)) }));
   if (O('laser-custom-nm') > 0) lasers.push({ nm: O('laser-custom-nm'), kWPerCm2: Math.max(0, O('laser-custom')) });
@@ -213,8 +237,9 @@ export function scopeLabels(spec, lp) {
   return STRUCTURES.map(s => {
     const P = s.prefix;
     const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
+    const pct = O(`${P}-label-pct`) >= 0 ? O(`${P}-label-pct`) : DYE_DATA.suggestedLabelingPct[eff.mode];
     return labelPhotophysics(eff, lp, {
-      density: Math.min(1, Math.max(0, O(`${P}-label-pct`) / 100)), imagerNm: O(`${P}-imager-nm`),
+      density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
         azimuthDeg: O(`${P}-orient-azimuth-deg`), wobbleDeg: O(`${P}-wobble-deg`) },
       motion: MOTION_MODES[Math.trunc(O(`${P}-motion`))] });

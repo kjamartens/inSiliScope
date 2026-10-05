@@ -190,7 +190,7 @@ const DYE_FIELD_ROWS = [
   ['fluorescent-pct', 'Fluorescent', '%', 'Share of the attached labels whose dye is fluorescent (maturation, photoactivation efficiency, dead dyes).', d => 100 * d.fluorescentFraction, null],
   ['qy', 'Quantum yield', '', 'Fluorescence quantum yield of the dye (main state).', d => d.states.main.qy, null],
   ['ext-coeff', 'Extinction ε', 'M⁻¹cm⁻¹', 'Molar extinction coefficient at the absorption peak (main state); the excitation spectrum scales it at each laser line.', d => d.states.main.extCoeff, null],
-  ['on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). dSTORM: from Dempsey et al. 2011 photons per cycle at 2 kW/cm² (data/references.json); fixed, so photons per blink scale with the laser.', (d, m) => d.modes[m].onSec, ['dSTORM', 'PALM', 'DNA-PAINT']],
+  ['on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). dSTORM: at Dempsey et al. 2011\'s measurement intensity (0.8 kW/cm² at 640 nm, 2.2 at 561, 1.2 at 488), from their photons per cycle; it (and the dark and initial ON times) scales as 1 / excitation, so photons per blink stay as measured. The light-path readout shows the ON time now.', (d, m) => d.modes[m].onSec, ['dSTORM', 'PALM', 'DNA-PAINT']],
   ['off-sec', 'Dark time', 's', 'dSTORM: mean spontaneous dark time between blinks (from the duty cycle; 405 nm shortens it). PALM: dark time between the blinks of a converted molecule.', (d, m) => m === 'PALM' ? d.modes[m].offSecBetweenBlinks : d.modes[m].offSec, ['dSTORM', 'PALM']],
   ['bleach-prob', 'Bleach prob.', '/blink', 'Probability that a molecule bleaches after a blink (1 / mean switching cycles).', (d, m) => d.modes[m].bleachProb, ['dSTORM', 'PALM']],
   ['initial-on-sec', 'Initial ON', 's', 'dSTORM: every dye starts ON and is pumped dark after an exponential time of this mean (a bright decay over the first seconds). 0 = none.', (d, m) => d.modes[m].initialOnSec, ['dSTORM']],
@@ -202,6 +202,25 @@ const DYE_FIELD_ROWS = [
   ['photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness.', (d, m) => d.modes[m].photonCV, ['dSTORM', 'PALM', 'DNA-PAINT']],
   ['photon-budget', 'Photon budget', 'photons', 'WideField: photons a dye emits before it bleaches (exponential; 0 = never).', (d, m) => d.modes[m].photonBudget, ['WideField']],
 ];
+// A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the mode's
+// suggestion (data/dyes suggestedLabelingPct: DNA-PAINT 70 %, dSTORM 3 %, PALM 5 %); the same mode keeps them.
+let lastMtMode = DD.dyeDefault.mode;   // the panel's initial mode
+const modeSuggestion = vals => {
+  const m = mtMode();
+  if (lastMtMode !== null && m !== lastMtMode) vals['mv_mt-label-pct'] = DD.suggestedLabelingPct[m];
+  lastMtMode = m;
+  return vals;
+};
+// A light preset as panel values: every laser (those it does not name off), the dichroic and the emission filter.
+const lightPresetValues = q => {
+  const o = {};
+  for (const nm of DD.lasers) o['mv_laser-' + nm] = q.lasers[nm] || 0;
+  o['mv_dichroic'] = DD.dichroics.findIndex(f => f.id === q.dichroic);
+  o['mv_em-filter'] = DD.emissionFilters.findIndex(f => f.id === q.emissionFilter);
+  return o;
+};
+// A dye pick or a mode change loads that dye mode's light preset.
+const withLightPreset = (vals, d, mode) => Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
 const dyeRows = (prefix, modeOf, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) =>
@@ -323,10 +342,10 @@ const UI_GROUPS = [
   { sect: 'Sample preparation', id: 'mtlabel', title: 'Microtubule label', open: true, items: [
     select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of the three dye slots. Picking one loads its values into the rows below (advanced); edit them after. <code>SimType_CellFieldMicrotubuleDye</code>',
       [...DD.dyes.map((d, i) => [String(i), d.name + ' (' + d.defaultMode + ')']), ['' + ND, 'Dye slot 1'], ['' + (ND + 1), 'Dye slot 2'], ['' + (ND + 2), 'Dye slot 3']],
-      String(dyeIndex(DD.dyeDefault.dye)), { show: FL, apply: v => dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
+      String(dyeIndex(DD.dyeDefault.dye)), { show: FL, apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
     select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>SimType_CellFieldMicrotubuleLabelMode</code>',
-      [['-1', 'the dye\'s default'], ...MODE_NAMES.map((m, i) => [String(i), m])], '-1', { show: FL, apply: () => dyeFieldValues('mv_mt-dye.', choiceDye($('mv_mt-dye').value), mtMode()) }),
-    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Antibody labelling is a few %; dense labels are slow to schedule. <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
+      [['-1', 'the dye\'s default'], ...MODE_NAMES.map((m, i) => [String(i), m])], '-1', { show: FL, apply: () => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye($('mv_mt-dye').value), mtMode())), choiceDye($('mv_mt-dye').value), mtMode()) }),
+    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 5 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
     num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Light path). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>SimType_CellFieldMicrotubuleImagerNm</code>', 0, null, 0.1, 1.43, { show: inMode('DNA-PAINT') }),
     select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. No effect on the image yet (polarisation: future). <code>SimType_CellFieldMicrotubuleOrientation</code>',
       [['0', 'Free'], ['1', 'Fixed'], ['2', 'Random']], '0', { adv, kids: [
@@ -370,6 +389,8 @@ const UI_GROUPS = [
     num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>Background_BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
   ] },
   { id: 'lightpath', title: 'Light path', show: FL, items: [
+    preset('lightPreset', 'Preset', 'Laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). Picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Optics_Preset</code>',
+      Object.fromEntries(DD.lightPresets.map(q => [q.name, lightPresetValues(q)])), []),
     select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
       DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { kids: [
         num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
@@ -2786,6 +2807,7 @@ async function drawSpecPlot() {
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
     const parts = [`<b>${L.dye.name}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
     if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
+    if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
     if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
     const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
     if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);

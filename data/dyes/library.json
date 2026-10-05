@@ -5,15 +5,18 @@
     "dSTORM blocks hold Dempsey et al. 2011 Table 1 (GLOX + 10 mM MEA): detected photons per switching cycle, equilibrium duty cycle, mean switching cycles. tools/gen_dye_library.mjs turns them into onSec / offSec / bleachProb at the reference light path in 'dstormReference' (ON time fixed, so photons per blink scale with the excitation intensity in a simulation)."
   ],
   "dstormReference": {
-    "intensityKWcm2": 2.0,
     "na": 1.4, "immersionIndex": 1.518, "qe": 0.9,
     "byLaser": {
-      "488": { "emission": [510, 560] },
-      "561": { "emission": [580.5, 653.5] },
-      "640": { "emission": [662.5, 737.5] }
+      "488": { "intensityKWcm2": 1.2, "emission": [510, 560] },
+      "561": { "intensityKWcm2": 2.2, "emission": [580.5, 653.5] },
+      "640": { "intensityKWcm2": 0.8, "emission": [662.5, 737.5] }
     },
-    "notes": "Dempsey et al. 2011 imaged with 488 nm / ET535/50m, 561 nm / FF01-617/73, 647 nm / ET700/75m (Table 1 legend; modelled here as ideal band passes, 640 for 647 nm) on an EMCCD; their excitation intensity is not restated in Table 1, so 2 kW/cm^2 is an estimate of a typical dSTORM intensity.",
+    "notes": "Dempsey et al. 2011 measured Table 1 at 488 nm (1.2 kW/cm^2), 561 nm (2.2 kW/cm^2) and 647 nm (0.8 kW/cm^2; modelled with the 640 nm line) in TIRF, through ET535/50m, FF01-617/73 and ET700/75m (modelled as ideal band passes), on an EMCCD (QE 0.9 assumed). They found photons per switching cycle largely independent of the laser intensity, because the emission rate and the off-switching rate both depend linearly on it, and the duty cycle about constant (on-switching linear too; Results, 'Dependence of switching properties on light intensity', Supplementary Fig. 32). So a dSTORM dye's ON time, spontaneous dark time and initial ON time scale as 1 / (its excitation rate relative to kExcRef, the rate at this reference); the 405 nm activation adds on top. Exceptions they report (Cy3B photons rising with intensity; fewer switching cycles at high intensity for e.g. ATTO 655) are not modelled.",
     "refs": ["dempsey2011"]
+  },
+  "suggestedLabelingPct": {
+    "DNA-PAINT": 70, "dSTORM": 3, "PALM": 5, "WideField": 70,
+    "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
   },
   "dyes": [
     {
@@ -23,7 +26,7 @@
       "modes": {
         "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 3823, "dutyCycle": 0.0005, "switchingCycles": 14,
                     "activation405PerKWcm2PerSec": 60, "initialOnSec": 2.0, "photonCV": 0.5,
-                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 nm sensitivity '++' (Table 2: >25 % reactivated by 0.25 s at 10-30 W/cm^2, i.e. > ~57 /s per kW/cm^2); initialOnSec estimate." },
+                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 nm sensitivity '++' (Table 2: >25 % reactivated by 0.25 s at 10-30 W/cm^2, i.e. > ~57 /s per kW/cm^2); initialOnSec (at the reference intensity) estimate." },
         "WideField": { "photonBudget": 100000, "notes": "estimate (order of magnitude without oxygen scavenging)" }
       }
     },

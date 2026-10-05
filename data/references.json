@@ -17,8 +17,8 @@
       "title": "Evaluation of fluorophores for optimal performance in localization-based super-resolution imaging",
       "journal": "Nature Methods", "volume": "8", "pages": "1027-1036",
       "doi": "10.1038/nmeth.1768", "pmcid": "PMC3272503",
-      "use": "dSTORM switching: detected photons per cycle, equilibrium duty cycle, switching cycles (Table 1, GLOX + 10 mM MEA); 405 nm activation sensitivity (Table 2)",
-      "checked": "Table 1 and 2 values read from the Europe PMC full text (PMC3272503)"
+      "use": "dSTORM switching: detected photons per cycle, equilibrium duty cycle, switching cycles (Table 1, GLOX + 10 mM MEA) at their measurement intensities (488 nm 1.2, 561 nm 2.2, 647 nm 0.8 kW/cm^2; Methods); 405 nm activation sensitivity (Table 2); photons per cycle and duty cycle largely independent of intensity (emission, off- and on-switching linear in it; Results, Supplementary Fig. 32): the intensity scaling of dSTORM ON and dark times",
+      "checked": "Table 1 and 2 values, the intensities and the intensity-dependence statements read from the Europe PMC full text (PMC3272503)"
     },
     "turkowyd2017": {
       "authors": "Turkowyd B, Balinovic A, Virant D, Carnero HGG, Caldana F, Endesfelder M, Bourgeois D, Endesfelder U",

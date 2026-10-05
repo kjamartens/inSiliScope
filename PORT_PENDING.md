@@ -66,6 +66,19 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
   dye for each continuous population); the lab engine posts `movie-progress` messages and the viewer shows them on
   the movie button (`onMovieProgress`). The WASM worker must post the same (isc_scope_movie progress callback).
 
+- **Mode-suggested density** (user, 2026-10-05): `suggestedLabelingPct` (DNA-PAINT 70, dSTORM 3, PALM 5,
+  WideField 70 %); `mt-label-pct` default -1 = the mode's suggestion; the viewer (and MM) set it when the mode changes.
+- **dSTORM intensity scaling** (user asked; Dempsey et al. 2011, Results "Dependence of switching properties on light
+  intensity"): `dstormReference.byLaser` = their measurement intensities (488 1.2, 561 2.2, 647->640 0.8 kW/cm^2); every
+  dSTORM block carries `kExcRef` (generator); ON, spontaneous dark and initial ON times scale as
+  1 / (k_exc / kExcRef) (`labelPhotophysics`), so photons per blink and the duty cycle stay as measured.
+- **Light presets** (user: also in MM): `light_path.json presets` (dSTORM-640/561/488 from Dempsey's conditions,
+  PAINT-*, PALM-561, PALM-primed, WF-405/488/561/640; intensities without a source are estimates) and per dye mode
+  `lightPreset` (generator fills it by the best laser). Option `light-preset` (-1 none, `auto` = the dye mode's, or a
+  name) sets every `laser-*`, `dichroic`, `em-filter` the spec does not give. Viewer: a Preset row in Light path;
+  a dye pick or mode change loads the dye mode's preset. MM: `Optics_Preset` (writes the Optics_ properties; auto on a
+  dye/mode change, like the density).
+
 ## The port must
 
 1. **Core** (`core/src/dyes.*`, `world.*`, `params.*`, `capi.cpp`, `insiliscope.h`): the label model above,
@@ -83,8 +96,8 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
    `ScopeMovieOptions` = `SCOPE_OPTIONS`. `CellFieldSource`: labels, the new strides.
 3. **Adapter**: `SimType_CellFieldMicrotubule{Dye,LabelMode,LabelingPct,ImagerNm,Orientation,OrientPolarDeg,
    OrientAzimuthDeg,WobbleConeDeg,Motion}`, `FluoParam_Microtubule_*` (loaded on a dye pick), `FluoParam_Dye{1,2,3}_*`,
-   `Optics_*` (lasers, geometry, chamber height, dichroic, filter, the illumination profile moved from
-   `FluoParam_Illum*`), `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`, `General_ImagingModality`
+   `Optics_*` (lasers, geometry, chamber height, dichroic, filter, `Optics_Preset`, the illumination profile moved
+   from `FluoParam_Illum*`), `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`, `General_ImagingModality`
    Fluorescence | BrightField; remove `FluoParam_PhotonsPerSecond`, `OnLifetimeSec`, `OffLifetimeSec`,
    `BlinkBleachProb`, `PhotonCV`, `WideField*`, `PSFParam_PsfEmissionWavelengthNm`, `SimType_CellFieldLabelingPct*`,
    `MilliActivationRate`. CLAUDE.md: the `Optics_` prefix; ask before updating websmlm's PARITY.md.

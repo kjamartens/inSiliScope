@@ -13,7 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GRID_MIN_NM, GRID_MAX_NM, GRID_STEP_NM, GRID_N, idealTransmission, parametricExcitation, parametricEmission,
+import { GRID_MIN_NM, GRID_MAX_NM, GRID_STEP_NM, GRID_N, idealTransmission, sampleAt, parametricExcitation, parametricEmission,
   crossSectionUm2, photonFluxPerUm2, collectionEfficiency, detection } from '../web/prototype/scope/spectra.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,6 +65,16 @@ const dyes = library.dyes.map(d => {
   // Every dye can be used in every mode: a mode without data gets generic values, marked as such.
   for (const [mode, g] of Object.entries(GENERIC_MODES))
     if (!out.modes[mode]) out.modes[mode] = { ...g, generic: true, notes: `generic ${mode} values (estimate): no ${mode} data for ${d.name} in data/dyes/library.json` };
+  // Each mode's illumination preset (light_path.json presets): given, or by the laser line that excites the dye best.
+  const sp = stateSpectra(out.states.main), best = lines => lines.reduce((a, b) => (sampleAt(sp.ex, b) > sampleAt(sp.ex, a) ? b : a));
+  for (const [mode, m] of Object.entries(out.modes)) {
+    if (!m.lightPreset) m.lightPreset = mode === 'PALM' ? 'PALM-561'
+      : `${{ dSTORM: 'dSTORM', 'DNA-PAINT': 'PAINT', WideField: 'WF' }[mode]}-${best(mode === 'WideField' ? [405, 488, 561, 640] : [488, 561, 640])}`;
+    if (!lightPath.presets.some(q => q.id === m.lightPreset)) throw new Error(`${d.id} ${mode}: unknown light preset '${m.lightPreset}'`);
+  }
+  // dSTORM times scale with the excitation rate: its value at the reference light path (generic blocks too).
+  const ds = out.modes.dSTORM;
+  if (ds && ds.kExcRef === undefined) ds.kExcRef = referenceExcitation(out, ds.laser).kExc;
   return out;
 });
 
@@ -76,17 +86,27 @@ function stateSpectra(st) {
 
 // onSec from the detected photons per cycle at the reference light path; dark time from the duty cycle
 // (dc = on / (on + off)); bleach probability per blink = 1 / mean switching cycles.
-function deriveDstorm(d, out, m) {
-  const ref = library.dstormReference, band = ref.byLaser[m.laser];
-  if (!band) throw new Error(`${d.id} dSTORM: no reference band for laser ${m.laser}`);
+// The dye's excitation rate (per dye, /s) and detected rate at the dSTORM reference light path of a laser line.
+function referenceExcitation(out, laser) {
+  const ref = library.dstormReference, band = ref.byLaser[laser];
+  if (!band) throw new Error(`dSTORM: no reference band for laser ${laser}`);
   const st = out.states.main, sp = stateSpectra(st);
-  const kEm = st.qy * crossSectionUm2(st.extCoeff, sp.ex, m.laser) * photonFluxPerUm2(ref.intensityKWcm2, m.laser);
+  const kExc = crossSectionUm2(st.extCoeff, sp.ex, laser) * photonFluxPerUm2(band.intensityKWcm2, laser);
   const filt = idealTransmission({ type: 'bandpass', loNm: band.emission[0], hiNm: band.emission[1] });
-  const detected = kEm * collectionEfficiency(ref.na, ref.immersionIndex) * detection(sp.em, [filt]).fraction * ref.qe;
+  const detected = st.qy * kExc * collectionEfficiency(ref.na, ref.immersionIndex) * detection(sp.em, [filt]).fraction * ref.qe;
+  return { kExc, detected, band };
+}
+// onSec from the detected photons per cycle at the reference light path; dark time from the duty cycle
+// (dc = on / (on + off)); bleach probability per blink = 1 / mean switching cycles. All three at the reference; the
+// ON and dark times then scale with 1 / (excitation rate / kExcRef) (dstormReference notes).
+function deriveDstorm(d, out, m) {
+  const { kExc, detected, band } = referenceExcitation(out, m.laser);
   const onSec = m.detectedPhotonsPerCycle / detected;
   return { ...m, onSec, offSec: onSec * (1 - m.dutyCycle) / m.dutyCycle, bleachProb: Math.min(1, 1 / m.switchingCycles),
-    derived: `onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at ${ref.intensityKWcm2} kW/cm^2, ${m.laser} nm, `
-      + `band ${band.emission[0]}-${band.emission[1]} nm, NA ${ref.na}, QE ${ref.qe} (detected ${Math.round(detected)} photons/s while ON)` };
+    kExcRef: kExc,
+    derived: `onSec, offSec, bleachProb from detectedPhotonsPerCycle/dutyCycle/switchingCycles at ${band.intensityKWcm2} kW/cm^2, ${m.laser} nm, `
+      + `band ${band.emission[0]}-${band.emission[1]} nm, NA ${library.dstormReference.na}, QE ${library.dstormReference.qe} `
+      + `(detected ${Math.round(detected)} photons/s while ON, excitation ${Math.round(kExc)} /s = kExcRef)` };
 }
 
 // ---- light path, cameras ----
@@ -105,11 +125,19 @@ const data = {
   dichroics: lightPath.dichroics.map(filterEntry),
   emissionFilters: lightPath.emissionFilters.map(filterEntry),
   lightPathDefaults: lightPath.defaults,
+  lightPresets: lightPath.presets.map(q => {
+    checkRefs(q.id, q.refs);
+    for (const [k, list] of [['dichroic', lightPath.dichroics], ['emissionFilter', lightPath.emissionFilters]])
+      if (!list.some(f => f.id === q[k])) throw new Error(`light preset ${q.id}: unknown ${k} '${q[k]}'`);
+    for (const nm of Object.keys(q.lasers)) if (!lightPath.lasers.includes(+nm)) throw new Error(`light preset ${q.id}: no ${nm} nm laser`);
+    return q;
+  }),
   cameras: cameras.presets.map(cameraEntry),
   cameraDefault: cameras.default,
   dstormReference: library.dstormReference,
   dyes,
   dyeDefault: library.default,
+  suggestedLabelingPct: library.suggestedLabelingPct,
   spectra: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values])),
   spectrumInfo: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => {
     const s = fp.spectra[id];
