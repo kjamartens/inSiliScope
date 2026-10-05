@@ -42,7 +42,7 @@ document.head.append(h('style', {}, `
 #animPanel .warn{color:#e6a23c;font-size:11px;margin:4px 0}
 #animPanel .note{color:var(--muted);font-size:11px;margin:4px 0;line-height:1.4}
 #animPanel progress{width:100%}
-#animBar{background:rgba(10,13,18,.96);border-top:1px solid #232a35;display:flex;align-items:center;gap:8px;padding:0 10px;color:#dfe6ee;font-size:11px}
+#animBar{background:rgba(10,13,18,.96);border-top:1px solid #232a35;align-items:center;gap:8px;padding:0 10px;color:#dfe6ee;font-size:11px}
 #animBar button{background:#1a212b;border-color:#2c3644;color:#dfe6ee;padding:3px 9px}
 #animBar select{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
 #animBar canvas{flex:1;height:30px;cursor:pointer;background:transparent}
@@ -84,7 +84,7 @@ function toState(f, screen) {
   const camera = Object.assign({}, f.camera);
   if (screen) camera.frameAspect = outAspect();
   return { camera, scope: f.scope, target: f.target, detailCells: f.detailCells, theme: f.theme, ghostOpacity: f.ghostOpacity,
-    zClip: null, sweep: f.sweep, slice: f.slice, layers, grid: false, xz: false, ui: false, overlays: f.overlays };
+    zClip: null, sweep: f.sweep, slice: f.slice, srFrame: f.srFrame, data: seq.data, layers, grid: false, xz: false, ui: false, overlays: f.overlays };
 }
 const loopMode = () => (seq.output.loop || 'loop');
 function frameAt(tt) { return C && C.steps.length ? A.evalCompiled(C, tt, { loop: playing ? loopMode() : 'once' }) : null; }
@@ -546,6 +546,28 @@ function render() {
   panel.append(addRow);
   const probs = A.validate(seq, R);
   for (const p of probs) panel.append(h('div', { class: 'warn' }, '⚠ ' + p.msg));
+  // data (the z-stacks of image layers)
+  const need = C ? A.requiredData(C, R).map(n => n.layer).filter(id => S.dataKinds[id]) : [];
+  if (need.length) {
+    panel.append(sec('Data'));
+    const d = seq.data;
+    panel.append(
+      row('Focus step', 'Focus step of the WideField / BrightField z-stacks.', numIn(() => d.stepUm, v => { d.stepUm = Math.max(0.05, v || 0.2); }, { min: 0.05, step: 0.05 }), h('span', { class: 'u' }, 'µm')),
+      row('SMLM step', 'Focus step of the SMLM frame stack.', numIn(() => d.srStepUm, v => { d.srStepUm = Math.max(0.1, v || 0.4); }, { min: 0.1, step: 0.1 }), h('span', { class: 'u' }, 'µm')),
+      row('SMLM frames', 'Camera frames per focus position, cycling while the slice passes (at the SMLM rate).', numIn(() => d.srFrames, v => { d.srFrames = Math.max(1, Math.round(v || 10)); }, { min: 1, step: 1 }),
+        numIn(() => d.srFps, v => { d.srFps = Math.max(1, v || 10); }, { min: 1, step: 1, title: 'frames per second of the animation' }), h('span', { class: 'u' }, 'fps')),
+      row('Averaging', 'WideField / BrightField planes are the mean of this many frames.', numIn(() => d.wfAverage, v => { d.wfAverage = Math.max(1, Math.round(v || 4)); }, { min: 1, step: 1 }), h('span', { class: 'u' }, 'frames')),
+      row('SMLM planes', 'Fresh: each focus position starts with all dyes unbleached; sequential: bleaching carries over from plane to plane.',
+        selIn([['fresh', 'fresh dyes per plane'], ['sequential', 'sequential']], () => (d.sequential ? 'sequential' : 'fresh'), v => { d.sequential = v === 'sequential'; })));
+    const crop = h('label', { class: 'note' }); crop.append(checkIn(() => d.crop !== false, v => { d.crop = v; }), document.createTextNode(' crop the data to the target cell'));
+    panel.append(crop);
+    const status = target ? S.dataStatus(need, target, d) : [];
+    const ready = status.length && status.every(x => x.ready);
+    const line = h('div', { class: 'note' }, target ? status.map(x => `${({ wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField' })[x.kind]}: ${x.ready ? 'ready' : x.busy ? `${x.busy.done}/${x.busy.total}` : 'to make'}`).join(' · ') : 'no target cell yet');
+    const pb = h('div', { class: 'btns' });
+    pb.append(btn(ready ? 'Ready' : 'Prepare data', 'Makes the z-stacks for the target cell (kept in the browser; the export makes them too)', () => prepare()), line);
+    panel.append(pb);
+  }
   // export
   panel.append(sec('Export'));
   const o = seq.output;
@@ -599,6 +621,21 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'End') { stop(); seek(C.duration); }
 });
 
+// ---- data ----
+// The z-stacks the sequence's image layers need, for its target cell (with progress in the panel).
+let preparing = null;
+async function prepare(signal, onProgress) {
+  if (preparing) return preparing;
+  const run = async () => {
+    const Cx = compile(), need = A.requiredData(Cx, R).map(n => n.layer).filter(id => S.dataKinds[id]);
+    const key = frozenTarget || resolveTarget();
+    if (!need.length || !key) return;
+    await S.acquireData(need, key, seq.data, (d, n, label) => { if (onProgress) onProgress(d, n, label); if (!exportJob) render(); }, signal);
+  };
+  preparing = run().finally(() => { preparing = null; render(); if (mode === 'preview') show(); });
+  return preparing;
+}
+
 // ---- export ----
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // Renders one frame off screen, waiting (re-rendering) until every cell, microtubule and dye of it is in.
@@ -630,6 +667,8 @@ async function exportBlob(opts) {
     await readyFrame(toState(A.evalCompiled(Cx, 0, { loop: 'once' }), false), W, H, cnv, signal);
     Cx = compileFor();
   }
+  // the image layers' z-stacks (after the target's outline is in: their field of view is its box)
+  await prepare(signal, (d, n, label) => opts.onProgress && opts.onProgress(0, 1, `${label}: focus ${d}/${n}`));
   const loop = o.loop === 'pingpong' ? 'pingpong' : 'once', D = Cx.duration * (loop === 'pingpong' ? 2 : 1);
   const N = Math.max(1, Math.min(9000, Math.round(D * fps)));
   const bg = IscScene.themeOf(seq.scene.theme).bg;
@@ -663,7 +702,8 @@ async function runExport() {
   exportJob = { abort, done: 0, text: 'starting…' };
   render();
   try {
-    const r = await exportBlob({ signal: abort.signal, onProgress: (i, n) => {
+    const r = await exportBlob({ signal: abort.signal, onProgress: (i, n, label) => {
+      if (label) { exportJob.text = label; if (exportJob.label) exportJob.label.textContent = label; return; }
       const el = (performance.now() - t0) / 1000, left = el / i * (n - i);
       exportJob.done = i / n; exportJob.text = `frame ${i}/${n} · ${(i / el).toFixed(1)} fps · ${Math.ceil(left)} s left`;
       if (exportJob.bar) { exportJob.bar.value = exportJob.done; exportJob.label.textContent = exportJob.text; }

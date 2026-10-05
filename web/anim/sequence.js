@@ -43,7 +43,9 @@ function defaults() {
     scene: { target: { mode: 'center', cell: null }, scope: 'ghosts', ghostOpacity: 0.25, theme: 'fluo', detailCells: 1, crop: true },
     camera: { az: 0, tilt: 20, fit: 1.15, center: { dx: 0, dy: 0, dz: 0 }, orbitDegPerSec: 0 },
     styles: {},
-    data: { srFps: 10 },
+    // the data layers' z-stacks (web/index.html dataParams): focus steps, SMLM frames per plane, frame averaging,
+    // crop to the cell, fresh or sequential SMLM planes, frames per plane of a localization acquisition
+    data: { srFps: 10, stepUm: 0.2, srStepUm: 0.4, srFrames: 10, wfAverage: 4, crop: true, sequential: false, locFrames: 5000 },
     output: { format: 'mp4', width: 1920, height: 1080, fps: 30, quality: 'high', loop: 'loop',
       overlays: { scaleBar: true, captions: true, readout: false, legend: false },
       gif: { width: 480, fps: 20, dither: 'bayer4' } },
@@ -167,7 +169,8 @@ function compileSequence(seq, ctx) {
         const info = reg && reg.layers && reg.layers.get(id);
         if (reg && !info) { warnings.push(`cycle ${ci + 1} step ${si + 1}: no layer ${id}`); continue; }
         if (info && info.implemented === false) { warnings.push(`cycle ${ci + 1} step ${si + 1}: ${id} is not available yet`); continue; }
-        layers.push({ id, zones: L.zones && L.zones.length ? L.zones : ['all'], style: L.style || null, plane: L.plane || null });
+        layers.push({ id, zones: L.zones && L.zones.length ? L.zones : ['all'], style: L.style || null, plane: L.plane || null,
+          followsPlane: !!(info && info.followsPlane) });
       }
       // kept layers of earlier cycles, unless listed here
       const listed = new Set(layers.map(l => l.id));
@@ -240,6 +243,13 @@ function evalCompiled(C, t, opts) {
   // one entry per layer id; a layer listed twice (e.g. bright in the slab, dim behind it) gets each listing's
   // intervals with that listing's style
   for (const l of S.layers) {
+    if (l.followsPlane) {   // an image slice: drawn at the plane (its 'in slab' zone), whatever the slab's thickness
+      if (S.sweep && (l.zones.includes('at') || l.zones.includes('all'))) {
+        layers[l.id] = { intervals: null, style: l.style || undefined };
+        if (S.entering.has(l.id) && fadeIn < 1) layers[l.id].alpha = fadeIn;
+      }
+      continue;
+    }
     const iv = S.sweep ? zoneIntervals(l.zones, { slab: S.sweep.slab, dir: S.sweep.dir }, s) : null;
     if (iv && !iv.length) continue;
     const ivs = iv ? iv.map(([a, b2]) => ({ lo: a, hi: b2, style: l.style || undefined })) : null;
@@ -301,6 +311,12 @@ const PRESETS = {
         layers: [{ ref: 'cyto.surface', zones: ['ahead'], style: { opacity: 0.15 } }, { ref: '$.gt', zones: ['behind'] }] },
       { name: 'Slab back down', duration: p.down, sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: p.slab, ease: 'inOut' },
         layers: [{ ref: '$.gt', zones: ['ahead', 'at'] }, { ref: '$.gt', zones: ['behind'], style: { opacity: 0.25 } }] }] }) },
+  sliceDown: { label: 'Simulated up, image slices down', requires: ['gt', 'wfSlice'], params: { up: 6, down: 8, deg: 360, slice: 'wfSlice' },
+    make: p => ({ name: 'Simulated -> slices', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Simulated, bottom to top', duration: p.up, caption: 'Simulated structure', sweep: { axis: 'z', from: { rel: 0 }, to: { rel: 1 }, slab: 0, ease: 'inOut' },
+        layers: [{ ref: 'cyto.surface', zones: ['ahead'], style: { opacity: 0.15 } }, { ref: '$.gt', zones: ['behind'] }] },
+      { name: 'Focal planes, top to bottom', duration: p.down, caption: p.slice === 'srFrames' ? 'SMLM camera frames' : 'WideField z-stack', sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: 0, ease: 'linear' },
+        layers: [{ ref: '$.gt', zones: ['ahead'], style: { opacity: 0.35 } }, { ref: '$.' + p.slice, zones: ['at'] }, { ref: '$.gt', zones: ['behind'], style: { opacity: 0.12 } }] }] }) },
   simUpWfDown: { label: 'Simulated up, WideField down, thresholded wake', requires: ['gt', 'wfSlice', 'wfIso'], params: { up: 6, down: 6, slab: 0.3, deg: 360 },
     make: p => ({ name: 'Simulated -> WideField -> thresholded', structure: p.structure, orbit: { deg: p.deg }, keepAfter: ['$.wfIso'], steps: [
       { name: 'Simulated, bottom to top', duration: p.up, caption: 'Simulated structure', sweep: { axis: 'z', from: { rel: 0 }, to: { rel: 1 }, slab: 0, ease: 'inOut' },
@@ -329,6 +345,7 @@ function presetFits(name, structure, registry) {
 }
 
 // The data a compiled sequence needs before it can play (phase 3+: z-stacks, events), per layer id.
+// -> [{layer, needs}] per data layer the sequence shows
 function requiredData(C, registry) {
   const need = new Map();
   for (const S of C.steps) for (const l of S.layers) {

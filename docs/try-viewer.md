@@ -67,8 +67,17 @@ Notes:
   scrubs it (Space, arrows, [ and ]; once, loop or ping-pong); the dimmed border shows the export frame. **Export**
   renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
   or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
-  are kept in the browser, with undo/redo, and saved or opened as `.json` files. Image layers made from simulated
-  data (WideField and SMLM slices, thresholded WideField, localizations) come in later steps of this feature.
+  are kept in the browser, with undo/redo, and saved or opened as `.json` files. Layers can also be simulated image
+  data (below): a **WideField slice**, **SMLM camera frames** or a **BrightField slice** riding on the sweeping plane
+  (e.g. "Simulated up, image slices down"); the export makes their data first (a sweep along the screen's depth shows
+  an x-z slice).
+- **Data layers** (Display): simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
+  the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
+  nearest focus position (blinking), the BrightField image. **Acquire** makes their z-stacks with the movie settings
+  (Microscope, Acquisition): one movie per focus position over the cell's box, WideField and BrightField planes the
+  mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
+  acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM planes start with fresh dyes
+  by default (advanced: sequential, where bleaching dyes run out in later planes).
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,

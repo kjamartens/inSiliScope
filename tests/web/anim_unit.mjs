@@ -120,6 +120,16 @@ check(near(C.duration, 15) && C.steps.map(s => s.t0).join() === '0,6,12', 'examp
     'screen-horizontal sweep: the axis turns with the camera, the plane passes the cell centre halfway');
 }
 {
+  // an image slice sits at the plane, whatever the slab (0 here), and only during a sweep
+  const s = A.defaults();
+  s.cycles = [A.cycleFromPreset('sliceDown', { structure: 'mt', up: 2, down: 4, deg: 0, slice: 'wfSlice' })];
+  const Cs = A.compileSequence(A.migrate(s).seq, { registry: R, bounds });
+  const f = A.evalCompiled(Cs, 4), g = A.evalCompiled(Cs, 1);
+  check(f.layers['mt.wfSlice'] && f.layers['mt.wfSlice'].intervals === null && f.slice && near(f.slice.slab, 0) && !g.layers['mt.wfSlice'],
+    'an image slice is shown at the plane of a 0-thick sweep, not before');
+  check(A.requiredData(Cs, R).some(n => n.layer === 'mt.wfSlice' && n.needs === 'stack:wf'), 'requiredData lists the WideField stack');
+}
+{
   // every <script src> of the viewer is copied by the docs-site build
   const html = fs.readFileSync(path.join(ROOT, 'web/index.html'), 'utf8'), sh = fs.readFileSync(path.join(ROOT, 'tools/build_site.sh'), 'utf8');
   const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);

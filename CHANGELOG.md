@@ -4,6 +4,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer data layers (issue 11, phase 3, 2026-10-05): WideField, SMLM-frame and BrightField z-stacks of a cell (one
+  movie job per focus position over the cell's box, averaged frames; memory + IndexedDB cache), drawn as slices at any
+  height or any vertical plane (3D texture per fragment, crop to the cell's footprint), in the main view (Data layers
+  group: Acquire, slice height) and in animations (slices riding the sweep plane; the export acquires first; preset
+  "Simulated up, image slices down"). Fresh or sequential SMLM planes. Check `tests/web/viewer_scene.mjs` (clip bands,
+  rotation, determinism, detail budget, stack plane = movie job).
 - Viewer Animation tab (issue 11, phase 2, 2026-10-05): animations of one cell as cycles of steps (camera moves, plane
   sweeps with per-layer zones ahead / in the slab / behind, pop-ins with fades, captions), previewed on a timeline under
   the view and exported frame by frame off screen as MP4 (H.264), WebM (VP9/VP8) or GIF (self-written muxers and GIF

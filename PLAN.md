@@ -45,7 +45,7 @@ Upcoming ideas:
   (`web/scene/core.js`), tilt to 90°, Z clip per fragment, detail budget (5 central cells), scope and look, structure /
   layer registry, dyes on the GPU; [x] phase 2: Animation tab (sequences of cycles and steps: camera moves, plane
   sweeps with ahead / in-slab / behind layers), preview timeline, MP4 / WebM / GIF export (also for the movie player);
-  [ ] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [ ] phase 4: thresholded WF isosurface,
+  [x] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [ ] phase 4: thresholded WF isosurface,
   SMLM localizations (multi-plane acquisition, precision noise).
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under

@@ -36,7 +36,7 @@ that finishes them.
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
   the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `anim_unit.mjs` and `encode_unit.mjs` (the
   animation sequences and export encoders; CI job `viewer-js` runs these three), `viewer_anim_export.mjs` (browser: export,
-  playback, determinism); `tests/d3d11/` -- the adapter's.
+  playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus

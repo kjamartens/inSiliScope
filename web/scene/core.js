@@ -80,8 +80,8 @@ const STRUCTURES = [
   { id: 'cyto', label: 'Cytoplasm', reps: ['surface', 'outline', 'contours'] },
   { id: 'cell', label: 'Whole cell', reps: ['bfSlice'] },   // BrightField images every structure at once
 ];
-// Primitives the renderer draws today; layers of other primitives are listed but marked not available yet.
-const IMPLEMENTED = new Set(['mesh', 'mtRibbon', 'points']);
+// Representations the renderer draws today; the other layers are listed but marked not available yet.
+const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'bfSlice']);
 // GL kinds: the index of a layer in the renderer's clip tables (mesh kinds 0-3 share one draw per cell).
 const KIND = { 'cyto.surface': 0, 'nucleus.surface': 1, 'cyto.outline': 2, 'cyto.contours': 3, 'mt.lines': 4, 'mt.dyes': 5 };
 const N_KINDS = 6, IV_MAX = 4;
@@ -94,7 +94,7 @@ function buildLayers(structures) {
       const R = REPS[rep], id = s.id + '.' + rep;
       out.set(id, { id, structure: s.id, rep, label: s.label + ' ' + R.label, prim: R.prim, group: R.group,
         needs: R.needs || null, followsPlane: !!R.followsPlane, kind: id in KIND ? KIND[id] : -1,
-        implemented: IMPLEMENTED.has(R.prim) && (R.group === 'geometry') });
+        implemented: IMPLEMENTED.has(rep) });
     }
   }
   return out;
@@ -116,6 +116,9 @@ const THEMES = {
     'cyto.contours': { color: [20, 30, 45], opacity: 0.55 },
     'mt.lines': { color: [230, 198, 90], opacity: 0.8 },
     'mt.dyes': { color: [255, 77, 77], opacity: 1, size: 1.2 },
+    'mt.wfSlice': { color: [255, 255, 255], opacity: 0.9, blend: 'alpha', gamma: 1 },
+    'mt.srFrames': { color: [255, 255, 255], opacity: 0.9, blend: 'alpha', gamma: 1 },
+    'cell.bfSlice': { color: [255, 255, 255], opacity: 0.85, blend: 'alpha', gamma: 1 },
   }, ghost: { color: null, opacity: 0.25 } },
   fluo: { label: 'Dark fluorescence', bg: [0, 0, 0], layers: {
     'cyto.surface': { color: [38, 70, 120], opacity: 0.3 },
@@ -124,6 +127,9 @@ const THEMES = {
     'cyto.contours': { color: [70, 100, 150], opacity: 0.4 },
     'mt.lines': { color: [80, 255, 225], opacity: 1 },
     'mt.dyes': { color: [255, 90, 210], opacity: 1, size: 1.4 },
+    'mt.wfSlice': { color: [255, 225, 110], opacity: 1, blend: 'add', gamma: 0.6 },
+    'mt.srFrames': { color: [255, 220, 120], opacity: 1, blend: 'add', gamma: 1 },
+    'cell.bfSlice': { color: [235, 235, 235], opacity: 0.85, blend: 'alpha', gamma: 1 },
   }, ghost: { color: [60, 90, 140], opacity: 0.18 } },
 };
 function themeOf(name) { return THEMES[name] || THEMES.viewer; }

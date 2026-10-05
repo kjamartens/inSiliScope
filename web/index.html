@@ -228,6 +228,22 @@ const UI_GROUPS = [
     button('resetView', 'Reset view to origin', 'Back to world position (0, 0) at the default zoom.'),
   ] },
 
+  { id: 'data', title: 'Data layers', items: [
+    check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
+    check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
+    check('showBfSlice', 'BrightField slice', 'The simulated BrightField image of the cell (all structures) with focus at the slice height. Needs its z-stack: Acquire.', false),
+    range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown).', 0, 15, 0.05, 1.5, { fmt: fx(2) }),
+    check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true),
+    num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv }),
+    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack.', 0.1, 2, 0.1, 0.4, { adv }),
+    num('srFramesShown', 'SMLM frames', 'frames', 'Camera frames per focus position of the SMLM stack (they cycle in the view).', 1, 100, 1, 10, { adv }),
+    num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv }),
+    select('planeTimes', 'SMLM planes', 'Fresh: every focus position starts with all dyes unbleached (as if each were a fresh field of the same cell; a blink near two planes shows in both). Sequential: one sample imaged plane after plane, so bleaching dyes run out in the later planes (DNA-PAINT-like labelling keeps a constant supply).',
+      [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv }),
+    button('acquireData', 'Acquire data for the centre cell', 'Makes the z-stacks of the checked data layers (WideField if none is checked) for the cell nearest the view centre, with the movie settings (Microscope, Acquisition). Kept in the browser, so it is made once per cell and settings.'),
+    { kind: 'html', html: '<p class="sub" id="dataStatus"></p>' },
+  ] },
+
   { sect: 'Sample', id: 'field', title: 'Specimen: cell field', open: true, items: [
     num('seed', 'World seed', 'integer', 'Every cell, microtubule and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
     button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
@@ -746,7 +762,8 @@ const els = {};
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
- 'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ']
+ 'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
+ 'showWfSlice', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -839,7 +856,10 @@ function stateFromUI() {
   if (els.showNucleus.checked) layers['nucleus.surface'] = {};
   if (els.showMt.checked) layers['mt.lines'] = {};
   if (els.showDyes.checked) layers['mt.dyes'] = {};
-  return { camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
+  if (els.showWfSlice.checked) layers['mt.wfSlice'] = {};
+  if (els.showSrFrames.checked) layers['mt.srFrames'] = {};
+  if (els.showBfSlice.checked) layers['cell.bfSlice'] = {};
+  return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
     scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, sweep: null, layers,
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
 }
@@ -1196,7 +1216,7 @@ function drawCell2D(c, asset, p, F, cf) {
 // when the cell's effective rotation, the tilt or the contour step change), alpha-blended, depth-tested against
 // the microtubules but not written. Pan/zoom, what is shown and every clip interval only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null;
 // u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
 // (sin, cos) of the tilt, u_pz: the pivot height. worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
@@ -1264,6 +1284,39 @@ void main() {
   gl_Position = clipOf(s, depthOf(a_pt.xyz, w));
   v_w = vec3(w, a_pt.z);
 }`;
+// Data slices: a polygon in world coordinates relative to the stack's texture origin (u_off/u_rot carry that origin's
+// turned offset and the view rotation), sampled from the stack's 3D texture (R16UI: planes, or planes x frames for
+// SMLM) at its pixel and plane; intensity through [lo, hi] and gamma; added as light (u_add) or blended over.
+const GL_SLICE_VS = `#version 300 es
+in vec3 a_w; uniform float u_px, u_z0, u_dz; out vec3 v_s;` + GL_COMMON + `
+void main() {
+  vec2 w = worldOf(a_w), s = screenOf(a_w, w);
+  gl_Position = clipOf(s, depthOf(a_w, w));
+  v_s = vec3(a_w.x / u_px, a_w.y / u_px, (a_w.z - u_z0) / u_dz);
+}`;
+const GL_SLICE_FS = `#version 300 es
+precision highp float; precision highp usampler3D;
+in vec3 v_s; out vec4 o;
+uniform usampler3D u_tex; uniform sampler2D u_mask;
+uniform int u_nz, u_F, u_frame, u_sr, u_useMask; uniform float u_lo, u_hi, u_gamma, u_add; uniform vec4 u_col;
+void main() {
+  ivec3 sz = textureSize(u_tex, 0);
+  int i = int(floor(v_s.x)), j = int(floor(v_s.y));
+  if (i < 0 || j < 0 || i >= sz.x || j >= sz.y) discard;
+  float kz = clamp(v_s.z, 0.0, float(u_nz - 1)), v;
+  if (u_sr == 1) {
+    int k = int(floor(kz + 0.5));
+    v = float(texelFetch(u_tex, ivec3(i, j, k * u_F + u_frame), 0).r);
+  } else {
+    int k0 = int(floor(kz)), k1 = min(k0 + 1, u_nz - 1);
+    v = mix(float(texelFetch(u_tex, ivec3(i, j, k0), 0).r), float(texelFetch(u_tex, ivec3(i, j, k1), 0).r), kz - float(k0));
+  }
+  v = pow(clamp((v - u_lo) / (u_hi - u_lo), 0.0, 1.0), u_gamma);
+  float m = u_useMask == 1 ? texelFetch(u_mask, ivec2(i, j), 0).r : 1.0;
+  if (m <= 0.0) discard;
+  if (u_add > 0.5) { if (v * m < 0.004) discard; o = vec4(u_col.rgb * v * m * u_col.a, 0.0); }
+  else { float a = u_col.a * m; o = vec4(u_col.rgb * v * a, a); }
+}`;
 const GL_FS = `#version 300 es
 precision highp float;
 in vec4 v_col; in vec3 v_w; flat in int v_kind; out vec4 o;` + GL_CLIP + `
@@ -1314,12 +1367,16 @@ function initGl() {
   const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
   const b = link(GL_MT_VS, glFsKind(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW']);
   const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
+  const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr',
+    'u_useMask', 'u_lo', 'u_hi', 'u_gamma', 'u_add', 'u_col']);
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
+  if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
     for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; } // buffers died with the context
-    dyeGl = null;
+    dyeGl = null; sliceGl = null; capFb = null;
+    for (const st of stackStore.values()) { st.tex = st.maskTex = st.texGl = null; }
     setLayerMode(false); requestDraw();
   });
   return true;
@@ -1514,6 +1571,7 @@ function drawSceneGl(cells, p, F) {
     }
     gl.depthMask(true);
   }
+  if (glSliceProg) drawDataGl(F, F.target);
   gl.bindVertexArray(null);
   if (F.fbo) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
@@ -2523,7 +2581,8 @@ function renderFrame(st, target) {
   const bg = useGl ? ctxBase : ctxTop;
   const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
-    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null };
+    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null,
+    target: null, dataMissing: [], animate: false };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   const hudHead = `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/um   ` +
     `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `   rotation ${azDeg}°` : '') + `   ${useGl ? 'GPU' : '2D'}`;
@@ -2578,6 +2637,7 @@ function renderFrame(st, target) {
     : IscScene.detailSet(visCells, cam.px, cam.py, scope === 'all' ? N : 1, detailPrev);
   detailPrev = det.set;
   const target0 = scope === 'all' ? null : (st.target || det.order[0] || null);
+  F.target = st.target || det.order[0] || null;   // the cell the data layers are made for
   const sig = assetSig(seed, p), mtKeys = new Set();
   if (st.layers['mt.lines']) {
     for (const k of det.set) mtKeys.add(k);
@@ -2608,7 +2668,8 @@ function renderFrame(st, target) {
   const wantDyes = Z.n[K['mt.dyes']] > 0;
   if (wantDyes) labelNote = updateDyes(seed, p, F, vis); else dyeSel = null;
   if (useGl) drawSceneGl(far, p, F);
-  else {
+  else if (Object.keys(DATA_KIND).some(id => st.layers[id])) drawDataGl(F, F.target);   // no slices in 2D: only what is missing
+  if (!useGl) {
     ctx = ctxTop;
     for (const cf of far) drawCell2D(cf.cell, cf.asset, p, F, cf);
     if (wantDyes) labelNote = drawDyes2D(F) || labelNote;
@@ -2627,12 +2688,15 @@ function renderFrame(st, target) {
       (!coreReady() ? '   [loading core…]' : '') +
       (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
       (withinCap ? '' : '   [view too large: zoom in]') +
-      (labelNote ? '   [' + labelNote + ']' : '');
+      (labelNote ? '   [' + labelNote + ']' : '') +
+      (F.dataMissing.length ? `   [no ${F.dataMissing.join(', ')} data for this cell yet: Acquire]` : '') +
+      (acqStatus.size ? '   [acquiring data…]' : '');
   }
+  if (F.animate) setTimeout(requestDraw, 100);
   lastFrame = { cam, F, vis };
   // loading: cells whose asset is on its way, the view's blocks not all packed, blocks still packing (a neighbour
   // in one of them would pop in later)
-  return { loading: nLoading + (covers ? 0 : 1) + blockPending.size, dyes: wantDyes && (dyePending || !dyeSel) ? 1 : 0 };
+  return { loading: nLoading + (covers ? 0 : 1) + blockPending.size, dyes: wantDyes && (dyePending || !dyeSel) ? 1 : 0, data: F.dataMissing.slice() };
 }
 
 function draw() {
@@ -2774,7 +2838,10 @@ window.iscScene = {
     hud.style.display = st ? 'none' : ''; document.getElementById('legend').style.display = st ? 'none' : '';
     if (was !== !!st) resizeCanvas(); else requestDraw();
   },
-  setAnimBar(shown) { if (animBarShown !== !!shown) { animBarShown = !!shown; resizeCanvas(); } },
+  setAnimBar(shown) {
+    document.getElementById('animBar').style.display = shown ? 'flex' : 'none';
+    if (animBarShown !== !!shown) { animBarShown = !!shown; resizeCanvas(); }
+  },
   setAfterDraw(fn) { afterDraw = fn; requestDraw(); },
   setPlaying(b) { animPlaying = !!b; },
   armPick(fn) { pickHandler = fn; cv.style.cursor = fn ? 'crosshair' : ''; },
@@ -2784,6 +2851,7 @@ window.iscScene = {
   },
   scaleBar: (g, W, H, pxPerUm, k) => drawScaleBarOn(g, W, H, pxPerUm, k),
   seed: () => (+els.seed.value) | 0,
+  acquireData, dataStatus, dataParams, get dataKinds() { return DATA_KIND; },
 };
 
 // ---- pan / zoom / turn ------------------------------------------------------
@@ -2838,13 +2906,26 @@ window.addEventListener('pointerup', () => {
 function syncLabels() { uiSync(); }
 Object.keys(els).forEach(id => {
   const el = els[id];
-  if (!el || id === 'reseed' || id === 'resetView' || id.endsWith('Val')) return;
+  if (!el || id === 'reseed' || id === 'resetView' || id === 'acquireData' || id.endsWith('Val')) return;
   el.addEventListener('input', () => { syncLabels(); requestDraw(); });
 });
 
 els.reseed.addEventListener('click', () => {
   els.seed.value = (Math.random() * 2 ** 31) | 0;
   requestDraw();
+});
+// Acquire: the z-stacks of the checked data layers (WideField if none) for the cell nearest the view centre.
+els.acquireData.addEventListener('click', async () => {
+  const key = nearestCell(view.cx, view.cy), st = document.getElementById('dataStatus');
+  if (!key) { st.textContent = 'No cell yet.'; return; }
+  let ids = Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
+  if (!ids.length) { ids = ['mt.wfSlice']; els.showWfSlice.checked = true; }
+  els.acquireData.disabled = true;
+  try {
+    await acquireData(ids, key, null, (d, n, label) => { st.textContent = `${label}: focus position ${d} of ${n}…`; });
+    st.textContent = `Data of cell ${key} ready (${ids.map(i => DATA_KIND[i].toUpperCase()).join(', ')}).`;
+  } catch (e) { st.textContent = 'Acquisition failed: ' + (e.message || e); }
+  finally { els.acquireData.disabled = false; requestDraw(); }
 });
 els.resetView.addEventListener('click', () => {
   view.cx = 0; view.cy = 0; view.scale = 9;
@@ -3028,10 +3109,11 @@ const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-se
 const MOVIE_PSF_HALF_WIDTH_NM = 3000;
 const moviePsfSeen = new Set(); // PSFs the worker has computed (it memoizes the last two)
 let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0, movieAcc = 0;
-function movieSpec() {
-  const p = params(), o = [];
-  for (const k of MOVIE_KEYS) o.push(k + '=' + (+document.getElementById('mv_' + k).value));
-  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy,
+// ov: values that replace the panel's (any MOVIE_KEYS key, x, y): the data layers' z-stacks.
+function movieSpec(ov) {
+  const p = params(), o = [], has = k => ov && ov[k] !== undefined;
+  for (const k of MOVIE_KEYS) o.push(k + '=' + (has(k) ? +ov[k] : +document.getElementById('mv_' + k).value));
+  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
   return o.join(' ');
@@ -3121,6 +3203,8 @@ function makeMovie() {
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
 }
 function onMovieResult(d) {
+  const sj = stackJobs.get(d.id);
+  if (sj) { stackJobs.delete(d.id); sj(d); return; }   // a plane of a data layer's z-stack
   if (d.prepared || (preparePending && d.id === preparePending.id)) {   // a preload: the kernel is in the worker's memo now
     if (preparePending && d.id === preparePending.id) { if (!d.error) moviePsfSeen.add(preparePending.psfKey); preparePending = null; }
     return;
@@ -3235,6 +3319,267 @@ function saveMovieTiff(e) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
+// ---- data layers: z-stacks of simulated images (issue 11) ---------------------------------------------------------
+// WideField, SuperRes (SMLM camera frames) and BrightField focal-plane images of one cell, made by the movie worker
+// one focus position at a time (the same spec as "Make movie here", the cell's box as the field of view; the worker's
+// movie cache keeps world, scene and PSF, so a focus step is cheap), kept as a stack (in memory, and in IndexedDB
+// across reloads) and drawn as slices: the plane through the stack at the slice position -- any height, or a
+// vertical plane -- sampled per fragment from a 3D texture (WideField / BrightField interpolated between planes, the
+// SMLM frames of the nearest plane, cycling). Pixel i of a SuperRes / WideField image is centred at
+// originX + i px (originX = x - W px / 2), of a BrightField image it starts there: texOrigin holds that half pixel.
+const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'cell.bfSlice': 'bf' };
+const DATA_MODALITY = { sr: 0, wf: 1, bf: 2 };
+const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
+// The data settings: the panel's, overridden by an animation's (state.data).
+function dataParams(over) {
+  return Object.assign({ stepUm: +els.stackStepUm.value || 0.2, srStepUm: +els.srStepUm.value || 0.4,
+    srFrames: Math.max(1, Math.round(+els.srFramesShown.value || 10)), wfAverage: Math.max(1, Math.round(+els.wfAverage.value || 4)),
+    sequential: els.planeTimes.value === 'sequential', locFrames: 5000, srFps: 10, crop: els.cropData.checked }, over || {});
+}
+// What a stack of `kind` for the cell `key` is: field of view, planes, frames, and the key it is cached under.
+function stackPlan(kind, key, dp) {
+  const b = key && cellBounds(key);
+  if (!b || !b.precise) return null;
+  const ext = Math.max(b.x[1] - b.x[0], b.y[1] - b.y[0]) + 2;   // 1 um of margin each side
+  let px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000, size = Math.ceil(ext / px / 8) * 8;
+  if (size > DATA_MAX_PX) { size = DATA_MAX_PX; px = Math.ceil(ext / DATA_MAX_PX * 1000) / 1000; }
+  const cx = (b.x[0] + b.x[1]) / 2, cy = (b.y[0] + b.y[1]) / 2, step = kind === 'sr' ? dp.srStepUm : dp.stepUm;
+  const nz = Math.max(2, Math.ceil((b.z[1] + 0.2) / step) + 1), zs = [];
+  for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
+  const F = kind === 'sr' ? dp.srFrames : 1, avg = kind === 'sr' ? 1 : dp.wfAverage, exp = (+document.getElementById('mv_exposure-ms').value || 50) / 1000;
+  const ov = { modality: DATA_MODALITY[kind], size, 'pixel-nm': px * 1000, frames: F * avg, x: cx, y: cy, z: 0, 'start-sec': 0, seed: 0 };
+  const base = movieSpec(ov).replace(/(^| )(z|start-sec|seed)=[^ ]*/g, '');
+  const tex0 = kind === 'bf' ? 0 : px / 2;
+  const seqT = kind === 'sr' && !!dp.sequential;
+  return { kind, key: [kind, key, step, nz, F, avg, seqT ? dp.locFrames : 0, base].join('|'), cell: key, px, size, cx, cy, zs, F, avg, exp, ov, seqT,
+    locFrames: dp.locFrames, texOx: cx - size * px / 2 - tex0, texOy: cy - size * px / 2 - tex0 };
+}
+// ---- cache: memory (LRU by bytes) and IndexedDB ----
+const stackStore = new Map();   // key -> stack
+function stackRemember(st) {
+  stackStore.delete(st.key); stackStore.set(st.key, st);
+  let bytes = 0;
+  for (const s of stackStore.values()) bytes += s.data.byteLength;
+  for (const [k, s] of stackStore) { if (bytes <= DATA_MEM_BYTES || s === st) break; bytes -= s.data.byteLength; freeStackGl(s); stackStore.delete(k); }
+}
+let idbP = null;
+function idb() {
+  if (!idbP) idbP = new Promise(res => {
+    try {
+      const r = indexedDB.open('insiliscope-data', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('stacks');
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null);
+    } catch (e) { res(null); }
+  });
+  return idbP;
+}
+const idbKey = k => (self.ISC_WORLD_VERSION || '') + '|' + k;
+async function idbGet(k) {
+  const db = await idb(); if (!db) return null;
+  return new Promise(res => { try { const q = db.transaction('stacks').objectStore('stacks').get(idbKey(k)); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (e) { res(null); } });
+}
+async function idbPut(k, v) {
+  const db = await idb(); if (!db) return;
+  try {
+    const os = db.transaction('stacks', 'readwrite').objectStore('stacks');
+    os.put(v, idbKey(k));
+    const q = os.getAllKeys();   // keep the 24 newest stacks
+    q.onsuccess = () => { const ks = q.result; if (ks.length > 24) { const ts = []; let n = 0; for (const key of ks) { const g = os.get(key); g.onsuccess = () => { ts.push([g.result ? g.result.ts : 0, key]); if (++n === ks.length) { ts.sort((a, b) => a[0] - b[0]); for (const [, key2] of ts.slice(0, ks.length - 24)) os.delete(key2); } }; } } };
+  } catch (e) { /* quota or no storage: memory only */ }
+}
+// ---- acquisition ----
+const stackJobs = new Map();    // movie job id -> resolve (onMovieResult routes these here)
+let stackJobId = 1e9, acqChain = Promise.resolve();
+const acqStatus = new Map();    // stack key -> {done, total} while being made
+function movieJob(spec) {
+  const job = { type: 'movie', id: ++stackJobId, spec, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
+  return new Promise((res, rej) => {
+    const done = d => (d.error ? rej(new Error(d.error)) : res(d));
+    if (genWorkers.ok) { stackJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
+    else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => done(r[0]), rej), 0);
+    else rej(new Error('the core is not running yet'));
+  });
+}
+function percentile(a, q) {
+  const s = [], step = Math.max(1, (a.length / 50000) | 0);
+  for (let i = 0; i < a.length; i += step) s.push(a[i]);
+  s.sort((x, y) => x - y);
+  return s[Math.min(s.length - 1, Math.floor(s.length * q))];
+}
+// The stack of a plan: from memory, IndexedDB, or made plane by plane (one acquisition at a time).
+function acquireStack(plan, onProgress, signal) {
+  const hit = stackStore.get(plan.key);
+  if (hit) return Promise.resolve(hit);
+  const run = async () => {
+    const again = stackStore.get(plan.key);
+    if (again) return again;
+    const saved = await idbGet(plan.key);
+    if (saved && saved.data) { const st = Object.assign({}, plan, saved.meta, { data: new Uint16Array(saved.data) }); stackRemember(st); requestDraw(); return st; }
+    const nz = plan.zs.length, P = plan.size * plan.size, data = new Uint16Array(nz * plan.F * P);
+    acqStatus.set(plan.key, { done: 0, total: nz });
+    try {
+      for (let p = 0; p < nz; p++) {
+        if (signal && signal.aborted) throw new DOMException('cancelled', 'AbortError');
+        const spec = movieSpec(Object.assign({}, plan.ov, { z: plan.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p,
+          'start-sec': plan.seqT ? p * plan.locFrames * plan.exp : 0 }));
+        const d = await movieJob(spec);
+        if (plan.avg > 1) {   // WideField / BrightField: the mean of avg frames (less shot noise on a slice)
+          const o = p * P;
+          for (let i = 0; i < P; i++) { let sum = 0; for (let k = 0; k < plan.avg; k++) sum += d.frames[k * P + i]; data[o + i] = Math.round(sum / plan.avg); }
+        } else data.set(d.frames.subarray(0, plan.F * P), p * plan.F * P);
+        acqStatus.set(plan.key, { done: p + 1, total: nz });
+        if (onProgress) onProgress(p + 1, nz);
+        requestDraw();
+      }
+    } finally { acqStatus.delete(plan.key); }
+    const meta = plan.kind === 'bf' ? { lo: percentile(data, 0.005), hi: percentile(data, 0.995) } : { lo: percentile(data, 0.5), hi: percentile(data, 0.9995) };
+    meta.hi = Math.max(meta.lo + 1, meta.hi);
+    const st = Object.assign({}, plan, meta, { data });
+    stackRemember(st);
+    idbPut(plan.key, { meta: Object.assign({}, meta), data: data.buffer.slice(0), ts: Date.now() });
+    requestDraw();
+    return st;
+  };
+  const p = acqChain.then(run, run);
+  acqChain = p.catch(() => {});
+  return p;
+}
+// ---- drawing ----
+function freeStackGl(st) {
+  if (st.texGl && st.texGl === gl && !gl.isContextLost()) { gl.deleteTexture(st.tex); if (st.maskTex) gl.deleteTexture(st.maskTex); }
+  st.tex = st.maskTex = st.texGl = null;
+}
+function stackTex(st) {
+  if (st.tex && st.texGl === gl) return st.tex;
+  const t = gl.createTexture(), depth = st.zs.length * st.F;
+  gl.bindTexture(gl.TEXTURE_3D, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.R16UI, st.size, st.size, depth, 0, gl.RED_INTEGER, gl.UNSIGNED_SHORT, st.data);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, k, v);
+  st.tex = t; st.texGl = gl;
+  return t;
+}
+// The cell's footprint on the stack's pixel grid (1 inside), for "crop to the cell".
+function stackMaskTex(st) {
+  if (st.maskTex && st.texGl === gl) return st.maskTex;
+  const c = packCache && packCache.map.get(st.cell), a = assets.get(st.cell), n = st.size, m = new Uint8Array(n * n).fill(255);
+  if (c && a && a.entry && a.entry.mesh) {
+    const tab = footprintPolar(a.entry), cr = Math.cos(-(c.packRot || 0)), sr = Math.sin(-(c.packRot || 0)), K2 = FOOT_BINS / (2 * Math.PI);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const dx = st.texOx + (i + 0.5) * st.px - c.x, dy = st.texOy + (j + 0.5) * st.px - c.y;
+      const lx = dx * cr - dy * sr, ly = dx * sr + dy * cr, r = tab[((Math.floor(Math.atan2(ly, lx) * K2) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS] + 0.15;
+      m[j * n + i] = lx * lx + ly * ly <= r * r ? 255 : 0;
+    }
+  }
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, n, n, 0, gl.RED, gl.UNSIGNED_BYTE, m);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  st.maskTex = t;
+  return t;
+}
+// The polygon where the plane dot(n, p) = d cuts the box [x0,x1] x [y0,y1] x [z0,z1]: its corners in order.
+function planeBoxPolygon(n, d, box) {
+  const [x0, x1, y0, y1, z0, z1] = box, C = [];
+  for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) C.push([x, y, z]);
+  const pts = [];
+  for (let a = 0; a < 8; a++) for (let b = a + 1; b < 8; b++) {
+    const A = C[a], B = C[b], diff = (A[0] !== B[0]) + (A[1] !== B[1]) + (A[2] !== B[2]);
+    if (diff !== 1) continue;
+    const da = n[0] * A[0] + n[1] * A[1] + n[2] * A[2] - d, db = n[0] * B[0] + n[1] * B[1] + n[2] * B[2] - d;
+    if ((da < 0 && db < 0) || (da > 0 && db > 0) || da === db) continue;
+    const t = da / (da - db);
+    pts.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]);
+  }
+  if (pts.length < 3) return null;
+  const c = pts.reduce((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length, s[2] + p[2] / pts.length], [0, 0, 0]);
+  const u = Math.abs(n[2]) < 0.9 ? [-n[1], n[0], 0] : [1, 0, 0], v = [n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0]];
+  const ang = p => Math.atan2((p[0] - c[0]) * v[0] + (p[1] - c[1]) * v[1] + (p[2] - c[2]) * v[2], (p[0] - c[0]) * u[0] + (p[1] - c[1]) * u[1] + (p[2] - c[2]) * u[2]);
+  return pts.sort((p, q) => ang(p) - ang(q));
+}
+let sliceGl = null;   // {vbo, vao}
+// The frame's data slices (after the translucent pass: lit on top of the cells, tested against the opaque layers).
+// Returns how many of the shown data layers have no stack yet.
+function drawDataGl(F, target) {
+  const st = F.st, dp = dataParams(st.data), slice = st.slice;
+  let missing = 0;
+  for (const id in DATA_KIND) {
+    if (!st.layers[id]) continue;
+    const kind = DATA_KIND[id], plan = target && stackPlan(kind, target, dp);
+    const stack = plan && stackStore.get(plan.key);
+    if (!stack) { missing++; F.dataMissing.push(kind); continue; }
+    if (!slice || !useGl) continue;
+    const axis = IscScene.axisVector({ axis: slice.axis }), z0 = stack.zs[0], z1 = stack.zs[stack.zs.length - 1];
+    const box = [stack.texOx, stack.texOx + stack.size * stack.px, stack.texOy, stack.texOy + stack.size * stack.px, z0, z1];
+    const poly = planeBoxPolygon(axis, slice.pos, box);
+    if (!poly) continue;
+    if (!sliceGl) {
+      sliceGl = { vbo: gl.createBuffer(), vao: gl.createVertexArray() };
+      gl.bindVertexArray(sliceGl.vao); gl.bindBuffer(gl.ARRAY_BUFFER, sliceGl.vbo);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+      gl.bindVertexArray(null);
+    }
+    const v = new Float32Array(poly.length * 3);
+    poly.forEach((p, i) => { v[3 * i] = p[0] - stack.texOx; v[3 * i + 1] = p[1] - stack.texOy; v[3 * i + 2] = p[2]; });
+    const style = IscScene.resolveStyle(st.theme, id, st.layers[id].style, (st.layers[id].intervals || [])[0] && st.layers[id].intervals[0].style);
+    const alpha = (st.layers[id].alpha === undefined ? 1 : st.layers[id].alpha) * (style.opacity === undefined ? 1 : style.opacity);
+    const col = style.color || [255, 255, 255], add = style.blend === 'add', cam = F.cam, u = glSliceU;
+    gl.useProgram(glSliceProg);
+    gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+    gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
+    gl.uniform2f(u.u_off, cam.u(stack.texOx, stack.texOy), cam.v(stack.texOx, stack.texOy));
+    gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
+    gl.uniform1f(u.u_px, stack.px); gl.uniform1f(u.u_z0, z0); gl.uniform1f(u.u_dz, stack.zs.length > 1 ? stack.zs[1] - stack.zs[0] : 1);
+    gl.uniform1i(u.u_nz, stack.zs.length); gl.uniform1i(u.u_F, stack.F); gl.uniform1i(u.u_sr, kind === 'sr' ? 1 : 0);
+    gl.uniform1i(u.u_frame, ((st.srFrame || 0) % stack.F + stack.F) % stack.F);
+    gl.uniform1f(u.u_lo, stack.lo); gl.uniform1f(u.u_hi, stack.hi); gl.uniform1f(u.u_gamma, style.gamma || 1);
+    gl.uniform4f(u.u_col, col[0] / 255, col[1] / 255, col[2] / 255, alpha); gl.uniform1f(u.u_add, add ? 1 : 0);
+    gl.uniform1i(u.u_useMask, dp.crop ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, stackTex(stack)); gl.uniform1i(u.u_tex, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dp.crop ? stackMaskTex(stack) : null); gl.uniform1i(u.u_mask, 1);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+    gl.bindVertexArray(sliceGl.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sliceGl.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLE_FAN, 0, poly.length);
+    gl.depthMask(true);
+    if (kind === 'sr' && !F.fbo && st.ui) F.animate = true;   // the main view keeps the blinking going
+  }
+  if (gl) gl.bindVertexArray(null);
+  return missing;
+}
+// Makes the stacks of the given data layers for a cell (onProgress(done, total, label)).
+async function acquireData(layerIds, key, over, onProgress, signal) {
+  const dp = dataParams(over), plans = [];
+  for (const id of layerIds) {
+    const kind = DATA_KIND[id];
+    if (!kind) continue;
+    for (let i = 0; i < 100 && !stackPlan(kind, key, dp); i++) { requestDraw(); await new Promise(r => setTimeout(r, 100)); }   // the cell's outline first
+    const plan = stackPlan(kind, key, dp);
+    if (plan && !plans.some(p => p.key === plan.key)) plans.push(plan);
+  }
+  const total = plans.reduce((s, p) => s + (stackStore.has(p.key) ? 0 : p.zs.length), 0);
+  let before = 0;
+  for (const plan of plans) {
+    const n = plan.zs.length, label = { wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField' }[plan.kind];
+    await acquireStack(plan, d => onProgress && onProgress(before + d, total, label), signal);
+    if (!stackStore.has(plan.key) || true) before += n;
+  }
+  return plans.map(p => stackStore.get(p.key));
+}
+function dataStatus(layerIds, key, over) {
+  const dp = dataParams(over), out = [];
+  for (const id of layerIds) {
+    const kind = DATA_KIND[id];
+    if (!kind) continue;
+    const plan = stackPlan(kind, key, dp);
+    out.push({ id, kind, ready: !!(plan && stackStore.has(plan.key)), busy: plan ? acqStatus.get(plan.key) || null : null });
+  }
+  return out;
+}
+
 // The movie as shown in the player (its display range through the grey LUT), scaled up by a whole factor to at
 // least 512 px (nearest neighbour: crisp pixels), as a GIF (256 greys: exactly the display) or a video at the
 // playback rate (WebCodecs; WebM or GIF where the browser cannot encode H.264).
