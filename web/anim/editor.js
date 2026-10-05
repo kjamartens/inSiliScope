@@ -497,6 +497,9 @@ function cycleCard(cy, ci) {
 
 // ---- the panel ----
 const panel = $('animPanel');
+let dataGroup = null;
+// Random / previous cell moved the view: leave the preview and follow the new centre cell
+document.addEventListener('isc-cell-jump', () => { if (panel.hidden) return; exitPreview(); C = compile(); render(); drawBar(); });
 const SIZES = [['1280x720', '720p (1280 × 720)'], ['1920x1080', '1080p (1920 × 1080)'], ['1080x1080', 'square 1080'], ['1080x1920', 'portrait 1080 × 1920'], ['3840x2160', '4K (3840 × 2160)'], ['800x600', '800 × 600']];
 function render() {
   if (panel.hidden) return;
@@ -537,6 +540,9 @@ function render() {
     S.armPick(key => { if (key) { snapshot(); tg.mode = 'pick'; tg.cell = key; frozenTarget = null; changed(true); } });
   }), tLabel);
   panel.append(pickRow);
+  // the data layers group of the settings panel lives here (built by index.html's uiSchema; kept across renders)
+  if (!dataGroup) dataGroup = document.querySelector('details[data-group="data"]');
+  if (dataGroup) panel.append(dataGroup);
   panel.append(
     row('Scope', 'Which cells are drawn: the target alone, the target with faint neighbours, or all (the target and nearby cells detailed).',
       selIn([['target', 'target only'], ['ghosts', 'target + faint neighbours'], ['all', 'all cells']], () => seq.scene.scope, v => { seq.scene.scope = v; })),

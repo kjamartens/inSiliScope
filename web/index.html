@@ -227,11 +227,12 @@ const UI_GROUPS = [
     check('showCytoContours', 'Show height contour lines', 'Draw contour lines of the cytoplasm height.', false, { adv }),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2) }),
     button('resetView', 'Reset view to origin', 'Back to world position (0, 0) at the default zoom.'),
-    button('randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre.'),
-    button('prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'),
   ] },
 
+  // shown in the Animation tab (web/anim/editor.js moves this group there)
   { id: 'data', title: 'Data layers', items: [
+    button('randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre (unless the animation has a picked cell).'),
+    button('prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'),
     check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
     check('wfSumZ', 'Sum over z', 'Show the WideField z-stack summed over all its planes (divided by their number, so the display range still fits) instead of the plane at the slice height; still drawn at the slice height.', false),
     check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
@@ -3059,7 +3060,11 @@ els.randomCell.addEventListener('click', async () => {
   requestDraw();
   for (let i = 0; i < 300 && id === cellJump; i++) {   // up to 30 s for the packing there
     const key = packingIdle() ? nearestCell(view.cx, view.cy) : null, b = key && cellBounds(key);
-    if (b && Math.hypot(b.center[0] - view.cx, b.center[1] - view.cy) < 100) { view.cx = b.center[0]; view.cy = b.center[1]; requestDraw(); return; }
+    if (b && Math.hypot(b.center[0] - view.cx, b.center[1] - view.cy) < 100) {
+      view.cx = b.center[0]; view.cy = b.center[1]; requestDraw();
+      document.dispatchEvent(new Event('isc-cell-jump'));   // the animation editor re-targets
+      return;
+    }
     await new Promise(res => setTimeout(res, 100));
   }
 });
@@ -3069,6 +3074,7 @@ els.prevCell.addEventListener('click', () => {
   cellJump++;   // stop a jump still waiting for its cell
   Object.assign(view, v);
   syncCellButtons(); requestDraw();
+  document.dispatchEvent(new Event('isc-cell-jump'));
 });
 syncCellButtons();
 

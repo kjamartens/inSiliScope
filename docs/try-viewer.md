@@ -76,8 +76,8 @@ Notes:
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Random cell** (Display) jumps to a random cell of the field and centres it; **Previous cell** goes back (repeatably).
-- **Data layers** (Display): simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
+- **Data layers** (Animation tab): **Random cell** jumps to a random cell of the field and centres it, **Previous cell**
+  goes back (repeatably); simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
   the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
   nearest focus position (blinking), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
   cell and settings; **Acquire** makes them now) with the movie settings
