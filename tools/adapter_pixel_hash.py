@@ -21,13 +21,19 @@ from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._util import USER_DATA_DIR
 
 # (name, pre-init seed, post-init properties). Each config regenerates the
-# precomputed stack and hashes its first frames.
+# precomputed stack and hashes its first frames. CellField only (the other
+# patterns were removed with issue 16); the defaults are DNA-PAINT ATTO 655
+# with its imager background (issue 16, phase 3: the hashes changed then).
+GAUSS = {"PSFParam_PsfModel": "Gaussian"}
 CONFIGS = [
-    # Circle explicitly: the default pattern became CellField in M3.
-    ("defaults", 1234, {"SimType_Pattern": "Circle"}),
-    ("gaussian-psf", 1234, {"SimType_Pattern": "Circle", "PSFParam_PsfModel": "Gaussian"}),
-    ("nup-pattern", 99, {"SimType_Pattern": "NUP", "PSFParam_PsfModel": "Gaussian"}),
-    ("emccd", 7, {"SimType_Pattern": "Circle", "CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
+    ("defaults", 1234, {}),
+    ("gaussian-psf", 1234, GAUSS),
+    ("dstorm", 99, {**GAUSS, "SimType_CellFieldMicrotubuleDye": "AF647"}),
+    ("palm", 11, {**GAUSS, "SimType_CellFieldMicrotubuleDye": "mEos3.2"}),
+    ("emccd", 7, {"CamParam_CameraType": "EMCCD", **GAUSS}),
+    ("illum-bg", 3, {**GAUSS, "Optics_IlluminationProfile": "Gaussian",
+                     "Background_BackgroundPhotonsPerSec": "200", "Background_DecaySec": "0.5"}),
+    ("mean-field", 5, {"SimType_CellFieldMicrotubuleDye": "mEGFP"}),
 ]
 
 

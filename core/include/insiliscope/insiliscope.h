@@ -16,7 +16,11 @@
  * ABI 8: isc_world_set_cache_dir / isc_world_flush_cache (packed blocks kept
  * in a small per-user file across runs), isc_world_version. ABI 9:
  * isc_cell_nucleus_rings (the shaped nucleus's surface, for drawing); the
- * optical volume's nucleus chord follows the shaped nucleus.
+ * optical volume's nucleus chord follows the shaped nucleus. ABI 10 (issue
+ * 16): labels per structure (isc_world_set_label replaces
+ * isc_world_set_kinetics and the labelEfficiency/labelNonBleaching params),
+ * events with structure/state/aux (stride 10), isc_continuous_in_window,
+ * sites with their structure (stride 5), isc_density3d_in_window by structure.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -37,7 +41,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 9
+#define ISC_ABI_VERSION 10
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -76,10 +80,8 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * (seed, params, window): cells are packed on fixed 8x8-chunk blocks (or not
  * at all with enablePacking=0), so moving the window away and back gives the
  * same cells and dyes. Params are copied (and normalised) at creation; the
- * labelled fractions of the lattice sites are the `labelEfficiency` param
- * (bleaching dyes, default 0.1) and `labelNonBleaching` (persistent,
- * DNA-PAINT-like sites, default 0; one draw per site decides which).
- * Not thread-safe: use one world per thread. */
+ * dyes follow each structure's label (isc_world_set_label; default: 70 % of
+ * the sites, DNA-PAINT). Not thread-safe: use one world per thread. */
 typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);
@@ -130,35 +132,96 @@ ISC_API int32_t isc_world_set_cache_dir(IscWorld* w, const char* dir);
 /* ABI 8. Writes the pending blocks now. 0, -1 without a store or on an I/O error. */
 ISC_API int32_t isc_world_flush_cache(IscWorld* w);
 
-/* Labelled dyes in the window, ISC_SITE_STRIDE doubles each: x, y, z, id (a
- * per-dye uint32 hash, stable across windows; the seed of its blink
- * schedule). Same cap/return convention as above. */
-#define ISC_SITE_STRIDE 4
+/* Fluorescent dyes in the window, ISC_SITE_STRIDE doubles each: x, y, z, id
+ * (a per-dye uint32 hash, stable across windows), structure (ISC_STRUCT_*).
+ * Same cap/return convention as above. */
+#define ISC_SITE_STRIDE 5
 ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double zMin, double zMax, double* out, int32_t cap);
 
-/* Blink kinetics, simulated seconds (spec/PORT.md 6.1). A dark dye switches
- * on at activationRatePerSec (per dye; 0 = never). Bleaching dyes: first
- * activation after Exp(1/rate), ON Exp(onSec), then bleach with probability
- * bleachProb (clamped to [0.01, 1]) or dark Exp(offSec) and blink again (at
- * most 1000 blinks). Persistent sites: blinks start as a Poisson process of
- * that rate for ever, ON Exp(onSec). Per-blink brightness log-normal, mean 1,
- * CV photonCV. Defaults 0.01, 0.05, 1, 1, 0.5. Changing them keeps the
- * geometry cached. Returns 0, or -1 on bad arguments. */
-ISC_API int32_t isc_world_set_kinetics(IscWorld* w, double activationRatePerSec, double onSec, double offSec,
-                                       double bleachProb, double photonCV);
+/* ---- Labels (ABI 10, issue 16; spec/PORT.md 16) ----
+ * The structures that carry dyes, one label each: */
+#define ISC_STRUCT_MICROTUBULE 0
+#define ISC_STRUCT_COUNT 1
+/* A label is ISC_LABEL_COUNT doubles at these indices:
+ *   DENSITY              fraction of the structure's binding sites labelled (0..1)
+ *   FLUORESCENT_FRACTION fraction of those whose dye is fluorescent (0..1; 1 = all)
+ *   MODE                 ISC_MODE_DSTORM | _PALM | _DNA_PAINT | _WIDEFIELD
+ *   ACTIVATION_RATE      per dark dye per second (DNA-PAINT: the binding rate k_on c)
+ *   ON_SEC, OFF_SEC      mean ON / dark time (s)
+ *   BLEACH_PROB          per blink (clamped to [0.01, 1]); PHOTON_CV per-blink brightness CV
+ *   INITIAL_ON_SEC       dSTORM: ON from t = 0 for Exp(this) first (0 = none)
+ *   PRE_STATE            PALM: 1 = a pre state until the first activation
+ *   ORIENT_MODE          ISC_ORIENT_FREE | _FIXED | _RANDOM; ORIENT_POLAR_DEG,
+ *                        ORIENT_AZIMUTH_DEG (Fixed), WOBBLE_DEG (cone half-angle)
+ *   MOTION               0 = Static (SPT: not implemented yet)
+ *   OFFTARGET_COUNT      0 (off-target binding: not implemented yet)
+ * Schedules: dSTORM = initial ON, then blinks (first after Exp(1/rate), ON
+ * Exp(onSec), bleach with BLEACH_PROB or dark Exp(offSec), at most 1000
+ * blinks); PALM = the same blinks (with a pre state: a PRE window until the
+ * first); DNA-PAINT = blinks as a Poisson process of that rate for ever
+ * (persistent sites); WideField = one always-on window per dye. Per-blink
+ * brightness log-normal, mean 1, CV PHOTON_CV. */
+#define ISC_LABEL_DENSITY 0
+#define ISC_LABEL_FLUORESCENT_FRACTION 1
+#define ISC_LABEL_MODE 2
+#define ISC_LABEL_ACTIVATION_RATE 3
+#define ISC_LABEL_ON_SEC 4
+#define ISC_LABEL_OFF_SEC 5
+#define ISC_LABEL_BLEACH_PROB 6
+#define ISC_LABEL_PHOTON_CV 7
+#define ISC_LABEL_INITIAL_ON_SEC 8
+#define ISC_LABEL_PRE_STATE 9
+#define ISC_LABEL_ORIENT_MODE 10
+#define ISC_LABEL_ORIENT_POLAR_DEG 11
+#define ISC_LABEL_ORIENT_AZIMUTH_DEG 12
+#define ISC_LABEL_WOBBLE_DEG 13
+#define ISC_LABEL_MOTION 14
+#define ISC_LABEL_OFFTARGET_COUNT 15
+#define ISC_LABEL_COUNT 16
+#define ISC_MODE_DSTORM 0
+#define ISC_MODE_PALM 1
+#define ISC_MODE_DNA_PAINT 2
+#define ISC_MODE_WIDEFIELD 3
+#define ISC_ORIENT_FREE 0
+#define ISC_ORIENT_FIXED 1
+#define ISC_ORIENT_RANDOM 2
+/* Sets structure's label from v[0..n) (n <= ISC_LABEL_COUNT; the indices not
+ * given keep the defaults: density 0.7, fraction 1, DNA-PAINT, rate 0.01,
+ * ON 0.05, dark 1, bleach 1, CV 0.5, no initial ON, no pre state, Free, 90,
+ * 0, 0, Static, 0). A change of density or fraction redraws the dyes (the
+ * geometry stays cached), any other change only re-schedules them. Returns 0;
+ * -1 on bad arguments (unknown structure or mode, a pre state without PALM,
+ * ON <= 0, negative rates); -2 for what is not implemented yet (a motion
+ * other than Static, off-target entries). Nothing changes on an error. */
+ISC_API int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int32_t n);
 
-/* Blinks overlapping [t0, t1) (tOn < t1 and tOff > t0) of the labelled dyes
- * in the window, ISC_EVENT_STRIDE doubles each: x, y, z, tOn, tOff,
- * brightness, id. Each dye's whole blink lifetime is a pure function of its
- * address, so the same dye blinks the same way whenever it is queried. Same
- * cap/return convention as above. */
-#define ISC_EVENT_STRIDE 7
+/* Blinks overlapping [t0, t1) (tOn < t1 and tOff > t0) of the fluorescent
+ * dyes in the window, ISC_EVENT_STRIDE doubles each: x, y, z, tOn, tOff,
+ * brightness, id, structure, state (ISC_STATE_BLINK here), aux (0 here).
+ * Each dye's blinks are a pure function of its address, so the same dye
+ * blinks the same way whenever it is queried. Same cap/return convention. */
+#define ISC_EVENT_STRIDE 10
+#define ISC_STATE_BLINK 0
+#define ISC_STATE_PRE 1
+#define ISC_STATE_INITIAL_ON 2
+#define ISC_STATE_ALWAYS_ON 3
 ISC_API int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                      double zMin, double zMax, double t0, double t1, double* out, int32_t cap);
 
+/* The continuous emission windows of the dyes in the window that end after
+ * tMin, ISC_EVENT_STRIDE doubles each (as isc_events_in_window, brightness 1):
+ * a PALM pre state [0, first activation) (ISC_STATE_PRE), the dSTORM initial
+ * ON [0, Exp(initialOnSec)) (ISC_STATE_INITIAL_ON), a WideField dye's
+ * [0, INFINITY) (ISC_STATE_ALWAYS_ON). aux: a unit-exponential draw per dye
+ * (PRE, ALWAYS_ON) the imaging side scales into the dye's own bleach time
+ * (photon budget / emission rate). Dye order; nothing for DNA-PAINT. Made on
+ * each call (not cached). Same cap/return convention. */
+ISC_API int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                         double zMin, double zMax, double tMin, double* out, int32_t cap);
+
 /* Warms the caches for a window (cells, dyes, blink schedules, and the
- * persistent sites' blinks around [t0, t1)) for at most about budgetMs, so a
+ * DNA-PAINT sites' blinks around [t0, t1)) for at most about budgetMs, so a
  * later isc_events_in_window there is fast: e.g. a margin around the current
  * window and the whole z column, in the idle time before the next frame
  * (ABI 4). Changes no answer. Returns 1 when the whole window is cached (a
@@ -187,23 +250,22 @@ ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, doubl
 ISC_API int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
                                        double* out, int32_t capPts);
 
-/* Labelled-dye counts on an nx x ny grid over the window (row-major, row = y),
- * written to out[nx*ny]. Returns the total count, or -1 on bad arguments. */
+/* Fluorescent-dye counts (every structure) on an nx x ny grid over the window
+ * (row-major, row = y), written to out[nx*ny]. Returns the total count, or -1
+ * on bad arguments. */
 ISC_API int32_t isc_density_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                       double zMin, double zMax, int32_t nx, int32_t ny, float* out);
 
-/* Labelled-dye counts on an nx x ny x nz grid (ABI 5), written to
+/* Fluorescent-dye counts on an nx x ny x nz grid (ABI 5), written to
  * out[(k*ny + iy)*nx + ix]; plane k spans [zMin + k*(zMax-zMin)/nz, ...),
- * x/y binned as isc_density_in_window. populations selects which dyes count
- * (ISC_POP_BLEACHING | ISC_POP_PERSISTENT; 0 counts none). The core bins its
- * cached dyes straight into the voxels, so nothing crosses the ABI per dye.
- * zMin/zMax may be infinite only with nz = 1. Returns the total count, or -1
- * on bad arguments. */
-#define ISC_POP_BLEACHING 1
-#define ISC_POP_PERSISTENT 2
+ * x/y binned as isc_density_in_window. structureMask selects whose dyes count
+ * (ABI 10: bit s = ISC_STRUCT_s; 0 counts none; was a population mask). The
+ * core bins its cached dyes straight into the voxels, so nothing crosses the
+ * ABI per dye. zMin/zMax may be infinite only with nz = 1. Returns the total
+ * count, or -1 on bad arguments. */
 ISC_API int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                         double zMin, double zMax, int32_t nx, int32_t ny, int32_t nz,
-                                        int32_t populations, float* out);
+                                        int32_t structureMask, float* out);
 
 /* Optical volume (ABI 6, BrightField): the volume fractions of cytoplasm
  * (cell body minus nucleus), nucleus and microtubules (12.5 nm tubes) in

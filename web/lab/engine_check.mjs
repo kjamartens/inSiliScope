@@ -29,8 +29,8 @@ const js = await createEngine({ html: read('web/prototype/index.html'), mt: read
 const viewerParams = new Function('vals',
   'const els = new Proxy({}, { get: (_, k) => ({ value: String(vals[k]), checked: !!vals[k] }) });\n' +
   paramsSource(viewer) + '\nreturn params();');
-const VIEWER_DEFAULTS = schemaDefaults(viewer);
-const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$|labelEfficiency$|labelNonBleaching$)/; // = index.html
+const VIEWER_DEFAULTS = schemaDefaults(viewer, read('web/dye_library.js'));
+const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$)/; // = index.html
 const packParams = p => Object.fromEntries(Object.entries(p).filter(([k]) => !PACK_KEY_SKIP.test(k)));
 
 let fails = 0;
@@ -57,11 +57,13 @@ function diff(a, b, at = '') {
 }
 const both = job => [js.handle(structuredClone(job))[0], wasm.handle(structuredClone(job))[0]];
 
+// [name, seed, params overrides, the sites jobs' labels (density, fluorescent fraction per structure; issue 16)]
 const WORLDS = [
-  ['defaults, seed 1249', 1249, {}],
-  ['seed 7, wobbly MTs, rough edges, 30% bleaching dyes', 7, { mtWobbleTurn: 1.6, cellRough: 0.4, labelEfficiency: 0.3 }],
+  ['defaults, seed 1249', 1249, {}, [{ density: 0.7, fluorescentFraction: 1 }]],
+  ['seed 7, wobbly MTs, rough edges, 30% labelled, half fluorescent', 7, { mtWobbleTurn: 1.6, cellRough: 0.4 },
+    [{ density: 0.3, fluorescentFraction: 0.5 }]],
 ];
-for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
+for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const p = viewerParams({ ...VIEWER_DEFAULTS, ...over });
   const S = p.chunkSize, rect = [0, 0, 3 * S, 2 * S];
   const [pj, pw] = both({ type: 'pack', id: 1, key: 'k', win: [0, 0, 3, 2], rect, seed, p: packParams(p) });
@@ -82,12 +84,13 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   bad = bad || (diff(mj, mw) && `missing cell${diff(mj, mw)}`);
   report(!bad, `${name}: cell assets (mesh, nucleus rings, ${nMt} microtubules, a missing cell) ${bad}`);
   const c0 = [pw.cells[2], pw.cells[3]];
-  const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p });
-  report(!diff(sj, sw) && sw.sites.length > 0, `${name}: sites, ${sw.sites.length / 4} dyes ${diff(sj, sw)}`);
+  const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels });
+  report(!diff(sj, sw) && sw.sites.length > 0, `${name}: sites, ${sw.sites.length / 5} dyes ${diff(sj, sw)}`);
   // Injection: a fresh engine fed the pack job's blocks answers the cell and sites jobs identically.
   const cx = pw.cells[0], cy = pw.cells[1];
   const cellJob = { type: 'cell', key: cx + ',' + cy, sig: 's', seed, p, cx, cy, mt: true, blocks: pw.blocks };
-  const sitesJob = { type: 'sites', id: 4, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, blocks: pw.blocks };
+  const sitesJob = { type: 'sites', id: 4, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels,
+    blocks: pw.blocks };
   const ci = wasm2.handle(structuredClone(cellJob))[0], cw2 = wasm.handle(structuredClone(cellJob))[0];
   const si = wasm2.handle(structuredClone(sitesJob))[0], sw2 = wasm.handle(structuredClone(sitesJob))[0];
   const cjI = js.handle(structuredClone(cellJob))[0], sjI = js.handle(structuredClone(sitesJob))[0];
@@ -101,13 +104,14 @@ for (const [name, seed, over] of quick ? WORLDS.slice(0, 1) : WORLDS) {
     `${name}: pack with remembered blocks handed in: identical reply, world version ${pw.version} ${diff(pw3, pw)}`);
 }
 
-// Movies through handle(), the viewer's spec form (p.* = its params()). WideField takes the WASM CPU path
-// here (no WebGPU in Node), which is what the GPU path is checked against anyway.
+// Movies through handle(), the viewer's spec form (p.* = its params()). The mean-field populations take the WASM
+// CPU path here (no WebGPU in Node), which is what the GPU path is checked against anyway.
 const p = viewerParams(VIEWER_DEFAULTS), pSpec = Object.entries(p).map(([k, v]) => `p.${k}=${+v}`).join(' ');
 const MOVIES = [
-  ['SR', 'modality=0 size=40 frames=6', 1],
-  ['WideField', 'modality=1 size=40 frames=3', 0.999],
-  ['BrightField', 'modality=2 size=40 frames=2 bf-quality=1', 0.995],
+  ['DNA-PAINT (default)', 'size=40 frames=6', 1],
+  ['dSTORM AF647 from t = 0 (initial ON per dye)', 'size=40 frames=6 mt-dye=AF647 light-preset=auto start-sec=0 mt-label-pct=0.5', 1],
+  ['WideField mEGFP (mean-field)', 'size=40 frames=3 mt-dye=mEGFP light-preset=auto', 0.999],
+  ['BrightField', 'modality=BrightField size=40 frames=2 bf-quality=1', 0.995],
 ];
 for (const [name, opts, need] of quick ? MOVIES.slice(0, 1) : MOVIES) {
   const spec = `${opts} world-seed=1249 x=63 y=3 psf-kernel-half-width-nm=2500 ${pSpec}`;
@@ -115,7 +119,7 @@ for (const [name, opts, need] of quick ? MOVIES.slice(0, 1) : MOVIES) {
   if (mj.error || mw.error) { report(false, `${name} movie: ${mj.error || ''} ${mw.error || ''}`); continue; }
   let same = 0;
   for (let i = 0; i < mw.frames.length; i++) if (mj.frames[i] === mw.frames[i]) same++;
-  const info = diff({ ...mj, frames: 0, gpu: 0 }, { ...mw, frames: 0, gpu: 0 });
+  const info = diff({ ...mj, frames: 0, gpu: 0, summary: 0 }, { ...mw, frames: 0, gpu: 0, summary: 0 });
   const frac = same / mw.frames.length;
   report(frac >= need && !info, `${name} movie: ${(100 * frac).toFixed(3)}% of ${mw.frames.length} pixels identical, ` +
     `JS ${(mj.ms / 1000).toFixed(1)} s, WASM ${(mw.ms / 1000).toFixed(1)} s ${info}`);

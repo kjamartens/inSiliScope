@@ -30,13 +30,20 @@ find_program(ISC_NODE node NAMES node nodejs)
 if(EMSCRIPTEN AND NOT ISC_NODE)
   set(ISC_NODE ${NODE_JS_EXECUTABLE})
 endif()
-if(EMSCRIPTEN)
-  if(ISC_NODE)
-    add_test(NAME world_checks COMMAND ${ISC_NODE} $<TARGET_FILE:isc_world_tests>)
+# world_checks: one test per section of world_tests.cpp (its Sections() list), so
+# `ctest -j` runs them side by side; isc_world_tests without an argument runs all.
+set(ISC_WORLD_SECTIONS basics determinism packing_off dye_statistics kinetics
+  events_palm events_dnapaint events_dstorm cache_palm cache_dnapaint label_model
+  threads_palm threads_dnapaint c_api block_injection density3d optical_volume edge_and_height)
+foreach(sec IN LISTS ISC_WORLD_SECTIONS)
+  if(EMSCRIPTEN)
+    if(ISC_NODE)
+      add_test(NAME world_checks.${sec} COMMAND ${ISC_NODE} $<TARGET_FILE:isc_world_tests> ${sec})
+    endif()
+  else()
+    add_test(NAME world_checks.${sec} COMMAND isc_world_tests ${sec})
   endif()
-else()
-  add_test(NAME world_checks COMMAND isc_world_tests)
-endif()
+endforeach()
 if(ISC_NODE)
   add_test(NAME golden_vectors
     COMMAND ${ISC_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/golden.mjs $<TARGET_FILE:isc_parity>)

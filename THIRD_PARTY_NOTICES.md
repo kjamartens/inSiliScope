@@ -51,9 +51,22 @@ inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-
   and in the webSMLM block.
 - **naga** (MIT/Apache-2.0), used offline by `tools/gen_wf_gpu.mjs` to translate WGSL to HLSL.
 
+## Data under CC BY-SA 4.0
+
+- **FPbase** (https://www.fpbase.org; Lambert TJ, "FPbase: a community-editable fluorescent protein database",
+  Nat. Methods 16:277-278 (2019), doi:10.1038/s41592-019-0352-8), CC BY-SA 4.0
+  (https://creativecommons.org/licenses/by-sa/4.0/). Dye and fluorescent-protein spectra and scalars (peaks,
+  extinction coefficients, quantum yields, lifetimes), filter transmission curves and camera QE curves, fetched by
+  `tools/fetch_fpbase.mjs` into `data/dyes/fpbase_spectra.json` (resampled to 1 nm) and carried into
+  `web/prototype/scope/dye_library_data.js` and the builds that embed it. These data, and adaptations of them, stay
+  under CC BY-SA 4.0 with this attribution; they are a separate component next to the BSD-3-Clause code.
+
 ## Methods and data credited
 
 - Gibson-Lanni and Richards-Wolf PSF models; chirp-Z (Bluestein) evaluation.
 - Nup96 NPC geometry: Thevathasan et al., Nat. Methods 16 (2019); CIR4MICS parametrisation, Wanninger et al. (2023).
 - Camera defaults: Photometrics Kinetix22 datasheet.
 - SMLM Challenge methodology: Sage et al., Nat. Methods 16 (2019).
+- Dye switching kinetics, primed conversion, DNA-PAINT kinetics, FP photoactivation efficiencies and camera presets:
+  the papers and datasheets listed in `data/references.json` (`docs/references.md`), e.g. Dempsey et al., Nat. Methods
+  8 (2011) Table 1.

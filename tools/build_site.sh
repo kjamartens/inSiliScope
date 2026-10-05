@@ -36,7 +36,7 @@ mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT"
 rm -f .mkdocs_site.yml
 
 mkdir -p "$OUT/viewer"
-cp web/index.html web/insiliscope_module.js web/wf_gpu.js "$OUT/viewer/"
+cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js "$OUT/viewer/"
 [ -d web/prototype ] && cp -r web/prototype "$OUT/viewer/prototype"
 touch "$OUT/.nojekyll"
 rm -rf .site_docs

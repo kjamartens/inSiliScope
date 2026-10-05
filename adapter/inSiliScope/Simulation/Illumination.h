@@ -9,8 +9,8 @@
 //                (= the FOV centre); values are relative excitation, peak 1.
 //                WideField reads its emission rate and deposits its bleach
 //                dose from it, so a new pattern (a beam, a TIRF footprint, a
-//                structured pattern) needs no renderer change. SR keeps its
-//                FluoParam_IllumProfile field for now.
+//                structured pattern) needs no renderer change. The adapter's
+//                blinks keep its Optics_IlluminationProfile field for now.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -39,6 +39,26 @@ public:
    SquareIllumination(double widthUm, double heightUm) : w_(widthUm), h_(heightUm) {}
    double At(double dxUm, double dyUm) const override;
    void Support(double& x0, double& y0, double& x1, double& y1) const override;
+
+private:
+   double w_, h_;
+};
+
+// Value 1 everywhere, on a square support of widthUm x heightUm: the
+// mean-field image's weights (every grid cell of the FOV and its margin
+// counts fully, as web/prototype/scope/widefield.js meanFieldImage's ones).
+class FlatIllumination : public IlluminationPattern
+{
+public:
+   FlatIllumination(double widthUm, double heightUm) : w_(widthUm), h_(heightUm) {}
+   double At(double, double) const override { return 1.0; }
+   void Support(double& x0, double& y0, double& x1, double& y1) const override
+   {
+      x0 = -w_ / 2;
+      x1 = w_ / 2;
+      y0 = -h_ / 2;
+      y1 = h_ / 2;
+   }
 
 private:
    double w_, h_;

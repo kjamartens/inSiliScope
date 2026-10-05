@@ -31,7 +31,7 @@ for (const [quality, want, query] of [['1', /BrightField/, ''], ['3', /BrightFie
   await page.goto(`http://localhost:${port}/index.html${query}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   const shown = await page.evaluate(q => {
-    document.getElementById('mv_modality').value = '2';
+    document.getElementById('mv_modality').value = '1';
     document.getElementById('mv_modality').dispatchEvent(new Event('change'));
     document.getElementById('mv_size').value = '48';
     document.getElementById('mv_frames').value = '2';

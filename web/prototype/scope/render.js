@@ -16,8 +16,10 @@ export function bucketEventsByFrame(events, nFrames) {
   return buckets;
 }
 
-function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhotons) {
-  if (totalPhotons <= 0.0 || sigmaPx <= 0.0) return;
+// RenderGaussianPSF: img += totalPhotons x a normalised Gaussian (a negative total subtracts the same terms; the
+// running images of fluorescence.js).
+export function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhotons) {
+  if (totalPhotons === 0.0 || !(sigmaPx > 0.0)) return;
   const rad = Math.ceil(3.0 * sigmaPx);
   const cx = lround(xPx), cy = lround(yPx);
   const amplitude = totalPhotons / (2.0 * Math.PI * sigmaPx * sigmaPx);
@@ -35,8 +37,9 @@ function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhotons) {
 
 // One frame's photon image (background + every event overlapping [f, f+1)). kernel: PSF kernel cache or
 // null (Gaussian of psfSigmaPx). zStageUm: focal-plane height; an emitter's plane is zNm/1000 - zStageUm.
-export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm) {
-  const img = new Float32Array(width * height).fill(o.backgroundPhotons);
+// into: add to this image instead (no background; several dyes, each with its own PSF, issue 16).
+export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm, into = null) {
+  const img = into || new Float32Array(width * height).fill(o.backgroundPhotons);
   for (const e of events) {
     let ov = Math.min(frameIndex + 1, e.tEnd) - Math.max(frameIndex, e.tStart);
     if (ov <= 0.0) continue;
@@ -58,7 +61,8 @@ export class NoiseMaps {
     const rng = new Mt19937_64(seed), n = W * H;
     this.offset = new Float32Array(n); this.gain = new Float32Array(n); this.readNoise = new Float32Array(n);
     for (let i = 0; i < n; i++) this.offset[i] = cam.offsetAdu + cam.offsetStdAdu * gaussianRng(rng, 0.0, 1.0);
-    for (let i = 0; i < n; i++) { const v = cam.gainPhotonsPerAdu * (1.0 + cam.gainStdFraction * gaussianRng(rng, 0.0, 1.0)); this.gain[i] = v < 0.01 ? 0.01 : v; }
+    const gainFloor = 0.04 * cam.gainPhotonsPerAdu;   // relative (PixelGainMap::Generate): 0.01 at the default 0.25
+    for (let i = 0; i < n; i++) { const v = cam.gainPhotonsPerAdu * (1.0 + cam.gainStdFraction * gaussianRng(rng, 0.0, 1.0)); this.gain[i] = v < gainFloor ? gainFloor : v; }
     for (let i = 0; i < n; i++) { const v = cam.readNoiseElectrons * (1.0 + cam.readNoiseStdFraction * gaussianRng(rng, 0.0, 1.0)); this.readNoise[i] = v < 0.0 ? 0.0 : v; }
     this.noiseSeed = Number(BigInt.asUintN(32, BigInt(seed) ^ 0x9E3779B9n));
   }

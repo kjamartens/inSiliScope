@@ -153,7 +153,7 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
    const double x1 = spec.x0Um + spec.nx * spec.pitchUm, y1 = spec.y0Um + spec.ny * spec.pitchUm;
    std::vector<float> hist(static_cast<size_t>(nH));
    const long n = src.Density3d(spec.x0Um, spec.y0Um, x1, y1, kLo * dz, kHi * dz, 1, 1, static_cast<int>(nH),
-                                ISC_POP_BLEACHING | ISC_POP_PERSISTENT, hist.data());
+                                CellFieldSource::AllStructures(), hist.data());
    if (n < 0)
    {
       err = "WideField: dye density query failed";
@@ -178,12 +178,13 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
       return false;
    }
    const double zA = out.k0 * dz, zB = (out.k0 + static_cast<long>(out.nz)) * dz;
-   for (int pop : {ISC_POP_BLEACHING, ISC_POP_PERSISTENT})
+   for (int pop = 0; pop < 2; ++pop)
    {
-      std::vector<float>& g = pop == ISC_POP_BLEACHING ? out.bleaching : out.persistent;
+      std::vector<float>& g = pop == 0 ? out.bleaching : out.persistent;
       g.assign(static_cast<size_t>(cells), 0.0f);
       const long c = src.Density3d(spec.x0Um, spec.y0Um, x1, y1, zA, zB, static_cast<int>(spec.nx),
-                                   static_cast<int>(spec.ny), static_cast<int>(out.nz), pop, g.data());
+                                   static_cast<int>(spec.ny), static_cast<int>(out.nz),
+                                   pop == 0 ? src.BleachingMask() : src.PersistentMask(), g.data());
       if (c < 0)
       {
          err = "WideField: dye density query failed";
@@ -191,7 +192,7 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
       }
       if (c == 0)
          std::vector<float>().swap(g);
-      (pop == ISC_POP_BLEACHING ? out.nBleaching : out.nPersistent) = c;
+      (pop == 0 ? out.nBleaching : out.nPersistent) = c;
    }
    return true;
 }
@@ -407,7 +408,8 @@ void WidefieldDyeTiles::Clear()
    bytes_ = 0;
 }
 
-bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, std::string& err) const
+bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
+                             std::string& err) const
 {
    const double p = pitch_, dz = zPlane_;
    const double x0 = static_cast<double>(tx * kTile) * p, x1 = static_cast<double>((tx + 1) * kTile) * p;
@@ -421,7 +423,7 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, st
    }
    std::vector<float> hist(static_cast<size_t>(nH));
    const long n = src.Density3d(x0, y0, x1, y1, kLo * dz, kHi * dz, 1, 1, static_cast<int>(nH),
-                                ISC_POP_BLEACHING | ISC_POP_PERSISTENT, hist.data());
+                                bleachingMask | persistentMask, hist.data());
    if (n < 0)
    {
       err = "WideField: dye density query failed";
@@ -446,7 +448,7 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, st
    {
       std::fill(g.begin(), g.end(), 0.0f);
       const long c = src.Density3d(x0, y0, x1, y1, k0 * dz, (k0 + static_cast<long>(nz)) * dz, kTile, kTile,
-                                   static_cast<int>(nz), pop == 0 ? ISC_POP_BLEACHING : ISC_POP_PERSISTENT, g.data());
+                                   static_cast<int>(nz), pop == 0 ? bleachingMask : persistentMask, g.data());
       if (c < 0)
       {
          err = "WideField: dye density query failed";
@@ -472,8 +474,8 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, Tile& t, st
    return true;
 }
 
-bool WidefieldDyeTiles::Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, WidefieldDyePlanes& out,
-                               std::string& err)
+bool WidefieldDyeTiles::Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask,
+                               int persistentMask, WidefieldDyePlanes& out, std::string& err)
 {
    const long tx0 = FloorDiv(rect.ix0, kTile), tx1 = FloorDiv(rect.ix0 + static_cast<long>(rect.nx) - 1, kTile);
    const long ty0 = FloorDiv(rect.iy0, kTile), ty1 = FloorDiv(rect.iy0 + static_cast<long>(rect.ny) - 1, kTile);
@@ -482,8 +484,10 @@ bool WidefieldDyeTiles::Planes(CellFieldSource& src, const WidefieldGridSpec& re
    {
       std::lock_guard<std::mutex> g(mutex_);
       if (pitch_ != rect.pitchUm || zPlane_ != rect.zPlaneUm || zMin_ != rect.zMinUm || zMax_ != rect.zMaxUm ||
-          world_ != world)
+          world_ != world || bleachingMask_ != bleachingMask || persistentMask_ != persistentMask)
       {
+         bleachingMask_ = bleachingMask;
+         persistentMask_ = persistentMask;
          tiles_.clear();
          bytes_ = 0;
          pitch_ = rect.pitchUm;
@@ -512,11 +516,12 @@ bool WidefieldDyeTiles::Planes(CellFieldSource& src, const WidefieldGridSpec& re
             // Filled outside the lock; a concurrent fill of the same tile
             // gives the same content, the first insert wins.
             auto fresh = std::make_shared<Tile>();
-            if (!Fill(src, tx, ty, *fresh, err))
+            if (!Fill(src, tx, ty, bleachingMask, persistentMask, *fresh, err))
                return false;
             fresh->used = stamp;
             std::lock_guard<std::mutex> g(mutex_);
-            if (pitch_ != rect.pitchUm || world_ != world)
+            if (pitch_ != rect.pitchUm || world_ != world || bleachingMask_ != bleachingMask ||
+                persistentMask_ != persistentMask)
             {
                err = "WideField: dye tile cache reconfigured concurrently";
                return false;
@@ -681,7 +686,8 @@ bool WidefieldScene::Update(CellFieldSource& src, const IlluminationPattern& pat
       return false;
    }
    const WidefieldGridSpec g = GridSpecFor(pattern, spec);
-   const bool rectChanged = !haveSpec_ || !g.SameRect(rect_) || spec.worldVersion != spec_.worldVersion;
+   const bool rectChanged = !haveSpec_ || !g.SameRect(rect_) || spec.worldVersion != spec_.worldVersion ||
+                            spec.bleachingMask != spec_.bleachingMask || spec.persistentMask != spec_.persistentMask;
    if (rectChanged)
    {
       haveSpec_ = false; // a failure below leaves no half-built state
@@ -689,7 +695,9 @@ bool WidefieldScene::Update(CellFieldSource& src, const IlluminationPattern& pat
       column.zMinUm = kColumnMinUm;
       column.zMaxUm = kColumnMaxUm;
       const auto tTiles = TimingClock::now();
-      if (!tiles_->Planes(src, column, spec.worldVersion, dyes_, err))
+      const int bMask = spec.bleachingMask >= 0 ? spec.bleachingMask : src.BleachingMask();
+      const int pMask = spec.persistentMask >= 0 ? spec.persistentMask : src.PersistentMask();
+      if (!tiles_->Planes(src, column, spec.worldVersion, bMask, pMask, dyes_, err))
          return false;
       TimingLog("wf.scene.dye-tiles", TimingSince(tTiles));
    }
@@ -730,7 +738,7 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    const size_t n2 = static_cast<size_t>(g.nx) * g.ny;
    std::vector<float> ill(n2), dD(n2), wp(n2);
    pattern.Sample(g.x0Um - axisX_, g.y0Um - axisY_, g.pitchUm, g.nx, g.ny, ill.data());
-   const double dD1 = spec.phot.EmissionRatePerSec(1.0) * spec.exposureSec;
+   const double dD1 = spec.unitDose >= 0 ? spec.unitDose : spec.phot.EmissionRatePerSec(1.0) * spec.exposureSec;
    for (size_t i = 0; i < n2; ++i)
    {
       dD[i] = static_cast<float>(dD1 * ill[i]);

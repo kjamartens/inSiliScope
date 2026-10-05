@@ -27,17 +27,10 @@
 const char* g_CameraDeviceName = "Camera";
 
 const char* g_PropAcqMode = "General_AcqMode";
-const char* g_PropPattern = "SimType_Pattern";
-const char* g_PropCustomPointsFile = "SimType_CustomPointsFile";
-const char* g_PropResolutionSpacingsNm = "SimType_ResolutionSpacingsNm";
 const char* g_PropFovSize = "General_FovSize";
 const char* g_PropGenerateStack = "General_GenerateStack";
 const char* g_PropStackStatus = "General_StackGenerationStatus";
 const char* g_PropEndOfStack = "General_EndOfStackReached";
-const char* g_PropEmitterDensityPerSec = "General_EmitterDensityPerSec";
-const char* g_PropPhotonsPerSecond = "FluoParam_PhotonsPerSecond";
-const char* g_PropOnLifetimeSec = "FluoParam_OnLifetimeSec";
-const char* g_PropPsfWavelengthNm = "PSFParam_PsfEmissionWavelengthNm";
 const char* g_PropPsfNa = "PSFParam_PsfNa";
 const char* g_PropPixelSize = "General_PixelSizeNm";
 const char* g_PropBackgroundPerSec = "Background_BackgroundPhotonsPerSec";
@@ -65,35 +58,11 @@ const char* g_PropPsfSampleDepthNm = "PSFParam_PsfSampleDepthNm";
 const char* g_PropPsfZernikeCoefficients = "PSFParam_PsfZernikeCoefficients";
 const char* g_PropPsfZernikePreset = "PSFParam_PsfZernikePreset";
 
-const char* g_PropLabelingEfficiencyPct = "General_LabelingEfficiencyPct";
-const char* g_PropStructureZRangeNm = "SimType_StructureZRangeNm";
-const char* g_PropStructureSizeNm = "SimType_StructureSizeNm";
-const char* g_PropNupRadiusNm = "SimType_NupRadiusNm";
-const char* g_PropNupCornerSpreadNm = "SimType_NupCornerSpreadNm";
-const char* g_PropNupRingSeparationNm = "SimType_NupRingSeparationNm";
-const char* g_PropNupLinkerMinNm = "SimType_NupLinkerMinNm";
-const char* g_PropNupLinkerMaxNm = "SimType_NupLinkerMaxNm";
-const char* g_PropNupMembraneType = "SimType_NupMembraneType";
-const char* g_PropNupCount = "SimType_NupCount";
-const char* g_PropNupMinSpacingNm = "SimType_NupMinSpacingNm";
-const char* g_PropNupCurvatureNm = "SimType_NupCurvatureNm";
-
-const char* g_NupMembraneTopDown = "TopDown";
-const char* g_NupMembraneSideways = "Sideways";
-
-const char* g_PropBlinkBleachProb = "FluoParam_BlinkBleachProb";
-const char* g_PropOffLifetimeSec = "FluoParam_OffLifetimeSec";
-const char* g_PropPhotonCV = "FluoParam_PhotonCV";
-const char* g_PropIllumFwhmPct = "FluoParam_IllumFwhmPct";
+const char* g_PropIllumFwhmPct = "Optics_IlluminationFwhmPct";
 const char* g_PropEmGain = "CamParam_EmGain";
 const char* g_PropCicElectrons = "CamParam_CicElectrons";
-const char* g_PropBgCellContrast = "Background_CellContrast";
-const char* g_PropBgHazeWeight = "Background_HazeWeight";
-const char* g_PropBgHazeWidthNm = "Background_HazeWidthNm";
 const char* g_PropBgDecaySec = "Background_DecaySec";
-const char* g_PropOutOfFocusRatio = "Background_OutOfFocusRatio";
-const char* g_PropOutOfFocusDepthNm = "Background_OutOfFocusDepthNm";
-const char* g_PropIllumProfile = "FluoParam_IllumProfile";
+const char* g_PropIllumProfile = "Optics_IlluminationProfile";
 const char* g_IllumFlat = "Flat";
 const char* g_IllumGaussian = "Gaussian";
 const char* g_IllumFlatTop = "FlatTop";
@@ -131,34 +100,14 @@ const char* g_PsfModelGibsonLanniZernike = "GibsonLanniZernike";
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
 
-const char* g_PatternCircle = "Circle";
-const char* g_PatternLines = "Lines";
-const char* g_PatternGrid = "Grid";
-const char* g_PatternRandom = "Random";
-const char* g_PatternCustom = "CustomPoints";
-const char* g_PatternSpiral = "Spiral";
-const char* g_PatternStar = "Star";
-const char* g_PatternHeart = "Heart";
-const char* g_PatternResolutionTarget = "ResolutionTarget";
-const char* g_PatternTiltedPlane = "TiltedPlane";
-const char* g_PatternUniform3D = "Uniform3D";
-const char* g_PatternShell = "Shell";
-const char* g_PatternNup = "NUP";
-const char* g_PatternCalibration9Spots = "Calibration9Spots";
-const char* g_PatternFilamentsRing = "FilamentsRing";
-const char* g_PatternCellField = "CellField";
-
 const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldChunkSizeUm",
    "SimType_CellFieldOccupancy",
    "SimType_CellFieldCellDiameterMinUm",
    "SimType_CellFieldCellDiameterMaxUm",
    "SimType_CellFieldMicrotubuleDensityPerUm2",
-   "SimType_CellFieldLabelingPctBleaching",
    "SimType_CellFieldFocusHeightUm",
-   "SimType_CellFieldMilliActivationRatePerDyePerSec",
    "SimType_CellFieldZRangeUm",
-   "SimType_CellFieldLabelingPctNonBleaching",
    "SimType_CellFieldNucBaseMinUm",
    "SimType_CellFieldNucBaseMaxUm",
    "SimType_CellFieldNucIrregMin",
@@ -175,7 +124,7 @@ const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldMicrotubuleDirKappa",
 };
 const char* g_CellFieldCoreParam[CF_COUNT] = {
-   nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+   nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
    "nucBaseMin",
    "nucBaseMax",
    "nucIrregMin",
@@ -194,17 +143,11 @@ const char* g_CellFieldCoreParam[CF_COUNT] = {
 const char* g_PropCellFieldPacking = "SimType_CellFieldPacking";
 
 const char* g_PropImagingModality = "General_ImagingModality";
-const char* g_ModalitySuperRes = "SuperRes";
-const char* g_ModalityWideField = "WideField";
+const char* g_ModalityFluorescence = "Fluorescence";
 const char* g_PropWideFieldNumber[WF_COUNT] = {
    "General_WideFieldUpscaling",
    "General_WideFieldZPlaneNm",
-   "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec",
-   "FluoParam_WideFieldQuantumYield",
-   "FluoParam_WideFieldPhotonBudget",
-   "FluoParam_WideFieldExtinctionCoeff",
 };
-const char* g_PropWideFieldHalfTimeSec = "FluoParam_WideFieldHalfTimeSec";
 const char* g_ModalityBrightField = "BrightField";
 const char* g_PropBrightFieldNumber[BF_COUNT] = {
    "General_BrightFieldQuality",
@@ -236,23 +179,17 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    InitializeDefaultErrorMessages();
    thd_ = new SMLMSequenceThread(this);
 
-   // CellField defaults: the prototype's (spec/PORT.md 4.2); 70% of the lattice
-   // sites carry non-bleaching (persistent) dyes, none bleaching ones, each
-   // dark dye switching on at 1.43e-3/s (the property is in 1e-3/s): 1e-3
-   // activations per lattice site per second, as the former 10% bleaching dyes
-   // at 0.01/s at t = 0, but constant (persistent sites never run out);
-   // a 7 um z slab around the focal plane (0 = every dye, no z limit), and no
+   // CellField defaults: the prototype's (spec/PORT.md 4.2; the labels and
+   // their dyes are the scope options of ScopeProperties.cpp); a 7 um z slab around the focal plane (0 = every dye, no z limit), and no
    // focus offset: ZStage = 0 puts the coverslip in focus (the ZStage starts
    // at 0.5 um). Then the nucleus shape and microtubule start/end: the core's defaults (core/src/params.h).
-   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 0.0, 1.43, 7.0, 70.0,
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 7.0,
       0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField_[i] = cellFieldDefaults[i];
-   // WideField: grid 1 cell/pixel, 25 nm dye planes; 4e8 photons/um^2/s
-   // (~0.0125 W/cm^2 at 640 nm; dim enough that shot noise shows), QY 0.7,
-   // 5000 emitted photons per dye, eps 270000 M^-1 cm^-1: t1/2 = 120 s
-   // (WidefieldRender.h).
-   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 4e8, 0.7, 5000.0, 270000.0 };
+   // Mean-field grid (the WideField-mode populations): 1 cell/pixel, 25 nm
+   // dye planes (the cli/viewer's wf-upscale / wf-plane-nm).
+   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0 };
    for (int i = 0; i < WF_COUNT; ++i)
       wideFieldNum_[i] = wideFieldDefaults[i];
    // BrightField: quality 3 (its sources/upscaling/samples/slice: 0 / -1 =
@@ -341,8 +278,7 @@ int CInSiliScopeCamera::Initialize()
    // timing control this device exposes -- no separate device-specific
    // exposure property. It drives frame pacing (Live), simulated exposure
    // timing (Snap in Precomputed mode), and -- via SnapshotParams() --
-   // converts every rate-based simulation parameter (EmitterDensityPerSec,
-   // OnLifetimeSec, PhotonsPerSecond, BackgroundPhotonsPerSec) into the
+   // converts every rate-based simulation parameter (BackgroundPhotonsPerSec, the dark current) into the
    // frame-equivalent quantity for whatever this is currently set to.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnExposureProperty);
    nRet = CreateFloatProperty(MM::g_Keyword_Exposure, 50.0, false, pAct);
@@ -357,42 +293,6 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(g_PropAcqMode, g_AcqModePrecomputed);
    AddAllowedValue(g_PropAcqMode, g_AcqModeLive);
 
-   // Pattern
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPattern);
-   CreateStringProperty(g_PropPattern, g_PatternCellField, false, pAct);
-   AddAllowedValue(g_PropPattern, g_PatternCircle);
-   AddAllowedValue(g_PropPattern, g_PatternLines);
-   AddAllowedValue(g_PropPattern, g_PatternGrid);
-   AddAllowedValue(g_PropPattern, g_PatternRandom);
-   AddAllowedValue(g_PropPattern, g_PatternCustom);
-   AddAllowedValue(g_PropPattern, g_PatternSpiral);
-   AddAllowedValue(g_PropPattern, g_PatternStar);
-   AddAllowedValue(g_PropPattern, g_PatternHeart);
-   AddAllowedValue(g_PropPattern, g_PatternResolutionTarget);
-   // 3D/NPC site-list structures -- see Simulation/SMLMStructures.h.
-   AddAllowedValue(g_PropPattern, g_PatternTiltedPlane);
-   AddAllowedValue(g_PropPattern, g_PatternUniform3D);
-   AddAllowedValue(g_PropPattern, g_PatternShell);
-   AddAllowedValue(g_PropPattern, g_PatternNup);
-   // Always-on calibration bead grid -- see Simulation/SMLMPatterns.h.
-   AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
-   // webSMLM's default structure: 3 filaments with y-correlated z + a ring.
-   AddAllowedValue(g_PropPattern, g_PatternFilamentsRing);
-   // The insiliscope cell field, imaged through InSiliScopeXYStage/ZStage -- see
-   // Simulation/CellFieldSource.h and the SimType_CellField* properties.
-   AddAllowedValue(g_PropPattern, g_PatternCellField);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCustomPointsFile);
-   CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
-
-   // Ring/scale-step/spiral-arc gap (Circle/Spiral/Star/Heart) and per-cell
-   // line spacing (ResolutionTarget), easiest to hardest, nm, comma-
-   // separated. Any positive count of values is accepted; the smallest
-   // value drives the finest ring/cell, the largest the coarsest.
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnResolutionSpacingsNm);
-   CreateStringProperty(g_PropResolutionSpacingsNm,
-                         sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str(), false, pAct);
-
    // Precomputed-stack properties. Stack length and looping are no longer
    // user-facing (see stackLength_/stackLoop_ in InSiliScopeCamera.h) -- what
    // remains is the trigger plus the two read-only status readbacks.
@@ -406,25 +306,9 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEndOfStackReached);
    CreateStringProperty(g_PropEndOfStack, "No", true, pAct);
 
-   // Simulation parameters. EmitterDensityPerSec/PhotonsPerSecond/
-   // OnLifetimeSec/BackgroundPhotonsPerSec are rates (per second) that scale
-   // automatically with the standard Exposure property -- see
-   // SnapshotParams() in SMLMImageGeneration.cpp.
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEmitterDensityPerSec);
-   CreateFloatProperty(g_PropEmitterDensityPerSec, emitterDensityPerSec_.load(), false, pAct);
-   SetPropertyLimits(g_PropEmitterDensityPerSec, 0.1, 500.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPhotonsPerSecond);
-   CreateFloatProperty(g_PropPhotonsPerSecond, photonsPerSecond_.load(), false, pAct);
-   SetPropertyLimits(g_PropPhotonsPerSecond, 1000.0, 2000000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOnLifetimeSec);
-   CreateFloatProperty(g_PropOnLifetimeSec, onLifetimeSec_.load(), false, pAct);
-   SetPropertyLimits(g_PropOnLifetimeSec, 0.001, 10.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfWavelengthNm);
-   CreateFloatProperty(g_PropPsfWavelengthNm, psfWavelengthNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropPsfWavelengthNm, 400.0, 800.0);
+   // Simulation parameters. BackgroundPhotonsPerSec and the dark current are
+   // rates (per second) that scale automatically with the standard Exposure
+   // property -- see SnapshotParams() in SMLMImageGeneration.cpp.
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPsfNa);
    CreateFloatProperty(g_PropPsfNa, psfNa_.load(), false, pAct);
@@ -448,7 +332,7 @@ int CInSiliScopeCamera::Initialize()
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCameraGain);
    CreateFloatProperty(g_PropGain, gainPhotonsPerAdu_.load(), false, pAct);
-   SetPropertyLimits(g_PropGain, 0.01, 100.0);
+   SetPropertyLimits(g_PropGain, 0.0001, 100.0);   // per photoelectron: an EMCCD preset uses 0.0066
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCameraOffset);
    CreateFloatProperty(g_PropOffset, offsetAdu_.load(), false, pAct);
@@ -471,17 +355,7 @@ int CInSiliScopeCamera::Initialize()
    SetPropertyLimits(g_PropPixelReadNoiseStdPct, 0.0, 100.0);
 
    // ---- webSMLM parity round 2 (see the members' comments in
-   // InSiliScopeCamera.h). Multi-blink photophysics + illumination profile:
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBlinkBleachProb);
-   CreateFloatProperty(g_PropBlinkBleachProb, blinkBleachProb_.load(), false, pAct);
-   SetPropertyLimits(g_PropBlinkBleachProb, 0.01, 1.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOffLifetimeSec);
-   CreateFloatProperty(g_PropOffLifetimeSec, offLifetimeSec_.load(), false, pAct);
-   SetPropertyLimits(g_PropOffLifetimeSec, 0.001, 1000.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPhotonCV);
-   CreateFloatProperty(g_PropPhotonCV, photonCV_.load(), false, pAct);
-   SetPropertyLimits(g_PropPhotonCV, 0.0, 2.0);
-
+   // InSiliScopeCamera.h). Illumination profile:
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnIllumProfile);
    CreateStringProperty(g_PropIllumProfile, g_IllumFlat, false, pAct);
    AddAllowedValue(g_PropIllumProfile, g_IllumFlat);
@@ -499,8 +373,7 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(g_PropCameraType, g_CameraTypeEmccd);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEmGain);
-   CreateFloatProperty(g_PropEmGain, emGain_.load(), false, pAct);
-   SetPropertyLimits(g_PropEmGain, 1.0, 2000.0);
+   CreateFloatProperty(g_PropEmGain, EmGain(), true, pAct);   // read-only: derived from the gain
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCicElectrons);
    CreateFloatProperty(g_PropCicElectrons, cicElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropCicElectrons, 0.0, 1.0);
@@ -509,25 +382,10 @@ int CInSiliScopeCamera::Initialize()
    CreateIntegerProperty(g_PropBitDepth, bitDepth_, false, pAct);
    SetPropertyLimits(g_PropBitDepth, 8, 16);
 
-   // Structured background + out-of-focus emitters:
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgCellContrast);
-   CreateFloatProperty(g_PropBgCellContrast, bgCellContrast_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgCellContrast, 1.0, 20.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgHazeWeight);
-   CreateFloatProperty(g_PropBgHazeWeight, bgHazeWeight_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgHazeWeight, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgHazeWidthNm);
-   CreateFloatProperty(g_PropBgHazeWidthNm, bgHazeWidthNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgHazeWidthNm, 100.0, 5000.0);
+   // Background fade:
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgDecaySec);
    CreateFloatProperty(g_PropBgDecaySec, bgDecaySec_.load(), false, pAct);
    SetPropertyLimits(g_PropBgDecaySec, 0.0, 100000.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOutOfFocusRatio);
-   CreateFloatProperty(g_PropOutOfFocusRatio, outOfFocusRatio_.load(), false, pAct);
-   SetPropertyLimits(g_PropOutOfFocusRatio, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOutOfFocusDepthNm);
-   CreateFloatProperty(g_PropOutOfFocusDepthNm, outOfFocusDepthNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropOutOfFocusDepthNm, 300.0, 5000.0);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftNmPerSec);
    CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
@@ -619,67 +477,13 @@ int CInSiliScopeCamera::Initialize()
    for (const std::string& name : sim::ZernikePresetNames())
       AddAllowedValue(g_PropPsfZernikePreset, name.c_str());
 
-   // 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h.
-   // LabelingEfficiencyPct/StructureSizeNm/NupX only matter for the four
-   // site-list Pattern values above (TiltedPlane/Uniform3D/Shell/NUP);
-   // StructureZRangeNm ALSO applies to the 9 continuous patterns (via the
-   // ZSpreadPattern decorator -- see CreatePattern in SMLMPatterns.cpp).
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLabelingEfficiencyPct);
-   CreateFloatProperty(g_PropLabelingEfficiencyPct, labelingEfficiencyPct_.load(), false, pAct);
-   SetPropertyLimits(g_PropLabelingEfficiencyPct, 0.0, 100.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStructureZRangeNm);
-   CreateFloatProperty(g_PropStructureZRangeNm, structureZRangeNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropStructureZRangeNm, 0.0, 5000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStructureSizeNm);
-   CreateFloatProperty(g_PropStructureSizeNm, structureSizeNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropStructureSizeNm, 10.0, 5000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupRadiusNm);
-   CreateFloatProperty(g_PropNupRadiusNm, nupRadiusNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupRadiusNm, 20.0, 150.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCornerSpreadNm);
-   CreateFloatProperty(g_PropNupCornerSpreadNm, nupCornerSpreadNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupCornerSpreadNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupRingSeparationNm);
-   CreateFloatProperty(g_PropNupRingSeparationNm, nupRingSeparationNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupRingSeparationNm, 0.0, 150.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupLinkerMinNm);
-   CreateFloatProperty(g_PropNupLinkerMinNm, nupLinkerMinNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupLinkerMinNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupLinkerMaxNm);
-   CreateFloatProperty(g_PropNupLinkerMaxNm, nupLinkerMaxNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupLinkerMaxNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupMembraneType);
-   CreateStringProperty(g_PropNupMembraneType, g_NupMembraneTopDown, false, pAct);
-   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneTopDown);
-   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneSideways);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCount);
-   CreateIntegerProperty(g_PropNupCount, nupCount_, false, pAct);
-   SetPropertyLimits(g_PropNupCount, 1, 500);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupMinSpacingNm);
-   CreateFloatProperty(g_PropNupMinSpacingNm, nupMinSpacingNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupMinSpacingNm, 0.0, 2000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCurvatureNm);
-   CreateFloatProperty(g_PropNupCurvatureNm, nupCurvatureNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
-
    // CellField pattern (spec/PORT.md 9). The rest of the world's parameters
    // stay at the prototype defaults until someone needs them. A min above its
    // max acts as the min (the core's NormalizeParams).
    {
-      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, 0.0, -10.0, 0.0, 0.0, 0.0,
+      const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, -10.0, 0.0,
          0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0 };
-      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 100.0, 10.0, 1000.0, 50.0, 100.0,
+      const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 10.0, 50.0,
          2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0 };
       for (long i = 0; i < CF_COUNT; ++i)
       {
@@ -693,12 +497,16 @@ int CInSiliScopeCamera::Initialize()
       AddAllowedValue(g_PropCellFieldPacking, "Off");
    }
 
-   // Imaging modality: WideField renders every labelled dye of the CellField
-   // pattern at once (Simulation/WidefieldRender.h); other patterns stay SR.
-   CreateStringProperty(g_PropImagingModality, g_ModalitySuperRes, false,
+   // Issue 16: the labels, dyes, light path and camera curve (the engine's
+   // scope options, ScopeProperties.cpp).
+   CreateScopeProperties();
+
+   // Imaging modality: Fluorescence renders every structure's label in its
+   // mode (dSTORM, PALM, DNA-PAINT blinks or WideField mean field) through
+   // the light path; BrightField transmitted light.
+   CreateStringProperty(g_PropImagingModality, g_ModalityFluorescence, false,
                         new CPropertyAction(this, &CInSiliScopeCamera::OnImagingModality));
-   AddAllowedValue(g_PropImagingModality, g_ModalitySuperRes);
-   AddAllowedValue(g_PropImagingModality, g_ModalityWideField);
+   AddAllowedValue(g_PropImagingModality, g_ModalityFluorescence);
    AddAllowedValue(g_PropImagingModality, g_ModalityBrightField);
    {
       const double lo[BF_COUNT] = { 1, 0, 0, 0, -1, 0, 300, 0, 0, 1.0, 1.0, 1.0, 1.0, 0 };
@@ -716,8 +524,8 @@ int CInSiliScopeCamera::Initialize()
       }
    }
    {
-      const double lo[WF_COUNT] = { 1.0, 5.0, 0.0, 0.0, 0.0, 1e3 };
-      const double hi[WF_COUNT] = { 4.0, 500.0, 1e13, 1.0, 1e9, 1e6 };
+      const double lo[WF_COUNT] = { 1.0, 5.0 };
+      const double hi[WF_COUNT] = { 4.0, 500.0 };
       for (long i = 0; i < WF_COUNT; ++i)
       {
          auto* act = new CPropertyActionEx(this, &CInSiliScopeCamera::OnWideFieldNumber, i);
@@ -727,9 +535,6 @@ int CInSiliScopeCamera::Initialize()
             CreateFloatProperty(g_PropWideFieldNumber[i], wideFieldNum_[i].load(), false, act);
          SetPropertyLimits(g_PropWideFieldNumber[i], lo[i], hi[i]);
       }
-      // Derived, read-only: B ln2 / k_em at pattern value 1; -1 = never bleaches.
-      CreateFloatProperty(g_PropWideFieldHalfTimeSec, 0.0, true,
-                          new CPropertyAction(this, &CInSiliScopeCamera::OnWideFieldHalfTimeSec));
    }
 
    // Sub-pixel PSF placement (diffraction PSF models only) -- see
@@ -818,6 +623,15 @@ int CInSiliScopeCamera::Initialize()
    // waiting for it; a live loop asking for the same kernel meanwhile waits
    // for this thread rather than computing it again.
    sim::SetPsfKernelDiskCacheDir(diskCacheMode_.load() >= 2 ? sim::DefaultCacheDir() : std::string());
+   // The JVM models (RichardsWolf, GibsonLanni) for the engine's dye states:
+   // this camera's request at the state's emission wavelength.
+   sim::SetScopePsfRequestHook([this](const sim::ScopeSpec&, double wavelengthNm, sim::PsfGeneratorRequest& req) {
+      req = BuildPsfGeneratorRequest();
+      req.wavelengthNm = wavelengthNm;
+      req.kernelHalfWidthPx =
+         sim::PsfKernelHalfWidthPx(psfKernelHalfWidthNm_.load(), req.pixelSizeNm, req.wavelengthNm, req.na);
+      return true;
+   });
    StartPsfPreload();
    if (acqMode_ == SMLM_MODE_LIVE)
       StartLiveProducer();
@@ -833,6 +647,7 @@ int CInSiliScopeCamera::Shutdown()
       psfPreloadThread_.join();
    if (stackGenThread_.joinable())
       stackGenThread_.join();
+   sim::SetScopePsfRequestHook(nullptr);
    initialized_ = false;
    return DEVICE_OK;
 }
@@ -969,6 +784,9 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    // the camera steps it one position per frame.
    const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
    liveSeqEpoch_ = sim::GetSharedStageState().BeginSequenceAcquisition();
+   // Live: the first frame is one started from here (the pose, focus and
+   // settings of this moment).
+   liveSeqStartTicks_ = sim::SharedStageState::Clock::now().time_since_epoch().count();
    liveSeqSkipStale_ = zseq.armed;
    liveSeqCapture_ = true;
    if (acqMode_ == SMLM_MODE_LIVE)

@@ -25,13 +25,21 @@ Notes:
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
   looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
-- Presets set several advanced options at once: **Fluorophore** (labelling and blinking: dSTORM-, PALM-, DNA-PAINT-like
-  starting points), **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
+- **Microtubule label**: the labelled share of the sites, then the mode, then the dye (the Dye select lists the dyes
+  with data for that mode), then the dipole orientation. A mode or dye pick loads the dye's fields, the mode's labelling
+  and its light preset (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
+  under Geometry, the DNA-PAINT chamber height in Advanced). The preset is also the modality: "BrightField (lasers
+  off)" images transmitted light, every other preset fluorescence. The label stays
+  available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
+  own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
+  Dipole orientations other than Free are not implemented yet. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
   "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current
   PSF settings is computed in the background as soon as the page is ready and whenever those settings change, so a
-  movie usually finds it ready.
+  movie usually finds it ready. In Advanced, **Preview PSF** shows that kernel in the movie player: the oversampled
+  kernel beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from
+  the focal plane.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
