@@ -416,7 +416,7 @@ function stepCard(cy, st, si) {
     col.addEventListener('change', () => changed(false));
     const cc = td(); cc.append(col); tr.append(cc);
     const RL = R.layers.get(id);
-    if (RL && RL.prim === 'slice' && RL.rep !== 'srFrames') {   // image slices: black see-through (added as light) or opaque; SMLM frames are always opaque
+    if (RL && RL.prim === 'slice' && !RL.rep.startsWith('srFrames')) {   // image slices: black see-through (added as light) or opaque; SMLM frames are always opaque
       const bl = h('input', { type: 'checkbox', title: 'Black see-through: the image adds as light, so its black shows what lies behind. Off: the slice is opaque.' });
       bl.checked = base.blend === 'add';
       bl.addEventListener('change', () => { L.style = Object.assign({}, L.style || {}, { blend: bl.checked ? 'add' : 'alpha' }); changed(false); });

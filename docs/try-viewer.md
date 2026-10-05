@@ -79,7 +79,8 @@ Notes:
 - **Data layers** (Animation tab): **Random cell** jumps to a random cell of the field and centres it, **Previous cell**
   goes back (repeatably); simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
   the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
-  nearest focus position (blinking), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
+  nearest focus position (blinking; **SMLM frames + localized emitters** adds a faint cross at the true position of
+  every emitter localized in the frame shown), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
   cell and settings; **Acquire** makes them now) with the movie settings
   (Microscope, Acquisition): one movie per focus position over the cell's box, WideField and BrightField planes the
   mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is

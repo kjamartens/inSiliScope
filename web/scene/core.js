@@ -70,10 +70,12 @@ const REPS = {
   wfSlice:  { label: 'WideField slice', prim: 'slice', group: 'data', needs: 'stack:wf', followsPlane: true },
   wfIso:    { label: 'WideField thresholded', prim: 'iso', group: 'data', needs: 'stack:wf' },
   srFrames: { label: 'SMLM camera frames', prim: 'slice', group: 'data', needs: 'stack:sr', followsPlane: true },
+  // the frames plus a faint cross at the true position of every emitter localized in the frame shown
+  srFramesLoc: { label: 'SMLM camera frames + localized emitters', prim: 'slice', group: 'data', needs: 'stack:sr', followsPlane: true },
   locs:     { label: 'SMLM localizations', prim: 'points', group: 'data', needs: 'events' },
   bfSlice:  { label: 'BrightField slice', prim: 'slice', group: 'data', needs: 'stack:bf', followsPlane: true },
 };
-const DYE_REPS = ['dyes', 'wfSlice', 'wfIso', 'srFrames', 'locs'];
+const DYE_REPS = ['dyes', 'wfSlice', 'wfIso', 'srFrames', 'srFramesLoc', 'locs'];
 const STRUCTURES = [
   { id: 'mt', label: 'Microtubules', reps: ['lines'], dyes: 'mt' },
   { id: 'nucleus', label: 'Nucleus', reps: ['surface'] },
@@ -81,7 +83,7 @@ const STRUCTURES = [
   { id: 'cell', label: 'Whole cell', reps: ['bfSlice'] },   // BrightField images every structure at once
 ];
 // Representations the renderer draws today; the other layers are listed but marked not available yet.
-const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'bfSlice', 'wfIso', 'locs']);
+const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs']);
 // GL kinds: the index of a layer in the renderer's clip tables (mesh kinds 0-3 share one draw per cell).
 const KIND = { 'cyto.surface': 0, 'nucleus.surface': 1, 'cyto.outline': 2, 'cyto.contours': 3, 'mt.lines': 4, 'mt.dyes': 5,
   'mt.wfIso': 6, 'mt.locs': 7 };
@@ -119,6 +121,7 @@ const THEMES = {
     'mt.dyes': { color: [255, 77, 77], opacity: 1, size: 1.2 },
     'mt.wfSlice': { color: [255, 255, 255], opacity: 0.9, blend: 'alpha', gamma: 1 },
     'mt.srFrames': { color: [255, 255, 255], opacity: 0.9, blend: 'alpha', gamma: 1 },
+    'mt.srFramesLoc': { color: [255, 255, 255], opacity: 0.9, blend: 'alpha', gamma: 1, crossColor: [80, 220, 255], crossOpacity: 0.5 },
     'cell.bfSlice': { color: [255, 255, 255], opacity: 0.85, blend: 'alpha', gamma: 1 },
     'mt.wfIso': { color: [120, 200, 255], opacity: 0.55, level: 1 },
     'mt.locs': { color: [255, 170, 60], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
@@ -132,6 +135,7 @@ const THEMES = {
     'mt.dyes': { color: [255, 90, 210], opacity: 1, size: 1.4 },
     'mt.wfSlice': { color: [255, 225, 110], opacity: 1, blend: 'add', gamma: 0.6 },
     'mt.srFrames': { color: [255, 220, 120], opacity: 1, blend: 'alpha', gamma: 1 },   // always opaque (the renderer)
+    'mt.srFramesLoc': { color: [255, 220, 120], opacity: 1, blend: 'alpha', gamma: 1, crossColor: [80, 220, 255], crossOpacity: 0.5 },
     'cell.bfSlice': { color: [235, 235, 235], opacity: 0.85, blend: 'alpha', gamma: 1 },
     'mt.wfIso': { color: [255, 90, 200], opacity: 0.5, level: 1 },
     'mt.locs': { color: [255, 200, 80], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
@@ -146,7 +150,7 @@ function hexToRgb(c) {
 // theme default < layer style < interval style; 'color' may be '#rrggbb', [r, g, b] or null
 function resolveStyle(theme, id, ...over) {
   const out = Object.assign({}, themeOf(theme).layers[id] || { color: null, opacity: 1 });
-  for (const o of over) if (o) for (const k in o) if (o[k] !== undefined) out[k] = k === 'color' ? hexToRgb(o[k]) : o[k];
+  for (const o of over) if (o) for (const k in o) if (o[k] !== undefined) out[k] = k === 'color' || k === 'crossColor' ? hexToRgb(o[k]) : o[k];
   return out;
 }
 

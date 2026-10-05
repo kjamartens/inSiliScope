@@ -236,6 +236,7 @@ const UI_GROUPS = [
     check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
     check('wfSumZ', 'Sum over z', 'Show the WideField z-stack summed over all its planes (divided by their number, so the display range still fits) instead of the plane at the slice height; still drawn at the slice height.', false),
     check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
+    check('showSrFramesLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons). Horizontal slices only.', false),
     check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false),
     range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2) }),
     check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false),
@@ -777,7 +778,7 @@ const els = {};
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
- 'showWfSlice', 'wfSumZ', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
+ 'showWfSlice', 'wfSumZ', 'showSrFrames', 'showSrFramesLoc', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
   .forEach(id => { els[id] = document.getElementById(id); });
 
@@ -874,6 +875,7 @@ function stateFromUI() {
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   if (els.showWfSlice.checked) layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, els.wfSumZ.checked ? { sumZ: true } : {}) };
   if (els.showSrFrames.checked) layers['mt.srFrames'] = {};
+  if (els.showSrFramesLoc.checked) layers['mt.srFramesLoc'] = {};
   if (els.showBfSlice.checked) layers['cell.bfSlice'] = Object.assign({}, sliceStyle);
   if (els.showWfIso.checked) layers['mt.wfIso'] = { style: { level: +els.isoLevel.value } };
   if (els.showLocs.checked) layers['mt.locs'] = { style: { spread: els.locSpread.checked } };
@@ -1316,7 +1318,8 @@ const GL_SLICE_FS = `#version 300 es
 precision highp float; precision highp usampler3D;
 in vec3 v_s; out vec4 o;
 uniform usampler3D u_tex; uniform sampler2D u_mask;
-uniform int u_nz, u_F, u_frame, u_sr, u_sum, u_useMask; uniform float u_lo, u_hi, u_gamma, u_add; uniform vec4 u_col;
+uniform int u_nz, u_F, u_frame, u_sr, u_sum, u_useMask, u_useCross; uniform float u_lo, u_hi, u_gamma, u_add, u_crossUp;
+uniform vec4 u_col, u_crossCol; uniform sampler2D u_cross;
 void main() {
   ivec3 sz = textureSize(u_tex, 0);
   int i = int(floor(v_s.x)), j = int(floor(v_s.y));
@@ -1336,8 +1339,10 @@ void main() {
   v = pow(clamp((v - u_lo) / (u_hi - u_lo), 0.0, 1.0), u_gamma);
   float m = u_useMask == 1 ? texelFetch(u_mask, ivec2(i, j), 0).r : 1.0;
   if (m <= 0.0) discard;
-  if (u_add > 0.5) { if (v * m < 0.004) discard; o = vec4(u_col.rgb * v * m * u_col.a, 0.0); }
-  else { float a = u_col.a * m; o = vec4(u_col.rgb * v * a, a); }
+  // the crosses of the localized emitters (an overlay u_crossUp x finer than the stack's pixels), over the image
+  float c = u_useCross == 1 ? texelFetch(u_cross, ivec2(floor(v_s.xy * u_crossUp)), 0).r * u_crossCol.a : 0.0;
+  if (u_add > 0.5) { vec3 l = u_col.rgb * v + u_crossCol.rgb * c; if (max(v, c) * m < 0.004) discard; o = vec4(l * m * u_col.a, 0.0); }
+  else { float a = u_col.a * m; o = vec4(mix(u_col.rgb * v, u_crossCol.rgb, c) * a, a); }
 }`;
 // The thresholded surface: positions relative to the stack's texture origin, normals; lit from the camera (two-sided)
 // with a rim, clipped as kind mt.wfIso. invariant: the depth pass and the colour pass must agree to the bit.
@@ -1443,7 +1448,7 @@ function initGl() {
   const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
   const b = link(GL_MT_VS, glFsKind(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW']);
   const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
-  const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr', 'u_sum',
+  const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr', 'u_sum', 'u_useCross', 'u_crossUp', 'u_crossCol', 'u_cross',
     'u_useMask', 'u_lo', 'u_hi', 'u_gamma', 'u_add', 'u_col']);
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
@@ -3474,8 +3479,8 @@ function saveMovieTiff(e) {
 // vertical plane -- sampled per fragment from a 3D texture (WideField / BrightField interpolated between planes, the
 // SMLM frames of the nearest plane, cycling). Pixel i of a SuperRes / WideField image is centred at
 // originX + i px (originX = x - W px / 2), of a BrightField image it starts there: texOrigin holds that half pixel.
-const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'cell.bfSlice': 'bf', 'mt.wfIso': 'wf', 'mt.locs': 'loc' };
-const SLICE_LAYERS = ['mt.wfSlice', 'mt.srFrames', 'cell.bfSlice'];
+const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'mt.srFramesLoc': 'sr', 'cell.bfSlice': 'bf', 'mt.wfIso': 'wf', 'mt.locs': 'loc' };
+const SLICE_LAYERS = ['mt.wfSlice', 'mt.srFrames', 'mt.srFramesLoc', 'cell.bfSlice'];
 const DATA_MODALITY = { sr: 0, wf: 1, bf: 2 };
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
@@ -3595,8 +3600,50 @@ function acquireStack(plan, onProgress, signal) {
 }
 // ---- drawing ----
 function freeStackGl(st) {
-  if (st.texGl && st.texGl === gl && !gl.isContextLost()) { gl.deleteTexture(st.tex); if (st.maskTex) gl.deleteTexture(st.maskTex); }
+  if (st.texGl && st.texGl === gl && !gl.isContextLost()) {
+    gl.deleteTexture(st.tex); if (st.maskTex) gl.deleteTexture(st.maskTex); if (st.cross && st.cross.tex) gl.deleteTexture(st.cross.tex);
+  }
   st.tex = st.maskTex = st.texGl = null;
+  if (st.cross) st.cross.tex = null;
+}
+// The localized emitters of an SMLM frame: the blinks of the core (the movie's own: same world, kinetics and time)
+// ON during frame f of plane k, within the capture range of its focus and bright enough to localize (as the
+// localizations layer: 100 photons), as crosses at their true positions on an overlay CROSS_UP x finer than the
+// stack's pixels. Each plane's blinks are fetched once (until they are in, the frame counts as missing data).
+const CROSS_UP = 3;
+function srCrossTex(st, k, f, dp, F) {
+  const C = st.cross || (st.cross = { gt: new Map(), tex: null, key: null });
+  let ev = C.gt.get(k);
+  if (ev === undefined) {
+    C.gt.set(k, ev = null);
+    const mv = id => +document.getElementById('mv_' + id).value, p = params(), t0 = st.seqT ? k * st.locFrames * st.exp : 0;
+    const rect = [st.texOx, st.texOy, st.texOx + st.size * st.px, st.texOy + st.size * st.px];
+    eventsJob({ rect, zMin: st.zs[k] - dp.captureUm, zMax: st.zs[k] + dp.captureUm, t0, t1: t0 + st.F * st.exp, kin: movieKin(),
+      seed: (+els.seed.value) | 0, p, blocks: blocksForRect(p, rect) })
+      .then(e => { C.gt.set(k, { e, t0, pps: mv('photons-per-sec') }); requestDraw(); }, () => C.gt.delete(k));
+  }
+  if (!ev) { F.dataMissing.push('emitters'); return null; }
+  const key = k + '|' + f + '|' + dp.captureUm;
+  if (C.tex && C.key === key) return C.tex;
+  const n = st.size * CROSS_UP, img = new Uint8Array(n * n), E = ev.e, fs = ev.t0 + f * st.exp, fe = fs + st.exp, ARM = 2 * CROSS_UP;
+  for (let i = 0; i < E.length; i += 7) {
+    const ov = Math.min(E[i + 4], fe) - Math.max(E[i + 3], fs);
+    if (ov <= 0 || Math.abs(E[i + 2] - st.zs[k]) > dp.captureUm || ev.pps * ov * E[i + 5] * 0.85 < 100) continue;
+    const X = Math.floor((E[i] - st.texOx) / st.px * CROSS_UP), Y = Math.floor((E[i + 1] - st.texOy) / st.px * CROSS_UP);
+    for (let d = -ARM; d <= ARM; d++) {
+      if (X + d >= 0 && X + d < n && Y >= 0 && Y < n) img[Y * n + X + d] = 255;
+      if (Y + d >= 0 && Y + d < n && X >= 0 && X < n) img[(Y + d) * n + X] = 255;
+    }
+  }
+  if (!C.tex) {
+    C.tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, C.tex);
+    for (const [q, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, q, v);
+  } else gl.bindTexture(gl.TEXTURE_2D, C.tex);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, n, n, 0, gl.RED, gl.UNSIGNED_BYTE, img);
+  C.key = key;
+  return C.tex;
 }
 function stackTex(st) {
   if (st.tex && st.texGl === gl) return st.tex;
@@ -3673,7 +3720,7 @@ function drawDataGl(F, target, phase) {
       const d = axis[0] * x + axis[1] * y + axis[2] * z; dMin = Math.min(dMin, d); dMax = Math.max(dMax, d);
     }
     const eps = 1e-4 * Math.max(1, dMax - dMin);
-    const poly = planeBoxPolygon(axis, Math.min(dMax - eps, Math.max(dMin + eps, slice.pos)), box);
+    const pos = Math.min(dMax - eps, Math.max(dMin + eps, slice.pos)), poly = planeBoxPolygon(axis, pos, box);
     if (!poly) continue;
     if (!sliceGl) {
       sliceGl = { vbo: gl.createBuffer(), vao: gl.createVertexArray() };
@@ -3698,6 +3745,14 @@ function drawDataGl(F, target, phase) {
     gl.uniform1f(u.u_lo, stack.lo); gl.uniform1f(u.u_hi, stack.hi); gl.uniform1f(u.u_gamma, style.gamma || 1);
     gl.uniform4f(u.u_col, col[0] / 255, col[1] / 255, col[2] / 255, alpha); gl.uniform1f(u.u_add, add ? 1 : 0);
     gl.uniform1i(u.u_useMask, dp.crop ? 1 : 0);
+    // crosses at the localized emitters of the frame shown (horizontal slices: one plane)
+    const frame = ((st.srFrame || 0) % stack.F + stack.F) % stack.F, nz = stack.zs.length;
+    const kPlane = Math.round(Math.min(nz - 1, Math.max(0, (pos - z0) / (nz > 1 ? stack.zs[1] - stack.zs[0] : 1))));
+    const crossTex = id === 'mt.srFramesLoc' && Math.abs(axis[2]) > 0.999 ? srCrossTex(stack, kPlane, frame, dp, F) : null;
+    const cc = style.crossColor || [80, 220, 255];
+    gl.uniform1i(u.u_useCross, crossTex ? 1 : 0); gl.uniform1f(u.u_crossUp, CROSS_UP);
+    gl.uniform4f(u.u_crossCol, cc[0] / 255, cc[1] / 255, cc[2] / 255, style.crossOpacity === undefined ? 0.5 : style.crossOpacity);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, crossTex); gl.uniform1i(u.u_cross, 2);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, stackTex(stack)); gl.uniform1i(u.u_tex, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dp.crop ? stackMaskTex(stack) : null); gl.uniform1i(u.u_mask, 1);
     gl.activeTexture(gl.TEXTURE0);
@@ -3832,6 +3887,12 @@ function drawIsoGl(F, stack, e, style, alpha) {
 }
 // ---- localizations ----
 const locStore = new Map();   // key -> {key, cell, ox, oy, locs: Float32Array stride 8, n, z0, z1, gl}
+// the movie settings' blink kinetics, as the core's events query takes them
+function movieKin() {
+  const mv = k => +document.getElementById('mv_' + k).value;
+  return { activationRatePerSec: mv('milli-activation-rate') / 1000, onSec: Math.max(1e-6, mv('on-sec')), offSec: Math.max(0, mv('off-sec')),
+    bleachProb: mv('bleach-prob'), photonCV: mv('photon-cv') };
+}
 function locPlan(key, dp) {
   const b = key && cellBounds(key);
   if (!b || !b.precise) return null;
@@ -3839,8 +3900,7 @@ function locPlan(key, dp) {
   const nz = Math.max(1, Math.ceil(b.z[1] / step) + 1), zs = [];
   for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
   const N = Math.max(1, Math.round(dp.locFrames)), seq = !!dp.sequential, mv = k => +document.getElementById('mv_' + k).value;
-  const kin = { activationRatePerSec: mv('milli-activation-rate') / 1000, onSec: Math.max(1e-6, mv('on-sec')), offSec: Math.max(0, mv('off-sec')),
-    bleachProb: mv('bleach-prob'), photonCV: mv('photon-cv') };
+  const kin = movieKin();
   const rect = [b.x[0] - 0.5, b.y[0] - 0.5, b.x[1] + 0.5, b.y[1] + 0.5];
   // the precision settings are those of an in-focus blink ON for a whole frame (pps x exposure x QE photons); the
   // model scales them with 1 / sqrt(photons) and the defocused PSF width
