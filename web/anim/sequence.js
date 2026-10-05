@@ -508,20 +508,21 @@ function example() {
   return s;
 }
 
-// SMLM frames in a slab rising through the cell (the cytoplasm ahead of it) while the view tilts to 70 deg, then a
-// plane back down leaving the localizations behind it (the user's own animation, 2026-10-05; iterate here).
+// The user's own animation (2026-10-05; iterate here): the simulated cell (microtubules, nucleus, cytoplasm) from
+// above, an SMLM slab rising through it with the microtubules ahead while the view tilts and zooms in, a plane back
+// down leaving the localizations, the localizations turned to the top view, then the nucleus and cytoplasm with them.
 function smlmUpLocsDown() {
-  return migrate({ format: FORMAT, version: 1, name: 'SMLM slab up, localizations down',
-    scene: { target: { mode: 'center', cell: null }, scope: 'ghosts', ghostOpacity: 0.25, theme: 'fluo', detailCells: 1, crop: true },
-    camera: { az: 0, tilt: 20, fit: 1.15, center: { dx: 0, dy: 0, dz: 0 }, orbitDegPerSec: 0 },
-    data: { srFps: 10, stepUm: 0.2, srStepUm: 0.4, srFrames: 10, wfAverage: 4, crop: false, sequential: false, locFrames: 5000 },
-    cycles: [{ name: 'Simulated -> SMLM -> localizations', structure: 'mt', orbit: { deg: 360 }, keepAfter: ['$.locs'], steps: [
-      { name: 'SMLM frames up, cytoplasm ahead', duration: 8, caption: 'SMLM acquisition, localized',
-        sweep: { axis: 'z', from: { rel: 0 }, to: { rel: 1 }, slab: 0.4, ease: 'linear' }, camera: { tilt: { to: 70, ease: 'inOut' } },
-        layers: [{ ref: '$.srFrames', zones: ['at'] }, { ref: 'cyto.surface', zones: ['ahead'] }] },
-      { name: 'Top to bottom, localizations behind', duration: 6,
-        sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: 0, ease: 'inOut' },
-        layers: [{ ref: '$.locs', zones: ['behind'] }, { ref: '$.srFrames', zones: ['at'] }] }] }] }).seq;
+  return migrate({ format: FORMAT, version: 1, name: "SMLM slab up, localizations down",
+    scene: {target: {mode: "center",  cell: null},  scope: "target",  ghostOpacity: 0.25,  theme: "fluo",  detailCells: 1,  crop: true},
+    camera: {az: 0,  tilt: 65,  fit: 1.15,  center: {dx: 0,  dy: 0,  dz: 0},  orbitDegPerSec: 0},
+    data: {srFps: 10,  stepUm: 0.2,  srStepUm: 0.4,  srFrames: 10,  wfAverage: 4,  crop: false,  sequential: false,  locFrames: 5000},
+    output: {format: "mp4",  width: 1920,  height: 1080,  fps: 30,  quality: "high",  loop: "loop",  overlays: {scaleBar: true,  captions: true,  readout: true,  legend: false},  gif: {width: 480,  fps: 20,  dither: "bayer4"}},
+    cycles: [{ name: "Simulated -> SMLM -> localizations", structure: "mt", enabled: true, orbit: {deg: 360}, keepAfter: ["$.locs"], dropKept: [], steps: [
+      {name: "Hold",  duration: 2,  layers: [{ref: "$.gt",  zones: ["all"],  style: {color: "#ff5151",  opacity: 0.5}},  {ref: "nucleus.surface",  zones: ["all"],  style: {color: "#000080"}},  {ref: "cyto.surface",  zones: ["all"]}],  camera: {tilt: {to: 0,  ease: "inOut"}},  caption: "Simulation"},
+      {name: "SMLM frames up, cytoplasm ahead",  duration: 8,  layers: [{zones: ["all"],  ref: "cyto.surface",  style: {color: "#264678"}},  {zones: ["at"],  ref: "$.srFrames",  style: {color: "#ffffff"}},  {zones: ["ahead"],  ref: "$.gt",  style: {opacity: 0.5,  color: "#ff5151"}}],  caption: "Simulated data",  sweep: {axis: "z",  from: {rel: 0,  um: 0},  to: {rel: 1,  um: 0},  slab: 0.4,  ease: "linear"},  camera: {tilt: {to: 70,  ease: "inOut"},  fit: {to: 0.35,  ease: "inOut"}},  fadeSec: 0},
+      {name: "Top to bottom, localizations behind",  duration: 6,  layers: [{zones: ["behind"],  ref: "$.locs",  style: {color: "#ffc850",  opacity: 0.2}},  {zones: ["at"],  ref: "$.srFrames",  style: {color: "#ffffff",  opacity: 1}}],  sweep: {axis: "z",  from: {rel: 1,  um: 0},  to: {rel: 0,  um: 0},  slab: 0,  ease: "inOut"},  camera: {fit: {to: 0.85,  ease: "inOut"}},  fadeSec: 0,  caption: "Localized SMLM data"},
+      {name: "Hold",  duration: 4,  layers: [{ref: "$.locs",  zones: ["all"],  style: {opacity: 0.2}}],  camera: {tilt: {to: 0,  ease: "inOut"},  az: {by: 120,  ease: "inOut"}},  caption: "SMLM localizations"},
+      {name: "Hold",  duration: 2,  layers: [{ref: "nucleus.surface",  zones: ["all"],  style: {opacity: 1,  color: "#000080"}},  {ref: "$.locs",  zones: ["all"],  style: {opacity: 0.05}},  {ref: "cyto.surface",  zones: ["all"]}],  camera: {tilt: {to: 90,  ease: "inOut"}},  fadeSec: 0}] }] }).seq;
 }
 
 globalThis.IscAnimSeq = { FORMAT, VERSION, EASE, ease, defaults, migrate, bind, axisVec, extentAlong, compileSequence, zoneIntervals,
