@@ -3,10 +3,18 @@
 // geometry (cells, packing, microtubules are the prototype's own functions). Same answers and the same
 // event ORDER as the C++ (the renderer sums in that order). Caches are for speed only.
 import { hashUnit } from './rng.js';
-import { buildMtFrames, pointAtArc, dyesInBlock, dyeSchedule, persistentGen, dyeH1, DYE_BLOCK_UM,
-  MT_RADIUS_NM, MT_BINDER_NM, MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP, DEFAULT_KINETICS } from './dyes.js';
+import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, dyeH1, dyeOrientation, mtSegmentAt,
+  mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_RADIUS_NM, MT_BINDER_NM,
+  MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
+// The structures that carry labels (issue 16): one label each, indexed by their position here. Only the
+// microtubules for now; a new structure (nucleus DNA, NPCs, ...) adds an entry and its site generator.
+export const STRUCTURES = [{ id: 'microtubules', prefix: 'mt', name: 'Microtubules' }];
+export const STRUCTURE_MT = 0;
+// eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
+// ALWAYS_ON; continuousInWindow).
+export const EVENTS_BLINKS = 1;
 // = ISC_WORLD_VERSION (core/include/insiliscope/insiliscope.h): the generator's version, the
 // date spec/golden was last re-frozen. Bump both when a cell moves (engine_check compares them).
 export const WORLD_VERSION = '2026-10-05';
@@ -27,21 +35,29 @@ export function localToWorld(c, lx, ly) {
 }
 
 export class World {
-  // P: loadPrototype() instance. params: prototype params (P.paramsFrom(...)) plus labelEfficiency,
-  // labelNonBleaching (fractions of lattice sites).
-  constructor(P, seed, params, kinetics = DEFAULT_KINETICS) {
+  // P: loadPrototype() instance. params: prototype params (P.paramsFrom(...)), geometry only. labels: one label
+  // (dyes.js makeLabel) per STRUCTURES entry.
+  constructor(P, seed, params, labels = [makeLabel()]) {
     this.g = P.gen;
     this.seed = seed >>> 0;
     this.p = params;
-    this.kin = { ...kinetics };
     this.blocks = new Map();   // packing blocks
     this.assets = new Map();   // cell assets by chunk
     this.dyeBlocks = new Map();
+    this.labels = [];
+    this.setLabels(labels);
   }
 
-  setKinetics(k) {
-    this.kin = { ...k };
-    for (const b of this.dyeBlocks.values()) { b.scheduled = false; b.events = null; }
+  // A change of density or fluorescent fraction redraws the dyes (the cells and microtubules stay); any other label
+  // change only re-schedules them (isc_world_set_label).
+  setLabels(labels) {
+    if (labels.length !== STRUCTURES.length) throw new Error(`setLabels: ${STRUCTURES.length} labels expected`);
+    const next = labels.map(l => { const c = structuredClone(l); validateLabel(c); return c; });
+    const dyesChange = next.some((l, i) => !this.labels[i] || l.density !== this.labels[i].density ||
+      l.fluorescentFraction !== this.labels[i].fluorescentFraction);
+    this.labels = next;
+    if (dyesChange) this.dyeBlocks.clear();
+    else for (const b of this.dyeBlocks.values()) { b.scheduled = false; b.events = null; b.continuous = null; }
   }
 
   cellReachUm() {
@@ -149,13 +165,15 @@ export class World {
     const key = c.cx + ',' + c.cy + ',' + mtIndex + ',' + block;
     let blk = this.dyeBlocks.get(key);
     if (blk) return blk;
-    const raw = [];
+    const raw = [], label = this.labels[STRUCTURE_MT];
     dyesInBlock(this.seed, c.cx, c.cy, mtIndex, A.mts[mtIndex], this.frames(A, mtIndex), block,
-      this.p.labelEfficiency, this.p.labelNonBleaching, raw);
-    blk = { dyes: [], zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, maxOn: 0, persistent: [] };
+      label.density, label.fluorescentFraction, raw);
+    blk = { dyes: [], zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0,
+      persistent: [], structure: STRUCTURE_MT };
     for (const d of raw) {
       const [wx, wy] = localToWorld(c, d.pos.x, d.pos.y);
-      blk.dyes.push({ x: wx, y: wy, z: d.pos.z, id: d.id, cx: c.cx, cy: c.cy, mtIndex: d.mtIndex, k: d.k, n: d.n, persistent: d.persistent });
+      blk.dyes.push({ x: wx, y: wy, z: d.pos.z, id: d.id, cx: c.cx, cy: c.cy, mtIndex: d.mtIndex, k: d.k, n: d.n,
+        theta: d.theta, structure: STRUCTURE_MT });
       blk.zLo = Math.min(blk.zLo, d.pos.z);
       blk.zHi = Math.max(blk.zHi, d.pos.z);
     }
@@ -163,20 +181,30 @@ export class World {
     return blk;
   }
 
+  // The block's blinks (sorted by tOn, ties in dye order) and continuous windows (dye order), or its persistent
+  // (DNA-PAINT) dyes, by its structure's label mode.
   schedule(b) {
     if (b.scheduled) return;
-    b.events = []; b.persistent = []; b.maxOn = 0;
+    b.events = []; b.continuous = []; b.persistent = []; b.maxOn = 0;
+    const label = this.labels[b.structure], s = b.structure;
     let h1 = 0, lastCx = 0, lastCy = 0, lastMt = -1;
+    const blinks = [], cont = [];
     for (let i = 0; i < b.dyes.length; i++) {
       const d = b.dyes[i];
-      if (d.persistent) { b.persistent.push(i); continue; }
+      if (label.mode === 'DNA-PAINT') { b.persistent.push(i); continue; }
       if (d.mtIndex !== lastMt || d.cx !== lastCx || d.cy !== lastCy) {
         h1 = dyeH1(this.seed, d.cx, d.cy, d.mtIndex); lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
       }
-      for (const bl of dyeSchedule(h1, d.k, d.n, this.kin)) {
-        b.events.push({ x: d.x, y: d.y, z: d.z, tOn: bl.tOn, tOff: bl.tOff, brightness: bl.brightness, id: d.id });
+      blinks.length = 0; cont.length = 0;
+      labelSchedule(h1, d.k, d.n, label, blinks, cont);
+      for (const bl of blinks) {
+        b.events.push({ x: d.x, y: d.y, z: d.z, tOn: bl.tOn, tOff: bl.tOff, brightness: bl.brightness, id: d.id,
+          structure: s, state: 0, aux: 0 });
         b.maxOn = Math.max(b.maxOn, bl.tOff - bl.tOn);
       }
+      for (const w of cont)
+        b.continuous.push({ x: d.x, y: d.y, z: d.z, tOn: w.tOn, tOff: w.tOff, brightness: 1, id: d.id, structure: s,
+          state: w.state, aux: w.aux });
     }
     b.events.sort((a, e) => a.tOn - e.tOn); // stable: ties keep dye order
     b.scheduled = true;
@@ -192,17 +220,19 @@ export class World {
     return out;
   }
 
-  // Blinks (tOn < t1, tOff > t0) of the dyes in the window: [{x, y, z, tOn, tOff, brightness, id}].
+  // Blinks (tOn < t1, tOff > t0) of the dyes in the window: [{x, y, z, tOn, tOff, brightness, id, structure, state,
+  // aux}] (state 0 = EVENT_STATE.BLINK, aux 0). The continuous windows: continuousInWindow.
   eventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1) {
-    const kin = this.kin, out = [];
-    const persist = kin.activationRatePerSec > 0 && t1 > t0;
-    const maxOn = PERSIST_ON_CAP * kin.onSec;
-    const b0 = Math.max(0, Math.floor((t0 - maxOn) / PERSIST_BIN_SEC));
-    const b1 = Math.floor(t1 / PERSIST_BIN_SEC);
+    const out = [];
     const inWin = d => d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1;
     this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
       if (!b.dyes.length || b.zHi < zMin || b.zLo >= zMax) return;
       this.schedule(b);
+      const kin = this.labels[b.structure].kinetics;
+      const persist = kin.activationRatePerSec > 0 && t1 > t0;
+      const maxOn = PERSIST_ON_CAP * kin.onSec;
+      const b0 = Math.max(0, Math.floor((t0 - maxOn) / PERSIST_BIN_SEC));
+      const b1 = Math.floor(t1 / PERSIST_BIN_SEC);
       const ev = b.events, tLo = t0 - b.maxOn;
       let lo = 0, hi = ev.length;
       while (lo < hi) { const m = (lo + hi) >>> 1; if (ev[m].tOn < tLo) lo = m + 1; else hi = m; }
@@ -219,24 +249,45 @@ export class World {
           h1 = dyeH1(this.seed, d.cx, d.cy, d.mtIndex); lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
         }
         persistentGen(h1, d.k, d.n, kin, b0, b1, (tOn, on) => tOn < t1 && tOn + on > t0,
-          (bin, j, tOn, on, br) => out.push({ x: d.x, y: d.y, z: d.z, tOn, tOff: tOn + on, brightness: br, id: d.id }));
+          (bin, j, tOn, on, br) => out.push({ x: d.x, y: d.y, z: d.z, tOn, tOff: tOn + on, brightness: br, id: d.id,
+            structure: b.structure, state: 0, aux: 0 }));
       }
     });
     return out;
   }
 
-  // Labelled-dye counts on an nx x ny x nz grid, out[(k*ny + iy)*nx + ix]; populations: bit 0 bleaching,
-  // bit 1 persistent. Returns {total, grid}.
-  density3d(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, populations, out = new Float32Array(nx * ny * nz)) {
+  // The continuous windows of the dyes in the window (every time; dye order per block): [{x, y, z, tOn, tOff,
+  // brightness 1, id, structure, state (EVENT_STATE PRE / INITIAL_ON / ALWAYS_ON), aux}].
+  continuousInWindow(x0, y0, x1, y1, zMin, zMax) {
+    const out = [];
+    this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
+      if (!b.dyes.length || b.zHi < zMin || b.zLo >= zMax) return;
+      this.schedule(b);
+      for (const e of b.continuous) if (e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1) out.push(e);
+    });
+    return out;
+  }
+
+  // Mean emission dipole of a dye from sitesInWindow (dyes.js dyeOrientation; null for Free), cell-local.
+  dyeOrientation(d) {
+    const label = this.labels[d.structure];
+    if (label.orientation.mode === 'Free') return null;
+    const A = this.cellAssets(this.packedBlock(floorDiv(d.cx, PACK_BLOCK_CHUNKS), floorDiv(d.cy, PACK_BLOCK_CHUNKS))
+      .find(c => c.cx === d.cx && c.cy === d.cy));
+    const fr = this.frames(A, d.mtIndex), S = (mtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
+    return dyeOrientation(dyeH1(this.seed, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, mtSegmentAt(fr, S), d.theta);
+  }
+
+  // Fluorescent-dye counts on an nx x ny x nz grid, out[(k*ny + iy)*nx + ix]; structureMask: bit s = STRUCTURES[s]
+  // (isc_density3d_in_window, ABI 10). Returns {total, grid}.
+  density3d(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, structureMask, out = new Float32Array(nx * ny * nz)) {
     out.fill(0);
-    const wantB = (populations & 1) !== 0, wantP = (populations & 2) !== 0;
-    if (!wantB && !wantP) return { total: 0, grid: out };
+    if (!structureMask) return { total: 0, grid: out };
     const sx = nx / (x1 - x0), sy = ny / (y1 - y0), sz = nz > 1 ? nz / (zMax - zMin) : 0.0;
     let total = 0;
     this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
-      if (!b.dyes.length || b.zHi < zMin || b.zLo >= zMax) return;
+      if (!b.dyes.length || b.zHi < zMin || b.zLo >= zMax || !((structureMask >> b.structure) & 1)) return;
       for (const d of b.dyes) {
-        if (!(d.persistent ? wantP : wantB)) continue;
         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
         const ix = Math.min(nx - 1, Math.floor((d.x - x0) * sx));
         const iy = Math.min(ny - 1, Math.floor((d.y - y0) * sy));

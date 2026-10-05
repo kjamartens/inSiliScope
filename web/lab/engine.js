@@ -11,6 +11,7 @@
 // Loaded as a module worker it answers postMessage(job) like the viewer's Blob workers (genWorkerMain).
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
+import { makeLabel } from '../prototype/scope/dyes.js';
 import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
 
 const NUC_SLICES = 17, NUC_PTS = 48; // nucleus rings sent with each cell (both poles included)
@@ -30,18 +31,25 @@ export async function createEngine(src = {}) {
   let world = null, worldKey = '';
 
   // One World per (seed, params), like iscEngine's useWorld. The viewer sends its params() output; the
-  // prototype's params() normalises the keys it knows, and every other key (labelEfficiency,
-  // labelNonBleaching, a slider only the viewer has so far) reaches the generator as sent.
-  function useWorld(seed, p) {
+  // prototype's params() normalises the keys it knows, and every other key (a slider only the viewer has so far)
+  // reaches the generator as sent. The labels (a sites job's d.labels) are set on it (World.setLabels).
+  function useWorld(seed, p, labels) {
     const key = (seed >>> 0) + '|' + Object.keys(p).sort().map(k => k + '=' + p[k]).join('|');
-    if (key === worldKey) return world;
+    if (key === worldKey) return withLabels(world, labels);
     const vals = { ...P.defaults };
     for (const k of Object.keys(p)) if (k in P.defaults) vals[k] = typeof P.defaults[k] === 'boolean' ? !!p[k] : p[k];
     const norm = P.paramsFrom(vals), params = { ...norm };
     for (const k of Object.keys(p)) if (!(k in norm)) params[k] = p[k];
     world = new World(P, seed >>> 0, params);
     worldKey = key;
-    return world;
+    return withLabels(world, labels);
+  }
+  function withLabels(w, labels) {
+    if (labels) {
+      const want = labels.map(l => makeLabel({ density: l.density, fluorescentFraction: l.fluorescentFraction }));
+      if (want.some((l, i) => l.density !== w.labels[i].density || l.fluorescentFraction !== w.labels[i].fluorescentFraction)) w.setLabels(want);
+    }
+    return w;
   }
 
   // World::FindCell: the cell of chunk (cx, cy) in its packing block, or null.
@@ -75,12 +83,14 @@ export async function createEngine(src = {}) {
       const { width: W, height: H, frames: N } = scopeDims(parseSpec(d.spec));
       const frames = new Uint16Array(W * H * N);
       const info = renderScopeMovie(P, d.spec, (f, adu) => { frames.set(adu, f * W * H); });
-      const half = info.halfTimeSec ?? 0;
+      // A one-line summary of the labels (dye, mode, detected photons/s and wavelength) and populations.
+      const summary = (info.labels || []).map(l => `${l.dye} ${l.mode}: ` + Object.entries(l.states).filter(([, v]) => v)
+        .map(([k, v]) => `${k} ${Math.round(v.detectedPerSec)} ph/s @ ${v.lambdaNm.toFixed(0)} nm (${(100 * v.detectedFraction).toFixed(1)} %)`).join(', '))
+        .concat((info.populations || []).map(q => `${['', 'pre', 'initial ON', 'always on'][q.state]}: ${q.meanFieldFrames} mean-field + ${q.perDyeFrames} per-dye frames`))
+        .concat(info.imagerBackgroundPerPxPerFrame ? [`imager ${info.imagerBackgroundPerPxPerFrame.toFixed(1)} ph/px/frame`] : []).join('; ');
       const res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: info.width, h: info.height,
-        n: info.frames, blinks: info.blinks ?? 0, dyes: info.dyes ?? 0,
-        halfMs: Number.isFinite(half) ? Math.trunc(Math.min(2e9, half * 1000)) : -1, ms: performance.now() - t0 };
+        n: info.frames, blinks: info.blinks ?? 0, dyes: 0, halfMs: 0, summary, ms: performance.now() - t0 };
       if (d.prepare) res.prepared = true;
-      if (info.dyes != null) res.gpu = 'CPU'; // WideField: the JS reference has no WebGPU path
       return [res, [frames.buffer]];
     } catch (e) {
       return [{ type: 'movie', id: d.id, error: String(e && e.message || e) }, []];
@@ -91,7 +101,7 @@ export async function createEngine(src = {}) {
     P,
     handle(d) {
       if (d.type === 'movie') return movie(d);
-      const w = useWorld(d.seed, d.p);
+      const w = useWorld(d.seed, d.p, d.labels);
       if (d.type === 'block') {
         inject(w, d.blocks);
         const cells = w.packedBlock(d.bx, d.by), rows = new Float64Array(cells.length * 14);

@@ -314,6 +314,23 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate (order of magnitude without oxygen scavenging)"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 647 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 647 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -364,6 +381,23 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for Alexa Fluor 532 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 532 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -414,6 +448,23 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for Cy5 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Cy5 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -475,6 +526,16 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for ATTO 655 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -518,6 +579,27 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for ATTO 542 in data/dyes/library.json"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for ATTO 542 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -585,6 +667,24 @@ export const DYE_DATA = {
      "photonBudget": 100000,
      "state": "pre",
      "notes": "the green state as a widefield FP (estimate)"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mEos3.2 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEos3.2 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -653,6 +753,24 @@ export const DYE_DATA = {
      "photonBudget": 100000,
      "state": "pre",
      "notes": "the green state (estimate)"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for Dendra2 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Dendra2 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -708,6 +826,29 @@ export const DYE_DATA = {
       "durisic2014"
      ],
      "notes": "pre state dark (photoactivatable, not convertible). FPbase has no PAmCherry2 spectra: PAmCherry1 (On) spectra used. Rates and fluorescent fraction: estimates."
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for PAmCherry2 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for PAmCherry2 in data/dyes/library.json"
+    },
+    "WideField": {
+     "photonBudget": 100000,
+     "generic": true,
+     "notes": "generic WideField values (estimate): no WideField data for PAmCherry2 in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -741,6 +882,34 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "photon budget and maturation fraction: estimates"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mEGFP in data/dyes/library.json"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for mEGFP in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEGFP in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -777,6 +946,34 @@ export const DYE_DATA = {
       "bindels2017"
      ],
      "notes": "photon budget and maturation fraction: estimates"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for mScarlet in data/dyes/library.json"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for mScarlet in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mScarlet in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -810,6 +1007,34 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate. FPbase values are for DNA-bound DAPI. Only microtubules carry labels so far: a DNA structure is future work."
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for DAPI in data/dyes/library.json"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for DAPI in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for DAPI in data/dyes/library.json"
     }
    },
    "notes": null,
@@ -847,6 +1072,34 @@ export const DYE_DATA = {
     "WideField": {
      "photonBudget": 100000,
      "notes": "estimate"
+    },
+    "dSTORM": {
+     "laser": 640,
+     "onSec": 0.02,
+     "offSec": 20,
+     "bleachProb": 0.1,
+     "photonCV": 0.5,
+     "initialOnSec": 2,
+     "activation405PerKWcm2PerSec": 20,
+     "generic": true,
+     "notes": "generic dSTORM values (estimate): no dSTORM data for Hoechst 33342 in data/dyes/library.json"
+    },
+    "PALM": {
+     "onSec": 0.05,
+     "offSecBetweenBlinks": 0.5,
+     "bleachProb": 0.5,
+     "photonCV": 0.5,
+     "spontaneousActivationPerSec": 0.00001,
+     "activation405PerKWcm2PerSec": 1,
+     "generic": true,
+     "notes": "generic PALM values (estimate): no PALM data for Hoechst 33342 in data/dyes/library.json"
+    },
+    "DNA-PAINT": {
+     "konPerMPerSec": 1000000,
+     "onSec": 0.05,
+     "photonCV": 0.5,
+     "generic": true,
+     "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Hoechst 33342 in data/dyes/library.json"
     }
    },
    "notes": "FPbase has no extinction coefficient or quantum yield for Hoechst 33342: eps ~46000 at 350 nm and QY ~0.4 (DNA-bound) are estimates of commonly quoted vendor values, not checked against a source.",

@@ -74,7 +74,7 @@ export function scopeBrightfieldSpec(spec, S) {
     zernike: new Array(NUM_ZERNIKE).fill(0),
   };
   if (O('bf-aberrations') !== 0) {
-    const req = scopePsfRequest(spec); // null for the Gaussian: no aberrations
+    const req = scopePsfRequest(spec, bs.wavelengthNm); // null for the Gaussian: no aberrations (only the Zernikes are read)
     if (req) bs.zernike = req.zernike.map(roundZernike); // the C++ passes them through their 6-digit text
   }
   return bs;
