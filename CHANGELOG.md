@@ -4,6 +4,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer animations, more presets and automatic data (issue 11, 2026-10-05): 18 more cycle presets (27) and 5 more
+  ready-made sequences; checked data layers and animations that need data acquire it by themselves.
 - Viewer thresholded surface and localizations (issue 11, phase 4, 2026-10-05): the WideField z-stack smoothed,
   thresholded at Otsu's level and meshed (surface nets) in a compute worker, drawn as a lit front layer; SMLM
   localizations of a multi-plane acquisition (the core's blinks, a new `events` worker job in the WASM and JS engines:

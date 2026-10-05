@@ -74,7 +74,8 @@ Notes:
   data (below): a **WideField slice**, **SMLM camera frames** or a **BrightField slice** riding on the sweeping plane,
   the **thresholded WideField** surface or the **SMLM localizations** in its wake (e.g. "Simulated up, WideField down,
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
-  (a sweep along the screen's depth shows an x-z slice).
+  (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
+  previewed or edited.
 - **Data layers** (Display): simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
   the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
   nearest focus position (blinking), the BrightField image. **Acquire** makes their z-stacks with the movie settings
