@@ -367,7 +367,7 @@ function validate(seq, registry) {
     const C = compileSequence(seq, { registry, bounds: { x: [0, 1], y: [0, 1], z: [0, 1], center: [0.5, 0.5, 0.5], diam: 1 } });
     if (!C.steps.length) out.push({ level: 'warn', msg: 'no steps yet: add a cycle' });
     for (const w of C.warnings) if (!/no target cell/.test(w)) out.push({ level: 'warn', msg: w });
-    for (const S of C.steps) if (S.sweep && !S.sweep.slab && S.layers.some(l => l.zones.length === 1 && l.zones[0] === 'at'))
+    for (const S of C.steps) if (S.sweep && !S.sweep.slab && S.layers.some(l => !l.followsPlane && l.zones.length === 1 && l.zones[0] === 'at'))
       out.push({ level: 'warn', msg: `cycle ${S.ci + 1} step ${S.si + 1}: a layer only in the slab, but the slab is 0 um thick` });
   } catch (e) { out.push({ level: 'error', msg: e.message }); }
   return out;
@@ -490,6 +490,7 @@ const SEQUENCES = {
     ['smlmBuild', { structure: 'mt', duration: 8, deg: 150 }]]) },
   modalities: { label: 'One cell, every modality (needs data)', make: () => seqOf('Every modality', [
     ['popIn', { structure: 'mt', duration: 3 }, { orbit: { degPerSec: 20 } }], ['allModalities', { structure: 'mt', each: 5, deg: 300 }]]) },
+  smlmUpLocsDown: { label: 'SMLM slab up, localizations down (needs data)', make: () => smlmUpLocsDown() },
   turntableShow: { label: 'Turntable: microtubules and nucleus', make: () => seqOf('Turntable', [
     ['turntable', { structure: 'mt', duration: 12, deg: 360 }]], { tilt: 70 }) },
 };
@@ -505,6 +506,22 @@ function example() {
   n.orbit = { degPerSec: 25 };
   s.cycles.push(n);
   return s;
+}
+
+// SMLM frames in a slab rising through the cell (the cytoplasm ahead of it) while the view tilts to 70 deg, then a
+// plane back down leaving the localizations behind it (the user's own animation, 2026-10-05; iterate here).
+function smlmUpLocsDown() {
+  return migrate({ format: FORMAT, version: 1, name: 'SMLM slab up, localizations down',
+    scene: { target: { mode: 'center', cell: null }, scope: 'ghosts', ghostOpacity: 0.25, theme: 'fluo', detailCells: 1, crop: true },
+    camera: { az: 0, tilt: 20, fit: 1.15, center: { dx: 0, dy: 0, dz: 0 }, orbitDegPerSec: 0 },
+    data: { srFps: 10, stepUm: 0.2, srStepUm: 0.4, srFrames: 10, wfAverage: 4, crop: false, sequential: false, locFrames: 5000 },
+    cycles: [{ name: 'Simulated -> SMLM -> localizations', structure: 'mt', orbit: { deg: 360 }, keepAfter: ['$.locs'], steps: [
+      { name: 'SMLM frames up, cytoplasm ahead', duration: 8, caption: 'SMLM acquisition, localized',
+        sweep: { axis: 'z', from: { rel: 0 }, to: { rel: 1 }, slab: 0.4, ease: 'linear' }, camera: { tilt: { to: 70, ease: 'inOut' } },
+        layers: [{ ref: '$.srFrames', zones: ['at'] }, { ref: 'cyto.surface', zones: ['ahead'] }] },
+      { name: 'Top to bottom, localizations behind', duration: 6,
+        sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: 0, ease: 'inOut' },
+        layers: [{ ref: '$.locs', zones: ['behind'] }, { ref: '$.srFrames', zones: ['at'] }] }] }] }).seq;
 }
 
 globalThis.IscAnimSeq = { FORMAT, VERSION, EASE, ease, defaults, migrate, bind, axisVec, extentAlong, compileSequence, zoneIntervals,
