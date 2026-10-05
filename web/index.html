@@ -1839,6 +1839,7 @@ function initGenWorkers() {
     genWorkers.dyes.onmessage = e => {
       const t = e.data.type;
       if (t === 'movie') onMovieResult(e.data);
+      else if (t === 'movie-progress') onMovieProgress(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
@@ -2585,11 +2586,31 @@ function makeMovie() {
   const psfKey = moviePsfKey();
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
   moviePsfSeen.add(psfKey);
-  document.getElementById('mv_make').textContent = newPsf ? 'Computing PSF, rendering…' : 'Rendering…';
+  document.getElementById('mv_make').textContent = (newPsf ? 'Computing PSF, ' : '') + movieBackendsText();
   job.t0 = performance.now();
   if (bfSplitWanted()) { bfSplit = { id: job.id, job, h: -1 }; genWorkers.dyes.postMessage({ type: 'bf-begin', id: job.id, spec }); }
   else if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onMovieResult(r[0])), 0);
+}
+// What a movie will render with (shown on the button while it runs; the worker then reports frame by frame):
+// the SMLM splat for blinks, mean-field (FFT) or per dye for continuous populations, the transmitted-light engine.
+function movieBackendsText() {
+  if (document.getElementById('mv_modality').value === '1') return 'Rendering BrightField (transmitted light)…';
+  const dye = choiceDyeOf(+document.getElementById('mv_mt-dye').value), m = +document.getElementById('mv_mt-mode').value;
+  const mode = m >= 0 ? ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'][m] : dye.defaultMode;
+  const parts = { dSTORM: 'SMLM blinks + initial ON (mean-field or per dye)', PALM: 'SMLM blinks' + (dye.states.pre ? ' + pre state (mean-field or per dye)' : ''),
+    'DNA-PAINT': 'SMLM blinks + imager background', WideField: 'WideField dyes (mean-field or per dye)' }[mode];
+  return `Rendering ${dye.name} ${mode}: ${parts}…`;
+}
+function choiceDyeOf(v) {
+  const nd = ISC_DYE_DATA.dyes.length;
+  return v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
+}
+function onMovieProgress(d) {
+  if (!moviePending || d.id !== moviePending.id) return;
+  const b = document.getElementById('mv_make');
+  if (d.stage === 'psf') b.textContent = `Computing PSF ${Math.round(100 * d.frac)} %…`;
+  else if (d.stage === 'frames' && d.info) b.textContent = `Frame ${d.info.frame + 1}/${d.info.frames}: ${d.info.backends.join(' · ') || 'background only'}`;
 }
 function onMovieResult(d) {
   if (d.prepared || (preparePending && d.id === preparePending.id)) {   // a preload: the kernel is in the worker's memo now

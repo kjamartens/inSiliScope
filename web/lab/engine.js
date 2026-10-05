@@ -77,12 +77,19 @@ export async function createEngine(src = {}) {
     if (blocks) for (const b of blocks) w.setPackedBlock(b.bx, b.by, b.rows);
   }
 
-  function movie(d) {
+  // post: optional progress sink (the worker's postMessage): {type: 'movie-progress', id, stage, frac, info}.
+  function movie(d, post) {
     const t0 = performance.now();
     try {
       const { width: W, height: H, frames: N } = scopeDims(parseSpec(d.spec));
       const frames = new Uint16Array(W * H * N);
-      const info = renderScopeMovie(P, d.spec, (f, adu) => { frames.set(adu, f * W * H); });
+      let lastPost = 0;
+      const info = renderScopeMovie(P, d.spec, (f, adu) => { frames.set(adu, f * W * H); }, { onProgress: (stage, frac, x) => {
+        const now = performance.now();
+        if (!post || d.prepare || (now - lastPost < 150 && frac < 1)) return;
+        lastPost = now;
+        post({ type: 'movie-progress', id: d.id, stage, frac, info: x || null });
+      } });
       // A one-line summary of the labels (dye, mode, detected photons/s and wavelength) and populations.
       const summary = (info.labels || []).map(l => `${l.dye} ${l.mode}: ` + Object.entries(l.states).filter(([, v]) => v)
         .map(([k, v]) => `${k} ${Math.round(v.detectedPerSec)} ph/s @ ${v.lambdaNm.toFixed(0)} nm (${(100 * v.detectedFraction).toFixed(1)} %)`).join(', '))
@@ -99,8 +106,8 @@ export async function createEngine(src = {}) {
 
   return {
     P,
-    handle(d) {
-      if (d.type === 'movie') return movie(d);
+    handle(d, post) {
+      if (d.type === 'movie') return movie(d, post);
       const w = useWorld(d.seed, d.p, d.labels);
       if (d.type === 'block') {
         inject(w, d.blocks);
@@ -165,7 +172,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
   const ready = createEngine();
   self.onmessage = e => {
     if (e.data && e.data.type === 'init') return;   // the viewer's shared-WASM handshake: nothing to do here
-    ready.then(eng => eng.handle(e.data)).then(([out, transfer]) => postMessage(out, transfer))
+    ready.then(eng => eng.handle(e.data, m => postMessage(m))).then(([out, transfer]) => postMessage(out, transfer))
       .catch(err => setTimeout(() => { throw err; }));
   };
 }

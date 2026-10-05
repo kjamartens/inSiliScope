@@ -56,6 +56,16 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
   lasers, camera presets, mean-field rows; dyes in their emission colour; sites jobs carry `labels`; the movie
   spec is every `mv_` control; the WebGPU WideField movie is off (`d.meanFieldGpu`) until the port wires it.
 
+- **Scale** (2026-10-05, a default AF647 dSTORM movie ran out of memory: 70 % labelling = 5.4 M dyes in a 128 px FOV):
+  blinks are scheduled only up to a horizon (twice the latest query end; `dyeSchedule(..., tMax)` stops at the first
+  blink starting after it -- the earlier blinks are the same, so it is exact); continuous windows are built on first
+  use (`continuousOf`), only for populations that reach the per-dye path; dye blocks are packed typed arrays
+  (`forEachDye` for counts and mean-field planes, no per-dye objects). 2.4 GB -> 230 MB, 30 s (JS). The C++ schedules
+  whole lifetimes today: port the horizon too.
+- **Progress**: `fluorescence.js` reports per frame which backend drew it (SMLM splat for blinks; mean-field or per
+  dye for each continuous population); the lab engine posts `movie-progress` messages and the viewer shows them on
+  the movie button (`onMovieProgress`). The WASM worker must post the same (isc_scope_movie progress callback).
+
 ## The port must
 
 1. **Core** (`core/src/dyes.*`, `world.*`, `params.*`, `capi.cpp`, `insiliscope.h`): the label model above,

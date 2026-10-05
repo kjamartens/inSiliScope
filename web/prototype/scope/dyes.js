@@ -190,13 +190,16 @@ function poissonFromUniform(m, u, u2) {
 
 // Whole blink lifetime of bleaching dye (k, n) of the microtubule with hash h1: [{tOn, tOff, brightness}],
 // simulated seconds, in time order.
-export function dyeSchedule(h1, k, n, kin, out = []) {
+// tMax: stop at the first blink starting at or after it (the blinks before it are the same; issue 16: a movie needs
+// only its own time span, not the lifetime of millions of dyes).
+export function dyeSchedule(h1, k, n, kin, out = [], tMax = Infinity) {
   if (!(kin.activationRatePerSec > 0)) return out;
   const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
   const pBleach = Math.min(1.0, Math.max(0.01, kin.bleachProb));
   const cv = Math.max(0.0, kin.photonCV);
   let t = -Math.log(U(DYE_CH.ACT)) / kin.activationRatePerSec;
   for (let j = 0; j < DYE_MAX_BLINKS; j++) {
+    if (t >= tMax) break;
     const base = DYE_CH.SCHED0 + j * DYE_CH.SCHED_STRIDE;
     const on = -Math.log(U(base + DYE_CH.ON)) * kin.onSec;
     let b = 1;
@@ -260,25 +263,27 @@ export function persistentBlinks(h1, k, n, kin, t0, t1, out = []) {
 //               dye's own bleach time (photon budget / emission rate).
 // dSTORM: ON from 0 for Exp(initialOnSec) (none at 0), then dyeSchedule shifted to start there. PALM: dyeSchedule;
 // its pre window ends at the first blink (never, at activation rate 0). Pure functions of the address.
-export function labelSchedule(h1, k, n, label, blinks = [], continuous = []) {
+// blinks / continuous: null to skip that list. tMax: blinks starting before it only (dyeSchedule).
+export function labelSchedule(h1, k, n, label, blinks = [], continuous = [], tMax = Infinity) {
   const kin = label.kinetics;
   const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
   const aux = () => -Math.log(U(DYE_CH.AUX));
   if (label.mode === 'WideField') {
-    continuous.push({ tOn: 0, tOff: Infinity, state: EVENT_STATE.ALWAYS_ON, aux: aux() });
+    if (continuous) continuous.push({ tOn: 0, tOff: Infinity, state: EVENT_STATE.ALWAYS_ON, aux: aux() });
     return { blinks, continuous };
   }
   if (label.mode === 'DNA-PAINT') return { blinks, continuous };
-  let shift = 0;
-  if (label.mode === 'dSTORM' && kin.initialOnSec > 0) {
-    shift = -Math.log(U(DYE_CH.INIT_ON)) * kin.initialOnSec;
-    continuous.push({ tOn: 0, tOff: shift, state: EVENT_STATE.INITIAL_ON, aux: 0 });
+  const shift = label.mode === 'dSTORM' && kin.initialOnSec > 0 ? -Math.log(U(DYE_CH.INIT_ON)) * kin.initialOnSec : 0;
+  if (continuous && shift) continuous.push({ tOn: 0, tOff: shift, state: EVENT_STATE.INITIAL_ON, aux: 0 });
+  if (blinks) {
+    const first = blinks.length;
+    dyeSchedule(h1, k, n, kin, blinks, tMax - shift);
+    if (shift) for (let i = first; i < blinks.length; i++) { blinks[i].tOn += shift; blinks[i].tOff += shift; }
   }
-  const first = blinks.length;
-  dyeSchedule(h1, k, n, kin, blinks);
-  if (shift) for (let i = first; i < blinks.length; i++) { blinks[i].tOn += shift; blinks[i].tOff += shift; }
-  if (label.mode === 'PALM' && label.preState)
-    continuous.push({ tOn: 0, tOff: blinks.length > first ? blinks[first].tOn : Infinity, state: EVENT_STATE.PRE, aux: aux() });
+  // The pre state lasts until the first activation: dyeSchedule's first blink time, the ACT draw.
+  if (continuous && label.mode === 'PALM' && label.preState)
+    continuous.push({ tOn: 0, tOff: kin.activationRatePerSec > 0 ? -Math.log(U(DYE_CH.ACT)) / kin.activationRatePerSec : Infinity,
+      state: EVENT_STATE.PRE, aux: aux() });
   return { blinks, continuous };
 }
 

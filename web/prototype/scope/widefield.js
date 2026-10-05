@@ -166,30 +166,36 @@ function dyePlanes(world, g, structureMask) {
     for (let tx = tx0; tx <= tx1; ++tx) {
       const x0 = (tx * TILE) * p, x1 = ((tx + 1) * TILE) * p, y0 = (ty * TILE) * p, y1 = ((ty + 1) * TILE) * p;
       const zA0 = kLo * dz, zB0 = kHi * dz;
-      const dyes = world.sitesInWindow(x0, y0, x1, y1, zA0, zB0).filter(d => (structureMask >> d.structure) & 1);
-      if (!dyes.length) continue;
-      // 1 x 1 x nH histogram, as Density3d bins it.
+      // Two passes over the tile's dyes (no copies): the 1 x 1 x nH histogram, as Density3d bins it, then the cells.
       const hist = new Float32Array(nH), sz0 = nH / (zB0 - zA0);
-      for (const d of dyes) hist[Math.min(nH - 1, Math.floor((d.z - zA0) * sz0))]++;
+      let any = 0;
+      world.forEachDye(x0, y0, x1, y1, zA0, zB0, (b, i) => {
+        if (!((structureMask >> b.structure) & 1)) return;
+        hist[Math.min(nH - 1, Math.floor((b.z[i] - zA0) * sz0))]++;
+        any++;
+      });
+      if (!any) continue;
       let first = 0, last = nH - 1;
       while (first < nH && hist[first] === 0) ++first;
       while (last > first && hist[last] === 0) --last;
       first = Math.max(0, first - 1); last = Math.min(nH - 1, last + 1);
       const k0 = kLo + first, nz = last - first + 1, zA = k0 * dz, zB = (k0 + nz) * dz;
       const sx = TILE / (x1 - x0), sy = TILE / (y1 - y0), sz = nz > 1 ? nz / (zB - zA) : 0.0;
-      for (const d of dyes) {
-        if (!(d.z >= zA && d.z < zB)) continue;
-        const ix = Math.min(TILE - 1, Math.floor((d.x - x0) * sx)), iy = Math.min(TILE - 1, Math.floor((d.y - y0) * sy));
-        const iz = nz > 1 ? Math.min(nz - 1, Math.floor((d.z - zA) * sz)) : 0;
+      world.forEachDye(x0, y0, x1, y1, zA0, zB0, (b, i) => {
+        if (!((structureMask >> b.structure) & 1)) return;
+        const x = b.x[i], y = b.y[i], z = b.z[i];
+        if (!(z >= zA && z < zB)) return;
+        const ix = Math.min(TILE - 1, Math.floor((x - x0) * sx)), iy = Math.min(TILE - 1, Math.floor((y - y0) * sy));
+        const iz = nz > 1 ? Math.min(nz - 1, Math.floor((z - zA) * sz)) : 0;
         const wx = tx * TILE + ix, wy = ty * TILE + iy;
-        if (wx < g.ix0 || wx >= g.ix0 + g.nx || wy < g.iy0 || wy >= g.iy0 + g.ny) continue;
+        if (wx < g.ix0 || wx >= g.ix0 + g.nx || wy < g.iy0 || wy >= g.iy0 + g.ny) return;
         const k = k0 + iz;
         let pl = planes.get(k);
         if (!pl) { pl = new Map(); planes.set(k, pl); }
         const cell = (wy - g.iy0) * g.nx + (wx - g.ix0);
         pl.set(cell, (pl.get(cell) || 0) + 1);
         nDyes++;
-      }
+      });
     }
   return { planes, nDyes };
 }

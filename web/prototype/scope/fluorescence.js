@@ -81,20 +81,23 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     if (L.mode === 'dSTORM' && L.label.kinetics.initialOnSec > 0) states.push(EVENT_STATE.INITIAL_ON);
     if (L.mode === 'PALM' && L.label.preState) states.push(EVENT_STATE.PRE);
     if (!states.length) return;
-    const sites = world.sitesInWindow(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax).filter(d => d.structure === s);
     const ox = S.q.originXUm, oy = S.q.originYUm;
-    const nSlab = sites.reduce((n, d) => n + (d.x >= ox && d.x < ox + W * um && d.y >= oy && d.y < oy + H * um &&
-      Math.abs(d.z - focus) < slabHalf ? 1 : 0), 0);
+    let nZ = 0, nSlab = 0;
+    world.forEachDye(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, (b, i) => {
+      if (b.structure !== s) return;
+      nZ++;
+      if (b.x[i] >= ox && b.x[i] < ox + W * um && b.y[i] >= oy && b.y[i] < oy + H * um && Math.abs(b.z[i] - focus) < slabHalf) nSlab++;
+    });
     for (const state of states) {
       const g = groupOf.get(`${s},${state === EVENT_STATE.PRE ? 'pre' : 'main'}`);
-      if (!g || !sites.length) continue;
+      if (!g || !nZ) continue;
       const st = L.states[state === EVENT_STATE.PRE ? 'pre' : 'main'];
       let lambda = 0, budget = 0;
       if (state === EVENT_STATE.ALWAYS_ON) { budget = L.photonBudget; lambda = budget > 0 ? st.emissionPerSec / budget : 0; }
       else if (state === EVENT_STATE.INITIAL_ON) lambda = 1 / L.label.kinetics.initialOnSec;
       else { budget = L.prePhotonBudget; lambda = L.kActPerSec + (budget > 0 ? st.emissionPerSec / budget : 0); }
       pops.push({ structure: s, state, g, lambda, budget, emissionPerSec: st.emissionPerSec, rate: st.detectedPerSec,
-        nZ: sites.length, nSlab, wins: null, image: null, acc: null, accFrame: -1, meanFieldFrames: 0, perDyeFrames: 0 });
+        nZ, nSlab, wins: null, image: null, acc: null, accFrame: -1, meanFieldFrames: 0, perDyeFrames: 0 });
     }
   });
   const isMeanField = (p, f) => {
@@ -136,7 +139,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const imagerPerFrame = S.labels.reduce((sum, L) => sum + L.imagerBackgroundPerPxPerSec(um), 0) * S.expSec;
   const bg = S.p.backgroundPhotons + imagerPerFrame;
   let blinks = 0;
+  const POP_NAME = { [EVENT_STATE.ALWAYS_ON]: 'WideField dyes', [EVENT_STATE.INITIAL_ON]: 'initial ON', [EVENT_STATE.PRE]: 'pre state' };
   for (let f = 0; f < N; f++) {
+    const frameBlinks0 = blinks, paths = [];
     const img = new Float32Array(W * H).fill(bg);
     groups.forEach((g, gi) => {
       if (g.role !== 'main') return;
@@ -151,6 +156,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         const m = Math.fround(meanPhotons(p.rate, p.lambda, tf0, tf1));
         for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * p.image[i]);
         p.meanFieldFrames++;
+        paths.push(`${POP_NAME[p.state]}: mean-field (FFT)`);
       } else {
         advanceAcc(p, f);
         const perFrame = p.rate * S.expSec;
@@ -159,10 +165,13 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         const partial = p.wins.filter(e => e.tStart < f + 1 && e.tEnd > f && !(e.tStart <= f && e.tEnd >= f + 1));
         renderPhotonImage(W, H, partial, f, { pixelSizeNm: pixelNm, photonsPerBlink: perFrame, psfSigmaPx: p.g.sigmaPx }, p.g.kernel, zStage, img);
         p.perDyeFrames++;
+        paths.push(`${POP_NAME[p.state]}: per dye (${p.wins.length} windows)`);
       }
     }
     if (onFrame(f, applyNoiseChain(img, S.cam, maps, f), img) === false) break;
-    if (opts.onProgress) opts.onProgress('frames', (f + 1) / N);
+    // Which backend drew this frame: the SMLM splat for blinks, mean-field or per dye for each continuous population.
+    if (opts.onProgress) opts.onProgress('frames', (f + 1) / N, {
+      frame: f, frames: N, blinks: blinks - frameBlinks0, backends: [...(anyBlinks ? [`SMLM: ${blinks - frameBlinks0} blinks (splat)`] : []), ...paths] });
   }
   return {
     width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, psfSec: (tPsf - t0) / 1000, querySec,
