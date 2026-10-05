@@ -304,19 +304,19 @@
     },
     {
       "id": "PAINT-640",
-      "name": "DNA-PAINT, red (640 nm 0.16 kW/cm², 676/37)",
+      "name": "DNA-PAINT, red (640 nm 1 kW/cm², 676/37)",
       "lasers": {
-        "640": 0.1607
+        "640": 1.0
       },
       "dichroic": "LP650",
       "emissionFilter": "BP676-37",
-      "notes": "The default: 0.16 kW/cm^2 gives ATTO 655 the pre-issue-16 default brightness (6375 detected photons/s ON). Typical DNA-PAINT TIRF intensities are higher (estimate)."
+      "notes": "The default: 1 kW/cm^2, a typical DNA-PAINT TIRF/HILO intensity (estimate; was 0.16 kW/cm^2 until 2026-10-05, the pre-issue-16 default brightness of ATTO 655)."
     },
     {
       "id": "PAINT-561",
-      "name": "DNA-PAINT, orange (561 nm 0.16 kW/cm², 600/37)",
+      "name": "DNA-PAINT, orange (561 nm 1 kW/cm², 600/37)",
       "lasers": {
-        "561": 0.1607
+        "561": 1.0
       },
       "dichroic": "LP570",
       "emissionFilter": "BP600-37",
@@ -324,9 +324,9 @@
     },
     {
       "id": "PAINT-488",
-      "name": "DNA-PAINT, green (488 nm 0.16 kW/cm², 525/45)",
+      "name": "DNA-PAINT, green (488 nm 1 kW/cm², 525/45)",
       "lasers": {
-        "488": 0.1607
+        "488": 1.0
       },
       "dichroic": "LP505",
       "emissionFilter": "BP525-45",
@@ -334,10 +334,10 @@
     },
     {
       "id": "PALM-561",
-      "name": "PALM, orange (561 nm 1 kW/cm² + 405 nm 10 W/cm², quad)",
+      "name": "PALM, orange (561 nm 1 kW/cm² + 405 nm 2 W/cm², quad)",
       "lasers": {
         "561": 1.0,
-        "405": 0.01
+        "405": 0.002
       },
       "dichroic": "ChromaZT405-488-561-640rpc",
       "emissionFilter": "SemrockFF01-600-37",

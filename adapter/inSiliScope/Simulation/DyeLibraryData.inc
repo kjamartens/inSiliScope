@@ -131,10 +131,10 @@ static const LightPresetData kLightPresets[] = {
    { "dSTORM-640", "dSTORM, red (640 nm 2 kW/cm\xC2\xB2, ET700/75)", { 0.0, 0.0, 0.0, 2.0, 0.0 }, "LP650", "ChromaET700-75m" },
    { "dSTORM-561", "dSTORM, orange (561 nm 2.2 kW/cm\xC2\xB2, 617/73)", { 0.0, 0.0, 2.2, 0.0, 0.0 }, "LP570", "BP617-73" },
    { "dSTORM-488", "dSTORM, green (488 nm 1.2 kW/cm\xC2\xB2, 535/50)", { 0.0, 1.2, 0.0, 0.0, 0.0 }, "LP505", "BP535-50" },
-   { "PAINT-640", "DNA-PAINT, red (640 nm 0.16 kW/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.1607, 0.0 }, "LP650", "BP676-37" },
-   { "PAINT-561", "DNA-PAINT, orange (561 nm 0.16 kW/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.1607, 0.0, 0.0 }, "LP570", "BP600-37" },
-   { "PAINT-488", "DNA-PAINT, green (488 nm 0.16 kW/cm\xC2\xB2, 525/45)", { 0.0, 0.1607, 0.0, 0.0, 0.0 }, "LP505", "BP525-45" },
-   { "PALM-561", "PALM, orange (561 nm 1 kW/cm\xC2\xB2 + 405 nm 10 W/cm\xC2\xB2, quad)", { 0.01, 0.0, 1.0, 0.0, 0.0 }, "ChromaZT405-488-561-640rpc", "SemrockFF01-600-37" },
+   { "PAINT-640", "DNA-PAINT, red (640 nm 1 kW/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 1.0, 0.0 }, "LP650", "BP676-37" },
+   { "PAINT-561", "DNA-PAINT, orange (561 nm 1 kW/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 1.0, 0.0, 0.0 }, "LP570", "BP600-37" },
+   { "PAINT-488", "DNA-PAINT, green (488 nm 1 kW/cm\xC2\xB2, 525/45)", { 0.0, 1.0, 0.0, 0.0, 0.0 }, "LP505", "BP525-45" },
+   { "PALM-561", "PALM, orange (561 nm 1 kW/cm\xC2\xB2 + 405 nm 2 W/cm\xC2\xB2, quad)", { 0.002, 0.0, 1.0, 0.0, 0.0 }, "ChromaZT405-488-561-640rpc", "SemrockFF01-600-37" },
    { "PALM-primed", "PALM, primed conversion (488 nm 10 W/cm\xC2\xB2 + 730 nm 1 kW/cm\xC2\xB2 + 561 nm 1 kW/cm\xC2\xB2)", { 0.0, 0.01, 1.0, 0.0, 1.0 }, "Penta", "SemrockFF01-600-37" },
    { "WF-405", "Widefield, blue (405 nm 10 W/cm\xC2\xB2, 447/60)", { 0.01, 0.0, 0.0, 0.0, 0.0 }, "LP425", "BP447-60" },
    { "WF-488", "Widefield, green (488 nm 10 W/cm\xC2\xB2, 525/45)", { 0.0, 0.01, 0.0, 0.0, 0.0 }, "LP505", "BP525-45" },
@@ -142,11 +142,11 @@ static const LightPresetData kLightPresets[] = {
    { "WF-640", "Widefield, red (640 nm 10 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.01, 0.0 }, "LP650", "BP676-37" },
 };
 
-// quantumEfficiency, readNoiseElectrons, gainElectronsPerAdu, emGain, cicElectrons, offsetAdu, offsetStdAdu, darkCurrentElectronsPerSec, gainStdPct, readNoiseStdPct, bitDepth
+// quantumEfficiency, readNoiseElectrons, gainElectronsPerAdu, preampElectronsPerAdu, cicElectrons, offsetAdu, offsetStdAdu, darkCurrentElectronsPerSec, gainStdPct, readNoiseStdPct, bitDepth, gainElectronsPerAduWideField
 static const CameraData kCameras[] = {
-   { "Kinetix22", "Teledyne Photometrics Kinetix22 (sCMOS, sensitivity mode)", "sCMOS", "fp:7447", { 0.85, 1.2, 0.25, kNaN, kNaN, 100.0, 0.5, 1.03, 0.5, 20.0, 16.0 } },
-   { "iXonUltra897", "Andor iXon Ultra 897 (EMCCD, 512 x 512, back-illuminated)", "EMCCD", "fp:1337", { 0.95, 50.0, 4.0, 300.0, 0.005, 100.0, 0.5, 0.00025, 0.0, 0.0, 16.0 } },
-   { "Custom", "Custom (flat QE = CamParam_QuantumEfficiency)", nullptr, "Flat", { kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN } },
+   { "Kinetix22", "Teledyne Photometrics Kinetix22 (sCMOS, sensitivity mode)", "sCMOS", "fp:7447", { 0.85, 1.2, 0.25, kNaN, kNaN, 100.0, 0.5, 1.03, 0.5, 20.0, 16.0, kNaN } },
+   { "iXonUltra897", "Andor iXon Ultra 897 (EMCCD, 512 x 512, back-illuminated)", "EMCCD", "fp:1337", { 0.95, 50.0, 0.0066, 1.0, 0.005, 100.0, 0.5, 0.00025, 0.0, 0.0, 16.0, 0.1 } },
+   { "Custom", "Custom (flat QE = CamParam_QuantumEfficiency)", nullptr, "Flat", { kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN } },
 };
 
 // States main, pre; modes dSTORM, PALM, DNA-PAINT, WideField.
@@ -245,7 +245,7 @@ static const DyeData kDyes[] = {
 };
 
 // dSTORM, PALM, DNA-PAINT, WideField
-static const double kSuggestedLabelingPct[] = { 3.0, 5.0, 70.0, 70.0 };
+static const double kSuggestedLabelingPct[] = { 3.0, 25.0, 70.0, 70.0 };
 static const char* const kDefaultDichroic = "LP650";
 static const char* const kDefaultEmissionFilter = "BP676-37";
 static const char* const kDefaultLightPreset = "PAINT-640";

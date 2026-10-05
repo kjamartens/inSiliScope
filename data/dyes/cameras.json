@@ -1,5 +1,5 @@
 {
-  "about": "Camera presets (BSD-3-Clause). A preset writes these values into the camera options (CamParam_*); every value stays editable afterwards. qeCurve: an FPbase QE spectrum id (curve in fpbase_spectra.json, CC BY-SA 4.0) used as QE(lambda) in the detected-fraction integral, or 'Flat' = the scalar quantumEfficiency at every wavelength. physicalPixelUm is informational (the sample pixel size stays General_PixelSizeNm).",
+  "about": "Camera presets (BSD-3-Clause). A preset writes these values into the camera options (CamParam_*); every value stays editable afterwards. qeCurve: an FPbase QE spectrum id (curve in fpbase_spectra.json, CC BY-SA 4.0) used as QE(lambda) in the detected-fraction integral, or 'Flat' = the scalar quantumEfficiency at every wavelength. gainElectronsPerAdu is per photoelectron for both sensor types. gainElectronsPerAduWideField (optional) replaces it when every structure is in WideField mode or the modality is BrightField; the viewer and Micro-Manager re-apply it on a mode or modality change. preampElectronsPerAdu (EMCCD): the sensitivity after the EM register; the EM gain is preampElectronsPerAdu / gain (1 e-/ADU when absent), not a value of its own. physicalPixelUm is informational (the sample pixel size stays General_PixelSizeNm).",
   "presets": [
     {
       "id": "Kinetix22",
@@ -26,8 +26,9 @@
       "qeCurve": 1337,
       "quantumEfficiency": 0.95,
       "readNoiseElectrons": 50,
-      "gainElectronsPerAdu": 4,
-      "emGain": 300,
+      "gainElectronsPerAdu": 0.0066,
+      "gainElectronsPerAduWideField": 0.1,
+      "preampElectronsPerAdu": 1,
       "cicElectrons": 0.005,
       "offsetAdu": 100,
       "offsetStdAdu": 0.5,
@@ -37,7 +38,7 @@
       "bitDepth": 16,
       "physicalPixelUm": 16,
       "refs": ["ixon897-datasheet", "lambert2019"],
-      "notes": "Typical published values: read noise of the EM amplifier before gain (~50 e- at 10 MHz; under 1 e- effective at EM gain 300), CIC ~0.005 e-/px/frame, dark current 0.00025 e-/px/s at -80 C, ~4 e-/ADU pre-amplifier setting. QE curve: FPbase 'Andor iXon 897 BV, BVF'. Not re-checked against the current datasheet."
+      "notes": "Typical published values: read noise of the EM amplifier before gain (~50 e- at 10 MHz; under 1 e- effective at EM gain 300), CIC ~0.005 e-/px/frame, dark current 0.00025 e-/px/s at -80 C. Gain per photoelectron (the noise chain's EM gain only divides the read noise and adds the excess noise, it does not scale the signal): 0.0066 e-/ADU (~150 ADU per photoelectron) for single-molecule modes, 0.1 e-/ADU (gainElectronsPerAduWideField) for WideField and BrightField, which would saturate at 0.0066 (estimates). The EM gain follows: pre-amplifier sensitivity (preampElectronsPerAdu, 1 e-/ADU, an estimate; the camera offers several settings, ~4 e-/ADU among them) / gain = ~150 and 10. QE curve: FPbase 'Andor iXon 897 BV, BVF'. Not re-checked against the current datasheet."
     },
     {
       "id": "Custom",

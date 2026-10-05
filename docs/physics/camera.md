@@ -18,6 +18,17 @@ vendors do not publish them. The gain spread (PRNU, a static pattern proportiona
 sCMOS; it was 5% until 2026-10-01, which hid little in single-molecule frames but swamped brightfield contrast. An **EMCCD** path (`CamParam_CameraType`) adds EM gain and clock-induced charge but keeps this
 project's dark current.
 
+The gain (`CamParam_GainPhotonsPerADU`, e⁻/ADU) is the whole conversion from photoelectrons to counts for both sensor
+types. The EM gain does not scale the signal: the multiplication is drawn as Gamma(shape = n, scale = 1) on the n
+photoelectrons, so its mean stays n and it adds the \(\sqrt{2}\) excess noise factor; the EM gain divides the read noise
+(50 e⁻ at an EM gain of 150 is 0.33 e⁻ effective). The EM gain is not set on its own: it is the camera preset's
+pre-amplifier sensitivity (e⁻/ADU after the EM register; 1 e⁻/ADU for the iXon, an *estimate*, and when a preset has
+none) divided by the gain (Micro-Manager's `CamParam_EmGain` is read-only; the cli's `em-gain` can override it). The iXon
+Ultra 897 preset sets the gain per photoelectron: 0.0066 e⁻/ADU (about 150 ADU per photoelectron, EM gain about 150)
+for dSTORM, PALM and DNA-PAINT, 0.1 e⁻/ADU (EM gain 10) for WideField and BrightField, where 0.0066 would saturate the
+16-bit output (*estimates*). A mode or modality change re-applies it (viewer and Micro-Manager); the cli picks it from
+the spec's mode and modality unless `gain` is given.
+
 Noise draws are counter-based (`pcg4d`), so frames are independent and the CPU and GPU paths agree except for float32 rounding
 (at least 99.8% of pixels identical; the rest differ by one electron in a Poisson draw). Two draws from one sequential stream
 are never put in one C++ expression (evaluation order is unspecified); this once made the sCMOS noise non-reproducible across

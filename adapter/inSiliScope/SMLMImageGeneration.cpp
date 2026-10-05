@@ -63,7 +63,7 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    p.driftAngleRad = sim::DriftAngleForSeed(randomSeed_);
    p.frameDurationSec = expSec;
    p.emccd = cameraEmccd_;
-   p.emGain = emGain_.load();
+   p.emGain = EmGain();
    p.cicElectrons = cicElectrons_.load();
    p.bitDepth = bitDepth_;
    return p;
@@ -1378,7 +1378,14 @@ int CInSiliScopeCamera::OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionT
 int CInSiliScopeCamera::OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(gainPhotonsPerAdu_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); gainPhotonsPerAdu_ = v; InvalidateStack(); }
+   else if (eAct == MM::AfterSet)
+   {
+      double v;
+      pProp->Get(v);
+      gainPhotonsPerAdu_ = v;
+      OnPropertyChanged(g_PropEmGain, std::to_string(EmGain()).c_str());   // derived from the gain
+      InvalidateStack();
+   }
    return DEVICE_OK;
 }
 
@@ -1634,9 +1641,16 @@ int CInSiliScopeCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType e
 
 int CInSiliScopeCamera::OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   if (eAct == MM::BeforeGet) pProp->Set(emGain_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emGain_ = v; InvalidateStack(); }
+   // Read-only: the camera preset's pre-amplifier sensitivity / the gain (EmGain()).
+   if (eAct == MM::BeforeGet) pProp->Set(EmGain());
    return DEVICE_OK;
+}
+
+double CInSiliScopeCamera::EmGain() const
+{
+   const double preamp = cameraPreset_ >= 0 && cameraPreset_ < static_cast<int>(sim::CameraIds().size())
+      ? sim::CameraPreamp(sim::CameraAt(cameraPreset_)) : sim::kDefaultPreampElectronsPerAdu;
+   return sim::EmGainFromGain(preamp, gainPhotonsPerAdu_.load());
 }
 
 int CInSiliScopeCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct)
@@ -1862,7 +1876,10 @@ int CInSiliScopeCamera::OnImagingModality(MM::PropertyBase* pProp, MM::ActionTyp
    {
       std::string s;
       pProp->Get(s);
-      modality_ = s == g_ModalityBrightField ? 1 : 0;
+      const int m = s == g_ModalityBrightField ? 1 : 0;
+      const bool changed = modality_.exchange(m) != m;
+      if (changed)
+         ApplyModeGain();   // a camera whose gain depends on the imaging (an EMCCD preset)
       InvalidateStack();
    }
    return DEVICE_OK;

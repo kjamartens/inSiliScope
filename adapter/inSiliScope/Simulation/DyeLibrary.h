@@ -26,6 +26,8 @@
 #include "LightPath.h"
 #include "Spectra.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <string>
@@ -41,9 +43,27 @@ constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 struct SpectrumData { const char* key; const double* values; };
 struct FilterData { const char* id; const char* name; const char* curve; IdealFilterSpec ideal; };
 struct LightPresetData { const char* id; const char* name; double lasers[5]; const char* dichroic; const char* emissionFilter; };
-enum CameraField { CAM_QE, CAM_READ_NOISE, CAM_GAIN, CAM_EM_GAIN, CAM_CIC, CAM_OFFSET, CAM_OFFSET_STD, CAM_DARK,
-                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_FIELDS };
+enum CameraField { CAM_QE, CAM_READ_NOISE, CAM_GAIN, CAM_PREAMP, CAM_CIC, CAM_OFFSET, CAM_OFFSET_STD, CAM_DARK,
+                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_FIELDS };
 struct CameraData { const char* id; const char* name; const char* type; const char* qeCurve; double v[CAM_FIELDS]; };
+// A camera preset's gain (e-/ADU, per photoelectron) for the imaging at hand: CAM_GAIN_WF, when the preset has one,
+// for WideField-only labels or BrightField, else CAM_GAIN (JS cameraPresetGain). NaN: the preset sets no gain.
+inline double CameraPresetGain(const CameraData& c, bool wideFieldOrBrightField)
+{
+   return wideFieldOrBrightField && !std::isnan(c.v[CAM_GAIN_WF]) ? c.v[CAM_GAIN_WF] : c.v[CAM_GAIN];
+}
+// An EMCCD's EM gain follows from its gain: the gain (e-/ADU) is per photoelectron, i.e. the pre-amplifier
+// sensitivity (e-/ADU after the EM register; the preset's CAM_PREAMP, 1 when it has none) divided by the EM gain.
+// At least 1 (no multiplication). JS emGainFromGain.
+constexpr double kDefaultPreampElectronsPerAdu = 1.0;
+inline double CameraPreamp(const CameraData& c)
+{
+   return std::isnan(c.v[CAM_PREAMP]) ? kDefaultPreampElectronsPerAdu : c.v[CAM_PREAMP];
+}
+inline double EmGainFromGain(double preampElectronsPerAdu, double gainElectronsPerAdu)
+{
+   return gainElectronsPerAdu > 0.0 ? std::max(1.0, preampElectronsPerAdu / gainElectronsPerAdu) : 1.0;
+}
 struct StateData
 {
    bool present;

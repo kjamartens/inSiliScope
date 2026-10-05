@@ -15,7 +15,7 @@
     "refs": ["dempsey2011"]
   },
   "suggestedLabelingPct": {
-    "DNA-PAINT": 70, "dSTORM": 3, "PALM": 5, "WideField": 70,
+    "DNA-PAINT": 70, "dSTORM": 3, "PALM": 25, "WideField": 70,
     "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
   },
   "dyes": [

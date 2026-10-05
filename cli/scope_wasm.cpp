@@ -166,6 +166,44 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
    }
 }
 
+// The PSF a movie of `spec` uses (sim::MakeScopePsfPreview, the viewer's
+// Preview PSF). info[0..6] = gaussian, oversampling, size, nz, camSize,
+// zStepNm, lambdaNm. out: the nz planes (size^2 floats each), then the nz
+// camera images (camSize^2 each). Returns the float count; fills out when
+// cap >= that. The preview is kept from the sizing call to the filling call
+// (computed once, freed when delivered). -1 on a failure (message in errOut).
+ISC_API int32_t isc_scope_psf_preview(const char* spec, float* out, int32_t cap, double* info, char* errOut,
+                                      int32_t errCap)
+{
+   static std::string lastSpec;
+   static sim::ScopePsfPreview last;
+   if (!spec) return Fail(errOut, errCap, "no spec");
+   try {
+      if (lastSpec != spec || last.nz == 0) {
+         sim::ScopeSpec s;
+         std::string err;
+         if (!sim::ParseScopeSpec(spec, s, err)) return Fail(errOut, errCap, err);
+         lastSpec.clear();
+         if (!sim::MakeScopePsfPreview(s, last, err)) return Fail(errOut, errCap, err);
+         lastSpec = spec;
+      }
+      const double v[7] = { last.gaussian ? 1.0 : 0.0, double(last.oversampling), double(last.size), double(last.nz),
+                            double(last.camSize), last.zStepNm, last.lambdaNm };
+      if (info) std::memcpy(info, v, sizeof v);
+      const size_t need = last.planes.size() + last.cams.size();
+      if (need > 0x7fffffff) return Fail(errOut, errCap, "PSF preview too large");
+      if (out && static_cast<size_t>(cap) >= need) {
+         std::memcpy(out, last.planes.data(), last.planes.size() * sizeof(float));
+         std::memcpy(out + last.planes.size(), last.cams.data(), last.cams.size() * sizeof(float));
+         last = sim::ScopePsfPreview();   // delivered: free its ~40 MB
+         lastSpec.clear();
+      }
+      return static_cast<int32_t>(need);
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
 // A fluorescence movie in steps (GPU mode: the mean-field scenes with
 // power-of-two FFTs, images deferred). Returns a handle, or -1 (message in
 // errOut).

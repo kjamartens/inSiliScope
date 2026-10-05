@@ -35,7 +35,7 @@ or mode change and editable after.
 | WideField | every dye emits from \(t=0\) and bleaches by its photon budget | a continuous population |
 
 Changing the mode sets the labelled share of the binding sites to the mode's suggestion (DNA-PAINT 70 %, dSTORM 3 %,
-PALM 5 %, WideField 70 %; *estimates* of typical densities), as the viewer does.
+PALM 25 %, WideField 70 %; *estimates* of typical densities), as the viewer does.
 
 ## Excitation, emission and detection
 
@@ -74,7 +74,7 @@ primed conversion, a term in the product of the 470-510 nm and 690-780 nm intens
 filters and presets: `dSTORM-640/561/488` (Dempsey's conditions), `PAINT-640/561/488`, `PALM-561`, `PALM-primed`,
 `WF-405/488/561/640`. Intensities without a source are *estimates*. Every dye mode names its preset; `light-preset=auto`
 (cli/viewer) or a dye/mode change (viewer, MM `Optics_Preset`) applies it, setting every laser, the dichroic and the
-filter the spec does not give. The default is `PAINT-640` (640 nm at 0.16 kW/cm\(^2\), LP650, 676/37) for the default
+filter the spec does not give. The default is `PAINT-640` (640 nm at 1 kW/cm\(^2\), LP650, 676/37) for the default
 ATTO 655 DNA-PAINT label. Camera presets (`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the
 QE curve.
 

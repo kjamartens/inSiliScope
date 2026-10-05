@@ -12,7 +12,7 @@
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
 import { makeLabel } from '../prototype/scope/dyes.js';
-import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
+import { renderScopeMovie, parseSpec, scopeDims, scopePsfPreview } from '../prototype/scope/scope_movie.js';
 
 const NUC_SLICES = 17, NUC_PTS = 48; // nucleus rings sent with each cell (both poles included)
 
@@ -110,6 +110,14 @@ export async function createEngine(src = {}) {
     P,
     handle(d, post) {
       if (d.type === 'movie') return movie(d, post);
+      if (d.type === 'psf') {   // the viewer's Preview PSF (the WASM engine: isc_scope_psf_preview)
+        try {
+          const r = scopePsfPreview(parseSpec(d.spec), (k, n) => post && post({ type: 'psf-progress', id: d.id, frac: (k + 1) / n }));
+          return [{ type: 'psf', id: d.id, ...r }, [r.planes.buffer, r.cams.buffer]];
+        } catch (e) {
+          return [{ type: 'psf', id: d.id, error: String(e && e.message || e) }, []];
+        }
+      }
       const w = useWorld(d.seed, d.p, d.labels);
       if (d.type === 'block') {
         inject(w, d.blocks);

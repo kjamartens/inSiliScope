@@ -332,7 +332,7 @@ int CInSiliScopeCamera::Initialize()
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCameraGain);
    CreateFloatProperty(g_PropGain, gainPhotonsPerAdu_.load(), false, pAct);
-   SetPropertyLimits(g_PropGain, 0.01, 100.0);
+   SetPropertyLimits(g_PropGain, 0.0001, 100.0);   // per photoelectron: an EMCCD preset uses 0.0066
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCameraOffset);
    CreateFloatProperty(g_PropOffset, offsetAdu_.load(), false, pAct);
@@ -373,8 +373,7 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(g_PropCameraType, g_CameraTypeEmccd);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEmGain);
-   CreateFloatProperty(g_PropEmGain, emGain_.load(), false, pAct);
-   SetPropertyLimits(g_PropEmGain, 1.0, 2000.0);
+   CreateFloatProperty(g_PropEmGain, EmGain(), true, pAct);   // read-only: derived from the gain
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCicElectrons);
    CreateFloatProperty(g_PropCicElectrons, cicElectrons_.load(), false, pAct);
    SetPropertyLimits(g_PropCicElectrons, 0.0, 1.0);

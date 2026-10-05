@@ -388,8 +388,10 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   `IlluminationProfile`/`IlluminationFwhmPct` (were `FluoParam_Illum*`).
 - `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
   offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
-  std-pct properties, the EMCCD ones (`CameraType`, `EmGain`,
-  `CicElectrons`, `BitDepth`), `CameraPreset` and `QeCurve`.
+  std-pct properties, the EMCCD ones (`CameraType`, `EmGain` -- read-only
+  since 2026-10-05: the preset's pre-amplifier sensitivity / the gain, which is
+  per photoelectron for both sensors --, `CicElectrons`, `BitDepth`),
+  `CameraPreset` and `QeCurve`.
 - `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
   (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
   `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including

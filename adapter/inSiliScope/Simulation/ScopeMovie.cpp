@@ -47,10 +47,10 @@ namespace sim {
 
 namespace {
 
-// The default 640 nm intensity: ATTO 655 through LP650 + 676/37 on the Kinetix
-// detects 6375 photoelectrons/s while ON, what the single-dye default did
-// (7500 photons/s x QE 0.85; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
-constexpr double kDefaultLaser640KW = 0.1607;
+// The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was
+// 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
+// photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
+constexpr double kDefaultLaser640KW = 1.0;
 // k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former
 // default activation rate (scope_movie.js DEFAULT_IMAGER_NM).
 constexpr double kDefaultImagerNm = 1.43;
@@ -94,7 +94,7 @@ const OptionTable& Options()
          { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
          { "mt-dye", idx(DyeChoices(), "ATTO655"), "SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)" },
          { "mt-mode", -1, "SimType_CellFieldMicrotubuleLabelMode: -1 = the dye's default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
-         { "mt-label-pct", -1, "SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 5, WideField 70)" },
+         { "mt-label-pct", -1, "SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
          { "mt-imager-nm", kDefaultImagerNm, "SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)" },
          { "mt-orient", 0, "SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)" },
          { "mt-orient-polar-deg", 90, "SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis" },
@@ -137,7 +137,7 @@ const OptionTable& Options()
          { "read-noise", 1.2, "CamParam_ReadNoiseElectrons" },
          { "gain-std-pct", 0.5, "CamParam_GainStdPctPerPixel (per-pixel gain spread, PRNU)" },
          { "read-noise-std-pct", 20, "CamParam_ReadNoiseStdPctPerPixel" },
-         { "em-gain", 300, "CamParam_EmGain (EMCCD)" },
+         { "em-gain", -1, "CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it" },
          { "cic", 0.002, "CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)" },
          { "bit-depth", 16, "CamParam_BitDepth (EMCCD)" },
          { "modality", 0, "General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)" },
@@ -425,6 +425,30 @@ struct ScopeCamera
    double gainStdFraction = 0, readNoiseStdFraction = 0, emGain = 300, cicElectrons = 0, bitDepth = 16;
 };
 
+// The preset's gain depends on the imaging (CameraPresetGain): BrightField, or
+// every structure in WideField mode (JS wideFieldOrBrightField).
+static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string& err)
+{
+   auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
+   out = O("modality") == 1;
+   if (out)
+      return true;
+   std::vector<DyeSlot> slots;
+   std::vector<DyeOverrides> byStructure;
+   SpecOverrides(spec, slots, byStructure);
+   out = true;
+   for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
+   {
+      const char* P = kStructurePrefix[s];
+      EffectiveDye eff;
+      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye"))), slots, byStructure[static_cast<size_t>(s)],
+                            static_cast<int>(O(Opt(P, "mode"))), eff, err))
+         return false;
+      out = out && DyeModeNames()[static_cast<size_t>(eff.mode)] == "WideField";
+   }
+   return true;
+}
+
 static bool MakeScopeCamera(const ScopeSpec& spec, ScopeCamera& c, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
@@ -435,8 +459,12 @@ static bool MakeScopeCamera(const ScopeSpec& spec, ScopeCamera& c, std::string& 
       return false;
    }
    const CameraData& preset = CameraAt(pi);
+   bool wide = false;
+   if (!WideFieldOrBrightField(spec, wide, err))
+      return false;
    auto C = [&](const char* n, CameraField f) {
-      return spec.count(n) || std::isnan(preset.v[f]) ? O(n) : preset.v[f];
+      const double v = f == CAM_GAIN ? CameraPresetGain(preset, wide) : preset.v[f];
+      return spec.count(n) || std::isnan(v) ? O(n) : v;
    };
    c.preset = preset.id;
    c.emccd = O("camera-type") >= 0 ? O("camera-type") == 1 : (preset.type && !std::strcmp(preset.type, "EMCCD"));
@@ -449,7 +477,7 @@ static bool MakeScopeCamera(const ScopeSpec& spec, ScopeCamera& c, std::string& 
    c.readNoiseElectrons = C("read-noise", CAM_READ_NOISE);
    c.gainStdFraction = C("gain-std-pct", CAM_GAIN_STD_PCT) / 100.0;
    c.readNoiseStdFraction = C("read-noise-std-pct", CAM_READ_NOISE_STD_PCT) / 100.0;
-   c.emGain = C("em-gain", CAM_EM_GAIN);
+   c.emGain = O("em-gain") > 0 ? O("em-gain") : EmGainFromGain(CameraPreamp(preset), c.gainPhotonsPerAdu);
    c.cicElectrons = C("cic", CAM_CIC);
    c.bitDepth = C("bit-depth", CAM_BIT_DEPTH);
    return true;
@@ -840,6 +868,73 @@ double GaussianSigmaPx(double lambdaNm, double na, double pixelNm)
 {
    return std::min(std::max(0.21 * lambdaNm / std::max(0.01, na) / pixelNm, 0.3), 20.0);
 }
+
+} // namespace
+
+bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::string& err)
+{
+   ScopeStateReadout st;
+   if (!ScopeLabelState(spec, 0, false, st, err))
+      return false;
+   if (!st.emits)
+   {
+      ScopeStateReadout pre;
+      if (ScopeLabelState(spec, 0, true, pre, err) && pre.emits)
+         st = pre;
+      err.clear();
+   }
+   out = ScopePsfPreview();
+   out.lambdaNm = KernelWavelengthNm(st.emits ? st.lambdaNm : 670.0);
+   PsfKernelCache cache;
+   if (!ScopePsfKernel(spec, out.lambdaNm, cache, err))
+      return false;
+   if (cache.valid)
+   {
+      out.oversampling = std::max(1, cache.oversampling);
+      out.size = cache.sizeOversampled;
+      out.nz = cache.nz;
+      out.zStepNm = cache.zStepNm;
+      const int camRad = cache.halfWidthOversampled / out.oversampling;
+      const int n = 2 * camRad + 1;
+      out.camSize = n;
+      const size_t P = static_cast<size_t>(out.size) * out.size, C = static_cast<size_t>(n) * n;
+      out.planes.resize(P * out.nz);
+      out.cams.assign(C * out.nz, 0.0f);
+      std::vector<float> img;
+      for (int z = 0; z < out.nz; ++z)
+      {
+         std::copy(cache.Planes()[static_cast<size_t>(z)].begin(), cache.Planes()[static_cast<size_t>(z)].end(),
+                   out.planes.begin() + static_cast<std::ptrdiff_t>(P * z));
+         img.assign(C, 0.0f);
+         SplatPlan plan;
+         if (PlanSplat(cache, z, camRad, camRad, 1.0, cache.interpMode, plan))
+            SplatRows(img, static_cast<unsigned>(n), static_cast<unsigned>(n), 0, n, cache, plan, 1.0);
+         std::copy(img.begin(), img.end(), out.cams.begin() + static_cast<std::ptrdiff_t>(C * z));
+      }
+      return true;
+   }
+   // Gaussian: no defocus, one plane.
+   const double sigma = GaussianSigmaPx(out.lambdaNm, ScopeSpecGet(spec, "na"), ScopeSpecGet(spec, "pixel-nm"));
+   const int os = static_cast<int>(std::min(16.0, std::max(1.0, ScopeSpecGet(spec, "psf-oversampling"))));
+   const int camRad = static_cast<int>(std::ceil(4 * sigma)) + 1, n = 2 * camRad + 1;
+   out.gaussian = true;
+   out.oversampling = os;
+   out.size = n * os;
+   out.nz = 1;
+   out.camSize = n;
+   out.planes.resize(static_cast<size_t>(out.size) * out.size);
+   for (int y = 0; y < out.size; ++y)
+      for (int x = 0; x < out.size; ++x)
+      {
+         const double dx = (x + 0.5) / os - 0.5 - camRad, dy = (y + 0.5) / os - 0.5 - camRad;
+         out.planes[static_cast<size_t>(y) * out.size + x] = static_cast<float>(std::exp(-(dx * dx + dy * dy) / (2 * sigma * sigma)));
+      }
+   out.cams.assign(static_cast<size_t>(n) * n, 0.0f);
+   RenderGaussianPSF(out.cams, static_cast<unsigned>(n), static_cast<unsigned>(n), camRad, camRad, sigma, 1.0);
+   return true;
+}
+
+namespace {
 
 // Mean detected photons per dye of a decaying population in [t0, t1): rate x
 // the integral of exp(-lambda t).

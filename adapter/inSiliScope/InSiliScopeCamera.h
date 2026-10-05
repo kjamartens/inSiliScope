@@ -363,6 +363,8 @@ private:
    void SyncHistoryWorld();
    void ApplyLightPreset(const std::string& id);
    void ApplyCameraPreset(int index);
+   void ApplyModeGain();
+   double EmGain() const;   // the camera preset's pre-amplifier sensitivity / the gain   // the camera preset's gain for the current imaging (sim::CameraPresetGain)
    void NotifyOption(const std::string& option);
    double OptionValue(const std::string& option) const;
    void SetOptionValue(const std::string& option, double v);
@@ -618,9 +620,10 @@ private:
    int illumProfile_ = static_cast<int>(sim::IllumProfile::Flat);
    std::atomic<double> illumFwhmPct_{60.0};
    // Sensor: sCMOS (the original chain) or EMCCD (sim::CameraNoiseParams).
-   // EmGain/Cic/BitDepth only matter for EMCCD; webSMLM's defaults.
+   // Cic/BitDepth only matter for EMCCD; webSMLM's defaults. The EM gain is
+   // not a value of its own: EmGain() = the preset's pre-amplifier
+   // sensitivity / the gain (sim::EmGainFromGain).
    bool cameraEmccd_ = false;
-   std::atomic<double> emGain_{300.0};
    std::atomic<double> cicElectrons_{0.002};
    int bitDepth_ = 16;
    // Background fade-to-30%-floor time constant in seconds (0 = no fade).

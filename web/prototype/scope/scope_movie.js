@@ -8,20 +8,23 @@
 // This is the JS REFERENCE for imaging. Iterate on photophysics/PSF/camera here (web/lab), then port to
 // the C++ files named in each module's header when merging (web/lab/README.md, tests/parity/scope_parity.mjs).
 import { World, STRUCTURES } from './world.js';
-import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE } from './psf.js';
+import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE, planSplat,
+  splatRows } from './psf.js';
+import { renderGaussian } from './render.js';
 import { renderBrightfieldMovie } from './brightfield.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
 import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
-  effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, backgroundQe } from './dye_library.js';
+  effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
+  backgroundQe } from './dye_library.js';
 import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
 import { sampleAt } from './spectra.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
 export { LIGHT_PRESET_CHOICES };
 const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Error(`no '${id}'`); return i; };
-// The default 640 nm intensity: ATTO 655 through LP650 + 676/37 on the Kinetix detects 6375 photoelectrons/s while ON,
-// what the single-dye default did (7500 photons/s x QE 0.85; scope/dye_library.js, issue 16).
-export const DEFAULT_LASER_640_KW = 0.1607;
+// The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
+// ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
+export const DEFAULT_LASER_640_KW = 1.0;
 // k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former default activation rate.
 export const DEFAULT_IMAGER_NM = 1.43;
 
@@ -46,7 +49,7 @@ export const SCOPE_OPTIONS = [
   // ---- the microtubules' label (SimType_CellFieldMicrotubule*, FluoParam_Microtubule_*) ----
   ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)'],
   ['mt-mode', -1, 'SimType_CellFieldMicrotubuleLabelMode: -1 = the dye\'s default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', -1, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 5, WideField 70)'],
+  ['mt-label-pct', -1, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
   ['mt-imager-nm', DEFAULT_IMAGER_NM, 'SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
   ['mt-orient', 0, 'SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
   ['mt-orient-polar-deg', 90, 'SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis'],
@@ -87,7 +90,7 @@ export const SCOPE_OPTIONS = [
   ['read-noise', 1.2, 'CamParam_ReadNoiseElectrons'],
   ['gain-std-pct', 0.5, 'CamParam_GainStdPctPerPixel (per-pixel gain spread, PRNU)'],
   ['read-noise-std-pct', 20, 'CamParam_ReadNoiseStdPctPerPixel'],
-  ['em-gain', 300, 'CamParam_EmGain (EMCCD)'],
+  ['em-gain', -1, 'CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it'],
   ['cic', 0.002, 'CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)'],
   ['bit-depth', 16, 'CamParam_BitDepth (EMCCD)'],
   ['modality', 0, 'General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)'],
@@ -175,16 +178,25 @@ export function scopeDims(spec) {
 // The camera of a spec: the preset's values for every option the spec does not set (CameraPreset).
 const CAMERA_KEYS = { qe: 'quantumEfficiency', 'dark-per-sec': 'darkCurrentElectronsPerSec', gain: 'gainElectronsPerAdu',
   offset: 'offsetAdu', 'offset-std': 'offsetStdAdu', 'read-noise': 'readNoiseElectrons', 'gain-std-pct': 'gainStdPct',
-  'read-noise-std-pct': 'readNoiseStdPct', 'em-gain': 'emGain', cic: 'cicElectrons', 'bit-depth': 'bitDepth' };
+  'read-noise-std-pct': 'readNoiseStdPct', cic: 'cicElectrons', 'bit-depth': 'bitDepth' };
+// The preset's gain depends on the imaging (cameraPresetGain): BrightField, or every structure in WideField mode.
+function wideFieldOrBrightField(spec) {
+  const O = getter(spec);
+  if (O('modality') === 1) return true;
+  const { slots, byStructure } = dyeOverrides(spec);
+  return STRUCTURES.every(s => effectiveDye(Math.trunc(O(`${s.prefix}-dye`)), slots, byStructure[s.prefix],
+    Math.trunc(O(`${s.prefix}-mode`))).mode === 'WideField');
+}
 export function scopeCamera(spec) {
   const O = getter(spec), preset = cameraPreset(Math.trunc(O('camera-preset')));
-  const C = n => (n in spec || preset[CAMERA_KEYS[n]] === undefined ? O(n) : preset[CAMERA_KEYS[n]]);
+  const C = n => (n in spec || preset[CAMERA_KEYS[n]] === undefined ? O(n)
+    : n === 'gain' ? cameraPresetGain(preset, wideFieldOrBrightField(spec)) : preset[CAMERA_KEYS[n]]);
   const type = O('camera-type') >= 0 ? O('camera-type') : (preset.type === 'EMCCD' ? 1 : 0);
   const qeCurve = O('qe-curve') >= 0 ? Math.trunc(O('qe-curve')) : CAMERA_IDS.indexOf(preset.id);
   return { preset: preset.id, qeCurve, qeFlat: C('qe'), emccd: type === 1, darkPerSec: C('dark-per-sec'),
     gainPhotonsPerAdu: C('gain'), offsetAdu: C('offset'), offsetStdAdu: C('offset-std'), readNoiseElectrons: C('read-noise'),
     gainStdFraction: C('gain-std-pct') / 100.0, readNoiseStdFraction: C('read-noise-std-pct') / 100.0,
-    emGain: C('em-gain'), cicElectrons: C('cic'), bitDepth: C('bit-depth') };
+    emGain: O('em-gain') > 0 ? O('em-gain') : emGainFromGain(cameraPreamp(preset), C('gain')), cicElectrons: C('cic'), bitDepth: C('bit-depth') };
 }
 
 // The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, dichroic, emissionFilter}.
@@ -336,6 +348,35 @@ export function scopeKernel(spec, wavelengthNm, onPlane, keep = 2) {
   kernelMemo.unshift(hit);
   kernelMemo.length = Math.min(kernelMemo.length, Math.max(2, keep));
   return { ...hit.cache, interpMode: req.interpMode };
+}
+// The PSF a movie of the spec uses, for display (MakeScopePsfPreview, the viewer's Preview PSF): the microtubules'
+// emitting state's kernel (the pre state when the main one is dark) and, per z plane, the camera image of one emitter
+// of 1 photon at the centre of the middle pixel, splatted as a movie does. Gaussian: one plane, sampled at
+// psf-oversampling, and its renderGaussian image. onPlane(k, nz): kernel progress.
+export function scopePsfPreview(spec, onPlane) {
+  const O = getter(spec), lp = scopeLightPath(spec, scopeCamera(spec)), L = scopeLabels(spec, lp)[0];
+  const st = L.states.main || L.states.pre;
+  const lambdaNm = kernelWavelengthNm(st ? st.lambdaNm : 670.0);
+  const c = scopeKernel(spec, lambdaNm, onPlane);
+  if (c) {
+    const os = Math.max(1, c.oversampling), camRad = Math.trunc(c.halfWidthOversampled / os), N = 2 * camRad + 1;
+    const P = c.sizeOversampled * c.sizeOversampled, planes = new Float32Array(P * c.nz), cams = new Float32Array(N * N * c.nz);
+    for (let z = 0; z < c.nz; z++) {
+      planes.set(c.planes[z], z * P);
+      const plan = planSplat(c, z, camRad, camRad, 1.0, c.interpMode);
+      if (plan) splatRows(cams.subarray(z * N * N, (z + 1) * N * N), N, N, 0, N, c, plan, 1.0);
+    }
+    return { gaussian: false, oversampling: os, size: c.sizeOversampled, nz: c.nz, camSize: N, zStepNm: c.zStepNm, lambdaNm, planes, cams };
+  }
+  const sigma = Math.min(Math.max(0.21 * lambdaNm / Math.max(0.01, O('na')) / O('pixel-nm'), 0.3), 20.0);
+  const os = Math.trunc(Math.min(16, Math.max(1, O('psf-oversampling')))), camRad = Math.ceil(4 * sigma) + 1, N = 2 * camRad + 1;
+  const size = N * os, planes = new Float32Array(size * size), cams = new Float32Array(N * N);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (x + 0.5) / os - 0.5 - camRad, dy = (y + 0.5) / os - 0.5 - camRad;
+    planes[y * size + x] = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+  }
+  renderGaussian(cams, N, N, camRad, camRad, sigma, 1.0);
+  return { gaussian: true, oversampling: os, size, nz: 1, camSize: N, zStepNm: 0, lambdaNm, planes, cams };
 }
 // The labels enter only the dye draw and the schedules (World.setLabels): a change of those alone keeps the world's
 // cells and microtubules.

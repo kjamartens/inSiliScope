@@ -329,12 +329,15 @@ void CInSiliScopeCamera::LoadMicrotubuleDye(bool modeMayChange)
       LogMessage("Microtubule dye: " + err, false);
       return;
    }
-   if (modeMayChange && eff.mode != lastMtMode_)
+   const bool modeChanged = eff.mode != lastMtMode_;
+   if (modeMayChange && modeChanged)
    {
       SetOptionValue("mt-label-pct", SuggestedLabelingPct(eff.mode));
       NotifyOption("mt-label-pct");
    }
    lastMtMode_ = eff.mode;
+   if (modeChanged)
+      ApplyModeGain();
    if (eff.dye.modes[eff.mode].lightPreset)
       ApplyLightPreset(eff.dye.modes[eff.mode].lightPreset);
    for (const DyeFieldProp& d : dyeFieldProps_)
@@ -400,8 +403,6 @@ void CInSiliScopeCamera::ApplyCameraPreset(int index)
    };
    set(quantumEfficiency_, sim::CAM_QE, g_PropQuantumEfficiency);
    set(readNoiseElectrons_, sim::CAM_READ_NOISE, g_PropReadNoise);
-   set(gainPhotonsPerAdu_, sim::CAM_GAIN, g_PropGain);
-   set(emGain_, sim::CAM_EM_GAIN, g_PropEmGain);
    set(cicElectrons_, sim::CAM_CIC, g_PropCicElectrons);
    set(offsetAdu_, sim::CAM_OFFSET, g_PropOffset);
    set(offsetStdAdu_, sim::CAM_OFFSET_STD, g_PropOffsetStd);
@@ -420,6 +421,28 @@ void CInSiliScopeCamera::ApplyCameraPreset(int index)
    }
    SetOptionValue("qe-curve", index);
    NotifyOption("qe-curve");
+   const double gain = sim::CameraPresetGain(c, modality_.load() == 1 || lastMtMode_ == sim::IndexOf(sim::DyeModeNames(), "WideField"));
+   if (!std::isnan(gain))
+   {
+      gainPhotonsPerAdu_ = gain;
+      OnPropertyChanged(g_PropGain, Num(gain).c_str());
+   }
+   OnPropertyChanged(g_PropEmGain, Num(EmGain()).c_str());   // the preset's pre-amplifier sensitivity / the gain
+}
+
+// A preset whose gain depends on the imaging (CAM_GAIN_WF: the EMCCD's single-molecule vs WideField/BrightField gain)
+// re-applies it when the microtubules' mode or the modality changes; other presets leave an edited gain alone.
+void CInSiliScopeCamera::ApplyModeGain()
+{
+   if (cameraPreset_ < 0 || cameraPreset_ >= static_cast<int>(sim::CameraIds().size()))
+      return;
+   const sim::CameraData& c = sim::CameraAt(cameraPreset_);
+   if (std::isnan(c.v[sim::CAM_GAIN_WF]))
+      return;
+   const double gain = sim::CameraPresetGain(c, modality_.load() == 1 || lastMtMode_ == sim::IndexOf(sim::DyeModeNames(), "WideField"));
+   gainPhotonsPerAdu_ = gain;
+   OnPropertyChanged(g_PropGain, Num(gain).c_str());
+   OnPropertyChanged(g_PropEmGain, Num(EmGain()).c_str());
 }
 
 int CInSiliScopeCamera::OnCameraPreset(MM::PropertyBase* pProp, MM::ActionType eAct)
@@ -553,7 +576,7 @@ sim::ScopeSpec CInSiliScopeCamera::BuildScopeSpec(double stageXUm, double stageY
    s["read-noise"] = readNoiseElectrons_.load();
    s["gain-std-pct"] = pixelGainStdPct_.load();
    s["read-noise-std-pct"] = pixelReadNoiseStdPct_.load();
-   s["em-gain"] = emGain_.load();
+   s["em-gain"] = EmGain();
    s["cic"] = cicElectrons_.load();
    s["bit-depth"] = bitDepth_;
    // The cell field.

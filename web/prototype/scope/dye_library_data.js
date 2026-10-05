@@ -280,19 +280,19 @@ export const DYE_DATA = {
   },
   {
    "id": "PAINT-640",
-   "name": "DNA-PAINT, red (640 nm 0.16 kW/cm², 676/37)",
+   "name": "DNA-PAINT, red (640 nm 1 kW/cm², 676/37)",
    "lasers": {
-    "640": 0.1607
+    "640": 1
    },
    "dichroic": "LP650",
    "emissionFilter": "BP676-37",
-   "notes": "The default: 0.16 kW/cm^2 gives ATTO 655 the pre-issue-16 default brightness (6375 detected photons/s ON). Typical DNA-PAINT TIRF intensities are higher (estimate)."
+   "notes": "The default: 1 kW/cm^2, a typical DNA-PAINT TIRF/HILO intensity (estimate; was 0.16 kW/cm^2 until 2026-10-05, the pre-issue-16 default brightness of ATTO 655)."
   },
   {
    "id": "PAINT-561",
-   "name": "DNA-PAINT, orange (561 nm 0.16 kW/cm², 600/37)",
+   "name": "DNA-PAINT, orange (561 nm 1 kW/cm², 600/37)",
    "lasers": {
-    "561": 0.1607
+    "561": 1
    },
    "dichroic": "LP570",
    "emissionFilter": "BP600-37",
@@ -300,9 +300,9 @@ export const DYE_DATA = {
   },
   {
    "id": "PAINT-488",
-   "name": "DNA-PAINT, green (488 nm 0.16 kW/cm², 525/45)",
+   "name": "DNA-PAINT, green (488 nm 1 kW/cm², 525/45)",
    "lasers": {
-    "488": 0.1607
+    "488": 1
    },
    "dichroic": "LP505",
    "emissionFilter": "BP525-45",
@@ -310,9 +310,9 @@ export const DYE_DATA = {
   },
   {
    "id": "PALM-561",
-   "name": "PALM, orange (561 nm 1 kW/cm² + 405 nm 10 W/cm², quad)",
+   "name": "PALM, orange (561 nm 1 kW/cm² + 405 nm 2 W/cm², quad)",
    "lasers": {
-    "405": 0.01,
+    "405": 0.002,
     "561": 1
    },
    "dichroic": "ChromaZT405-488-561-640rpc",
@@ -405,8 +405,9 @@ export const DYE_DATA = {
    "qeCurve": "fp:1337",
    "quantumEfficiency": 0.95,
    "readNoiseElectrons": 50,
-   "gainElectronsPerAdu": 4,
-   "emGain": 300,
+   "gainElectronsPerAdu": 0.0066,
+   "gainElectronsPerAduWideField": 0.1,
+   "preampElectronsPerAdu": 1,
    "cicElectrons": 0.005,
    "offsetAdu": 100,
    "offsetStdAdu": 0.5,
@@ -419,7 +420,7 @@ export const DYE_DATA = {
     "ixon897-datasheet",
     "lambert2019"
    ],
-   "notes": "Typical published values: read noise of the EM amplifier before gain (~50 e- at 10 MHz; under 1 e- effective at EM gain 300), CIC ~0.005 e-/px/frame, dark current 0.00025 e-/px/s at -80 C, ~4 e-/ADU pre-amplifier setting. QE curve: FPbase 'Andor iXon 897 BV, BVF'. Not re-checked against the current datasheet."
+   "notes": "Typical published values: read noise of the EM amplifier before gain (~50 e- at 10 MHz; under 1 e- effective at EM gain 300), CIC ~0.005 e-/px/frame, dark current 0.00025 e-/px/s at -80 C. Gain per photoelectron (the noise chain's EM gain only divides the read noise and adds the excess noise, it does not scale the signal): 0.0066 e-/ADU (~150 ADU per photoelectron) for single-molecule modes, 0.1 e-/ADU (gainElectronsPerAduWideField) for WideField and BrightField, which would saturate at 0.0066 (estimates). The EM gain follows: pre-amplifier sensitivity (preampElectronsPerAdu, 1 e-/ADU, an estimate; the camera offers several settings, ~4 e-/ADU among them) / gain = ~150 and 10. QE curve: FPbase 'Andor iXon 897 BV, BVF'. Not re-checked against the current datasheet."
   },
   {
    "id": "Custom",
@@ -1419,7 +1420,7 @@ export const DYE_DATA = {
  "suggestedLabelingPct": {
   "DNA-PAINT": 70,
   "dSTORM": 3,
-  "PALM": 5,
+  "PALM": 25,
   "WideField": 70,
   "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
  },

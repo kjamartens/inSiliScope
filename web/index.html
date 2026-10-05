@@ -109,7 +109,7 @@
   #canvasHost.xz #legend,#canvasHost.xz #movie{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
-  #movie{position:absolute;bottom:8px;right:8px;display:none;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
+  #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie a{color:#8bb8e8}
   #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
@@ -168,7 +168,7 @@
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
 // This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
 // from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
-const { UI_GROUPS, UI_STYLES, USER_DYES } = (() => {
+const { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
 const FL = () => modality() === 0, BF = () => modality() === 1;
@@ -197,6 +197,14 @@ const mtMode = () => {
   return USER_DYES.isUser(v) ? MODE_NAMES[USER_DYES.modeIndex(USER_DYES.slot(v))] : choiceDye(v).defaultMode;
 };
 const inMode = (...modes) => () => FL() && modes.includes(mtMode());
+// The Dye select lists the library dyes with data for the structure's mode (every dye runs in every mode, on generic
+// values where the library has none; those are not offered); the user dyes are listed whatever the mode.
+const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
+const firstDyeFor = m => { const i = DD.dyes.findIndex(d => d.defaultMode === m); return i >= 0 ? i : DD.dyes.findIndex((d, j) => dyeHasMode(j, m)); };
+function filterMtDyes() {
+  const sel = $('mv_mt-dye'), m = mtMode();
+  for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
+}
 // Shows the added user dyes in the structures' Dye select (by name), hides the others, and moves a structure off a
 // removed one (to the default library dye).
 function refreshUserDyes() {
@@ -232,11 +240,21 @@ const DYE_FIELD_ROWS = [
   ['photon-budget', 'Photon budget', 'photons', 'WideField: photons a dye emits before it bleaches (exponential; 0 = never).', (d, m) => d.modes[m].photonBudget, ['WideField']],
 ];
 // A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the mode's
-// suggestion (data/dyes suggestedLabelingPct: DNA-PAINT 70 %, dSTORM 3 %, PALM 5 %); the same mode keeps them.
+// suggestion (data/dyes suggestedLabelingPct: DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %); the same mode keeps them.
 let lastMtMode = DD.dyeDefault.mode;   // the panel's initial mode
+// It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
+// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
+const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() || mtMode() === 'WideField')
+  ? c.gainElectronsPerAduWideField : c.gainElectronsPerAdu);
+// The sensor in use is an EMCCD: the Sensor select, or the camera preset's type when that says "the preset's".
+const emccdChosen = () => { const t = +$('mv_camera-type').value; return t >= 0 ? t === 1 : DD.cameras[+$('mv_camera-preset').value].type === 'EMCCD'; };
+const cameraModeGain = () => { const c = DD.cameras[+$('mv_camera-preset').value]; return c.gainElectronsPerAduWideField !== undefined ? presetGain(c) : undefined; };
 const modeSuggestion = vals => {
   const m = mtMode();
-  if (lastMtMode !== null && m !== lastMtMode) vals['mv_mt-label-pct'] = DD.suggestedLabelingPct[m];
+  if (lastMtMode !== null && m !== lastMtMode) {
+    vals['mv_mt-label-pct'] = DD.suggestedLabelingPct[m];
+    if (cameraModeGain() !== undefined) vals['mv_gain'] = cameraModeGain();
+  }
   lastMtMode = m;
   return vals;
 };
@@ -249,7 +267,8 @@ const lightPresetValues = q => {
   return o;
 };
 // A dye pick or a mode change loads that dye mode's light preset.
-const withLightPreset = (vals, d, mode) => Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
+// In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
+const withLightPreset = (vals, d, mode) => BF() ? vals : Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
 const dyeRows = (prefix, modeOf, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) =>
@@ -386,13 +405,19 @@ const UI_GROUPS = [
   ] },
 
   { sect: 'Sample preparation', id: 'mtlabel', title: 'Microtubule label', open: true, items: [
-    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. <code>SimType_CellFieldMicrotubuleDye</code>',
-      [...DD.dyes.map((d, i) => [String(i), d.name + ' (' + d.defaultMode + ')']), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
-      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
+    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
     select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>SimType_CellFieldMicrotubuleLabelMode</code>',
-      [['-1', 'the dye\'s default'], ...MODE_NAMES.map((m, i) => [String(i), m])], '-1', { apply: () => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye($('mv_mt-dye').value), mtMode())), choiceDye($('mv_mt-dye').value), mtMode()) }),
-    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 5 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
-    num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Light path). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>SimType_CellFieldMicrotubuleImagerNm</code>', 0, null, 0.1, 1.43, { show: inMode('DNA-PAINT') }),
+      MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: filterMtDyes, apply: () => {
+        // A mode the dye has no data for moves the structure to that mode's dye (whose pick loads its values and preset).
+        const v = $('mv_mt-dye').value, m = mtMode();
+        filterMtDyes();
+        if (!USER_DYES.isUser(v) && !dyeHasMode(+v, m)) return { 'mv_mt-dye': firstDyeFor(m) };
+        return withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), m)), choiceDye(v), m);
+      } }),
+    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. <code>SimType_CellFieldMicrotubuleDye</code>',
+      [...DD.dyes.map((d, i) => [String(i), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
+      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
+    num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>SimType_CellFieldMicrotubuleImagerNm</code>', 0, null, 0.1, 1.43, { show: inMode('DNA-PAINT') }),
     select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation), the only one the images use. <b>Fixed and Random are not implemented yet</b>: they are stored but change nothing (dipole emission and polarisation: future). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. <code>SimType_CellFieldMicrotubuleOrientation</code>',
       [['0', 'Free'], ['1', 'Fixed (not implemented yet)'], ['2', 'Random (not implemented yet)']], '0', { adv, kids: [
         num('mv_mt-orient-polar-deg', 'Polar angle', '°', 'Not implemented yet (no effect on the image). Fixed: angle of the dipole from the microtubule axis. <code>SimType_CellFieldMicrotubuleOrientPolarDeg</code>', 0, 180, 1, 90, { adv, show: () => $('mv_mt-orient').value === '1' }),
@@ -439,29 +464,29 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { sect: 'Microscope', id: 'lightpath', title: 'Light path', open: true, show: FL, items: [
-    preset('lightPreset', 'Preset', 'Laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). Picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Optics_Preset</code>',
-      Object.fromEntries(DD.lightPresets.map(q => [q.name, lightPresetValues(q)])), []),
-    select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
-      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, kids: [
-        num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
-      ] }),
-    select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>Optics_EmissionFilter</code>',
-      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { adv, kids: [
-        num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>Optics_EmissionLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
-        num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>Optics_EmissionHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
-      ] }),
-    num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv }),
-    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>' },
-  ] },
-  { id: 'illum', title: 'Illumination', open: true, items: [
+  { sect: 'Microscope', id: 'illum', title: 'Illumination & light path', open: true, items: [
     select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
-      [['0', 'Fluorescence'], ['1', 'BrightField']], '0'),
-    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Optics_Laser' + nm + 'KWcm2</code>', 0, null, 'any', nm === 640 ? 0.1607 : 0, { show: FL })),
+      [['0', 'Fluorescence'], ['1', 'BrightField']], '0', { show: () => false }),   // set by the Preset below (BrightField or a fluorescence preset)
+    preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>General_ImagingModality</code>, <code>Optics_Preset</code>',
+      { ...Object.fromEntries(DD.lightPresets.map(q => [q.name, { ...lightPresetValues(q), 'mv_modality': 0 }])),
+        'BrightField (lasers off)': { ...Object.fromEntries(DD.lasers.map(nm => ['mv_laser-' + nm, 0])), 'mv_modality': 1 } }, []),
+    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Optics_Laser' + nm + 'KWcm2</code>', 0, null, 'any', nm === 640 ? 1 : 0, { show: FL })),
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none). <code>Optics_LaserCustomNm</code>', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample. <code>Optics_LaserCustomKWcm2</code>', 0, null, 'any', 0, { adv, show: FL }),
     ] }),
-    select('mv_illum-geometry', 'Geometry', 'Illumination geometry: Epi only for now (TIRF/HILO: future). <code>Optics_IlluminationGeometry</code>', [['0', 'Epi']], '0', { adv, show: FL }),
+    select('mv_illum-geometry', 'Geometry', 'Illumination geometry: Epi only for now (TIRF/HILO: future). <code>Optics_IlluminationGeometry</code>', [['0', 'Epi']], '0', { adv, show: FL, kids: [
+      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv, show: FL }),
+    ] }),
+    select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
+      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, show: FL, kids: [
+        num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
+      ] }),
+    select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>Optics_EmissionFilter</code>',
+      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { adv, show: FL, kids: [
+        num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>Optics_EmissionLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+        num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>Optics_EmissionHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+      ] }),
+    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>', show: FL },
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>General_BrightFieldPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
@@ -472,6 +497,7 @@ const UI_GROUPS = [
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
         select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>PSFParam_PsfZernikePreset</code>', ZERNIKE_PRESETS, '9'),
       ] }),
+    button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
   { id: 'camera', title: 'Camera', items: [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
@@ -479,21 +505,22 @@ const UI_GROUPS = [
     num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
     select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve and the noise values below (edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>CamParam_CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
-        apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_em-gain': 'emGain', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
+        apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
           for (const id in K) if (c[K[id]] !== undefined) o[id] = c[K[id]];
-          o['mv_camera-type'] = c.type === 'EMCCD' ? 1 : c.type === 'sCMOS' ? 0 : -1; o['mv_qe-curve'] = -1; return o; },
+          if (c.gainElectronsPerAdu !== undefined) o['mv_gain'] = presetGain(c);
+          o['mv_camera-type'] = c.type === 'EMCCD' ? 1 : c.type === 'sCMOS' ? 0 : -1; o.qeFlat = false; return o; },
         kids: [
-          select('mv_qe-curve', 'QE curve', 'QE(λ) used in each dye\'s detected fraction: the preset\'s, another camera\'s, or Custom = flat at QE. <code>CamParam_QeCurve</code>', [['-1', 'the preset\'s'], ...DD.cameras.map((c, i) => [String(i), c.id])], '-1', { adv }),
-          num('mv_qe', 'QE (flat)', 'frac.', 'Quantum efficiency of the flat (Custom) QE curve. <code>CamParam_QuantumEfficiency</code>', 0.01, 1, 0.01, 0.85, { adv }),
+          num('mv_qe', 'Flat QE', 'frac.', 'Ticked: a flat QE(λ) of this value is used in each dye\'s detected fraction; unticked: the camera preset\'s QE curve. Picking a camera unticks it. <code>CamParam_QuantumEfficiency</code>, <code>CamParam_QeCurve</code>', 0.01, 1, 0.01, 0.85, { adv,
+            side: { id: 'qeFlat', label: 'use', tip: 'Use the flat QE value instead of the camera\'s QE curve.', value: false } }),
           select('mv_camera-type', 'Sensor', 'Noise model: the preset\'s, sCMOS, or EMCCD (gain register). <code>CamParam_CameraType</code>', [['-1', 'the preset\'s'], ['0', 'sCMOS'], ['1', 'EMCCD']], '-1', { adv }),
           num('mv_read-noise', 'Read noise', 'e⁻', 'Read noise (EMCCD: before the gain). <code>CamParam_ReadNoiseElectrons</code>', 0, null, 0.1, 1.2, { adv }),
-          num('mv_gain', 'Gain', 'e⁻/ADU', 'Electrons per ADU. <code>CamParam_GainPhotonsPerADU</code>', 0.01, null, 0.01, 0.25, { adv }),
+          num('mv_gain', 'Gain', 'e⁻/ADU', 'Photoelectrons per ADU: the whole conversion from detected electrons to counts, for sCMOS and EMCCD alike (the EM gain does not scale the signal, see EM gain). The iXon preset uses 0.0066 (about 150 ADU per photoelectron) for dSTORM, PALM and DNA-PAINT and 0.1 for WideField and BrightField; a mode or BrightField change re-applies it. <code>CamParam_GainPhotonsPerADU</code>', 0.0001, null, 'any', 0.25, { adv }),
           num('mv_offset', 'Offset', 'ADU', 'Camera offset. <code>CamParam_OffsetADU</code>', 0, null, 1, 100, { adv }),
           num('mv_offset-std', 'Offset spread', 'ADU', 'Per-pixel offset spread. <code>CamParam_OffsetStdADU</code>', 0, null, 0.1, 0.5, { adv }),
           num('mv_dark-per-sec', 'Dark current', 'e⁻/px/s', 'Thermal dark current. <code>CamParam_DarkCurrentElectronsPerSec</code>', 0, null, 'any', 1.03, { adv }),
           num('mv_gain-std-pct', 'Gain spread', '%', 'Per-pixel gain spread (PRNU). <code>CamParam_GainStdPctPerPixel</code>', 0, 50, 0.1, 0.5, { adv }),
           num('mv_read-noise-std-pct', 'Read-noise spread', '%', 'Per-pixel read-noise spread. <code>CamParam_ReadNoiseStdPctPerPixel</code>', 0, 100, 1, 20, { adv }),
-          num('mv_em-gain', 'EM gain', '×', 'EMCCD gain. <code>CamParam_EmGain</code>', 1, 2000, 1, 300, { adv }),
+          { kind: 'html', html: '<div class="sub" id="emGainReadout"></div>', show: () => emccdChosen() },
           num('mv_cic', 'CIC', 'e⁻/px/frame', 'EMCCD clock-induced charge. <code>CamParam_CicElectrons</code>', 0, 1, 'any', 0.002, { adv }),
           num('mv_bit-depth', 'Bit depth', 'bits', 'EMCCD ADC bit depth. <code>CamParam_BitDepth</code>', 8, 16, 1, 16, { adv }),
         ] }),
@@ -503,7 +530,7 @@ const UI_GROUPS = [
     num('mv_wf-plane-nm', 'Mean-field z plane', 'nm', 'Thickness of the mean-field dye planes. <code>General_WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: FL }),
     num('mv_mean-field-density-per-um2', 'Mean-field above', '/µm²', 'A continuous population renders mean-field (fast, its mean image) while more than this many of its dyes emit per µm² within the focal slab, per dye (exact windows) below. <code>General_MeanFieldDensityPerUm2</code>', 0, null, 1, 20, { adv, show: FL }),
     num('mv_mean-field-slab-nm', 'Focal slab', 'nm', 'Thickness of that slab around the focal plane. <code>General_MeanFieldSlabNm</code>', 0, null, 50, 500, { adv, show: FL }),
-    num('mv_mean-field-max-emitters', 'Per-dye cap', 'dyes', 'And mean-field above this many emitting dyes in the z range (the per-dye path\'s cost cap). <code>General_MeanFieldMaxEmitters</code>', 0, null, 100, 5000, { adv, show: FL }),
+    num('mv_mean-field-max-emitters', 'Per-dye cap', 'dyes', 'A second switch to mean-field, a cost cap: a continuous population (WideField dyes, PALM pre states, the dSTORM initial ON) also renders mean-field while more than this many of its dyes are expected to emit in the whole field of view, at any depth within the Dye z range (Acquisition), not only in the focal slab. Per dye, each emitting dye costs two PSF splats, so this keeps dense, defocused populations fast. Either test is enough; populations only dim, so a movie switches at most once, from mean-field to per dye. <code>General_MeanFieldMaxEmitters</code>', 0, null, 100, 5000, { adv, show: FL }),
     range('mv_bf-quality', 'BF quality', '', 'Speed vs precision. 1: thin object, 6 condenser points; 2: 0.5 µm slices, 12 points; 3: 0.5 µm, 24 points; 4: 0.25 µm slices, 48 points (slow). Sets the source count, grid, geometry samples and slice step; picking a level resets the two overrides below. <code>General_BrightFieldQuality</code>',
       1, 4, 1, 3, { show: BF, cls: 'bfRow', valId: 'mv_bf-quality-name',
         fmt: v => v + ' ' + BF_QUALITY_NAMES[+v] + (+$('mv_bf-sources').value !== 0 || +$('mv_bf-slice-um').value !== -1 ? ' *' : ''),
@@ -523,7 +550,7 @@ const UI_GROUPS = [
     button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
   ] },
 
-  { sect: '', id: 'about', title: 'About', items: [
+  { sect: 'About', id: 'about', title: 'About this viewer', items: [
     { kind: 'html', html: `<p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in Web Workers). Every cell,
       microtubule and dye is a pure function of (seed, address): pan anywhere and come back to the same structure. Cells
       are packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager adapter images. The JS prototype
@@ -537,7 +564,7 @@ const UI_GROUPS = [
 
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
-return { UI_GROUPS, UI_STYLES, USER_DYES };
+return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain };
 })();
 </script>
 <script id="uiPanel">
@@ -707,7 +734,7 @@ function sync() {
     }
     if (r.kind === 'pair' && r.syncDual) r.syncDual();
     if (r.kind === 'preset') $(r.id).value = presetMatch(r);
-    if (r.row && r.kind !== 'html') r.row.style.display = isShown(r) ? '' : 'none';
+    if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
   }
   for (const G of groups) {
@@ -1741,7 +1768,28 @@ function iscEngine(M) {
   return {
     // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
     handle(d, post) {
-      const w = d.type === 'movie' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      if (d.type === 'psf') {
+        // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        let out = 0, res;
+        const need = M._isc_scope_psf_preview ? M._isc_scope_psf_preview(s, 0, 0, info, err, 512) : -2;
+        if (need === -2) res = { type: 'psf', id: d.id, error: 'this viewer module has no PSF preview (regenerate web/insiliscope_module.js)' };
+        else
+        if (need < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          out = M._malloc(Math.max(4, need * 4));
+          if (M._isc_scope_psf_preview(s, out, need, info, err, 512) < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            const v = M.HEAPF64.slice(info / 8, info / 8 + 7), size = v[2], nz = v[3], cam = v[4], np = nz * size * size;
+            res = { type: 'psf', id: d.id, gaussian: v[0] === 1, oversampling: v[1], size, nz, camSize: cam, zStepNm: v[5], lambdaNm: v[6],
+              planes: M.HEAPF32.slice(out / 4, out / 4 + np), cams: M.HEAPF32.slice(out / 4 + np, out / 4 + need) };
+          }
+        }
+        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
+        return [res, res.planes ? [res.planes.buffer, res.cams.buffer] : []];
+      }
       if (d.type === 'block') {
         // One packing block (8x8 chunks) for the page's scheduler, on whichever worker is free: the
         // page keeps the rows (for the cell and dye jobs' worlds and its local storage).
@@ -1976,6 +2024,7 @@ function initGenWorkers() {
       const t = e.data.type;
       if (t === 'movie') onMovieResult(e.data);
       else if (t === 'movie-progress') onMovieProgress(e.data);
+      else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
@@ -2645,6 +2694,8 @@ function movieSpec() {
     if (userSlot && k === 'mt-mode' && +v < 0) v = USER_DYES.modeIndex(userSlot);
     o.push(k + '=' + (+v));
   }
+  // The flat QE checkbox (Camera): the Custom camera's flat curve at mv_qe; unticked, the preset's curve (qe-curve -1).
+  if (document.getElementById('qeFlat').checked) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
   o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy,
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
@@ -2652,8 +2703,8 @@ function movieSpec() {
 }
 // The PSF settings a movie's kernel depends on (the worker memoizes the last two kernels).
 function moviePsfKey() {
-  return ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset', 'qe-curve']
-    .map(k => document.getElementById('mv_' + k).value).join();
+  return ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset']
+    .map(k => document.getElementById('mv_' + k).value).join() + ',' + document.getElementById('qeFlat').checked;
 }
 // PSF kernel preload: the movie worker computes the kernel of the current PSF settings when the
 // workers come up and whenever those settings change (as the adapter does at Initialize), so a
@@ -2774,6 +2825,7 @@ function onMovieResult(d) {
   d.lo = sample[Math.floor(sample.length * 0.001)];
   d.hi = Math.max(d.lo + 1, sample[Math.min(sample.length - 1, Math.floor(sample.length * 0.999))]);
   movie = d;
+  document.getElementById('mv_save').style.display = '';
   const cvm = document.getElementById('mv_cv');
   cvm.width = d.w; cvm.height = d.h;
   const scale = Math.max(1, Math.floor(384 / Math.max(d.w, d.h)));
@@ -2795,6 +2847,7 @@ let movieImg = null, movieU32 = null, movieLut = null, movieLutKey = '';
 const PIX_LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function showMovieFrame(f) {
   const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
+  if (d.psf) { showPsfPlane(f); return; }
   if (!movieImg || movieImg.width !== d.w || movieImg.height !== d.h) {
     movieImg = g.createImageData(d.w, d.h);
     movieU32 = new Uint32Array(movieImg.data.buffer);
@@ -2866,7 +2919,7 @@ function writeTiff16(frames, w, h, n, desc) {
 }
 function saveMovieTiff(e) {
   e.preventDefault();
-  if (!movie) return;
+  if (!movie || movie.psf) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insiliscope viewer ' + movie.spec));
   a.download = `insiliscope_${movie.w}x${movie.h}x${movie.n}.tif`;
@@ -2875,19 +2928,111 @@ function saveMovieTiff(e) {
 }
 // Outline of the movie's FOV on the map while the player is open.
 function drawMovieFov() {
-  if (!movie || document.getElementById('movie').style.display === 'none') return;
+  if (!movie || !movie.rect || document.getElementById('movie').style.display === 'none') return;
   const [x0, y0, x1, y1] = movie.rect, [ax, ay] = project(x0, y0, 0), [bx, by] = project(x1, y1, 0);
   ctx = ctxTop;
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, devicePixelRatio);
   ctx.setLineDash([6, 4]); ctx.strokeRect(ax, ay, bx - ax, by - ay); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
-for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset', 'qe-curve'])
+for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset'])
   document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
+// The modality (the BrightField preset) re-applies an EMCCD preset's gain: single-molecule vs WideField/BrightField.
+let lastModality = document.getElementById('mv_modality').value;
+document.getElementById('mv_modality').addEventListener('input', e => {
+  if (e.target.value === lastModality) return;
+  lastModality = e.target.value;
+  const g = cameraModeGain(), el = document.getElementById('mv_gain');
+  if (g !== undefined && +el.value !== g) { el.value = g; el.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+// EMCCD: the EM gain is not an input but follows from the gain (C++ EmGainFromGain): the preset's pre-amplifier
+// sensitivity (1 e-/ADU when it has none) / the gain per photoelectron; it divides the read noise.
+function updateEmGainReadout() {
+  const el = document.getElementById('emGainReadout');
+  if (!el) return;
+  const c = ISC_DYE_DATA.cameras[+document.getElementById('mv_camera-preset').value];
+  const preamp = c.preampElectronsPerAdu === undefined ? 1 : c.preampElectronsPerAdu, gain = +document.getElementById('mv_gain').value;
+  const em = gain > 0 ? Math.max(1, preamp / gain) : 1, rn = +document.getElementById('mv_read-noise').value;
+  el.textContent = `EM gain ${em.toFixed(0)}× = pre-amplifier ${preamp} e⁻/ADU ÷ gain; read noise ${(rn / em).toPrecision(2)} e⁻ effective`;
+}
+document.getElementById('panel').addEventListener('input', updateEmGainReadout);
+updateEmGainReadout();
+// The flat QE value applies only while its checkbox is ticked.
+const syncQeFlat = () => { document.getElementById('mv_qe').disabled = !document.getElementById('qeFlat').checked; };
+document.getElementById('qeFlat').addEventListener('input', () => { syncQeFlat(); schedulePrepare(); });
+syncQeFlat();
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
 for (const k of ['mt-dye', 'mt-label-pct', 'mt-dye.fluorescent-pct', 'dye1.source', 'dye2.source', 'dye3.source',
   'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
   document.getElementById('mv_' + k).addEventListener('input', () => requestDraw());
+
+// ---- PSF preview (Objective & PSF, advanced) ----
+// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview; in lab.html the JS
+// reference's scopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
+// centre, shown in the movie player; the slider is the emitter's defocus. A job for the movie worker (it shares the
+// kernel memo with the movies and works from file:// pages), or the main-thread engine with ?nw.
+let psfJob = null, psfJobId = 0;
+function previewPsf() {
+  const b = document.getElementById('psfPreview');
+  b.textContent = 'Computing PSF…';
+  psfJob = { id: ++psfJobId, spec: movieSpec(), na: 1.4, pixelNm: +document.getElementById('mv_pixel-nm').value,
+    psf: document.getElementById('mv_psf-model').value === '0' ? 'Gaussian (no defocus)'
+      : 'Gibson-Lanni + Zernike, ' + document.getElementById('mv_psf-zernike-preset').selectedOptions[0].textContent };
+  const job = { type: 'psf', id: psfJob.id, spec: psfJob.spec };
+  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onPsfResult)).then(r => onPsfResult(r[0])), 0);
+  else { b.textContent = 'Preview PSF'; alert('PSF preview: the workers are not ready yet.'); }
+}
+function onPsfResult(d) {
+  if (!psfJob || d.id !== psfJob.id) return;
+  const b = document.getElementById('psfPreview');
+  if (d.type === 'psf-progress') { b.textContent = `Computing PSF ${Math.round(100 * d.frac)} %…`; return; }
+  if (d.type !== 'psf') return;
+  const job = psfJob;
+  psfJob = null;
+  b.textContent = 'Preview PSF';
+  if (d.error) { alert('PSF preview failed: ' + d.error); return; }
+  showPsfPreview(Object.assign(d, { title: job.psf, na: job.na, pixelNm: job.pixelNm }));
+}
+// The player shows the two panels side by side at the same scale: the kernel (os x os samples per camera pixel) and
+// the camera pixels drawn os x os each; each panel scaled to its own peak in the plane shown.
+function showPsfPreview(d) {
+  if (movieRaf) toggleMoviePlay();
+  const gap = 6, cw = d.camSize * d.oversampling;
+  movie = { psf: d, n: d.nz, w: d.size + gap + cw, h: Math.max(d.size, cw), rect: null };
+  const cvm = document.getElementById('mv_cv');
+  cvm.width = movie.w; cvm.height = movie.h;
+  const scale = Math.min(1, 768 / movie.w);
+  cvm.style.width = Math.round(movie.w * scale) + 'px'; cvm.style.height = Math.round(movie.h * scale) + 'px';
+  const sl = document.getElementById('mv_slider');
+  sl.max = d.nz - 1; sl.value = (d.nz - 1) >> 1;
+  document.getElementById('mv_save').style.display = 'none';
+  document.getElementById('mv_info').textContent = `PSF: ${d.title}, ${d.lambdaNm} nm, NA ${d.na}. ` +
+    `Left: kernel, ${d.oversampling}x oversampled (${(d.pixelNm / d.oversampling).toFixed(1)} nm); right: ${d.pixelNm} nm camera pixels, ` +
+    `emitter at a pixel centre. Each scaled to its peak.`;
+  document.getElementById('movie').style.display = 'block';
+  showMovieFrame(+sl.value);
+  requestDraw();
+}
+function showPsfPlane(f) {
+  const d = movie.psf, W = movie.w, H = movie.h, g = document.getElementById('mv_cv').getContext('2d');
+  const img = g.createImageData(W, H), u32 = new Uint32Array(img.data.buffer);
+  const grey = v => { const b = Math.max(0, Math.min(255, Math.round(255 * v))); return PIX_LE ? (0xff000000 | (b << 16) | (b << 8) | b) >>> 0 : ((b << 24) | (b << 16) | (b << 8) | 0xff) >>> 0; };
+  u32.fill(PIX_LE ? 0xff2a2018 : 0x18202aff);   // the gap and margins
+  const panel = (data, n, rep, x0) => {
+    let max = 0;
+    for (let i = 0; i < n * n; i++) if (data[i] > max) max = data[i];
+    const k = max > 0 ? 1 / max : 0, y0 = (H - n * rep) >> 1;
+    for (let y = 0; y < n * rep; y++) for (let x = 0; x < n * rep; x++)
+      u32[(y0 + y) * W + x0 + x] = grey(data[((y / rep) | 0) * n + ((x / rep) | 0)] * k);
+  };
+  panel(d.planes.subarray(f * d.size * d.size, (f + 1) * d.size * d.size), d.size, 1, 0);
+  panel(d.cams.subarray(f * d.camSize * d.camSize, (f + 1) * d.camSize * d.camSize), d.camSize, d.oversampling, d.size + 6);
+  g.putImageData(img, 0, 0);
+  const zUm = (f - (d.nz - 1) / 2) * d.zStepNm / 1000;
+  document.getElementById('mv_fno').textContent = d.gaussian ? 'in focus' : `z − focus = ${zUm >= 0 ? "+" : "−"}${Math.abs(zUm).toFixed(2)} µm`;
+}
+document.getElementById('psfPreview').addEventListener('click', previewPsf);
 
 // ---- light path: spectra plot and detection readout (issue 16) ----
 // From the JS reference's own physics (prototype/scope: scopeLightPath, scopeLabels = what a movie uses): the dye's

@@ -61,7 +61,8 @@ export class NoiseMaps {
     const rng = new Mt19937_64(seed), n = W * H;
     this.offset = new Float32Array(n); this.gain = new Float32Array(n); this.readNoise = new Float32Array(n);
     for (let i = 0; i < n; i++) this.offset[i] = cam.offsetAdu + cam.offsetStdAdu * gaussianRng(rng, 0.0, 1.0);
-    for (let i = 0; i < n; i++) { const v = cam.gainPhotonsPerAdu * (1.0 + cam.gainStdFraction * gaussianRng(rng, 0.0, 1.0)); this.gain[i] = v < 0.01 ? 0.01 : v; }
+    const gainFloor = 0.04 * cam.gainPhotonsPerAdu;   // relative (PixelGainMap::Generate): 0.01 at the default 0.25
+    for (let i = 0; i < n; i++) { const v = cam.gainPhotonsPerAdu * (1.0 + cam.gainStdFraction * gaussianRng(rng, 0.0, 1.0)); this.gain[i] = v < gainFloor ? gainFloor : v; }
     for (let i = 0; i < n; i++) { const v = cam.readNoiseElectrons * (1.0 + cam.readNoiseStdFraction * gaussianRng(rng, 0.0, 1.0)); this.readNoise[i] = v < 0.0 ? 0.0 : v; }
     this.noiseSeed = Number(BigInt.asUintN(32, BigInt(seed) ^ 0x9E3779B9n));
   }

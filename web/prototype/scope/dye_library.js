@@ -183,6 +183,16 @@ export function cameraPreset(i) {
   return c;
 }
 
+// A camera preset's gain (e-/ADU, per photoelectron) for the imaging at hand: gainElectronsPerAduWideField, when the
+// preset has one, for WideField-only labels or BrightField, else gainElectronsPerAdu (C++ CameraPresetGain).
+export const cameraPresetGain = (c, wideFieldOrBrightField) =>
+  (wideFieldOrBrightField && c.gainElectronsPerAduWideField !== undefined ? c.gainElectronsPerAduWideField : c.gainElectronsPerAdu);
+// An EMCCD's EM gain follows from its gain: the gain (e-/ADU) is per photoelectron, i.e. the pre-amplifier sensitivity
+// (e-/ADU after the EM register; the preset's preampElectronsPerAdu, 1 when it has none) divided by the EM gain. At
+// least 1 (no multiplication). C++ CameraPreamp / EmGainFromGain.
+export const cameraPreamp = c => (c.preampElectronsPerAdu === undefined ? 1.0 : c.preampElectronsPerAdu);
+export const emGainFromGain = (preamp, gain) => (gain > 0.0 ? Math.max(1.0, preamp / gain) : 1.0);
+
 // QE of the light path at the emission filter's transmission-weighted centre: the flat background's QE.
 export function backgroundQe(lp) {
   let s = 0, m = 0;

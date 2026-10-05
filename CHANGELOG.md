@@ -4,6 +4,20 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Presets and the EMCCD gain (2026-10-05). DNA-PAINT light presets and the default 640 nm line 1 kW/cm² (were
+  0.16); PALM suggested labelling 25 % (was 5 %) and its 405 nm line 0.002 kW/cm² (was 0.01). The camera gain (e⁻/ADU) is
+  per photoelectron for sCMOS and EMCCD alike; the iXon preset's is 0.0066 (about 150 ADU per photoelectron) in dSTORM,
+  PALM and DNA-PAINT and 0.1 in WideField and BrightField (a mode or modality change re-applies it), and the EM gain is
+  no longer a value of its own: the preset's pre-amplifier sensitivity (1 e⁻/ADU) / the gain. MM `CamParam_EmGain` is
+  read-only; cli `em-gain` defaults to -1 (derived). The per-pixel gain floor is 4 % of the nominal gain (0.01 at the
+  default 0.25: unchanged).
+- Viewer (2026-10-05): **Preview PSF** (Objective & PSF, Advanced): the movie's own kernel (new WASM export
+  `isc_scope_psf_preview`) oversampled beside its camera-pixel splat, with a z slider, in the movie player. The label
+  group reads labelled sites, mode, dye (the dyes with data for that mode), orientation; Illumination and Light path
+  are one group whose preset is also the modality (BrightField, lasers off); the chamber height sits under Geometry;
+  the QE curve select became a "use" checkbox beside the flat QE; the EM gain input is a derived readout; About is its
+  own section.
+
 - **seed** Labels, dyes and the light path (issue 16, 2026-10-05). Each structure (the microtubules for now) carries a
   label: a dye of the new library (`data/dyes/`: FPbase spectra, literature kinetics, every value with a reference or
   marked as an estimate) in a mode -- dSTORM (initial ON, intensity-scaled times), PALM (pre-converted state, 405 nm

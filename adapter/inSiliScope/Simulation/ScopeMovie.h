@@ -107,6 +107,22 @@ bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateR
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);
 
+// The PSF a movie of the spec uses, for display (the viewer's Preview PSF): the
+// microtubules' emitting state's kernel (KernelWavelengthNm of its detected
+// wavelength; the pre state when the main one is dark) and, per z plane, the
+// camera image (camSize^2) of one emitter of 1 photon at the centre of the
+// middle pixel, splatted as a movie does (PlanSplat/SplatRows with the spec's
+// interpolation). Gaussian (psf-model 0): one plane, the Gaussian sampled at
+// psf-oversampling, and its RenderGaussianPSF image. JS scopePsfPreview.
+struct ScopePsfPreview
+{
+   bool gaussian = false;
+   int oversampling = 1, size = 0, nz = 0, camSize = 0;
+   double zStepNm = 0, lambdaNm = 0;
+   std::vector<float> planes, cams;   // nz * size^2 (sum 1 each), nz * camSize^2
+};
+bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::string& err);
+
 // The cell geometry of the spec's world (the same world the movie renders)
 // in the square of side sizeUm centred on the spec's x, y, as JSON in world
 // um: {"x0","y0","x1","y1","cells":[{"x","y","height","outline":[[x,y]...],
