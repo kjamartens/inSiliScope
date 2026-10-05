@@ -71,7 +71,7 @@ jobs:
           cmake -S . -B build/msvc -A x64
           cmake --build build/msvc --config Release
       - name: Golden vectors + world checks + cli (native)
-        run: ctest --test-dir build/msvc -C Release --output-on-failure
+        run: ctest --test-dir build/msvc -C Release -j 8 --output-on-failure
 
   core-wasm:
     needs: port-gate
@@ -90,7 +90,7 @@ jobs:
           cmake --preset wasm
           cmake --build --preset wasm
       - name: Golden vectors (WASM under Node)
-        run: ctest --test-dir build/wasm --output-on-failure
+        run: ctest --test-dir build/wasm -j 8 --output-on-failure
       - name: Viewer module up to date (web/insiliscope_module.js)
         run: node tools/embed_web_module.mjs --check
       - name: webSMLM block (dist/cellfield_block.js; published by the "webSMLM block" workflow)
@@ -136,4 +136,4 @@ jobs:
         run: |
           cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native
-          ctest --test-dir build/native --output-on-failure
+          ctest --test-dir build/native -j 8 --output-on-failure

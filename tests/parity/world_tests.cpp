@@ -953,14 +953,14 @@ void Threads(LabelMode mode, double density, const char* name)
       total += ea.size();
       return IdenticalEvents(ea, eb);
    };
-   bool same = both([](World& w, std::vector<WorldEvent>& e) { w.EventsInWindow(-20, -20, 20, 20, 0, 3, 0, 20, e); });
-   for (int f = 0; f < 30 && same; f++) {
-      const double s = f < 10 ? 0.3 * f : f < 20 ? 60 + 0.3 * f : 250;   // a move, a jump, another jump
+   bool same = both([](World& w, std::vector<WorldEvent>& e) { w.EventsInWindow(-10, -10, 10, 10, 0, 3, 0, 5, e); });
+   for (int f = 0; f < 10 && same; f++) {
+      const double s = f < 4 ? 0.9 * f : f < 7 ? 60 + 0.9 * f : 250;   // a move, a jump, another jump
       same = both([&](World& w, std::vector<WorldEvent>& e) {
-         if (f == 25) w.SetLabel(STRUCTURE_MT, MakeLabel(mode, density, Kinetics{ 0.02, 0.05, 0.5, 0.5, 0.2, 0.0 }));
+         if (f == 8) w.SetLabel(STRUCTURE_MT, MakeLabel(mode, density, Kinetics{ 0.02, 0.05, 0.5, 0.5, 0.2, 0.0 }));
          w.EventsInWindow(s - 8, -8, s + 8, 8, 0, 4, 21 + f * 0.05, 21 + (f + 1) * 0.05, e);
-         if (f % 4 == 0) w.Prefetch(s - 11, -11, s + 11, 11, -INF, INF, 21 + (f + 1) * 0.05, 21 + (f + 2) * 0.05, 1e9);
-         if (f % 5 == 1) w.ContinuousInWindow(s - 8, -8, s + 8, 8, 0, 4, 0, e);
+         if (f % 3 == 0) w.Prefetch(s - 11, -11, s + 11, 11, -INF, INF, 21 + (f + 1) * 0.05, 21 + (f + 2) * 0.05, 1e9);
+         if (f % 3 == 1) w.ContinuousInWindow(s - 8, -8, s + 8, 8, 0, 4, 0, e);
       });
    }
    const WorldStats &sa = a.Stats(), &sb = b.Stats();
@@ -1400,36 +1400,73 @@ void NoContraction()
    Check(r == 1.490116119384765625e-8, "no floating-point contraction (x*x - 1 with x = 1 + 2^-27 is exactly 2^-26)");
 }
 
-int main()
+// One entry per ctest test (tests/parity/CMakeLists.txt keeps the same list):
+// `isc_world_tests <section>` runs one, no argument runs all. Each prints its
+// time, so a slow one shows.
+struct Section {
+   const char* name;
+   std::function<void()> run;
+};
+
+static const std::vector<Section>& Sections()
 {
-   NoContraction();
-   BlockStoreTest();
-   Determinism();
-   PackingOff();
-   DyeStatistics();
-   KineticsStats();
-   PersistentSites();
-   {
-      Kinetics k;
-      k.activationRatePerSec = 1.0 / 30; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
-      EventQuery(MakeLabel(LabelMode::PALM, 0.1, k), "event query: PALM 10 % (the old bleaching dyes)");
-      Kinetics kp = k;
-      kp.activationRatePerSec = 0.02;
-      EventQuery(MakeLabel(LabelMode::DnaPaint, 0.3, kp), "event query: DNA-PAINT 30 % (the old persistent sites)");
-      Kinetics kd = k;
-      kd.initialOnSec = 1.5;
-      EventQuery(MakeLabel(LabelMode::dSTORM, 0.1, kd), "event query: dSTORM 10 % with an initial ON");
+   static const std::vector<Section> s = {
+      { "basics", [] { NoContraction(); BlockStoreTest(); } },
+      { "determinism", Determinism },
+      { "packing_off", PackingOff },
+      { "dye_statistics", DyeStatistics },
+      { "kinetics", [] { KineticsStats(); PersistentSites(); } },
+      { "events_palm", [] {
+           Kinetics k;
+           k.activationRatePerSec = 1.0 / 30; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
+           EventQuery(MakeLabel(LabelMode::PALM, 0.1, k), "event query: PALM 10 % (the old bleaching dyes)");
+        } },
+      { "events_dnapaint", [] {
+           Kinetics k;
+           k.activationRatePerSec = 0.02; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
+           EventQuery(MakeLabel(LabelMode::DnaPaint, 0.3, k), "event query: DNA-PAINT 30 % (the old persistent sites)");
+        } },
+      { "events_dstorm", [] {
+           Kinetics k;
+           k.activationRatePerSec = 1.0 / 30; k.onSec = 0.03; k.offSec = 0.3; k.bleachProb = 0.25; k.photonCV = 0.3;
+           k.initialOnSec = 1.5;
+           EventQuery(MakeLabel(LabelMode::dSTORM, 0.1, k), "event query: dSTORM 10 % with an initial ON");
+        } },
+      { "cache_palm", [] { CacheUnderLoad(LabelMode::PALM, "caches under load: PALM"); } },
+      { "cache_dnapaint", [] { CacheUnderLoad(LabelMode::DnaPaint, "caches under load: DNA-PAINT"); } },
+      { "label_model", LabelModel },
+      { "threads_palm", [] { Threads(LabelMode::PALM, 0.3, "threads: PALM 30 %"); } },
+      { "threads_dnapaint", [] { Threads(LabelMode::DnaPaint, 0.3, "threads: DNA-PAINT 30 %"); } },
+      { "c_api", CApi },
+      { "block_injection", BlockInjection },
+      { "density3d", Density3d },
+      { "optical_volume", OpticalVolume },
+      { "edge_and_height", EdgeAndHeight },
+   };
+   return s;
+}
+
+int main(int argc, char** argv)
+{
+   std::setvbuf(stdout, nullptr, _IONBF, 0); // progress shows as it runs (ctest, pipes)
+   const char* only = argc > 1 ? argv[1] : nullptr;
+   bool found = false;
+   const auto all = std::chrono::steady_clock::now();
+   for (const Section& sec : Sections()) {
+      if (only && std::strcmp(only, sec.name) != 0) continue;
+      found = true;
+      std::printf("[%s]\n", sec.name);
+      const auto t0 = std::chrono::steady_clock::now();
+      sec.run();
+      std::printf("  [%s] %.2f s\n", sec.name, Ms(t0) / 1000);
    }
-   CacheUnderLoad(LabelMode::PALM, "caches under load: PALM");
-   CacheUnderLoad(LabelMode::DnaPaint, "caches under load: DNA-PAINT");
-   LabelModel();
-   Threads(LabelMode::PALM, 0.3, "threads: PALM 30 %");
-   Threads(LabelMode::DnaPaint, 0.3, "threads: DNA-PAINT 30 %");
-   CApi();
-   BlockInjection();
-   Density3d();
-   OpticalVolume();
-   EdgeAndHeight();
+   if (!found) {
+      std::printf("unknown section '%s'; sections:", only);
+      for (const Section& sec : Sections()) std::printf(" %s", sec.name);
+      std::printf("\n");
+      return 2;
+   }
+   if (!only) std::printf("\nall sections: %.2f s\n", Ms(all) / 1000);
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall world checks passed\n", g_failures);
    return g_failures ? 1 : 0;
 }

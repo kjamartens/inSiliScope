@@ -48,11 +48,11 @@ Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/
 # core + CLI, native (Linux/macOS)
 cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native
-ctest --test-dir build/native
+ctest --test-dir build/native -j 8
 build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128   # --help for all options
 
 # Windows (MSVC)
-cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release
+cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8
 
 # WASM (Emscripten 6.0.10) and the viewer module
 cmake --preset wasm && cmake --build --preset wasm && node tools/embed_web_module.mjs

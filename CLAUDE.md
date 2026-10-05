@@ -38,7 +38,7 @@ that finishes them.
   [--check]`) and `references.json` (the project reference list, rendered to `docs/references.md`).
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
-  JS number for number), plus `world_tests.cpp` (ctest `world_checks`:
+  JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
   coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
@@ -74,15 +74,15 @@ that finishes them.
 
 ## Build and test
 
-- Core native: `cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release`
+- Core native: `cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8`
 - Lab (JS iteration loop, `web/lab/README.md`): `cmake --build --preset lab` (or `node web/lab/serve.mjs --open`)
   starts the dev server and opens http://localhost:8123/web/lab.html (the viewer on the JS); Ctrl+C stops it.
   `node web/lab/engine_check.mjs`: lab.html's engine == the viewer's WASM engine (part of `tools/port_check.sh`).
 - Core WASM: `source ~/emsdk/emsdk_env.sh` (Emscripten pinned to 6.0.10, see `.github/workflows/ci.yml`),
-  `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm`, then
+  `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8`, then
   `node tools/embed_web_module.mjs` (viewer module; `--check` in CI). webSMLM block:
   `node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs`.
-- Core on Linux/macOS: `cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release`, build, `ctest --test-dir build/native`.
+- Core on Linux/macOS: `cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release`, build, `ctest --test-dir build/native -j 8`.
 - Golden vectors: ctest `golden_vectors` (bit-identical to `spec/golden/ref_js.txt`; mesh/microtubule
   lines may be `near`, <= 1e-6 um, where `pow` differs). Full JS parity incl. 40k math samples:
   `node tests/parity/run.mjs`. Re-freeze: `node tests/parity/golden.mjs --freeze`, **with Node 24**
