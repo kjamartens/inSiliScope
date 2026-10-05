@@ -27,7 +27,8 @@ Rebuild the module after a core change:
 `scene/core.js` is the viewer's scene core (DOM-free, `tests/web/scene_core_check.mjs`): the camera (rotation about the
 view centre, tilt, pivot height), the structure/layer registry (`structure.rep` ids: geometry layers of every
 structure, data layers of structures with dyes), the themes and the packing of per-layer clip intervals into the
-shaders' tables.
+shaders' tables. `scene/compute.js` (DOM-free, also the compute worker's source; `tests/web/scene_compute_check.mjs`): the
+thresholded WideField surface (smoothing, Otsu, surface nets) and the SMLM localizations of a multi-plane acquisition.
 
 `anim/` is the Animation tab: `sequence.js` the sequence model and its pure evaluator (DOM-free,
 `tests/web/anim_unit.mjs`), `editor.js` the editor, timeline, preview and export. `encode/` holds the export encoders

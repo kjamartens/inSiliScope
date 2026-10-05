@@ -20,7 +20,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield) | [Open the viewer](try-viewer.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield); simulated data in 3D and cell animations exported as MP4/WebM/GIF | [Open the viewer](try-viewer.md) |
 | **Micro-Manager adapter** | `Camera`, `XYStage` and `ZStage` devices (`mmgr_dal_inSiliScope.dll`): move the stage, change focus, run live or precomputed acquisitions against a sample that never changes | [Quickstart](quickstart.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/kjamartens/webSMLM) | [Quickstart](quickstart.md) |
 

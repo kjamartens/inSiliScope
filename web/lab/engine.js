@@ -138,6 +138,15 @@ export async function createEngine(src = {}) {
         }
         return [out, transfer];
       }
+      if (d.type === 'events') {
+        // the WASM engine's events job (web/index.html): blinks in a box and time window, the given kinetics
+        inject(w, d.blocks);
+        if (JSON.stringify(w.kin) !== JSON.stringify(d.kin)) w.setKinetics(d.kin);
+        const [x0, y0, x1, y1] = d.rect;
+        const list = w.eventsInWindow(x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1), events = new Float64Array(list.length * 7);
+        list.forEach((e, i) => events.set([e.x, e.y, e.z, e.tOn, e.tOff, e.brightness, e.id], i * 7));
+        return [{ type: 'events', id: d.id, events }, [events.buffer]];
+      }
       if (d.type === 'sites') {
         inject(w, d.blocks);
         const [x0, y0, x1, y1] = d.rect;

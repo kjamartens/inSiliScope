@@ -110,7 +110,7 @@ const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs
 {
   const L = S.LAYERS;
   const ok = L.has('mt.lines') && L.has('mt.locs') && L.has('mt.wfSlice') && L.has('cell.bfSlice') && !L.has('nucleus.wfSlice') &&
-    L.get('mt.lines').kind === S.KIND['mt.lines'] && L.get('mt.lines').implemented && !L.get('mt.locs').implemented;
+    L.get('mt.lines').kind === S.KIND['mt.lines'] && L.get('mt.lines').implemented && L.get('mt.locs').kind === S.KIND['mt.locs'];
   check(ok, 'layer registry: structure.rep ids, dye layers only where a dye population is');
 }
 process.exit(fail ? 1 : 0);

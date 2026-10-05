@@ -324,6 +324,12 @@ const PRESETS = {
       { name: 'WideField slices down', duration: p.down, caption: 'WideField z-stack, thresholded', sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: p.slab, ease: 'inOut' },
         layers: [{ ref: '$.gt', zones: ['ahead'] }, { ref: '$.wfSlice', zones: ['at'] }, { ref: '$.wfIso', zones: ['behind'] }] }] }) },
 };
+PRESETS.simUpSmlmDown = { label: 'Simulated up, SMLM down, localizations wake', requires: ['gt', 'srFrames', 'locs'], params: { up: 6, down: 8, deg: 360 },
+  make: p => ({ name: 'Simulated -> SMLM -> localizations', structure: p.structure, orbit: { deg: p.deg }, keepAfter: ['$.locs'], steps: [
+    { name: 'Simulated, bottom to top', duration: p.up, caption: 'Simulated structure', sweep: { axis: 'z', from: { rel: 0 }, to: { rel: 1 }, slab: 0, ease: 'inOut' },
+      layers: [{ ref: 'cyto.surface', zones: ['ahead'], style: { opacity: 0.15 } }, { ref: '$.gt', zones: ['behind'] }] },
+    { name: 'SMLM frames down, localizations behind', duration: p.down, caption: 'SMLM acquisition, localized', sweep: { axis: 'z', from: { rel: 1 }, to: { rel: 0 }, slab: 0, ease: 'linear' },
+      layers: [{ ref: '$.gt', zones: ['ahead'], style: { opacity: 0.35 } }, { ref: '$.srFrames', zones: ['at'] }, { ref: '$.locs', zones: ['behind'] }] }] }) };
 // A new cycle from a preset (ids filled in).
 function cycleFromPreset(name, params) {
   const P = PRESETS[name];
@@ -378,6 +384,19 @@ function starter() {
   return s;
 }
 
+// The issue's example: the microtubules simulated bottom to top while the view turns, WideField slices back down
+// leaving the thresholded surface, then the nucleus pops in with the surface kept.
+function example() {
+  const s = defaults();
+  s.name = 'Simulated, WideField, thresholded; then the nucleus';
+  s.camera.tilt = 20;
+  s.cycles.push(cycleFromPreset('simUpWfDown', { structure: 'mt', up: 6, down: 8, slab: 0.3, deg: 360 }));
+  const n = cycleFromPreset('popIn', { structure: 'nucleus', duration: 4 });
+  n.orbit = { degPerSec: 25 };
+  s.cycles.push(n);
+  return s;
+}
+
 globalThis.IscAnimSeq = { FORMAT, VERSION, EASE, ease, defaults, migrate, bind, axisVec, extentAlong, compileSequence, zoneIntervals,
-  evalCompiled, PRESETS, cycleFromPreset, presetFits, requiredData, validate, starter, newId, clone };
+  evalCompiled, PRESETS, cycleFromPreset, presetFits, requiredData, validate, starter, example, newId, clone };
 })();

@@ -485,11 +485,11 @@ function render() {
     catch (e) { alert('could not open ' + f.name + ': ' + e.message); }
   });
   const presetSel = h('select', { title: 'Start over from a ready-made sequence' });
-  for (const [v, l] of [['', 'New from…'], ['starter', 'Microtubules, then nucleus'], ['empty', 'Empty']]) presetSel.append(h('option', { value: v }, l));
+  for (const [v, l] of [['', 'New from…'], ['starter', 'Microtubules, then nucleus'], ['example', 'Simulated, WideField, thresholded (needs data)'], ['empty', 'Empty']]) presetSel.append(h('option', { value: v }, l));
   presetSel.addEventListener('change', () => {
     if (!presetSel.value) return;
     if (!confirm('Replace the current animation? (Undo brings it back.)')) { presetSel.value = ''; return; }
-    snapshot(); seq = presetSel.value === 'starter' ? A.starter() : A.defaults(); changed(true);
+    snapshot(); seq = presetSel.value === 'starter' ? A.starter() : presetSel.value === 'example' ? A.example() : A.defaults(); changed(true);
   });
   const btns = h('div', { class: 'btns' });
   btns.append(presetSel,

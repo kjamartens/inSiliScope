@@ -122,6 +122,22 @@ const lit = await page.evaluate(async () => {
   return n;
 });
 check(lit > 1000, `data: the WideField slice is drawn (${lit} lit px)`);
+
+// 7. the thresholded WideField surface (same stack) and the localizations of a short multi-plane acquisition
+const more = await page.evaluate(async () => {
+  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 0.5, locFrames: 300 };
+  const cam = { pivot: pv, azimuthDeg: 30, tiltDeg: 45, fovUm: b.diam * 1.2 };
+  const count = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) n++; return n; };
+  const iso = await __cap(__st({ camera: cam, data, layers: { 'mt.wfIso': { style: { color: '#ffffff', opacity: 1 } } } }));
+  const [L] = await iscScene.acquireData(['mt.locs'], __key, data, null);
+  const loc = await __cap(__st({ camera: cam, data, layers: { 'mt.locs': { style: { color: '#ffffff', opacity: 1, colorBy: 'flat' } } } }));
+  // every localization lies within the capture range of a focus position and inside the cell's box
+  let inside = true;
+  for (let i = 0; i < L.n; i += 97) { const x = L.locs[8 * i] + L.ox, y = L.locs[8 * i + 1] + L.oy; if (x < b.x[0] - 1 || x > b.x[1] + 1 || y < b.y[0] - 1 || y > b.y[1] + 1) inside = false; }
+  return { iso: count(iso.data), loc: count(loc.data), n: L.n, inside };
+});
+check(more.iso > 1000, `data: the thresholded WideField surface is drawn (${more.iso} lit px)`);
+check(more.n > 1000 && more.inside && more.loc > 500, `data: ${more.n} localizations from 300 frames per plane, in the cell's box, drawn (${more.loc} lit px)`);
 if (errors.length) { fail++; console.log('page errors: ' + errors.join('; ')); }
 await browser.close();
 server.close();

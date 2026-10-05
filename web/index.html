@@ -166,6 +166,7 @@
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
+<script src="scene/compute.js"></script>
 <script src="anim/sequence.js"></script>
 <script src="encode/gif.js"></script>
 <script src="encode/mp4.js"></script>
@@ -231,6 +232,12 @@ const UI_GROUPS = [
   { id: 'data', title: 'Data layers', items: [
     check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
     check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
+    check('showWfIso', 'WideField thresholded', 'The WideField z-stack smoothed and thresholded (Otsu\'s level x the level below) as a surface: what a segmentation of the stack would give.', false),
+    range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the WideField surface relative to Otsu\'s.', 0.3, 3, 0.05, 1, { fmt: fx(2) }),
+    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false),
+    check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv }),
+    num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv }),
+    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized.', 50, 2000, 50, 400, { adv }),
     check('showBfSlice', 'BrightField slice', 'The simulated BrightField image of the cell (all structures) with focus at the slice height. Needs its z-stack: Acquire.', false),
     range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown).', 0, 15, 0.05, 1.5, { fmt: fx(2) }),
     check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true),
@@ -763,7 +770,8 @@ const els = {};
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
- 'showWfSlice', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData']
+ 'showWfSlice', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
+ 'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'captureNm']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -859,6 +867,8 @@ function stateFromUI() {
   if (els.showWfSlice.checked) layers['mt.wfSlice'] = {};
   if (els.showSrFrames.checked) layers['mt.srFrames'] = {};
   if (els.showBfSlice.checked) layers['cell.bfSlice'] = {};
+  if (els.showWfIso.checked) layers['mt.wfIso'] = { style: { level: +els.isoLevel.value } };
+  if (els.showLocs.checked) layers['mt.locs'] = { style: { spread: els.locSpread.checked } };
   return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
     scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, sweep: null, layers,
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
@@ -1216,7 +1226,7 @@ function drawCell2D(c, asset, p, F, cf) {
 // when the cell's effective rotation, the tilt or the contour step change), alpha-blended, depth-tested against
 // the microtubules but not written. Pan/zoom, what is shown and every clip interval only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
 // u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
 // (sin, cos) of the tilt, u_pz: the pivot height. worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
@@ -1317,6 +1327,60 @@ void main() {
   if (u_add > 0.5) { if (v * m < 0.004) discard; o = vec4(u_col.rgb * v * m * u_col.a, 0.0); }
   else { float a = u_col.a * m; o = vec4(u_col.rgb * v * a, a); }
 }`;
+// The thresholded surface: positions relative to the stack's texture origin, normals; lit from the camera (two-sided)
+// with a rim, clipped as kind mt.wfIso. invariant: the depth pass and the colour pass must agree to the bit.
+const GL_ISO_VS = `#version 300 es
+invariant gl_Position;
+in vec3 a_p; in vec3 a_n; out vec3 v_w; out vec3 v_n;` + GL_COMMON + `
+void main() {
+  vec2 w = worldOf(a_p), s = screenOf(a_p, w);
+  gl_Position = clipOf(s, depthOf(a_p, w));
+  v_w = vec3(w, a_p.z);
+  v_n = vec3(a_n.x * u_rot.x - a_n.y * u_rot.y, a_n.x * u_rot.y + a_n.y * u_rot.x, a_n.z);
+}`;
+const GL_ISO_FS = `#version 300 es
+precision highp float;
+in vec3 v_w; in vec3 v_n; out vec4 o;` + GL_CLIP + `
+uniform vec2 u_tilt;
+void main() {
+  vec4 st = zoneStyle(${IscScene.KIND['mt.wfIso']}, v_w);
+  if (st.a < 0.0) discard;
+  vec3 eye = vec3(0.0, u_tilt.x, u_tilt.y), n = normalize(v_n);
+  float d = abs(dot(n, eye)), rim = pow(1.0 - d, 2.0);
+  vec3 rgb = max(st.rgb, 0.0) * (0.3 + 0.7 * d) + rim * 0.35;
+  float a = st.a * u_cellA;
+  o = vec4(rgb * a, a);
+}`;
+// Localizations: one quad per instance (a_l: x, y relative to an origin, z, sigma xy); a square of u_ptHalf px, or
+// (u_spread) a Gaussian spot of the projected precision, coloured by height (u_colZ: the depth colours over u_zr).
+const GL_LOC_VS = `#version 300 es
+in vec4 a_l; uniform float u_ptHalf; uniform int u_spread, u_colZ; uniform vec2 u_zr; uniform vec4 u_col;
+out vec3 v_w; out vec2 v_c; out vec3 v_rgb;` + GL_COMMON + `
+vec3 depthRGB(float t) {
+  vec3 c0 = vec3(0.15, 0.25, 0.9), c1 = vec3(0.1, 0.75, 0.85), c2 = vec3(0.25, 0.8, 0.25), c3 = vec3(0.95, 0.85, 0.15), c4 = vec3(0.9, 0.2, 0.15);
+  float f = clamp(t, 0.0, 0.9999) * 4.0;
+  return f < 1.0 ? mix(c0, c1, f) : f < 2.0 ? mix(c1, c2, f - 1.0) : f < 3.0 ? mix(c2, c3, f - 2.0) : mix(c3, c4, f - 3.0);
+}
+void main() {
+  vec3 p = a_l.xyz;
+  vec2 w = worldOf(p), s = screenOf(p, w);
+  vec2 c = vec2(float(gl_VertexID & 1) * 2.0 - 1.0, float(gl_VertexID >> 1) * 2.0 - 1.0);
+  float h = u_spread == 1 ? 3.0 * clamp(a_l.w * u_scale, 0.7, 30.0) : u_ptHalf;
+  gl_Position = clipOf(s + c * h, depthOf(p, w));
+  v_w = vec3(w, p.z); v_c = c;
+  v_rgb = u_colZ == 1 ? depthRGB((p.z - u_zr.x) / (u_zr.y - u_zr.x)) : u_col.rgb;
+}`;
+const GL_LOC_FS = `#version 300 es
+precision highp float; precision highp int;
+in vec3 v_w; in vec2 v_c; in vec3 v_rgb; out vec4 o;` + GL_CLIP + `
+uniform int u_spread; uniform vec4 u_col;
+void main() {
+  vec4 st = zoneStyle(${IscScene.KIND['mt.locs']}, v_w);
+  if (st.a < 0.0) discard;
+  float a = st.a * u_col.a;
+  if (u_spread == 1) { float r = length(v_c) * 3.0, g = exp(-0.5 * r * r); if (g < 0.01) discard; o = vec4(v_rgb * g * a, 0.0); }
+  else o = vec4(v_rgb * a, a);
+}`;
 const GL_FS = `#version 300 es
 precision highp float;
 in vec4 v_col; in vec3 v_w; flat in int v_kind; out vec4 o;` + GL_CLIP + `
@@ -1372,11 +1436,17 @@ function initGl() {
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
   if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
+  const iso = link(GL_ISO_VS, GL_ISO_FS, ['a_p', 'a_n'], []);
+  if (iso) { glIsoProg = iso.pr; glIsoU = iso.u; } else console.warn('thresholded surface unavailable (shader)');
+  const loc = link(GL_LOC_VS, GL_LOC_FS, ['a_l'], ['u_ptHalf', 'u_spread', 'u_colZ', 'u_zr', 'u_col']);
+  if (loc) { glLocProg = loc.pr; glLocU = loc.u; } else console.warn('localizations unavailable (shader)');
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
     for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; } // buffers died with the context
     dyeGl = null; sliceGl = null; capFb = null;
     for (const st of stackStore.values()) { st.tex = st.maskTex = st.texGl = null; }
+    for (const e of isoStore.values()) e.gl = null;
+    for (const L of locStore.values()) L.gl = null;
     setLayerMode(false); requestDraw();
   });
   return true;
@@ -1572,6 +1642,7 @@ function drawSceneGl(cells, p, F) {
     gl.depthMask(true);
   }
   if (glSliceProg) drawDataGl(F, F.target);
+  drawSurfaceAndLocs(F, F.target);
   gl.bindVertexArray(null);
   if (F.fbo) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
@@ -1814,7 +1885,7 @@ function iscEngine(M) {
   if (M._isc_abi_version() !== 9) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 9');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
-  let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
+  let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0, kinKey = '';
   // Packing blocks this world took from the pack worker (isc_world_set_block, ABI 7), so a cell or
   // dye worker never packs a block the pack worker already did; reset with the world.
   let injected = new Set();
@@ -1833,7 +1904,7 @@ function iscEngine(M) {
     if (world) M._isc_world_free(world);
     world = M._isc_world_new(seed >>> 0, pp);
     M._isc_params_free(pp);
-    worldKey = keyOf();
+    worldKey = keyOf(); kinKey = '';
     injected = new Set();
     return world;
   }
@@ -1974,6 +2045,17 @@ function iscEngine(M) {
         const [x0, y0, x1, y1] = d.rect;
         const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
+      }
+      if (d.type === 'events') {
+        // The blinks (x, y, z, tOn, tOff, brightness, id) of the labelled dyes in a box and time window, with the
+        // movie's kinetics (d.kin: activation rate /s, ON s, dark s, bleach probability, brightness CV): the SMLM
+        // localizations' ground truth (the data layers).
+        inject(w, d.blocks);
+        const k = d.kin, kk = [k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb, k.photonCV].join(',');
+        if (kk !== kinKey) { M._isc_world_set_kinetics(w, k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb, k.photonCV); kinKey = kk; }
+        const [x0, y0, x1, y1] = d.rect;
+        const events = query((ptr, cap) => M._isc_events_in_window(w, x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1, ptr, cap), 7, 65536);
+        return [{ type: 'events', id: d.id, events }, [events.buffer]];
       }
       if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
         return wfGpuMovie(d);
@@ -2151,6 +2233,7 @@ function initGenWorkers() {
     genWorkers.dyes.onmessage = e => {
       const t = e.data.type;
       if (t === 'movie') onMovieResult(e.data);
+      else if (t === 'events') onEventsResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
@@ -2668,7 +2751,7 @@ function renderFrame(st, target) {
   const wantDyes = Z.n[K['mt.dyes']] > 0;
   if (wantDyes) labelNote = updateDyes(seed, p, F, vis); else dyeSel = null;
   if (useGl) drawSceneGl(far, p, F);
-  else if (Object.keys(DATA_KIND).some(id => st.layers[id])) drawDataGl(F, F.target);   // no slices in 2D: only what is missing
+  else if (Object.keys(DATA_KIND).some(id => st.layers[id])) { drawDataGl(F, F.target); drawSurfaceAndLocs(F, F.target); }   // 2D: only what is missing
   if (!useGl) {
     ctx = ctxTop;
     for (const cf of far) drawCell2D(cf.cell, cf.asset, p, F, cf);
@@ -2923,7 +3006,7 @@ els.acquireData.addEventListener('click', async () => {
   els.acquireData.disabled = true;
   try {
     await acquireData(ids, key, null, (d, n, label) => { st.textContent = `${label}: focus position ${d} of ${n}…`; });
-    st.textContent = `Data of cell ${key} ready (${ids.map(i => DATA_KIND[i].toUpperCase()).join(', ')}).`;
+    st.textContent = `Data of cell ${key} ready (${[...new Set(ids.map(i => DATA_KIND[i].toUpperCase()))].join(', ')}).`;
   } catch (e) { st.textContent = 'Acquisition failed: ' + (e.message || e); }
   finally { els.acquireData.disabled = false; requestDraw(); }
 });
@@ -3327,14 +3410,16 @@ function saveMovieTiff(e) {
 // vertical plane -- sampled per fragment from a 3D texture (WideField / BrightField interpolated between planes, the
 // SMLM frames of the nearest plane, cycling). Pixel i of a SuperRes / WideField image is centred at
 // originX + i px (originX = x - W px / 2), of a BrightField image it starts there: texOrigin holds that half pixel.
-const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'cell.bfSlice': 'bf' };
+const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'cell.bfSlice': 'bf', 'mt.wfIso': 'wf', 'mt.locs': 'loc' };
+const SLICE_LAYERS = ['mt.wfSlice', 'mt.srFrames', 'cell.bfSlice'];
 const DATA_MODALITY = { sr: 0, wf: 1, bf: 2 };
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
 function dataParams(over) {
   return Object.assign({ stepUm: +els.stackStepUm.value || 0.2, srStepUm: +els.srStepUm.value || 0.4,
     srFrames: Math.max(1, Math.round(+els.srFramesShown.value || 10)), wfAverage: Math.max(1, Math.round(+els.wfAverage.value || 4)),
-    sequential: els.planeTimes.value === 'sequential', locFrames: 5000, srFps: 10, crop: els.cropData.checked }, over || {});
+    sequential: els.planeTimes.value === 'sequential', locFrames: Math.max(1, Math.round(+els.locFrames.value || 5000)),
+    captureUm: (+els.captureNm.value || 400) / 1000, srFps: 10, crop: els.cropData.checked }, over || {});
 }
 // What a stack of `kind` for the cell `key` is: field of view, planes, frames, and the key it is cached under.
 function stackPlan(kind, key, dp) {
@@ -3504,7 +3589,7 @@ let sliceGl = null;   // {vbo, vao}
 function drawDataGl(F, target) {
   const st = F.st, dp = dataParams(st.data), slice = st.slice;
   let missing = 0;
-  for (const id in DATA_KIND) {
+  for (const id of SLICE_LAYERS) {
     if (!st.layers[id]) continue;
     const kind = DATA_KIND[id], plan = target && stackPlan(kind, target, dp);
     const stack = plan && stackStore.get(plan.key);
@@ -3556,30 +3641,231 @@ async function acquireData(layerIds, key, over, onProgress, signal) {
   for (const id of layerIds) {
     const kind = DATA_KIND[id];
     if (!kind) continue;
-    for (let i = 0; i < 100 && !stackPlan(kind, key, dp); i++) { requestDraw(); await new Promise(r => setTimeout(r, 100)); }   // the cell's outline first
-    const plan = stackPlan(kind, key, dp);
-    if (plan && !plans.some(p => p.key === plan.key)) plans.push(plan);
+    for (let i = 0; i < 100 && !cellBounds(key)?.precise; i++) { requestDraw(); await new Promise(r => setTimeout(r, 100)); }   // the cell's outline first
+    const plan = kind === 'loc' ? locPlan(key, dp) : stackPlan(kind, key, dp);
+    if (plan && !plans.some(p => p.key === plan.key)) plans.push(Object.assign(plan, { kind }));
   }
-  const total = plans.reduce((s, p) => s + (stackStore.has(p.key) ? 0 : p.zs.length), 0);
+  const steps = p => (p.kind === 'loc' ? 2 : p.zs.length);
+  const total = plans.reduce((s, p) => s + steps(p), 0);
   let before = 0;
+  const out = [];
   for (const plan of plans) {
-    const n = plan.zs.length, label = { wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField' }[plan.kind];
-    await acquireStack(plan, d => onProgress && onProgress(before + d, total, label), signal);
-    if (!stackStore.has(plan.key) || true) before += n;
+    const label = { wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField', loc: 'localizations' }[plan.kind];
+    const prog = d => onProgress && onProgress(before + d, total, label);
+    out.push(await (plan.kind === 'loc' ? acquireLocs(plan, prog, signal) : acquireStack(plan, prog, signal)));
+    before += steps(plan);
   }
-  return plans.map(p => stackStore.get(p.key));
+  return out;
 }
 function dataStatus(layerIds, key, over) {
   const dp = dataParams(over), out = [];
   for (const id of layerIds) {
     const kind = DATA_KIND[id];
     if (!kind) continue;
-    const plan = stackPlan(kind, key, dp);
-    out.push({ id, kind, ready: !!(plan && stackStore.has(plan.key)), busy: plan ? acqStatus.get(plan.key) || null : null });
+    const plan = kind === 'loc' ? locPlan(key, dp) : stackPlan(kind, key, dp);
+    out.push({ id, kind, ready: !!(plan && (kind === 'loc' ? locStore : stackStore).has(plan.key)), busy: plan ? acqStatus.get(plan.key) || null : null });
   }
   return out;
 }
 
+// ---- thresholded WideField surface and SMLM localizations (issue 11) -------------------------------------------
+// The surface: the WideField z-stack smoothed, thresholded at Otsu's level (x the layer's level) and meshed (surface
+// nets, web/scene/compute.js) in a compute worker; drawn as its front layer (a depth pass, then the colour where the
+// depth is the surface's own), lit from the camera, clipped like every layer. The localizations: the blinks of the
+// cell's dyes (the core's events) seen by a multi-plane SMLM acquisition -- focus positions every SMLM step, N frames
+// each, a blink localized per frame within the capture range of the focus, displaced by its precision (photons,
+// defocus) -- drawn as points coloured by height, or as Gaussian spots of their precision.
+let computeW = null, computeId = 0;
+const computeJobs = new Map();
+function compute(type, payload, transfer) {
+  if (computeW === null) {
+    try {
+      const src = 'const iscComputeDefine = ' + iscComputeDefine.toString() + ';\nconst C = iscComputeDefine();\n' +
+        'onmessage = e => { const d = e.data; let r, t = [];\n' +
+        "  if (d.type === 'iso') { r = C.isoFromStack(d.o); t = [r.pos.buffer, r.nrm.buffer, r.idx.buffer]; }\n" +
+        "  else if (d.type === 'locs') { r = C.emulateLocs(d.events, d.o); t = [r.locs.buffer]; }\n" +
+        '  postMessage({ id: d.id, r }, t); };';
+      computeW = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      computeW.onmessage = e => { const j = computeJobs.get(e.data.id); computeJobs.delete(e.data.id); if (j) j(e.data.r); };
+    } catch (e) { computeW = false; }
+  }
+  if (!computeW) return Promise.resolve(type === 'iso' ? IscCompute.isoFromStack(payload.o) : IscCompute.emulateLocs(payload.events, payload.o));
+  const id = ++computeId;
+  return new Promise(res => { computeJobs.set(id, res); computeW.postMessage(Object.assign({ type, id }, payload), transfer || []); });
+}
+// ---- the surface ----
+const isoStore = new Map();   // stack key | level | crop -> {mesh | null (computing), gl}
+function isoFor(stack, level, crop) {
+  const key = stack.key + '|' + level + '|' + (crop ? 1 : 0);
+  let e = isoStore.get(key);
+  if (e) return e.mesh ? e : null;
+  isoStore.set(key, e = { mesh: null, gl: null });
+  const mask = crop ? footprintMask(stack) : null;
+  compute('iso', { o: { data: stack.data, w: stack.size, h: stack.size, nz: stack.zs.length, F: stack.F, px: stack.px,
+    dz: stack.zs.length > 1 ? stack.zs[1] - stack.zs[0] : 1, z0: stack.zs[0], lo: stack.lo, level, mask, down: stack.size > 256 ? 2 : 1 } })
+    .then(m => { e.mesh = m; while (isoStore.size > 8) { const [k0, e0] = isoStore.entries().next().value; freeIsoGl(e0); isoStore.delete(k0); } requestDraw(); });
+  return null;
+}
+function freeIsoGl(e) {
+  if (e && e.gl && e.gl.ctx === gl && !gl.isContextLost()) { gl.deleteBuffer(e.gl.vbo); gl.deleteBuffer(e.gl.ibo); gl.deleteVertexArray(e.gl.vao); }
+  if (e) e.gl = null;
+}
+// the cell's footprint on a stack's grid, CPU (the surface's crop; stackMaskTex uploads the same test)
+function footprintMask(st) {
+  const c = packCache && packCache.map.get(st.cell), a = assets.get(st.cell), n = st.size, m = new Uint8Array(n * n).fill(1);
+  if (!c || !a || !a.entry || !a.entry.mesh) return m;
+  const tab = footprintPolar(a.entry), cr = Math.cos(-(c.packRot || 0)), sr = Math.sin(-(c.packRot || 0)), K2 = FOOT_BINS / (2 * Math.PI);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const dx = st.texOx + (i + 0.5) * st.px - c.x, dy = st.texOy + (j + 0.5) * st.px - c.y;
+    const lx = dx * cr - dy * sr, ly = dx * sr + dy * cr, r = tab[((Math.floor(Math.atan2(ly, lx) * K2) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS] + 0.15;
+    m[j * n + i] = lx * lx + ly * ly <= r * r ? 1 : 0;
+  }
+  return m;
+}
+function drawIsoGl(F, stack, e, style, alpha) {
+  const m = e.mesh;
+  if (!m.idx.length) return;
+  if (!e.gl || e.gl.ctx !== gl) {
+    const vbo = gl.createBuffer(), ibo = gl.createBuffer(), vao = gl.createVertexArray(), nv = m.pos.length / 3, v = new Float32Array(nv * 6);
+    for (let i = 0; i < nv; i++) { v.set(m.pos.subarray(3 * i, 3 * i + 3), 6 * i); v.set(m.nrm.subarray(3 * i, 3 * i + 3), 6 * i + 3); }
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    e.gl = { ctx: gl, vbo, ibo, vao, n: m.idx.length };
+  }
+  const cam = F.cam, u = glIsoU, Z = F.Z;
+  gl.useProgram(glIsoProg);
+  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+  gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
+  gl.uniform2f(u.u_off, cam.u(stack.texOx, stack.texOy), cam.v(stack.texOx, stack.texOy));
+  gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
+  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+  gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
+  gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
+  gl.bindVertexArray(e.gl.vao);
+  // the front layer: depth first, then the colour where the surface itself is nearest
+  gl.colorMask(false, false, false, false); gl.depthMask(true); gl.depthFunc(gl.LESS);
+  gl.drawElements(gl.TRIANGLES, e.gl.n, gl.UNSIGNED_INT, 0);
+  gl.colorMask(true, true, true, true); gl.depthMask(false); gl.depthFunc(gl.EQUAL);
+  gl.drawElements(gl.TRIANGLES, e.gl.n, gl.UNSIGNED_INT, 0);
+  gl.depthMask(true); gl.depthFunc(gl.LESS);
+}
+// ---- localizations ----
+const locStore = new Map();   // key -> {key, cell, ox, oy, locs: Float32Array stride 8, n, z0, z1, gl}
+function locPlan(key, dp) {
+  const b = key && cellBounds(key);
+  if (!b || !b.precise) return null;
+  const exp = (+document.getElementById('mv_exposure-ms').value || 50) / 1000, step = dp.srStepUm, cap = dp.captureUm;
+  const nz = Math.max(1, Math.ceil(b.z[1] / step) + 1), zs = [];
+  for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
+  const N = Math.max(1, Math.round(dp.locFrames)), seq = !!dp.sequential, mv = k => +document.getElementById('mv_' + k).value;
+  const kin = { activationRatePerSec: mv('milli-activation-rate') / 1000, onSec: Math.max(1e-6, mv('on-sec')), offSec: Math.max(0, mv('off-sec')),
+    bleachProb: mv('bleach-prob'), photonCV: mv('photon-cv') };
+  const rect = [b.x[0] - 0.5, b.y[0] - 0.5, b.x[1] + 0.5, b.y[1] + 0.5];
+  const o = { zs, t0s: zs.map((_, p) => (seq ? p * N * exp : 0)), N, exp, capture: cap, pps: mv('photons-per-sec'), qe: 0.85,
+    sigma0: 0.21 * 0.66 / 1.4, zR: 0.5, kz: 2.5, factor: 1.5, minPhotons: 100, seed: mv('seed') | 0, ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
+  const pk = assetSig((+els.seed.value) | 0, params()) + '|' + params().labelEfficiency + '|' + params().labelNonBleaching;
+  return { key: ['loc', key, step, cap, N, seq, JSON.stringify(kin), o.pps, o.seed, pk].join('|'), cell: key, rect, kin, o,
+    zMin: -cap, zMax: b.z[1] + cap, t1: seq ? nz * N * exp : N * exp };
+}
+const eventJobs = new Map();
+let eventJobId = 2e9;
+function onEventsResult(d) { const j = eventJobs.get(d.id); eventJobs.delete(d.id); if (j) j(d); }
+function eventsJob(job) {
+  job = Object.assign({ type: 'events', id: ++eventJobId }, job);
+  return new Promise((res, rej) => {
+    const done = d => (d.error ? rej(new Error(d.error)) : res(d.events));
+    if (genWorkers.ok) { eventJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
+    else if (mainEngine) setTimeout(() => { try { done(mainEngine.handle(job)[0]); } catch (e) { rej(e); } }, 0);
+    else rej(new Error('the core is not running yet'));
+  });
+}
+function acquireLocs(plan, onProgress, signal) {
+  const hit = locStore.get(plan.key);
+  if (hit) return Promise.resolve(hit);
+  const run = async () => {
+    if (locStore.get(plan.key)) return locStore.get(plan.key);
+    if (signal && signal.aborted) throw new DOMException('cancelled', 'AbortError');
+    acqStatus.set(plan.key, { done: 0, total: 2 });
+    try {
+      if (onProgress) onProgress(0, 2);
+      const p = params(), seed = (+els.seed.value) | 0;
+      const events = await eventsJob({ rect: plan.rect, zMin: plan.zMin, zMax: plan.zMax, t0: 0, t1: plan.t1, kin: plan.kin, seed, p,
+        blocks: blocksForRect(p, plan.rect) });
+      acqStatus.set(plan.key, { done: 1, total: 2 });
+      if (onProgress) onProgress(1, 2);
+      const r = await compute('locs', { events, o: plan.o }, [events.buffer]);
+      let z0 = Infinity, z1 = -Infinity;
+      for (let i = 2; i < r.locs.length; i += 8) { if (r.locs[i] < z0) z0 = r.locs[i]; if (r.locs[i] > z1) z1 = r.locs[i]; }
+      const L = { key: plan.key, cell: plan.cell, ox: plan.o.ox, oy: plan.o.oy, locs: r.locs, n: r.n, capped: r.capped, z0, z1, gl: null };
+      locStore.set(plan.key, L);
+      while (locStore.size > 3) { const [k0, l0] = locStore.entries().next().value; freeLocGl(l0); locStore.delete(k0); }
+      if (onProgress) onProgress(2, 2);
+      requestDraw();
+      return L;
+    } finally { acqStatus.delete(plan.key); }
+  };
+  const pr = acqChain.then(run, run);
+  acqChain = pr.catch(() => {});
+  return pr;
+}
+function freeLocGl(L) {
+  if (L && L.gl && L.gl.ctx === gl && !gl.isContextLost()) { gl.deleteBuffer(L.gl.vbo); gl.deleteVertexArray(L.gl.vao); }
+  if (L) L.gl = null;
+}
+function drawLocsGl(F, L, style, alpha) {
+  if (!L.n) return;
+  if (!L.gl || L.gl.ctx !== gl) {
+    const v = new Float32Array(L.n * 4);
+    for (let i = 0; i < L.n; i++) { v[4 * i] = L.locs[8 * i]; v[4 * i + 1] = L.locs[8 * i + 1]; v[4 * i + 2] = L.locs[8 * i + 2]; v[4 * i + 3] = L.locs[8 * i + 3]; }
+    const vbo = gl.createBuffer(), vao = gl.createVertexArray();
+    gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+    gl.bindVertexArray(null);
+    L.gl = { ctx: gl, vbo, vao };
+  }
+  const cam = F.cam, u = glLocU, Z = F.Z, col = style.color || [255, 200, 80], spread = !!style.spread;
+  gl.useProgram(glLocProg);
+  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+  gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
+  gl.uniform2f(u.u_off, cam.u(L.ox, L.oy), cam.v(L.ox, L.oy));
+  gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
+  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+  gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
+  gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
+  gl.uniform1f(u.u_ptHalf, ((style.size || 1.5) / 2) * F.pxScale); gl.uniform1i(u.u_spread, spread ? 1 : 0);
+  gl.uniform1i(u.u_colZ, style.colorBy === 'z' ? 1 : 0); gl.uniform2f(u.u_zr, L.z0, Math.max(L.z0 + 0.1, L.z1));
+  gl.uniform4f(u.u_col, col[0] / 255, col[1] / 255, col[2] / 255, alpha);
+  gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+  if (spread) gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   // spots add up like light
+  gl.bindVertexArray(L.gl.vao);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, L.n);
+  gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(true);
+}
+// the surface and the localizations of a frame (after the slices); returns the data still missing
+function drawSurfaceAndLocs(F, target) {
+  const st = F.st, dp = dataParams(st.data);
+  if (st.layers['mt.locs']) {
+    const plan = target && locPlan(target, dp), L = plan && locStore.get(plan.key);
+    if (!L) F.dataMissing.push('localization');
+    else if (useGl && glLocProg) {
+      const style = IscScene.resolveStyle(st.theme, 'mt.locs', st.layers['mt.locs'].style);
+      drawLocsGl(F, L, style, st.layers['mt.locs'].alpha === undefined ? 1 : st.layers['mt.locs'].alpha);
+    }
+  }
+  if (st.layers['mt.wfIso']) {
+    const plan = target && stackPlan('wf', target, dp), stack = plan && stackStore.get(plan.key);
+    const style = IscScene.resolveStyle(st.theme, 'mt.wfIso', st.layers['mt.wfIso'].style);
+    const e = stack && isoFor(stack, +style.level || 1, dp.crop);
+    if (!stack) F.dataMissing.push('wf');
+    else if (!e) F.dataMissing.push('surface');
+    else if (useGl && glIsoProg) drawIsoGl(F, stack, e, style);
+  }
+}
 // The movie as shown in the player (its display range through the grey LUT), scaled up by a whole factor to at
 // least 512 px (nearest neighbour: crisp pixels), as a GIF (256 greys: exactly the display) or a video at the
 // playback rate (WebCodecs; WebM or GIF where the browser cannot encode H.264).

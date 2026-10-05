@@ -34,8 +34,9 @@ that finishes them.
   says was fixed on purpose), [BRIGHTFIELD.md](spec/BRIGHTFIELD.md) (BF model, quality levels, missing structures), [PORT.md](spec/PORT.md) (port + adapter-integration spec; keep it up to
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
-  the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `anim_unit.mjs` and `encode_unit.mjs` (the
-  animation sequences and export encoders; CI job `viewer-js` runs these three), `viewer_anim_export.mjs` (browser: export,
+  the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
+  surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
+  and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness, plus `world_tests.cpp` (ctest `world_checks`:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d

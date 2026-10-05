@@ -4,6 +4,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Viewer thresholded surface and localizations (issue 11, phase 4, 2026-10-05): the WideField z-stack smoothed,
+  thresholded at Otsu's level and meshed (surface nets) in a compute worker, drawn as a lit front layer; SMLM
+  localizations of a multi-plane acquisition (the core's blinks, a new `events` worker job in the WASM and JS engines:
+  per frame and focus position within the capture range, displaced by a photon- and defocus-dependent precision),
+  drawn by height or as precision spots. Main view (Data layers) and animations (presets "Simulated up, WideField down,
+  thresholded wake", "Simulated up, SMLM down, localizations wake"; the issue's example as a ready-made sequence).
+  `web/scene/compute.js`, check `tests/web/scene_compute_check.mjs` (CI `viewer-js`); `engine_check` compares the events.
 - Viewer data layers (issue 11, phase 3, 2026-10-05): WideField, SMLM-frame and BrightField z-stacks of a cell (one
   movie job per focus position over the cell's box, averaged frames; memory + IndexedDB cache), drawn as slices at any
   height or any vertical plane (3D texture per fragment, crop to the cell's footprint), in the main view (Data layers
