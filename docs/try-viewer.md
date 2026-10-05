@@ -26,8 +26,10 @@ Notes:
   looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - **Microtubule label** picks the dye and its mode; a pick loads the dye's fields, the mode's labelling and its light
-  preset (lasers, dichroic, filter under **Light path**, with the spectra plotted). **Dye slots** hold edited copies of
-  library dyes. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
+  preset (**Light path**, above Illumination: the preset and the spectra plot; dichroic and filter in Advanced). It stays
+  available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
+  own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
+  Dipole orientations other than Free are not implemented yet. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
   "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current

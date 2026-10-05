@@ -168,7 +168,7 @@
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
 // This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
 // from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
-const { UI_GROUPS, UI_STYLES } = (() => {
+const { UI_GROUPS, UI_STYLES, USER_DYES } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
 const FL = () => modality() === 0, BF = () => modality() === 1;
@@ -177,13 +177,42 @@ const DD = self.ISC_DYE_DATA;
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
 const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
-// The dye a structure's choice means: a library dye or a slot's source dye.
+// The dye a structure's choice means: a library dye or a user dye's source dye.
 const choiceDye = v => (+v < ND ? DD.dyes[+v] : sourceOf(+v - ND + 1));
+// User dyes (Custom dyes group): the engine's dye slots dye1..dye3 (FluoParam_DyeN_*), none until the user adds one.
+// Each has a name and a default mode (viewer only: the movie gets mt-mode = that mode when the structure's mode is
+// "the dye's default") and every dye field, whatever the mode; a structure picks one by name in its Dye select.
+const N_USER_DYES = 3;
+const USER_DYES = {
+  added: [false, false, false],
+  isUser: v => +v >= ND,
+  slot: v => +v - ND + 1,
+  name: n => ($('ud' + n + '-name') ? $('ud' + n + '-name').value.trim() : '') || 'Dye ' + n,
+  modeIndex: n => +$('ud' + n + '-mode').value,
+};
+const mtChoice = () => ($('mv_mt-dye') ? $('mv_mt-dye').value : String(dyeIndex(DD.dyeDefault.dye)));
 const mtMode = () => {
-  const m = $('mv_mt-mode') ? +$('mv_mt-mode').value : -1;
-  return m >= 0 ? MODE_NAMES[m] : choiceDye($('mv_mt-dye') ? $('mv_mt-dye').value : dyeIndex(DD.dyeDefault.dye)).defaultMode;
+  const m = $('mv_mt-mode') ? +$('mv_mt-mode').value : -1, v = mtChoice();
+  if (m >= 0) return MODE_NAMES[m];
+  return USER_DYES.isUser(v) ? MODE_NAMES[USER_DYES.modeIndex(USER_DYES.slot(v))] : choiceDye(v).defaultMode;
 };
 const inMode = (...modes) => () => FL() && modes.includes(mtMode());
+// Shows the added user dyes in the structures' Dye select (by name), hides the others, and moves a structure off a
+// removed one (to the default library dye).
+function refreshUserDyes() {
+  const sel = $('mv_mt-dye');
+  for (let n = 1; n <= N_USER_DYES; n++) {
+    const o = sel.querySelector('option[value="' + (ND + n - 1) + '"]');
+    o.hidden = o.disabled = !USER_DYES.added[n - 1];
+    o.textContent = USER_DYES.name(n) + ' (custom)';
+  }
+  $('addUserDye').disabled = USER_DYES.added.every(Boolean);
+  if (USER_DYES.isUser(sel.value) && !USER_DYES.added[USER_DYES.slot(sel.value) - 1]) {
+    sel.value = String(dyeIndex(DD.dyeDefault.dye));
+    sel.dispatchEvent(new Event('input', { bubbles: true }));
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
 // Dye fields (the option suffixes of mt-dye.<field> / dye<N>.<field>): label, unit, tip, value of a dye in a mode,
 // the modes it applies to (null = all). Picking a dye or a mode loads these rows from the library; edit them after.
 const DYE_FIELD_ROWS = [
@@ -225,7 +254,23 @@ const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.ma
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
 const dyeRows = (prefix, modeOf, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) =>
   num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dyeIndex(DD.dyeDefault.dye)], DD.dyeDefault.mode)[prefix + k],
-    { adv, show: () => FL() && (!modes || modes.includes(modeOf())), ...extra }));
+    { adv, show: () => !USER_DYES.isUser(mtChoice()) && (!modes || modes.includes(modeOf())), ...extra }));
+// A user dye's fields: every dye field (any mode) plus the pre state's and, for a parametric source (Custom), the
+// spectra. Values from the source in its default mode; a field that mode lacks comes from the first mode that has it.
+// A field the source cannot take (no pre state, measured spectra) is NaN: hidden and not sent.
+const USER_FIELD_ROWS = [
+  ...DYE_FIELD_ROWS,
+  ['pre-qy', 'Pre-state QY', '', 'Quantum yield of the pre state (e.g. the green form of a photoconvertible FP).', d => d.states.pre.qy, null, d => !!d.states.pre],
+  ['pre-ext-coeff', 'Pre-state ε', 'M⁻¹cm⁻¹', 'Extinction coefficient of the pre state at its absorption peak.', d => d.states.pre.extCoeff, null, d => !!d.states.pre],
+  ['ex-peak-nm', 'Excitation peak', 'nm', 'Peak of the parametric excitation spectrum.', d => d.states.main.parametric.exPeakNm, null, d => !!d.states.main.parametric],
+  ['ex-width-nm', 'Excitation width', 'nm', 'Width of the parametric excitation spectrum.', d => d.states.main.parametric.exWidthNm, null, d => !!d.states.main.parametric],
+  ['em-peak-nm', 'Emission peak', 'nm', 'Peak of the parametric emission spectrum.', d => d.states.main.parametric.emPeakNm, null, d => !!d.states.main.parametric],
+  ['em-width-nm', 'Emission width', 'nm', 'Width of the parametric emission spectrum.', d => d.states.main.parametric.emWidthNm, null, d => !!d.states.main.parametric],
+];
+const userDyeValues = (n, d) => Object.fromEntries(USER_FIELD_ROWS.map(([k, , , , get, modes, has]) => {
+  const m = !modes || modes.includes(d.defaultMode) ? d.defaultMode : modes[0];
+  return ['mv_dye' + n + '.' + k, has && !has(d) ? NaN : +(+get(d, m)).toPrecision(6)];
+}));
 const fx = d => v => (+v).toFixed(d);
 const offIf0 = d => v => +v ? (+v).toFixed(d) : 'off';
 const pct = v => (100 * v).toFixed(1);
@@ -236,6 +281,7 @@ const num = (id, label, unit, tip, min, max, step, value, o) => ({ kind: 'number
 const check = (id, label, tip, value, o) => ({ kind: 'check', id, label, tip, value, ...o });
 const select = (id, label, tip, options, value, o) => ({ kind: 'select', id, label, tip, options, value, ...o });
 const button = (id, label, tip, o) => ({ kind: 'button', id, label, tip, ...o });
+const text = (id, label, tip, value, o) => ({ kind: 'text', id, label, tip, value, ...o });
 // min/max on one line: two number boxes (ids id+'Min', id+'Max') around a two-knob slider over [lo, hi]
 const pair = (id, label, unit, tip, lo, hi, step, vMin, vMax, o) => ({ kind: 'pair', id, label, unit, tip, lo, hi, step, vMin, vMax, ...o });
 // a UI-only select that writes its kids: presets = { name: { childId: value } }
@@ -340,31 +386,49 @@ const UI_GROUPS = [
   ] },
 
   { sect: 'Sample preparation', id: 'mtlabel', title: 'Microtubule label', open: true, items: [
-    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of the three dye slots. Picking one loads its values into the rows below (advanced); edit them after. <code>SimType_CellFieldMicrotubuleDye</code>',
-      [...DD.dyes.map((d, i) => [String(i), d.name + ' (' + d.defaultMode + ')']), ['' + ND, 'Dye slot 1'], ['' + (ND + 1), 'Dye slot 2'], ['' + (ND + 2), 'Dye slot 3']],
-      String(dyeIndex(DD.dyeDefault.dye)), { show: FL, apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
+    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. <code>SimType_CellFieldMicrotubuleDye</code>',
+      [...DD.dyes.map((d, i) => [String(i), d.name + ' (' + d.defaultMode + ')']), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
+      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
     select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>SimType_CellFieldMicrotubuleLabelMode</code>',
-      [['-1', 'the dye\'s default'], ...MODE_NAMES.map((m, i) => [String(i), m])], '-1', { show: FL, apply: () => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye($('mv_mt-dye').value), mtMode())), choiceDye($('mv_mt-dye').value), mtMode()) }),
+      [['-1', 'the dye\'s default'], ...MODE_NAMES.map((m, i) => [String(i), m])], '-1', { apply: () => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye($('mv_mt-dye').value), mtMode())), choiceDye($('mv_mt-dye').value), mtMode()) }),
     range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 5 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
     num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Light path). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>SimType_CellFieldMicrotubuleImagerNm</code>', 0, null, 0.1, 1.43, { show: inMode('DNA-PAINT') }),
-    select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. No effect on the image yet (polarisation: future). <code>SimType_CellFieldMicrotubuleOrientation</code>',
-      [['0', 'Free'], ['1', 'Fixed'], ['2', 'Random']], '0', { adv, kids: [
-        num('mv_mt-orient-polar-deg', 'Polar angle', '°', 'Fixed: angle of the dipole from the microtubule axis. <code>SimType_CellFieldMicrotubuleOrientPolarDeg</code>', 0, 180, 1, 90, { adv, show: () => $('mv_mt-orient').value === '1' }),
-        num('mv_mt-orient-azimuth-deg', 'Azimuth', '°', 'Fixed: angle about the axis, from the radial direction. <code>SimType_CellFieldMicrotubuleOrientAzimuthDeg</code>', -180, 180, 1, 0, { adv, show: () => $('mv_mt-orient').value === '1' }),
-        num('mv_mt-wobble-deg', 'Wobble cone', '°', 'Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). <code>SimType_CellFieldMicrotubuleWobbleConeDeg</code>', 0, 90, 1, 0, { adv, show: () => $('mv_mt-orient').value !== '0' }),
+    select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation), the only one the images use. <b>Fixed and Random are not implemented yet</b>: they are stored but change nothing (dipole emission and polarisation: future). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. <code>SimType_CellFieldMicrotubuleOrientation</code>',
+      [['0', 'Free'], ['1', 'Fixed (not implemented yet)'], ['2', 'Random (not implemented yet)']], '0', { adv, kids: [
+        num('mv_mt-orient-polar-deg', 'Polar angle', '°', 'Not implemented yet (no effect on the image). Fixed: angle of the dipole from the microtubule axis. <code>SimType_CellFieldMicrotubuleOrientPolarDeg</code>', 0, 180, 1, 90, { adv, show: () => $('mv_mt-orient').value === '1' }),
+        num('mv_mt-orient-azimuth-deg', 'Azimuth', '°', 'Not implemented yet (no effect on the image). Fixed: angle about the axis, from the radial direction. <code>SimType_CellFieldMicrotubuleOrientAzimuthDeg</code>', -180, 180, 1, 0, { adv, show: () => $('mv_mt-orient').value === '1' }),
+        num('mv_mt-wobble-deg', 'Wobble cone', '°', 'Not implemented yet (no effect on the image). Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). <code>SimType_CellFieldMicrotubuleWobbleConeDeg</code>', 0, 90, 1, 0, { adv, show: () => $('mv_mt-orient').value !== '0' }),
       ] }),
-    select('mv_mt-motion', 'Motion', 'Dye motion: Static only for now (single-particle tracking: future). <code>SimType_CellFieldMicrotubuleMotion</code>', [['0', 'Static']], '0', { adv }),
   ] },
-  { id: 'slots', title: 'Dye slots', adv, items: [
-    { kind: 'html', html: '<p class="sub">Three user dyes: a library dye with edited values, picked by a structure\'s Dye as "Dye slot N". <code>FluoParam_DyeN_*</code></p>' },
+  { id: 'slots', title: 'Custom dyes', adv, items: [
+    { kind: 'html', html: '<p class="sub">Your own dyes (up to three), picked by a structure\'s Dye by their name. Each starts from a library dye; every value can be edited. <code>FluoParam_DyeN_*</code></p>' },
+    button('addUserDye', '+ Add a dye', 'Adds a custom dye (up to three) and selects it for the microtubules.', { onClick: () => {
+      const n = USER_DYES.added.indexOf(false) + 1;
+      if (n < 1) return;
+      USER_DYES.added[n - 1] = true;
+      refreshUserDyes();
+      const sel = $('mv_mt-dye');
+      sel.value = String(ND + n - 1);
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }, init: refreshUserDyes }),
     ...[1, 2, 3].flatMap(n => {
-      const def = ['AF647', 'mEos3.2', 'mEGFP'][n - 1];
-      return [select('mv_dye' + n + '.source', 'Slot ' + n, 'The library dye this slot starts from; picking one loads its values (in its default mode) into the rows below. <code>FluoParam_Dye' + n + '_Source</code>',
-        DD.dyes.map((d, i) => [String(i), d.name]), String(dyeIndex(def)), { adv,
-          apply: v => dyeFieldValues('mv_dye' + n + '.', DD.dyes[+v], DD.dyes[+v].defaultMode),
-          kids: DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) => num('mv_dye' + n + '.' + k, label, unit, tip, 0, null, 'any',
-            dyeFieldValues('mv_dye' + n + '.', DD.dyes[dyeIndex(def)], DD.dyes[dyeIndex(def)].defaultMode)['mv_dye' + n + '.' + k],
-            { adv, show: () => !modes || modes.includes(sourceOf(n).defaultMode) })) })];
+      const def = DD.dyes[dyeIndex(['AF647', 'mEos3.2', 'mEGFP'][n - 1])], P = 'mv_dye' + n + '.', added = () => USER_DYES.added[n - 1];
+      return [text('ud' + n + '-name', 'Name', 'The name this dye goes by in the structures\' Dye select (viewer only).', 'My dye ' + n, {
+        show: added, onInput: refreshUserDyes, kids: [
+        select(P + 'source', 'Start from', 'The library dye this one starts from (its spectra, pre state and values in its default mode); picking one loads them into the rows below, edit them after. Spectra can be edited for the parametric Custom dye. <code>FluoParam_Dye' + n + '_Source</code>',
+          DD.dyes.map((d, i) => [String(i), d.name]), String(dyeIndex(def.id)), { show: added,
+            apply: v => Object.assign(userDyeValues(n, DD.dyes[+v]), { ['ud' + n + '-mode']: MODE_NAMES.indexOf(DD.dyes[+v].defaultMode) }) }),
+        select('ud' + n + '-mode', 'Default mode', 'The mode a structure uses this dye in when its Mode is "the dye\'s default" (viewer only). The values below apply in whatever mode it is used.',
+          MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(def.defaultMode)), { show: added }),
+        ...USER_FIELD_ROWS.map(([k, label, unit, tip, , modes, has]) => num(P + k, label, unit,
+          tip + (modes ? ' (Used in ' + modes.join(', ') + '.)' : ''), 0, null, 'any', userDyeValues(n, def)[P + k],
+          { show: () => added() && (!has || has(sourceOf(n))) })),
+        button('removeUserDye' + n, 'Remove this dye', 'Removes this dye; a structure that used it goes back to the default library dye.', { show: added, onClick: () => {
+          USER_DYES.added[n - 1] = false;
+          refreshUserDyes();
+        } }),
+      ] })];
     }),
   ] },
   { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
@@ -375,7 +439,22 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>SimType_CellFieldAbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { sect: 'Microscope', id: 'illum', title: 'Illumination', open: true, items: [
+  { sect: 'Microscope', id: 'lightpath', title: 'Light path', open: true, show: FL, items: [
+    preset('lightPreset', 'Preset', 'Laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). Picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Optics_Preset</code>',
+      Object.fromEntries(DD.lightPresets.map(q => [q.name, lightPresetValues(q)])), []),
+    select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
+      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, kids: [
+        num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
+      ] }),
+    select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>Optics_EmissionFilter</code>',
+      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { adv, kids: [
+        num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>Optics_EmissionLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+        num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>Optics_EmissionHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
+      ] }),
+    num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv }),
+    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>' },
+  ] },
+  { id: 'illum', title: 'Illumination', open: true, items: [
     select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). <code>General_ImagingModality</code>',
       [['0', 'Fluorescence'], ['1', 'BrightField']], '0'),
     ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Optics_Laser' + nm + 'KWcm2</code>', 0, null, 'any', nm === 640 ? 0.1607 : 0, { show: FL })),
@@ -387,21 +466,6 @@ const UI_GROUPS = [
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>General_BrightFieldCondenserNa</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>General_BrightFieldWavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
     num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>Background_BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
-  ] },
-  { id: 'lightpath', title: 'Light path', show: FL, items: [
-    preset('lightPreset', 'Preset', 'Laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). Picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Optics_Preset</code>',
-      Object.fromEntries(DD.lightPresets.map(q => [q.name, lightPresetValues(q)])), []),
-    select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
-      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { kids: [
-        num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
-      ] }),
-    select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>Optics_EmissionFilter</code>',
-      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { kids: [
-        num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>Optics_EmissionLoNm</code>', 300, 900, 0.5, 657.5, { show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
-        num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>Optics_EmissionHiNm</code>', 300, 900, 0.5, 694.5, { show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
-      ] }),
-    num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv }),
-    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>' },
   ] },
   { id: 'objective', title: 'Objective & PSF', items: [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>PSFParam_PsfModel</code>',
@@ -473,7 +537,7 @@ const UI_GROUPS = [
 
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
-return { UI_GROUPS, UI_STYLES };
+return { UI_GROUPS, UI_STYLES, USER_DYES };
 })();
 </script>
 <script id="uiPanel">
@@ -514,6 +578,11 @@ function renderEntry(e, host, g, parent) {
   } else if (e.kind === 'button') {
     row = h('div', { class: 'opt wide' });
     row.append(h('button', { id: e.id, title: e.tip }, e.label));
+  } else if (e.kind === 'text') {
+    row = h('div', { class: 'opt text' });
+    const ctl = h('div', { class: 'ctl' });
+    ctl.append(h('input', { type: 'text', id: e.id, value: e.value, maxlength: 40 }));
+    row.append(labelCell(e, e.id), ctl, h('div', { class: 'val' }));
   } else {
     row = h('div', { class: 'opt ' + e.kind });
     const ctl = h('div', { class: 'ctl' }), val = h('div', { class: 'val' });
@@ -644,7 +713,7 @@ function sync() {
   for (const G of groups) {
     const any = G.g.items.length && entries.some(r => r.group === G.g &&
       (r.kind === 'html' || isShown(r) && (level === 'advanced' || !(r.adv || G.g.adv))));
-    G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
+    G.det.style.display = any && (!G.g.show || G.g.show()) && (level === 'advanced' || !G.g.adv) ? '' : 'none';
   }
   for (const S of new Set(groups.map(G => G.sect))) S.el.style.display = S.el.textContent && S.groups.some(G => G.det.style.display !== 'none') ? '' : 'none';
   const nDiff = entries.filter(r => (r.adv || (r.group && r.group.adv)) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
@@ -652,6 +721,8 @@ function sync() {
   if (note) note.textContent = level === 'default' && nDiff ? `${nDiff} hidden advanced option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
 }
 for (const r of entries) {
+  if (r.kind === 'button' && r.onClick) $(r.id).addEventListener('click', () => { r.onClick(); sync(); });
+  if (r.onInput) $(r.id).addEventListener('input', r.onInput);
   if (!r.id || r.kind === 'button' || r.kind === 'html') continue;
   const ids = r.kind === 'pair' ? [r.id + 'Min', r.id + 'Max'] : [r.id];
   for (const id of ids) {
@@ -667,6 +738,7 @@ for (const r of entries) {
     el.addEventListener('change', sync);
   }
 }
+for (const r of entries) if (r.init) r.init();
 
 // ---- hamburger menu: level, style, expand/collapse ----
 const menu = $('menu'), menuBtn = $('menuBtn');
@@ -897,7 +969,7 @@ function params() {
 // labelled site fraction and the fluorescent fraction of the dye in use (World.setLabels / isc_world_set_label).
 function labelsForDyes() {
   const v = +document.getElementById('mv_mt-dye').value, nd = ISC_DYE_DATA.dyes.length;
-  const ffEl = document.getElementById('mv_mt-dye.fluorescent-pct');
+  const ffEl = document.getElementById(v < nd ? 'mv_mt-dye.fluorescent-pct' : 'mv_dye' + (v - nd + 1) + '.fluorescent-pct');
   const base = v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
   return [{ density: Math.min(1, Math.max(0, +document.getElementById('mv_mt-label-pct').value / 100)),
     fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d' }];
@@ -2561,9 +2633,16 @@ const moviePsfSeen = new Set(); // PSFs the worker has computed (it memoizes the
 let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0, movieAcc = 0;
 function movieSpec() {
   const p = params(), o = [];
+  // A custom dye (USER_DYES): its own fields are the dye, so the structure's per-field rows are not sent; a slot the
+  // user has not added is not sent at all; the structure's "dye's default" mode is the custom dye's default mode.
+  const mtDye = +document.getElementById('mv_mt-dye').value, userSlot = USER_DYES.isUser(mtDye) ? USER_DYES.slot(mtDye) : 0;
   for (const k of MOVIE_KEYS) {
-    const v = document.getElementById('mv_' + k).value;
+    let v = document.getElementById('mv_' + k).value;
     if (v === '' || !Number.isFinite(+v)) continue;   // a dye field that does not apply to the dye's mode
+    const slot = /^dye(\d)\./.exec(k);
+    if (slot && !USER_DYES.added[+slot[1] - 1]) continue;
+    if (userSlot && k.startsWith('mt-dye.')) continue;
+    if (userSlot && k === 'mt-mode' && +v < 0) v = USER_DYES.modeIndex(userSlot);
     o.push(k + '=' + (+v));
   }
   o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + view.cx, 'y=' + view.cy,
@@ -2660,11 +2739,13 @@ function makeMovie() {
 // the SMLM splat for blinks, mean-field (FFT) or per dye for continuous populations, the transmitted-light engine.
 function movieBackendsText() {
   if (document.getElementById('mv_modality').value === '1') return 'Rendering BrightField (transmitted light)…';
-  const dye = choiceDyeOf(+document.getElementById('mv_mt-dye').value), m = +document.getElementById('mv_mt-mode').value;
-  const mode = m >= 0 ? ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'][m] : dye.defaultMode;
+  const v = +document.getElementById('mv_mt-dye').value, dye = choiceDyeOf(v), m = +document.getElementById('mv_mt-mode').value;
+  const user = USER_DYES.isUser(v) ? USER_DYES.slot(v) : 0, MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+  const mode = m >= 0 ? MODES[m] : user ? MODES[USER_DYES.modeIndex(user)] : dye.defaultMode;
+  const name = user ? USER_DYES.name(user) : dye.name;
   const parts = { dSTORM: 'SMLM blinks + initial ON (mean-field or per dye)', PALM: 'SMLM blinks' + (dye.states.pre ? ' + pre state (mean-field or per dye)' : ''),
     'DNA-PAINT': 'SMLM blinks + imager background', WideField: 'WideField dyes (mean-field or per dye)' }[mode];
-  return `Rendering ${dye.name} ${mode}: ${parts}…`;
+  return `Rendering ${name} ${mode}: ${parts}…`;
 }
 function choiceDyeOf(v) {
   const nd = ISC_DYE_DATA.dyes.length;
@@ -2804,7 +2885,8 @@ document.getElementById('mv_make').addEventListener('click', makeMovie);
 for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset', 'qe-curve'])
   document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
-for (const k of ['mt-dye', 'mt-label-pct', 'mt-dye.fluorescent-pct', 'dye1.source', 'dye2.source', 'dye3.source'])
+for (const k of ['mt-dye', 'mt-label-pct', 'mt-dye.fluorescent-pct', 'dye1.source', 'dye2.source', 'dye3.source',
+  'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
   document.getElementById('mv_' + k).addEventListener('input', () => requestDraw());
 
 // ---- light path: spectra plot and detection readout (issue 16) ----
@@ -2849,7 +2931,9 @@ async function drawSpecPlot() {
       g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
     }
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
-    const parts = [`<b>${L.dye.name}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
+    const mtv = +document.getElementById('mv_mt-dye').value;
+    const dyeName = USER_DYES.isUser(mtv) ? USER_DYES.name(USER_DYES.slot(mtv)) : L.dye.name;
+    const parts = [`<b>${dyeName}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
     if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
     if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
     if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
@@ -2858,7 +2942,10 @@ async function drawSpecPlot() {
     if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
     out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; dichroic dotted, filter shaded, QE dotted grey</span>';
   } catch (e) {
-    out.textContent = 'light path: ' + (e && e.message || e);
+    specMods = null;   // try the import again next time
+    // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
+    if (location.protocol === 'file:') out.innerHTML = 'The spectra plot needs the viewer served over http (e.g. <code>node web/lab/serve.mjs</code>, then http://localhost:8123/web/), not opened as a file. Movies are not affected.';
+    else out.textContent = 'light path: ' + (e && e.message || e);
   }
 }
 document.getElementById('panel').addEventListener('input', scheduleSpecPlot);
