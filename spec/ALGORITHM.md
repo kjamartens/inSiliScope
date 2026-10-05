@@ -587,6 +587,14 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   (plus the primed term).
 - **Movies start at 60 s** (`start-sec`), past the dSTORM initial ON phase: the default movie shows the steady state
   without the user knowing about initial ON. The windowed schedules make the late start free.
+- **The adapter's illumination history is a per-place clock, not a dose map per population.** Every mode's kinetics
+  are functions of time under the light, so one map of lit seconds (0.25 um tiles) serves bleaching, photoconversion and
+  dSTORM depletion alike, and the dyes stay address-based (a dye's schedule is still a pure function of its address,
+  read at its place's clock). Light counts when a frame is *taken* (snap, sequence), not when the live loop renders one,
+  so an idle Micro-Manager bleaches nothing. All lit columns advance by the same exposure, so a mean-field population's
+  per-column weights only scale from frame to frame (the scene's one-channel fast path); the lit rect is 0.5 um wider
+  than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge columns keep their
+  clock and every frame re-convolves).
 - **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
   illuminated chamber height. Documented as such rather than modelled half-way.
 

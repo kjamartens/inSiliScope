@@ -111,6 +111,7 @@
     <ClCompile Include="SMLMImageGeneration.cpp" />
     <ClCompile Include="ScopeProperties.cpp" />
     <ClCompile Include="Simulation\ScopeMovie.cpp" />
+    <ClCompile Include="Simulation\IlluminationHistory.cpp" />
     <ClCompile Include="InSiliScopeModule.cpp" />
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
@@ -156,6 +157,7 @@
     <ClInclude Include="Simulation\LightPath.h" />
     <ClInclude Include="Simulation\Spectra.h" />
     <ClInclude Include="Simulation\ScopeMovie.h" />
+    <ClInclude Include="Simulation\IlluminationHistory.h" />
     <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\Parallel.h" />

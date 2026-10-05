@@ -759,15 +759,21 @@ the filter centre + the imager offset, blinks per group, continuous populations 
 `FlatIllumination` over the FOV + 2 x 2 um, unit dose) or per dye (running image), noise at QE 1. Host hooks for the
 adapter: `FluorescenceFrameOptions` (z per frame, drift, illumination field, background fade, photons out instead of
 ADU), `SimplePlan` (one blink group, no populations: the GPU splat), a `WidefieldAccelerator` for the mean-field scenes
-(D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`.
+(D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`, and `DyeClock`
+(Begin's optional per-region clock: the blinks and per-dye windows are queried per clock region over its bounding box,
+keeping the dyes whose position has that clock; a mean-field population goes to the scene's weighted channel with each
+grid column's frame-0 mean photons, frame f = that x exp(-lambda f exposure); without a clock: one region at
+start-sec, the JS path bit for bit).
 
 **cli / viewer / block**: the options above; viewer module ABI 10 (labels on sites jobs, sites stride 5, the WebGPU
 mean-field path per scene, `movie-progress` from the WASM); webSMLM block abiVersion 10 (density-1 label, same
 `buildWindow`).
 
 **Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties): a `ScopeSpec` from the properties drives
-`FluorescenceMovie`; the stack and live clock start at 60 s; live renders one movie frame per tick (bleaching by time,
-no bleach map); `General_ImagingModality` = Fluorescence | BrightField.
+`FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
+light per 0.25 um tile, a place never lit at 0; a live frame adds its exposure over its lit rect (FOV + 2.5 um) when it
+is taken, a stack its duration after rendering; live renders one movie frame per tick; `General_ImagingModality` =
+Fluorescence | BrightField.
 
 Checks: ctest `world_checks` (label determinism, FLUOR nesting, modes, cache under load, threads), `widefield`
 (`MeanFieldVsPerDye`), `label_parity.mjs`, `scope_parity.mjs` (every mode, PALM pre state, several lasers, per dye and

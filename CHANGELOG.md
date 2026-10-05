@@ -10,8 +10,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   and primed activation), DNA-PAINT (imager binding at k_on c, the free imager's flat background; depletion and
   exclusion from cells ignored) or WideField (every dye at once, bleaching by its photon budget). Lasers, dichroic,
   emission filter and camera QE curve (presets for both) set excitation, detected fraction and each state's PSF
-  wavelength; continuous populations render mean-field or per dye. Movies, stacks and live mode start 60 s after the
-  illumination. **Core ABI 10** (`isc_world_set_label`, events stride 10, `isc_continuous_in_window`, sites stride 5;
+  wavelength; continuous populations render mean-field or per dye. cli/viewer movies start 60 s after the
+  illumination (`start-sec`); the MM adapter keeps a world-anchored illumination history instead (below). **Core ABI 10** (`isc_world_set_label`, events stride 10, `isc_continuous_in_window`, sites stride 5;
   `isc_world_set_kinetics` and the `labelEfficiency`/`labelNonBleaching` params removed); webSMLM block abiVersion 10.
   cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`, `mt-imager-nm`, `mt-orient*`, `dye1..3.source`, dye-field
   overrides, `laser-*`, `light-preset`, `dichroic`, `em-filter`, `camera-preset`, `qe-curve`, `mean-field-*`;
@@ -21,8 +21,10 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `FluoParam_Dye{1,2,3}_*`, `Optics_*` (new prefix; the illumination profile moved from `FluoParam_Illum*`),
   `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`; removed `FluoParam_PhotonsPerSecond`, `OnLifetimeSec`,
   `OffLifetimeSec`, `BlinkBleachProb`, `PhotonCV`, `FluoParam_WideField*`, `PSFParam_PsfEmissionWavelengthNm`,
-  `SimType_CellFieldLabelingPct*`, `MilliActivationRatePerDyePerSec`; live mode no longer keeps a world-anchored
-  bleach map (bleaching is a function of time, as in the JS). Default: DNA-PAINT ATTO 655, 70 % of the sites, 1.43 nM.
+  `SimType_CellFieldLabelingPct*`, `MilliActivationRatePerDyePerSec`; the live WideField bleach map is replaced by
+  an illumination history for every label mode: each place's dyes run on the seconds of light it has had (snaps,
+  sequence acquisitions and stacks add to it; a place never lit starts fresh at 0), so imaging bleaches and uses up
+  dyes only where you imaged; stacks continue it (reproducible on a fresh device). Default: DNA-PAINT ATTO 655, 70 % of the sites, 1.43 nM.
   Hardware configurations that set the removed properties must be re-made.
 - MM adapter: the non-CellField patterns are gone (issue 16, 2026-10-05): `SimType_Pattern` and its Circle, Lines, Grid,
   Random, CustomPoints, Spiral, Star, Heart, ResolutionTarget, TiltedPlane, Uniform3D, Shell, NUP, Calibration9Spots and

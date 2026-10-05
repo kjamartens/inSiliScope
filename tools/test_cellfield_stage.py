@@ -4,8 +4,9 @@ Exercises: the XY stage device (Busy while moving, move time ~ distance/speed,
 position readback, MM's TransposeMirrorX flipping the direction), the camera's
 CellField pattern rendering dyes of the insiliscope world through the unchanged
 render pipeline, a known feature shifting by the expected pixels between two
-stage positions (live mode), precomputed stacks that are byte-identical
-after the stage went 1 mm away and came back, the microtubules' label modes
+stage positions (live mode), the illumination history (a repeat stack at a
+spot continues it: dSTORM dyes used up, DNA-PAINT sites not; live: bleach
+here, a fresh region 30 um away, still dim back here), the microtubules' label modes
 (DNA-PAINT sites do not run out; a WideField-mode mEGFP mean field bleaches with
 the half time its dye fields give), a hardware z stack (the ZStage's sequence, one position per camera frame),
 and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
@@ -195,7 +196,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     assert (dy2, dx2) == (0, -expect), f"with TransposeMirrorX=1, +{step_um} um moved the image by ({dy2}, {dx2})"
     print(f"TransposeMirrorX OK: the same user-coordinate step now moves the image by {dx2} px")
 
-    # ---- precomputed: stage 1 mm away and back, identical stack -----------
+    # ---- precomputed: stacks continue the illumination history --------------
     _label(core, cam, **PAINT)
     core.setProperty(cam, "General_AcqMode", "Precomputed")
     core.setExposure(20.0)
@@ -211,25 +212,38 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
             frames.append(core.getImage().copy())
         return frames
 
+    # A stack lights its FOV for 1000 x 20 ms: the next stack there starts 20 s
+    # later on its dyes' clocks. DNA-PAINT sites never run out (the same level,
+    # other blinks); dSTORM dyes at a fresh spot start in their initial ON
+    # phase and are largely used up by a second stack there.
+    def mean_of(frames):
+        return float(np.mean([f.astype(np.float64).mean() for f in frames])) - 100.0
     t0 = time.time()
     first = stack_frames_at(x0, y0)
     gen_s = time.time() - t0
     stack_frames_at(x0 + 1000.0, y0)
     back = stack_frames_at(x0, y0)
-    assert all(np.array_equal(f, g) for f, g in zip(first, back)), \
-        "precomputed CellField stack differs after the stage went 1 mm away and back"
     assert any(f.std() > 3 for f in first), "precomputed CellField frames look empty"
-    print(f"Precomputed CellField OK: 1000-frame stack in {gen_s:.1f} s, byte-identical after a 1 mm excursion")
+    assert not all(np.array_equal(f, g) for f, g in zip(first, back)), "a repeat stack should continue the history"
+    assert abs(mean_of(back) / mean_of(first) - 1) < 0.15, \
+        f"DNA-PAINT repeat stack: {mean_of(first):.2f} -> {mean_of(back):.2f} ADU (sites never run out)"
+    _label(core, cam, mode="dSTORM", dye="AF647")
+    d1, d2 = mean_of(stack_frames_at(x0 + 500.0, y0, n=20)), mean_of(stack_frames_at(x0 + 500.0, y0, n=20))
+    _label(core, cam, **PAINT)
+    assert d2 < 0.5 * d1, f"dSTORM at a fresh spot, then again: {d1:.1f} -> {d2:.1f} ADU (initial ON, then used up)"
+    print(f"Precomputed CellField OK: 1000-frame stack in {gen_s:.1f} s; a repeat stack continues the history "
+          f"(DNA-PAINT {mean_of(first):.1f} -> {mean_of(back):.1f} ADU, dSTORM {d1:.1f} -> {d2:.1f} ADU)")
 
     # SimType_CellFieldZRangeUm is its own setting: a thin slab renders fewer
-    # dyes than the default 7 um one, 0 (no z limit) at least as many.
+    # dyes than the default 7 um one, 0 (no z limit) about as many (each
+    # stack is another stretch of the DNA-PAINT blinks: 3 % tolerance).
     def mean_signal(zr):
         core.setProperty(cam, "SimType_CellFieldZRangeUm", str(zr))
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
     thin, default, unlimited = mean_signal(0.2), mean_signal(7), mean_signal(0)
     core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
-    assert thin < default <= unlimited + 1e-9, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
-    print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) <= {unlimited:.2f} ADU (no limit)")
+    assert thin < default <= 1.03 * unlimited, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
+    print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) ~ {unlimited:.2f} ADU (no limit)")
 
     # ZStage = focal-plane height above the coverslip (+Z focuses up): at
     # +4 um the 7 um slab still holds the cells' dyes, at -4 um (below the
@@ -326,8 +340,57 @@ def _widefield_checks(core, cam, xy, x0, y0):
         f"WideField bleaching: frames 590-609 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
     print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 30 s (expected {expect:.3f}, t1/2 "
           f"{t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
+
+    # Live: the illumination history. A small budget (t1/2 ~0.4 s at the
+    # preset): bleach the FOV, move 30 um away (fresh, bright, then bleaches
+    # too) and back (still dim). Snaps and sequences light the sample; an idle
+    # live loop does not.
+    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "2000")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setExposure(20.0)
+
+    def live_mean():
+        core.snapImage()
+        return core.getImage().astype(np.float64).mean() - offset
+
+    def bleach_here(n=60):
+        first = np.mean([live_mean() for _ in range(3)])
+        for _ in range(n):
+            live_mean()
+        return first, np.mean([live_mean() for _ in range(3)])
+
+    # Two spots 30 um apart, both with cells, away from what the checks above
+    # lit (one 20 ms snap each to look: ~3 % of a half time).
+    def peek(x, y):
+        core.setXYPosition(xy, x, y)
+        _wait_idle(core, xy)
+        return live_mean()
+    lx = ly = None
+    for k in range(40):
+        cx, cy = x0 + 200.0 + 13.0 * k, y0 + 60.0
+        if peek(cx, cy) > 20 and peek(cx + 30.0, cy) > 20:
+            lx, ly = cx, cy
+            break
+    assert lx is not None, "no pair of spots with cells found for the illumination-history check"
+    core.setXYPosition(xy, lx, ly)
+    _wait_idle(core, xy)
+    here0, here1 = bleach_here()
+    core.setXYPosition(xy, lx + 30.0, ly)
+    _wait_idle(core, xy)
+    away0, away1 = bleach_here()
+    core.setXYPosition(xy, lx, ly)
+    _wait_idle(core, xy)
+    back = np.mean([live_mean() for _ in range(3)])
+    time.sleep(2.0)   # idle: nothing acquires, nothing bleaches
+    idle = np.mean([live_mean() for _ in range(3)])
     _label(core, cam, **GFP)  # reload the library fields
     _label(core, cam, **PAINT)
+    assert here0 > 5 and here1 < 0.2 * here0, f"live WideField should bleach: {here0:.2f} -> {here1:.2f} ADU"
+    assert away0 > 3 * away1, f"30 um away should be fresh (bright, then bleaching): {away0:.2f} -> {away1:.2f} ADU"
+    assert back < 0.25 * here0, f"back at the bleached region it should still be dim: {back:.2f} vs {here0:.2f} ADU"
+    assert idle > 0.8 * back, f"2 s idle should not bleach: {back:.2f} -> {idle:.2f} ADU"
+    print(f"Illumination history OK: {here0:.1f} -> {here1:.1f} ADU here, fresh {away0:.1f} -> {away1:.1f} ADU "
+          f"30 um away, still {back:.1f} ADU back here, {idle:.1f} ADU after 2 s idle")
 
 
 def _brightfield_checks(core, cam, z):

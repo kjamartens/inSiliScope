@@ -40,6 +40,9 @@
     <ClCompile Include="ScopeProperties.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\IlluminationHistory.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\ScopeMovie.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -133,6 +136,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\CellFieldSource.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\IlluminationHistory.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\ScopeMovie.h">

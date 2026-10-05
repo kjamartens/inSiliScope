@@ -869,6 +869,11 @@ struct Population
    double lambda = 0, budget = 0, emissionPerSec = 0, rate = 0;
    long nZ = 0, nSlab = 0;
    bool meanFieldAt0 = false, needWindows = false;
+   // A host clock (DyeClock): the mean-field image is frame 0's photons with
+   // each grid column at its own clock (wb0: mean photons per dye per column);
+   // frame f is it x exp(-lambda f exposure).
+   bool weighted = false;
+   std::vector<float> wb0;
    std::vector<BlinkEvent> wins;
    MeanFieldSlot* slot = nullptr;   // its mean-field scene (meanFieldAt0)
    WidefieldSceneSpec ws;           // the scene's spec at the spec's focus
@@ -994,16 +999,20 @@ struct FluorescenceMovie::Impl
    double setupSec = 0;
    bool gpuMode = false;
    WidefieldAccelerator* accel = nullptr;
+   const DyeClock* clock = nullptr;   // per-region dye clocks (Begin only)
+   double tMin = 0;                   // the smallest clock in the query (the mean-field switch)
    std::vector<Population*> sceneQueue;   // the populations whose mean-field scene images are pending (GPU mode)
    Impl() : cache(SharedMovieCache()), lock(cache.mutex, std::defer_lock) {}
 
    bool IsMeanField(const Population& p, long f) const
    {
-      const double tMid = S.t0Sec + (f + 0.5) * S.expSec, P = std::exp(-p.lambda * tMid);
+      const double tMid = (clock ? tMin : S.t0Sec) + (f + 0.5) * S.expSec, P = std::exp(-p.lambda * tMid);
       return p.nSlab * P / fovArea > S.meanFieldDensityPerUm2 || p.nZ * P > S.meanFieldMaxEmitters;
    }
    bool BuildMeanField(Population& p, std::string& err);
    void TakeImage(Population& p);
+   // Weighted (clock) mean-field: frame 0's photons of the scene's grid.
+   void WeightedImage(Population& p, std::vector<float>& img);
    // The mean-field image at another stage z (refocused scene; cached).
    const std::vector<float>& ImageAt(Population& p, double z);
    void AdvanceAcc(Population& p, long f, double z);
@@ -1043,8 +1052,11 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    ws.eta = 1.0;
    ws.exposureSec = S.expSec;
    ws.unitDose = 1.0;
-   ws.bleachingMask = 0;
-   ws.persistentMask = 1 << p.structure;
+   // With a host clock the dyes go to the scene's weighted (bleaching)
+   // channel, one weight per grid column; else unit weights.
+   p.weighted = clock != nullptr;
+   ws.bleachingMask = p.weighted ? 1 << p.structure : 0;
+   ws.persistentMask = p.weighted ? 0 : 1 << p.structure;
    ws.worldVersion = static_cast<long>(cache.dyeVersion);
    if (g.kernel.valid)
       ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(g.kernel.oversampling, ws.grid.upscale);
@@ -1078,7 +1090,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       slot.has = true;
    }
    slot.scene.SetAccelerator(accel);
-   slot.scene.SetDeferImages(gpuMode);
+   slot.scene.SetDeferImages(gpuMode && !p.weighted);
    const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
    const auto tPhase = TimingClock::now();
    if (!slot.scene.Update(cache.source, ill, ws, *slot.psf, err))
@@ -1086,9 +1098,28 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    TimingLog("fl.mean-field-scene", TimingSince(tPhase));
    p.slot = &slot;
    p.ws = ws;
-   if (!gpuMode)
+   if (p.weighted)
+   {
+      // Frame 0's mean photons per dye at each grid column's clock.
+      const WidefieldGridSpec& gr = slot.scene.Grid();
+      p.wb0.assign(static_cast<size_t>(gr.nx) * gr.ny, 0.0f);
+      for (unsigned j = 0; j < gr.ny; ++j)
+         for (unsigned i = 0; i < gr.nx; ++i)
+         {
+            const double t = clock->At(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm);
+            p.wb0[i + static_cast<size_t>(gr.nx) * j] = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+         }
+      WeightedImage(p, p.image);
+   }
+   else if (!gpuMode)
       TakeImage(p);
    return true;
+}
+
+void FluorescenceMovie::Impl::WeightedImage(Population& p, std::vector<float>& img)
+{
+   img.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
+   p.slot->scene.RenderFrame(p.wb0, img);
 }
 
 const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, double z)
@@ -1107,7 +1138,12 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, double
    std::string err;
    p.slot->scene.SetDeferImages(false);
    if (p.slot->scene.Update(cache.source, ill, ws, *p.slot->psf, err))
-      p.slot->scene.Images().Render({}, img);
+   {
+      if (p.weighted)
+         WeightedImage(p, img);
+      else
+         p.slot->scene.Images().Render({}, img);
+   }
    return img;
 }
 
@@ -1143,13 +1179,15 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z)
    p.accFrame = f;
 }
 
-bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel)
+bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel,
+                              const DyeClock* clock)
 {
    Impl& m = *impl_;
    m.t0 = std::chrono::steady_clock::now();
    m.spec = spec;
    m.gpuMode = gpuMode;
    m.accel = accel;
+   m.clock = clock;
    if (!MakeScopeSetup(spec, m.S, err))
       return false;
    const ScopeSetup& S = m.S;
@@ -1172,6 +1210,50 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return false;
    CellFieldSource& source = m.cache.source;
    TimingLog("fl.configure", TimingSince(tPhase));
+   // The dye clocks: one region at start-sec over the whole query, or the
+   // host clock's regions (each queried at its own time over its bounding
+   // box, keeping only the dyes whose position has that clock).
+   std::vector<ClockRegion> regions;
+   if (clock)
+   {
+      clock->Regions(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, regions);
+      m.tMin = regions.empty() ? 0.0 : regions[0].tSec;
+      for (const ClockRegion& r : regions)
+         m.tMin = std::min(m.tMin, r.tSec);
+   }
+   else
+      regions.push_back({ S.q.tSec, S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um });
+   auto regionQuery = [&](const ClockRegion& r) {
+      CellFieldQuery q = S.q;
+      q.tSec = r.tSec;
+      q.x0Um = std::max(S.q.x0Um, r.x0Um);
+      q.y0Um = std::max(S.q.y0Um, r.y0Um);
+      q.x1Um = std::min(S.q.x1Um, r.x1Um);
+      q.y1Um = std::min(S.q.y1Um, r.y1Um);
+      return q;
+   };
+   auto inRegion = [&](const BlinkEvent& e, const ClockRegion& r) {
+      return !clock || clock->At(e.xUm + S.q.originXUm, e.yUm + S.q.originYUm) == r.tSec;
+   };
+   auto regionEvents = [&](bool continuous, std::vector<BlinkEvent>& out, std::vector<double>* tOfEvent) {
+      for (const ClockRegion& r : regions)
+      {
+         const CellFieldQuery q = regionQuery(r);
+         if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um))
+            continue;
+         std::vector<BlinkEvent> got;
+         if (!(continuous ? source.Continuous(q, got) : source.Events(q, got)))
+            return false;
+         for (const BlinkEvent& e : got)
+            if (inRegion(e, r))
+            {
+               out.push_back(e);
+               if (tOfEvent)
+                  tOfEvent->push_back(r.tSec);
+            }
+      }
+      return true;
+   };
 
    // ---- groups: (structure, state) with their PSF and detected photons per frame ----
    struct Want { int s; bool pre; const StatePhysics* st; };
@@ -1224,12 +1306,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    kernels();
    const auto tEv = TimingClock::now();
    if (psfOk && m.anyBlinks)
-      eventsOk = source.Events(S.q, all);
+      eventsOk = regionEvents(false, all, nullptr);
    eventsSec = TimingSince(tEv);
 #else
    std::thread psfThread(kernels);
    if (m.anyBlinks)
-      eventsOk = source.Events(S.q, all);
+      eventsOk = regionEvents(false, all, nullptr);
    eventsSec = TimingSince(tPhase);
    psfThread.join();
 #endif
@@ -1326,6 +1408,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // needs them): a dye with a photon budget bleaches at aux x budget /
    // emission rate.
    std::vector<BlinkEvent> windows;
+   std::vector<double> windowClock;   // each window's region clock (its dye's time at frame 0)
    bool haveWindows = false;
    for (Population& p : m.pops)
    {
@@ -1335,25 +1418,27 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          continue;   // mean-field to the end: no windows needed
       if (!haveWindows)
       {
-         if (!source.Continuous(S.q, windows))
+         if (!regionEvents(true, windows, &windowClock))
          {
             err = "cell-field window query failed";
             return false;
          }
          haveWindows = true;
       }
-      for (const BlinkEvent& e : windows)
+      for (size_t wi = 0; wi < windows.size(); ++wi)
       {
+         const BlinkEvent& e = windows[wi];
          if (e.structure != p.structure || e.state != p.state)
             continue;
-         double tEndSec = (e.tEnd - S.q.frameIndex) * S.expSec + S.q.tSec;   // back to seconds (Continuous mapped it)
+         const double tq = windowClock[wi];
+         double tEndSec = (e.tEnd - S.q.frameIndex) * S.expSec + tq;   // back to seconds (Continuous mapped it)
          if (p.budget > 0)
             tEndSec = std::min(tEndSec, e.aux * p.budget / p.emissionPerSec);
-         const double b = (tEndSec - S.q.tSec) / S.expSec;
+         const double b = (tEndSec - tq) / S.expSec;
          if (b > 0)
          {
             BlinkEvent w = e;
-            w.tStart = (0 - S.q.tSec) / S.expSec;
+            w.tStart = (0 - tq) / S.expSec;
             w.tEnd = b;
             p.wins.push_back(w);
          }
@@ -1581,10 +1666,20 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   // decay), but keep the frame valid.
                   continue;
                }
-               const float mp = static_cast<float>(MeanPhotons(p.rate, p.lambda, tf0, tf1));
                const std::vector<float>& image = m.ImageAt(p, zf);
-               for (size_t i = 0; i < n; ++i)
-                  img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
+               if (p.weighted)
+               {
+                  // Frame 0 at each column's clock, every clock f exposures later.
+                  const double sc = p.lambda > 0 ? std::exp(-p.lambda * f * S.expSec) : 1.0;
+                  for (size_t i = 0; i < n; ++i)
+                     img[i] += static_cast<float>(sc * image[i]);
+               }
+               else
+               {
+                  const float mp = static_cast<float>(MeanPhotons(p.rate, p.lambda, tf0, tf1));
+                  for (size_t i = 0; i < n; ++i)
+                     img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
+               }
                p.meanFieldFrames++;
                paths[static_cast<size_t>(k)].push_back(std::string(PopulationName(p.state)) + ": mean-field (FFT)");
             }

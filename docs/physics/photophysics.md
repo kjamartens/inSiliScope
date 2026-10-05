@@ -7,8 +7,8 @@ about the switching itself. The third modality, **BrightField**, images transmit
 
 Each dye's schedule is a pure function of its address, so the same dye is the same dye every time the stage returns,
 and a window query equals the union of its slices. Time is simulated time (frame \(\times\) exposure) since the
-illumination came on; movies and the Micro-Manager stack and live mode start at **60 s** (`start-sec`), past the dSTORM
-initial ON phase. Only blinks in the window a movie asks for are scheduled (the window \([t_0, 2t_1)\)), so a late
+illumination came on. cli and viewer movies start at **60 s** (`start-sec`), past the dSTORM initial ON phase; the
+Micro-Manager adapter reads each dye at its place's own clock (the illumination history, below). Only blinks in the window a movie asks for are scheduled (the window \([t_0, 2t_1)\)), so a late
 start costs nothing extra.
 
 ## Blinking dyes (dSTORM, PALM)
@@ -53,5 +53,16 @@ dense, per dye when sparse ([details](dyes-and-light-path.md#continuous-populati
 
 An ON dye emits its detected rate \(\times\) brightness photons per second, integrated over the part of the frame it
 is on (frame-overlap weighting); the adapter's illumination profile (`Optics_IlluminationProfile`) multiplies it.
-Bleaching is a function of time everywhere in the sample (the whole sample is illuminated from \(t=0\)); there is no
-per-region bleach memory any more.
+In a cli or viewer movie the whole sample has been lit since \(t=0\).
+
+## Illumination history (Micro-Manager adapter)
+
+The adapter remembers how long each place has been lit: seconds of illumination per 0.25 um tile of the world, weighted
+by the illumination profile (in 1/16 steps). Every dye's schedule is read at its tile's clock, so imaging bleaches,
+photoconverts and uses up dyes only where the light fell: bleach a region, move away and come back, and it is still
+dim; a place never lit starts at clock 0 (dSTORM dyes in their initial ON phase, PALM proteins unconverted, WideField
+dyes unbleached). A live frame lights the FOV and its 2 um margin for one exposure when it is taken (a snap or a
+sequence acquisition; an idle live loop lights nothing); a stack reads the history and adds its whole duration (so a
+stack is reproducible only on a freshly loaded device). Clocks are in seconds at the light path's current settings: a
+later change of laser power does not rescale the time already accumulated. The history is cleared when the world
+changes (seed, cell parameters). Precision: tile 0.25 um; the lit rect is the stage pose's, drift is not followed.

@@ -509,12 +509,50 @@ void CInSiliScopeCamera::StartStackGeneration()
                                   psfRequest, cellField, stageX, stageY, stageZ, modality_.load());
 }
 
-namespace {
-// Issue 16: the stack's and live mode's simulated clock start this long after
-// the illumination came on (the cli/viewer's start-sec default): past the
-// dSTORM initial ON phase, near steady state.
-constexpr double kClockStartSec = 60.0;
-} // namespace
+void CInSiliScopeCamera::LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1,
+                                 double& y1) const
+{
+   // The margin plus 0.5 um: the mean-field grid (world-anchored cells, a
+   // cell beyond the margin) and the history's 0.25 um tiles lie wholly in
+   // the lit rect, so a frame scales every column's weight alike (the
+   // scene's fast path) instead of re-convolving every frame.
+   const double um = pixelSizeNm_.load() / 1000.0, W = FullWidth() * um, H = FullHeight() * um;
+   const double m = kCellFieldMarginUm + 0.5;
+   x0 = stageXUm - W / 2.0 - m;
+   y0 = stageYUm - H / 2.0 - m;
+   x1 = stageXUm + W / 2.0 + m;
+   y1 = stageYUm + H / 2.0 + m;
+}
+
+std::function<double(double, double)> CInSiliScopeCamera::HistoryWeight(const sim::StackShapingFields& shaping,
+                                                                        double stageXUm, double stageYUm) const
+{
+   const unsigned w = FullWidth(), h = FullHeight();
+   if (shaping.illum.size() != static_cast<size_t>(w) * h)
+      return {};
+   const double um = pixelSizeNm_.load() / 1000.0;
+   const double ox = stageXUm - w * um / 2.0, oy = stageYUm - h * um / 2.0;
+   const std::vector<float> illum = shaping.illum;
+   return [illum, w, h, um, ox, oy](double x, double y) {
+      const long px = std::min(static_cast<long>(w) - 1, std::max(0L, static_cast<long>(std::floor((x - ox) / um))));
+      const long py = std::min(static_cast<long>(h) - 1, std::max(0L, static_cast<long>(std::floor((y - oy) / um))));
+      return std::round(16.0 * illum[static_cast<size_t>(px) + static_cast<size_t>(w) * py]) / 16.0;
+   };
+}
+
+void CInSiliScopeCamera::SyncHistoryWorld()
+{
+   const sim::CellFieldSettings world = BuildCellFieldSettings();
+   std::lock_guard<std::mutex> g(historyWorldMutex_);
+   if (!historyHaveWorld_ || !world.SameWorld(historyWorld_))
+   {
+      if (historyHaveWorld_)
+         LogMessage("Illumination history cleared (a new world: seed or cell parameters).");
+      illumHistory_.Reset();
+      historyWorld_ = world;
+      historyHaveWorld_ = true;
+   }
+}
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, long seed,
@@ -562,13 +600,20 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       // Every structure's label in its mode through the light path: the
       // engine's fluorescence movie (Simulation/ScopeMovie.h), with this
       // camera's drift, illumination field, background fade and z sequence.
-      const sim::ScopeSpec spec = BuildScopeSpec(stageXUm, stageYUm, stageZUm, kClockStartSec, stackLength);
+      // Each dye's clock is the illumination its place has had (a place
+      // never lit starts at 0); the stack then adds its own frames there.
+      const sim::ScopeSpec spec = BuildScopeSpec(stageXUm, stageYUm, stageZUm, 0.0, stackLength);
+      SyncHistoryWorld();
+      double lx0, ly0, lx1, ly1;
+      LitRect(stageXUm, stageYUm, lx0, ly0, lx1, ly1);
+      const sim::ClockSnapshot clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
+      bool lit = false;
       sim::FluorescenceMovie fm;
       std::string err;
       std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
       bool wfTried = false;
       // The mean-field scenes convolve on this thread's Direct3D 11 host.
-      if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfTried) : nullptr))
+      if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfTried) : nullptr, &clock))
          LogMessage("Fluorescence: nothing rendered (" + err + ")", false);
       else
       {
@@ -589,8 +634,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          {
             std::ostringstream msg;
             msg << "Fluorescence: " << (plan.ok ? std::to_string(plan.events->size()) + " blinks" : std::string("stack"))
-                << " for " << stackLength << " frames at stage (" << stageXUm << ", " << stageYUm << ") um from "
-                << kClockStartSec << " s";
+                << " for " << stackLength << " frames at stage (" << stageXUm << ", " << stageYUm
+                << ") um, the dyes at their places' illumination clocks (" << clock.At(stageXUm, stageYUm)
+                << " s at the FOV centre)";
             LogMessage(msg.str());
          }
          if (gpuOk)
@@ -635,7 +681,10 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             zClampedAll += zc;
             zRenderedAll += zt;
             if (gpuOk)
+            {
                where = "the GPU";
+               lit = true;
+            }
          }
          if (!gpuOk)
          {
@@ -659,9 +708,15 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             if (!fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt))
                LogMessage("Fluorescence: " + err, false);
             else
+            {
                LogMessage(info.description);
+               lit = true;
+            }
          }
       }
+      if (lit)
+         illumHistory_.Advance(lx0, ly0, lx1, ly1, stackLength * params.frameDurationSec,
+                               HistoryWeight(shaping, stageXUm, stageYUm));
       for (std::vector<uint16_t>& fr : newStack)
          if (fr.size() != static_cast<size_t>(fullW) * fullH)
             fr.assign(static_cast<size_t>(fullW) * fullH, static_cast<uint16_t>(std::min(65535.0, std::max(0.0, params.offsetAdu))));
@@ -760,8 +815,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // The simulated time the labels' schedules are read at, which advances by
    // one frame duration per produced frame -- across config changes too, so
    // changing a camera setting does not un-bleach the sample. It starts
-   // kClockStartSec after the illumination came on.
-   double cellFieldTimeSec = kClockStartSec;
+   // 0 (the fluorescence dyes read their own clocks from the illumination
+   // history; this one is BrightField's and the prefetch's).
+   double cellFieldTimeSec = 0.0;
    // BrightField: the cell field (configured on the rebuild trigger below),
    // the scene of the current pose (rebuilt when the pose or a setting
    // changes; a focus change only re-images) and the transmitted intensity of
@@ -774,10 +830,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics).
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
-                         long config) {
+                         long config, LitFrame& lit) {
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
+         std::swap(liveFrameLit_, lit);
          liveFrameW_ = fw;
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
@@ -877,6 +934,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
       std::vector<uint16_t> nextFrame;
       sim::ScopeSpec spec;
+      // The lit rect of this frame and its illumination clocks.
+      double lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
+      sim::ClockSnapshot clock;
+      LitFrame lit;
       if (bfActive)
       {
          // A new pose or setting rebuilds the scene (seconds at high quality);
@@ -913,11 +974,14 @@ void CInSiliScopeCamera::LiveProducerLoop()
       {
          // Fluorescence: this frame of the engine's movie at the current pose,
          // focus and time (one stage pose per frame; motion blur is ignored).
-         spec = BuildScopeSpec(sx, sy, zOffsetUm, cellFieldTimeSec, 1);
+         spec = BuildScopeSpec(sx, sy, zOffsetUm, 0.0, 1);
+         SyncHistoryWorld();
+         LitRect(sx, sy, lx0, ly0, lx1, ly1);
+         clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
          sim::FluorescenceMovie fm;
          std::string err;
          bool rendered = false;
-         if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr))
+         if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr, &clock))
          {
             if (!flErrLogged)
                LogMessage("Fluorescence: " + err, false);
@@ -986,9 +1050,21 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                                  liveNoiseSeed, noiseFrame, true);
          }
+         // This frame lights the FOV and its margin for one exposure (counted
+         // when it is taken).
+         if (rendered)
+         {
+            lit.valid = true;
+            lit.x0 = lx0;
+            lit.y0 = ly0;
+            lit.x1 = lx1;
+            lit.y1 = ly1;
+            lit.dtSec = params.frameDurationSec;
+            lit.weight = HistoryWeight(shaping, sx, sy);
+         }
       }
       cellFieldTimeSec += params.frameDurationSec;
-      publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion);
+      publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, lit);
       ++liveFrameCounter_;
 
       double exposureMs = GetExposure();
@@ -1008,7 +1084,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
          else if (!bfActive && !spec.empty())
          {
-            spec["start-sec"] = cellFieldTimeSec;
+            spec["start-sec"] = clock.At(sx, sy);
             sim::PrefetchScope(spec, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
          }
          sleepMs = exposureMs - (GetCurrentMMTime() - tickStart).getMsec();
@@ -1058,6 +1134,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       std::vector<uint16_t> frameCopy;
       unsigned w, h;
       long seq;
+      LitFrame lit;
       // Only frames rendered with the settings of this moment: one already in
       // flight when a property changed would show the old settings.
       const long configNow = liveConfigVersion_.load(std::memory_order_relaxed);
@@ -1077,6 +1154,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
                frameCopy = frontFrame_;
                w = liveFrameW_;
                h = liveFrameH_;
+               lit = liveFrameLit_;
                break;
             }
          }
@@ -1088,6 +1166,9 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       }
       lastConsumedLiveFrameSeq_ = seq;
       CropFullFrameIntoImg(frameCopy, w, h);
+      // The frame was taken: its light goes into the illumination history.
+      if (lit.valid)
+         illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight);
       return true;
    }
 

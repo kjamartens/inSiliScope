@@ -27,6 +27,7 @@
 #include "ImgBuffer.h"
 #include "Simulation/BrightfieldRender.h"
 #include "Simulation/CellFieldSource.h"
+#include "Simulation/IlluminationHistory.h"
 #include "Simulation/ScopeMovie.h"
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SMLMZernike.h"
@@ -349,6 +350,17 @@ private:
    // the library, the labelled sites take the mode's suggestion (on a mode
    // change) and the light path the dye mode's light preset.
    void LoadMicrotubuleDye(bool modeMayChange);
+   // ---- the illumination history (Simulation/IlluminationHistory.h) ----
+   // The rect a fluorescence frame lights at stage (x, y): the FOV, its
+   // 2 um margin (what the movie renders) and 0.5 um of slack, world um.
+   void LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1, double& y1) const;
+   // The illumination profile at a world position as a dose weight (peak 1,
+   // in 1/16 steps so the clocks of a profile form few regions; the margin
+   // takes the nearest FOV pixel); empty for the flat profile.
+   std::function<double(double, double)> HistoryWeight(const sim::StackShapingFields& shaping, double stageXUm,
+                                                       double stageYUm) const;
+   // Clears the history when the world (seed, cells, packing) changed.
+   void SyncHistoryWorld();
    void ApplyLightPreset(const std::string& id);
    void ApplyCameraPreset(int index);
    void NotifyOption(const std::string& option);
@@ -497,6 +509,18 @@ private:
    // (under frontFrameLock_): a frame taken after a property change skips
    // frames that were already being rendered with the old settings.
    long liveFrameConfig_ = 0;
+   // The light a live frame shone (under frontFrameLock_): its lit rect, its
+   // exposure and the profile's dose weight. It goes into the illumination
+   // history only when the frame is taken (a snap or a sequence acquisition:
+   // the shutter is open); frames rendered while nothing acquires bleach
+   // nothing.
+   struct LitFrame
+   {
+      bool valid = false;
+      double x0 = 0, y0 = 0, x1 = 0, y1 = 0, dtSec = 0;
+      std::function<double(double, double)> weight;
+   };
+   LitFrame liveFrameLit_;
    // The z sequence the precomputed stack was made for (-1: none).
    std::atomic<long> stackZSeqVersion_{-1};
    std::vector<uint16_t> frontFrame_, backFrame_;
@@ -655,6 +679,12 @@ private:
    // read the library (so MM's value rounding never changes an untouched one).
    std::map<std::string, double> dyeEdited_;
    std::string lightPreset_ = "PAINT-640";   // Optics_Preset ("None" = the lasers as set)
+   // Seconds of illumination per place of the sample (live frames and stacks
+   // add to it; every fluorescence frame reads its dyes' clocks from it).
+   sim::IlluminationHistory illumHistory_;
+   std::mutex historyWorldMutex_;
+   sim::CellFieldSettings historyWorld_;
+   bool historyHaveWorld_ = false;
    int cameraPreset_ = 0;                     // CamParam_CameraPreset (index into the camera presets)
    int lastMtMode_ = -1;                      // the microtubules' effective mode at the last dye load
    std::atomic<double> wideFieldNum_[WF_COUNT];

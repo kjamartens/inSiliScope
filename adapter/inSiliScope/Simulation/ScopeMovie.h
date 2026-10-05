@@ -155,6 +155,24 @@ struct FluorescenceFrameOptions
    std::function<bool(long f, const std::vector<float>& photons)> onPhotons;
 };
 
+// A host's per-region clock (the adapter's illumination history): the
+// seconds of illumination each world position (um) has had before frame 0. A
+// dye's schedule is read at its position's clock instead of start-sec; frame
+// f adds f x exposure everywhere (the whole query rect is lit while the movie
+// runs). Regions: the distinct clocks in a rect, each with the bounding box
+// of the positions that have it.
+struct ClockRegion
+{
+   double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
+};
+class DyeClock
+{
+public:
+   virtual ~DyeClock() = default;
+   virtual double At(double xUm, double yUm) const = 0;
+   virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
+};
+
 // The blinks-only case of a movie (one blink group, no continuous
 // population): what the adapter's GPU splat + noise path needs.
 struct FluorescenceSimplePlan
@@ -172,7 +190,10 @@ public:
    ~FluorescenceMovie();
    // accel (optional): a synchronous GPU host for the mean-field scenes (the
    // adapter's Direct3D 11 one); their images are then made at once on it.
-   bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr);
+   // clock (optional): per-region dye clocks instead of start-sec (read
+   // during Begin only).
+   bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr,
+              const DyeClock* clock = nullptr);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.

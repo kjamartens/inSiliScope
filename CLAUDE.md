@@ -181,10 +181,16 @@ is `Fluorescence` | `BrightField`, WideField is a label mode. MM (`ScopeProperti
 `SimType_CellFieldMicrotubule{Dye,LabelMode,LabelingPct,ImagerNm,Orientation,...}` properties, the dye fields
 `FluoParam_Microtubule_*` and slots `FluoParam_Dye{1,2,3}_*` (a dye pick or mode change reloads them from the library,
 sets the labelling to the mode's suggestion and applies the mode's light preset), `Optics_*` (lasers, geometry,
-chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the stack's
-and live mode's clock start at 60 s (cli/viewer `start-sec`, default 60). Live mode renders one `FluorescenceMovie`
-frame per tick at the stage pose and clock: bleaching is a function of time (as in the JS), there is no
-world-anchored bleach map any more. The GPU splat is used when a movie is one blink group without continuous
+chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the dyes'
+clocks come from the **illumination history** (`Simulation/IlluminationHistory.*`, 2026-10-05): seconds of illumination
+per 0.25 um tile of the world, weighted by the illumination profile (1/16 steps); a place never lit is at clock 0
+(fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). A live frame adds its exposure to its lit
+rect (FOV + 2 um margin + 0.5 um) when it is taken (a snap or a sequence acquisition: an idle live loop bleaches
+nothing); a stack reads the history and then adds its frames (stacks are reproducible only on a fresh device). The
+engine reads each dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a
+mean-field population weighted per grid column in one convolution). Reset on a world change (seed, cell parameters).
+cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`
+frame per tick at the stage pose. The GPU splat is used when a movie is one blink group without continuous
 populations; mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
 `mt-imager-nm`, `mt-orient*`, `dye<N>.source`, dye overrides `mt-dye.<field>`/`dye<N>.<field>`, `laser-<nm>`,
 `light-preset` (`auto` = the dye mode's), `dichroic`, `em-filter`, `qe-curve`, `camera-preset`, `mean-field-*`.

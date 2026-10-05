@@ -22,7 +22,9 @@ Open the [viewer](try-viewer.md). Nothing to install.
    `General_BrightFieldQuality` 1-4 trades speed for precision).
 
 Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`,
-`Background_`. Stacks and live mode start 60 s after the illumination came on (past the dSTORM initial ON phase).
+`Background_`. The camera remembers how long each place of the sample has been lit (snaps, live
+acquisition and stacks add to it): imaging bleaches and uses up dyes where you imaged, a place never lit starts fresh
+(dSTORM dyes first in their bright initial ON phase).
 
 The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not
 wait for it. `General_DiskCache` (default `Cells`) keeps the packed cell positions of the field in a small per-user file

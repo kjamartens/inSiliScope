@@ -226,14 +226,25 @@ print("Defaults OK: out-of-the-box values confirmed")
 # --- Labelling: fewer labelled sites, less light -------------------------
 # The blink rate comes from the labelled sites: a tenth of them gives about a
 # tenth of the signal above the offset (dSTORM AF647: no imager background).
-core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")
-core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleDye", "AF647")  # dSTORM: no imager background
+# Each stack on a fresh device: a stack continues the illumination history of
+# its spot, so a second stack on the same device would start 50 s later.
+def fresh_camera(**props):
+    core.unloadDevice("SMLMCam")
+    load_camera(core, "SMLMCam", seed=42, fov="128x128")
+    core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
+    core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")
+    core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
+    for k, v in props.items():
+        core.setProperty("SMLMCam", k, v)
 
 
-def mean_signal(n=50):
+def mean_signal(pct, n=50, skip=900):
+    fresh_camera(SimType_CellFieldMicrotubuleDye="AF647",  # dSTORM: no imager background
+                 SimType_CellFieldMicrotubuleLabelingPct=str(pct))
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
     wait_for_stack(core, "SMLMCam")
+    for _ in range(skip):   # 45 s in: past the initial ON burst (which saturates at 70 %)
+        core.snapImage()
     total = 0.0
     for _ in range(n):
         core.snapImage()
@@ -241,12 +252,9 @@ def mean_signal(n=50):
     return total / n
 
 
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "70")
-sig_full = mean_signal()
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "7")
-sig_low = mean_signal()
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "70")  # restore default
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleDye", "ATTO655")  # restore default
+sig_full = mean_signal(70)
+sig_low = mean_signal(7)
+fresh_camera()  # the defaults again (Gaussian PSF, no background)
 assert sig_low < 0.3 * sig_full, f"expected 7% labelling to give ~1/10 of the 70% signal ({sig_low:.3f} vs {sig_full:.3f})"
 print(f"Labelling OK: mean signal {sig_full:.3f} -> {sig_low:.3f} ADU from 70% to 7% labelled sites")
 
@@ -352,8 +360,10 @@ core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "0.5")  # restore default
 print("Regression OK: OffsetStdADU change took effect live, no restart needed")
 
 # --- webSMLM parity round 2: photophysics, EMCCD, background, GPU ---------
-def stack_frames(props, n=20, seed=42):
-    """Fresh device, apply props, generate the precomputed stack, return n frames (float64)."""
+def stack_frames(props, n=20, seed=42, skip=0):
+    """Fresh device, apply props, generate the precomputed stack, return n frames (float64) after skipping skip.
+
+    A fresh device has no illumination history: the stack starts at clock 0 (dSTORM in its initial ON phase)."""
     core.unloadDevice("SMLMCam")
     load_camera(core, "SMLMCam", seed=seed, fov="128x128")
     core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
@@ -361,6 +371,8 @@ def stack_frames(props, n=20, seed=42):
         core.setProperty("SMLMCam", k, v)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
     wait_for_stack(core, "SMLMCam")
+    for _ in range(skip):
+        core.snapImage()
     out = []
     for _ in range(n):
         core.snapImage()
@@ -369,7 +381,8 @@ def stack_frames(props, n=20, seed=42):
 
 FAST = {"PSFParam_PsfModel": "Gaussian"}
 
-# Label modes: every mode of the microtubules' label renders, and dSTORM's
+# Label modes (frames 900-919 of the stack, 45 s in: past the dSTORM initial
+# ON): every mode of the microtubules' label renders, and dSTORM's
 # blinks follow the dye fields (a dye that bleaches after each blink gives
 # less light than the library AF647). WideField is the mean field.
 MODES = {"dSTORM": {"SimType_CellFieldMicrotubuleDye": "AF647"},
@@ -378,13 +391,13 @@ MODES = {"dSTORM": {"SimType_CellFieldMicrotubuleDye": "AF647"},
          "WideField": {"SimType_CellFieldMicrotubuleDye": "mEGFP"}}
 mode_sig = {}
 for mode, extra in MODES.items():
-    fr = stack_frames({**FAST, **extra, "SimType_CellFieldMicrotubuleLabelMode": mode}, n=20)
+    fr = stack_frames({**FAST, **extra, "SimType_CellFieldMicrotubuleLabelMode": mode}, n=20, skip=900)
     assert fr.std() > 0, f"expected a non-blank {mode} movie"
     mode_sig[mode] = fr.mean() - 100.0
 assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
 DSTORM = {**FAST, "SimType_CellFieldMicrotubuleDye": "AF647", "SimType_CellFieldMicrotubuleLabelMode": "dSTORM"}
-lib = stack_frames(DSTORM, n=100)
-quick = stack_frames({**DSTORM, "FluoParam_Microtubule_BleachProb": "1"}, n=100)
+lib = stack_frames(DSTORM, n=100, skip=900)
+quick = stack_frames({**DSTORM, "FluoParam_Microtubule_BleachProb": "1"}, n=100, skip=900)
 assert quick.mean() < lib.mean(), "bleaching after every blink should give less light than the library dye"
 print("Label modes OK: " + ", ".join(f"{m} {v:.2f}" for m, v in mode_sig.items()) + " ADU above offset; dye field edit applies")
 
