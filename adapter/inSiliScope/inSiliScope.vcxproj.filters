@@ -37,6 +37,15 @@
     <ClCompile Include="Simulation\CellFieldSource.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\DyeLibrary.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\LightPath.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\Spectra.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\Fft2d.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -118,6 +127,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\CellFieldSource.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\DyeLibrary.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\LightPath.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Spectra.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Fft2d.h">

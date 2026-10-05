@@ -145,6 +145,45 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
    return true;
 }
 
+namespace {
+// The rows of a cap/total query (stride ISC_EVENT_STRIDE) as BlinkEvents in q's frame.
+template <class Query>
+bool EventRows(const CellFieldQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out)
+{
+   // The core's cap/total convention: grow and ask again (the second call is
+   // served from its caches).
+   int32_t cap = static_cast<int32_t>(buf.size() / ISC_EVENT_STRIDE);
+   int32_t n;
+   for (;;)
+   {
+      n = query(buf.empty() ? nullptr : buf.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+         break;
+      cap = n + n / 4;
+      buf.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
+   }
+   out.reserve(out.size() + static_cast<size_t>(n));
+   for (int32_t i = 0; i < n; ++i)
+   {
+      const double* e = &buf[static_cast<size_t>(i) * ISC_EVENT_STRIDE];
+      BlinkEvent b;
+      b.xUm = e[0] - q.originXUm;
+      b.yUm = e[1] - q.originYUm;
+      b.zNm = (e[2] - q.zRefUm) * 1000.0;
+      b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
+      b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
+      b.brightness = e[5];
+      b.structure = static_cast<int>(e[7]);
+      b.state = static_cast<int>(e[8]);
+      b.aux = e[9];
+      out.push_back(b);
+   }
+   return true;
+}
+} // namespace
+
 bool CellFieldSource::Events(const CellFieldQuery& q, std::vector<BlinkEvent>& out)
 {
    if (!world_ || !(q.frameSec > 0))
@@ -153,35 +192,21 @@ bool CellFieldSource::Events(const CellFieldQuery& q, std::vector<BlinkEvent>& o
    const double zMin = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -inf;
    const double zMax = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : inf;
    const double t1 = q.tSec + q.spanSec;
-   // The core's cap/total convention: grow and ask again (the second call is
-   // served from its caches).
-   int32_t cap = static_cast<int32_t>(buf_.size() / ISC_EVENT_STRIDE);
-   int32_t n;
-   for (;;)
-   {
-      n = isc_events_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1,
-                               buf_.empty() ? nullptr : buf_.data(), cap);
-      if (n < 0)
-         return false;
-      if (n <= cap)
-         break;
-      cap = n + n / 4;
-      buf_.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
-   }
-   out.reserve(out.size() + static_cast<size_t>(n));
-   for (int32_t i = 0; i < n; ++i)
-   {
-      const double* e = &buf_[static_cast<size_t>(i) * ISC_EVENT_STRIDE];
-      BlinkEvent b;
-      b.xUm = e[0] - q.originXUm;
-      b.yUm = e[1] - q.originYUm;
-      b.zNm = (e[2] - q.zRefUm) * 1000.0;
-      b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
-      b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
-      b.brightness = e[5];
-      out.push_back(b);
-   }
-   return true;
+   return EventRows(q, buf_, [&](double* b, int32_t cap) {
+      return isc_events_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
+   }, out);
+}
+
+bool CellFieldSource::Continuous(const CellFieldQuery& q, std::vector<BlinkEvent>& out)
+{
+   if (!world_ || !(q.frameSec > 0))
+      return false;
+   const double inf = std::numeric_limits<double>::infinity();
+   const double zMin = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -inf;
+   const double zMax = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : inf;
+   return EventRows(q, buf_, [&](double* b, int32_t cap) {
+      return isc_continuous_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, b, cap);
+   }, out);
 }
 
 bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs)

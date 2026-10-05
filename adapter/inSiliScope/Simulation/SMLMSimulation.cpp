@@ -75,9 +75,12 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    const double bgScale = extras ? extras->backgroundScale : 1.0;
    const bool flatBackground = !illum && !bgMap && bgScale == 1.0;
    const bool parallel = extras && extras->parallel;
+   const bool accumulate = extras && extras->accumulate;
 
    // Background of the rows [y0, y1).
    auto background = [&](unsigned y0, unsigned y1) {
+      if (accumulate)
+         return;
       const size_t i0 = static_cast<size_t>(y0) * width, i1 = static_cast<size_t>(y1) * width;
       if (flatBackground)
       {
@@ -137,7 +140,8 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
       ems.push_back({xPx, yPx, photons, zIndex});
    }
 
-   img.resize(n);
+   if (!accumulate)
+      img.resize(n);
    if (!parallel)
    {
       background(0, height);

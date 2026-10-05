@@ -44,4 +44,24 @@ private:
    double w_, h_;
 };
 
+// Value 1 everywhere, on a square support of widthUm x heightUm: the
+// mean-field image's weights (every grid cell of the FOV and its margin
+// counts fully, as web/prototype/scope/widefield.js meanFieldImage's ones).
+class FlatIllumination : public IlluminationPattern
+{
+public:
+   FlatIllumination(double widthUm, double heightUm) : w_(widthUm), h_(heightUm) {}
+   double At(double, double) const override { return 1.0; }
+   void Support(double& x0, double& y0, double& x1, double& y1) const override
+   {
+      x0 = -w_ / 2;
+      x1 = w_ / 2;
+      y0 = -h_ / 2;
+      y1 = h_ / 2;
+   }
+
+private:
+   double w_, h_;
+};
+
 } // namespace sim

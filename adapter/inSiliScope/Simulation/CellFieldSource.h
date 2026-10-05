@@ -99,6 +99,10 @@ public:
 
    // Appends the blinks of q to out. False on a core failure.
    bool Events(const CellFieldQuery& q, std::vector<BlinkEvent>& out);
+   // Appends the continuous windows (isc_continuous_in_window: PALM pre
+   // states, dSTORM initial ON, WideField dyes) open after q.tSec, mapped as
+   // Events maps blinks (an always-on window ends at +infinity).
+   bool Continuous(const CellFieldQuery& q, std::vector<BlinkEvent>& out);
 
    // Pre-loads what q would need if the stage moved up to marginUm in x/y or
    // to any focus (the whole z column), nearest ring first, for at most about

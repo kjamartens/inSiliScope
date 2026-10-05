@@ -3,16 +3,23 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   A short cell-field movie without Micro-Manager: the camera's
-//                precomputed CellField stack pipeline (CellFieldSource ->
-//                BucketEventsByFrame -> RenderPhotonImage -> ApplyNoiseChain,
-//                same seed streams) for one FOV. Used by cli/ (TIFF files)
-//                and the viewer (web/, via the WASM export isc_scope_movie).
-//                PSF: GibsonLanniZernike (the adapter's default, C++
-//                ZernikePsf.h; psf-* options = the PSFParam_ properties) or
-//                Gaussian (psf-model 0); RichardsWolf/GibsonLanni need the
-//                adapter's JVM. modality = 1 renders WideField
-//                (WidefieldRender.h) instead of the blinks.
+// DESCRIPTION:   A short cell-field movie without Micro-Manager, for one FOV:
+//                the twin of web/prototype/scope/scope_movie.js +
+//                fluorescence.js (the JS reference, issue 16). Fluorescence
+//                (modality 0): every structure's label in its mode
+//                (dSTORM, PALM, DNA-PAINT, WideField) through the light path
+//                (DyeLibrary.h, LightPath.h): blinks per (structure, state)
+//                group with that group's PSF kernel (one per detected
+//                wavelength, rounded to 2 nm), continuous populations
+//                (WideField dyes, PALM pre states, the dSTORM initial ON)
+//                mean-field (WidefieldRender.h) or per dye (a running
+//                image), the DNA-PAINT free imager as a static offset, then
+//                ApplyNoiseChain at QE 1. BrightField (modality 1):
+//                BrightfieldRender.h. Used by cli/ (TIFF files) and the
+//                viewer (web/, via the WASM export isc_scope_movie). PSF:
+//                GibsonLanniZernike (C++ ZernikePsf.h; psf-* options = the
+//                PSFParam_ properties) or Gaussian (psf-model 0);
+//                RichardsWolf/GibsonLanni need the adapter's JVM.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -41,15 +48,19 @@ const std::vector<ScopeOption>& ScopeMovieOptions();
 // options, "p.<name>" passes a core world parameter through (the prototype's
 // names, e.g. p.mtWobbleTurn); unknown p.* names are ignored. "zern.<j>"
 // (j = 0..27) sets Zernike coefficient j in waves, replacing the preset's.
+// "<prefix>-dye.<field>" (prefix mt) and "dye<N>.<field>" override a field
+// of a structure's dye or of slot N (DyeFieldNames()).
 using ScopeSpec = std::map<std::string, double>;
 
 // False for a name that is neither a named option nor p.* / zern.*.
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
-// An option's value from text: a number, or a name (modality: SuperRes,
-// WideField, BrightField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
+// An option's value from text: a number, or a name (modality: Fluorescence,
+// BrightField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
 // DoubleHelix; psf-interp: Nearest, Linear, Cubic, Fft; psf-zernike-preset:
-// the PSFParam_PsfZernikePreset names). False if neither.
+// the PSFParam_PsfZernikePreset names; mt-dye, mt-mode, dye<N>.source,
+// dichroic, em-filter, light-preset, camera-preset, qe-curve, camera-type:
+// their data/dyes ids). False if neither.
 bool ScopeOptionValue(const std::string& name, const char* text, double& value);
 // "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
@@ -59,21 +70,24 @@ struct ScopeMovieInfo
    unsigned width = 0, height = 0;
    long frames = 0;
    size_t blinks = 0;
-   long dyes = 0;            // WideField: labelled dyes on the dye grid
-   double halfTimeSec = 0;   // WideField: bleaching half time at pattern peak (inf = never)
+   long dyes = 0;            // dyes of the continuous populations in the z range
+   double halfTimeSec = 0;   // unused since issue 16 (infinity)
    double querySec = 0, totalSec = 0;
    std::string description;   // one line of the settings, for file metadata
 };
 
 struct PsfGeneratorRequest;
 struct PsfKernelCache;
-// The spec's PSF as the camera's BuildPsfGeneratorRequest would build it from
-// the same PSFParam_ values. False for psf-model 0 (Gaussian; err empty) or a
-// bad value (err set).
-bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::string& err);
+// The spec's PSF at an emission wavelength as the camera's
+// BuildPsfGeneratorRequest would build it from the same PSFParam_ values.
+// False for psf-model 0 (Gaussian; err empty) or a bad value (err set).
+bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err);
 // Its kernel (memoized, ComputePsfKernelCache); cache.valid = false and true
 // returned for the Gaussian.
-bool ScopePsfKernel(const ScopeSpec& spec, PsfKernelCache& cache, std::string& err);
+bool ScopePsfKernel(const ScopeSpec& spec, double wavelengthNm, PsfKernelCache& cache, std::string& err);
+// A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
+// or dye changes reuse a kernel (JS kernelWavelengthNm).
+double KernelWavelengthNm(double lambdaNm);
 
 // The cell geometry of the spec's world (the same world the movie renders)
 // in the square of side sizeUm centred on the spec's x, y, as JSON in world
@@ -87,35 +101,46 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
 // Frame size and count of a spec (no rendering).
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);
 
-// Renders the movie, calling onFrame(f, adu) for f = 0..frames-1 (return
-// false to stop). False (with err) on a failure.
+// Progress of a movie, per frame: ("frames", fraction done, a JSON object
+// {"frame","frames","blinks","backends":[...]} naming which backend drew each
+// part of the frame: the SMLM splat, mean-field (FFT) or per dye).
+using ScopeProgress = std::function<void(const char* stage, double frac, const std::string& detailJson)>;
+
 class WidefieldScene;
 
-// A WideField movie in steps: Begin (the world, the scene at its focus, the
-// bleach basis anchored at the first frame), then -- in GPU mode, images
-// deferred -- the images from a GPU host (Scene().MakeGpuJob / SetImages, the
-// viewer's WebGPU) or ComputeCpuImages(), then Render (background, dyes,
-// noise per frame). RenderScopeMovie runs the steps on the CPU.
-class WidefieldMovie
+// A fluorescence movie in steps: Begin (the world, the groups' kernels, the
+// blinks, the continuous populations and the mean-field scenes of those that
+// start mean-field), then -- in GPU mode, images deferred -- each mean-field
+// scene's images from a GPU host (MeanFieldScene(i).MakeGpuJob,
+// SetMeanFieldImages: the viewer's WebGPU) or ComputeCpuImages(), then Render
+// (background, blinks, continuous populations, noise per frame).
+// RenderScopeMovie runs the steps on the CPU. Begin holds the movie cache's
+// lock until the object is destroyed.
+class FluorescenceMovie
 {
 public:
-   WidefieldMovie();
-   ~WidefieldMovie();
+   FluorescenceMovie();
+   ~FluorescenceMovie();
    bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err);
-   WidefieldScene& Scene();
+   int MeanFieldScenes() const;
+   WidefieldScene& MeanFieldScene(int i);
+   // The images of scene i (one per job channel); false if they do not fit.
+   bool SetMeanFieldImages(int i, std::vector<std::vector<float>>& images);
    void ComputeCpuImages();
    bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
-               std::string& err);
+               std::string& err, const ScopeProgress* progress = nullptr);
 
 private:
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
 
+// Renders the movie, calling onFrame(f, adu) for f = 0..frames-1 (return
+// false to stop). False (with err) on a failure.
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
-                      ScopeMovieInfo& info, std::string& err);
+                      ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress = nullptr);
 
-// BrightField (modality 2): the transmitted-light image at the spec's focus
+// BrightField (modality 1): the transmitted-light image at the spec's focus
 // (BrightfieldScene), times bf-photons-per-px-per-sec x exposure, then the
 // camera noise per frame (the specimen does not change between frames).
 struct BrightfieldSpec;

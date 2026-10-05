@@ -283,6 +283,10 @@ std::string DescribePsfCramerRao(const PsfKernelCache& cache, double photons, do
 // thread (the adapter's start-up preload and its live loop ask for the same
 // kernel) instead of computing it twice.
 void SetPsfKernelDiskCacheDir(const std::string& dir);
+// How many kernels ComputePsfKernelCache's memo keeps (at least 2, the
+// default): a movie with several PSF wavelengths (issue 16: one kernel per
+// dye state) keeps its groups + 1, so a repeat recomputes none.
+void SetPsfKernelMemoEntries(size_t n);
 std::string PsfKernelDiskCacheDir();
 
 // Builds the block sums of one plane (see PsfKernelPlanes::blockSums).

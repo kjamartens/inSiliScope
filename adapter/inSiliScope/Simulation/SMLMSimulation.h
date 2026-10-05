@@ -91,6 +91,11 @@ struct BlinkEvent
    // Per-blink photon-rate factor (log-normal, mean 1, CV FluoParam_PhotonCV).
    // Multiplies photonsPerBlink at render time.
    double brightness = 1.0;
+   // The cell field's structure (ISC_STRUCT_*), state (ISC_STATE_*: a blink,
+   // or a continuous window) and aux draw (issue 16, CellFieldSource).
+   int structure = 0;
+   int state = 0;
+   double aux = 0.0;
 };
 
 // Linear stage-drift offset (pixels) at elapsedSec seconds since the drift
@@ -122,6 +127,9 @@ struct RenderExtras
    // Render on all cores (bands of rows; the same pixels as serial). For a
    // single frame (live mode), not for frames already rendered in parallel.
    bool parallel = false;
+   // Add the emitters to img as it is (no background, no resize): several
+   // dye groups, each with its own PSF, into one frame (issue 16).
+   bool accumulate = false;
 };
 
 // The fixed (per stack / per live config) spatial fields behind a

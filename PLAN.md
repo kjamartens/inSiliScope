@@ -5,7 +5,9 @@ Upcoming ideas:
   removed (CellField output unchanged), [x] phase 1 dye/filter/camera data from FPbase + generators (data/dyes, data/references.json), [x] phase 2 JS
   model (labels per structure, modes dSTORM/PALM/DNA-PAINT/WideField, light path, camera presets, mean-field switch,
   imager background, orientation/off-target/SPT plumbing) under `PORT_PENDING.md`, phase 3 port: [x] core ABI 10
-  (labels, windowed schedules, continuous windows; `tests/parity/label_parity.mjs` bit-exact with the JS), [ ] engine,
+  (labels, windowed schedules, continuous windows; `tests/parity/label_parity.mjs` bit-exact with the JS), [x] engine
+  (Spectra, LightPath, DyeLibrary + generated DyeLibraryData.inc, FluorescenceMovie: blinks per kernel group, mean-field and
+  per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
   [ ] cli/viewer module/block, [ ] adapter, [ ] checks + benchmarks, [ ] docs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
