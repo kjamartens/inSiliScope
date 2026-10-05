@@ -1636,6 +1636,7 @@ function drawSceneGl(cells, p, F) {
     gl.bindVertexArray(dyeGl.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, dyeGl.count);
   }
+  if (glSliceProg) drawDataGl(F, F.target, 'opaque');   // opaque data slices: depth written, before the translucent pass
   if ([0, 1, 2, 3].some(k => Z.n[k])) {   // translucent pass: per cell, back to front; tested against the opaque pass, not written
     gl.useProgram(glProg); frame(glU);
     gl.uniform1f(glU.u_lineHalfW, Math.max(1, 0.04 * cam.S) / 2);
@@ -1653,7 +1654,7 @@ function drawSceneGl(cells, p, F) {
     }
     gl.depthMask(true);
   }
-  if (glSliceProg) drawDataGl(F, F.target);
+  if (glSliceProg) drawDataGl(F, F.target, 'rest');
   drawSurfaceAndLocs(F, F.target);
   gl.bindVertexArray(null);
   if (F.fbo) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -3647,17 +3648,23 @@ function planeBoxPolygon(n, d, box) {
   return pts.sort((p, q) => ang(p) - ang(q));
 }
 let sliceGl = null;   // {vbo, vao}
-// The frame's data slices (after the translucent pass: lit on top of the cells, tested against the opaque layers).
-// Returns how many of the shown data layers have no stack yet.
-function drawDataGl(F, target) {
+// The frame's data slices. phase 'opaque' (before the translucent pass): the opaque ones (blended over at opacity
+// >= 0.95), depth written, so translucent surfaces in front of the plane draw over them and those behind are hidden.
+// phase 'rest' (after it): the others (added as light or see-through), tested against the opaque layers, not written.
+// Returns how many of the shown data layers have no stack yet (counted in the 'rest' phase).
+function drawDataGl(F, target, phase) {
   const st = F.st, dp = dataParams(st.data), slice = st.slice;
   let missing = 0;
   for (const id of SLICE_LAYERS) {
     if (!st.layers[id]) continue;
     const kind = DATA_KIND[id], plan = target && stackPlan(kind, target, dp);
     const stack = plan && stackStore.get(plan.key);
-    if (!stack) { missing++; F.dataMissing.push(kind); continue; }
+    if (!stack) { if (phase !== 'opaque') { missing++; F.dataMissing.push(kind); } continue; }
     if (!slice || !useGl) continue;
+    const style = IscScene.resolveStyle(st.theme, id, st.layers[id].style, (st.layers[id].intervals || [])[0] && st.layers[id].intervals[0].style);
+    const alpha = (st.layers[id].alpha === undefined ? 1 : st.layers[id].alpha) * (style.opacity === undefined ? 1 : style.opacity);
+    const add = style.blend === 'add' && kind !== 'sr', opaque = !add && alpha >= 0.95;
+    if (opaque !== (phase === 'opaque')) continue;
     const axis = IscScene.axisVector({ axis: slice.axis }), z0 = stack.zs[0], z1 = stack.zs[stack.zs.length - 1];
     const box = [stack.texOx, stack.texOx + stack.size * stack.px, stack.texOy, stack.texOy + stack.size * stack.px, z0, z1];
     const poly = planeBoxPolygon(axis, slice.pos, box);
@@ -3670,11 +3677,9 @@ function drawDataGl(F, target) {
     }
     const v = new Float32Array(poly.length * 3);
     poly.forEach((p, i) => { v[3 * i] = p[0] - stack.texOx; v[3 * i + 1] = p[1] - stack.texOy; v[3 * i + 2] = p[2]; });
-    const style = IscScene.resolveStyle(st.theme, id, st.layers[id].style, (st.layers[id].intervals || [])[0] && st.layers[id].intervals[0].style);
-    const alpha = (st.layers[id].alpha === undefined ? 1 : st.layers[id].alpha) * (style.opacity === undefined ? 1 : style.opacity);
-    // 'add': the image adds as light, black is see-through; SMLM frames are always drawn opaque (mostly black, they
-    // would hide nothing and their blinks would float in the cell)
-    const col = style.color || [255, 255, 255], add = style.blend === 'add' && kind !== 'sr', cam = F.cam, u = glSliceU;
+    // 'add': the image adds as light, black is see-through; SMLM frames are always drawn blended over (mostly black,
+    // added they would hide nothing and their blinks would float in the cell)
+    const col = style.color || [255, 255, 255], cam = F.cam, u = glSliceU;
     gl.useProgram(glSliceProg);
     gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
     gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
@@ -3690,7 +3695,7 @@ function drawDataGl(F, target) {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, stackTex(stack)); gl.uniform1i(u.u_tex, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dp.crop ? stackMaskTex(stack) : null); gl.uniform1i(u.u_mask, 1);
     gl.activeTexture(gl.TEXTURE0);
-    gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+    gl.depthFunc(gl.LEQUAL); gl.depthMask(opaque);
     gl.bindVertexArray(sliceGl.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, sliceGl.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW);

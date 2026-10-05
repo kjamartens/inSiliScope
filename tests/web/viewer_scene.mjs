@@ -3,7 +3,8 @@
 // The viewer's renderer in headless Chromium (web/index.html renderFrame / captureFrame): clip intervals cut exactly
 // at their heights (tilt 90: lit rows only inside each band, each band in its own colour), a turned view is the
 // unturned one rotated, a frame is pixel-identical when captured twice, the detail budget keeps N cells detailed, and
-// a data layer's z-stack plane equals a stand-alone movie job with the same settings.
+// a data layer's z-stack plane equals a stand-alone movie job with the same settings, and an opaque data slice hides
+// only what lies behind it.
 //   node tests/web/viewer_scene.mjs [--channel=chrome] [--gpu]
 import http from 'node:http';
 import fs from 'node:fs';
@@ -139,6 +140,17 @@ const more = await page.evaluate(async () => {
 check(more.iso > 1000, `data: the thresholded WideField surface is drawn (${more.iso} lit px)`);
 check(more.n > 1000 && more.inside && more.loc > 500, `data: ${more.n} localizations from 300 frames per plane, in the cell's box, drawn (${more.loc} lit px)`);
 if (errors.length) { fail++; console.log('page errors: ' + errors.join('; ')); }
+// 8. an opaque slice (SMLM frames) hides only what is behind it: the cytoplasm surface above the plane stays visible
+const ahead = await page.evaluate(async () => {
+  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 0.5, srFrames: 2 };
+  await iscScene.acquireData(['mt.srFrames'], __key, data, null);
+  const green = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 60 && d[i + 1] > 2 * d[i] && d[i + 1] > 2 * d[i + 2]) n++; return n; };
+  const cyto = { style: { color: '#00ff00', opacity: 0.6 }, intervals: [{ lo: 0.6, hi: 1e30 }] };
+  const st = layers => __st({ camera: { pivot: pv, azimuthDeg: 0, tiltDeg: 0, fovUm: b.diam * 1.2 }, data, sweep: { axis: 'z' }, slice: { axis: 'z', pos: 0.4 }, layers });
+  return { alone: green((await __cap(st({ 'cyto.surface': cyto }))).data), withSr: green((await __cap(st({ 'cyto.surface': cyto, 'mt.srFrames': {} }))).data) };
+});
+check(ahead.alone > 1000 && ahead.withSr >= 0.95 * ahead.alone, `data: the cytoplasm above an SMLM slice stays visible (${ahead.withSr} of ${ahead.alone} px)`);
+
 await browser.close();
 server.close();
 process.exit(fail ? 1 : 0);
