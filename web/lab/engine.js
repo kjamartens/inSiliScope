@@ -95,8 +95,10 @@ export async function createEngine(src = {}) {
         .map(([k, v]) => `${k} ${Math.round(v.detectedPerSec)} ph/s @ ${v.lambdaNm.toFixed(0)} nm (${(100 * v.detectedFraction).toFixed(1)} %)`).join(', '))
         .concat((info.populations || []).map(q => `${['', 'pre', 'initial ON', 'always on'][q.state]}: ${q.meanFieldFrames} mean-field + ${q.perDyeFrames} per-dye frames`))
         .concat(info.imagerBackgroundPerPxPerFrame ? [`imager ${info.imagerBackgroundPerPxPerFrame.toFixed(1)} ph/px/frame`] : []).join('; ');
+      // dyes / halfMs as the WASM's isc_scope_movie: the continuous populations' dyes; -1 = never (fluorescence), 0 (BrightField)
       const res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: info.width, h: info.height,
-        n: info.frames, blinks: info.blinks ?? 0, dyes: 0, halfMs: 0, summary, ms: performance.now() - t0 };
+        n: info.frames, blinks: info.blinks ?? 0, dyes: (info.populations || []).reduce((n, q) => n + q.dyes, 0),
+        halfMs: info.populations ? -1 : 0, summary, ms: performance.now() - t0 };
       if (d.prepare) res.prepared = true;
       return [res, [frames.buffer]];
     } catch (e) {
@@ -158,8 +160,11 @@ export async function createEngine(src = {}) {
       if (d.type === 'sites') {
         inject(w, d.blocks);
         const [x0, y0, x1, y1] = d.rect;
-        const list = w.sitesInWindow(x0, y0, x1, y1, -Infinity, Infinity), sites = new Float64Array(list.length * 4);
-        list.forEach((s, i) => { sites[4 * i] = s.x; sites[4 * i + 1] = s.y; sites[4 * i + 2] = s.z; sites[4 * i + 3] = s.id; });
+        // x, y, z, id, structure per dye (isc_sites_in_window, ABI 10)
+        const list = w.sitesInWindow(x0, y0, x1, y1, -Infinity, Infinity), sites = new Float64Array(list.length * 5);
+        list.forEach((s, i) => {
+          sites[5 * i] = s.x; sites[5 * i + 1] = s.y; sites[5 * i + 2] = s.z; sites[5 * i + 3] = s.id; sites[5 * i + 4] = s.structure;
+        });
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
       throw new Error('unknown job ' + d.type);

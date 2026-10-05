@@ -43,6 +43,10 @@ const r = await page.evaluate(async () => {
     M.stringToUTF8(spec, s, spec.length + 1);
     const h = M._isc_wf_begin(s, err, 512);
     if (h < 0) return { spec, error: M.UTF8ToString(err) };
+    // The movie's mean-field scenes (issue 16: one per continuous population that starts mean-field).
+    const scenes = M._isc_wf_scenes(h);
+    if (scenes < 1) { M._isc_wf_end(h); return { spec, error: 'no mean-field scene' }; }
+    M._isc_wf_select(h, 0);
     let t = performance.now();
     const job = IscWfGpu.jobFromModule(M, h);
     const tJob = performance.now() - t;
@@ -90,8 +94,9 @@ const r = await page.evaluate(async () => {
       rms: Math.sqrt(e2 / s2), max: emax / peak, resident: same2, tJob, tGpu, tGpu2, tCpu,
       movieDiffPx: diff / need, movieMaxAdu: maxd, meanRel };
   };
-  out.cases.push(await run('size=64 frames=4 modality=1 x=-3 y=4 z=0.5 labeling-pct-bleaching=10 labeling-pct-nonbleaching=40'));
-  out.cases.push(await run('size=64 frames=4 modality=1 x=7.37 y=-2.11 z=1.2 wf-upscale=2 labeling-pct-bleaching=20 labeling-pct-nonbleaching=50 start-sec=12'));
+  // A WideField label; and a PALM label whose green pre state is mean-field next to its blinks (two kernel groups).
+  out.cases.push(await run('size=64 frames=4 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto'));
+  out.cases.push(await run('size=64 frames=4 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=50 start-sec=12'));
   return out;
 });
 await browser.close();

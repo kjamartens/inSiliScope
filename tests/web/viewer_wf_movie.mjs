@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// The viewer's "Make movie here" in WideField mode, end to end in headless
-// Chromium: once with WebGPU (?wfgpu=any: SwiftShader is a software adapter)
-// and once without; both must produce a movie, the info line says which ran.
+// The viewer's "Make movie here" with a WideField label (mEGFP, mean-field), end
+// to end in headless Chromium: once with WebGPU (?wfgpu=any: SwiftShader is a
+// software adapter) and once without; both must produce a movie, the info line
+// says which ran (issue 16: WideField is a label mode, its dyes mean-field).
 //   node tests/web/viewer_wf_movie.mjs
 import http from 'node:http';
 import fs from 'node:fs';
@@ -29,8 +30,9 @@ for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', /\(CPU\)/]]) {
   await page.goto(`http://localhost:${port}/index.html${query}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   await page.evaluate(() => {
-    document.getElementById('mv_modality').value = '1';
-    document.getElementById('mv_modality').dispatchEvent(new Event('change'));
+    const dye = document.getElementById('mv_mt-dye');
+    dye.value = String([...dye.options].findIndex(o => o.textContent.includes('mEGFP') || o.value === 'mEGFP'));
+    dye.dispatchEvent(new Event('change'));
     document.getElementById('mv_size').value = '32';
     document.getElementById('mv_frames').value = '3';
   });
@@ -38,6 +40,9 @@ for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', /\(CPU\)/]]) {
   await page.evaluate(() => document.getElementById('mv_make').click());   // the button may sit in a folded group (Focus style)
   await page.waitForFunction(() => /frames/.test(document.getElementById('mv_info').textContent), null, { timeout: 600000 });
   const info = await page.evaluate(() => document.getElementById('mv_info').textContent);
+  // No WebGPU adapter at all in this browser (no SwiftShader Vulkan): the GPU case can only fall back.
+  const noAdapter = query && await page.evaluate(async () => !navigator.gpu || !(await navigator.gpu.requestAdapter()));
+  if (noAdapter) { console.log(`SKIP  viewer${query}: no WebGPU adapter (${info})`); await page.close(); continue; }
   const ok = want.test(info) && !errors.length;
   if (!ok) fail++;
   console.log(`${ok ? 'ok  ' : 'FAIL'}  viewer${query || ' (no GPU flag)'}: ${info}${errors.length ? ' errors: ' + errors.join('; ') : ''}`);

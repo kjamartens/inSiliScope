@@ -1513,12 +1513,12 @@ function drawXZ(vis, p) {
 // Results are cached on the main thread (`packCache`, `assets`, `dyeCache`); draw()
 // only ever READS them, so a pan never waits on the generator. ?nw (or workers that
 // cannot start) runs the same engine on the main thread instead.
-const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 4;
+const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
-// core params); every answer is a pure function of those and the request.
+// core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 9) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 9');
+  if (M._isc_abi_version() !== 10) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 10');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -1542,7 +1542,23 @@ function iscEngine(M) {
     M._isc_params_free(pp);
     worldKey = keyOf();
     injected = new Set();
+    labelKey = '';
     return world;
+  }
+  // The labels a sites job carries (density, fluorescent fraction per structure: which dyes there are) on the
+  // world (isc_world_set_label, ABI 10; the kinetics do not change a dye, so the rest stays the default).
+  let labelKey = '';
+  function useLabels(w, labels) {
+    if (!labels) return;
+    const key = labels.map(l => l.density + ',' + l.fluorescentFraction).join('|');
+    if (key === labelKey) return;
+    const v = M._malloc(16);
+    labels.forEach((l, s) => {
+      M.HEAPF64.set([l.density, l.fluorescentFraction], v / 8);
+      if (M._isc_world_set_label(w, s, v, 2) !== 0) console.warn('isc_world_set_label rejected', l);
+    });
+    M._free(v);
+    labelKey = key;
   }
   // core/src/world.cpp CellReachUm: how far a cell's footprint can reach from its home chunk.
   function cellReachUm(p) {
@@ -1592,7 +1608,19 @@ function iscEngine(M) {
   // in WASM (isc_wf_begin), its job on the GPU, the frames back in WASM. Any
   // GPU failure falls back to the CPU images (logged). Resolves like handle().
   let wfHost = null;
-  async function wfGpuMovie(d) {
+  // The movie's per-frame progress (Module.onMovieProgress, called from the C++ every 150 ms) as the lab
+  // engine's 'movie-progress' messages: which backend drew each frame (issue 16).
+  function progressTo(d, post) {
+    M.onMovieProgress = post && !d.prepare ? (stage, frac, detail) => {
+      let info = null;
+      try { info = JSON.parse(detail); } catch (e) { /* none */ }
+      post({ type: 'movie-progress', id: d.id, stage, frac, info });
+    } : null;
+  }
+  // A fluorescence movie whose continuous populations start mean-field: each mean-field scene's convolution
+  // on WebGPU (web/wf_gpu.js; none: no GPU work), the frames in WASM. Any GPU failure falls back to the CPU
+  // images (logged). Resolves like handle().
+  async function wfGpuMovie(d, post) {
     const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(24), err = M._malloc(512);
     M.stringToUTF8(d.spec, s, n);
     const t0 = performance.now();
@@ -1600,19 +1628,28 @@ function iscEngine(M) {
     const h = M._isc_wf_begin(s, err, 512);
     if (h < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
     else {
+      const scenes = M._isc_wf_scenes(h);
       try {
-        if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
-        const host = await wfHost, job = host && self.IscWfGpu.jobFromModule(M, h);
-        if (!job) throw new Error(host ? 'the scene does not fit the GPU kernels' : 'no WebGPU adapter');
-        const imgs = await host.images(job), cs = job.cw * job.ch;
-        img = M._malloc(Math.max(4, imgs.length * cs * 4));
-        imgs.forEach((a, c) => M.HEAPF32.set(a, img / 4 + c * cs));
-        if (M._isc_wf_set_images(h, img) !== 0) throw new Error('images rejected');
-        gpu = host.adapterInfo || 'WebGPU';
+        if (scenes > 0) {
+          if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
+          const host = await wfHost;
+          for (let i = 0; i < scenes; i++) {
+            M._isc_wf_select(h, i);
+            const job = host && self.IscWfGpu.jobFromModule(M, h);
+            if (!job) throw new Error(host ? 'the scene does not fit the GPU kernels' : 'no WebGPU adapter');
+            const imgs = await host.images(job), cs = job.cw * job.ch;
+            if (img) M._free(img);
+            img = M._malloc(Math.max(4, imgs.length * cs * 4));
+            imgs.forEach((a, c) => M.HEAPF32.set(a, img / 4 + c * cs));
+            if (M._isc_wf_set_images(h, img) !== 0) throw new Error('images rejected');
+          }
+          gpu = host.adapterInfo || 'WebGPU';
+        }
       } catch (e) {
-        console.warn('WideField on the CPU:', e.message || e);
+        console.warn('mean-field images on the CPU:', e.message || e);
         M._isc_wf_cpu_images(h, 0);
       }
+      progressTo(d, post);
       const need = M._isc_wf_movie(h, 0, 0, info, err, 512);
       if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
       else {
@@ -1620,17 +1657,18 @@ function iscEngine(M) {
         const got = M._isc_wf_movie(h, out, need, info, err, 512);
         if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
-          w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: 0,
-          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu };
+          w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3],
+          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu: scenes > 0 ? gpu : undefined };
       }
+      M.onMovieProgress = null;
       M._isc_wf_end(h);
     }
     for (const ptr of [s, info, err, out, img]) if (ptr) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
   }
   return {
-    // Returns [message, transferList].
-    handle(d) {
+    // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
+    handle(d, post) {
       const w = d.type === 'movie' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'block') {
         // One packing block (8x8 chunks) for the page's scheduler, on whichever worker is free: the
@@ -1678,14 +1716,17 @@ function iscEngine(M) {
       }
       if (d.type === 'sites') {
         inject(w, d.blocks);
+        useLabels(w, d.labels);
         const [x0, y0, x1, y1] = d.rect;
-        const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 4, 65536);
+        // x, y, z, id, structure per dye (ABI 10)
+        const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 5, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
-      // Issue 16: the old WideField movie is gone (WideField is a label mode now); the WebGPU path renders the
-      // mean-field populations again once the port wires them up (PORT_PENDING.md). Until then: the CPU.
-      if (d.type === 'movie' && d.meanFieldGpu === true && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu)
-        return wfGpuMovie(d);
+      // A fluorescence movie with WebGPU at hand: its mean-field populations (WideField labels, PALM pre states, the
+      // dSTORM initial ON; issue 16) convolve on the GPU.
+      if (d.type === 'movie' && !d.prepare && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec) && self.IscWfGpu &&
+          self.ISC_WF_WGSL && !d.noGpu)
+        return wfGpuMovie(d, post);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
       if (d.type === 'bf-begin') {
         // The movie worker's first half: the world and the scene with the per-source propagation
@@ -1774,7 +1815,9 @@ function iscEngine(M) {
         if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {
           out = M._malloc(Math.max(2, need * 2));   // prepare=1: need is 0, the call still has to run
+          progressTo(d, post);
           const got = M._isc_scope_movie(s, out, need, info, err, 512);
+          M.onMovieProgress = null;
           if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
           else {
             const frames = M.HEAPU16.slice(out / 2, out / 2 + need);
@@ -1804,7 +1847,7 @@ function genWorkerMain() {
       start(createInsiliscope(opts).then(M => iscEngine(M)));
       return;
     }
-    ready.then(eng => Promise.resolve(eng.handle(d))).then(([out, transfer]) => {
+    ready.then(eng => Promise.resolve(eng.handle(d, m => postMessage(m)))).then(([out, transfer]) => {
       postMessage(out, transfer);
     }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
   };
@@ -2657,7 +2700,8 @@ function onMovieResult(d) {
   const sl = document.getElementById('mv_slider');
   sl.max = d.n - 1; sl.value = 0;
   const what = /(^| )modality=1( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})`
-    : `${d.blinks} blinks${d.summary ? ', ' + d.summary : ''}`;
+    : `${d.blinks} blinks${d.summary ? ', ' + d.summary : ''}` +
+      (d.gpu ? (d.gpu === 'CPU' ? ', mean-field (CPU)' : `, mean-field GPU: ${d.gpu}`) : '');
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
   document.getElementById('movie').style.display = 'block';

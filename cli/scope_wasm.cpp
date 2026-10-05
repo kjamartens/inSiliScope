@@ -326,6 +326,7 @@ ISC_API int32_t isc_wf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
       }, mi, err, &prog.fn);
       if (!ok) return Fail(errOut, errCap, err);
       if (info) {
+         info[3] = static_cast<int32_t>(mi.blinks);
          info[4] = static_cast<int32_t>(mi.dyes);
          info[5] = std::isfinite(mi.halfTimeSec) ? static_cast<int32_t>(std::min(2.0e9, mi.halfTimeSec * 1000.0)) : -1;
       }
