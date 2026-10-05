@@ -164,6 +164,10 @@ renamed = [
     "CamParam_GainPhotonsPerADU", "CamParam_OffsetADU", "CamParam_OffsetStdADU",
     "CamParam_GainStdPctPerPixel", "CamParam_ReadNoiseStdPctPerPixel",
     "PSFParam_PsfKernelHalfWidthNm", "Background_BackgroundPhotonsPerSec",
+    # Issue 16: labels per structure, dyes, light path.
+    "SimType_CellFieldMicrotubuleDye", "SimType_CellFieldMicrotubuleLabelMode", "SimType_CellFieldMicrotubuleLabelingPct",
+    "FluoParam_Microtubule_OnSec", "FluoParam_Dye1_Source", "Optics_Preset", "Optics_Laser640KWcm2",
+    "Optics_IlluminationProfile", "Optics_IlluminationFwhmPct", "CamParam_QeCurve", "CamParam_CameraPreset",
 ]
 missing = [n for n in renamed if n not in all_props]
 assert not missing, f"expected renamed properties to exist, missing: {missing}"
@@ -180,6 +184,13 @@ gone = [
     "General_LabelingEfficiencyPct", "SimType_StructureZRangeNm", "SimType_StructureSizeNm", "SimType_NupCount",
     "SimType_NupRadiusNm", "SimType_NupMembraneType", "Background_CellContrast", "Background_HazeWeight",
     "Background_HazeWidthNm", "Background_OutOfFocusRatio", "Background_OutOfFocusDepthNm",
+    # Replaced by the labels, dyes and light path (issue 16, phase 3):
+    "FluoParam_PhotonsPerSecond", "FluoParam_OnLifetimeSec", "PSFParam_PsfEmissionWavelengthNm",
+    "FluoParam_BlinkBleachProb", "FluoParam_OffLifetimeSec", "FluoParam_PhotonCV", "FluoParam_IllumProfile",
+    "FluoParam_IllumFwhmPct", "SimType_CellFieldLabelingPctBleaching", "SimType_CellFieldLabelingPctNonBleaching",
+    "SimType_CellFieldMilliActivationRatePerDyePerSec", "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec",
+    "FluoParam_WideFieldQuantumYield", "FluoParam_WideFieldPhotonBudget", "FluoParam_WideFieldExtinctionCoeff",
+    "FluoParam_WideFieldHalfTimeSec",
 ]
 still_there = [n for n in gone if n in all_props]
 assert not still_there, f"expected these properties to be removed/renamed away, still present: {still_there}"
@@ -191,9 +202,13 @@ print("Property surface OK:", len(renamed), "renamed properties present,", len(g
 for name, expected in [
     ("PSFParam_PsfMaskType", "None"),
     # webSMLM parity round 2: every new feature defaults to "off".
-    ("FluoParam_BlinkBleachProb", "1"),
-    ("FluoParam_PhotonCV", "0.5"),
-    ("FluoParam_IllumProfile", "Flat"),
+    ("Optics_IlluminationProfile", "Flat"),
+    # Issue 16: DNA-PAINT ATTO 655 imager on the microtubules, 70% labelled.
+    ("General_ImagingModality", "Fluorescence"),
+    ("SimType_CellFieldMicrotubuleDye", "ATTO655"),
+    ("SimType_CellFieldMicrotubuleLabelMode", "DyeDefault"),
+    ("SimType_CellFieldMicrotubuleLabelingPct", "70"),
+    ("Optics_Preset", "PAINT-640"),
     ("CamParam_CameraType", "sCMOS"),
     ("Background_DecaySec", "0"),
     ("General_UseGpu", "On"),
@@ -209,10 +224,11 @@ for name, expected in [
 print("Defaults OK: out-of-the-box values confirmed")
 
 # --- Labelling: fewer labelled sites, less light -------------------------
-# The CellField's blink rate comes from its dyes: a tenth of the persistent
-# sites gives about a tenth of the signal above the offset.
+# The blink rate comes from the labelled sites: a tenth of them gives about a
+# tenth of the signal above the offset (dSTORM AF647: no imager background).
 core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")
 core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleDye", "AF647")  # dSTORM: no imager background
 
 
 def mean_signal(n=50):
@@ -225,11 +241,12 @@ def mean_signal(n=50):
     return total / n
 
 
-core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "70")
 sig_full = mean_signal()
-core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "7")
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "7")
 sig_low = mean_signal()
-core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")  # restore default
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "70")  # restore default
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleDye", "ATTO655")  # restore default
 assert sig_low < 0.3 * sig_full, f"expected 7% labelling to give ~1/10 of the 70% signal ({sig_low:.3f} vs {sig_full:.3f})"
 print(f"Labelling OK: mean signal {sig_full:.3f} -> {sig_low:.3f} ADU from 70% to 7% labelled sites")
 
@@ -264,7 +281,7 @@ assert interp_values == INTERP_VALUES, f"unexpected PsfInterp values: {interp_va
 # Sparse labelling: Fft does one Fourier shift per emitter and is by far the
 # slowest mode (the default labelling would take Fft placement far past
 # wait_for_stack's timeout).
-core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "0.5")
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "0.5")
 for interp in sorted(INTERP_VALUES):
     core.setProperty("SMLMCam", "PSFParam_PsfInterp", interp)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
@@ -289,7 +306,7 @@ zc = core.getProperty("SMLMCam", "PSFParam_PsfZernikeCoefficients").split()
 assert len(zc) == 28 and float(zc[5]) == 0.15, f"expected a 15-value Zernike list to be accepted, got {zc}"
 assert set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfMaskType")) == {"None", "DoubleHelix"}
 core.setProperty("SMLMCam", "PSFParam_PsfZernikePreset", "None")
-core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")  # restore default
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "70")  # restore default
 mask_frames = {}
 for mask in ("None", "DoubleHelix"):
     core.setProperty("SMLMCam", "PSFParam_PsfMaskType", mask)
@@ -352,24 +369,31 @@ def stack_frames(props, n=20, seed=42):
 
 FAST = {"PSFParam_PsfModel": "Gaussian"}
 
-# Multi-blink: bleaching dyes that blink ~5x (bleach prob 0.2) give more
-# light than single-blink ones at the same activation rate. PhotonCV 0
-# explicitly: the single-blink, constant-brightness baseline (the property
-# defaults to 0.5 since 2026-10-01).
-BLEACHING = {**FAST, "SimType_CellFieldLabelingPctBleaching": "10", "SimType_CellFieldLabelingPctNonBleaching": "0",
-             "SimType_CellFieldMilliActivationRatePerDyePerSec": "30"}
-single = stack_frames({**BLEACHING, "FluoParam_PhotonCV": "0"}, n=200)
-multi = stack_frames({**BLEACHING, "FluoParam_BlinkBleachProb": "0.2", "FluoParam_PhotonCV": "0.5"}, n=200)
-s_sig, m_sig = single.mean() - 100.0, multi.mean() - 100.0
-assert m_sig > 1.5 * s_sig, f"multi-blink dyes should give more light: single {s_sig:.3f} vs multi {m_sig:.3f}"
-print(f"Multi-blink OK: mean signal single {s_sig:.3f} vs bleach=0.2/CV=0.5 {m_sig:.3f} ADU")
+# Label modes: every mode of the microtubules' label renders, and dSTORM's
+# blinks follow the dye fields (a dye that bleaches after each blink gives
+# less light than the library AF647). WideField is the mean field.
+MODES = {"dSTORM": {"SimType_CellFieldMicrotubuleDye": "AF647"},
+         "PALM": {"SimType_CellFieldMicrotubuleDye": "mEos3.2"},
+         "DNA-PAINT": {},
+         "WideField": {"SimType_CellFieldMicrotubuleDye": "mEGFP"}}
+mode_sig = {}
+for mode, extra in MODES.items():
+    fr = stack_frames({**FAST, **extra, "SimType_CellFieldMicrotubuleLabelMode": mode}, n=20)
+    assert fr.std() > 0, f"expected a non-blank {mode} movie"
+    mode_sig[mode] = fr.mean() - 100.0
+assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
+DSTORM = {**FAST, "SimType_CellFieldMicrotubuleDye": "AF647", "SimType_CellFieldMicrotubuleLabelMode": "dSTORM"}
+lib = stack_frames(DSTORM, n=100)
+quick = stack_frames({**DSTORM, "FluoParam_Microtubule_BleachProb": "1"}, n=100)
+assert quick.mean() < lib.mean(), "bleaching after every blink should give less light than the library dye"
+print("Label modes OK: " + ", ".join(f"{m} {v:.2f}" for m, v in mode_sig.items()) + " ADU above offset; dye field edit applies")
 
 # EMCCD: background-only frame -> the gain register doubles the variance
 # (excess noise factor sqrt(2)); ADU clipped to the bit depth.
-NO_DYES = {"SimType_CellFieldLabelingPctBleaching": "0", "SimType_CellFieldLabelingPctNonBleaching": "0"}
+NO_DYES = {"SimType_CellFieldMicrotubuleLabelingPct": "0", "SimType_CellFieldMicrotubuleImagerNm": "0"}
 bg_only = {**FAST, **NO_DYES, "Background_BackgroundPhotonsPerSec": "2000", "CamParam_ReadNoiseElectrons": "0",
            "CamParam_OffsetStdADU": "0", "CamParam_GainStdPctPerPixel": "0", "CamParam_GainPhotonsPerADU": "1",
-           "CamParam_QuantumEfficiency": "1", "CamParam_DarkCurrentElectronsPerSec": "0"}
+           "CamParam_DarkCurrentElectronsPerSec": "0"}
 sc = stack_frames(bg_only, n=10)
 em = stack_frames({**bg_only, "CamParam_CameraType": "EMCCD", "CamParam_CicElectrons": "0"}, n=10)
 fano_sc = sc.var(axis=0).mean() / (sc.mean() - 100.0)
@@ -381,7 +405,7 @@ print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit 
 
 # Gaussian illumination dims the corners; the background fades over time.
 flat_bg = {**FAST, **NO_DYES, "Background_BackgroundPhotonsPerSec": "400"}
-illum = stack_frames({**flat_bg, "FluoParam_IllumProfile": "Gaussian"}, n=5).mean(axis=0) - 100
+illum = stack_frames({**flat_bg, "Optics_IlluminationProfile": "Gaussian"}, n=5).mean(axis=0) - 100
 assert illum[:10, :10].mean() < 0.5 * illum[54:74, 54:74].mean(), "Gaussian illumination must dim the corners"
 decay = stack_frames({**flat_bg, "Background_DecaySec": "0.5"}, n=40)
 assert decay[-1].mean() < decay[0].mean(), "background fade must lower the background over time"

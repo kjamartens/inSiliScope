@@ -88,7 +88,7 @@ struct BlinkEvent
    double zNm = 0.0; // the dye's height relative to the focus reference
    double tStart = 0.0;
    double tEnd = 0.0;
-   // Per-blink photon-rate factor (log-normal, mean 1, CV FluoParam_PhotonCV).
+   // Per-blink photon-rate factor (log-normal, mean 1, CV: the dye's photon-cv).
    // Multiplies photonsPerBlink at render time.
    double brightness = 1.0;
    // The cell field's structure (ISC_STRUCT_*), state (ISC_STATE_*: a blink,

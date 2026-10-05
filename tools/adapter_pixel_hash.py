@@ -22,16 +22,18 @@ from pymmcore_plus._util import USER_DATA_DIR
 
 # (name, pre-init seed, post-init properties). Each config regenerates the
 # precomputed stack and hashes its first frames. CellField only (the other
-# patterns were removed with issue 16).
+# patterns were removed with issue 16); the defaults are DNA-PAINT ATTO 655
+# with its imager background (issue 16, phase 3: the hashes changed then).
+GAUSS = {"PSFParam_PsfModel": "Gaussian"}
 CONFIGS = [
     ("defaults", 1234, {}),
-    ("gaussian-psf", 1234, {"PSFParam_PsfModel": "Gaussian"}),
-    ("bleaching", 99, {"PSFParam_PsfModel": "Gaussian", "SimType_CellFieldLabelingPctBleaching": "30",
-                       "SimType_CellFieldLabelingPctNonBleaching": "0"}),
-    ("emccd", 7, {"CamParam_CameraType": "EMCCD", "PSFParam_PsfModel": "Gaussian"}),
-    ("illum-bg", 3, {"PSFParam_PsfModel": "Gaussian", "FluoParam_IllumProfile": "Gaussian",
+    ("gaussian-psf", 1234, GAUSS),
+    ("dstorm", 99, {**GAUSS, "SimType_CellFieldMicrotubuleDye": "AF647"}),
+    ("palm", 11, {**GAUSS, "SimType_CellFieldMicrotubuleDye": "mEos3.2"}),
+    ("emccd", 7, {"CamParam_CameraType": "EMCCD", **GAUSS}),
+    ("illum-bg", 3, {**GAUSS, "Optics_IlluminationProfile": "Gaussian",
                      "Background_BackgroundPhotonsPerSec": "200", "Background_DecaySec": "0.5"}),
-    ("widefield", 5, {"General_ImagingModality": "WideField"}),
+    ("mean-field", 5, {"SimType_CellFieldMicrotubuleDye": "mEGFP"}),
 ]
 
 

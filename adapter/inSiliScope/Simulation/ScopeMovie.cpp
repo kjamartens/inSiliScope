@@ -668,12 +668,59 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    return true;
 }
 
+namespace {
+std::mutex g_psfHookMutex;
+ScopePsfHook g_psfHook;
+} // namespace
+
+void SetScopePsfRequestHook(ScopePsfHook hook)
+{
+   std::lock_guard<std::mutex> g(g_psfHookMutex);
+   g_psfHook = std::move(hook);
+}
+
+bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateReadout& out, std::string& err)
+{
+   ScopeSetup S;
+   out = ScopeStateReadout();
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   if (structure < 0 || structure >= static_cast<int>(S.labels.size()))
+   {
+      err = "no such structure";
+      return false;
+   }
+   const LabelPhysics& L = S.labels[static_cast<size_t>(structure)];
+   const StatePhysics& st = pre ? L.pre : L.main;
+   out.emits = st.emits;
+   out.detectedFraction = st.detectedFraction;
+   out.lambdaNm = st.lambdaNm;
+   out.detectedPerSec = st.detectedPerSec;
+   out.onSecNow = L.onSecNow;
+   return true;
+}
+
 bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    const int model = static_cast<int>(O("psf-model"));
    if (model == 0)
       return false;
+   if (model == 1 || model == 2)
+   {
+      ScopePsfHook hook;
+      {
+         std::lock_guard<std::mutex> g(g_psfHookMutex);
+         hook = g_psfHook;
+      }
+      if (hook)
+      {
+         if (hook(spec, wavelengthNm, req))
+            return true;
+         err = "psf-model " + std::to_string(model) + ": the host could not build the request";
+         return false;
+      }
+   }
    if (model != 3)
    {
       err = "psf-model " + std::to_string(model) +
@@ -824,9 +871,12 @@ struct Population
    bool meanFieldAt0 = false, needWindows = false;
    std::vector<BlinkEvent> wins;
    MeanFieldSlot* slot = nullptr;   // its mean-field scene (meanFieldAt0)
-   std::vector<float> image;        // W x H photons per (photon per dye)
+   WidefieldSceneSpec ws;           // the scene's spec at the spec's focus
+   std::vector<float> image;        // W x H photons per (photon per dye), at the spec's z
+   std::map<double, std::vector<float>> imageAt;   // ... at other z (a host's z sequence)
    std::vector<double> acc;         // the running image of the per-dye path
    long accFrame = -1;
+   double accZ = 0;                 // the z the running image was made at
    long meanFieldFrames = 0, perDyeFrames = 0;
 };
 
@@ -943,6 +993,7 @@ struct FluorescenceMovie::Impl
    std::chrono::steady_clock::time_point t0;
    double setupSec = 0;
    bool gpuMode = false;
+   WidefieldAccelerator* accel = nullptr;
    std::vector<Population*> sceneQueue;   // the populations whose mean-field scene images are pending (GPU mode)
    Impl() : cache(SharedMovieCache()), lock(cache.mutex, std::defer_lock) {}
 
@@ -953,7 +1004,9 @@ struct FluorescenceMovie::Impl
    }
    bool BuildMeanField(Population& p, std::string& err);
    void TakeImage(Population& p);
-   void AdvanceAcc(Population& p, long f);
+   // The mean-field image at another stage z (refocused scene; cached).
+   const std::vector<float>& ImageAt(Population& p, double z);
+   void AdvanceAcc(Population& p, long f, double z);
 };
 
 FluorescenceMovie::FluorescenceMovie() : impl_(new Impl) {}
@@ -1016,13 +1069,15 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    ws.psfVersion = slot.psfVersion;
    // The scene's FFT sizes depend on the mode (GPU: powers of two): a mode
    // change starts from a fresh scene.
-   if (!slot.has || slot.gpuMode != gpuMode)
+   const bool sceneGpu = gpuMode || accel != nullptr;
+   if (!slot.has || slot.gpuMode != sceneGpu)
    {
       slot.scene = WidefieldScene();
-      slot.scene.SetGpuMode(gpuMode);
-      slot.gpuMode = gpuMode;
+      slot.scene.SetGpuMode(sceneGpu);
+      slot.gpuMode = sceneGpu;
       slot.has = true;
    }
+   slot.scene.SetAccelerator(accel);
    slot.scene.SetDeferImages(gpuMode);
    const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
    const auto tPhase = TimingClock::now();
@@ -1030,9 +1085,30 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       return false;
    TimingLog("fl.mean-field-scene", TimingSince(tPhase));
    p.slot = &slot;
+   p.ws = ws;
    if (!gpuMode)
       TakeImage(p);
    return true;
+}
+
+const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, double z)
+{
+   if (z == zStage || !p.slot)
+      return p.image;
+   auto it = p.imageAt.find(z);
+   if (it != p.imageAt.end())
+      return it->second;
+   WidefieldSceneSpec ws = p.ws;
+   ws.focusWorldUm = ws.slabCentreUm = S.q.zRefUm + z;
+   const double um = S.p.pixelSizeNm / 1000.0;
+   const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
+   std::vector<float>& img = p.imageAt[z];
+   img.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
+   std::string err;
+   p.slot->scene.SetDeferImages(false);
+   if (p.slot->scene.Update(cache.source, ill, ws, *p.slot->psf, err))
+      p.slot->scene.Images().Render({}, img);
+   return img;
 }
 
 void FluorescenceMovie::Impl::TakeImage(Population& p)
@@ -1041,16 +1117,19 @@ void FluorescenceMovie::Impl::TakeImage(Population& p)
    p.slot->scene.Images().Render({}, p.image);
 }
 
-void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f)
+void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z)
 {
    const Group& g = groups[p.group];
    const double pixelNm = S.p.pixelSizeNm;
+   if (p.accFrame >= 0 && p.accZ != z)
+      p.accFrame = -1;   // another focal plane: start the running image afresh
+   p.accZ = z;
    if (p.accFrame < 0)
    {
       p.acc.assign(static_cast<size_t>(S.W) * S.H, 0.0);
       for (const BlinkEvent& e : p.wins)
          if (e.tStart <= f && e.tEnd >= f + 1)
-            SplatUnit(p.acc, S.W, S.H, e, g, zStage, pixelNm, 1);
+            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, 1);
    }
    else
    {
@@ -1058,29 +1137,37 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f)
       {
          const bool was = e.tStart <= p.accFrame && e.tEnd >= p.accFrame + 1, now = e.tStart <= f && e.tEnd >= f + 1;
          if (was != now)
-            SplatUnit(p.acc, S.W, S.H, e, g, zStage, pixelNm, now ? 1 : -1);
+            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, now ? 1 : -1);
       }
    }
    p.accFrame = f;
 }
 
-bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err)
+bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel)
 {
    Impl& m = *impl_;
    m.t0 = std::chrono::steady_clock::now();
    m.spec = spec;
    m.gpuMode = gpuMode;
+   m.accel = accel;
    if (!MakeScopeSetup(spec, m.S, err))
       return false;
    const ScopeSetup& S = m.S;
    const double pixelNm = S.p.pixelSizeNm, um = pixelNm / 1000.0;
    m.zStage = ScopeSpecGet(spec, "z");
    auto tPhase = TimingClock::now();
+#if defined(__EMSCRIPTEN__)
+   // One thread: a second movie while a session is open (between its begin and
+   // end) would wait for itself.
    if (!m.lock.owns_lock() && !m.lock.try_lock())
    {
       err = "another movie is being rendered in this process";
       return false;
    }
+#else
+   if (!m.lock.owns_lock())
+      m.lock.lock();
+#endif
    if (!ConfigureShared(m.cache, S.cf, err))
       return false;
    CellFieldSource& source = m.cache.source;
@@ -1292,6 +1379,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    return true;
 }
 
+bool FluorescenceMovie::HasPopulations() const
+{
+   return !impl_->pops.empty();
+}
+
 int FluorescenceMovie::MeanFieldScenes() const
 {
    return static_cast<int>(impl_->sceneQueue.size());
@@ -1326,10 +1418,30 @@ void FluorescenceMovie::ComputeCpuImages()
    }
 }
 
+FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
+{
+   const Impl& m = *impl_;
+   FluorescenceSimplePlan sp;
+   if (m.groups.size() != 1 || m.groups[0].pre || !m.pops.empty())
+      return sp;
+   const Group& g = m.groups[0];
+   sp.ok = true;
+   sp.kernel = g.kernel.valid ? &g.kernel : nullptr;
+   sp.photonsPerBlink = g.perFrame;
+   sp.sigmaPx = g.sigmaPx;
+   sp.backgroundPhotons = m.bg;
+   sp.events = &m.byGroup[0];
+   return sp;
+}
+
 bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
-                               ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
+                               ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress,
+                               const FluorescenceFrameOptions* options)
 {
    Impl& m = *impl_;
+   const FluorescenceFrameOptions none;
+   const FluorescenceFrameOptions& opt = options ? *options : none;
+   auto zAt = [&](long f) { return opt.zStageUm ? opt.zStageUm(f) : m.zStage; };
    const ScopeSetup& S = m.S;
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
@@ -1405,13 +1517,35 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    long blinks = 0;
    RenderExtras into;
    into.accumulate = true;
+   RenderExtras blinkInto = into;   // the blinks also see the host's illumination field
+   const bool shaped = opt.illumField && opt.illumField->size() == n;
+   if (shaped)
+      blinkInto.illumField = opt.illumField;
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
       tBlinks.Start();
       ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
-         photons[k].assign(n, static_cast<float>(m.bg));
+         const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
+         if (!shaped && bgScale == 1.0)
+            photons[k].assign(n, static_cast<float>(m.bg));
+         else
+         {
+            // The adapter's shaped background: x the illumination field, x the fade.
+            photons[k].resize(n);
+            for (size_t i = 0; i < n; ++i)
+            {
+               double b = m.bg;
+               if (shaped)
+                  b *= (*opt.illumField)[i];
+               photons[k][i] = static_cast<float>(b * bgScale);
+            }
+         }
+         double dx = 0.0, dy = 0.0;
+         if (opt.driftPx)
+            opt.driftPx(f, dx, dy);
+         const double zf = zAt(f);
          frameBlinks[k] = 0;
          for (size_t gi = 0; gi < m.groups.size(); ++gi)
          {
@@ -1422,8 +1556,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             for (uint32_t i : m.buckets[gi][static_cast<size_t>(f)])
                fe[k].push_back(m.byGroup[gi][i]);
             frameBlinks[k] += static_cast<long>(fe[k].size());
-            RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, 0.0, 0.0,
-                              g.kernel.valid ? &g.kernel : nullptr, m.zStage, nullptr, nullptr, &into);
+            RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
+                              g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
       });
       tBlinks.Stop();
@@ -1433,6 +1567,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       for (long k = 0; k < nb; ++k)
       {
          const long f = f0 + k;
+         const double zf = zAt(f);
          std::vector<float>& img = photons[static_cast<size_t>(k)];
          for (Population& p : m.pops)
          {
@@ -1447,14 +1582,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   continue;
                }
                const float mp = static_cast<float>(MeanPhotons(p.rate, p.lambda, tf0, tf1));
+               const std::vector<float>& image = m.ImageAt(p, zf);
                for (size_t i = 0; i < n; ++i)
-                  img[i] += static_cast<float>(static_cast<double>(mp) * p.image[i]);
+                  img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
                p.meanFieldFrames++;
                paths[static_cast<size_t>(k)].push_back(std::string(PopulationName(p.state)) + ": mean-field (FFT)");
             }
             else
             {
-               m.AdvanceAcc(p, f);
+               m.AdvanceAcc(p, f, zf);
                const double perFrame = p.rate * S.expSec;
                for (size_t i = 0; i < n; ++i)
                   if (p.acc[i] != 0)
@@ -1465,7 +1601,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   if (e.tStart < f + 1 && e.tEnd > f && !(e.tStart <= f && e.tEnd >= f + 1))
                      partial.push_back(e);
                RenderPhotonImage(img, W, H, partial, f, pixelNm, g.sigmaPx, perFrame, 0.0, 0.0, 0.0,
-                                 g.kernel.valid ? &g.kernel : nullptr, m.zStage, nullptr, nullptr, &into);
+                                 g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &into);
                p.perDyeFrames++;
                paths[static_cast<size_t>(k)].push_back(std::string(PopulationName(p.state)) + ": per dye (" +
                                                        std::to_string(p.wins.size()) + " windows)");
@@ -1474,17 +1610,19 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       }
       tPops.Stop();
       tNoise.Start();
-      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
-         ApplyNoiseChain(photons[k], adu[k], W, H, cam, noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                         static_cast<uint32_t>(f0 + static_cast<long>(k)));
-      });
+      if (!opt.onPhotons)
+         ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+            ApplyNoiseChain(photons[k], adu[k], W, H, cam, noise.offsetMap, noise.gainMap, noise.rnMap,
+                            noise.noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
+         });
       tNoise.Stop();
       tWrite.Start();
       bool more = true;
       for (long k = 0; k < nb && more; k++)
       {
          blinks += frameBlinks[static_cast<size_t>(k)];
-         more = onFrame(f0 + k, adu[static_cast<size_t>(k)]);
+         more = opt.onPhotons ? opt.onPhotons(f0 + k, photons[static_cast<size_t>(k)])
+                              : onFrame(f0 + k, adu[static_cast<size_t>(k)]);
          if (progress && *progress)
          {
             // Which backend drew this frame: the SMLM splat for blinks, mean-field or per dye per population.
@@ -1960,6 +2098,19 @@ static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::strin
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
    info.description = anyKernel ? "prepared GibsonLanniZernike" : "prepared Gaussian";
    return true;
+}
+
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs)
+{
+   ScopeSetup S;
+   std::string err;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   MovieCache& cache = SharedMovieCache();
+   std::unique_lock<std::mutex> lock(cache.mutex, std::try_to_lock);
+   if (!lock.owns_lock() || !cache.haveWorld || !cache.world.SameWorld(S.cf))
+      return false;
+   return cache.source.Prefetch(S.q, marginUm, budgetMs);
 }
 
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,

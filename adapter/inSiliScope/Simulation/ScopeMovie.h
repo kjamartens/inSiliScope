@@ -85,6 +85,24 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
 // Its kernel (memoized, ComputePsfKernelCache); cache.valid = false and true
 // returned for the Gaussian.
 bool ScopePsfKernel(const ScopeSpec& spec, double wavelengthNm, PsfKernelCache& cache, std::string& err);
+// Hosts with the PSFGenerator JVM (the adapter) build psf-model 1/2
+// (RichardsWolf, GibsonLanni) requests themselves: the hook gets the spec and
+// the wavelength and fills req (false: an error). Unset: those models are
+// rejected.
+using ScopePsfHook = std::function<bool(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req)>;
+void SetScopePsfRequestHook(ScopePsfHook hook);
+
+// The detection of structure s's dye state (pre: the PALM pre state) in the
+// spec's light path: detected fraction, PSF wavelength (nm), detected photons
+// per second while emitting, and the ON time now (dSTORM: scaled by the
+// excitation). False (with err) on a bad spec; emits = false for a dark state.
+struct ScopeStateReadout
+{
+   bool emits = false;
+   double detectedFraction = 0, lambdaNm = 0, detectedPerSec = 0, onSecNow = 0;
+};
+bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateReadout& out, std::string& err);
+
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);
@@ -116,24 +134,65 @@ class WidefieldScene;
 // (background, blinks, continuous populations, noise per frame).
 // RenderScopeMovie runs the steps on the CPU. Begin holds the movie cache's
 // lock until the object is destroyed.
+class WidefieldAccelerator;
+struct PsfKernelCache;
+struct BlinkEvent;
+
+// What a host (the Micro-Manager adapter) adds per frame on top of the JS
+// reference's movie, all off by default (= the JS): the focal plane per frame
+// (a z sequence), a drift of the blinks (px), the illumination field (W x H,
+// peak 1: multiplies the background, the imager offset and each blink at its
+// site) and a background fade factor. Continuous populations are neither
+// drifted nor shaped by the field.
+struct FluorescenceFrameOptions
+{
+   std::function<double(long f)> zStageUm;              // empty: the spec's z
+   std::function<void(long f, double& dxPx, double& dyPx)> driftPx;
+   const std::vector<float>* illumField = nullptr;
+   std::function<double(long f)> backgroundScale;       // empty: 1
+   // Set: the photon images (before the camera) go here instead of the noise
+   // chain and onFrame (the host adds its own noise).
+   std::function<bool(long f, const std::vector<float>& photons)> onPhotons;
+};
+
+// The blinks-only case of a movie (one blink group, no continuous
+// population): what the adapter's GPU splat + noise path needs.
+struct FluorescenceSimplePlan
+{
+   bool ok = false;
+   const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
+   double photonsPerBlink = 0, sigmaPx = 1, backgroundPhotons = 0;
+   const std::vector<BlinkEvent>* events = nullptr;
+};
+
 class FluorescenceMovie
 {
 public:
    FluorescenceMovie();
    ~FluorescenceMovie();
-   bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err);
+   // accel (optional): a synchronous GPU host for the mean-field scenes (the
+   // adapter's Direct3D 11 one); their images are then made at once on it.
+   bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.
    bool SetMeanFieldImages(int i, std::vector<std::vector<float>>& images);
    void ComputeCpuImages();
+   FluorescenceSimplePlan SimplePlan() const;
+   // Whether the movie has continuous populations (mean-field or per dye).
+   bool HasPopulations() const;
    bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
-               std::string& err, const ScopeProgress* progress = nullptr);
+               std::string& err, const ScopeProgress* progress = nullptr,
+               const FluorescenceFrameOptions* options = nullptr);
 
 private:
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+// Warms the shared world's caches around the spec's FOV (CellFieldSource::
+// Prefetch over the spec's query at its time, xy margin, at most budgetMs).
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs);
 
 // Renders the movie, calling onFrame(f, adu) for f = 0..frames-1 (return
 // false to stop). False (with err) on a failure.

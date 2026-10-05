@@ -9,8 +9,8 @@
 //                (= the FOV centre); values are relative excitation, peak 1.
 //                WideField reads its emission rate and deposits its bleach
 //                dose from it, so a new pattern (a beam, a TIRF footprint, a
-//                structured pattern) needs no renderer change. SR keeps its
-//                FluoParam_IllumProfile field for now.
+//                structured pattern) needs no renderer change. The adapter's
+//                blinks keep its Optics_IlluminationProfile field for now.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

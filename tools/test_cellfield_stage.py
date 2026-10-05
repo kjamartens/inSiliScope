@@ -5,9 +5,9 @@ position readback, MM's TransposeMirrorX flipping the direction), the camera's
 CellField pattern rendering dyes of the insiliscope world through the unchanged
 render pipeline, a known feature shifting by the expected pixels between two
 stage positions (live mode), precomputed stacks that are byte-identical
-after the stage went 1 mm away and came back, and the WideField modality
-(bleaching half time, split labelling, a world-anchored bleach map in live mode),
-a hardware z stack (the ZStage's sequence, one position per camera frame),
+after the stage went 1 mm away and came back, the microtubules' label modes
+(DNA-PAINT sites do not run out; a WideField-mode mEGFP mean field bleaches with
+the half time its dye fields give), a hardware z stack (the ZStage's sequence, one position per camera frame),
 and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
 z sequence).
 
@@ -63,6 +63,24 @@ def _shift(a, b):
     return (dy - h if dy > h // 2 else dy), (dx - w if dx > w // 2 else dx), c.max()
 
 
+def _label(core, cam, mode, dye=None, pct=None, imager=None):
+    """The microtubules' label: dye (loads its fields and light preset), mode, labelling, imager (DNA-PAINT)."""
+    if dye is not None:
+        core.setProperty(cam, "SimType_CellFieldMicrotubuleDye", dye)
+    core.setProperty(cam, "SimType_CellFieldMicrotubuleLabelMode", mode)
+    if pct is not None:
+        core.setProperty(cam, "SimType_CellFieldMicrotubuleLabelingPct", str(pct))
+    if imager is not None:
+        core.setProperty(cam, "SimType_CellFieldMicrotubuleImagerNm", str(imager))
+
+
+# The checks' default label: DNA-PAINT ATTO 655 sites (persistent; the
+# imager's concentration sets both the binding rate and a flat background).
+PAINT = dict(mode="DNA-PAINT", dye="ATTO655", pct=70, imager=1.43)
+# A continuous image of the microtubule network: mEGFP in WideField mode.
+GFP = dict(mode="WideField", dye="mEGFP")
+
+
 def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.loadDevice(cam, "inSiliScope", "Camera")
     core.setProperty(cam, "SimType_RandomSeed", "7")
@@ -81,9 +99,9 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     # ---- property surface -------------------------------------------------
     for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
               "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
-              "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldLabelingPctBleaching",
-              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldMilliActivationRatePerDyePerSec", "SimType_CellFieldZRangeUm",
-              "SimType_CellFieldLabelingPctNonBleaching"):
+              "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldFocusHeightUm", "SimType_CellFieldZRangeUm",
+              "SimType_CellFieldMicrotubuleDye", "SimType_CellFieldMicrotubuleLabelMode",
+              "SimType_CellFieldMicrotubuleLabelingPct", "SimType_CellFieldMicrotubuleImagerNm"):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
     # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
     for p, v in (("SimType_CellFieldNucBaseMinUm", 0.4), ("SimType_CellFieldNucBaseMaxUm", 0.9),
@@ -99,14 +117,13 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
     assert not core.hasProperty(cam, "SimType_Pattern"), "SimType_Pattern was removed (CellField only)"
-    defaults = {p: float(core.getProperty(cam, "SimType_CellField" + p)) for p in
-                ("LabelingPctBleaching", "LabelingPctNonBleaching", "MilliActivationRatePerDyePerSec")}
-    assert defaults == {"LabelingPctBleaching": 0.0, "LabelingPctNonBleaching": 70.0,
-                        "MilliActivationRatePerDyePerSec": 1.43}, f"CellField labelling defaults {defaults}"
-    print("CellField/XY stage properties present (defaults: 70% non-bleaching, 1.43e-3/s)")
-    # The checks below were tuned on sparse bleaching labelling: 10% bleaching dyes.
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
+    defaults = {p: core.getProperty(cam, "SimType_CellFieldMicrotubule" + p) for p in
+                ("Dye", "LabelMode", "LabelingPct", "ImagerNm")}
+    assert defaults["Dye"] == "ATTO655" and defaults["LabelMode"] == "DyeDefault" and \
+        float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.43, f"label defaults {defaults}"
+    assert core.getProperty(cam, "Optics_Preset") == "PAINT-640", core.getProperty(cam, "Optics_Preset")
+    print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1.43 nM imager)")
+    _label(core, cam, **PAINT)
 
     # ---- XY stage motion --------------------------------------------------
     core.setXYPosition(xy, 0.0, 0.0)
@@ -131,11 +148,10 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setProperty(cam, "PSFParam_PsfModel", "Gaussian")
     core.setProperty(cam, "General_FovSize", "128x128")
     core.setProperty(cam, "Background_BackgroundPhotonsPerSec", "0")
-    core.setProperty(cam, "FluoParam_PhotonsPerSecond", "20000")
     # No static per-pixel pattern: it would correlate at zero shift.
     for p in ("CamParam_GainStdPctPerPixel", "CamParam_ReadNoiseStdPctPerPixel", "CamParam_OffsetStdADU"):
         core.setProperty(cam, p, "0")
-    core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "500")  # dense ON population: shows the MT network
+    _label(core, cam, **GFP)  # every dye at once: shows the MT network
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setExposure(10.0)
     px_um = float(core.getProperty(cam, "General_PixelSizeNm")) / 1000.0
@@ -180,7 +196,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     print(f"TransposeMirrorX OK: the same user-coordinate step now moves the image by {dx2} px")
 
     # ---- precomputed: stage 1 mm away and back, identical stack -----------
-    core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "10")
+    _label(core, cam, **PAINT)
     core.setProperty(cam, "General_AcqMode", "Precomputed")
     core.setExposure(20.0)
 
@@ -225,13 +241,9 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setPosition(z, 1.5)
     assert up > empty + 1.0 and abs(down - empty) < 0.5, \
         f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
-    # Bleaching dyes run out, non-bleaching (DNA-PAINT-like) sites do not:
-    # 1000 frames x 20 ms at 0.5 activations/dye/s -- the bleaching-only
-    # signal collapses over the stack, the non-bleaching one stays flat.
-    def early_late(bleach_pct, nonbleach_pct):
-        core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", str(bleach_pct))
-        core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", str(nonbleach_pct))
-        core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "500")
+    # DNA-PAINT sites do not run out: over a 1000-frame (20 s) stack the
+    # signal stays flat (the bleaching side is the WideField check below).
+    def early_late():
         core.setXYPosition(xy, x0, y0)
         _wait_idle(core, xy)
         core.setProperty(cam, "General_GenerateStack", "1")
@@ -241,20 +253,14 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
             core.snapImage()
             sig.append(core.getImage().astype(np.float64).mean() - 100.0)
         return float(np.mean(sig[:100])), float(np.mean(sig[-100:]))
-    b_early, b_late = early_late(10, 0)
-    p_early, p_late = early_late(0, 1)
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
-    core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "10")
-    assert b_late < 0.2 * b_early, f"bleaching dyes should run out: {b_early:.2f} -> {b_late:.2f} ADU"
-    assert 0.8 < p_late / p_early < 1.25, f"non-bleaching sites should not: {p_early:.2f} -> {p_late:.2f} ADU"
-    print(f"Bleaching vs non-bleaching OK: signal {b_early:.2f} -> {b_late:.2f} ADU (bleaching), "
-          f"{p_early:.2f} -> {p_late:.2f} ADU (non-bleaching) over 20 s")
+    p_early, p_late = early_late()
+    assert p_early > 0.5 and 0.8 < p_late / p_early < 1.25, f"DNA-PAINT sites should not run out: {p_early:.2f} -> {p_late:.2f} ADU"
+    print(f"DNA-PAINT OK: signal {p_early:.2f} -> {p_late:.2f} ADU over 20 s")
 
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
     _widefield_checks(core, cam, xy, x0, y0)
-    _zsequence_checks(core, cam, z, "WideField")
+    _zsequence_checks(core, cam, z, "Fluorescence")
     _brightfield_checks(core, cam, z)
     # BrightField: foci through and around the cells (above them the
     # defocused images differ too little to tell apart in noise).
@@ -266,7 +272,8 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_BrightFieldQuality", "3")
     core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
-    core.setProperty(cam, "General_ImagingModality", "SuperRes")
+    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
+    _label(core, cam, mode="DyeDefault", dye="ATTO655", pct=70, imager=1.43)  # the defaults
 
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)
@@ -274,107 +281,53 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
 
 
 def _wf_half_time_s(core, cam):
-    """t1/2 from the WideField properties (WidefieldRender.h): B ln2 / (QY sigma Phi)."""
-    g = lambda p: float(core.getProperty(cam, "FluoParam_WideField" + p))
-    sigma_um2 = np.log(10.0) * 1000.0 * g("ExtinctionCoeff") / 6.02214076e23 * 1e8
-    return g("PhotonBudget") * np.log(2.0) / (g("QuantumYield") * sigma_um2 * g("ExcitationPhotonsPerUm2PerSec"))
+    """t1/2 of the microtubules' dye from its fields: budget ln2 / emitted photons per second
+    (detected per second / (the objective's collection efficiency x the detected fraction of the emission
+    spectrum: dichroic, filter, QE))."""
+    g = lambda p: float(core.getProperty(cam, "FluoParam_Microtubule_" + p))
+    r = float(core.getProperty(cam, "PSFParam_PsfNa")) / float(core.getProperty(cam, "PSFParam_PsfImmersionIndex"))
+    eta = 0.5 * (1.0 - np.sqrt(1.0 - min(1.0, r) ** 2))
+    return g("PhotonBudget") * np.log(2.0) / (g("PhotonsPerSecOn") / (eta * g("DetectedPct") / 100.0))
 
 
 def _widefield_checks(core, cam, xy, x0, y0):
-    for p, v in (("General_ImagingModality", "SuperRes"), ("General_WideFieldUpscaling", 1.0),
-                 ("General_WideFieldZPlaneNm", 25.0), ("FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", 4e8),
-                 ("FluoParam_WideFieldQuantumYield", 0.7), ("FluoParam_WideFieldPhotonBudget", 5000.0),
-                 ("FluoParam_WideFieldExtinctionCoeff", 270000.0)):
+    for p, v in (("General_ImagingModality", "Fluorescence"), ("General_WideFieldUpscaling", 1.0),
+                 ("General_WideFieldZPlaneNm", 25.0), ("General_MeanFieldDensityPerUm2", 20.0),
+                 ("General_MeanFieldSlabNm", 500.0), ("General_MeanFieldMaxEmitters", 5000.0)):
         assert core.hasProperty(cam, p), f"missing camera property {p}"
         got = core.getProperty(cam, p)
         assert (got == v) if isinstance(v, str) else abs(float(got) / v - 1) < 1e-9, f"{p} default {got}, expected {v}"
-    assert "WideField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
-    t_half = _wf_half_time_s(core, cam)
-    assert abs(t_half - 120.0) < 0.2, f"default WideField t1/2 {t_half:.3f} s, expected 120 s"
-    reported = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
-    assert core.isPropertyReadOnly(cam, "FluoParam_WideFieldHalfTimeSec") and abs(reported / t_half - 1) < 1e-4, \
-        f"FluoParam_WideFieldHalfTimeSec {reported} vs {t_half}"
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "8e8")
-    halved = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
-    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "0")
-    never = float(core.getProperty(cam, "FluoParam_WideFieldHalfTimeSec"))
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "4e8")
-    core.setProperty(cam, "FluoParam_WideFieldPhotonBudget", "5000")
-    assert abs(halved / t_half - 0.5) < 1e-4 and never == -1, f"half time follows: {halved}, budget 0 -> {never}"
-    print(f"WideField properties present (defaults give t1/2 = {t_half:.2f} s; FluoParam_WideFieldHalfTimeSec "
-          f"reports {reported:.2f} s, {halved:.2f} s at 2x flux, -1 = never at budget 0)")
+    assert set(core.getAllowedPropertyValues(cam, "General_ImagingModality")) == {"Fluorescence", "BrightField"}
 
     offset = float(core.getProperty(cam, "CamParam_OffsetADU"))
-    core.setProperty(cam, "General_ImagingModality", "WideField")
+    _label(core, cam, **GFP)
     core.setProperty(cam, "General_AcqMode", "Precomputed")
     core.setExposure(50.0)
     core.setXYPosition(xy, x0, y0)
     _wait_idle(core, xy)
-
-    # The bleaching law at 4x the default flux (t1/2 30 s): 30 s of stack
-    # then shows a clear decay, with signal well above the noise.
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    # The bleaching law: a photon budget that gives t1/2 = 30 s at the
+    # preset's 488 nm flux, so the 50 s of stack show a clear decay.
+    t_lib = _wf_half_time_s(core, cam)
+    budget = float(core.getProperty(cam, "FluoParam_Microtubule_PhotonBudget")) * 30.0 / t_lib
+    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", f"{budget:.6g}")
     t_half = _wf_half_time_s(core, cam)
-
-    def stack_signal(bleach_pct, nonbleach_pct):
-        core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", str(bleach_pct))
-        core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", str(nonbleach_pct))
-        core.setProperty(cam, "General_GenerateStack", "1")
-        _wait_for_stack(core, cam)
-        sig = []
-        for _ in range(1000):
-            core.snapImage()
-            sig.append(core.getImage().astype(np.float64).mean() - offset)
-        return np.array(sig)
-
-    b = stack_signal(20, 0)
-    assert "WideField" in core.getProperty(cam, "General_GpuStatus"), core.getProperty(cam, "General_GpuStatus")
+    assert abs(t_half / 30.0 - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
+    core.setProperty(cam, "General_GenerateStack", "1")
+    _wait_for_stack(core, cam)
+    sig = []
+    for _ in range(1000):
+        core.snapImage()
+        sig.append(core.getImage().astype(np.float64).mean() - offset)
+    b = np.array(sig)
+    status = core.getProperty(cam, "General_GpuStatus")
     ratio = b[590:610].mean() / b[0:20].mean()
     expect = 2.0 ** (-(600 * 0.05) / t_half)
     assert b[0:20].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
         f"WideField bleaching: frames 590-609 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
-    p = stack_signal(0, 70)
-    pr = p[-100:].mean() / p[:100].mean()
-    assert p[:100].mean() > 5 and abs(pr - 1) < 0.02, f"WideField non-bleaching should stay flat: ratio {pr:.3f}"
-    print(f"WideField stack OK: 20% bleaching labelling decays to {ratio:.3f} at {600 * 0.05:.0f} s "
-          f"(expected {expect:.3f}, t1/2 {t_half:.1f} s); 70% non-bleaching flat ({pr:.3f})")
-
-    # Live: a world-anchored bleach map. Bright excitation (t1/2 ~ 0.3 s),
-    # bleach the FOV, move 30 um away (fresh, bright, then bleaches too) and
-    # back (still dim).
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "20")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e11")
-    core.setProperty(cam, "General_AcqMode", "Live")
-    core.setExposure(20.0)
-
-    def live_mean():
-        core.snapImage()
-        return core.getImage().astype(np.float64).mean() - offset
-
-    def bleach_here(n=60):
-        first = np.mean([live_mean() for _ in range(3)])
-        for _ in range(n):
-            live_mean()
-        return first, np.mean([live_mean() for _ in range(3)])
-
-    here0, here1 = bleach_here()
-    core.setXYPosition(xy, x0 + 30.0, y0)
-    _wait_idle(core, xy)
-    live_mean()
-    away0, away1 = bleach_here()
-    core.setXYPosition(xy, x0, y0)
-    _wait_idle(core, xy)
-    live_mean()
-    back = np.mean([live_mean() for _ in range(3)])
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "4e8")
-    core.setProperty(cam, "General_ImagingModality", "SuperRes")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
-    assert here0 > 5 and here1 < 0.2 * here0, f"live WideField should bleach: {here0:.2f} -> {here1:.2f} ADU"
-    assert away0 > 3 * away1, f"30 um away should be fresh (bright, then bleaching): {away0:.2f} -> {away1:.2f} ADU"
-    assert back < 0.25 * here0, f"back at the bleached region it should still be dim: {back:.2f} vs {here0:.2f} ADU"
-    print(f"WideField live bleach map OK: {here0:.1f} -> {here1:.1f} ADU here, fresh {away0:.1f} -> {away1:.1f} ADU "
-          f"30 um away, still {back:.1f} ADU back here")
+    print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 30 s (expected {expect:.3f}, t1/2 "
+          f"{t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
+    _label(core, cam, **GFP)  # reload the library fields
+    _label(core, cam, **PAINT)
 
 
 def _brightfield_checks(core, cam, z):
@@ -440,8 +393,8 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
     returns to where it was when the sequence stops."""
     positions = list(positions)
     core.setProperty(cam, "General_ImagingModality", modality)
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
+    if modality == "Fluorescence":
+        _label(core, cam, **GFP)
     core.setExposure(20.0)
     # Positions inside the cells (the dome top is the nucleus top + 0.5 um, at most ~5 um since 2026-10-05: 3.5 and
     # 5 um held few dyes and their frames matched at random). A thin slab makes every position a distinct dye layer (the Gaussian
@@ -493,9 +446,8 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
               f"stage back at {z_before} um")
     core.setProperty(cam, "General_AcqMode", "Live")
     core.setProperty(cam, "SimType_CellFieldZRangeUm", z_range)
-    core.setProperty(cam, "General_ImagingModality", "SuperRes")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
+    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
+    _label(core, cam, **PAINT)
 
 
 if __name__ == "__main__":
