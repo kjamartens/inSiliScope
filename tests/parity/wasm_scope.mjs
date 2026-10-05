@@ -1,7 +1,8 @@
 // The C++ side of the imaging parity checks: web/insiliscope_module.js (the viewer's WASM: core C ABI +
 // the scope movie) evaluated under Node or in a worker, with small wrappers. No build needed.
 //   const C = await loadWasmScope(moduleText);
-//   C.events(seed, params, kinetics, rect, zMin, zMax, t0, t1) -> Float64Array (stride 7)
+//   C.events(seed, params, label, rect, zMin, zMax, t0, t1) -> Float64Array (stride 10; label: the
+//     isc_world_set_label vector of the microtubules, ISC_LABEL_*)
 //   C.opticalVolume(seed, params, rect, zMin, zMax, nx, ny, nz, sub) -> Float32Array (3 channels)
 //   C.movie('k=v ...') -> { frames: Uint16Array, info }
 export async function loadWasmScope(moduleText) {
@@ -38,17 +39,19 @@ export async function loadWasmScope(moduleText) {
   }
   return {
     M,
-    events(seed, params, kin, [x0, y0, x1, y1], zMin, zMax, t0, t1) {
-      const w = world(seed, params);
-      if (M._isc_world_set_kinetics(w, kin.activationRatePerSec, kin.onSec, kin.offSec, kin.bleachProb, kin.photonCV) !== 0)
-        throw new Error('bad kinetics');
-      const r = query((b, cap) => M._isc_events_in_window(w, x0, y0, x1, y1, zMin, zMax, t0, t1, b, cap), 7);
+    events(seed, params, label, [x0, y0, x1, y1], zMin, zMax, t0, t1) {
+      const w = world(seed, params), lb = M._malloc(label.length * 8);
+      M.HEAPF64.set(label, lb / 8);
+      const lr = M._isc_world_set_label(w, 0, lb, label.length);
+      M._free(lb);
+      if (lr !== 0) throw new Error('isc_world_set_label: ' + lr);
+      const r = query((b, cap) => M._isc_events_in_window(w, x0, y0, x1, y1, zMin, zMax, t0, t1, b, cap), 10);
       M._isc_world_free(w);
       return r;
     },
     sites(seed, params, [x0, y0, x1, y1], zMin, zMax) {
       const w = world(seed, params);
-      const r = query((b, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, zMin, zMax, b, cap), 4);
+      const r = query((b, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, zMin, zMax, b, cap), 5);
       M._isc_world_free(w);
       return r;
     },

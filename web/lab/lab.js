@@ -12,14 +12,15 @@ const IMG_HIDDEN = new Set(['world-seed', 'x', 'y', 'chunk-um', 'occupancy', 'ce
 const IMG_LAB = { frames: 50, size: 96, 'psf-kernel-half-width-nm': 3000 };
 const IMG_GROUPS = [
   ['acquisition', /^(modality|size|frames|exposure-ms|start-sec|pixel-nm|z|focus-um|z-range-um|seed)$/],
-  ['dyes & photophysics', /^(photons-per-sec|on-sec|off-sec|bleach-prob|photon-cv|milli-activation-rate|labeling-)/],
+  ['labels & dyes', /^(mt-|dye[1-3]\.)/],
+  ['light path', /^(laser-|light-preset|illum-|chamber-|dichroic|em-)/],
+  ['mean field', /^(mean-field-|wf-)/],
   ['PSF', /^(psf-|wavelength-nm|na|immersion-index)/],
-  ['WideField', /^wf-/],
   ['BrightField', /^bf-/],
   ['camera & background', /./],
 ];
 const ENUMS = {
-  modality: ['SuperRes', 'WideField', 'BrightField'], 'psf-model': ['Gaussian', null, null, 'GibsonLanniZernike'], 'psf-mask': ['None', 'DoubleHelix'],
+  modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', null, null, 'GibsonLanniZernike'], 'psf-mask': ['None', 'DoubleHelix'],
   'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'],
   'psf-zernike-preset': ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'AstigmatismStrong', 'ComaWeak', 'ComaStrong',
     'SphericalWeak', 'SphericalStrong', 'TrefoilModerate', 'MixedRealisticObjective', 'SaddlePoint', 'ExtendedRange', 'ExtendedRangeStrong'],

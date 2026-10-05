@@ -20,10 +20,13 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(f));
 }).listen(0);
 const port = server.address().port;
-const browser = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader',
-  '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'] });
+// ISC_CHROME=1: the installed Chrome on the real GPU (Windows: headless Chromium has no WebGPU adapter there).
+const browser = await chromium.launch(process.env.ISC_CHROME ? { channel: 'chrome', args: ['--enable-unsafe-webgpu'] } :
+  { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader',
+    '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'] });
 let fail = 0;
-for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', /\(CPU\)/]]) {
+// Without ?wfgpu=any the viewer skips software adapters: CPU in headless Chromium, the GPU in Chrome on a real one.
+for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', process.env.ISC_CHROME ? /GPU: / : /\(CPU\)/]]) {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
