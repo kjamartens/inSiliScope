@@ -238,6 +238,8 @@ const UI_GROUPS = [
     check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false),
     check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv }),
     num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv }),
+    num('locPrecXyNm', 'Precision xy', 'nm', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; a shorter blink (fewer photons) or one out of focus is localized worse.', 0.5, 200, 0.5, 8),
+    num('locPrecZNm', 'Precision z', 'nm', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.', 0.5, 500, 0.5, 20),
     num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized.', 50, 2000, 50, 400, { adv }),
     check('showBfSlice', 'BrightField slice', 'The simulated BrightField image of the cell (all structures) with focus at the slice height. Needs its z-stack: Acquire.', false),
     range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown).', 0, 15, 0.05, 1.5, { fmt: fx(2) }),
@@ -773,7 +775,7 @@ const els = {};
  'showDyes', 'labelEfficiency', 'labelEfficiencyVal', 'labelNonBleaching', 'labelNonBleachingVal', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'showWfSlice', 'wfSumZ', 'showSrFrames', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
- 'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'captureNm']
+ 'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -3447,7 +3449,7 @@ function dataParams(over) {
   return Object.assign({ stepUm: +els.stackStepUm.value || 0.2, srStepUm: +els.srStepUm.value || 0.4,
     srFrames: Math.max(1, Math.round(+els.srFramesShown.value || 10)), wfAverage: Math.max(1, Math.round(+els.wfAverage.value || 4)),
     sequential: els.planeTimes.value === 'sequential', locFrames: Math.max(1, Math.round(+els.locFrames.value || 5000)),
-    captureUm: (+els.captureNm.value || 400) / 1000, srFps: 10, crop: els.cropData.checked }, over || {});
+    captureUm: (+els.captureNm.value || 400) / 1000, precXyUm: (+els.locPrecXyNm.value || 8) / 1000, precZUm: (+els.locPrecZNm.value || 20) / 1000, srFps: 10, crop: els.cropData.checked }, over || {});
 }
 // What a stack of `kind` for the cell `key` is: field of view, planes, frames, and the key it is cached under.
 function stackPlan(kind, key, dp) {
@@ -3796,10 +3798,13 @@ function locPlan(key, dp) {
   const kin = { activationRatePerSec: mv('milli-activation-rate') / 1000, onSec: Math.max(1e-6, mv('on-sec')), offSec: Math.max(0, mv('off-sec')),
     bleachProb: mv('bleach-prob'), photonCV: mv('photon-cv') };
   const rect = [b.x[0] - 0.5, b.y[0] - 0.5, b.x[1] + 0.5, b.y[1] + 0.5];
-  const o = { zs, t0s: zs.map((_, p) => (seq ? p * N * exp : 0)), N, exp, capture: cap, pps: mv('photons-per-sec'), qe: 0.85,
-    sigma0: 0.21 * 0.66 / 1.4, zR: 0.5, kz: 2.5, factor: 1.5, minPhotons: 100, seed: mv('seed') | 0, ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
+  // the precision settings are those of an in-focus blink ON for a whole frame (pps x exposure x QE photons); the
+  // model scales them with 1 / sqrt(photons) and the defocused PSF width
+  const pps = mv('photons-per-sec'), qe = 0.85, sigma0 = 0.21 * 0.66 / 1.4, phRef = Math.max(1, pps * exp * qe);
+  const o = { zs, t0s: zs.map((_, p) => (seq ? p * N * exp : 0)), N, exp, capture: cap, pps, qe,
+    sigma0, zR: 0.5, kz: dp.precZUm / dp.precXyUm, factor: dp.precXyUm * Math.sqrt(phRef) / sigma0, minPhotons: 100, seed: mv('seed') | 0, ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
   const pk = assetSig((+els.seed.value) | 0, params()) + '|' + params().labelEfficiency + '|' + params().labelNonBleaching;
-  return { key: ['loc', key, step, cap, N, seq, JSON.stringify(kin), o.pps, o.seed, pk].join('|'), cell: key, rect, kin, o,
+  return { key: ['loc', key, step, cap, N, seq, JSON.stringify(kin), o.pps, o.seed, pk, dp.precXyUm, dp.precZUm, exp].join('|'), cell: key, rect, kin, o,
     zMin: -cap, zMax: b.z[1] + cap, t1: seq ? nz * N * exp : N * exp };
 }
 const eventJobs = new Map();

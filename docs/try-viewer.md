@@ -91,7 +91,8 @@ Notes:
   the in-focus fine structure of each plane (Otsu's level x the Threshold slider) and fills each column from the
   coverslip up to its highest in-focus point. **SMLM localizations**
   emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
-  within the capture range (±400 nm) is localized per frame, displaced by its precision (from its photons and defocus);
+  within the capture range (±400 nm) is localized per frame, displaced by its precision: "Precision xy" and "Precision z"
+  (default 8 and 20 nm) are those of an in-focus blink ON for a whole frame, worse with fewer photons and with defocus;
   drawn coloured by height, or as Gaussian spots of their precision.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
