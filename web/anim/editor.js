@@ -115,7 +115,9 @@ function drawOverlays(g, r, f, cam, k, ov) {
     let y = r.y + r.h - fs * 0.9;
     const ids = Object.keys(f.layers).reverse();
     for (const id of ids) {
-      const L = R.layers.get(id), st = IscScene.resolveStyle(f.theme, id, seq.styles[id]), c = st.color || [200, 200, 200];
+      // the colour the frame draws the layer in: theme < sequence style < this step's style (slices) < its first band's
+      const e = f.layers[id], iv = (e.intervals || []).find(x => x && x.style);
+      const L = R.layers.get(id), st = IscScene.resolveStyle(f.theme, id, seq.styles[id], e.style, iv && iv.style), c = st.color || [200, 200, 200];
       g.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; g.fillRect(r.x + fs, y - fs * 0.7, fs * 0.7, fs * 0.7);
       g.fillStyle = 'rgba(223,230,238,0.9)'; g.fillText(L ? L.label : id, r.x + fs * 2, y);
       y -= fs * 1.2;
