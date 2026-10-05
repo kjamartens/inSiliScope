@@ -1368,11 +1368,14 @@ void main() {
   float a = st.a * u_cellA;
   o = vec4(rgb * a, a);
 }`;
-// Localizations: one quad per instance (a_l: x, y relative to an origin, z, sigma xy); a square of u_ptHalf px, or
-// (u_spread) a Gaussian spot of the projected precision, coloured by height (u_colZ: the depth colours over u_zr).
+// Localizations: one instance each (a_l: x, y relative to an origin, z, sigma xy); a square of u_ptHalf px (u_pts: one
+// point, its clip interval tested once here, as a point lies in one; a quad past the GPU's point size), or (u_spread) a
+// Gaussian spot of the projected precision (a quad, tested per fragment: a spot can straddle a plane); coloured by
+// height (u_colZ: the depth colours over u_zr).
 const GL_LOC_VS = `#version 300 es
-in vec4 a_l; uniform float u_ptHalf; uniform int u_spread, u_colZ; uniform vec2 u_zr; uniform vec4 u_col;
-out vec3 v_w; out vec2 v_c; out vec3 v_rgb;` + GL_COMMON + `
+precision highp float; precision highp int;
+in vec4 a_l; uniform float u_ptHalf; uniform int u_spread, u_pts, u_colZ; uniform vec2 u_zr; uniform vec4 u_col;
+out vec3 v_w; out vec2 v_c; out vec3 v_rgb; flat out float v_a;` + GL_COMMON + GL_CLIP + `
 vec3 depthRGB(float t) {
   vec3 c0 = vec3(0.15, 0.25, 0.9), c1 = vec3(0.1, 0.75, 0.85), c2 = vec3(0.25, 0.8, 0.25), c3 = vec3(0.95, 0.85, 0.15), c4 = vec3(0.9, 0.2, 0.15);
   float f = clamp(t, 0.0, 0.9999) * 4.0;
@@ -1381,17 +1384,27 @@ vec3 depthRGB(float t) {
 void main() {
   vec3 p = a_l.xyz;
   vec2 w = worldOf(p), s = screenOf(p, w);
+  v_w = vec3(w, p.z); v_a = 0.0;
+  v_rgb = u_colZ == 1 ? depthRGB((p.z - u_zr.x) / (u_zr.y - u_zr.x)) : u_col.rgb;
+  if (u_pts == 1) {   // a point
+    vec4 st = zoneStyle(${IscScene.KIND['mt.locs']}, v_w);
+    v_c = vec2(0.0); v_a = st.a;
+    gl_PointSize = 2.0 * u_ptHalf;
+    gl_Position = st.a < 0.0 ? vec4(2.0, 2.0, 2.0, 1.0) : clipOf(s, depthOf(p, w));   // outside: culled
+    return;
+  }
   vec2 c = vec2(float(gl_VertexID & 1) * 2.0 - 1.0, float(gl_VertexID >> 1) * 2.0 - 1.0);
   float h = u_spread == 1 ? 3.0 * clamp(a_l.w * u_scale, 0.7, 30.0) : u_ptHalf;
+  gl_PointSize = 1.0;
   gl_Position = clipOf(s + c * h, depthOf(p, w));
-  v_w = vec3(w, p.z); v_c = c;
-  v_rgb = u_colZ == 1 ? depthRGB((p.z - u_zr.x) / (u_zr.y - u_zr.x)) : u_col.rgb;
+  v_c = c;
 }`;
 const GL_LOC_FS = `#version 300 es
 precision highp float; precision highp int;
-in vec3 v_w; in vec2 v_c; in vec3 v_rgb; out vec4 o;` + GL_CLIP + `
-uniform int u_spread; uniform vec4 u_col;
+in vec3 v_w; in vec2 v_c; in vec3 v_rgb; flat in float v_a; out vec4 o;` + GL_CLIP + `
+uniform int u_spread, u_pts; uniform vec4 u_col;
 void main() {
+  if (u_pts == 1) { float a = v_a * u_col.a; o = vec4(v_rgb * a, a); return; }
   vec4 st = zoneStyle(${IscScene.KIND['mt.locs']}, v_w);
   if (st.a < 0.0) discard;
   float a = st.a * u_col.a;
@@ -1455,7 +1468,7 @@ function initGl() {
   if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
   const iso = link(GL_ISO_VS, GL_ISO_FS, ['a_p', 'a_n'], []);
   if (iso) { glIsoProg = iso.pr; glIsoU = iso.u; } else console.warn('thresholded surface unavailable (shader)');
-  const loc = link(GL_LOC_VS, GL_LOC_FS, ['a_l'], ['u_ptHalf', 'u_spread', 'u_colZ', 'u_zr', 'u_col']);
+  const loc = link(GL_LOC_VS, GL_LOC_FS, ['a_l'], ['u_ptHalf', 'u_spread', 'u_pts', 'u_colZ', 'u_zr', 'u_col']);
   if (loc) { glLocProg = loc.pr; glLocU = loc.u; } else console.warn('localizations unavailable (shader)');
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
@@ -2871,12 +2884,18 @@ function captureFrame(st, o) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   const cnv = o.canvas || document.createElement('canvas');
   if (cnv.width !== W || cnv.height !== H) { cnv.width = W; cnv.height = H; }
-  const g = cnv.getContext('2d'), img = g.createImageData(W, H), d = img.data, b = fb.buf, bg = IscScene.themeOf(st.theme).bg;
+  if (!fb.img) { fb.img = new ImageData(W, H); fb.d32 = new Uint32Array(fb.img.data.buffer); fb.b32 = new Uint32Array(fb.buf.buffer); }
+  const g = cnv.getContext('2d'), img = fb.img, d = img.data, b = fb.buf, d32 = fb.d32, b32 = fb.b32, bg = IscScene.themeOf(st.theme).bg;
+  // the pixel words are little endian (every browser): an empty pixel is the background, an opaque one itself
+  const bg32 = (bg[0] | (bg[1] << 8) | (bg[2] << 16) | (255 << 24)) >>> 0;
   for (let y = 0; y < H; y++) {   // GL rows run bottom up; premultiplied colour over the background
-    let s = (H - 1 - y) * W * 4, t = y * W * 4;
-    for (let x = 0; x < W; x++, s += 4, t += 4) {
-      const k = 1 - b[s + 3] / 255;
-      d[t] = b[s] + bg[0] * k; d[t + 1] = b[s + 1] + bg[1] * k; d[t + 2] = b[s + 2] + bg[2] * k; d[t + 3] = 255;
+    let s = (H - 1 - y) * W, t = y * W;
+    for (let x = 0; x < W; x++, s++, t++) {
+      const v = b32[s], a = v >>> 24;
+      if (v === 0) { d32[t] = bg32; continue; }
+      if (a === 255) { d32[t] = v; continue; }
+      const k = 1 - a / 255, i = 4 * s, o = 4 * t;
+      d[o] = b[i] + bg[0] * k; d[o + 1] = b[i + 1] + bg[1] * k; d[o + 2] = b[i + 2] + bg[2] * k; d[o + 3] = 255;
     }
   }
   g.putImageData(img, 0, 0);
@@ -3976,13 +3995,14 @@ function drawLocsGl(F, L, style, alpha) {
   gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
   gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
   gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
-  gl.uniform1f(u.u_ptHalf, ((style.size || 1.5) / 2) * F.pxScale); gl.uniform1i(u.u_spread, spread ? 1 : 0);
+  const half = ((style.size || 1.5) / 2) * F.pxScale, pts = !spread && 2 * half <= (L.gl.ptMax || (L.gl.ptMax = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1]));
+  gl.uniform1f(u.u_ptHalf, half); gl.uniform1i(u.u_spread, spread ? 1 : 0); gl.uniform1i(u.u_pts, pts ? 1 : 0);
   gl.uniform1i(u.u_colZ, style.colorBy === 'z' ? 1 : 0); gl.uniform2f(u.u_zr, L.z0, Math.max(L.z0 + 0.1, L.z1));
   gl.uniform4f(u.u_col, col[0] / 255, col[1] / 255, col[2] / 255, alpha);
   gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
   if (spread) gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   // spots add up like light
   gl.bindVertexArray(L.gl.vao);
-  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, L.n);
+  gl.drawArraysInstanced(pts ? gl.POINTS : gl.TRIANGLE_STRIP, 0, pts ? 1 : 4, L.n);
   gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.depthMask(true);
 }
