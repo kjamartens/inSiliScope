@@ -40,11 +40,8 @@ constexpr size_t kNumZernike = 28;
 // this project's property stays in waves.
 using ZernikeCoefficients = std::array<double, kNumZernike>;
 
-// Round-trip helpers for the PsfZernikeCoefficients property, positional
-// rather than token-skipping (mirroring
-// FormatResolutionSpacingsNm/ParseResolutionSpacingsNm in style --
-// SMLMPatterns.h -- but positional: index = array position = OSA mode
-// number). Values may be separated by spaces, commas or semicolons: MMCore
+// Round-trip helpers for the PsfZernikeCoefficients property, positional:
+// index = array position = OSA mode number. Values may be separated by spaces, commas or semicolons: MMCore
 // rejects a comma in any property value SET through it
 // (MM::g_FieldDelimiters), so the property itself is space-separated
 // (FormatZernikeCoefficients' default), while the JVM bridge is handed a

@@ -28,7 +28,6 @@
 #include "Simulation/BrightfieldRender.h"
 #include "Simulation/CellFieldSource.h"
 #include "Simulation/SMLMSimulation.h"
-#include "Simulation/SMLMStructures.h"
 #include "Simulation/SMLMZernike.h"
 #include "Simulation/WidefieldGpuD3D11.h"
 #include "Simulation/WidefieldRender.h"
@@ -50,14 +49,10 @@ extern const char* g_CameraDeviceName;
 // list) and SMLMImageGeneration.cpp (where the AfterSet handlers compare
 // against them).
 extern const char* g_PropAcqMode;
-extern const char* g_PropPattern;
-extern const char* g_PropCustomPointsFile;
-extern const char* g_PropResolutionSpacingsNm;
 extern const char* g_PropFovSize;
 extern const char* g_PropGenerateStack;
 extern const char* g_PropStackStatus;
 extern const char* g_PropEndOfStack;
-extern const char* g_PropEmitterDensityPerSec;
 extern const char* g_PropPhotonsPerSecond;
 extern const char* g_PropOnLifetimeSec;
 extern const char* g_PropPsfWavelengthNm;
@@ -88,24 +83,7 @@ extern const char* g_PropPsfSampleDepthNm;
 extern const char* g_PropPsfZernikeCoefficients;
 extern const char* g_PropPsfZernikePreset;
 
-// 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h.
-extern const char* g_PropLabelingEfficiencyPct;
-extern const char* g_PropStructureZRangeNm;
-extern const char* g_PropStructureSizeNm;
-extern const char* g_PropNupRadiusNm;
-extern const char* g_PropNupCornerSpreadNm;
-extern const char* g_PropNupRingSeparationNm;
-extern const char* g_PropNupLinkerMinNm;
-extern const char* g_PropNupLinkerMaxNm;
-extern const char* g_PropNupMembraneType;
-extern const char* g_PropNupCount;
-extern const char* g_PropNupMinSpacingNm;
-extern const char* g_PropNupCurvatureNm;
-
-extern const char* g_NupMembraneTopDown;
-extern const char* g_NupMembraneSideways;
-
-// Multi-blink photophysics, illumination, EMCCD and structured background
+// Multi-blink photophysics, illumination, EMCCD and background fade
 // (webSMLM parity round 2) -- see the members' comments below.
 extern const char* g_PropBlinkBleachProb;
 extern const char* g_PropOffLifetimeSec;
@@ -113,12 +91,7 @@ extern const char* g_PropPhotonCV;
 extern const char* g_PropIllumFwhmPct;
 extern const char* g_PropEmGain;
 extern const char* g_PropCicElectrons;
-extern const char* g_PropBgCellContrast;
-extern const char* g_PropBgHazeWeight;
-extern const char* g_PropBgHazeWidthNm;
 extern const char* g_PropBgDecaySec;
-extern const char* g_PropOutOfFocusRatio;
-extern const char* g_PropOutOfFocusDepthNm;
 extern const char* g_PropIllumProfile;
 extern const char* g_IllumFlat;
 extern const char* g_IllumGaussian;
@@ -157,23 +130,6 @@ extern const char* g_PsfModelGibsonLanniZernike;
 
 extern const char* g_AcqModePrecomputed;
 extern const char* g_AcqModeLive;
-
-extern const char* g_PatternCircle;
-extern const char* g_PatternLines;
-extern const char* g_PatternGrid;
-extern const char* g_PatternRandom;
-extern const char* g_PatternCustom;
-extern const char* g_PatternSpiral;
-extern const char* g_PatternStar;
-extern const char* g_PatternHeart;
-extern const char* g_PatternResolutionTarget;
-extern const char* g_PatternTiltedPlane;
-extern const char* g_PatternUniform3D;
-extern const char* g_PatternShell;
-extern const char* g_PatternNup;
-extern const char* g_PatternCalibration9Spots;
-extern const char* g_PatternFilamentsRing;
-extern const char* g_PatternCellField;
 
 // CellField pattern (the insiliscope world, spec/PORT.md 9): numeric
 // properties share one indexed handler (OnCellFieldNumber), in this order.
@@ -314,15 +270,11 @@ public:
    // action interface
    // ----------------
    int OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnEmitterDensityPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPhotonsPerSecond(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnOnLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfWavelengthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -359,20 +311,6 @@ public:
    // OnPropertyChanged so the PsfZernikeCoefficients property reflects the
    // resolved values.
    int OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionType eAct);
-   // 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h
-   // and BuildStructureParams() below.
-   int OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnUseGpu(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGpuStatus(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -382,12 +320,7 @@ public:
    int OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnIllumProfile(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnCameraType(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBitDepth(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -402,8 +335,8 @@ public:
    int OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBrightFieldNumber(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    // Standard MM Exposure property -- this device deliberately does not add
-   // any separate exposure-like property; EmitterDensityPerSec/OnLifetimeSec/
-   // PhotonsPerSecond/BackgroundPerSec are all expressed as rates and scaled
+   // any separate exposure-like property; OnLifetimeSec/PhotonsPerSecond/
+   // BackgroundPerSec are all expressed as rates and scaled
    // by *this* property's current value (see SnapshotParams() in
    // SMLMImageGeneration.cpp). Changing it invalidates the precomputed stack
    // so it regenerates against the new exposure.
@@ -420,28 +353,15 @@ private:
    // Diffraction-limited Gaussian-PSF sigma (pixels) from emission
    // wavelength + NA + current pixel size (see SMLMImageGeneration.cpp).
    double ComputePsfSigmaPx() const;
-   sim::SMLMPatternType CurrentPatternType() const { return static_cast<sim::SMLMPatternType>(patternType_); }
    sim::PsfModelKind CurrentPsfModel() const { return static_cast<sim::PsfModelKind>(psfModel_); }
    // Snapshot of everything ComputePsfKernelCache() needs to (re)compute the
    // oversampled diffraction PSF kernel via the PSFGenerator bridge -- see
    // Simulation/PsfGeneratorBridge.h. Separate from SnapshotParams()/
    // SimulationParams, which covers the blink/photon/noise model only.
    sim::PsfGeneratorRequest BuildPsfGeneratorRequest() const;
-   // Snapshot of everything BuildStructurePattern() needs (Simulation/
-   // SMLMStructures.h) -- separate from SnapshotParams()/
-   // BuildPsfGeneratorRequest() for the same reason those two are separate
-   // from each other: distinct lifetimes (rebuilt only on config change,
-   // via CreatePattern, never per frame) and a distinct consumer.
-   sim::StructureParams BuildStructureParams() const;
-   // Illumination field + structured background map for the current
-   // settings (Simulation/SMLMBackground.h), each drawn from its own
-   // seed-derived rng stream; empty fields when the features are off.
-   sim::StackShapingFields BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
-                                              const sim::SimulationParams& params, long seed) const;
-   // Depth sampler for the out-of-focus population (Background_OutOfFocus-
-   // DepthNm), clamped to the cache's z range; empty if the cache has no z
-   // stack (then the population is skipped).
-   std::function<double(std::mt19937_64&)> OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const;
+   // Illumination field for the current settings (Simulation/SMLMBackground.h);
+   // empty when flat.
+   sim::StackShapingFields BuildShapingFields(unsigned w, unsigned h) const;
    // CellField pattern: the world/kinetics settings, and the query for a FOV
    // of w x h pixels centred on the XY stage position (stageX, stageY) with
    // the Z stage at zStageUm, over simulated [tSec, tSec + spanSec). The
@@ -532,12 +452,9 @@ private:
 
    // ---- precomputed-stack mode --------------------------------------------
    void StartStackGeneration();
-   void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
-                               sim::SimulationParams params, sim::SMLMPatternType patternType,
-                               std::string customPointsFile, std::vector<double> spacingsNm, long seed,
-                               sim::PsfGeneratorRequest psfRequest, sim::StructureParams structure,
-                               sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
-                               double stageZUm, int modality);
+   void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH, sim::SimulationParams params,
+                               long seed, sim::PsfGeneratorRequest psfRequest, sim::CellFieldSettings cellField,
+                               double stageXUm, double stageYUm, double stageZUm, int modality);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
@@ -566,12 +483,6 @@ private:
    MMThreadLock imgPixelsLock_;
 
    int acqMode_ = SMLM_MODE_LIVE;
-   int patternType_ = sim::PATTERN_CELL_FIELD;   // default: the insiliscope cell field
-   std::string customPointsFile_;
-   // Ring/scale-step/spiral-arc gap (Circle/Spiral/Star/Heart) and line
-   // spacing (ResolutionTarget) progression, in nanometers, easiest to
-   // hardest -- see ResolutionSpacingsNm property / OnResolutionSpacingsNm.
-   std::vector<double> resolutionSpacingsNm_ = sim::DefaultResolutionSpacingsNm();
 
    // Precomputed-stack storage
    std::vector<std::vector<uint16_t>> stack_;
@@ -642,13 +553,7 @@ private:
    int frameIntervalHistoryPos_ = 0;
    MM::MMTime lastFramePublishTime_;
    std::atomic<double> actualFrameIntervalMs_{0.0};
-   sim::EmitterModel liveEmitterModel_;
    std::mt19937_64 liveRng_;
-   // Out-of-focus population (Background_OutOfFocusRatio): its own model
-   // (it carries in-flight events across ticks) and its own rng stream, so
-   // enabling it never shifts the in-focus stream.
-   sim::EmitterModel liveOutOfFocusModel_;
-   std::mt19937_64 liveOutOfFocusRng_;
    // Atomic because StartSequenceAcquisition() (main/MMCore thread) reads it
    // to compute liveDriftOriginFrame_ while LiveProducerLoop (producer
    // thread) increments it every tick.
@@ -674,12 +579,10 @@ private:
    // and any property Set call never contend on a single lock, and every
    // parameter is genuinely adjustable while streaming.
    //
-   // EmitterDensityPerSec/PhotonsPerSecond/OnLifetimeSec/BackgroundPerSec are
-   // rates (per second), not per-frame quantities -- SnapshotParams() (in
+   // PhotonsPerSecond/OnLifetimeSec/BackgroundPerSec are rates (per second), not per-frame quantities -- SnapshotParams() (in
    // SMLMImageGeneration.cpp) converts them to the frame-equivalent values
    // the simulation engine expects using the camera's *current* MM Exposure,
    // so they automatically scale correctly with whatever Exposure is set to.
-   std::atomic<double> emitterDensityPerSec_{0.5};     // blinks switching ON / um^2 / s (not CellField)
    std::atomic<double> photonsPerSecond_{7500.0};      // photons / s while ON
    std::atomic<double> onLifetimeSec_{0.05};           // mean ON duration, s
    std::atomic<double> psfWavelengthNm_{660.0};        // emission wavelength, nm
@@ -739,44 +642,12 @@ private:
    std::atomic<double> emGain_{300.0};
    std::atomic<double> cicElectrons_{0.002};
    int bitDepth_ = 16;
-   // Structured background (sim::BuildBackgroundMap): cell contrast (1 =
-   // flat), out-of-focus haze weight (0 = none) and blur width, and the
-   // fade-to-30%-floor time constant in seconds (0 = no fade).
-   std::atomic<double> bgCellContrast_{1.0};
-   std::atomic<double> bgHazeWeight_{0.0};
-   std::atomic<double> bgHazeWidthNm_{800.0};
+   // Background fade-to-30%-floor time constant in seconds (0 = no fade).
    std::atomic<double> bgDecaySec_{0.0};
-   // Blinking out-of-focus emitters: a second population on the same
-   // structure at OutOfFocusRatio x the in-focus density, placed 300 nm to
-   // OutOfFocusDepthNm above/below focus and rendered through the real
-   // defocused diffraction PSF (needs a diffraction PsfModel). 0 = none.
-   std::atomic<double> outOfFocusRatio_{0.0};
-   std::atomic<double> outOfFocusDepthNm_{1500.0};
-
-   // 3D structures / labeling efficiency (Simulation/SMLMStructures.h).
-   // StructureZRangeNm defaults to 500 (not 0) so 3D structures/spread are
-   // visible out of the box -- see CLAUDE.md and docs/dev/vectorial-psf-plan.md.
-   // LabelingEfficiencyPct's 70 (not 100) is likewise a deliberate "look
-   // like a real experiment out of the box" default, not a neutral one.
-   std::atomic<double> labelingEfficiencyPct_{70.0};
-   std::atomic<double> structureZRangeNm_{500.0};
-   std::atomic<double> structureSizeNm_{500.0};
-   std::atomic<double> nupRadiusNm_{53.5};
-   std::atomic<double> nupCornerSpreadNm_{12.0};
-   std::atomic<double> nupRingSeparationNm_{50.0};
-   std::atomic<double> nupLinkerMinNm_{2.0};
-   std::atomic<double> nupLinkerMaxNm_{5.0};
-   // Plain member, same convention as patternType_/psfModel_ (read by the
-   // live producer thread without extra synchronization).
-   int nupMembrane_ = static_cast<int>(sim::MembraneOrientation::TopDown);
-   int nupCount_ = 80;
-   std::atomic<double> nupMinSpacingNm_{200.0};
-   std::atomic<double> nupCurvatureNm_{150.0};
-
    // Sub-pixel PSF splat sampling mode -- Linear/Cubic remove the
    // 1/oversampling placement quantization; Nearest reproduces the original
    // box-average behavior exactly. See Simulation/PsfGeneratorBridge.h's
-   // PsfInterpMode. Plain member, same convention as psfModel_/patternType_.
+   // PsfInterpMode. Plain member, same convention as psfModel_.
    int psfInterp_ = static_cast<int>(sim::PsfInterpMode::Cubic);
    // Render diffraction-PSF frames (splat + noise) on the GPU when one is
    // available (General_UseGpu); gpuStatus_ is what General_GpuStatus reports
@@ -811,7 +682,7 @@ private:
    // C++, RichardsWolf/GibsonLanni in the embedded PSFGenerator JVM) parameters. PsfModel gates which renderer is
    // used (Gaussian keeps the original analytic path); everything else
    // here feeds BuildPsfGeneratorRequest(). The model selector follows the
-   // same plain-member convention as patternType_/customPointsFile_ (read
+   // same plain-member convention as psfModel_ (read
    // by the live producer thread without extra synchronization, same as
    // those); ImmersionIndex is atomic like the other photometric PSF
    // params (WavelengthNm/Na) it sits alongside in BuildPsfGeneratorRequest().

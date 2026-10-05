@@ -27,14 +27,10 @@
 const char* g_CameraDeviceName = "Camera";
 
 const char* g_PropAcqMode = "General_AcqMode";
-const char* g_PropPattern = "SimType_Pattern";
-const char* g_PropCustomPointsFile = "SimType_CustomPointsFile";
-const char* g_PropResolutionSpacingsNm = "SimType_ResolutionSpacingsNm";
 const char* g_PropFovSize = "General_FovSize";
 const char* g_PropGenerateStack = "General_GenerateStack";
 const char* g_PropStackStatus = "General_StackGenerationStatus";
 const char* g_PropEndOfStack = "General_EndOfStackReached";
-const char* g_PropEmitterDensityPerSec = "General_EmitterDensityPerSec";
 const char* g_PropPhotonsPerSecond = "FluoParam_PhotonsPerSecond";
 const char* g_PropOnLifetimeSec = "FluoParam_OnLifetimeSec";
 const char* g_PropPsfWavelengthNm = "PSFParam_PsfEmissionWavelengthNm";
@@ -65,34 +61,13 @@ const char* g_PropPsfSampleDepthNm = "PSFParam_PsfSampleDepthNm";
 const char* g_PropPsfZernikeCoefficients = "PSFParam_PsfZernikeCoefficients";
 const char* g_PropPsfZernikePreset = "PSFParam_PsfZernikePreset";
 
-const char* g_PropLabelingEfficiencyPct = "General_LabelingEfficiencyPct";
-const char* g_PropStructureZRangeNm = "SimType_StructureZRangeNm";
-const char* g_PropStructureSizeNm = "SimType_StructureSizeNm";
-const char* g_PropNupRadiusNm = "SimType_NupRadiusNm";
-const char* g_PropNupCornerSpreadNm = "SimType_NupCornerSpreadNm";
-const char* g_PropNupRingSeparationNm = "SimType_NupRingSeparationNm";
-const char* g_PropNupLinkerMinNm = "SimType_NupLinkerMinNm";
-const char* g_PropNupLinkerMaxNm = "SimType_NupLinkerMaxNm";
-const char* g_PropNupMembraneType = "SimType_NupMembraneType";
-const char* g_PropNupCount = "SimType_NupCount";
-const char* g_PropNupMinSpacingNm = "SimType_NupMinSpacingNm";
-const char* g_PropNupCurvatureNm = "SimType_NupCurvatureNm";
-
-const char* g_NupMembraneTopDown = "TopDown";
-const char* g_NupMembraneSideways = "Sideways";
-
 const char* g_PropBlinkBleachProb = "FluoParam_BlinkBleachProb";
 const char* g_PropOffLifetimeSec = "FluoParam_OffLifetimeSec";
 const char* g_PropPhotonCV = "FluoParam_PhotonCV";
 const char* g_PropIllumFwhmPct = "FluoParam_IllumFwhmPct";
 const char* g_PropEmGain = "CamParam_EmGain";
 const char* g_PropCicElectrons = "CamParam_CicElectrons";
-const char* g_PropBgCellContrast = "Background_CellContrast";
-const char* g_PropBgHazeWeight = "Background_HazeWeight";
-const char* g_PropBgHazeWidthNm = "Background_HazeWidthNm";
 const char* g_PropBgDecaySec = "Background_DecaySec";
-const char* g_PropOutOfFocusRatio = "Background_OutOfFocusRatio";
-const char* g_PropOutOfFocusDepthNm = "Background_OutOfFocusDepthNm";
 const char* g_PropIllumProfile = "FluoParam_IllumProfile";
 const char* g_IllumFlat = "Flat";
 const char* g_IllumGaussian = "Gaussian";
@@ -130,23 +105,6 @@ const char* g_PsfModelGibsonLanniZernike = "GibsonLanniZernike";
 
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
-
-const char* g_PatternCircle = "Circle";
-const char* g_PatternLines = "Lines";
-const char* g_PatternGrid = "Grid";
-const char* g_PatternRandom = "Random";
-const char* g_PatternCustom = "CustomPoints";
-const char* g_PatternSpiral = "Spiral";
-const char* g_PatternStar = "Star";
-const char* g_PatternHeart = "Heart";
-const char* g_PatternResolutionTarget = "ResolutionTarget";
-const char* g_PatternTiltedPlane = "TiltedPlane";
-const char* g_PatternUniform3D = "Uniform3D";
-const char* g_PatternShell = "Shell";
-const char* g_PatternNup = "NUP";
-const char* g_PatternCalibration9Spots = "Calibration9Spots";
-const char* g_PatternFilamentsRing = "FilamentsRing";
-const char* g_PatternCellField = "CellField";
 
 const char* g_PropCellFieldNumber[CF_COUNT] = {
    "SimType_CellFieldChunkSizeUm",
@@ -341,8 +299,7 @@ int CInSiliScopeCamera::Initialize()
    // timing control this device exposes -- no separate device-specific
    // exposure property. It drives frame pacing (Live), simulated exposure
    // timing (Snap in Precomputed mode), and -- via SnapshotParams() --
-   // converts every rate-based simulation parameter (EmitterDensityPerSec,
-   // OnLifetimeSec, PhotonsPerSecond, BackgroundPhotonsPerSec) into the
+   // converts every rate-based simulation parameter (OnLifetimeSec, PhotonsPerSecond, BackgroundPhotonsPerSec) into the
    // frame-equivalent quantity for whatever this is currently set to.
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnExposureProperty);
    nRet = CreateFloatProperty(MM::g_Keyword_Exposure, 50.0, false, pAct);
@@ -357,42 +314,6 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(g_PropAcqMode, g_AcqModePrecomputed);
    AddAllowedValue(g_PropAcqMode, g_AcqModeLive);
 
-   // Pattern
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPattern);
-   CreateStringProperty(g_PropPattern, g_PatternCellField, false, pAct);
-   AddAllowedValue(g_PropPattern, g_PatternCircle);
-   AddAllowedValue(g_PropPattern, g_PatternLines);
-   AddAllowedValue(g_PropPattern, g_PatternGrid);
-   AddAllowedValue(g_PropPattern, g_PatternRandom);
-   AddAllowedValue(g_PropPattern, g_PatternCustom);
-   AddAllowedValue(g_PropPattern, g_PatternSpiral);
-   AddAllowedValue(g_PropPattern, g_PatternStar);
-   AddAllowedValue(g_PropPattern, g_PatternHeart);
-   AddAllowedValue(g_PropPattern, g_PatternResolutionTarget);
-   // 3D/NPC site-list structures -- see Simulation/SMLMStructures.h.
-   AddAllowedValue(g_PropPattern, g_PatternTiltedPlane);
-   AddAllowedValue(g_PropPattern, g_PatternUniform3D);
-   AddAllowedValue(g_PropPattern, g_PatternShell);
-   AddAllowedValue(g_PropPattern, g_PatternNup);
-   // Always-on calibration bead grid -- see Simulation/SMLMPatterns.h.
-   AddAllowedValue(g_PropPattern, g_PatternCalibration9Spots);
-   // webSMLM's default structure: 3 filaments with y-correlated z + a ring.
-   AddAllowedValue(g_PropPattern, g_PatternFilamentsRing);
-   // The insiliscope cell field, imaged through InSiliScopeXYStage/ZStage -- see
-   // Simulation/CellFieldSource.h and the SimType_CellField* properties.
-   AddAllowedValue(g_PropPattern, g_PatternCellField);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnCustomPointsFile);
-   CreateStringProperty(g_PropCustomPointsFile, "", false, pAct);
-
-   // Ring/scale-step/spiral-arc gap (Circle/Spiral/Star/Heart) and per-cell
-   // line spacing (ResolutionTarget), easiest to hardest, nm, comma-
-   // separated. Any positive count of values is accepted; the smallest
-   // value drives the finest ring/cell, the largest the coarsest.
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnResolutionSpacingsNm);
-   CreateStringProperty(g_PropResolutionSpacingsNm,
-                         sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str(), false, pAct);
-
    // Precomputed-stack properties. Stack length and looping are no longer
    // user-facing (see stackLength_/stackLoop_ in InSiliScopeCamera.h) -- what
    // remains is the trigger plus the two read-only status readbacks.
@@ -406,13 +327,10 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEndOfStackReached);
    CreateStringProperty(g_PropEndOfStack, "No", true, pAct);
 
-   // Simulation parameters. EmitterDensityPerSec/PhotonsPerSecond/
-   // OnLifetimeSec/BackgroundPhotonsPerSec are rates (per second) that scale
-   // automatically with the standard Exposure property -- see
-   // SnapshotParams() in SMLMImageGeneration.cpp.
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEmitterDensityPerSec);
-   CreateFloatProperty(g_PropEmitterDensityPerSec, emitterDensityPerSec_.load(), false, pAct);
-   SetPropertyLimits(g_PropEmitterDensityPerSec, 0.1, 500.0);
+   // Simulation parameters. PhotonsPerSecond/OnLifetimeSec/
+   // BackgroundPhotonsPerSec are rates (per second) that scale automatically
+   // with the standard Exposure property -- see SnapshotParams() in
+   // SMLMImageGeneration.cpp.
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnPhotonsPerSecond);
    CreateFloatProperty(g_PropPhotonsPerSecond, photonsPerSecond_.load(), false, pAct);
@@ -509,25 +427,10 @@ int CInSiliScopeCamera::Initialize()
    CreateIntegerProperty(g_PropBitDepth, bitDepth_, false, pAct);
    SetPropertyLimits(g_PropBitDepth, 8, 16);
 
-   // Structured background + out-of-focus emitters:
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgCellContrast);
-   CreateFloatProperty(g_PropBgCellContrast, bgCellContrast_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgCellContrast, 1.0, 20.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgHazeWeight);
-   CreateFloatProperty(g_PropBgHazeWeight, bgHazeWeight_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgHazeWeight, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgHazeWidthNm);
-   CreateFloatProperty(g_PropBgHazeWidthNm, bgHazeWidthNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropBgHazeWidthNm, 100.0, 5000.0);
+   // Background fade:
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnBgDecaySec);
    CreateFloatProperty(g_PropBgDecaySec, bgDecaySec_.load(), false, pAct);
    SetPropertyLimits(g_PropBgDecaySec, 0.0, 100000.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOutOfFocusRatio);
-   CreateFloatProperty(g_PropOutOfFocusRatio, outOfFocusRatio_.load(), false, pAct);
-   SetPropertyLimits(g_PropOutOfFocusRatio, 0.0, 10.0);
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnOutOfFocusDepthNm);
-   CreateFloatProperty(g_PropOutOfFocusDepthNm, outOfFocusDepthNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropOutOfFocusDepthNm, 300.0, 5000.0);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftNmPerSec);
    CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
@@ -618,60 +521,6 @@ int CInSiliScopeCamera::Initialize()
    CreateStringProperty(g_PropPsfZernikePreset, psfZernikePreset_.c_str(), false, pAct);
    for (const std::string& name : sim::ZernikePresetNames())
       AddAllowedValue(g_PropPsfZernikePreset, name.c_str());
-
-   // 3D structures / labeling efficiency -- see Simulation/SMLMStructures.h.
-   // LabelingEfficiencyPct/StructureSizeNm/NupX only matter for the four
-   // site-list Pattern values above (TiltedPlane/Uniform3D/Shell/NUP);
-   // StructureZRangeNm ALSO applies to the 9 continuous patterns (via the
-   // ZSpreadPattern decorator -- see CreatePattern in SMLMPatterns.cpp).
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLabelingEfficiencyPct);
-   CreateFloatProperty(g_PropLabelingEfficiencyPct, labelingEfficiencyPct_.load(), false, pAct);
-   SetPropertyLimits(g_PropLabelingEfficiencyPct, 0.0, 100.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStructureZRangeNm);
-   CreateFloatProperty(g_PropStructureZRangeNm, structureZRangeNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropStructureZRangeNm, 0.0, 5000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStructureSizeNm);
-   CreateFloatProperty(g_PropStructureSizeNm, structureSizeNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropStructureSizeNm, 10.0, 5000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupRadiusNm);
-   CreateFloatProperty(g_PropNupRadiusNm, nupRadiusNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupRadiusNm, 20.0, 150.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCornerSpreadNm);
-   CreateFloatProperty(g_PropNupCornerSpreadNm, nupCornerSpreadNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupCornerSpreadNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupRingSeparationNm);
-   CreateFloatProperty(g_PropNupRingSeparationNm, nupRingSeparationNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupRingSeparationNm, 0.0, 150.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupLinkerMinNm);
-   CreateFloatProperty(g_PropNupLinkerMinNm, nupLinkerMinNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupLinkerMinNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupLinkerMaxNm);
-   CreateFloatProperty(g_PropNupLinkerMaxNm, nupLinkerMaxNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupLinkerMaxNm, 0.0, 30.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupMembraneType);
-   CreateStringProperty(g_PropNupMembraneType, g_NupMembraneTopDown, false, pAct);
-   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneTopDown);
-   AddAllowedValue(g_PropNupMembraneType, g_NupMembraneSideways);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCount);
-   CreateIntegerProperty(g_PropNupCount, nupCount_, false, pAct);
-   SetPropertyLimits(g_PropNupCount, 1, 500);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupMinSpacingNm);
-   CreateFloatProperty(g_PropNupMinSpacingNm, nupMinSpacingNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupMinSpacingNm, 0.0, 2000.0);
-
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnNupCurvatureNm);
-   CreateFloatProperty(g_PropNupCurvatureNm, nupCurvatureNm_.load(), false, pAct);
-   SetPropertyLimits(g_PropNupCurvatureNm, 0.0, 2000.0);
 
    // CellField pattern (spec/PORT.md 9). The rest of the world's parameters
    // stay at the prototype defaults until someone needs them. A min above its

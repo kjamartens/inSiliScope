@@ -98,7 +98,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
         assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
     for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
-    assert "CellField" in core.getAllowedPropertyValues(cam, "SimType_Pattern")
+    assert not core.hasProperty(cam, "SimType_Pattern"), "SimType_Pattern was removed (CellField only)"
     defaults = {p: float(core.getProperty(cam, "SimType_CellField" + p)) for p in
                 ("LabelingPctBleaching", "LabelingPctNonBleaching", "MilliActivationRatePerDyePerSec")}
     assert defaults == {"LabelingPctBleaching": 0.0, "LabelingPctNonBleaching": 70.0,
@@ -128,7 +128,6 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     print(f"XY stage OK: 500 um move took {took:.3f} s at 1000 um/s, Busy during, arrived at {pos}")
 
     # ---- live mode: a feature moves by the stage step ----------------------
-    core.setProperty(cam, "SimType_Pattern", "CellField")
     core.setProperty(cam, "PSFParam_PsfModel", "Gaussian")
     core.setProperty(cam, "General_FovSize", "128x128")
     core.setProperty(cam, "Background_BackgroundPhotonsPerSec", "0")

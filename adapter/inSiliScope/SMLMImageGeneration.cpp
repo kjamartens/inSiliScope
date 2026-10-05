@@ -31,9 +31,8 @@
 
 sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
 {
-   // EmitterDensityPerSec/PhotonsPerSecond/OnLifetimeSec/BackgroundPhotonsPerSec
-   // are all expressed as rates (per second) at the property level, so they
-   // scale correctly with whatever the standard MM Exposure is currently set
+   // PhotonsPerSecond/OnLifetimeSec/BackgroundPhotonsPerSec are all expressed
+   // as rates (per second) at the property level, so they scale correctly with whatever the standard MM Exposure is currently set
    // to -- convert them here to the frame-equivalent quantities the (unit-
    // agnostic, exposure-unaware) simulation engine expects.
    double exposureMs = GetExposure();
@@ -44,20 +43,6 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    sim::SimulationParams p;
    p.pixelSizeNm = pixelSizeNm_.load();
    p.photonsPerBlink = photonsPerSecond_.load() * expSec;
-   // Clamp: an extreme (very short exposure)/(very long ON lifetime)
-   // combination would otherwise blow up the lead-in window and event count
-   // in GenerateAllEvents() (see SMLMSimulation.cpp), making stack
-   // generation pathologically slow.
-   p.onLifetimeFrames = std::min(onLifetimeSec_.load() / expSec, 20000.0);
-   // General_EmitterDensityPerSec is the rate of blinks switching ON, per um^2
-   // per second -- what a localization count measures -- whatever the
-   // exposure, ON lifetime or bleaching. The engine's emitterDensity is the
-   // steady-state density of ON emitters (arrivals per frame =
-   // emitterDensity * area / onLifetimeFrames), i.e. rate x mean ON time.
-   // (It used to be rate x exposure, which only equals that when the
-   // exposure equals the ON lifetime: 20 ms frames with a 0.2 s ON time gave
-   // a tenth of the set rate, and changing Exposure changed the density.)
-   p.emitterDensity = emitterDensityPerSec_.load() * expSec * std::max(p.onLifetimeFrames, 0.01);
    p.backgroundPhotons = backgroundPhotonsPerSec_.load() * expSec;
    p.psfSigmaPx = ComputePsfSigmaPx();
    p.quantumEfficiency = quantumEfficiency_.load();
@@ -73,10 +58,6 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    p.driftNmPerSecX = driftNmPerSecX_.load();
    p.driftAngleRad = sim::DriftAngleForSeed(randomSeed_);
    p.frameDurationSec = expSec;
-   p.blinkBleachProb = blinkBleachProb_.load();
-   // Same clamp rationale as onLifetimeFrames above (lead-in window size).
-   p.offLifetimeFrames = std::min(offLifetimeSec_.load() / expSec, 20000.0);
-   p.photonCV = photonCV_.load();
    p.emccd = cameraEmccd_;
    p.emGain = emGain_.load();
    p.cicElectrons = cicElectrons_.load();
@@ -168,33 +149,7 @@ double CInSiliScopeCamera::ComputePsfSigmaPx() const
    return std::min(std::max(sigmaPx, 0.3), 20.0);
 }
 
-sim::StructureParams CInSiliScopeCamera::BuildStructureParams() const
-{
-   sim::StructureParams sp;
-   sp.zRangeNm = structureZRangeNm_.load();
-   sp.structureSizeNm = structureSizeNm_.load();
-   sp.labelingEfficiencyPct = labelingEfficiencyPct_.load();
-   sp.nupRadiusNm = nupRadiusNm_.load();
-   sp.nupCornerSpreadNm = nupCornerSpreadNm_.load();
-   sp.nupRingSeparationNm = nupRingSeparationNm_.load();
-   // NupLinkerMinNm/NupLinkerMaxNm have independent property limits (both
-   // 0-30nm) so a user can set min > max; clamp here rather than in the
-   // property handlers themselves, matching this codebase's existing
-   // "clamp at the point of use, not the point of entry" convention (see
-   // e.g. ComputePsfSigmaPx's own min/max clamp).
-   double linkerMin = nupLinkerMinNm_.load();
-   double linkerMax = nupLinkerMaxNm_.load();
-   sp.nupLinkerMinNm = std::min(linkerMin, linkerMax);
-   sp.nupLinkerMaxNm = std::max(linkerMin, linkerMax);
-   sp.nupMembrane = static_cast<sim::MembraneOrientation>(nupMembrane_);
-   sp.nupCount = nupCount_;
-   sp.nupMinSpacingNm = nupMinSpacingNm_.load();
-   sp.nupCurvatureNm = nupCurvatureNm_.load();
-   return sp;
-}
-
-sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
-                                                           const sim::SimulationParams& params, long seed) const
+sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(unsigned w, unsigned h) const
 {
    sim::StackShapingFields out;
    double meanFactor = 1.0;
@@ -206,28 +161,6 @@ sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(const sim::Emitte
       msg << "Illumination profile: peak-normalized, keeps " << std::fixed << std::setprecision(1)
           << 100.0 * meanFactor << "% of the flat-field photon budget on average.";
       LogMessage(msg.str());
-   }
-
-   double contrast = bgCellContrast_.load(), hazeWeight = bgHazeWeight_.load();
-   if (params.backgroundPhotons > 0.0 && (contrast > 1.0 || hazeWeight > 0.0))
-   {
-      // Own streams (webSMLM's background rng is likewise derived from the
-      // seed, separate from the emitter stream): one for the haze site
-      // sample, one for the cell shape.
-      std::vector<std::pair<double, double>> sitesPx;
-      if (hazeWeight > 0.0 && CurrentPatternType() == sim::PATTERN_CELL_FIELD)
-         LogMessage("Background_HazeWeight: no haze sites for the CellField pattern yet (flat haze-free "
-                    "background map).", false);
-      else if (hazeWeight > 0.0)
-      {
-         std::mt19937_64 siteRng(static_cast<uint64_t>(seed) ^ 0x48415A4553495445ULL); // "HAZESITE"
-         double widthUm = w * params.pixelSizeNm / 1000.0, heightUm = h * params.pixelSizeNm / 1000.0;
-         for (const sim::EmitterSite& s : model.SampleSitesForHaze(widthUm, heightUm, 20000, siteRng))
-            sitesPx.emplace_back(s.xUm * 1000.0 / params.pixelSizeNm, s.yUm * 1000.0 / params.pixelSizeNm);
-      }
-      std::mt19937_64 bgRng(static_cast<uint64_t>(seed) ^ 0x4247524E44434C4CULL); // "BGRNDCLL"
-      out.background = sim::BuildBackgroundMap(w, h, params.backgroundPhotons, contrast, hazeWeight,
-                                               bgHazeWidthNm_.load() / params.pixelSizeNm, sitesPx, bgRng);
    }
    return out;
 }
@@ -315,24 +248,6 @@ sim::CellFieldQuery CInSiliScopeCamera::CellFieldQueryFor(double stageX, double 
    q.spanSec = spanSec;
    q.frameSec = params.frameDurationSec;
    return q;
-}
-
-std::function<double(std::mt19937_64&)> CInSiliScopeCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
-{
-   // Port of webSMLM's out-of-focus depth draw: |z| uniform in [zLo, zHi]
-   // with a random sign, zLo = 300 nm (webSMLM uses max(its astigmatic
-   // usable range, 300 nm); this project doesn't compute that range) and
-   // zHi = OutOfFocusDepthNm, both clamped to the kernel's own half range.
-   if (!cache.valid || cache.nz < 3)
-      return {};
-   double halfKernel = cache.zStepNm * (cache.nz - 1) / 2.0;
-   double zLo = std::min(300.0, halfKernel);
-   double zHi = std::min(std::max(outOfFocusDepthNm_.load(), zLo), halfKernel);
-   return [zLo, zHi](std::mt19937_64& rng) {
-      std::uniform_real_distribution<double> unif01(0.0, 1.0);
-      double sign = unif01(rng) < 0.5 ? -1.0 : 1.0;
-      return sign * (zLo + unif01(rng) * (zHi - zLo));
-   };
 }
 
 // The WideField GPU host for this thread, when General_UseGpu is On and a
@@ -888,13 +803,9 @@ void CInSiliScopeCamera::StartStackGeneration()
    unsigned fullW = FullWidth();
    unsigned fullH = FullHeight();
    sim::SimulationParams params = SnapshotParams();
-   sim::SMLMPatternType patternType = CurrentPatternType();
-   std::string customFile = customPointsFile_;
-   std::vector<double> spacingsNm = resolutionSpacingsNm_;
    long seed = randomSeed_;
    long length = stackLength_;
    sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
-   sim::StructureParams structure = BuildStructureParams();
    // CellField: the stack is generated for ONE stage pose, snapshot here;
    // moving the XY stage afterwards does not change it (spec/PORT.md 8).
    sim::CellFieldSettings cellField = BuildCellFieldSettings();
@@ -902,68 +813,30 @@ void CInSiliScopeCamera::StartStackGeneration()
    sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), stageX, stageY);
    double stageZ = sim::GetSharedStageState().zPositionUm.load();
 
-   stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params,
-                                  patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
-                                  stageX, stageY, stageZ, modality_.load());
+   stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params, seed,
+                                  psfRequest, cellField, stageX, stageY, stageZ, modality_.load());
 }
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
-                                             sim::SimulationParams params, sim::SMLMPatternType patternType,
-                                             std::string customPointsFile, std::vector<double> spacingsNm,
-                                             long seed, sim::PsfGeneratorRequest psfRequest,
-                                             sim::StructureParams structure, sim::CellFieldSettings cellField,
+                                             sim::SimulationParams params, long seed,
+                                             sim::PsfGeneratorRequest psfRequest, sim::CellFieldSettings cellField,
                                              double stageXUm, double stageYUm, double stageZUm, int modality)
 {
    const bool wideField = modality == 1, brightField = modality == 2;
+   // The noise maps' stream (the CellField dyes come from the core, not from it).
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
-   // Independent of localRng (see BuildStructurePattern's own doc comment
-   // in Simulation/SMLMStructures.h): site-list generation/labeling can
-   // never shift the arrival/noise stream above, at any StructureZRangeNm/
-   // Pattern setting.
-   uint64_t structureSeed = static_cast<uint64_t>(seed) ^ 0x5354525543545552ULL; // "STRUCTUR"
 
-   double widthUm = fullW * params.pixelSizeNm / 1000.0;
-   double heightUm = fullH * params.pixelSizeNm / 1000.0;
-
-   sim::EmitterModel model;
-   model.SetPattern(sim::CreatePattern(patternType, customPointsFile, spacingsNm, structure,
-                                        widthUm, heightUm, structureSeed));
-   model.Reseed(static_cast<uint64_t>(seed));
-
-   // Warn up front (before rendering a single frame) if the structure's own
-   // z extent will outrun the cached PSF kernel's z range -- catches a
-   // StructureZRangeNm/PsfZRangeUm mismatch immediately rather than only
-   // via the per-emitter clamp count below.
-   if (psfRequest.model != sim::PsfModelKind::Gaussian)
-   {
-      double structureHalfRangeNm = sim::StructureZExtentNm(patternType, structure);
-      double kernelHalfRangeNm = (psfRequest.nz > 1) ? (psfRequest.nz - 1) / 2.0 * psfRequest.zStepNm : 0.0;
-      if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
-      {
-         std::ostringstream warn;
-         warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's own z range "
-              << "(+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce StructureZRangeNm/"
-              << "StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
-         LogMessage(warn.str(), false);
-      }
-   }
-
-   const bool isCellField = patternType == sim::PATTERN_CELL_FIELD;
    // WideField renders every labelled dye (RenderWidefieldStack below), so
    // it needs no blinks.
    // BrightField renders the cells' refractive index (RenderBrightfieldStack):
    // no blinks either. Both go down the wf branches below.
-   const bool bf = isCellField && brightField;
-   const bool wf = (isCellField && wideField) || bf;
-   if ((wideField || brightField) && !isCellField)
-      LogMessage(std::string("General_ImagingModality = ") + (wideField ? "WideField" : "BrightField") +
-                 " applies to the CellField pattern only; rendering SuperRes.", false);
+   const bool bf = brightField;
+   const bool wf = wideField || bf;
    std::vector<sim::BlinkEvent> events;
-   // CellField: the query runs on its own thread while the maps and the PSF
-   // kernel are made below (neither depends on it); joined before events is
-   // first used.
+   // The query runs on its own thread while the maps and the PSF kernel are
+   // made below (neither depends on it); joined before events is first used.
    std::thread cellFieldQuery;
-   if (isCellField && !wf)
+   if (!wf)
    {
       cellFieldQuery = std::thread([&]() {
          // Every blink of the frames' simulated time span [0, N * frameSec) in
@@ -987,22 +860,15 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
              << ", " << stageYUm << ") um, dyes "
              << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
                                     : std::string("at any z"))
-             << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; General_EmitterDensityPerSec "
-             << "does not apply to this pattern) ("
+             << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec) ("
              << std::fixed << std::setprecision(2)
              << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
          LogMessage(msg.str());
       });
    }
-   else if (!isCellField)
-   {
-      events = model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
-   }
 
-   // Illumination + structured background: fixed fields for the whole stack,
-   // drawn from their OWN rng streams (see BuildShapingFields) -- the same
-   // seed gives the same emitters and noise with or without them.
-   sim::StackShapingFields shaping = BuildShapingFields(model, fullW, fullH, params, seed);
+   // Illumination: a fixed field for the whole stack (no rng).
+   sim::StackShapingFields shaping = BuildShapingFields(fullW, fullH);
 
    sim::PixelOffsetMap localOffsetMap;
    localOffsetMap.Generate(fullW, fullH, params.offsetAdu, params.offsetStdAdu, localRng);
@@ -1035,36 +901,6 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
 
    if (cellFieldQuery.joinable())
       cellFieldQuery.join();
-
-   // Blinking out-of-focus emitters (Background_OutOfFocusRatio): the same
-   // kinetics on the same structure at ratio x the density, on their own rng
-   // stream, placed off focus -- appended to the in-focus events, rendered
-   // through the same per-emitter plane lookup. Needs the kernel's z range,
-   // hence after the PSF build.
-   {
-      double ratio = outOfFocusRatio_.load();
-      if (ratio > 0.0 && isCellField)
-      {
-         LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit at "
-                    "their own depths).", false);
-      }
-      else if (ratio > 0.0)
-      {
-         auto zOf = OutOfFocusDepthSampler(localPsfCache);
-         if (!zOf)
-         {
-            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
-                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
-         }
-         else
-         {
-            std::mt19937_64 oofRng(static_cast<uint64_t>(seed) ^ 0x4F55544F46464F43ULL); // "OUTOFFOC"
-            std::vector<sim::BlinkEvent> oof =
-               model.GenerateAllEvents(stackLength, widthUm, heightUm, params, oofRng, ratio, zOf);
-            events.insert(events.end(), oof.begin(), oof.end());
-         }
-      }
-   }
 
    std::vector<std::vector<uint16_t>> newStack(static_cast<size_t>(std::max(stackLength, 0L)));
    // Each frame renders only its own emitters, and its noise comes from the
@@ -1188,9 +1024,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    {
       std::ostringstream warn;
       warn << zClampedTotal << "/" << zRenderedTotal << " emitter renders had a total z (stage offset + "
-           << "structure depth) beyond the PSF kernel's own z range and were clamped to its end plane -- "
-           << "widen PsfZRangeUm or reduce StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/"
-           << "NupCurvatureNm.";
+           << "dye depth) beyond the PSF kernel's own z range and were clamped to its end plane -- "
+           << "widen PsfZRangeUm or narrow SimType_CellFieldZRangeUm.";
       LogMessage(warn.str(), false);
    }
 
@@ -1221,22 +1056,7 @@ void CInSiliScopeCamera::StartLiveProducer()
    liveFrameCounter_ = 0;
    liveDriftOriginFrame_ = 0;
    uint64_t liveSeed = static_cast<uint64_t>(randomSeed_) ^ 0xABCDEF1234567890ULL;
-   // Independent structure-site rng stream, same rationale as
-   // StackGenerationWorker's structureSeed -- distinct XOR constant so the
-   // two modes' structure streams never collide even at the same
-   // RandomSeed.
-   uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL; // "LIVESTR1"
-   double pxSizeNm = pixelSizeNm_.load();
-   double widthUm = FullWidth() * pxSizeNm / 1000.0;
-   double heightUm = FullHeight() * pxSizeNm / 1000.0;
-   liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_,
-                                                    BuildStructureParams(), widthUm, heightUm, liveStructureSeed));
-   liveEmitterModel_.Reseed(liveSeed);
    liveRng_.seed(liveSeed);
-   liveOutOfFocusRng_.seed(static_cast<uint64_t>(randomSeed_) ^ 0x4C4956454F4F4631ULL); // "LIVEOOF1"
-
-   liveEmitterModel_.ResetLive(widthUm, heightUm);
-   liveOutOfFocusModel_.ResetLive(widthUm, heightUm);
 
    {
       MMThreadGuard g(frontFrameLock_);
@@ -1272,24 +1092,20 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // as offsetMap, so no locking is needed. Rebuilt whenever
    // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
    sim::PsfKernelCache psfCache;
-   // Illumination/background fields and the out-of-focus depth sampler --
-   // rebuilt on the same config-version trigger as everything else here.
+   // The illumination field -- rebuilt on the same config-version trigger as
+   // everything else here.
    sim::StackShapingFields shaping;
-   std::function<double(std::mt19937_64&)> outOfFocusZ;
    // GPU simulator for this thread (created on first use) and whether the
    // current config renders on it.
    std::unique_ptr<sim::GpuSimulator> gpu;
    bool gpuOk = false;
-   // Sentinel: guarantees the very first tick below rebuilds both the offset
-   // map and the emitter pattern/site cache, even though StartLiveProducer()
-   // already primed them moments earlier (harmless redundancy, and it means
-   // this loop doesn't depend on that priming being correct).
+   // Sentinel: guarantees the very first tick below rebuilds the offset map
+   // and the rest of the cached config.
    long appliedConfigVersion = -1;
    // Accumulated across ticks within one appliedConfigVersion and flushed
    // (logged + reset) whenever the config changes -- logging every tick at
-   // live frame rates would flood the corelog, and the up-front
-   // StructureZExtentNm check on rebuild already covers the common
-   // "structure z extent misconfigured" case; this also catches "the Z
+   // live frame rates would flood the corelog; CellFieldZRangeWarning on
+   // rebuild covers the common misconfiguration, this also catches "the Z
    // stage was driven out of range while streaming".
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
    // CellField pattern: the world (configured on the rebuild trigger below)
@@ -1396,20 +1212,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
       sim::SimulationParams params = SnapshotParams();
       unsigned w = FullWidth();
       unsigned h = FullHeight();
-      double widthUm = w * params.pixelSizeNm / 1000.0;
-      double heightUm = h * params.pixelSizeNm / 1000.0;
 
       // InvalidateStack() bumps liveConfigVersion_ from *every* property
       // handler that changes something affecting simulated frame content --
-      // density/lifetime/photon/background rates, PSF wavelength/NA, pixel
-      // size, gain, offset, offset-std, read noise, drift, pattern,
-      // CustomPointsFile, binning, FOV size, exposure, random seed. A single
-      // version bump (of any of them) here triggers a refresh of both
-      // pieces of state Live mode caches across ticks: the static
-      // fixed-pattern offset map (must match the *current* offset/offset-
-      // std or frame size) and the emitter model's pattern/candidate-site
-      // cache (must match the *current* pattern/custom-points-file/pixel-
-      // size/FOV-size). Using one counter for all of this -- rather than
+      // lifetime/photon/background rates, PSF wavelength/NA, pixel size,
+      // gain, offset, offset-std, read noise, drift, the cell field, binning,
+      // FOV size, exposure, random seed. A single version bump (of any of
+      // them) here triggers a refresh of the state Live mode caches across
+      // ticks: the static noise maps (must match the *current* offset/
+      // offset-std or frame size), the PSF kernel and the cell-field world.
+      // Using one counter for all of this -- rather than
       // comparing each dependent field individually -- means a newly added
       // property only needs to call InvalidateStack() to be correctly
       // picked up live; no per-property plumbing here.
@@ -1421,23 +1233,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
          gainMap.Generate(w, h, params.gainPhotonsPerAdu, params.pixelGainStdFraction, liveRng_);
          readNoiseMap.Generate(w, h, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, liveRng_);
-         sim::StructureParams structure = BuildStructureParams();
-         // Re-derived from currentConfigVersion (not a fixed constant) so
-         // every rebuild gets an independent structure rng draw -- live
-         // mode was never required to be reproducible (see liveRng_ itself),
-         // so this only needs to avoid colliding with the arrival/noise
-         // stream above, not to be deterministic across rebuilds.
-         uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL ^
-                                       static_cast<uint64_t>(currentConfigVersion);
-         liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
-                                                          resolutionSpacingsNm_, structure, widthUm, heightUm,
-                                                          liveStructureSeed));
-         // Same seed -> the identical site list, so the out-of-focus
-         // population sits on the same structure.
-         liveOutOfFocusModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
-                                                             resolutionSpacingsNm_, structure, widthUm, heightUm,
-                                                             liveStructureSeed));
-         shaping = BuildShapingFields(liveEmitterModel_, w, h, params, randomSeed_);
+         shaping = BuildShapingFields(w, h);
 
          sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
          if (psfRequest.model != sim::PsfModelKind::Gaussian)
@@ -1456,16 +1252,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
                                                             params.pixelSizeNm);
                if (!crlb.empty())
                   LogMessage(crlb);
-               double structureHalfRangeNm = sim::StructureZExtentNm(CurrentPatternType(), structure);
-               double kernelHalfRangeNm = (psfCache.nz > 1) ? (psfCache.nz - 1) / 2.0 * psfCache.zStepNm : 0.0;
-               if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
-               {
-                  std::ostringstream warn;
-                  warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's "
-                       << "own z range (+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce "
-                       << "StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
-                  LogMessage(warn.str(), false);
-               }
             }
          }
          else
@@ -1477,7 +1263,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          {
             std::ostringstream warn;
             warn << zClampedSinceRebuild << "/" << zTotalSinceRebuild << " emitter renders had a total z "
-                 << "(stage offset + structure depth) beyond the PSF kernel's own z range and were clamped "
+                 << "(stage offset + dye depth) beyond the PSF kernel's own z range and were clamped "
                  << "to its end plane since the last config change.";
             LogMessage(warn.str(), false);
          }
@@ -1486,32 +1272,17 @@ void CInSiliScopeCamera::LiveProducerLoop()
 
          gpuOk = PrepareGpu(gpu, psfCache, w, h, offsetMap, gainMap, readNoiseMap, shaping, params);
 
-         outOfFocusZ = OutOfFocusDepthSampler(psfCache);
-         if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
          {
             std::string err;
             cellFieldOk = cellField.Configure(BuildCellFieldSettings(), err);
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
-            else
-               LogMessage("CellField: dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; "
-                          "General_EmitterDensityPerSec does not apply to this pattern.");
             const std::string zWarn = CellFieldZRangeWarning();
             if (!zWarn.empty())
                LogMessage(zWarn, false);
-            if (outOfFocusRatio_.load() > 0.0)
-               LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit "
-                          "at their own depths).", false);
-            outOfFocusZ = nullptr;
          }
-         else if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
-            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
-                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
 
-         bfActive = BrightFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
-         if (BrightFieldSelected() && !bfActive)
-            LogMessage("General_ImagingModality = BrightField applies to the CellField pattern only; rendering "
-                       "SuperRes.", false);
+         bfActive = BrightFieldSelected();
          if (bfActive)
          {
             gpuOk = false;
@@ -1519,10 +1290,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             if (params.driftNmPerSecX > 0.0)
                LogMessage("BrightField: SimType_DriftNmPerSec is not applied in BrightField (yet).", false);
          }
-         wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
-         if (WideFieldSelected() && !wfActive)
-            LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering "
-                       "SuperRes.", false);
+         wfActive = WideFieldSelected();
          if (wfActive)
          {
             gpuOk = false;
@@ -1580,7 +1348,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
       double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch);
 
       std::vector<sim::BlinkEvent> events;
-      if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
       {
          // One stage pose per produced frame (motion blur is ignored), a fresh
          // event per blink per frame with that frame's translation.
@@ -1727,17 +1494,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
          cellFieldTimeSec += params.frameDurationSec;
       }
-      else
-      {
-         events = liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
-         double outOfFocusRatio = outOfFocusRatio_.load();
-         if (outOfFocusRatio > 0.0 && outOfFocusZ)
-         {
-            std::vector<sim::BlinkEvent> oof = liveOutOfFocusModel_.AdvanceOneFrame(
-               liveFrameCounter_, widthUm, heightUm, params, liveOutOfFocusRng_, outOfFocusRatio, outOfFocusZ);
-            events.insert(events.end(), oof.begin(), oof.end());
-         }
-      }
       // The background fade restarts with the drift ramp (at every Live/MDA
       // acquisition start), the live-mode analog of "frame 0".
       sim::RenderExtras extras =
@@ -1853,8 +1609,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // CellField: spend the wait pre-loading the dyes a stage move would
       // need next (the whole z column and an xy margin around the FOV), so
       // focusing and nearby moves do not stall a frame on generating them.
-      if (cellFieldOk && cellFieldQueried && CurrentPatternType() == sim::PATTERN_CELL_FIELD &&
-          sleepMs > kCellFieldPrefetchSlackMs)
+      if (cellFieldOk && cellFieldQueried && sleepMs > kCellFieldPrefetchSlackMs)
       {
          sim::CellFieldQuery next = cellFieldLastQuery;
          next.tSec = cellFieldTimeSec;
@@ -2013,90 +1768,6 @@ int CInSiliScopeCamera::OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct)
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      const char* names[] = {g_PatternCircle,     g_PatternLines,   g_PatternGrid,
-                              g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
-                              g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
-                              g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup,
-                              g_PatternCalibration9Spots, g_PatternFilamentsRing, g_PatternCellField};
-      pProp->Set(names[patternType_]);
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      if (s == g_PatternCircle) patternType_ = sim::PATTERN_CIRCLE;
-      else if (s == g_PatternLines) patternType_ = sim::PATTERN_LINES;
-      else if (s == g_PatternGrid) patternType_ = sim::PATTERN_GRID;
-      else if (s == g_PatternRandom) patternType_ = sim::PATTERN_RANDOM;
-      else if (s == g_PatternCustom) patternType_ = sim::PATTERN_CUSTOM_POINTS;
-      else if (s == g_PatternSpiral) patternType_ = sim::PATTERN_SPIRAL;
-      else if (s == g_PatternStar) patternType_ = sim::PATTERN_STAR;
-      else if (s == g_PatternHeart) patternType_ = sim::PATTERN_HEART;
-      else if (s == g_PatternResolutionTarget) patternType_ = sim::PATTERN_RESOLUTION_TARGET;
-      else if (s == g_PatternTiltedPlane) patternType_ = sim::PATTERN_TILTED_PLANE;
-      else if (s == g_PatternUniform3D) patternType_ = sim::PATTERN_UNIFORM_3D;
-      else if (s == g_PatternShell) patternType_ = sim::PATTERN_SHELL;
-      else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
-      else if (s == g_PatternCalibration9Spots) patternType_ = sim::PATTERN_CALIBRATION_9_SPOTS;
-      else if (s == g_PatternFilamentsRing) patternType_ = sim::PATTERN_FILAMENTS_RING;
-      else if (s == g_PatternCellField) patternType_ = sim::PATTERN_CELL_FIELD;
-
-      // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
-      // polls every tick and rebuilds liveEmitterModel_'s pattern from
-      // accordingly -- no separate live-mode push needed here.
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(customPointsFile_.c_str());
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      pProp->Get(customPointsFile_);
-      // See OnPattern: InvalidateStack() alone is enough to get Live mode
-      // to pick this up on its next tick.
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str());
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      std::vector<double> parsed = sim::ParseResolutionSpacingsNm(s);
-      if (!parsed.empty())
-      {
-         resolutionSpacingsNm_ = parsed;
-         // See OnPattern: InvalidateStack() alone is enough to get Live
-         // mode to pick this up on its next tick.
-         InvalidateStack();
-      }
-      else
-      {
-         // Nothing valid parsed (empty string, garbage) -- leave the
-         // existing list in place and reflect that back to the caller.
-         pProp->Set(sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str());
-      }
-   }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
@@ -2190,13 +1861,6 @@ int CInSiliScopeCamera::OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionT
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(endOfStackReached_ ? "Yes" : "No");
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnEmitterDensityPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(emitterDensityPerSec_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emitterDensityPerSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
@@ -2486,112 +2150,6 @@ int CInSiliScopeCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionTy
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(labelingEfficiencyPct_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); labelingEfficiencyPct_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(structureZRangeNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureZRangeNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(structureSizeNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureSizeNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupRadiusNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRadiusNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupCornerSpreadNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCornerSpreadNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupRingSeparationNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRingSeparationNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMinNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMinNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMaxNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMaxNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(nupMembrane_ == static_cast<int>(sim::MembraneOrientation::TopDown) ? g_NupMembraneTopDown
-                                                                                        : g_NupMembraneSideways);
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      nupMembrane_ = (s == g_NupMembraneSideways) ? static_cast<int>(sim::MembraneOrientation::Sideways)
-                                                    : static_cast<int>(sim::MembraneOrientation::TopDown);
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(static_cast<long>(nupCount_));
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      long v;
-      pProp->Get(v);
-      if (v < 1)
-         v = 1;
-      nupCount_ = static_cast<int>(v);
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupMinSpacingNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupMinSpacingNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupCurvatureNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCurvatureNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
@@ -2654,45 +2212,10 @@ int CInSiliScopeCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgCellContrast_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgCellContrast_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWeight_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWeight_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWidthNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWidthNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgDecaySec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgDecaySec_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusRatio_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusRatio_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusDepthNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusDepthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
@@ -2818,7 +2341,7 @@ int CInSiliScopeCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::Acti
 {
    if (eAct == MM::AfterSet)
    {
-      // EmitterDensityPerSec/OnLifetimeSec/PhotonsPerSecond/
+      // OnLifetimeSec/PhotonsPerSecond/
       // BackgroundPhotonsPerSec are all rates converted to frame-equivalent
       // values using this property's current value (SnapshotParams()) -- a
       // changed Exposure means the precomputed stack no longer reflects the

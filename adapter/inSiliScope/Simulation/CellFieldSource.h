@@ -10,7 +10,7 @@
 //                RenderPhotonImage / CollectGpuEmitters / ApplyNoiseChain
 //                render them unchanged.
 //
-//                Not an IPatternGenerator: a dye's blinks are a pure function
+//                A dye's blinks are a pure function
 //                of its address in the world (seed, cell, microtubule,
 //                lattice site), not draws per blink, so the same dye blinks
 //                the same way whenever the FOV returns to it. Not thread-

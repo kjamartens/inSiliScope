@@ -91,12 +91,6 @@
     <ClCompile Include="Simulation\SMLMSimulation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation\SMLMPatterns.cpp">
-      <Filter>Simulation</Filter>
-    </ClCompile>
-    <ClCompile Include="Simulation\SMLMStructures.cpp">
-      <Filter>Simulation</Filter>
-    </ClCompile>
     <ClCompile Include="Simulation\SMLMNoise.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -184,12 +178,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMSimulation.h">
-      <Filter>Simulation</Filter>
-    </ClInclude>
-    <ClInclude Include="Simulation\SMLMPatterns.h">
-      <Filter>Simulation</Filter>
-    </ClInclude>
-    <ClInclude Include="Simulation\SMLMStructures.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMNoise.h">

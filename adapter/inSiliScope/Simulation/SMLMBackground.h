@@ -6,10 +6,8 @@
 // DESCRIPTION:   Spatial fields that shape the simulated light, ported from the
 //                webSMLM reference simulator (webSMLM.html -- see PARITY.md in
 //                that project): the excitation illumination profile
-//                (buildSimIllumination/illumAt), the structured "biological"
-//                background (buildSimBackgroundMap: a cell-shaped
-//                autofluorescence field plus a static out-of-focus haze) and
-//                its fade over time (simBgScale).
+//                (buildSimIllumination/illumAt) and the background's fade
+//                over time (simBgScale).
 //
 //                Every builder returns an EMPTY vector for its "off" setting;
 //                callers read that as "multiply by 1" / "flat scalar
@@ -20,8 +18,6 @@
 
 #pragma once
 
-#include <random>
-#include <utility>
 #include <vector>
 
 namespace sim {
@@ -51,30 +47,9 @@ std::vector<float> BuildIlluminationField(unsigned width, unsigned height, Illum
 // clamped to the field. 1 for an empty field.
 double IlluminationAt(const std::vector<float>& field, unsigned width, unsigned height, double xPx, double yPx);
 
-// The structured background field, photons/pixel/frame, row-major:
-//   - a cell: a soft-edged, randomly placed and rotated superellipse
-//     (exponent 3), `cellContrast` times brighter inside than outside;
-//   - a static out-of-focus haze: the labelled structure's projected site
-//     density (sitesPx, camera-pixel positions), blurred by a Gaussian of
-//     hazeSigmaPx (separable, mirrored edges), weighted by hazeWeight
-//     relative to its own mean.
-// The sum is normalized to a FOV mean of exactly meanBackground, so the
-// background setting keeps its meaning and only the SHAPE is new. Empty when
-// meanBackground <= 0 or both cellContrast <= 1 and hazeWeight <= 0. Draws
-// only from rng -- callers give it its own stream, so the same seed gives
-// the same emitters with or without a background.
-std::vector<float> BuildBackgroundMap(unsigned width, unsigned height, double meanBackground, double cellContrast,
-                                      double hazeWeight, double hazeSigmaPx,
-                                      const std::vector<std::pair<double, double>>& sitesPx, std::mt19937_64& rng);
-
-// Background fade over time: autofluorescence and the out-of-focus pool
-// bleach too, fast at first and then onto a 30% floor --
-// 0.3 + 0.7*exp(-t/decay). 1 (no fade) when decay <= 0. t and decay in the
+// Background fade over time: autofluorescence bleaches too, fast at first
+// and then onto a 30% floor -- 0.3 + 0.7*exp(-t/decay). 1 (no fade) when decay <= 0. t and decay in the
 // same unit (demoCam passes seconds).
 double BackgroundFadeScale(double t, double decay);
-
-// Separable Gaussian blur with normalized taps, radius max(1, ceil(3 sigma)),
-// mirrored edges (v<0 -> -v, v>=n -> 2n-2-v) -- webSMLM's blurInto().
-std::vector<float> GaussianBlur(const std::vector<float>& src, unsigned width, unsigned height, double sigma);
 
 } // namespace sim

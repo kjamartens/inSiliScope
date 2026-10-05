@@ -16,9 +16,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/PsfGeneratorBridge.cpp
   ${ISC_SIM}/SMLMBackground.cpp
   ${ISC_SIM}/SMLMNoise.cpp
-  ${ISC_SIM}/SMLMPatterns.cpp
   ${ISC_SIM}/SMLMSimulation.cpp
-  ${ISC_SIM}/SMLMStructures.cpp
   ${ISC_SIM}/SMLMZernike.cpp
   ${ISC_SIM}/ZernikePsf.cpp
   ${ISC_SIM}/SplatSse2.cpp
@@ -74,17 +72,6 @@ else()
 endif()
 
 if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
-  add_executable(emitter_density_check emitter_density_check.cpp ${ISC_SIM_SRC})
-  target_include_directories(emitter_density_check PRIVATE ${ISC_SIM})
-  target_link_libraries(emitter_density_check PRIVATE insiliscope_core)
-  if(WIN32)
-    target_include_directories(emitter_density_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
-    target_compile_definitions(emitter_density_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
-    target_link_libraries(emitter_density_check PRIVATE d3d11 d3dcompiler dxgi)
-  else()
-    target_link_libraries(emitter_density_check PRIVATE Threads::Threads)
-  endif()
-  add_test(NAME emitter_density COMMAND emitter_density_check)
   add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
   add_test(NAME cli_geometry COMMAND insiliscope_cli --geometry-json ${CMAKE_CURRENT_BINARY_DIR}/cli_geometry.json --geometry-um 30 --geometry-detail 1 --x 5 --y -3)
   add_test(NAME cli_tiff_bf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_bf.tif --modality BrightField --frames 3 --size 64 --x -4 --y -5 --bf-quality 2)

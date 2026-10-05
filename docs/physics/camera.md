@@ -25,14 +25,13 @@ rebuilds.
 
 ## Background
 
-A background map multiplies an illumination field and fades with time:
+A flat background (`Background_BackgroundPhotonsPerSec`) multiplies an illumination field and fades with time:
 
-- **cell contrast and haze**: a map built from the cell outlines plus a haze with a given weight and width, normalised to the
-  FOV mean (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`);
 - **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`Background_DecaySec`);
-- **out-of-focus emitters**: a population at \(|z|\) between 300 nm and a depth (`OutOfFocusRatio`, `OutOfFocusDepthNm`), needs
-  a diffraction PSF;
 - **illumination**: a peak-normalised profile (`FluoParam_IllumProfile`, `IllumFwhmPct`) multiplies background and emitters.
+
+Out-of-focus light needs no extra population: every dye of the cell field sits at its own depth and is drawn with the
+defocused PSF.
 
 ## Drift
 

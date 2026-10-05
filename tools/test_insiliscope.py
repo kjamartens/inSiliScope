@@ -1,6 +1,7 @@
 """Smoke test for the inSiliScope device adapter, using pymmcore-plus.
 
-Exercises: property wiring, pre-init enforcement (RandomSeed only -- FovSize
+Exercises (the CellField pattern, the only one since issue 16): property
+wiring, pre-init enforcement (RandomSeed only -- FovSize
 is a regular, post-init property), background stack generation not blocking
 the calling thread, reproducibility (same seed + params -> identical
 precomputed stack), correct pixel shape/dtype, both acquisition modes
@@ -134,7 +135,6 @@ print("Reproducibility OK: a different seed produced a different frame")
 
 # --- Live mode: stream a short sequence, confirm frames change ---------
 core.setProperty("SMLMCam", "General_AcqMode", "Live")
-core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "50.0")
 core.startSequenceAcquisition(10, 20.0, True)
 while core.isSequenceRunning():
     time.sleep(0.02)
@@ -149,7 +149,7 @@ assert not np.array_equal(live_frames[0], live_frames[-1]), \
     "expected live-mode frames to differ over time"
 print("Live mode OK:", len(live_frames), "frames captured, frames vary over time")
 
-# --- 3D structures / labeling efficiency: property wiring ---------------
+# --- Property surface ----------------------------------------------------
 # The device is currently left over from the two tests above with
 # RandomSeed=43 (from the "different seed" check) and AcqMode=Live (from
 # the live-mode check) -- reload with a known seed so every reproducibility
@@ -157,22 +157,6 @@ print("Live mode OK:", len(live_frames), "frames captured, frames vary over time
 core.unloadDevice("SMLMCam")
 load_camera(core, "SMLMCam", seed=42, fov="128x128")
 core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-new_props = [
-    "General_LabelingEfficiencyPct", "SimType_StructureZRangeNm", "SimType_StructureSizeNm",
-    "SimType_NupRadiusNm", "SimType_NupCornerSpreadNm", "SimType_NupRingSeparationNm",
-    "SimType_NupLinkerMinNm", "SimType_NupLinkerMaxNm", "SimType_NupMembraneType", "SimType_NupCount",
-    "SimType_NupMinSpacingNm", "SimType_NupCurvatureNm",
-]
-for name in new_props:
-    core.getProperty("SMLMCam", name)  # raises if the property doesn't exist
-pattern_values = set(core.getAllowedPropertyValues("SMLMCam", "SimType_Pattern"))
-for expected in ("TiltedPlane", "Uniform3D", "Shell", "NUP", "Calibration9Spots", "FilamentsRing"):
-    assert expected in pattern_values, f"expected Pattern to allow {expected!r}, got {pattern_values}"
-membrane_values = set(core.getAllowedPropertyValues("SMLMCam", "SimType_NupMembraneType"))
-assert membrane_values == {"TopDown", "Sideways"}, \
-    f"expected NupMembraneType allowed values {{TopDown, Sideways}}, got {membrane_values}"
-print("3D structure property wiring OK:", len(new_props), "properties present,",
-      "Pattern/NupMembraneType allowed values confirmed")
 
 # --- Renamed / removed properties ---------------------------------------
 all_props = set(core.getDevicePropertyNames("SMLMCam"))
@@ -191,6 +175,11 @@ gone = [
     "PSFParam_PsfEvalMethod",
     # Moved into the Background_ group:
     "General_BackgroundPhotonsPerSec",
+    # Removed with the non-CellField patterns (issue 16):
+    "SimType_Pattern", "SimType_CustomPointsFile", "SimType_ResolutionSpacingsNm", "General_EmitterDensityPerSec",
+    "General_LabelingEfficiencyPct", "SimType_StructureZRangeNm", "SimType_StructureSizeNm", "SimType_NupCount",
+    "SimType_NupRadiusNm", "SimType_NupMembraneType", "Background_CellContrast", "Background_HazeWeight",
+    "Background_HazeWidthNm", "Background_OutOfFocusRatio", "Background_OutOfFocusDepthNm",
 ]
 still_there = [n for n in gone if n in all_props]
 assert not still_there, f"expected these properties to be removed/renamed away, still present: {still_there}"
@@ -200,131 +189,55 @@ print("Property surface OK:", len(renamed), "renamed properties present,", len(g
 # A freshly loaded device (see load_camera above -- it only sets RandomSeed
 # and FovSize) must come up with these out-of-the-box values.
 for name, expected in [
-    ("SimType_Pattern", "CellField"),
-    ("General_LabelingEfficiencyPct", "70"),
     ("PSFParam_PsfMaskType", "None"),
     # webSMLM parity round 2: every new feature defaults to "off".
     ("FluoParam_BlinkBleachProb", "1"),
     ("FluoParam_PhotonCV", "0.5"),
     ("FluoParam_IllumProfile", "Flat"),
     ("CamParam_CameraType", "sCMOS"),
-    ("Background_CellContrast", "1"),
-    ("Background_HazeWeight", "0"),
     ("Background_DecaySec", "0"),
-    ("Background_OutOfFocusRatio", "0"),
     ("General_UseGpu", "On"),
     ("General_DiskCache", "Cells"),
     ("PSFParam_PsfInterp", "Cubic"),
     ("PSFParam_PsfModel", "GibsonLanniZernike"),
     ("PSFParam_PsfOversampling", "6"),
     ("PSFParam_PsfZernikePreset", "MixedRealisticObjective"),
-    ("SimType_NupCount", "80"),
     ("PSFParam_PsfKernelHalfWidthNm", "7000"),
 ]:
     actual = core.getProperty("SMLMCam", name)
     assert float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected,         f"expected {name} to default to {expected!r}, got {actual!r}"
 print("Defaults OK: out-of-the-box values confirmed")
 
-# --- NUP: end-to-end + reproducibility -----------------------------------
-core.setProperty("SMLMCam", "SimType_Pattern", "NUP")
-core.setProperty("SMLMCam", "SimType_NupCount", "8")
-core.setProperty("SMLMCam", "General_GenerateStack", "1")
-wait_for_stack(core, "SMLMCam")
-core.snapImage()
-nup_img_a = core.getImage().copy()
-assert nup_img_a.std() > 0, "expected a non-blank NUP frame"
-
-core.unloadDevice("SMLMCam")
-load_camera(core, "SMLMCam", seed=42, fov="128x128")
-core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-core.setProperty("SMLMCam", "SimType_Pattern", "NUP")
-core.setProperty("SMLMCam", "SimType_NupCount", "8")
-core.setProperty("SMLMCam", "General_GenerateStack", "1")
-wait_for_stack(core, "SMLMCam")
-core.snapImage()
-nup_img_b = core.getImage().copy()
-assert np.array_equal(nup_img_a, nup_img_b), \
-    "expected NUP pattern to be byte-identical across two runs of the same seed"
-print("NUP pattern OK: non-blank, byte-identical across two runs of the same seed")
-
-# --- Labeling efficiency: fewer distinct bright sites at low efficiency --
-# Emitter density is an AREAL rate independent of site count, so arrivals
-# concentrate onto fewer sites rather than dropping in total count --
-# assert on the number of distinct bright pixels (site coverage), not on
-# mean/std intensity, which would not reliably change.
-core.setProperty("SMLMCam", "SimType_Pattern", "Shell")
+# --- Labelling: fewer labelled sites, less light -------------------------
+# The CellField's blink rate comes from its dyes: a tenth of the persistent
+# sites gives about a tenth of the signal above the offset.
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")
 core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
 
 
-def summed_bright_area(threshold_frac=0.5):
+def mean_signal(n=50):
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
     wait_for_stack(core, "SMLMCam")
-    total = np.zeros((128, 128), dtype=np.float64)
-    for _ in range(50):
+    total = 0.0
+    for _ in range(n):
         core.snapImage()
-        total += core.getImage().astype(np.float64)
-    # Every pixel carries a uniform accumulated camera-offset baseline (50
-    # frames x ~100 ADU) that swamps a threshold based on total.max() alone
-    # -- subtract total.min() first so the threshold isolates actual signal
-    # contrast rather than the flat offset floor.
-    signal = total - total.min()
-    peak = signal.max()
-    if peak <= 0.0:
-        return 0
-    return int(np.count_nonzero(signal > threshold_frac * peak))
+        total += float(core.getImage().astype(np.float64).mean()) - 100.0
+    return total / n
 
 
-core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "100")
-area_full = summed_bright_area()
-core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "10")
-area_low = summed_bright_area()
-core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "70")  # restore default
-assert area_low < area_full, (
-    f"expected LabelingEfficiencyPct=10 to light up fewer distinct sites than =100 "
-    f"(full={area_full}px, low={area_low}px) -- labeling filter may not be reaching the renderer"
-)
-print(f"Labeling efficiency OK: bright-site area dropped {area_full}px -> {area_low}px at 10% labeling")
+core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")
+sig_full = mean_signal()
+core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "7")
+sig_low = mean_signal()
+core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")  # restore default
+assert sig_low < 0.3 * sig_full, f"expected 7% labelling to give ~1/10 of the 70% signal ({sig_low:.3f} vs {sig_full:.3f})"
+print(f"Labelling OK: mean signal {sig_full:.3f} -> {sig_low:.3f} ADU from 70% to 7% labelled sites")
 
-# --- Per-emitter z: 3D structure should visibly defocus vs flat ----------
-# Only meaningful with a diffraction PsfModel; GibsonLanni needs the JVM
-# (PSFGenerator jar), so skip gracefully if that path isn't available.
-core.setProperty("SMLMCam", "SimType_Pattern", "Uniform3D")
-core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanni")
-core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "7")
-core.setProperty("SMLMCam", "SimType_StructureZRangeNm", "2000")
-core.setProperty("SMLMCam", "General_GenerateStack", "1")
-wait_for_stack(core, "SMLMCam")
-core.snapImage()
-img_3d = core.getImage().astype(np.float64)
-
-core.setProperty("SMLMCam", "SimType_StructureZRangeNm", "0")
-core.setProperty("SMLMCam", "General_GenerateStack", "1")
-wait_for_stack(core, "SMLMCam")
-core.snapImage()
-img_flat = core.getImage().astype(np.float64)
-
-if img_3d.std() == 0 or img_flat.std() == 0:
-    print("Per-emitter z check SKIPPED: diffraction PSF path unavailable in this environment "
-          "(frame is blank -- likely no usable JVM/JRE)")
-else:
-    # Defocused (spread-out) emitters have a lower peak/std than in-focus
-    # ones at the same total photon budget -- a coarse but robust proxy for
-    # "z is actually reaching the renderer per emitter" without needing a
-    # PSF-shape fit.
-    assert img_flat.std() > img_3d.std(), (
-        f"expected StructureZRangeNm=2000 (defocused) to have LOWER std than =0 (in-focus) "
-        f"(flat.std={img_flat.std():.3f}, 3d.std={img_3d.std():.3f}) -- per-emitter z may not be reaching PSF plane selection"
-    )
-    print(f"Per-emitter z OK: flat.std={img_flat.std():.3f} > 3d.std={img_3d.std():.3f} (defocus reduces peak/std)")
-core.setProperty("SMLMCam", "SimType_StructureZRangeNm", "500")  # restore default
-
-# --- Live responsiveness: a large NUP site-list build must not happen ----
-# --- per frame (it's gated behind liveConfigVersion_, same as the PSF
-# --- kernel cache) -- confirm ActualFrameIntervalMs stays close to Exposure.
-core.setProperty("SMLMCam", "SimType_Pattern", "NUP")
-core.setProperty("SMLMCam", "SimType_NupCount", "200")
+# --- Live responsiveness: nothing heavy may run per frame -----------------
+# (the world and PSF are gated behind liveConfigVersion_) -- confirm
+# ActualFrameIntervalMs stays close to Exposure.
 core.setProperty("SMLMCam", "General_AcqMode", "Live")
-core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")  # isolate site-list cost from JVM/PSF cost
+core.setProperty("SMLMCam", "Exposure", "20")
 core.startSequenceAcquisition(20, 20.0, True)
 while core.isSequenceRunning():
     time.sleep(0.02)
@@ -333,81 +246,10 @@ while core.getRemainingImageCount() > 0:
     core.popNextImage()
 interval_ms = core.getProperty("SMLMCam", "General_ActualFrameIntervalMs")
 assert float(interval_ms) < 100.0, (
-    f"expected ActualFrameIntervalMs to stay within ~5x of the 20ms Exposure with NupCount=200 "
-    f"live, got {interval_ms}ms -- site-list build may be happening per frame instead of on config change"
+    f"expected ActualFrameIntervalMs to stay within ~5x of the 20ms Exposure live, got {interval_ms}ms"
 )
-print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms}ms with NupCount=200 streaming live")
-core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
-core.setProperty("SMLMCam", "SimType_NupCount", "80")  # restore default
-
-# --- Calibration9Spots: nine ALWAYS-ON beads on a 3x3 grid ---------------
-# The point of this pattern is that it bypasses the blinking model entirely
-# (IPatternGenerator::AlwaysOnSites): every frame must show the same nine
-# spots at the same x,y. Assert both halves -- the count (exactly 9 bright
-# blobs) and the always-on part (a single frame already shows all nine, and
-# two different frames agree on where they are).
-core.setProperty("SMLMCam", "General_AcqMode", "Precomputed")
-core.setProperty("SMLMCam", "SimType_Pattern", "Calibration9Spots")
-core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")  # fast; spot geometry is what matters here
-core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
-core.setProperty("SMLMCam", "General_GenerateStack", "1")
-wait_for_stack(core, "SMLMCam")
-
-
-def bright_blob_centroids(img, threshold_frac=0.3):
-    """Flood-fill the pixels above threshold and return each blob's centroid.
-
-    A tiny hand-rolled connected-components pass rather than scipy.ndimage --
-    this is the only place the test suite needs one, and 128x128 makes an
-    explicit stack-based flood fill trivially fast.
-    """
-    a = img.astype(np.float64)
-    a -= a.min()
-    mask = a > threshold_frac * a.max()
-    h, w = mask.shape
-    seen = np.zeros_like(mask)
-    centroids = []
-    for sy in range(h):
-        for sx in range(w):
-            if not mask[sy, sx] or seen[sy, sx]:
-                continue
-            stack, pts = [(sy, sx)], []
-            seen[sy, sx] = True
-            while stack:
-                y, x = stack.pop()
-                pts.append((y, x))
-                for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
-                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
-                        seen[ny, nx] = True
-                        stack.append((ny, nx))
-            centroids.append((sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)))
-    return centroids
-
-
-core.snapImage()
-cal_a = bright_blob_centroids(core.getImage())
-core.snapImage()
-cal_b = bright_blob_centroids(core.getImage())
-assert len(cal_a) == 9, f"expected exactly 9 always-on calibration spots in a single frame, got {len(cal_a)}"
-assert len(cal_b) == 9, f"expected all 9 calibration spots in the NEXT frame too, got {len(cal_b)}"
-# Pair the two frames' spots by nearest neighbour rather than by sorting --
-# noise shifts each centroid by a fraction of a pixel, which is enough to
-# reorder a plain sort of (y, x) tuples even though every spot is exactly
-# where it should be.
-for ay, ax in cal_a:
-    dist, (by, bx) = min(((ay - cy) ** 2 + (ax - cx) ** 2, (cy, cx)) for cy, cx in cal_b)
-    assert dist ** 0.5 < 1.0, (
-        f"calibration spot at ({ay:.2f},{ax:.2f}) has no counterpart within 1px in the next "
-        f"frame (nearest is ({by:.2f},{bx:.2f})) -- these emitters are supposed to be fixed "
-        "and always on"
-    )
-# The nine centroids must form a regular 3x3 grid: exactly 3 distinct rows
-# and 3 distinct columns, evenly spaced.
-rows = sorted({round(y / 4.0) for y, _ in cal_a})
-cols = sorted({round(x / 4.0) for _, x in cal_a})
-assert len(rows) == 3 and len(cols) == 3,     f"expected the 9 spots to form a 3x3 grid, got {len(rows)} rows x {len(cols)} cols"
-print("Calibration9Spots OK: 9 always-on beads on a 3x3 grid, identical positions frame to frame")
-core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
+print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms}ms streaming live")
+core.setProperty("SMLMCam", "Exposure", "50")
 core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restore default
 
 # --- PsfInterp: property wiring + non-blank sanity ----------------------
@@ -419,12 +261,10 @@ core.setProperty("SMLMCam", "PSFParam_PsfZStepUm", "0.2")
 INTERP_VALUES = {"Nearest", "Linear", "Cubic", "Fft"}
 interp_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfInterp"))
 assert interp_values == INTERP_VALUES, f"unexpected PsfInterp values: {interp_values}"
-# Low density: Fft does one Fourier shift per emitter and is by far the
-# slowest mode (minutes for 1000 frames at the default density). Circle,
-# because EmitterDensityPerSec does not apply to CellField (whose dyes
-# would take Fft placement far past wait_for_stack's timeout).
-core.setProperty("SMLMCam", "SimType_Pattern", "Circle")
-core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.1")
+# Sparse labelling: Fft does one Fourier shift per emitter and is by far the
+# slowest mode (the default labelling would take Fft placement far past
+# wait_for_stack's timeout).
+core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "0.5")
 for interp in sorted(INTERP_VALUES):
     core.setProperty("SMLMCam", "PSFParam_PsfInterp", interp)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
@@ -434,8 +274,6 @@ for interp in sorted(INTERP_VALUES):
     assert img.std() > 0, f"expected non-blank frame at PsfInterp={interp}"
 print(f"PsfInterp OK: allowed values confirmed, all {len(INTERP_VALUES)} modes produce non-blank frames")
 core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Cubic")  # restore default
-core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.5")  # restore default
-core.setProperty("SMLMCam", "SimType_Pattern", "CellField")  # restore default
 
 # --- Zernike presets / 28 coefficients / double-helix mask -----------------
 preset_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfZernikePreset"))
@@ -449,10 +287,9 @@ assert len(coeffs) == 28 and float(coeffs[25]) == 0.3, f"expected 28 coefficient
 core.setProperty("SMLMCam", "PSFParam_PsfZernikeCoefficients", "0 0 0 0 0 0.15 0 0 0 0 0 0 0 0 0")
 zc = core.getProperty("SMLMCam", "PSFParam_PsfZernikeCoefficients").split()
 assert len(zc) == 28 and float(zc[5]) == 0.15, f"expected a 15-value Zernike list to be accepted, got {zc}"
-core.setProperty("SMLMCam", "SimType_ResolutionSpacingsNm", "150 100 50")
-assert core.getProperty("SMLMCam", "SimType_ResolutionSpacingsNm") == "150 100 50"
 assert set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfMaskType")) == {"None", "DoubleHelix"}
 core.setProperty("SMLMCam", "PSFParam_PsfZernikePreset", "None")
+core.setProperty("SMLMCam", "SimType_CellFieldLabelingPctNonBleaching", "70")  # restore default
 mask_frames = {}
 for mask in ("None", "DoubleHelix"):
     core.setProperty("SMLMCam", "PSFParam_PsfMaskType", mask)
@@ -515,22 +352,22 @@ def stack_frames(props, n=20, seed=42):
 
 FAST = {"PSFParam_PsfModel": "Gaussian"}
 
-# Multi-blink: density keeps meaning ON-density, so the mean signal above
-# offset stays about the same when molecules blink ~5x (bleach prob 0.2).
-# PhotonCV 0 explicitly: the single-blink, constant-brightness baseline (the
-# property defaults to 0.5 since 2026-10-01).
-single = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_PhotonCV": "0"}, n=200)
-multi = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_BlinkBleachProb": "0.2",
-                      "FluoParam_PhotonCV": "0.5"}, n=200)
+# Multi-blink: bleaching dyes that blink ~5x (bleach prob 0.2) give more
+# light than single-blink ones at the same activation rate. PhotonCV 0
+# explicitly: the single-blink, constant-brightness baseline (the property
+# defaults to 0.5 since 2026-10-01).
+BLEACHING = {**FAST, "SimType_CellFieldLabelingPctBleaching": "10", "SimType_CellFieldLabelingPctNonBleaching": "0",
+             "SimType_CellFieldMilliActivationRatePerDyePerSec": "30"}
+single = stack_frames({**BLEACHING, "FluoParam_PhotonCV": "0"}, n=200)
+multi = stack_frames({**BLEACHING, "FluoParam_BlinkBleachProb": "0.2", "FluoParam_PhotonCV": "0.5"}, n=200)
 s_sig, m_sig = single.mean() - 100.0, multi.mean() - 100.0
-assert abs(m_sig - s_sig) < 0.25 * s_sig, f"multi-blink changed ON-density: single {s_sig:.3f} vs multi {m_sig:.3f}"
-assert not np.array_equal(single, multi)
+assert m_sig > 1.5 * s_sig, f"multi-blink dyes should give more light: single {s_sig:.3f} vs multi {m_sig:.3f}"
 print(f"Multi-blink OK: mean signal single {s_sig:.3f} vs bleach=0.2/CV=0.5 {m_sig:.3f} ADU")
 
 # EMCCD: background-only frame -> the gain register doubles the variance
 # (excess noise factor sqrt(2)); ADU clipped to the bit depth.
-bg_only = {**FAST, "General_EmitterDensityPerSec": "0.1", "FluoParam_PhotonsPerSecond": "1000",
-           "Background_BackgroundPhotonsPerSec": "2000", "CamParam_ReadNoiseElectrons": "0",
+NO_DYES = {"SimType_CellFieldLabelingPctBleaching": "0", "SimType_CellFieldLabelingPctNonBleaching": "0"}
+bg_only = {**FAST, **NO_DYES, "Background_BackgroundPhotonsPerSec": "2000", "CamParam_ReadNoiseElectrons": "0",
            "CamParam_OffsetStdADU": "0", "CamParam_GainStdPctPerPixel": "0", "CamParam_GainPhotonsPerADU": "1",
            "CamParam_QuantumEfficiency": "1", "CamParam_DarkCurrentElectronsPerSec": "0"}
 sc = stack_frames(bg_only, n=10)
@@ -542,27 +379,13 @@ em12 = stack_frames({**bg_only, "CamParam_CameraType": "EMCCD", "CamParam_BitDep
 assert em12.max() <= 255, f"EMCCD BitDepth=8 must clip at 255, got {em12.max()}"
 print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit clip holds")
 
-# Structured background (cell) keeps the FOV mean; Gaussian illumination dims corners.
-flat_bg = {**FAST, "General_EmitterDensityPerSec": "0.1", "Background_BackgroundPhotonsPerSec": "400"}
-cell = stack_frames({**flat_bg, "Background_CellContrast": "5"}, n=5).mean(axis=0) - 100
-flat = stack_frames(flat_bg, n=5).mean(axis=0) - 100
-assert abs(cell.mean() - flat.mean()) < 0.05 * flat.mean(), "cell background must keep the FOV mean"
-assert cell[54:74, 54:74].mean() > 2 * cell[:10, :10].mean(), "cell background: centre should be brighter than corner"
+# Gaussian illumination dims the corners; the background fades over time.
+flat_bg = {**FAST, **NO_DYES, "Background_BackgroundPhotonsPerSec": "400"}
 illum = stack_frames({**flat_bg, "FluoParam_IllumProfile": "Gaussian"}, n=5).mean(axis=0) - 100
 assert illum[:10, :10].mean() < 0.5 * illum[54:74, 54:74].mean(), "Gaussian illumination must dim the corners"
 decay = stack_frames({**flat_bg, "Background_DecaySec": "0.5"}, n=40)
 assert decay[-1].mean() < decay[0].mean(), "background fade must lower the background over time"
-print("Background OK: cell contrast keeps the mean, illumination dims corners, fade decays")
-
-# FilamentsRing renders; out-of-focus emitters add light (diffraction PSF only).
-fr = stack_frames({**FAST, "SimType_Pattern": "FilamentsRing"}, n=3)
-assert fr.std() > 0
-vec = {"PSFParam_PsfZRangeUm": "4", "PSFParam_PsfZStepUm": "0.2", "SimType_Pattern": "FilamentsRing",
-       "General_EmitterDensityPerSec": "5"}
-no_oof = stack_frames(vec, n=30)
-oof = stack_frames({**vec, "Background_OutOfFocusRatio": "2"}, n=30)
-assert oof.mean() > no_oof.mean(), "out-of-focus emitters must add light"
-print(f"FilamentsRing/out-of-focus OK: mean {no_oof.mean():.3f} -> {oof.mean():.3f} with 2x out-of-focus emitters")
+print("Background OK: illumination dims corners, fade decays")
 
 # GPU vs CPU: same frames up to float32 rounding (a Poisson draw may land a
 # count apart near a boundary). Skipped when no usable GPU.

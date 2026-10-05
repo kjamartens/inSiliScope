@@ -377,6 +377,9 @@ result converted to µm (do not shift dye positions separately or you will doubl
 
 ## 8. Camera integration
 
+*2026-10-05 (issue 16): the other patterns, `SimType_Pattern`, `EmitterModel` and the haze/out-of-focus
+background are gone; the cell field is the only specimen. The text below is the original integration plan.*
+
 * Add `PATTERN_CELL_FIELD = 15` to `SMLMPatternType` and a `SimType_Pattern` value `CellField`. It is
   **not** an `IPatternGenerator` (it does not sample sites per blink); dispatch on
   `CurrentPatternType()` in the two places that produce events:
@@ -573,7 +576,7 @@ the viewer's slider ranges). The cli/viewer set every core parameter by name (`p
 ## 13. WideField imaging modality (2026-09-27)
 
 `General_ImagingModality = WideField` (cli/viewer `modality=1`): every labelled dye emits at once,
-CellField only (other patterns log once and render SR). Code: `Simulation/WidefieldRender.{h,cpp}`,
+Code: `Simulation/WidefieldRender.{h,cpp}`,
 `Fft2d`, `Illumination`; `cli/widefield_check.cpp` (ctest `widefield`).
 
 * **Photophysics, physical units.** sigma = ln(10) 1000 eps / N_A (3.8235e-13 eps um^2), k_em = QY sigma

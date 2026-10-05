@@ -28,9 +28,7 @@ per 1 s time bin (count, start times, ON time \(\mathrm{Exp}(\tau_{on})\) capped
 window is answered without running from \(t=0\). Overlapping binding events on one site are allowed (fine while
 \(k_{act}\tau_{on} \ll 1\)).
 
-**Emitter density** (the adapter's `General_EmitterDensityPerSec` for non-CellField patterns) is the rate of blinks
-switching ON per um\(^2\) per second, independent of exposure, ON lifetime and bleaching: the engine sets the steady-state ON
-density to rate \(\times\) mean ON time. For the CellField pattern the blink rate comes from the dyes instead.
+The blink rate per area follows from the dyes: the labelled fraction of the lattice sites times the activation rate.
 
 **Photons**: an ON dye emits `FluoParam_PhotonsPerSecond` \(\times\) brightness photons per second, integrated over the part of
 the frame it is on (frame-overlap weighting). The illumination field multiplies it. Time is simulated time

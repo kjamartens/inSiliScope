@@ -148,27 +148,22 @@ defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real f
 every pattern (it used to be added, i.e. +Z moved the emitters up; outputs at Z = 0 are unchanged).
 For `CellField`, Z = 0 puts the coverslip (the surface the cells sit on) in focus
 (`SimType_CellFieldFocusHeightUm` is now an extra offset, default 0), and the `ZStage` sets itself
-to 0.5 um on `Initialize()`; patterns at z = 0 therefore start 0.5 um out of focus when a ZStage is
-loaded. The cli/viewer movie option `z` (default 0.5) is the same quantity.
+to 0.5 um on `Initialize()`, so a fresh session starts 0.5 um above the coverslip. The cli/viewer movie option `z` (default 0.5) is the same quantity.
 
-**Emitter density (fixed 2026-09-25):** `General_EmitterDensityPerSec` is the rate of blinks
-switching ON per um^2 per second, independent of Exposure, `FluoParam_OnLifetimeSec` and bleaching
-(`SnapshotParams` sets the engine's steady-state ON density to rate x mean ON time; it used to be
-rate x exposure, which was right only when exposure = ON time). Live mode rounds its per-frame
-Poisson counts (truncation lost 0.5 per frame, -4% at ~12 arrivals/frame) and starts with a
-lead-in, like precomputed stacks. ctest `emitter_density` checks both paths. Labelling efficiency
-does not change this rate (it only thins the site list); the `CellField` pattern ignores it: there
-the blink rate comes from the dyes -- `SimType_CellFieldLabelingPctBleaching` (bleaching dyes, % of
+**CellField only (2026-10-05, issue 16):** the legacy MM patterns (Circle ... NUP, Calibration9Spots,
+FilamentsRing; `SimType_Pattern`, `General_EmitterDensityPerSec`, `General_LabelingEfficiencyPct`,
+`SimType_Structure*`/`Nup*`, the background haze/cell contrast/out-of-focus population) and
+`Simulation/SMLMPatterns.*`/`SMLMStructures.*`/`EmitterModel` are gone; the cell field is the only specimen.
+The blink rate comes from the dyes -- `SimType_CellFieldLabelingPctBleaching` (bleaching dyes, % of
 lattice sites, default 0), `SimType_CellFieldLabelingPctNonBleaching` (persistent, DNA-PAINT-like sites:
 constant supply, default 70) and `SimType_CellFieldMilliActivationRatePerDyePerSec` (rate at which each
 dark dye switches on, in 1e-3/s, 0-1000, default 1.43: 1e-3 activations per lattice site per second,
 the former 10% bleaching x 0.01/s at t = 0; core ABI 3, now 4; spec/PORT.md 6.3). The cli/viewer movie options
 are `labeling-pct-bleaching`, `labeling-pct-nonbleaching`, `milli-activation-rate`, same defaults
-(the viewer passes its own labelling sliders). `CellField` is the default pattern.
+(the viewer passes its own labelling sliders).
 
 **WideField modality (2026-09-27):** `General_ImagingModality` = `SuperRes` (default, the blinks) |
-`WideField`: every labelled dye of the `CellField` pattern emits at once (other patterns log once and
-render SR). Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
+`WideField`: every labelled dye of the `CellField` pattern emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
 default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
 `isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
 cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
@@ -328,17 +323,15 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
 
 - `General_` -- FOV/binning/acquisition-mode/stack-playback plumbing, plus
   every property that sat in webSMLM's flat "User parameters" group
-  (density, pixel size, labeling efficiency, frame-interval readback).
+  (pixel size, frame-interval readback).
   Includes MM-adapter-only properties with no webSMLM equivalent at all
   (`AcqMode`, `GenerateStack`, `UseGpu`, `GpuStatus`, `DiskCache`, etc.), the WideField
   modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
   `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
   `PhotonsPerPxPerSec`/`Aberrations`, and the
   `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`.
-- `SimType_` -- webSMLM's "Simulation type" group: `Pattern` and every
-  structure/pattern-shape parameter (`CustomPointsFile`,
-  `ResolutionSpacingsNm`, `StructureZRangeNm`, `StructureSizeNm`, all
-  `Nup*`, and the `CellField*` properties of the `CellField` pattern, including
+- `SimType_` -- webSMLM's "Simulation type" group: the specimen, i.e. the
+  `CellField*` properties of the cell field, including
   the specimen's BrightField optics `CellFieldIndexMedium`/`IndexCytoplasm`/
   `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`, the nucleus shape
   `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
@@ -362,9 +355,8 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   `PsfGeneratorJavaHome`, which has no direct webSMLM analog but is
   PSF-generator-specific machinery).
 - `Background_` -- webSMLM's "Background" group (added in its 2026-09-19
-  builds): `BackgroundPhotonsPerSec` (was `General_BackgroundPhotonsPerSec`),
-  `CellContrast`, `HazeWeight`, `HazeWidthNm`, `DecaySec`,
-  `OutOfFocusRatio`, `OutOfFocusDepthNm`.
+  builds): `BackgroundPhotonsPerSec` (was `General_BackgroundPhotonsPerSec`)
+  and `DecaySec`.
 
 Standard MM keywords this device inherits (`Exposure`, `PixelType`,
 `Name`, `Description`, `CameraName`, `CameraID`, and `ZStage`'s
@@ -769,6 +761,10 @@ See `docs/dev/vectorial-psf-plan.md` for the full write-up. In order:
    otherwise) is the one remaining piece of this feature.
 
 ## webSMLM parity feature -- status
+
+**History (2026-10-05, issue 16):** everything below about non-CellField patterns (3D/NPC structures, labeling
+efficiency, `Calibration9Spots`, `FilamentsRing`, `ZSpreadPattern`, the out-of-focus population, the cell/haze
+background) was removed with those patterns; the PSF, noise, photophysics and GPU parts still apply.
 
 Brings this plugin's simulation engine closer to feature parity with the
 reference simulator at `C:\GitHub\websmlm` (`webSMLM.html`) -- see that

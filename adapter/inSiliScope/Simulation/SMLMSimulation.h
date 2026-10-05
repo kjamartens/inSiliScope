@@ -22,7 +22,6 @@
 #include "GpuSimD3D11.h"
 #include "SMLMBackground.h"
 #include "SMLMNoise.h"
-#include "SMLMPatterns.h"
 #include "PsfGeneratorBridge.h"
 
 #include <cstdint>
@@ -36,12 +35,7 @@ namespace sim {
 struct SimulationParams
 {
    double pixelSizeNm = 100.0;          // simulation pixel size, nm
-   // Steady-state density of ON emitters, per um^2: blink onsets per frame
-   // are emitterDensity * area / onLifetimeFrames (the camera sets it to
-   // General_EmitterDensityPerSec x the mean ON time, see SnapshotParams).
-   double emitterDensity = 0.5;
    double photonsPerBlink = 2000.0;     // photons emitted per full ON frame
-   double onLifetimeFrames = 3.0;       // mean exponential ON duration, frames
    double psfSigmaPx = 1.3;             // Gaussian PSF sigma, pixels
    double backgroundPhotons = 20.0;     // additive background, photons/pixel
    double quantumEfficiency = 0.85;     // incident photons -> detected electrons
@@ -55,19 +49,6 @@ struct SimulationParams
    // 0 = every pixel identical (old scalar behavior).
    double pixelGainStdFraction = 0.0;
    double pixelReadNoiseStdFraction = 0.0;
-   // Multi-blink photophysics (webSMLM's simulation_blinkBleachProb/
-   // simulation_offLifetime/simulation_photCV). After each ON period a
-   // molecule bleaches with probability blinkBleachProb, otherwise it goes
-   // dark for an exponential time of mean offLifetimeFrames and blinks
-   // again -- a geometric number of blinks, mean 1/blinkBleachProb.
-   // photonCV > 0 makes each blink's photon rate log-normal with that
-   // coefficient of variation, mean preserved. These struct defaults (1 and 0;
-   // the user-facing FluoParam_PhotonCV / cli photon-cv default is 0.5 and
-   // always overwrites this) select the original single-blink, constant-brightness model, whose rng draw
-   // sequence is untouched -- see EmitterModel::GenerateAllEvents.
-   double blinkBleachProb = 1.0;
-   double offLifetimeFrames = 20.0;
-   double photonCV = 0.0;
    // Stage-drift speed, nm/sec, along a direction driftAngleRad drawn once
    // per RandomSeed (see ComputeDriftOffsetPx).
    double driftNmPerSecX = 0.0;
@@ -99,22 +80,17 @@ struct SimulationParams
 };
 
 // A single blinking event: one emitter turning on at tStart (in frame units)
-// and decaying off at tEnd (tEnd - tStart is drawn from an exponential
-// distribution with mean = onLifetimeFrames).
+// and off at tEnd (the cell field's blink schedule, CellFieldSource).
 struct BlinkEvent
 {
    double xUm = 0.0;
    double yUm = 0.0;
-   double zNm = 0.0; // carried straight through from EmitterSite::zNm
+   double zNm = 0.0; // the dye's height relative to the focus reference
    double tStart = 0.0;
    double tEnd = 0.0;
-   // Per-blink photon-rate factor (log-normal, mean 1, when photonCV > 0;
-   // exactly 1 otherwise). Multiplies photonsPerBlink at render time.
+   // Per-blink photon-rate factor (log-normal, mean 1, CV FluoParam_PhotonCV).
+   // Multiplies photonsPerBlink at render time.
    double brightness = 1.0;
-   // Live mode, multi-blink model only: true while this blink's molecule has
-   // not yet decided (at tEnd) whether it bleaches or blinks again -- see
-   // EmitterModel::AdvanceOneFrame.
-   bool moleculeLive = false;
 };
 
 // Linear stage-drift offset (pixels) at elapsedSec seconds since the drift
@@ -138,7 +114,7 @@ struct RenderExtras
    // and each emitter's photons (read at the emitter's undrifted site, as
    // webSMLM does).
    const std::vector<float>* illumField = nullptr;
-   // Structured background map (photons/pixel/frame, BuildBackgroundMap),
+   // Structured background map (photons/pixel/frame),
    // width*height, replacing the flat backgroundPhotons when non-empty.
    const std::vector<float>* backgroundMap = nullptr;
    // Background fade factor for this frame (BackgroundFadeScale).
@@ -230,63 +206,5 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
                         const PsfKernelCache& cache, double globalZOffsetUm, const RenderExtras* extras,
                         std::vector<GpuSplatEmitter>& out, long* outZClampedCount = nullptr,
                         long* outZTotalCount = nullptr);
-
-// Owns the active pattern and the emitter blinking process, and provides one
-// code path shared by both acquisition modes: GenerateAllEvents for a whole
-// precomputed stack up front, AdvanceOneFrame for one live-mode tick.
-class EmitterModel
-{
-public:
-   void SetPattern(std::unique_ptr<IPatternGenerator> pattern);
-   void Reseed(uint64_t seed);
-
-   // Precomputed mode: builds the complete event list covering frames
-   // [0, nFrames), including a lead-in window before frame 0 so early frames
-   // aren't empty. densityScale multiplies params.emitterDensity (used for
-   // the out-of-focus population, which runs the same kinetics at
-   // Background_OutOfFocusRatio times the density); zOverride, when set,
-   // replaces each molecule's site depth with a draw from it.
-   std::vector<BlinkEvent> GenerateAllEvents(long nFrames, double widthUm, double heightUm,
-                                              const SimulationParams& params,
-                                              std::mt19937_64& rng, double densityScale,
-                                              const std::function<double(std::mt19937_64&)>& zOverride) const;
-   std::vector<BlinkEvent> GenerateAllEvents(long nFrames, double widthUm, double heightUm,
-                                              const SimulationParams& params,
-                                              std::mt19937_64& rng) const;
-
-   // Live mode: call once before the first AdvanceOneFrame() after a pattern
-   // change or reseed to clear any in-flight events.
-   void ResetLive(double widthUm, double heightUm);
-
-   // Live mode: advances the model by one frame, spawning new blink events
-   // via the Poisson-arrival process at the *current* params.emitterDensity,
-   // retiring events that have fully elapsed, and returning every event
-   // (existing + newly spawned) overlapping this frame.
-   std::vector<BlinkEvent> AdvanceOneFrame(long frameIndex, double widthUm, double heightUm,
-                                            const SimulationParams& params,
-                                            std::mt19937_64& rng);
-   // Same, with the densityScale/zOverride of GenerateAllEvents' overload
-   // (out-of-focus population -- give it its own EmitterModel instance, since
-   // this carries in-flight events across ticks).
-   std::vector<BlinkEvent> AdvanceOneFrame(long frameIndex, double widthUm, double heightUm,
-                                            const SimulationParams& params, std::mt19937_64& rng,
-                                            double densityScale,
-                                            const std::function<double(std::mt19937_64&)>& zOverride);
-
-   // Every site the pattern can produce, as a (bounded) sample: the full
-   // list for a SiteListPattern, else maxSamples SampleSite draws from rng.
-   // For the static out-of-focus haze map.
-   std::vector<EmitterSite> SampleSitesForHaze(double widthUm, double heightUm, size_t maxSamples,
-                                               std::mt19937_64& rng) const;
-
-private:
-   std::unique_ptr<IPatternGenerator> pattern_;
-   std::vector<BlinkEvent> liveActive_;
-   // Set by ResetLive: the next AdvanceOneFrame first seeds the molecules
-   // that would have arrived during a lead-in before it (as GenerateAllEvents
-   // does), so a live stream starts at the steady-state blink rate instead
-   // of ramping up over the molecules' lifetime.
-   bool liveLeadInPending_ = true;
-};
 
 } // namespace sim

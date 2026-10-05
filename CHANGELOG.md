@@ -4,6 +4,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- MM adapter: the non-CellField patterns are gone (issue 16, 2026-10-05): `SimType_Pattern` and its Circle, Lines, Grid,
+  Random, CustomPoints, Spiral, Star, Heart, ResolutionTarget, TiltedPlane, Uniform3D, Shell, NUP, Calibration9Spots and
+  FilamentsRing values, with `SimType_CustomPointsFile`, `SimType_ResolutionSpacingsNm`, `General_EmitterDensityPerSec`,
+  `General_LabelingEfficiencyPct`, `SimType_Structure*`, `SimType_Nup*` and the background extras that needed them
+  (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`, `OutOfFocusRatio`, `OutOfFocusDepthNm`). The cell field is
+  the only specimen; its output is unchanged (`adapter_pixel_hash` CellField configs identical). Hardware
+  configurations that set the removed properties must be re-made.
 - **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
   widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
   `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it
