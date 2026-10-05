@@ -3667,7 +3667,13 @@ function drawDataGl(F, target, phase) {
     if (opaque !== (phase === 'opaque')) continue;
     const axis = IscScene.axisVector({ axis: slice.axis }), z0 = stack.zs[0], z1 = stack.zs[stack.zs.length - 1];
     const box = [stack.texOx, stack.texOx + stack.size * stack.px, stack.texOy, stack.texOy + stack.size * stack.px, z0, z1];
-    const poly = planeBoxPolygon(axis, slice.pos, box);
+    // a plane outside the stack (a sweep's overshoot: half a slab beyond the cell) shows the stack's nearest edge
+    let dMin = Infinity, dMax = -Infinity;
+    for (const x of [box[0], box[1]]) for (const y of [box[2], box[3]]) for (const z of [box[4], box[5]]) {
+      const d = axis[0] * x + axis[1] * y + axis[2] * z; dMin = Math.min(dMin, d); dMax = Math.max(dMax, d);
+    }
+    const eps = 1e-4 * Math.max(1, dMax - dMin);
+    const poly = planeBoxPolygon(axis, Math.min(dMax - eps, Math.max(dMin + eps, slice.pos)), box);
     if (!poly) continue;
     if (!sliceGl) {
       sliceGl = { vbo: gl.createBuffer(), vao: gl.createVertexArray() };
