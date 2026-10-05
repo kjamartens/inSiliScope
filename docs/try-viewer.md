@@ -78,7 +78,8 @@ Notes:
   previewed or edited.
 - **Data layers** (Display): simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
   the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
-  nearest focus position (blinking), the BrightField image. **Acquire** makes their z-stacks with the movie settings
+  nearest focus position (blinking), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
+  cell and settings; **Acquire** makes them now) with the movie settings
   (Microscope, Acquisition): one movie per focus position over the cell's box, WideField and BrightField planes the
   mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
   acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM planes start with fresh dyes
