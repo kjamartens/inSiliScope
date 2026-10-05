@@ -22,7 +22,7 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
   [0, Exp(initialOnSec)) (INIT_ON draw) then `dyeSchedule` shifted by it; WideField = one ALWAYS_ON window [0, inf) with
   an AUX draw. `EVENT_STATE` BLINK 0, PRE 1, INITIAL_ON 2, ALWAYS_ON 3. Blinks sorted by tOn per block as before;
   continuous windows in dye order.
-- **Queries**: `eventsInWindow` adds `structure, state 0, aux 0`; new `continuousInWindow` (all times, dye order);
+- **Queries**: `eventsInWindow` adds `structure, state 0, aux 0`; new `continuousInWindow` (windows open after tMin, dye order);
   `density3d(..., structureMask)`; `sitesInWindow` dyes carry `structure`; `dyeOrientation(d)` (not used by the
   renderer; statistics checked in `web/lab/label_regression.mjs`).
 - **Imaging** (`scope/spectra.js`, `scope/dye_library.js`, `scope/fluorescence.js`, `scope/widefield.js`
@@ -57,11 +57,10 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
   spec is every `mv_` control; the WebGPU WideField movie is off (`d.meanFieldGpu`) until the port wires it.
 
 - **Scale** (2026-10-05, a default AF647 dSTORM movie ran out of memory: 70 % labelling = 5.4 M dyes in a 128 px FOV):
-  blinks are scheduled only up to a horizon (twice the latest query end; `dyeSchedule(..., tMax)` stops at the first
-  blink starting after it -- the earlier blinks are the same, so it is exact); continuous windows are built on first
-  use (`continuousOf`), only for populations that reach the per-dye path; dye blocks are packed typed arrays
-  (`forEachDye` for counts and mean-field planes, no per-dye objects). 2.4 GB -> 230 MB, 30 s (JS). The C++ schedules
-  whole lifetimes today: port the horizon too.
+  blinks are scheduled for the query's window only (see "Start at 60 s"); continuous windows are made per call, only
+  for populations that reach the per-dye path; dye blocks are packed typed arrays (`forEachDye` for counts and
+  mean-field planes, no per-dye objects). 2.4 GB -> 230 MB, 30 s (JS). The C++ schedules whole lifetimes today: port
+  the window too.
 - **Progress**: `fluorescence.js` reports per frame which backend drew it (SMLM splat for blinks; mean-field or per
   dye for each continuous population); the lab engine posts `movie-progress` messages and the viewer shows them on
   the movie button (`onMovieProgress`). The WASM worker must post the same (isc_scope_movie progress callback).
@@ -116,7 +115,8 @@ Plan: `C:\Users\kjamartens\.claude\plans\start-a-new-branch-synchronous-moth.md`
    depletion note), structures/photophysics/camera/quickstart/try-viewer/roadmap/README, gallery entries, CHANGELOG,
    PLAN.md.
 
-## Open questions for the user
+## Decided with the user (2026-10-05)
 
-- Default label density 70 % suits DNA-PAINT; dSTORM/PALM labelling is a few %, and 70 % with a bleaching dye is slow
-  (a schedule per dye). Keep one default for all, or let a dye's mode suggest a density?
+- Densities follow the mode (above); dSTORM times scale with intensity (above); no 532 nm laser; the estimates stay
+  (marked); Kinetix QE from FPbase and BrightField QE at its lamp wavelength are fine; light presets in MM too;
+  movies start 60 s after the illumination.
