@@ -247,7 +247,7 @@ const UI_GROUPS = [
     num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv }),
     select('planeTimes', 'SMLM planes', 'Fresh: every focus position starts with all dyes unbleached (as if each were a fresh field of the same cell; a blink near two planes shows in both). Sequential: one sample imaged plane after plane, so bleaching dyes run out in the later planes (DNA-PAINT-like labelling keeps a constant supply).',
       [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv }),
-    button('acquireData', 'Acquire data for the centre cell', 'Makes the z-stacks of the checked data layers (WideField if none is checked) for the cell nearest the view centre, with the movie settings (Microscope, Acquisition). Kept in the browser, so it is made once per cell and settings.'),
+    button('acquireData', 'Acquire data for the centre cell', 'Checked data layers are acquired by themselves for the cell nearest the view centre (once per cell and settings); this makes the checked ones (WideField if none is checked) now. Uses the movie settings (Microscope, Acquisition) and keeps the data in the browser.'),
     { kind: 'html', html: '<p class="sub" id="dataStatus"></p>' },
   ] },
 
@@ -2776,6 +2776,7 @@ function renderFrame(st, target) {
       (acqStatus.size ? '   [acquiring data…]' : '');
   }
   if (F.animate) setTimeout(requestDraw, 100);
+  if (!off && st.ui && F.dataMissing.length && F.target) autoAcquire(F.target);
   lastFrame = { cam, F, vis };
   // loading: cells whose asset is on its way, the view's blocks not all packed, blocks still packing (a neighbour
   // in one of them would pop in later)
@@ -2914,7 +2915,7 @@ window.iscScene = {
   stateFromUI, renderFrame, captureFrame, frameRect, pickCell, nearestCell, cellBounds, requestDraw,
   hasGl: () => useGl,
   // the packed cells around the view are all in (so "the cell nearest the centre" will not change)
-  packingIdle: () => !!(packCache && packCache.covers && !blockPending.size && packCache.map.size),
+  packingIdle: () => packingIdle(),
   setPreview(st) {
     const was = !!previewState;
     previewState = st || null; cameraLocked = !!st;
@@ -2998,18 +2999,38 @@ els.reseed.addEventListener('click', () => {
   requestDraw();
 });
 // Acquire: the z-stacks of the checked data layers (WideField if none) for the cell nearest the view centre.
-els.acquireData.addEventListener('click', async () => {
-  const key = nearestCell(view.cx, view.cy), st = document.getElementById('dataStatus');
-  if (!key) { st.textContent = 'No cell yet.'; return; }
+// autoAcquire: the same for a checked data layer whose data the centre cell does not have yet, once the packing has
+// settled; tried once per cell, layers and settings (a failed or cancelled run is not repeated until one changes).
+const autoTried = new Set();
+let autoBusy = false;
+function autoAcquire(key) {
+  if (autoBusy || !packingIdle() || !cellBounds(key) || !cellBounds(key).precise) return;
+  const ids = Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
+  if (!ids.length) return;
+  const k = key + '|' + ids.join(',') + '|' + JSON.stringify(dataParams()) + '|' + movieSpec({ x: 0, y: 0 });
+  if (autoTried.has(k)) return;
+  autoTried.add(k);
+  setTimeout(() => runAcquire(key, ids), 0);
+}
+function packingIdle() { return !!(packCache && packCache.covers && !blockPending.size && packCache.map.size); }
+els.acquireData.addEventListener('click', () => {
+  const key = nearestCell(view.cx, view.cy);
   let ids = Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
   if (!ids.length) { ids = ['mt.wfSlice']; els.showWfSlice.checked = true; }
+  runAcquire(key, ids);
+});
+async function runAcquire(key, ids) {
+  const st = document.getElementById('dataStatus');
+  if (!key) { st.textContent = 'No cell yet.'; return; }
+  if (autoBusy) return;
+  autoBusy = true;
   els.acquireData.disabled = true;
   try {
     await acquireData(ids, key, null, (d, n, label) => { st.textContent = `${label}: focus position ${d} of ${n}…`; });
     st.textContent = `Data of cell ${key} ready (${[...new Set(ids.map(i => DATA_KIND[i].toUpperCase()))].join(', ')}).`;
   } catch (e) { st.textContent = 'Acquisition failed: ' + (e.message || e); }
-  finally { els.acquireData.disabled = false; requestDraw(); }
-});
+  finally { autoBusy = false; els.acquireData.disabled = false; requestDraw(); }
+}
 els.resetView.addEventListener('click', () => {
   view.cx = 0; view.cy = 0; view.scale = 9;
   requestDraw();

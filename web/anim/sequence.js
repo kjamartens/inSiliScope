@@ -384,6 +384,116 @@ function starter() {
   return s;
 }
 
+// ---- more cycle presets ----
+const L_ = (ref, zones, style) => (style ? { ref, zones, style } : { ref, zones });
+const GHOST = zones => L_('cyto.surface', zones, { opacity: 0.15 });
+const SW = (axis, from, to, slab, ease) => ({ axis, from: { rel: from }, to: { rel: to }, slab: slab || 0, ease: ease || 'inOut' });
+Object.assign(PRESETS, {
+  flyAround: { label: 'Fly around (top view to side view)', requires: ['gt'], params: { duration: 10, deg: 360 },
+    make: p => ({ name: 'Fly around', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Down from above', duration: p.duration / 2, fadeSec: 0.4, camera: { tilt: { to: 70 }, fit: { to: 1 } },
+        layers: [L_('$.gt', ['all']), GHOST(['all'])] },
+      { name: 'Back up', duration: p.duration / 2, camera: { tilt: { to: 15 }, fit: { to: 1.2 } }, layers: [L_('$.gt', ['all']), GHOST(['all'])] }] }) },
+  turntable: { label: 'Turntable (side view, slow turn)', requires: ['gt'], params: { duration: 12, deg: 360 },
+    make: p => ({ name: 'Turntable', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Side view turn', duration: p.duration, fadeSec: 0.4, camera: { tilt: { to: 80, ease: 'out' } },
+        layers: [L_('$.gt', ['all']), L_('nucleus.surface', ['all'], { opacity: 0.3 }), GHOST(['all'])] }] }) },
+  zoomDive: { label: 'Zoom dive into the cell', requires: ['gt'], params: { duration: 8, deg: 90 },
+    make: p => ({ name: 'Zoom dive', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Dive in', duration: p.duration * 0.6, camera: { fit: { to: 0.35 }, tilt: { to: 45 } }, layers: [L_('$.gt', ['all']), GHOST(['all'])] },
+      { name: 'Pull out', duration: p.duration * 0.4, camera: { fit: { to: 1.15 }, tilt: { to: 20 } }, layers: [L_('$.gt', ['all']), GHOST(['all'])] }] }) },
+  topDownReveal: { label: 'Top view build-up, then tilt', requires: ['gt'], params: { up: 5, tilt: 4, deg: 0 },
+    make: p => ({ name: 'Top-down reveal', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Build up from above', duration: p.up, camera: { tilt: { to: 0 } }, sweep: SW('z', 0, 1, 0),
+        layers: [GHOST(['ahead']), L_('$.gt', ['behind'])] },
+      { name: 'Tilt to show the height', duration: p.tilt, camera: { tilt: { to: 65 }, az: { by: 60 } }, layers: [L_('$.gt', ['all']), GHOST(['all'])] }] }) },
+  peelAway: { label: 'Peel away the cytoplasm (top down)', requires: ['gt'], params: { duration: 6, deg: 120 },
+    make: p => ({ name: 'Peel away', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Cytoplasm off, top to bottom', duration: p.duration, caption: 'Inside the cell', sweep: SW('z', 1, 0, 0),
+        layers: [L_('cyto.surface', ['ahead'], { opacity: 0.55 }), L_('$.gt', ['all']), L_('nucleus.surface', ['all'], { opacity: 0.35 })] }] }) },
+  xRay: { label: 'X-ray (the cell fades away)', requires: ['gt'], params: { duration: 6, deg: 180 },
+    make: p => ({ name: 'X-ray', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'The cell', duration: p.duration / 3, fadeSec: 0.4, layers: [L_('cyto.surface', ['all'], { opacity: 0.6 }), L_('nucleus.surface', ['all'], { opacity: 0.5 })] },
+      { name: 'Seen through', duration: p.duration * 2 / 3, fadeSec: 1.2, layers: [L_('$.gt', ['all']), GHOST(['all'])] }] }) },
+  slabTour: { label: 'Optical sections up and down', requires: ['gt'], params: { duration: 10, slab: 0.4, deg: 0 },
+    make: p => ({ name: 'Optical sections', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Up', duration: p.duration / 2, caption: 'Optical sections', camera: { tilt: { to: 35 } }, sweep: SW('z', 0, 1, p.slab, 'linear'),
+        layers: [L_('$.gt', ['at']), L_('$.gt', ['ahead', 'behind'], { opacity: 0.1 }), GHOST(['all'])] },
+      { name: 'Down', duration: p.duration / 2, sweep: SW('z', 1, 0, p.slab, 'linear'),
+        layers: [L_('$.gt', ['at']), L_('$.gt', ['ahead', 'behind'], { opacity: 0.1 }), GHOST(['all'])] }] }) },
+  depthScan: { label: 'Depth scan (front to back slab)', requires: ['gt'], params: { duration: 7, slab: 1.5 },
+    make: p => ({ name: 'Depth scan', structure: p.structure, orbit: { deg: 0 }, steps: [
+      { name: 'Front to back', duration: p.duration, camera: { tilt: { to: 60 } }, sweep: SW('d', 1, 0, p.slab, 'linear'),
+        layers: [L_('$.gt', ['at']), L_('$.gt', ['ahead', 'behind'], { opacity: 0.08 }), GHOST(['all'])] }] }) },
+  wipeIn: { label: 'Wipe in, left to right, while turning', requires: ['gt'], params: { duration: 6, deg: 90 },
+    make: p => ({ name: 'Wipe in', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Wipe', duration: p.duration, sweep: SW('x', 0, 1, 0.6),
+        layers: [GHOST(['ahead', 'at']), L_('$.gt', ['at'], { color: '#ffffff' }), L_('$.gt', ['behind'])] }] }) },
+  shellToCore: { label: 'Outside in: cytoplasm, nucleus, then the structure', requires: ['gt'], params: { duration: 9, deg: 270 },
+    make: p => ({ name: 'Outside in', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Cytoplasm', duration: p.duration / 3, caption: 'Cytoplasm', fadeSec: 0.5, layers: [L_('cyto.surface', ['all'], { opacity: 0.5 }), L_('cyto.outline', ['all'])] },
+      { name: 'Nucleus', duration: p.duration / 3, caption: 'Nucleus', fadeSec: 0.5, layers: [GHOST(['all']), L_('nucleus.surface', ['all'], { opacity: 0.6 })] },
+      { name: 'Structure', duration: p.duration / 3, caption: 'Structure', fadeSec: 0.5, layers: [GHOST(['all']), L_('nucleus.surface', ['all'], { opacity: 0.2 }), L_('$.gt', ['all'])] }] }) },
+  dyeLattice: { label: 'Simulated to dye sites (z sweep)', requires: ['gt', 'dyes'], params: { duration: 7, deg: 60 },
+    make: p => ({ name: 'Simulated -> dye sites', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Dyes below the plane', duration: p.duration, caption: 'Labelled dye sites', camera: { fit: { to: 0.6 } }, sweep: SW('z', 0, 1, 0, 'linear'),
+        layers: [L_('$.gt', ['ahead']), L_('$.dyes', ['behind'])] }] }) },
+  wfDepthSlice: { label: 'WideField x-z slice through depth', requires: ['gt', 'wfSlice'], params: { duration: 8 },
+    make: p => ({ name: 'WideField x-z slice', structure: p.structure, orbit: { deg: 0 }, steps: [
+      { name: 'Slice front to back', duration: p.duration, caption: 'WideField, x-z', camera: { tilt: { to: 65 } }, sweep: SW('d', 1, 0, 0, 'linear'),
+        layers: [L_('$.gt', ['behind'], { opacity: 0.3 }), L_('$.wfSlice', ['at'])] }] }) },
+  wipeSimToIso: { label: 'Wipe: simulated vs thresholded WideField', requires: ['gt', 'wfIso'], params: { duration: 8, deg: 0 },
+    make: p => ({ name: 'Simulated | thresholded', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Wipe across', duration: p.duration, caption: 'Ground truth | segmented WideField', camera: { tilt: { to: 40 } }, sweep: SW('h', 0, 1, 0, 'inOut'),
+        layers: [L_('$.gt', ['ahead']), L_('$.wfIso', ['behind'])] }] }) },
+  wipeSimToLocs: { label: 'Wipe: simulated vs localizations', requires: ['gt', 'locs'], params: { duration: 8, deg: 0 },
+    make: p => ({ name: 'Simulated | localized', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Wipe across', duration: p.duration, caption: 'Ground truth | SMLM localizations', camera: { tilt: { to: 30 } }, sweep: SW('h', 0, 1, 0, 'inOut'),
+        layers: [L_('$.gt', ['ahead']), L_('$.locs', ['behind'])] }] }) },
+  smlmBuild: { label: 'SMLM reconstruction builds up, turning', requires: ['gt', 'locs'], params: { duration: 10, deg: 360 },
+    make: p => ({ name: 'SMLM build-up', structure: p.structure, orbit: { deg: p.deg }, keepAfter: ['$.locs'], steps: [
+      { name: 'Localizations bottom to top', duration: p.duration, caption: 'SMLM localizations', sweep: SW('z', 0, 1, 0, 'linear'),
+        layers: [L_('$.gt', ['ahead'], { opacity: 0.25 }), L_('$.locs', ['behind'])] }] }) },
+  smlmSlab: { label: 'SMLM frames in a slab, localizations around', requires: ['srFrames', 'locs'], params: { duration: 10, deg: 120 },
+    make: p => ({ name: 'Blinking slab', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Slab down', duration: p.duration, caption: 'Blinking at the focus', sweep: SW('z', 1, 0, 0.4, 'linear'),
+        layers: [L_('$.srFrames', ['at']), L_('$.locs', ['ahead', 'behind'], { opacity: 0.35 })] }] }) },
+  bfFocus: { label: 'BrightField focus sweep', requires: [], params: { duration: 8, deg: 60 },
+    make: p => ({ name: 'BrightField focus', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'Focus up through the cell', duration: p.duration, caption: 'BrightField, through focus', camera: { tilt: { to: 30 } }, sweep: SW('z', 0, 1, 0, 'linear'),
+        layers: [L_('cell.bfSlice', ['at']), GHOST(['ahead'])] }] }) },
+  allModalities: { label: 'Three modalities, one after another', requires: ['gt', 'wfSlice', 'srFrames'], params: { each: 5, deg: 360 },
+    make: p => ({ name: 'Simulated, WideField, SMLM, BrightField', structure: p.structure, orbit: { deg: p.deg }, steps: [
+      { name: 'WideField', duration: p.each, caption: 'WideField', sweep: SW('z', 1, 0, 0, 'linear'), layers: [L_('$.gt', ['ahead'], { opacity: 0.3 }), L_('$.wfSlice', ['at'])] },
+      { name: 'SMLM', duration: p.each, caption: 'SMLM camera frames', sweep: SW('z', 0, 1, 0, 'linear'), layers: [L_('$.gt', ['ahead'], { opacity: 0.3 }), L_('$.srFrames', ['at'])] },
+      { name: 'BrightField', duration: p.each, caption: 'BrightField', sweep: SW('z', 1, 0, 0, 'linear'), layers: [L_('$.gt', ['ahead'], { opacity: 0.3 }), L_('cell.bfSlice', ['at'])] }] }) },
+});
+
+// ---- whole sequences ("New from…") ----
+function seqOf(name, cycles, cam) {
+  const s = defaults();
+  s.name = name;
+  Object.assign(s.camera, cam || {});
+  for (const [preset, params, extra] of cycles) { const c = cycleFromPreset(preset, params); Object.assign(c, extra || {}); s.cycles.push(c); }
+  return s;
+}
+const SEQUENCES = {
+  starter: { label: 'Microtubules, then nucleus', make: () => starter() },
+  example: { label: 'Simulated, WideField, thresholded (needs data)', make: () => example() },
+  grandTour: { label: 'Grand tour: outside in, fly around, sections', make: () => seqOf('Grand tour', [
+    ['shellToCore', { structure: 'mt', duration: 9, deg: 180 }], ['flyAround', { structure: 'mt', duration: 8, deg: 180 }],
+    ['slabTour', { structure: 'mt', duration: 8, slab: 0.4, deg: 90 }]]) },
+  groundTruthVsData: { label: 'Ground truth vs data: wipes (needs data)', make: () => seqOf('Ground truth vs data', [
+    ['wipeSimToIso', { structure: 'mt', duration: 7 }], ['wipeSimToLocs', { structure: 'mt', duration: 7 }]], { tilt: 35 }) },
+  smlmStory: { label: 'An SMLM experiment (needs data)', make: () => seqOf('An SMLM experiment', [
+    ['buildUp', { structure: 'mt', duration: 5, deg: 90 }], ['smlmSlab', { structure: 'mt', duration: 8, deg: 120 }],
+    ['smlmBuild', { structure: 'mt', duration: 8, deg: 150 }]]) },
+  modalities: { label: 'One cell, every modality (needs data)', make: () => seqOf('Every modality', [
+    ['popIn', { structure: 'mt', duration: 3 }, { orbit: { degPerSec: 20 } }], ['allModalities', { structure: 'mt', each: 5, deg: 300 }]]) },
+  turntableShow: { label: 'Turntable: microtubules and nucleus', make: () => seqOf('Turntable', [
+    ['turntable', { structure: 'mt', duration: 12, deg: 360 }]], { tilt: 70 }) },
+};
+
 // The issue's example: the microtubules simulated bottom to top while the view turns, WideField slices back down
 // leaving the thresholded surface, then the nucleus pops in with the surface kept.
 function example() {
@@ -398,5 +508,5 @@ function example() {
 }
 
 globalThis.IscAnimSeq = { FORMAT, VERSION, EASE, ease, defaults, migrate, bind, axisVec, extentAlong, compileSequence, zoneIntervals,
-  evalCompiled, PRESETS, cycleFromPreset, presetFits, requiredData, validate, starter, example, newId, clone };
+  evalCompiled, PRESETS, cycleFromPreset, presetFits, requiredData, validate, starter, example, SEQUENCES, newId, clone };
 })();

@@ -131,6 +131,20 @@ S.setAfterDraw((g, st, cam) => {
 
 // ---- preview ----
 let lastFrame = null;
+// Data an animation needs is prepared by itself: when a sequence that shows image layers is previewed or edited and
+// its target cell lacks them (once per sequence data, target and settings; Prepare retries by hand).
+const autoTried = new Set();
+function autoPrepare() {
+  if (preparing || exportJob || !C || !S.packingIdle()) return;
+  const need = A.requiredData(C, R).map(n => n.layer).filter(id => S.dataKinds[id]), key = frozenTarget || resolveTarget();
+  if (!need.length || !key) return;
+  const st = S.dataStatus(need, key, seq.data);
+  if (!st.length || st.every(x => x.ready)) return;
+  const k = key + '|' + need.join(',') + '|' + JSON.stringify(seq.data);
+  if (autoTried.has(k)) return;
+  autoTried.add(k);
+  prepare().catch(e => console.warn('auto-prepare:', e.message || e));
+}
 function show() {
   // while the cells around the view are still being packed, the cell nearest the centre may still change
   if (!S.packingIdle() && (seq.scene.target || {}).mode !== 'pick') { frozenTarget = null; frozenTarget = resolveTarget(); C = compile(); }
@@ -138,6 +152,7 @@ function show() {
   if (!boundsPrecise && target) { const b = S.cellBounds(target); if (b && b.precise) C = compile(); }
   lastFrame = frameAt(t);
   if (!lastFrame) { S.setPreview(null); drawBar(); return; }
+  autoPrepare();
   S.setPreview(toState(lastFrame, true));
   drawBar();
 }
@@ -239,7 +254,7 @@ function setTab(tab) {
   $('panel').hidden = anim; $('animPanel').hidden = !anim;
   for (const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === tab);
   UI.store.set('tab', tab);
-  if (anim) { if (mode === 'off') mode = 'free'; render(); S.setAnimBar(true); drawBar(); }
+  if (anim) { if (mode === 'off') mode = 'free'; render(); S.setAnimBar(true); drawBar(); if (!C) C = compile(); setTimeout(autoPrepare, 600); }
   else { exitPreview(); mode = 'off'; S.setAnimBar(false); }
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
@@ -251,6 +266,7 @@ function changed(structural, commit = true) {
   save();
   C = compile();
   if (structural) render(); else refreshSummaries();
+  if (mode !== 'off') setTimeout(autoPrepare, 600);
   if (mode === 'preview') show(); else drawBar();
 }
 const findCycle = id => seq.cycles.find(c => c.id === id);
@@ -485,11 +501,11 @@ function render() {
     catch (e) { alert('could not open ' + f.name + ': ' + e.message); }
   });
   const presetSel = h('select', { title: 'Start over from a ready-made sequence' });
-  for (const [v, l] of [['', 'New from…'], ['starter', 'Microtubules, then nucleus'], ['example', 'Simulated, WideField, thresholded (needs data)'], ['empty', 'Empty']]) presetSel.append(h('option', { value: v }, l));
+  for (const [v, l] of [['', 'New from…'], ...Object.entries(A.SEQUENCES).map(([k, S]) => [k, S.label]), ['empty', 'Empty']]) presetSel.append(h('option', { value: v }, l));
   presetSel.addEventListener('change', () => {
     if (!presetSel.value) return;
     if (!confirm('Replace the current animation? (Undo brings it back.)')) { presetSel.value = ''; return; }
-    snapshot(); seq = presetSel.value === 'starter' ? A.starter() : presetSel.value === 'example' ? A.example() : A.defaults(); changed(true);
+    snapshot(); seq = A.SEQUENCES[presetSel.value] ? A.SEQUENCES[presetSel.value].make() : A.defaults(); changed(true);
   });
   const btns = h('div', { class: 'btns' });
   btns.append(presetSel,
@@ -565,7 +581,7 @@ function render() {
     const ready = status.length && status.every(x => x.ready);
     const line = h('div', { class: 'note' }, target ? status.map(x => `${({ wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField' })[x.kind]}: ${x.ready ? 'ready' : x.busy ? `${x.busy.done}/${x.busy.total}` : 'to make'}`).join(' · ') : 'no target cell yet');
     const pb = h('div', { class: 'btns' });
-    pb.append(btn(ready ? 'Ready' : 'Prepare data', 'Makes the z-stacks for the target cell (kept in the browser; the export makes them too)', () => prepare()), line);
+    pb.append(btn(ready ? 'Ready' : 'Prepare data', 'The z-stacks are made by themselves when the animation needs them (and before an export); this makes them now', () => prepare()), line);
     panel.append(pb);
   }
   // export

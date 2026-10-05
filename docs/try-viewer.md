@@ -63,7 +63,10 @@ Notes:
   wake), with its own colour and opacity. A step without a sweep makes its layers pop in (fading). Typical: the
   simulated microtubules building up bottom to top while the view turns, then a slab moving back down. Duplicate a cycle
   and switch its structure to repeat it for the nucleus; "keep shown after" leaves a layer on for later cycles. Ready-made
-  cycles: orbit, pop in, build up, moving slab, side to side, up then down. The timeline under the view plays and
+  cycles (27): orbits, fly-arounds, turntable, zoom dive, top-view reveal, peel away, x-ray, optical sections, depth scan,
+  wipes, outside-in, dye sites, WideField / SMLM / BrightField slices, ground truth vs thresholded or localized, SMLM
+  build-up; ready-made sequences under "New from…" (grand tour, ground truth vs data, an SMLM experiment, every
+  modality, turntable). The timeline under the view plays and
   scrubs it (Space, arrows, [ and ]; once, loop or ping-pong); the dimmed border shows the export frame. **Export**
   renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
   or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
