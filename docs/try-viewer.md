@@ -59,7 +59,8 @@ Notes:
   the depth colours and bright colours on black.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
-  horizontal and z scale; the Z clip shows as a band.
+  horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
+  the tallest cell in view (+ 1 µm), so a flat field leaves more room for the map.
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
   cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
   above it and a nearer cell covers a farther one.
@@ -93,7 +94,9 @@ Notes:
   shown), or the BrightField image. Picking a layer makes its data in the background straight away (for the centre
   cell, once per cell and settings); a status list under the layers shows each data set (WideField, SMLM frame and
   BrightField z-stacks, SMLM localizations) as ready, being made (with progress), queued or not made, and which layer
-  needs it. The data use the movie settings
+  needs it. The data are made one at a time; ✕ removes an item from the queue (it stays removed until "Make"), and an
+  item whose cell leaves the view is removed by itself (it queues again when the cell is back at the centre). While an
+  image slice is shown, its slice height and the movie's focus height (Acquisition) move together. The data use the movie settings
   (Microscope, Acquisition, the microtubule label): WideField images the structure's dye in WideField mode, SMLM in the
   structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
   mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
@@ -114,6 +117,9 @@ Notes:
   through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
   label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
   emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
+- While the Acquisition group is open, a dashed yellow square on the map shows what the next movie covers. A finished
+  movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
+  view) and its title bar drags it anywhere over the view.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,

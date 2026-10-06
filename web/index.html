@@ -100,6 +100,8 @@
   .dataStatus{margin:8px 0 4px;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:11px;line-height:1.35}
   .dataStatus:empty{display:none}
   .dataStatus .hd{color:var(--muted);margin-bottom:4px}
+  .dataStatus .hd.q{margin:6px 0 2px;padding-top:4px;border-top:1px solid var(--border)}
+  .dataStatus .st a{color:var(--link);text-decoration:none;margin-left:3px}
   .dataStatus .r{display:grid;grid-template-columns:14px minmax(0,1fr) auto;column-gap:4px;align-items:baseline;margin:3px 0}
   .dataStatus .r .st{font-variant-numeric:tabular-nums}
   .dataStatus .sub2,.dataStatus .bar{grid-column:2 / 4}
@@ -136,11 +138,12 @@
   #cv{position:relative;z-index:2;background:transparent}
   /* x-z side view: the bottom --xz-h of the canvas area (the three layers above shrink to the rest) */
   #cvXZ{position:absolute;left:0;bottom:0;display:none;background:#05070a;border-top:1px solid #232a35;box-sizing:border-box;z-index:2}
-  #canvasHost.xz #legend,#canvasHost.xz #movie{bottom:calc(var(--xz-h) + 8px)}
+  #canvasHost.xz #legend{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
   #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
+  #movie .t.drag{cursor:move;user-select:none}
   #movie a{color:#8bb8e8}
   #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
   #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:#000}
@@ -180,7 +183,7 @@
     <canvas id="cvXZ"></canvas>
     <div id="hud"></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
-    <div id="movie"><div class="t"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
+    <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
     <div id="animBar"></div>
@@ -410,7 +413,7 @@ const UI_GROUPS = [
       ['srLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons).'],
       ['bf', 'BrightField', 'The BrightField image of the cell (all structures) with focus at the slice height.'],
     ], 'none', { kids: [
-      range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown). The z-stacks run from 1 µm below the coverslip to 1 µm above the cell top; so does this slider.', -1, 20, 0.05, 1.5, { fmt: fx(2), show: sliceOn }),
+      range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown). The z-stacks run from 1 µm below the coverslip to 1 µm above the cell top; so does this slider. It moves the movie\'s focus height (Acquisition) with it.', -1, 20, 0.05, 1.5, { fmt: fx(2), show: sliceOn }),
       check('opaqueSlices', 'Opaque slice', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false, { show: () => ['wf', 'wfSum', 'bf'].includes(sliceKind()) }),
     ] }),
     check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { kids: [
@@ -652,8 +655,8 @@ const UI_GROUPS = [
 
   { sect: 'Acquisition', id: 'acq', title: 'Acquisition', open: true, items: [
     num('mv_frames', 'Frames', 'frames', 'Number of camera frames.', 1, 2000, 1, 10),
-    num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the playback frame time, at least 30 ms).', 1, null, 1, 50),
-    num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus.', null, null, 0.1, 0.5),
+    num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the player\'s frame time).', 1, null, 1, 50),
+    num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus. While an image slice is shown (View), it moves with the slice height.', null, null, 0.1, 0.5),
     num('mv_z-range-um', 'Dye z range', 'µm', 'Only dyes within ± range/2 of the focal plane are rendered (0 = all). <code>SimType_CellFieldZRangeUm</code>', 0, null, 0.5, 7, { adv }),
     num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame after the illumination starts. 60 s: past the dSTORM initial ON phase and the first PALM conversions, near steady state; 0 shows the start (every dSTORM dye ON).', 0, null, 1, 60, { adv }),
     button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
@@ -1184,11 +1187,35 @@ function stateFromUI() {
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
 }
 
-const XZ_FRAC = 0.2, XZ_MIN_PX = 80; // x-z side view: share of the canvas area's height (CSS px floor)
+// x-z side view: as tall as the tallest cell in view (+ XZ_MARGIN_UM, at the view's scale; fitXZ), between XZ_MIN_PX
+// and XZ_MAX_FRAC of the canvas area; XZ_FRAC until the first frame says.
+const XZ_FRAC = 0.2, XZ_MIN_PX = 56, XZ_MAX_FRAC = 0.45, XZ_MARGIN_UM = 1;
+let xzWantPx = 0, xzFitAt = 0;
+function xzHeightFor(avail) { return Math.round(Math.min(avail * XZ_MAX_FRAC, Math.max(XZ_MIN_PX, xzWantPx || avail * XZ_FRAC))); }
+function fitXZ(visCells, st, cam) {
+  if (!visCells.length) return;
+  let top = 0;
+  for (const c of visCells) top = Math.max(top, c.height);
+  const sz = xzSliceZ(st);
+  if (sz !== null) top = Math.max(top, sz);
+  const want = Math.round((top + XZ_MARGIN_UM) * cam.S / devicePixelRatio + XZ_FLOOR_PX + 4);
+  // grow at once, shrink only by a margin and not right after a change (a tall cell at the view's edge could flip it)
+  const now = performance.now();
+  if (want > xzWantPx + 2 || (want < xzWantPx - 12 && now - xzFitAt > 800)) {
+    xzWantPx = want; xzFitAt = now;
+    const r = host.getBoundingClientRect(), h = xzHeightFor(r.height - animBarH());
+    if (Math.abs(h - (parseFloat(cvXZ.style.height) || 0)) >= 2) setTimeout(resizeCanvas, 0);
+  }
+}
+// The height of the image slice shown (a horizontal one), or null.
+function xzSliceZ(st) {
+  if (!st.slice || (st.slice.axis && st.slice.axis !== 'z') || !SLICE_LAYERS.some(id => st.layers[id])) return null;
+  return +st.slice.pos;
+}
 function resizeCanvas() {
   const r = host.getBoundingClientRect();
   const barH = animBarH();   // the animation timeline (web/anim/editor.js) under the view, when shown
-  const xzH = els.showXZ.checked && !previewState ? Math.max(XZ_MIN_PX, Math.round((r.height - barH) * XZ_FRAC)) : 0;
+  const xzH = els.showXZ.checked && !previewState ? xzHeightFor(r.height - barH) : 0;
   const mainH = r.height - xzH - barH; // the view (and so the FOV) is the area above the side view
   cv.width = Math.round(r.width * devicePixelRatio);
   cv.height = Math.round(mainH * devicePixelRatio);
@@ -2188,6 +2215,14 @@ function drawXZWith(vis, p, F, cam) {
     g.stroke(); g.setLineDash([]);
   }
 
+  // the image slice's height: a dotted line
+  const sz = xzSliceZ(F.st);
+  if (sz !== null && Y(sz) > 0 && Y(sz) < H) {
+    g.strokeStyle = 'rgba(255,209,102,0.9)'; g.lineWidth = Math.max(1, dpr); g.setLineDash([2 * dpr, 3 * dpr]);
+    g.beginPath(); g.moveTo(0, Y(sz)); g.lineTo(W, Y(sz)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = 'rgba(255,209,102,0.95)'; g.font = `${10 * dpr}px system-ui, Segoe UI, sans-serif`;
+    g.textAlign = 'right'; g.textBaseline = 'bottom'; g.fillText(`slice ${sz.toFixed(2)} µm`, W - 6 * dpr, Y(sz) - 2 * dpr);
+  }
   // coverslip, z labels, title
   g.strokeStyle = '#8b97a8'; g.lineWidth = Math.max(1, dpr);
   g.beginPath(); g.moveTo(0, z0); g.lineTo(W, z0); g.stroke();
@@ -3172,6 +3207,7 @@ function renderFrame(st, target) {
   if (!off && afterDraw) afterDraw(ctxTop, st, cam);
   if (st.ui) {
     drawMovieFov();
+    drawPlannedFov();
     drawScaleBar(pxPerUm);
     const nDet = vis.filter(v => v.detailed).length;
     hud.textContent = hudHead + '\n' +
@@ -3185,7 +3221,8 @@ function renderFrame(st, target) {
   }
   if (F.animate) setTimeout(requestDraw, 100);
   if (!off && st.ui && F.dataMissing.length && F.target) autoAcquire(F.target);
-  if (!off && st.ui) showDataStatus(F.target);
+  if (!off && st.ui) { dropOutOfView(visCells); showDataStatus(F.target); }
+  if (!off && st.ui && st.xz) fitXZ(visCells, st, cam);
   lastFrame = { cam, F, vis };
   // loading: cells whose asset is on its way, the view's blocks not all packed, blocks still packing (a neighbour
   // in one of them would pop in later)
@@ -3414,38 +3451,67 @@ els.reseed.addEventListener('click', () => {
   requestDraw();
 });
 // Data layers: the data a shown data layer needs (DATA_KIND: a z-stack or a localization run) for the cell nearest the
-// view centre are made by themselves as soon as the layer is picked, once the packing around the view has settled
-// (autoAcquire, from renderFrame), one run at a time (later picks queue). A run is tried once per cell, layers and
-// settings; a failed one shows in the status list with a Retry. showDataStatus lists, per data set, what is ready,
-// being made, queued or not made.
-const autoTried = new Set(), dataFailed = new Map();   // run key -> error message
-let autoBusy = false;
-const runKey = (key, ids) => key + '|' + ids.join(',') + '|' + JSON.stringify(dataParams()) + '|' + movieSpec({ x: 0, y: 0 });
+// view centre are queued as soon as the layer is picked, once the packing around the view has settled (autoAcquire,
+// from renderFrame), and made one at a time (pumpData). A queued or running item can be removed by hand (the status
+// list's ✕; it stays removed until "Make" or a settings change) and is removed by itself when its cell leaves the view
+// (dropOutOfView; it queues again when the cell is the centre one again). A failed item shows its error and a Retry.
+const dataQueue = [];   // {k: plan key, kind, cell, ids, ctrl (AbortController while running), running}
+const dataRemoved = new Set(), dataFailed = new Map();   // plan keys removed by hand; plan key -> error message
 const shownDataLayers = () => Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
+const dataReady = (kind, plan) => !!(plan && (kind === 'loc' ? locStore : stackStore).has(plan.key));
+function packingIdle() { return !!(packCache && packCache.covers && !blockPending.size && packCache.map.size); }
 function autoAcquire(key) {
-  if (autoBusy || !packingIdle() || !cellBounds(key) || !cellBounds(key).precise) return;
+  if (!packingIdle() || !cellBounds(key) || !cellBounds(key).precise) return;
   const ids = shownDataLayers();
   if (!ids.length) return;
-  const k = runKey(key, ids);
-  if (autoTried.has(k)) return;
-  autoTried.add(k);
-  setTimeout(() => runAcquire(key, ids, k), 0);
+  const P = dataPlans(key);
+  for (const kind of new Set(ids.map(id => DATA_KIND[id]))) {
+    const plan = P[kind];
+    if (!plan || dataReady(kind, plan) || dataRemoved.has(plan.key) || dataFailed.has(plan.key) || dataQueue.some(j => j.k === plan.key)) continue;
+    dataQueue.push({ k: plan.key, kind, cell: key, ids: ids.filter(id => DATA_KIND[id] === kind).slice(0, 1), ctrl: null, running: false });
+  }
+  pumpData();
 }
-function packingIdle() { return !!(packCache && packCache.covers && !blockPending.size && packCache.map.size); }
-async function runAcquire(key, ids, k) {
-  if (autoBusy) { autoTried.delete(k); return; }   // picked up again by the next frame
-  autoBusy = true;
-  try { await acquireData(ids, key, null, () => showDataStatus(key)); dataFailed.delete(k); }
-  catch (e) { dataFailed.set(k, e.message || String(e)); }
-  finally { autoBusy = false; requestDraw(); }
+async function pumpData() {
+  if (dataQueue.some(j => j.running)) return;
+  // an item whose settings changed since it was queued is stale (its cell's plan has another key now)
+  for (let i = dataQueue.length - 1; i >= 0; i--) { const j = dataQueue[i], pl = dataPlans(j.cell)[j.kind]; if (!pl || pl.key !== j.k) dataQueue.splice(i, 1); }
+  const job = dataQueue[0];
+  if (!job) { requestDraw(); return; }
+  job.running = true; job.ctrl = new AbortController();
+  try { await acquireData(job.ids, job.cell, null, () => showDataStatus(lastFrame ? lastFrame.F.target : job.cell), job.ctrl.signal); dataFailed.delete(job.k); }
+  catch (e) { if (!job.ctrl.signal.aborted) dataFailed.set(job.k, e.message || String(e)); }
+  finally {
+    const i = dataQueue.indexOf(job);
+    if (i >= 0) dataQueue.splice(i, 1);
+    requestDraw();
+    setTimeout(pumpData, 0);
+  }
+}
+// Removes a queued or running item (byHand: it stays removed for this cell and settings).
+function removeData(k, byHand) {
+  const i = dataQueue.findIndex(j => j.k === k);
+  if (byHand) dataRemoved.add(k);
+  if (i < 0) return;
+  const j = dataQueue[i];
+  if (j.running) { j.ctrl.abort(); j.stopping = true; } else dataQueue.splice(i, 1);   // a running one stops after its plane in flight
+  requestDraw();
+}
+// The items of cells no longer in the view are removed (not while the packing around the view settles).
+function dropOutOfView(visCells) {
+  if (!dataQueue.length || !packingIdle()) return;
+  const inView = new Set(visCells.map(c => c.cx + ',' + c.cy));
+  for (const j of dataQueue.slice()) if (!inView.has(j.cell)) removeData(j.k, false);
 }
 // ---- the status list of the data layers (Settings > View) ----
 const DATA_SETS = [['wf', 'WideField z-stack'], ['sr', 'SMLM frame stack'], ['bf', 'BrightField z-stack'], ['loc', 'SMLM localizations']];
+const DATA_SET_NAME = Object.fromEntries(DATA_SETS);
 const DATA_LAYER_NAMES = { 'mt.wfSlice': 'image slice', 'mt.srFrames': 'image slice', 'mt.srFramesLoc': 'image slice', 'cell.bfSlice': 'image slice',
   'mt.wfIso': 'thresholded', 'mt.locs': 'localizations' };
 const planMemo = new Map();   // the plans for a cell and settings (the localization plan reads the light path: not per frame)
 function dataPlans(key) {
-  const dp = dataParams(), mk = key + '|' + JSON.stringify(dp) + '|' + movieSpec({ x: 0, y: 0 }) + '|' + !!(cellBounds(key) || {}).precise;
+  const dp = dataParams(), spec = movieSpec({ x: 0, y: 0 }).replace(/(^| )(z|start-sec|seed)=[^ ]*/g, '');
+  const mk = key + '|' + JSON.stringify(dp) + '|' + spec + '|' + !!(cellBounds(key) || {}).precise;
   let P = planMemo.get(mk);
   if (!P) {
     P = {};
@@ -3461,7 +3527,7 @@ function showDataStatus(key) {
   const wait = 250 - (performance.now() - statusLast);
   if (wait > 0) { if (!statusTimer) statusTimer = setTimeout(() => { statusTimer = 0; showDataStatus(lastFrame ? lastFrame.F.target : key); }, wait); return; }
   statusLast = performance.now();
-  const layers = stateFromUI().layers, ids = shownDataLayers(), b = key && cellBounds(key);
+  const ids = shownDataLayers(), b = key && cellBounds(key);
   // the slice height follows the centre cell: from below the coverslip to above its top (the z-stacks' range)
   if (b && b.precise) {
     const mx = Math.ceil((b.z[1] + DATA_ABOVE_UM) * 20) / 20;
@@ -3473,39 +3539,54 @@ function showDataStatus(key) {
     }
   }
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const act = (what, k, label) => ` <a href="#" data-act="${what}" data-k="${esc(k)}">${label}</a>`;
   let head;
   if (!key) head = 'No cell at the view centre yet.';
   else if (!packingIdle() || !(b && b.precise)) head = `Cell ${esc(key)}: waiting for the cells around it to pack…`;
   else head = `Cell ${esc(key)} (nearest the view centre)`;
   const P = key && b && b.precise ? dataPlans(key) : {};
-  const failed = key && ids.length ? dataFailed.get(runKey(key, ids)) : null;
   let html = `<div class="hd">${head}</div>`;
   for (const [kind, label] of DATA_SETS) {
     const plan = P[kind], users = [...new Set(ids.filter(id => DATA_KIND[id] === kind).map(id => DATA_LAYER_NAMES[id]))];
-    const ready = !!(plan && (kind === 'loc' ? locStore : stackStore).has(plan.key)), busy = plan && acqStatus.get(plan.key);
+    const ready = dataReady(kind, plan), busy = plan && acqStatus.get(plan.key), job = plan && dataQueue.find(j => j.k === plan.key);
     const zs = plan ? (kind === 'loc' ? plan.o.zs : plan.zs) : [], n = zs.length, size = !plan ? '' : kind === 'loc'
       ? `${n} focus positions × ${plan.o.N} frames`
       : `${n} planes, ${zs[0].toFixed(1)} to ${zs[n - 1].toFixed(1)} µm${kind === 'sr' ? ` × ${plan.F} frames` : ''}`;
     let icon, state, cls = '', extra = '';
     if (ready) { icon = '✓'; state = 'ready'; cls = 'ok'; }
-    else if (busy) { icon = '◔'; state = `making ${busy.done}/${busy.total}`; cls = 'run'; extra = `<div class="bar"><i style="width:${(100 * busy.done / Math.max(1, busy.total)).toFixed(1)}%"></i></div>`; }
-    else if (users.length && failed) { icon = '✕'; state = 'failed'; cls = 'fail'; extra = `<div class="sub2">${esc(failed)} <a href="#" data-retry="1">Retry</a></div>`; }
-    else if (users.length) { icon = '…'; state = plan ? 'queued' : 'waiting'; cls = 'run'; }
+    else if (job && job.stopping) { icon = '…'; state = 'stopping…'; cls = 'off'; }
+    else if (busy) { icon = '◔'; state = `making ${busy.done}/${busy.total}` + act('remove', plan.key, '✕'); cls = 'run';
+      extra = `<div class="bar"><i style="width:${(100 * busy.done / Math.max(1, busy.total)).toFixed(1)}%"></i></div>`; }
+    else if (job) { icon = '…'; state = (job.running ? 'starting' : 'queued') + act('remove', plan.key, '✕'); cls = 'run'; }
+    else if (plan && dataFailed.has(plan.key)) { icon = '✕'; state = 'failed'; cls = 'fail'; extra = `<div class="sub2">${esc(dataFailed.get(plan.key))}${act('make', plan.key, 'Retry')}</div>`; }
+    else if (plan && dataRemoved.has(plan.key)) { icon = '○'; state = 'removed' + act('make', plan.key, 'Make'); cls = users.length ? '' : 'off'; }
+    else if (users.length) { icon = '…'; state = 'waiting'; cls = 'run'; }
     else { icon = '○'; state = 'not made'; cls = 'off'; }
     const why = users.length ? 'for the ' + users.join(' and ') : ready || busy ? 'not shown' : 'no layer shows it';
     html += `<div class="r ${cls}"><span class="ic">${icon}</span><span><b>${label}</b></span><span class="st">${state}</span>` +
       `<div class="sub2">${why}${size ? ' · ' + size : ''}</div>${extra}</div>`;
   }
-  html += '<div class="ft">Made in the background with the movie settings (Microscope, Acquisition); kept in this browser.</div>';
+  // the queue's items for other cells (an earlier centre cell still in view)
+  const others = dataQueue.filter(j => j.cell !== key);
+  if (others.length) {
+    html += '<div class="hd q">Also in the queue</div>';
+    for (const j of others) {
+      const busy = acqStatus.get(j.k);
+      html += `<div class="r run"><span class="ic">${busy ? '◔' : '…'}</span><span>Cell ${esc(j.cell)}: ${DATA_SET_NAME[j.kind]}</span>` +
+        `<span class="st">${j.stopping ? 'stopping…' : (busy ? `making ${busy.done}/${busy.total}` : 'queued') + act('remove', j.k, '✕')}</span></div>`;
+    }
+  }
+  html += '<div class="ft">Made in the background with the movie settings (Microscope, Acquisition), one at a time, and kept in this browser. ✕ removes an item from the queue; leaving a cell out of view removes its items.</div>';
   if (html !== el.innerHTML) el.innerHTML = html;
 }
 els.dataStatus.addEventListener('click', ev => {
-  if (!ev.target.dataset || !ev.target.dataset.retry) return;
+  const a = ev.target.closest('a[data-act]');
+  if (!a) return;
   ev.preventDefault();
-  const key = lastFrame && lastFrame.F.target, ids = shownDataLayers();
-  if (!key) return;
-  const k = runKey(key, ids);
-  autoTried.delete(k); dataFailed.delete(k); requestDraw();
+  const k = a.dataset.k;
+  if (a.dataset.act === 'remove') removeData(k, true);
+  else { dataRemoved.delete(k); dataFailed.delete(k); requestDraw(); }
+  statusLast = 0;
 });
 els.resetView.addEventListener('click', () => {
   view.cx = 0; view.cy = 0; view.scale = 9;
@@ -3883,7 +3964,10 @@ function onMovieResult(d) {
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
   document.getElementById('movie').style.display = 'block';
+  clampMoviePanel();
   showMovieFrame(0);
+  if (movieRaf) toggleMoviePlay();   // stop (the old movie's frame time) ...
+  if (d.n > 1) toggleMoviePlay();    // ... and play this one
   requestDraw();
 }
 // One ImageData per movie size and a grey LUT per display range (the same ADU -> byte
@@ -3913,11 +3997,16 @@ function showMovieFrame(f) {
   g.putImageData(movieImg, 0, 0);
   document.getElementById('mv_fno').textContent = `${f + 1}/${d.n}`;
 }
+// A movie plays at its own exposure time per frame (a PSF preview at 100 ms per plane).
+function movieFrameMs() {
+  const m = movie && /(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(movie.spec || '');
+  return movie && movie.psf ? 100 : Math.max(1, m ? +m[1] : +document.getElementById('mv_exposure-ms').value || 50);
+}
 function toggleMoviePlay() {
   const b = document.getElementById('mv_play'), sl = document.getElementById('mv_slider');
   if (movieRaf) { cancelAnimationFrame(movieRaf); movieRaf = 0; b.textContent = '▶'; return; }
   b.textContent = '❚❚';
-  const ms = Math.max(30, +document.getElementById('mv_exposure-ms').value);
+  const ms = movieFrameMs();
   movieLast = performance.now(); movieAcc = 0;
   const tick = now => {
     if (!movie) { movieRaf = 0; return; }
@@ -4591,6 +4680,23 @@ function movieWorldRect(m) {
   const half = /(^| )modality=1( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
   return [x0 - half, y0 - half, x1 - half, y1 - half];
 }
+// While the Acquisition group is open: the square the next movie covers (centred on the view centre), dashed yellow.
+function drawPlannedFov() {
+  const grp = document.querySelector('details[data-group="acq"]');
+  if (!grp || !grp.open || grp.style.display === 'none' || document.getElementById('panel').hidden) return;
+  const n = +document.getElementById('mv_size').value, px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000, size = n * px;
+  const half = document.getElementById('mv_modality').value === '1' ? 0 : px / 2;
+  const x0 = view.cx - size / 2 - half, y0 = view.cy - size / 2 - half, x1 = x0 + size, y1 = y0 + size;
+  ctx = ctxTop;
+  const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => project(x, y, 0));
+  ctx.strokeStyle = 'rgba(255,209,102,0.95)'; ctx.lineWidth = Math.max(1, devicePixelRatio);
+  ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
+  ctx.beginPath(); pts.forEach(([sx, sy], i) => (i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  const top = pts.reduce((a, q) => (q[1] < a[1] ? q : a));
+  ctx.fillStyle = 'rgba(255,209,102,0.95)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(`next movie: ${n} × ${n} px`, top[0], top[1] - 3 * devicePixelRatio);
+}
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
   if (!movie || !movie.rect || document.getElementById('movie').style.display === 'none') return;
@@ -4764,6 +4870,9 @@ async function drawSpecPlot() {
 document.getElementById('panel').addEventListener('input', scheduleSpecPlot);
 document.getElementById('panel').addEventListener('change', scheduleSpecPlot);
 document.getElementById('panel').addEventListener('toggle', scheduleSpecPlot, true);
+// the planned movie square follows the Acquisition group's state and the camera size / pixel size
+document.getElementById('panel').addEventListener('toggle', e => { if (e.target.dataset && e.target.dataset.group === 'acq') requestDraw(); }, true);
+for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality']) document.getElementById(id).addEventListener('input', requestDraw);
 scheduleSpecPlot();
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
@@ -4779,8 +4888,40 @@ document.getElementById('mv_close').addEventListener('click', e => {
   requestDraw();
 });
 
-window.addEventListener('resize', resizeCanvas);
+// The movie player: starts in the bottom-right corner of the canvas area (over the x-z view); its title bar drags it
+// anywhere in the canvas area (kept inside it on a resize).
+const moviePanel = document.getElementById('movie');
+function clampMoviePanel() {
+  if (moviePanel.style.left === '' || moviePanel.style.display === 'none') return;
+  const hr = host.getBoundingClientRect();
+  moviePanel.style.left = Math.max(0, Math.min(hr.width - moviePanel.offsetWidth, parseFloat(moviePanel.style.left))) + 'px';
+  moviePanel.style.top = Math.max(0, Math.min(hr.height - moviePanel.offsetHeight, parseFloat(moviePanel.style.top))) + 'px';
+}
+moviePanel.querySelector('.t.drag').addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.target.closest('a,button,input')) return;
+  e.preventDefault();
+  const hr = host.getBoundingClientRect(), pr = moviePanel.getBoundingClientRect(), dx = e.clientX - pr.left, dy = e.clientY - pr.top;
+  moviePanel.style.right = moviePanel.style.bottom = 'auto';
+  const move = ev => { moviePanel.style.left = (ev.clientX - hr.left - dx) + 'px'; moviePanel.style.top = (ev.clientY - hr.top - dy) + 'px'; clampMoviePanel(); };
+  move(e);
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+});
+window.addEventListener('resize', () => { resizeCanvas(); clampMoviePanel(); });
 els.showXZ.addEventListener('input', resizeCanvas);
+// While an image slice is shown, the slice height (View) and the focus height (Acquisition) move together; turning a
+// slice on takes the focus to the slice.
+let zCoupling = false;
+function coupleZ(from, to) {
+  if (zCoupling || els.dataSlice.value === 'none' || +to.value === +from.value) return;
+  zCoupling = true;
+  try { to.value = from.value; to.dispatchEvent(new Event('input', { bubbles: true })); } finally { zCoupling = false; }
+}
+const mvZ = document.getElementById('mv_z');
+els.sliceZ.addEventListener('input', () => coupleZ(els.sliceZ, mvZ));
+mvZ.addEventListener('input', () => coupleZ(mvZ, els.sliceZ));
+let lastSlice = els.dataSlice.value;
+els.dataSlice.addEventListener('input', () => { if (lastSlice === 'none') coupleZ(els.sliceZ, mvZ); lastSlice = els.dataSlice.value; });
 syncLabels();
 if (/[?&]nw/.test(location.search)) startMainEngine(); // ?nw runs the core on the main thread (for testing)
 else initGenWorkers();
