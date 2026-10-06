@@ -405,6 +405,135 @@ void FocusBands()
    }
 }
 
+// World-anchored dyes: cell (ix, iy) of plane k holds a pure function of
+// (ix, iy, k), so scenes at different poses see the same sample.
+WidefieldDyeGrid WorldGrid(const WidefieldGridSpec& g, double z0, unsigned nz)
+{
+   WidefieldDyeGrid G;
+   G.spec = g;
+   G.k0 = static_cast<long>(std::floor(z0 / g.zPlaneUm));
+   G.nz = nz;
+   const size_t n = static_cast<size_t>(g.nx) * g.ny * nz;
+   G.bleaching.assign(n, 0.0f);
+   G.persistent.assign(n, 0.0f);
+   for (unsigned k = 0; k < nz; k++)
+      for (unsigned iy = 0; iy < g.ny; iy++)
+         for (unsigned ix = 0; ix < g.nx; ix++) {
+            uint32_t h = static_cast<uint32_t>((g.ix0 + ix) * 73856093L) ^ static_cast<uint32_t>((g.iy0 + iy) * 19349663L) ^
+                         static_cast<uint32_t>((G.k0 + k) * 83492791L);
+            h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+            const size_t i = (static_cast<size_t>(k) * g.ny + iy) * g.nx + ix;
+            if (h % 41 == 0) { G.bleaching[i] = 1.0f; G.nBleaching++; }
+            else if (h % 53 == 1) { G.persistent[i] = 1.0f; G.nPersistent++; }
+         }
+   return G;
+}
+
+// The real default PSF kernel (GibsonLanniZernike, MixedRealisticObjective), small.
+const PsfKernelCache& RealKernel()
+{
+   static PsfKernelCache kc;
+   static bool done = false;
+   if (!done) {
+      ScopeSpec spec;
+      std::string err;
+      ParseScopeSpec("psf-kernel-half-width-nm=2000 psf-z-range-um=3", spec, err);
+      ScopePsfKernel(spec, 680.0, kc, err);
+      done = true;
+   }
+   return kc;
+}
+
+// A drifting sample (WidefieldDriftFrames): the frame shifted in the
+// spectrum by d equals the scene posed d the other way (the sample under a
+// camera-fixed, wide illumination), with the real PSF, bleaching and
+// persistent dyes, upscale 2.
+void DriftShift()
+{
+   const PsfKernelCache& kc = RealKernel();
+   if (!kc.valid) { Check(false, "drift shift: no PSF kernel"); return; }
+   double worst = 0;
+   bool ok = true;
+   const double shifts[2][2] = {{37.0, -81.0}, {-143.0, 212.0}};
+   for (const auto& dn : shifts) {
+      WidefieldSceneSpec sA = BaseSpec(24, 2, 0.3);
+      sA.kernelCapUm = 2.0;
+      sA.marginUm += 0.3; // the grid holds the dyes the drift brings within the kernel's reach
+      SquareIllumination ill(8.0, 8.0);
+      KernelWidefieldPsf psf(kc, 2);
+      std::string err;
+      WidefieldScene A;
+      A.SetKeepSpectra(true);
+      ok = ok && A.UpdateFromGrid(WorldGrid(WidefieldScene::GridSpecFor(ill, sA), 0.0, 80), ill, sA, psf, err);
+      std::vector<float> wb;
+      A.FreshBleachWeights(5, wb);
+      A.SetBleachWeights(wb);
+      std::vector<float> cam;
+      RenderShiftedImages(A.Images(), nullptr, 0.0, A.AnchorCoefficients(), dn[0] / (A.Grid().pitchUm * 1000.0),
+                          dn[1] / (A.Grid().pitchUm * 1000.0), cam);
+      // The FOV over the sample moved by -d.
+      WidefieldSceneSpec sB = sA;
+      sB.originXUm -= dn[0] / 1000.0;
+      sB.originYUm -= dn[1] / 1000.0;
+      WidefieldScene B;
+      ok = ok && B.UpdateFromGrid(WorldGrid(WidefieldScene::GridSpecFor(ill, sB), 0.0, 80), ill, sB, psf, err);
+      std::vector<float> wbB, ref;
+      B.FreshBleachWeights(5, wbB);
+      B.RenderFrame(wbB, ref);
+      worst = std::max(worst, MaxRelDiff(cam, ref));
+   }
+   char msg[160];
+   std::snprintf(msg, sizeof msg, "drift: spectrum-shifted frame == scene posed at -d (max rel diff %.2e)", worst);
+   Check(ok && worst < 1e-4, msg);
+}
+
+// z drift: the image at a focus between two grid foci, interpolated, against
+// the scene refocused there (real PSF; DriftFocusGrid's 10 nm step).
+void DriftFocusGridInterp()
+{
+   const PsfKernelCache& kc = RealKernel();
+   if (!kc.valid) { Check(false, "drift focus grid: no PSF kernel"); return; }
+   WidefieldSceneSpec s = BaseSpec(24, 2);
+   s.kernelCapUm = 2.0;
+   s.slabHalfUm = 0.0; // every dye (a slab edge would cut planes in and out)
+   SquareIllumination ill(8.0, 8.0);
+   KernelWidefieldPsf psf(kc, 2);
+   std::string err;
+   WidefieldScene A;
+   A.SetKeepSpectra(true);
+   const WidefieldDyeGrid G = WorldGrid(WidefieldScene::GridSpecFor(ill, s), 0.0, 80);
+   bool ok = A.UpdateFromGrid(G, ill, s, psf, err);
+   std::vector<float> wb;
+   A.FreshBleachWeights(0, wb);
+   A.SetBleachWeights(wb);
+   const std::vector<double> a = A.AnchorCoefficients();
+   DriftBounds b;
+   b.zLo = -40.0;
+   b.zHi = 40.0;
+   WidefieldDriftFrames frames;
+   frames.Begin(b, std::vector<double>(1, s.focusWorldUm));
+   ok = ok && frames.Refresh(A, err);
+   double worst = 0;
+   for (double dz : {-35.0, -4.0, 15.0, 26.3}) {
+      DriftNm d;
+      d.z = dz;
+      std::vector<float> cam;
+      frames.Render(A, 0, d, a, cam);
+      WidefieldSceneSpec sB = s;
+      sB.focusWorldUm = s.focusWorldUm - dz / 1000.0;
+      sB.slabCentreUm = s.slabCentreUm - dz / 1000.0;
+      WidefieldScene B;
+      ok = ok && B.UpdateFromGrid(G, ill, sB, psf, err);
+      std::vector<float> wbB, ref;
+      B.FreshBleachWeights(0, wbB);
+      B.RenderFrame(wbB, ref);
+      worst = std::max(worst, RmsRelDiff(cam, ref));
+   }
+   char msg[160];
+   std::snprintf(msg, sizeof msg, "drift: focus-grid interpolation == the exact focus (rms rel diff %.2e)", worst);
+   Check(ok && worst < 1e-3, msg);
+}
+
 // Sub-cell stage positions: a band-limited PSF, the phase-ramped image
 // against the analytic image at the shifted cell centres.
 void SubCellShift()
@@ -968,6 +1097,8 @@ int main()
    ConvolutionVsDirect();
    FocusBands();
    SubCellShift();
+   DriftShift();
+   DriftFocusGridInterp();
    PhotonConservation();
    Units();
    FrameIntegral();

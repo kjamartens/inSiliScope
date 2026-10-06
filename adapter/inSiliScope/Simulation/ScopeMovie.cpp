@@ -22,6 +22,7 @@
 #include "Timing.h"
 
 #include "CellFieldSource.h"
+#include "Drift.h"
 #include "PsfGeneratorBridge.h"
 #include "SMLMZernike.h"
 #include "SMLMNoise.h"
@@ -87,6 +88,14 @@ const OptionTable& Options()
          { "frames", 1000, "number of frames" },
          { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
          { "start-sec", 60, "simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)" },
+         { "drift-xy-speed-nm-per-sec", 0, "SimType_DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)" },
+         { "drift-z-speed-nm-per-sec", 0, "SimType_DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)" },
+         { "drift-xy-angle-deg", -1, "SimType_DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)" },
+         { "drift-xy-angle-wander-deg", 0, "SimType_DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)" },
+         { "drift-speed-wander-pct", 0, "SimType_DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)" },
+         { "drift-wander-time-sec", 60, "SimType_DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)" },
+         { "drift-xy-nm-per-sqrt-sec", 0, "SimType_DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)" },
+         { "drift-z-nm-per-sqrt-sec", 0, "SimType_DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)" },
          { "pixel-nm", 100, "pixel size, nm" },
          { "background-per-sec", 0, "Background_BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)" },
          { "na", 1.4, "PSFParam_PsfNa: numerical aperture" },
@@ -596,6 +605,10 @@ struct ScopeSetup
    long N = 0;
    long seed = 0;
    double expSec = 0.05, t0Sec = 0.0;
+   // Sample drift: the per-frame displacement (nm, zero at frame 0) and its range.
+   std::vector<DriftNm> drift;
+   DriftBounds driftRange;
+   bool driftOn = false;
    ScopeCamera camera;
    LightPath lp;
    std::vector<LabelPhysics> labels;
@@ -641,6 +654,14 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.cicElectrons = c.cicElectrons;
    p.bitDepth = static_cast<int>(c.bitDepth);
    p.frameDurationSec = expSec;
+   p.drift.xyNmPerSqrtSec = std::max(0.0, O("drift-xy-nm-per-sqrt-sec"));
+   p.drift.zNmPerSqrtSec = std::max(0.0, O("drift-z-nm-per-sqrt-sec"));
+   p.drift.xySpeedNmPerSec = std::max(0.0, O("drift-xy-speed-nm-per-sec"));
+   p.drift.zSpeedNmPerSec = O("drift-z-speed-nm-per-sec");
+   p.drift.xyAngleDeg = O("drift-xy-angle-deg");
+   p.drift.angleWanderDeg = std::max(0.0, O("drift-xy-angle-wander-deg"));
+   p.drift.speedWanderPct = std::max(0.0, O("drift-speed-wander-pct"));
+   p.drift.wanderTimeSec = std::max(0.0, O("drift-wander-time-sec"));
 
    CellFieldSettings cf;
    const double worldSeed = O("world-seed");
@@ -664,7 +685,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    for (const LabelPhysics& l : S.labels)
       cf.labels.push_back(l.label);
 
-   // The camera's CellFieldQueryFor (no drift).
+   // The camera's CellFieldQueryFor (drift: grown below).
    const double um = p.pixelSizeNm / 1000.0, margin = 2.0;
    CellFieldQuery q;
    q.originXUm = O("x") - W * um / 2;
@@ -693,7 +714,42 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.meanFieldDensityPerUm2 = std::max(0.0, O("mean-field-density-per-um2"));
    S.meanFieldSlabNm = std::max(0.0, O("mean-field-slab-nm"));
    S.meanFieldMaxEmitters = std::max(0.0, O("mean-field-max-emitters"));
+   // Sample drift: the per-frame path, and the query rect grown so every
+   // frame's dyes are in it (the renderer adds the drift; the dyes a frame can
+   // show sit that far back) and the z window by the largest |dz| (the focus
+   // itself stays: the mean-field scenes and BrightField use it).
+   S.driftOn = p.drift.On();
+   if (S.driftOn)
+   {
+      S.drift = DriftTrajectory(seed, N, expSec, p.drift);
+      S.driftRange = DriftRange(S.drift);
+      const DriftBounds& b = S.driftRange;
+      S.q.x0Um -= b.xHi / 1000.0;
+      S.q.x1Um -= b.xLo / 1000.0;
+      S.q.y0Um -= b.yHi / 1000.0;
+      S.q.y1Um -= b.yLo / 1000.0;
+      if (S.q.zHalfRangeUm > 0.0)
+         S.q.zHalfRangeUm += std::max(-b.zLo, b.zHi) / 1000.0;
+   }
    return true;
+}
+
+// info.driftNm: x, y, z per frame (empty without drift).
+static void DriftInfo(const ScopeSetup& S, ScopeMovieInfo& info)
+{
+   info.driftNm.clear();
+   for (const DriftNm& d : S.drift)
+   {
+      info.driftNm.push_back(d.x);
+      info.driftNm.push_back(d.y);
+      info.driftNm.push_back(d.z);
+   }
+}
+
+// The drift margin: the xy range in whole pixels plus one (um).
+static double DriftMarginUm(const ScopeSetup& S)
+{
+   return S.driftOn ? (std::ceil(S.driftRange.MaxXyNm() / S.p.pixelSizeNm) + 1.0) * S.p.pixelSizeNm / 1000.0 : 0.0;
 }
 
 namespace {
@@ -977,6 +1033,11 @@ struct Population
    std::vector<double> acc;         // the running image of the per-dye path
    long accFrame = -1;
    double accZ = 0;                 // the z the running image was made at
+   double accDx = 0, accDy = 0;     // ... and the sample drift (px)
+   // Drift: the mean-field images (with spectra) at the focus-grid foci, by
+   // world focus, and the bleach-basis coefficients of the weighted scene.
+   std::map<double, WidefieldImages> driftImages;
+   std::vector<double> driftCoef;
    long meanFieldFrames = 0, perDyeFrames = 0;
 };
 
@@ -1049,9 +1110,9 @@ void SplatUnitInto(std::vector<double>& img, unsigned width, unsigned height, co
 
 // One unit-photon emitter (sign +1 or -1) into img at its plane (JS splatUnit).
 void SplatUnit(std::vector<double>& img, unsigned W, unsigned H, const BlinkEvent& e, const Group& g, double zStage,
-               double pixelNm, double sign)
+               double pixelNm, double sign, double dxPx = 0.0, double dyPx = 0.0)
 {
-   const double xPx = e.xUm * 1000.0 / pixelNm, yPx = e.yUm * 1000.0 / pixelNm;
+   const double xPx = e.xUm * 1000.0 / pixelNm + dxPx, yPx = e.yUm * 1000.0 / pixelNm + dyPx;
    if (!g.kernel.valid)
    {
       GaussianUnitInto(img, W, H, xPx, yPx, g.sigmaPx, sign);
@@ -1110,7 +1171,13 @@ struct FluorescenceMovie::Impl
    void WeightedImage(Population& p, std::vector<float>& img);
    // The mean-field image at another stage z (refocused scene; cached).
    const std::vector<float>& ImageAt(Population& p, double z);
-   void AdvanceAcc(Population& p, long f, double z);
+   void AdvanceAcc(Population& p, long f, double z, double dxPx = 0.0, double dyPx = 0.0);
+   // Drift: the mean-field image of frame f (stage z, drift d) into img (+=):
+   // the scene's images at the two focus-grid foci around z - dz, their
+   // spectra interpolated and shifted by d (frame 0's photons for a weighted
+   // population, else photons per (photon per dye)).
+   void DriftMeanField(Population& p, double z, const DriftNm& d, std::vector<float>& img);
+   DriftFocusGrid driftGrid;
 };
 
 FluorescenceMovie::FluorescenceMovie() : impl_(new Impl) {}
@@ -1142,7 +1209,9 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    ws.slabHalfUm = S.q.zHalfRangeUm;
    ws.grid.upscale = static_cast<int>(std::min(4.0, std::max(1.0, O("wf-upscale"))));
    ws.grid.zPlaneNm = std::min(500.0, std::max(5.0, O("wf-plane-nm")));
-   ws.marginUm = 2.0;
+   // Drift: the frames are the image shifted, so the lit square and the grid
+   // grow by the xy drift (the dyes it brings within the kernel's reach).
+   ws.marginUm = 2.0 + DriftMarginUm(S);
    ws.kernelCapUm = std::max(0.1, O("wf-kernel-um"));
    ws.eta = 1.0;
    ws.exposureSec = S.expSec;
@@ -1184,8 +1253,10 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       slot.gpuMode = sceneGpu;
       slot.has = true;
    }
-   slot.scene.SetAccelerator(accel);
-   slot.scene.SetDeferImages(gpuMode && !p.weighted);
+   // Drift keeps the spectra (focus work on the CPU: the accelerator returns images only).
+   slot.scene.SetKeepSpectra(S.driftOn);
+   slot.scene.SetAccelerator(S.driftOn ? nullptr : accel);
+   slot.scene.SetDeferImages(gpuMode && !p.weighted && !S.driftOn);
    const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
    const auto tPhase = TimingClock::now();
    if (!slot.scene.Update(cache.source, ill, ws, *slot.psf, err))
@@ -1242,25 +1313,69 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, double
    return img;
 }
 
+void FluorescenceMovie::Impl::DriftMeanField(Population& p, double z, const DriftNm& d, std::vector<float>& img)
+{
+   if (!p.slot)
+      return;
+   int k = 0;
+   double w = 0.0;
+   driftGrid.Weights(d.z, k, w);
+   const double um = S.p.pixelSizeNm / 1000.0;
+   auto imagesAt = [&](int kk) -> const WidefieldImages* {
+      // The sample dz higher: the focal plane dz lower in it.
+      const double focus = S.q.zRefUm + z - driftGrid.DzNm(kk) / 1000.0;
+      auto it = p.driftImages.find(focus);
+      if (it != p.driftImages.end())
+         return &it->second;
+      WidefieldSceneSpec ws = p.ws;
+      ws.focusWorldUm = ws.slabCentreUm = focus;
+      const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
+      std::string err;
+      p.slot->scene.SetDeferImages(false);
+      if (!p.slot->scene.Update(cache.source, ill, ws, *p.slot->psf, err))
+         return nullptr;
+      if (p.weighted)
+      {
+         // Anchor the bleach basis at frame 0's weights; its coefficients.
+         std::vector<float> scratch;
+         p.slot->scene.RenderFrame(p.wb0, scratch);
+         if (!p.slot->scene.BleachCoefficients(p.wb0, p.driftCoef))
+            p.driftCoef = p.slot->scene.AnchorCoefficients();
+      }
+      else if (!p.slot->scene.Images().HasSpectra())
+         p.slot->scene.ComputeCpuImages();
+      return &(p.driftImages[focus] = p.slot->scene.Images());
+   };
+   const WidefieldImages* i0 = imagesAt(k);
+   const WidefieldImages* i1 = (w != 0.0 && k + 1 < driftGrid.n) ? imagesAt(k + 1) : nullptr;
+   if (!i0)
+      return;
+   const double pitchNm = p.slot->scene.Grid().pitchUm * 1000.0;
+   RenderShiftedImages(*i0, i1, i1 ? w : 0.0, p.weighted ? p.driftCoef : std::vector<double>(), d.x / pitchNm,
+                       d.y / pitchNm, img);
+}
+
 void FluorescenceMovie::Impl::TakeImage(Population& p)
 {
    p.image.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
    p.slot->scene.Images().Render({}, p.image);
 }
 
-void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z)
+void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double dxPx, double dyPx)
 {
    const Group& g = groups[p.group];
    const double pixelNm = S.p.pixelSizeNm;
-   if (p.accFrame >= 0 && p.accZ != z)
-      p.accFrame = -1;   // another focal plane: start the running image afresh
+   if (p.accFrame >= 0 && (p.accZ != z || p.accDx != dxPx || p.accDy != dyPx))
+      p.accFrame = -1;   // another focal plane or a moved sample: start the running image afresh
    p.accZ = z;
+   p.accDx = dxPx;
+   p.accDy = dyPx;
    if (p.accFrame < 0)
    {
       p.acc.assign(static_cast<size_t>(S.W) * S.H, 0.0);
       for (const BlinkEvent& e : p.wins)
          if (e.tStart <= f && e.tEnd >= f + 1)
-            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, 1);
+            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, 1, dxPx, dyPx);
    }
    else
    {
@@ -1268,7 +1383,7 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z)
       {
          const bool was = e.tStart <= p.accFrame && e.tEnd >= p.accFrame + 1, now = e.tStart <= f && e.tEnd >= f + 1;
          if (was != now)
-            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, now ? 1 : -1);
+            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, now ? 1 : -1, dxPx, dyPx);
       }
    }
    p.accFrame = f;
@@ -1621,8 +1736,17 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    Impl& m = *impl_;
    const FluorescenceFrameOptions none;
    const FluorescenceFrameOptions& opt = options ? *options : none;
-   auto zAt = [&](long f) { return opt.zStageUm ? opt.zStageUm(f) : m.zStage; };
    const ScopeSetup& S = m.S;
+   // Drift (the spec's; a host's own hooks win): the sample moved by d, the
+   // focal plane dz lower in it.
+   const bool drift = S.driftOn && !opt.driftPx;
+   auto zAt = [&](long f) {
+      const double z = opt.zStageUm ? opt.zStageUm(f) : m.zStage;
+      return drift ? z - S.drift[static_cast<size_t>(f)].z / 1000.0 : z;
+   };
+   auto zBaseAt = [&](long f) { return opt.zStageUm ? opt.zStageUm(f) : m.zStage; };
+   if (drift)
+      m.driftGrid = DriftFocusGrid::For(S.driftRange);
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
    const size_t n = static_cast<size_t>(W) * H;
@@ -1674,8 +1798,18 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       std::snprintf(b, sizeof b, " imager_per_px_per_frame=%.4g psf=%s", m.imagerPerFrame,
                     !m.groups.empty() && m.groups[0].kernel.valid ? "GibsonLanniZernike" : "Gaussian");
       d += b;
+      if (S.driftOn)
+      {
+         const DriftSettings& ds = S.p.drift;
+         std::snprintf(b, sizeof b, " drift_xy_speed=%g drift_z_speed=%g drift_angle=%g drift_angle_wander=%g "
+                       "drift_speed_wander=%g drift_wander_time=%g drift_xy_rms=%g drift_z_rms=%g",
+                       ds.xySpeedNmPerSec, ds.zSpeedNmPerSec, ds.xyAngleDeg, ds.angleWanderDeg, ds.speedWanderPct,
+                       ds.wanderTimeSec, ds.xyNmPerSqrtSec, ds.zNmPerSqrtSec);
+         d += b;
+      }
       info.description = d;
    }
+   DriftInfo(S, info);
 
    NoiseSetup noise(S.seed, W, H, S.p);
    const CameraNoiseParams cam = S.p.Camera();
@@ -1725,6 +1859,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          double dx = 0.0, dy = 0.0;
          if (opt.driftPx)
             opt.driftPx(f, dx, dy);
+         else if (drift)
+         {
+            dx = S.drift[static_cast<size_t>(f)].x / pixelNm;
+            dy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+         }
          const double zf = zAt(f);
          frameBlinks[k] = 0;
          for (size_t gi = 0; gi < m.groups.size(); ++gi)
@@ -1761,7 +1900,13 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   // decay), but keep the frame valid.
                   continue;
                }
-               const std::vector<float>& image = m.ImageAt(p, zf);
+               std::vector<float> driftImage;
+               if (drift)
+               {
+                  driftImage.assign(n, 0.0f);
+                  m.DriftMeanField(p, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
+               }
+               const std::vector<float>& image = drift ? driftImage : m.ImageAt(p, zf);
                if (p.weighted)
                {
                   // Frame 0 at each column's clock, every clock f exposures later.
@@ -1780,7 +1925,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             }
             else
             {
-               m.AdvanceAcc(p, f, zf);
+               double ddx = 0.0, ddy = 0.0;
+               if (opt.driftPx)
+                  opt.driftPx(f, ddx, ddy);
+               else if (drift)
+               {
+                  ddx = S.drift[static_cast<size_t>(f)].x / pixelNm;
+                  ddy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+               }
+               m.AdvanceAcc(p, f, zf, ddx, ddy);
                const double perFrame = p.rate * S.expSec;
                for (size_t i = 0; i < n; ++i)
                   if (p.acc[i] != 0)
@@ -1790,7 +1943,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                for (const BlinkEvent& e : p.wins)
                   if (e.tStart < f + 1 && e.tEnd > f && !(e.tStart <= f && e.tEnd >= f + 1))
                      partial.push_back(e);
-               RenderPhotonImage(img, W, H, partial, f, pixelNm, g.sigmaPx, perFrame, 0.0, 0.0, 0.0,
+               RenderPhotonImage(img, W, H, partial, f, pixelNm, g.sigmaPx, perFrame, 0.0, ddx, ddy,
                                  g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &into);
                p.perDyeFrames++;
                paths[static_cast<size_t>(k)].push_back(std::string(PopulationName(p.state)) + ": per dye (" +
@@ -1870,6 +2023,11 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    bs.sub = static_cast<int>(std::min(16.0, std::max(0.0, O("bf-sub"))));
    bs.sliceUm = O("bf-slice-um") < 0 ? -1.0 : std::max(0.0, O("bf-slice-um"));
    bs.marginUm = std::max(0.0, O("bf-margin-um"));
+   // A drifting sample: the frames are the grid's image shifted, so the
+   // margin grows by the xy drift (plus a pixel).
+   if (S.driftOn)
+      bs.marginUm = bs.Resolved().marginUm + (std::ceil(S.driftRange.MaxXyNm() / S.p.pixelSizeNm) + 1.0) *
+                                                 S.p.pixelSizeNm / 1000.0;
    bs.condenserNa = std::max(0.0, O("bf-condenser-na"));
    bs.wavelengthNm = std::max(1.0, O("bf-wavelength-nm"));
    bs.na = std::max(0.01, O("na"));
@@ -1911,7 +2069,16 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
    auto tPhase = TimingClock::now();
-   if (!scene.Image(focusUm, trans, err))
+   // A drifting sample: the fine-grid spectra on the drift's focus grid, a
+   // shifted, interpolated image per frame.
+   BrightfieldDriftFrames driftFrames;
+   if (S.driftOn)
+   {
+      driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
+      if (!driftFrames.Refresh(scene, 0, err))
+         return false;
+   }
+   else if (!scene.Image(focusUm, trans, err))
       return false;
    TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
@@ -1927,12 +2094,14 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                  "insiliscope modality=BrightField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g frames=%ld focus_um=%g quality=%d sources=%d upscale=%d sub=%d slices=%d grid=%ux%u "
                  "na=%g condenser_na=%g lambda_nm=%g n_medium=%g n_cytoplasm=%g n_nucleus=%g n_microtubule=%g "
-                 "absorption_per_um=%g photons_per_px=%.4g setup_ms=%.0f image_ms=%.0f",
+                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g setup_ms=%.0f image_ms=%.0f",
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, N, focusUm, bs.quality,
                  scene.Sources(), q.upscale, q.sub, scene.Slices(), scene.GridNx(), scene.GridNy(), bs.na,
                  bs.condenserNa, bs.wavelengthNm, bs.nMedium, bs.nCytoplasm, bs.nNucleus, bs.nMicrotubule,
-                 bs.absorptionPerUm, flux, scene.SetupMs(), scene.LastImageMs());
+                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, scene.SetupMs(),
+                 scene.LastImageMs());
    info.description = desc;
+   DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);
    std::vector<float> photons(trans.size());
    for (size_t i = 0; i < trans.size(); ++i)
@@ -1941,6 +2110,13 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
+      if (S.driftOn)
+      {
+         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
+         photons.resize(trans.size());
+         for (size_t i = 0; i < trans.size(); ++i)
+            photons[i] = static_cast<float>(trans[i] * flux);
+      }
       tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));

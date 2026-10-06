@@ -114,7 +114,7 @@ export function fft1(re, im, off, stride, n, sign, bufR, bufI) {
   fftRec(p, bufR, bufI, 0, 1, n, p.sr, p.si, 0, 0, 1, sign);
   for (let j = 0; j < n; j++) { re[off + j * stride] = p.sr[j]; im[off + j * stride] = p.si[j]; }
 }
-function fft2(re, im, nx, ny, sign) {
+export function fft2(re, im, nx, ny, sign) {
   const bR = new Float64Array(Math.max(nx, ny)), bI = new Float64Array(bR.length);
   for (let y = 0; y < ny; y++) fft1(re, im, y * nx, 1, nx, sign, bR, bI);
   for (let x = 0; x < nx; x++) fft1(re, im, x, nx, ny, sign, bR, bI);
@@ -201,7 +201,10 @@ function dyePlanes(world, g, structureMask) {
 }
 
 // ---- the scene: the image of one population of dyes with per-cell weights ----
-function sceneImages(ws, g, dyes, psf, weight) {
+// opt.prevR: the radius of the scene's previous update (SetupFft keeps it if the new one would only shrink);
+// opt.fixedR: the radius as is (no SetupFft: the grid rect is unchanged); opt.keep: also the full spectrum before
+// the sub-cell shift (spec: {re, im}; a drifting sample).
+function sceneImages(ws, g, dyes, psf, weight, opt = {}) {
   const dz = g.zPlaneUm;
   // Kernel radius (SetupFft).
   const cap = Math.max(1, Math.ceil(ws.kernelCapUm / g.pitchUm - 1e-9));
@@ -214,7 +217,9 @@ function sceneImages(ws, g, dyes, psf, weight) {
     pLo = Math.min(a, b); pHi = Math.min(psf.maxPlane, Math.max(a, b) + 1);
   }
   const natural = pLo <= pHi ? psf.radius(pLo, pHi) : psf.radius(0, 0);
-  const R = Math.max(1, Math.min(cap, natural));
+  const R0 = Math.max(1, Math.min(cap, natural));
+  const R = opt.fixedR !== undefined ? opt.fixedR
+    : opt.prevR !== undefined && opt.prevR >= R0 && opt.prevR <= cap ? opt.prevR : R0;
   const u = Math.max(1, ws.upscale), cw = ws.width * u, ch = ws.height * u;
   const need = (n, fov0, fovN) => fastSize(Math.max(n + 8, fov0 + fovN + R + 6, n + R + 6 - Math.min(fov0, n)), 8);
   const nx = need(g.nx, g.fovX, cw), ny = need(g.ny, g.fovY, ch);
@@ -272,28 +277,56 @@ function sceneImages(ws, g, dyes, psf, weight) {
       for (let i = 0; i < Sr.length; i++) { Sr[i] += a[i] * K.re[i] - im[i] * K.im[i]; Si[i] += a[i] * K.im[i] + im[i] * K.re[i]; }
     }
     // Sub-cell shift (Nyquist bins: real factor), inverse, crop.
-    if (g.fracX !== 0 || g.fracY !== 0) {
-      const px = new Float64Array(2 * nx), py = new Float64Array(2 * ny);
-      for (let kx = 0; kx < nx; kx++) {
-        const s = kx <= nx / 2 ? kx : kx - nx, a = 2.0 * Math.PI * s * g.fracX / nx;
-        px[2 * kx] = Math.cos(a); px[2 * kx + 1] = kx === nx / 2 ? 0 : Math.sin(a);
-      }
-      for (let ky = 0; ky < ny; ky++) {
-        const s = ky <= ny / 2 ? ky : ky - ny, a = 2.0 * Math.PI * s * g.fracY / ny;
-        py[2 * ky] = Math.cos(a); py[2 * ky + 1] = ky === ny / 2 ? 0 : Math.sin(a);
-      }
-      for (let ky = 0; ky < ny; ky++) for (let kx = 0; kx < nx; kx++) {
-        const fr = px[2 * kx] * py[2 * ky] - px[2 * kx + 1] * py[2 * ky + 1], fi = px[2 * kx] * py[2 * ky + 1] + px[2 * kx + 1] * py[2 * ky];
-        const i = ky * nx + kx, r = Sr[i], m = Si[i];
-        Sr[i] = r * fr - m * fi; Si[i] = r * fi + m * fr;
-      }
-    }
-    fft2(Sr, Si, nx, ny, 1);
-    const img = new Float32Array(cw * ch), scale = 1 / (nx * ny);
-    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img[y * cw + x] = Sr[(g.fovY + y) * nx + g.fovX + x] * scale;
-    return img;
+    const spec = opt.keep ? { re: Sr.slice(), im: Si.slice() } : null;
+    return { img: shiftedCrop(Sr, Si, nx, ny, g.fracX, g.fracY, g.fovX, g.fovY, cw, ch), spec };
   };
-  return { image: channel(weight), cw, ch, u, R, nx, ny, clamped };
+  const c = channel(weight);
+  return { image: c && c.img, spec: c && c.spec, cw, ch, u, R, nx, ny, clamped, fovX: g.fovX, fovY: g.fovY,
+    fracX: g.fracX, fracY: g.fracY };
+}
+
+// ApplyShiftRamp (Drift.cpp) on a full complex spectrum, inverse, crop the FOV cells: image(j + frac).
+export function shiftedCrop(Sr, Si, nx, ny, fracX, fracY, fovX, fovY, cw, ch) {
+  if (fracX !== 0 || fracY !== 0) {
+    const px = new Float64Array(2 * nx), py = new Float64Array(2 * ny);
+    for (let kx = 0; kx < nx; kx++) {
+      const s = kx <= nx / 2 ? kx : kx - nx, a = 2.0 * Math.PI * s * fracX / nx;
+      px[2 * kx] = Math.cos(a); px[2 * kx + 1] = kx === nx / 2 ? 0 : Math.sin(a);
+    }
+    for (let ky = 0; ky < ny; ky++) {
+      const s = ky <= ny / 2 ? ky : ky - ny, a = 2.0 * Math.PI * s * fracY / ny;
+      py[2 * ky] = Math.cos(a); py[2 * ky + 1] = ky === ny / 2 ? 0 : Math.sin(a);
+    }
+    for (let ky = 0; ky < ny; ky++) for (let kx = 0; kx < nx; kx++) {
+      const fr = px[2 * kx] * py[2 * ky] - px[2 * kx + 1] * py[2 * ky + 1], fi = px[2 * kx] * py[2 * ky + 1] + px[2 * kx + 1] * py[2 * ky];
+      const i = ky * nx + kx, r = Sr[i], m = Si[i];
+      Sr[i] = r * fr - m * fi; Si[i] = r * fi + m * fr;
+    }
+  }
+  fft2(Sr, Si, nx, ny, 1);
+  const img = new Float32Array(cw * ch), scale = 1 / (nx * ny);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img[y * cw + x] = Sr[(fovY + y) * nx + fovX + x] * scale;
+  return img;
+}
+
+// RenderShiftedImages: images i0 and i1 (weight w of i1, two foci) with the sample moved by (dxCells, dyCells):
+// spectra summed, one phase ramp, crop, max(0, .), binned and added into cam.
+export function renderShiftedImages(i0, i1, w, dxCells, dyCells, cam) {
+  if (!i0.spec) return;
+  const { nx, ny } = i0, n = nx * ny, Sr = new Float64Array(n), Si = new Float64Array(n);
+  const add = (spec, c) => {
+    if (!spec || spec.re.length !== n || c === 0) return;
+    for (let i = 0; i < n; i++) { Sr[i] += c * spec.re[i]; Si[i] += c * spec.im[i]; }
+  };
+  add(i0.spec, Math.fround(i1 ? 1.0 - w : 1.0));
+  if (i1 && w !== 0) add(i1.spec, Math.fround(w));
+  const img = shiftedCrop(Sr, Si, nx, ny, i0.fracX - dxCells, i0.fracY - dyCells, i0.fovX, i0.fovY, i0.cw, i0.ch);
+  const { cw, u } = i0, W = cw / u, H = i0.ch / u;
+  for (let Y = 0; Y < H; ++Y) for (let X = 0; X < W; ++X) {
+    let acc = 0.0;
+    for (let sy = 0; sy < u; ++sy) for (let sx = 0; sx < u; ++sx) acc += Math.max(0, img[(Y * u + sy) * cw + X * u + sx]);
+    cam[Y * W + X] += acc;
+  }
 }
 
 // WidefieldImages::Render for one channel: bin(max(0, I)) per camera pixel (photons per unit weight).
@@ -314,13 +347,14 @@ function binnedImage(im, W, H) {
 // in-focus Gaussian), binned to the camera: W x H photons per (photon per dye). A frame of a continuous population
 // adds (mean detected photons per dye in that frame) x this image. Uniform illumination over the grid (the FOV and
 // its margin, as the per-dye path's emitters).
-export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm) {
+// marginExtraUm: the drift margin (a drifting sample's frames are this image shifted; imagesAt gives them).
+export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0) {
   const O = S.O, um = S.p.pixelSizeNm / 1000.0;
   const ws = {
     originXUm: S.q.originXUm, originYUm: S.q.originYUm, width: S.W, height: S.H, pixelUm: um,
     focusWorldUm: S.q.zCullCentreUm, slabCentreUm: S.q.zCullCentreUm, slabHalfUm: S.q.zHalfRangeUm,
     upscale: Math.trunc(Math.min(4, Math.max(1, O('wf-upscale')))), zPlaneNm: Math.min(500, Math.max(5, O('wf-plane-nm'))),
-    marginUm: 2.0, kernelCapUm: Math.max(0.1, O('wf-kernel-um')),
+    marginUm: 2.0 + marginExtraUm, kernelCapUm: Math.max(0.1, O('wf-kernel-um')),
   };
   // The illuminated square spans the FOV and the margin (as the per-dye path's query rect), so the grid does too.
   const sq = { w: S.W * um + 2 * ws.marginUm, h: S.H * um + 2 * ws.marginUm };
@@ -330,7 +364,21 @@ export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm) {
   const g = gridSpecFor(ws, sq);
   const dyes = dyePlanes(world, g, structureMask);
   const ones = new Float32Array(g.nx * g.ny).fill(1);
-  const images = sceneImages(ws, g, dyes, psf, ones);
-  return { image: binnedImage(images, S.W, S.H), dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
+  const images = sceneImages(ws, g, dyes, psf, ones, { keep: marginExtraUm > 0 });
+  // The scene at other foci (a z-drifting sample, DriftMeanField): the slab follows the focus, the radius is kept
+  // unless it grows (WidefieldScene::Update / SetupFft); images with spectra, cached per focus.
+  let R = images.R;
+  const cache = new Map();
+  const imagesAt = focus => {
+    let im = cache.get(focus);
+    if (im) return im;
+    const slab = ws.slabHalfUm > 0.0, wsk = { ...ws, focusWorldUm: focus, slabCentreUm: focus };
+    const gk = gridSpecFor(wsk, sq);
+    im = sceneImages(wsk, gk, dyes, psf, ones, slab ? { keep: true, prevR: R } : { keep: true, fixedR: R });
+    R = im.R;
+    cache.set(focus, im);
+    return im;
+  };
+  return { imagesAt, pitchUm: g.pitchUm, image: binnedImage(images, S.W, S.H), dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
     kernelRadius: images.R, grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY } };
 }

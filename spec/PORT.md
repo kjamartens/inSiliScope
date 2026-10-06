@@ -369,9 +369,9 @@ the Z stage already does.
 The stage position is the **world coordinate of the FOV centre** in µm. World `(0,0)` is the origin of the
 cell-field chunk grid. Increasing X moves the FOV to the right over the sample, so features move *left* in
 the image; same for Y downward. Real setups vary (camera mirroring/rotation), so add
-`General_StageInvertX/Y` (default off) rather than hard-coding a convention. **Drift** composes as an extra
-offset on the FOV centre: `effectiveCentre = stage + drift`, using the existing `ComputeDriftOffsetPx`
-result converted to µm (do not shift dye positions separately or you will double-apply it).
+`General_StageInvertX/Y` (default off) rather than hard-coding a convention. **Drift** (section 16) is applied
+once: SR adds it to each event's position, WideField/BrightField shift the frame's image (live WideField moves the
+FOV centre, `stage - drift`); never both.
 
 ---
 
@@ -670,7 +670,7 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
   Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
   + Microsoft's HLSL compiler).
-* Limits: no drift.
+* Limits: drift (section 16) renders on the CPU.
 
 ## 14. The PSF in the cli and the viewer (2026-10-01)
 
@@ -705,7 +705,7 @@ Spec, model, quality table and the list of missing structures: [BRIGHTFIELD.md](
   `General_BrightField{Quality,Sources,Upscaling,GeometrySamples,SliceUm,CondenserNa,WavelengthNm,PhotonsPerPxPerSec,
   Aberrations}` and `SimType_CellField{IndexMedium,IndexCytoplasm,IndexNucleus,IndexMicrotubule,AbsorptionPerUm}`;
   precomputed stacks (`RenderBrightfieldStack`, one image per distinct focus, z sequences) and live mode (scene per
-  pose, image per focus). No GPU path, no drift, CellField only.
+  pose, image per focus). No GPU path, CellField only; drift: section 16.
 - [ ] Visual check in Micro-Manager Studio; [ ] MSBuild of the DLL (only the Linux test `.so` was built);
   [ ] waveorder weak-phase comparison; [ ] GPU path; [ ] stage-move prefetch.
 
@@ -780,3 +780,68 @@ Checks: ctest `world_checks` (label determinism, FLUOR nesting, modes, cache und
 (`MeanFieldVsPerDye`), `label_parity.mjs`, `scope_parity.mjs` (every mode, PALM pre state, several lasers, per dye and
 mean field, a Gaussian-spectrum slot dye, `light-preset=auto`, start 0 and 60 s), `engine_check.mjs`,
 `tools/test_insiliscope.py` + `test_cellfield_stage.py`, `adapter_pixel_hash.py` (new baselines).
+
+## 17. Sample drift (2026-10-06)
+
+Directed part (added the same day): `DriftSettings` `xySpeedNmPerSec`, `zSpeedNmPerSec` (signed), `xyAngleDeg` (< 0:
+random per seed, pixel 2 of frame 0xFFFFFFFF), `angleWanderDeg`, `speedWanderPct`, `wanderTimeSec`; `DriftWalker` steps
+the path: velocity at the frame's start (v_xy = V max(0, 1 + w s_xy) along theta0 + alpha phi, v_z = V_z max(0, 1 + w
+s_z)), d += v dt + the random-walk step, then the unit-variance OU states (pixel 1 of the frame's stream; started from
+the stationary distribution at the walker's first frame) update exactly with a = exp(-dt / tau). With speeds 0 the path
+is bit for bit the random walk alone. MM `SimType_DriftXySpeedNmPerSec`, `SimType_DriftZSpeedNmPerSec`,
+`SimType_DriftXyAngleDeg`, `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`
+(the speeds everyday, the rest advanced); cli/viewer `drift-xy-speed-nm-per-sec`, `drift-z-speed-nm-per-sec`,
+`drift-xy-angle-deg`, `drift-xy-angle-wander-deg`, `drift-speed-wander-pct`, `drift-wander-time-sec`. Live mode keeps one
+`DriftWalker` (settings may change between frames; the wander state carries on); a Live/MDA sequence start asks the
+producer for a drift restart, applied at the start of its next frame (drift 0), and the sequence skips frames rendered
+before it (`liveDriftRestart_`), so a live sequence follows the stack's path. Checks: ctest `drift` (constant velocity
+exact, uniform random direction, wander RMS and correlation time, z sign, random walk unchanged), `scope_parity` (SR
+directed + wandering), `tools/test_cellfield_stage.py --drift` (its own run; stack: random walk in Fluorescence (an mEGFP WideField
+label); live Fluorescence and BrightField sequences = the stack path), the block check.
+
+A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29, 27961 (2021); Ma et al., Sci. Adv. 10,
+eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
+per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleForSeed`.
+
+- `Simulation/Drift.{h,cpp}` (JS twin `web/prototype/scope/drift.js`): `d(0) = 0`, `d(f) = d(f-1) + sqrt(frameSec) x
+  (sxy g0, sxy g1, sz g2)`, `g` = `CounterGauss` on `CounterRng(seed ^ 0x44524654 "DRFT", f)`, pixel 0, draws x, y, z in
+  that order (`DriftStep`, `DriftTrajectory`). nm, camera axes, +z away from the coverslip; the focal plane is `focus -
+  dz`. The JS uses the same pcg4d and Box-Muller: the trajectories agree to the last digit.
+- Options: MM `SimType_DriftXyNmPerSqrtSec`, `SimType_DriftZNmPerSqrtSec` (0-1000, default 0, `InvalidateStack`); cli /
+  viewer `drift-xy-nm-per-sqrt-sec`, `drift-z-nm-per-sqrt-sec`; the seed is `SimType_RandomSeed` / `seed`. Default 0:
+  every output unchanged. `ScopeMovieInfo::driftNm` (x, y, z per frame); the cli writes `<out>.drift.csv`.
+- SR: `RenderPhotonImage(..., d/px, ..., zStage - dz)` per frame; the event query is widened by the trajectory's range
+  (`CellFieldQueryFor` with the drift bounds; `DriftWidenZCull` grows the z cull window).
+- WideField / BrightField (stacks, cli, viewer): the frame is the scene's full-grid image spectrum x a phase ramp
+  (`ApplyShiftRamp`, shared with WideField's sub-cell pose; `ShiftedCamera`: inverse, crop, max(0, .), bin). WideField:
+  `WidefieldScene::SetKeepSpectra` keeps each channel's spectrum before the sub-cell shift in `WidefieldImages`,
+  `WidefieldDriftFrames` (`FocusSeries` on the focus grid around each base focus, refreshed when the images change,
+  `RenderShiftedImages`); the square and the dye grid margin grow by `ceil(max|dxy| / pixel) + 1` pixels. BrightField:
+  `BrightfieldScene::FineSpectrum` (whole-grid intensity, mean of the sources in source order, real FFT),
+  `BrightfieldDriftFrames`; the grid margin grows by the same amount. z: `DriftFocusGrid`, foci `kDriftFocusStepNm` =
+  10 nm apart over the trajectory's z range, linear interpolation of the spectra.
+- On issue 16's `FluorescenceMovie` (merged 2026-10-06): `MakeScopeSetup` computes the path and widens the query
+  rect and z window (the focus stays); blinks and per-dye windows move per emitter (`SplatUnit`/`RenderPhotonImage`
+  with d/px, focal plane `z - dz`; the running image restarts when the drift changes); a mean-field population keeps
+  its scene's spectra (no accelerator, no deferred images) and `DriftMeanField` renders each frame from the two
+  focus-grid scenes around dz (`WidefieldScene::Update` at `zRef + z - dz`, the slab follows, the radius kept unless it
+  grows), interpolated and shifted (`RenderShiftedImages`); with a host clock the bleach basis is anchored at frame 0's
+  weights. The adapter passes the drift as spec options (`AddDriftToSpec`) for stacks and, live, poses each frame's
+  spec at `stage - d`, `z - dz`. JS: `fluorescence.js`, `widefield.js` `meanFieldImage(..., marginExtraUm).imagesAt`.
+  The WideField modality and its `WidefieldDriftFrames` paths below are history (WideField is a label mode now).
+- GPU: a drifting WideField sample renders on the CPU (keeps spectra; the adapter skips the D3D11 host, the viewer the
+  WebGPU job); a drifting BrightField movie runs on one viewer worker (no source split).
+- Live (adapter): the steps of frames since `liveDriftOriginFrame_` are summed (the stack's path; with drift off no
+  steps are taken, and switching it on starts from zero there). SR as stacks. WideField and BrightField: the scene stays at
+  an anchor pose (`stage - anchor`; rebuilt when the sample moved 1 um from it; illumination/margin + 1 um) and each
+  frame is its image shifted by the rest (`WidefieldScene::RenderFrameShifted`; BrightField: its fine image, foci on
+  demand via `BrightfieldDriftFrames::Ensure`); the WideField dose goes where the camera-fixed light sits over the moved
+  sample. Moving the WideField pose every frame instead re-weighted every dye plane (326 ms vs 74 ms per 50 ms frame).
+- webSMLM block: `CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec)` -> [{x, y, z}] nm,
+  generated from `drift.js` + `rng.js` (no second copy).
+- Checks: ctest `drift` (Var d(1 s) = sigma^2 at 10 and 100 ms frames, mean 0, axes uncorrelated; live sum = trajectory
+  bit for bit; SR drifting frame = the movie posed at the drifted sample, 100% identical ADU), ctest `widefield`
+  (shifted frame = the scene posed at -d, 5e-7; focus grid vs exact focus, 2e-5 rms), ctest `brightfield` (whole-cell
+  shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
+  scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
+  drift cases), `tests/block/check_cellfield_block.mjs`.

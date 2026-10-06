@@ -22,6 +22,21 @@ import numpy as np
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._util import USER_DATA_DIR
 
+# Every line printed carries the seconds since the previous one: what each check costs.
+import builtins
+
+_t = [time.time(), time.time()]
+_print = builtins.print
+
+
+def _timed(*a, **k):
+    now = time.time()
+    _print(f"[{now - _t[0]:6.1f} s]", *a, **k)
+    _t[0] = now
+
+
+builtins.print = _timed
+
 
 def find_active_mm_dir() -> str:
     """Locate the active pymmcore-plus-managed MicroManager install.
@@ -49,12 +64,13 @@ def load_camera(core: CMMCorePlus, label: str, seed: int, fov: str = "128x128") 
     core.initializeDevice(label)
     core.setCameraDevice(label)
     core.setProperty(label, "General_FovSize", fov)  # regular property, set after init
+    # 200 frames (the most any check reads) instead of the default 1000: a stack costs its length.
+    assert int(core.getProperty(label, "General_StackLength")) == 1000, "General_StackLength default should be 1000"
+    core.setProperty(label, "General_StackLength", "200")
 
 
-# Generous default: the precomputed stack is a fixed 1000 frames now that
-# General_StackLength is gone (see CLAUDE.md), and the default PSF model is
-# the comparatively expensive GibsonLanniZernike -- a single generation is
-# tens of seconds, not the couple of seconds a 50-frame stack used to be.
+# Generous default: the default PSF model is the comparatively expensive
+# GibsonLanniZernike (load_camera keeps stacks at 200 frames).
 def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 600.0) -> None:
     t0 = time.time()
     while True:
@@ -172,7 +188,7 @@ renamed = [
 missing = [n for n in renamed if n not in all_props]
 assert not missing, f"expected renamed properties to exist, missing: {missing}"
 gone = [
-    "General_StackLength", "General_StackLoop", "PSFParam_PsfKernelHalfWidthPx",
+    "General_StackLoop", "PSFParam_PsfKernelHalfWidthPx",
     "CamParam_CameraGainPhotonsPerADU", "CamParam_CameraOffsetADU", "CamParam_CameraOffsetStdADU",
     "CamParam_PixelGainStdPct", "CamParam_PixelReadNoiseStdPct",
     # Removed with the wide-kernel-incorrect Direct evaluator (webSMLM parity round 2):
@@ -306,6 +322,7 @@ for interp in sorted(INTERP_VALUES):
     core.snapImage()
     img = core.getImage()
     assert img.std() > 0, f"expected non-blank frame at PsfInterp={interp}"
+core.setProperty("SMLMCam", "General_StackLength", "200")
 print(f"PsfInterp OK: allowed values confirmed, all {len(INTERP_VALUES)} modes produce non-blank frames")
 core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Cubic")  # restore default
 

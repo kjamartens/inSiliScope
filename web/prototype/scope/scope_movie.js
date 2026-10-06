@@ -12,6 +12,7 @@ import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, build
   splatRows } from './psf.js';
 import { renderGaussian } from './render.js';
 import { renderBrightfieldMovie } from './brightfield.js';
+import { driftOn, driftTrajectory, driftRange } from './drift.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
 import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
@@ -41,6 +42,14 @@ export const SCOPE_OPTIONS = [
   ['frames', 1000, 'number of frames'],
   ['exposure-ms', 50, 'frame duration, ms (simulated time per frame)'],
   ['start-sec', 60, 'simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)'],
+  ['drift-xy-speed-nm-per-sec', 0, 'SimType_DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)'],
+  ['drift-z-speed-nm-per-sec', 0, 'SimType_DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)'],
+  ['drift-xy-angle-deg', -1, 'SimType_DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)'],
+  ['drift-xy-angle-wander-deg', 0, 'SimType_DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)'],
+  ['drift-speed-wander-pct', 0, 'SimType_DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)'],
+  ['drift-wander-time-sec', 60, 'SimType_DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)'],
+  ['drift-xy-nm-per-sqrt-sec', 0, 'SimType_DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)'],
+  ['drift-z-nm-per-sqrt-sec', 0, 'SimType_DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)'],
   ['pixel-nm', 100, 'pixel size, nm'],
   ['background-per-sec', 0, 'Background_BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)'],
   ['na', 1.4, 'PSFParam_PsfNa: numerical aperture'],
@@ -302,10 +311,28 @@ export function scopeSetup(P, spec) {
     zRefUm: O('focus-um'), zCullCentreUm: O('focus-um') + O('z'), zHalfRangeUm: Math.max(0.0, O('z-range-um')) / 2,
     frameSec: expSec, tSec: t0Sec, spanSec: N * expSec, frameIndex: 0,
   };
-  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, worldSeed, worldParams, q,
+  // Sample drift: the per-frame path (nm, zero at frame 0) and the query rect grown so every frame's dyes are in it
+  // (the renderer adds the drift) and the z window by the largest |dz| (the focus itself stays).
+  const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')),
+    xySpeedNmPerSec: Math.max(0.0, O('drift-xy-speed-nm-per-sec')), zSpeedNmPerSec: O('drift-z-speed-nm-per-sec'),
+    xyAngleDeg: O('drift-xy-angle-deg'), angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')),
+    speedWanderPct: Math.max(0.0, O('drift-speed-wander-pct')), wanderTimeSec: Math.max(0.0, O('drift-wander-time-sec')) };
+  const isDrift = driftOn(driftSettings);
+  const drift = isDrift ? driftTrajectory(seed, N, expSec, driftSettings) : [];
+  const driftBounds = isDrift ? driftRange(drift) : null;
+  if (isDrift) {
+    const b = driftBounds;
+    q.x0Um -= b.xHi / 1000.0; q.x1Um -= b.xLo / 1000.0;
+    q.y0Um -= b.yHi / 1000.0; q.y1Um -= b.yLo / 1000.0;
+    if (q.zHalfRangeUm > 0.0) q.zHalfRangeUm += Math.max(-b.zLo, b.zHi) / 1000.0;
+  }
+  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
       maxEmitters: Math.max(0, O('mean-field-max-emitters')) } };
 }
+
+// info.driftNm: x, y, z per frame (empty without drift).
+export const driftInfo = S => S.drift.flatMap(d => [d.x, d.y, d.z]);
 
 // The PSF request of a spec at an emission wavelength (ScopePsfRequest), or null for the Gaussian.
 export function scopePsfRequest(spec, wavelengthNm) {

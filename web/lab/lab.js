@@ -11,7 +11,7 @@ const IMG_HIDDEN = new Set(['world-seed', 'x', 'y', 'chunk-um', 'occupancy', 'ce
 // Lab defaults for speed (marked in the panel); everything else is the C++ default.
 const IMG_LAB = { frames: 50, size: 96, 'psf-kernel-half-width-nm': 3000 };
 const IMG_GROUPS = [
-  ['acquisition', /^(modality|size|frames|exposure-ms|start-sec|pixel-nm|z|focus-um|z-range-um|seed)$/],
+  ['acquisition', /^(modality|size|frames|exposure-ms|start-sec|pixel-nm|z|focus-um|z-range-um|seed|drift-.*)$/],
   ['labels & dyes', /^(mt-|dye[1-3]\.)/],
   ['light path', /^(laser-|light-preset|illum-|chamber-|dichroic|em-)/],
   ['mean field', /^(mean-field-|wf-)/],

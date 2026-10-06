@@ -10,6 +10,7 @@
 #include "WidefieldRender.h"
 
 #include "CellFieldSource.h"
+#include "Drift.h"
 #include "PsfGeneratorBridge.h"
 
 #include "insiliscope/insiliscope.h"
@@ -1138,8 +1139,11 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
    }
 }
 
-void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img) const
+void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
+                                  std::vector<cfloat>* keep) const
 {
+   if (keep)
+      keep->clear();
    const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
    const unsigned cw = spec_.width * u, ch = spec_.height * u;
    img.assign(static_cast<size_t>(cw) * ch, 0.0f);
@@ -1212,31 +1216,12 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
             S[0][static_cast<size_t>(fy) * W + cx] += S[L][static_cast<size_t>(cy) * Wc + cx];
       }
    }
+   if (keep)
+      *keep = S[0];
    // Sub-cell shift to the camera: image(j + frac) = spectrum x
    // exp(+2 pi i k frac / n) (Nyquist bins: the real part, so the image
    // stays real).
-   if (fracX_ != 0.0 || fracY_ != 0.0)
-   {
-      std::vector<std::complex<double>> px(W), py(ny);
-      for (unsigned kx = 0; kx < W; ++kx)
-      {
-         const double a = 2.0 * kPi * kx * fracX_ / nx;
-         px[kx] = (kx == nx / 2) ? std::complex<double>(std::cos(a), 0.0) : std::polar(1.0, a);
-      }
-      for (unsigned ky = 0; ky < ny; ++ky)
-      {
-         const long kys = ky <= ny / 2 ? static_cast<long>(ky) : static_cast<long>(ky) - static_cast<long>(ny);
-         const double a = 2.0 * kPi * kys * fracY_ / ny;
-         py[ky] = (ky == ny / 2) ? std::complex<double>(std::cos(a), 0.0) : std::polar(1.0, a);
-      }
-      for (unsigned ky = 0; ky < ny; ++ky)
-         for (unsigned kx = 0; kx < W; ++kx)
-         {
-            cfloat& v = S[0][static_cast<size_t>(ky) * W + kx];
-            const std::complex<double> r = std::complex<double>(v) * (px[kx] * py[ky]);
-            v = cfloat(static_cast<float>(r.real()), static_cast<float>(r.imag()));
-         }
-   }
+   ApplyShiftRamp(S[0].data(), nx, ny, fracX_, fracY_);
    fft_[0].Inverse(S[0].data(), img.data(), fovY0_, ch, fovX0_, cw, cw);
 }
 
@@ -1248,13 +1233,26 @@ void WidefieldScene::ImagesFor(const FocusPlan& plan, WidefieldImages& out) cons
    out.upscale = u;
    out.persistent.clear();
    out.bleach.clear();
+   out.specPersistent.clear();
+   out.specBleach.clear();
+   out.fft.reset();
    if (dyes_.nPersistent > 0)
-      ChannelImage(persistent_, plan, out.persistent);
+      ChannelImage(persistent_, plan, out.persistent, keepSpectra_ ? &out.specPersistent : nullptr);
    if (bleachValid_)
    {
       out.bleach.resize(bleach_.size());
+      if (keepSpectra_)
+         out.specBleach.resize(bleach_.size());
       for (size_t j = 0; j < bleach_.size(); ++j)
-         ChannelImage(bleach_[j], plan, out.bleach[j]);
+         ChannelImage(bleach_[j], plan, out.bleach[j], keepSpectra_ ? &out.specBleach[j] : nullptr);
+   }
+   if (keepSpectra_)
+   {
+      out.fft = std::make_shared<RealFft2d>(fft_[0]);
+      out.fovX0 = fovX0_;
+      out.fovY0 = fovY0_;
+      out.fracX = fracX_;
+      out.fracY = fracY_;
    }
 }
 
@@ -1280,7 +1278,7 @@ void WidefieldScene::Refocus(const WidefieldPsf& psf)
       images_ = WidefieldImages();
       return;
    }
-   if (accel_)
+   if (accel_ && !keepSpectra_)
    {
       std::vector<std::vector<float>> imgs;
       if (AccelImages(plan_, ActiveChannels(), imgs))
@@ -1411,6 +1409,9 @@ bool WidefieldScene::SetImages(std::vector<std::vector<float>>& imgs)
    images_.upscale = u;
    images_.persistent.clear();
    images_.bleach.clear();
+   images_.specPersistent.clear();
+   images_.specBleach.clear();
+   images_.fft.reset();
    size_t i = 0;
    if (!chans.empty() && chans[0] == &persistent_)
       images_.persistent.swap(imgs[i++]);
@@ -1564,7 +1565,7 @@ void WidefieldScene::SetBleachWeights(const std::vector<float>& wb)
       chans.push_back(&c);
    if (!haveSpec_ || !psf_ || defer_)
       return;
-   if (accel_)
+   if (accel_ && !keepSpectra_)
    {
       std::vector<std::vector<float>> imgs;
       if (AccelImages(plan_, chans, imgs))
@@ -1575,8 +1576,9 @@ void WidefieldScene::SetBleachWeights(const std::vector<float>& wb)
    }
    FillSpectra(chans, {&plan_});
    images_.bleach.resize(bleach_.size());
+   images_.specBleach.assign(keepSpectra_ ? bleach_.size() : 0, std::vector<cfloat>());
    for (size_t j = 0; j < bleach_.size(); ++j)
-      ChannelImage(bleach_[j], plan_, images_.bleach[j]);
+      ChannelImage(bleach_[j], plan_, images_.bleach[j], keepSpectra_ ? &images_.specBleach[j] : nullptr);
 }
 
 bool WidefieldScene::BleachCoefficients(const std::vector<float>& wb, std::vector<double>& a) const
@@ -1659,6 +1661,27 @@ void WidefieldScene::RenderFrame(const std::vector<float>& wb, std::vector<float
    images_.Render(a, cam);
 }
 
+void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells,
+                                        std::vector<float>& cam)
+{
+   std::vector<double> a;
+   lastFast_ = true;
+   if (!BleachCoefficients(wb, a))
+   {
+      SetBleachWeights(wb);
+      lastFast_ = false;
+      a = AnchorCoefficients();
+   }
+   // Images made before SetKeepSpectra (or adopted from a series made
+   // without it) carry none: make them again, with spectra.
+   if (keepSpectra_ && !images_.HasSpectra() && haveSpec_ && psf_ && !defer_)
+      ComputeCpuImages();
+   if (images_.HasSpectra())
+      RenderShiftedImages(images_, nullptr, 0.0, a, dxCells, dyCells, cam);
+   else
+      images_.Render(a, cam);
+}
+
 bool WidefieldScene::AdoptFocus(double focusWorldUm, const WidefieldImages& images, unsigned long long version)
 {
    if (!haveSpec_ || !psf_ || version != imagesVersion_)
@@ -1703,7 +1726,7 @@ bool WidefieldScene::FocusSeries(const std::vector<double>& focusWorldUm, std::v
    }
    rect_ = keep;
    out.resize(plans.size());
-   if (accel_)
+   if (accel_ && !keepSpectra_)
    {
       // One job per focus; the plane spectra stay resident between them.
       const std::vector<const Channel*> chans = ActiveChannels();
@@ -1735,6 +1758,81 @@ bool WidefieldScene::FocusSeries(const std::vector<double>& focusWorldUm, std::v
    FillSpectra(ActiveChannels(), pp);
    ParallelFor(static_cast<unsigned>(plans.size()), [&](unsigned i) { ImagesFor(plans[i], out[i]); });
    return true;
+}
+
+// ---- Drift ---------------------------------------------------------------------
+
+void RenderShiftedImages(const WidefieldImages& i0, const WidefieldImages* i1, double w, const std::vector<double>& a,
+                         double dxCells, double dyCells, std::vector<float>& cam)
+{
+   if (!i0.HasSpectra())
+      return;
+   const size_t n = i0.fft->SpecSize();
+   std::vector<cfloat> S(n, cfloat(0.0f, 0.0f));
+   bool any = false;
+   // S += c x spec (c a float, as WidefieldImages::Render's coefficients).
+   auto add = [&](const std::vector<cfloat>& spec, float c) {
+      if (spec.size() != n || c == 0.0f)
+         return;
+      any = true;
+      for (size_t i = 0; i < n; ++i)
+         S[i] += c * spec[i];
+   };
+   auto addImages = [&](const WidefieldImages& im, double wi) {
+      const float cw = static_cast<float>(wi);
+      add(im.specPersistent, cw);
+      for (size_t j = 0; j < im.specBleach.size() && j < a.size(); ++j)
+         if (a[j] != 0.0)
+            add(im.specBleach[j], static_cast<float>(a[j]) * cw);
+   };
+   addImages(i0, i1 ? 1.0 - w : 1.0);
+   if (i1 && w != 0.0 && i1->HasSpectra() && i1->fft->SpecSize() == n)
+      addImages(*i1, w);
+   if (!any)
+      return;
+   ShiftedCamera(*i0.fft, S, i0.fracX - dxCells, i0.fracY - dyCells, i0.fovX0, i0.fovY0, i0.cw, i0.ch,
+                 std::max(1u, i0.upscale), 1.0f, cam);
+}
+
+void WidefieldDriftFrames::Begin(const DriftBounds& b, const std::vector<double>& baseFocusWorldUm)
+{
+   grid_ = DriftFocusGrid::For(b);
+   base_ = baseFocusWorldUm;
+   series_.clear();
+   have_ = false;
+}
+
+bool WidefieldDriftFrames::Refresh(WidefieldScene& scene, std::string& err)
+{
+   if (have_ && version_ == scene.ImagesVersion())
+      return true;
+   // The sample sits dz higher: the focal plane is dz lower in it.
+   std::vector<double> foci;
+   for (double f : base_)
+      for (int k = 0; k < grid_.n; ++k)
+         foci.push_back(f - grid_.DzNm(k) / 1000.0);
+   if (!scene.FocusSeries(foci, series_, err))
+   {
+      have_ = false;
+      return false;
+   }
+   version_ = scene.ImagesVersion();
+   have_ = true;
+   return true;
+}
+
+void WidefieldDriftFrames::Render(const WidefieldScene& scene, size_t base, const DriftNm& d,
+                                  const std::vector<double>& a, std::vector<float>& cam) const
+{
+   if (!have_ || base >= base_.size())
+      return;
+   int k = 0;
+   double w = 0.0;
+   grid_.Weights(d.z, k, w);
+   const size_t i = base * static_cast<size_t>(grid_.n) + static_cast<size_t>(k);
+   const WidefieldImages* i1 = (w != 0.0 && k + 1 < grid_.n) ? &series_[i + 1] : nullptr;
+   const double pitchNm = scene.Grid().pitchUm * 1000.0;
+   RenderShiftedImages(series_[i], i1, i1 ? w : 0.0, a, d.x / pitchNm, d.y / pitchNm, cam);
 }
 
 } // namespace sim

@@ -134,6 +134,24 @@
       "url": "https://andor.oxinst.com/products/ixon-emccd-cameras/ixon-ultra-897",
       "use": "iXon Ultra 897 preset (EMCCD read noise, clock-induced charge, dark current at -80 C, EM gain range); QE curve via FPbase",
       "checked": "typical published values; not re-checked against the current datasheet -- see the preset's notes"
+    },
+    "cnossen2021": {
+      "authors": "Cnossen J, Cui TJ, Joo C, Smith C",
+      "year": 2021,
+      "title": "Drift correction in localization microscopy using entropy minimization",
+      "journal": "Optics Express", "volume": "29", "pages": "27961-27974",
+      "doi": "10.1364/OE.426620",
+      "use": "sample drift as a random walk: a normal step per frame, cumulated (the drift model of Simulation/Drift.*)",
+      "checked": "bibliographic details from the DOI record; the model as cited by Ma et al. 2024 (not re-read from the full text)"
+    },
+    "ma2024": {
+      "authors": "Ma H, Chen M, Nguyen P, Liu Y",
+      "year": 2024,
+      "title": "Toward drift-free high-throughput nanoscopy through adaptive intersection maximization",
+      "journal": "Science Advances", "volume": "10", "pages": "eadm7765",
+      "doi": "10.1126/sciadv.adm7765",
+      "use": "RMS drift of 5, 10 and 20 nm/s as test values, drift as a cumulative normal distribution (after Cnossen et al. 2021): the scale of SimType_DriftXyNmPerSqrtSec / ZNmPerSqrtSec",
+      "checked": "bibliographic details from the DOI record; the 5/10/20 nm/s values and the model as quoted from the paper by the user (not re-read from the full text)"
     }
   }
 }

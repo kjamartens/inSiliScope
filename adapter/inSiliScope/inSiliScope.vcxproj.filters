@@ -37,6 +37,7 @@
     <ClCompile Include="Simulation\CellFieldSource.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\Drift.cpp">
     <ClCompile Include="ScopeProperties.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -138,6 +139,7 @@
     <ClInclude Include="Simulation\CellFieldSource.h">
       <Filter>Simulation</Filter>
     </ClInclude>
+    <ClInclude Include="Simulation\Drift.h">
     <ClInclude Include="Simulation\IlluminationHistory.h">
       <Filter>Simulation</Filter>
     </ClInclude>

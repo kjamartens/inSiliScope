@@ -53,4 +53,59 @@ defocused PSF.
 
 ## Drift
 
-A random drift direction per seed (its own RNG stream), speed `SimType_DriftNmPerSec`.
+The sample drift has two parts, set separately for xy and z: a **directed** part (a slow, mostly steady movement in
+one direction, as from thermal expansion or a creeping stage) and a **random walk** on top.
+
+**Directed part.** A mean velocity: xy speed \(V_{xy}\) (`SimType_DriftXySpeedNmPerSec`, cli/viewer
+`drift-xy-speed-nm-per-sec`) in a direction \(\theta_0\) (`SimType_DriftXyAngleDeg`, degrees from +x; −1, the default,
+draws it once per seed) and a signed z speed \(V_z\) (`SimType_DriftZSpeedNmPerSec`, + = away from the coverslip).
+Direction and strength wander slowly:
+
+\[
+v_{xy} = V_{xy}\,\max(0, 1 + w\,s_{xy})\;(\cos(\theta_0 + \alpha\,\phi),\ \sin(\theta_0 + \alpha\,\phi)), \qquad
+v_z = V_z\,\max(0, 1 + w\,s_z),
+\]
+
+where \(\phi, s_{xy}, s_z\) are independent unit-variance Ornstein–Uhlenbeck processes with correlation time \(\tau\)
+(`SimType_DriftWanderTimeSec`, default 60 s), \(\alpha\) the direction wander (`SimType_DriftXyAngleWanderDeg`, deg RMS)
+and \(w\) the speed wander (`SimType_DriftSpeedWanderPct`, % RMS of the mean). So the xy direction strays by about
+\(\alpha\) around \(\theta_0\) and the z drift keeps its sign while its strength fluctuates. With both wanders at 0 the
+velocity is constant. Each frame moves the sample by \(v\,\Delta t\), with \(v\) at the frame's start. The xy and z
+speeds are the everyday settings; direction, wanders and \(\tau\) are advanced (the viewer shows them under Advanced).
+
+**Random walk.** Every frame adds an independent normal step per axis,
+and the steps add up (the "cumulative normal distribution" of Cnossen et al. 2021, used by Ma et al. 2024 at RMS drifts of
+5, 10 and 20 nm/s). The step of a frame of length \(\Delta t\) has variance \(\sigma^2 \Delta t\) per axis, so
+
+\[
+d(0) = 0, \qquad d(f) = d(f-1) + \sigma \sqrt{\Delta t}\; g_f, \qquad \langle d(t)^2 \rangle = \sigma^2 t ,
+\]
+
+and \(\sigma\) is the RMS displacement per axis after 1 s whatever the frame rate (strictly nm/\(\sqrt{\text{s}}\); "nm/s" in
+the papers' wording; advanced, "jitter" in the viewer). x and y each get \(\sigma_{xy}\) (`SimType_DriftXyNmPerSqrtSec`, cli/viewer
+`drift-xy-nm-per-sqrt-sec`), z gets \(\sigma_z\) (`SimType_DriftZNmPerSqrtSec`, `drift-z-nm-per-sqrt-sec`); both default
+to 0. A stable setup (optical table, active isolation, constant temperature) drifts a few nm/s.
+
+- The draws are counter-based per (seed, frame) on a stream of their own, so a precomputed stack, live mode, the cli, the
+  viewer and webSMLM's `CellField.driftTrajectory` follow the same path for one seed, and no other draw moves. The drift
+  starts at zero at each acquisition (the movie's first frame; every Live/MDA start in Micro-Manager) and is constant
+  within a frame (motion during the exposure is ignored).
+- The drift is the sample's displacement in camera axes, +z away from the coverslip: the focal plane sits \(d_z\) lower
+  in the sample.
+- **Blinks and per-dye emitters** (dSTORM, PALM, DNA-PAINT; WideField labels drawn per dye): every emitter is drawn at
+  its position plus the drift, with the focal plane moved by \(-d_z\).
+- **Mean-field images (WideField labels, PALM pre states, the dSTORM initial ON) and BrightField**: under uniform illumination the image of a moved sample is the image moved. A frame is
+  the scene's full-grid image spectrum (periodic and band-limited: grid pitch \(\le \lambda/4\mathrm{NA}\) resp.
+  \(\lambda/4n\)) times a phase ramp, cropped and binned, so a sub-pixel drift is exact rather than re-binned. The
+  illuminated square and the dye grid (mean field) or the grid margin (BrightField) grow by the xy drift. The z drift
+  uses images at foci 10 nm apart, linearly interpolated (mean field: 2e-5 rms, BrightField: 2e-4 of the contrast
+  against the exact focus). In Micro-Manager's live mode both shift the image of a scene anchored within 1 µm of
+  the drifted sample (rebuilt when it moves further).
+- The flat background and the DNA-PAINT imager background are unaffected.
+- The cli writes the true drift per frame next to the movie (`<name>.drift.csv`: frame, dx, dy, dz in nm), ground
+  truth for testing drift correction.
+
+References ([cnossen2021](../references.md#cnossen2021), [ma2024](../references.md#ma2024)): J. Cnossen, T. J. Cui, C. Joo, C. Smith, "Drift correction in localization microscopy using entropy
+minimization", *Opt. Express* **29**(18), 27961-27974 (2021), doi:10.1364/OE.426620. H. Ma, M. Chen, P. Nguyen, Y. Liu,
+"Toward drift-free high-throughput nanoscopy through adaptive intersection maximization", *Sci. Adv.* **10**(21),
+eadm7765 (2024), doi:10.1126/sciadv.adm7765.

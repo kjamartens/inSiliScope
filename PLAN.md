@@ -56,6 +56,9 @@ Upcoming ideas:
   sweeps with ahead / in-slab / behind layers), preview timeline, MP4 / WebM / GIF export (also for the movie player);
   [x] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [x] phase 4: thresholded WF isosurface,
   SMLM localizations (multi-plane acquisition, precision noise).
+- 2026-10-06: [x] sample drift as a random walk, xy and z separately (`Simulation/Drift.*`, `drift.js`; MM, cli, viewer,
+  webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 17). Next: [ ] drift on
+  the WideField GPU paths, [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
   envelope (generic obstacle interface), [x] ported to the core bit-exactly (ABI 9 nucleus rings, optical volume),

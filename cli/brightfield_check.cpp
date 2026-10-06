@@ -5,6 +5,7 @@
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
 #include "BrightfieldRender.h"
+#include "Drift.h"
 #include "CellFieldSource.h"
 #include "Parallel.h"
 
@@ -224,6 +225,79 @@ int main()
       if (!ok)
          std::printf("  %s\n", err.c_str());
       Check(ok, "real world: every call succeeded");
+   }
+
+   // A drifting sample (BrightfieldDriftFrames): the fine-grid image shifted in
+   // its spectrum and interpolated on the focus grid, against scenes posed and
+   // focused where the drift puts the sample.
+   {
+      CellFieldSource src;
+      std::string err;
+      bool ok = src.Configure(World(0.33), err);
+      auto rms = [](const std::vector<float>& a, const std::vector<float>& b) {
+         double e = 0, s = 0;
+         for (size_t i = 0; i < a.size() && i < b.size(); ++i)
+         {
+            e += (static_cast<double>(a[i]) - b[i]) * (static_cast<double>(a[i]) - b[i]);
+            s += (static_cast<double>(b[i]) - 1.0) * (static_cast<double>(b[i]) - 1.0);
+         }
+         return a.size() == b.size() && s > 0 ? std::sqrt(e / s) : 1e30;   // relative to the contrast
+      };
+      BrightfieldSpec sa = FieldSpec(3);
+      sa.marginUm = sa.Resolved().marginUm + 0.4;
+      BrightfieldScene A;
+      ok = ok && A.Update(src, sa, 1, err);
+      DriftBounds b;
+      b.zLo = -40.0;
+      b.zHi = 40.0;
+      BrightfieldDriftFrames frames;
+      frames.Begin(b, std::vector<double>(1, 0.5));
+      ok = ok && frames.Refresh(A, 0, err);
+      std::vector<float> img, ref;
+      DriftNm d0;
+      frames.Image(A, 0, d0, img);
+      ok = ok && A.Image(0.5, ref, err);
+      const double e0 = rms(img, ref);
+      std::printf("      drift 0: rms %.2e of the contrast\n", e0);
+      Check(ok && e0 < 1e-4, "drift: zero shift, grid focus = the image");
+      // Whole grid cells: the moved scene samples the same specimen points.
+      double eInt = 0, eSub = 0;
+      const double shifts[3][3] = { { 100.0, -200.0, 0 }, { -300.0, 100.0, 0 }, { 37.0, -81.0, 1 } };
+      for (const auto& s : shifts)
+      {
+         DriftNm d;
+         d.x = s[0];
+         d.y = s[1];
+         frames.Image(A, 0, d, img);
+         BrightfieldSpec sb = sa;
+         sb.originXUm -= d.x / 1000.0;
+         sb.originYUm -= d.y / 1000.0;
+         BrightfieldScene B;
+         ok = ok && B.Update(src, sb, 1, err) && B.Image(0.5, ref, err);
+         const double e = rms(img, ref);
+         std::printf("      drift (%g, %g) nm: rms %.2e of the contrast\n", d.x, d.y, e);
+         (s[2] ? eSub : eInt) = std::max(s[2] ? eSub : eInt, e);
+      }
+      // Whole cells: what is left is the margin taper, which moves with a posed
+      // scene's grid. A sub-cell pose also samples the specimen elsewhere on
+      // the grid (thin microtubules, edges): the posed scene differs by its own
+      // discretisation, which the shifted image does not have (printed only).
+      Check(ok && eInt < 5e-3, "drift: whole-cell shift = the scene posed at -d (to its margin taper)");
+      (void)eSub;
+      double eZ = 0;
+      for (double dz : { -35.0, 15.0, 26.3 })
+      {
+         DriftNm d;
+         d.z = dz;
+         frames.Image(A, 0, d, img);
+         ok = ok && A.Image(0.5 - dz / 1000.0, ref, err);
+         const double e = rms(img, ref);
+         std::printf("      drift dz %g nm: rms %.2e of the contrast\n", dz, e);
+         eZ = std::max(eZ, e);
+      }
+      Check(ok && eZ < 1e-3, "drift: focus-grid interpolation = the exact focus");
+      if (!ok)
+         std::printf("  %s\n", err.c_str());
    }
 
    std::printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall brightfield checks passed\n", g_failures);

@@ -65,5 +65,19 @@ ok(thin.sites.length < a.sites.length && thin.sites.every(s => Math.abs(s[2]) <=
 const CF2 = new Function('return ' + CellField.workerSource())();
 ok(same(a.sites, CF2.buildWindow(W, H, base).sites), 'workerSource() CellField gives the same sites');
 
+// Sample drift: the JS reference's path (= the C++'s, tests/parity/scope_parity.mjs), also from a worker's CellField.
+const { driftTrajectory } = await import('../../web/prototype/scope/drift.js');
+const dt = CellField.driftTrajectory(42, 200, 0.05, 20, 30);
+const ref = driftTrajectory(42, 200, 0.05, { xyNmPerSqrtSec: 20, zNmPerSqrtSec: 30 });
+ok(dt.length === 200 && dt.every((d, i) => d.x === ref[i].x && d.y === ref[i].y && d.z === ref[i].z) &&
+   dt[0].x === 0 && Math.abs(dt[199].x) > 0, `driftTrajectory = the JS reference (frame 199: ${dt[199].x.toFixed(1)}, ${dt[199].y.toFixed(1)}, ${dt[199].z.toFixed(1)} nm)`);
+const opts = { xySpeedNmPerSec: 15, zSpeedNmPerSec: -4, angleWanderDeg: 20, speedWanderPct: 30, wanderTimeSec: 5 };
+const dd = CellField.driftTrajectory(42, 200, 0.05, 20, 30, opts);
+const rd = driftTrajectory(42, 200, 0.05, { xyNmPerSqrtSec: 20, zNmPerSqrtSec: 30, ...opts });
+ok(dd.every((d, i) => d.x === rd[i].x && d.y === rd[i].y && d.z === rd[i].z) && dd[199].x !== dt[199].x,
+   `driftTrajectory with a directed part = the JS reference (frame 199: ${dd[199].x.toFixed(1)}, ${dd[199].y.toFixed(1)}, ${dd[199].z.toFixed(1)} nm)`);
+const dw = CF2.driftTrajectory(42, 200, 0.05, 20, 30);
+ok(dw.every((d, i) => d.x === dt[i].x && d.z === dt[i].z), 'workerSource() CellField: the same drift');
+
 if (fails) { console.error(`${fails} check(s) failed`); process.exit(1); }
 console.log('all checks passed');

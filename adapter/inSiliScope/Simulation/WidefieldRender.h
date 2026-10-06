@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "Drift.h"
 #include "Fft2d.h"
 #include "Illumination.h"
 #include "PsfGeneratorBridge.h"
@@ -290,7 +291,27 @@ struct WidefieldImages
    // Adds the frame with bleach coefficients a (a.size() == bleach.size())
    // to cam (cw/upscale x ch/upscale camera pixels).
    void Render(const std::vector<double>& a, std::vector<float>& cam) const;
+
+   // With WidefieldScene::SetKeepSpectra: the same channels as full-grid
+   // spectra before the sub-cell shift (empty: a channel without light), the
+   // transform, and where the FOV sits in the grid -- what a drifting
+   // sample's frames are made from (WidefieldDriftFrames).
+   std::vector<cfloat> specPersistent;
+   std::vector<std::vector<cfloat>> specBleach;
+   std::shared_ptr<const RealFft2d> fft;
+   unsigned fovX0 = 0, fovY0 = 0;
+   double fracX = 0.0, fracY = 0.0;
+   bool HasSpectra() const { return fft != nullptr; }
 };
+
+// The frame with bleach coefficients a, interpolated between the images of
+// two foci ((1 - w) i0 + w i1; i1 may be null when w = 0), with the sample
+// moved by (dxCells, dyCells) grid cells: the channels' spectra summed, the
+// sub-cell pose and the drift as one phase ramp (exact: the image is
+// band-limited and the grid periodic), cropped, max(0, .) and binned per
+// camera pixel. Adds to cam. Both need spectra.
+void RenderShiftedImages(const WidefieldImages& i0, const WidefieldImages* i1, double w, const std::vector<double>& a,
+                         double dxCells, double dyCells, std::vector<float>& cam);
 
 // The GPU's share of one focus (WidefieldGpu.wgsl): which dye planes of
 // which channels meet which kernels, for a host (web/wf_gpu.js,
@@ -432,6 +453,9 @@ public:
    // One frame: the basis coefficients when wb fits, else SetBleachWeights
    // first. Adds to cam.
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
+   // The same with the sample moved by (dxCells, dyCells) grid cells
+   // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
+   void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);
    bool LastFrameFast() const { return lastFast_; }
 
    // Images at other focus positions (world z of the focal plane) for the
@@ -449,6 +473,11 @@ public:
    // GPU mode: power-of-two FFT sizes and no coarse bands (what the GPU
    // kernels do). Set before the first Update.
    void SetGpuMode(bool on) { gpuMode_ = on; }
+   // Images carry their full-grid spectra (WidefieldImages::HasSpectra; a
+   // drifting sample). Focus work then runs on the CPU (the accelerator
+   // returns images only). Set before an Update.
+   void SetKeepSpectra(bool on) { keepSpectra_ = on; }
+   bool KeepSpectra() const { return keepSpectra_; }
    // A synchronous GPU host for the focus work (plane spectra, re-pairing,
    // images); nullptr = the CPU. On a host failure the scene keeps rendering
    // on the CPU and GpuError() says why.
@@ -502,8 +531,11 @@ private:
    void FillSpectra(const std::vector<const Channel*>& chans, const std::vector<const FocusPlan*>& plans);
    const std::vector<cfloat>* CachedSpectrum(const Channel& c, long k, int level) const;
    void PlaneSpectrum(const Channel& c, const WidefieldSparsePlane& pl, int level, std::vector<cfloat>& out) const;
-   // Full-resolution spectrum of a channel at a plan, then its image.
-   void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img) const;
+   // Full-resolution spectrum of a channel at a plan, then its image; the
+   // spectrum before the sub-cell shift into keep (if given; empty when the
+   // channel has no light).
+   void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
+                     std::vector<cfloat>* keep = nullptr) const;
    void ImagesFor(const FocusPlan& plan, WidefieldImages& out) const;
    std::vector<const Channel*> ActiveChannels() const;
    void Refocus(const WidefieldPsf& psf);
@@ -559,7 +591,7 @@ private:
    bool lastFast_ = false;
    double bandEpsilon_ = kBandEpsilon;
    unsigned long long imagesVersion_ = 1;
-   bool gpuMode_ = false, defer_ = false;
+   bool gpuMode_ = false, defer_ = false, keepSpectra_ = false;
    WidefieldAccelerator* accel_ = nullptr;
    std::string gpuError_;
    unsigned long long geometry_ = 0;
@@ -568,6 +600,32 @@ private:
    // dropped, gpuError_ set) on a failure.
    bool AccelImages(const FocusPlan& plan, const std::vector<const Channel*>& chans,
                     std::vector<std::vector<float>>& out);
+};
+
+// The frames of a drifting sample (Drift.h): the scene's images on the
+// drift's focus grid around each base focus (FocusSeries, remade whenever the
+// scene's images change), each frame interpolated in z and shifted in xy
+// (RenderShiftedImages). The scene must keep spectra (SetKeepSpectra) and
+// its illumination cover the FOV grown by the xy drift.
+class WidefieldDriftFrames
+{
+public:
+   // baseFocusWorldUm: the undrifted focal planes (the Z stage, or each
+   // position of a z sequence).
+   void Begin(const DriftBounds& b, const std::vector<double>& baseFocusWorldUm);
+   // Brings the focus images up to date with the scene; false with err.
+   bool Refresh(WidefieldScene& scene, std::string& err);
+   // Adds the frame of base focus `base`, drift d and bleach coefficients a
+   // to cam. Thread-safe after Refresh.
+   void Render(const WidefieldScene& scene, size_t base, const DriftNm& d, const std::vector<double>& a,
+               std::vector<float>& cam) const;
+
+private:
+   DriftFocusGrid grid_;
+   std::vector<double> base_;
+   std::vector<WidefieldImages> series_; // base-major, grid_.n per base
+   unsigned long long version_ = 0;
+   bool have_ = false;
 };
 
 } // namespace sim

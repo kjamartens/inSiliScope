@@ -13,8 +13,9 @@ and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
 z sequence).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
-    ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
-Run it after tools/test_insiliscope.py (two tests, each under 5 minutes; run_checks(core) for a core of your own).
+    ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py [--drift]
+Run it after tools/test_insiliscope.py, then once more with --drift (the sample drift checks alone): three runs, each
+under 5 minutes; run_checks(core) for a core of your own.
 Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
 """
 
@@ -64,6 +65,135 @@ def _shift(a, b):
     return (dy - h if dy > h // 2 else dy), (dx - w if dx > w // 2 else dx), c.max()
 
 
+def _ls_shift(a, b, r=24):
+    """Integer (dy, dx) with b[y, x] ~= a[y - dy, x - dx]: the least mean squared difference over the overlap. Unlike
+    the circular cross-correlation (_shift) it also finds the shift of smooth, featureless images."""
+    h, w = a.shape
+    best = None
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            pa = a[max(0, -dy):h - max(0, dy), max(0, -dx):w - max(0, dx)]
+            pb = b[max(0, dy):h - max(0, -dy), max(0, dx):w - max(0, -dx)]
+            e = float(np.mean((pa - pb) ** 2))
+            if best is None or e < best[0]:
+                best = (e, dy, dx)
+    return best[1], best[2], best[0]
+
+
+def _drift_nm(seed, frames, frame_sec, sxy, sz):
+    """Simulation/Drift.cpp's random walk in Python: the sample drift (x, y, z nm) of each frame."""
+    m = 0xFFFFFFFF
+
+    def pcg4d(a, b, c, d):
+        a, b, c, d = [(v * 1664525 + 1013904223) & m for v in (a, b, c, d)]
+        a = (a + b * d) & m; b = (b + c * a) & m; c = (c + a * b) & m; d = (d + b * c) & m
+        a ^= a >> 16; b ^= b >> 16; c ^= c >> 16; d ^= d >> 16
+        a = (a + b * d) & m; b = (b + c * a) & m; c = (c + a * b) & m; d = (d + b * c) & m
+        return [a, b, c, d]
+
+    s32 = (seed ^ 0x44524654) & m
+    out, x, y, zz = [(0.0, 0.0, 0.0)], 0.0, 0.0, 0.0
+    for f in range(1, frames):
+        u = [((w >> 9) + 0.5) * 1.1920928955078125e-7 for w in pcg4d(s32, f, 0, 0) + pcg4d(s32, f, 0, 1)]
+        g = [np.sqrt(-2.0 * np.log(u[2 * k])) * np.cos(6.283185307179586 * u[2 * k + 1]) for k in range(3)]
+        r = np.sqrt(frame_sec)
+        x += sxy * r * g[0]; y += sxy * r * g[1]; zz += sz * r * g[2]
+        out.append((x, y, zz))
+    return out
+
+
+def _drift_checks(core, cam, xy, x0, y0):
+    """Sample drift (SimType_Drift*): the properties are there (the linear SimType_DriftNmPerSec is gone) and wired
+    into both modalities. The physics (exact sub-pixel shift, focus grid, blinks, C++ = JS) is ctest drift / widefield /
+    brightfield and scope_parity. Fluorescence uses the mEGFP WideField label (one continuous image; a huge photon
+    budget, so the illumination history of the repeated stacks does not dim it).
+    Only the adapter's own paths (the shifts themselves, BrightField stacks and the directed part are checked exactly
+    in ctest drift / brightfield and scope_parity):
+    - Precomputed (Fluorescence): frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
+      seed's drift path, the path the cli and viewer take (_drift_nm).
+    - Live, each modality: frame 9 of a sequence acquisition moves by the same path as the stacks' frame 9."""
+    assert not core.hasProperty(cam, "SimType_DriftNmPerSec"), "SimType_DriftNmPerSec should be gone"
+    for p, v in (("SimType_DriftXyNmPerSqrtSec", 0.0), ("SimType_DriftZNmPerSqrtSec", 0.0),
+                 ("SimType_DriftXySpeedNmPerSec", 0.0), ("SimType_DriftZSpeedNmPerSec", 0.0),
+                 ("SimType_DriftXyAngleDeg", -1.0), ("SimType_DriftXyAngleWanderDeg", 0.0),
+                 ("SimType_DriftSpeedWanderPct", 0.0), ("SimType_DriftWanderTimeSec", 60.0)):
+        assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == v, f"{p} missing or not {v}"
+    core.setXYPosition(xy, x0, y0)  # the field with structure
+    _wait_idle(core, xy)
+    _label(core, cam, **GFP)
+    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "1e9")
+    seed = int(core.getProperty(cam, "SimType_RandomSeed"))
+    px = float(core.getProperty(cam, "General_PixelSizeNm"))
+    # 1000 nm/sqrt(s) (the property's maximum) and 100 ms frames: frame 9 (0.9 s) sits ~0.95 um (~9 px rms per axis)
+    # from frame 0. A snap of a precomputed stack takes its exposure: 10 snaps = 1 s per stack.
+    sxy, sz, exp_ms, k = 1000.0, 30.0, 100.0, 9
+    path = _drift_nm(seed, k + 1, exp_ms / 1000.0, sxy, sz)
+    expect = (round(path[k][1] / px), round(path[k][0] / px))
+
+    def drift(on):
+        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", str(sxy if on else 0))
+        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", str(sz if on else 0))
+
+    def stack_frame():
+        core.setProperty(cam, "General_GenerateStack", "1")
+        _wait_for_stack(core, cam)
+        for _ in range(k + 1):
+            core.snapImage()
+        return core.getImage().astype(np.float64)
+
+    def setup(modality):
+        core.setProperty(cam, "General_ImagingModality", modality)
+        if modality == "BrightField":
+            # Single frames: unstained cells (~0.5% contrast) sit below the shot noise, so the cells absorb here;
+            # 16000 photons/px, no saturation.
+            core.setProperty(cam, "General_BrightFieldQuality", "1")
+            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", str(16000.0 / (exp_ms / 1000.0)))
+            core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0.3")
+
+    core.setProperty(cam, "General_StackLength", str(k + 1))
+    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setExposure(exp_ms)
+    for modality in ("Fluorescence",):
+        setup(modality)
+        drift(False)
+        still = stack_frame()
+        drift(True)
+        moved = stack_frame()
+        dy, dx, e = _ls_shift(still, moved)
+        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1, \
+            f"{modality}: stack frame {k} moved by ({dy}, {dx}) px, the drift path says {expect}"
+        print(f"Drift OK ({modality}, precomputed): frame {k} moved by ({dy}, {dx}) px (path {expect})")
+
+    # Live: a 10-frame sequence acquisition at 200 ms restarts the drift at its first frame, so its frame 9 must move
+    # by the same seed path as the stacks' frame 9 (live = precomputed).
+    core.setProperty(cam, "General_AcqMode", "Live")
+    for modality in ("Fluorescence", "BrightField"):
+        setup(modality)
+        drift(True)
+        time.sleep(0.5)  # the live scene is built
+        core.startSequenceAcquisition(k + 1, 0, True)
+        frames, t0 = [], time.time()
+        while len(frames) < k + 1:
+            if core.getRemainingImageCount() > 0:
+                frames.append(core.popNextImage().astype(np.float64))
+            elif time.time() - t0 > 120:
+                sys.exit(f"{modality} live drift: sequence timed out")
+            else:
+                time.sleep(0.005)
+        core.stopSequenceAcquisition()
+        dy, dx, e = _ls_shift(frames[0], frames[k])
+        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1, \
+            f"{modality} live: frame {k} of a sequence moved by ({dy}, {dx}) px, the drift path says {expect}"
+        print(f"Drift OK ({modality}, live): sequence frame {k} moved by ({dy}, {dx}) px (path {expect})")
+
+    drift(False)
+    core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
+    core.setProperty(cam, "General_BrightFieldQuality", "3")
+    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
+    _label(core, cam, **GFP)  # reloads the dye fields (the photon budget)
+
+
 def _label(core, cam, mode, dye=None, pct=None, imager=None):
     """The microtubules' label: dye (loads its fields and light preset), mode, labelling, imager (DNA-PAINT)."""
     if dye is not None:
@@ -82,7 +212,9 @@ PAINT = dict(mode="DNA-PAINT", dye="ATTO655", pct=70, imager=1.43)
 GFP = dict(mode="WideField", dye="mEGFP")
 
 
-def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
+def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
+    """Every check but the drift; drift_only: the setup, the search for a FOV with structure and the drift checks
+    (a run of their own: together they would pass 5 minutes)."""
     core.loadDevice(cam, "inSiliScope", "Camera")
     core.setProperty(cam, "SimType_RandomSeed", "7")
     core.initializeDevice(cam)
@@ -159,8 +291,9 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
 
     # Find a FOV with structure: the brightest of a few spots.
     best = None
-    for x in (0.0, 13.0, 26.0, 39.0):
-        for y in (0.0, 13.0, 26.0):
+    spots = [(0.0, 0.0), (26.0, 13.0)] if drift_only else [(x, y) for x in (0.0, 13.0, 26.0, 39.0) for y in (0.0, 13.0, 26.0)]
+    for x, y in spots:
+        if True:
             core.setXYPosition(xy, x, y)
             _wait_idle(core, xy)
             core.snapImage()  # a frame at the new pose
@@ -169,6 +302,9 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
                 best = (s, x, y)
     s, x0, y0 = best
     assert s > 5.0, f"no structure found in any test FOV (best std {s:.2f}): CellField renders nothing?"
+    if drift_only:
+        _drift_checks(core, cam, xy, x0, y0)
+        return
     core.setXYPosition(xy, x0, y0)
     _wait_idle(core, xy)
     core.snapImage()
@@ -546,5 +682,6 @@ if __name__ == "__main__":
     if not dirs:
         sys.exit("Set ADAPTER_DIR to the directory holding the inSiliScope adapter.")
     core.setDeviceAdapterSearchPaths(dirs)
-    run_checks(core)
-    print("All CellField / XY stage checks passed.")
+    t_start = time.time()
+    run_checks(core, drift_only="--drift" in sys.argv)  # --drift: the drift checks alone
+    print(f"All CellField / XY stage checks passed ({time.time() - t_start:.0f} s).")

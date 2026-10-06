@@ -14,10 +14,11 @@
 //      focal slab or General_MeanFieldMaxEmitters in the z range; these populations only decay, so a movie switches at
 //      most once, mean-field -> per dye.
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
-import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, kernelWavelengthNm } from './scope_movie.js';
+import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, kernelWavelengthNm, driftInfo } from './scope_movie.js';
 import { bucketEventsByFrame, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
 import { nearestZIndex, planSplat, splatRows } from './psf.js';
-import { meanFieldImage } from './widefield.js';
+import { meanFieldImage, renderShiftedImages } from './widefield.js';
+import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 import { EVENT_STATE } from './dyes.js';
 import { STRUCTURES } from './world.js';
 
@@ -25,9 +26,10 @@ const MIN_DETECTED_FRACTION = 1e-4;   // a (structure, state) detected less than
 
 const gaussianSigmaPx = (lambdaNm, na, pixelNm) => Math.min(Math.max(0.21 * lambdaNm / Math.max(0.01, na) / pixelNm, 0.3), 20.0);
 
-// One unit-photon emitter (sign +1 or -1) into img at its plane: the running image's add/remove.
-function splatUnit(img, W, H, e, g, zStage, pixelNm, sign) {
-  const xPx = e.xUm * 1000.0 / pixelNm, yPx = e.yUm * 1000.0 / pixelNm;
+// One unit-photon emitter (sign +1 or -1) into img at its plane: the running image's add/remove (dxPx, dyPx: the
+// sample drift).
+function splatUnit(img, W, H, e, g, zStage, pixelNm, sign, dxPx = 0.0, dyPx = 0.0) {
+  const xPx = e.xUm * 1000.0 / pixelNm + dxPx, yPx = e.yUm * 1000.0 / pixelNm + dyPx;
   if (!g.kernel) { renderGaussian(img, W, H, xPx, yPx, g.sigmaPx, sign); return; }
   const plan = planSplat(g.kernel, nearestZIndex(g.kernel, e.zNm / 1000.0 - zStage), xPx, yPx, 1.0, g.kernel.interpMode);
   if (plan) splatRows(img, W, H, 0, H, g.kernel, plan, sign);
@@ -41,6 +43,13 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const t0 = performance.now();
   const W = S.W, H = S.H, N = S.N, pixelNm = S.p.pixelSizeNm, um = pixelNm / 1000, zStage = S.O('z');
   const world = scopeWorld(P, S);
+  // Drift: the sample moved by d, the focal plane dz lower in it (zAt); mean-field images on the drift's focus grid,
+  // the lit square and grid grown by the xy drift (DriftMarginUm).
+  const drift = S.driftOn;
+  const zAt = f => drift ? zStage - S.drift[f].z / 1000.0 : zStage;
+  const dPx = f => drift ? [S.drift[f].x / pixelNm, S.drift[f].y / pixelNm] : [0.0, 0.0];
+  const driftMarginUm = drift ? (Math.ceil(driftMaxXyNm(S.driftBounds) / pixelNm) + 1.0) * pixelNm / 1000.0 : 0.0;
+  const driftGrid = drift ? driftFocusGrid(S.driftBounds) : null;
 
   // ---- groups: (structure, state) with their PSF and detected photons per frame ----
   const groups = [];
@@ -97,7 +106,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       else if (state === EVENT_STATE.INITIAL_ON) lambda = 1 / L.label.kinetics.initialOnSec;
       else { budget = L.prePhotonBudget; lambda = L.kActPerSec + (budget > 0 ? st.emissionPerSec / budget : 0); }
       pops.push({ structure: s, state, g, lambda, budget, emissionPerSec: st.emissionPerSec, rate: st.detectedPerSec,
-        nZ, nSlab, wins: null, image: null, acc: null, accFrame: -1, meanFieldFrames: 0, perDyeFrames: 0 });
+        nZ, nSlab, wins: null, image: null, mf: null, acc: null, accFrame: -1, accZ: 0, accDx: 0, accDy: 0, meanFieldFrames: 0, perDyeFrames: 0 });
     }
   });
   const isMeanField = (p, f) => {
@@ -122,14 +131,17 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   allWindows = null;
   const querySec = (performance.now() - t0) / 1000;
   // Running image of the windows that cover frame f fully (unit photons each).
-  const advanceAcc = (p, f) => {
+  const advanceAcc = (p, f, z, dx, dy) => {
+    // Another focal plane or a moved sample: start the running image afresh.
+    if (p.accFrame >= 0 && (p.accZ !== z || p.accDx !== dx || p.accDy !== dy)) p.accFrame = -1;
+    p.accZ = z; p.accDx = dx; p.accDy = dy;
     if (p.accFrame < 0) {
       p.acc = new Float64Array(W * H);
-      for (const e of p.wins) if (e.tStart <= f && e.tEnd >= f + 1) splatUnit(p.acc, W, H, e, p.g, zStage, pixelNm, 1);
+      for (const e of p.wins) if (e.tStart <= f && e.tEnd >= f + 1) splatUnit(p.acc, W, H, e, p.g, z, pixelNm, 1, dx, dy);
     } else {
       for (const e of p.wins) {
         const was = e.tStart <= p.accFrame && e.tEnd >= p.accFrame + 1, now = e.tStart <= f && e.tEnd >= f + 1;
-        if (was !== now) splatUnit(p.acc, W, H, e, p.g, zStage, pixelNm, now ? 1 : -1);
+        if (was !== now) splatUnit(p.acc, W, H, e, p.g, z, pixelNm, now ? 1 : -1, dx, dy);
       }
     }
     p.accFrame = f;
@@ -143,27 +155,40 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   for (let f = 0; f < N; f++) {
     const frameBlinks0 = blinks, paths = [];
     const img = new Float32Array(W * H).fill(bg);
+    const zf = zAt(f), [dx, dy] = dPx(f);
     groups.forEach((g, gi) => {
       if (g.role !== 'main') return;
       const evs = buckets[gi][f].map(i => byGroup[gi][i]);
       blinks += evs.length;
-      renderPhotonImage(W, H, evs, f, { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx }, g.kernel, zStage, img);
+      renderPhotonImage(W, H, evs, f, { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx }, g.kernel, zf, img, dx, dy);
     });
     for (const p of pops) {
       const tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
       if (isMeanField(p, f)) {
-        if (!p.image) p.image = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm).image;
+        if (!p.mf) {
+          p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm);
+          p.image = p.mf.image;
+        }
+        let image = p.image;
+        if (drift) {
+          // DriftMeanField: the images at the two grid foci around dz, interpolated and shifted by the xy drift.
+          const d = S.drift[f], [k, w] = driftGridWeights(driftGrid, d.z);
+          const at = kk => p.mf.imagesAt(S.q.zRefUm + zStage - driftGridDzNm(driftGrid, kk) / 1000.0);
+          const i0 = at(k), i1 = w !== 0 && k + 1 < driftGrid.n ? at(k + 1) : null, pitchNm = p.mf.pitchUm * 1000.0;
+          image = new Float32Array(W * H);
+          renderShiftedImages(i0, i1, i1 ? w : 0.0, d.x / pitchNm, d.y / pitchNm, image);
+        }
         const m = Math.fround(meanPhotons(p.rate, p.lambda, tf0, tf1));
-        for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * p.image[i]);
+        for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * image[i]);
         p.meanFieldFrames++;
         paths.push(`${POP_NAME[p.state]}: mean-field (FFT)`);
       } else {
-        advanceAcc(p, f);
+        advanceAcc(p, f, zf, dx, dy);
         const perFrame = p.rate * S.expSec;
         for (let i = 0; i < img.length; i++) if (p.acc[i] !== 0) img[i] += Math.fround(perFrame * p.acc[i]);
         // Windows that start or end inside this frame: their overlap.
         const partial = p.wins.filter(e => e.tStart < f + 1 && e.tEnd > f && !(e.tStart <= f && e.tEnd >= f + 1));
-        renderPhotonImage(W, H, partial, f, { pixelSizeNm: pixelNm, photonsPerBlink: perFrame, psfSigmaPx: p.g.sigmaPx }, p.g.kernel, zStage, img);
+        renderPhotonImage(W, H, partial, f, { pixelSizeNm: pixelNm, photonsPerBlink: perFrame, psfSigmaPx: p.g.sigmaPx }, p.g.kernel, zf, img, dx, dy);
         p.perDyeFrames++;
         paths.push(`${POP_NAME[p.state]}: per dye (${p.wins.length} windows)`);
       }
@@ -176,7 +201,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   return {
     width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, psfSec: (tPsf - t0) / 1000, querySec,
     totalSec: (performance.now() - t0) / 1000, psf: groups.some(g => g.kernel) ? 'GibsonLanniZernike' : 'Gaussian',
-    imagerBackgroundPerPxPerFrame: imagerPerFrame,
+    imagerBackgroundPerPxPerFrame: imagerPerFrame, driftNm: driftInfo(S),
     labels: S.labels.map((L, s) => ({ structure: STRUCTURES[s].id, dye: L.dye.id, mode: L.mode, kActPerSec: L.kActPerSec,
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
         detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) })),

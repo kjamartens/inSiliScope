@@ -56,6 +56,7 @@ extern const char* g_PropAcqMode;
 extern const char* g_PropFovSize;
 extern const char* g_PropGenerateStack;
 extern const char* g_PropStackStatus;
+extern const char* g_PropStackLength;
 extern const char* g_PropEndOfStack;
 extern const char* g_PropPsfNa;
 extern const char* g_PropPixelSize;
@@ -68,7 +69,21 @@ extern const char* g_PropOffsetStd;
 extern const char* g_PropReadNoise;
 extern const char* g_PropPixelGainStdPct;
 extern const char* g_PropPixelReadNoiseStdPct;
-extern const char* g_PropDriftNmPerSec;
+extern const char* g_PropDriftXyNmPerSqrtSec;
+extern const char* g_PropDriftZNmPerSqrtSec;
+// Directed sample drift (sim::DriftSettings). Only the two speeds are
+// everyday settings; direction, wanders and their time are advanced.
+enum DirectedDriftNumber
+{
+   DD_XY_SPEED = 0,   // SimType_DriftXySpeedNmPerSec
+   DD_Z_SPEED,        // SimType_DriftZSpeedNmPerSec (signed)
+   DD_XY_ANGLE,       // SimType_DriftXyAngleDeg (-1 = random per seed; advanced)
+   DD_ANGLE_WANDER,   // SimType_DriftXyAngleWanderDeg (advanced)
+   DD_SPEED_WANDER,   // SimType_DriftSpeedWanderPct (advanced)
+   DD_WANDER_TIME,    // SimType_DriftWanderTimeSec (advanced)
+   DD_COUNT
+};
+extern const char* g_PropDirectedDrift[DD_COUNT];
 extern const char* g_PropRandomSeed;
 extern const char* g_PropActualFrameIntervalMs;
 extern const char* g_PropPsfModel;
@@ -263,6 +278,7 @@ public:
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnStackLength(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfNa(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPixelSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -275,7 +291,9 @@ public:
    int OnReadNoise(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPixelGainStdPct(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDriftXyNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDriftZNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDirectedDrift(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -408,7 +426,7 @@ private:
                                const sim::SimulationParams& params, const sim::CellFieldSettings& cellField,
                                double stageXUm, double stageYUm, const sim::PixelOffsetMap& offsetMap,
                                const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
-                               uint32_t noiseSeed);
+                               uint32_t noiseSeed, const std::vector<sim::DriftNm>& drift);
    // The calling thread's WideField GPU host (created once: gpu/tried are
    // the thread's), or nullptr for the CPU; sets General_GpuStatus.
    sim::WidefieldGpuD3D11* WideFieldGpu(std::unique_ptr<sim::WidefieldGpuD3D11>& gpu, bool& tried);
@@ -480,10 +498,8 @@ private:
    // Precomputed-stack storage
    std::vector<std::vector<uint16_t>> stack_;
    unsigned stackFrameW_ = 0, stackFrameH_ = 0;
-   // No longer user-facing MM properties (removed): a precomputed stack is
-   // always this long and always loops. Kept as members rather than being
-   // inlined at their use sites so the playback/generation code below reads
-   // unchanged, and so re-exposing either is a one-line property add.
+   // Frames of a precomputed stack (General_StackLength, default 1000). The
+   // stack always loops (stackLoop_ is no longer a property).
    long stackLength_ = 1000;
    std::atomic<long> stackFramesGenerated_{0};
    std::atomic<bool> stackGenerating_{false};
@@ -513,6 +529,11 @@ private:
    // (under frontFrameLock_): a frame taken after a property change skips
    // frames that were already being rendered with the old settings.
    long liveFrameConfig_ = 0;
+   // Drift restarts asked for (a Live/MDA sequence start): the producer
+   // applies a restart at the start of its next frame (that frame has drift
+   // 0; main's liveSeqStartTicks_ keeps frames started earlier out of the
+   // sequence).
+   std::atomic<long> liveDriftRestart_{0};
    // When the frame in the front buffer started (under frontFrameLock_): its
    // stage pose, focus, settings and illumination clocks were read after this.
    // A snap takes only a frame started after the snap was called, a sequence
@@ -564,10 +585,10 @@ private:
    // to compute liveDriftOriginFrame_ while LiveProducerLoop (producer
    // thread) increments it every tick.
    std::atomic<long> liveFrameCounter_{0};
-   // Value of liveFrameCounter_ at the start of the current drift ramp:
-   // LiveProducerLoop computes elapsed drift time as
-   // (liveFrameCounter_ - liveDriftOriginFrame_) * exposure, so setting this
-   // to the current liveFrameCounter_ resets drift to zero without
+   // Value of liveFrameCounter_ at the start of the current drift path:
+   // LiveProducerLoop sums the drift steps of frames 1 ..
+   // (liveFrameCounter_ - liveDriftOriginFrame_), so setting this to the
+   // current liveFrameCounter_ resets drift to zero without
    // disturbing the (unrelated) blinking-process frame clock. Reset in
    // StartLiveProducer() and at the start of every Live/MDA sequence
    // acquisition (see StartSequenceAcquisition()).
@@ -611,17 +632,18 @@ private:
    std::atomic<double> readNoiseElectrons_{1.2};
    // Pixel-to-pixel relative spread of gain/read noise (sCMOS-style
    // per-pixel maps), as a percent of the nominal Gain/ReadNoise above; 0 =
-   // disabled (every pixel identical), matching the driftNmPerSecX = 0
+   // disabled (every pixel identical), matching the drift = 0
    // disabled-by-default convention used elsewhere. Photometrics doesn't
    // publish actual per-pixel variance for the Kinetix, so these two
    // defaults are estimates, not datasheet values -- see the plan doc.
    std::atomic<double> pixelGainStdPct_{0.5};
    std::atomic<double> pixelReadNoiseStdPct_{20.0};
-   // Drift speed, nm/sec, along a direction drawn once per RandomSeed (see
-   // sim::ComputeDriftOffsetPx/DriftAngleForSeed). Applies in both
-   // acquisition modes. (The member name predates the random direction,
-   // when this was the X rate of a fixed X:Y = 2:1 diagonal.)
-   std::atomic<double> driftNmPerSecX_{0.0};
+   // Random-walk sample drift (sim::DriftSettings): RMS nm after 1 s, per
+   // axis in x and y, and in z. Applies in both acquisition modes.
+   std::atomic<double> driftXyNmPerSqrtSec_{0.0};
+   std::atomic<double> driftZNmPerSqrtSec_{0.0};
+   // Directed drift (DirectedDriftNumber; defaults in the constructor).
+   std::atomic<double> directedDrift_[DD_COUNT];
 
    // ---- webSMLM parity round 2 -- every default below is "off", matching
    // webSMLM's realism=min, so a default movie is unchanged by them. ----
