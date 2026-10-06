@@ -64,10 +64,14 @@ SceneState::SceneState()
 
    // The scope options with adapter defaults of their own: the labelling at
    // the default dye's mode suggestion, the QE curve of the default camera.
+   // The labels: the experiment's mode (the library's default, DNA-PAINT), each target in it (Global) with its
+   // typical dye (Typical) -- for the microtubules ATTO 655, the engine's default label.
    using namespace sim;
-   const int mtDye = static_cast<int>(ScopeSpecGet(ScopeSpec(), "mt-dye"));
-   const int mode = IndexOf(DyeModeNames(), DyeAt(mtDye).defaultMode);
-   options_["mt-label-pct"] = SuggestedLabelingPct(mode);
+   const int mode = DefaultDyeMode();
+   options_["mode"] = mode;
+   options_["mt-mode"] = -2;
+   options_["mt-dye"] = -1;
+   options_["mt-label-pct"] = TargetAt(0).typicalPct[mode];
    options_["qe-curve"] = IndexOf(CameraIds(), DefaultCamera());
    cameraPreset = IndexOf(CameraIds(), DefaultCamera());
    lastMtMode = mode;

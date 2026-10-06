@@ -113,6 +113,12 @@ public:
    void ApplyZernikePreset(const std::string& name);
    // A dye slot's new source: its edits go; the microtubules reload if they use it.
    void DyeSlotSourceChanged(int slot);
+   // The labels a target (structure s) offers in its effective mode: Typical, the library dyes with data in it, and
+   // in Expert the custom dyes.
+   std::vector<std::string> LabelChoices(int s);
+   // The Fluorophores Mode or a target's own mode changed: the label lists follow (a label the new mode lacks becomes
+   // Typical), then the dye loads (labelling, light preset, camera gain).
+   void LabelModeChanged();
 
 private:
    bool initialized_ = false;

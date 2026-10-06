@@ -84,6 +84,9 @@ const CASES = [
   ['WideField mEGFP, per dye, directed drift', `${B} size=32 frames=6 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 drift-xy-speed-nm-per-sec=300 drift-z-speed-nm-per-sec=100`, 0.999],
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 psf-model=0 wf-upscale=2 mt-dye=mEGFP light-preset=auto', 0.999],
   ['Gaussian-spectrum slot dye (Custom in Dye1)', `${B} size=40 frames=6 psf-model=0 dye1.source=Custom mt-dye=Dye1 light-preset=auto`, 0.999],
+  // The label model (specimen registry): the global mode with each target Global and its Typical dye, and Cy3B.
+  ['Global mode dSTORM, Typical dye (AF647), typical labelling', `${B} size=40 frames=8 psf-model=0 mode=dSTORM mt-mode=Global mt-dye=Typical light-preset=auto`, 0.999],
+  ['DNA-PAINT Cy3B imager, 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=Cy3B light-preset=auto`, 1],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the

@@ -224,6 +224,9 @@ const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
 const FL = () => modality() === 0, BF = () => modality() === 1;
 // ---- the dye library (web/dye_library.js, generated from data/dyes by tools/gen_dye_library.mjs) ----
 const DD = self.ISC_DYE_DATA;
+// The specimens and their targets (data/specimens.json): the mounted specimen's targets each get a label group. One
+// specimen (CellField) with one target (the microtubules) for now: T0 is it.
+const T0 = DD.specimens[0].targets[0];
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
 const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
@@ -250,7 +253,8 @@ const inMode = (...modes) => () => FL() && modes.includes(mtMode());
 // The Dye select lists the library dyes with data for the structure's mode (every dye runs in every mode, on generic
 // values where the library has none; those are not offered); the user dyes are listed whatever the mode.
 const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
-const firstDyeFor = m => { const i = DD.dyes.findIndex(d => d.defaultMode === m); return i >= 0 ? i : DD.dyes.findIndex((d, j) => dyeHasMode(j, m)); };
+// The target's typical dye in a mode (data/dyes/library.json typicalLabels; the engine's <prefix>-dye = -1).
+const firstDyeFor = m => dyeIndex(DD.typicalLabels[T0.id][m].dye);
 function filterMtDyes() {
   const sel = $('mv_mt-dye'), m = mtMode();
   for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
@@ -289,8 +293,8 @@ const DYE_FIELD_ROWS = [
   ['photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness.', (d, m) => d.modes[m].photonCV, ['dSTORM', 'PALM', 'DNA-PAINT']],
   ['photon-budget', 'Photon budget', 'photons', 'WideField: photons a dye emits before it bleaches (exponential; 0 = never).', (d, m) => d.modes[m].photonBudget, ['WideField']],
 ];
-// A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the mode's
-// suggestion (data/dyes suggestedLabelingPct: DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %); the same mode keeps them.
+// A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the target's typical
+// % in that mode (data/dyes/library.json typicalLabels: DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %); the same mode keeps them.
 let lastMtMode = DD.dyeDefault.mode;   // the panel's initial mode
 // It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
 // gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
@@ -302,7 +306,7 @@ const cameraModeGain = () => { const c = DD.cameras[+$('mv_camera-preset').value
 const modeSuggestion = vals => {
   const m = mtMode();
   if (lastMtMode !== null && m !== lastMtMode) {
-    vals['mv_mt-label-pct'] = DD.suggestedLabelingPct[m];
+    vals['mv_mt-label-pct'] = DD.typicalLabels[T0.id][m].labelingPct;
     if (cameraModeGain() !== undefined) vals['mv_gain'] = cameraModeGain();
   }
   lastMtMode = m;
@@ -437,7 +441,9 @@ const UI_GROUPS = [
       [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv }),
   ] },
 
-  { sect: 'Sample', id: 'field', title: 'Specimen: cell field', open: true, items: [
+  { sect: 'Sample', id: 'field', title: 'Specimen: ' + DD.specimens[0].name.toLowerCase(), open: true, items: [
+    select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json): the cell field for now; others (a DNA-PAINT nanoruler, beads) will be listed here. <code>SampleHolder</code>',
+      DD.specimens.map((sp, i) => [String(i), sp.name]), String(DD.specimens.findIndex(sp => sp.id === DD.specimenDefault))),
     num('seed', 'World seed', 'integer', 'Every cell, microtubule and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
     button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
     range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>SimType_CellFieldOccupancy</code>', 0.05, 1, 0.01, 0.33, { fmt: v => (100 * v).toFixed(0) }),
@@ -516,7 +522,7 @@ const UI_GROUPS = [
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
 
-  { sect: 'Sample preparation', id: 'mtlabel', title: 'Microtubule label', open: true, items: [
+  { sect: 'Sample preparation', id: 'mtlabel', title: T0.name + ' label', open: true, items: [
     range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates). <code>SimType_CellFieldMicrotubuleLabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
     select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>SimType_CellFieldMicrotubuleLabelMode</code>',
       MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: filterMtDyes, apply: () => {

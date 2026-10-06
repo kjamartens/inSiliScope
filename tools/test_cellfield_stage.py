@@ -202,11 +202,11 @@ def _drift_checks(core, cam, xy, x0, y0):
     _label(core, cam, **GFP)  # the library dye again (the photon budget)
 
 
-def _label(core, cam, mode, dye=None, pct=None, imager=None):
-    """The microtubules' label: dye (loads its light preset), mode, labelling, imager (DNA-PAINT)."""
-    if dye is not None:
-        core.setProperty("CellField", "Microtubules_Dye", dye)
-    core.setProperty("CellField", "Microtubules_Mode", mode)
+def _label(core, cam, mode, dye="Typical", pct=None, imager=None):
+    """The microtubules' label: the experiment's mode (Fluorophores), their dye (loads its light preset), labelling,
+    imager (DNA-PAINT)."""
+    core.setProperty("Fluorophores", "Mode", mode)
+    core.setProperty("CellField", "Microtubules_Label", dye)
     if pct is not None:
         core.setProperty("CellField", "Microtubules_LabelingPct", str(pct))
     if imager is not None:
@@ -230,7 +230,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
 
     # ---- property surface -------------------------------------------------
     for p in ("ChunkSizeUm", "Occupancy", "Packing", "CellDiameterMinUm", "CellDiameterMaxUm",
-              "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "Microtubules_Dye", "Microtubules_Mode",
+              "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "Microtubules_Label", "Microtubules_Mode",
               "Microtubules_LabelingPct", "Microtubules_ImagerNm"):
         assert core.hasProperty("CellField", p), f"missing CellField property {p}"
     # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
@@ -244,8 +244,9 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     for p in ("StageSpeedUmPerSec", "StageSettleMs", "StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
     defaults = {p: core.getProperty("CellField", "Microtubules_" + p) for p in
-                ("Dye", "Mode", "LabelingPct", "ImagerNm")}
-    assert defaults["Dye"] == "ATTO655" and defaults["Mode"] == "DyeDefault" and \
+                ("Label", "Mode", "LabelingPct", "ImagerNm")}
+    defaults["Dye"] = core.getProperty("Fluorophores", "Microtubules_EffectiveDye")
+    assert defaults["Dye"] == "ATTO655 (DNA-PAINT)" and defaults["Label"] == "Typical" and defaults["Mode"] == "Global" and \
         float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.43, f"label defaults {defaults}"
     assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
     print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1.43 nM imager)")
@@ -420,7 +421,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     core.setProperty("Renderer", "BrightFieldQuality", "3")
     core.setProperty("Camera", "sCMOS_GainStdPctPerPixel", "0.5")
     brightfield(core, False)
-    _label(core, cam, mode="DyeDefault", dye="ATTO655", pct=70, imager=1.43)  # the defaults
+    _label(core, cam, mode="DNA-PAINT", pct=70, imager=1.43)  # the defaults
 
     core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)

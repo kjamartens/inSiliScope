@@ -2,7 +2,7 @@
 // Builds the dye library the imaging code reads, from data/ (no network; refresh FPbase with tools/fetch_fpbase.mjs):
 //   node tools/gen_dye_library.mjs [--check]
 // Inputs: data/dyes/library.json, light_path.json, cameras.json (BSD-3-Clause), fpbase_spectra.json (CC BY-SA 4.0),
-// data/references.json. Outputs (never edit by hand; --check fails when they are stale):
+// data/specimens.json (the specimens and their targets), data/references.json. Outputs (never edit by hand; --check fails when they are stale):
 //   web/prototype/scope/dye_library_data.js  the resolved library for the JS reference (and, later, the C++ twin)
 //   web/dye_library.js                        the same for the viewer's option panel (a classic script)
 //   docs/references.md                        the project reference list
@@ -23,6 +23,7 @@ const read = f => JSON.parse(fs.readFileSync(path.join(ROOT, f), 'utf8'));
 const library = read('data/dyes/library.json'), lightPath = read('data/dyes/light_path.json');
 const cameras = read('data/dyes/cameras.json'), fp = read('data/dyes/fpbase_spectra.json');
 const references = read('data/references.json').references;
+const specimens = read('data/specimens.json');
 if (fp.grid.minNm !== GRID_MIN_NM || fp.grid.maxNm !== GRID_MAX_NM || fp.grid.stepNm !== GRID_STEP_NM)
   throw new Error('fpbase_spectra.json grid != spectra.js grid');
 
@@ -119,6 +120,21 @@ const cameraEntry = c => {
   checkRefs(c.id, c.refs);
   return { ...c, qeCurve: typeof c.qeCurve === 'number' ? spectrumKey(c.qeCurve) : c.qeCurve };
 };
+// ---- specimens, targets, typical labels ----
+const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+checkRefs('typicalLabels', library.typicalLabels.refs);
+const targets = specimens.specimens.flatMap(sp => sp.targets.map(t => ({ ...t, specimen: sp.id })));
+targets.forEach((t, i) => { if (t.structure !== i) throw new Error(`target ${t.id}: structure ${t.structure}, expected ${i} (the core's ISC_STRUCT_* order)`); });
+const typicalLabels = Object.fromEntries(targets.map(t => {
+  const byMode = library.typicalLabels[t.id];
+  if (!byMode) throw new Error(`target ${t.id}: no typicalLabels in data/dyes/library.json`);
+  return [t.id, Object.fromEntries(MODES.map(m => {
+    const e = byMode[m], d = e && dyes.find(x => x.id === e.dye);
+    if (!d) throw new Error(`typicalLabels ${t.id} ${m}: unknown dye '${e && e.dye}'`);
+    if (d.modes[m].generic) throw new Error(`typicalLabels ${t.id} ${m}: ${d.id} has no ${m} data`);
+    return [m, { dye: e.dye, labelingPct: e.labelingPct }];
+  }))];
+}));
 const data = {
   grid: fp.grid,
   fetched: fp.fetched,
@@ -138,7 +154,9 @@ const data = {
   dstormReference: library.dstormReference,
   dyes,
   dyeDefault: library.default,
-  suggestedLabelingPct: library.suggestedLabelingPct,
+  specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets })),
+  specimenDefault: specimens.default,
+  typicalLabels,
   spectra: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values])),
   spectrumInfo: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => {
     const s = fp.spectra[id];
@@ -265,8 +283,14 @@ static const DyeData kDyes[] = {
 ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, ${num(d.fluorescentFraction)},\n     ${cState(d.states.main)},\n     ${cState(d.states.pre)},\n     { ${MODE_NAMES.map(m => cMode(d.modes[m])).join(',\n       ')} } },`).join('\n')}
 };
 
-// ${MODE_NAMES.join(', ')}
-static const double kSuggestedLabelingPct[] = { ${MODE_NAMES.map(m => num(data.suggestedLabelingPct[m])).join(', ')} };
+// The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
+// typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}.
+static const TargetData kTargets[] = {
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} } },`).join('\n')}
+};
+static const SpecimenData kSpecimens[] = {
+${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}
+};
 static const char* const kDefaultDichroic = ${str(data.lightPathDefaults.dichroic)};
 static const char* const kDefaultEmissionFilter = ${str(data.lightPathDefaults.emissionFilter)};
 static const char* const kDefaultLightPreset = ${str(data.lightPathDefaults.preset)};

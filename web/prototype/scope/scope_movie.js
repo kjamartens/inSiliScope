@@ -56,9 +56,11 @@ export const SCOPE_OPTIONS = [
   ['focus-um', 0, 'SimType_CellFieldFocusHeightUm (focus offset added to z)'],
   ['z-range-um', 7.0, 'SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)'],
   // ---- the microtubules' label (SimType_CellFieldMicrotubule*, FluoParam_Microtubule_*) ----
-  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)'],
-  ['mt-mode', -1, 'SimType_CellFieldMicrotubuleLabelMode: -1 = the dye\'s default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', -1, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
+  ['specimen', 0, 'SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)'],
+  ['mode', -1, 'Fluorophores Mode: the experiment\'s label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target\'s own; names accepted)'],
+  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules\' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)'],
+  ['mt-mode', -1, 'CellField Microtubules_Mode: -1 DyeDefault = the dye\'s default (Typical: the library\'s default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
+  ['mt-label-pct', -1, 'CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target\'s typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
   ['mt-imager-nm', DEFAULT_IMAGER_NM, 'SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
   ['mt-orient', 0, 'SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
   ['mt-orient-polar-deg', 90, 'SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis'],
@@ -146,6 +148,7 @@ const NAMES = {
   modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', 'RichardsWolf', 'GibsonLanni', 'GibsonLanniZernike'],
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
   'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
+  mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
@@ -162,6 +165,12 @@ export function parseSpec(spec) {
     if (!(k in DEFAULTS) && !ov && !/^p\.\w+$/.test(k) && !/^zern\.\d{1,2}$/.test(k)) throw new Error(`bad option '${k}'`);
     let x = typeof v === 'number' ? v : (String(v).trim() === '' ? NaN : Number(v));
     if (Number.isNaN(x) && NAMES[k]) { const i = NAMES[k].indexOf(String(v)); x = i >= 0 ? i : NaN; }
+    // The special values (ScopeOptionValue): a target's Typical dye, its DyeDefault / Global mode; no global mode.
+    if (Number.isNaN(x)) {
+      const t = String(v);
+      if ((k.endsWith('-dye') && t === 'Typical') || (k.endsWith('-mode') && t === 'DyeDefault') || (k === 'mode' && t === 'None')) x = -1;
+      else if (k.endsWith('-mode') && t === 'Global') x = -2;
+    }
     if (Number.isNaN(x)) throw new Error(`bad option '${k}=${v}'`);
     out[k] = x;
   };
@@ -192,9 +201,28 @@ const CAMERA_KEYS = { qe: 'quantumEfficiency', 'dark-per-sec': 'darkCurrentElect
 function wideFieldOrBrightField(spec) {
   const O = getter(spec);
   if (O('modality') === 1) return true;
-  const { slots, byStructure } = dyeOverrides(spec);
-  return STRUCTURES.every(s => effectiveDye(Math.trunc(O(`${s.prefix}-dye`)), slots, byStructure[s.prefix],
-    Math.trunc(O(`${s.prefix}-mode`))).mode === 'WideField');
+  return STRUCTURES.every((s, i) => scopeStructureDye(spec, i).eff.mode === 'WideField');
+}
+
+// A structure's dye choice and mode as the spec gives them, resolved (ScopeStructureDye): <prefix>-mode -2 = the global
+// mode option (-1 there: none); <prefix>-dye -1 = the target's typical dye in that mode (the library's default mode
+// when none is asked). { eff, choice }: the effective dye and the resolved index into DYE_CHOICES.
+export function scopeStructureDye(spec, s) {
+  const O = getter(spec), P = STRUCTURES[s].prefix, { slots, byStructure } = dyeOverrides(spec);
+  let mode = Math.trunc(O(`${P}-mode`));
+  if (mode === -2) mode = Math.trunc(O('mode'));
+  if (mode < -1) mode = -1;
+  let choice = Math.trunc(O(`${P}-dye`));
+  if (choice === -1) {
+    if (mode < 0) mode = MODES.indexOf(DYE_DATA.dyeDefault.mode);
+    choice = DYE_IDS.indexOf(DYE_DATA.typicalLabels[STRUCTURES[s].id][MODES[mode]].dye);
+  }
+  return { eff: effectiveDye(choice, slots, byStructure[P], mode), choice };
+}
+// A structure's labelled % (-1: the target's typical % in its mode).
+export function scopeStructureLabelingPct(spec, s, mode) {
+  const pct = getter(spec)(`${STRUCTURES[s].prefix}-label-pct`);
+  return pct >= 0 ? pct : DYE_DATA.typicalLabels[STRUCTURES[s].id][mode].labelingPct;
 }
 export function scopeCamera(spec) {
   const O = getter(spec), preset = cameraPreset(Math.trunc(O('camera-preset')));
@@ -214,8 +242,7 @@ export function scopeLightPreset(spec) {
   if (i < 0) return null;
   let id = LIGHT_PRESET_CHOICES[i];
   if (id === 'auto') {
-    const { slots, byStructure } = dyeOverrides(spec), P = STRUCTURES[0].prefix;
-    const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
+    const { eff } = scopeStructureDye(spec, 0);
     id = eff.dye.modes[eff.mode].lightPreset;
   }
   const q = DYE_DATA.lightPresets.find(x => x.id === id);
@@ -254,11 +281,11 @@ function dyeOverrides(spec) {
 
 // Per structure: its effective dye, mode, world label and photophysics (labelPhotophysics).
 export function scopeLabels(spec, lp) {
-  const O = getter(spec), { slots, byStructure } = dyeOverrides(spec);
-  return STRUCTURES.map(s => {
+  const O = getter(spec);
+  return STRUCTURES.map((s, i) => {
     const P = s.prefix;
-    const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
-    const pct = O(`${P}-label-pct`) >= 0 ? O(`${P}-label-pct`) : DYE_DATA.suggestedLabelingPct[eff.mode];
+    const { eff } = scopeStructureDye(spec, i);
+    const pct = scopeStructureLabelingPct(spec, i, eff.mode);
     return labelPhotophysics(eff, lp, {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
@@ -273,6 +300,7 @@ export function scopeSetup(P, spec) {
   const seed = Math.trunc(O('seed'));
   const { width: W, height: H, frames: N } = scopeDims(spec);
   const expSec = Math.max(1e-6, O('exposure-ms') / 1000.0), t0Sec = Math.max(0.0, O('start-sec'));
+  if (Math.trunc(O('specimen')) !== 0) throw new Error(`specimen ${Math.trunc(O('specimen'))}: only the CellField (0) exists`);
   const pixelSizeNm = O('pixel-nm');
   const camera = scopeCamera(spec);
   const lp = scopeLightPath(spec, camera);

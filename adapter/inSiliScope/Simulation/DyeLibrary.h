@@ -112,11 +112,39 @@ const CameraData& CameraAt(int i);
 const LightPresetData* FindLightPreset(const std::string& id);
 // A sampled spectrum by key ("fp:<id>"); nullptr if unknown.
 const Spectrum* SpectrumByKey(const char* key);
-double SuggestedLabelingPct(int mode);
 int IndexOf(const std::vector<std::string>& list, const std::string& id);   // -1 if absent
 const char* DefaultDichroic();
 const char* DefaultEmissionFilter();
 const char* DefaultCamera();
+
+// The library has data for this dye in this mode (not the generic values every dye gets in every mode).
+bool DyeHasModeData(int dye, int mode);
+int DefaultDyeMode();                               // the library's default mode (DyeMode)
+
+// ---- specimens and their targets (data/specimens.json; tools/gen_dye_library.mjs) ----
+// A target: a labelled structure of a specimen. prefix: its engine options (<prefix>-dye, ...); structure: the core's
+// ISC_STRUCT_* (= its index in TargetAt); the typical label per mode (library.json typicalLabels): the dye (index into
+// DyeIds()) and the % of the sites labelled.
+struct TargetData
+{
+   const char* id;
+   const char* name;
+   const char* prefix;
+   const char* specimen;
+   int structure;
+   int typicalDye[MODE_COUNT];
+   double typicalPct[MODE_COUNT];
+};
+struct SpecimenData
+{
+   const char* id;
+   const char* name;
+   int firstTarget, targetCount;   // its targets in TargetAt order
+};
+int TargetCount();
+const TargetData& TargetAt(int i);
+const std::vector<std::string>& SpecimenIds();
+const SpecimenData& SpecimenAt(int i);
 
 // The override fields (`<prefix>-dye.<field>`, `dye<N>.<field>`; JS DYE_FIELDS), in their order.
 const std::vector<std::string>& DyeFieldNames();

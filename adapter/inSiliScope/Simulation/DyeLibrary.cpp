@@ -137,7 +137,29 @@ const Spectrum* SpectrumByKey(const char* key)
    return it == all.end() ? nullptr : &it->second;
 }
 
-double SuggestedLabelingPct(int mode) { return kSuggestedLabelingPct[mode]; }
+bool DyeHasModeData(int dye, int mode)
+{
+   return dye >= 0 && dye < static_cast<int>(DyeIds().size()) && mode >= 0 && mode < MODE_COUNT &&
+          !kDyes[dye].modes[mode].generic;
+}
+
+int DefaultDyeMode() { return IndexOf(DyeModeNames(), kDefaultDyeMode); }
+
+int TargetCount() { return static_cast<int>(sizeof(kTargets) / sizeof(kTargets[0])); }
+const TargetData& TargetAt(int i) { return kTargets[i]; }
+
+const std::vector<std::string>& SpecimenIds()
+{
+   static const std::vector<std::string> v = [] {
+      std::vector<std::string> ids;
+      for (const SpecimenData& s : kSpecimens)
+         ids.push_back(s.id);
+      return ids;
+   }();
+   return v;
+}
+
+const SpecimenData& SpecimenAt(int i) { return kSpecimens[i]; }
 
 int IndexOf(const std::vector<std::string>& list, const std::string& id)
 {

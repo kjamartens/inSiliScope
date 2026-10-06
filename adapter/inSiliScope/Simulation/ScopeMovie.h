@@ -104,6 +104,13 @@ struct ScopeStateReadout
 };
 bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateReadout& out, std::string& err);
 
+// Structure s's effective dye and mode as the spec gives them (JS scopeStructureDye): <prefix>-mode -2 (Global) takes
+// the mode option, <prefix>-dye -1 (Typical) the target's typical dye in that mode (data/dyes/library.json
+// typicalLabels); choice: the resolved index into DyeChoices(). And its labelled % (-1: the target's typical % in mode).
+struct EffectiveDye;
+bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err);
+double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode);
+
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);

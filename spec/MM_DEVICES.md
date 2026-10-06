@@ -27,8 +27,8 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `Lasers` | Shutter | excitation: line powers, the custom line, beam profile, geometry, the light preset; its shutter = the epi light | filters |
 | `TransmittedLamp` | Shutter | transmitted light: intensity, condenser NA, wavelength; its shutter = the BrightField light | |
 | `SampleHolder` | State | which specimen is mounted; what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
-| `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (which dye, how dense) | photophysics of a dye |
-| `Fluorophores` | Generic | the dyes: label mode (from the label-model commit), photophysics readouts, custom dyes | which target is labelled |
+| `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (`Microtubules_Label`: which dye, how dense) | photophysics of a dye |
+| `Fluorophores` | Generic | the dyes: the experiment's label `Mode`, the targets' photophysics readouts, custom dyes (Expert) | which target is labelled |
 | `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, GPU, caches, debugging | physics |
 
 The imaging follows the light: the open shutters decide what a frame shows (epi light: fluorescence; lamp alone:
@@ -78,10 +78,19 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 - One **specimen** device per kind of sample (`CellField` now; a DNA-PAINT nanoruler, a bead slide, NPCs on a
   coverslip later). `SampleHolder` mounts exactly one; optional **overlays** (fiducial beads, autofluorescence) add on
   top. Specimens do not overlap in space: one is mounted at a time.
-- A specimen has **targets**: its labelled structures (CellField: `Microtubules`; later NPCs, DNA, actin). Each target
-  gets the same label rows (`<Target>_Dye` / `_Label`, `_LabelingPct`, `_ImagerNm`, `_Mode`, `_Orientation`, ...), so
-  a new target is a registry entry, not new code. The photophysics is shared: every target's label goes through the
-  same dye library and `MakeEffectiveDye` / `MakeLabelPhysics`, whatever the specimen.
+- A specimen has **targets**: its labelled structures (CellField: `Microtubules`; later NPCs, DNA, actin). The
+  registry is `data/specimens.json` (specimens, their targets, each target's option prefix and core structure) plus
+  `typicalLabels` in `data/dyes/library.json` (each target's usual dye and labelling % per mode, with references);
+  `tools/gen_dye_library.mjs` builds both into the C++ (`TargetAt`, `SpecimenAt`) and the JS (`DYE_DATA.specimens`,
+  `typicalLabels`) for the engine, the viewer and this adapter.
+- Each target gets the same label rows (`<Target>_Label`: Typical or a dye with data in the mode; `_LabelingPct`,
+  `_ImagerNm`; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `TargetLabel()` in the registry, so a
+  new target is a registry entry, not new code. The photophysics is shared: every target's label goes through the same
+  dye library and `ScopeStructureDye` / `MakeLabelPhysics`, whatever the specimen.
+- **The label model.** `Fluorophores.Mode` is the experiment's mode (engine option `mode`); a target follows it
+  (`<prefix>-mode = -2`, Global) unless its own `_Mode` says otherwise. `<Target>_Label` offers `Typical`
+  (`<prefix>-dye = -1`: the target's typical dye in that mode) and every dye with data in the mode; a mode change
+  rebuilds the list (`InSiliScopeHub::LabelModeChanged`) and turns a label the new mode lacks into Typical.
 - The geometry of a new specimen or target lives in `core/` behind the C ABI, so the viewer, the cli and webSMLM get
   it too. The adapter never generates geometry of its own.
 
@@ -126,7 +135,7 @@ rows exist in a session; a row above it is never created and its setting keeps i
   `web/prototype/scope/scope_movie.js`; the viewer), so the cli, the viewer and webSMLM can render the same frame.
   `Registry/SceneSettings.cpp` turns the settings into the spec; `Renderer.WriteScopeSpecTo` writes it to a file.
 - MM-only plumbing (shutters, turret positions, Test rows, caches) stays in the adapter.
-- Specimens and targets go through the engine's registry (from the label-model commit), never through adapter code.
+- Specimens and targets go through the registry (`data/specimens.json`), never through adapter code.
 
 ## 9. Checklists
 
@@ -136,8 +145,9 @@ rows exist in a session; a row above it is never created and its setting keeps i
 `tools/test_cellfield_stage.py`; the generated property reference and configs; docs; a gallery entry if it changes the
 image (not for caches or preparation switches).
 
-**A new target in a specimen:** the core geometry; its registry entry (target name, structure, option prefix,
-typical labels per mode with references); nothing else in the adapter.
+**A new target in a specimen:** the core geometry; its entry in `data/specimens.json` (name, option prefix, core
+structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`, C++ and JS twin);
+its label rows (`TargetLabel(device, s)` in the specimen's block of the registry).
 
 **A new specimen:** the core generator and ABI; a specimen device (section 3); its `SampleHolder` position; its
 targets (above); the viewer's specimen choice comes from the same registry.

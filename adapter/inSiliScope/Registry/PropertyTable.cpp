@@ -335,6 +335,36 @@ PropDef LabelReadout(const char* name, int what, const char* help)
    return d;
 }
 
+// A target's label (structure s of a specimen device): Typical (the target's typical dye in its mode, data/dyes
+// library.json typicalLabels), every library dye with data in that mode, and in Expert the custom dyes Dye1-3. The list
+// follows the mode (InSiliScopeHub::LabelModeChanged rebuilds it).
+PropDef TargetLabel(const char* device, int s)
+{
+   const sim::TargetData& t = sim::TargetAt(s);
+   const std::string option = std::string(t.prefix) + "-dye";
+   PropDef d = Row(device, std::string(t.name) + "_Label", Tier::Basic, option,
+                   "The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode "
+                   "(Dye1-3: the custom dyes of Fluorophores, Expert).");
+   d.kind = PropKind::Text;
+   d.getText = [option](H& h) {
+      const int v = static_cast<int>(h.State().Option(option));
+      return v < 0 ? std::string("Typical") : sim::DyeChoices()[static_cast<size_t>(v)];
+   };
+   d.choices = [s](H& h) { return h.LabelChoices(s); };
+   d.setText = [option, s](H& h, const std::string& v) {
+      const std::vector<std::string> allowed = h.LabelChoices(s);
+      if (std::find(allowed.begin(), allowed.end(), v) == allowed.end())
+         return false;
+      const double old = h.State().Option(option);
+      const double now = v == "Typical" ? -1 : sim::IndexOf(sim::DyeChoices(), v);
+      h.State().SetOption(option, now);
+      if (now != old)
+         h.LoadMicrotubuleDye(true);
+      return true;
+   };
+   return d;
+}
+
 // ---- the objective turret's catalogue ----
 
 std::vector<PropDef> BuildTable()
@@ -594,16 +624,14 @@ std::vector<PropDef> BuildTable()
    // =========================== CellField ===========================
    {
       const char* F = "CellField";
-      std::vector<std::string> modeNames = { "DyeDefault" };
+      PropDef d = TargetLabel(F, 0);
+      add(d);
+      std::vector<std::string> modeNames = { "Global", "DyeDefault" };
       for (const std::string& m : DyeModeNames())
          modeNames.push_back(m);
-      PropDef d = OptNames(F, "Microtubules_Dye", Tier::Basic, "mt-dye", DyeChoices(), 0,
-                           "The microtubules' dye (Dye1-3: the custom dyes of Fluorophores).");
-      ThenText(d, [](H& h) { h.LoadMicrotubuleDye(true); });
-      add(d);
-      d = OptNames(F, "Microtubules_Mode", Tier::Advanced, "mt-mode", modeNames, -1,
-                   "The microtubules' label mode (DyeDefault: the dye's own).");
-      ThenText(d, [](H& h) { h.LoadMicrotubuleDye(true); });
+      d = OptNames(F, "Microtubules_Mode", Tier::Expert, "mt-mode", modeNames, -2,
+                   "The microtubules' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default).");
+      ThenText(d, [](H& h) { h.LabelModeChanged(); });
       add(d);
       add(Opt(F, "Microtubules_LabelingPct", Tier::Advanced, "mt-label-pct", 0, 100,
               "Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion)."));
@@ -671,6 +699,43 @@ std::vector<PropDef> BuildTable()
 
    // =========================== Fluorophores ===========================
    {
+      // The label mode and the targets' readouts.
+      PropDef d = Row("Fluorophores", "Mode", Tier::Basic, "mode",
+                      "The label mode of the experiment (the buffer/imaging scheme): every target's label follows it.");
+      d.kind = PropKind::Text;
+      d.getText = [](H& h) {
+         const int m = static_cast<int>(h.State().Option("mode"));
+         return m >= 0 && m < static_cast<int>(DyeModeNames().size()) ? DyeModeNames()[static_cast<size_t>(m)]
+                                                                      : std::string("None");
+      };
+      d.setText = [](H& h, const std::string& v) {
+         const int m = IndexOf(DyeModeNames(), v);
+         if (m < 0)
+            return false;
+         if (h.State().Option("mode") != m)
+         {
+            h.State().SetOption("mode", m);
+            h.LabelModeChanged();
+         }
+         return true;
+      };
+      d.choices = [](H&) { return DyeModeNames(); };
+      add(d);
+      d = Row("Fluorophores", "Microtubules_EffectiveDye", Tier::Advanced, "mt-effective",
+              "The dye and mode the microtubules' label resolves to (Typical: the usual dye for the mode; read-only).");
+      d.kind = PropKind::Text;
+      d.readOnly = true;
+      d.invalidate = Invalidate::None;
+      d.getText = [](H& h) {
+         sim::EffectiveDye eff;
+         int choice = 0;
+         std::string err;
+         if (!sim::ScopeStructureDye(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), 0, eff, choice, err))
+            return err;
+         return std::string(eff.dye.id) + " (" + DyeModeNames()[static_cast<size_t>(eff.mode)] + ")";
+      };
+      d.setText = [](H&, const std::string&) { return true; };
+      add(d);
       add(LabelReadout("Microtubules_DetectedPct", 0,
                        "The microtubules' dye: % of its emission the light path detects (read-only)."));
       add(LabelReadout("Microtubules_EmissionNm", 1,
@@ -680,10 +745,10 @@ std::vector<PropDef> BuildTable()
       for (int slot = 0; slot < 3; ++slot)
       {
          const std::string option = "dye" + std::to_string(slot + 1) + ".source";
-         PropDef d = OptNames("Fluorophores", "Dye" + std::to_string(slot + 1) + "_Source", Tier::Expert, option,
-                              DyeIds(), 0, "The library dye this custom dye starts from.");
-         ThenText(d, [slot](H& h) { h.DyeSlotSourceChanged(slot); });
-         add(d);
+         PropDef src = OptNames("Fluorophores", "Dye" + std::to_string(slot + 1) + "_Source", Tier::Expert, option,
+                                DyeIds(), 0, "The library dye this custom dye starts from.");
+         ThenText(src, [slot](H& h) { h.DyeSlotSourceChanged(slot); });
+         add(src);
          for (const FieldRow& r : FieldRows())
             add(SlotField(slot, r));
       }

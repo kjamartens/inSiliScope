@@ -1,0 +1,13 @@
+{
+  "about": "The specimens the simulated microscope can mount and their targets (labelled structures), BSD-3-Clause. One registry for the engine (cli, viewer, webSMLM) and Micro-Manager: tools/gen_dye_library.mjs builds it into the C++ (DyeLibraryData.inc) and the JS (dye_library_data.js, web/dye_library.js). A target's 'prefix' names its engine options (<prefix>-dye, <prefix>-mode, <prefix>-label-pct, ...) and 'structure' its core structure id (ISC_STRUCT_*); its typical labels per mode are in data/dyes/library.json typicalLabels. A new target: its core geometry, an entry here, its typical labels. A new specimen: its core generator, an entry here, a Micro-Manager device (spec/MM_DEVICES.md).",
+  "specimens": [
+    {
+      "id": "CellField", "name": "Cell field",
+      "notes": "Adherent cells packed on a coverslip: cytoplasm, nucleus, microtubules (core/).",
+      "targets": [
+        { "id": "microtubules", "name": "Microtubules", "prefix": "mt", "structure": 0 }
+      ]
+    }
+  ],
+  "default": "CellField"
+}

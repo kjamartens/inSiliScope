@@ -18,8 +18,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from isc_mm import (ALL_DEVICES, brightfield, custom_microtubule_dye, generate_stack, load_scope, precomputed,  # noqa: E402
-                    search_paths, set_light, timed_prints)
+from isc_mm import (ALL_DEVICES, brightfield, custom_microtubule_dye, generate_stack, label, load_scope,  # noqa: E402
+                    precomputed, search_paths, set_light, timed_prints)
 
 import numpy as np  # noqa: E402
 from pymmcore_plus import CMMCorePlus  # noqa: E402
@@ -72,7 +72,8 @@ basic = own_props([d for d in ALL_DEVICES if d not in ("Dichroic", "EmissionFilt
 assert "Dichroic" not in core.getInstalledDevices("Hub"), "Basic: the hub should not offer the Advanced filter wheels"
 assert basic < expert, "Basic should show a subset of Expert"
 assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
-for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Dye"),
+for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Label"),
+             ("Fluorophores", "Mode"),
              ("Renderer", "Quality"), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec")):
     assert must in basic, f"{must} should be Basic"
 for hidden in (("Objective", "NA"), ("Renderer", "PsfOversampling"), ("Camera", "GainElectronsPerADU")):
@@ -122,8 +123,10 @@ print("Live mode OK:", len(live_frames), "frames captured, frames vary over time
 fresh()
 for (dev, name), expected in {
     ("Lasers", "IlluminationProfile"): "Flat",
-    ("CellField", "Microtubules_Dye"): "ATTO655",
-    ("CellField", "Microtubules_Mode"): "DyeDefault",
+    ("Fluorophores", "Mode"): "DNA-PAINT",
+    ("CellField", "Microtubules_Label"): "Typical",
+    ("Fluorophores", "Microtubules_EffectiveDye"): "ATTO655 (DNA-PAINT)",
+    ("CellField", "Microtubules_Mode"): "Global",
     ("CellField", "Microtubules_LabelingPct"): "70",
     ("Lasers", "Preset"): "PAINT-640",
     ("FilterCube", "Label"): "LP650+BP676-37",
@@ -143,8 +146,23 @@ for (dev, name), expected in {
     actual = core.getProperty(dev, name)
     ok = float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected
     assert ok, f"expected {dev}.{name} to default to {expected!r}, got {actual!r}"
-# A dye pick loads its mode's light preset: lasers and filter cube on their own devices.
-core.setProperty("CellField", "Microtubules_Dye", "AF647")
+# The label list follows the mode: Typical plus the dyes with data in it (and the custom dyes, Expert).
+DSTORM_DYES = {"AF647", "AF532", "Cy5", "ATTO655", "Cy3B", "Custom"}
+PALM_DYES = {"mEos3.2", "Dendra2", "PAmCherry2", "Custom"}
+PAINT_DYES = {"ATTO655", "ATTO542", "Cy3B", "Custom"}
+CUSTOM = {"Dye1", "Dye2", "Dye3"}
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PAINT_DYES | CUSTOM
+core.setProperty("Fluorophores", "Mode", "PALM")
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PALM_DYES | CUSTOM, \
+    core.getAllowedPropertyValues("CellField", "Microtubules_Label")
+assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "mEos3.2 (PALM)"
+core.setProperty("CellField", "Microtubules_Label", "Dendra2")
+core.setProperty("Fluorophores", "Mode", "dSTORM")
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | DSTORM_DYES | CUSTOM
+assert core.getProperty("CellField", "Microtubules_Label") == "Typical", "a label the new mode lacks becomes Typical"
+assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "AF647 (dSTORM)"
+# A dye pick (or mode) loads its mode's light preset: lasers and filter cube on their own devices.
+core.setProperty("CellField", "Microtubules_Label", "AF647")
 assert core.getProperty("Lasers", "Preset") == "dSTORM-640", core.getProperty("Lasers", "Preset")
 assert core.getProperty("FilterCube", "Label") == "LP650+ChromaET700-75m", core.getProperty("FilterCube", "Label")
 assert float(core.getProperty("CellField", "Microtubules_LabelingPct")) == 3, "a mode change sets its labelling"
@@ -202,7 +220,7 @@ def stack_frames(settings, n=20, seed=42, skip=0, dye_edits=None):
 
 
 def mean_signal(pct):
-    fr = stack_frames(FAST + [("CellField", "Microtubules_Dye", "AF647"),
+    fr = stack_frames(FAST + [("Fluorophores", "Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647"),
                               ("CellField", "Microtubules_LabelingPct", str(pct))], n=50,
                       dye_edits={"InitialOnSec": 0})
     return fr.mean() - 100.0
@@ -264,19 +282,16 @@ assert not core.hasProperty("Objective", "PsfMaskType") and not core.hasProperty
 print(f"PSF OK: {len(INTERP_VALUES)} placement modes render, Zernike presets / 28 coefficients / 15-value lists")
 
 # --- label modes, dye edits ----------------------------------------------------
-MODES = {"dSTORM": [("CellField", "Microtubules_Dye", "AF647")],
-         "PALM": [("CellField", "Microtubules_Dye", "mEos3.2")],
-         "DNA-PAINT": [],
-         "WideField": [("CellField", "Microtubules_Dye", "mEGFP")]}
+MODES = {"dSTORM": "AF647", "PALM": "mEos3.2", "DNA-PAINT": "ATTO655", "WideField": "mEGFP"}
 GAUSS = [("Renderer", "PsfModel", "Gaussian")]
 mode_sig = {}
 for mode, extra in MODES.items():
-    fr = stack_frames(GAUSS + extra + [("CellField", "Microtubules_Mode", mode)], n=20,
+    fr = stack_frames(GAUSS + [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", extra)], n=20,
                       dye_edits={"InitialOnSec": 0} if mode == "dSTORM" else None)
     assert fr.std() > 0, f"expected a non-blank {mode} movie"
     mode_sig[mode] = fr.mean() - 100.0
 assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
-DSTORM = GAUSS + [("CellField", "Microtubules_Dye", "AF647"), ("CellField", "Microtubules_Mode", "dSTORM")]
+DSTORM = GAUSS + [("Fluorophores", "Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647")]
 lib = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0})
 dim = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0, "Qy": 0.05})
 assert dim.mean() - 100.0 < 0.5 * (lib.mean() - 100.0), "a lower quantum yield should give less light"

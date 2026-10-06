@@ -29,25 +29,32 @@ from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._util import USER_DATA_DIR
 
 GAUSS = [("Renderer", "PsfModel", "Gaussian")]
+
+
+def label(mode, dye):
+    """The microtubules' label: the experiment's mode, then the dye (Typical or a dye with data in that mode)."""
+    return [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", dye)]
+
+
 # (name, pre-init seed, [(device, property, value)]). Each config regenerates
 # the precomputed stack and hashes its first frames. The defaults are DNA-PAINT
 # ATTO 655 with its imager background.
 CONFIGS = [
     ("defaults", 1234, []),
     ("gaussian-psf", 1234, GAUSS),
-    ("dstorm", 99, GAUSS + [("CellField", "Microtubules_Dye", "AF647")]),
-    ("palm", 11, GAUSS + [("CellField", "Microtubules_Dye", "mEos3.2")]),
+    ("dstorm", 99, GAUSS + label("dSTORM", "AF647")),
+    ("palm", 11, GAUSS + label("PALM", "mEos3.2")),
     ("emccd", 7, [("Camera", "CameraType", "EMCCD")] + GAUSS),
     ("illum-bg", 3, GAUSS + [("Lasers", "IlluminationProfile", "Gaussian"),
                              ("SampleHolder", "BackgroundPhotonsPerSec", "200"),
                              ("SampleHolder", "BackgroundDecaySec", "0.5")]),
-    ("mean-field", 5, [("CellField", "Microtubules_Dye", "mEGFP")]),
+    ("mean-field", 5, label("WideField", "mEGFP")),
     ("brightfield", 21, [("light", "", "BrightField")]),
     ("drift", 31, GAUSS + [("SampleHolder", "DriftXySpeedNmPerSec", "200"),
                            ("SampleHolder", "DriftXyNmPerSqrtSec", "20"),
                            ("SampleHolder", "DriftZNmPerSqrtSec", "10")]),
     ("zernike", 41, [("Objective", "ZernikePreset", "AstigmatismStrong")]),
-    ("dstorm-ixon", 51, GAUSS + [("CellField", "Microtubules_Dye", "AF647"),
+    ("dstorm-ixon", 51, GAUSS + label("dSTORM", "Typical") + [
                                  ("Camera", "CameraPreset", "iXonUltra897"),
                                  ("Lasers", "Preset", "dSTORM-640")]),
     ("cells-na", 61, GAUSS + [("CellField", "CellDiameterMinUm", "15"), ("CellField", "Occupancy", "0.6"),
@@ -59,7 +66,8 @@ CONFIGS = [
 OLD = {
     ("Renderer", "PsfModel"): "PSFParam_PsfModel",
     ("Renderer", "UseGpu"): "General_UseGpu",
-    ("CellField", "Microtubules_Dye"): "SimType_CellFieldMicrotubuleDye",
+    ("Fluorophores", "Mode"): None,   # the old layout: the dye's default mode (each config's dye has the mode's)
+    ("CellField", "Microtubules_Label"): "SimType_CellFieldMicrotubuleDye",
     ("CellField", "Microtubules_LabelingPct"): "SimType_CellFieldMicrotubuleLabelingPct",
     ("CellField", "Microtubules_ImagerNm"): "SimType_CellFieldMicrotubuleImagerNm",
     ("CellField", "CellDiameterMinUm"): "SimType_CellFieldCellDiameterMinUm",
@@ -146,8 +154,9 @@ def apply(core, hub_layout, settings):
                 set_checked(core, "Camera", "General_ImagingModality", value)
         elif hub_layout:
             set_checked(core, device, prop, value)
-        else:
-            set_checked(core, "Camera", OLD[(device, prop)], value)
+        elif OLD[(device, prop)]:
+            old = {"Typical": "AF647"}.get(value, value) if prop == "Microtubules_Label" else value
+            set_checked(core, "Camera", OLD[(device, prop)], old)
 
 
 def main():

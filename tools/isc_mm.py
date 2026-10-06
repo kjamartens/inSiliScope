@@ -85,15 +85,21 @@ def precomputed(core, on=True):
     core.setProperty("Camera", "Test_AcqMode", "Precomputed" if on else "Live")
 
 
+def label(core, mode, dye="Typical"):
+    """The microtubules' label: the experiment's mode (Fluorophores), then their dye (Typical, or one with data in it)."""
+    core.setProperty("Fluorophores", "Mode", mode)
+    core.setProperty("CellField", "Microtubules_Label", dye)
+
+
 def custom_microtubule_dye(core, **fields):
-    """Edits of the microtubules' dye: a custom dye (Fluorophores Dye1) started from their current library dye, with
-    these fields (property suffixes, e.g. InitialOnSec=0), labels the microtubules."""
-    dye = core.getProperty("CellField", "Microtubules_Dye")
-    if not dye.startswith("Dye"):
+    """Edits of the microtubules' dye: a custom dye (Fluorophores Dye1, Expert) started from the library dye their label
+    resolves to, with these fields (property suffixes, e.g. InitialOnSec=0), labels the microtubules."""
+    dye = core.getProperty("Fluorophores", "Microtubules_EffectiveDye").split(" (")[0]
+    if not core.getProperty("CellField", "Microtubules_Label").startswith("Dye"):
         # A new source clears the slot's edits (set another first, so the same dye counts as new too).
         core.setProperty("Fluorophores", "Dye1_Source", "Custom" if dye != "Custom" else "AF647")
         core.setProperty("Fluorophores", "Dye1_Source", dye)
-        core.setProperty("CellField", "Microtubules_Dye", "Dye1")
+        core.setProperty("CellField", "Microtubules_Label", "Dye1")
     for k, v in fields.items():
         core.setProperty("Fluorophores", "Dye1_" + k, str(v))
 

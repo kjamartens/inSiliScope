@@ -3,14 +3,16 @@
 // geometry (cells, packing, microtubules are the prototype's own functions). Same answers and the same
 // event ORDER as the C++ (the renderer sums in that order). Caches are for speed only.
 import { hashUnit } from './rng.js';
+import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, dyeH1, dyeOrientation, mtSegmentAt,
   mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM, MT_BINDER_NM,
   MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
-// The structures that carry labels (issue 16): one label each, indexed by their position here. Only the
-// microtubules for now; a new structure (nucleus DNA, NPCs, ...) adds an entry and its site generator.
-export const STRUCTURES = [{ id: 'microtubules', prefix: 'mt', name: 'Microtubules' }];
+// The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
+// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*). Only the microtubules for now; a
+// new structure (nucleus DNA, NPCs, ...) adds a target there and its site generator here and in core/.
+export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name }));
 export const STRUCTURE_MT = 0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
 // ALWAYS_ON; continuousInWindow).

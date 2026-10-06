@@ -17,6 +17,9 @@
 #include "../Simulation/DyeLibrary.h"
 #include "../Simulation/SMLMZernike.h"
 
+#include "SceneSettings.h"
+
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -25,13 +28,11 @@ void InSiliScopeHub::LoadMicrotubuleDye(bool modeMayChange)
    using namespace sim;
    isc::SceneState& st = state_;
    st.ClearDyeEditsWithPrefix("mt-dye.");
-   std::vector<DyeSlot> slots(3);
-   for (int n = 0; n < 3; ++n)
-      slots[static_cast<size_t>(n)].source = static_cast<int>(st.Option("dye" + std::to_string(n + 1) + ".source"));
+   // The label as the engine resolves it (Typical, Global: ScopeStructureDye).
    EffectiveDye eff;
+   int choice = 0;
    std::string err;
-   if (!MakeEffectiveDye(static_cast<int>(st.Option("mt-dye")), slots, {}, static_cast<int>(st.Option("mt-mode")), eff,
-                         err))
+   if (!ScopeStructureDye(isc::BuildScopeSpec(st, 0, 0, 0, 0, 1), 0, eff, choice, err))
    {
       Log("Microtubule dye: " + err, false);
       return;
@@ -39,7 +40,7 @@ void InSiliScopeHub::LoadMicrotubuleDye(bool modeMayChange)
    const bool modeChanged = eff.mode != st.lastMtMode.load();
    if (modeMayChange && modeChanged)
    {
-      st.SetOption("mt-label-pct", SuggestedLabelingPct(eff.mode));
+      st.SetOption("mt-label-pct", TargetAt(0).typicalPct[eff.mode]);
       Notify("mt-label-pct");
    }
    st.lastMtMode = eff.mode;
@@ -49,6 +50,42 @@ void InSiliScopeHub::LoadMicrotubuleDye(bool modeMayChange)
       ApplyLightPreset(eff.dye.modes[eff.mode].lightPreset);
    for (int i = 0; i < 3; ++i)
       Notify("mt-readout-" + std::to_string(i));
+   Notify("mt-effective");
+}
+
+std::vector<std::string> InSiliScopeHub::LabelChoices(int s)
+{
+   using namespace sim;
+   std::vector<std::string> v = { "Typical" };
+   EffectiveDye eff;
+   int choice = 0;
+   std::string err;
+   if (!ScopeStructureDye(isc::BuildScopeSpec(state_, 0, 0, 0, 0, 1), s, eff, choice, err))
+      return v;
+   const int nLib = static_cast<int>(DyeIds().size());
+   for (int i = 0; i < nLib; ++i)
+      if (DyeHasModeData(i, eff.mode))
+         v.push_back(DyeIds()[static_cast<size_t>(i)]);
+   if (Shows(isc::Tier::Expert))
+      for (size_t i = static_cast<size_t>(nLib); i < DyeChoices().size(); ++i)
+         v.push_back(DyeChoices()[i]);
+   return v;
+}
+
+void InSiliScopeHub::LabelModeChanged()
+{
+   const std::string key = std::string(sim::TargetAt(0).prefix) + "-dye";
+   // A label the new mode has no data for becomes Typical (the mode's usual dye).
+   const int v = static_cast<int>(state_.Option(key));
+   if (v >= 0)
+   {
+      const std::vector<std::string> allowed = LabelChoices(0);
+      if (std::find(allowed.begin(), allowed.end(), sim::DyeChoices()[static_cast<size_t>(v)]) == allowed.end())
+         state_.SetOption(key, -1);
+   }
+   RefreshChoices(key);
+   Notify(key);
+   LoadMicrotubuleDye(true);
 }
 
 void InSiliScopeHub::ApplyLightPreset(const std::string& id)

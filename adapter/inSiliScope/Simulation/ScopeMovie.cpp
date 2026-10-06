@@ -56,8 +56,11 @@ constexpr double kDefaultLaser640KW = 1.0;
 // default activation rate (scope_movie.js DEFAULT_IMAGER_NM).
 constexpr double kDefaultImagerNm = 1.43;
 
-// The structures' option prefixes (JS world.js STRUCTURES), index = ISC_STRUCT_*.
-const char* const kStructurePrefix[ISC_STRUCT_COUNT] = { "mt" };
+// The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
+const char* StructurePrefix(int s)
+{
+   return TargetAt(s).prefix;
+}
 
 struct OptionTable
 {
@@ -101,9 +104,11 @@ const OptionTable& Options()
          { "na", 1.4, "PSFParam_PsfNa: numerical aperture" },
          { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
          { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-         { "mt-dye", idx(DyeChoices(), "ATTO655"), "SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)" },
-         { "mt-mode", -1, "SimType_CellFieldMicrotubuleLabelMode: -1 = the dye's default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
-         { "mt-label-pct", -1, "SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
+         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)" },
+         { "mode", -1, "Fluorophores Mode: the experiment's label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted)" },
+         { "mt-dye", idx(DyeChoices(), "ATTO655"), "CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)" },
+         { "mt-mode", -1, "CellField Microtubules_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
+         { "mt-label-pct", -1, "CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
          { "mt-imager-nm", kDefaultImagerNm, "SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)" },
          { "mt-orient", 0, "SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)" },
          { "mt-orient-polar-deg", 90, "SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis" },
@@ -207,6 +212,8 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["psf-zernike-preset"] = ZernikePresetNames();
       m["mt-dye"] = DyeChoices();
       m["mt-mode"] = DyeModeNames();
+      m["mode"] = DyeModeNames();
+      m["specimen"] = SpecimenIds();
       m["mt-orient"] = { "Free", "Fixed", "Random" };
       m["mt-motion"] = { "Static" };
       for (const char* k : { "dye1.source", "dye2.source", "dye3.source" })
@@ -270,7 +277,7 @@ bool ParseOverrideKey(const std::string& k, OverrideKey& out)
          if (c < 'a' || c > 'z')
             return false;
       for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
-         if (prefix == kStructurePrefix[s])
+         if (prefix == StructurePrefix(s))
             out.structure = s;
       return true;   // an unknown prefix: a bad option (ScopeSpecSet)
    }
@@ -326,6 +333,22 @@ bool ScopeOptionValue(const std::string& name, const char* text, double& value)
    value = std::strtod(text, &end);
    if (end != text && *end == 0)
       return true;
+   // The special values: a target's Typical dye, its DyeDefault / Global mode; no global mode.
+   auto endsWith = [&](const char* suffix) {
+      const size_t n = std::strlen(suffix);
+      return name.size() > n && name.compare(name.size() - n, n, suffix) == 0;
+   };
+   const std::string t = text;
+   if ((endsWith("-dye") && t == "Typical") || (endsWith("-mode") && t == "DyeDefault") || (name == "mode" && t == "None"))
+   {
+      value = -1;
+      return true;
+   }
+   if (endsWith("-mode") && t == "Global")
+   {
+      value = -2;
+      return true;
+   }
    if (const std::vector<std::string>* names = OptionNames(name))
    {
       const int i = IndexOf(*names, text);
@@ -422,6 +445,48 @@ std::string Opt(const char* prefix, const char* name)
 
 } // namespace
 
+// A structure's dye choice and mode request as the spec gives them, resolved (JS structureDyeChoice): <prefix>-mode
+// -2 = the global mode option (-1 there: none); <prefix>-dye -1 = the target's typical dye in that mode (the library's
+// default mode when none is asked).
+static void StructureDyeChoice(const ScopeSpec& spec, int s, int& choice, int& mode)
+{
+   auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
+   const char* P = StructurePrefix(s);
+   mode = static_cast<int>(O(Opt(P, "mode")));
+   if (mode == -2)
+      mode = static_cast<int>(O("mode"));
+   if (mode < -1)
+      mode = -1;
+   choice = static_cast<int>(O(Opt(P, "dye")));
+   if (choice == -1)
+   {
+      if (mode < 0)
+         mode = DefaultDyeMode();
+      choice = TargetAt(s).typicalDye[mode];
+   }
+}
+
+bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err)
+{
+   if (s < 0 || s >= ISC_STRUCT_COUNT)
+   {
+      err = "structure " + std::to_string(s) + " out of range";
+      return false;
+   }
+   std::vector<DyeSlot> slots;
+   std::vector<DyeOverrides> byStructure;
+   SpecOverrides(spec, slots, byStructure);
+   int mode = -1;
+   StructureDyeChoice(spec, s, choice, mode);
+   return MakeEffectiveDye(choice, slots, byStructure[static_cast<size_t>(s)], mode, eff, err);
+}
+
+double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode)
+{
+   const double pct = ScopeSpecGet(spec, Opt(StructurePrefix(s), "label-pct").c_str());
+   return pct >= 0 ? pct : TargetAt(s).typicalPct[mode];
+}
+
 // The camera of a spec: the preset's values for every option the spec does
 // not set (JS scopeCamera).
 struct ScopeCamera
@@ -442,16 +507,12 @@ static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string
    out = O("modality") == 1;
    if (out)
       return true;
-   std::vector<DyeSlot> slots;
-   std::vector<DyeOverrides> byStructure;
-   SpecOverrides(spec, slots, byStructure);
    out = true;
    for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
    {
-      const char* P = kStructurePrefix[s];
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye"))), slots, byStructure[static_cast<size_t>(s)],
-                            static_cast<int>(O(Opt(P, "mode"))), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
       out = out && DyeModeNames()[static_cast<size_t>(eff.mode)] == "WideField";
    }
@@ -503,13 +564,9 @@ static bool ScopeLightPreset(const ScopeSpec& spec, const LightPresetData*& out,
    std::string id;
    if (i == 0)
    {
-      std::vector<DyeSlot> slots;
-      std::vector<DyeOverrides> byStructure;
-      SpecOverrides(spec, slots, byStructure);
-      const char* P = kStructurePrefix[0];
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye").c_str())), slots, byStructure[0],
-                            static_cast<int>(O(Opt(P, "mode").c_str())), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, 0, eff, choice, err))
          return false;
       id = eff.dye.modes[eff.mode].lightPreset ? eff.dye.modes[eff.mode].lightPreset : "";
    }
@@ -570,18 +627,15 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
                             std::string& err)
 {
    auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
-   std::vector<DyeSlot> slots;
-   std::vector<DyeOverrides> byStructure;
-   SpecOverrides(spec, slots, byStructure);
    labels.assign(ISC_STRUCT_COUNT, LabelPhysics());
    for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
    {
-      const char* P = kStructurePrefix[s];
+      const char* P = StructurePrefix(s);
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye"))), slots, byStructure[static_cast<size_t>(s)],
-                            static_cast<int>(O(Opt(P, "mode"))), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
-      const double pct = O(Opt(P, "label-pct")) >= 0 ? O(Opt(P, "label-pct")) : SuggestedLabelingPct(eff.mode);
+      const double pct = ScopeStructureLabelingPct(spec, s, eff.mode);
       LabelPhysicsOptions o;
       o.density = std::min(1.0, std::max(0.0, pct / 100));
       o.imagerNm = O(Opt(P, "imager-nm"));
@@ -627,6 +681,11 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    ScopeMovieDims(spec, W, H, N);
    const double expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
    const double t0Sec = std::max(0.0, O("start-sec"));
+   if (static_cast<int>(O("specimen")) != 0)
+   {
+      err = "specimen " + std::to_string(static_cast<int>(O("specimen"))) + ": only the CellField (0) exists";
+      return false;
+   }
    if (!MakeScopeCamera(spec, S.camera, err) || !MakeScopeLightPath(spec, S.camera, S.lp, err) ||
        !MakeScopeLabels(spec, S.lp, S.labels, err))
       return false;
