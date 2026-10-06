@@ -558,7 +558,7 @@ export const DYE_DATA = {
   },
   {
    "id": "Custom",
-   "name": "Custom (flat QE = CamParam_QuantumEfficiency)",
+   "name": "Custom (flat QE = Camera.QuantumEfficiency)",
    "type": null,
    "qeCurve": "Flat"
   }

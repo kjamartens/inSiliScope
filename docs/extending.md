@@ -32,13 +32,15 @@ dSTORM/PALM/DNA-PAINT presets are combinations of the labelling fractions, activ
 
 ## Recipe: a new MM property
 
-Give it one of the six group prefixes (`General_`, `SimType_`, `FluoParam_`, `CamParam_`, `PSFParam_`, `Background_`), update the
-prefix list in `CLAUDE.md`, and add the same option to `ScopeMovieOptions()` so the CLI and viewer reach it.
+Add one row to the property registry (`adapter/inSiliScope/Registry/PropertyTable.cpp`) on the device and tier that
+`spec/MM_DEVICES.md` picks, with a one-line help, and add the same option to `ScopeMovieOptions()` and its JS twin so
+the CLI and viewer reach it. Regenerate `docs/mm-properties.md` (`tools/gen_property_reference.py`) and, if a config
+group sets it, the shipped configurations (`tools/gen_mm_configs.py`).
 
 ## Recipe: a new modality
 
-Follow WideField or BrightField: a render path in `Simulation/`, a modality value in `General_ImagingModality`, a
-CLI/viewer option, an entry in `gallery/manifest.json`, a CI check, and a section in the physics docs. A modality that
+Follow WideField or BrightField: a render path in `Simulation/`, a light source (a shutter device in Micro-Manager, an engine
+option `light-<name>`; `spec/MM_DEVICES.md`), a CLI/viewer option, an entry in `gallery/manifest.json`, a CI check, and a section in the physics docs. A modality that
 needs new geometry gets it from a core query (BrightField: `isc_optical_volume_in_window`, pure geometry; the optics
 live in the renderer). A new structure should also say what it does to brightfield (its refractive index) and be added
 to the optical volume, so brightfield never shows structures the world does not simulate.

@@ -845,3 +845,27 @@ per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleFo
   shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
   scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
   drift cases), `tests/block/check_cellfield_block.mjs`.
+
+## 18. Micro-Manager hub and devices (2026-10-06)
+
+The adapter's device layout, tiers and naming are in `spec/MM_DEVICES.md`; this section lists what changed in the
+engine (C++ `Simulation/ScopeMovie.*` and its JS twin `web/prototype/scope/scope_movie.js`, so the cli, the viewer and
+webSMLM have it too). Every new option's default keeps the earlier output.
+
+- Labels: `specimen` (0 = CellField, `data/specimens.json`), `mode` (the experiment's label mode, for targets whose
+  `<prefix>-mode` is -2 Global; -1 = each target's own), `<prefix>-dye` -1 = Typical (`data/dyes/library.json`
+  `typicalLabels.<target>.<mode>`), `<prefix>-label-pct` -1 = the typical labelling. New dye Cy3B.
+- Excitation (laser clean-up) filters: `ex-filter` (`light_path.json` `excitationFilters`: None, ideal +/-5 nm band
+  passes, an ideal quad (`multiband`), FPbase curves of Chroma ZET and Semrock FF01 clean-ups, Custom with `ex-lo-nm` /
+  `ex-hi-nm`); each laser line's intensity x the filter's T at the line; light presets carry an `excitationFilter`
+  (None). Parity case: the quad clean-up.
+- Light from the shutters: `light-epi`, `light-trans` (1 open, 0 closed, -1 from `modality`). Both open: the
+  fluorescence photons (its noise chain at QE 1) + the lamp's photons x the camera QE at `bf-wavelength-nm`, then one
+  noise chain (`RenderCombinedMovie`, JS `renderCombinedMovie`); none: dark frames. Parity cases: both, both + drift,
+  dark.
+- The EMCCD ignores `gain-std-pct` / `read-noise-std-pct` (the sCMOS per-pixel spreads), in `MakeScopeSetup`, JS
+  `scopeSetup` and the adapter's `SnapshotParams`.
+- The adapter: pixel size = `Camera.SensorPixelUm` / (objective x `EmissionPath.EmissionMagnification`, default 0.667),
+  written into the spec's `pixel-nm` (the cli/viewer default stays 100); `Renderer.WriteScopeSpecTo` writes the spec
+  of the next frame and `insiliscope_cli --spec <file>` reads it (a precomputed MM frame with the GPU off is
+  reproduced bit for bit).

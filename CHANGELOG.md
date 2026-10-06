@@ -4,6 +4,23 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
+  `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope
+  (`Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, the Advanced `ExcitationFilter` /
+  `Dichroic` / `EmissionFilter` wheels, `Lasers`, `TransmittedLamp`, `SampleHolder`, `CellField`, `Fluorophores`,
+  `Renderer`). Every property has a tier and a name without group prefix (`Objective.NA`, was `PSFParam_PsfNa`); the
+  full list: `docs/mm-properties.md`. **Configurations from before must be re-made**: the release ships
+  `inSiliScope_{Basic,Advanced,Expert}.cfg` with Channel / Objective / Camera / Quality / Drift / Specimen groups and
+  pixel sizes. Acquisition in MM is live only (snap, live, sequences, hardware z stacks); the precomputed stack stays
+  for the tests (`ISC_TEST=1`). The light comes from the shutters (lasers: fluorescence, lamp: BrightField, both:
+  summed on the camera, none: dark frames; cli/viewer `light-epi` / `light-trans`, `modality` unchanged). Labels:
+  an experiment-wide `Fluorophores.Mode` and `CellField.Microtubules_Label` (`Typical` per mode, or a dye with data for
+  it); new dye Cy3B. Excitation (laser clean-up) filters (cli/viewer `ex-filter`, default `None`: outputs unchanged).
+  The pixel size is the sensor pixel / (objective x emission magnification), default 0.667x: 97.45 nm in MM (was 100;
+  cli/viewer `pixel-nm` stays 100). The EMCCD ignores the sCMOS per-pixel gain and read-noise spreads (no preset sets
+  them). `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` render an MM frame in the cli. Live z stacks no
+  longer lose a position when a frame is taken late.
+
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM
   `SimType_DriftXyNmPerSqrtSec` / `SimType_DriftZNmPerSqrtSec`, cli/viewer `drift-xy-nm-per-sqrt-sec` /

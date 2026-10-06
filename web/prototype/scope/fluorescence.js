@@ -10,8 +10,8 @@
 //      conversion or their own budget), the dSTORM initial ON (until pumped dark) -- each either mean-field (the
 //      structure's FFT image x the exact mean photons per dye in the frame) or per dye (exact windows, through a
 //      running image: a dye's PSF is added when its window starts and subtracted when it ends, 2 splats per dye instead
-//      of one per frame). Mean-field while the expected emitting dyes exceed General_MeanFieldDensityPerUm2 in the
-//      focal slab or General_MeanFieldMaxEmitters in the z range; these populations only decay, so a movie switches at
+//      of one per frame). Mean-field while the expected emitting dyes exceed Renderer.MeanFieldDensityPerUm2 in the
+//      focal slab or Renderer.MeanFieldMaxEmitters in the z range; these populations only decay, so a movie switches at
 //      most once, mean-field -> per dye.
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
 import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, kernelWavelengthNm, driftInfo } from './scope_movie.js';

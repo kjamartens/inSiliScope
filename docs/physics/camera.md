@@ -4,27 +4,27 @@
 
 Per pixel, in this order:
 
-1. quantum efficiency (`CamParam_QuantumEfficiency`, default 0.85),
-2. plus dark current (`CamParam_DarkCurrentElectronsPerSec`, 1.03 e-/s),
+1. quantum efficiency (`Camera.QuantumEfficiency`, default 0.85),
+2. plus dark current (`Camera.DarkCurrentElectronsPerSec`, 1.03 e-/s),
 3. Poisson shot noise,
-4. Gaussian read noise (`CamParam_ReadNoiseElectrons`, 1.2 e-), optionally with a per-pixel spread
-   (`CamParam_ReadNoiseStdPctPerPixel`, 20%),
-5. gain (`CamParam_GainPhotonsPerADU`, 0.25 ADU/e-; per-pixel spread `CamParam_GainStdPctPerPixel`, 0.5%),
-6. a static per-pixel offset (`CamParam_OffsetADU` 100, std `CamParam_OffsetStdADU` 0.5),
+4. Gaussian read noise (`Camera.ReadNoiseElectrons`, 1.2 e-), optionally with a per-pixel spread
+   (`Camera.sCMOS_ReadNoiseStdPctPerPixel`, 20%),
+5. gain (`Camera.GainElectronsPerADU`, 0.25 ADU/e-; per-pixel spread `Camera.sCMOS_GainStdPctPerPixel`, 0.5%),
+6. a static per-pixel offset (`Camera.OffsetADU` 100, std `Camera.OffsetStdADU` 0.5),
 7. 16-bit clamp.
 
 Defaults follow the Photometrics Kinetix22 sCMOS (Sensitivity mode) datasheet; the per-pixel spreads are estimates because
 vendors do not publish them. The gain spread (PRNU, a static pattern proportional to the signal) is 0.5%, typical of
-sCMOS; it was 5% until 2026-10-01, which hid little in single-molecule frames but swamped brightfield contrast. An **EMCCD** path (`CamParam_CameraType`) adds EM gain and clock-induced charge but keeps this
+sCMOS; it was 5% until 2026-10-01, which hid little in single-molecule frames but swamped brightfield contrast. An **EMCCD** path (`Camera.CameraType`) adds EM gain and clock-induced charge but keeps this
 project's dark current. The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier per pixel): an EMCCD
 reads every pixel through one amplifier, so it ignores them (since 2026-10-06; the per-pixel offset applies to both).
 
-The gain (`CamParam_GainPhotonsPerADU`, e⁻/ADU) is the whole conversion from photoelectrons to counts for both sensor
+The gain (`Camera.GainElectronsPerADU`, e⁻/ADU) is the whole conversion from photoelectrons to counts for both sensor
 types. The EM gain does not scale the signal: the multiplication is drawn as Gamma(shape = n, scale = 1) on the n
 photoelectrons, so its mean stays n and it adds the \(\sqrt{2}\) excess noise factor; the EM gain divides the read noise
 (50 e⁻ at an EM gain of 150 is 0.33 e⁻ effective). The EM gain is not set on its own: it is the camera preset's
 pre-amplifier sensitivity (e⁻/ADU after the EM register; 1 e⁻/ADU for the iXon, an *estimate*, and when a preset has
-none) divided by the gain (Micro-Manager's `CamParam_EmGain` is read-only; the cli's `em-gain` can override it). The iXon
+none) divided by the gain (Micro-Manager's `Camera.EMCCD_EmGain` is read-only; the cli's `em-gain` can override it). The iXon
 Ultra 897 preset sets the gain per photoelectron: 0.0066 e⁻/ADU (about 150 ADU per photoelectron, EM gain about 150)
 for dSTORM, PALM and DNA-PAINT, 0.1 e⁻/ADU (EM gain 10) for WideField and BrightField, where 0.0066 would saturate the
 16-bit output (*estimates*). A mode or modality change re-applies it (viewer and Micro-Manager); the cli picks it from
@@ -37,16 +37,16 @@ rebuilds.
 
 ## Background
 
-A flat background (`Background_BackgroundPhotonsPerSec`) multiplies an illumination field and fades with time:
+A flat background (`SampleHolder.BackgroundPhotonsPerSec`) multiplies an illumination field and fades with time:
 
-- **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`Background_DecaySec`);
-- **illumination** (Micro-Manager adapter): a peak-normalised profile (`Optics_IlluminationProfile`,
-  `Optics_IlluminationFwhmPct`) multiplies background and blinks.
+- **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`SampleHolder.BackgroundDecaySec`);
+- **illumination** (Micro-Manager adapter): a peak-normalised profile (`Lasers.IlluminationProfile`,
+  `Lasers.IlluminationFwhmPct`) multiplies background and blinks.
 
 For fluorescence the background is in detected photons: it is multiplied by the camera's QE at the emission filter's
 centre, and the noise chain runs at QE 1 because each dye's detected fraction already holds the QE curve
-([Dyes and light path](dyes-and-light-path.md)). Camera presets (`camera-preset`, MM `CamParam_CameraPreset`:
-Kinetix22, iXon Ultra 897, Custom) set the noise values and the QE curve (`qe-curve`, MM `CamParam_QeCurve`;
+([Dyes and light path](dyes-and-light-path.md)). Camera presets (`camera-preset`, MM `Camera.CameraPreset`:
+Kinetix22, iXon Ultra 897, Custom) set the noise values and the QE curve (`qe-curve`, MM `Camera.QeCurve`;
 `Custom` = flat at `qe`). BrightField uses the curve's QE at its lamp wavelength.
 
 Out-of-focus light needs no extra population: every dye of the cell field sits at its own depth and is drawn with the
@@ -57,9 +57,9 @@ defocused PSF.
 The sample drift has two parts, set separately for xy and z: a **directed** part (a slow, mostly steady movement in
 one direction, as from thermal expansion or a creeping stage) and a **random walk** on top.
 
-**Directed part.** A mean velocity: xy speed \(V_{xy}\) (`SimType_DriftXySpeedNmPerSec`, cli/viewer
-`drift-xy-speed-nm-per-sec`) in a direction \(\theta_0\) (`SimType_DriftXyAngleDeg`, degrees from +x; −1, the default,
-draws it once per seed) and a signed z speed \(V_z\) (`SimType_DriftZSpeedNmPerSec`, + = away from the coverslip).
+**Directed part.** A mean velocity: xy speed \(V_{xy}\) (`SampleHolder.DriftXySpeedNmPerSec`, cli/viewer
+`drift-xy-speed-nm-per-sec`) in a direction \(\theta_0\) (`SampleHolder.DriftXyAngleDeg`, degrees from +x; −1, the default,
+draws it once per seed) and a signed z speed \(V_z\) (`SampleHolder.DriftZSpeedNmPerSec`, + = away from the coverslip).
 Direction and strength wander slowly:
 
 \[
@@ -68,8 +68,8 @@ v_z = V_z\,\max(0, 1 + w\,s_z),
 \]
 
 where \(\phi, s_{xy}, s_z\) are independent unit-variance Ornstein–Uhlenbeck processes with correlation time \(\tau\)
-(`SimType_DriftWanderTimeSec`, default 60 s), \(\alpha\) the direction wander (`SimType_DriftXyAngleWanderDeg`, deg RMS)
-and \(w\) the speed wander (`SimType_DriftSpeedWanderPct`, % RMS of the mean). So the xy direction strays by about
+(`SampleHolder.DriftWanderTimeSec`, default 60 s), \(\alpha\) the direction wander (`SampleHolder.DriftXyAngleWanderDeg`, deg RMS)
+and \(w\) the speed wander (`SampleHolder.DriftSpeedWanderPct`, % RMS of the mean). So the xy direction strays by about
 \(\alpha\) around \(\theta_0\) and the z drift keeps its sign while its strength fluctuates. With both wanders at 0 the
 velocity is constant. Each frame moves the sample by \(v\,\Delta t\), with \(v\) at the frame's start. The xy and z
 speeds are the everyday settings; direction, wanders and \(\tau\) are advanced (the viewer shows them under Advanced).
@@ -83,8 +83,8 @@ d(0) = 0, \qquad d(f) = d(f-1) + \sigma \sqrt{\Delta t}\; g_f, \qquad \langle d(
 \]
 
 and \(\sigma\) is the RMS displacement per axis after 1 s whatever the frame rate (strictly nm/\(\sqrt{\text{s}}\); "nm/s" in
-the papers' wording; advanced, "jitter" in the viewer). x and y each get \(\sigma_{xy}\) (`SimType_DriftXyNmPerSqrtSec`, cli/viewer
-`drift-xy-nm-per-sqrt-sec`), z gets \(\sigma_z\) (`SimType_DriftZNmPerSqrtSec`, `drift-z-nm-per-sqrt-sec`); both default
+the papers' wording; advanced, "jitter" in the viewer). x and y each get \(\sigma_{xy}\) (`SampleHolder.DriftXyNmPerSqrtSec`, cli/viewer
+`drift-xy-nm-per-sqrt-sec`), z gets \(\sigma_z\) (`SampleHolder.DriftZNmPerSqrtSec`, `drift-z-nm-per-sqrt-sec`); both default
 to 0. A stable setup (optical table, active isolation, constant temperature) drifts a few nm/s.
 
 - The draws are counter-based per (seed, frame) on a stream of their own, so a precomputed stack, live mode, the cli, the

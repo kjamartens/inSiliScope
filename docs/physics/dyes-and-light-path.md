@@ -20,10 +20,11 @@ measurement behind them are marked *estimate* in the data. [References](../refer
 A dye has a default mode and a block per mode it supports. The **fluorescent fraction** (e.g. the share of a PALM
 protein that ever photoactivates) thins the labelled sites with its own address-based draw, nested in the labelled set.
 
-Three **dye slots** (`dye1..3.source`, MM `FluoParam_Dye{1,2,3}_Source`) hold edited copies of library dyes; a structure
+Three **dye slots** (`dye1..3.source`, MM `Fluorophores.Dye{1,2,3}_Source`) hold edited copies of library dyes; a structure
 can use a slot (`mt-dye=Dye1`). Any dye field can be overridden per structure (`mt-dye.on-sec=0.03`) or per slot
-(`dye1.qy=0.5`); MM shows them as `FluoParam_Microtubule_*` and `FluoParam_Dye<N>_*`, loaded from the library on a dye
-or mode change and editable after.
+(`dye1.qy=0.5`). Micro-Manager shows the slots as `Fluorophores.Dye<N>_*` (Expert), loaded from the library when their
+source changes and editable after; a structure there takes a slot (`CellField.Microtubules_Label = Dye1`) instead of
+per-structure overrides.
 
 ## Label modes
 
@@ -55,7 +56,7 @@ through the dichroic, the emission filter \(T_F\) and the camera's QE curve, and
 emitting are \(k_{em}\,\eta\,F\) with the objective's collection efficiency
 \(\eta = \tfrac12\bigl(1 - \sqrt{1 - (\mathrm{NA}/n)^2}\bigr)\). The PSF of each state is computed at the
 detected-spectrum-weighted wavelength, rounded to 2 nm (one kernel per distinct wavelength). MM shows the
-microtubules' main state as read-only properties: `FluoParam_Microtubule_DetectedPct` (\(100F\), *without* \(\eta\)),
+microtubules' main state as read-only properties: `Fluorophores.Microtubules_DetectedPct` (\(100F\), *without* \(\eta\)),
 `EffectiveEmissionNm` and `PhotonsPerSecOn` (\(k_{em}\eta F\)).
 
 Because the QE is in \(F\), the camera noise chain runs at QE 1 for fluorescence; the flat `background-per-sec` is
@@ -66,14 +67,14 @@ its ON, spontaneous-dark and initial-ON times scale as \(k_{exc,ref}/k_{exc}\), 
 cycle stay as measured at Dempsey et al.'s intensities (488 nm 1.2, 561 nm 2.2, 647 nm 0.8 kW/cm\(^2\))
 [[dempsey2011](../references.md#dempsey2011)]. PALM activates at the spontaneous rate plus \(a_{405} I_{405}\) plus, for
 primed conversion, a term in the product of the 470-510 nm and 690-780 nm intensities. DNA-PAINT blinks at
-\(k_{on} c\), with \(c\) the imager concentration (`mt-imager-nm`, MM `SimType_CellFieldMicrotubuleImagerNm`).
+\(k_{on} c\), with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNm`).
 
 ## Light-path presets
 
 `data/dyes/light_path.json` defines the lasers (405, 488, 561, 640, 730 nm and a custom line), dichroics, emission
 filters and presets: `dSTORM-640/561/488` (Dempsey's conditions), `PAINT-640/561/488`, `PALM-561`, `PALM-primed`,
 `WF-405/488/561/640`. Intensities without a source are *estimates*. Every dye mode names its preset; `light-preset=auto`
-(cli/viewer) or a dye/mode change (viewer, MM `Optics_Preset`) applies it, setting every laser, the dichroic and the
+(cli/viewer) or a dye/mode change (viewer, MM `Lasers.Preset`) applies it, setting every laser, the dichroic and the
 filter the spec does not give. The default is `PAINT-640` (640 nm at 1 kW/cm\(^2\), LP650, 676/37) for the default
 ATTO 655 DNA-PAINT label. Camera presets (`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the
 QE curve.
@@ -121,7 +122,7 @@ Pre states, the dSTORM initial ON and WideField-mode dyes emit continuously. Suc
 
 The switch is per frame: mean field while the expected emitters exceed `mean-field-density-per-um2` (default 20) in the
 `mean-field-slab-nm` (500 nm) slab around focus, or `mean-field-max-emitters` (5000) in the z range; per dye below
-(MM `General_MeanField*`). Both give the same mean (checked within 1 % in total, a few % per pixel).
+(MM `Renderer.MeanField*`). Both give the same mean (checked within 1 % in total, a few % per pixel).
 
 ## Where it lives
 

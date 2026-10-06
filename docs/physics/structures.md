@@ -26,7 +26,7 @@ cytoplasm: its bottom is `nucBaseMin`-`nucBaseMax` (0.4-0.9 um) above the covers
 nucleus top plus the margin (`nucMargin`, 0.5 um). A lateral envelopment step keeps the whole footprint inside the cell
 outline with that margin.
 
-In Micro-Manager these are the `SimType_CellFieldNuc*` properties (`NucBaseMinUm`/`MaxUm`, `NucIrregMin`/`Max`,
+In Micro-Manager these are the `CellField.Nuc*` properties (`NucBaseMinUm`/`MaxUm`, `NucIrregMin`/`Max`,
 `NucBendMin`/`Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`, `NucWidestMin`/`Max`); in the cli and viewer, `p.<name>`.
 
 ## Cytoplasm
@@ -50,7 +50,7 @@ Each microtubule is a 3D path from near the nucleus to near the cell edge:
    distance to the outline (`mtEndDecayPct`, 20 %, ~6 um); one is picked with weight \(e^{\kappa(\cos a - 1)}\), \(a\) the
    angle between start-to-end and the outward direction at the start (`mtDirKappa`, 1.5; 0 = any direction, so paths
    also cross over or under the nucleus).
-   Micro-Manager: `SimType_CellFieldMicrotubuleStartDecayPct`, `...EndDecayPct`, `...DirKappa`.
+   Micro-Manager: `CellField.MicrotubuleStartDecayPct`, `...EndDecayPct`, `...DirKappa`.
 3. **Path**: a correlated random walk in \(xy\) with a bounded turn radius, forced onto both endpoints with a
    Brownian-bridge drift correction. The persistence length is shared between the heading walk and \(z\), implemented so that
    the correlation length is fixed in real um regardless of step length (a discretised Ornstein-Uhlenbeck process in arc length;
@@ -80,7 +80,7 @@ dimer)`; whether it is labelled, whether it ever activates and what it does are 
 only computed for dyes that will emit. The unit of generation is a *block*: 1 um of one microtubule.
 
 **Labelling.** Each structure carries one label (issue 16): a share of its sites (`density`, cli/viewer `mt-label-pct`,
-MM `SimType_CellFieldMicrotubuleLabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them
+MM `CellField.Microtubules_LabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them
 (the same threshold as before, so a density equal to the old bleaching + persistent fractions gives the same dyes);
 a second, nested FLUOR draw keeps the dye's fluorescent fraction (none at fraction 1). What the dyes do depends on the
 label's mode (dSTORM, PALM, DNA-PAINT, WideField): [Photophysics](photophysics.md). Each dye also has an orientation

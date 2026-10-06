@@ -52,7 +52,7 @@ dense, per dye when sparse ([details](dyes-and-light-path.md#continuous-populati
 ## Photons
 
 An ON dye emits its detected rate \(\times\) brightness photons per second, integrated over the part of the frame it
-is on (frame-overlap weighting); the adapter's illumination profile (`Optics_IlluminationProfile`) multiplies it.
+is on (frame-overlap weighting); the adapter's illumination profile (`Lasers.IlluminationProfile`) multiplies it.
 In a cli or viewer movie the whole sample has been lit since \(t=0\).
 
 ## Illumination history (Micro-Manager adapter)

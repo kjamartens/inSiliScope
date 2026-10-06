@@ -24,7 +24,7 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `EmissionPath` | Magnifier | magnification between objective and camera (tube lens / relay); MM divides the pixel size by it | |
 | `FilterCube` | State | a *combination*: one (excitation filter,) dichroic, emission filter choice | the filters' own data |
 | `ExcitationFilter`, `Dichroic`, `EmissionFilter` (Advanced) | State (wheels) | one filter each (`None` is a position of each); their Custom edges | |
-| `Lasers` | Shutter | excitation: line powers, the custom line, beam profile, geometry, the light preset; its shutter = the epi light | filters |
+| `Lasers` | Shutter | excitation: line powers, beam profile, geometry, the light preset; its shutter = the epi light (the custom line is cli/viewer only) | filters |
 | `TransmittedLamp` | Shutter | transmitted light: intensity, condenser NA, wavelength; its shutter = the BrightField light | |
 | `SampleHolder` | State | which specimen is mounted; what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
 | `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (`Microtubules_Label`: which dye, how dense) | photophysics of a dye |
@@ -108,10 +108,10 @@ rows exist in a session; a row above it is never created and its setting keeps i
 
 | Tier | Rule | Examples |
 |---|---|---|
-| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 30 Basic properties over all devices** (`tools/test_insiliscope.py` checks it): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset, laser powers, light preset, beam profile, objective, filter cube, label, quality |
+| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 30 Basic properties over all devices** (`tools/test_insiliscope.py` checks it): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset and its relay (`EmissionPath.EmissionMagnification`: a Camera config preset sets both), laser powers, light preset, beam profile, objective, filter cube, label, quality |
 | **Advanced** | Physical parameters a user knows the meaning of and may tune to match their own setup. Read-only readouts. | noise values, NA, refractive indices, labelling density, drift, background, filter wheels, stage speed, GPU switch, disk cache |
 | **Expert** | Numerics, caches, debugging, model-shape parameters, overrides of library data, custom dyes. | PSF model and oversampling, BrightField sampling, mean-field limits, nucleus shape, Zernike coefficients, Dye1-3 |
-| **Test** | Only what automated checks need (deterministic stacks, hooks). Never shown in MM: created only when the process has `ISC_TEST=1`, whatever `Detail` says; named `Test_*`. Never something a user needs to reproduce a result. | `Test_AcqMode`, `Test_GenerateStack`, `Test_StackLength` |
+| **Test** | Only what automated checks need (deterministic stacks, hooks). Never shown in MM: created only when the process has `ISC_TEST=1`, whatever `Detail` says; named `Test_*`. Never something a user needs to reproduce a result. | `Test_AcqMode`, `Test_GenerateStack`, `Test_StackLength`, `Renderer.Test_WriteRegistryTo` |
 
 - A readout is Advanced (Expert if it only helps debugging).
 - Pre-init only when a change needs a reload (`RandomSeed`, `Detail`, `FovSize`).
@@ -142,8 +142,9 @@ rows exist in a session; a row above it is never created and its setting keeps i
 **A new property:** one row in `Registry/PropertyTable.cpp` (device, name without group prefix, tier, binding to a
 `SceneState` setting or engine option, limits/choices, invalidate, one-line help); the setting in `SceneState` and in
 `BuildScopeSpec` if new; couplings in `Registry/Couplings.cpp`; a check in `tools/test_insiliscope.py` or
-`tools/test_cellfield_stage.py`; the generated property reference and configs; docs; a gallery entry if it changes the
-image (not for caches or preparation switches).
+`tools/test_cellfield_stage.py`; regenerate the property reference (`tools/gen_property_reference.py` ->
+`docs/mm-properties.md`) and, if a config group sets it, the configs (`tools/gen_mm_configs.py`, checked by
+`tools/test_mm_configs.py`); docs; a gallery entry if it changes the image (not for caches or preparation switches).
 
 **A new target in a specimen:** the core geometry; its entry in `data/specimens.json` (name, option prefix, core
 structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`, C++ and JS twin);
@@ -154,7 +155,7 @@ targets (above); the viewer's specimen choice comes from the same registry.
 
 **A new light source:** a Shutter device (section 5), the engine option, a parity case, the configs.
 
-**Naming:** the device is the group, so property names carry no group prefix (`NA`, not `PSFParam_PsfNa`);
+**Naming:** the device is the group, so property names carry no group prefix (`NA`, not `Objective.NA`);
 per-target rows are `<Target>_<Name>`; sensor-specific rows are `sCMOS_` / `EMCCD_`; MM's standard keywords
 (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...) stay as they are.
 
@@ -172,3 +173,5 @@ per-target rows are `<Target>_<Name>`; sensor-specific rows are `sCMOS_` / `EMCC
 | `InSiliScopeCamera.*`, `SMLMImageGeneration.cpp` | the camera: acquisition, live loop, precomputed stack (Test) |
 | `InSiliScopeXYStage.*`, `InSiliScopeZStage.*` | the stages |
 | `tools/isc_mm.py` | loading the devices in pymmcore-plus (the test scripts) |
+| `config/inSiliScope_{Basic,Advanced,Expert}.cfg` | the shipped configurations (release assets): devices, roles, the Channel / Objective / Camera / Quality / Drift / Specimen groups, startup, pixel sizes per objective x camera; written by `tools/gen_mm_configs.py` (never by hand; `--check`), loaded and checked by `tools/test_mm_configs.py` |
+| `docs/mm-properties.md` | every device and property with tier, default, values and help; written by `tools/gen_property_reference.py` from the registry (the Test row `Renderer.Test_WriteRegistryTo` exports it) |

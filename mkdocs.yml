@@ -46,6 +46,7 @@ nav:
   - Home: index.md
   - Viewer (live): try-viewer.md
   - Quickstart: quickstart.md
+  - Micro-Manager properties: mm-properties.md
   - Physics:
       - World model: physics/world-model.md
       - Structures: physics/structures.md

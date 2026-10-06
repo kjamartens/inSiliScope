@@ -111,6 +111,7 @@ jobs:
             echo "inSiliScope ${VERSION}, built from ${GITHUB_SHA}."
             echo
             echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64). GPL-3.0 as a whole (embeds PSFGenerator). Copy into the Micro-Manager folder."
+            echo "- \`inSiliScope_Basic.cfg\`, \`inSiliScope_Advanced.cfg\`, \`inSiliScope_Expert.cfg\`: Micro-Manager hardware configurations (the devices, Channel/Objective/Camera/Quality/Drift groups, pixel sizes) at each level of detail."
             echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
             echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings (also on the project site)."
             echo
@@ -123,6 +124,9 @@ jobs:
             assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll \
             assets/mmgr_dal_inSiliScope-windows-x64/mmgr_dal_inSiliScope.dll.sha256 \
             assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt \
+            assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Basic.cfg \
+            assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Advanced.cfg \
+            assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Expert.cfg \
             assets/cellfield_block/cellfield_block.js \
             assets/cellfield_block/cellfield_block.js.sha256 \
             assets/gallery/gallery.zip assets/gallery/benchmarks.json \

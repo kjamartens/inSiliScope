@@ -150,7 +150,7 @@
       "title": "Toward drift-free high-throughput nanoscopy through adaptive intersection maximization",
       "journal": "Science Advances", "volume": "10", "pages": "eadm7765",
       "doi": "10.1126/sciadv.adm7765",
-      "use": "RMS drift of 5, 10 and 20 nm/s as test values, drift as a cumulative normal distribution (after Cnossen et al. 2021): the scale of SimType_DriftXyNmPerSqrtSec / ZNmPerSqrtSec",
+      "use": "RMS drift of 5, 10 and 20 nm/s as test values, drift as a cumulative normal distribution (after Cnossen et al. 2021): the scale of SampleHolder.DriftXyNmPerSqrtSec / ZNmPerSqrtSec",
       "checked": "bibliographic details from the DOI record; the 5/10/20 nm/s values and the model as quoted from the paper by the user (not re-read from the full text)"
     }
   }

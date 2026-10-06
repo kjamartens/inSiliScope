@@ -16,6 +16,8 @@ that finishes them.
   flat buffers, opaque handles; no exceptions or STL across it).
 - `adapter/inSiliScope/` -- the MM device adapter (MSBuild only; do not force CMake on it).
   `Simulation/` there is the render engine (PSF, noise, GPU); it may move to a shared `render/` later.
+  The hub, its devices and the property registry: `InSiliScopeHub.*`, `Devices/`, `Registry/` ([spec/MM_DEVICES.md](spec/MM_DEVICES.md));
+  `config/` the shipped MM configurations (generated).
 - `web/prototype/scope/` -- the **JS imaging reference** (dyes, blink kinetics, Gibson-Lanni+Zernike PSF, splat, camera
   noise, WideField, BrightField with the optical-volume query): the C++ imaging path mirrored file for file (its README
   maps them); `tests/parity/scope_parity.mjs` checks it equals the C++ (the committed WASM: SR 100% identical ADU,
@@ -49,7 +51,8 @@ that finishes them.
   `cli/brightfield_check.cpp` (ctest `brightfield`);
   `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
-  `adapter_pixel_hash.py`, `test_insiliscope.py`, `psf_parity_check/`.
+  `adapter_pixel_hash.py`, `test_insiliscope.py`, `test_cellfield_stage.py`, `test_mm_configs.py`, `isc_mm.py`,
+  `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)
 
@@ -96,7 +99,9 @@ that finishes them.
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
-  the same with `--drift` (the sample drift checks). Off Windows, `tools/build_adapter_linux.sh`
+  the same with `--drift` (the sample drift checks), then `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the
+  shipped configs, < 1 min). After a registry change: `python tools/gen_mm_configs.py` and
+  `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
 - WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a
@@ -156,6 +161,25 @@ PSF models, not "vectorial" (old `docs/dev/vectorial-psf-*` file names are histo
 ---
 
 ## inSiliScope adapter (`adapter/inSiliScope/`) -- overview
+
+**Hub + devices (2026-10-06, spec/MM_DEVICES.md; branch `claude/mm-devices`):** the module offers the hub `inSiliScope`
+(pre-init `Detail` Basic/Advanced/Expert, `RandomSeed`) and its peripherals `Camera`, `XYStage`, `ZStage`, `Objective`,
+`EmissionPath`, `FilterCube`, `ExcitationFilter`/`Dichroic`/`EmissionFilter` (Advanced wheels), `Lasers`,
+`TransmittedLamp`, `SampleHolder`, `CellField`, `Fluorophores`, `Renderer`. Every property is one row of
+`Registry/PropertyTable.cpp` with a tier; rows above `Detail` are never created. Users get live acquisition only (snap,
+live, sequences, hardware z stacks); the precomputed seeded stack is the Test tier (`Camera.Test_AcqMode`,
+`Test_GenerateStack`, `Test_StackLength`, with `ISC_TEST=1`; `tools/isc_mm.py` sets it). The light comes from the
+shutters (`Lasers` = fluorescence, `TransmittedLamp` = BrightField, both = summed before one noise chain, none = dark
+frames; engine options `light-epi`/`light-trans`, `modality` stays the cli/viewer shorthand). Pixel size = the camera's
+`SensorPixelUm` / (objective x `EmissionPath.EmissionMagnification`, default 0.667: 97.45 nm with the Kinetix22 at 100x;
+the cli/viewer `pixel-nm` stays 100). Excitation (laser clean-up) filters: engine `ex-filter`/`ex-lo-nm`/`ex-hi-nm`,
+a line's power x the filter's T at it. The EMCCD ignores the sCMOS per-pixel spreads. Labels: `Fluorophores.Mode`
+(experiment-wide) and `CellField.Microtubules_Label` (`Typical` = `data/dyes/library.json` `typicalLabels`, or a dye
+with data for the mode). Shipped configs `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg` (release
+assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
+`tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
+(precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
+`adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -354,7 +378,8 @@ up and when a PSF control changes. Options that change no output (`disk-cache`, 
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
-configurations saved with an old module name must be re-made. Property names did not change. The
+configurations saved with an old module name must be re-made. Property names did not change then (they did with the
+hub, 2026-10-06: configurations from before it must be re-made too). The
 `Simulation/SMLM*` engine files keep their names (they describe the SMLM model, not the device).
 
 A synthetic SMLM (Single-Molecule Localization Microscopy) camera device
@@ -368,73 +393,17 @@ or a live-streaming mode with parameters adjustable while running.
   outputs `mmgr_dal_inSiliScope.dll` to `adapter/inSiliScope/build/Release/x64/`
 - Cell field + XY stage integration: spec in [spec/PORT.md](spec/PORT.md).
 
-## MM property naming convention
+## MM devices and property names
 
-Every user-facing MM property name is prefixed with the group it belongs
-to, mirroring the UI section groupings in the webSMLM reference simulator
-(`C:\GitHub\websmlm\webSMLM.html` -- see that project's `PARITY.md`):
-
-- `General_` -- FOV/binning/acquisition-mode/stack-playback plumbing, plus
-  every property that sat in webSMLM's flat "User parameters" group
-  (pixel size, frame-interval readback).
-  Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `StackLength`, `UseGpu`, `GpuStatus`, `DiskCache`, etc.), the WideField
-  modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
-  `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
-  `PhotonsPerPxPerSec`/`Aberrations`, and the
-  `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`, and the
-  mean-field switch `MeanFieldDensityPerUm2`/`SlabNm`/`MaxEmitters`.
-- `SimType_` -- webSMLM's "Simulation type" group: the specimen, i.e. the
-  `CellField*` properties of the cell field (with the microtubules' label:
-  `CellFieldMicrotubuleDye`/`LabelMode`/`LabelingPct`/`ImagerNm`/
-  `Orientation`/`OrientPolarDeg`/`OrientAzimuthDeg`/`WobbleConeDeg`/`Motion`), including
-  the specimen's BrightField optics `CellFieldIndexMedium`/`IndexCytoplasm`/
-  `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`, the nucleus shape
-  `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
-  `NucThickIrreg`/`NucAsym`/`NucWidestMin`/`Max` and the microtubule ends
-  `CellFieldMicrotubuleStartDecayPct`/`EndDecayPct`/`DirKappa`), plus
-  `DriftXyNmPerSqrtSec`/`DriftZNmPerSqrtSec`, the directed drift `DriftXySpeedNmPerSec`/`DriftZSpeedNmPerSec`/
-  `DriftXyAngleDeg`/`DriftXyAngleWanderDeg`/`DriftSpeedWanderPct`/`DriftWanderTimeSec`, and `RandomSeed`.
-- `FluoParam_` -- webSMLM's "Fluorophore parameters" group: the dyes. The
-  microtubules' dye fields `Microtubule_FluorescentPct`/`Qy`/`ExtCoeff`/
-  `OnSec`/`OffSec`/`BleachProb`/`InitialOnSec`/`Activation405`/
-  `SpontActivation`/`Primed`/`PrePhotonBudget`/`Kon`/`PhotonCv`/
-  `PhotonBudget`, the read-only `Microtubule_DetectedPct`/
-  `EffectiveEmissionNm`/`PhotonsPerSecOn`, and the slots `Dye{1,2,3}_Source`
-  plus the same fields (`Dye1_OnSec`, ...).
-- `Optics_` -- the light path (issue 16; no webSMLM group): `Laser{405,488,
-  561,640,730}KWcm2`, `LaserCustomNm`/`KWcm2`, `IlluminationGeometry`,
-  `ChamberHeightUm`, `Dichroic`/`DichroicEdgeNm`, `EmissionFilter`/
-  `EmissionLoNm`/`HiNm`, `Preset`, and the illumination profile
-  `IlluminationProfile`/`IlluminationFwhmPct` (were `FluoParam_Illum*`).
-- `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
-  offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
-  std-pct properties, the EMCCD ones (`CameraType`, `EmGain` -- read-only
-  since 2026-10-05: the preset's pre-amplifier sensitivity / the gain, which is
-  per photoelectron for both sensors --, `CicElectrons`, `BitDepth`),
-  `CameraPreset` and `QeCurve`.
-- `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
-  (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
-  `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including
-  `PsfGeneratorJavaHome`, which has no direct webSMLM analog but is
-  PSF-generator-specific machinery).
-- `Background_` -- webSMLM's "Background" group (added in its 2026-09-19
-  builds): `BackgroundPhotonsPerSec` (was `General_BackgroundPhotonsPerSec`)
-  and `DecaySec`.
-
-Standard MM keywords this device inherits (`Exposure`, `PixelType`,
-`Name`, `Description`, `CameraName`, `CameraID`, and `ZStage`'s
-`Position`) are **not** prefixed -- MM Core and Micro-Manager Studio's own
-GUI depend on those literal names, and they aren't part of this project's
-own property surface. Allowed-*value* strings (e.g. `Circle`, `Gaussian`,
-`TopDown`, `Direct`) are also unprefixed -- only property *names* get a
-group prefix.
-
-**Keep this convention up to date**: any new MM property added to this
-device must get one of the seven prefixes above (pick by which webSMLM UI
-section the analogous concept would sit in, or `General_` if there's no
-webSMLM analog at all) -- update this section's bullet list and, if the
-mapping to webSMLM's groups shifts, `PARITY.md` in the websmlm repo too.
+**Since 2026-10-06 the adapter is a hub with peripherals and a tiered property registry: [spec/MM_DEVICES.md](spec/MM_DEVICES.md)
+says which device and tier a new property gets, how to name it and what else to update. Follow it.** Names: the device is
+the group, so property names carry no group prefix (`Objective.NA`, `Camera.OffsetADU`); per-target rows are
+`<Target>_<Name>` (`CellField.Microtubules_Label`); sensor-specific rows `sCMOS_` / `EMCCD_`; rows only the tests see
+`Test_` (created with `ISC_TEST=1`). MM's standard keywords (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...)
+and allowed-value strings are unchanged. The old single-camera names with group prefixes (`General_`, `SimType_`,
+`FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`, `Background_`) in the history sections of this file are the pre-hub
+names; every current device and property, with tier, default and help: [docs/mm-properties.md](docs/mm-properties.md)
+(generated). Keep `PARITY.md` in the websmlm repo in step when a mapping to webSMLM's groups shifts.
 
 ## Diffraction PSF feature -- status
 

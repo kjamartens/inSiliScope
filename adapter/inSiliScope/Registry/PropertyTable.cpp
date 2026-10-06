@@ -517,8 +517,8 @@ std::vector<PropDef> BuildTable()
 
    // =========================== EmissionPath ===========================
    {
-      PropDef d = Num("EmissionPath", "EmissionMagnification", Tier::Advanced, "emission-mag", &SceneState::emissionMag,
-                      0.1, 10, "Magnification between the objective and the camera (tube lens / relay).");
+      PropDef d = Num("EmissionPath", "EmissionMagnification", Tier::Basic, "emission-mag", &SceneState::emissionMag,
+                      0.1, 10, "Magnification between the objective and the camera (tube lens / relay; goes with the camera).");
       ThenNumber(d, [](H& h) {
          h.Notify("emission-mag");   // the magnifier tells MM
          NotifyPixel(h);
@@ -871,10 +871,65 @@ std::vector<PropDef> BuildTable()
          h.Stage().PositionXyAt(sim::SharedStageState::Clock::now(), x, y);
          sim::ScopeSpec spec = BuildScopeSpec(h.State(), x, y, h.Stage().zPositionUm.load(), 0.0, 1);
          AddDriftToSpec(spec, SnapshotParams(h.State()).drift);
-         std::ofstream f(path);
+         std::ofstream f(path, std::ios::binary);   // plain LF line ends on every platform
          if (!f)
             return false;
          f << ScopeSpecText(spec);
+         return static_cast<bool>(f);
+      };
+      add(d);
+      // The registry as JSON, every tier (tools/gen_property_reference.py
+      // writes docs/mm-properties.md from it); values are the current ones,
+      // the defaults on a fresh hub.
+      d = Row(R, "Test_WriteRegistryTo", Tier::Test, "write-registry",
+              "Set to a file path: writes every row of the property registry there as JSON (the reference docs).");
+      d.kind = PropKind::Text;
+      d.invalidate = Invalidate::None;
+      d.getText = [](H&) { return std::string(); };
+      d.setText = [](H& h, const std::string& path) {
+         if (path.empty())
+            return true;
+         auto q = [](const std::string& v) {
+            std::string o = "\"";
+            for (char c : v)
+            {
+               if (c == '"' || c == '\\')
+                  o += '\\';
+               if (static_cast<unsigned char>(c) >= 0x20)
+                  o += c;
+            }
+            return o + "\"";
+         };
+         static const char* const kKinds[] = { "float", "integer", "text" };
+         std::ofstream f(path);
+         if (!f)
+            return false;
+         f << "[\n";
+         bool first = true;
+         for (const PropDef& r : PropertyTable())
+         {
+            f << (first ? "" : ",\n") << "{\"device\":" << q(r.device) << ",\"name\":" << q(r.name)
+              << ",\"tier\":" << q(TierName(r.tier)) << ",\"kind\":" << q(kKinds[static_cast<int>(r.kind)])
+              << ",\"readOnly\":" << (r.readOnly ? "true" : "false") << ",\"key\":" << q(r.key)
+              << ",\"help\":" << q(r.help);
+            if (r.lo < r.hi)
+               f << ",\"lo\":" << q(FormatNumber(r.lo)) << ",\"hi\":" << q(FormatNumber(r.hi));
+            if (r.getText)
+               f << ",\"value\":" << q(r.getText(h));
+            else if (r.get)
+               f << ",\"value\":" << q(FormatNumber(r.get(h)));
+            if (r.choices)
+            {
+               f << ",\"choices\":[";
+               const std::vector<std::string> cs = r.choices(h);
+               for (size_t i = 0; i < cs.size(); ++i)
+                  f << (i ? "," : "") << q(cs[i]);
+               f << "]";
+            }
+            f << "}";
+            first = false;
+         }
+         f << "\n]\n";
          return static_cast<bool>(f);
       };
       add(d);

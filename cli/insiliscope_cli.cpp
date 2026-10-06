@@ -11,9 +11,12 @@
 // true per-frame drift goes to <out without .tif>.drift.csv.
 #include "ScopeMovie.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -25,7 +28,9 @@ void Usage()
                "options (default):\n");
    for (const sim::ScopeOption& o : sim::ScopeMovieOptions())
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
-   std::printf("  --p.<name> <value>     any core world parameter (the prototype's names)\n"
+   std::printf("  --spec <file>          options from a file (name=value per line; Micro-Manager's Renderer\n"
+               "                         WriteScopeSpecTo writes one), later options override\n"
+               "  --p.<name> <value>     any core world parameter (the prototype's names)\n"
                "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"
                "  --mt-dye.<field> <v>   override a field of the microtubules' dye (fluorescent-pct, qy, ext-coeff,\n"
                "  --dye<N>.<field> <v>   on-sec, off-sec, ...: DyeFieldNames), or of dye slot N (1-3)\n"
@@ -89,6 +94,20 @@ int main(int argc, char** argv)
       if (a == "--geometry-json" && i + 1 < argc) { geometryOut = argv[++i]; continue; }
       if (a == "--geometry-um" && i + 1 < argc) { geometryUm = std::atof(argv[++i]); continue; }
       if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
+      if (a == "--spec" && i + 1 < argc) {
+         // A spec file (name=value per line, e.g. Micro-Manager's Renderer
+         // WriteScopeSpecTo): its options at this point, later ones override.
+         std::ifstream f(argv[++i], std::ios::binary);
+         std::stringstream text;
+         text << f.rdbuf();
+         std::string s = text.str(), err;
+         s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+         if (!f || !sim::ParseScopeSpec(s, spec, err)) {
+            std::fprintf(stderr, "--spec %s: %s\n", argv[i], f ? err.c_str() : "cannot read");
+            return 2;
+         }
+         continue;
+      }
       double v = 0.0;
       if (a.compare(0, 2, "--") != 0 || i + 1 >= argc || !sim::ScopeOptionValue(a.substr(2), argv[i + 1], v) ||
           !sim::ScopeSpecSet(spec, a.substr(2), v)) {

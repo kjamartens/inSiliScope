@@ -187,7 +187,7 @@ static const LightPresetData kLightPresets[] = {
 static const CameraData kCameras[] = {
    { "Kinetix22", "Teledyne Photometrics Kinetix22 (sCMOS, sensitivity mode)", "sCMOS", "fp:7447", { 0.85, 1.2, 0.25, kNaN, kNaN, 100.0, 0.5, 1.03, 0.5, 20.0, 16.0, kNaN, 6.5 } },
    { "iXonUltra897", "Andor iXon Ultra 897 (EMCCD, 512 x 512, back-illuminated)", "EMCCD", "fp:1337", { 0.95, 50.0, 0.0066, 1.0, 0.005, 100.0, 0.5, 0.00025, 0.0, 0.0, 16.0, 0.1, 16.0 } },
-   { "Custom", "Custom (flat QE = CamParam_QuantumEfficiency)", nullptr, "Flat", { kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN } },
+   { "Custom", "Custom (flat QE = Camera.QuantumEfficiency)", nullptr, "Flat", { kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN, kNaN } },
 };
 
 // States main, pre; modes dSTORM, PALM, DNA-PAINT, WideField.

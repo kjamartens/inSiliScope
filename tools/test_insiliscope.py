@@ -74,7 +74,7 @@ assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub s
 assert basic < expert, "Basic should show a subset of Expert"
 assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
 for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Label"),
-             ("Fluorophores", "Mode"),
+             ("Fluorophores", "Mode"), ("EmissionPath", "EmissionMagnification"),
              ("Renderer", "Quality"), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec")):
     assert must in basic, f"{must} should be Basic"
 for hidden in (("Objective", "NA"), ("Renderer", "PsfOversampling"), ("Camera", "GainElectronsPerADU")):

@@ -10,6 +10,11 @@ Upcoming ideas:
   per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
   [x] cli/viewer module/block (ABI 10 in the viewer, sites stride 5, labels on sites jobs, the WebGPU mean-field path
   per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [x] adapter, [x] checks + benchmarks, [x] docs.
+- MM adapter as a hub with devices (2026-10-06, branch `claude/mm-devices`, spec/MM_DEVICES.md): [x] hub + peripherals,
+  tiered registry, Test tier, [x] label model (global mode, typical labels, specimen registry, Cy3B), [x] excitation
+  filters, [x] light from the shutters (both summed, none dark), [x] EMCCD without sCMOS spreads, [x] emission
+  magnification 0.667x (97.45 nm), [x] generated configs + property reference, `insiliscope_cli --spec`. Next: [ ] load
+  the configs in Micro-Manager Studio (Channel group images, Mode switch updates the Label list, Basic <= 30 rows).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT
