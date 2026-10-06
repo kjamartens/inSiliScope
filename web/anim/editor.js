@@ -261,6 +261,15 @@ function setTab(tab) {
   else { exitPreview(); mode = 'off'; S.setAnimBar(false); }
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
+// The tabs show only with "Show animation pane (WIP)" in the hamburger menu (remembered); off, the settings panel.
+const animPaneOn = () => UI.store.get('animPane', '0') === '1';
+function setAnimPane(on) {
+  $('tabs').hidden = !on; $('showAnimPane').checked = on;
+  UI.store.set('animPane', on ? '1' : '0');
+  if (!on && !$('animPanel').hidden) setTab('settings');
+}
+$('showAnimPane').addEventListener('change', e => setAnimPane(e.target.checked));
+setAnimPane(animPaneOn());
 
 // ---- editing ----
 // changed(structural): the sequence was edited (undo snapshot on commit), recompile, refresh the preview and the panel.
@@ -774,7 +783,7 @@ async function runExport() {
 seq = load();
 lastSnap = JSON.stringify(seq);
 E.probe(1920, 1080, 30).then(c => { caps = c; render(); }).catch(() => {});
-if (UI.store.get('tab', 'settings') === 'anim') setTimeout(() => setTab('anim'), 0);
+if (animPaneOn() && UI.store.get('tab', 'settings') === 'anim') setTimeout(() => setTab('anim'), 0);
 
 window.iscAnim = {
   load(json) { seq = A.migrate(json).seq; lastSnap = JSON.stringify(seq); changed(true, false); },

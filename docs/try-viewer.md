@@ -63,7 +63,8 @@ Notes:
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
   cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
   above it and a nearer cell covers a farther one.
-- The **Animation** tab (next to Settings) builds short animations of one cell for talks: the view orbits the cell
+- The **Animation** tab (work in progress: turn on "Show animation pane (WIP)" in the ☰ menu for the Settings /
+  Animation tabs) builds short animations of one cell for talks: the view orbits the cell
   while its structures appear. An animation is a list of **cycles**, each bound to a structure (microtubules, nucleus,
   cytoplasm) and made of **steps**. A step lasts some seconds, moves the camera (turning by the cycle's orbit, tilting,
   zooming) and can **sweep a plane** through the cell (up, down, side to side, or along the screen's axes) with a slab
@@ -85,7 +86,7 @@ Notes:
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
 - **Simulated data** (Settings > View, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
-  view and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
+  view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
   height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
   included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
   **SMLM frames + localized emitters** adds a faint cross at the true position of every emitter localized in the frame
