@@ -12,18 +12,25 @@ the half time its dye fields give), a hardware z stack (the ZStage's sequence, o
 and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
 z sequence).
 
+The adapter is the inSiliScope hub with its devices (tools/isc_mm.py loads them; spec/MM_DEVICES.md); the
+precomputed stacks are the camera's Test rows (ISC_TEST=1). BrightField = the TransmittedLamp's shutter open and the
+Lasers' closed.
+
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py [--drift]
 Run it after tools/test_insiliscope.py, then once more with --drift (the sample drift checks alone): three runs, each
 under 5 minutes; run_checks(core) for a core of your own.
-Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
+Uses the Renderer's PsfModel=Gaussian, so no JVM is needed.
 """
 
 import os
 import sys
 import time
 
-import numpy as np
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from isc_mm import brightfield, custom_microtubule_dye, load_scope, search_paths  # noqa: E402
+
+import numpy as np  # noqa: E402
 
 
 def _wait_idle(core, label, timeout_s=30.0):
@@ -37,7 +44,7 @@ def _wait_idle(core, label, timeout_s=30.0):
 
 def _wait_for_stack(core, cam, timeout_s=600.0):
     t0 = time.time()
-    while not core.getProperty(cam, "General_StackGenerationStatus").startswith("Ready"):
+    while not core.getProperty("Camera", "Test_StackGenerationStatus").startswith("Ready"):
         if time.time() - t0 > timeout_s:
             sys.exit("Timed out waiting for CellField stack generation")
         time.sleep(0.05)
@@ -103,7 +110,7 @@ def _drift_nm(seed, frames, frame_sec, sxy, sz):
 
 
 def _drift_checks(core, cam, xy, x0, y0):
-    """Sample drift (SimType_Drift*): the properties are there (the linear SimType_DriftNmPerSec is gone) and wired
+    """Sample drift (the SampleHolder's Drift*): the properties are there (the linear DriftNmPerSec is gone) and wired
     into both modalities. The physics (exact sub-pixel shift, focus grid, blinks, C++ = JS) is ctest drift / widefield /
     brightfield and scope_parity. Fluorescence uses the mEGFP WideField label (one continuous image; a huge photon
     budget, so the illumination history of the repeated stacks does not dim it).
@@ -112,18 +119,19 @@ def _drift_checks(core, cam, xy, x0, y0):
     - Precomputed (Fluorescence): frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
       seed's drift path, the path the cli and viewer take (_drift_nm).
     - Live, each modality: frame 9 of a sequence acquisition moves by the same path as the stacks' frame 9."""
-    assert not core.hasProperty(cam, "SimType_DriftNmPerSec"), "SimType_DriftNmPerSec should be gone"
-    for p, v in (("SimType_DriftXyNmPerSqrtSec", 0.0), ("SimType_DriftZNmPerSqrtSec", 0.0),
-                 ("SimType_DriftXySpeedNmPerSec", 0.0), ("SimType_DriftZSpeedNmPerSec", 0.0),
-                 ("SimType_DriftXyAngleDeg", -1.0), ("SimType_DriftXyAngleWanderDeg", 0.0),
-                 ("SimType_DriftSpeedWanderPct", 0.0), ("SimType_DriftWanderTimeSec", 60.0)):
-        assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == v, f"{p} missing or not {v}"
+    assert not core.hasProperty("SampleHolder", "DriftNmPerSec"), "DriftNmPerSec should be gone"
+    for p, v in (("DriftXyNmPerSqrtSec", 0.0), ("DriftZNmPerSqrtSec", 0.0),
+                 ("DriftXySpeedNmPerSec", 0.0), ("DriftZSpeedNmPerSec", 0.0),
+                 ("DriftXyAngleDeg", -1.0), ("DriftXyAngleWanderDeg", 0.0),
+                 ("DriftSpeedWanderPct", 0.0), ("DriftWanderTimeSec", 60.0)):
+        assert core.hasProperty("SampleHolder", p) and float(core.getProperty("SampleHolder", p)) == v, \
+            f"SampleHolder.{p} missing or not {v}"
     core.setXYPosition(xy, x0, y0)  # the field with structure
     _wait_idle(core, xy)
     _label(core, cam, **GFP)
-    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "1e9")
-    seed = int(core.getProperty(cam, "SimType_RandomSeed"))
-    px = float(core.getProperty(cam, "General_PixelSizeNm"))
+    custom_microtubule_dye(core, PhotonBudget="1e9")
+    seed = int(core.getProperty("Hub", "RandomSeed"))
+    px = float(core.getProperty("Camera", "PixelSizeNm"))
     # 1000 nm/sqrt(s) (the property's maximum) and 100 ms frames: frame 9 (0.9 s) sits ~0.95 um (~9 px rms per axis)
     # from frame 0. A snap of a precomputed stack takes its exposure: 10 snaps = 1 s per stack.
     sxy, sz, exp_ms, k = 1000.0, 30.0, 100.0, 9
@@ -131,27 +139,27 @@ def _drift_checks(core, cam, xy, x0, y0):
     expect = (round(path[k][1] / px), round(path[k][0] / px))
 
     def drift(on):
-        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", str(sxy if on else 0))
-        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", str(sz if on else 0))
+        core.setProperty("SampleHolder", "DriftXyNmPerSqrtSec", str(sxy if on else 0))
+        core.setProperty("SampleHolder", "DriftZNmPerSqrtSec", str(sz if on else 0))
 
     def stack_frame():
-        core.setProperty(cam, "General_GenerateStack", "1")
+        core.setProperty("Camera", "Test_GenerateStack", "1")
         _wait_for_stack(core, cam)
         for _ in range(k + 1):
             core.snapImage()
         return core.getImage().astype(np.float64)
 
     def setup(modality):
-        core.setProperty(cam, "General_ImagingModality", modality)
+        brightfield(core, modality == "BrightField")
         if modality == "BrightField":
             # Single frames: unstained cells (~0.5% contrast) sit below the shot noise, so the cells absorb here;
             # 16000 photons/px, no saturation.
-            core.setProperty(cam, "General_BrightFieldQuality", "1")
-            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", str(16000.0 / (exp_ms / 1000.0)))
-            core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0.3")
+            core.setProperty("Renderer", "BrightFieldQuality", "1")
+            core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", str(16000.0 / (exp_ms / 1000.0)))
+            core.setProperty("CellField", "AbsorptionPerUm", "0.3")
 
-    core.setProperty(cam, "General_StackLength", str(k + 1))
-    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setProperty("Camera", "Test_StackLength", str(k + 1))
+    core.setProperty("Camera", "Test_AcqMode", "Precomputed")
     core.setExposure(exp_ms)
     for modality in ("Fluorescence",):
         setup(modality)
@@ -166,7 +174,7 @@ def _drift_checks(core, cam, xy, x0, y0):
 
     # Live: a 10-frame sequence acquisition at 200 ms restarts the drift at its first frame, so its frame 9 must move
     # by the same seed path as the stacks' frame 9 (live = precomputed).
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     for modality in ("Fluorescence", "BrightField"):
         setup(modality)
         drift(True)
@@ -187,22 +195,22 @@ def _drift_checks(core, cam, xy, x0, y0):
         print(f"Drift OK ({modality}, live): sequence frame {k} moved by ({dy}, {dx}) px (path {expect})")
 
     drift(False)
-    core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0")
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
-    core.setProperty(cam, "General_BrightFieldQuality", "3")
-    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
-    _label(core, cam, **GFP)  # reloads the dye fields (the photon budget)
+    core.setProperty("CellField", "AbsorptionPerUm", "0")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "80000")
+    core.setProperty("Renderer", "BrightFieldQuality", "3")
+    brightfield(core, False)
+    _label(core, cam, **GFP)  # the library dye again (the photon budget)
 
 
 def _label(core, cam, mode, dye=None, pct=None, imager=None):
-    """The microtubules' label: dye (loads its fields and light preset), mode, labelling, imager (DNA-PAINT)."""
+    """The microtubules' label: dye (loads its light preset), mode, labelling, imager (DNA-PAINT)."""
     if dye is not None:
-        core.setProperty(cam, "SimType_CellFieldMicrotubuleDye", dye)
-    core.setProperty(cam, "SimType_CellFieldMicrotubuleLabelMode", mode)
+        core.setProperty("CellField", "Microtubules_Dye", dye)
+    core.setProperty("CellField", "Microtubules_Mode", mode)
     if pct is not None:
-        core.setProperty(cam, "SimType_CellFieldMicrotubuleLabelingPct", str(pct))
+        core.setProperty("CellField", "Microtubules_LabelingPct", str(pct))
     if imager is not None:
-        core.setProperty(cam, "SimType_CellFieldMicrotubuleImagerNm", str(imager))
+        core.setProperty("CellField", "Microtubules_ImagerNm", str(imager))
 
 
 # The checks' default label: DNA-PAINT ATTO 655 sites (persistent; the
@@ -212,57 +220,42 @@ PAINT = dict(mode="DNA-PAINT", dye="ATTO655", pct=70, imager=1.43)
 GFP = dict(mode="WideField", dye="mEGFP")
 
 
-def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
+def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     """Every check but the drift; drift_only: the setup, the search for a FOV with structure and the drift checks
-    (a run of their own: together they would pass 5 minutes)."""
-    core.loadDevice(cam, "inSiliScope", "Camera")
-    core.setProperty(cam, "SimType_RandomSeed", "7")
-    core.initializeDevice(cam)
-    core.loadDevice(xy, "inSiliScope", "XYStage")
-    core.initializeDevice(xy)
-    if z not in core.getLoadedDevices():
-        core.loadDevice(z, "inSiliScope", "ZStage")
-        core.initializeDevice(z)
-        assert abs(core.getPosition(z) - 0.5) < 1e-9, f"ZStage should start at 0.5 um, got {core.getPosition(z)}"
-        print("ZStage starts at 0.5 um")
-    core.setCameraDevice(cam)
-    core.setXYStageDevice(xy)
+    (a run of their own: together they would pass 5 minutes). Loads the hub and its devices (labels = device names)."""
+    load_scope(core, seed=7, fov="128x128")
+    assert abs(core.getPosition(z) - 0.5) < 1e-9, f"ZStage should start at 0.5 um, got {core.getPosition(z)}"
+    print("ZStage starts at 0.5 um")
     core.setPosition(z, 1.5)  # focal plane 1.5 um above the coverslip (was the old default view)
 
     # ---- property surface -------------------------------------------------
-    for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
-              "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
-              "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldFocusHeightUm", "SimType_CellFieldZRangeUm",
-              "SimType_CellFieldMicrotubuleDye", "SimType_CellFieldMicrotubuleLabelMode",
-              "SimType_CellFieldMicrotubuleLabelingPct", "SimType_CellFieldMicrotubuleImagerNm"):
-        assert core.hasProperty(cam, p), f"missing camera property {p}"
+    for p in ("ChunkSizeUm", "Occupancy", "Packing", "CellDiameterMinUm", "CellDiameterMaxUm",
+              "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "Microtubules_Dye", "Microtubules_Mode",
+              "Microtubules_LabelingPct", "Microtubules_ImagerNm"):
+        assert core.hasProperty("CellField", p), f"missing CellField property {p}"
     # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
-    for p, v in (("SimType_CellFieldNucBaseMinUm", 0.4), ("SimType_CellFieldNucBaseMaxUm", 0.9),
-                 ("SimType_CellFieldNucIrregMin", 0.03), ("SimType_CellFieldNucIrregMax", 0.2),
-                 ("SimType_CellFieldNucBendMin", 0.0), ("SimType_CellFieldNucBendMax", 0.3),
-                 ("SimType_CellFieldNucSmooth", 2.5), ("SimType_CellFieldNucThickIrreg", 0.1),
-                 ("SimType_CellFieldNucAsym", 0.5), ("SimType_CellFieldNucWidestMin", 0.2),
-                 ("SimType_CellFieldNucWidestMax", 0.4), ("SimType_CellFieldMicrotubuleStartDecayPct", 1.6),
-                 ("SimType_CellFieldMicrotubuleEndDecayPct", 20.0), ("SimType_CellFieldMicrotubuleDirKappa", 1.5)):
-        assert core.hasProperty(cam, p), f"missing camera property {p}"
-        got = float(core.getProperty(cam, p))
+    for p, v in (("NucBaseMinUm", 0.4), ("NucBaseMaxUm", 0.9), ("NucIrregMin", 0.03), ("NucIrregMax", 0.2),
+                 ("NucBendMin", 0.0), ("NucBendMax", 0.3), ("NucSmooth", 2.5), ("NucThickIrreg", 0.1),
+                 ("NucAsym", 0.5), ("NucWidestMin", 0.2), ("NucWidestMax", 0.4), ("MicrotubuleStartDecayPct", 1.6),
+                 ("MicrotubuleEndDecayPct", 20.0), ("MicrotubuleDirKappa", 1.5)):
+        assert core.hasProperty("CellField", p), f"missing CellField property {p}"
+        got = float(core.getProperty("CellField", p))
         assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
-    for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
+    for p in ("StageSpeedUmPerSec", "StageSettleMs", "StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
-    assert not core.hasProperty(cam, "SimType_Pattern"), "SimType_Pattern was removed (CellField only)"
-    defaults = {p: core.getProperty(cam, "SimType_CellFieldMicrotubule" + p) for p in
-                ("Dye", "LabelMode", "LabelingPct", "ImagerNm")}
-    assert defaults["Dye"] == "ATTO655" and defaults["LabelMode"] == "DyeDefault" and \
+    defaults = {p: core.getProperty("CellField", "Microtubules_" + p) for p in
+                ("Dye", "Mode", "LabelingPct", "ImagerNm")}
+    assert defaults["Dye"] == "ATTO655" and defaults["Mode"] == "DyeDefault" and \
         float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.43, f"label defaults {defaults}"
-    assert core.getProperty(cam, "Optics_Preset") == "PAINT-640", core.getProperty(cam, "Optics_Preset")
+    assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
     print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1.43 nM imager)")
     _label(core, cam, **PAINT)
 
     # ---- XY stage motion --------------------------------------------------
     core.setXYPosition(xy, 0.0, 0.0)
     _wait_idle(core, xy)
-    core.setProperty(xy, "General_StageSpeedUmPerSec", "1000")
-    core.setProperty(xy, "General_StageSettleMs", "20")
+    core.setProperty("XYStage", "StageSpeedUmPerSec", "1000")
+    core.setProperty("XYStage", "StageSettleMs", "20")
     t0 = time.time()
     core.setXYPosition(xy, 300.0, 400.0)  # 500 um at 1000 um/s = 0.5 s (+ 20 ms settle)
     busy_right_after = core.deviceBusy(xy)
@@ -274,20 +267,19 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
     assert 0.45 < took < 1.0, f"500 um at 1000 um/s took {took:.3f} s, expected ~0.52 s"
     assert abs(pos[0] - 300) < 0.02 and abs(pos[1] - 400) < 0.02, f"arrived at {pos}"
     assert mid[0] < 300 and mid[1] < 400, f"position mid-move {mid} should be on the way"
-    core.setProperty(xy, "General_StageSpeedUmPerSec", "100000")
+    core.setProperty("XYStage", "StageSpeedUmPerSec", "100000")
     print(f"XY stage OK: 500 um move took {took:.3f} s at 1000 um/s, Busy during, arrived at {pos}")
 
     # ---- live mode: a feature moves by the stage step ----------------------
-    core.setProperty(cam, "PSFParam_PsfModel", "Gaussian")
-    core.setProperty(cam, "General_FovSize", "128x128")
-    core.setProperty(cam, "Background_BackgroundPhotonsPerSec", "0")
+    core.setProperty("Renderer", "PsfModel", "Gaussian")
+    core.setProperty("SampleHolder", "BackgroundPhotonsPerSec", "0")
     # No static per-pixel pattern: it would correlate at zero shift.
-    for p in ("CamParam_GainStdPctPerPixel", "CamParam_ReadNoiseStdPctPerPixel", "CamParam_OffsetStdADU"):
-        core.setProperty(cam, p, "0")
+    for p in ("sCMOS_GainStdPctPerPixel", "sCMOS_ReadNoiseStdPctPerPixel", "OffsetStdADU"):
+        core.setProperty("Camera", p, "0")
     _label(core, cam, **GFP)  # every dye at once: shows the MT network
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setExposure(10.0)
-    px_um = float(core.getProperty(cam, "General_PixelSizeNm")) / 1000.0
+    px_um = float(core.getProperty("Camera", "PixelSizeNm")) / 1000.0
 
     # Find a FOV with structure: the brightest of a few spots.
     best = None
@@ -334,13 +326,13 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
 
     # ---- precomputed: stacks continue the illumination history --------------
     _label(core, cam, **PAINT)
-    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setProperty("Camera", "Test_AcqMode", "Precomputed")
     core.setExposure(20.0)
 
     def stack_frames_at(x, y, n=5):
         core.setXYPosition(xy, x, y)
         _wait_idle(core, xy)
-        core.setProperty(cam, "General_GenerateStack", "1")
+        core.setProperty("Camera", "Test_GenerateStack", "1")
         _wait_for_stack(core, cam)
         frames = []
         for _ in range(n):
@@ -370,14 +362,14 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
     print(f"Precomputed CellField OK: 1000-frame stack in {gen_s:.1f} s; a repeat stack continues the history "
           f"(DNA-PAINT {mean_of(first):.1f} -> {mean_of(back):.1f} ADU, dSTORM {d1:.1f} -> {d2:.1f} ADU)")
 
-    # SimType_CellFieldZRangeUm is its own setting: a thin slab renders fewer
+    # The CellField's ZRangeUm is its own setting: a thin slab renders fewer
     # dyes than the default 7 um one, 0 (no z limit) about as many (each
     # stack is another stretch of the DNA-PAINT blinks: 3 % tolerance).
     def mean_signal(zr):
-        core.setProperty(cam, "SimType_CellFieldZRangeUm", str(zr))
+        core.setProperty("CellField", "ZRangeUm", str(zr))
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
     thin, default, unlimited = mean_signal(0.2), mean_signal(7), mean_signal(0)
-    core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
+    core.setProperty("CellField", "ZRangeUm", "7")
     assert thin < default <= 1.03 * unlimited, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
     print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) ~ {unlimited:.2f} ADU (no limit)")
 
@@ -397,7 +389,7 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
     def early_late():
         core.setXYPosition(xy, x0, y0)
         _wait_idle(core, xy)
-        core.setProperty(cam, "General_GenerateStack", "1")
+        core.setProperty("Camera", "Test_GenerateStack", "1")
         _wait_for_stack(core, cam)
         sig = []
         for _ in range(300):
@@ -422,15 +414,15 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", drift_only=False):
     # A bright lamp (16000 photons/px per 20 ms frame, below 16-bit
     # saturation): at the default 800 the single frames are shot-noise
     # limited (~3.5% against ~1-2% cell contrast) and close foci swap.
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "800000")
     _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
-    core.setProperty(cam, "General_BrightFieldQuality", "3")
-    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
-    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "80000")
+    core.setProperty("Renderer", "BrightFieldQuality", "3")
+    core.setProperty("Camera", "sCMOS_GainStdPctPerPixel", "0.5")
+    brightfield(core, False)
     _label(core, cam, mode="DyeDefault", dye="ATTO655", pct=70, imager=1.43)  # the defaults
 
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)
     _wait_idle(core, xy)
 
@@ -439,26 +431,25 @@ def _wf_half_time_s(core, cam):
     """t1/2 of the microtubules' dye from its fields: budget ln2 / emitted photons per second
     (detected per second / (the objective's collection efficiency x the detected fraction of the emission
     spectrum: dichroic, filter, QE))."""
-    g = lambda p: float(core.getProperty(cam, "FluoParam_Microtubule_" + p))
-    r = float(core.getProperty(cam, "PSFParam_PsfNa")) / float(core.getProperty(cam, "PSFParam_PsfImmersionIndex"))
+    g = lambda p: float(core.getProperty("Fluorophores", "Microtubules_" + p))
+    r = float(core.getProperty("Objective", "NA")) / float(core.getProperty("Objective", "ImmersionIndex"))
     eta = 0.5 * (1.0 - np.sqrt(1.0 - min(1.0, r) ** 2))
-    return g("PhotonBudget") * np.log(2.0) / (g("PhotonsPerSecOn") / (eta * g("DetectedPct") / 100.0))
+    budget = float(core.getProperty("Fluorophores", "Dye1_PhotonBudget"))   # the microtubules' custom dye
+    return budget * np.log(2.0) / (g("PhotonsPerSecOn") / (eta * g("DetectedPct") / 100.0))
 
 
 def _widefield_checks(core, cam, xy, x0, y0):
-    for p, v in (("General_ImagingModality", "Fluorescence"), ("General_WideFieldUpscaling", 1.0),
-                 ("General_WideFieldZPlaneNm", 25.0), ("General_MeanFieldDensityPerUm2", 20.0),
-                 ("General_MeanFieldSlabNm", 500.0), ("General_MeanFieldMaxEmitters", 5000.0)):
-        assert core.hasProperty(cam, p), f"missing camera property {p}"
-        got = core.getProperty(cam, p)
-        assert (got == v) if isinstance(v, str) else abs(float(got) / v - 1) < 1e-9, f"{p} default {got}, expected {v}"
-    assert set(core.getAllowedPropertyValues(cam, "General_ImagingModality")) == {"Fluorescence", "BrightField"}
+    for p, v in (("WideFieldUpscaling", 1.0), ("WideFieldZPlaneNm", 25.0), ("MeanFieldDensityPerUm2", 20.0),
+                 ("MeanFieldSlabNm", 500.0), ("MeanFieldMaxEmitters", 5000.0)):
+        assert core.hasProperty("Renderer", p), f"missing Renderer property {p}"
+        got = core.getProperty("Renderer", p)
+        assert abs(float(got) / v - 1) < 1e-9, f"{p} default {got}, expected {v}"
 
-    offset = float(core.getProperty(cam, "CamParam_OffsetADU"))
+    offset = float(core.getProperty("Camera", "OffsetADU"))
     _label(core, cam, **GFP)
     # A fresh spot with cells (the checks above lit (x0, y0) for over a minute: at t1/2 = 6 s its dyes are gone; one
     # 20 ms live snap per candidate lights it for ~0.3 % of a half time). Away from the illumination-history spots below.
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setExposure(20.0)
     wx = wy = None
     for k in range(40):
@@ -469,26 +460,27 @@ def _widefield_checks(core, cam, xy, x0, y0):
             wx, wy = core.getXYPosition(xy)
             break
     assert wx is not None, "no spot with cells found for the WideField bleaching check"
-    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setProperty("Camera", "Test_AcqMode", "Precomputed")
     core.setExposure(50.0)
     # The bleaching law: a photon budget that gives t1/2 = 6 s at the
     # preset's 488 nm flux, so the first 130 frames (6.5 s; a snap waits out
     # its exposure) show a clear decay. Expected: the mean of 2^(-t/t1/2)
     # over each window's frame mid-times.
     T_HALF = 6.0
+    custom_microtubule_dye(core)   # the library mEGFP as a custom dye: its photon budget is editable
     t_lib = _wf_half_time_s(core, cam)
-    budget = float(core.getProperty(cam, "FluoParam_Microtubule_PhotonBudget")) * T_HALF / t_lib
-    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", f"{budget:.6g}")
+    budget = float(core.getProperty("Fluorophores", "Dye1_PhotonBudget")) * T_HALF / t_lib
+    custom_microtubule_dye(core, PhotonBudget=f"{budget:.6g}")
     t_half = _wf_half_time_s(core, cam)
     assert abs(t_half / T_HALF - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
-    core.setProperty(cam, "General_GenerateStack", "1")
+    core.setProperty("Camera", "Test_GenerateStack", "1")
     _wait_for_stack(core, cam)
     sig = []
     for _ in range(130):
         core.snapImage()
         sig.append(core.getImage().astype(np.float64).mean() - offset)
     b = np.array(sig)
-    status = core.getProperty(cam, "General_GpuStatus")
+    status = core.getProperty("Renderer", "GpuStatus")
     w0, w1 = np.arange(0, 10), np.arange(115, 125)
     ratio = b[w1].mean() / b[w0].mean()
     decay = lambda w: np.mean(2.0 ** (-((w + 0.5) * 0.05) / t_half))
@@ -502,8 +494,8 @@ def _widefield_checks(core, cam, xy, x0, y0):
     # preset): bleach the FOV, move 30 um away (fresh, bright, then bleaches
     # too) and back (still dim). Snaps and sequences light the sample; an idle
     # live loop does not.
-    core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "2000")
-    core.setProperty(cam, "General_AcqMode", "Live")
+    custom_microtubule_dye(core, PhotonBudget="2000")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setExposure(20.0)
 
     def live_mean():
@@ -553,19 +545,18 @@ def _widefield_checks(core, cam, xy, x0, y0):
 def _brightfield_checks(core, cam, z):
     """BrightField (transmitted light): its properties, the lamp's flux scaling
     the frame, defocus changing the cells' contrast, live = precomputed."""
-    for p, v in (("General_BrightFieldQuality", 3.0), ("General_BrightFieldCondenserNa", 0.4),
-                 ("General_BrightFieldWavelengthNm", 550.0), ("General_BrightFieldPhotonsPerPxPerSec", 80000.0),
-                 ("General_BrightFieldSliceUm", -1.0), ("SimType_CellFieldIndexMedium", 1.337),
-                 ("SimType_CellFieldIndexCytoplasm", 1.35), ("SimType_CellFieldIndexNucleus", 1.35),
-                 ("SimType_CellFieldIndexMicrotubule", 1.48), ("SimType_CellFieldAbsorptionPerUm", 0.0)):
-        got = float(core.getProperty(cam, p))
-        assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
-    assert "BrightField" in core.getAllowedPropertyValues(cam, "General_ImagingModality")
-    core.setProperty(cam, "General_ImagingModality", "BrightField")
-    core.setProperty(cam, "General_BrightFieldQuality", "1")  # fast: thin object, 6 sources
-    core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0")
+    for d, p, v in (("Renderer", "BrightFieldQuality", 3.0), ("TransmittedLamp", "CondenserNA", 0.4),
+                    ("TransmittedLamp", "WavelengthNm", 550.0), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec", 80000.0),
+                    ("Renderer", "BrightFieldSliceUm", -1.0), ("CellField", "IndexMedium", 1.337),
+                    ("CellField", "IndexCytoplasm", 1.35), ("CellField", "IndexNucleus", 1.35),
+                    ("CellField", "IndexMicrotubule", 1.48), ("CellField", "AbsorptionPerUm", 0.0)):
+        got = float(core.getProperty(d, p))
+        assert abs(got - v) < 1e-9, f"{d}.{p} default {got}, expected {v}"
+    brightfield(core)
+    core.setProperty("Renderer", "BrightFieldQuality", "1")  # fast: thin object, 6 sources
+    core.setProperty("Camera", "sCMOS_GainStdPctPerPixel", "0")
     core.setExposure(20.0)
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
 
     def avg(n=4):
         acc = None
@@ -575,18 +566,18 @@ def _brightfield_checks(core, cam, z):
             acc = img if acc is None else acc + img
         return acc / n
 
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "0")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "0")
     dark = avg().mean()
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "40000")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "40000")
     a = avg()
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "80000")
     b = avg()
     ratio = (b.mean() - dark) / (a.mean() - dark)
     assert 1.95 < ratio < 2.05, f"doubling the lamp should double the signal: {ratio:.3f}"
     # A bright lamp (16000 photons/px per 20 ms frame, below 16-bit
     # saturation) and 16-frame averages, so the comparisons below are not
     # limited by shot noise (the default indices give ~1% contrast).
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "800000")
     core.setPosition(z, 0.0)
     f0 = avg(16)
     core.setPosition(z, -3.0)
@@ -595,15 +586,15 @@ def _brightfield_checks(core, cam, z):
     corr = lambda u, v: float(((u - u.mean()) * (v - v.mean())).sum() /
                               (np.sqrt(((u - u.mean()) ** 2).sum() * ((v - v.mean()) ** 2).sum()) + 1e-12))
     assert corr(f0, fm) < 0.9, f"defocus should change the image (corr {corr(f0, fm):.3f})"
-    core.setProperty(cam, "General_AcqMode", "Precomputed")
-    core.setProperty(cam, "General_GenerateStack", "1")
+    core.setProperty("Camera", "Test_AcqMode", "Precomputed")
+    core.setProperty("Camera", "Test_GenerateStack", "1")
     _wait_for_stack(core, cam)
     pm = avg(16)
     assert corr(pm, fm) > 0.8, f"precomputed and live BrightField should agree (corr {corr(pm, fm):.3f})"
     print(f"BrightField OK: lamp x2 -> signal x{ratio:.3f}, contrast {rel(f0):.3f} (focus 0) / {rel(fm):.3f} "
           f"(-3 um), live vs precomputed corr {corr(pm, fm):.3f}")
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
-    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "80000")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setPosition(z, 1.5)
 
 
@@ -612,19 +603,19 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
     sequence position per frame (live and precomputed modes), and the stage
     returns to where it was when the sequence stops."""
     positions = list(positions)
-    core.setProperty(cam, "General_ImagingModality", modality)
+    brightfield(core, modality == "BrightField")
     if modality == "Fluorescence":
         _label(core, cam, **GFP)
         # A budget that never runs out: the stacks above have bleached this
         # spot's mEGFP (its clock is minutes), and the references and the
         # sequence must see the same dyes.
-        core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", "1e12")
+        custom_microtubule_dye(core, PhotonBudget="1e12")
     core.setExposure(20.0)
     # Positions inside the cells (the dome top is the nucleus top + 0.5 um, at most ~5 um since 2026-10-05: 3.5 and
     # 5 um held few dyes and their frames matched at random). A thin slab makes every position a distinct dye layer (the Gaussian
     # WideField PSF, what the Linux test build has, ignores defocus).
-    z_range = core.getProperty(cam, "SimType_CellFieldZRangeUm")
-    core.setProperty(cam, "SimType_CellFieldZRangeUm", "0.5")
+    z_range = core.getProperty("CellField", "ZRangeUm")
+    core.setProperty("CellField", "ZRangeUm", "0.5")
     assert core.isStageSequenceable(z) and core.getStageSequenceMaxLength(z) >= len(positions)
     z_before = core.getPosition(z)
 
@@ -633,12 +624,12 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
         return a / (np.sqrt((a * a).sum()) + 1e-12)
 
     for mode in ("Live", "Precomputed"):
-        core.setProperty(cam, "General_AcqMode", mode)
+        core.setProperty("Camera", "Test_AcqMode", mode)
         refs = []
         for p in positions:
             core.setPosition(z, p)
             if mode == "Precomputed":
-                core.setProperty(cam, "General_GenerateStack", "1")
+                core.setProperty("Camera", "Test_GenerateStack", "1")
                 _wait_for_stack(core, cam)
             acc = None
             for _ in range(4):
@@ -668,9 +659,9 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
         assert abs(core.getPosition(z) - z_before) < 1e-9, f"stage should return to {z_before}, at {core.getPosition(z)}"
         print(f"z sequence OK ({modality}, {mode}): {n} frames at positions {[positions[i] for i in picks]}, "
               f"stage back at {z_before} um")
-    core.setProperty(cam, "General_AcqMode", "Live")
-    core.setProperty(cam, "SimType_CellFieldZRangeUm", z_range)
-    core.setProperty(cam, "General_ImagingModality", "Fluorescence")
+    core.setProperty("Camera", "Test_AcqMode", "Live")
+    core.setProperty("CellField", "ZRangeUm", z_range)
+    brightfield(core, False)
     _label(core, cam, **PAINT)
 
 
@@ -678,10 +669,9 @@ if __name__ == "__main__":
     from pymmcore_plus import CMMCorePlus
 
     core = CMMCorePlus()
-    dirs = [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR")) if d]
-    if not dirs:
+    if not os.environ.get("ADAPTER_DIR") and not os.environ.get("MM_DIR"):
         sys.exit("Set ADAPTER_DIR to the directory holding the inSiliScope adapter.")
-    core.setDeviceAdapterSearchPaths(dirs)
+    core.setDeviceAdapterSearchPaths(search_paths())
     t_start = time.time()
     run_checks(core, drift_only="--drift" in sys.argv)  # --drift: the drift checks alone
     print(f"All CellField / XY stage checks passed ({time.time() - t_start:.0f} s).")

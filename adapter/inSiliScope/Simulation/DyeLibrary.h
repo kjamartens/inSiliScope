@@ -44,7 +44,7 @@ struct SpectrumData { const char* key; const double* values; };
 struct FilterData { const char* id; const char* name; const char* curve; IdealFilterSpec ideal; };
 struct LightPresetData { const char* id; const char* name; double lasers[5]; const char* dichroic; const char* emissionFilter; };
 enum CameraField { CAM_QE, CAM_READ_NOISE, CAM_GAIN, CAM_PREAMP, CAM_CIC, CAM_OFFSET, CAM_OFFSET_STD, CAM_DARK,
-                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_FIELDS };
+                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_PIXEL_UM, CAM_FIELDS };
 struct CameraData { const char* id; const char* name; const char* type; const char* qeCurve; double v[CAM_FIELDS]; };
 // A camera preset's gain (e-/ADU, per photoelectron) for the imaging at hand: CAM_GAIN_WF, when the preset has one,
 // for WideField-only labels or BrightField, else CAM_GAIN (JS cameraPresetGain). NaN: the preset sets no gain.

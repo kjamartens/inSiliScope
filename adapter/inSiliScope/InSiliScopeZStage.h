@@ -19,10 +19,11 @@
 #include <vector>
 
 #include "DeviceBase.h"
+#include "Registry/RegistryDevice.h"
 
 extern const char* g_ZStageDeviceName;
 
-class InSiliScopeZStage : public CStageBase<InSiliScopeZStage>
+class InSiliScopeZStage : public isc::RegistryDevice<InSiliScopeZStage, CStageBase<InSiliScopeZStage>>
 {
 public:
    InSiliScopeZStage();
@@ -46,7 +47,7 @@ public:
    bool IsContinuousFocusDrive() const { return false; }
    // Sequenceable: MM uploads a z stack and the camera steps through it,
    // one position per frame of a sequence acquisition (the TTL a real
-   // camera would send), via SharedStageState.
+   // camera would send), via the hub's stage state.
    int IsStageSequenceable(bool& isSequenceable) const
    {
       isSequenceable = true;

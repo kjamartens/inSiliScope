@@ -109,7 +109,12 @@
   <ItemGroup>
     <ClCompile Include="InSiliScopeCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
-    <ClCompile Include="ScopeProperties.cpp" />
+    <ClCompile Include="InSiliScopeHub.cpp" />
+    <ClCompile Include="Registry\SceneState.cpp" />
+    <ClCompile Include="Registry\SceneSettings.cpp" />
+    <ClCompile Include="Registry\PropertyTable.cpp" />
+    <ClCompile Include="Registry\Couplings.cpp" />
+    <ClCompile Include="Devices\Peripherals.cpp" />
     <ClCompile Include="Simulation\ScopeMovie.cpp" />
     <ClCompile Include="Simulation\IlluminationHistory.cpp" />
     <ClCompile Include="InSiliScopeModule.cpp" />
@@ -151,6 +156,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="InSiliScopeCamera.h" />
+    <ClInclude Include="InSiliScopeHub.h" />
+    <ClInclude Include="Registry\SceneState.h" />
+    <ClInclude Include="Registry\SceneSettings.h" />
+    <ClInclude Include="Registry\PropertyTable.h" />
+    <ClInclude Include="Registry\RegistryDevice.h" />
+    <ClInclude Include="Devices\Peripherals.h" />
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />

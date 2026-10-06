@@ -12,6 +12,12 @@
     <Filter Include="Core">
       <UniqueIdentifier>{7d3c2a51-4b8e-4f0a-9c61-1e2f5b6a9c30}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Registry">
+      <UniqueIdentifier>{6b1f3a52-8c1e-4d61-9a0e-2f1c7d4b8e01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Devices">
+      <UniqueIdentifier>{a3d5c7e9-1b2f-4c6d-8e0a-9f7b5d3c1e02}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Simulation">
       <UniqueIdentifier>{6C9E1D2A-3B4C-4E5F-8A9B-0C1D2E3F4A5B}</UniqueIdentifier>
     </Filter>
@@ -38,8 +44,23 @@
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Drift.cpp">
-    <ClCompile Include="ScopeProperties.cpp">
+    <ClCompile Include="InSiliScopeHub.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Registry\SceneState.cpp">
+      <Filter>Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Registry\SceneSettings.cpp">
+      <Filter>Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Registry\PropertyTable.cpp">
+      <Filter>Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Registry\Couplings.cpp">
+      <Filter>Registry</Filter>
+    </ClCompile>
+    <ClCompile Include="Devices\Peripherals.cpp">
+      <Filter>Devices</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\IlluminationHistory.cpp">
       <Filter>Simulation</Filter>
@@ -130,6 +151,24 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="InSiliScopeHub.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Registry\SceneState.h">
+      <Filter>Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Registry\SceneSettings.h">
+      <Filter>Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Registry\PropertyTable.h">
+      <Filter>Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Registry\RegistryDevice.h">
+      <Filter>Registry</Filter>
+    </ClInclude>
+    <ClInclude Include="Devices\Peripherals.h">
+      <Filter>Devices</Filter>
+    </ClInclude>
     <ClInclude Include="InSiliScopeCamera.h">
       <Filter>Header Files</Filter>
     </ClInclude>

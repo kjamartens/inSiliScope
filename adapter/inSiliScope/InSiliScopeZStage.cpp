@@ -17,7 +17,7 @@ const char* g_ZStageDeviceName = "ZStage";
 
 InSiliScopeZStage::InSiliScopeZStage()
 {
-   InitializeDefaultErrorMessages();
+   SetRegistryErrorTexts();
 }
 
 InSiliScopeZStage::~InSiliScopeZStage()
@@ -35,22 +35,25 @@ int InSiliScopeZStage::Initialize()
    if (initialized_)
       return DEVICE_OK;
 
-   int ret = CreateStringProperty(MM::g_Keyword_Name, g_ZStageDeviceName, true);
+   int ret = InitRegistry(g_ZStageDeviceName);
+   if (ret != DEVICE_OK)
+      return ret;
+   ret = CreateStringProperty(MM::g_Keyword_Name, g_ZStageDeviceName, true);
    if (ret != DEVICE_OK)
       return ret;
 
    ret = CreateStringProperty(MM::g_Keyword_Description,
-                               "Global focus offset for inSiliScope's diffraction PSF renderer", true);
+                               "The focus: height of the focal plane above the coverslip (um)", true);
    if (ret != DEVICE_OK)
       return ret;
 
    // Start 0.5 um above the coverslip (Z = 0 is the surface the cells sit
    // on, for the CellField pattern), so a fresh configuration focuses into
    // the cells. Patterns at z = 0 therefore start 0.5 um out of focus.
-   sim::GetSharedStageState().zPositionUm.store(kInitialPositionUm);
+   Hub()->Stage().zPositionUm.store(kInitialPositionUm);
 
    CPropertyAction* pAct = new CPropertyAction(this, &InSiliScopeZStage::OnPosition);
-   ret = CreateFloatProperty(MM::g_Keyword_Position, sim::GetSharedStageState().zPositionUm.load(), false, pAct);
+   ret = CreateFloatProperty(MM::g_Keyword_Position, Hub()->Stage().zPositionUm.load(), false, pAct);
    if (ret != DEVICE_OK)
       return ret;
    SetPropertyLimits(MM::g_Keyword_Position, kLowerLimitUm, kUpperLimitUm);
@@ -65,6 +68,7 @@ int InSiliScopeZStage::Initialize()
 
 int InSiliScopeZStage::Shutdown()
 {
+   ShutdownRegistry();
    initialized_ = false;
    return DEVICE_OK;
 }
@@ -72,13 +76,13 @@ int InSiliScopeZStage::Shutdown()
 int InSiliScopeZStage::SetPositionUm(double pos)
 {
    pos = std::min(std::max(pos, kLowerLimitUm), kUpperLimitUm);
-   sim::GetSharedStageState().zPositionUm.store(pos);
+   Hub()->Stage().zPositionUm.store(pos);
    return OnStagePositionChanged(pos);
 }
 
 int InSiliScopeZStage::GetPositionUm(double& pos)
 {
-   pos = sim::GetSharedStageState().zPositionUm.load();
+   pos = Hub()->Stage().zPositionUm.load();
    return DEVICE_OK;
 }
 
@@ -121,7 +125,7 @@ int InSiliScopeZStage::OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
    {
-      pProp->Set(sim::GetSharedStageState().zPositionUm.load());
+      pProp->Set(Hub()->Stage().zPositionUm.load());
    }
    else if (eAct == MM::AfterSet)
    {
@@ -134,14 +138,14 @@ int InSiliScopeZStage::OnPosition(MM::PropertyBase* pProp, MM::ActionType eAct)
 
 int InSiliScopeZStage::StartStageSequence()
 {
-   sim::GetSharedStageState().ArmZSequence(true);
+   Hub()->Stage().ArmZSequence(true);
    return DEVICE_OK;
 }
 
 int InSiliScopeZStage::StopStageSequence()
 {
-   sim::GetSharedStageState().ArmZSequence(false);
-   return OnStagePositionChanged(sim::GetSharedStageState().zPositionUm.load());
+   Hub()->Stage().ArmZSequence(false);
+   return OnStagePositionChanged(Hub()->Stage().zPositionUm.load());
 }
 
 int InSiliScopeZStage::ClearStageSequence()
@@ -160,7 +164,7 @@ int InSiliScopeZStage::AddToStageSequence(double position)
 
 int InSiliScopeZStage::SendStageSequence()
 {
-   sim::GetSharedStageState().SetZSequence(pending_);
+   Hub()->Stage().SetZSequence(pending_);
    return DEVICE_OK;
 }
 
@@ -169,10 +173,10 @@ int InSiliScopeZStage::SetStageLinearSequence(double dZ_um, long nSlices)
    if (nSlices < 1 || nSlices > kMaxSequence)
       return DEVICE_SEQUENCE_TOO_LARGE;
    // Steps of dZ from the current position; the N-th trigger returns to it.
-   const double z0 = sim::GetSharedStageState().zPositionUm.load();
+   const double z0 = Hub()->Stage().zPositionUm.load();
    std::vector<double> seq;
    for (long i = 0; i < nSlices; ++i)
       seq.push_back(std::min(std::max(z0 + i * dZ_um, kLowerLimitUm), kUpperLimitUm));
-   sim::GetSharedStageState().SetZSequence(seq);
+   Hub()->Stage().SetZSequence(seq);
    return DEVICE_OK;
 }

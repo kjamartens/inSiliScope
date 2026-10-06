@@ -12,7 +12,7 @@ A="$ROOT/adapter/inSiliScope"; MM="$ROOT/third_party/mmCoreAndDevices/MMDevice";
 OUT="$ROOT/build/adapter-linux"; mkdir -p "$OUT"
 ${CXX:-g++} -std=c++17 -O2 -fPIC -shared -ffp-contract=off -fno-fast-math \
   -I"$MM" -I"$A" -I"$A/Simulation" -I"$CORE/include" \
-  "$A"/*.cpp "$A"/Simulation/*.cpp \
+  "$A"/*.cpp "$A"/Registry/*.cpp "$A"/Devices/*.cpp "$A"/Simulation/*.cpp \
   $(ls "$CORE"/src/*.cpp | grep -v -e jsmath_std.cpp -e wasm_entry.cpp) \
   "$MM"/DeviceUtils.cpp "$MM"/ImgBuffer.cpp "$MM"/MMDevice.cpp "$MM"/ModuleInterface.cpp "$MM"/Property.cpp \
   -o "$OUT/libmmgr_dal_inSiliScope.so.0" -lpthread
