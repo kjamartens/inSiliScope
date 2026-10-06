@@ -38,6 +38,22 @@
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Drift.cpp">
+    <ClCompile Include="ScopeProperties.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\IlluminationHistory.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\ScopeMovie.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\DyeLibrary.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\LightPath.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\Spectra.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Fft2d.cpp">
@@ -94,12 +110,6 @@
     <ClCompile Include="Simulation\SMLMSimulation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation\SMLMPatterns.cpp">
-      <Filter>Simulation</Filter>
-    </ClCompile>
-    <ClCompile Include="Simulation\SMLMStructures.cpp">
-      <Filter>Simulation</Filter>
-    </ClCompile>
     <ClCompile Include="Simulation\SMLMNoise.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -130,6 +140,22 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Drift.h">
+    <ClInclude Include="Simulation\IlluminationHistory.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\ScopeMovie.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\DyeLibraryData.inc">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\DyeLibrary.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\LightPath.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Spectra.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Fft2d.h">
@@ -190,12 +216,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMSimulation.h">
-      <Filter>Simulation</Filter>
-    </ClInclude>
-    <ClInclude Include="Simulation\SMLMPatterns.h">
-      <Filter>Simulation</Filter>
-    </ClInclude>
-    <ClInclude Include="Simulation\SMLMStructures.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SMLMNoise.h">

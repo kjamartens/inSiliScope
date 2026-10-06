@@ -834,7 +834,8 @@ KernelMemo& Memo()
    return *memo;
 }
 
-constexpr size_t kKernelMemoEntries = 2;
+// Kernels the memo keeps (SetPsfKernelMemoEntries; >= 2).
+std::atomic<size_t> g_kernelMemoEntries{2};
 
 // GibsonLanniZernike: the C++ port (ZernikePsf.cpp; the Java class stays as
 // its reference). RichardsWolf / GibsonLanni: the JVM, Windows only.
@@ -873,6 +874,11 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
 }
 
 } // namespace
+
+void SetPsfKernelMemoEntries(size_t n)
+{
+   g_kernelMemoEntries.store(std::max<size_t>(2, n));
+}
 
 void SetPsfKernelDiskCacheDir(const std::string& dir)
 {
@@ -955,8 +961,9 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
    const auto tStore = TimingClock::now();
    std::lock_guard<std::mutex> g(m.mutex);
    m.entries.insert(m.entries.begin(), std::make_pair(req, std::make_shared<const PsfKernelCache>(outCache)));
-   if (m.entries.size() > kKernelMemoEntries)
-      m.entries.resize(kKernelMemoEntries);
+   const size_t keep = g_kernelMemoEntries.load();
+   if (m.entries.size() > keep)
+      m.entries.resize(keep);
    TimingLog("psf.memo-store", TimingSince(tStore));
    return true;
 }

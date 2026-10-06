@@ -384,34 +384,42 @@ bool World::PastDeadline()
    return stopped_;
 }
 
+World::PersistRange World::PersistFor(int s, double t0, double t1) const
+{
+   const Kinetics& kin = labels_[(size_t)s].kin;
+   const double maxOn = PERSIST_ON_CAP * kin.onSec;
+   return { kin.activationRatePerSec > 0 && t1 > t0, std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC)),
+            (long)std::floor(t1 / PERSIST_BIN_SEC) };
+}
+
 bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
                      double budgetMs)
 {
    PoolScope scope(pool_);
    // Nothing new since the last complete prefetch of a region holding this one.
-   const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, kinVersion_, true };
+   const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, labelVersion_, true };
    const PrefetchRegion& d = prefetchDone_;
    if (d.valid && x0 >= d.x0 && y0 >= d.y0 && x1 <= d.x1 && y1 <= d.y1 && zMin >= d.zMin && zMax <= d.zMax &&
-       d.evictions == evictions_ && d.kinVersion == kinVersion_)
+       d.evictions == evictions_ && d.labelVersion == labelVersion_)
       return true;
    const auto deadline = std::chrono::steady_clock::now() +
                          std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                             std::chrono::duration<double, std::milli>(std::max(0.0, budgetMs)));
    deadline_ = &deadline;
    stopped_ = false;
-   const bool persist = kin_.activationRatePerSec > 0 && t1 > t0;
-   const double maxOn = PERSIST_ON_CAP * kin_.onSec;
-   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
-   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
    PrepCounts n;
    ForEachDyeBlock(
       x0, y0, x1, y1, zMin, zMax,
       [&](DyeBlock& b) {
-         if (Schedule(b)) n.schedules++;
-         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, false)) n.covers++;
+         if (Schedule(b, t0, t1)) n.schedules++;
+         const PersistRange pr = PersistFor(b.structure, t0, t1);
+         if (pr.persist && b.persistent && PersistentCover(b, pr.b0, pr.b1, t1, false)) n.covers++;
       },
       [&](const DyeBlock& b) {
-         return !b.dyes.empty() && (!b.scheduled || (persist && !b.persistent.empty() && CoverWouldBuild(b, b0, b1, t1)));
+         if (b.dyes.empty()) return false;
+         if (!ScheduleCovers(b, t0, t1)) return true;
+         const PersistRange pr = PersistFor(b.structure, t0, t1);
+         return pr.persist && b.persistent && CoverWouldBuild(b, pr.b0, pr.b1, t1);
       },
       [](DyeBlock&) {});
    stats_.schedulesBuilt += n.schedules.load();
@@ -453,11 +461,17 @@ World::DyeBlock& World::FindDyeBlock(const Cell& c, int mtIndex, int block)
 void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& pts, const MtFrames& fr, int mtIndex,
                          int block) const
 {
+   const Label& label = labels_[STRUCTURE_MT];
    std::vector<Dye> dyes;
-   // ~1625 lattice sites per block; the labelled fraction of them.
-   dyes.reserve((size_t)(1625 * std::min(1.0, std::max(0.0, p_.labelEfficiency) + std::max(0.0, p_.labelNonBleaching))) + 16);
-   DyesInBlock(seed_, c.cx, c.cy, mtIndex, pts, fr, block, p_.labelEfficiency, p_.labelNonBleaching, dyes);
+   // ~1625 lattice sites per block; the fluorescent fraction of them.
+   dyes.reserve((size_t)(1625 * std::min(1.0, std::max(0.0, label.density)) *
+                         std::min(1.0, std::max(0.0, label.fluorescentFraction))) + 16);
+   DyesInBlock(seed_, c.cx, c.cy, mtIndex, pts, fr, block, label.density, label.fluorescentFraction, dyes);
+   blk.dyes.clear();
    blk.dyes.reserve(dyes.size());
+   blk.cx = c.cx; blk.cy = c.cy; blk.mtIndex = mtIndex;
+   blk.h1 = DyeH1(seed_, c.cx, c.cy, mtIndex);
+   blk.structure = STRUCTURE_MT;
    blk.zLo = INFINITY; blk.zHi = -INFINITY;
    // LocalToWorld's cos/sin of packRot once per block, not per dye (its branch kept).
    const double rot = c.packRot;
@@ -467,7 +481,7 @@ void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& p
       double wx, wy;
       if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
       else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
-      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, c.cx, c.cy, d.mtIndex, d.k, d.n, d.persistent });
+      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
       blk.zLo = std::min(blk.zLo, d.pos.z);
       blk.zHi = std::max(blk.zHi, d.pos.z);
    }
@@ -475,34 +489,33 @@ void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& p
    blk.generated = true;
 }
 
-bool World::Schedule(DyeBlock& b) const
+bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
 {
-   if (b.scheduled) return false;
+   if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo) return false;
+   const double horizon = 2 * tMax;
    b.events.clear();
-   b.persistent.clear();
    b.maxOn = 0;
-   b.events.reserve(b.dyes.size());
-   std::vector<Blink> blinks;
-   uint32_t h1 = 0;
-   int32_t lastCx = 0, lastCy = 0, lastMt = -1;
-   for (size_t i = 0; i < b.dyes.size(); i++) {
-      const WorldDye& d = b.dyes[i];
-      if (d.persistent) { b.persistent.push_back((uint32_t)i); continue; }
-      if (d.mtIndex != lastMt || d.cx != lastCx || d.cy != lastCy) {
-         h1 = DyeH1(seed_, d.cx, d.cy, d.mtIndex);
-         lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
+   const Label& label = labels_[(size_t)b.structure];
+   b.persistent = label.mode == LabelMode::DnaPaint;
+   if (!b.persistent && label.mode != LabelMode::WideField) {
+      std::vector<Blink> blinks;
+      for (const PackedDye& d : b.dyes) {
+         blinks.clear();
+         LabelSchedule(b.h1, d.K(), d.N(), label, &blinks, nullptr, horizon);
+         for (const Blink& bl : blinks) {
+            if (!(bl.tOff > tLo)) continue;
+            b.events.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, 0.0, d.id, (uint8_t)b.structure,
+                                 STATE_BLINK });
+            b.maxOn = std::max(b.maxOn, bl.tOff - bl.tOn);
+         }
       }
-      blinks.clear();
-      DyeSchedule(h1, d.k, d.n, kin_, blinks);
-      for (const Blink& bl : blinks) {
-         b.events.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, d.id });
-         b.maxOn = std::max(b.maxOn, bl.tOff - bl.tOn);
-      }
+      // Stable order: by tOn, ties by dye order (deterministic either way).
+      std::stable_sort(b.events.begin(), b.events.end(),
+                       [](const WorldEvent& a, const WorldEvent& e) { return a.tOn < e.tOn; });
    }
-   // Stable order: by tOn, ties by dye order (deterministic either way).
-   std::stable_sort(b.events.begin(), b.events.end(),
-                    [](const WorldEvent& a, const WorldEvent& e) { return a.tOn < e.tOn; });
    b.scheduled = true;
+   b.horizon = horizon;
+   b.tLo = tLo;
    return true;
 }
 
@@ -515,15 +528,16 @@ bool World::CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) cons
 
 bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const
 {
+   const Kinetics& kin = labels_[(size_t)b.structure].kin;
    // Bins per build: up to 16 or ~2048 expected blinks.
-   const double perBin = (double)b.persistent.size() * kin_.activationRatePerSec * PERSIST_BIN_SEC;
+   const double perBin = (double)b.dyes.size() * kin.activationRatePerSec * PERSIST_BIN_SEC;
    const long L = (long)std::min(16.0, std::max(1.0, std::floor(2048.0 / std::max(perBin, 1e-9))));
    long lo, hi;
    if (b0 < b.pBin0 || b0 >= b.pBin1) {
-      // First use, a jump in time or new kinetics: build from scratch --
-      // for a query (shortFirst) only one bin ahead, so a window full of new
-      // blocks (a stage jump, a kinetics change) builds what it shows now
-      // and the rest in the staggered extensions below.
+      // First use, a jump in time or a new label: build from scratch -- for a
+      // query (shortFirst) only one bin ahead, so a window full of new blocks
+      // (a stage jump, a label change) builds what it shows now and the rest
+      // in the staggered extensions below.
       b.pEvents.clear();
       b.pBin0 = lo = b0;
       hi = b1 + 1 + (shortFirst ? 1 : L);
@@ -544,16 +558,10 @@ bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool short
    }
    const size_t start = b.pEvents.size();
    std::vector<BinBlink> bl;
-   uint32_t h1 = 0;
-   int32_t lastCx = 0, lastCy = 0, lastMt = -1;
-   for (uint32_t i : b.persistent) {
-      const WorldDye& d = b.dyes[i];
-      if (d.mtIndex != lastMt || d.cx != lastCx || d.cy != lastCy) {
-         h1 = DyeH1(seed_, d.cx, d.cy, d.mtIndex);
-         lastCx = d.cx; lastCy = d.cy; lastMt = d.mtIndex;
-      }
+   for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
+      const PackedDye& d = b.dyes[i];
       bl.clear();
-      PersistentBlinksInBins(h1, d.k, d.n, kin_, lo, hi - 1, bl);
+      PersistentBlinksInBins(b.h1, d.K(), d.N(), kin, lo, hi - 1, bl);
       for (const BinBlink& e : bl) b.pEvents.push_back({ e.tOn, e.tOff, e.brightness, i, e.bin, e.j });
    }
    // The new bins all start after the kept ones, so sorting them keeps the
@@ -564,16 +572,28 @@ bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool short
    return true;
 }
 
-void World::SetKinetics(const Kinetics& k)
+bool World::SetLabel(int structure, const Label& l)
 {
-   kin_ = k;
-   kinVersion_++;
+   if (structure < 0 || structure >= STRUCTURE_COUNT || ValidateLabel(l)) return false;
+   Label& cur = labels_[(size_t)structure];
+   const bool dyesChange = l.density != cur.density || l.fluorescentFraction != cur.fluorescentFraction;
+   cur = l;
+   labelVersion_++;
+   prefetchDone_.valid = false;
+   if (dyesChange) {
+      dyeLru_.clear();
+      dyeIndex_.clear();
+      dyeCount_ = 0;
+      return true;
+   }
    for (auto& e : dyeLru_) {
+      if (e.second.structure != structure) continue;
       e.second.scheduled = false;
       std::vector<WorldEvent>().swap(e.second.events);
       std::vector<PersistentEvent>().swap(e.second.pEvents);
       e.second.pBin0 = e.second.pBin1 = 0;
    }
+   return true;
 }
 
 bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
@@ -629,15 +649,21 @@ bool World::CellsFromRows(int32_t bx, int32_t by, const double* rows, int32_t n,
    return true;
 }
 
+template <class Fn>
+void World::ForEachDye(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn)
+{
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
+      for (const PackedDye& d : b.dyes)
+         if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) fn(b, d);
+   });
+}
+
 void World::SitesInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                           std::vector<WorldDye>& out)
 {
    PoolScope scope(pool_);
-   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
-      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
-      for (const WorldDye& d : b.dyes)
-         if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) out.push_back(d);
-   });
+   ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) { out.push_back(DyeAt(b, d)); });
 }
 
 void World::EventsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
@@ -646,26 +672,25 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
    PoolScope scope(pool_);
    // Blocks the window can see: their schedules and persistent blinks are
    // built (in parallel) before the serial pass below reads them.
-   const bool persist = kin_.activationRatePerSec > 0 && t1 > t0;
-   const double maxOn = PERSIST_ON_CAP * kin_.onSec;
-   const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
-   const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
    auto visible = [&](const DyeBlock& b) { return !b.dyes.empty() && !(b.zHi < zMin || b.zLo >= zMax); };
    PrepCounts n;
+   auto prep = [&](DyeBlock& b) {
+      if (Schedule(b, t0, t1)) n.schedules++;
+      const PersistRange pr = PersistFor(b.structure, t0, t1);
+      if (pr.persist && b.persistent && PersistentCover(b, pr.b0, pr.b1, t1, true)) n.covers++;
+   };
    ForEachDyeBlock(
-      x0, y0, x1, y1, zMin, zMax,
-      [&](DyeBlock& b) {
-         if (Schedule(b)) n.schedules++;
-         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, true)) n.covers++;
-      },
+      x0, y0, x1, y1, zMin, zMax, prep,
       [&](const DyeBlock& b) {
-         return visible(b) && (!b.scheduled || (persist && !b.persistent.empty() && CoverWouldBuild(b, b0, b1, t1)));
+         if (!visible(b)) return false;
+         if (!ScheduleCovers(b, t0, t1)) return true;
+         const PersistRange pr = PersistFor(b.structure, t0, t1);
+         return pr.persist && b.persistent && CoverWouldBuild(b, pr.b0, pr.b1, t1);
       },
       [&](DyeBlock& b) {
          if (!visible(b)) return;
-         // Built above; these only check (a block the prep skipped needs nothing).
-         if (Schedule(b)) n.schedules++;
-         if (persist && !b.persistent.empty() && PersistentCover(b, b0, b1, t1, true)) n.covers++;
+         // Built above; this only checks (a block the prep skipped needs nothing).
+         prep(b);
          // Only blinks with tOn in [t0 - maxOn, t1) can overlap [t0, t1).
          auto it = std::lower_bound(b.events.begin(), b.events.end(), t0 - b.maxOn,
                                     [](const WorldEvent& e, double t) { return e.tOn < t; });
@@ -674,63 +699,90 @@ void World::EventsInWindow(double x0, double y0, double x1, double y1, double zM
             if (e.tOff > t0 && e.z >= zMin && e.z < zMax && e.x >= x0 && e.x < x1 && e.y >= y0 && e.y < y1)
                out.push_back(e);
          }
-         // Persistent sites never bleach, so their blinks are addressed per time
+         // DNA-PAINT sites never bleach, so their blinks are addressed per time
          // bin (see PersistentBlinks) and cached for a range of bins. The answer
          // is PersistentBlinks' for every site in the window, in its order
          // (site, bin, j).
-         if (b.persistent.empty() || !persist) return;
+         const PersistRange pr = PersistFor(b.structure, t0, t1);
+         if (!b.persistent || !pr.persist) return;
          std::vector<const PersistentEvent*>& hit = persistentScratch_;
          hit.clear();
-         auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), b0 * PERSIST_BIN_SEC,
+         auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), pr.b0 * PERSIST_BIN_SEC,
                                    [](const PersistentEvent& e, double t) { return e.tOn < t; });
          for (; p != b.pEvents.end() && p->tOn < t1; ++p) {
-            if (p->bin < (uint32_t)b0 || !(p->tOff > t0)) continue;
-            const WorldDye& d = b.dyes[p->dye];
+            if (p->bin < (uint32_t)pr.b0 || !(p->tOff > t0)) continue;
+            const PackedDye& d = b.dyes[p->dye];
             if (d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1) hit.push_back(&*p);
          }
          std::sort(hit.begin(), hit.end(), [](const PersistentEvent* a, const PersistentEvent* e) {
             return a->dye != e->dye ? a->dye < e->dye : a->bin != e->bin ? a->bin < e->bin : a->j < e->j;
          });
          for (const PersistentEvent* e : hit) {
-            const WorldDye& d = b.dyes[e->dye];
-            out.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, d.id });
+            const PackedDye& d = b.dyes[e->dye];
+            out.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, 0.0, d.id, (uint8_t)b.structure, STATE_BLINK });
          }
       });
    stats_.schedulesBuilt += n.schedules.load();
    stats_.persistentBuilt += n.covers.load();
 }
 
+void World::ContinuousInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                               std::vector<WorldEvent>& out)
+{
+   PoolScope scope(pool_);
+   std::vector<ContWindow> cont;
+   ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) {
+      const Label& label = labels_[(size_t)b.structure];
+      if (label.mode == LabelMode::DnaPaint) return;
+      cont.clear();
+      LabelSchedule(b.h1, d.K(), d.N(), label, nullptr, &cont);
+      for (const ContWindow& w : cont)
+         if (w.tOff > tMin)
+            out.push_back({ d.x, d.y, d.z, w.tOn, w.tOff, 1.0, w.aux, d.id, (uint8_t)b.structure, w.state });
+   });
+}
+
+bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
+{
+   PoolScope scope(pool_);
+   const Label& label = labels_[(size_t)d.structure];
+   if (label.orientation.mode == OrientationMode::Free) return false;
+   Cell c;
+   if (!FindCell(d.cx, d.cy, c)) return false;
+   CellAssets& A = Assets(c);
+   if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;
+   const MtFrames& fr = A.Frames((size_t)d.mtIndex);
+   const double S = (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
+   const double theta = MtProtofilamentTheta(MtSeamPhase(seed_, d.cx, d.cy, d.mtIndex), d.k);
+   return DyeOrientation(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, MtSegmentAt(fr, S), theta, dir);
+}
+
 long World::DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                             int nx, int ny, float* out)
 {
-   // The nz = 1, both-populations case of Density3dInWindow: the same dyes
+   // The nz = 1, every-structure case of Density3dInWindow: the same dyes
    // (SitesInWindow's filter), the same bins, integer counts in any order --
    // without materialising the site list.
-   return Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, 1, 3u, out);
+   return Density3dInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, 1, (1u << STRUCTURE_COUNT) - 1, out);
 }
 
 long World::Density3dInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
-                              int nx, int ny, int nz, unsigned populations, float* out)
+                              int nx, int ny, int nz, unsigned structureMask, float* out)
 {
    PoolScope scope(pool_);
    std::fill(out, out + (size_t)nx * ny * nz, 0.0f);
-   const bool wantBleach = (populations & 1u) != 0, wantPersist = (populations & 2u) != 0;
-   if (!wantBleach && !wantPersist) return 0;
+   if (!structureMask) return 0;
    // Same binning as DensityInWindow, so nz = 1 reproduces it.
    const double sx = nx / (x1 - x0), sy = ny / (y1 - y0);
    const double sz = nz > 1 ? nz / (zMax - zMin) : 0.0;
    long total = 0;
-   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
-      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax) return;
-      for (const WorldDye& d : b.dyes) {
-         if (!(d.persistent ? wantPersist : wantBleach)) continue;
-         if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
-         const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
-         const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
-         const int iz = nz > 1 ? std::min(nz - 1, (int)std::floor((d.z - zMin) * sz)) : 0;
-         out[((size_t)iz * ny + iy) * nx + ix] += 1;
-         total++;
-      }
+   ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) {
+      if (!((structureMask >> b.structure) & 1u)) return;
+      const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
+      const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
+      const int iz = nz > 1 ? std::min(nz - 1, (int)std::floor((d.z - zMin) * sz)) : 0;
+      out[((size_t)iz * ny + iy) * nx + ix] += 1;
+      total++;
    });
    return total;
 }

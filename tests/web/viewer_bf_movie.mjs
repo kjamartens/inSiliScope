@@ -35,7 +35,7 @@ for (const [quality, want, query, drift] of [['1', /BrightField/, ''], ['3', /Br
   const shown = await page.evaluate(([q, d]) => {
     document.getElementById('mv_drift-xy-nm-per-sqrt-sec').value = d || '0';
     document.getElementById('mv_drift-z-nm-per-sqrt-sec').value = d || '0';
-    document.getElementById('mv_modality').value = '2';
+    document.getElementById('mv_modality').value = '1';
     document.getElementById('mv_modality').dispatchEvent(new Event('change'));
     document.getElementById('mv_size').value = '48';
     document.getElementById('mv_frames').value = '2';

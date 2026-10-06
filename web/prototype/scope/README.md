@@ -8,11 +8,14 @@ change merges to main. ES modules, no build, Node or browser.
 | JS | mirrors (C++) | what |
 |---|---|---|
 | `rng.js` | `core/src/rng.h`, `Simulation/SMLMCounterRng.h`, `std::mt19937_64` + `SMLMNoise.cpp` `GaussianRng` | address hashes, camera-noise draws, per-pixel map stream |
-| `dyes.js` | `core/src/dyes.cpp`, `BuildMtFrames` (`core/src/microtubules.cpp`) | lattice sites, labelling, blink schedules, persistent (DNA-PAINT-like) sites |
-| `world.js` | `core/src/world.cpp` | fixed 8x8-chunk packing blocks, cell assets, 1 um dye blocks, `eventsInWindow`, `density3d`, `opticalVolume` (same answers, same event order) |
+| `dyes.js` | `core/src/dyes.cpp`, `BuildMtFrames` (`core/src/microtubules.cpp`) | lattice sites, labels (density, fluorescent fraction, mode dSTORM / PALM / DNA-PAINT / WideField, orientation), blink schedules and continuous windows, persistent (DNA-PAINT) sites |
+| `world.js` | `core/src/world.cpp` | fixed 8x8-chunk packing blocks, cell assets, 1 um dye blocks, `STRUCTURES` and one label each, `eventsInWindow`, `continuousInWindow`, `density3d` by structure, `opticalVolume` (same answers, same event order) |
+| `spectra.js` | `Simulation/Spectra.*` (issue 16 port) | spectra on 300-900 nm, ideal filters, cross section, laser photon flux, detected fraction, effective wavelength |
+| `dye_library.js` (+ generated `dye_library_data.js`) | `Simulation/DyeLibrary.*`, `LightPath.*` (issue 16 port) | dyes from `data/dyes`, slots and overrides, the light path, per-state photophysics, the world label's kinetics, the free-imager background |
+| `fluorescence.js` | `ScopeMovie.cpp` FluorescenceMovie (issue 16 port) | every label in its mode: blinks per (structure, state) PSF group, continuous populations mean-field or per dye (running image), imager background |
 | `psf.js` | `Simulation/ZernikePsf.cpp`, `SMLMZernike.cpp`, `FftRadix2.h`, `PsfGeneratorBridge.cpp` (kernel cache, block sums, splat, Fft placement) | Gibson-Lanni + Zernike + double-helix PSF, sub-pixel placement |
 | `render.js` | `SMLMSimulation.cpp` `RenderPhotonImage`/`BucketEventsByFrame`, `SMLMNoise.cpp` | frame photons, noise maps, `ApplyNoiseChain` (sCMOS, EMCCD) |
-| `widefield.js` | `WidefieldRender.cpp` (CPU path), `Illumination.cpp`, `ScopeMovie.cpp` `WidefieldMovie` | dye planes on world tiles, PSF-plane deposition, FFT convolution, sub-cell shift, bleaching integral |
+| `widefield.js` | `WidefieldRender.cpp` (CPU path) | the mean-field image of a structure's dyes: dye planes on world tiles, PSF-plane deposition, FFT convolution, sub-cell shift |
 | `brightfield.js` | `BrightfieldRender.cpp`, `ScopeMovie.cpp` `ScopeBrightfieldSpec`/`RenderBrightfieldMovie` | refractive-index slices from the optical volume, margin taper, Abbe sources, thin / multislice propagation, detection pupil, defocus, binning |
 | `drift.js` | `Drift.cpp` | random-walk sample drift (trajectory, focus grid); also the webSMLM block's `driftTrajectory` |
 | `scope_movie.js` | `ScopeMovie.cpp` + `CellFieldSource.cpp` | the option table (= `insiliscope_cli` options), setup, `renderScopeMovie` |

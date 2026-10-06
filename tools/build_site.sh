@@ -36,7 +36,8 @@ mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT"
 rm -f .mkdocs_site.yml
 
 mkdir -p "$OUT/viewer"
-cp web/index.html web/insiliscope_module.js web/wf_gpu.js "$OUT/viewer/"
+cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js "$OUT/viewer/"
+for d in scene anim encode; do if [ -d web/$d ]; then cp -r web/$d "$OUT/viewer/$d"; fi; done
 [ -d web/prototype ] && cp -r web/prototype "$OUT/viewer/prototype"
 touch "$OUT/.nojekyll"
 rm -rf .site_docs

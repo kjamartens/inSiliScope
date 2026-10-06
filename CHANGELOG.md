@@ -19,6 +19,91 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
   (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
   use short stacks and run in under 5 minutes (were ~25).
+- MM adapter, live mode (2026-10-05): a snap takes a frame started after the snap was called, and a sequence
+  acquisition frames started after it began. The first snap after a stage move used to return a frame already in
+  flight at the old pose, and consecutive snaps could share illumination clocks (the history looked as if an idle
+  live loop bleached).
+- **seed** Presets and the EMCCD gain (2026-10-05). DNA-PAINT light presets and the default 640 nm line 1 kW/cm² (were
+  0.16); PALM suggested labelling 25 % (was 5 %) and its 405 nm line 0.002 kW/cm² (was 0.01). The camera gain (e⁻/ADU) is
+  per photoelectron for sCMOS and EMCCD alike; the iXon preset's is 0.0066 (about 150 ADU per photoelectron) in dSTORM,
+  PALM and DNA-PAINT and 0.1 in WideField and BrightField (a mode or modality change re-applies it), and the EM gain is
+  no longer a value of its own: the preset's pre-amplifier sensitivity (1 e⁻/ADU) / the gain. MM `CamParam_EmGain` is
+  read-only; cli `em-gain` defaults to -1 (derived). The per-pixel gain floor is 4 % of the nominal gain (0.01 at the
+  default 0.25: unchanged).
+- Viewer (2026-10-05): **Preview PSF** (Objective & PSF, Advanced): the movie's own kernel (new WASM export
+  `isc_scope_psf_preview`) oversampled beside its camera-pixel splat, with a z slider, in the movie player. The label
+  group reads labelled sites, mode, dye (the dyes with data for that mode), orientation; Illumination and Light path
+  are one group whose preset is also the modality (BrightField, lasers off); the chamber height sits under Geometry;
+  the QE curve select became a "use" checkbox beside the flat QE; the EM gain input is a derived readout; About is its
+  own section.
+
+- **seed** Labels, dyes and the light path (issue 16, 2026-10-05). Each structure (the microtubules for now) carries a
+  label: a dye of the new library (`data/dyes/`: FPbase spectra, literature kinetics, every value with a reference or
+  marked as an estimate) in a mode -- dSTORM (initial ON, intensity-scaled times), PALM (pre-converted state, 405 nm
+  and primed activation), DNA-PAINT (imager binding at k_on c, the free imager's flat background; depletion and
+  exclusion from cells ignored) or WideField (every dye at once, bleaching by its photon budget). Lasers, dichroic,
+  emission filter and camera QE curve (presets for both) set excitation, detected fraction and each state's PSF
+  wavelength; continuous populations render mean-field or per dye. cli/viewer movies start 60 s after the
+  illumination (`start-sec`); the MM adapter keeps a world-anchored illumination history instead (below). **Core ABI 10** (`isc_world_set_label`, events stride 10, `isc_continuous_in_window`, sites stride 5;
+  `isc_world_set_kinetics` and the `labelEfficiency`/`labelNonBleaching` params removed); webSMLM block abiVersion 10.
+  cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`, `mt-imager-nm`, `mt-orient*`, `dye1..3.source`, dye-field
+  overrides, `laser-*`, `light-preset`, `dichroic`, `em-filter`, `camera-preset`, `qe-curve`, `mean-field-*`;
+  removed `photons-per-sec`, `on-sec`, `off-sec`, `bleach-prob`, `photon-cv`, `wavelength-nm`, `milli-activation-rate`,
+  `labeling-pct-*`, `wf-excitation-*`, `wf-quantum-yield`, `wf-photon-budget`, `wf-extinction-coeff`; `modality` is
+  Fluorescence | BrightField. MM: new `SimType_CellFieldMicrotubule*`, `FluoParam_Microtubule_*`,
+  `FluoParam_Dye{1,2,3}_*`, `Optics_*` (new prefix; the illumination profile moved from `FluoParam_Illum*`),
+  `CamParam_CameraPreset`/`QeCurve`, `General_MeanField*`; removed `FluoParam_PhotonsPerSecond`, `OnLifetimeSec`,
+  `OffLifetimeSec`, `BlinkBleachProb`, `PhotonCV`, `FluoParam_WideField*`, `PSFParam_PsfEmissionWavelengthNm`,
+  `SimType_CellFieldLabelingPct*`, `MilliActivationRatePerDyePerSec`; the live WideField bleach map is replaced by
+  an illumination history for every label mode: each place's dyes run on the seconds of light it has had (snaps,
+  sequence acquisitions and stacks add to it; a place never lit starts fresh at 0), so imaging bleaches and uses up
+  dyes only where you imaged; stacks continue it (reproducible on a fresh device). Default: DNA-PAINT ATTO 655, 70 % of the sites, 1.43 nM.
+  Hardware configurations that set the removed properties must be re-made.
+- MM adapter: the non-CellField patterns are gone (issue 16, 2026-10-05): `SimType_Pattern` and its Circle, Lines, Grid,
+  Random, CustomPoints, Spiral, Star, Heart, ResolutionTarget, TiltedPlane, Uniform3D, Shell, NUP, Calibration9Spots and
+  FilamentsRing values, with `SimType_CustomPointsFile`, `SimType_ResolutionSpacingsNm`, `General_EmitterDensityPerSec`,
+  `General_LabelingEfficiencyPct`, `SimType_Structure*`, `SimType_Nup*` and the background extras that needed them
+  (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`, `OutOfFocusRatio`, `OutOfFocusDepthNm`). The cell field is
+  the only specimen; its output is unchanged (`adapter_pixel_hash` CellField configs identical). Hardware
+  configurations that set the removed properties must be re-made.
+- Viewer data layers and animations on labels, dyes and the light path (issue 11 on issue 16, 2026-10-05): WideField
+  stacks image the microtubule dye in WideField mode and SMLM stacks in its blinking mode (with that mode's light preset);
+  BrightField is modality 1. Localizations take the label's kinetics (the `events` job carries whole labels,
+  `isc_world_set_label`) and the dye's detected photons through the light path; SMLM planes start at the movie's start
+  time. Dyes take the dye's emission colour in every look; the animation legend names the dye and mode.
+- Viewer animations, more presets and automatic data (issue 11, 2026-10-05): 18 more cycle presets (27) and 5 more
+  ready-made sequences; checked data layers and animations that need data acquire it by themselves.
+- Viewer thresholded surface and localizations (issue 11, phase 4, 2026-10-05): the WideField z-stack smoothed,
+  thresholded at Otsu's level and meshed (surface nets) in a compute worker, drawn as a lit front layer; SMLM
+  localizations of a multi-plane acquisition (the core's blinks, a new `events` worker job in the WASM and JS engines:
+  per frame and focus position within the capture range, displaced by a photon- and defocus-dependent precision),
+  drawn by height or as precision spots. Main view (Data layers) and animations (presets "Simulated up, WideField down,
+  thresholded wake", "Simulated up, SMLM down, localizations wake"; the issue's example as a ready-made sequence).
+  `web/scene/compute.js`, check `tests/web/scene_compute_check.mjs` (CI `viewer-js`); `engine_check` compares the events.
+- Viewer data layers (issue 11, phase 3, 2026-10-05): WideField, SMLM-frame and BrightField z-stacks of a cell (one
+  movie job per focus position over the cell's box, averaged frames; memory + IndexedDB cache), drawn as slices at any
+  height or any vertical plane (3D texture per fragment, crop to the cell's footprint), in the main view (Data layers
+  group: Acquire, slice height) and in animations (slices riding the sweep plane; the export acquires first; preset
+  "Simulated up, image slices down"). Fresh or sequential SMLM planes. Check `tests/web/viewer_scene.mjs` (clip bands,
+  rotation, determinism, detail budget, stack plane = movie job).
+- Viewer Animation tab (issue 11, phase 2, 2026-10-05): animations of one cell as cycles of steps (camera moves, plane
+  sweeps with per-layer zones ahead / in the slab / behind, pop-ins with fades, captions), previewed on a timeline under
+  the view and exported frame by frame off screen as MP4 (H.264), WebM (VP9/VP8) or GIF (self-written muxers and GIF
+  encoder over WebCodecs, no libraries), with scale bar, captions, plane position and legend overlays; undo/redo, local
+  storage, `.json` save/open. The movie player saves GIF and MP4 too. `web/anim/`, `web/encode/`; checks
+  `tests/web/anim_unit.mjs`, `encode_unit.mjs` (CI job `viewer-js`), `viewer_anim_export.mjs` (browser).
+- Viewer rotation, z clip and detail budget (issue 11, phase 1, 2026-10-05): the view turns about the vertical through
+  its centre (Rotation, Shift-drag) and tilts up to 90° (was 75°); a Z clip draws only what lies between two heights
+  (clipped per fragment on the GPU); only the 5 cells nearest the view centre (Detailed cells, 0 = all) get their
+  microtubules, nucleus and dyes (every visible cell had them before); advanced Scope (all / centre cell + faint
+  neighbours / centre cell) and Look (depth colours / dark fluorescence). Dyes are depth-tested on the GPU. One camera
+  (`web/scene/core.js`, with the structure/layer registry the animation tab builds on); at rotation 0 the image is
+  the previous one. Display only.
+- Viewer depth order (issue 9, 2026-10-05): the cytoplasm surface, nucleus surface, outline and contour lines of a cell
+  are painted back to front in one order and the cells far to near; microtubules are opaque ribbons in a z-buffer
+  (WebGL2, simplified to a quarter pixel per zoom level). The nucleus no longer draws in front of the cytoplasm, and
+  cells no longer overlap in the wrong order when tilted. The x-z side view draws each cell inside out (nucleus and
+  microtubules under the translucent cytoplasm). Display only.
 - **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
   widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
   `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it

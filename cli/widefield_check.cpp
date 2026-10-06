@@ -438,7 +438,7 @@ const PsfKernelCache& RealKernel()
       ScopeSpec spec;
       std::string err;
       ParseScopeSpec("psf-kernel-half-width-nm=2000 psf-z-range-um=3", spec, err);
-      ScopePsfKernel(spec, kc, err);
+      ScopePsfKernel(spec, 680.0, kc, err);
       done = true;
    }
    return kc;
@@ -920,7 +920,7 @@ void GpuJobs()
    CellFieldSource src;
    CellFieldSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
-   cf.params = { { "labelEfficiency", 0.1 }, { "labelNonBleaching", 0.5 } };
+   cf.labels = { MakeLabelVector(ISC_MODE_DNA_PAINT, 0.6, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;
    if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
    WidefieldSceneSpec s = BaseSpec(40, 1);
@@ -963,7 +963,7 @@ void RealWorld()
    CellFieldSource src;
    CellFieldSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
-   cf.params = { { "labelEfficiency", 0.2 }, { "labelNonBleaching", 0.5 } };
+   cf.labels = { MakeLabelVector(ISC_MODE_PALM, 0.7, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;
    if (!src.Configure(cf, err)) { Check(false, err.c_str()); return; }
    WidefieldSceneSpec s = BaseSpec(48, 1);
@@ -1024,10 +1024,10 @@ void RepeatedMovies()
          std::printf("  movie failed: %s\n", err.c_str());
       return all;
    };
-   const char* sr = "size=32 frames=4 x=30 y=10 psf-kernel-half-width-nm=1500 milli-activation-rate=20";
-   const char* wf = "size=32 frames=3 x=30 y=10 modality=1 psf-kernel-half-width-nm=1500";
-   const char* wfGauss = "size=32 frames=2 x=30 y=10 modality=1 psf-model=0 wf-upscale=2";
-   const char* other = "size=32 frames=2 x=-20 y=5 world-seed=7 modality=1 psf-kernel-half-width-nm=1500";
+   const char* sr = "size=32 frames=4 x=30 y=10 psf-kernel-half-width-nm=1500 mt-imager-nm=20";
+   const char* wf = "size=32 frames=3 x=30 y=10 mt-mode=WideField psf-kernel-half-width-nm=1500";
+   const char* wfGauss = "size=32 frames=2 x=30 y=10 mt-mode=WideField psf-model=0 wf-upscale=2";
+   const char* other = "size=32 frames=2 x=-20 y=5 world-seed=7 mt-mode=WideField psf-kernel-half-width-nm=1500";
    const std::vector<uint16_t> sr1 = movie(sr), wf1 = movie(wf), g1 = movie(wfGauss);
    const std::vector<uint16_t> sr2 = movie(sr), wf2 = movie(wf);
    Check(!sr1.empty() && sr1 == sr2, "SR movie repeated in one process = the first (shared world)");
@@ -1038,9 +1038,61 @@ void RepeatedMovies()
    Check(!g1.empty() && g1 == g2, "Gaussian WideField movie after kernel movies = the first");
 }
 
+// Issue 16: a continuous population's mean-field image (the structure's FFT
+// image x the mean photons per dye) equals the per-dye path's (every dye's
+// PSF through the running image) on average: 1 % in total, 4 % per bright
+// pixel at 2 % labelling (as web/lab/check.mjs on the JS). Bright and with no
+// read noise, offset or gain spread, so the ADU are the photon image.
+void MeanFieldVsPerDye()
+{
+   auto movie = [](const std::string& text, std::vector<double>& mean) {
+      ScopeSpec spec;
+      std::string err;
+      ScopeMovieInfo info;
+      mean.clear();
+      long frames = 0;
+      if (!ParseScopeSpec(text, spec, err) ||
+          !RenderScopeMovie(spec, [&](long, const std::vector<uint16_t>& adu) {
+             mean.resize(adu.size(), 0.0);
+             for (size_t i = 0; i < adu.size(); ++i) mean[i] += adu[i];
+             frames++;
+             return true;
+          }, info, err))
+         std::printf("  movie failed: %s\n", err.c_str());
+      for (double& v : mean) v /= std::max(1L, frames);
+   };
+   const std::string base = "size=32 frames=4 x=30 y=10 mt-dye=mEGFP light-preset=auto mt-label-pct=2 start-sec=0 laser-488=20 "
+                            "gain=50 offset=0 offset-std=0 read-noise=0 dark-per-sec=0 gain-std-pct=0 read-noise-std-pct=0 "
+                            "psf-kernel-half-width-nm=1500 mt-dye.photon-budget=1e12 wf-upscale=3 ";
+   std::vector<double> mf, pd;
+   movie(base + "mean-field-density-per-um2=0 mean-field-max-emitters=0", mf);
+   movie(base + "mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9", pd);
+   // The mean-field grid bins each dye to its cell and 25 nm plane, and blends
+   // two PSF planes; the per-dye path splats the nearest plane at the exact
+   // position: a few % per pixel near a sparse dye (rms), none in total.
+   double sm = 0, sp = 0, peak = 0, worst = 0, e2 = 0;
+   long nb = 0;
+   for (size_t i = 0; i < mf.size() && i < pd.size(); ++i) { sm += mf[i]; sp += pd[i]; peak = std::max(peak, mf[i]); }
+   for (size_t i = 0; i < mf.size() && i < pd.size(); ++i)
+      if (mf[i] > 0.25 * peak)
+      {
+         const double r = pd[i] / mf[i] - 1;
+         worst = std::max(worst, std::fabs(r));
+         e2 += r * r;
+         nb++;
+      }
+   const double rms = std::sqrt(e2 / std::max(1L, nb));
+   char b[240];
+   std::snprintf(b, sizeof b,
+                 "mean-field = per-dye mean image: total %+.3f %%, bright pixels rms %.2f %% (worst %.1f %%, %ld pixels, mean %.0f ADU)",
+                 100 * (sp / std::max(1.0, sm) - 1), 100 * rms, 100 * worst, nb, sm / std::max<size_t>(1, mf.size()));
+   Check(!mf.empty() && std::fabs(sp / sm - 1) < 0.01 && rms < 0.04 && worst < 0.1, b);
+}
+
 int main()
 {
    RepeatedMovies();
+   MeanFieldVsPerDye();
    FftVsDft();
    ConvolutionVsDirect();
    FocusBands();

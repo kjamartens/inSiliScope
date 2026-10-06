@@ -78,10 +78,17 @@ const rows = formatSummary(sw, sb);
 const w0 = Math.max(...rows.map(r => r.name.length));
 console.log(`${'metric'.padEnd(w0)}  ${'working'.padStart(10)}  ${(sb ? baseRef : '').padStart(12)}  ${sb ? 'delta' : ''}`);
 for (const r of rows) console.log(`${r.name.padEnd(w0)}  ${r.a.padStart(10)}  ${r.b.padStart(12)}  ${r.d}`);
-// Imaging smoke test of the JS reference (web/prototype/scope): SR, WideField and BrightField movies run, finite, not flat.
-// (Equality with the C++ is tests/parity/scope_parity.mjs, run in the port.)
-const imagingP = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js')); // one world for the three
-for (const spec of ['size=32 frames=4 psf-kernel-half-width-nm=1500', 'size=32 frames=2 modality=WideField psf-kernel-half-width-nm=1500',
+// Imaging smoke test of the JS reference (web/prototype/scope): every label mode, a pre state, a Gaussian PSF with a
+// dye slot, the per-dye path of a continuous population and BrightField run, finite, not flat.
+// (Equality with the C++ is tests/parity/scope_parity.mjs, run in the port; web/lab/label_regression.mjs checks the
+// label model against the base's world.)
+const imagingP = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js')); // one world for all
+const K = 'psf-kernel-half-width-nm=1500';
+for (const spec of [`size=32 frames=4 ${K}`,
+  `size=32 frames=3 ${K} mt-dye=AF647 mt-label-pct=3 laser-640=0.05 laser-405=0.005`,
+  `size=32 frames=3 ${K} mt-dye=mEos3.2 mt-label-pct=5 laser-561=1 laser-405=0.02 laser-488=0.05 dichroic=Quad em-filter=BP600-37`,
+  `size=32 frames=2 ${K} mt-dye=mEGFP laser-488=0.01 laser-640=0 dichroic=LP505 em-filter=BP525-45`,
+  `size=32 frames=3 psf-model=0 mt-dye=Dye1 mt-label-pct=3 laser-640=2 start-sec=20`,
   'size=32 frames=2 modality=BrightField bf-quality=1']) {
   const c = workCells[0], t = performance.now();
   const full = `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} ${spec}`;

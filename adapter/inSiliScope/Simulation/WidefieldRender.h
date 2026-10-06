@@ -143,9 +143,11 @@ public:
    static constexpr int kTile = 64;
    explicit WidefieldDyeTiles(size_t budgetBytes = 0); // 0 = default for the platform
    // The planes of rect (its zMin/zMax: the z column, world um) for world
-   // version `world`. False (with err) on a failure.
-   bool Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, WidefieldDyePlanes& out,
-               std::string& err);
+   // version `world`; the bleaching population = the dyes of the structures
+   // in bleachingMask, the persistent one = persistentMask's (bit s =
+   // ISC_STRUCT_s). False (with err) on a failure.
+   bool Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask, int persistentMask,
+               WidefieldDyePlanes& out, std::string& err);
    size_t Bytes() const;
    void Clear();
 
@@ -157,11 +159,13 @@ private:
       size_t bytes = 0;
       unsigned long long used = 0;
    };
-   bool Fill(CellFieldSource& src, long tx, long ty, Tile& t, std::string& err) const;
+   bool Fill(CellFieldSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
+             std::string& err) const;
    mutable std::mutex mutex_;
    std::map<std::pair<long, long>, std::shared_ptr<Tile>> tiles_;
    double pitch_ = 0.0, zPlane_ = 0.0, zMin_ = 0.0, zMax_ = 0.0;
    long world_ = -1;
+   int bleachingMask_ = -1, persistentMask_ = -1;
    size_t bytes_ = 0, budget_ = 0;
    unsigned long long clock_ = 0;
 };
@@ -263,6 +267,14 @@ struct WidefieldSceneSpec
    WidefieldPhotophysics phot;
    double eta = 0.3;          // collection efficiency
    double exposureSec = 0.05;
+   // Issue 16: the structures of each population (bit s = ISC_STRUCT_s; -1 =
+   // the CellFieldSource's label modes: DNA-PAINT dyes persistent, the
+   // others bleaching), and the frame dose per dye at illumination 1 (-1 =
+   // phot's k_em x exposure). The mean-field image of a structure is
+   // persistentMask = its bit, bleachingMask = 0, unitDose = 1, eta = 1:
+   // camera photons per (photon per dye).
+   int bleachingMask = -1, persistentMask = -1;
+   double unitDose = -1.0;
 };
 
 // The camera image (before background and noise) of one focus, as linear

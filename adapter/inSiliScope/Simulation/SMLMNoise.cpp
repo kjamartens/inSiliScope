@@ -95,13 +95,16 @@ void PixelGainMap::Generate(unsigned w, unsigned h, double nominalGainPhotonsPer
    width = w;
    height = h;
    gainPhotonsPerAdu.assign(static_cast<size_t>(w) * h, 0.0f);
+   // A near-zero or negative pixel gain would blow up the division below;
+   // floor it well away from zero rather than letting one unlucky draw
+   // (possible at large stdFraction) produce a saturated/garbage pixel. The
+   // floor is relative (4 % of the nominal gain: 0.01 at the default 0.25), so
+   // an EMCCD's small per-photoelectron gain (0.0066) is not raised to it.
+   const double floor = 0.04 * nominalGainPhotonsPerAdu;
    for (size_t i = 0; i < gainPhotonsPerAdu.size(); ++i)
    {
       double v = nominalGainPhotonsPerAdu * (1.0 + stdFraction * GaussianRng(rng, 0.0, 1.0));
-      // A near-zero or negative pixel gain would blow up the division below;
-      // floor it well away from zero rather than letting one unlucky draw
-      // (possible at large stdFraction) produce a saturated/garbage pixel.
-      gainPhotonsPerAdu[i] = static_cast<float>(v < 0.01 ? 0.01 : v);
+      gainPhotonsPerAdu[i] = static_cast<float>(v < floor ? floor : v);
    }
 }
 

@@ -14,7 +14,9 @@
 #include "InSiliScopeCamera.h"
 #include "Simulation/CacheDir.h"
 #include "Simulation/Parallel.h"
+#include "Simulation/DyeLibrary.h"
 #include "Simulation/SharedStageState.h"
+#include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,11 +35,11 @@
 
 sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
 {
-   // EmitterDensityPerSec/PhotonsPerSecond/OnLifetimeSec/BackgroundPhotonsPerSec
-   // are all expressed as rates (per second) at the property level, so they
-   // scale correctly with whatever the standard MM Exposure is currently set
-   // to -- convert them here to the frame-equivalent quantities the (unit-
-   // agnostic, exposure-unaware) simulation engine expects.
+   // BackgroundPhotonsPerSec and the dark current are rates (per second) at
+   // the property level, so they scale with whatever the standard MM Exposure
+   // is set to -- converted here to the frame-equivalent quantities the
+   // (exposure-unaware) noise chain expects. The dyes' photons come from the
+   // engine's FluorescenceMovie (ScopeProperties.cpp: BuildScopeSpec).
    double exposureMs = GetExposure();
    double expSec = exposureMs / 1000.0;
    if (expSec <= 0.0)
@@ -45,24 +47,12 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
 
    sim::SimulationParams p;
    p.pixelSizeNm = pixelSizeNm_.load();
-   p.photonsPerBlink = photonsPerSecond_.load() * expSec;
-   // Clamp: an extreme (very short exposure)/(very long ON lifetime)
-   // combination would otherwise blow up the lead-in window and event count
-   // in GenerateAllEvents() (see SMLMSimulation.cpp), making stack
-   // generation pathologically slow.
-   p.onLifetimeFrames = std::min(onLifetimeSec_.load() / expSec, 20000.0);
-   // General_EmitterDensityPerSec is the rate of blinks switching ON, per um^2
-   // per second -- what a localization count measures -- whatever the
-   // exposure, ON lifetime or bleaching. The engine's emitterDensity is the
-   // steady-state density of ON emitters (arrivals per frame =
-   // emitterDensity * area / onLifetimeFrames), i.e. rate x mean ON time.
-   // (It used to be rate x exposure, which only equals that when the
-   // exposure equals the ON lifetime: 20 ms frames with a 0.2 s ON time gave
-   // a tenth of the set rate, and changing Exposure changed the density.)
-   p.emitterDensity = emitterDensityPerSec_.load() * expSec * std::max(p.onLifetimeFrames, 0.01);
    p.backgroundPhotons = backgroundPhotonsPerSec_.load() * expSec;
-   p.psfSigmaPx = ComputePsfSigmaPx();
-   p.quantumEfficiency = quantumEfficiency_.load();
+   // Fluorescence: the movie's photon images are already detected photons
+   // (the camera's QE curve at each dye's emission is in the light path), so
+   // the noise chain runs at QE 1, as the cli/viewer's. BrightField: the
+   // curve's QE at the lamp wavelength.
+   p.quantumEfficiency = BrightFieldSelected() ? BrightFieldQe() : 1.0;
    // Dark current is a rate (e-/pixel/s) like the other *PerSec properties,
    // converted here to its frame-equivalent electron count.
    p.darkCurrentElectronsPerFrame = darkCurrentPerSec_.load() * expSec;
@@ -81,12 +71,8 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    p.drift.speedWanderPct = directedDrift_[DD_SPEED_WANDER].load();
    p.drift.wanderTimeSec = directedDrift_[DD_WANDER_TIME].load();
    p.frameDurationSec = expSec;
-   p.blinkBleachProb = blinkBleachProb_.load();
-   // Same clamp rationale as onLifetimeFrames above (lead-in window size).
-   p.offLifetimeFrames = std::min(offLifetimeSec_.load() / expSec, 20000.0);
-   p.photonCV = photonCV_.load();
    p.emccd = cameraEmccd_;
-   p.emGain = emGain_.load();
+   p.emGain = EmGain();
    p.cicElectrons = cicElectrons_.load();
    p.bitDepth = bitDepth_;
    return p;
@@ -96,7 +82,10 @@ sim::PsfGeneratorRequest CInSiliScopeCamera::BuildPsfGeneratorRequest() const
 {
    sim::PsfGeneratorRequest req;
    req.model = CurrentPsfModel();
-   req.wavelengthNm = psfWavelengthNm_.load();
+   // The emission wavelength is the dye's (the engine's request hook sets it
+   // per dye state, Initialize: SetScopePsfRequestHook); this placeholder is
+   // the default microtubule dye's peak region.
+   req.wavelengthNm = 670.0;
    req.na = psfNa_.load();
    req.immersionIndex = psfImmersionIndex_.load();
    req.pixelSizeNm = pixelSizeNm_.load();
@@ -118,8 +107,7 @@ sim::PsfGeneratorRequest CInSiliScopeCamera::BuildPsfGeneratorRequest() const
    // never sees data beyond the window it's given). The margin (3x the
    // classic Rayleigh first-minimum radius, 0.61*lambda/NA) comfortably
    // clears the first bright secondary maximum, mirroring the
-   // physics-derived approach ComputePsfSigmaPx() already uses for the
-   // Gaussian renderer. Capped at 48 px regardless of physics to keep the
+   // physics-derived Gaussian sigma (0.21 lambda/NA). Capped at 48 px regardless of physics to keep the
    // oversampled grid PSFGenerator computes from growing unboundedly.
    // (sim::PsfKernelHalfWidthPx, shared with the cli/viewer.)
    req.kernelHalfWidthPx =
@@ -161,48 +149,7 @@ sim::PsfGeneratorRequest CInSiliScopeCamera::BuildPsfGeneratorRequest() const
    return req;
 }
 
-double CInSiliScopeCamera::ComputePsfSigmaPx() const
-{
-   // Gaussian approximation of a diffraction-limited widefield PSF (Zhang et
-   // al. 2007): sigma ~= 0.21 * emission_wavelength / NA.
-   double wavelengthNm = psfWavelengthNm_.load();
-   double na = psfNa_.load();
-   if (na <= 0.0)
-      na = 0.01;
-   double sigmaNm = 0.21 * wavelengthNm / na;
-   double sigmaPx = sigmaNm / pixelSizeNm_.load();
-   // Keep it in a sane rendering range regardless of extreme wavelength/NA/
-   // pixel-size combinations.
-   return std::min(std::max(sigmaPx, 0.3), 20.0);
-}
-
-sim::StructureParams CInSiliScopeCamera::BuildStructureParams() const
-{
-   sim::StructureParams sp;
-   sp.zRangeNm = structureZRangeNm_.load();
-   sp.structureSizeNm = structureSizeNm_.load();
-   sp.labelingEfficiencyPct = labelingEfficiencyPct_.load();
-   sp.nupRadiusNm = nupRadiusNm_.load();
-   sp.nupCornerSpreadNm = nupCornerSpreadNm_.load();
-   sp.nupRingSeparationNm = nupRingSeparationNm_.load();
-   // NupLinkerMinNm/NupLinkerMaxNm have independent property limits (both
-   // 0-30nm) so a user can set min > max; clamp here rather than in the
-   // property handlers themselves, matching this codebase's existing
-   // "clamp at the point of use, not the point of entry" convention (see
-   // e.g. ComputePsfSigmaPx's own min/max clamp).
-   double linkerMin = nupLinkerMinNm_.load();
-   double linkerMax = nupLinkerMaxNm_.load();
-   sp.nupLinkerMinNm = std::min(linkerMin, linkerMax);
-   sp.nupLinkerMaxNm = std::max(linkerMin, linkerMax);
-   sp.nupMembrane = static_cast<sim::MembraneOrientation>(nupMembrane_);
-   sp.nupCount = nupCount_;
-   sp.nupMinSpacingNm = nupMinSpacingNm_.load();
-   sp.nupCurvatureNm = nupCurvatureNm_.load();
-   return sp;
-}
-
-sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(const sim::EmitterModel& model, unsigned w, unsigned h,
-                                                           const sim::SimulationParams& params, long seed) const
+sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(unsigned w, unsigned h) const
 {
    sim::StackShapingFields out;
    double meanFactor = 1.0;
@@ -214,28 +161,6 @@ sim::StackShapingFields CInSiliScopeCamera::BuildShapingFields(const sim::Emitte
       msg << "Illumination profile: peak-normalized, keeps " << std::fixed << std::setprecision(1)
           << 100.0 * meanFactor << "% of the flat-field photon budget on average.";
       LogMessage(msg.str());
-   }
-
-   double contrast = bgCellContrast_.load(), hazeWeight = bgHazeWeight_.load();
-   if (params.backgroundPhotons > 0.0 && (contrast > 1.0 || hazeWeight > 0.0))
-   {
-      // Own streams (webSMLM's background rng is likewise derived from the
-      // seed, separate from the emitter stream): one for the haze site
-      // sample, one for the cell shape.
-      std::vector<std::pair<double, double>> sitesPx;
-      if (hazeWeight > 0.0 && CurrentPatternType() == sim::PATTERN_CELL_FIELD)
-         LogMessage("Background_HazeWeight: no haze sites for the CellField pattern yet (flat haze-free "
-                    "background map).", false);
-      else if (hazeWeight > 0.0)
-      {
-         std::mt19937_64 siteRng(static_cast<uint64_t>(seed) ^ 0x48415A4553495445ULL); // "HAZESITE"
-         double widthUm = w * params.pixelSizeNm / 1000.0, heightUm = h * params.pixelSizeNm / 1000.0;
-         for (const sim::EmitterSite& s : model.SampleSitesForHaze(widthUm, heightUm, 20000, siteRng))
-            sitesPx.emplace_back(s.xUm * 1000.0 / params.pixelSizeNm, s.yUm * 1000.0 / params.pixelSizeNm);
-      }
-      std::mt19937_64 bgRng(static_cast<uint64_t>(seed) ^ 0x4247524E44434C4CULL); // "BGRNDCLL"
-      out.background = sim::BuildBackgroundMap(w, h, params.backgroundPhotons, contrast, hazeWeight,
-                                               bgHazeWidthNm_.load() / params.pixelSizeNm, sitesPx, bgRng);
    }
    return out;
 }
@@ -261,18 +186,13 @@ sim::CellFieldSettings CInSiliScopeCamera::BuildCellFieldSettings() const
       {"cellDiamMin", cellField_[CF_CELL_DIAM_MIN_UM].load()},
       {"cellDiamMax", cellField_[CF_CELL_DIAM_MAX_UM].load()},
       {"mtDensity", cellField_[CF_MT_DENSITY].load()},
-      {"labelEfficiency", cellField_[CF_LABELING_PCT_BLEACHING].load() / 100.0},
-      {"labelNonBleaching", cellField_[CF_LABELING_PCT_NONBLEACHING].load() / 100.0},
       {"enablePacking", cellFieldPacking_ ? 1.0 : 0.0},
    };
    for (int i = 0; i < CF_COUNT; ++i)
       if (g_CellFieldCoreParam[i]) s.params.push_back({g_CellFieldCoreParam[i], cellField_[i].load()});
-   s.activationRatePerSec = cellField_[CF_MILLI_ACTIVATION_RATE].load() / 1000.0; // property in 1e-3/s
-   s.onSec = std::max(1e-6, onLifetimeSec_.load());
-   s.offSec = std::max(0.0, offLifetimeSec_.load());
-   s.bleachProb = blinkBleachProb_.load();
+   // No labels: BrightField reads the geometry only (the fluorescence movie
+   // sets its own labels from the spec, BuildScopeSpec).
    s.cacheDir = diskCacheMode_.load() >= 1 ? sim::DefaultCacheDir() : std::string();
-   s.photonCV = photonCV_.load();
    return s;
 }
 
@@ -325,24 +245,6 @@ sim::CellFieldQuery CInSiliScopeCamera::CellFieldQueryFor(double stageX, double 
    return q;
 }
 
-std::function<double(std::mt19937_64&)> CInSiliScopeCamera::OutOfFocusDepthSampler(const sim::PsfKernelCache& cache) const
-{
-   // Port of webSMLM's out-of-focus depth draw: |z| uniform in [zLo, zHi]
-   // with a random sign, zLo = 300 nm (webSMLM uses max(its astigmatic
-   // usable range, 300 nm); this project doesn't compute that range) and
-   // zHi = OutOfFocusDepthNm, both clamped to the kernel's own half range.
-   if (!cache.valid || cache.nz < 3)
-      return {};
-   double halfKernel = cache.zStepNm * (cache.nz - 1) / 2.0;
-   double zLo = std::min(300.0, halfKernel);
-   double zHi = std::min(std::max(outOfFocusDepthNm_.load(), zLo), halfKernel);
-   return [zLo, zHi](std::mt19937_64& rng) {
-      std::uniform_real_distribution<double> unif01(0.0, 1.0);
-      double sign = unif01(rng) < 0.5 ? -1.0 : 1.0;
-      return sign * (zLo + unif01(rng) * (zHi - zLo));
-   };
-}
-
 // The WideField GPU host for this thread, when General_UseGpu is On and a
 // usable Direct3D 11 device passes its self-check (General_GpuStatus says
 // which, or why not). Created once per thread and kept.
@@ -371,337 +273,6 @@ sim::WidefieldGpuD3D11* CInSiliScopeCamera::WideFieldGpu(std::unique_ptr<sim::Wi
    if (gpu)
       SetGpuStatus("GPU: " + name + " (WideField)");
    return gpu.get();
-}
-
-sim::WidefieldSceneSpec CInSiliScopeCamera::BuildWidefieldSceneSpec(const sim::SimulationParams& params,
-                                                                  const sim::CellFieldQuery& q) const
-{
-   sim::WidefieldSceneSpec s;
-   const unsigned w = FullWidth(), h = FullHeight();
-   s.originXUm = q.originXUm;
-   s.originYUm = q.originYUm;
-   s.width = w;
-   s.height = h;
-   s.pixelUm = params.pixelSizeNm / 1000.0;
-   // The focal plane is the world height focus + ZStage (CellFieldQueryFor);
-   // the dye slab is SimType_CellFieldZRangeUm around it (0 = every dye).
-   s.focusWorldUm = q.zCullCentreUm;
-   s.slabCentreUm = q.zCullCentreUm;
-   s.slabHalfUm = q.zHalfRangeUm;
-   s.grid.upscale = static_cast<int>(std::lround(std::min(4.0, std::max(1.0, wideFieldNum_[WF_UPSCALING].load()))));
-   s.grid.zPlaneNm = std::min(500.0, std::max(5.0, wideFieldNum_[WF_Z_PLANE_NM].load()));
-   s.marginUm = kCellFieldMarginUm;
-   s.kernelCapUm = std::max(0.1, psfKernelHalfWidthNm_.load() / 1000.0);
-   s.phot.excitationPhotonsPerUm2PerSec = std::max(0.0, wideFieldNum_[WF_EXCITATION].load());
-   s.phot.quantumYield = std::min(1.0, std::max(0.0, wideFieldNum_[WF_QUANTUM_YIELD].load()));
-   s.phot.photonBudget = std::max(0.0, wideFieldNum_[WF_PHOTON_BUDGET].load());
-   s.phot.extinctionCoeff = std::max(0.0, wideFieldNum_[WF_EXTINCTION_COEFF].load());
-   s.eta = sim::WidefieldCollectionEfficiency(psfNa_.load(), psfImmersionIndex_.load());
-   s.exposureSec = params.frameDurationSec;
-   return s;
-}
-
-std::unique_ptr<sim::WidefieldPsf> CInSiliScopeCamera::MakeWidefieldPsf(const sim::PsfKernelCache& cache,
-                                                                        sim::WidefieldSceneSpec& spec) const
-{
-   if (cache.valid)
-   {
-      const int u = sim::KernelWidefieldPsf::ValidUpscale(cache.oversampling, spec.grid.upscale);
-      if (u != spec.grid.upscale)
-      {
-         std::ostringstream m;
-         m << "WideField: General_WideFieldUpscaling " << spec.grid.upscale << " does not divide "
-           << "PSFParam_PsfOversampling " << cache.oversampling << "; using " << u << ".";
-         LogMessage(m.str(), false);
-         spec.grid.upscale = u;
-      }
-      return std::unique_ptr<sim::WidefieldPsf>(new sim::KernelWidefieldPsf(cache, u));
-   }
-   return std::unique_ptr<sim::WidefieldPsf>(new sim::GaussianWidefieldPsf(
-      spec.pixelUm / std::max(1, spec.grid.upscale), psfWavelengthNm_.load(), psfNa_.load(), psfImmersionIndex_.load()));
-}
-
-void CInSiliScopeCamera::LogWidefieldPhotophysics(const sim::WidefieldSceneSpec& spec)
-{
-   const double kem = spec.phot.EmissionRatePerSec(1.0);
-   std::ostringstream m;
-   m << "WideField: sigma " << spec.phot.CrossSectionUm2() << " um^2, k_em " << kem << " photons/s at peak, t1/2 "
-     << (spec.phot.Bleaches() ? std::to_string(spec.phot.HalfTimeSec(1.0)) + " s" : std::string("never (budget 0)"))
-     << ", collection efficiency " << spec.eta << ", " << spec.eta * kem * spec.exposureSec
-     << " photons/dye/frame reach the camera (before QE); non-bleaching dyes never bleach.";
-   LogMessage(m.str());
-}
-
-long CInSiliScopeCamera::WideFieldWorldVersion(const sim::CellFieldSettings& world)
-{
-   std::lock_guard<std::mutex> g(wfWorldMutex_);
-   if (!wfWorldHave_ || !world.SameWorld(wfWorldLast_))
-   {
-      wfWorldLast_ = world;
-      wfWorldHave_ = true;
-      ++wfWorldCounter_;
-   }
-   return wfWorldCounter_;
-}
-
-void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w,
-                                              unsigned h, const sim::SimulationParams& params,
-                                              const sim::CellFieldSettings& cellField, double stageXUm,
-                                              double stageYUm, const sim::PsfKernelCache& psfCache,
-                                              const sim::StackShapingFields& shaping,
-                                              const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
-                                              const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed,
-                                              const std::vector<sim::DriftNm>& drift)
-{
-   auto t0 = std::chrono::steady_clock::now();
-   std::string err;
-   sim::CellFieldSource source;
-   // A drifting sample: frames are its images shifted in the spectrum and
-   // interpolated on a focus grid (WidefieldDriftFrames), on the CPU.
-   const bool drifting = params.drift.On() && drift.size() >= static_cast<size_t>(stackLength);
-   const sim::DriftBounds driftRange = drifting ? sim::DriftRange(drift) : sim::DriftBounds();
-   const double driftMarginUm =
-      drifting ? (std::ceil(driftRange.MaxXyNm() / params.pixelSizeNm) + 1.0) * params.pixelSizeNm / 1000.0 : 0.0;
-   // GPU: the focus work (spectra, re-pairing, images) and the frames
-   // (dyes, background, noise), the same Direct3D 11 host for both.
-   std::unique_ptr<sim::WidefieldGpuD3D11> gpuHolder;
-   bool gpuTried = false;
-   sim::WidefieldGpuD3D11* gpu = drifting ? nullptr : WideFieldGpu(gpuHolder, gpuTried);
-   // An armed z sequence (a hardware-triggered z stack) gives frame f the
-   // position seq[f % n], all made at once (FocusSeries); otherwise the Z
-   // stage, read per batch of frames.
-   const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();
-   const bool useSeq = zseq.armed && !zseq.positions.empty();
-   stackZSeqVersion_ = useSeq ? zseq.version : -1;
-   double z = useSeq ? zseq.positions[0] : sim::GetSharedStageState().zPositionUm.load();
-   sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
-   sim::WidefieldSceneSpec spec = BuildWidefieldSceneSpec(params, q);
-   spec.worldVersion = WideFieldWorldVersion(cellField);
-   // Drift: the dyes and the light reach as far as the sample moves.
-   spec.marginUm += driftMarginUm;
-   std::unique_ptr<sim::WidefieldPsf> psf = MakeWidefieldPsf(psfCache, spec);
-   LogWidefieldPhotophysics(spec);
-   const sim::SquareIllumination ill(w * spec.pixelUm + 2.0 * driftMarginUm, h * spec.pixelUm + 2.0 * driftMarginUm);
-   sim::WidefieldScene scene;
-   scene.SetTiles(wfTiles_);
-   scene.SetKeepSpectra(drifting);
-   if (gpu)
-   {
-      scene.SetGpuMode(true);
-      scene.SetAccelerator(gpu);
-   }
-   bool ok = source.Configure(cellField, err) && scene.Update(source, ill, spec, *psf, err);
-   // Per-pixel frame inputs for GPU frames: the maps, and the background
-   // before the fade (map x illumination, as RenderPhotonImage).
-   bool gpuFrames = false;
-   if (gpu && ok)
-   {
-      std::vector<float> bg;
-      if (!shaping.background.empty() || !shaping.illum.empty())
-      {
-         const size_t n = static_cast<size_t>(w) * h;
-         bg.resize(n);
-         for (size_t i = 0; i < n; ++i)
-         {
-            double v = shaping.background.size() == n ? shaping.background[i] : params.backgroundPhotons;
-            if (shaping.illum.size() == n)
-               v *= shaping.illum[i];
-            bg[i] = static_cast<float>(v);
-         }
-      }
-      std::string e;
-      gpuFrames = gpu->SetFrameStatic(w, h, offsetMap.offset, gainMap.gainPhotonsPerAdu,
-                                      readNoiseMap.readNoiseElectrons, bg, params.backgroundPhotons, params.Camera(), e);
-      if (!gpuFrames)
-         LogMessage("WideField GPU frames unavailable, noise on the CPU: " + e, false);
-   }
-   if (!ok)
-      LogMessage("WideField: no dyes rendered (" + err + ")", false);
-   else
-   {
-      std::ostringstream m;
-      m << "WideField: " << scene.Dyes() << " dyes (" << scene.BleachingDyes() << " bleaching) at stage (" << stageXUm
-        << ", " << stageYUm << ") um, " << scene.PsfPlanes() << " PSF planes, " << scene.FftSizeX() << "x"
-        << scene.FftSizeY() << " FFT, " << (psfCache.valid ? "diffraction" : "Gaussian") << " PSF, upscaling "
-        << spec.grid.upscale << (useSeq ? ", z sequence of " + std::to_string(zseq.positions.size()) : std::string())
-        << " (" << std::fixed << std::setprecision(2)
-        << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s setup)";
-      LogMessage(m.str());
-   }
-
-   // z sequence: the world focus of every distinct position, and its images.
-   std::vector<double> seqFocus;
-   std::map<double, size_t> seqIndex;
-   std::vector<sim::WidefieldImages> series;
-   unsigned long long seriesVersion = 0;
-   if (useSeq)
-      for (double p : zseq.positions)
-         if (!seqIndex.count(p))
-         {
-            seqIndex[p] = seqFocus.size();
-            seqFocus.push_back(CellFieldQueryFor(stageXUm, stageYUm, p, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0)
-                                  .zCullCentreUm);
-         }
-   // Drift: the focus grid around the Z stage's focus (or every sequence position).
-   sim::WidefieldDriftFrames driftFrames;
-   auto beginDrift = [&]() {
-      if (drifting)
-         driftFrames.Begin(driftRange, useSeq ? seqFocus : std::vector<double>(1, spec.focusWorldUm));
-   };
-   beginDrift();
-   auto refreshSeries = [&]() {
-      if (!ok || !useSeq || drifting || seriesVersion == scene.ImagesVersion())
-         return;
-      std::string e;
-      if (!scene.FocusSeries(seqFocus, series, e))
-         LogMessage("WideField: " + e, false);
-      seriesVersion = scene.ImagesVersion();
-   };
-
-   const sim::CameraNoiseParams cam = params.Camera();
-   const double decaySec = bgDecaySec_.load();
-   const std::vector<sim::BlinkEvent> none;
-   const unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
-   const long batch = static_cast<long>(nThreads) * 4;
-   long clampedMax = ok ? scene.ClampedDyes() : 0;
-   // Frames waiting to be rendered with the current images: the bleach
-   // coefficients are found in order (a frame that does not fit the basis
-   // re-anchors it), the rendering is parallel.
-   struct Pending
-   {
-      long f;
-      std::vector<double> a;
-      const sim::WidefieldImages* img;
-      size_t base = 0; // drift: the focus grid's base focus
-   };
-   std::vector<Pending> pending;
-   auto flushCpu = [&](size_t from) {
-      std::atomic<size_t> next{from};
-      auto worker = [&]() {
-         std::vector<float> img;
-         ++sim::ParallelDepth(); // one frame per thread: no nested pools in the FFTs
-         for (size_t i; (i = next.fetch_add(1)) < pending.size();)
-         {
-            const Pending& p = pending[i];
-            sim::RenderExtras extras = shaping.Extras(p.f * params.frameDurationSec, decaySec);
-            sim::RenderPhotonImage(img, w, h, none, p.f, params.pixelSizeNm, params.psfSigmaPx,
-                                   params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
-                                   nullptr, &extras);
-            if (p.img && drifting)
-               driftFrames.Render(scene, p.base, drift[static_cast<size_t>(p.f)], p.a, img);
-            else if (p.img)
-               p.img->Render(p.a, img);
-            sim::ApplyNoiseChain(img, stack[static_cast<size_t>(p.f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
-                                 noiseSeed, static_cast<uint32_t>(p.f));
-         }
-         --sim::ParallelDepth();
-      };
-      std::vector<std::thread> pool;
-      for (unsigned t = 1; t < nThreads; ++t)
-         pool.emplace_back(worker);
-      worker();
-      for (std::thread& t : pool)
-         t.join();
-   };
-   auto flush = [&]() {
-      // GPU: runs of frames that share their images, one call each.
-      size_t done = 0;
-      while (gpuFrames && done < pending.size() && pending[done].img)
-      {
-         size_t end = done;
-         std::vector<std::vector<double>> coef;
-         std::vector<uint32_t> ids;
-         std::vector<double> bgs;
-         std::vector<std::vector<uint16_t>*> outs;
-         while (end < pending.size() && pending[end].img == pending[done].img)
-         {
-            const Pending& p = pending[end++];
-            coef.push_back(p.a);
-            ids.push_back(static_cast<uint32_t>(p.f));
-            bgs.push_back(shaping.Extras(p.f * params.frameDurationSec, decaySec).backgroundScale);
-            outs.push_back(&stack[static_cast<size_t>(p.f)]);
-         }
-         std::string e;
-         if (!gpu->RenderFrames(*pending[done].img, coef, ids, bgs, cam, noiseSeed, outs, e))
-         {
-            LogMessage("WideField GPU frames failed, noise on the CPU: " + e, false);
-            gpuFrames = false;
-            break;
-         }
-         done = end;
-      }
-      if (drifting && ok && done < pending.size())
-      {
-         std::string e;
-         if (!driftFrames.Refresh(scene, e))
-         {
-            LogMessage("WideField: " + e, false);
-            for (size_t i = done; i < pending.size(); ++i)
-               pending[i].img = nullptr;
-         }
-      }
-      if (done < pending.size())
-         flushCpu(done);
-      pending.clear();
-   };
-   std::vector<float> wb;
-   for (long f0 = 0; f0 < stackLength; f0 += batch)
-   {
-      const long f1 = std::min(stackLength, f0 + batch);
-      // Without a sequence the Z stage is read per batch (a focus change
-      // re-pairs the cached plane spectra).
-      const double zNow = sim::GetSharedStageState().zPositionUm.load();
-      if (ok && !useSeq && zNow != z)
-      {
-         z = zNow;
-         q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
-         spec.focusWorldUm = spec.slabCentreUm = q.zCullCentreUm;
-         ok = scene.Update(source, ill, spec, *psf, err);
-         if (!ok)
-            LogMessage("WideField: " + err, false);
-         clampedMax = std::max(clampedMax, ok ? scene.ClampedDyes() : 0L);
-         beginDrift();
-      }
-      for (long f = f0; f < f1; ++f)
-      {
-         Pending p{f, {}, nullptr};
-         if (ok)
-         {
-            // A fresh sample: frame f starts at dose f x dD.
-            scene.FreshBleachWeights(static_cast<double>(f), wb);
-            if (!scene.BleachCoefficients(wb, p.a))
-            {
-               flush(); // the images change with the basis
-               scene.SetBleachWeights(wb);
-               p.a = scene.AnchorCoefficients();
-            }
-            refreshSeries();
-            if (drifting)
-            {
-               p.img = &scene.Images(); // a marker: driftFrames renders it
-               p.base = useSeq ? seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]] : 0;
-            }
-            else
-               p.img = useSeq ? &series[seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]]]
-                              : &scene.Images();
-         }
-         pending.push_back(std::move(p));
-      }
-      flush();
-      stackFramesGenerated_ = f1;
-   }
-   if (gpu && !scene.UsingAccelerator())
-   {
-      SetGpuStatus("CPU (" + scene.GpuError() + ")");
-      LogMessage(scene.GpuError() + " -- convolved on the CPU.", false);
-   }
-   if (clampedMax > 0)
-   {
-      std::ostringstream m;
-      m << "WideField: " << clampedMax << " dyes lay beyond the PSF kernel's z range and were drawn on its end plane "
-        << "-- widen PSFParam_PsfZRangeUm or lower SimType_CellFieldZRangeUm.";
-      LogMessage(m.str(), false);
-   }
 }
 
 sim::BrightfieldSpec CInSiliScopeCamera::BuildBrightfieldSpec(const sim::SimulationParams& params,
@@ -981,13 +552,9 @@ void CInSiliScopeCamera::StartStackGeneration()
    unsigned fullW = FullWidth();
    unsigned fullH = FullHeight();
    sim::SimulationParams params = SnapshotParams();
-   sim::SMLMPatternType patternType = CurrentPatternType();
-   std::string customFile = customPointsFile_;
-   std::vector<double> spacingsNm = resolutionSpacingsNm_;
    long seed = randomSeed_;
    long length = stackLength_;
    sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
-   sim::StructureParams structure = BuildStructureParams();
    // CellField: the stack is generated for ONE stage pose, snapshot here;
    // moving the XY stage afterwards does not change it (spec/PORT.md 8).
    sim::CellFieldSettings cellField = BuildCellFieldSettings();
@@ -995,113 +562,78 @@ void CInSiliScopeCamera::StartStackGeneration()
    sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), stageX, stageY);
    double stageZ = sim::GetSharedStageState().zPositionUm.load();
 
-   stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params,
-                                  patternType, customFile, spacingsNm, seed, psfRequest, structure, cellField,
-                                  stageX, stageY, stageZ, modality_.load());
+   stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params, seed,
+                                  psfRequest, cellField, stageX, stageY, stageZ, modality_.load());
+}
+
+void CInSiliScopeCamera::LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1,
+                                 double& y1) const
+{
+   // The margin plus 0.5 um: the mean-field grid (world-anchored cells, a
+   // cell beyond the margin) and the history's 0.25 um tiles lie wholly in
+   // the lit rect, so a frame scales every column's weight alike (the
+   // scene's fast path) instead of re-convolving every frame.
+   const double um = pixelSizeNm_.load() / 1000.0, W = FullWidth() * um, H = FullHeight() * um;
+   const double m = kCellFieldMarginUm + 0.5;
+   x0 = stageXUm - W / 2.0 - m;
+   y0 = stageYUm - H / 2.0 - m;
+   x1 = stageXUm + W / 2.0 + m;
+   y1 = stageYUm + H / 2.0 + m;
+}
+
+std::function<double(double, double)> CInSiliScopeCamera::HistoryWeight(const sim::StackShapingFields& shaping,
+                                                                        double stageXUm, double stageYUm) const
+{
+   const unsigned w = FullWidth(), h = FullHeight();
+   if (shaping.illum.size() != static_cast<size_t>(w) * h)
+      return {};
+   const double um = pixelSizeNm_.load() / 1000.0;
+   const double ox = stageXUm - w * um / 2.0, oy = stageYUm - h * um / 2.0;
+   const std::vector<float> illum = shaping.illum;
+   return [illum, w, h, um, ox, oy](double x, double y) {
+      const long px = std::min(static_cast<long>(w) - 1, std::max(0L, static_cast<long>(std::floor((x - ox) / um))));
+      const long py = std::min(static_cast<long>(h) - 1, std::max(0L, static_cast<long>(std::floor((y - oy) / um))));
+      return std::round(16.0 * illum[static_cast<size_t>(px) + static_cast<size_t>(w) * py]) / 16.0;
+   };
+}
+
+void CInSiliScopeCamera::SyncHistoryWorld()
+{
+   const sim::CellFieldSettings world = BuildCellFieldSettings();
+   std::lock_guard<std::mutex> g(historyWorldMutex_);
+   if (!historyHaveWorld_ || !world.SameWorld(historyWorld_))
+   {
+      if (historyHaveWorld_)
+         LogMessage("Illumination history cleared (a new world: seed or cell parameters).");
+      illumHistory_.Reset();
+      historyWorld_ = world;
+      historyHaveWorld_ = true;
+   }
+}
+
+// The sample drift as the engine's movie options (ScopeMovie: drift-*).
+static void AddDriftToSpec(sim::ScopeSpec& s, const sim::DriftSettings& d)
+{
+   s["drift-xy-nm-per-sqrt-sec"] = d.xyNmPerSqrtSec;
+   s["drift-z-nm-per-sqrt-sec"] = d.zNmPerSqrtSec;
+   s["drift-xy-speed-nm-per-sec"] = d.xySpeedNmPerSec;
+   s["drift-z-speed-nm-per-sec"] = d.zSpeedNmPerSec;
+   s["drift-xy-angle-deg"] = d.xyAngleDeg;
+   s["drift-xy-angle-wander-deg"] = d.angleWanderDeg;
+   s["drift-speed-wander-pct"] = d.speedWanderPct;
+   s["drift-wander-time-sec"] = d.wanderTimeSec;
 }
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
-                                             sim::SimulationParams params, sim::SMLMPatternType patternType,
-                                             std::string customPointsFile, std::vector<double> spacingsNm,
-                                             long seed, sim::PsfGeneratorRequest psfRequest,
-                                             sim::StructureParams structure, sim::CellFieldSettings cellField,
+                                             sim::SimulationParams params, long seed,
+                                             sim::PsfGeneratorRequest /*psfRequest*/, sim::CellFieldSettings cellField,
                                              double stageXUm, double stageYUm, double stageZUm, int modality)
 {
-   const bool wideField = modality == 1, brightField = modality == 2;
+   const bool bf = modality == 1;
+   // The noise maps' stream (the CellField dyes come from the core, not from it).
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
-   // Independent of localRng (see BuildStructurePattern's own doc comment
-   // in Simulation/SMLMStructures.h): site-list generation/labeling can
-   // never shift the arrival/noise stream above, at any StructureZRangeNm/
-   // Pattern setting.
-   uint64_t structureSeed = static_cast<uint64_t>(seed) ^ 0x5354525543545552ULL; // "STRUCTUR"
-
-   double widthUm = fullW * params.pixelSizeNm / 1000.0;
-   double heightUm = fullH * params.pixelSizeNm / 1000.0;
-
-   sim::EmitterModel model;
-   model.SetPattern(sim::CreatePattern(patternType, customPointsFile, spacingsNm, structure,
-                                        widthUm, heightUm, structureSeed));
-   model.Reseed(static_cast<uint64_t>(seed));
-
-   // Warn up front (before rendering a single frame) if the structure's own
-   // z extent will outrun the cached PSF kernel's z range -- catches a
-   // StructureZRangeNm/PsfZRangeUm mismatch immediately rather than only
-   // via the per-emitter clamp count below.
-   if (psfRequest.model != sim::PsfModelKind::Gaussian)
-   {
-      double structureHalfRangeNm = sim::StructureZExtentNm(patternType, structure);
-      double kernelHalfRangeNm = (psfRequest.nz > 1) ? (psfRequest.nz - 1) / 2.0 * psfRequest.zStepNm : 0.0;
-      if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
-      {
-         std::ostringstream warn;
-         warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's own z range "
-              << "(+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce StructureZRangeNm/"
-              << "StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
-         LogMessage(warn.str(), false);
-      }
-   }
-
-   const bool isCellField = patternType == sim::PATTERN_CELL_FIELD;
-   // WideField renders every labelled dye (RenderWidefieldStack below), so
-   // it needs no blinks.
-   // BrightField renders the cells' refractive index (RenderBrightfieldStack):
-   // no blinks either. Both go down the wf branches below.
-   const bool bf = isCellField && brightField;
-   const bool wf = (isCellField && wideField) || bf;
-   if ((wideField || brightField) && !isCellField)
-      LogMessage(std::string("General_ImagingModality = ") + (wideField ? "WideField" : "BrightField") +
-                 " applies to the CellField pattern only; rendering SuperRes.", false);
-   // The sample drift of every frame (zero at frame 0): one path per seed.
-   const std::vector<sim::DriftNm> stackDrift =
-      sim::DriftTrajectory(seed, stackLength, params.frameDurationSec, params.drift);
-   const sim::DriftBounds stackDriftRange = sim::DriftRange(stackDrift);
-   std::vector<sim::BlinkEvent> events;
-   // CellField: the query runs on its own thread while the maps and the PSF
-   // kernel are made below (neither depends on it); joined before events is
-   // first used.
-   std::thread cellFieldQuery;
-   if (isCellField && !wf)
-   {
-      cellFieldQuery = std::thread([&]() {
-         // Every blink of the frames' simulated time span [0, N * frameSec) in
-         // one query; tStart/tEnd come out in frames (BucketEventsByFrame then
-         // splits them as for any pattern).
-         auto t0 = std::chrono::steady_clock::now();
-         sim::CellFieldSource source;
-         std::string err;
-         const sim::DriftBounds& b = stackDriftRange;
-         sim::CellFieldQuery q = CellFieldQueryFor(
-            stageXUm, stageYUm, stageZUm, fullW, fullH, params, b.xLo / params.pixelSizeNm, b.yLo / params.pixelSizeNm,
-            b.xHi / params.pixelSizeNm, b.yHi / params.pixelSizeNm, 0, 0.0, stackLength * params.frameDurationSec);
-         if (q.zHalfRangeUm > 0.0)
-            sim::DriftWidenZCull(b, q.zCullCentreUm, q.zHalfRangeUm);
-         const std::string zWarn = CellFieldZRangeWarning();
-         if (!zWarn.empty())
-            LogMessage(zWarn, false);
-         if (!source.Configure(cellField, err) || !source.Events(q, events))
-            LogMessage("CellField: no events (" + (err.empty() ? std::string("core query failed") : err) + ")", false);
-         std::ostringstream msg;
-         msg << "CellField: " << events.size() << " blinks for " << stackLength << " frames at stage (" << stageXUm
-             << ", " << stageYUm << ") um, dyes "
-             << (q.zHalfRangeUm > 0 ? "within +/-" + std::to_string(q.zHalfRangeUm) + " um of the focal plane"
-                                    : std::string("at any z"))
-             << " (dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; General_EmitterDensityPerSec "
-             << "does not apply to this pattern) ("
-             << std::fixed << std::setprecision(2)
-             << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s)";
-         LogMessage(msg.str());
-      });
-   }
-   else if (!isCellField)
-   {
-      events = model.GenerateAllEvents(stackLength, widthUm, heightUm, params, localRng);
-   }
-
-   // Illumination + structured background: fixed fields for the whole stack,
-   // drawn from their OWN rng streams (see BuildShapingFields) -- the same
-   // seed gives the same emitters and noise with or without them.
-   sim::StackShapingFields shaping = BuildShapingFields(model, fullW, fullH, params, seed);
-
+   // Illumination: a fixed field for the whole stack (no rng).
+   sim::StackShapingFields shaping = BuildShapingFields(fullW, fullH);
    sim::PixelOffsetMap localOffsetMap;
    localOffsetMap.Generate(fullW, fullH, params.offsetAdu, params.offsetStdAdu, localRng);
    sim::PixelGainMap localGainMap;
@@ -1109,67 +641,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    sim::PixelReadNoiseMap localReadNoiseMap;
    localReadNoiseMap.Generate(fullW, fullH, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, localRng);
 
-   sim::PsfKernelCache localPsfCache;
-   if (psfRequest.model != sim::PsfModelKind::Gaussian && !bf) // BrightField has its own optics
-   {
-      std::string err;
-      // Runs on the stack-generation worker thread (not the MM device
-      // thread) -- LogMessage is still safe to call from here (same
-      // pattern already used a few lines below for the failure case).
-      auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
-      if (!sim::ComputePsfKernelCache(psfRequest, localPsfCache, err, logCallback))
-      {
-         LogMessage("Diffraction PSF unavailable, falling back to Gaussian: " + err, false);
-         localPsfCache = sim::PsfKernelCache();
-      }
-      else
-      {
-         std::string crlb = sim::DescribePsfCramerRao(localPsfCache, params.photonsPerBlink,
-                                                      std::max(0.5, params.backgroundPhotons), params.pixelSizeNm);
-         if (!crlb.empty())
-            LogMessage(crlb);
-      }
-   }
-
-   if (cellFieldQuery.joinable())
-      cellFieldQuery.join();
-
-   // Blinking out-of-focus emitters (Background_OutOfFocusRatio): the same
-   // kinetics on the same structure at ratio x the density, on their own rng
-   // stream, placed off focus -- appended to the in-focus events, rendered
-   // through the same per-emitter plane lookup. Needs the kernel's z range,
-   // hence after the PSF build.
-   {
-      double ratio = outOfFocusRatio_.load();
-      if (ratio > 0.0 && isCellField)
-      {
-         LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit at "
-                    "their own depths).", false);
-      }
-      else if (ratio > 0.0)
-      {
-         auto zOf = OutOfFocusDepthSampler(localPsfCache);
-         if (!zOf)
-         {
-            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
-                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
-         }
-         else
-         {
-            std::mt19937_64 oofRng(static_cast<uint64_t>(seed) ^ 0x4F55544F46464F43ULL); // "OUTOFFOC"
-            std::vector<sim::BlinkEvent> oof =
-               model.GenerateAllEvents(stackLength, widthUm, heightUm, params, oofRng, ratio, zOf);
-            events.insert(events.end(), oof.begin(), oof.end());
-         }
-      }
-   }
-
    std::vector<std::vector<uint16_t>> newStack(static_cast<size_t>(std::max(stackLength, 0L)));
-   // Each frame renders only its own emitters, and its noise comes from the
-   // counter-based stream keyed by (noiseSeed, frame, pixel) -- so frames are
-   // independent and can be made in any order, on any thread or on the GPU,
-   // with the same result.
-   const std::vector<std::vector<uint32_t>> frameEvents = sim::BucketEventsByFrame(events, stackLength);
    const uint32_t noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
    const sim::CameraNoiseParams cam = params.Camera();
    const double decaySec = bgDecaySec_.load();
@@ -1177,111 +649,156 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    // An armed z sequence (hardware z stack): frame f is at position f mod n.
    const sim::SharedStageState::ZSequence stackSeq = sim::GetSharedStageState().GetZSequence();
    const bool stackUsesSeq = stackSeq.armed && !stackSeq.positions.empty();
-   if (!wf)
-      stackZSeqVersion_ = stackUsesSeq ? stackSeq.version : -1;
-   auto frameInputs = [&](long f, std::vector<sim::BlinkEvent>& evs, double& dx, double& dy, double& zOffsetUm) {
-      evs.clear();
-      for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
-         evs.push_back(events[idx]);
-      const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
-      dx = d.x / params.pixelSizeNm;
-      dy = d.y / params.pixelSizeNm;
-      // Read the InSiliScopeZStage device's current position fresh each frame,
-      // same as any other live-adjustable parameter (see LiveProducerLoop),
-      // or the z sequence's position for this frame; the sample's z drift
-      // puts the focal plane that much lower in it.
-      zOffsetUm = (stackUsesSeq ? stackSeq.positions[static_cast<size_t>(f) % stackSeq.positions.size()]
-                                : sim::GetSharedStageState().zPositionUm.load()) -
-                  d.z / 1000.0;
+   auto zOf = [&](long f) {
+      // The ZStage read fresh per frame (as any live-adjustable parameter), or
+      // the z sequence's position for this frame.
+      return stackUsesSeq ? stackSeq.positions[static_cast<size_t>(f) % stackSeq.positions.size()]
+                          : sim::GetSharedStageState().zPositionUm.load();
    };
-
-   std::unique_ptr<sim::GpuSimulator> gpu;
-   bool gpuOk = !wf && PrepareGpu(gpu, localPsfCache, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
-                                  shaping, params);
+   // The sample drift of every frame (zero at frame 0): one path per seed,
+   // the cli's for the same settings (Simulation/Drift.h).
+   const std::vector<sim::DriftNm> stackDrift =
+      sim::DriftTrajectory(seed, stackLength, params.frameDurationSec, params.drift);
    auto startTime = std::chrono::steady_clock::now();
+   bool gpuOk = false;
+   std::string where = "the CPU";
    if (bf)
       RenderBrightfieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm,
                              localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed, stackDrift);
-   else if (wf)
-      RenderWidefieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm, localPsfCache,
-                           shaping, localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed, stackDrift);
-   if (gpuOk)
+   else
    {
-      // Batches of frames per dispatch: one GPU round trip per batch rather
-      // than per frame.
-      const long batch = static_cast<long>(gpu->MaxBatchFrames());
-      std::vector<sim::BlinkEvent> evs;
-      long zc = 0, zt = 0;
-      for (long f0 = 0; f0 < stackLength && gpuOk; f0 += batch)
+      stackZSeqVersion_ = stackUsesSeq ? stackSeq.version : -1;
+      const std::string zWarn = CellFieldZRangeWarning();
+      if (!zWarn.empty())
+         LogMessage(zWarn, false);
+      // Every structure's label in its mode through the light path: the
+      // engine's fluorescence movie (Simulation/ScopeMovie.h), with this
+      // camera's drift, illumination field, background fade and z sequence.
+      // Each dye's clock is the illumination its place has had (a place
+      // never lit starts at 0); the stack then adds its own frames there.
+      // The drift goes in the spec: the movie moves its blinks, per-dye and
+      // mean-field populations along the same path (zStageUm below is the
+      // undrifted stage).
+      sim::ScopeSpec spec = BuildScopeSpec(stageXUm, stageYUm, stageZUm, 0.0, stackLength);
+      AddDriftToSpec(spec, params.drift);
+      SyncHistoryWorld();
+      double lx0, ly0, lx1, ly1;
+      LitRect(stageXUm, stageYUm, lx0, ly0, lx1, ly1);
+      const sim::ClockSnapshot clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
+      bool lit = false;
+      sim::FluorescenceMovie fm;
+      std::string err;
+      std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
+      bool wfTried = false;
+      // The mean-field scenes convolve on this thread's Direct3D 11 host.
+      if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfTried) : nullptr, &clock))
+         LogMessage("Fluorescence: nothing rendered (" + err + ")", false);
+      else
       {
-         const long f1 = std::min(stackLength, f0 + batch);
-         std::vector<std::vector<sim::GpuSplatEmitter>> ems(static_cast<size_t>(f1 - f0));
-         std::vector<uint32_t> frameIds;
-         std::vector<double> bgScales;
-         std::vector<std::vector<uint16_t>*> outs;
-         for (long f = f0; f < f1; ++f)
+         // One blink group and no continuous population: the GPU splat + noise.
+         const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
+         std::unique_ptr<sim::GpuSimulator> gpu;
+         sim::SimulationParams gp = params;
+         if (plan.ok)
          {
-            double dx, dy, zOffsetUm;
-            frameInputs(f, evs, dx, dy, zOffsetUm);
-            sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
-            sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, params.photonsPerBlink, dx, dy,
-                                    localPsfCache, zOffsetUm, &extras, ems[static_cast<size_t>(f - f0)], &zc, &zt);
-            frameIds.push_back(static_cast<uint32_t>(f));
-            bgScales.push_back(extras.backgroundScale);
-            outs.push_back(&newStack[static_cast<size_t>(f)]);
+            gp.photonsPerBlink = plan.photonsPerBlink;
+            gp.backgroundPhotons = plan.backgroundPhotons;
+            gp.psfSigmaPx = plan.sigmaPx;
+            gpuOk = plan.kernel && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
+                                              localReadNoiseMap, shaping, gp);
          }
-         std::string err;
-         if (!gpu->RenderFrames(ems, frameIds, bgScales, cam, noiseSeed, outs, err))
+         else if (useGpu_ && !fm.HasPopulations())
+            SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
          {
-            LogMessage("GPU frame render failed, rendering the stack on the CPU: " + err, false);
-            SetGpuStatus("CPU (GPU render failed: " + err + ")");
-            gpuOk = false;
-            stackFramesGenerated_ = 0;
-            zc = zt = 0;
-            break;
+            std::ostringstream msg;
+            msg << "Fluorescence: " << (plan.ok ? std::to_string(plan.events->size()) + " blinks" : std::string("stack"))
+                << " for " << stackLength << " frames at stage (" << stageXUm << ", " << stageYUm
+                << ") um, the dyes at their places' illumination clocks (" << clock.At(stageXUm, stageYUm)
+                << " s at the FOV centre)";
+            LogMessage(msg.str());
          }
-         stackFramesGenerated_ = f1;
+         if (gpuOk)
+         {
+            const std::vector<std::vector<uint32_t>> frameEvents = sim::BucketEventsByFrame(*plan.events, stackLength);
+            const long batch = static_cast<long>(gpu->MaxBatchFrames());
+            std::vector<sim::BlinkEvent> evs;
+            long zc = 0, zt = 0;
+            for (long f0 = 0; f0 < stackLength && gpuOk; f0 += batch)
+            {
+               const long f1 = std::min(stackLength, f0 + batch);
+               std::vector<std::vector<sim::GpuSplatEmitter>> ems(static_cast<size_t>(f1 - f0));
+               std::vector<uint32_t> frameIds;
+               std::vector<double> bgScales;
+               std::vector<std::vector<uint16_t>*> outs;
+               for (long f = f0; f < f1; ++f)
+               {
+                  evs.clear();
+                  for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
+                     evs.push_back((*plan.events)[idx]);
+                  const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
+                  const double dx = d.x / params.pixelSizeNm, dy = d.y / params.pixelSizeNm;
+                  sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
+                  sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, gp.photonsPerBlink, dx, dy,
+                                          *plan.kernel, zOf(f) - d.z / 1000.0, &extras,
+                                          ems[static_cast<size_t>(f - f0)], &zc, &zt);
+                  frameIds.push_back(static_cast<uint32_t>(f));
+                  bgScales.push_back(extras.backgroundScale);
+                  outs.push_back(&newStack[static_cast<size_t>(f)]);
+               }
+               if (!gpu->RenderFrames(ems, frameIds, bgScales, cam, noiseSeed, outs, err))
+               {
+                  LogMessage("GPU frame render failed, rendering the stack on the CPU: " + err, false);
+                  SetGpuStatus("CPU (GPU render failed: " + err + ")");
+                  gpuOk = false;
+                  stackFramesGenerated_ = 0;
+                  zc = zt = 0;
+                  break;
+               }
+               stackFramesGenerated_ = f1;
+            }
+            zClampedAll += zc;
+            zRenderedAll += zt;
+            if (gpuOk)
+            {
+               where = "the GPU";
+               lit = true;
+            }
+         }
+         if (!gpuOk)
+         {
+            sim::FluorescenceFrameOptions opt;
+            opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
+            if (!shaping.illum.empty())
+               opt.illumField = &shaping.illum;
+            if (decaySec > 0)
+               opt.backgroundScale = [&](long f) { return sim::BackgroundFadeScale(f * params.frameDurationSec, decaySec); };
+            opt.onPhotons = [&](long f, const std::vector<float>& photons) {
+               sim::ApplyNoiseChain(photons, newStack[static_cast<size_t>(f)], fullW, fullH, cam, localOffsetMap,
+                                    localGainMap, localReadNoiseMap, noiseSeed, static_cast<uint32_t>(f), true);
+               stackFramesGenerated_ = f + 1;
+               return true;
+            };
+            sim::ScopeMovieInfo info;
+            if (!fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt))
+               LogMessage("Fluorescence: " + err, false);
+            else
+            {
+               LogMessage(info.description);
+               lit = true;
+            }
+         }
       }
-      zClampedAll += zc;
-      zRenderedAll += zt;
-   }
-   if (!gpuOk && !wf)
-   {
-      // Multi-threaded CPU path: an atomic frame counter hands out frames.
-      std::atomic<long> nextFrame{0};
-      std::atomic<long> done{0};
-      auto worker = [&]() {
-         std::vector<float> photonImg;
-         std::vector<sim::BlinkEvent> evs;
-         long zc = 0, zt = 0;
-         for (long f; (f = nextFrame.fetch_add(1)) < stackLength;)
-         {
-            double dx, dy, zOffsetUm;
-            frameInputs(f, evs, dx, dy, zOffsetUm);
-            sim::RenderExtras extras = shaping.Extras(f * params.frameDurationSec, decaySec);
-            sim::RenderPhotonImage(photonImg, fullW, fullH, evs, f, params.pixelSizeNm, params.psfSigmaPx,
-                                   params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                                   localPsfCache.valid ? &localPsfCache : nullptr, zOffsetUm, &zc, &zt, &extras);
-            sim::ApplyNoiseChain(photonImg, newStack[static_cast<size_t>(f)], fullW, fullH, cam, localOffsetMap,
-                                 localGainMap, localReadNoiseMap, noiseSeed, static_cast<uint32_t>(f));
-            stackFramesGenerated_ = done.fetch_add(1) + 1;
-         }
-         zClampedAll += zc;
-         zRenderedAll += zt;
-      };
-      unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
-      std::vector<std::thread> pool;
-      for (unsigned t = 1; t < nThreads; ++t)
-         pool.emplace_back(worker);
-      worker();
-      for (std::thread& t : pool)
-         t.join();
+      if (lit)
+         illumHistory_.Advance(lx0, ly0, lx1, ly1, stackLength * params.frameDurationSec,
+                               HistoryWeight(shaping, stageXUm, stageYUm));
+      for (std::vector<uint16_t>& fr : newStack)
+         if (fr.size() != static_cast<size_t>(fullW) * fullH)
+            fr.assign(static_cast<size_t>(fullW) * fullH, static_cast<uint16_t>(std::min(65535.0, std::max(0.0, params.offsetAdu))));
    }
    {
       double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
       std::ostringstream msg;
-      msg << "Rendered " << stackLength << " frames in " << std::fixed << std::setprecision(2) << secs << " s on "
-          << (gpuOk ? "the GPU" : "the CPU (" + std::to_string(std::max(1u, std::min(std::thread::hardware_concurrency(), 32u))) + " threads)");
+      msg << "Rendered " << stackLength << " frames in " << std::fixed << std::setprecision(2) << secs << " s on " << where;
       LogMessage(msg.str());
    }
    long zClampedTotal = zClampedAll.load(), zRenderedTotal = zRenderedAll.load();
@@ -1289,9 +806,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    {
       std::ostringstream warn;
       warn << zClampedTotal << "/" << zRenderedTotal << " emitter renders had a total z (stage offset + "
-           << "structure depth) beyond the PSF kernel's own z range and were clamped to its end plane -- "
-           << "widen PsfZRangeUm or reduce StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/"
-           << "NupCurvatureNm.";
+           << "dye depth) beyond the PSF kernel's own z range and were clamped to its end plane -- "
+           << "widen PsfZRangeUm or narrow SimType_CellFieldZRangeUm.";
       LogMessage(warn.str(), false);
    }
 
@@ -1322,22 +838,7 @@ void CInSiliScopeCamera::StartLiveProducer()
    liveFrameCounter_ = 0;
    liveDriftOriginFrame_ = 0;
    uint64_t liveSeed = static_cast<uint64_t>(randomSeed_) ^ 0xABCDEF1234567890ULL;
-   // Independent structure-site rng stream, same rationale as
-   // StackGenerationWorker's structureSeed -- distinct XOR constant so the
-   // two modes' structure streams never collide even at the same
-   // RandomSeed.
-   uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL; // "LIVESTR1"
-   double pxSizeNm = pixelSizeNm_.load();
-   double widthUm = FullWidth() * pxSizeNm / 1000.0;
-   double heightUm = FullHeight() * pxSizeNm / 1000.0;
-   liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_, resolutionSpacingsNm_,
-                                                    BuildStructureParams(), widthUm, heightUm, liveStructureSeed));
-   liveEmitterModel_.Reseed(liveSeed);
    liveRng_.seed(liveSeed);
-   liveOutOfFocusRng_.seed(static_cast<uint64_t>(randomSeed_) ^ 0x4C4956454F4F4631ULL); // "LIVEOOF1"
-
-   liveEmitterModel_.ResetLive(widthUm, heightUm);
-   liveOutOfFocusModel_.ResetLive(widthUm, heightUm);
 
    {
       MMThreadGuard g(frontFrameLock_);
@@ -1369,31 +870,24 @@ void CInSiliScopeCamera::LiveProducerLoop()
    sim::PixelOffsetMap offsetMap;
    sim::PixelGainMap gainMap;
    sim::PixelReadNoiseMap readNoiseMap;
-   // Oversampled diffraction PSF kernel cache -- confined to this thread, same
-   // as offsetMap, so no locking is needed. Rebuilt whenever
-   // liveConfigVersion_ changes, same trigger as offsetMap/pattern below.
-   sim::PsfKernelCache psfCache;
-   // Illumination/background fields and the out-of-focus depth sampler --
-   // rebuilt on the same config-version trigger as everything else here.
+   // The illumination field -- rebuilt on the same config-version trigger as
+   // everything else here.
    sim::StackShapingFields shaping;
-   std::function<double(std::mt19937_64&)> outOfFocusZ;
-   // GPU simulator for this thread (created on first use) and whether the
-   // current config renders on it.
+   // GPU simulator for this thread (created on first use), the kernel it was
+   // loaded with and the background it carries.
    std::unique_ptr<sim::GpuSimulator> gpu;
-   bool gpuOk = false;
-   // Sentinel: guarantees the very first tick below rebuilds both the offset
-   // map and the emitter pattern/site cache, even though StartLiveProducer()
-   // already primed them moments earlier (harmless redundancy, and it means
-   // this loop doesn't depend on that priming being correct).
+   uint64_t gpuKernelSerial = 0;
+   double gpuBackground = -1.0;
+   bool gpuFailed = false;
+   // The mean-field scenes' Direct3D 11 host of this thread.
+   std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
+   bool wfGpuTried = false;
+   // Sentinel: guarantees the very first tick below rebuilds the offset map
+   // and the rest of the cached config.
    long appliedConfigVersion = -1;
-   // Accumulated across ticks within one appliedConfigVersion and flushed
-   // (logged + reset) whenever the config changes -- logging every tick at
-   // live frame rates would flood the corelog, and the up-front
-   // StructureZExtentNm check on rebuild already covers the common
-   // "structure z extent misconfigured" case; this also catches "the Z
-   // stage was driven out of range while streaming".
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
-   // The sample drift (nm) at liveDriftFrame frames since the drift origin.
+   // The sample drift: one walker (Simulation/Drift.h) from the drift origin;
+   // a Live/MDA sequence start restarts it at the next frame.
    sim::DriftWalker liveWalker;
    bool liveWalkerOn = false;
    long appliedDriftRestart = liveDriftRestart_.load();
@@ -1401,92 +895,36 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // and the focus-grid spectra around its focus.
    sim::DriftNm bfAnchor;
    bool bfAnchored = false;
-   // WideField with drift: the same anchoring.
-   sim::DriftNm wfAnchor;
-   bool wfAnchored = false;
    sim::BrightfieldDriftFrames bfDrift;
    double bfDriftFocus = std::numeric_limits<double>::quiet_NaN();
-   // CellField pattern: the world (configured on the rebuild trigger below)
-   // and the simulated time its dye schedules are read at, which advances by
+   // The simulated time the labels' schedules are read at, which advances by
    // one frame duration per produced frame -- across config changes too, so
-   // changing a camera setting does not un-bleach the sample.
+   // changing a camera setting does not un-bleach the sample. It starts
+   // 0 (the fluorescence dyes read their own clocks from the illumination
+   // history; this one is BrightField's and the prefetch's).
+   double cellFieldTimeSec = 0.0;
+   // BrightField: the cell field (configured on the rebuild trigger below),
+   // the scene of the current pose (rebuilt when the pose or a setting
+   // changes; a focus change only re-images) and the transmitted intensity of
+   // the current frame.
    sim::CellFieldSource cellField;
    bool cellFieldOk = false;
-   double cellFieldTimeSec = 0.0;
-   // The last frame's query, for pre-loading around it in the idle time
-   // before the next frame.
-   sim::CellFieldQuery cellFieldLastQuery;
-   bool cellFieldQueried = false;
-   // WideField (CellField only): the scene, its PSF and a world-anchored
-   // bleach map that persists across frames and config changes (so bleaching
-   // a region, moving away and back finds it dim); reset on a world change
-   // (seed, labelling, cell params) or a grid pitch change.
-   bool wfActive = false, wfOk = false;
-   sim::WidefieldScene wfScene;
-   std::unique_ptr<sim::WidefieldPsf> wfPsf;
-   int wfUpscale = 1;
-   long wfPsfVersion = 0, wfWorldVersion = 0;
-   bool wfHaveWorld = false;
-   sim::BleachField wfBleach;
-   sim::WidefieldSceneSpec wfSpec;
-   std::vector<float> wfDose, wfWeights;
-   wfScene.SetTiles(wfTiles_);
-   // z sequence (hardware z stack): the images of every position, made at
-   // once (FocusSeries) and adopted frame by frame while still valid.
-   struct WfSeries
-   {
-      long seqVersion = -1;
-      unsigned long long imagesVersion = 0;
-      std::map<double, size_t> index; // world focus -> images
-      std::vector<sim::WidefieldImages> images;
-   } wfSeries;
-   // Destination prefetch (a stage move): a scene for the target pose built
-   // on a worker with its own CellFieldSource and the shared dye tiles,
-   // swapped in on arrival.
-   struct WfPrefetch
-   {
-      std::thread thread;
-      std::atomic<bool> done{false};
-      bool active = false, ok = false, ready = false;
-      double x = 0.0, y = 0.0;
-      sim::WidefieldScene scene;
-      sim::CellFieldSource source;
-      long sourceWorld = -1;
-      std::string err;
-   } wfPrefetch;
-   wfPrefetch.scene.SetTiles(wfTiles_);
-   // The GPU host of this thread (WideField focus work) and whether the
-   // scenes are in GPU mode.
-   std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
-   bool wfGpuTried = false, wfGpuMode = false;
-   // BrightField (CellField only): the scene of the current pose (rebuilt
-   // when the pose or a setting changes; a focus change only re-images) and
-   // the transmitted intensity of the current frame.
-   bool bfActive = false, bfErrLogged = false;
+   bool bfActive = false, bfErrLogged = false, flErrLogged = false;
    sim::BrightfieldScene bfScene;
    std::vector<float> bfImage;
-   // Noise and publication of the previous WideField frame, overlapping the
-   // next frame's scene work.
-   std::thread wfFinisher;
-   auto joinWorkers = [&]() {
-      if (wfFinisher.joinable())
-         wfFinisher.join();
-      if (wfPrefetch.thread.joinable())
-         wfPrefetch.thread.join();
-      wfPrefetch.active = false;
-   };
    // Publishes a finished frame (front buffer, sequence counter, interval
-   // statistics). Called by the producer, or by wfFinisher (one at a time).
+   // statistics).
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
-                         long config, long driftRestart) {
+                         long config, LitFrame& lit, sim::SharedStageState::Clock::time_point started) {
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
+         std::swap(liveFrameLit_, lit);
+         liveFrameStart_ = started;
          liveFrameW_ = fw;
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
          liveFrameConfig_ = config;
-         liveFrameDriftRestart_ = driftRestart;
       }
       liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
       MM::MMTime publishTime = GetCurrentMMTime();
@@ -1504,185 +942,66 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       lastFramePublishTime_ = publishTime;
    };
+   sim::CellFieldQuery bfLastQuery;
+   bool bfQueried = false;
 
    while (liveProducerRun_.load())
    {
+      // Everything this frame reads (settings, pose, focus, clocks) is read
+      // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
+      const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
       MM::MMTime tickStart = GetCurrentMMTime();
       sim::SimulationParams params = SnapshotParams();
       unsigned w = FullWidth();
       unsigned h = FullHeight();
-      double widthUm = w * params.pixelSizeNm / 1000.0;
-      double heightUm = h * params.pixelSizeNm / 1000.0;
 
       // InvalidateStack() bumps liveConfigVersion_ from *every* property
-      // handler that changes something affecting simulated frame content --
-      // density/lifetime/photon/background rates, PSF wavelength/NA, pixel
-      // size, gain, offset, offset-std, read noise, drift, pattern,
-      // CustomPointsFile, binning, FOV size, exposure, random seed. A single
-      // version bump (of any of them) here triggers a refresh of both
-      // pieces of state Live mode caches across ticks: the static
-      // fixed-pattern offset map (must match the *current* offset/offset-
-      // std or frame size) and the emitter model's pattern/candidate-site
-      // cache (must match the *current* pattern/custom-points-file/pixel-
-      // size/FOV-size). Using one counter for all of this -- rather than
-      // comparing each dependent field individually -- means a newly added
-      // property only needs to call InvalidateStack() to be correctly
-      // picked up live; no per-property plumbing here.
+      // handler that changes something affecting simulated frame content; a
+      // bump refreshes the state cached across ticks: the static noise maps,
+      // the illumination field and (BrightField) the cell field.
       long currentConfigVersion = liveConfigVersion_.load(std::memory_order_relaxed);
       if (currentConfigVersion != appliedConfigVersion || offsetMap.width != w || offsetMap.height != h)
       {
-         // The workers read the maps and the PSF rebuilt below.
-         joinWorkers();
          offsetMap.Generate(w, h, params.offsetAdu, params.offsetStdAdu, liveRng_);
          gainMap.Generate(w, h, params.gainPhotonsPerAdu, params.pixelGainStdFraction, liveRng_);
          readNoiseMap.Generate(w, h, params.readNoiseElectrons, params.pixelReadNoiseStdFraction, liveRng_);
-         sim::StructureParams structure = BuildStructureParams();
-         // Re-derived from currentConfigVersion (not a fixed constant) so
-         // every rebuild gets an independent structure rng draw -- live
-         // mode was never required to be reproducible (see liveRng_ itself),
-         // so this only needs to avoid colliding with the arrival/noise
-         // stream above, not to be deterministic across rebuilds.
-         uint64_t liveStructureSeed = static_cast<uint64_t>(randomSeed_) ^ 0x4C49564553545231ULL ^
-                                       static_cast<uint64_t>(currentConfigVersion);
-         liveEmitterModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
-                                                          resolutionSpacingsNm_, structure, widthUm, heightUm,
-                                                          liveStructureSeed));
-         // Same seed -> the identical site list, so the out-of-focus
-         // population sits on the same structure.
-         liveOutOfFocusModel_.SetPattern(sim::CreatePattern(CurrentPatternType(), customPointsFile_,
-                                                             resolutionSpacingsNm_, structure, widthUm, heightUm,
-                                                             liveStructureSeed));
-         shaping = BuildShapingFields(liveEmitterModel_, w, h, params, randomSeed_);
-
-         sim::PsfGeneratorRequest psfRequest = BuildPsfGeneratorRequest();
-         if (psfRequest.model != sim::PsfModelKind::Gaussian)
-         {
-            std::string err;
-            auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
-            if (!sim::ComputePsfKernelCache(psfRequest, psfCache, err, logCallback))
-            {
-               LogMessage("Diffraction PSF unavailable, falling back to Gaussian: " + err, false);
-               psfCache = sim::PsfKernelCache();
-            }
-            else
-            {
-               std::string crlb = sim::DescribePsfCramerRao(psfCache, params.photonsPerBlink,
-                                                            std::max(0.5, params.backgroundPhotons),
-                                                            params.pixelSizeNm);
-               if (!crlb.empty())
-                  LogMessage(crlb);
-               double structureHalfRangeNm = sim::StructureZExtentNm(CurrentPatternType(), structure);
-               double kernelHalfRangeNm = (psfCache.nz > 1) ? (psfCache.nz - 1) / 2.0 * psfCache.zStepNm : 0.0;
-               if (structureHalfRangeNm > kernelHalfRangeNm && kernelHalfRangeNm > 0.0)
-               {
-                  std::ostringstream warn;
-                  warn << "Structure z extent (+/-" << structureHalfRangeNm << "nm) exceeds the PSF kernel's "
-                       << "own z range (+/-" << kernelHalfRangeNm << "nm) -- widen PsfZRangeUm or reduce "
-                       << "StructureZRangeNm/StructureSizeNm/NupRingSeparationNm/NupCurvatureNm.";
-                  LogMessage(warn.str(), false);
-               }
-            }
-         }
-         else
-         {
-            psfCache = sim::PsfKernelCache();
-         }
-
+         shaping = BuildShapingFields(w, h);
          if (zClampedSinceRebuild > 0)
          {
             std::ostringstream warn;
             warn << zClampedSinceRebuild << "/" << zTotalSinceRebuild << " emitter renders had a total z "
-                 << "(stage offset + structure depth) beyond the PSF kernel's own z range and were clamped "
+                 << "(stage offset + dye depth) beyond the PSF kernel's own z range and were clamped "
                  << "to its end plane since the last config change.";
             LogMessage(warn.str(), false);
          }
          zClampedSinceRebuild = 0;
          zTotalSinceRebuild = 0;
-
-         gpuOk = PrepareGpu(gpu, psfCache, w, h, offsetMap, gainMap, readNoiseMap, shaping, params);
-
-         outOfFocusZ = OutOfFocusDepthSampler(psfCache);
-         if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
+         gpuKernelSerial = 0;   // reload the GPU (maps, background)
+         gpuFailed = false;
+         flErrLogged = false;
+         bfActive = BrightFieldSelected();
+         if (bfActive)
          {
             std::string err;
             cellFieldOk = cellField.Configure(BuildCellFieldSettings(), err);
             if (!cellFieldOk)
                LogMessage("CellField unavailable: " + err, false);
-            else
-               LogMessage("CellField: dye activation from SimType_CellFieldMilliActivationRatePerDyePerSec; "
-                          "General_EmitterDensityPerSec does not apply to this pattern.");
+            bfErrLogged = false;
+         }
+         else
+         {
             const std::string zWarn = CellFieldZRangeWarning();
             if (!zWarn.empty())
                LogMessage(zWarn, false);
-            if (outOfFocusRatio_.load() > 0.0)
-               LogMessage("Background_OutOfFocusRatio: not used by the CellField pattern (its dyes already sit "
-                          "at their own depths).", false);
-            outOfFocusZ = nullptr;
          }
-         else if (outOfFocusRatio_.load() > 0.0 && !outOfFocusZ)
-            LogMessage("Background_OutOfFocusRatio > 0 needs a diffraction PsfModel with a z stack "
-                       "(PsfZRangeUm > 0) -- out-of-focus emitters skipped.", false);
-
-         bfActive = BrightFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
-         if (BrightFieldSelected() && !bfActive)
-            LogMessage("General_ImagingModality = BrightField applies to the CellField pattern only; rendering "
-                       "SuperRes.", false);
-         if (bfActive)
-         {
-            gpuOk = false;
-            bfErrLogged = false;
-            if (params.drift.On())
-               LogMessage("BrightField: the SimType_Drift* sample drift is not applied in BrightField (yet).", false);
-         }
-         wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
-         if (WideFieldSelected() && !wfActive)
-            LogMessage("General_ImagingModality = WideField applies to the CellField pattern only; rendering "
-                       "SuperRes.", false);
-         if (wfActive)
-         {
-            gpuOk = false;
-            // The GPU host (this thread's); the scene must be made in the
-            // matching mode (power-of-two FFTs), so a change starts afresh.
-            sim::WidefieldGpuD3D11* acc = WideFieldGpu(wfGpu, wfGpuTried);
-            if ((acc != nullptr) != wfGpuMode)
-            {
-               wfScene = sim::WidefieldScene();
-               wfScene.SetTiles(wfTiles_);
-               wfPrefetch.scene = sim::WidefieldScene();
-               wfPrefetch.scene.SetTiles(wfTiles_);
-               wfPrefetch.ready = false;
-               wfSeries = WfSeries();
-               wfGpuMode = acc != nullptr;
-               wfScene.SetGpuMode(wfGpuMode);
-               wfPrefetch.scene.SetGpuMode(wfGpuMode);
-            }
-            wfScene.SetAccelerator(acc);
-            if (params.drift.On())
-               LogMessage("WideField: the SimType_Drift* sample drift is not applied in WideField (yet).", false);
-            sim::WidefieldSceneSpec base = BuildWidefieldSceneSpec(params, sim::CellFieldQuery());
-            wfPsf = MakeWidefieldPsf(psfCache, base);
-            wfUpscale = base.grid.upscale;
-            ++wfPsfVersion;
-            LogWidefieldPhotophysics(base);
-            const long world = WideFieldWorldVersion(BuildCellFieldSettings());
-            if (!wfHaveWorld || world != wfWorldVersion)
-            {
-               if (!wfBleach.Empty())
-                  LogMessage("WideField: new cell-field world, bleach map reset.");
-               wfBleach.Reset(wfBleach.Pitch());
-               wfWorldVersion = world;
-               wfHaveWorld = true;
-            }
-         }
-
          appliedConfigVersion = currentConfigVersion;
       }
 
       // The drift starts from zero at liveDriftOriginFrame_ (reset at
       // StartLiveProducer(), and here at the first frame after a Live/MDA
-      // sequence start asked for it): the sum of the steps of frames 1 .. n
-      // since then, the stack's path for the same seed (each step with the
-      // current settings).
+      // sequence start asked for it): the walker's steps of the frames since,
+      // the stack's path for the same seed (each step with the current
+      // settings). Off: no steps; switched on later, it starts from zero there.
       const long driftRestart = liveDriftRestart_.load();
       if (driftRestart != appliedDriftRestart)
       {
@@ -1691,7 +1010,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       long framesSinceDriftOrigin = std::max(0L, liveFrameCounter_.load(std::memory_order_relaxed) -
                                                       liveDriftOriginFrame_.load(std::memory_order_relaxed));
-      // Off: no steps; switched on later, the walk starts from zero there.
       if (framesSinceDriftOrigin < liveWalker.Frame() || !params.drift.On() || !liveWalkerOn)
       {
          liveWalker = sim::DriftWalker(randomSeed_, params.drift, framesSinceDriftOrigin);
@@ -1701,251 +1019,17 @@ void CInSiliScopeCamera::LiveProducerLoop()
       while (liveWalker.Frame() < framesSinceDriftOrigin)
          liveWalker.Step(params.frameDurationSec);
       const sim::DriftNm liveDrift = liveWalker.Position();
-      const double dx = liveDrift.x / params.pixelSizeNm, dy = liveDrift.y / params.pixelSizeNm;
-      // InSiliScopeZStage's current position, read fresh every tick so moving
-      // it live in Micro-Manager sharpens/blurs the rendered PSFs in
-      // real time -- or, during a sequence acquisition with an armed z
-      // sequence, the sequence's next position (one per frame).
+      // The fluorescence frame takes the drift as its pose: the FOV over the
+      // moved sample (stage - d), the focal plane dz lower in it.
+      const double dx = 0.0, dy = 0.0;
+      // InSiliScopeZStage's current position, read fresh every tick -- or,
+      // during a sequence acquisition with an armed z sequence, the
+      // sequence's next position (one per frame).
       long frameEpoch = 0;
-      // The sample's z drift puts the focal plane that much lower in it.
-      double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch) - liveDrift.z / 1000.0;
-
-      std::vector<sim::BlinkEvent> events;
-      if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
-      {
-         // One stage pose per produced frame (motion blur is ignored), a fresh
-         // event per blink per frame with that frame's translation.
-         if (cellFieldOk)
-         {
-            double sx = 0.0, sy = 0.0;
-            sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
-            sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
-                                                      liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            // WideField with drift: as BrightField below, the scene stays at an
-            // anchor pose (sx - anchor: the FOV over the moved sample; rebuilt
-            // when the sample has moved 1 um from it) and each frame is its
-            // image shifted by the rest of the drift (RenderFrameShifted).
-            // Moving the scene's pose every frame instead re-weights every
-            // dye plane (~6x slower frames).
-            if (wfActive && params.drift.On() &&
-                (!wfAnchored || std::fabs(liveDrift.x - wfAnchor.x) > 1000.0 ||
-                 std::fabs(liveDrift.y - wfAnchor.y) > 1000.0))
-            {
-               wfAnchor = liveDrift;
-               wfAnchored = true;
-            }
-            if (!params.drift.On())
-            {
-               wfAnchor = sim::DriftNm();
-               wfAnchored = false;
-            }
-            const double dUmX = wfAnchor.x / 1000.0, dUmY = wfAnchor.y / 1000.0;
-            if (wfActive && (dUmX != 0.0 || dUmY != 0.0))
-               q = CellFieldQueryFor(sx - dUmX, sy - dUmY, zOffsetUm, w, h, params, 0.0, 0.0, 0.0, 0.0,
-                                     liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            if (bfActive && params.drift.On())
-            {
-               // BrightField with drift: the scene stays at an anchor pose
-               // (rebuilt when the sample has moved 1 um from it) and each
-               // frame is its fine-grid image shifted by the rest of the
-               // drift, the z drift interpolated on a focus grid
-               // (BrightfieldDriftFrames).
-               const double zBase = zOffsetUm + liveDrift.z / 1000.0;
-               if (!bfAnchored || std::fabs(liveDrift.x - bfAnchor.x) > 1000.0 ||
-                   std::fabs(liveDrift.y - bfAnchor.y) > 1000.0)
-               {
-                  bfAnchor = liveDrift;
-                  bfAnchored = true;
-               }
-               const sim::CellFieldQuery qa =
-                  CellFieldQueryFor(sx - bfAnchor.x / 1000.0, sy - bfAnchor.y / 1000.0, zBase, w, h, params, 0.0,
-                                    0.0, 0.0, 0.0, liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-               std::string err;
-               sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, qa, w, h);
-               spec.marginUm = spec.Resolved().marginUm + 1.0 + params.pixelSizeNm / 1000.0;
-               bool ok = bfScene.Update(cellField, spec, static_cast<uint64_t>(appliedConfigVersion), err);
-               if (ok && qa.zCullCentreUm != bfDriftFocus)
-               {
-                  sim::DriftBounds zb;
-                  zb.zLo = -20000.0;
-                  zb.zHi = 20000.0;
-                  bfDrift.Begin(zb, std::vector<double>(1, qa.zCullCentreUm));
-                  bfDriftFocus = qa.zCullCentreUm;
-               }
-               ok = ok && bfDrift.Ensure(bfScene, 0, liveDrift.z, err);
-               if (ok)
-               {
-                  sim::DriftNm rest = liveDrift;
-                  rest.x -= bfAnchor.x;
-                  rest.y -= bfAnchor.y;
-                  bfDrift.Image(bfScene, 0, rest, bfImage);
-               }
-               else
-               {
-                  bfImage.clear();
-                  if (!bfErrLogged)
-                     LogMessage("BrightField: " + err, false);
-                  bfErrLogged = true;
-               }
-            }
-            else if (bfActive)
-            {
-               // A new pose or setting rebuilds the scene (seconds at high
-               // quality); a focus change re-images it (one inverse FFT per
-               // source).
-               std::string err;
-               const sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, q, w, h);
-               const bool ok = bfScene.Update(cellField, spec, static_cast<uint64_t>(appliedConfigVersion), err) &&
-                               bfScene.Image(q.zCullCentreUm, bfImage, err);
-               if (!ok)
-               {
-                  bfImage.clear();
-                  if (!bfErrLogged)
-                     LogMessage("BrightField: " + err, false);
-                  bfErrLogged = true;
-               }
-            }
-            else if (wfActive)
-            {
-               // Only the pieces that changed are rebuilt: the dyes (from the
-               // shared tiles) when the pose leaves the grid rect, the plane
-               // spectra when the dyes' weights do, the images when the
-               // focus or the sub-cell pose does.
-               wfSpec = BuildWidefieldSceneSpec(params, q);
-               wfSpec.grid.upscale = wfUpscale;
-               wfSpec.psfVersion = wfPsfVersion;
-               wfSpec.worldVersion = wfWorldVersion;
-               // Drift: the light and the dyes reach as far as the sample
-               // moves from the anchor (1 um, plus a pixel).
-               const double wfDriftMarginUm = params.drift.On() ? 1.0 + wfSpec.pixelUm : 0.0;
-               wfSpec.marginUm += wfDriftMarginUm;
-               wfScene.SetKeepSpectra(params.drift.On());
-               const sim::SquareIllumination ill(w * wfSpec.pixelUm + 2.0 * wfDriftMarginUm,
-                                                 h * wfSpec.pixelUm + 2.0 * wfDriftMarginUm);
-               // Arrived where a prefetch went: take its scene (Update below
-               // then only adjusts focus and sub-cell pose).
-               if (wfPrefetch.active && wfPrefetch.done.load())
-               {
-                  wfPrefetch.thread.join();
-                  wfPrefetch.active = false;
-                  wfPrefetch.ready = wfPrefetch.ok;
-                  if (!wfPrefetch.ok)
-                     LogMessage("WideField: destination prefetch failed (" + wfPrefetch.err + ")", false);
-               }
-               if (wfPrefetch.ready && std::fabs(sx - wfPrefetch.x) < 1e-6 && std::fabs(sy - wfPrefetch.y) < 1e-6 &&
-                   dUmX == 0.0 && dUmY == 0.0)
-               {
-                  // The prefetch ran on the CPU (the GPU host belongs to
-                  // this thread); its scene takes the host from here on.
-                  std::swap(wfScene, wfPrefetch.scene);
-                  wfScene.SetAccelerator(wfGpuMode ? wfGpu.get() : nullptr);
-                  wfPrefetch.scene.SetAccelerator(nullptr);
-                  wfPrefetch.ready = false;
-                  wfSeries = WfSeries();
-               }
-               // A running z sequence: its images, made once.
-               const bool seqRunning = liveSeqCapture_.load() && wfOk;
-               if (seqRunning && wfSeries.imagesVersion == wfScene.ImagesVersion())
-               {
-                  auto it = wfSeries.index.find(wfSpec.focusWorldUm);
-                  if (it != wfSeries.index.end())
-                     wfScene.AdoptFocus(wfSpec.focusWorldUm, wfSeries.images[it->second], wfSeries.imagesVersion);
-               }
-               std::string err;
-               const bool wasOk = wfOk;
-               const bool wasAccel = wfScene.UsingAccelerator();
-               wfOk = wfPsf && wfScene.Update(cellField, ill, wfSpec, *wfPsf, err);
-               if (!wfOk && wasOk)
-                  LogMessage("WideField: " + err, false);
-               if (wasAccel && !wfScene.UsingAccelerator())
-               {
-                  // The GPU failed mid-stream: CPU from here on (the scene
-                  // already re-rendered this focus on the CPU).
-                  SetGpuStatus("CPU (" + wfScene.GpuError() + ")");
-                  LogMessage(wfScene.GpuError() + " -- convolving on the CPU.", false);
-                  wfGpu.reset();
-               }
-               if (wfOk && seqRunning)
-               {
-                  const sim::SharedStageState::ZSequence zs = sim::GetSharedStageState().GetZSequence();
-                  if (zs.armed && (zs.version != wfSeries.seqVersion || wfSeries.imagesVersion != wfScene.ImagesVersion()))
-                  {
-                     WfSeries fresh;
-                     std::vector<double> foci;
-                     for (double p : zs.positions)
-                     {
-                        const double fz = CellFieldQueryFor(sx, sy, p, w, h, params, dx, dy, dx, dy, 0, 0.0, 0.0).zCullCentreUm;
-                        if (!fresh.index.count(fz))
-                        {
-                           fresh.index[fz] = foci.size();
-                           foci.push_back(fz);
-                        }
-                     }
-                     if (wfScene.FocusSeries(foci, fresh.images, err))
-                     {
-                        fresh.seqVersion = zs.version;
-                        fresh.imagesVersion = wfScene.ImagesVersion();
-                        wfSeries = std::move(fresh);
-                     }
-                  }
-               }
-               // A stage move under way: build the destination's scene.
-               double tx = 0.0, ty = 0.0;
-               sim::GetSharedStageState().XyTarget(tx, ty);
-               if (wfOk && !wfPrefetch.active && (tx != sx || ty != sy) && sim::GetSharedStageState().XyBusy() &&
-                   !(wfPrefetch.ready && wfPrefetch.x == tx && wfPrefetch.y == ty))
-               {
-                  wfPrefetch.active = true;
-                  wfPrefetch.ready = false;
-                  wfPrefetch.done = false;
-                  wfPrefetch.x = tx;
-                  wfPrefetch.y = ty;
-                  sim::WidefieldSceneSpec ts = BuildWidefieldSceneSpec(
-                     params, CellFieldQueryFor(tx - dUmX, ty - dUmY, zOffsetUm, w, h, params, 0.0, 0.0, 0.0, 0.0, 0,
-                                               0.0, 0.0));
-                  ts.grid.upscale = wfUpscale;
-                  ts.psfVersion = wfPsfVersion;
-                  ts.worldVersion = wfWorldVersion;
-                  const sim::CellFieldSettings world = BuildCellFieldSettings();
-                  const sim::WidefieldPsf* psfPtr = wfPsf.get();
-                  const long worldVersion = wfWorldVersion;
-                  wfPrefetch.thread = std::thread([&wfPrefetch, ts, world, psfPtr, worldVersion, w, h]() {
-                     wfPrefetch.ok = true;
-                     if (wfPrefetch.sourceWorld != worldVersion)
-                     {
-                        wfPrefetch.ok = wfPrefetch.source.Configure(world, wfPrefetch.err);
-                        wfPrefetch.sourceWorld = wfPrefetch.ok ? worldVersion : -1;
-                     }
-                     const sim::SquareIllumination tIll(w * ts.pixelUm, h * ts.pixelUm);
-                     wfPrefetch.ok = wfPrefetch.ok &&
-                                     wfPrefetch.scene.Update(wfPrefetch.source, tIll, ts, *psfPtr, wfPrefetch.err);
-                     wfPrefetch.done = true;
-                  });
-               }
-            }
-            else if (!cellField.Events(q, events))
-            {
-               LogMessage("CellField: event query failed", false);
-               cellFieldOk = false;
-            }
-            cellFieldLastQuery = q;
-            cellFieldQueried = true;
-         }
-         cellFieldTimeSec += params.frameDurationSec;
-      }
-      else
-      {
-         events = liveEmitterModel_.AdvanceOneFrame(liveFrameCounter_, widthUm, heightUm, params, liveRng_);
-         double outOfFocusRatio = outOfFocusRatio_.load();
-         if (outOfFocusRatio > 0.0 && outOfFocusZ)
-         {
-            std::vector<sim::BlinkEvent> oof = liveOutOfFocusModel_.AdvanceOneFrame(
-               liveFrameCounter_, widthUm, heightUm, params, liveOutOfFocusRng_, outOfFocusRatio, outOfFocusZ);
-            events.insert(events.end(), oof.begin(), oof.end());
-         }
-      }
-      // The background fade restarts with the drift ramp (at every Live/MDA
-      // acquisition start), the live-mode analog of "frame 0".
+      double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch);
+      double sx = 0.0, sy = 0.0;
+      sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
+      // The background fade restarts with the drift ramp.
       sim::RenderExtras extras =
          shaping.Extras(framesSinceDriftOrigin * params.frameDurationSec, bgDecaySec_.load());
       // Counter-based noise: keyed by the live frame counter, on a seed of
@@ -1953,66 +1037,80 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const uint32_t liveNoiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(randomSeed_) ^ 0x4C4E4F49ULL);
       const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
       std::vector<uint16_t> nextFrame;
-      bool rendered = false;
-      bool publishedAsync = false;
-      if (wfActive)
-      {
-         // Every labelled dye at its current dose (the images are ready, so
-         // this is a weighted sum); the frame's dose is then deposited over
-         // the pattern's whole support. Background, noise and publication go
-         // to wfFinisher, overlapping the next frame's scene work.
-         std::vector<float> dyes;
-         if (cellFieldOk && wfOk)
-         {
-            const sim::WidefieldGridSpec& g = wfScene.Grid();
-            if (wfBleach.Pitch() != g.pitchUm)
-            {
-               if (!wfBleach.Empty())
-                  LogMessage("WideField: grid pitch changed, bleach map reset.");
-               wfBleach.Reset(g.pitchUm);
-            }
-            wfBleach.DoseOver(g.x0Um, g.y0Um, g.nx, g.ny, wfDose);
-            wfScene.BleachWeightsFromDose(wfDose, wfWeights);
-            // Drift: the rest beyond the scene's anchor, as a shift of the image;
-            // the camera-fixed light then sits that much the other way over the
-            // sample (where the dose goes).
-            const double restXNm = params.drift.On() ? liveDrift.x - wfAnchor.x : 0.0;
-            const double restYNm = params.drift.On() ? liveDrift.y - wfAnchor.y : 0.0;
-            if (restXNm != 0.0 || restYNm != 0.0)
-               wfScene.RenderFrameShifted(wfWeights, restXNm / (g.pitchUm * 1000.0), restYNm / (g.pitchUm * 1000.0),
-                                          dyes);
-            else
-               wfScene.RenderFrame(wfWeights, dyes);
-            if (wfSpec.phot.Bleaches())
-               wfBleach.Deposit(sim::SquareIllumination(w * wfSpec.pixelUm, h * wfSpec.pixelUm),
-                                wfScene.AxisXUm() - restXNm / 1000.0, wfScene.AxisYUm() - restYNm / 1000.0,
-                                wfSpec.phot.EmissionRatePerSec(1.0) * params.frameDurationSec);
-         }
-         if (wfFinisher.joinable())
-            wfFinisher.join();
-         const long frameIndex = liveFrameCounter_.load(std::memory_order_relaxed);
-         const sim::CameraNoiseParams camNow = params.Camera();
-         wfFinisher = std::thread([this, &publish, &offsetMap, &gainMap, &readNoiseMap, dyes = std::move(dyes), extras,
-                                   params, w, h, camNow, liveNoiseSeed, noiseFrame, frameEpoch, frameIndex,
-                                   currentConfigVersion, driftRestart]() {
-            std::vector<float> img;
-            const std::vector<sim::BlinkEvent> none;
-            sim::RenderPhotonImage(img, w, h, none, frameIndex, params.pixelSizeNm, params.psfSigmaPx,
-                                   params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
-                                   nullptr, &extras);
-            for (size_t i = 0; i < dyes.size() && i < img.size(); ++i)
-               img[i] += dyes[i];
-            std::vector<uint16_t> frame;
-            sim::ApplyNoiseChain(img, frame, w, h, camNow, offsetMap, gainMap, readNoiseMap, liveNoiseSeed, noiseFrame);
-            publish(frame, w, h, frameEpoch, frameIndex, currentConfigVersion, driftRestart);
-         });
-         rendered = true;
-         publishedAsync = true;
-      }
+      sim::ScopeSpec spec;
+      // The lit rect of this frame and its illumination clocks.
+      double lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
+      sim::ClockSnapshot clock;
+      LitFrame lit;
       if (bfActive)
       {
-         // The lamp: photons per pixel of the empty field, times the
-         // transmitted intensity (dark if the scene failed); camera noise.
+         // A new pose or setting rebuilds the scene (seconds at high quality);
+         // a focus change re-images it (one inverse FFT per source). The lamp:
+         // photons per pixel of the empty field times the transmitted
+         // intensity (dark if the scene failed); camera noise.
+         if (cellFieldOk && params.drift.On())
+         {
+            // With drift: the scene stays at an anchor pose (rebuilt when the
+            // sample has moved 1 um from it) and each frame is its fine-grid
+            // image shifted by the rest of the drift, the z drift interpolated
+            // on a focus grid (BrightfieldDriftFrames).
+            if (!bfAnchored || std::fabs(liveDrift.x - bfAnchor.x) > 1000.0 ||
+                std::fabs(liveDrift.y - bfAnchor.y) > 1000.0)
+            {
+               bfAnchor = liveDrift;
+               bfAnchored = true;
+            }
+            const sim::CellFieldQuery q =
+               CellFieldQueryFor(sx - bfAnchor.x / 1000.0, sy - bfAnchor.y / 1000.0, zOffsetUm, w, h, params, 0.0, 0.0,
+                                 0.0, 0.0, liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
+            std::string err;
+            sim::BrightfieldSpec bs = BuildBrightfieldSpec(params, q, w, h);
+            bs.marginUm = bs.Resolved().marginUm + 1.0 + params.pixelSizeNm / 1000.0;
+            bool ok = bfScene.Update(cellField, bs, static_cast<uint64_t>(appliedConfigVersion), err);
+            if (ok && q.zCullCentreUm != bfDriftFocus)
+            {
+               sim::DriftBounds zb;
+               zb.zLo = -20000.0;
+               zb.zHi = 20000.0;
+               bfDrift.Begin(zb, std::vector<double>(1, q.zCullCentreUm));
+               bfDriftFocus = q.zCullCentreUm;
+            }
+            ok = ok && bfDrift.Ensure(bfScene, 0, liveDrift.z, err);
+            if (ok)
+            {
+               sim::DriftNm rest = liveDrift;
+               rest.x -= bfAnchor.x;
+               rest.y -= bfAnchor.y;
+               bfDrift.Image(bfScene, 0, rest, bfImage);
+            }
+            else
+            {
+               bfImage.clear();
+               if (!bfErrLogged)
+                  LogMessage("BrightField: " + err, false);
+               bfErrLogged = true;
+            }
+            bfLastQuery = q;
+            bfQueried = true;
+         }
+         else if (cellFieldOk)
+         {
+            const sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
+                                                            liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
+            std::string err;
+            const sim::BrightfieldSpec bs = BuildBrightfieldSpec(params, q, w, h);
+            const bool ok = bfScene.Update(cellField, bs, static_cast<uint64_t>(appliedConfigVersion), err) &&
+                            bfScene.Image(q.zCullCentreUm, bfImage, err);
+            if (!ok)
+            {
+               bfImage.clear();
+               if (!bfErrLogged)
+                  LogMessage("BrightField: " + err, false);
+               bfErrLogged = true;
+            }
+            bfLastQuery = q;
+            bfQueried = true;
+         }
          const double flux = std::max(0.0, brightFieldNum_[BF_PHOTONS_PER_PX_PER_SEC].load()) * params.frameDurationSec;
          photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
          if (bfImage.size() == photonImg.size())
@@ -2020,69 +1118,130 @@ void CInSiliScopeCamera::LiveProducerLoop()
                photonImg[i] = static_cast<float>(bfImage[i] * flux);
          sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                               liveNoiseSeed, noiseFrame, true);
-         rendered = true;
       }
-      if (!rendered && gpuOk && psfCache.valid)
+      else
       {
-         std::vector<sim::GpuSplatEmitter> ems;
-         sim::CollectGpuEmitters(events, liveFrameCounter_, w, h, params.pixelSizeNm, params.photonsPerBlink, dx,
-                                 dy, psfCache, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
-                                 &zTotalSinceRebuild);
+         // Fluorescence: this frame of the engine's movie at the current pose,
+         // focus and time (one stage pose per frame; motion blur is ignored).
+         spec = BuildScopeSpec(sx - liveDrift.x / 1000.0, sy - liveDrift.y / 1000.0, zOffsetUm - liveDrift.z / 1000.0,
+                               0.0, 1);
+         SyncHistoryWorld();
+         LitRect(sx, sy, lx0, ly0, lx1, ly1);
+         clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
+         sim::FluorescenceMovie fm;
          std::string err;
-         // Scalar camera settings (QE, gain...) are read per frame; the
-         // static per-pixel buffer carries only the maps and background.
-         rendered = gpu->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed, noiseFrame,
-                                     nextFrame, err);
-         if (!rendered)
+         bool rendered = false;
+         if (!fm.Begin(spec, false, err, useGpu_ ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr, &clock))
          {
-            LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
-            SetGpuStatus("CPU (GPU render failed: " + err + ")");
-            gpuOk = false;
+            if (!flErrLogged)
+               LogMessage("Fluorescence: " + err, false);
+            flErrLogged = true;
+         }
+         else
+         {
+            const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
+            if (plan.ok && plan.kernel && !gpuFailed && useGpu_)
+            {
+               sim::SimulationParams gp = params;
+               gp.photonsPerBlink = plan.photonsPerBlink;
+               gp.backgroundPhotons = plan.backgroundPhotons;
+               if (plan.kernel->Serial() != gpuKernelSerial || plan.backgroundPhotons != gpuBackground)
+               {
+                  gpuKernelSerial = PrepareGpu(gpu, *plan.kernel, w, h, offsetMap, gainMap, readNoiseMap, shaping, gp)
+                                       ? plan.kernel->Serial() : 0;
+                  gpuBackground = plan.backgroundPhotons;
+                  gpuFailed = gpuKernelSerial == 0;
+               }
+               if (gpuKernelSerial)
+               {
+                  std::vector<sim::GpuSplatEmitter> ems;
+                  sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, gp.photonsPerBlink, dx, dy,
+                                          *plan.kernel, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
+                                          &zTotalSinceRebuild);
+                  rendered = gpu->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed, noiseFrame,
+                                              nextFrame, err);
+                  if (!rendered)
+                  {
+                     LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
+                     SetGpuStatus("CPU (GPU render failed: " + err + ")");
+                     gpuFailed = true;
+                  }
+               }
+            }
+            else if (!plan.ok && useGpu_ && !gpuFailed && !fm.HasPopulations())
+               SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
+            if (!rendered)
+            {
+               sim::FluorescenceFrameOptions opt;
+               if (!shaping.illum.empty())
+                  opt.illumField = &shaping.illum;
+               const double bgScale = extras.backgroundScale;
+               if (bgScale != 1.0)
+                  opt.backgroundScale = [bgScale](long) { return bgScale; };
+               opt.onPhotons = [&](long, const std::vector<float>& photons) {
+                  photonImg = photons;
+                  return true;
+               };
+               sim::ScopeMovieInfo info;
+               if (fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt))
+                  rendered = true;
+               else if (!flErrLogged)
+               {
+                  LogMessage("Fluorescence: " + err, false);
+                  flErrLogged = true;
+               }
+            }
+         }
+         if (!rendered || nextFrame.size() != static_cast<size_t>(w) * h)
+         {
+            if (!rendered || photonImg.size() != static_cast<size_t>(w) * h)
+               photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
+            sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
+                                 liveNoiseSeed, noiseFrame, true);
+         }
+         // This frame lights the FOV and its margin for one exposure (counted
+         // when it is taken).
+         if (rendered)
+         {
+            lit.valid = true;
+            lit.x0 = lx0;
+            lit.y0 = ly0;
+            lit.x1 = lx1;
+            lit.y1 = ly1;
+            lit.dtSec = params.frameDurationSec;
+            lit.weight = HistoryWeight(shaping, sx, sy);
          }
       }
-      if (!rendered)
-      {
-         // One frame at a time here, so it uses every core (row bands: the
-         // same pixels as a serial render).
-         sim::RenderExtras cpuExtras = extras;
-         cpuExtras.parallel = true;
-         sim::RenderPhotonImage(photonImg, w, h, events, liveFrameCounter_, params.pixelSizeNm,
-                                params.psfSigmaPx, params.photonsPerBlink, params.backgroundPhotons, dx, dy,
-                                psfCache.valid ? &psfCache : nullptr, zOffsetUm,
-                                &zClampedSinceRebuild, &zTotalSinceRebuild, &cpuExtras);
-         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
-                              liveNoiseSeed, noiseFrame, true);
-      }
-
-      if (!publishedAsync)
-      {
-         if (wfFinisher.joinable())
-            wfFinisher.join(); // keep the publication order
-         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion,
-                 driftRestart);
-      }
-
+      cellFieldTimeSec += params.frameDurationSec;
+      publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, lit,
+              frameStart);
       ++liveFrameCounter_;
 
       double exposureMs = GetExposure();
       MM::MMTime elapsed = GetCurrentMMTime() - tickStart;
       double sleepMs = exposureMs - elapsed.getMsec();
-      // CellField: spend the wait pre-loading the dyes a stage move would
-      // need next (the whole z column and an xy margin around the FOV), so
-      // focusing and nearby moves do not stall a frame on generating them.
-      if (cellFieldOk && cellFieldQueried && CurrentPatternType() == sim::PATTERN_CELL_FIELD &&
-          sleepMs > kCellFieldPrefetchSlackMs)
+      // Spend the wait pre-loading the dyes a stage move would need next (the
+      // whole z column and an xy margin around the FOV), so focusing and
+      // nearby moves do not stall a frame on generating them.
+      if (sleepMs > kCellFieldPrefetchSlackMs)
       {
-         sim::CellFieldQuery next = cellFieldLastQuery;
-         next.tSec = cellFieldTimeSec;
-         next.spanSec = params.frameDurationSec;
-         cellField.Prefetch(next, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
+         if (bfActive && cellFieldOk && bfQueried)
+         {
+            sim::CellFieldQuery next = bfLastQuery;
+            next.tSec = cellFieldTimeSec;
+            next.spanSec = params.frameDurationSec;
+            cellField.Prefetch(next, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
+         }
+         else if (!bfActive && !spec.empty())
+         {
+            spec["start-sec"] = clock.At(sx, sy);
+            sim::PrefetchScope(spec, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
+         }
          sleepMs = exposureMs - (GetCurrentMMTime() - tickStart).getMsec();
       }
       if (sleepMs > 0.0)
          CDeviceUtils::SleepMs(static_cast<unsigned long>(sleepMs));
    }
-   joinWorkers();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2125,9 +1284,18 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       std::vector<uint16_t> frameCopy;
       unsigned w, h;
       long seq;
+      LitFrame lit;
       // Only frames rendered with the settings of this moment: one already in
-      // flight when a property changed would show the old settings.
+      // flight when a property changed would show the old settings. A snap
+      // takes a frame started after it was called (one in flight would show
+      // the stage pose before a move, and its illumination clocks would miss
+      // the previous snap's light); a sequence acquisition, frames started
+      // after it began.
       const long configNow = liveConfigVersion_.load(std::memory_order_relaxed);
+      const sim::SharedStageState::Clock::time_point takeAfter =
+         interruptible ? sim::SharedStageState::Clock::time_point(
+                            sim::SharedStageState::Clock::duration(liveSeqStartTicks_.load()))
+                       : sim::SharedStageState::Clock::now();
       for (;;)
       {
          {
@@ -2138,8 +1306,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             // A sequence (interruptible) takes only frames rendered after its
             // drift restart.
             const bool stale = (interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load()) ||
-                               liveFrameConfig_ < configNow ||
-                               (interruptible && liveFrameDriftRestart_ < liveDriftRestart_.load());
+                               liveFrameConfig_ < configNow || liveFrameStart_ < takeAfter;
             if (stale && seq != lastConsumedLiveFrameSeq_)
                lastConsumedLiveFrameSeq_ = seq;
             else if (seq != lastConsumedLiveFrameSeq_)
@@ -2147,6 +1314,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
                frameCopy = frontFrame_;
                w = liveFrameW_;
                h = liveFrameH_;
+               lit = liveFrameLit_;
                break;
             }
          }
@@ -2158,6 +1326,9 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       }
       lastConsumedLiveFrameSeq_ = seq;
       CropFullFrameIntoImg(frameCopy, w, h);
+      // The frame was taken: its light goes into the illumination history.
+      if (lit.valid)
+         illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight);
       return true;
    }
 
@@ -2228,90 +1399,6 @@ int CInSiliScopeCamera::OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct)
             StopLiveProducer();
             acqMode_ = newMode;
          }
-      }
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnPattern(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      const char* names[] = {g_PatternCircle,     g_PatternLines,   g_PatternGrid,
-                              g_PatternRandom,     g_PatternCustom,  g_PatternSpiral,
-                              g_PatternStar,       g_PatternHeart,   g_PatternResolutionTarget,
-                              g_PatternTiltedPlane, g_PatternUniform3D, g_PatternShell, g_PatternNup,
-                              g_PatternCalibration9Spots, g_PatternFilamentsRing, g_PatternCellField};
-      pProp->Set(names[patternType_]);
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      if (s == g_PatternCircle) patternType_ = sim::PATTERN_CIRCLE;
-      else if (s == g_PatternLines) patternType_ = sim::PATTERN_LINES;
-      else if (s == g_PatternGrid) patternType_ = sim::PATTERN_GRID;
-      else if (s == g_PatternRandom) patternType_ = sim::PATTERN_RANDOM;
-      else if (s == g_PatternCustom) patternType_ = sim::PATTERN_CUSTOM_POINTS;
-      else if (s == g_PatternSpiral) patternType_ = sim::PATTERN_SPIRAL;
-      else if (s == g_PatternStar) patternType_ = sim::PATTERN_STAR;
-      else if (s == g_PatternHeart) patternType_ = sim::PATTERN_HEART;
-      else if (s == g_PatternResolutionTarget) patternType_ = sim::PATTERN_RESOLUTION_TARGET;
-      else if (s == g_PatternTiltedPlane) patternType_ = sim::PATTERN_TILTED_PLANE;
-      else if (s == g_PatternUniform3D) patternType_ = sim::PATTERN_UNIFORM_3D;
-      else if (s == g_PatternShell) patternType_ = sim::PATTERN_SHELL;
-      else if (s == g_PatternNup) patternType_ = sim::PATTERN_NUP;
-      else if (s == g_PatternCalibration9Spots) patternType_ = sim::PATTERN_CALIBRATION_9_SPOTS;
-      else if (s == g_PatternFilamentsRing) patternType_ = sim::PATTERN_FILAMENTS_RING;
-      else if (s == g_PatternCellField) patternType_ = sim::PATTERN_CELL_FIELD;
-
-      // InvalidateStack() bumps liveConfigVersion_, which LiveProducerLoop
-      // polls every tick and rebuilds liveEmitterModel_'s pattern from
-      // accordingly -- no separate live-mode push needed here.
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnCustomPointsFile(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(customPointsFile_.c_str());
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      pProp->Get(customPointsFile_);
-      // See OnPattern: InvalidateStack() alone is enough to get Live mode
-      // to pick this up on its next tick.
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnResolutionSpacingsNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str());
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      std::vector<double> parsed = sim::ParseResolutionSpacingsNm(s);
-      if (!parsed.empty())
-      {
-         resolutionSpacingsNm_ = parsed;
-         // See OnPattern: InvalidateStack() alone is enough to get Live
-         // mode to pick this up on its next tick.
-         InvalidateStack();
-      }
-      else
-      {
-         // Nothing valid parsed (empty string, garbage) -- leave the
-         // existing list in place and reflect that back to the caller.
-         pProp->Set(sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str());
       }
    }
    return DEVICE_OK;
@@ -2431,34 +1518,6 @@ int CInSiliScopeCamera::OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionT
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnEmitterDensityPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(emitterDensityPerSec_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emitterDensityPerSec_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnPhotonsPerSecond(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(photonsPerSecond_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); photonsPerSecond_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOnLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(onLifetimeSec_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); onLifetimeSec_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnPsfWavelengthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(psfWavelengthNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); psfWavelengthNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnPsfNa(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(psfNa_.load());
@@ -2497,7 +1556,14 @@ int CInSiliScopeCamera::OnDarkCurrentPerSec(MM::PropertyBase* pProp, MM::ActionT
 int CInSiliScopeCamera::OnCameraGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(gainPhotonsPerAdu_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); gainPhotonsPerAdu_ = v; InvalidateStack(); }
+   else if (eAct == MM::AfterSet)
+   {
+      double v;
+      pProp->Get(v);
+      gainPhotonsPerAdu_ = v;
+      OnPropertyChanged(g_PropEmGain, std::to_string(EmGain()).c_str());   // derived from the gain
+      InvalidateStack();
+   }
    return DEVICE_OK;
 }
 
@@ -2747,112 +1813,6 @@ int CInSiliScopeCamera::OnPsfZernikePreset(MM::PropertyBase* pProp, MM::ActionTy
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnLabelingEfficiencyPct(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(labelingEfficiencyPct_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); labelingEfficiencyPct_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnStructureZRangeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(structureZRangeNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureZRangeNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnStructureSizeNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(structureSizeNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); structureSizeNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupRadiusNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupRadiusNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRadiusNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCornerSpreadNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupCornerSpreadNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCornerSpreadNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupRingSeparationNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupRingSeparationNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupRingSeparationNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupLinkerMinNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMinNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMinNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupLinkerMaxNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupLinkerMaxNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupLinkerMaxNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupMembraneType(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(nupMembrane_ == static_cast<int>(sim::MembraneOrientation::TopDown) ? g_NupMembraneTopDown
-                                                                                        : g_NupMembraneSideways);
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      std::string s;
-      pProp->Get(s);
-      nupMembrane_ = (s == g_NupMembraneSideways) ? static_cast<int>(sim::MembraneOrientation::Sideways)
-                                                    : static_cast<int>(sim::MembraneOrientation::TopDown);
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCount(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      pProp->Set(static_cast<long>(nupCount_));
-   }
-   else if (eAct == MM::AfterSet)
-   {
-      long v;
-      pProp->Get(v);
-      if (v < 1)
-         v = 1;
-      nupCount_ = static_cast<int>(v);
-      InvalidateStack();
-   }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupMinSpacingNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupMinSpacingNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupMinSpacingNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnNupCurvatureNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(nupCurvatureNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); nupCurvatureNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
@@ -2873,27 +1833,6 @@ int CInSiliScopeCamera::OnPsfInterp(MM::PropertyBase* pProp, MM::ActionType eAct
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnBlinkBleachProb(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(blinkBleachProb_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); blinkBleachProb_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOffLifetimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(offLifetimeSec_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); offLifetimeSec_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnPhotonCV(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(photonCV_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); photonCV_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(illumFwhmPct_.load());
@@ -2903,9 +1842,16 @@ int CInSiliScopeCamera::OnIllumFwhmPct(MM::PropertyBase* pProp, MM::ActionType e
 
 int CInSiliScopeCamera::OnEmGain(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   if (eAct == MM::BeforeGet) pProp->Set(emGain_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); emGain_ = v; InvalidateStack(); }
+   // Read-only: the camera preset's pre-amplifier sensitivity / the gain (EmGain()).
+   if (eAct == MM::BeforeGet) pProp->Set(EmGain());
    return DEVICE_OK;
+}
+
+double CInSiliScopeCamera::EmGain() const
+{
+   const double preamp = cameraPreset_ >= 0 && cameraPreset_ < static_cast<int>(sim::CameraIds().size())
+      ? sim::CameraPreamp(sim::CameraAt(cameraPreset_)) : sim::kDefaultPreampElectronsPerAdu;
+   return sim::EmGainFromGain(preamp, gainPhotonsPerAdu_.load());
 }
 
 int CInSiliScopeCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType eAct)
@@ -2915,45 +1861,10 @@ int CInSiliScopeCamera::OnCicElectrons(MM::PropertyBase* pProp, MM::ActionType e
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnBgCellContrast(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgCellContrast_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgCellContrast_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnBgHazeWeight(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWeight_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWeight_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnBgHazeWidthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(bgHazeWidthNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgHazeWidthNm_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
 int CInSiliScopeCamera::OnBgDecaySec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet) pProp->Set(bgDecaySec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); bgDecaySec_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOutOfFocusRatio(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusRatio_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusRatio_ = v; InvalidateStack(); }
-   return DEVICE_OK;
-}
-
-int CInSiliScopeCamera::OnOutOfFocusDepthNm(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet) pProp->Set(outOfFocusDepthNm_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); outOfFocusDepthNm_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 
@@ -3079,8 +1990,7 @@ int CInSiliScopeCamera::OnExposureProperty(MM::PropertyBase* /*pProp*/, MM::Acti
 {
    if (eAct == MM::AfterSet)
    {
-      // EmitterDensityPerSec/OnLifetimeSec/PhotonsPerSecond/
-      // BackgroundPhotonsPerSec are all rates converted to frame-equivalent
+      // The dyes' rates and BackgroundPhotonsPerSec are all rates converted to frame-equivalent
       // values using this property's current value (SnapshotParams()) -- a
       // changed Exposure means the precomputed stack no longer reflects the
       // current settings and must regenerate. Live mode needs no equivalent
@@ -3122,15 +2032,19 @@ void CInSiliScopeCamera::StartPsfPreload()
 {
    if (psfPreloadThread_.joinable())
       psfPreloadThread_.join();
-   const sim::PsfGeneratorRequest req = BuildPsfGeneratorRequest();
-   if (req.model == sim::PsfModelKind::Gaussian)
+   if (CurrentPsfModel() == sim::PsfModelKind::Gaussian)
       return;
-   psfPreloadThread_ = std::thread([this, req]() {
-      sim::PsfKernelCache cache;
+   // The kernels of the current settings' dye states (the engine's prepare
+   // movie: world, FOV blocks and kernels, no frames) on a background thread.
+   double sx = 0.0, sy = 0.0;
+   sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
+   sim::ScopeSpec spec = BuildScopeSpec(sx, sy, sim::GetSharedStageState().zPositionUm.load(), 60.0, 1);
+   spec["prepare"] = 1;
+   psfPreloadThread_ = std::thread([this, spec]() {
+      LogMessage("PSF: preloading the kernels of the current settings in the background.");
+      sim::ScopeMovieInfo info;
       std::string err;
-      auto logCallback = [this](const std::string& msg) { this->LogMessage(msg); };
-      LogMessage("PSF: preloading the kernel of the current PSF settings in the background.");
-      if (!sim::ComputePsfKernelCache(req, cache, err, logCallback))
+      if (!sim::RenderScopeMovie(spec, [](long, const std::vector<uint16_t>&) { return true; }, info, err))
          LogMessage("PSF preload failed (the first frame computes the kernel instead): " + err, false);
    });
 }
@@ -3158,14 +2072,15 @@ int CInSiliScopeCamera::OnDiskCache(MM::PropertyBase* pProp, MM::ActionType eAct
 int CInSiliScopeCamera::OnImagingModality(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
-      pProp->Set(modality_.load() == 2   ? g_ModalityBrightField
-                 : modality_.load() == 1 ? g_ModalityWideField
-                                         : g_ModalitySuperRes);
+      pProp->Set(modality_.load() == 1 ? g_ModalityBrightField : g_ModalityFluorescence);
    else if (eAct == MM::AfterSet)
    {
       std::string s;
       pProp->Get(s);
-      modality_ = s == g_ModalityBrightField ? 2 : s == g_ModalityWideField ? 1 : 0;
+      const int m = s == g_ModalityBrightField ? 1 : 0;
+      const bool changed = modality_.exchange(m) != m;
+      if (changed)
+         ApplyModeGain();   // a camera whose gain depends on the imaging (an EMCCD preset)
       InvalidateStack();
    }
    return DEVICE_OK;
@@ -3215,19 +2130,3 @@ int CInSiliScopeCamera::OnBrightFieldNumber(MM::PropertyBase* pProp, MM::ActionT
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnWideFieldHalfTimeSec(MM::PropertyBase* pProp, MM::ActionType eAct)
-{
-   if (eAct == MM::BeforeGet)
-   {
-      // Same photophysics as BuildWidefieldSceneSpec, at the pattern's peak
-      // (the whole FOV for the square illumination).
-      sim::WidefieldPhotophysics ph;
-      ph.excitationPhotonsPerUm2PerSec = std::max(0.0, wideFieldNum_[WF_EXCITATION].load());
-      ph.quantumYield = std::min(1.0, std::max(0.0, wideFieldNum_[WF_QUANTUM_YIELD].load()));
-      ph.photonBudget = std::max(0.0, wideFieldNum_[WF_PHOTON_BUDGET].load());
-      ph.extinctionCoeff = std::max(0.0, wideFieldNum_[WF_EXTINCTION_COEFF].load());
-      const double t = ph.HalfTimeSec(1.0);
-      pProp->Set(std::isfinite(t) ? t : -1.0);
-   }
-   return DEVICE_OK;
-}

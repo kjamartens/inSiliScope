@@ -27,6 +27,8 @@ void Usage()
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
    std::printf("  --p.<name> <value>     any core world parameter (the prototype's names)\n"
                "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"
+               "  --mt-dye.<field> <v>   override a field of the microtubules' dye (fluorescent-pct, qy, ext-coeff,\n"
+               "  --dye<N>.<field> <v>   on-sec, off-sec, ...: DyeFieldNames), or of dye slot N (1-3)\n"
                "\n"
                "geometry instead of a movie (same world, no rendering):\n"
                "  --geometry-json <file> write the cells around x, y as JSON (ScopeGeometryJson)\n"
@@ -148,14 +150,11 @@ int main(int argc, char** argv)
       std::fclose(f);
       std::printf("%s: sample drift per frame\n", csv.c_str());
    }
-   if (sim::ScopeSpecGet(spec, "modality") == 2)
+   if (sim::ScopeSpecGet(spec, "modality") == 1)
       std::printf("%s: %ld frames %ux%u, BrightField (setup %.2f s), total %.2f s\n", out.c_str(), info.frames,
                   info.width, info.height, info.querySec, info.totalSec);
-   else if (info.dyes > 0 || sim::ScopeSpecGet(spec, "modality") == 1)
-      std::printf("%s: %ld frames %ux%u, WideField, %ld dyes, t1/2 %.4g s (setup %.2f s), total %.2f s\n", out.c_str(),
-                  info.frames, info.width, info.height, info.dyes, info.halfTimeSec, info.querySec, info.totalSec);
    else
-      std::printf("%s: %ld frames %ux%u, %zu blinks (query %.2f s), total %.2f s\n", out.c_str(), info.frames,
-                  info.width, info.height, info.blinks, info.querySec, info.totalSec);
+      std::printf("%s: %ld frames %ux%u, %zu blinks, %ld dyes in continuous populations (setup %.2f s), total %.2f s\n",
+                  out.c_str(), info.frames, info.width, info.height, info.blinks, info.dyes, info.querySec, info.totalSec);
    return 0;
 }

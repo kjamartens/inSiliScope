@@ -20,7 +20,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt through the field in your browser, render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield) | [Open the viewer](try-viewer.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield); simulated data in 3D and cell animations exported as MP4/WebM/GIF | [Open the viewer](try-viewer.md) |
 | **Micro-Manager adapter** | `Camera`, `XYStage` and `ZStage` devices (`mmgr_dal_inSiliScope.dll`): move the stage, change focus, run live or precomputed acquisitions against a sample that never changes | [Quickstart](quickstart.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/kjamartens/webSMLM) | [Quickstart](quickstart.md) |
 
@@ -37,10 +37,14 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   [World model](physics/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
-- **Three modalities.** *SuperRes*: blinking dyes with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default, double
-  helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *WideField*: every labelled dye at once, 3D PSF convolution, photobleaching in physical units.
-  *BrightField* (exploration): transmitted light through the cells' refractive index, partially coherent multislice wave
-  optics, a speed/precision quality setting.
+- **Dyes and a light path.** Each structure's label is a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
+  mEGFP, ...) in a mode: *dSTORM*, *PALM* (with the pre-converted state), *DNA-PAINT* (with the free imager's background)
+  or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's
+  QE curve decide what is excited and detected, and at which wavelength (the PSF follows). See
+  [Dyes and light path](physics/dyes-and-light-path.md).
+- **Two modalities.** *Fluorescence* with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default,
+  double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *BrightField* (exploration): transmitted light through
+  the cells' refractive index, partially coherent multislice wave optics, a speed/precision quality setting.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
 - **Built to extend.** Targets, photophysics and modalities are separate layers; see [Extending](extending.md).
 

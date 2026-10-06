@@ -1,8 +1,10 @@
 // Imaging parity: the JS reference (web/prototype/scope/) against the C++ (the committed viewer WASM,
 // web/insiliscope_module.js: core world + ScopeMovie). Needs no build.
 //   node tests/parity/scope_parity.mjs [--quick] [--module <insiliscope_module.js>]
-// Checks: blink events (count, order, values to 1e-9), the BrightField optical volume (bit-identical), then SR,
-// WideField and BrightField movies pixel by pixel. Expected after a port: SR 100% identical ADU, WideField >= 99.9%
+// Checks: blink events of a dSTORM label (count, order, values to 1e-9), the BrightField optical volume
+// (bit-identical), then fluorescence movies (issue 16: every label mode, a PALM pre state, several lasers, per-dye and
+// mean-field continuous populations, a Gaussian-spectrum slot dye, light-preset=auto, start 0 and 60 s) and
+// BrightField movies pixel by pixel. Expected after a port: blinks only 100% identical ADU, mean-field movies >= 99.9%
 // (the C++ convolves in float32), BrightField >= 99.5% (complex float32 FFTs through the slices: single-electron
 // Poisson flips) and its intensity within 1e-4 relative.
 // In iteration mode (PORT_PENDING.md) the JS is ahead on purpose and this fails: run it in the port.
@@ -13,6 +15,7 @@ import { loadPrototype } from './load_prototype.mjs';
 import { loadWasmScope } from './wasm_scope.mjs';
 import { World } from '../../web/prototype/scope/world.js';
 import { renderScopeMovie } from '../../web/prototype/scope/scope_movie.js';
+import { makeLabel } from '../../web/prototype/scope/dyes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -27,18 +30,24 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 
 // ---- events ----
 {
-  const seed = 1249, core = { labelEfficiency: 0.02, labelNonBleaching: 0.05 };
-  const kin = { activationRatePerSec: 0.05, onSec: 0.05, offSec: 1, bleachProb: 0.5, photonCV: 0.5 };
-  const W = new World(P, seed, { ...P.paramsFrom(P.defaults), ...core }, kin);
+  // dSTORM, 7% of the sites, with an initial ON phase (the full mode table is tests/parity/label_parity.mjs).
+  const seed = 1249;
+  const kin = { activationRatePerSec: 0.05, onSec: 0.05, offSec: 1, bleachProb: 0.5, photonCV: 0.5, initialOnSec: 2 };
+  const label = makeLabel({ mode: 'dSTORM', density: 0.07, kinetics: kin });
+  const W = new World(P, seed, P.paramsFrom(P.defaults), [label]);
   const rect = quick ? [61, 1, 64, 4] : [60, 0, 66, 6];
   const js = W.eventsInWindow(...rect, 0, 4, 0, 30);
-  const cc = C.events(seed, core, kin, rect, 0, 4, 0, 30);
-  const n = cc.length / 7;
+  const o = label.orientation, k = label.kinetics;   // isc_world_set_label's layout (ISC_LABEL_*)
+  const vec = [label.density, label.fluorescentFraction, 0, k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb,
+    k.photonCV, k.initialOnSec, 0, ['Free', 'Fixed', 'Random'].indexOf(o.mode), o.polarDeg, o.azimuthDeg, o.wobbleDeg, 0, 0];
+  const cc = C.events(seed, {}, vec, rect, 0, 4, 0, 30);
+  const n = cc.length / 10;
   let maxd = 0, idBad = 0;
   for (let i = 0; i < Math.min(n, js.length); i++) {
-    const a = js[i], b = cc.subarray(i * 7, i * 7 + 7);
+    const a = js[i], b = cc.subarray(i * 10, i * 10 + 10);
     maxd = Math.max(maxd, Math.abs(a.x - b[0]), Math.abs(a.y - b[1]), Math.abs(a.z - b[2]), Math.abs(a.tOn - b[3]),
-      Math.abs(a.tOff - b[4]), Math.abs(a.brightness - b[5]));
+      Math.abs(a.tOff - b[4]), Math.abs(a.brightness - b[5]), Math.abs(a.structure - b[7]), Math.abs(a.state - b[8]),
+      Math.abs(a.aux - b[9]));
     if ((a.id >>> 0) !== (b[6] >>> 0)) idBad++;
   }
   report(js.length === n && idBad === 0 && maxd < 1e-9,
@@ -47,7 +56,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 
 // ---- optical volume (BrightField) ----
 {
-  const seed = 1249, W = new World(P, seed, { ...P.paramsFrom(P.defaults), labelEfficiency: 0, labelNonBleaching: 0.7 });
+  const seed = 1249, W = new World(P, seed, P.paramsFrom(P.defaults));
   const [rect, nz, sub, n] = quick ? [[60, 0, 64, 4], 6, 1, 40] : [[58, -2, 68, 8], 6, 2, 50];
   const js = new Float32Array(3 * n * n * nz);
   const jc = W.opticalVolume(...rect, 0, 6, n, n, nz, sub, js);
@@ -59,22 +68,29 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 }
 
 // ---- movies ----
+const B = 'world-seed=1249 x=63 y=3';
 const CASES = [
-  ['SR Gaussian', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-model=0', 0.999],
-  ['SR GibsonLanniZernike, Cubic', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-kernel-half-width-nm=2500', 0.999],
-  ['SR double helix, Linear, bleaching dyes', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear labeling-pct-bleaching=5 milli-activation-rate=20 bleach-prob=0.3 zern.5=0.2', 0.999],
-  ['SR drift xy 30, z 40 nm/sqrt(s)', 'world-seed=1249 x=63 y=3 size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40', 0.999],
-  ['SR directed drift, wandering', 'world-seed=1249 x=63 y=3 size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=-150 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10', 0.999],
-  ['WideField GibsonLanniZernike', 'world-seed=1249 x=63 y=3 size=48 frames=3 modality=WideField psf-kernel-half-width-nm=2500 labeling-pct-bleaching=10', 0.999],
-  ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 modality=1 psf-model=0 wf-upscale=2', 0.999],
-  ['WideField upscale 3, bleaching from t = 30 s', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=1 psf-kernel-half-width-nm=2500 wf-upscale=3 start-sec=30 labeling-pct-bleaching=20 wf-photon-budget=500', 0.999],
-  ['WideField drift xy 40, z 30 nm/sqrt(s), bleaching', 'world-seed=1249 x=63 y=3 size=40 frames=8 modality=WideField psf-kernel-half-width-nm=2500 labeling-pct-bleaching=10 drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30', 0.999],
-  ['BrightField thin object (quality 1)', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField bf-quality=1', 0.995],
+  ['DNA-PAINT ATTO 655 + imager background, Gaussian PSF', `${B} size=48 frames=12 psf-model=0`, 1],
+  ['DNA-PAINT, GibsonLanniZernike, Cubic', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500`, 1],
+  ['DNA-PAINT, drift xy 30, z 40 nm/sqrt(s)', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
+  ['DNA-PAINT, directed drift, wandering', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=-150 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10`, 0.999],
+  ['dSTORM AF647 from t = 0 (initial ON, mean field), light-preset=auto', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0`, 0.999],
+  ['dSTORM AF647 at 60 s, double helix, Linear', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear zern.5=0.2 mt-dye=AF647 light-preset=auto', 1],
+  ['PALM mEos3.2, pre state, 405 + 488 + 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=mEos3.2 light-preset=auto laser-405=0.05 laser-488=0.5`, 0.999],
+  ['PALM mEos3.2 primed (488 + 730 nm)', `${B} size=40 frames=8 psf-kernel-half-width-nm=2500 mt-dye=mEos3.2 light-preset=PALM-primed`, 0.999],
+  ['WideField mEGFP, mean field', `${B} size=48 frames=3 psf-kernel-half-width-nm=2500 mt-dye=mEGFP light-preset=auto`, 0.999],
+  ['WideField mEGFP, per dye, from t = 0', `${B} size=32 frames=4 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 mt-dye.photon-budget=2000`, 1],
+  ['WideField mEGFP, mean field, drift xy 40, z 30 nm/sqrt(s)', `${B} size=40 frames=8 psf-kernel-half-width-nm=2500 mt-dye=mEGFP light-preset=auto drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30`, 0.999],
+  ['WideField mEGFP, per dye, directed drift', `${B} size=32 frames=6 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 drift-xy-speed-nm-per-sec=300 drift-z-speed-nm-per-sec=100`, 0.999],
+  ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 psf-model=0 wf-upscale=2 mt-dye=mEGFP light-preset=auto', 0.999],
+  ['Gaussian-spectrum slot dye (Custom in Dye1)', `${B} size=40 frames=6 psf-model=0 dye1.source=Custom mt-dye=Dye1 light-preset=auto`, 0.999],
+  ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
+  ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the
   // photon count (the ~1e-5 relative intensity difference flips more Poisson draws), 99.35% at 80000.
-  ['BrightField multislice (quality 3), defocused', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=BrightField z=2 bf-photons-per-px-per-sec=40000', 0.995],
-  ['BrightField drift xy 40, z 30 nm/sqrt(s) (quality 2)', 'world-seed=1249 x=63 y=3 size=40 frames=6 modality=BrightField bf-quality=2 bf-photons-per-px-per-sec=40000 drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30', 0.995],
-  ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=2 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
+  ['BrightField multislice (quality 3), defocused', `${B} size=40 frames=3 modality=BrightField z=2 bf-photons-per-px-per-sec=40000`, 0.995],
+  ['BrightField drift xy 40, z 30 nm/sqrt(s) (quality 2)', `${B} size=40 frames=6 modality=BrightField bf-quality=2 bf-photons-per-px-per-sec=40000 drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30`, 0.995],
+  ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=1 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
   const t0 = performance.now();

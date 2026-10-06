@@ -73,6 +73,12 @@ int main(int argc, char** argv)
 
    // --- Per-cell assets of the first cells near the origin.
    World w(seed, p);
+   {
+      Label l0;   // the old default dye set: 10 % of the sites
+      l0.mode = LabelMode::PALM;
+      l0.density = 0.1;
+      w.SetLabel(STRUCTURE_MT, l0);
+   }
    std::vector<Cell> cells;
    {
       auto t0 = std::chrono::steady_clock::now();
@@ -132,9 +138,11 @@ int main(int argc, char** argv)
       Line("world: SitesInWindow warm", Ms(t0));
    }
    {
-      Kinetics k;
-      k.activationRatePerSec = 0.00143;
-      w.SetKinetics(k);
+      Label l;   // the old default: 10 % bleaching dyes
+      l.mode = LabelMode::PALM;
+      l.density = 0.1;
+      l.kin.activationRatePerSec = 0.00143;
+      w.SetLabel(STRUCTURE_MT, l);
       std::vector<WorldEvent> ev;
       auto t0 = std::chrono::steady_clock::now();
       w.EventsInWindow(-W / 2, -W / 2, W / 2, W / 2, -3, 4, 0, 0.05, ev);

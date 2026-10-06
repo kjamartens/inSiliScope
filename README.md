@@ -9,7 +9,9 @@ nucleus, cytoplasm, microtubules, dye sites) and images it as a single-molecule 
 widefield image, with a physical PSF and camera noise model. Every cell is a pure function of `(seed, address)`, so
 any window of the field can be generated on its own, in any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan through the field, render SMLM/widefield/brightfield movies, save TIFFs.
+- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, render SMLM/widefield/brightfield movies,
+  save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
+  cell (orbits, layers building up, slices sweeping through) and export them as MP4, WebM or GIF.
 - **Micro-Manager adapter**: `Camera`, `XYStage`, `ZStage` devices; live or precomputed acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.
 
@@ -27,10 +29,15 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 
 - **World**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
   field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice with antibody/nanobody linkers.
-- **SuperRes**: blinking dyes (bleaching and persistent/DNA-PAINT-like populations), diffraction PSFs (scalar
-  Gibson-Lanni with Zernike aberrations by default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), sub-pixel placement, sCMOS/EMCCD noise, background, drift.
-- **WideField**: all labelled dyes at once, 3D PSF convolution by FFT, photobleaching in physical units (extinction, QY,
-  photon budget), world-anchored bleach memory, hardware z stacks, GPU path (WebGPU / Direct3D 11).
+- **Labels, dyes, light path**: a dye library (FPbase spectra, literature kinetics) in four label modes -- dSTORM
+  (initial ON, blinking, intensity-scaled times), PALM (pre-converted state, 405 nm and primed activation), DNA-PAINT
+  (imager binding, free-imager background) and WideField (all dyes at once, bleaching by photon budget); lasers,
+  dichroics, emission filters and camera QE curves set excitation, detected fraction and each state's PSF wavelength
+  ([Dyes and light path](https://kjamartens.github.io/inSiliScope/physics/dyes-and-light-path/)).
+- **Fluorescence imaging**: blinks splatted with diffraction PSFs (scalar Gibson-Lanni with Zernike aberrations by
+  default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), continuous populations mean-field (3D PSF
+  convolution by FFT, GPU path: WebGPU / Direct3D 11) or per dye, sub-pixel placement, sCMOS/EMCCD noise, background,
+  drift, hardware z stacks.
 - **BrightField** (exploration): transmitted light through the cells' refractive index (cytoplasm, nucleus,
   microtubules only -- nothing the world does not simulate), partially coherent Koehler illumination, multislice
   wave optics, one quality setting from fast to precise ([spec/BRIGHTFIELD.md](spec/BRIGHTFIELD.md)).
@@ -43,11 +50,11 @@ Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/
 # core + CLI, native (Linux/macOS)
 cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native
-ctest --test-dir build/native
+ctest --test-dir build/native -j 8
 build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128   # --help for all options
 
 # Windows (MSVC)
-cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release
+cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8
 
 # WASM (Emscripten 6.0.10) and the viewer module
 cmake --preset wasm && cmake --build --preset wasm && node tools/embed_web_module.mjs

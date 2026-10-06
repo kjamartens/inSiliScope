@@ -109,11 +109,17 @@
   <ItemGroup>
     <ClCompile Include="InSiliScopeCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
+    <ClCompile Include="ScopeProperties.cpp" />
+    <ClCompile Include="Simulation\ScopeMovie.cpp" />
+    <ClCompile Include="Simulation\IlluminationHistory.cpp" />
     <ClCompile Include="InSiliScopeModule.cpp" />
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
     <ClCompile Include="Simulation\CellFieldSource.cpp" />
     <ClCompile Include="Simulation\Drift.cpp" />
+    <ClCompile Include="Simulation\DyeLibrary.cpp" />
+    <ClCompile Include="Simulation\LightPath.cpp" />
+    <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
@@ -132,8 +138,6 @@
     <ClCompile Include="..\..\core\src\params.cpp" />
     <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
-    <ClCompile Include="Simulation\SMLMPatterns.cpp" />
-    <ClCompile Include="Simulation\SMLMStructures.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
     <ClCompile Include="Simulation\PsfGeneratorBridge.cpp" />
     <ClCompile Include="Simulation\SMLMZernike.cpp" />
@@ -151,6 +155,12 @@
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
     <ClInclude Include="Simulation\Drift.h" />
+    <ClInclude Include="Simulation\DyeLibrary.h" />
+    <ClInclude Include="Simulation\LightPath.h" />
+    <ClInclude Include="Simulation\Spectra.h" />
+    <ClInclude Include="Simulation\ScopeMovie.h" />
+    <ClInclude Include="Simulation\IlluminationHistory.h" />
+    <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />
@@ -173,8 +183,6 @@
     <ClInclude Include="..\..\core\src\rng.h" />
     <ClInclude Include="..\..\core\src\world.h" />
     <ClInclude Include="Simulation\SMLMSimulation.h" />
-    <ClInclude Include="Simulation\SMLMPatterns.h" />
-    <ClInclude Include="Simulation\SMLMStructures.h" />
     <ClInclude Include="Simulation\SMLMNoise.h" />
     <ClInclude Include="Simulation\PsfGeneratorBridge.h" />
     <ClInclude Include="Simulation\SMLMZernike.h" />

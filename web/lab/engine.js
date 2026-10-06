@@ -11,7 +11,8 @@
 // Loaded as a module worker it answers postMessage(job) like the viewer's Blob workers (genWorkerMain).
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
-import { renderScopeMovie, parseSpec, scopeDims } from '../prototype/scope/scope_movie.js';
+import { makeLabel } from '../prototype/scope/dyes.js';
+import { renderScopeMovie, parseSpec, scopeDims, scopePsfPreview } from '../prototype/scope/scope_movie.js';
 
 const NUC_SLICES = 17, NUC_PTS = 48; // nucleus rings sent with each cell (both poles included)
 
@@ -30,18 +31,26 @@ export async function createEngine(src = {}) {
   let world = null, worldKey = '';
 
   // One World per (seed, params), like iscEngine's useWorld. The viewer sends its params() output; the
-  // prototype's params() normalises the keys it knows, and every other key (labelEfficiency,
-  // labelNonBleaching, a slider only the viewer has so far) reaches the generator as sent.
-  function useWorld(seed, p) {
+  // prototype's params() normalises the keys it knows, and every other key (a slider only the viewer has so far)
+  // reaches the generator as sent. The labels (a sites job's d.labels) are set on it (World.setLabels).
+  function useWorld(seed, p, labels) {
     const key = (seed >>> 0) + '|' + Object.keys(p).sort().map(k => k + '=' + p[k]).join('|');
-    if (key === worldKey) return world;
+    if (key === worldKey) return withLabels(world, labels);
     const vals = { ...P.defaults };
     for (const k of Object.keys(p)) if (k in P.defaults) vals[k] = typeof P.defaults[k] === 'boolean' ? !!p[k] : p[k];
     const norm = P.paramsFrom(vals), params = { ...norm };
     for (const k of Object.keys(p)) if (!(k in norm)) params[k] = p[k];
     world = new World(P, seed >>> 0, params);
     worldKey = key;
-    return world;
+    return withLabels(world, labels);
+  }
+  function withLabels(w, labels) {
+    if (labels) {
+      // a sites job's {density, fluorescentFraction} (the rest the default), or an events job's whole label
+      const want = labels.map(l => makeLabel(l.mode ? l : { density: l.density, fluorescentFraction: l.fluorescentFraction }));
+      if (want.some((l, i) => JSON.stringify(l) !== JSON.stringify(w.labels[i]))) w.setLabels(want);
+    }
+    return w;
   }
 
   // World::FindCell: the cell of chunk (cx, cy) in its packing block, or null.
@@ -69,18 +78,29 @@ export async function createEngine(src = {}) {
     if (blocks) for (const b of blocks) w.setPackedBlock(b.bx, b.by, b.rows);
   }
 
-  function movie(d) {
+  // post: optional progress sink (the worker's postMessage): {type: 'movie-progress', id, stage, frac, info}.
+  function movie(d, post) {
     const t0 = performance.now();
     try {
       const { width: W, height: H, frames: N } = scopeDims(parseSpec(d.spec));
       const frames = new Uint16Array(W * H * N);
-      const info = renderScopeMovie(P, d.spec, (f, adu) => { frames.set(adu, f * W * H); });
-      const half = info.halfTimeSec ?? 0;
+      let lastPost = 0;
+      const info = renderScopeMovie(P, d.spec, (f, adu) => { frames.set(adu, f * W * H); }, { onProgress: (stage, frac, x) => {
+        const now = performance.now();
+        if (!post || d.prepare || (now - lastPost < 150 && frac < 1)) return;
+        lastPost = now;
+        post({ type: 'movie-progress', id: d.id, stage, frac, info: x || null });
+      } });
+      // A one-line summary of the labels (dye, mode, detected photons/s and wavelength) and populations.
+      const summary = (info.labels || []).map(l => `${l.dye} ${l.mode}: ` + Object.entries(l.states).filter(([, v]) => v)
+        .map(([k, v]) => `${k} ${Math.round(v.detectedPerSec)} ph/s @ ${v.lambdaNm.toFixed(0)} nm (${(100 * v.detectedFraction).toFixed(1)} %)`).join(', '))
+        .concat((info.populations || []).map(q => `${['', 'pre', 'initial ON', 'always on'][q.state]}: ${q.meanFieldFrames} mean-field + ${q.perDyeFrames} per-dye frames`))
+        .concat(info.imagerBackgroundPerPxPerFrame ? [`imager ${info.imagerBackgroundPerPxPerFrame.toFixed(1)} ph/px/frame`] : []).join('; ');
+      // dyes / halfMs as the WASM's isc_scope_movie: the continuous populations' dyes; -1 = never (fluorescence), 0 (BrightField)
       const res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: info.width, h: info.height,
-        n: info.frames, blinks: info.blinks ?? 0, dyes: info.dyes ?? 0,
-        halfMs: Number.isFinite(half) ? Math.trunc(Math.min(2e9, half * 1000)) : -1, ms: performance.now() - t0 };
+        n: info.frames, blinks: info.blinks ?? 0, dyes: (info.populations || []).reduce((n, q) => n + q.dyes, 0),
+        halfMs: info.populations ? -1 : 0, summary, ms: performance.now() - t0 };
       if (d.prepare) res.prepared = true;
-      if (info.dyes != null) res.gpu = 'CPU'; // WideField: the JS reference has no WebGPU path
       return [res, [frames.buffer]];
     } catch (e) {
       return [{ type: 'movie', id: d.id, error: String(e && e.message || e) }, []];
@@ -89,9 +109,17 @@ export async function createEngine(src = {}) {
 
   return {
     P,
-    handle(d) {
-      if (d.type === 'movie') return movie(d);
-      const w = useWorld(d.seed, d.p);
+    handle(d, post) {
+      if (d.type === 'movie') return movie(d, post);
+      if (d.type === 'psf') {   // the viewer's Preview PSF (the WASM engine: isc_scope_psf_preview)
+        try {
+          const r = scopePsfPreview(parseSpec(d.spec), (k, n) => post && post({ type: 'psf-progress', id: d.id, frac: (k + 1) / n }));
+          return [{ type: 'psf', id: d.id, ...r }, [r.planes.buffer, r.cams.buffer]];
+        } catch (e) {
+          return [{ type: 'psf', id: d.id, error: String(e && e.message || e) }, []];
+        }
+      }
+      const w = useWorld(d.seed, d.p, d.labels);
       if (d.type === 'block') {
         inject(w, d.blocks);
         const cells = w.packedBlock(d.bx, d.by), rows = new Float64Array(cells.length * 14);
@@ -138,11 +166,22 @@ export async function createEngine(src = {}) {
         }
         return [out, transfer];
       }
+      if (d.type === 'events') {
+        // the WASM engine's events job (web/index.html): blinks in a box and time window under d.labels (set above)
+        inject(w, d.blocks);
+        const [x0, y0, x1, y1] = d.rect;
+        const list = w.eventsInWindow(x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1), events = new Float64Array(list.length * 7);
+        list.forEach((e, i) => events.set([e.x, e.y, e.z, e.tOn, e.tOff, e.brightness, e.id], i * 7));
+        return [{ type: 'events', id: d.id, events }, [events.buffer]];
+      }
       if (d.type === 'sites') {
         inject(w, d.blocks);
         const [x0, y0, x1, y1] = d.rect;
-        const list = w.sitesInWindow(x0, y0, x1, y1, -Infinity, Infinity), sites = new Float64Array(list.length * 4);
-        list.forEach((s, i) => { sites[4 * i] = s.x; sites[4 * i + 1] = s.y; sites[4 * i + 2] = s.z; sites[4 * i + 3] = s.id; });
+        // x, y, z, id, structure per dye (isc_sites_in_window, ABI 10)
+        const list = w.sitesInWindow(x0, y0, x1, y1, -Infinity, Infinity), sites = new Float64Array(list.length * 5);
+        list.forEach((s, i) => {
+          sites[5 * i] = s.x; sites[5 * i + 1] = s.y; sites[5 * i + 2] = s.z; sites[5 * i + 3] = s.id; sites[5 * i + 4] = s.structure;
+        });
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
       throw new Error('unknown job ' + d.type);
@@ -155,7 +194,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
   const ready = createEngine();
   self.onmessage = e => {
     if (e.data && e.data.type === 'init') return;   // the viewer's shared-WASM handshake: nothing to do here
-    ready.then(eng => eng.handle(e.data)).then(([out, transfer]) => postMessage(out, transfer))
+    ready.then(eng => eng.handle(e.data, m => postMessage(m))).then(([out, transfer]) => postMessage(out, transfer))
       .catch(err => setTimeout(() => { throw err; }));
   };
 }

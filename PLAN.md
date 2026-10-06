@@ -1,6 +1,15 @@
 Upcoming ideas:
 
-- cleanup of code of mm of non-cell-field i think
+- [x] cleanup of code of mm of non-cell-field (2026-10-05, issue 16 phase 0: the legacy patterns are gone).
+- Issue 16, structures / dyes / light path (branch `claude/multi-dye`; plan in the PR): [x] phase 0 legacy MM patterns
+  removed (CellField output unchanged), [x] phase 1 dye/filter/camera data from FPbase + generators (data/dyes, data/references.json), [x] phase 2 JS
+  model (labels per structure, modes dSTORM/PALM/DNA-PAINT/WideField, light path, camera presets, mean-field switch,
+  imager background, orientation/off-target/SPT plumbing) under `PORT_PENDING.md`, phase 3 port: [x] core ABI 10
+  (labels, windowed schedules, continuous windows; `tests/parity/label_parity.mjs` bit-exact with the JS), [x] engine
+  (Spectra, LightPath, DyeLibrary + generated DyeLibraryData.inc, FluorescenceMovie: blinks per kernel group, mean-field and
+  per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
+  [x] cli/viewer module/block (ABI 10 in the viewer, sites stride 5, labels on sites jobs, the WebGPU mean-field path
+  per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [x] adapter, [x] checks + benchmarks, [x] docs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT
@@ -41,8 +50,14 @@ Upcoming ideas:
   Speed (2026-10-02): [x] shared transmittances/propagator/defocus, band-pruned cache-blocked FFTs, WASM SIMD,
   [x] quality levels re-tuned on measured accuracy (grid at lambda/4n), [x] cli/viewer keep world + scene across movies:
   256 px level 3 0.9 s in the viewer (was ~12 s), same accuracy.
+- Issue 11, viewer z-slicing and layered animations (2026-10-05, viewer only): [x] phase 1: one camera with rotation
+  (`web/scene/core.js`), tilt to 90°, Z clip per fragment, detail budget (5 central cells), scope and look, structure /
+  layer registry, dyes on the GPU; [x] phase 2: Animation tab (sequences of cycles and steps: camera moves, plane
+  sweeps with ahead / in-slab / behind layers), preview timeline, MP4 / WebM / GIF export (also for the movie player);
+  [x] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [x] phase 4: thresholded WF isosurface,
+  SMLM localizations (multi-plane acquisition, precision noise).
 - 2026-10-06: [x] sample drift as a random walk, xy and z separately (`Simulation/Drift.*`, `drift.js`; MM, cli, viewer,
-  webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 16). Next: [ ] drift on
+  webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 17). Next: [ ] drift on
   the WideField GPU paths, [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
