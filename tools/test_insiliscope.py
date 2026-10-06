@@ -533,17 +533,7 @@ def stack_frames(props, n=20, seed=42):
 
 FAST = {"PSFParam_PsfModel": "Gaussian"}
 
-# Multi-blink: density keeps meaning ON-density, so the mean signal above
-# offset stays about the same when molecules blink ~5x (bleach prob 0.2).
-# PhotonCV 0 explicitly: the single-blink, constant-brightness baseline (the
-# property defaults to 0.5 since 2026-10-01).
-single = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_PhotonCV": "0"}, n=200)
-multi = stack_frames({**FAST, "General_EmitterDensityPerSec": "20", "FluoParam_BlinkBleachProb": "0.2",
-                      "FluoParam_PhotonCV": "0.5"}, n=200)
-s_sig, m_sig = single.mean() - 100.0, multi.mean() - 100.0
-assert abs(m_sig - s_sig) < 0.25 * s_sig, f"multi-blink changed ON-density: single {s_sig:.3f} vs multi {m_sig:.3f}"
-assert not np.array_equal(single, multi)
-print(f"Multi-blink OK: mean signal single {s_sig:.3f} vs bleach=0.2/CV=0.5 {m_sig:.3f} ADU")
+# (Multi-blink density: ctest emitter_density checks it in C++, both paths.)
 
 # EMCCD: background-only frame -> the gain register doubles the variance
 # (excess noise factor sqrt(2)); ADU clipped to the bit depth.

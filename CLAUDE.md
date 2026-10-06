@@ -291,8 +291,8 @@ counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, 
 `drift-xy-nm-per-sqrt-sec`/`drift-z-nm-per-sqrt-sec`, default 0 (outputs unchanged; `SimType_DriftNmPerSec`, the linear
 drift, is gone). SR adds it per emitter (focus - dz); WideField/BrightField shift the full-grid image spectrum by a phase
 ramp (exact, band-limited) with the illumination/margins grown by the drift, z on a 10 nm focus grid, interpolated;
-drifting WF renders on the CPU, drifting BF on one viewer worker; live WF moves the FOV over the sample, live BF shifts
-an anchored scene. The cli writes `<out>.drift.csv`. Checks: ctest `drift`, `widefield`, `brightfield`, `scope_parity`.
+drifting WF renders on the CPU, drifting BF on one viewer worker; in live mode WF and BF shift the image of a scene
+anchored within 1 um (moving a WF scene's pose every frame re-weighted every dye plane: 326 vs 74 ms per frame). The cli writes `<out>.drift.csv`. Checks: ctest `drift`, `widefield`, `brightfield`, `scope_parity`.
 
 **Persistent caches and PSF preload (2026-10-04), output unchanged.** Core ABI 8: `isc_world_set_cache_dir(w, dir)` keeps a
 world's packed blocks in `dir/packed_blocks.bin` (`core/src/blockstore.*`: five numbers per cell, cx, cy, x, y, packRot;

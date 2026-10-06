@@ -441,6 +441,9 @@ public:
    // One frame: the basis coefficients when wb fits, else SetBleachWeights
    // first. Adds to cam.
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
+   // The same with the sample moved by (dxCells, dyCells) grid cells
+   // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
+   void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);
    bool LastFrameFast() const { return lastFast_; }
 
    // Images at other focus positions (world z of the focal plane) for the

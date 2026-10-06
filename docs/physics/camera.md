@@ -61,8 +61,8 @@ to 0. A stable setup (optical table, active isolation, constant temperature) dri
   \(\lambda/4n\)) times a phase ramp, cropped and binned, so a sub-pixel drift is exact rather than re-binned. The
   illuminated square and the dye grid (WideField) or the grid margin (BrightField) grow by the xy drift. The z drift
   uses images at foci 10 nm apart, linearly interpolated (WideField: 2e-5 rms, BrightField: 2e-4 of the contrast
-  against the exact focus). In Micro-Manager's live mode WideField moves the field of view over the sample instead
-  (exact, camera-fixed illumination) and BrightField shifts the image of a scene anchored within 1 µm.
+  against the exact focus). In Micro-Manager's live mode both shift the image of a scene anchored within 1 µm of
+  the drifted sample (rebuilt when it moves further).
 - The background map (`Background_CellContrast`, haze) stays fixed to the camera.
 - The cli writes the true drift per frame next to the movie (`<name>.drift.csv`: frame, dx, dy, dz in nm), ground
   truth for testing drift correction.

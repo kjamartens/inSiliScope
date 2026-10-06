@@ -743,10 +743,12 @@ per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleFo
   10 nm apart over the trajectory's z range, linear interpolation of the spectra.
 - GPU: a drifting WideField sample renders on the CPU (keeps spectra; the adapter skips the D3D11 host, the viewer the
   WebGPU job); a drifting BrightField movie runs on one viewer worker (no source split).
-- Live (adapter): the steps of frames 1..n since `liveDriftOriginFrame_` are summed (the stack's path). SR as stacks;
-  WideField: the FOV moves over the sample (`stage - drift`, exact under the camera-fixed square); BrightField: the scene
-  stays at an anchor (rebuilt when the sample moved 1 um from it, margin + 1 um), the frame is its fine image shifted by
-  the rest, foci on demand (`BrightfieldDriftFrames::Ensure`).
+- Live (adapter): the steps of frames since `liveDriftOriginFrame_` are summed (the stack's path; with drift off no
+  steps are taken, and switching it on starts from zero there). SR as stacks. WideField and BrightField: the scene stays at
+  an anchor pose (`stage - anchor`; rebuilt when the sample moved 1 um from it; illumination/margin + 1 um) and each
+  frame is its image shifted by the rest (`WidefieldScene::RenderFrameShifted`; BrightField: its fine image, foci on
+  demand via `BrightfieldDriftFrames::Ensure`); the WideField dose goes where the camera-fixed light sits over the moved
+  sample. Moving the WideField pose every frame instead re-weighted every dye plane (326 ms vs 74 ms per 50 ms frame).
 - webSMLM block: `CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec)` -> [{x, y, z}] nm,
   generated from `drift.js` + `rng.js` (no second copy).
 - Checks: ctest `drift` (Var d(1 s) = sigma^2 at 10 and 100 ms frames, mean 0, axes uncorrelated; live sum = trajectory

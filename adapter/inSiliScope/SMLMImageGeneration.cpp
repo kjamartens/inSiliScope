@@ -1394,6 +1394,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // and the focus-grid spectra around its focus.
    sim::DriftNm bfAnchor;
    bool bfAnchored = false;
+   // WideField with drift: the same anchoring.
+   sim::DriftNm wfAnchor;
+   bool wfAnchored = false;
    sim::BrightfieldDriftFrames bfDrift;
    double bfDriftFocus = std::numeric_limits<double>::quiet_NaN();
    // CellField pattern: the world (configured on the rebuild trigger below)
@@ -1712,9 +1715,25 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
             sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
                                                       liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            // WideField: the sample drift is the FOV moving the other way over
-            // it (sx - d), exact under the camera-fixed illumination.
-            const double dUmX = liveDrift.x / 1000.0, dUmY = liveDrift.y / 1000.0;
+            // WideField with drift: as BrightField below, the scene stays at an
+            // anchor pose (sx - anchor: the FOV over the moved sample; rebuilt
+            // when the sample has moved 1 um from it) and each frame is its
+            // image shifted by the rest of the drift (RenderFrameShifted).
+            // Moving the scene's pose every frame instead re-weights every
+            // dye plane (~6x slower frames).
+            if (wfActive && params.drift.On() &&
+                (!wfAnchored || std::fabs(liveDrift.x - wfAnchor.x) > 1000.0 ||
+                 std::fabs(liveDrift.y - wfAnchor.y) > 1000.0))
+            {
+               wfAnchor = liveDrift;
+               wfAnchored = true;
+            }
+            if (!params.drift.On())
+            {
+               wfAnchor = sim::DriftNm();
+               wfAnchored = false;
+            }
+            const double dUmX = wfAnchor.x / 1000.0, dUmY = wfAnchor.y / 1000.0;
             if (wfActive && (dUmX != 0.0 || dUmY != 0.0))
                q = CellFieldQueryFor(sx - dUmX, sy - dUmY, zOffsetUm, w, h, params, 0.0, 0.0, 0.0, 0.0,
                                      liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
@@ -1790,7 +1809,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
                wfSpec.grid.upscale = wfUpscale;
                wfSpec.psfVersion = wfPsfVersion;
                wfSpec.worldVersion = wfWorldVersion;
-               const sim::SquareIllumination ill(w * wfSpec.pixelUm, h * wfSpec.pixelUm);
+               // Drift: the light and the dyes reach as far as the sample
+               // moves from the anchor (1 um, plus a pixel).
+               const double wfDriftMarginUm = params.drift.On() ? 1.0 + wfSpec.pixelUm : 0.0;
+               wfSpec.marginUm += wfDriftMarginUm;
+               wfScene.SetKeepSpectra(params.drift.On());
+               const sim::SquareIllumination ill(w * wfSpec.pixelUm + 2.0 * wfDriftMarginUm,
+                                                 h * wfSpec.pixelUm + 2.0 * wfDriftMarginUm);
                // Arrived where a prefetch went: take its scene (Update below
                // then only adjusts focus and sub-cell pose).
                if (wfPrefetch.active && wfPrefetch.done.load())
@@ -1942,10 +1967,20 @@ void CInSiliScopeCamera::LiveProducerLoop()
             }
             wfBleach.DoseOver(g.x0Um, g.y0Um, g.nx, g.ny, wfDose);
             wfScene.BleachWeightsFromDose(wfDose, wfWeights);
-            wfScene.RenderFrame(wfWeights, dyes);
+            // Drift: the rest beyond the scene's anchor, as a shift of the image;
+            // the camera-fixed light then sits that much the other way over the
+            // sample (where the dose goes).
+            const double restXNm = params.drift.On() ? liveDrift.x - wfAnchor.x : 0.0;
+            const double restYNm = params.drift.On() ? liveDrift.y - wfAnchor.y : 0.0;
+            if (restXNm != 0.0 || restYNm != 0.0)
+               wfScene.RenderFrameShifted(wfWeights, restXNm / (g.pitchUm * 1000.0), restYNm / (g.pitchUm * 1000.0),
+                                          dyes);
+            else
+               wfScene.RenderFrame(wfWeights, dyes);
             if (wfSpec.phot.Bleaches())
-               wfBleach.Deposit(sim::SquareIllumination(w * wfSpec.pixelUm, h * wfSpec.pixelUm), wfScene.AxisXUm(),
-                                wfScene.AxisYUm(), wfSpec.phot.EmissionRatePerSec(1.0) * params.frameDurationSec);
+               wfBleach.Deposit(sim::SquareIllumination(w * wfSpec.pixelUm, h * wfSpec.pixelUm),
+                                wfScene.AxisXUm() - restXNm / 1000.0, wfScene.AxisYUm() - restYNm / 1000.0,
+                                wfSpec.phot.EmissionRatePerSec(1.0) * params.frameDurationSec);
          }
          if (wfFinisher.joinable())
             wfFinisher.join();

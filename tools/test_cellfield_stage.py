@@ -102,64 +102,93 @@ def _drift_nm(seed, frames, frame_sec, sxy, sz):
 
 
 def _drift_checks(core, cam, xy, x0, y0):
-    """Random-walk sample drift (SimType_DriftXyNmPerSqrtSec / ZNmPerSqrtSec): the properties, the linear
-    SimType_DriftNmPerSec gone; in each modality a precomputed stack's late frame is the drift-free one moved by the
-    seed's drift path (the same path as the cli's), and a regenerated stack is identical. 3 x 3 stacks, 50 snaps
-    each (~10 s per stack)."""
+    """Random-walk sample drift (SimType_DriftXyNmPerSqrtSec / ZNmPerSqrtSec): the properties are there (the linear
+    SimType_DriftNmPerSec is gone) and wired into every modality. The physics (exact sub-pixel shift, focus grid,
+    C++ = JS) is ctest drift / widefield / brightfield and scope_parity.
+    - Precomputed, each modality: frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
+      seed's drift path, the path the cli and viewer take (_drift_nm).
+    - Live, WideField and BrightField (SuperRes blinks differ every frame; its live drift is the same per-emitter
+      offset as its stacks): switching drift on moves the image."""
     assert not core.hasProperty(cam, "SimType_DriftNmPerSec"), "SimType_DriftNmPerSec should be gone"
     for p in ("SimType_DriftXyNmPerSqrtSec", "SimType_DriftZNmPerSqrtSec"):
         assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == 0.0, f"{p} missing or not 0"
     core.setXYPosition(xy, x0, y0)  # the field with structure
     _wait_idle(core, xy)
-    core.setProperty(cam, "General_AcqMode", "Precomputed")
-    core.setExposure(50.0)
     seed = int(core.getProperty(cam, "SimType_RandomSeed"))
     px = float(core.getProperty(cam, "General_PixelSizeNm"))
-    # A snap of a precomputed stack takes the exposure, so a large drift is reached early: 1000 nm/sqrt(s) (the
-    # property's maximum) puts frame 49 (2.45 s) ~1.6 um (~16 px rms) from frame 0 after 50 snaps.
-    sxy, sz = 1000.0, 30.0
-    path = _drift_nm(seed, 50, 0.05, sxy, sz)
-    k = 49
+    # 1000 nm/sqrt(s) (the property's maximum) and 200 ms frames: frame 9 (1.8 s) sits ~1.3 um (~13 px rms per axis)
+    # from frame 0. A snap of a precomputed stack takes its exposure: 10 snaps = 2 s per stack.
+    sxy, sz, exp_ms, k = 1000.0, 30.0, 200.0, 9
+    path = _drift_nm(seed, k + 1, exp_ms / 1000.0, sxy, sz)
     expect = (round(path[k][1] / px), round(path[k][0] / px))
 
-    def frame():
+    def drift(on):
+        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", str(sxy if on else 0))
+        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", str(sz if on else 0))
+
+    def stack_frame():
         core.setProperty(cam, "General_GenerateStack", "1")
         _wait_for_stack(core, cam)
-        imgs = []
         for _ in range(k + 1):
             core.snapImage()
-            imgs.append(core.getImage().astype(np.float64))
-        return imgs[k]
+        return core.getImage().astype(np.float64)
 
-    for modality in ("SuperRes", "WideField", "BrightField"):
+    def setup(modality):
         core.setProperty(cam, "General_ImagingModality", modality)
         if modality == "BrightField":
             # Single frames: unstained cells (~0.5% contrast) sit below the shot noise, so the cells absorb here
-            # (and no static pixel pattern pulls the correlation to zero shift); 16000 photons/px, no saturation.
+            # (and no static pixel pattern pulls the comparison to zero shift); 16000 photons/px, no saturation.
             core.setProperty(cam, "General_BrightFieldQuality", "1")
-            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "320000")
+            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", str(16000.0 / (exp_ms / 1000.0)))
             core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0.3")
             core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0")
-        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", "0")
-        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", "0")
-        still = frame()
-        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", str(sxy))
-        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", str(sz))
-        moved = frame()
-        again = frame()
-        assert np.array_equal(moved, again), f"{modality}: a regenerated drifting stack differs"
-        dy, dx, c = _ls_shift(still, moved)
-        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1, \
-            f"{modality}: frame {k} moved by ({dy}, {dx}) px, the drift path says {expect} (rms {c ** 0.5:.1f} ADU; still mean "             f"{still.mean():.0f} std {still.std():.0f}, moved mean {moved.mean():.0f} std {moved.std():.0f}, "             f"identical {np.array_equal(still, moved)})"
-        print(f"Drift OK ({modality}): frame {k} moved by ({dy}, {dx}) px (path {expect}, rms {c ** 0.5:.1f} ADU left), reproducible")
-    core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", "0")
-    core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", "0")
+
+    core.setProperty(cam, "General_StackLength", str(k + 1))
+    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setExposure(exp_ms)
+    for modality in ("SuperRes", "WideField", "BrightField"):
+        setup(modality)
+        drift(False)
+        still = stack_frame()
+        drift(True)
+        moved = stack_frame()
+        dy, dx, e = _ls_shift(still, moved)
+        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1,             f"{modality}: stack frame {k} moved by ({dy}, {dx}) px, the drift path says {expect}"
+        print(f"Drift OK ({modality}, precomputed): frame {k} moved by ({dy}, {dx}) px (path {expect})")
+
+    # Live: the drift starts from zero when switched on and adds a step per produced frame (50 ms here): after
+    # ~2 s, ~40 steps, ~1.4 um rms per axis. Non-bleaching dyes, so WideField does not dim meanwhile.
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setExposure(50.0)
+    norm = lambda im: (im - im.mean()) / (im.std() + 1e-12)
+    for modality in ("WideField", "BrightField"):
+        setup(modality)
+        if modality == "BrightField":
+            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", str(16000.0 / 0.05))
+        drift(False)
+        time.sleep(1.0)
+        core.snapImage()
+        a = norm(core.getImage().astype(np.float64))
+        drift(True)
+        time.sleep(2.0)
+        core.snapImage()
+        b = norm(core.getImage().astype(np.float64))
+        dy, dx, e = _ls_shift(a, b)
+        e0 = float(np.mean((a - b) ** 2))
+        assert (dy, dx) != (0, 0) and e < 0.5 * e0,             f"{modality} live: switching drift on should move the image (best shift ({dy}, {dx}), residual {e:.3f} vs {e0:.3f} unshifted)"
+        print(f"Drift OK ({modality}, live): moved by ({dy}, {dx}) px after 2 s (residual {e:.2f} vs {e0:.2f} unshifted)")
+
+    drift(False)
+    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
+    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
     core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0")
     core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_BrightFieldQuality", "3")
+    core.setProperty(cam, "General_StackLength", "300")
     core.setProperty(cam, "General_ImagingModality", "SuperRes")
     core.setExposure(20.0)
-    core.setProperty(cam, "General_AcqMode", "Live")
 
 
 SECTIONS = ("props", "xy", "live", "precomputed", "zrange", "zsign", "bleach", "widefield", "wfzseq", "brightfield",

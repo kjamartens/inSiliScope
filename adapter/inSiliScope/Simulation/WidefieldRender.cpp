@@ -1653,6 +1653,27 @@ void WidefieldScene::RenderFrame(const std::vector<float>& wb, std::vector<float
    images_.Render(a, cam);
 }
 
+void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells,
+                                        std::vector<float>& cam)
+{
+   std::vector<double> a;
+   lastFast_ = true;
+   if (!BleachCoefficients(wb, a))
+   {
+      SetBleachWeights(wb);
+      lastFast_ = false;
+      a = AnchorCoefficients();
+   }
+   // Images made before SetKeepSpectra (or adopted from a series made
+   // without it) carry none: make them again, with spectra.
+   if (keepSpectra_ && !images_.HasSpectra() && haveSpec_ && psf_ && !defer_)
+      ComputeCpuImages();
+   if (images_.HasSpectra())
+      RenderShiftedImages(images_, nullptr, 0.0, a, dxCells, dyCells, cam);
+   else
+      images_.Render(a, cam);
+}
+
 bool WidefieldScene::AdoptFocus(double focusWorldUm, const WidefieldImages& images, unsigned long long version)
 {
    if (!haveSpec_ || !psf_ || version != imagesVersion_)
