@@ -42,21 +42,58 @@ DriftNm DriftStep(uint32_t driftSeed, long f, double frameSec, const DriftSettin
    return d;
 }
 
+DriftWalker::DriftWalker(long randomSeed, const DriftSettings& s, long f0)
+   : seed_(DriftSeed(randomSeed)), s_(s), f_(f0)
+{
+   // theta0: once per seed (frame 0xFFFFFFFF, pixel 2), whatever f0.
+   CounterRng a(seed_, 0xFFFFFFFFu);
+   a.Pixel(2);
+   theta0_ = 2.0 * kPi * a.Uniform();
+   // The wanders start from their stationary distribution (unit variance).
+   CounterRng u(seed_, static_cast<uint32_t>(f0));
+   u.Pixel(1);
+   phi_ = CounterGauss(u);
+   sxy_ = CounterGauss(u);
+   sz_ = CounterGauss(u);
+}
+
+const DriftNm& DriftWalker::Step(double frameSec)
+{
+   const double dt = std::max(0.0, frameSec);
+   // Velocity at the frame's start.
+   const double theta = (s_.xyAngleDeg >= 0.0 ? s_.xyAngleDeg * kPi / 180.0 : theta0_) +
+                        s_.angleWanderDeg * kPi / 180.0 * phi_;
+   const double w = s_.speedWanderPct / 100.0;
+   const double vxy = s_.xySpeedNmPerSec * std::max(0.0, 1.0 + w * sxy_);
+   const double vz = s_.zSpeedNmPerSec * std::max(0.0, 1.0 + w * sz_);
+   const double vx = vxy * std::cos(theta), vy = vxy * std::sin(theta);
+   ++f_;
+   const DriftNm st = DriftStep(seed_, f_, frameSec, s_);
+   d_.x = d_.x + vx * dt + st.x;
+   d_.y = d_.y + vy * dt + st.y;
+   d_.z = d_.z + vz * dt + st.z;
+   // The wanders (unit-variance Ornstein-Uhlenbeck, exact per step).
+   CounterRng u(seed_, static_cast<uint32_t>(f_));
+   u.Pixel(1);
+   const double gp = CounterGauss(u);
+   const double gs = CounterGauss(u);
+   const double gz = CounterGauss(u);
+   const double a = s_.wanderTimeSec > 0.0 ? std::exp(-dt / s_.wanderTimeSec) : 0.0;
+   const double b = std::sqrt(std::max(0.0, 1.0 - a * a));
+   phi_ = a * phi_ + b * gp;
+   sxy_ = a * sxy_ + b * gs;
+   sz_ = a * sz_ + b * gz;
+   return d_;
+}
+
 std::vector<DriftNm> DriftTrajectory(long randomSeed, long frames, double frameSec, const DriftSettings& s)
 {
    std::vector<DriftNm> t(static_cast<size_t>(std::max(0L, frames)));
    if (!s.On())
       return t;
-   const uint32_t seed = DriftSeed(randomSeed);
+   DriftWalker walker(randomSeed, s);
    for (long f = 1; f < frames; ++f)
-   {
-      const DriftNm st = DriftStep(seed, f, frameSec, s);
-      const DriftNm& p = t[static_cast<size_t>(f - 1)];
-      DriftNm& d = t[static_cast<size_t>(f)];
-      d.x = p.x + st.x;
-      d.y = p.y + st.y;
-      d.z = p.z + st.z;
-   }
+      t[static_cast<size_t>(f)] = walker.Step(frameSec);
    return t;
 }
 

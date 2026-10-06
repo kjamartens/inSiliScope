@@ -26,6 +26,12 @@ export const SCOPE_OPTIONS = [
   ['start-sec', 0, 'simulated time of the first frame, s'],
   ['drift-xy-nm-per-sqrt-sec', 0, 'SimType_DriftXyNmPerSqrtSec: random-walk sample drift, RMS nm per axis after 1 s (x and y each; 0 = none)'],
   ['drift-z-nm-per-sqrt-sec', 0, 'SimType_DriftZNmPerSqrtSec: random-walk sample drift in z, RMS nm after 1 s (0 = none)'],
+  ['drift-xy-speed-nm-per-sec', 0, 'SimType_DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)'],
+  ['drift-z-speed-nm-per-sec', 0, 'SimType_DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)'],
+  ['drift-xy-angle-deg', -1, 'SimType_DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed)'],
+  ['drift-xy-angle-wander-deg', 0, 'SimType_DriftXyAngleWanderDeg: slow wander of that direction, deg RMS (advanced)'],
+  ['drift-speed-wander-pct', 0, 'SimType_DriftSpeedWanderPct: slow wander of the xy and z drift strengths, % RMS of the mean (advanced)'],
+  ['drift-wander-time-sec', 60, 'SimType_DriftWanderTimeSec: correlation time of the wanders, s (advanced)'],
   ['pixel-nm', 100, 'pixel size, nm'],
   ['photons-per-sec', 7500, 'FluoParam_PhotonsPerSecond'],
   ['on-sec', 0.05, 'FluoParam_OnLifetimeSec'],
@@ -170,7 +176,10 @@ export function scopeSetup(P, spec) {
     frameSec: expSec, tSec: t0Sec, spanSec: N * expSec, frameIndex: 0,
   };
   // Sample drift: per-frame displacement (nm, 0 at frame 0) and its range.
-  const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')) };
+  const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')),
+    xySpeedNmPerSec: Math.max(0.0, O('drift-xy-speed-nm-per-sec')), zSpeedNmPerSec: O('drift-z-speed-nm-per-sec'),
+    xyAngleDeg: O('drift-xy-angle-deg'), angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')),
+    speedWanderPct: Math.max(0.0, O('drift-speed-wander-pct')), wanderTimeSec: Math.max(0.0, O('drift-wander-time-sec')) };
   const isDrift = driftOn(driftSettings);
   const drift = isDrift ? driftTrajectory(seed, N, expSec, driftSettings) : [];
   const driftBounds = isDrift ? driftRange(drift) : null;

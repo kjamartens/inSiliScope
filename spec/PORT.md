@@ -720,6 +720,22 @@ single-worker one (`?bfsplit=0`). Not with the lab's JS engine.
 
 ## 16. Sample drift (2026-10-06)
 
+Directed part (added the same day): `DriftSettings` `xySpeedNmPerSec`, `zSpeedNmPerSec` (signed), `xyAngleDeg` (< 0:
+random per seed, pixel 2 of frame 0xFFFFFFFF), `angleWanderDeg`, `speedWanderPct`, `wanderTimeSec`; `DriftWalker` steps
+the path: velocity at the frame's start (v_xy = V max(0, 1 + w s_xy) along theta0 + alpha phi, v_z = V_z max(0, 1 + w
+s_z)), d += v dt + the random-walk step, then the unit-variance OU states (pixel 1 of the frame's stream; started from
+the stationary distribution at the walker's first frame) update exactly with a = exp(-dt / tau). With speeds 0 the path
+is bit for bit the random walk alone. MM `SimType_DriftXySpeedNmPerSec`, `SimType_DriftZSpeedNmPerSec`,
+`SimType_DriftXyAngleDeg`, `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`
+(the speeds everyday, the rest advanced); cli/viewer `drift-xy-speed-nm-per-sec`, `drift-z-speed-nm-per-sec`,
+`drift-xy-angle-deg`, `drift-xy-angle-wander-deg`, `drift-speed-wander-pct`, `drift-wander-time-sec`. Live mode keeps one
+`DriftWalker` (settings may change between frames; the wander state carries on); a Live/MDA sequence start asks the
+producer for a drift restart, applied at the start of its next frame (drift 0), and the sequence skips frames rendered
+before it (`liveDriftRestart_`), so a live sequence follows the stack's path. Checks: ctest `drift` (constant velocity
+exact, uniform random direction, wander RMS and correlation time, z sign, random walk unchanged), `scope_parity` (SR
+directed + wandering), `tools/test_cellfield_stage.py --only drift` (stack: random walk in SR/WF/BF, directed at a set
+angle; live WF/BF sequences = the stack path), the block check.
+
 A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29, 27961 (2021); Ma et al., Sci. Adv. 10,
 eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
 per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleForSeed`.

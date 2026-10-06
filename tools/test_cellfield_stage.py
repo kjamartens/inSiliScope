@@ -107,11 +107,15 @@ def _drift_checks(core, cam, xy, x0, y0):
     C++ = JS) is ctest drift / widefield / brightfield and scope_parity.
     - Precomputed, each modality: frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
       seed's drift path, the path the cli and viewer take (_drift_nm).
+    - Directed (SuperRes stack): a constant velocity at a set angle moves frame 9 by exactly v t.
     - Live, WideField and BrightField (SuperRes blinks differ every frame; its live drift is the same per-emitter
-      offset as its stacks): switching drift on moves the image."""
+      offset as its stacks): frame 9 of a sequence acquisition moves by the same path as the stacks' frame 9."""
     assert not core.hasProperty(cam, "SimType_DriftNmPerSec"), "SimType_DriftNmPerSec should be gone"
-    for p in ("SimType_DriftXyNmPerSqrtSec", "SimType_DriftZNmPerSqrtSec"):
-        assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == 0.0, f"{p} missing or not 0"
+    for p, v in (("SimType_DriftXyNmPerSqrtSec", 0.0), ("SimType_DriftZNmPerSqrtSec", 0.0),
+                 ("SimType_DriftXySpeedNmPerSec", 0.0), ("SimType_DriftZSpeedNmPerSec", 0.0),
+                 ("SimType_DriftXyAngleDeg", -1.0), ("SimType_DriftXyAngleWanderDeg", 0.0),
+                 ("SimType_DriftSpeedWanderPct", 0.0), ("SimType_DriftWanderTimeSec", 60.0)):
+        assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == v, f"{p} missing or not {v}"
     core.setXYPosition(xy, x0, y0)  # the field with structure
     _wait_idle(core, xy)
     seed = int(core.getProperty(cam, "SimType_RandomSeed"))
@@ -156,29 +160,44 @@ def _drift_checks(core, cam, xy, x0, y0):
         assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1,             f"{modality}: stack frame {k} moved by ({dy}, {dx}) px, the drift path says {expect}"
         print(f"Drift OK ({modality}, precomputed): frame {k} moved by ({dy}, {dx}) px (path {expect})")
 
-    # Live: the drift starts from zero when switched on and adds a step per produced frame (50 ms here): after
-    # ~2 s, ~40 steps, ~1.4 um rms per axis. Non-bleaching dyes, so WideField does not dim meanwhile.
+    # Directed drift (SuperRes stack): 800 nm/s at 30 deg, no jitter: frame 9 (1.8 s) moved by 1.44 um along it.
+    setup("SuperRes")
+    drift(False)
+    still = stack_frame()
+    core.setProperty(cam, "SimType_DriftXySpeedNmPerSec", "800")
+    core.setProperty(cam, "SimType_DriftXyAngleDeg", "30")
+    moved = stack_frame()
+    core.setProperty(cam, "SimType_DriftXySpeedNmPerSec", "0")
+    core.setProperty(cam, "SimType_DriftXyAngleDeg", "-1")
+    d_nm = 800.0 * k * exp_ms / 1000.0
+    expect_dir = (round(d_nm * np.sin(np.pi / 6) / px), round(d_nm * np.cos(np.pi / 6) / px))
+    dy, dx, e = _ls_shift(still, moved)
+    assert abs(dy - expect_dir[0]) <= 1 and abs(dx - expect_dir[1]) <= 1,         f"directed drift: stack frame {k} moved by ({dy}, {dx}) px, expected {expect_dir}"
+    print(f"Drift OK (directed, precomputed): 800 nm/s at 30 deg moved frame {k} by ({dy}, {dx}) px (expected {expect_dir})")
+
+    # Live, WideField and BrightField: a 10-frame sequence acquisition at 200 ms restarts the drift at its first frame,
+    # so its frame 9 must move by the same seed path as the stacks' frame 9 (live = precomputed). Non-bleaching dyes,
+    # so WideField does not dim meanwhile.
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "0")
     core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "70")
     core.setProperty(cam, "General_AcqMode", "Live")
-    core.setExposure(50.0)
-    norm = lambda im: (im - im.mean()) / (im.std() + 1e-12)
     for modality in ("WideField", "BrightField"):
         setup(modality)
-        if modality == "BrightField":
-            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", str(16000.0 / 0.05))
-        drift(False)
-        time.sleep(1.0)
-        core.snapImage()
-        a = norm(core.getImage().astype(np.float64))
         drift(True)
-        time.sleep(2.0)
-        core.snapImage()
-        b = norm(core.getImage().astype(np.float64))
-        dy, dx, e = _ls_shift(a, b)
-        e0 = float(np.mean((a - b) ** 2))
-        assert (dy, dx) != (0, 0) and e < 0.5 * e0,             f"{modality} live: switching drift on should move the image (best shift ({dy}, {dx}), residual {e:.3f} vs {e0:.3f} unshifted)"
-        print(f"Drift OK ({modality}, live): moved by ({dy}, {dx}) px after 2 s (residual {e:.2f} vs {e0:.2f} unshifted)")
+        time.sleep(1.0)  # the live scene is built
+        core.startSequenceAcquisition(k + 1, 0, True)
+        frames, t0 = [], time.time()
+        while len(frames) < k + 1:
+            if core.getRemainingImageCount() > 0:
+                frames.append(core.popNextImage().astype(np.float64))
+            elif time.time() - t0 > 120:
+                sys.exit(f"{modality} live drift: sequence timed out")
+            else:
+                time.sleep(0.005)
+        core.stopSequenceAcquisition()
+        dy, dx, e = _ls_shift(frames[0], frames[k])
+        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1,             f"{modality} live: frame {k} of a sequence moved by ({dy}, {dx}) px, the drift path says {expect}"
+        print(f"Drift OK ({modality}, live): sequence frame {k} moved by ({dy}, {dx}) px (path {expect})")
 
     drift(False)
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")

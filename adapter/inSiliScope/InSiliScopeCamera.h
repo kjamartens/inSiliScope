@@ -75,6 +75,19 @@ extern const char* g_PropPixelGainStdPct;
 extern const char* g_PropPixelReadNoiseStdPct;
 extern const char* g_PropDriftXyNmPerSqrtSec;
 extern const char* g_PropDriftZNmPerSqrtSec;
+// Directed sample drift (sim::DriftSettings). Only the two speeds are
+// everyday settings; direction, wanders and their time are advanced.
+enum DirectedDriftNumber
+{
+   DD_XY_SPEED = 0,   // SimType_DriftXySpeedNmPerSec
+   DD_Z_SPEED,        // SimType_DriftZSpeedNmPerSec (signed)
+   DD_XY_ANGLE,       // SimType_DriftXyAngleDeg (-1 = random per seed; advanced)
+   DD_ANGLE_WANDER,   // SimType_DriftXyAngleWanderDeg (advanced)
+   DD_SPEED_WANDER,   // SimType_DriftSpeedWanderPct (advanced)
+   DD_WANDER_TIME,    // SimType_DriftWanderTimeSec (advanced)
+   DD_COUNT
+};
+extern const char* g_PropDirectedDrift[DD_COUNT];
 extern const char* g_PropRandomSeed;
 extern const char* g_PropActualFrameIntervalMs;
 extern const char* g_PropPsfModel;
@@ -342,6 +355,7 @@ public:
    int OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnDriftXyNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnDriftZNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDirectedDrift(MM::PropertyBase* pProp, MM::ActionType eAct, long index);
    int OnRandomSeed(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnPsfModel(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -611,6 +625,12 @@ private:
    // (under frontFrameLock_): a frame taken after a property change skips
    // frames that were already being rendered with the old settings.
    long liveFrameConfig_ = 0;
+   // Drift restarts asked for (a Live/MDA sequence start) and the one the
+   // frame in the front buffer was rendered after (under frontFrameLock_):
+   // the producer applies a restart at the start of its next frame (that
+   // frame has drift 0), and a sequence skips frames rendered before it.
+   std::atomic<long> liveDriftRestart_{0};
+   long liveFrameDriftRestart_ = 0;
    // The z sequence the precomputed stack was made for (-1: none).
    std::atomic<long> stackZSeqVersion_{-1};
    // WideField caches shared by the stack worker, the live loop and its
@@ -719,6 +739,8 @@ private:
    // axis in x and y, and in z. Applies in both acquisition modes.
    std::atomic<double> driftXyNmPerSqrtSec_{0.0};
    std::atomic<double> driftZNmPerSqrtSec_{0.0};
+   // Directed drift (DirectedDriftNumber; defaults in the constructor).
+   std::atomic<double> directedDrift_[DD_COUNT];
 
    // ---- webSMLM parity round 2 -- every default below is "off", matching
    // webSMLM's realism=min, so a default movie is unchanged by them. ----

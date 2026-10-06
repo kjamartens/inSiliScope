@@ -64,6 +64,7 @@ const CASES = [
   ['SR GibsonLanniZernike, Cubic', 'world-seed=1249 x=63 y=3 size=48 frames=12 psf-kernel-half-width-nm=2500', 0.999],
   ['SR double helix, Linear, bleaching dyes', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear labeling-pct-bleaching=5 milli-activation-rate=20 bleach-prob=0.3 zern.5=0.2', 0.999],
   ['SR drift xy 30, z 40 nm/sqrt(s)', 'world-seed=1249 x=63 y=3 size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40', 0.999],
+  ['SR directed drift, wandering', 'world-seed=1249 x=63 y=3 size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=-150 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10', 0.999],
   ['WideField GibsonLanniZernike', 'world-seed=1249 x=63 y=3 size=48 frames=3 modality=WideField psf-kernel-half-width-nm=2500 labeling-pct-bleaching=10', 0.999],
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 modality=1 psf-model=0 wf-upscale=2', 0.999],
   ['WideField upscale 3, bleaching from t = 30 s', 'world-seed=1249 x=63 y=3 size=40 frames=3 modality=1 psf-kernel-half-width-nm=2500 wf-upscale=3 start-sec=30 labeling-pct-bleaching=20 wf-photon-budget=500', 0.999],

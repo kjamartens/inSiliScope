@@ -351,8 +351,14 @@ const UI_GROUPS = [
     num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus.', null, null, 0.1, 0.5),
     num('mv_z-range-um', 'Dye z range', 'µm', 'Only dyes within ± range/2 of the focal plane are rendered (0 = all). <code>SimType_CellFieldZRangeUm</code>', 0, null, 0.5, 7, { adv }),
     num('mv_start-sec', 'Start time', 's', 'Simulated time of the first frame.', 0, null, 1, 0, { adv }),
-    num('mv_drift-xy-nm-per-sqrt-sec', 'Drift xy', 'nm/√s', 'Random-walk sample drift: a normal step every frame, summed; the RMS displacement per axis (x and y each) after 1 s. A stable setup drifts a few nm/s; 5, 10 and 20 are the values of Ma et al., Sci. Adv. 2024. 0 = none. <code>SimType_DriftXyNmPerSqrtSec</code>', 0, 1000, 1, 0),
-    num('mv_drift-z-nm-per-sqrt-sec', 'Drift z', 'nm/√s', 'Random-walk sample drift in z (focus drift): the RMS displacement after 1 s. 0 = none. <code>SimType_DriftZNmPerSqrtSec</code>', 0, 1000, 1, 0),
+    num('mv_drift-xy-speed-nm-per-sec', 'Drift xy', 'nm/s', 'Directed sample drift: the mean xy speed, in a direction drawn per noise seed (or set under Advanced). 0 = none. <code>SimType_DriftXySpeedNmPerSec</code>', 0, 10000, 1, 0),
+    num('mv_drift-z-speed-nm-per-sec', 'Drift z', 'nm/s', 'Directed focus drift: the mean z speed of the sample, signed (+ = away from the coverslip). 0 = none. <code>SimType_DriftZSpeedNmPerSec</code>', -10000, 10000, 1, 0),
+    num('mv_drift-xy-angle-deg', 'Drift direction', 'deg', 'Direction of the xy drift, degrees from +x; −1 = random per noise seed. <code>SimType_DriftXyAngleDeg</code>', -1, 360, 15, -1, { adv }),
+    num('mv_drift-xy-angle-wander-deg', 'Direction wander', 'deg', 'How far the drift direction strays from its mean, RMS; it changes slowly (Wander time). <code>SimType_DriftXyAngleWanderDeg</code>', 0, 180, 5, 0, { adv }),
+    num('mv_drift-speed-wander-pct', 'Speed wander', '%', 'How much the xy and z drift strengths fluctuate about their means, RMS. <code>SimType_DriftSpeedWanderPct</code>', 0, 100, 5, 0, { adv }),
+    num('mv_drift-wander-time-sec', 'Wander time', 's', 'Correlation time of the direction and speed wander: how slowly they change. <code>SimType_DriftWanderTimeSec</code>', 0.1, null, 10, 60, { adv }),
+    num('mv_drift-xy-nm-per-sqrt-sec', 'Drift xy jitter', 'nm/√s', 'Random-walk part of the drift: a normal step every frame, summed; the RMS displacement per axis (x and y each) after 1 s (5, 10, 20: Ma et al., Sci. Adv. 2024). 0 = none. <code>SimType_DriftXyNmPerSqrtSec</code>', 0, 1000, 1, 0, { adv }),
+    num('mv_drift-z-nm-per-sqrt-sec', 'Drift z jitter', 'nm/√s', 'Random-walk part of the z drift: the RMS displacement after 1 s. 0 = none. <code>SimType_DriftZNmPerSqrtSec</code>', 0, 1000, 1, 0, { adv }),
     button('mv_make', 'Make movie here', 'Renders a movie of the dyes under the view centre with the adapter\'s own PSF/noise code (sCMOS defaults), in a worker. Saved as a 16-bit TIFF from the player.'),
   ] },
 
@@ -1574,7 +1580,7 @@ function iscEngine(M) {
       }
       // A drifting sample's WideField frames are shifted spectra, made on the CPU (WASM).
       if (d.type === 'movie' && /(^| )modality=1( |$)/.test(d.spec) && self.IscWfGpu && self.ISC_WF_WGSL && !d.noGpu &&
-          !/(^| )drift-(xy|z)-nm-per-sqrt-sec=(?!0( |$))/.test(d.spec))
+          !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec))
         return wfGpuMovie(d);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
       if (d.type === 'bf-begin') {
@@ -2392,7 +2398,8 @@ function drawDyes(seed, p, pxPerUm) {
 // player and saved as a 16-bit multi-page TIFF (writeTiff16 below).
 const MOVIE_KEYS = ['frames', 'exposure-ms', 'size', 'pixel-nm', 'photons-per-sec', 'photon-cv', 'on-sec', 'off-sec',
   'bleach-prob', 'milli-activation-rate', 'z', 'z-range-um', 'start-sec', 'drift-xy-nm-per-sqrt-sec',
-  'drift-z-nm-per-sqrt-sec', 'background-per-sec', 'seed', 'modality',
+  'drift-z-nm-per-sqrt-sec', 'drift-xy-speed-nm-per-sec', 'drift-z-speed-nm-per-sec', 'drift-xy-angle-deg',
+  'drift-xy-angle-wander-deg', 'drift-speed-wander-pct', 'drift-wander-time-sec', 'background-per-sec', 'seed', 'modality',
   'wf-upscale', 'wf-plane-nm', 'wf-excitation-photons-per-um2-per-sec', 'wf-quantum-yield', 'wf-photon-budget',
   'wf-extinction-coeff', 'psf-model', 'psf-zernike-preset', 'bf-quality', 'bf-sources', 'bf-slice-um',
   'bf-condenser-na', 'bf-wavelength-nm', 'bf-photons-per-px-per-sec', 'bf-absorption-per-um', 'bf-n-medium',
@@ -2438,8 +2445,8 @@ function bfSplitWanted() {
   // Quality 1 (6 sources, one thin screen) is as quick on one worker as the hand-out costs.
   const bigEnough = +document.getElementById('mv_bf-quality').value >= 2 || +document.getElementById('mv_bf-sources').value >= 12;
   // A drifting sample's frames come from fine-grid spectra on one worker (the split hands out camera images).
-  const drifting = +document.getElementById('mv_drift-xy-nm-per-sqrt-sec').value > 0 ||
-    +document.getElementById('mv_drift-z-nm-per-sqrt-sec').value > 0;
+  const drifting = ['drift-xy-nm-per-sqrt-sec', 'drift-z-nm-per-sqrt-sec', 'drift-xy-speed-nm-per-sec', 'drift-z-speed-nm-per-sec']
+    .some(k => +document.getElementById('mv_' + k).value !== 0);
   return document.getElementById('mv_modality').value === '2' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough && !drifting &&
     !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
 }

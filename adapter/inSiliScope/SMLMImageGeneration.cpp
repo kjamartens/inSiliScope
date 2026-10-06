@@ -74,6 +74,12 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    p.pixelReadNoiseStdFraction = pixelReadNoiseStdPct_.load() / 100.0;
    p.drift.xyNmPerSqrtSec = driftXyNmPerSqrtSec_.load();
    p.drift.zNmPerSqrtSec = driftZNmPerSqrtSec_.load();
+   p.drift.xySpeedNmPerSec = directedDrift_[DD_XY_SPEED].load();
+   p.drift.zSpeedNmPerSec = directedDrift_[DD_Z_SPEED].load();
+   p.drift.xyAngleDeg = directedDrift_[DD_XY_ANGLE].load();
+   p.drift.angleWanderDeg = directedDrift_[DD_ANGLE_WANDER].load();
+   p.drift.speedWanderPct = directedDrift_[DD_SPEED_WANDER].load();
+   p.drift.wanderTimeSec = directedDrift_[DD_WANDER_TIME].load();
    p.frameDurationSec = expSec;
    p.blinkBleachProb = blinkBleachProb_.load();
    // Same clamp rationale as onLifetimeFrames above (lead-in window size).
@@ -1388,8 +1394,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // stage was driven out of range while streaming".
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
    // The sample drift (nm) at liveDriftFrame frames since the drift origin.
-   sim::DriftNm liveDrift;
-   long liveDriftFrame = 0;
+   sim::DriftWalker liveWalker;
+   bool liveWalkerOn = false;
+   long appliedDriftRestart = liveDriftRestart_.load();
    // BrightField with drift: the scene's anchor (the drift it was built at)
    // and the focus-grid spectra around its focus.
    sim::DriftNm bfAnchor;
@@ -1471,7 +1478,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics). Called by the producer, or by wfFinisher (one at a time).
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
-                         long config) {
+                         long config, long driftRestart) {
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
@@ -1479,6 +1486,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
          liveFrameConfig_ = config;
+         liveFrameDriftRestart_ = driftRestart;
       }
       liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
       MM::MMTime publishTime = GetCurrentMMTime();
@@ -1671,30 +1679,28 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
 
       // The drift starts from zero at liveDriftOriginFrame_ (reset at
-      // StartLiveProducer() and at the start of every Live/MDA sequence
-      // acquisition): the sum of the steps of frames 1 .. n since then, the
-      // stack's path for the same seed (each step with the current settings).
+      // StartLiveProducer(), and here at the first frame after a Live/MDA
+      // sequence start asked for it): the sum of the steps of frames 1 .. n
+      // since then, the stack's path for the same seed (each step with the
+      // current settings).
+      const long driftRestart = liveDriftRestart_.load();
+      if (driftRestart != appliedDriftRestart)
+      {
+         liveDriftOriginFrame_ = liveFrameCounter_.load(std::memory_order_relaxed);
+         appliedDriftRestart = driftRestart;
+      }
       long framesSinceDriftOrigin = std::max(0L, liveFrameCounter_.load(std::memory_order_relaxed) -
                                                       liveDriftOriginFrame_.load(std::memory_order_relaxed));
-      if (framesSinceDriftOrigin < liveDriftFrame)
+      // Off: no steps; switched on later, the walk starts from zero there.
+      if (framesSinceDriftOrigin < liveWalker.Frame() || !params.drift.On() || !liveWalkerOn)
       {
-         liveDrift = sim::DriftNm();
-         liveDriftFrame = 0;
+         liveWalker = sim::DriftWalker(randomSeed_, params.drift, framesSinceDriftOrigin);
+         liveWalkerOn = params.drift.On();
       }
-      if (!params.drift.On())
-      {
-         liveDrift = sim::DriftNm(); // off: no steps (switched on later, it starts from here at zero)
-         liveDriftFrame = framesSinceDriftOrigin;
-      }
-      while (liveDriftFrame < framesSinceDriftOrigin)
-      {
-         ++liveDriftFrame;
-         const sim::DriftNm st =
-            sim::DriftStep(sim::DriftSeed(randomSeed_), liveDriftFrame, params.frameDurationSec, params.drift);
-         liveDrift.x += st.x;
-         liveDrift.y += st.y;
-         liveDrift.z += st.z;
-      }
+      liveWalker.SetSettings(params.drift);
+      while (liveWalker.Frame() < framesSinceDriftOrigin)
+         liveWalker.Step(params.frameDurationSec);
+      const sim::DriftNm liveDrift = liveWalker.Position();
       const double dx = liveDrift.x / params.pixelSizeNm, dy = liveDrift.y / params.pixelSizeNm;
       // InSiliScopeZStage's current position, read fresh every tick so moving
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
@@ -1988,7 +1994,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          const sim::CameraNoiseParams camNow = params.Camera();
          wfFinisher = std::thread([this, &publish, &offsetMap, &gainMap, &readNoiseMap, dyes = std::move(dyes), extras,
                                    params, w, h, camNow, liveNoiseSeed, noiseFrame, frameEpoch, frameIndex,
-                                   currentConfigVersion]() {
+                                   currentConfigVersion, driftRestart]() {
             std::vector<float> img;
             const std::vector<sim::BlinkEvent> none;
             sim::RenderPhotonImage(img, w, h, none, frameIndex, params.pixelSizeNm, params.psfSigmaPx,
@@ -1998,7 +2004,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                img[i] += dyes[i];
             std::vector<uint16_t> frame;
             sim::ApplyNoiseChain(img, frame, w, h, camNow, offsetMap, gainMap, readNoiseMap, liveNoiseSeed, noiseFrame);
-            publish(frame, w, h, frameEpoch, frameIndex, currentConfigVersion);
+            publish(frame, w, h, frameEpoch, frameIndex, currentConfigVersion, driftRestart);
          });
          rendered = true;
          publishedAsync = true;
@@ -2052,7 +2058,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       {
          if (wfFinisher.joinable())
             wfFinisher.join(); // keep the publication order
-         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion);
+         publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion,
+                 driftRestart);
       }
 
       ++liveFrameCounter_;
@@ -2128,8 +2135,11 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             seq = liveFrameSeq_.load(std::memory_order_relaxed);
             // A z-sequence acquisition takes only frames rendered after it
             // started (their focus is the sequence's).
+            // A sequence (interruptible) takes only frames rendered after its
+            // drift restart.
             const bool stale = (interruptible && liveSeqSkipStale_.load() && liveFrameEpoch_ < liveSeqEpoch_.load()) ||
-                               liveFrameConfig_ < configNow;
+                               liveFrameConfig_ < configNow ||
+                               (interruptible && liveFrameDriftRestart_ < liveDriftRestart_.load());
             if (stale && seq != lastConsumedLiveFrameSeq_)
                lastConsumedLiveFrameSeq_ = seq;
             else if (seq != lastConsumedLiveFrameSeq_)
@@ -2530,6 +2540,22 @@ int CInSiliScopeCamera::OnDriftXyNmPerSqrtSec(MM::PropertyBase* pProp, MM::Actio
 {
    if (eAct == MM::BeforeGet) pProp->Set(driftXyNmPerSqrtSec_.load());
    else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftXyNmPerSqrtSec_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnDirectedDrift(MM::PropertyBase* pProp, MM::ActionType eAct, long index)
+{
+   if (index < 0 || index >= DD_COUNT)
+      return DEVICE_INVALID_PROPERTY;
+   if (eAct == MM::BeforeGet)
+      pProp->Set(directedDrift_[index].load());
+   else if (eAct == MM::AfterSet)
+   {
+      double v;
+      pProp->Get(v);
+      directedDrift_[index] = v;
+      InvalidateStack();
+   }
    return DEVICE_OK;
 }
 

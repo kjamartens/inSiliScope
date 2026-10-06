@@ -1,7 +1,9 @@
-// ctest drift: the random-walk sample drift (Simulation/Drift.h).
+// ctest drift: the sample drift (Simulation/Drift.h): random walk and directed part.
 //   - statistics: Var d(t) = sigma^2 t per axis whatever the frame time, mean 0, axes uncorrelated;
 //   - live mode's step-by-step sum = the stack's trajectory, bit for bit;
 //   - SuperRes: frame f of a drifting movie = the movie posed where the drift put the sample at f.
+//   - directed part: constant velocity exact; random direction per seed uniform; the direction and speed wanders
+//     have the set RMS and correlation time; z keeps its sign; random-walk-only paths unchanged by it.
 // WideField and BrightField drift: ctest widefield / brightfield (shift and focus-grid checks).
 //
 //   drift_check          exit code 0 = all checks passed
@@ -127,10 +129,108 @@ void SuperRes()
    Check(ni.driftNm.empty(), "no drift: no trajectory in the movie info");
 }
 
+// Velocity of frame f (f >= 1) of a path: (d(f+1) - d(f)) / dt.
+void Velocity(const std::vector<DriftNm>& t, size_t f, double dt, double& vx, double& vy, double& vz)
+{
+   vx = (t[f + 1].x - t[f].x) / dt;
+   vy = (t[f + 1].y - t[f].y) / dt;
+   vz = (t[f + 1].z - t[f].z) / dt;
+}
+
+void Directed()
+{
+   const double dt = 0.05, kPi = 3.14159265358979323846;
+   // Constant velocity: no wander, no random walk.
+   {
+      DriftSettings s;
+      s.xySpeedNmPerSec = 50.0;
+      s.xyAngleDeg = 30.0;
+      s.zSpeedNmPerSec = -8.0;
+      const std::vector<DriftNm> t = DriftTrajectory(7, 201, dt, s);
+      const double T = 200 * dt;
+      const double ex = 50.0 * std::cos(kPi / 6) * T, ey = 50.0 * std::sin(kPi / 6) * T, ez = -8.0 * T;
+      const bool ok = std::fabs(t[200].x - ex) < 1e-9 && std::fabs(t[200].y - ey) < 1e-9 && std::fabs(t[200].z - ez) < 1e-9;
+      char msg[160];
+      std::snprintf(msg, sizeof msg, "constant velocity: d(10 s) = (%.4f, %.4f, %.4f) nm = 10 s x (50 nm/s at 30 deg, -8 nm/s)",
+                    t[200].x, t[200].y, t[200].z);
+      Check(ok, msg);
+   }
+   // Random direction per seed: uniform (mean resultant length ~ 1/sqrt(n)).
+   {
+      DriftSettings s;
+      s.xySpeedNmPerSec = 10.0;
+      double c = 0, sn = 0;
+      const int n = 2000;
+      for (int seed = 1; seed <= n; seed++) {
+         const std::vector<DriftNm> t = DriftTrajectory(seed, 2, 1.0, s);
+         c += t[1].x / 10.0;
+         sn += t[1].y / 10.0;
+      }
+      const double R = std::sqrt(c * c + sn * sn) / n;
+      char msg[120];
+      std::snprintf(msg, sizeof msg, "random direction per seed: mean resultant length %.3f over %d seeds (uniform: ~%.3f)", R, n,
+                    1.0 / std::sqrt(n));
+      Check(R < 4.0 / std::sqrt(n), msg);
+   }
+   // Wanders: direction RMS 20 deg, speed RMS 30%, correlation time 5 s; z keeps its sign.
+   {
+      DriftSettings s;
+      s.xySpeedNmPerSec = 40.0;
+      s.xyAngleDeg = 90.0;
+      s.zSpeedNmPerSec = 10.0;
+      s.angleWanderDeg = 20.0;
+      s.speedWanderPct = 30.0;
+      s.wanderTimeSec = 5.0;
+      const int n = 2000, lag = 100;   // 100 frames = 5 s = tau
+      double a2 = 0, aa = 0, sp = 0, sp2 = 0;
+      bool zSign = true;
+      for (int seed = 1; seed <= n; seed++) {
+         const std::vector<DriftNm> t = DriftTrajectory(seed, 50 + lag + 2, dt, s);
+         double vx, vy, vz, wx, wy, wz;
+         Velocity(t, 50, dt, vx, vy, vz);
+         Velocity(t, 50 + lag, dt, wx, wy, wz);
+         const double a = std::atan2(vy, vx) - kPi / 2, b = std::atan2(wy, wx) - kPi / 2;
+         a2 += a * a;
+         aa += a * b;
+         const double v = std::sqrt(vx * vx + vy * vy) / 40.0;
+         sp += v;
+         sp2 += (v - 1.0) * (v - 1.0);
+         zSign = zSign && vz >= 0.0 && wz >= 0.0;
+      }
+      const double rmsDeg = std::sqrt(a2 / n) * 180 / kPi, corr = aa / a2, mean = sp / n, rmsSpeed = std::sqrt(sp2 / n);
+      char msg[220];
+      std::snprintf(msg, sizeof msg,
+                    "wander: direction RMS %.1f deg (20), correlation after tau %.3f (1/e = 0.368), speed mean %.3f (~1) RMS %.3f (0.30), z never reverses",
+                    rmsDeg, corr, mean, rmsSpeed);
+      Check(std::fabs(rmsDeg / 20.0 - 1) < 0.07 && std::fabs(corr - 0.3679) < 0.06 && std::fabs(mean - 1) < 0.03 &&
+            std::fabs(rmsSpeed / 0.3 - 1) < 0.1 && zSign, msg);
+   }
+   // The directed part does not move the random walk's draws: with speeds 0 the path is the step sum.
+   {
+      DriftSettings s;
+      s.xyNmPerSqrtSec = 13.0;
+      s.zNmPerSqrtSec = 31.0;
+      s.angleWanderDeg = 40.0;
+      s.speedWanderPct = 50.0;
+      const std::vector<DriftNm> t = DriftTrajectory(42, 300, dt, s);
+      DriftNm d;
+      bool same = true;
+      for (long f = 1; f < 300; f++) {
+         const DriftNm st = DriftStep(DriftSeed(42), f, dt, s);
+         d.x += st.x;
+         d.y += st.y;
+         d.z += st.z;
+         same = same && d.x == t[f].x && d.y == t[f].y && d.z == t[f].z;
+      }
+      Check(same, "speeds 0: the random-walk path is unchanged, bit for bit (wander settings alone do nothing)");
+   }
+}
+
 } // namespace
 
 int main()
 {
+   Directed();
    Statistics(0.01);
    Statistics(0.1);
    LiveSum();

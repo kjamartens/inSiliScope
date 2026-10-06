@@ -283,9 +283,12 @@ memory-bound), WF 256 px 20 f 2.7 -> 1.7 s, 200 f 3.3 -> 1.8 s, BF 256 px level 
 core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 ms; viewer BF 256 px level 3
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
-**Sample drift (2026-10-06, spec/PORT.md 16, docs/physics/camera.md):** a random walk per axis, xy and z set
-separately: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the RMS displacement after 1 s
-(Cnossen et al. 2021, Ma et al. 2024's 5/10/20 nm/s). `Simulation/Drift.*` (JS twin `web/prototype/scope/drift.js`,
+**Sample drift (2026-10-06, spec/PORT.md 16, docs/physics/camera.md):** a directed part plus a random walk, xy and z
+set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and signed z
+speed, whose direction and strength wander slowly (Ornstein-Uhlenbeck: `SimType_DriftXyAngleWanderDeg`,
+`SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`); only the two speeds are everyday settings, the rest is
+advanced (viewer: Advanced). Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
+RMS displacement after 1 s (Cnossen et al. 2021, Ma et al. 2024's 5/10/20 nm/s). `Simulation/Drift.*` (JS twin `web/prototype/scope/drift.js`,
 counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live, cli, viewer and the webSMLM block's
 `CellField.driftTrajectory`). MM `SimType_DriftXyNmPerSqrtSec`/`SimType_DriftZNmPerSqrtSec`, cli/viewer
 `drift-xy-nm-per-sqrt-sec`/`drift-z-nm-per-sqrt-sec`, default 0 (outputs unchanged; `SimType_DriftNmPerSec`, the linear
@@ -355,7 +358,8 @@ to, mirroring the UI section groupings in the webSMLM reference simulator
   `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
   `NucThickIrreg`/`NucAsym`/`NucWidestMin`/`Max` and the microtubule ends
   `CellFieldMicrotubuleStartDecayPct`/`EndDecayPct`/`DirKappa`), plus
-  `DriftXyNmPerSqrtSec`/`DriftZNmPerSqrtSec` and `RandomSeed`.
+  `DriftXyNmPerSqrtSec`/`DriftZNmPerSqrtSec`, the directed drift `DriftXySpeedNmPerSec`/`DriftZSpeedNmPerSec`/
+  `DriftXyAngleDeg`/`DriftXyAngleWanderDeg`/`DriftSpeedWanderPct`/`DriftWanderTimeSec`, and `RandomSeed`.
 - `FluoParam_` -- webSMLM's "Fluorophore parameters" group:
   `PhotonsPerSecond`, `OnLifetimeSec`, `BlinkBleachProb`, `OffLifetimeSec`,
   `PhotonCV`, `IllumProfile`, `IllumFwhmPct` (webSMLM puts its

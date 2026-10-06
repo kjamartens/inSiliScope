@@ -189,13 +189,16 @@ function cellFieldFactory(SRC) {
       M._isc_cells_in_window(wd, win.x0 - 0.5, win.y0 - 0.5, win.x1 + 0.5, win.y1 + 0.5, ptr, cap));
     return { sites, nCells, nMt: countMts(wd, cells, win), removed: null, packed: !!p.enablePacking };
   }
-  // The random-walk sample drift (insiliscope's Simulation/Drift.h, the JS twin web/prototype/scope/drift.js):
-  // per frame f = 0 .. frames-1, the sample's displacement {x, y, z} in nm, 0 at frame 0; every frame adds a
-  // normal step per axis of variance sigma^2 x frameSec, sigma = RMS nm after 1 s (x and y each xyNmPerSqrtSec,
-  // z zNmPerSqrtSec). The same path as an insiliscope movie of that seed (its `seed` option).
+  // The sample drift (insiliscope's Simulation/Drift.h, the JS twin web/prototype/scope/drift.js): per frame
+  // f = 0 .. frames-1, the sample's displacement {x, y, z} in nm, 0 at frame 0. A random walk (every frame a normal
+  // step per axis of variance sigma^2 x frameSec, sigma = RMS nm after 1 s: xyNmPerSqrtSec for x and y each,
+  // zNmPerSqrtSec) plus, in opts, a directed part: xySpeedNmPerSec, zSpeedNmPerSec (signed), xyAngleDeg (-1 =
+  // random per seed), angleWanderDeg, speedWanderPct, wanderTimeSec (the slow wander of direction and strength).
+  // The same path as an insiliscope movie of that seed (its `seed` option) with the same settings.
   const Drift = __DRIFT__;
-  function driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec) {
-    return Drift.driftTrajectory(seed, frames, frameSec, { xyNmPerSqrtSec: +xyNmPerSqrtSec || 0, zNmPerSqrtSec: +zNmPerSqrtSec || 0 });
+  function driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec, opts) {
+    const s = Object.assign({}, opts || {}, { xyNmPerSqrtSec: +xyNmPerSqrtSec || 0, zNmPerSqrtSec: +zNmPerSqrtSec || 0 });
+    return Drift.driftTrajectory(seed, frames, frameSec, s);
   }
   // Frees the cached world (it is rebuilt on the next call).
   function dispose() { if (world) M._isc_world_free(world); world = 0; worldKey = ''; }
@@ -236,8 +239,8 @@ const text = `${BEGIN}
 // Replaces webSMLM's CellField IIFE: the insiliscope core (C++ -> WASM, the module text in the
 // last line, WASM inlined) + a thin wrapper. CellField.buildWindow(w, h, opts) as before
 // (see the comment on buildWindow); the module is instantiated synchronously on first use.
-// CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec): the
-// random-walk sample drift of insiliscope's MM adapter, cli and viewer (same path per seed).
+// CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec, opts): the
+// sample drift of insiliscope's MM adapter, cli and viewer (random walk + directed part in opts; same path per seed).
 // CellField.workerSource() gives source text that evaluates to a CellField inside a Web Worker.
 // Needs a browser main thread or worker (in Node, fake one: globalThis.WorkerGlobalScope,
 // self, location). The sha256 above covers the JSON-decoded module string.

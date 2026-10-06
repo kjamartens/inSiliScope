@@ -10,6 +10,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `drift-z-nm-per-sqrt-sec` (default 0: outputs unchanged), in SuperRes, WideField and BrightField, stacks and live; the
   cli writes the true drift to `<name>.drift.csv`; the webSMLM block gains `CellField.driftTrajectory`. **Removed**
   `SimType_DriftNmPerSec` (the linear drift; a saved configuration that sets it must drop it).
+- Directed sample drift on top of the random walk (2026-10-06): a mean xy speed in a direction (random per seed
+  unless set) and a signed z speed, whose direction and strength wander slowly (correlation time). MM
+  `SimType_DriftXySpeedNmPerSec`, `SimType_DriftZSpeedNmPerSec` (everyday), `SimType_DriftXyAngleDeg`,
+  `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec` (advanced); cli/viewer
+  options of the same meaning; the block's `driftTrajectory` takes them in `opts`. A live Live/MDA sequence now starts
+  its drift exactly at its first frame (a frame already in flight at the start was counted with the old origin).
 - `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
   (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
   use short stacks and run in under 5 minutes (were ~25).

@@ -52,6 +52,14 @@ const char* g_PropPixelGainStdPct = "CamParam_GainStdPctPerPixel";
 const char* g_PropPixelReadNoiseStdPct = "CamParam_ReadNoiseStdPctPerPixel";
 const char* g_PropDriftXyNmPerSqrtSec = "SimType_DriftXyNmPerSqrtSec";
 const char* g_PropDriftZNmPerSqrtSec = "SimType_DriftZNmPerSqrtSec";
+const char* g_PropDirectedDrift[DD_COUNT] = {
+   "SimType_DriftXySpeedNmPerSec",
+   "SimType_DriftZSpeedNmPerSec",
+   "SimType_DriftXyAngleDeg",
+   "SimType_DriftXyAngleWanderDeg",
+   "SimType_DriftSpeedWanderPct",
+   "SimType_DriftWanderTimeSec",
+};
 const char* g_PropRandomSeed = "SimType_RandomSeed";
 const char* g_PropActualFrameIntervalMs = "General_ActualFrameIntervalMs";
 const char* g_PropPsfModel = "PSFParam_PsfModel";
@@ -257,6 +265,11 @@ CInSiliScopeCamera::CInSiliScopeCamera()
    const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0, 4e8, 0.7, 5000.0, 270000.0 };
    for (int i = 0; i < WF_COUNT; ++i)
       wideFieldNum_[i] = wideFieldDefaults[i];
+   // Directed drift: off (speeds 0), random direction per seed, no wander,
+   // 60 s correlation time.
+   const double directedDriftDefaults[DD_COUNT] = { 0.0, 0.0, -1.0, 0.0, 0.0, 60.0 };
+   for (int i = 0; i < DD_COUNT; ++i)
+      directedDrift_[i] = directedDriftDefaults[i];
    // BrightField: quality 3 (its sources/upscaling/samples/slice: 0 / -1 =
    // from the quality), condenser NA 0.55, 550 nm, 40000 photons/pixel/s
    // (2000 per 50 ms frame), the PSF's aberrations, refractive indices of
@@ -544,6 +557,19 @@ int CInSiliScopeCamera::Initialize()
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftZNmPerSqrtSec);
    CreateFloatProperty(g_PropDriftZNmPerSqrtSec, driftZNmPerSqrtSec_.load(), false, pAct);
    SetPropertyLimits(g_PropDriftZNmPerSqrtSec, 0.0, 1000.0);
+   // Directed drift on top: mean xy speed (direction random per seed unless
+   // set) and signed z speed; their direction/strength wander slowly
+   // (advanced: angle, wanders, correlation time).
+   {
+      const double lo[DD_COUNT] = { 0.0, -10000.0, -1.0, 0.0, 0.0, 0.1 };
+      const double hi[DD_COUNT] = { 10000.0, 10000.0, 360.0, 180.0, 100.0, 100000.0 };
+      for (long i = 0; i < DD_COUNT; ++i)
+      {
+         CreateFloatProperty(g_PropDirectedDrift[i], directedDrift_[i].load(), false,
+                             new CPropertyActionEx(this, &CInSiliScopeCamera::OnDirectedDrift, i));
+         SetPropertyLimits(g_PropDirectedDrift[i], lo[i], hi[i]);
+      }
+   }
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
@@ -985,7 +1011,10 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    liveSeqCapture_ = true;
    if (acqMode_ == SMLM_MODE_LIVE)
    {
-      liveDriftOriginFrame_ = liveFrameCounter_.load();
+      // The producer restarts the drift at the start of its next frame (a
+      // frame already in flight was rendered with the old origin and is
+      // skipped by the sequence).
+      ++liveDriftRestart_;
    }
    else
    {
