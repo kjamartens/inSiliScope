@@ -133,7 +133,6 @@ for (dev, name), expected in {
     ("FilterCube", "Label"): "LP650+BP676-37",
     ("Objective", "Label"): "100x/1.40 Oil",
     ("Camera", "CameraType"): "sCMOS",
-    ("Camera", "PixelSizeNm"): "100",
     ("SampleHolder", "BackgroundDecaySec"): "0",
     ("Renderer", "UseGpu"): "On",
     ("Renderer", "DiskCache"): "Cells",
@@ -147,6 +146,10 @@ for (dev, name), expected in {
     actual = core.getProperty(dev, name)
     ok = float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected
     assert ok, f"expected {dev}.{name} to default to {expected!r}, got {actual!r}"
+# The pixel: the Kinetix's 6.5 um sensor pixel / (100x objective x 0.667x emission path) = 97.45 nm.
+assert float(core.getProperty("EmissionPath", "EmissionMagnification")) == 0.667
+assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 6500 / 66.7) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
+assert abs(core.getPixelSizeUm() - 6.5 / 66.7) < 1e-6 or core.getPixelSizeUm() == 0, core.getPixelSizeUm()
 # The label list follows the mode: Typical plus the dyes with data in it (and the custom dyes, Expert).
 DSTORM_DYES = {"AF647", "AF532", "Cy5", "ATTO655", "Cy3B", "Custom"}
 PALM_DYES = {"mEos3.2", "Dendra2", "PAmCherry2", "Custom"}
@@ -193,7 +196,7 @@ assert on561 == only561, "LP570 transmits 640 nm: that line never reaches the sa
 # A camera preset: noise values, sensor pixel (the pixel size follows), sensor type.
 core.setProperty("Camera", "CameraPreset", "iXonUltra897")
 assert core.getProperty("Camera", "CameraType") == "EMCCD" and float(core.getProperty("Camera", "SensorPixelUm")) == 16
-assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 16000 / 65) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
+assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 16000 / 66.7) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
 core.setProperty("EmissionPath", "EmissionMagnification", "1.6")
 core.setProperty("Objective", "Label", "60x/1.20 Water")
 assert float(core.getProperty("Objective", "NA")) == 1.2 and abs(float(core.getProperty("Camera", "PixelSizeNm")) - 16000 / 96) < 1e-3

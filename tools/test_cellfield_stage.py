@@ -302,7 +302,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     _wait_idle(core, xy)
     core.snapImage()
     a = _live_sum(core, 40)
-    step_um = 2.0
+    step_um = round(2.0 / px_um) * px_um   # about 2 um, a whole number of pixels (97.45 nm: 20 px)
     core.setXYPosition(xy, x0 + step_um, y0)
     _wait_idle(core, xy)
     core.snapImage()
@@ -310,7 +310,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     dy, dx, peak = _shift(a, b)
     expect = -round(step_um / px_um)
     assert (dy, dx) == (0, expect), f"stage +{step_um} um in x: image shift (dy, dx) = ({dy}, {dx}), expected (0, {expect})"
-    print(f"Live CellField OK: stage +{step_um} um in x moved the structure by {dx} px (expected {expect}), "
+    print(f"Live CellField OK: stage +{step_um:.3f} um in x moved the structure by {dx} px (expected {expect}), "
           f"correlation peak {peak:.2f}")
 
     # MM's standard mirroring flips the direction.

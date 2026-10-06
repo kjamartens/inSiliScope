@@ -5,8 +5,10 @@
 - The `ZStage` position is the **focal plane height**; an emitter's defocus is \(z_{emitter} - Z\). Positive \(Z\) moves
   focus up through the sample, like a real focus drive. For `CellField`, \(Z = 0\) puts the coverslip in focus (the stage
   starts at 0.5 um).
-- The camera pixel size (`General_PixelSizeNm`, default 100) and the PSF are independent; the PSF kernel is oversampled and
-  placed at the emitter's true sub-pixel position.
+- The camera pixel size and the PSF are independent; the PSF kernel is oversampled and placed at the emitter's true
+  sub-pixel position. In Micro-Manager the pixel size is the camera's sensor pixel / (objective magnification x
+  `EmissionPath` magnification): 6.5 um / (100 x 0.667) = 97.45 nm by default (Kinetix22, 100x objective). The cli and
+  viewer take it directly (`pixel-nm`, default 100).
 
 ## PSF models (adapter)
 

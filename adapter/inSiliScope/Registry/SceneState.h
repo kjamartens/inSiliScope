@@ -120,7 +120,8 @@ struct SceneState
    // ---- pixel size: sensor pixel / (objective x emission magnification) ----
    std::atomic<double> sensorPixelUm{6.5};
    std::atomic<double> objectiveMag{100.0};
-   std::atomic<double> emissionMag{0.65};
+   // 0.667x: the Kinetix's 6.5 um pixel at 100x gives 97.45 nm (near the ~100 nm of SMLM setups).
+   std::atomic<double> emissionMag{0.667};
    double PixelSizeNm() const { return sensorPixelUm.load() * 1000.0 / (objectiveMag.load() * emissionMag.load()); }
 
    // ---- camera: noise chain (Kinetix22 sCMOS, CMS mode, by default) ----
