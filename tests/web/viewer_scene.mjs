@@ -30,10 +30,17 @@ const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 let fail = 0;
-const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
+const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
 await page.goto(`http://localhost:${server.address().port}/index.html`);
 await page.waitForFunction(() => window.iscScene && /cells [1-9]/.test(document.getElementById('hud').textContent) && iscScene.packingIdle(), null, { timeout: 300000 });
 
+// Runtime (< 5 min on SwiftShader): every check renders its own off-screen frame, but a readPixels also waits for
+// the page's own main-view redraws, so the main view is left nearly empty (its layers and the x-z view off); the data
+// stacks use 200 nm pixels and coarse focus steps (what they check does not depend on either).
+await page.evaluate(() => {
+  for (const id of ['showCyto', 'showNucleus', 'showMt', 'showXZ']) { els[id].checked = false; els[id].dispatchEvent(new Event('input', { bubbles: true })); }
+  document.getElementById('mv_pixel-nm').value = 200;
+});
 // helpers in the page: a state for the centre cell, a capture that waits until everything is in, lit-pixel masks
 await page.evaluate(() => {
   window.__key = iscScene.nearestCell(view.cx, view.cy);
@@ -102,9 +109,9 @@ const det = await page.evaluate(async () => {
 });
 check(/, 3 detailed\)/.test(det), 'detail budget: 3 detailed cells in a zoomed-out view (' + (/cells [^\n]*detailed\)/.exec(det) || [''])[0] + ')');
 
-// 5. a z-stack plane = the stand-alone movie job of its spec (WideField, one frame, plane 2)
+// 5. a z-stack plane = the stand-alone movie job of its spec (WideField, one frame, plane 2: z = 1 um)
 const eq = await page.evaluate(async () => {
-  const over = { wfAverage: 1, stepUm: 0.5 };
+  const over = { wfAverage: 1, stepUm: 1 };
   const [st] = await iscScene.acquireData(['mt.wfSlice'], __key, over, null);
   const p = 2, spec = movieSpec(Object.assign({}, st.ov, { z: st.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p, 'start-sec': st.t0 }));
   const d = await movieJob(spec), P = st.size * st.size;
@@ -116,7 +123,7 @@ check(eq.n === 0, `data: z-stack plane 2 of ${eq.nz} = a stand-alone movie job (
 // 6. a WideField slice draws into the frame where the stack is
 const lit = await page.evaluate(async () => {
   const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1];
-  const st = __st({ camera: { pivot: pv, azimuthDeg: 0, tiltDeg: 0, fovUm: b.diam * 1.2 }, slice: { axis: 'z', pos: 1 }, data: { wfAverage: 1, stepUm: 0.5 },
+  const st = __st({ camera: { pivot: pv, azimuthDeg: 0, tiltDeg: 0, fovUm: b.diam * 1.2 }, slice: { axis: 'z', pos: 1 }, data: { wfAverage: 1, stepUm: 1 },
     layers: { 'mt.wfSlice': { style: { color: '#ffffff', opacity: 1 } } } });
   const { data } = await __cap(st);
   let n = 0; for (let i = 0; i < data.length; i += 4) if (data[i] > 40) n++;
@@ -126,7 +133,7 @@ check(lit > 1000, `data: the WideField slice is drawn (${lit} lit px)`);
 
 // 7. the thresholded WideField surface (same stack) and the localizations of a short multi-plane acquisition
 const more = await page.evaluate(async () => {
-  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 0.5, locFrames: 300 };
+  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 1, locFrames: 300 };
   const cam = { pivot: pv, azimuthDeg: 30, tiltDeg: 45, fovUm: b.diam * 1.2 };
   const count = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) n++; return n; };
   const iso = await __cap(__st({ camera: cam, data, layers: { 'mt.wfIso': { style: { color: '#ffffff', opacity: 1 } } } }));
@@ -142,7 +149,7 @@ check(more.n > 1000 && more.inside && more.loc > 500, `data: ${more.n} localizat
 if (errors.length) { fail++; console.log('page errors: ' + errors.join('; ')); }
 // 8. an opaque slice (SMLM frames) hides only what is behind it: the cytoplasm surface above the plane stays visible
 const ahead = await page.evaluate(async () => {
-  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 0.5, srFrames: 2 };
+  const b = iscScene.cellBounds(__key), pv = [b.center[0], b.center[1], 1], data = { wfAverage: 1, stepUm: 1, srStepUm: 0.8, srFrames: 2 };
   await iscScene.acquireData(['mt.srFrames'], __key, data, null);
   const green = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 60 && d[i + 1] > 2 * d[i] && d[i + 1] > 2 * d[i + 2]) n++; return n; };
   const cyto = { style: { color: '#00ff00', opacity: 0.6 }, intervals: [{ lo: 0.6, hi: 1e30 }] };

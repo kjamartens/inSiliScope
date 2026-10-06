@@ -94,8 +94,8 @@ that finishes them.
 - Adapter: MSBuild `adapter/inSiliScope/inSiliScope.sln` Release|x64 (needs the submodule and the
   locally built `third_party/SMLMPsfEmbedded.jar`, see below). Output unchanged by a refactor:
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
-  Smoke test: `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py` (ends with
-  `tools/test_cellfield_stage.py`: CellField pattern + XY stage + hardware z stacks). Off Windows, `tools/build_adapter_linux.sh`
+  Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
+  `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
 - WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a

@@ -29,13 +29,16 @@ const server = http.createServer((req, res) => {
 const port = server.address().port;
 const browser = await chromium.launch({ channel: arg('channel') || undefined,
   args: arg('gpu') ? ['--enable-gpu', '--ignore-gpu-blocklist'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-const page = await browser.newPage({ viewport: { width: 1100, height: 760 } });
+// Runtime (< 5 min on SwiftShader): a small page, so the main view the page redraws behind every off-screen export
+// frame (a readPixels waits for it) has few pixels; its own layers are switched off once the cells are in.
+const page = await browser.newPage({ viewport: { width: 760, height: 520 } });
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 let fail = 0;
-const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
+const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
 await page.goto(`http://localhost:${port}/index.html`);
 await page.waitForFunction(() => window.iscAnim && /cells [1-9]/.test(document.getElementById('hud').textContent), null, { timeout: 300000 });
+await page.evaluate(() => { for (const id of ['showCyto', 'showNucleus', 'showMt', 'showXZ']) { els[id].checked = false; els[id].dispatchEvent(new Event('input', { bubbles: true })); } });
 
 // a 2 s sequence: an orbit with a build-up of the microtubules of the cell at the centre
 const SEQ = await page.evaluate(() => {
