@@ -46,8 +46,9 @@ export async function createEngine(src = {}) {
   }
   function withLabels(w, labels) {
     if (labels) {
-      const want = labels.map(l => makeLabel({ density: l.density, fluorescentFraction: l.fluorescentFraction }));
-      if (want.some((l, i) => l.density !== w.labels[i].density || l.fluorescentFraction !== w.labels[i].fluorescentFraction)) w.setLabels(want);
+      // a sites job's {density, fluorescentFraction} (the rest the default), or an events job's whole label
+      const want = labels.map(l => makeLabel(l.mode ? l : { density: l.density, fluorescentFraction: l.fluorescentFraction }));
+      if (want.some((l, i) => JSON.stringify(l) !== JSON.stringify(w.labels[i]))) w.setLabels(want);
     }
     return w;
   }
@@ -164,6 +165,14 @@ export async function createEngine(src = {}) {
           transfer.push(xyz.buffer, lens.buffer);
         }
         return [out, transfer];
+      }
+      if (d.type === 'events') {
+        // the WASM engine's events job (web/index.html): blinks in a box and time window under d.labels (set above)
+        inject(w, d.blocks);
+        const [x0, y0, x1, y1] = d.rect;
+        const list = w.eventsInWindow(x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1), events = new Float64Array(list.length * 7);
+        list.forEach((e, i) => events.set([e.x, e.y, e.z, e.tOn, e.tOff, e.brightness, e.id], i * 7));
+        return [{ type: 'events', id: d.id, events }, [events.buffer]];
       }
       if (d.type === 'sites') {
         inject(w, d.blocks);

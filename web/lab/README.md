@@ -24,7 +24,8 @@ movies by `web/prototype/scope/`. `web/lab/engine.js` is the glue: the viewer's 
 - With nothing changed it shows exactly what `index.html` shows (`node web/lab/engine_check.mjs`: cells, assets and
   dyes identical, SR and WideField movies identical, BrightField >= 99.5%).
 - Edit the JS, save: the page reloads by itself and keeps the view and every control you changed (click the orange
-  badge to forget them). Saves under `web/prototype`, `web/lab` and of `web/index.html` / `wf_gpu.js` all reload it.
+  badge to forget them). Saves under `web/prototype`, `web/lab`, `web/scene`, `web/anim`, `web/encode` and of `web/index.html` / `wf_gpu.js` all
+  reload it.
 - The viewer's control values are sent as they are; the prototype's own defaults only fill in what the viewer has no
   control for. A new parameter: add it to the prototype's generator and `params()`, and a control for it to
   `web/index.html` (that UI is what ships); a key only the viewer sends still reaches the generator.

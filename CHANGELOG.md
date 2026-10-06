@@ -51,6 +51,44 @@ Versions follow semver; while 0.x, any release may change output for a given see
   (`Background_CellContrast`, `HazeWeight`, `HazeWidthNm`, `OutOfFocusRatio`, `OutOfFocusDepthNm`). The cell field is
   the only specimen; its output is unchanged (`adapter_pixel_hash` CellField configs identical). Hardware
   configurations that set the removed properties must be re-made.
+- Viewer data layers and animations on labels, dyes and the light path (issue 11 on issue 16, 2026-10-05): WideField
+  stacks image the microtubule dye in WideField mode and SMLM stacks in its blinking mode (with that mode's light preset);
+  BrightField is modality 1. Localizations take the label's kinetics (the `events` job carries whole labels,
+  `isc_world_set_label`) and the dye's detected photons through the light path; SMLM planes start at the movie's start
+  time. Dyes take the dye's emission colour in every look; the animation legend names the dye and mode.
+- Viewer animations, more presets and automatic data (issue 11, 2026-10-05): 18 more cycle presets (27) and 5 more
+  ready-made sequences; checked data layers and animations that need data acquire it by themselves.
+- Viewer thresholded surface and localizations (issue 11, phase 4, 2026-10-05): the WideField z-stack smoothed,
+  thresholded at Otsu's level and meshed (surface nets) in a compute worker, drawn as a lit front layer; SMLM
+  localizations of a multi-plane acquisition (the core's blinks, a new `events` worker job in the WASM and JS engines:
+  per frame and focus position within the capture range, displaced by a photon- and defocus-dependent precision),
+  drawn by height or as precision spots. Main view (Data layers) and animations (presets "Simulated up, WideField down,
+  thresholded wake", "Simulated up, SMLM down, localizations wake"; the issue's example as a ready-made sequence).
+  `web/scene/compute.js`, check `tests/web/scene_compute_check.mjs` (CI `viewer-js`); `engine_check` compares the events.
+- Viewer data layers (issue 11, phase 3, 2026-10-05): WideField, SMLM-frame and BrightField z-stacks of a cell (one
+  movie job per focus position over the cell's box, averaged frames; memory + IndexedDB cache), drawn as slices at any
+  height or any vertical plane (3D texture per fragment, crop to the cell's footprint), in the main view (Data layers
+  group: Acquire, slice height) and in animations (slices riding the sweep plane; the export acquires first; preset
+  "Simulated up, image slices down"). Fresh or sequential SMLM planes. Check `tests/web/viewer_scene.mjs` (clip bands,
+  rotation, determinism, detail budget, stack plane = movie job).
+- Viewer Animation tab (issue 11, phase 2, 2026-10-05): animations of one cell as cycles of steps (camera moves, plane
+  sweeps with per-layer zones ahead / in the slab / behind, pop-ins with fades, captions), previewed on a timeline under
+  the view and exported frame by frame off screen as MP4 (H.264), WebM (VP9/VP8) or GIF (self-written muxers and GIF
+  encoder over WebCodecs, no libraries), with scale bar, captions, plane position and legend overlays; undo/redo, local
+  storage, `.json` save/open. The movie player saves GIF and MP4 too. `web/anim/`, `web/encode/`; checks
+  `tests/web/anim_unit.mjs`, `encode_unit.mjs` (CI job `viewer-js`), `viewer_anim_export.mjs` (browser).
+- Viewer rotation, z clip and detail budget (issue 11, phase 1, 2026-10-05): the view turns about the vertical through
+  its centre (Rotation, Shift-drag) and tilts up to 90° (was 75°); a Z clip draws only what lies between two heights
+  (clipped per fragment on the GPU); only the 5 cells nearest the view centre (Detailed cells, 0 = all) get their
+  microtubules, nucleus and dyes (every visible cell had them before); advanced Scope (all / centre cell + faint
+  neighbours / centre cell) and Look (depth colours / dark fluorescence). Dyes are depth-tested on the GPU. One camera
+  (`web/scene/core.js`, with the structure/layer registry the animation tab builds on); at rotation 0 the image is
+  the previous one. Display only.
+- Viewer depth order (issue 9, 2026-10-05): the cytoplasm surface, nucleus surface, outline and contour lines of a cell
+  are painted back to front in one order and the cells far to near; microtubules are opaque ribbons in a z-buffer
+  (WebGL2, simplified to a quarter pixel per zoom level). The nucleus no longer draws in front of the cytoplasm, and
+  cells no longer overlap in the wrong order when tilted. The x-z side view draws each cell inside out (nucleus and
+  microtubules under the translucent cytoplasm). Display only.
 - **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
   widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
   `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it

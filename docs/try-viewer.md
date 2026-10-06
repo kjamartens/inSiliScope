@@ -6,9 +6,9 @@ hide:
 
 # Viewer
 
-The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt for a 3D impression,
+The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt and turn it for a 3D view,
 then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
-to the `insiliscope_cli` output with the same settings). **[Open it full screen](../viewer/index.html)** for more room.
+to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
 
 <div class="isc-viewer">
   <div class="isc-viewer-loading">Loading the viewer (about 1 MB of WebAssembly)…</div>
@@ -49,8 +49,78 @@ Notes:
   object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
   once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
   SMLM and widefield movies also reuse the cells of the previous movie.
+- **Tilt** (0 = straight down, 90 = from the side) and **Rotation** (about the vertical through the view centre) turn
+  the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
+  between two heights above the coverslip; drag both knobs together for a slab moving through the cells (its full
+  0-20 um range is off). The advanced **Turn height** sets the height of the point the view turns about.
+- **Detailed cells** (default 5): only the cells nearest the view centre get their microtubules, nucleus and dyes;
+  the others show their cytoplasm, so a zoomed-out, turned view stays fast. 0 draws every cell in full. Advanced:
+  **Scope** draws all cells, the centre cell with faint neighbours, or the centre cell alone; **Look** switches between
+  the depth colours and bright colours on black.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
-  microtubules and dyes of the view's y range seen along y, at equal x and z scale.
+  microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
+  horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
+  the tallest cell in view (+ 1 µm), so a flat field leaves more room for the map.
+- Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
+  cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
+  above it and a nearer cell covers a farther one.
+- The **Animation** tab (work in progress: turn on "Show animation pane (WIP)" in the ☰ menu for the Settings /
+  Animation tabs) builds short animations of one cell for talks: the view orbits the cell
+  while its structures appear. An animation is a list of **cycles**, each bound to a structure (microtubules, nucleus,
+  cytoplasm) and made of **steps**. A step lasts some seconds, moves the camera (turning by the cycle's orbit, tilting,
+  zooming) and can **sweep a plane** through the cell (up, down, side to side, or along the screen's axes) with a slab
+  of some thickness; every layer of the step is shown **ahead** of the plane, **in the slab** and/or **behind** it (its
+  wake), with its own colour and opacity. A step without a sweep makes its layers pop in (fading). Typical: the
+  simulated microtubules building up bottom to top while the view turns, then a slab moving back down. Duplicate a cycle
+  and switch its structure to repeat it for the nucleus; "keep shown after" leaves a layer on for later cycles. Ready-made
+  cycles (27): orbits, fly-arounds, turntable, zoom dive, top-view reveal, peel away, x-ray, optical sections, depth scan,
+  wipes, outside-in, dye sites, WideField / SMLM / BrightField slices, ground truth vs thresholded or localized, SMLM
+  build-up; ready-made sequences under "New from…" (grand tour, ground truth vs data, an SMLM experiment, every
+  modality, SMLM slab up / localizations down, turntable). The timeline under the view plays and
+  scrubs it (Space, arrows, [ and ]; once, loop or ping-pong); the dimmed border shows the export frame. **Export**
+  renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
+  or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
+  are kept in the browser, with undo/redo, and saved or opened as `.json` files. Layers can also be simulated image
+  data (below): a **WideField slice**, **SMLM camera frames** or a **BrightField slice** riding on the sweeping plane,
+  the **thresholded WideField** surface or the **SMLM localizations** in its wake (e.g. "Simulated up, WideField down,
+  thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
+  (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
+  previewed or edited.
+- **Simulated data** (Settings > View, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
+  view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
+  height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
+  included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
+  **SMLM frames + localized emitters** adds a faint cross at the true position of every emitter localized in the frame
+  shown), or the BrightField image. Picking a layer makes its data in the background straight away (for the centre
+  cell, once per cell and settings); a status list under the layers shows each data set (WideField, SMLM frame and
+  BrightField z-stacks, SMLM localizations) as ready, being made (with progress), queued or not made, and which layer
+  needs it. The data are made one at a time; ✕ removes an item from the queue (it stays removed until "Make"), and an
+  item whose cell leaves the view is removed by itself (it queues again when the cell is back at the centre). While an
+  image slice is shown, its slice height and the movie's focus height (Acquisition) move together. The data use the movie settings
+  (Microscope, Acquisition, the microtubule label): WideField images the structure's dye in WideField mode, SMLM in the
+  structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
+  mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
+  the movie's start time (60 s by default). One movie per focus position over the cell's box, from 1 µm below the
+  coverslip to 1 µm above the cell top (the slice height slider covers the same range); WideField and BrightField planes the
+  mean of a few frames (advanced, Data acquisition: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
+  acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM frames are drawn opaque;
+  in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slice" is
+  on (in an animation step: the checkbox next to a slice's colour). "WideField, sum over z" shows the WideField z-stack summed over
+  its planes instead of the plane at the slice height (in an animation step: the second checkbox of a WideField slice). SMLM planes start with fresh dyes
+  by default (advanced: sequential, where bleaching dyes run out in later planes). **WideField thresholded** segments the
+  cell from the WideField z-stack: out-of-focus light of a thin cell is nearly the same in every plane, so it thresholds
+  the in-focus fine structure of each plane (Otsu's level x the Threshold slider) and fills each column from the
+  coverslip up to its highest in-focus point. **SMLM localizations**
+  emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
+  within the capture range (±400 nm) is localized per frame, displaced by its precision: "Precision xy" and "Precision z"
+  (default 8 and 20 nm; an animation that shows localizations has its own in its Data section) are those of an in-focus blink ON for a whole frame (the dye's detected photons per second
+  through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
+  label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
+  emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
+- While the Acquisition group is open, a dashed yellow square on the map shows what the next movie covers. A finished
+  movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
+  view) and its title bar drags it anywhere over the view.
+- The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.

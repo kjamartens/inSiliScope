@@ -14,7 +14,7 @@ z sequence).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
     ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
-tools/test_insiliscope.py also runs these checks at its end (run_checks).
+Run it after tools/test_insiliscope.py (two tests, each under 5 minutes; run_checks(core) for a core of your own).
 Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
 """
 
@@ -255,21 +255,22 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     core.setPosition(z, 1.5)
     assert up > empty + 1.0 and abs(down - empty) < 0.5, \
         f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
-    # DNA-PAINT sites do not run out: over a 1000-frame (20 s) stack the
-    # signal stays flat (the bleaching side is the WideField check below).
+    # DNA-PAINT sites do not run out: over the first 300 frames of the stack
+    # the signal stays flat (the bleaching side is the WideField check below;
+    # a snap waits out its exposure, so few frames are read).
     def early_late():
         core.setXYPosition(xy, x0, y0)
         _wait_idle(core, xy)
         core.setProperty(cam, "General_GenerateStack", "1")
         _wait_for_stack(core, cam)
         sig = []
-        for _ in range(1000):
+        for _ in range(300):
             core.snapImage()
             sig.append(core.getImage().astype(np.float64).mean() - 100.0)
         return float(np.mean(sig[:100])), float(np.mean(sig[-100:]))
     p_early, p_late = early_late()
     assert p_early > 0.5 and 0.8 < p_late / p_early < 1.25, f"DNA-PAINT sites should not run out: {p_early:.2f} -> {p_late:.2f} ADU"
-    print(f"DNA-PAINT OK: signal {p_early:.2f} -> {p_late:.2f} ADU over 20 s")
+    print(f"DNA-PAINT OK: signal {p_early:.2f} -> {p_late:.2f} ADU over {300 * core.getExposure() / 1000:.0f} s")
 
     print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
 
@@ -319,30 +320,46 @@ def _widefield_checks(core, cam, xy, x0, y0):
 
     offset = float(core.getProperty(cam, "CamParam_OffsetADU"))
     _label(core, cam, **GFP)
+    # A fresh spot with cells (the checks above lit (x0, y0) for over a minute: at t1/2 = 6 s its dyes are gone; one
+    # 20 ms live snap per candidate lights it for ~0.3 % of a half time). Away from the illumination-history spots below.
+    core.setProperty(cam, "General_AcqMode", "Live")
+    core.setExposure(20.0)
+    wx = wy = None
+    for k in range(40):
+        core.setXYPosition(xy, x0 - 200.0 - 13.0 * k, y0 - 60.0)
+        _wait_idle(core, xy)
+        core.snapImage()
+        if core.getImage().astype(np.float64).mean() - offset > 20:
+            wx, wy = core.getXYPosition(xy)
+            break
+    assert wx is not None, "no spot with cells found for the WideField bleaching check"
     core.setProperty(cam, "General_AcqMode", "Precomputed")
     core.setExposure(50.0)
-    core.setXYPosition(xy, x0, y0)
-    _wait_idle(core, xy)
-    # The bleaching law: a photon budget that gives t1/2 = 30 s at the
-    # preset's 488 nm flux, so the 50 s of stack show a clear decay.
+    # The bleaching law: a photon budget that gives t1/2 = 6 s at the
+    # preset's 488 nm flux, so the first 130 frames (6.5 s; a snap waits out
+    # its exposure) show a clear decay. Expected: the mean of 2^(-t/t1/2)
+    # over each window's frame mid-times.
+    T_HALF = 6.0
     t_lib = _wf_half_time_s(core, cam)
-    budget = float(core.getProperty(cam, "FluoParam_Microtubule_PhotonBudget")) * 30.0 / t_lib
+    budget = float(core.getProperty(cam, "FluoParam_Microtubule_PhotonBudget")) * T_HALF / t_lib
     core.setProperty(cam, "FluoParam_Microtubule_PhotonBudget", f"{budget:.6g}")
     t_half = _wf_half_time_s(core, cam)
-    assert abs(t_half / 30.0 - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
+    assert abs(t_half / T_HALF - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
     core.setProperty(cam, "General_GenerateStack", "1")
     _wait_for_stack(core, cam)
     sig = []
-    for _ in range(1000):
+    for _ in range(130):
         core.snapImage()
         sig.append(core.getImage().astype(np.float64).mean() - offset)
     b = np.array(sig)
     status = core.getProperty(cam, "General_GpuStatus")
-    ratio = b[590:610].mean() / b[0:20].mean()
-    expect = 2.0 ** (-(600 * 0.05) / t_half)
-    assert b[0:20].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
-        f"WideField bleaching: frames 590-609 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
-    print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 30 s (expected {expect:.3f}, t1/2 "
+    w0, w1 = np.arange(0, 10), np.arange(115, 125)
+    ratio = b[w1].mean() / b[w0].mean()
+    decay = lambda w: np.mean(2.0 ** (-((w + 0.5) * 0.05) / t_half))
+    expect = decay(w1) / decay(w0)
+    assert b[w0].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
+        f"WideField bleaching: frames 115-124 / 0-9 = {ratio:.3f}, expected {expect:.3f} (signal {b[w0].mean():.2f} ADU)"
+    print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 6 s (expected {expect:.3f}, t1/2 "
           f"{t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
 
     # Live: the illumination history. A small budget (t1/2 ~0.4 s at the

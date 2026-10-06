@@ -36,7 +36,11 @@ that finishes them.
 - `data/` -- [dyes/](data/dyes/README.md) (dye library, light-path presets, cameras; FPbase spectra under CC BY-SA 4.0,
   fetched by `tools/fetch_fpbase.mjs`, built into `web/prototype/scope/dye_library_data.js` by `tools/gen_dye_library.mjs
   [--check]`) and `references.json` (the project reference list, rendered to `docs/references.md`).
-- `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium; `tests/d3d11/` -- the adapter's.
+- `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
+  the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
+  surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
+  and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
+  playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
   JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
@@ -90,8 +94,8 @@ that finishes them.
 - Adapter: MSBuild `adapter/inSiliScope/inSiliScope.sln` Release|x64 (needs the submodule and the
   locally built `third_party/SMLMPsfEmbedded.jar`, see below). Output unchanged by a refactor:
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
-  Smoke test: `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py` (ends with
-  `tools/test_cellfield_stage.py`: CellField pattern + XY stage + hardware z stacks). Off Windows, `tools/build_adapter_linux.sh`
+  Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
+  `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
 - WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a

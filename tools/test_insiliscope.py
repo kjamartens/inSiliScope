@@ -228,6 +228,11 @@ print("Defaults OK: out-of-the-box values confirmed")
 # tenth of the signal above the offset (dSTORM AF647: no imager background).
 # Each stack on a fresh device: a stack continues the illumination history of
 # its spot, so a second stack on the same device would start 50 s later.
+# Runtime: a snap waits out its exposure (like a real camera), so frames are
+# read from the start of the stack; the dSTORM initial ON burst (which
+# saturates at 70 %) is switched off instead of skipped (InitialOnSec 0, set
+# after the dye pick, which reloads the dye fields).
+NO_INITIAL_ON = {"FluoParam_Microtubule_InitialOnSec": "0"}
 def fresh_camera(**props):
     core.unloadDevice("SMLMCam")
     load_camera(core, "SMLMCam", seed=42, fov="128x128")
@@ -238,12 +243,12 @@ def fresh_camera(**props):
         core.setProperty("SMLMCam", k, v)
 
 
-def mean_signal(pct, n=50, skip=900):
+def mean_signal(pct, n=50, skip=0):
     fresh_camera(SimType_CellFieldMicrotubuleDye="AF647",  # dSTORM: no imager background
-                 SimType_CellFieldMicrotubuleLabelingPct=str(pct))
+                 SimType_CellFieldMicrotubuleLabelingPct=str(pct), **NO_INITIAL_ON)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
     wait_for_stack(core, "SMLMCam")
-    for _ in range(skip):   # 45 s in: past the initial ON burst (which saturates at 70 %)
+    for _ in range(skip):
         core.snapImage()
     total = 0.0
     for _ in range(n):
@@ -292,8 +297,8 @@ interp_values = set(core.getAllowedPropertyValues("SMLMCam", "PSFParam_PsfInterp
 assert interp_values == INTERP_VALUES, f"unexpected PsfInterp values: {interp_values}"
 # Sparse labelling: Fft does one Fourier shift per emitter and is by far the
 # slowest mode (the default labelling would take Fft placement far past
-# wait_for_stack's timeout).
-core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "0.5")
+# wait_for_stack's timeout; 0.02 % keeps its stack at seconds).
+core.setProperty("SMLMCam", "SimType_CellFieldMicrotubuleLabelingPct", "0.02")
 for interp in sorted(INTERP_VALUES):
     core.setProperty("SMLMCam", "PSFParam_PsfInterp", interp)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
@@ -343,6 +348,7 @@ core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restor
 # only rebuilt it on a frame-size change). Use a large offset-std delta so
 # the resulting frame-to-frame std shift is unambiguous against ordinary
 # shot/read noise.
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "Gaussian")  # the PSF does not matter here (runtime)
 core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "0.0")
 core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
 time.sleep(0.3)  # let a few live ticks pass with the low-offset-std setting
@@ -361,6 +367,7 @@ assert std_after > std_before + 10.0, (
     "looks like the live producer thread isn't picking up the change"
 )
 core.setProperty("SMLMCam", "CamParam_OffsetStdADU", "0.5")  # restore default
+core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanniZernike")  # restore default
 print("Regression OK: OffsetStdADU change took effect live, no restart needed")
 
 # --- webSMLM parity round 2: photophysics, EMCCD, background, GPU ---------
@@ -385,24 +392,26 @@ def stack_frames(props, n=20, seed=42, skip=0):
 
 FAST = {"PSFParam_PsfModel": "Gaussian"}
 
-# Label modes (frames 900-919 of the stack, 45 s in: past the dSTORM initial
-# ON): every mode of the microtubules' label renders, and dSTORM's
-# blinks follow the dye fields (a dye that bleaches after each blink gives
-# less light than the library AF647). WideField is the mean field.
+# Label modes (the first 20 frames; dSTORM without its initial ON burst):
+# every mode of the microtubules' label renders, and dSTORM's blinks follow
+# the dye fields (a lower quantum yield gives less light than the library
+# AF647 at once; a bleaching edit would need tens of seconds of frames).
+# WideField is the mean field.
 MODES = {"dSTORM": {"SimType_CellFieldMicrotubuleDye": "AF647"},
          "PALM": {"SimType_CellFieldMicrotubuleDye": "mEos3.2"},
          "DNA-PAINT": {},
          "WideField": {"SimType_CellFieldMicrotubuleDye": "mEGFP"}}
 mode_sig = {}
 for mode, extra in MODES.items():
-    fr = stack_frames({**FAST, **extra, "SimType_CellFieldMicrotubuleLabelMode": mode}, n=20, skip=900)
+    after = NO_INITIAL_ON if mode == "dSTORM" else {}   # after the mode, which reloads the dye fields
+    fr = stack_frames({**FAST, **extra, "SimType_CellFieldMicrotubuleLabelMode": mode, **after}, n=20)
     assert fr.std() > 0, f"expected a non-blank {mode} movie"
     mode_sig[mode] = fr.mean() - 100.0
 assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
-DSTORM = {**FAST, "SimType_CellFieldMicrotubuleDye": "AF647", "SimType_CellFieldMicrotubuleLabelMode": "dSTORM"}
-lib = stack_frames(DSTORM, n=100, skip=900)
-quick = stack_frames({**DSTORM, "FluoParam_Microtubule_BleachProb": "1"}, n=100, skip=900)
-assert quick.mean() < lib.mean(), "bleaching after every blink should give less light than the library dye"
+DSTORM = {**FAST, "SimType_CellFieldMicrotubuleDye": "AF647", "SimType_CellFieldMicrotubuleLabelMode": "dSTORM", **NO_INITIAL_ON}
+lib = stack_frames(DSTORM, n=100)
+dim = stack_frames({**DSTORM, "FluoParam_Microtubule_Qy": "0.05"}, n=100)
+assert dim.mean() - 100.0 < 0.5 * (lib.mean() - 100.0), "a lower quantum yield should give less light than the library dye"
 print("Label modes OK: " + ", ".join(f"{m} {v:.2f}" for m, v in mode_sig.items()) + " ADU above offset; dye field edit applies")
 
 # EMCCD: background-only frame -> the gain register doubles the variance
@@ -429,21 +438,19 @@ assert decay[-1].mean() < decay[0].mean(), "background fade must lower the backg
 print("Background OK: illumination dims corners, fade decays")
 
 # GPU vs CPU: same frames up to float32 rounding (a Poisson draw may land a
-# count apart near a boundary). Skipped when no usable GPU.
-gpu_frames = stack_frames({"General_UseGpu": "On"}, n=10)
+# count apart near a boundary). Skipped when no usable GPU. A 3 um kernel half
+# width for both (runtime; the default is 7 um).
+KERNEL = {"PSFParam_PsfKernelHalfWidthNm": "3000"}
+gpu_frames = stack_frames({**KERNEL, "General_UseGpu": "On"}, n=10)
 status = core.getProperty("SMLMCam", "General_GpuStatus")
 if status.startswith("GPU"):
-    cpu_frames = stack_frames({"General_UseGpu": "Off"}, n=10)
+    cpu_frames = stack_frames({**KERNEL, "General_UseGpu": "Off"}, n=10)
     same = (gpu_frames == cpu_frames).mean()
     assert same > 0.999, f"GPU/CPU frames agree on only {100*same:.4f}% of pixels"
     print(f"GPU OK ({status}): {100*same:.4f}% of pixels identical to the CPU path")
 else:
     print(f"GPU check skipped: {status}")
 
-# CellField pattern + XYStage (spec/PORT.md 10.5): tools/test_cellfield_stage.py.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_cellfield_stage import run_checks as run_cellfield_checks
-
-run_cellfield_checks(core)
-
-print("All inSiliScope smoke tests passed.")
+# CellField pattern + XYStage (spec/PORT.md 10.5): tools/test_cellfield_stage.py, run on its own (each of the two
+# stays under 5 minutes).
+print("All inSiliScope smoke tests passed (now run tools/test_cellfield_stage.py for the CellField / XY stage checks).")

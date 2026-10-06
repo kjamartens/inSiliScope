@@ -86,6 +86,20 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const c0 = [pw.cells[2], pw.cells[3]];
   const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels });
   report(!diff(sj, sw) && sw.sites.length > 0, `${name}: sites, ${sw.sites.length / 5} dyes ${diff(sj, sw)}`);
+  // Blinks (the localizations' ground truth) under a whole label (the movie's, scopeLabels'): the same events, sorted
+  // by (id, tOn) -- the engines may list a window's dye blocks in another order -- within 1e-9 (the schedules are
+  // bit-exact; the brightness goes through exp). A dSTORM label (bleaching blinks) and a DNA-PAINT one (persistent).
+  for (const [mode, kinetics] of [['dSTORM', { activationRatePerSec: 0.02, onSec: 0.05, offSec: 1, bleachProb: 0.6, photonCV: 0.5, initialOnSec: 0 }],
+    ['DNA-PAINT', { activationRatePerSec: 0.01, onSec: 0.3, offSec: 1, bleachProb: 1, photonCV: 0.3, initialOnSec: 0 }]]) {
+    const label = { density: 0.3, fluorescentFraction: 1, mode, kinetics, preState: false,
+      orientation: { mode: 'Free', polarDeg: 90, azimuthDeg: 0, wobbleDeg: 0 }, motion: 'Static', offTarget: [] };
+    const job = { type: 'events', id: 5, rect: [c0[0] - 2, c0[1] - 2, c0[0] + 2, c0[1] + 2], zMin: -1, zMax: 20, t0: 0, t1: 60, labels: [label], seed, p };
+    const [ej, ew] = both(job), rows = a => { const r = []; for (let i = 0; i < a.length; i += 7) r.push(Array.from(a.subarray(i, i + 7))); return r.sort((x, y) => x[6] - y[6] || x[3] - y[3]); };
+    const rj = rows(ej.events), rw = rows(ew.events);
+    let worst = rj.length === rw.length ? 0 : Infinity;
+    for (let i = 0; i < rj.length && worst < Infinity; i++) for (let k = 0; k < 7; k++) worst = Math.max(worst, Math.abs(rj[i][k] - rw[i][k]));
+    report(rw.length > 0 && worst <= 1e-9, `${name}: events (${mode} label), ${rw.length} blinks in 60 s, max difference ${worst}`);
+  }
   // Injection: a fresh engine fed the pack job's blocks answers the cell and sites jobs identically.
   const cx = pw.cells[0], cy = pw.cells[1];
   const cellJob = { type: 'cell', key: cx + ',' + cy, sig: 's', seed, p, cx, cy, mt: true, blocks: pw.blocks };

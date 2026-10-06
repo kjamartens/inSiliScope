@@ -9,7 +9,9 @@ nucleus, cytoplasm, microtubules, dye sites) and images it as a single-molecule 
 widefield image, with a physical PSF and camera noise model. Every cell is a pure function of `(seed, address)`, so
 any window of the field can be generated on its own, in any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan through the field, render SMLM/widefield/brightfield movies, save TIFFs.
+- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, render SMLM/widefield/brightfield movies,
+  save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
+  cell (orbits, layers building up, slices sweeping through) and export them as MP4, WebM or GIF.
 - **Micro-Manager adapter**: `Camera`, `XYStage`, `ZStage` devices; live or precomputed acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.
 
