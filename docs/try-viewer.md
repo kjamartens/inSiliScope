@@ -84,20 +84,24 @@ Notes:
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Data layers** (Animation tab): **Random cell** jumps to a random cell of the field and centres it, **Previous cell**
-  goes back (repeatably); simulated images of the cell nearest the view centre, drawn in 3D at the **slice height**:
-  the WideField image with its focus there (the out-of-focus blur of the rest included), the SMLM camera frames at the
-  nearest focus position (blinking; **SMLM frames + localized emitters** adds a faint cross at the true position of
-  every emitter localized in the frame shown), the BrightField image. Checking one makes its z-stacks by itself (for the centre cell, once per
-  cell and settings; **Acquire** makes them now) with the movie settings
+- **Simulated data** (Settings > View, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
+  view and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
+  height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
+  included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
+  **SMLM frames + localized emitters** adds a faint cross at the true position of every emitter localized in the frame
+  shown), or the BrightField image. Picking a layer makes its data in the background straight away (for the centre
+  cell, once per cell and settings); a status list under the layers shows each data set (WideField, SMLM frame and
+  BrightField z-stacks, SMLM localizations) as ready, being made (with progress), queued or not made, and which layer
+  needs it. The data use the movie settings
   (Microscope, Acquisition, the microtubule label): WideField images the structure's dye in WideField mode, SMLM in the
   structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
   mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
-  the movie's start time (60 s by default). One movie per focus position over the cell's box, WideField and BrightField planes the
-  mean of a few frames (advanced: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
+  the movie's start time (60 s by default). One movie per focus position over the cell's box, from 1 µm below the
+  coverslip to 1 µm above the cell top (the slice height slider covers the same range); WideField and BrightField planes the
+  mean of a few frames (advanced, Data acquisition: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
   acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM frames are drawn opaque;
-  in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slices" is
-  on (in an animation step: the checkbox next to a slice's colour). "Sum over z" shows the WideField z-stack summed over
+  in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slice" is
+  on (in an animation step: the checkbox next to a slice's colour). "WideField, sum over z" shows the WideField z-stack summed over
   its planes instead of the plane at the slice height (in an animation step: the second checkbox of a WideField slice). SMLM planes start with fresh dyes
   by default (advanced: sequential, where bleaching dyes run out in later planes). **WideField thresholded** segments the
   cell from the WideField z-stack: out-of-focus light of a thin cell is nearly the same in every plane, so it thresholds
@@ -105,7 +109,7 @@ Notes:
   coverslip up to its highest in-focus point. **SMLM localizations**
   emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
   within the capture range (±400 nm) is localized per frame, displaced by its precision: "Precision xy" and "Precision z"
-  (default 8 and 20 nm) are those of an in-focus blink ON for a whole frame (the dye's detected photons per second
+  (default 8 and 20 nm; an animation that shows localizations has its own in its Data section) are those of an in-focus blink ON for a whole frame (the dye's detected photons per second
   through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
   label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
   emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.

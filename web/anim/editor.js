@@ -500,7 +500,6 @@ function cycleCard(cy, ci) {
 
 // ---- the panel ----
 const panel = $('animPanel');
-let dataGroup = null;
 // Random / previous cell moved the view: leave the preview and follow the new centre cell
 document.addEventListener('isc-cell-jump', () => { if (panel.hidden) return; exitPreview(); C = compile(); render(); drawBar(); });
 const SIZES = [['1280x720', '720p (1280 × 720)'], ['1920x1080', '1080p (1920 × 1080)'], ['1080x1080', 'square 1080'], ['1080x1920', 'portrait 1080 × 1920'], ['3840x2160', '4K (3840 × 2160)'], ['800x600', '800 × 600']];
@@ -539,13 +538,14 @@ function render() {
   panel.append(row('Target cell', 'The cell the animation is about: the camera turns about its middle, sweeps run through it, data layers are made for it.',
     selIn([['center', 'nearest the view centre'], ['pick', 'a picked cell']], () => tg.mode, v => { tg.mode = v; }, true)));
   const pickRow = h('div', { class: 'btns' });
+  // Random / Previous cell: the Settings tab's buttons (index.html; they move the view, the centre target follows)
+  const viewBtn = id => () => { const b = document.getElementById(id); if (b) b.click(); };
   pickRow.append(btn('Pick on map', 'Then click a cell on the view', () => {
     S.armPick(key => { if (key) { snapshot(); tg.mode = 'pick'; tg.cell = key; frozenTarget = null; changed(true); } });
-  }), tLabel);
-  panel.append(pickRow);
-  // the data layers group of the settings panel lives here (built by index.html's uiSchema; kept across renders)
-  if (!dataGroup) dataGroup = document.querySelector('details[data-group="data"]');
-  if (dataGroup) panel.append(dataGroup);
+  }), btn('Random cell', 'Jump the view to a random cell of the field (the target, unless a cell is picked)', viewBtn('randomCell')),
+  btn('Previous cell', 'Back to the view before the last random cell', viewBtn('prevCell')));
+  const tRow = h('div', { class: 'note' }); tRow.append('Target: ', tLabel);
+  panel.append(pickRow, tRow);
   panel.append(
     row('Scope', 'Which cells are drawn: the target alone, the target with faint neighbours, or all (the target and nearby cells detailed).',
       selIn([['target', 'target only'], ['ghosts', 'target + faint neighbours'], ['all', 'all cells']], () => seq.scene.scope, v => { seq.scene.scope = v; })),
@@ -597,11 +597,21 @@ function render() {
       row('Averaging', 'WideField / BrightField planes are the mean of this many frames.', numIn(() => d.wfAverage, v => { d.wfAverage = Math.max(1, Math.round(v || 4)); }, { min: 1, step: 1 }), h('span', { class: 'u' }, 'frames')),
       row('SMLM planes', 'Fresh: each focus position starts with all dyes unbleached; sequential: bleaching carries over from plane to plane.',
         selIn([['fresh', 'fresh dyes per plane'], ['sequential', 'sequential']], () => (d.sequential ? 'sequential' : 'fresh'), v => { d.sequential = v === 'sequential'; })));
+    // the localization precision (unset: the Settings tab's, Settings > View > SMLM localizations)
+    if (need.some(id => S.dataKinds[id] === 'loc')) {
+      const panelNm = id => +(document.getElementById(id) || {}).value || 0;
+      panel.append(
+        row('Precision xy', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; fewer photons or defocus localize worse.',
+          numIn(() => +((d.precXyUm !== undefined ? d.precXyUm * 1000 : panelNm('locPrecXyNm')).toFixed(3)), v => { d.precXyUm = Math.max(0.5, v || 8) / 1000; }, { min: 0.5, step: 0.5 }), h('span', { class: 'u' }, 'nm')),
+        row('Precision z', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.',
+          numIn(() => +((d.precZUm !== undefined ? d.precZUm * 1000 : panelNm('locPrecZNm')).toFixed(3)), v => { d.precZUm = Math.max(0.5, v || 20) / 1000; }, { min: 0.5, step: 0.5 }), h('span', { class: 'u' }, 'nm')));
+    }
     const crop = h('label', { class: 'note' }); crop.append(checkIn(() => d.crop !== false, v => { d.crop = v; }), document.createTextNode(' crop the data to the target cell'));
     panel.append(crop);
     const status = target ? S.dataStatus(need, target, d) : [];
     const ready = status.length && status.every(x => x.ready);
-    const line = h('div', { class: 'note' }, target ? status.map(x => `${({ wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField' })[x.kind]}: ${x.ready ? 'ready' : x.busy ? `${x.busy.done}/${x.busy.total}` : 'to make'}`).join(' · ') : 'no target cell yet');
+    const kindName = { wf: 'WideField', sr: 'SMLM frames', bf: 'BrightField', loc: 'localizations' };
+    const line = h('div', { class: 'note' }, target ? [...new Map(status.map(x => [x.kind, x])).values()].map(x => `${kindName[x.kind]}: ${x.ready ? '✓ ready' : x.busy ? `making ${x.busy.done}/${x.busy.total}` : 'queued'}`).join(' · ') : 'no target cell yet');
     const pb = h('div', { class: 'btns' });
     pb.append(btn(ready ? 'Ready' : 'Prepare data', 'The z-stacks are made by themselves when the animation needs them (and before an export); this makes them now', () => prepare()), line);
     panel.append(pb);

@@ -82,6 +82,36 @@
   .kids{margin-left:5px;padding-left:9px;border-left:2px solid var(--guide)}
   .kids .opt{--lab-w:calc(var(--lab-w-base) - 16px)}
   body[data-level=default] .adv{display:none!important}
+  /* sub-headings inside a group, button rows, checkbox grids, radio columns */
+  .subhead{display:flex;align-items:center;gap:5px;margin:12px 0 4px;padding-bottom:2px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .body>.subhead:first-child{margin-top:4px}
+  .opt.btnrow{display:flex;gap:6px}
+  .opt.btnrow button{flex:1;padding:4px 6px;white-space:nowrap}
+  .opt.gridrow{grid-template-columns:var(--lab-w) minmax(0,1fr);align-items:start}
+  .opt.gridrow .cells{display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
+  .opt.gridrow .cells .opt.check{display:flex;flex-direction:row-reverse;justify-content:flex-end;gap:4px;margin:1px 0}
+  .opt.gridrow .cells .opt .ctl{flex:none}
+  .opt.radio{grid-template-columns:var(--lab-w) minmax(0,1fr);align-items:start}
+  .opt.radio .lab{padding-top:1px}
+  .radios{display:flex;flex-direction:column;gap:1px}
+  .radios label{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .radios input{margin:0 3px 0 0;vertical-align:-2px}
+  /* the data layers' status list */
+  .dataStatus{margin:8px 0 4px;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:11px;line-height:1.35}
+  .dataStatus:empty{display:none}
+  .dataStatus .hd{color:var(--muted);margin-bottom:4px}
+  .dataStatus .r{display:grid;grid-template-columns:14px minmax(0,1fr) auto;column-gap:4px;align-items:baseline;margin:3px 0}
+  .dataStatus .r .st{font-variant-numeric:tabular-nums}
+  .dataStatus .sub2,.dataStatus .bar{grid-column:2 / 4}
+  .dataStatus .sub2{color:var(--muted);font-size:10.5px}
+  .dataStatus .sub2 a{color:var(--link)}
+  .dataStatus .bar{height:3px;margin-top:2px;background:var(--in-border);border-radius:2px;overflow:hidden}
+  .dataStatus .bar>i{display:block;height:100%;background:var(--accent)}
+  .dataStatus .r.ok .ic,.dataStatus .r.ok .st{color:#5fbf72}
+  .dataStatus .r.run .ic,.dataStatus .r.run .st{color:var(--accent)}
+  .dataStatus .r.fail .ic,.dataStatus .r.fail .st{color:#e06c6c}
+  .dataStatus .r.off{opacity:.55}
+  .dataStatus .ft{color:var(--muted);font-size:10px;margin-top:4px}
   /* two-knob range slider (two overlaid range inputs) */
   .dual{position:relative;width:96px;height:18px}
   .dual .track,.dual .fill{position:absolute;top:8px;height:3px;border-radius:2px}
@@ -321,6 +351,17 @@ const text = (id, label, tip, value, o) => ({ kind: 'text', id, label, tip, valu
 const pair = (id, label, unit, tip, lo, hi, step, vMin, vMax, o) => ({ kind: 'pair', id, label, unit, tip, lo, hi, step, vMin, vMax, ...o });
 // a UI-only select that writes its kids: presets = { name: { childId: value } }
 const preset = (id, label, tip, presets, kids, o) => ({ kind: 'preset', id, label, tip, presets, kids, ...o });
+// one of several options as a column of radio buttons: options = [[value, label, tip?]]; $(id).value reads and sets it
+const radio = (id, label, tip, options, value, o) => ({ kind: 'radio', id, label, tip, options, value, ...o });
+// a small heading inside a group (o.adv: Advanced level only)
+const head = (label, tip, o) => ({ kind: 'head', label, tip, ...o });
+// several buttons on one line: [[id, label, tip]]
+const buttons = list => ({ kind: 'buttons', buttons: list });
+// checkboxes in two columns after one label
+const grid = (label, kids, o) => ({ kind: 'grid', label, kids, ...o });
+const sliceKind = () => ($('dataSlice') ? $('dataSlice').value : 'none');
+const sliceOn = () => sliceKind() !== 'none';
+const locsOn = () => !!($('showLocs') && $('showLocs').checked);
 
 const BF_QUALITY_NAMES = ['', 'fastest', 'fast', 'balanced', 'precise'];
 const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'AstigmatismStrong', 'ComaWeak', 'ComaStrong',
@@ -329,54 +370,67 @@ const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'Asti
 
 const UI_GROUPS = [
   { sect: 'Display', id: 'view', title: 'View', open: true, items: [
+    head('Camera'),
     range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression: 0 = straight down, 90 = from the side. Shift-drag on the view tilts and turns it. Display only.', 0, 90, 1, 0, { fmt: fx(0),
       side: { id: 'showXZ', label: 'x–z', tip: 'Side view of everything in view along the bottom of the canvas, seen along the view\'s depth (along y when not turned); horizontal and z at the same scale as the view. Display only.', value: true } }),
     range('azimuthDeg', 'Rotation', '°', 'Turns the view about the vertical axis through the view centre (Shift-drag sideways on the view). Display only.', -180, 180, 1, 0, { fmt: fx(0) }),
+    num('pivotZ', 'Turn height', 'µm', 'Height of the point the view turns and tilts about (it stays at the centre of the canvas). Display only.', 0, 20, 0.5, 0, { adv }),
+    buttons([
+      ['resetView', 'Reset view', 'Back to world position (0, 0) at the default zoom.'],
+      ['randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre (unless the animation has a picked cell).'],
+      ['prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'],
+    ]),
+
+    head('What is drawn'),
     pair('zClip', 'Z clip', 'µm', 'Draw only what lies between these heights above the coverslip (cytoplasm, nucleus, microtubules, dyes). Drag both knobs together for a moving slab; the full range is off. Display only.', 0, 20, 0.1, 0, 20, { bounded: true }),
     num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nucleus and dyes; the rest show their cytoplasm. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5),
     select('sceneScope', 'Scope', 'Which cells are drawn: all of them, the centre cell with faint neighbours, or the centre cell alone. Display only.',
       [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv }),
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
       [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence']], 'viewer', { adv }),
-    num('pivotZ', 'Turn height', 'µm', 'Height of the point the view turns and tilts about (it stays at the centre of the canvas). Display only.', 0, 20, 0.5, 0, { adv }),
-    check('showCyto', 'Show cytoplasm', 'Draw the cell bodies.', true),
-    check('showNucleus', 'Show nucleus', 'Draw the nuclei (colour = depth).', true),
-    check('showMt', 'Show microtubules', 'Draw the microtubules.', true),
-    check('showDyes', 'Show dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
-    check('showGrid', 'Show chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv }),
-    check('showCytoContours', 'Show height contour lines', 'Draw contour lines of the cytoplasm height.', false, { adv }),
-    range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2) }),
-    button('resetView', 'Reset view to origin', 'Back to world position (0, 0) at the default zoom.'),
-  ] },
+    grid('Show', [
+      check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true),
+      check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true),
+      check('showMt', 'Microtubules', 'Draw the microtubules.', true),
+      check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
+      check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv }),
+      check('showCytoContours', 'Contours', 'Draw contour lines of the cytoplasm height.', false, { adv }),
+    ]),
+    range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2), show: () => $('showCytoContours').checked }),
 
-  // shown in the Animation tab (web/anim/editor.js moves this group there)
-  { id: 'data', title: 'Data layers', items: [
-    button('randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre (unless the animation has a picked cell).'),
-    button('prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'),
-    check('showWfSlice', 'WideField slice', 'The simulated WideField image (focus at the slice height, with the out-of-focus blur of the rest) of the cell nearest the view centre, drawn at its height. Needs its z-stack: Acquire.', false),
-    check('wfSumZ', 'Sum over z', 'Show the WideField z-stack summed over all its planes (divided by their number, so the display range still fits) instead of the plane at the slice height; still drawn at the slice height.', false),
-    check('showSrFrames', 'SMLM frames', 'Simulated SMLM camera frames at the slice height (the nearest focus position), blinking. Needs its z-stack: Acquire.', false),
-    check('showSrFramesLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons). Horizontal slices only.', false),
-    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false),
-    range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2) }),
-    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false),
-    check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv }),
-    num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv }),
-    num('locPrecXyNm', 'Precision xy', 'nm', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; a shorter blink (fewer photons) or one out of focus is localized worse.', 0.5, 200, 0.5, 8),
-    num('locPrecZNm', 'Precision z', 'nm', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.', 0.5, 500, 0.5, 20),
-    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized.', 50, 2000, 50, 400, { adv }),
-    check('showBfSlice', 'BrightField slice', 'The simulated BrightField image of the cell (all structures) with focus at the slice height. Needs its z-stack: Acquire.', false),
-    range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown).', 0, 15, 0.05, 1.5, { fmt: fx(2) }),
-    check('opaqueSlices', 'Opaque slices', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false),
+    // Simulated data of the cell nearest the view centre: made in the background as soon as a layer needs them; the
+    // status list (#dataStatus, filled by the main script) says what is ready, being made or queued.
+    head('Simulated data (centre cell)', 'Simulated microscope data of the cell nearest the view centre, drawn in the scene. A layer\'s data (a z-stack or a localization run) is made in the background as soon as the layer is picked, with the movie settings (Microscope, Acquisition), and kept in this browser; the list below says what is ready and what is still being made.'),
+    radio('dataSlice', 'Image slice', 'A simulated camera image of the cell, drawn as a horizontal slice at the slice height (= the focus of the image shown), from a z-stack made for the cell.', [
+      ['none', 'Off'],
+      ['wf', 'WideField', 'The WideField image with focus at the slice height (with the out-of-focus blur of the rest).'],
+      ['wfSum', 'WideField, sum over z', 'The WideField z-stack summed over all its planes (divided by their number, so the display range still fits), drawn at the slice height.'],
+      ['sr', 'SMLM frames', 'SMLM camera frames at the slice height (the nearest focus position), blinking.'],
+      ['srLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons).'],
+      ['bf', 'BrightField', 'The BrightField image of the cell (all structures) with focus at the slice height.'],
+    ], 'none', { kids: [
+      range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown). The z-stacks run from 1 µm below the coverslip to 1 µm above the cell top; so does this slider.', -1, 20, 0.05, 1.5, { fmt: fx(2), show: sliceOn }),
+      check('opaqueSlices', 'Opaque slice', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false, { show: () => ['wf', 'wfSum', 'bf'].includes(sliceKind()) }),
+    ] }),
+    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { kids: [
+      range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2), show: () => $('showWfIso').checked }),
+    ] }),
+    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false, { kids: [
+      num('locPrecXyNm', 'Precision xy', 'nm', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; a shorter blink (fewer photons) or one out of focus is localized worse.', 0.5, 200, 0.5, 8, { show: locsOn }),
+      num('locPrecZNm', 'Precision z', 'nm', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.', 0.5, 500, 0.5, 20, { show: locsOn }),
+      check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv, show: locsOn }),
+      num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv, show: locsOn }),
+    ] }),
+    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized (the SMLM localizations, and the crosses of "SMLM frames + localized emitters").', 50, 2000, 50, 400, { adv }),
     check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true),
+    { kind: 'html', html: '<div id="dataStatus" class="dataStatus"></div>' },
+    head('Data acquisition', 'How the data layers\' z-stacks and localization runs are acquired. A change makes new data (the old stays cached).', { adv }),
     num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv }),
-    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack.', 0.1, 2, 0.1, 0.4, { adv }),
-    num('srFramesShown', 'SMLM frames', 'frames', 'Camera frames per focus position of the SMLM stack (they cycle in the view).', 1, 100, 1, 10, { adv }),
     num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv }),
+    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack and of the localization run.', 0.1, 2, 0.1, 0.4, { adv }),
+    num('srFramesShown', 'Frames shown', 'frames', 'Camera frames per focus position of the SMLM frame stack (they cycle in the view).', 1, 100, 1, 10, { adv }),
     select('planeTimes', 'SMLM planes', 'Fresh: every focus position starts with all dyes unbleached (as if each were a fresh field of the same cell; a blink near two planes shows in both). Sequential: one sample imaged plane after plane, so bleaching dyes run out in the later planes (DNA-PAINT-like labelling keeps a constant supply).',
       [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv }),
-    button('acquireData', 'Acquire data for the centre cell', 'Checked data layers are acquired by themselves for the cell nearest the view centre (once per cell and settings); this makes the checked ones (WideField if none is checked) now. Uses the movie settings (Microscope, Acquisition) and keeps the data in the browser.'),
-    { kind: 'html', html: '<p class="sub" id="dataStatus"></p>' },
   ] },
 
   { sect: 'Sample', id: 'field', title: 'Specimen: cell field', open: true, items: [
@@ -659,6 +713,35 @@ function renderEntry(e, host, g, parent) {
   let row;
   if (e.kind === 'html') {
     row = h('div', {}, e.html);
+  } else if (e.kind === 'head') {
+    row = h('div', { class: 'subhead' });
+    row.append(h('span', {}, e.label));
+    if (e.tip) row.append(h('span', { class: 'info', tabindex: 0, role: 'note', 'aria-label': e.label + ' info', 'data-tip': e.tip }, 'i'));
+  } else if (e.kind === 'buttons') {
+    row = h('div', { class: 'opt btnrow' });
+    for (const [id, label, tip] of e.buttons) row.append(h('button', { id, title: tip }, label));
+  } else if (e.kind === 'grid') {
+    // checkboxes in two columns after the label; the kids are ordinary entries (ids, defaults, show) drawn in it
+    row = h('div', { class: 'opt gridrow' });
+    const cells = h('div', { class: 'cells' });
+    row.append(h('div', { class: 'lab' }, '<label>' + e.label + '</label>'), cells);
+    r.row = row; host.append(row); entries.push(r);
+    r.kidEntries = e.kids.map(k => renderEntry(k, cells, g, r));
+    return r;
+  } else if (e.kind === 'radio') {
+    // a column of radio buttons; the column element has the entry's id and a value property (the checked option)
+    row = h('div', { class: 'opt radio' });
+    const col = h('div', { class: 'radios', id: e.id, role: 'radiogroup' });
+    for (const [v, t, tip] of e.options) {
+      const l = h('label', tip ? { title: tip.replace(/<[^>]+>/g, '') } : {});
+      l.append(h('input', { type: 'radio', name: e.id, value: v, checked: v === e.value }), document.createTextNode(' ' + t));
+      col.append(l);
+    }
+    Object.defineProperty(col, 'value', {
+      get: () => { const c = col.querySelector('input:checked'); return c ? c.value : e.value; },
+      set: v => { for (const i of col.querySelectorAll('input')) i.checked = i.value === String(v); },
+    });
+    row.append(labelCell(e), col);
   } else if (e.kind === 'button') {
     row = h('div', { class: 'opt wide' });
     row.append(h('button', { id: e.id, title: e.tip }, e.label));
@@ -777,7 +860,7 @@ const isShown = r => (!r.show || r.show()) && (!r.parent || isShown(r.parent));
 const isDefault = r => r.kind === 'pair'
   ? +$(r.id + 'Min').value === r.vMin && +$(r.id + 'Max').value === r.vMax
   : r.kind === 'check' ? $(r.id).checked === !!r.value
-  : r.kind === 'select' ? $(r.id).value === r.value
+  : r.kind === 'select' || r.kind === 'radio' ? $(r.id).value === r.value
   : +$(r.id).value === +r.value;
 function sync() {
   const level = document.body.dataset.level;
@@ -985,7 +1068,7 @@ const els = {};
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
- 'showWfSlice', 'wfSumZ', 'showSrFrames', 'showSrFramesLoc', 'showBfSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'acquireData',
+ 'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
   .forEach(id => { els[id] = document.getElementById(id); });
 
@@ -1087,10 +1170,11 @@ function stateFromUI() {
   if (els.showMt.checked) layers['mt.lines'] = {};
   if (els.showDyes.checked) layers['mt.dyes'] = {};
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
-  if (els.showWfSlice.checked) layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, els.wfSumZ.checked ? { sumZ: true } : {}) };
-  if (els.showSrFrames.checked) layers['mt.srFrames'] = {};
-  if (els.showSrFramesLoc.checked) layers['mt.srFramesLoc'] = {};
-  if (els.showBfSlice.checked) layers['cell.bfSlice'] = Object.assign({}, sliceStyle);
+  const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
+  if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
+  if (slice === 'sr') layers['mt.srFrames'] = {};
+  if (slice === 'srLoc') layers['mt.srFramesLoc'] = {};
+  if (slice === 'bf') layers['cell.bfSlice'] = Object.assign({}, sliceStyle);
   if (els.showWfIso.checked) layers['mt.wfIso'] = { style: { level: +els.isoLevel.value } };
   if (els.showLocs.checked) layers['mt.locs'] = { style: { spread: els.locSpread.checked } };
   return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
@@ -3095,11 +3179,11 @@ function renderFrame(st, target) {
       (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
       (withinCap ? '' : '   [view too large: zoom in]') +
       (labelNote ? '   [' + labelNote + ']' : '') +
-      (F.dataMissing.length ? `   [no ${F.dataMissing.join(', ')} data for this cell yet: Acquire]` : '') +
-      (acqStatus.size ? '   [acquiring data…]' : '');
+      (acqStatus.size ? '   [making data…]' : '');
   }
   if (F.animate) setTimeout(requestDraw, 100);
   if (!off && st.ui && F.dataMissing.length && F.target) autoAcquire(F.target);
+  if (!off && st.ui) showDataStatus(F.target);
   lastFrame = { cam, F, vis };
   // loading: cells whose asset is on its way, the view's blocks not all packed, blocks still packing (a neighbour
   // in one of them would pop in later)
@@ -3319,7 +3403,7 @@ window.addEventListener('pointerup', () => {
 function syncLabels() { uiSync(); }
 Object.keys(els).forEach(id => {
   const el = els[id];
-  if (!el || id === 'reseed' || id === 'resetView' || id === 'randomCell' || id === 'prevCell' || id === 'acquireData' || id.endsWith('Val')) return;
+  if (!el || id === 'reseed' || id === 'resetView' || id === 'randomCell' || id === 'prevCell' || id === 'dataStatus' || id.endsWith('Val')) return;
   el.addEventListener('input', () => { syncLabels(); requestDraw(); });
 });
 
@@ -3327,39 +3411,100 @@ els.reseed.addEventListener('click', () => {
   els.seed.value = (Math.random() * 2 ** 31) | 0;
   requestDraw();
 });
-// Acquire: the z-stacks of the checked data layers (WideField if none) for the cell nearest the view centre.
-// autoAcquire: the same for a checked data layer whose data the centre cell does not have yet, once the packing has
-// settled; tried once per cell, layers and settings (a failed or cancelled run is not repeated until one changes).
-const autoTried = new Set();
+// Data layers: the data a shown data layer needs (DATA_KIND: a z-stack or a localization run) for the cell nearest the
+// view centre are made by themselves as soon as the layer is picked, once the packing around the view has settled
+// (autoAcquire, from renderFrame), one run at a time (later picks queue). A run is tried once per cell, layers and
+// settings; a failed one shows in the status list with a Retry. showDataStatus lists, per data set, what is ready,
+// being made, queued or not made.
+const autoTried = new Set(), dataFailed = new Map();   // run key -> error message
 let autoBusy = false;
+const runKey = (key, ids) => key + '|' + ids.join(',') + '|' + JSON.stringify(dataParams()) + '|' + movieSpec({ x: 0, y: 0 });
+const shownDataLayers = () => Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
 function autoAcquire(key) {
   if (autoBusy || !packingIdle() || !cellBounds(key) || !cellBounds(key).precise) return;
-  const ids = Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
+  const ids = shownDataLayers();
   if (!ids.length) return;
-  const k = key + '|' + ids.join(',') + '|' + JSON.stringify(dataParams()) + '|' + movieSpec({ x: 0, y: 0 });
+  const k = runKey(key, ids);
   if (autoTried.has(k)) return;
   autoTried.add(k);
-  setTimeout(() => runAcquire(key, ids), 0);
+  setTimeout(() => runAcquire(key, ids, k), 0);
 }
 function packingIdle() { return !!(packCache && packCache.covers && !blockPending.size && packCache.map.size); }
-els.acquireData.addEventListener('click', () => {
-  const key = nearestCell(view.cx, view.cy);
-  let ids = Object.keys(DATA_KIND).filter(id => stateFromUI().layers[id]);
-  if (!ids.length) { ids = ['mt.wfSlice']; els.showWfSlice.checked = true; }
-  runAcquire(key, ids);
-});
-async function runAcquire(key, ids) {
-  const st = document.getElementById('dataStatus');
-  if (!key) { st.textContent = 'No cell yet.'; return; }
-  if (autoBusy) return;
+async function runAcquire(key, ids, k) {
+  if (autoBusy) { autoTried.delete(k); return; }   // picked up again by the next frame
   autoBusy = true;
-  els.acquireData.disabled = true;
-  try {
-    await acquireData(ids, key, null, (d, n, label) => { st.textContent = `${label}: focus position ${d} of ${n}…`; });
-    st.textContent = `Data of cell ${key} ready (${[...new Set(ids.map(i => DATA_KIND[i].toUpperCase()))].join(', ')}).`;
-  } catch (e) { st.textContent = 'Acquisition failed: ' + (e.message || e); }
-  finally { autoBusy = false; els.acquireData.disabled = false; requestDraw(); }
+  try { await acquireData(ids, key, null, () => showDataStatus(key)); dataFailed.delete(k); }
+  catch (e) { dataFailed.set(k, e.message || String(e)); }
+  finally { autoBusy = false; requestDraw(); }
 }
+// ---- the status list of the data layers (Settings > View) ----
+const DATA_SETS = [['wf', 'WideField z-stack'], ['sr', 'SMLM frame stack'], ['bf', 'BrightField z-stack'], ['loc', 'SMLM localizations']];
+const DATA_LAYER_NAMES = { 'mt.wfSlice': 'image slice', 'mt.srFrames': 'image slice', 'mt.srFramesLoc': 'image slice', 'cell.bfSlice': 'image slice',
+  'mt.wfIso': 'thresholded', 'mt.locs': 'localizations' };
+const planMemo = new Map();   // the plans for a cell and settings (the localization plan reads the light path: not per frame)
+function dataPlans(key) {
+  const dp = dataParams(), mk = key + '|' + JSON.stringify(dp) + '|' + movieSpec({ x: 0, y: 0 }) + '|' + !!(cellBounds(key) || {}).precise;
+  let P = planMemo.get(mk);
+  if (!P) {
+    P = {};
+    for (const [kind] of DATA_SETS) P[kind] = kind === 'loc' ? locPlan(key, dp) : stackPlan(kind, key, dp);
+    if (Object.values(P).every(Boolean)) { planMemo.set(mk, P); if (planMemo.size > 16) planMemo.delete(planMemo.keys().next().value); }
+  }
+  return P;
+}
+let statusTimer = 0, statusLast = 0;
+function showDataStatus(key) {
+  const el = els.dataStatus;
+  if (!el || !el.parentElement.offsetParent) return;   // its panel is closed or hidden (the list itself is hidden while empty)
+  const wait = 250 - (performance.now() - statusLast);
+  if (wait > 0) { if (!statusTimer) statusTimer = setTimeout(() => { statusTimer = 0; showDataStatus(lastFrame ? lastFrame.F.target : key); }, wait); return; }
+  statusLast = performance.now();
+  const layers = stateFromUI().layers, ids = shownDataLayers(), b = key && cellBounds(key);
+  // the slice height follows the centre cell: from below the coverslip to above its top (the z-stacks' range)
+  if (b && b.precise) {
+    const mx = Math.ceil((b.z[1] + DATA_ABOVE_UM) * 20) / 20;
+    if (+els.sliceZ.max !== mx || +els.sliceZ.min !== -DATA_BELOW_UM) {
+      const v = +els.sliceZ.value;
+      els.sliceZ.min = -DATA_BELOW_UM; els.sliceZ.max = mx;
+      uiSync();
+      if (+els.sliceZ.value !== v) requestDraw();
+    }
+  }
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let head;
+  if (!key) head = 'No cell at the view centre yet.';
+  else if (!packingIdle() || !(b && b.precise)) head = `Cell ${esc(key)}: waiting for the cells around it to pack…`;
+  else head = `Cell ${esc(key)} (nearest the view centre)`;
+  const P = key && b && b.precise ? dataPlans(key) : {};
+  const failed = key && ids.length ? dataFailed.get(runKey(key, ids)) : null;
+  let html = `<div class="hd">${head}</div>`;
+  for (const [kind, label] of DATA_SETS) {
+    const plan = P[kind], users = [...new Set(ids.filter(id => DATA_KIND[id] === kind).map(id => DATA_LAYER_NAMES[id]))];
+    const ready = !!(plan && (kind === 'loc' ? locStore : stackStore).has(plan.key)), busy = plan && acqStatus.get(plan.key);
+    const zs = plan ? (kind === 'loc' ? plan.o.zs : plan.zs) : [], n = zs.length, size = !plan ? '' : kind === 'loc'
+      ? `${n} focus positions × ${plan.o.N} frames`
+      : `${n} planes, ${zs[0].toFixed(1)} to ${zs[n - 1].toFixed(1)} µm${kind === 'sr' ? ` × ${plan.F} frames` : ''}`;
+    let icon, state, cls = '', extra = '';
+    if (ready) { icon = '✓'; state = 'ready'; cls = 'ok'; }
+    else if (busy) { icon = '◔'; state = `making ${busy.done}/${busy.total}`; cls = 'run'; extra = `<div class="bar"><i style="width:${(100 * busy.done / Math.max(1, busy.total)).toFixed(1)}%"></i></div>`; }
+    else if (users.length && failed) { icon = '✕'; state = 'failed'; cls = 'fail'; extra = `<div class="sub2">${esc(failed)} <a href="#" data-retry="1">Retry</a></div>`; }
+    else if (users.length) { icon = '…'; state = plan ? 'queued' : 'waiting'; cls = 'run'; }
+    else { icon = '○'; state = 'not made'; cls = 'off'; }
+    const why = users.length ? 'for the ' + users.join(' and ') : ready || busy ? 'not shown' : 'no layer shows it';
+    html += `<div class="r ${cls}"><span class="ic">${icon}</span><span><b>${label}</b></span><span class="st">${state}</span>` +
+      `<div class="sub2">${why}${size ? ' · ' + size : ''}</div>${extra}</div>`;
+  }
+  html += '<div class="ft">Made in the background with the movie settings (Microscope, Acquisition); kept in this browser.</div>';
+  if (html !== el.innerHTML) el.innerHTML = html;
+}
+els.dataStatus.addEventListener('click', ev => {
+  if (!ev.target.dataset || !ev.target.dataset.retry) return;
+  ev.preventDefault();
+  const key = lastFrame && lastFrame.F.target, ids = shownDataLayers();
+  if (!key) return;
+  const k = runKey(key, ids);
+  autoTried.delete(k); dataFailed.delete(k); requestDraw();
+});
 els.resetView.addEventListener('click', () => {
   view.cx = 0; view.cy = 0; view.scale = 9;
   requestDraw();
@@ -3832,6 +3977,7 @@ function saveMovieTiff(e) {
 // vertical plane -- sampled per fragment from a 3D texture (WideField / BrightField interpolated between planes, the
 // SMLM frames of the nearest plane, cycling). Pixel i of a SuperRes / WideField image is centred at
 // originX + i px (originX = x - W px / 2), of a BrightField image it starts there: texOrigin holds that half pixel.
+const DATA_BELOW_UM = 1, DATA_ABOVE_UM = 1;   // the image z-stacks' reach below the coverslip and above the cell top
 const DATA_KIND = { 'mt.wfSlice': 'wf', 'mt.srFrames': 'sr', 'mt.srFramesLoc': 'sr', 'cell.bfSlice': 'bf', 'mt.wfIso': 'wf', 'mt.locs': 'loc' };
 const SLICE_LAYERS = ['mt.wfSlice', 'mt.srFrames', 'mt.srFramesLoc', 'cell.bfSlice'];
 // How a data layer images the cell (issue 16: modality 0 = fluorescence, every label in its mode; 1 = BrightField):
@@ -3890,8 +4036,11 @@ function stackPlan(kind, key, dp) {
   let px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000, size = Math.ceil(ext / px / 8) * 8;
   if (size > DATA_MAX_PX) { size = DATA_MAX_PX; px = Math.ceil(ext / DATA_MAX_PX * 1000) / 1000; }
   const cx = (b.x[0] + b.x[1]) / 2, cy = (b.y[0] + b.y[1]) / 2, step = kind === 'sr' ? dp.srStepUm : dp.stepUm;
-  const nz = Math.max(2, Math.ceil((b.z[1] + 0.2) / step) + 1), zs = [];
-  for (let p = 0; p < nz; p++) zs.push(+(p * step).toFixed(6));
+  // focus positions on the step's grid through z = 0, from DATA_BELOW_UM below the coverslip to DATA_ABOVE_UM above the
+  // cell top (a slice shows data just outside the cell too)
+  const pLo = -Math.ceil(DATA_BELOW_UM / step - 1e-9), pHi = Math.max(pLo + 1, Math.ceil((b.z[1] + DATA_ABOVE_UM) / step - 1e-9)), zs = [];
+  for (let p = pLo; p <= pHi; p++) zs.push(+(p * step).toFixed(6));
+  const nz = zs.length;
   const F = kind === 'sr' ? dp.srFrames : 1, avg = kind === 'sr' ? 1 : dp.wfAverage, exp = (+document.getElementById('mv_exposure-ms').value || 50) / 1000;
   const ov = Object.assign(dataModeOv(kind), { size, 'pixel-nm': px * 1000, frames: F * avg, x: cx, y: cy, z: 0, 'start-sec': 0, seed: 0 });
   const base = movieSpec(ov).replace(/(^| )(z|start-sec|seed)=[^ ]*/g, '');
@@ -4227,8 +4376,10 @@ function isoFor(stack, level, crop) {
   if (e) return e.mesh ? e : null;
   isoStore.set(key, e = { mesh: null, gl: null });
   const mask = crop ? footprintMask(stack) : null;
-  compute('iso', { o: { data: stack.data, w: stack.size, h: stack.size, nz: stack.zs.length, F: stack.F, px: stack.px,
-    dz: stack.zs.length > 1 ? stack.zs[1] - stack.zs[0] : 1, z0: stack.zs[0], lo: stack.lo, level, mask, down: stack.size > 256 ? 2 : 1 } })
+  // the cell is filled from the coverslip: only the planes at z >= 0 (the stack reaches below it)
+  const k0 = Math.max(0, stack.zs.findIndex(z => z >= -1e-9)), P = stack.size * stack.size;
+  compute('iso', { o: { data: stack.data.subarray(k0 * stack.F * P), w: stack.size, h: stack.size, nz: stack.zs.length - k0, F: stack.F, px: stack.px,
+    dz: stack.zs.length > 1 ? stack.zs[1] - stack.zs[0] : 1, z0: stack.zs[k0], lo: stack.lo, level, mask, down: stack.size > 256 ? 2 : 1 } })
     .then(m => { e.mesh = m; while (isoStore.size > 8) { const [k0, e0] = isoStore.entries().next().value; freeIsoGl(e0); isoStore.delete(k0); } requestDraw(); });
   return null;
 }
