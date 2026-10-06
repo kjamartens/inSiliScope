@@ -687,6 +687,7 @@ void CInSiliScopeCamera::StartLiveProducer()
    }
    liveFrameSeq_ = 0;
    lastConsumedLiveFrameSeq_ = -1;
+   liveTakenSeq_ = -1;
    frameIntervalHistoryCount_ = 0;
    frameIntervalHistoryPos_ = 0;
    actualFrameIntervalMs_ = 0.0;
@@ -788,6 +789,22 @@ void CInSiliScopeCamera::LiveProducerLoop()
 
    while (liveProducerRun_.load())
    {
+      // A hardware z stack: the camera triggers the stage once per frame, so
+      // a frame of this acquisition the consumer has not taken yet must not
+      // be overwritten by the next position (it would be lost and every later
+      // frame would sit one position off).
+      for (;;)
+      {
+         if (!liveProducerRun_.load() || !liveSeqCapture_.load() || !liveSeqSkipStale_.load() ||
+             liveTakenSeq_.load() >= liveFrameSeq_.load())
+            break;
+         {
+            MMThreadGuard g(frontFrameLock_);
+            if (liveFrameEpoch_ < liveSeqEpoch_.load())
+               break;   // a frame from before this acquisition: skipped anyway
+         }
+         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
       // Everything this frame reads (settings, pose, focus, clocks) is read
       // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
       const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
@@ -1180,7 +1197,10 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
                                liveFrameConfig_ < configNow || liveFrameLight_ < lightNow ||
                                liveFrameStart_ < takeAfter;
             if (stale && seq != lastConsumedLiveFrameSeq_)
+            {
                lastConsumedLiveFrameSeq_ = seq;
+               liveTakenSeq_ = seq;
+            }
             else if (seq != lastConsumedLiveFrameSeq_)
             {
                frameCopy = frontFrame_;
@@ -1197,6 +1217,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
          CDeviceUtils::SleepMs(1);
       }
       lastConsumedLiveFrameSeq_ = seq;
+      liveTakenSeq_ = seq;
       CropFullFrameIntoImg(frameCopy, w, h);
       // The frame was taken: its light goes into the illumination history.
       if (lit.valid)

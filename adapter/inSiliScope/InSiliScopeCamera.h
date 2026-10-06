@@ -273,6 +273,10 @@ private:
    // into frontFrame_; a consumer waits for it to advance (no duplicates).
    std::atomic<long> liveFrameSeq_{0};
    long lastConsumedLiveFrameSeq_ = -1;
+   // lastConsumedLiveFrameSeq_ for the producer: during a hardware z stack it
+   // renders the next position only once the last frame was taken (or
+   // skipped), so no sequence position is lost.
+   std::atomic<long> liveTakenSeq_{-1};
    // Rolling average of the wall-clock time between successive frame
    // publishes (ActualFrameIntervalMs).
    static constexpr int kFrameIntervalWindowSize = 10;
