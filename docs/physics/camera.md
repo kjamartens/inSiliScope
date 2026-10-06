@@ -16,7 +16,8 @@ Per pixel, in this order:
 Defaults follow the Photometrics Kinetix22 sCMOS (Sensitivity mode) datasheet; the per-pixel spreads are estimates because
 vendors do not publish them. The gain spread (PRNU, a static pattern proportional to the signal) is 0.5%, typical of
 sCMOS; it was 5% until 2026-10-01, which hid little in single-molecule frames but swamped brightfield contrast. An **EMCCD** path (`CamParam_CameraType`) adds EM gain and clock-induced charge but keeps this
-project's dark current.
+project's dark current. The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier per pixel): an EMCCD
+reads every pixel through one amplifier, so it ignores them (since 2026-10-06; the per-pixel offset applies to both).
 
 The gain (`CamParam_GainPhotonsPerADU`, e⁻/ADU) is the whole conversion from photoelectrons to counts for both sensor
 types. The EM gain does not scale the signal: the multiplication is drawn as Gamma(shape = n, scale = 1) on the n

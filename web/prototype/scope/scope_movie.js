@@ -332,7 +332,10 @@ export function scopeSetup(P, spec) {
     quantumEfficiency: brightField ? sampleAt(lp.qe, O('bf-wavelength-nm')) : 1.0,
     darkCurrentElectrons: camera.darkPerSec * expSec, gainPhotonsPerAdu: camera.gainPhotonsPerAdu,
     offsetAdu: camera.offsetAdu, offsetStdAdu: camera.offsetStdAdu, readNoiseElectrons: camera.readNoiseElectrons,
-    gainStdFraction: camera.gainStdFraction, readNoiseStdFraction: camera.readNoiseStdFraction,
+    // The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier per pixel); an EMCCD reads every pixel
+    // through one (MakeScopeSetup).
+    gainStdFraction: camera.emccd ? 0.0 : camera.gainStdFraction,
+    readNoiseStdFraction: camera.emccd ? 0.0 : camera.readNoiseStdFraction,
     emccd: camera.emccd, emGain: camera.emGain, cicElectrons: camera.cicElectrons, bitDepth: camera.bitDepth,
   };
   const ws = O('world-seed');

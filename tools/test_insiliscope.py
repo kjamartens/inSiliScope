@@ -347,7 +347,15 @@ fano_em = em.var(axis=0).mean() / (em.mean() - 100.0)
 assert 0.8 < fano_sc < 1.2 and 1.7 < fano_em < 2.3, f"variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}"
 em8 = stack_frames(bg_only + [("Camera", "CameraType", "EMCCD"), ("Camera", "BitDepth", "8")], n=2)
 assert em8.max() <= 255, f"EMCCD BitDepth=8 must clip at 255, got {em8.max()}"
-print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit clip holds")
+# The per-pixel gain / read-noise spreads are the sCMOS's: an EMCCD's frames do not change with them.
+EMCCD = bg_only + [("Camera", "CameraType", "EMCCD"), ("Camera", "Test_StackLength", "4")]
+spread = [("Camera", "sCMOS_GainStdPctPerPixel", "30"), ("Camera", "sCMOS_ReadNoiseStdPctPerPixel", "80")]
+assert np.array_equal(stack_frames(EMCCD, n=2), stack_frames(EMCCD + spread, n=2)), "EMCCD must ignore the sCMOS spreads"
+SHORT = [("Camera", "Test_StackLength", "4")]
+plain, spread_on = stack_frames(bg_only + SHORT, n=2), stack_frames(bg_only + SHORT + spread, n=2)
+assert not np.array_equal(plain, spread_on), "sCMOS spreads should apply"
+print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit clip holds; the sCMOS spreads apply to "
+      "sCMOS only")
 
 # --- illumination profile and background fade ------------------------------------
 flat_bg = GAUSS + NO_DYES + [("SampleHolder", "BackgroundPhotonsPerSec", "400")]

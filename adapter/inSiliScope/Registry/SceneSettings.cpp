@@ -48,8 +48,11 @@ sim::SimulationParams SnapshotParams(const SceneState& s)
    p.offsetAdu = s.offsetAdu.load();
    p.offsetStdAdu = s.offsetStdAdu.load();
    p.readNoiseElectrons = s.readNoiseElectrons.load();
-   p.pixelGainStdFraction = s.pixelGainStdPct.load() / 100.0;
-   p.pixelReadNoiseStdFraction = s.pixelReadNoiseStdPct.load() / 100.0;
+   // The per-pixel gain and read-noise spreads are an sCMOS's (a column of
+   // amplifiers per pixel); an EMCCD reads every pixel through one amplifier.
+   const bool emccd = s.emccd.load() != 0;
+   p.pixelGainStdFraction = emccd ? 0.0 : s.pixelGainStdPct.load() / 100.0;
+   p.pixelReadNoiseStdFraction = emccd ? 0.0 : s.pixelReadNoiseStdPct.load() / 100.0;
    p.drift.xyNmPerSqrtSec = s.driftXyNmPerSqrtSec.load();
    p.drift.zNmPerSqrtSec = s.driftZNmPerSqrtSec.load();
    p.drift.xySpeedNmPerSec = s.directedDrift[DD_XY_SPEED].load();

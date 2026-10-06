@@ -728,8 +728,10 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.offsetAdu = c.offsetAdu;
    p.offsetStdAdu = c.offsetStdAdu;
    p.readNoiseElectrons = c.readNoiseElectrons;
-   p.pixelGainStdFraction = c.gainStdFraction;
-   p.pixelReadNoiseStdFraction = c.readNoiseStdFraction;
+   // The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier
+   // per pixel); an EMCCD reads every pixel through one (JS scopeSetup).
+   p.pixelGainStdFraction = c.emccd ? 0.0 : c.gainStdFraction;
+   p.pixelReadNoiseStdFraction = c.emccd ? 0.0 : c.readNoiseStdFraction;
    p.emccd = c.emccd;
    p.emGain = c.emGain;
    p.cicElectrons = c.cicElectrons;
