@@ -108,10 +108,11 @@ namespace {
 struct CubeSpec
 {
    std::string label;
-   int dichroic, emission;
+   int excitation, dichroic, emission;
 };
 
-// The (dichroic, emission filter) pairs of the light presets, in preset order.
+// The (excitation filter, dichroic, emission filter) triples of the light presets, in preset order. A cube without an
+// excitation filter is labelled "<dichroic>+<emission filter>", one with "<excitation>+<dichroic>+<emission>".
 const std::vector<CubeSpec>& Cubes()
 {
    static const std::vector<CubeSpec> cubes = [] {
@@ -121,13 +122,15 @@ const std::vector<CubeSpec>& Cubes()
          const sim::LightPresetData* p = sim::FindLightPreset(id);
          if (!p)
             continue;
+         const int x = sim::IndexOf(sim::ExcitationFilterIds(), p->excitationFilter);
          const int d = sim::IndexOf(sim::DichroicIds(), p->dichroic);
          const int e = sim::IndexOf(sim::EmissionFilterIds(), p->emissionFilter);
          bool seen = false;
          for (const CubeSpec& c : v)
-            seen = seen || (c.dichroic == d && c.emission == e);
-         if (!seen && d >= 0 && e >= 0)
-            v.push_back({ std::string(p->dichroic) + "+" + p->emissionFilter, d, e });
+            seen = seen || (c.excitation == x && c.dichroic == d && c.emission == e);
+         const std::string prefix = std::string(p->excitationFilter) == "None" ? "" : std::string(p->excitationFilter) + "+";
+         if (!seen && x >= 0 && d >= 0 && e >= 0)
+            v.push_back({ prefix + p->dichroic + "+" + p->emissionFilter, x, d, e });
       }
       return v;
    }();
@@ -137,7 +140,7 @@ const std::vector<CubeSpec>& Cubes()
 } // namespace
 
 FilterCubeDevice::FilterCubeDevice()
-   : StatePeripheral("FilterCube", "Filter cube: dichroic and emission filter as one choice")
+   : StatePeripheral("FilterCube", "Filter cube: excitation filter, dichroic and emission filter as one choice")
 {
 }
 
@@ -153,9 +156,10 @@ std::vector<std::string> FilterCubeDevice::Labels()
 long FilterCubeDevice::Position()
 {
    const SceneState& s = Hub()->State();
+   const int x = static_cast<int>(s.Option("ex-filter"));
    const int d = static_cast<int>(s.Option("dichroic")), e = static_cast<int>(s.Option("em-filter"));
    for (size_t i = 0; i < Cubes().size(); ++i)
-      if (Cubes()[i].dichroic == d && Cubes()[i].emission == e)
+      if (Cubes()[i].excitation == x && Cubes()[i].dichroic == d && Cubes()[i].emission == e)
          return static_cast<long>(i);
    return static_cast<long>(Cubes().size());   // Custom: the wheels as set
 }
@@ -166,9 +170,12 @@ void FilterCubeDevice::MoveTo(long pos)
       return;
    const CubeSpec& c = Cubes()[static_cast<size_t>(pos)];
    SceneState& s = Hub()->State();
-   const bool changed = s.Option("dichroic") != c.dichroic || s.Option("em-filter") != c.emission;
+   const bool changed = s.Option("ex-filter") != c.excitation || s.Option("dichroic") != c.dichroic ||
+                        s.Option("em-filter") != c.emission;
+   s.SetOption("ex-filter", c.excitation);
    s.SetOption("dichroic", c.dichroic);
    s.SetOption("em-filter", c.emission);
+   Hub()->Notify("ex-filter");
    Hub()->Notify("dichroic");
    Hub()->Notify("em-filter");
    if (changed)
@@ -182,7 +189,9 @@ FilterWheelDevice::FilterWheelDevice(const char* name, const char* description, 
 
 std::vector<std::string> FilterWheelDevice::Labels()
 {
-   return option_ == "dichroic" ? sim::DichroicIds() : sim::EmissionFilterIds();
+   return option_ == "ex-filter" ? sim::ExcitationFilterIds()
+        : option_ == "dichroic"  ? sim::DichroicIds()
+                                 : sim::EmissionFilterIds();
 }
 
 long FilterWheelDevice::Position()

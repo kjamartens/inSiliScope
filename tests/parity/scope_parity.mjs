@@ -87,6 +87,8 @@ const CASES = [
   // The label model (specimen registry): the global mode with each target Global and its Typical dye, and Cy3B.
   ['Global mode dSTORM, Typical dye (AF647), typical labelling', `${B} size=40 frames=8 psf-model=0 mode=dSTORM mt-mode=Global mt-dye=Typical light-preset=auto`, 0.999],
   ['DNA-PAINT Cy3B imager, 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=Cy3B light-preset=auto`, 1],
+  // A laser clean-up filter (vendor curve) in front of the dichroic: each line x its transmission.
+  ['dSTORM AF647, 561 + 640 nm through a quad clean-up (ZET405/488/561/640xv2)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto laser-561=1 ex-filter=ChromaZET405-488-561-640xv2`, 0.999],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the

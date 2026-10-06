@@ -16,6 +16,7 @@ export const DYE_SLOTS = ['Dye1', 'Dye2', 'Dye3'];
 // A structure's dye choice: a library dye (index into DYE_IDS) or a slot (DYE_IDS.length + slot index).
 export const DYE_CHOICES = [...DYE_IDS, ...DYE_SLOTS];
 export const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+export const EXCITATION_FILTER_IDS = DYE_DATA.excitationFilters.map(f => f.id);
 export const DICHROIC_IDS = DYE_DATA.dichroics.map(f => f.id);
 export const EMISSION_FILTER_IDS = DYE_DATA.emissionFilters.map(f => f.id);
 export const CAMERA_IDS = DYE_DATA.cameras.map(c => c.id);
@@ -92,8 +93,9 @@ export function stateSpectra(st) {
 }
 
 // ---- light path ----
-// lasers: [{nm, kWPerCm2}] (intensity at the sample with a perfect mirror; the dichroic's reflectance scales it),
-// dichroic / emissionFilter: a DICHROIC_IDS / EMISSION_FILTER_IDS index with the Custom parameters, qe: a camera
+// lasers: [{nm, kWPerCm2}] (intensity at the sample with a perfect mirror and no excitation filter; the excitation
+// filter's transmission and the dichroic's reflectance scale it), excitationFilter / dichroic / emissionFilter: an
+// EXCITATION_FILTER_IDS / DICHROIC_IDS / EMISSION_FILTER_IDS index with the Custom parameters, qe: a camera
 // QE curve (CAMERA_IDS index; 'Flat' presets use qeFlat), na, immersionIndex, chamberHeightUm.
 export function makeLightPath(o) {
   const filt = (list, i, custom) => {
@@ -104,12 +106,14 @@ export function makeLightPath(o) {
     if (f.id === 'Custom') Object.assign(spec, custom);
     return { name: f.name, T: idealTransmission(spec) };
   };
+  const ex = filt(DYE_DATA.excitationFilters, o.excitationFilter ?? 0, { loNm: o.exLoNm, hiNm: o.exHiNm });
   const dich = filt(DYE_DATA.dichroics, o.dichroic, { edgeNm: o.dichroicEdgeNm });
   const em = filt(DYE_DATA.emissionFilters, o.emissionFilter, { loNm: o.emLoNm, hiNm: o.emHiNm });
   const cam = DYE_DATA.cameras[o.qeCurve];
   const qe = cam && typeof cam.qeCurve === 'string' && cam.qeCurve.startsWith('fp:') ? spectrum(cam.qeCurve)
     : new Float64Array(GRID_N).fill(o.qeFlat);
-  return { lasers: o.lasers.filter(l => l.kWPerCm2 > 0), dichroic: dich, emissionFilter: em, qe, qeName: cam ? cam.id : 'Flat',
+  return { lasers: o.lasers.filter(l => l.kWPerCm2 > 0).map(l => ({ nm: l.nm, kWPerCm2: l.kWPerCm2 * sampleAt(ex.T, l.nm) })),
+    excitationFilter: ex, dichroic: dich, emissionFilter: em, qe, qeName: cam ? cam.id : 'Flat',
     na: o.na, immersionIndex: o.immersionIndex, chamberHeightUm: o.chamberHeightUm,
     eta: collectionEfficiency(o.na, o.immersionIndex) };
 }

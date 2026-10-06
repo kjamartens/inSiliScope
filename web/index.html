@@ -312,10 +312,12 @@ const modeSuggestion = vals => {
   lastMtMode = m;
   return vals;
 };
-// A light preset as panel values: every laser (those it does not name off), the dichroic and the emission filter.
+// A light preset as panel values: every laser (those it does not name off), the excitation filter, the dichroic and the
+// emission filter.
 const lightPresetValues = q => {
   const o = {};
   for (const nm of DD.lasers) o['mv_laser-' + nm] = q.lasers[nm] || 0;
+  o['mv_ex-filter'] = DD.excitationFilters.findIndex(f => f.id === (q.excitationFilter || 'None'));
   o['mv_dichroic'] = DD.dichroics.findIndex(f => f.id === q.dichroic);
   o['mv_em-filter'] = DD.emissionFilters.findIndex(f => f.id === q.emissionFilter);
   return o;
@@ -595,6 +597,11 @@ const UI_GROUPS = [
     select('mv_illum-geometry', 'Geometry', 'Illumination geometry: Epi only for now (TIRF/HILO: future). <code>Optics_IlluminationGeometry</code>', [['0', 'Epi']], '0', { adv, show: FL, kids: [
       num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Optics_ChamberHeightUm</code>', 0, null, 0.5, 5, { adv, show: FL }),
     ] }),
+    select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
+      DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DD.excitationFilters.findIndex(f => f.id === DD.lightPathDefaults.excitationFilter)), { adv, show: FL, kids: [
+        num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
+        num('mv_ex-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>ExcitationFilter-CustomHiNm</code>', 300, 900, 0.5, 645, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
+      ] }),
     select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Optics_Dichroic</code>',
       DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, show: FL, kids: [
         num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Optics_DichroicEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
@@ -4853,6 +4860,7 @@ async function drawSpecPlot() {
     };
     curve(lp.emissionFilter.T, null, null, light ? 'rgba(0,120,255,0.12)' : 'rgba(120,180,255,0.16)');
     curve(lp.dichroic.T, light ? '#888' : '#999', [2, 2]);
+    if (lp.excitationFilter.T.some(v => v !== 1)) curve(lp.excitationFilter.T, light ? '#777' : '#bbb', [6, 2, 1, 2]);
     curve(lp.qe, light ? '#bbb' : '#666', [1, 3]);
     const col = (L.dye.states.main.emHex || '#ff4d4d');
     for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
@@ -4863,6 +4871,7 @@ async function drawSpecPlot() {
       if (sp.em) curve(sp.em, c, dash);
     }
     for (const l of lp.lasers) {
+      if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
       const hue = Math.max(0, Math.min(270, 270 - (l.nm - 400) * 270 / 300));
       g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
     }
@@ -4876,7 +4885,7 @@ async function drawSpecPlot() {
     const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
     if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
     if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
-    out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; dichroic dotted, filter shaded, QE dotted grey</span>';
+    out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; clean-up filter dash-dot, dichroic dotted, filter shaded, QE dotted grey</span>';
   } catch (e) {
     specMods = null;   // try the import again next time
     // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.

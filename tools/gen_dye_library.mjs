@@ -139,12 +139,15 @@ const data = {
   grid: fp.grid,
   fetched: fp.fetched,
   lasers: lightPath.lasers,
+  excitationFilters: lightPath.excitationFilters.map(filterEntry),
   dichroics: lightPath.dichroics.map(filterEntry),
   emissionFilters: lightPath.emissionFilters.map(filterEntry),
   lightPathDefaults: lightPath.defaults,
-  lightPresets: lightPath.presets.map(q => {
+  lightPresets: lightPath.presets.map(q0 => {
+    const q = { ...q0, excitationFilter: q0.excitationFilter ?? 'None' };   // no clean-up filter unless the preset names one
     checkRefs(q.id, q.refs);
-    for (const [k, list] of [['dichroic', lightPath.dichroics], ['emissionFilter', lightPath.emissionFilters]])
+    for (const [k, list] of [['excitationFilter', lightPath.excitationFilters], ['dichroic', lightPath.dichroics],
+                             ['emissionFilter', lightPath.emissionFilters]])
       if (!list.some(f => f.id === q[k])) throw new Error(`light preset ${q.id}: unknown ${k} '${q[k]}'`);
     for (const nm of Object.keys(q.lasers)) if (!lightPath.lasers.includes(+nm)) throw new Error(`light preset ${q.id}: no ${nm} nm laser`);
     return q;
@@ -220,11 +223,11 @@ const str = v => {
 };
 const MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const FILTER_TYPES = { none: 'FilterType::None', longpass: 'FilterType::LongPass', shortpass: 'FilterType::ShortPass',
-  bandpass: 'FilterType::BandPass', notch: 'FilterType::Notch' };
+  bandpass: 'FilterType::BandPass', notch: 'FilterType::Notch', multiband: 'FilterType::MultiBand' };
 const cFilter = f => {
   if (f.curve) return `   { ${str(f.id)}, ${str(f.name)}, ${str(f.curve)}, { FilterType::None, kNaN, kNaN, kNaN, 0, {} } },`;
-  const i = f.ideal, bands = i.reflectNm ?? [];
-  if (bands.length > 8) throw new Error(`${f.id}: more than 8 notch bands`);
+  const i = f.ideal, bands = i.reflectNm ?? i.passNm ?? [];
+  if (bands.length > 8) throw new Error(`${f.id}: more than 8 bands`);
   return `   { ${str(f.id)}, ${str(f.name)}, nullptr, { ${FILTER_TYPES[i.type]}, ${num(i.edgeNm)}, ${num(i.loNm)}, ${num(i.hiNm)}, `
     + `${bands.length}, { ${bands.map(([a, b]) => `{ ${num(a)}, ${num(b)} }`).join(', ')} } } },`;
 };
@@ -260,6 +263,10 @@ ${spectrumIds.map((k, i) => `   { ${str(k)}, kSpectrum${i} },`).join('\n')}
 
 static const int kLaserLines[] = { ${data.lasers.join(', ')} };
 
+static const FilterData kExcitationFilters[] = {
+${data.excitationFilters.map(cFilter).join('\n')}
+};
+
 static const FilterData kDichroics[] = {
 ${data.dichroics.map(cFilter).join('\n')}
 };
@@ -270,7 +277,7 @@ ${data.emissionFilters.map(cFilter).join('\n')}
 
 // Per laser line of kLaserLines (kW/cm^2; 0 = off).
 static const LightPresetData kLightPresets[] = {
-${data.lightPresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, { ${data.lasers.map(nm => num(q.lasers[nm] ?? 0)).join(', ')} }, ${str(q.dichroic)}, ${str(q.emissionFilter)} },`).join('\n')}
+${data.lightPresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, { ${data.lasers.map(nm => num(q.lasers[nm] ?? 0)).join(', ')} }, ${str(q.excitationFilter)}, ${str(q.dichroic)}, ${str(q.emissionFilter)} },`).join('\n')}
 };
 
 // ${CAMERA_FIELDS.join(', ')}
@@ -291,6 +298,7 @@ ${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}
 };
+static const char* const kDefaultExcitationFilter = ${str(data.lightPathDefaults.excitationFilter)};
 static const char* const kDefaultDichroic = ${str(data.lightPathDefaults.dichroic)};
 static const char* const kDefaultEmissionFilter = ${str(data.lightPathDefaults.emissionFilter)};
 static const char* const kDefaultLightPreset = ${str(data.lightPathDefaults.preset)};

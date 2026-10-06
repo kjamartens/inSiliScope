@@ -31,7 +31,7 @@ MODULE_API void InitializeModuleData()
       else if (!std::strcmp(d.name, "ZStage"))
          type = MM::StageDevice;
       else if (!std::strcmp(d.name, "Objective") || !std::strcmp(d.name, "FilterCube") ||
-               !std::strcmp(d.name, "Dichroic") || !std::strcmp(d.name, "EmissionFilter") ||
+               !std::strcmp(d.name, "ExcitationFilter") || !std::strcmp(d.name, "Dichroic") || !std::strcmp(d.name, "EmissionFilter") ||
                !std::strcmp(d.name, "SampleHolder"))
          type = MM::StateDevice;
       else if (!std::strcmp(d.name, "Lasers") || !std::strcmp(d.name, "TransmittedLamp"))
@@ -61,6 +61,10 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
       return new isc::EmissionPathDevice();
    if (n == "FilterCube")
       return new isc::FilterCubeDevice();
+   if (n == "ExcitationFilter")
+      return new isc::FilterWheelDevice("ExcitationFilter",
+                                        "Laser clean-up filter wheel (the cube's excitation filter, set on its own)",
+                                        "ex-filter");
    if (n == "Dichroic")
       return new isc::FilterWheelDevice("Dichroic", "Dichroic mirror wheel (the cube's dichroic, set on its own)",
                                         "dichroic");

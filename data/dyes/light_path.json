@@ -1,11 +1,144 @@
 {
-  "about": "Microscope light-path presets (BSD-3-Clause): laser lines, dichroic mirrors and emission filters. 'ideal' entries are defined here (transmission 0/1 with edges); 'fpbase' entries name an FPbase spectrum id whose curve tools/fetch_fpbase.mjs stores in fpbase_spectra.json (CC BY-SA 4.0). Laser intensities are at the sample, kW/cm^2; a dichroic reflects the excitation (R = 1 - T) and transmits the emission (T). presets: named illumination + filter sets; each dye mode in library.json names one (lightPreset), applied when a structure's dye or mode changes (viewer, Micro-Manager) or with light-preset (cli). Intensities with a source cite it; the rest are estimates.",
+  "about": "Microscope light-path presets (BSD-3-Clause): laser lines, excitation (laser clean-up) filters, dichroic mirrors and emission filters. 'ideal' entries are defined here (transmission 0/1 with edges); 'fpbase' entries name an FPbase spectrum id whose curve tools/fetch_fpbase.mjs stores in fpbase_spectra.json (CC BY-SA 4.0). Laser intensities are at the sample, kW/cm^2, before the excitation filter, which multiplies each line by its transmission there; a dichroic reflects the excitation (R = 1 - T) and transmits the emission (T). presets: named illumination + filter sets; each dye mode in library.json names one (lightPreset), applied when a structure's dye or mode changes (viewer, Micro-Manager) or with light-preset (cli). Intensities with a source cite it; the rest are estimates.",
   "lasers": [
     405,
     488,
     561,
     640,
     730
+  ],
+  "excitationFilters": [
+    {
+      "id": "None",
+      "name": "None (every laser line reaches the dichroic)",
+      "ideal": {
+        "type": "none"
+      }
+    },
+    {
+      "id": "BP405-10",
+      "name": "Ideal laser clean-up 405/10 (400-410 nm)",
+      "ideal": {
+        "type": "bandpass",
+        "loNm": 400.0,
+        "hiNm": 410.0
+      }
+    },
+    {
+      "id": "BP488-10",
+      "name": "Ideal laser clean-up 488/10 (483-493 nm)",
+      "ideal": {
+        "type": "bandpass",
+        "loNm": 483.0,
+        "hiNm": 493.0
+      }
+    },
+    {
+      "id": "BP561-10",
+      "name": "Ideal laser clean-up 561/10 (556-566 nm)",
+      "ideal": {
+        "type": "bandpass",
+        "loNm": 556.0,
+        "hiNm": 566.0
+      }
+    },
+    {
+      "id": "BP640-10",
+      "name": "Ideal laser clean-up 640/10 (635-645 nm)",
+      "ideal": {
+        "type": "bandpass",
+        "loNm": 635.0,
+        "hiNm": 645.0
+      }
+    },
+    {
+      "id": "Quad",
+      "name": "Ideal quad clean-up 405/488/561/640 (+/- 5 nm)",
+      "ideal": {
+        "type": "multiband",
+        "passNm": [
+          [
+            400,
+            410
+          ],
+          [
+            483,
+            493
+          ],
+          [
+            556,
+            566
+          ],
+          [
+            635,
+            645
+          ]
+        ]
+      }
+    },
+    {
+      "id": "ChromaZET405-20x",
+      "name": "Chroma ZET405/20x",
+      "fpbase": 518,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "ChromaZET488-10x",
+      "name": "Chroma ZET488/10x",
+      "fpbase": 694,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "ChromaZET561-10x",
+      "name": "Chroma ZET561/10x",
+      "fpbase": 709,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "ChromaZET642-20x",
+      "name": "Chroma ZET642/20x",
+      "fpbase": 660,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "ChromaZET405-488-561-640xv2",
+      "name": "Chroma ZET405/488/561/640xv2 (quad)",
+      "fpbase": 1461,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "SemrockFF01-405-10",
+      "name": "Semrock FF01-405/10",
+      "fpbase": 714,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "SemrockFF01-488-10",
+      "name": "Semrock FF01-488/10",
+      "fpbase": 866,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "SemrockFF01-561-14",
+      "name": "Semrock FF01-561/14",
+      "fpbase": 951,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "SemrockFF01-640-14",
+      "name": "Semrock FF01-640/14",
+      "fpbase": 1022,
+      "ref": "lambert2019"
+    },
+    {
+      "id": "Custom",
+      "name": "Custom band pass (ex-lo-nm .. ex-hi-nm)",
+      "ideal": {
+        "type": "bandpass",
+        "loNm": null,
+        "hiNm": null
+      }
+    }
   ],
   "dichroics": [
     {
@@ -258,6 +391,7 @@
     }
   ],
   "defaults": {
+    "excitationFilter": "None",
     "dichroic": "LP650",
     "emissionFilter": "BP676-37",
     "preset": "PAINT-640"

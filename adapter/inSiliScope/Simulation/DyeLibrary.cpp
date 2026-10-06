@@ -70,6 +70,12 @@ const std::vector<std::string>& DyeModeNames()
    return v;
 }
 
+const std::vector<std::string>& ExcitationFilterIds()
+{
+   static const std::vector<std::string> v = IdsOf(kExcitationFilters, Count(kExcitationFilters));
+   return v;
+}
+
 const std::vector<std::string>& DichroicIds()
 {
    static const std::vector<std::string> v = IdsOf(kDichroics, Count(kDichroics));
@@ -111,6 +117,7 @@ const std::vector<int>& LaserLines()
 }
 
 const DyeData& DyeAt(int i) { return kDyes[i]; }
+const FilterData& ExcitationFilterAt(int i) { return kExcitationFilters[i]; }
 const FilterData& DichroicAt(int i) { return kDichroics[i]; }
 const FilterData& EmissionFilterAt(int i) { return kEmissionFilters[i]; }
 const CameraData& CameraAt(int i) { return kCameras[i]; }
@@ -167,6 +174,7 @@ int IndexOf(const std::vector<std::string>& list, const std::string& id)
    return it == list.end() ? -1 : static_cast<int>(it - list.begin());
 }
 
+const char* DefaultExcitationFilter() { return kDefaultExcitationFilter; }
 const char* DefaultDichroic() { return kDefaultDichroic; }
 const char* DefaultEmissionFilter() { return kDefaultEmissionFilter; }
 const char* DefaultCamera() { return kDefaultCamera; }

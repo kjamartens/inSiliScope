@@ -67,9 +67,10 @@ def own_props(devices):
 
 expert = own_props(ALL_DEVICES)
 core.unloadAllDevices()
-load_scope(core, detail="Basic", devices=[d for d in ALL_DEVICES if d not in ("Dichroic", "EmissionFilter")])
-basic = own_props([d for d in ALL_DEVICES if d not in ("Dichroic", "EmissionFilter")])
-assert "Dichroic" not in core.getInstalledDevices("Hub"), "Basic: the hub should not offer the Advanced filter wheels"
+WHEELS = ("ExcitationFilter", "Dichroic", "EmissionFilter")
+load_scope(core, detail="Basic", devices=[d for d in ALL_DEVICES if d not in WHEELS])
+basic = own_props([d for d in ALL_DEVICES if d not in WHEELS])
+assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub should not offer the Advanced filter wheels"
 assert basic < expert, "Basic should show a subset of Expert"
 assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
 for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Label"),
@@ -171,6 +172,24 @@ assert core.getProperty("FilterCube", "Label") == "Custom", "a wheel set by hand
 assert core.getProperty("Lasers", "Preset") == "None", "a filter set by hand clears the light preset"
 core.setProperty("FilterCube", "Label", "LP570+BP617-73")
 assert core.getProperty("Dichroic", "Label") == "LP570" and core.getProperty("EmissionFilter", "Label") == "BP617-73"
+assert core.getProperty("ExcitationFilter", "Label") == "None", "the presets' cubes have no clean-up filter"
+assert "None" in core.getAllowedPropertyValues("EmissionFilter", "Label")
+# A laser clean-up filter scales each line by its transmission: a 640 clean-up blocks the 561 line, a 561 one passes it.
+core.setProperty("Lasers", "Laser561KWcm2", "1")
+on561 = float(core.getProperty("Fluorophores", "Microtubules_PhotonsPerSecOn"))   # AF647 under 640 + 561 nm
+core.setProperty("Lasers", "Laser640KWcm2", "0")
+only561 = float(core.getProperty("Fluorophores", "Microtubules_PhotonsPerSecOn"))
+assert only561 > 0, only561
+core.setProperty("ExcitationFilter", "Label", "BP640-10")
+assert core.getProperty("FilterCube", "Label") == "Custom"
+assert float(core.getProperty("Fluorophores", "Microtubules_PhotonsPerSecOn")) == 0, "BP640-10 should block 561 nm"
+core.setProperty("ExcitationFilter", "Label", "ChromaZET561-10x")
+t = float(core.getProperty("Fluorophores", "Microtubules_PhotonsPerSecOn")) / only561
+assert 0.9 < t < 1, f"ZET561/10x passes {t:.3f} of the 561 line (FPbase curve: 0.97)"
+core.setProperty("ExcitationFilter", "Label", "None")
+assert float(core.getProperty("Fluorophores", "Microtubules_PhotonsPerSecOn")) == only561
+core.setProperty("Lasers", "Laser561KWcm2", "0")
+assert on561 == only561, "LP570 transmits 640 nm: that line never reaches the sample"
 # A camera preset: noise values, sensor pixel (the pixel size follows), sensor type.
 core.setProperty("Camera", "CameraPreset", "iXonUltra897")
 assert core.getProperty("Camera", "CameraType") == "EMCCD" and float(core.getProperty("Camera", "SensorPixelUm")) == 16

@@ -23,7 +23,7 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `Objective` | State (turret) | the detection pupil: NA, immersion, magnification, aberrations (Zernike), the PSF kernel's extent | the emission magnification, the mask of a relay |
 | `EmissionPath` | Magnifier | magnification between objective and camera (tube lens / relay); MM divides the pixel size by it | |
 | `FilterCube` | State | a *combination*: one (excitation filter,) dichroic, emission filter choice | the filters' own data |
-| `Dichroic`, `EmissionFilter` (Advanced) | State (wheels) | one filter each; their Custom edges | |
+| `ExcitationFilter`, `Dichroic`, `EmissionFilter` (Advanced) | State (wheels) | one filter each (`None` is a position of each); their Custom edges | |
 | `Lasers` | Shutter | excitation: line powers, the custom line, beam profile, geometry, the light preset; its shutter = the epi light | filters |
 | `TransmittedLamp` | Shutter | transmitted light: intensity, condenser NA, wavelength; its shutter = the BrightField light | |
 | `SampleHolder` | State | which specimen is mounted; what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |

@@ -96,11 +96,13 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
    const std::vector<int>& lines = sim::LaserLines();
    for (size_t l = 0; l < lines.size(); ++l)
       state_.SetOption("laser-" + std::to_string(lines[l]), q->lasers[l]);
+   state_.SetOption("ex-filter", sim::IndexOf(sim::ExcitationFilterIds(), q->excitationFilter));
    state_.SetOption("dichroic", sim::IndexOf(sim::DichroicIds(), q->dichroic));
    state_.SetOption("em-filter", sim::IndexOf(sim::EmissionFilterIds(), q->emissionFilter));
    state_.SetLightPreset(id);
    for (size_t l = 0; l < lines.size(); ++l)
       Notify("laser-" + std::to_string(lines[l]));
+   Notify("ex-filter");
    Notify("dichroic");
    Notify("em-filter");
    Notify("light-preset");

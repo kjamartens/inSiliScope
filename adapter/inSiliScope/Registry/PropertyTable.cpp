@@ -526,7 +526,11 @@ std::vector<PropDef> BuildTable()
       add(d);
    }
 
-   // =========================== Dichroic, EmissionFilter (custom edges) ===========================
+   // =========================== ExcitationFilter, Dichroic, EmissionFilter (custom edges) ===========================
+   add(Opt("ExcitationFilter", "CustomLoNm", Tier::Expert, "ex-lo-nm", 300, 900,
+           "The Custom excitation filter's lower edge (nm)."));
+   add(Opt("ExcitationFilter", "CustomHiNm", Tier::Expert, "ex-hi-nm", 300, 900,
+           "The Custom excitation filter's upper edge (nm)."));
    add(Opt("Dichroic", "CustomEdgeNm", Tier::Expert, "dichroic-edge-nm", 300, 900,
            "The Custom dichroic's edge (nm; a long pass)."));
    add(Opt("EmissionFilter", "CustomLoNm", Tier::Expert, "em-lo-nm", 300, 900,

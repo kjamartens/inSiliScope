@@ -78,6 +78,17 @@ filter the spec does not give. The default is `PAINT-640` (640 nm at 1 kW/cm\(^2
 ATTO 655 DNA-PAINT label. Camera presets (`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the
 QE curve.
 
+## Excitation (laser clean-up) filters
+
+An excitation filter sits between the lasers and the dichroic (`ex-filter`, MM `ExcitationFilter` wheel or the
+`FilterCube`). Each laser line's intensity is multiplied by the filter's transmission at that line, so a 640 nm
+clean-up blocks the 561 nm line, as on a real scope. The library has `None` (the default, and every preset's),
+ideal laser-line band passes of +/- 5 nm (`BP405-10`, `BP488-10`, `BP561-10`, `BP640-10`), an ideal quad (`Quad`),
+measured curves from FPbase (Lambert 2019; `lambert2019`) of Chroma ZET405/20x, ZET488/10x, ZET561/10x, ZET642/20x and
+the quad ZET405/488/561/640xv2, and Semrock FF01-405/10, FF01-488/10, FF01-561/14 and FF01-640/14, and a `Custom`
+band pass (`ex-lo-nm`, `ex-hi-nm`). Semrock's MaxDiode/MaxLine clean-ups (LD01-405/10, LL02-561, ...) have no FPbase
+curve; the FF01 band passes stand in for them.
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds a flat offset per pixel and second of

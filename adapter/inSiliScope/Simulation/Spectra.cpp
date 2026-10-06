@@ -68,6 +68,12 @@ Spectrum IdealTransmission(const IdealFilterSpec& spec)
             if (nm >= spec.bands[b][0] && nm <= spec.bands[b][1])
                t = 0;
          break;
+      case FilterType::MultiBand:
+         t = 0;
+         for (int b = 0; b < spec.nBands; ++b)
+            if (nm >= spec.bands[b][0] && nm <= spec.bands[b][1])
+               t = 1;
+         break;
       case FilterType::None: break;
       }
       out[static_cast<size_t>(i)] = t;

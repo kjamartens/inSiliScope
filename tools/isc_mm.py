@@ -14,7 +14,8 @@ os.environ.setdefault("ISC_TEST", "1")
 from pymmcore_plus._util import USER_DATA_DIR
 
 HUB = "Hub"
-ALL_DEVICES = ["Camera", "XYStage", "ZStage", "Objective", "EmissionPath", "FilterCube", "Dichroic", "EmissionFilter",
+ALL_DEVICES = ["Camera", "XYStage", "ZStage", "Objective", "EmissionPath", "FilterCube", "ExcitationFilter", "Dichroic",
+               "EmissionFilter",
                "Lasers", "TransmittedLamp", "SampleHolder", "CellField", "Fluorophores", "Renderer"]
 
 

@@ -179,7 +179,7 @@ protected:
    std::vector<std::string> WatchedKeys() override { return { "objective" }; }
 };
 
-// The filter cube: (dichroic, emission filter) pairs of the light presets.
+// The filter cube: (excitation filter, dichroic, emission filter) triples of the light presets.
 class FilterCubeDevice : public StatePeripheral<FilterCubeDevice>
 {
 public:
@@ -189,10 +189,10 @@ protected:
    std::vector<std::string> Labels() override;
    long Position() override;
    void MoveTo(long pos) override;
-   std::vector<std::string> WatchedKeys() override { return { "dichroic", "em-filter" }; }
+   std::vector<std::string> WatchedKeys() override { return { "ex-filter", "dichroic", "em-filter" }; }
 };
 
-// A filter wheel holding the library's filters of one kind ("dichroic" or "em-filter").
+// A filter wheel holding the library's filters of one kind ("ex-filter", "dichroic" or "em-filter").
 class FilterWheelDevice : public StatePeripheral<FilterWheelDevice>
 {
 public:

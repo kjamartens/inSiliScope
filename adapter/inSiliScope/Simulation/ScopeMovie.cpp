@@ -126,9 +126,12 @@ const OptionTable& Options()
       const std::vector<ScopeOption> rest = {
          { "laser-custom-nm", 0, "Optics_LaserCustomNm: wavelength of an extra laser line, nm (0 = none)" },
          { "laser-custom", 0, "Optics_LaserCustomKWcm2: its intensity, kW/cm^2" },
-         { "light-preset", -1, "Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure's dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, dichroic and em-filter the spec does not give." },
+         { "light-preset", -1, "Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure's dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
          { "illum-geometry", 0, "Optics_IlluminationGeometry: 0 Epi (TIRF/HILO: future)" },
          { "chamber-height-um", 5, "Optics_ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)" },
+         { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
+         { "ex-lo-nm", 635, "ExcitationFilter Custom band pass, low edge" },
+         { "ex-hi-nm", 645, "ExcitationFilter Custom band pass, high edge" },
          { "dichroic", idx(DichroicIds(), DefaultDichroic()), "Optics_Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)" },
          { "dichroic-edge-nm", 650, "Optics_DichroicEdgeNm: the Custom dichroic's long-pass edge" },
          { "em-filter", idx(EmissionFilterIds(), DefaultEmissionFilter()), "Optics_EmissionFilter (names accepted)" },
@@ -218,6 +221,7 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["mt-motion"] = { "Static" };
       for (const char* k : { "dye1.source", "dye2.source", "dye3.source" })
          m[k] = DyeIds();
+      m["ex-filter"] = ExcitationFilterIds();
       m["dichroic"] = DichroicIds();
       m["em-filter"] = EmissionFilterIds();
       m["light-preset"] = lightPresets;
@@ -598,6 +602,8 @@ static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camer
          if (!spec.count(k))
             spec[k] = q->lasers[l];
       }
+      if (!spec.count("ex-filter"))
+         spec["ex-filter"] = IndexOf(ExcitationFilterIds(), q->excitationFilter);
       if (!spec.count("dichroic"))
          spec["dichroic"] = IndexOf(DichroicIds(), q->dichroic);
       if (!spec.count("em-filter"))
@@ -609,6 +615,9 @@ static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camer
       s.lasers.push_back({ static_cast<double>(nm), std::max(0.0, O(("laser-" + std::to_string(nm)).c_str())) });
    if (O("laser-custom-nm") > 0)
       s.lasers.push_back({ O("laser-custom-nm"), std::max(0.0, O("laser-custom")) });
+   s.excitationFilter = static_cast<int>(O("ex-filter"));
+   s.exLoNm = O("ex-lo-nm");
+   s.exHiNm = O("ex-hi-nm");
    s.dichroic = static_cast<int>(O("dichroic"));
    s.dichroicEdgeNm = O("dichroic-edge-nm");
    s.emissionFilter = static_cast<int>(O("em-filter"));

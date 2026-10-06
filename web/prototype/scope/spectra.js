@@ -34,7 +34,8 @@ export const parametricExcitation = (peakNm, widthNm) => skewedGaussian(peakNm, 
 export const parametricEmission = (peakNm, widthNm) => skewedGaussian(peakNm, 0.6 * widthNm, 1.6 * widthNm);
 
 // Transmission of an ideal filter: { type: 'none' | 'longpass' (edgeNm) | 'bandpass' (loNm, hiNm) | 'notch'
-// (reflectNm: [[lo, hi], ...] reflected, the rest transmitted) }. Hard edges on the grid.
+// (reflectNm: [[lo, hi], ...] reflected, the rest transmitted) | 'multiband' (passNm: [[lo, hi], ...] transmitted, the
+// rest blocked) }. Hard edges on the grid.
 export function idealTransmission(spec) {
   const out = new Float64Array(GRID_N);
   for (let i = 0; i < GRID_N; ++i) {
@@ -44,6 +45,7 @@ export function idealTransmission(spec) {
     else if (spec.type === 'shortpass') t = nm <= spec.edgeNm ? 1 : 0;
     else if (spec.type === 'bandpass') t = nm >= spec.loNm && nm <= spec.hiNm ? 1 : 0;
     else if (spec.type === 'notch') t = spec.reflectNm.some(([lo, hi]) => nm >= lo && nm <= hi) ? 0 : 1;
+    else if (spec.type === 'multiband') t = spec.passNm.some(([lo, hi]) => nm >= lo && nm <= hi) ? 1 : 0;
     else if (spec.type !== 'none') throw new Error(`unknown ideal filter type '${spec.type}'`);
     out[i] = t;
   }

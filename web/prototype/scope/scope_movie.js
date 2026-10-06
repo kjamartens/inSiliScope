@@ -14,7 +14,7 @@ import { renderGaussian } from './render.js';
 import { renderBrightfieldMovie } from './brightfield.js';
 import { driftOn, driftTrajectory, driftRange } from './drift.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
-import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
+import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
   backgroundQe } from './dye_library.js';
 import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
@@ -75,9 +75,12 @@ export const SCOPE_OPTIONS = [
   ...LASER_LINES.map(nm => [`laser-${nm}`, nm === 640 ? DEFAULT_LASER_640_KW : 0, `Optics_Laser${nm}KWcm2: ${nm} nm laser intensity at the sample, kW/cm^2 (0 = off)`]),
   ['laser-custom-nm', 0, 'Optics_LaserCustomNm: wavelength of an extra laser line, nm (0 = none)'],
   ['laser-custom', 0, 'Optics_LaserCustomKWcm2: its intensity, kW/cm^2'],
-  ['light-preset', -1, 'Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, dichroic and em-filter the spec does not give.'],
+  ['light-preset', -1, 'Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give.'],
   ['illum-geometry', 0, 'Optics_IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
   ['chamber-height-um', 5, 'Optics_ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
+  ['ex-filter', idx(EXCITATION_FILTER_IDS, DYE_DATA.lightPathDefaults.excitationFilter), 'ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)'],
+  ['ex-lo-nm', 635, 'ExcitationFilter Custom band pass, low edge'],
+  ['ex-hi-nm', 645, 'ExcitationFilter Custom band pass, high edge'],
   ['dichroic', idx(DICHROIC_IDS, DYE_DATA.lightPathDefaults.dichroic), 'Optics_Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)'],
   ['dichroic-edge-nm', 650, 'Optics_DichroicEdgeNm: the Custom dichroic\'s long-pass edge'],
   ['em-filter', idx(EMISSION_FILTER_IDS, DYE_DATA.lightPathDefaults.emissionFilter), 'Optics_EmissionFilter (names accepted)'],
@@ -150,7 +153,7 @@ const NAMES = {
   'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
   mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
-  dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
+  'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
 };
 const DYE_OVERRIDE = /^(?:([a-z]+)-dye|dye([1-3]))\.([a-z0-9-]+)$/;
@@ -236,7 +239,7 @@ export function scopeCamera(spec) {
     emGain: O('em-gain') > 0 ? O('em-gain') : emGainFromGain(cameraPreamp(preset), C('gain')), cicElectrons: C('cic'), bitDepth: C('bit-depth') };
 }
 
-// The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, dichroic, emissionFilter}.
+// The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, excitationFilter?, dichroic, emissionFilter}.
 export function scopeLightPreset(spec) {
   const O = getter(spec), i = Math.trunc(O('light-preset'));
   if (i < 0) return null;
@@ -255,13 +258,15 @@ export function scopeLightPath(spec, camera = scopeCamera(spec)) {
   if (q) {
     spec = { ...spec };
     for (const nm of LASER_LINES) if (!(`laser-${nm}` in spec)) spec[`laser-${nm}`] = q.lasers[nm] ?? 0;
+    if (!('ex-filter' in spec)) spec['ex-filter'] = EXCITATION_FILTER_IDS.indexOf(q.excitationFilter ?? 'None');
     if (!('dichroic' in spec)) spec.dichroic = DICHROIC_IDS.indexOf(q.dichroic);
     if (!('em-filter' in spec)) spec['em-filter'] = EMISSION_FILTER_IDS.indexOf(q.emissionFilter);
   }
   const O = getter(spec);
   const lasers = LASER_LINES.map(nm => ({ nm, kWPerCm2: Math.max(0, O(`laser-${nm}`)) }));
   if (O('laser-custom-nm') > 0) lasers.push({ nm: O('laser-custom-nm'), kWPerCm2: Math.max(0, O('laser-custom')) });
-  return makeLightPath({ lasers, dichroic: Math.trunc(O('dichroic')), dichroicEdgeNm: O('dichroic-edge-nm'),
+  return makeLightPath({ lasers, excitationFilter: Math.trunc(O('ex-filter')), exLoNm: O('ex-lo-nm'), exHiNm: O('ex-hi-nm'),
+    dichroic: Math.trunc(O('dichroic')), dichroicEdgeNm: O('dichroic-edge-nm'),
     emissionFilter: Math.trunc(O('em-filter')), emLoNm: O('em-lo-nm'), emHiNm: O('em-hi-nm'), qeCurve: camera.qeCurve,
     qeFlat: camera.qeFlat, na: O('na'), immersionIndex: O('immersion-index'), chamberHeightUm: Math.max(0, O('chamber-height-um')) });
 }
