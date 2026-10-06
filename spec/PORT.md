@@ -369,9 +369,9 @@ the Z stage already does.
 The stage position is the **world coordinate of the FOV centre** in µm. World `(0,0)` is the origin of the
 cell-field chunk grid. Increasing X moves the FOV to the right over the sample, so features move *left* in
 the image; same for Y downward. Real setups vary (camera mirroring/rotation), so add
-`General_StageInvertX/Y` (default off) rather than hard-coding a convention. **Drift** composes as an extra
-offset on the FOV centre: `effectiveCentre = stage + drift`, using the existing `ComputeDriftOffsetPx`
-result converted to µm (do not shift dye positions separately or you will double-apply it).
+`General_StageInvertX/Y` (default off) rather than hard-coding a convention. **Drift** (section 16) is applied
+once: SR adds it to each event's position, WideField/BrightField shift the frame's image (live WideField moves the
+FOV centre, `stage - drift`); never both.
 
 ---
 
@@ -667,7 +667,7 @@ CellField only (other patterns log once and render SR). Code: `Simulation/Widefi
   host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
   Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
   + Microsoft's HLSL compiler).
-* Limits: no drift.
+* Limits: drift (section 16) renders on the CPU.
 
 ## 14. The PSF in the cli and the viewer (2026-10-01)
 
@@ -702,7 +702,7 @@ Spec, model, quality table and the list of missing structures: [BRIGHTFIELD.md](
   `General_BrightField{Quality,Sources,Upscaling,GeometrySamples,SliceUm,CondenserNa,WavelengthNm,PhotonsPerPxPerSec,
   Aberrations}` and `SimType_CellField{IndexMedium,IndexCytoplasm,IndexNucleus,IndexMicrotubule,AbsorptionPerUm}`;
   precomputed stacks (`RenderBrightfieldStack`, one image per distinct focus, z sequences) and live mode (scene per
-  pose, image per focus). No GPU path, no drift, CellField only.
+  pose, image per focus). No GPU path, CellField only; drift: section 16.
 - [ ] Visual check in Micro-Manager Studio; [ ] MSBuild of the DLL (only the Linux test `.so` was built);
   [ ] waveorder weak-phase comparison; [ ] GPU path; [ ] stage-move prefetch.
 
@@ -717,3 +717,41 @@ worker builds a scene from those screens alone (`UpdateFromPhase`, no world) and
 `Image` does (`SetImageFromSources`: the same float sum in source order), then renders the frames. ctest
 `brightfield` checks the three paths bit for bit; `tests/web/viewer_bf_movie.mjs` checks the split movie equals the
 single-worker one (`?bfsplit=0`). Not with the lab's JS engine.
+
+## 16. Sample drift (2026-10-06)
+
+A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29, 27961 (2021); Ma et al., Sci. Adv. 10,
+eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
+per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleForSeed`.
+
+- `Simulation/Drift.{h,cpp}` (JS twin `web/prototype/scope/drift.js`): `d(0) = 0`, `d(f) = d(f-1) + sqrt(frameSec) x
+  (sxy g0, sxy g1, sz g2)`, `g` = `CounterGauss` on `CounterRng(seed ^ 0x44524654 "DRFT", f)`, pixel 0, draws x, y, z in
+  that order (`DriftStep`, `DriftTrajectory`). nm, camera axes, +z away from the coverslip; the focal plane is `focus -
+  dz`. The JS uses the same pcg4d and Box-Muller: the trajectories agree to the last digit.
+- Options: MM `SimType_DriftXyNmPerSqrtSec`, `SimType_DriftZNmPerSqrtSec` (0-1000, default 0, `InvalidateStack`); cli /
+  viewer `drift-xy-nm-per-sqrt-sec`, `drift-z-nm-per-sqrt-sec`; the seed is `SimType_RandomSeed` / `seed`. Default 0:
+  every output unchanged. `ScopeMovieInfo::driftNm` (x, y, z per frame); the cli writes `<out>.drift.csv`.
+- SR: `RenderPhotonImage(..., d/px, ..., zStage - dz)` per frame; the event query is widened by the trajectory's range
+  (`CellFieldQueryFor` with the drift bounds; `DriftWidenZCull` grows the z cull window).
+- WideField / BrightField (stacks, cli, viewer): the frame is the scene's full-grid image spectrum x a phase ramp
+  (`ApplyShiftRamp`, shared with WideField's sub-cell pose; `ShiftedCamera`: inverse, crop, max(0, .), bin). WideField:
+  `WidefieldScene::SetKeepSpectra` keeps each channel's spectrum before the sub-cell shift in `WidefieldImages`,
+  `WidefieldDriftFrames` (`FocusSeries` on the focus grid around each base focus, refreshed when the images change,
+  `RenderShiftedImages`); the square and the dye grid margin grow by `ceil(max|dxy| / pixel) + 1` pixels. BrightField:
+  `BrightfieldScene::FineSpectrum` (whole-grid intensity, mean of the sources in source order, real FFT),
+  `BrightfieldDriftFrames`; the grid margin grows by the same amount. z: `DriftFocusGrid`, foci `kDriftFocusStepNm` =
+  10 nm apart over the trajectory's z range, linear interpolation of the spectra.
+- GPU: a drifting WideField sample renders on the CPU (keeps spectra; the adapter skips the D3D11 host, the viewer the
+  WebGPU job); a drifting BrightField movie runs on one viewer worker (no source split).
+- Live (adapter): the steps of frames 1..n since `liveDriftOriginFrame_` are summed (the stack's path). SR as stacks;
+  WideField: the FOV moves over the sample (`stage - drift`, exact under the camera-fixed square); BrightField: the scene
+  stays at an anchor (rebuilt when the sample moved 1 um from it, margin + 1 um), the frame is its fine image shifted by
+  the rest, foci on demand (`BrightfieldDriftFrames::Ensure`).
+- webSMLM block: `CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec)` -> [{x, y, z}] nm,
+  generated from `drift.js` + `rng.js` (no second copy).
+- Checks: ctest `drift` (Var d(1 s) = sigma^2 at 10 and 100 ms frames, mean 0, axes uncorrelated; live sum = trajectory
+  bit for bit; SR drifting frame = the movie posed at the drifted sample, 100% identical ADU), ctest `widefield`
+  (shifted frame = the scene posed at -d, 5e-7; focus grid vs exact focus, 2e-5 rms), ctest `brightfield` (whole-cell
+  shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
+  scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
+  drift cases), `tests/block/check_cellfield_block.mjs`.

@@ -16,6 +16,7 @@
 #include "Timing.h"
 
 #include "CellFieldSource.h"
+#include "Drift.h"
 #include "PsfGeneratorBridge.h"
 #include "SMLMZernike.h"
 #include "SMLMNoise.h"
@@ -53,6 +54,8 @@ const std::vector<ScopeOption>& ScopeMovieOptions()
       { "frames", 1000, "number of frames" },
       { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
       { "start-sec", 0, "simulated time of the first frame, s" },
+      { "drift-xy-nm-per-sqrt-sec", 0, "SimType_DriftXyNmPerSqrtSec: random-walk sample drift, RMS nm per axis after 1 s (x and y each; 0 = none)" },
+      { "drift-z-nm-per-sqrt-sec", 0, "SimType_DriftZNmPerSqrtSec: random-walk sample drift in z, RMS nm after 1 s (0 = none)" },
       { "pixel-nm", 100, "pixel size, nm" },
       { "photons-per-sec", 7500, "FluoParam_PhotonsPerSecond" },
       { "on-sec", 0.05, "FluoParam_OnLifetimeSec" },
@@ -268,6 +271,10 @@ struct ScopeSetup
    long N = 0;
    long seed = 0;
    double expSec = 0.05, t0Sec = 0.0;
+   // Sample drift: the per-frame displacement (nm, zero at frame 0) and its range.
+   std::vector<DriftNm> drift;
+   DriftBounds driftRange;
+   bool driftOn = false;
 };
 
 static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
@@ -297,6 +304,8 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    p.pixelGainStdFraction = O("gain-std-pct") / 100.0;
    p.pixelReadNoiseStdFraction = O("read-noise-std-pct") / 100.0;
    p.frameDurationSec = expSec;
+   p.drift.xyNmPerSqrtSec = std::max(0.0, O("drift-xy-nm-per-sqrt-sec"));
+   p.drift.zNmPerSqrtSec = std::max(0.0, O("drift-z-nm-per-sqrt-sec"));
 
    CellFieldSettings cf;
    const double worldSeed = O("world-seed");
@@ -350,7 +359,43 @@ static ScopeSetup MakeScopeSetup(const ScopeSpec& spec)
    S.seed = seed;
    S.expSec = expSec;
    S.t0Sec = t0Sec;
+   S.driftOn = p.drift.On();
+   if (S.driftOn)
+   {
+      S.drift = DriftTrajectory(seed, N, expSec, p.drift);
+      S.driftRange = DriftRange(S.drift);
+   }
    return S;
+}
+
+// The SR event query of a drifting movie: a frame draws a dye at its
+// FOV-relative position plus the drift, with the focal plane at z - dz, so
+// the dyes a frame can show sit that drift further back.
+static CellFieldQuery DriftedQuery(const ScopeSetup& S)
+{
+   CellFieldQuery q = S.q;
+   if (!S.driftOn)
+      return q;
+   const DriftBounds& b = S.driftRange;
+   q.x0Um -= b.xHi / 1000.0;
+   q.x1Um -= b.xLo / 1000.0;
+   q.y0Um -= b.yHi / 1000.0;
+   q.y1Um -= b.yLo / 1000.0;
+   if (q.zHalfRangeUm > 0.0)
+      DriftWidenZCull(b, q.zCullCentreUm, q.zHalfRangeUm);
+   return q;
+}
+
+// info.driftNm: x, y, z per frame (empty without drift).
+static void DriftInfo(const ScopeSetup& S, ScopeMovieInfo& info)
+{
+   info.driftNm.clear();
+   for (const DriftNm& d : S.drift)
+   {
+      info.driftNm.push_back(d.x);
+      info.driftNm.push_back(d.y);
+      info.driftNm.push_back(d.z);
+   }
 }
 
 bool ScopePsfRequest(const ScopeSpec& spec, PsfGeneratorRequest& req, std::string& err)
@@ -500,9 +545,10 @@ WidefieldScene& WidefieldMovie::Scene()
    return impl_->scene;
 }
 
-bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err)
+bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuModeIn, std::string& err)
 {
    Impl& m = *impl_;
+   bool gpuMode = gpuModeIn;
    m.t0 = std::chrono::steady_clock::now();
    m.spec = spec;
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
@@ -537,7 +583,15 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
    ws.eta = WidefieldCollectionEfficiency(O("na"), O("immersion-index"));
    ws.exposureSec = S.p.frameDurationSec;
    ws.worldVersion = static_cast<long>(m.cache.version);
-   m.ill.reset(new SquareIllumination(S.W * um, S.H * um));
+   // A drifting sample: its frames are its images shifted (WidefieldDriftFrames),
+   // so the square lights the FOV grown by the xy drift (plus a pixel), and the
+   // focus work stays on the CPU (it keeps the spectra).
+   const double driftMarginUm =
+      S.driftOn ? (std::ceil(S.driftRange.MaxXyNm() / S.p.pixelSizeNm) + 1.0) * um : 0.0;
+   m.ill.reset(new SquareIllumination(S.W * um + 2.0 * driftMarginUm, S.H * um + 2.0 * driftMarginUm));
+   ws.marginUm += driftMarginUm; // the dyes the drift brings within the kernel's reach
+   if (S.driftOn)
+      gpuMode = false;
    tPhase = TimingClock::now();
    PsfKernelCache kc;
    if (!ScopePsfKernel(spec, kc, err))
@@ -578,6 +632,7 @@ bool WidefieldMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err
       c.wfHasScene = true;
    }
    m.scene.SetDeferImages(gpuMode);
+   m.scene.SetKeepSpectra(S.driftOn);
    tPhase = TimingClock::now();
    if (!m.scene.Update(m.source, *m.ill, ws, *m.psf, err))
       return false;
@@ -603,7 +658,6 @@ void WidefieldMovie::ComputeCpuImages()
 bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                             ScopeMovieInfo& info, std::string& err)
 {
-   (void)err;
    Impl& m = *impl_;
    const ScopeSetup& S = m.S;
    const WidefieldSceneSpec& ws = m.ws;
@@ -625,13 +679,23 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
                  "insiliscope modality=WideField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g dyes=%ld bleaching_dyes=%ld upscale=%d "
                  "plane_nm=%g excitation=%g qy=%g budget=%g eps=%g eta=%.4f k_em=%.4g t_half_s=%.4g "
-                 "photons_per_dye_per_frame=%.4g psf=%s",
+                 "photons_per_dye_per_frame=%.4g drift_xy=%g drift_z=%g psf=%s",
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, O("start-sec"), N,
                  O("focus-um"), m.scene.Dyes(), m.scene.BleachingDyes(), ws.grid.upscale, ws.grid.zPlaneNm,
                  ws.phot.excitationPhotonsPerUm2PerSec, ws.phot.quantumYield, ws.phot.photonBudget,
                  ws.phot.extinctionCoeff, ws.eta, kem, info.halfTimeSec, ws.eta * kem * S.expSec,
-                 m.psfCache.valid ? "GibsonLanniZernike" : "Gaussian");
+                 p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, m.psfCache.valid ? "GibsonLanniZernike" : "Gaussian");
    info.description = desc;
+   DriftInfo(S, info);
+   // A drifting sample: the images on the drift's focus grid, each frame
+   // interpolated in z and shifted in xy.
+   WidefieldDriftFrames driftFrames;
+   if (S.driftOn)
+   {
+      driftFrames.Begin(S.driftRange, std::vector<double>(1, ws.focusWorldUm));
+      if (!driftFrames.Refresh(m.scene, err))
+         return false;
+   }
 
    NoiseSetup noise(S.seed, W, H, p);
    const std::vector<BlinkEvent> none;
@@ -684,7 +748,10 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
          const long fr = f + static_cast<long>(k);
          RenderPhotonImage(photons[k], W, H, none, fr, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
                            p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
-         m.scene.RenderCoefficients(coef[k], photons[k]);
+         if (S.driftOn)
+            driftFrames.Render(m.scene, 0, S.drift[static_cast<size_t>(fr)], coef[k], photons[k]);
+         else
+            m.scene.RenderCoefficients(coef[k], photons[k]);
          ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
                          noise.noiseSeed, static_cast<uint32_t>(fr));
       });
@@ -700,7 +767,15 @@ bool WidefieldMovie::Render(const std::function<bool(long, const std::vector<uin
          tAnchor.Start();
          RenderPhotonImage(photons[0], W, H, none, f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
                            p.backgroundPhotons, 0.0, 0.0, nullptr, zStage);
-         m.scene.RenderFrame(wb, photons[0]);
+         if (S.driftOn)
+         {
+            m.scene.SetBleachWeights(wb);
+            if (!driftFrames.Refresh(m.scene, err))
+               return false;
+            driftFrames.Render(m.scene, 0, S.drift[static_cast<size_t>(f)], m.scene.AnchorCoefficients(), photons[0]);
+         }
+         else
+            m.scene.RenderFrame(wb, photons[0]);
          ApplyNoiseChain(photons[0], adu[0], W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
                          noise.noiseSeed, static_cast<uint32_t>(f));
          tAnchor.Stop();
@@ -738,6 +813,11 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    bs.sub = static_cast<int>(std::min(16.0, std::max(0.0, O("bf-sub"))));
    bs.sliceUm = O("bf-slice-um") < 0 ? -1.0 : std::max(0.0, O("bf-slice-um"));
    bs.marginUm = std::max(0.0, O("bf-margin-um"));
+   // A drifting sample: the frames are the grid's image shifted, so the
+   // margin grows by the xy drift (plus a pixel).
+   if (S.driftOn)
+      bs.marginUm = bs.Resolved().marginUm + (std::ceil(S.driftRange.MaxXyNm() / S.p.pixelSizeNm) + 1.0) *
+                                                 S.p.pixelSizeNm / 1000.0;
    bs.condenserNa = std::max(0.0, O("bf-condenser-na"));
    bs.wavelengthNm = std::max(1.0, O("bf-wavelength-nm"));
    bs.na = std::max(0.01, O("na"));
@@ -779,7 +859,16 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
    auto tPhase = TimingClock::now();
-   if (!scene.Image(focusUm, trans, err))
+   // A drifting sample: the fine-grid spectra on the drift's focus grid, a
+   // shifted, interpolated image per frame.
+   BrightfieldDriftFrames driftFrames;
+   if (S.driftOn)
+   {
+      driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
+      if (!driftFrames.Refresh(scene, 0, err))
+         return false;
+   }
+   else if (!scene.Image(focusUm, trans, err))
       return false;
    TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
@@ -795,12 +884,14 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                  "insiliscope modality=BrightField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g frames=%ld focus_um=%g quality=%d sources=%d upscale=%d sub=%d slices=%d grid=%ux%u "
                  "na=%g condenser_na=%g lambda_nm=%g n_medium=%g n_cytoplasm=%g n_nucleus=%g n_microtubule=%g "
-                 "absorption_per_um=%g photons_per_px=%.4g setup_ms=%.0f image_ms=%.0f",
+                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g setup_ms=%.0f image_ms=%.0f",
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, N, focusUm, bs.quality,
                  scene.Sources(), q.upscale, q.sub, scene.Slices(), scene.GridNx(), scene.GridNy(), bs.na,
                  bs.condenserNa, bs.wavelengthNm, bs.nMedium, bs.nCytoplasm, bs.nNucleus, bs.nMicrotubule,
-                 bs.absorptionPerUm, flux, scene.SetupMs(), scene.LastImageMs());
+                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, scene.SetupMs(),
+                 scene.LastImageMs());
    info.description = desc;
+   DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);
    std::vector<float> photons(trans.size());
    for (size_t i = 0; i < trans.size(); ++i)
@@ -809,6 +900,13 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
+      if (S.driftOn)
+      {
+         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
+         photons.resize(trans.size());
+         for (size_t i = 0; i < trans.size(); ++i)
+            photons[i] = static_cast<float>(trans[i] * flux);
+      }
       tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
@@ -1158,7 +1256,7 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    const ScopeSetup S = MakeScopeSetup(spec);
    const SimulationParams& p = S.p;
    const CellFieldSettings& cf = S.cf;
-   const CellFieldQuery& q = S.q;
+   const CellFieldQuery q = DriftedQuery(S);
    const unsigned W = S.W, H = S.H;
    const long N = S.N, seed = S.seed;
    const double expSec = S.expSec, t0Sec = S.t0Sec;
@@ -1219,11 +1317,12 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
    std::snprintf(desc, sizeof desc,
                  "insiliscope seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g exposure_ms=%g start_sec=%g "
                  "frames=%ld focus_um=%g activation_rate=%g on_sec=%g off_sec=%g bleach_prob=%g photons_per_sec=%g "
-                 "photon_cv=%g psf=%s",
+                 "photon_cv=%g drift_xy=%g drift_z=%g psf=%s",
                  seed, cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, expSec * 1000, t0Sec, N, O("focus-um"),
                  cf.activationRatePerSec, cf.onSec, cf.offSec, cf.bleachProb, O("photons-per-sec"), cf.photonCV,
-                 kernel ? "GibsonLanniZernike" : "Gaussian");
+                 p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, kernel ? "GibsonLanniZernike" : "Gaussian");
    info.description = desc;
+   DriftInfo(S, info);
 
    // Same streams as the camera's StackGenerationWorker: maps off
    // mt19937_64(seed), counter-based noise on seed ^ 0x9E3779B9.
@@ -1263,8 +1362,17 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
          fe[k].clear();
          for (uint32_t i : buckets[static_cast<size_t>(f)])
             fe[k].push_back(events[i]);
+         // Drift: the sample moved by d (camera px), the focal plane sits dz lower in it.
+         double dx = 0.0, dy = 0.0, zf = zStage;
+         if (S.driftOn)
+         {
+            const DriftNm& d = S.drift[static_cast<size_t>(f)];
+            dx = d.x / p.pixelSizeNm;
+            dy = d.y / p.pixelSizeNm;
+            zf = zStage - d.z / 1000.0;
+         }
          RenderPhotonImage(photons[k], W, H, fe[k], f, p.pixelSizeNm, p.psfSigmaPx, p.photonsPerBlink,
-                           p.backgroundPhotons, 0.0, 0.0, kernel, zStage);
+                           p.backgroundPhotons, dx, dy, kernel, zf);
          ApplyNoiseChain(photons[k], adu[k], W, H, p.Camera(), offsetMap, gainMap, rnMap, noiseSeed,
                          static_cast<uint32_t>(f));
       });

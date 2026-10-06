@@ -33,6 +33,7 @@ const char* g_PropResolutionSpacingsNm = "SimType_ResolutionSpacingsNm";
 const char* g_PropFovSize = "General_FovSize";
 const char* g_PropGenerateStack = "General_GenerateStack";
 const char* g_PropStackStatus = "General_StackGenerationStatus";
+const char* g_PropStackLength = "General_StackLength";
 const char* g_PropEndOfStack = "General_EndOfStackReached";
 const char* g_PropEmitterDensityPerSec = "General_EmitterDensityPerSec";
 const char* g_PropPhotonsPerSecond = "FluoParam_PhotonsPerSecond";
@@ -49,7 +50,8 @@ const char* g_PropOffsetStd = "CamParam_OffsetStdADU";
 const char* g_PropReadNoise = "CamParam_ReadNoiseElectrons";
 const char* g_PropPixelGainStdPct = "CamParam_GainStdPctPerPixel";
 const char* g_PropPixelReadNoiseStdPct = "CamParam_ReadNoiseStdPctPerPixel";
-const char* g_PropDriftNmPerSec = "SimType_DriftNmPerSec";
+const char* g_PropDriftXyNmPerSqrtSec = "SimType_DriftXyNmPerSqrtSec";
+const char* g_PropDriftZNmPerSqrtSec = "SimType_DriftZNmPerSqrtSec";
 const char* g_PropRandomSeed = "SimType_RandomSeed";
 const char* g_PropActualFrameIntervalMs = "General_ActualFrameIntervalMs";
 const char* g_PropPsfModel = "PSFParam_PsfModel";
@@ -393,12 +395,17 @@ int CInSiliScopeCamera::Initialize()
    CreateStringProperty(g_PropResolutionSpacingsNm,
                          sim::FormatResolutionSpacingsNm(resolutionSpacingsNm_).c_str(), false, pAct);
 
-   // Precomputed-stack properties. Stack length and looping are no longer
-   // user-facing (see stackLength_/stackLoop_ in InSiliScopeCamera.h) -- what
-   // remains is the trigger plus the two read-only status readbacks.
+   // Precomputed-stack properties: the trigger, the stack length (frames,
+   // default 1000; re-exposed 2026-10-06 so tests and short acquisitions do
+   // not pay for 1000 frames), and the two read-only status readbacks. The
+   // stack always loops (stackLoop_ in InSiliScopeCamera.h).
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnGenerateStack);
    CreateIntegerProperty(g_PropGenerateStack, 0, false, pAct);
    SetPropertyLimits(g_PropGenerateStack, 0, 1);
+
+   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStackLength);
+   CreateIntegerProperty(g_PropStackLength, stackLength_, false, pAct);
+   SetPropertyLimits(g_PropStackLength, 1, 100000);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnStackStatus);
    CreateStringProperty(g_PropStackStatus, "Idle", true, pAct);
@@ -529,9 +536,14 @@ int CInSiliScopeCamera::Initialize()
    CreateFloatProperty(g_PropOutOfFocusDepthNm, outOfFocusDepthNm_.load(), false, pAct);
    SetPropertyLimits(g_PropOutOfFocusDepthNm, 300.0, 5000.0);
 
-   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftNmPerSec);
-   CreateFloatProperty(g_PropDriftNmPerSec, driftNmPerSecX_.load(), false, pAct);
-   SetPropertyLimits(g_PropDriftNmPerSec, 0.0, 20000.0);
+   // Random-walk sample drift (Simulation/Drift.h): RMS displacement after
+   // 1 s, per axis in x and y, and in z; 0 = none.
+   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftXyNmPerSqrtSec);
+   CreateFloatProperty(g_PropDriftXyNmPerSqrtSec, driftXyNmPerSqrtSec_.load(), false, pAct);
+   SetPropertyLimits(g_PropDriftXyNmPerSqrtSec, 0.0, 1000.0);
+   pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftZNmPerSqrtSec);
+   CreateFloatProperty(g_PropDriftZNmPerSqrtSec, driftZNmPerSqrtSec_.load(), false, pAct);
+   SetPropertyLimits(g_PropDriftZNmPerSqrtSec, 0.0, 1000.0);
 
    pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnActualFrameIntervalMs);
    CreateFloatProperty(g_PropActualFrameIntervalMs, 0.0, true, pAct);
@@ -963,8 +975,8 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    sequenceStartTime_ = GetCurrentMMTime();
    imageCounter_ = 0;
 
-   // A fresh Live/MDA acquisition restarts the drift ramp from zero rather
-   // than continuing wherever the previous acquisition left off.
+   // A fresh Live/MDA acquisition restarts the drift from zero rather than
+   // continuing wherever the previous acquisition left off.
    // An armed z sequence (hardware z stack) restarts at its first position;
    // the camera steps it one position per frame.
    const sim::SharedStageState::ZSequence zseq = sim::GetSharedStageState().GetZSequence();

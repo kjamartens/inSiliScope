@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include "Drift.h"
 #include "Fft2d.h"
 #include "SMLMZernike.h"
 
@@ -124,6 +125,17 @@ public:
    // Transmitted intensity per camera pixel (1 = the empty field) with the
    // focal plane at focusUm (um above the coverslip). Cached per focus.
    bool Image(double focusUm, std::vector<float>& out, std::string& err);
+   // The transmitted intensity on the whole grid (margins included; mean of
+   // the sources, summed in source order), as its spectrum (FineFft()'s
+   // layout): periodic and band-limited (pitch <= lambda / 4n), so a drifting
+   // sample's frame is this spectrum shifted (BrightfieldDriftFrames).
+   bool FineSpectrum(double focusUm, std::vector<cfloat>& spec, std::string& err);
+   const RealFft2d& FineFft() const { return fineFft_; }
+   unsigned Upscale() const { return up_; }
+   unsigned MarginCells() const { return margin_; }
+   double PitchUm() const { return pitch_; }
+   // Changes whenever the scene is rebuilt.
+   uint64_t Version() const { return version_; }
 
    const BrightfieldSpec& Spec() const { return spec_; }
    bool Valid() const { return valid_; }
@@ -155,6 +167,9 @@ private:
    void EnsureExitFields();   // the deferred per-source propagation (parallel over the sources)
    void SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u, std::vector<cfloat>& work,
                     float* camOut) const;
+   // Source s's field spectrum at the focal plane (pupil and defocus applied).
+   void SourceFocalSpectrum(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u,
+                            std::vector<cfloat>& work) const;
 
    BrightfieldSpec spec_;
    uint64_t worldVersion_ = 0;
@@ -178,6 +193,32 @@ private:
    double imageFocus_ = 0.0;
    std::vector<float> image_;
    double setupMs_ = 0.0, imageMs_ = 0.0;
+   RealFft2d fineFft_;
+   uint64_t version_ = 0;
+};
+
+// The frames of a drifting sample (Drift.h): the scene's fine-grid intensity
+// spectra on the drift's focus grid around each base focus (made on demand,
+// remade when the scene is rebuilt), each frame interpolated in z and
+// shifted in xy by a phase ramp, cropped and binned to camera pixels. The
+// scene's margin must exceed the xy drift.
+class BrightfieldDriftFrames
+{
+public:
+   void Begin(const DriftBounds& b, const std::vector<double>& baseFocusUm);
+   // The spectra the frames of base focus `base` need; false with err.
+   bool Refresh(BrightfieldScene& scene, size_t base, std::string& err);
+   // Only the (one or two) foci a frame with z drift dzNm needs (live mode).
+   bool Ensure(BrightfieldScene& scene, size_t base, double dzNm, std::string& err);
+   // Transmitted intensity per camera pixel (1 = the empty field) of the
+   // frame with drift d (into out, W x H). Thread-safe after Refresh.
+   void Image(const BrightfieldScene& scene, size_t base, const DriftNm& d, std::vector<float>& out) const;
+
+private:
+   DriftFocusGrid grid_;
+   std::vector<double> base_;
+   std::vector<std::vector<cfloat>> spec_; // base-major, grid_.n per base (empty: not made)
+   uint64_t version_ = 0;
 };
 
 } // namespace sim

@@ -63,6 +63,7 @@ struct ScopeMovieInfo
    double halfTimeSec = 0;   // WideField: bleaching half time at pattern peak (inf = never)
    double querySec = 0, totalSec = 0;
    std::string description;   // one line of the settings, for file metadata
+   std::vector<double> driftNm; // sample drift: x, y, z per frame (empty: none)
 };
 
 struct PsfGeneratorRequest;

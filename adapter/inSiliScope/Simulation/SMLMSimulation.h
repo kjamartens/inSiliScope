@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "Drift.h"
 #include "GpuSimD3D11.h"
 #include "SMLMBackground.h"
 #include "SMLMNoise.h"
@@ -68,10 +69,8 @@ struct SimulationParams
    double blinkBleachProb = 1.0;
    double offLifetimeFrames = 20.0;
    double photonCV = 0.0;
-   // Stage-drift speed, nm/sec, along a direction driftAngleRad drawn once
-   // per RandomSeed (see ComputeDriftOffsetPx).
-   double driftNmPerSecX = 0.0;
-   double driftAngleRad = 0.0;
+   // Random-walk sample drift (Drift.h): RMS nm after 1 s, xy and z.
+   DriftSettings drift;
    // Sensor model beyond the scalars above: EMCCD path switch and its
    // parameters -- see CameraNoiseParams in SMLMNoise.h.
    bool emccd = false;
@@ -79,8 +78,7 @@ struct SimulationParams
    double cicElectrons = 0.002;
    int bitDepth = 16;
    // Wall-clock duration of one frame, seconds (derived from the camera's
-   // current Exposure). Needed alongside driftNmPerSecX to convert an
-   // elapsed frame count into an elapsed time for the drift ramp.
+   // current Exposure): the drift's step time, the background fade's clock.
    double frameDurationSec = 0.001;
 
    CameraNoiseParams Camera() const
@@ -116,18 +114,6 @@ struct BlinkEvent
    // EmitterModel::AdvanceOneFrame.
    bool moleculeLive = false;
 };
-
-// Linear stage-drift offset (pixels) at elapsedSec seconds since the drift
-// origin (acquisition start): speed driftNmPerSec along angleRad, starting
-// at (0,0). The angle is drawn once per RandomSeed from its own rng stream
-// (DriftAngleForSeed) -- a random direction like webSMLM's, but still
-// reproducible, and drift still resets to zero by resetting elapsedSec.
-void ComputeDriftOffsetPx(double elapsedSec, double driftNmPerSec, double angleRad, double pixelSizeNm,
-                           double& outDx, double& outDy);
-
-// Uniform [0, 2*pi) drift direction for a RandomSeed, drawn from a dedicated
-// stream (seed ^ "DRIFTDIR") so it never shifts any other stream.
-double DriftAngleForSeed(long seed);
 
 // Optional per-frame inputs to RenderPhotonImage beyond the flat background
 // -- all "off" by default, which keeps the original output byte-identical.

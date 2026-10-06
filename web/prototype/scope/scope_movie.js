@@ -9,6 +9,7 @@ import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, build
 import { bucketEventsByFrame, renderPhotonImage, noiseMaps, applyNoiseChain } from './render.js';
 import { renderWidefieldMovie } from './widefield.js';
 import { renderBrightfieldMovie } from './brightfield.js';
+import { driftOn, driftTrajectory, driftRange, driftWidenZCull } from './drift.js';
 
 // [name, default, help]: ScopeMovieOptions(), same order and defaults.
 export const SCOPE_OPTIONS = [
@@ -23,6 +24,8 @@ export const SCOPE_OPTIONS = [
   ['frames', 1000, 'number of frames'],
   ['exposure-ms', 50, 'frame duration, ms (simulated time per frame)'],
   ['start-sec', 0, 'simulated time of the first frame, s'],
+  ['drift-xy-nm-per-sqrt-sec', 0, 'SimType_DriftXyNmPerSqrtSec: random-walk sample drift, RMS nm per axis after 1 s (x and y each; 0 = none)'],
+  ['drift-z-nm-per-sqrt-sec', 0, 'SimType_DriftZNmPerSqrtSec: random-walk sample drift in z, RMS nm after 1 s (0 = none)'],
   ['pixel-nm', 100, 'pixel size, nm'],
   ['photons-per-sec', 7500, 'FluoParam_PhotonsPerSecond'],
   ['on-sec', 0.05, 'FluoParam_OnLifetimeSec'],
@@ -166,8 +169,25 @@ export function scopeSetup(P, spec) {
     zRefUm: O('focus-um'), zCullCentreUm: O('focus-um') + O('z'), zHalfRangeUm: Math.max(0.0, O('z-range-um')) / 2,
     frameSec: expSec, tSec: t0Sec, spanSec: N * expSec, frameIndex: 0,
   };
-  return { O, seed, W, H, N, expSec, t0Sec, p, cam, worldSeed, worldParams, kin, q };
+  // Sample drift: per-frame displacement (nm, 0 at frame 0) and its range.
+  const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')) };
+  const isDrift = driftOn(driftSettings);
+  const drift = isDrift ? driftTrajectory(seed, N, expSec, driftSettings) : [];
+  const driftBounds = isDrift ? driftRange(drift) : null;
+  return { O, seed, W, H, N, expSec, t0Sec, p, cam, worldSeed, worldParams, kin, q, driftSettings, driftOn: isDrift, drift, driftBounds };
 }
+
+// DriftedQuery: the SR event query of a drifting movie (the dyes a frame can show sit the drift further back).
+export function driftedQuery(S) {
+  if (!S.driftOn) return S.q;
+  const b = S.driftBounds, q = { ...S.q };
+  q.x0Um -= b.xHi / 1000.0; q.x1Um -= b.xLo / 1000.0;
+  q.y0Um -= b.yHi / 1000.0; q.y1Um -= b.yLo / 1000.0;
+  if (q.zHalfRangeUm > 0.0) [q.zCullCentreUm, q.zHalfRangeUm] = driftWidenZCull(b, q.zCullCentreUm, q.zHalfRangeUm);
+  return q;
+}
+// info.driftNm: x, y, z per frame (empty without drift).
+export const driftInfo = S => S.drift.flatMap(d => [d.x, d.y, d.z]);
 
 // The PSF request of a spec (ScopePsfRequest), or null for the Gaussian.
 export function scopePsfRequest(spec) {
@@ -254,17 +274,23 @@ export function renderScopeMovie(P, specIn, onFrame, opts = {}) {
   const kernel = scopeKernel(spec, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)));
   const tPsf = performance.now();
   const world = scopeWorld(P, S);
-  const events = cellFieldEvents(world, S.q);
+  const events = cellFieldEvents(world, driftedQuery(S));
   if (opts.onEvents) opts.onEvents(events, S);
   const querySec = (performance.now() - t0) / 1000;
   const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
   const buckets = bucketEventsByFrame(events, S.N);
   const zStage = S.O('z');
   for (let f = 0; f < S.N; f++) {
-    const photons = renderPhotonImage(S.W, S.H, buckets[f].map(i => events[i]), f, S.p, kernel, zStage);
+    // Drift: the sample moved by d (camera px), the focal plane sits dz lower in it.
+    let dx = 0.0, dy = 0.0, zf = zStage;
+    if (S.driftOn) {
+      const d = S.drift[f];
+      dx = d.x / S.p.pixelSizeNm; dy = d.y / S.p.pixelSizeNm; zf = zStage - d.z / 1000.0;
+    }
+    const photons = renderPhotonImage(S.W, S.H, buckets[f].map(i => events[i]), f, S.p, kernel, zf, dx, dy);
     if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);
   }
   return { width: S.W, height: S.H, frames: S.N, blinks: events.length, psfSec: (tPsf - t0) / 1000, querySec,
-    totalSec: (performance.now() - t0) / 1000, psf: kernel ? 'GibsonLanniZernike' : 'Gaussian' };
+    totalSec: (performance.now() - t0) / 1000, psf: kernel ? 'GibsonLanniZernike' : 'Gaussian', driftNm: driftInfo(S) };
 }

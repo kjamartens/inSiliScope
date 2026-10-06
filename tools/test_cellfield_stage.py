@@ -12,7 +12,8 @@ and the BrightField modality (lamp flux, defocus contrast, live = precomputed,
 z sequence).
 
 Standalone (the Linux test build works too: tools/build_adapter_linux.sh):
-    ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py
+    ADAPTER_DIR=<dir with the adapter> python tools/test_cellfield_stage.py [--only drift,wfzseq]
+Each printed line starts with the seconds since the previous one.
 tools/test_insiliscope.py also runs these checks at its end (run_checks).
 Uses PSFParam_PsfModel=Gaussian, so no JVM is needed.
 """
@@ -63,7 +64,112 @@ def _shift(a, b):
     return (dy - h if dy > h // 2 else dy), (dx - w if dx > w // 2 else dx), c.max()
 
 
-def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
+def _ls_shift(a, b, r=24):
+    """Integer (dy, dx) with b[y, x] ~= a[y - dy, x - dx]: the least mean squared difference over the overlap. Unlike
+    the circular cross-correlation (_shift) it also finds the shift of smooth, featureless images."""
+    h, w = a.shape
+    best = None
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            pa = a[max(0, -dy):h - max(0, dy), max(0, -dx):w - max(0, dx)]
+            pb = b[max(0, dy):h - max(0, -dy), max(0, dx):w - max(0, -dx)]
+            e = float(np.mean((pa - pb) ** 2))
+            if best is None or e < best[0]:
+                best = (e, dy, dx)
+    return best[1], best[2], best[0]
+
+
+def _drift_nm(seed, frames, frame_sec, sxy, sz):
+    """Simulation/Drift.cpp in Python: the sample drift (x, y, z nm) of each frame."""
+    m = 0xFFFFFFFF
+
+    def pcg4d(a, b, c, d):
+        a, b, c, d = [(v * 1664525 + 1013904223) & m for v in (a, b, c, d)]
+        a = (a + b * d) & m; b = (b + c * a) & m; c = (c + a * b) & m; d = (d + b * c) & m
+        a ^= a >> 16; b ^= b >> 16; c ^= c >> 16; d ^= d >> 16
+        a = (a + b * d) & m; b = (b + c * a) & m; c = (c + a * b) & m; d = (d + b * c) & m
+        return [a, b, c, d]
+
+    s32 = (seed ^ 0x44524654) & m
+    out, x, y, zz = [(0.0, 0.0, 0.0)], 0.0, 0.0, 0.0
+    for f in range(1, frames):
+        u = [((w >> 9) + 0.5) * 1.1920928955078125e-7 for w in pcg4d(s32, f, 0, 0) + pcg4d(s32, f, 0, 1)]
+        g = [np.sqrt(-2.0 * np.log(u[2 * k])) * np.cos(6.283185307179586 * u[2 * k + 1]) for k in range(3)]
+        r = np.sqrt(frame_sec)
+        x += sxy * r * g[0]; y += sxy * r * g[1]; zz += sz * r * g[2]
+        out.append((x, y, zz))
+    return out
+
+
+def _drift_checks(core, cam, xy, x0, y0):
+    """Random-walk sample drift (SimType_DriftXyNmPerSqrtSec / ZNmPerSqrtSec): the properties, the linear
+    SimType_DriftNmPerSec gone; in each modality a precomputed stack's late frame is the drift-free one moved by the
+    seed's drift path (the same path as the cli's), and a regenerated stack is identical. 3 x 3 stacks, 50 snaps
+    each (~10 s per stack)."""
+    assert not core.hasProperty(cam, "SimType_DriftNmPerSec"), "SimType_DriftNmPerSec should be gone"
+    for p in ("SimType_DriftXyNmPerSqrtSec", "SimType_DriftZNmPerSqrtSec"):
+        assert core.hasProperty(cam, p) and float(core.getProperty(cam, p)) == 0.0, f"{p} missing or not 0"
+    core.setXYPosition(xy, x0, y0)  # the field with structure
+    _wait_idle(core, xy)
+    core.setProperty(cam, "General_AcqMode", "Precomputed")
+    core.setExposure(50.0)
+    seed = int(core.getProperty(cam, "SimType_RandomSeed"))
+    px = float(core.getProperty(cam, "General_PixelSizeNm"))
+    # A snap of a precomputed stack takes the exposure, so a large drift is reached early: 1000 nm/sqrt(s) (the
+    # property's maximum) puts frame 49 (2.45 s) ~1.6 um (~16 px rms) from frame 0 after 50 snaps.
+    sxy, sz = 1000.0, 30.0
+    path = _drift_nm(seed, 50, 0.05, sxy, sz)
+    k = 49
+    expect = (round(path[k][1] / px), round(path[k][0] / px))
+
+    def frame():
+        core.setProperty(cam, "General_GenerateStack", "1")
+        _wait_for_stack(core, cam)
+        imgs = []
+        for _ in range(k + 1):
+            core.snapImage()
+            imgs.append(core.getImage().astype(np.float64))
+        return imgs[k]
+
+    for modality in ("SuperRes", "WideField", "BrightField"):
+        core.setProperty(cam, "General_ImagingModality", modality)
+        if modality == "BrightField":
+            # Single frames: unstained cells (~0.5% contrast) sit below the shot noise, so the cells absorb here
+            # (and no static pixel pattern pulls the correlation to zero shift); 16000 photons/px, no saturation.
+            core.setProperty(cam, "General_BrightFieldQuality", "1")
+            core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "320000")
+            core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0.3")
+            core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0")
+        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", "0")
+        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", "0")
+        still = frame()
+        core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", str(sxy))
+        core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", str(sz))
+        moved = frame()
+        again = frame()
+        assert np.array_equal(moved, again), f"{modality}: a regenerated drifting stack differs"
+        dy, dx, c = _ls_shift(still, moved)
+        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1, \
+            f"{modality}: frame {k} moved by ({dy}, {dx}) px, the drift path says {expect} (rms {c ** 0.5:.1f} ADU; still mean "             f"{still.mean():.0f} std {still.std():.0f}, moved mean {moved.mean():.0f} std {moved.std():.0f}, "             f"identical {np.array_equal(still, moved)})"
+        print(f"Drift OK ({modality}): frame {k} moved by ({dy}, {dx}) px (path {expect}, rms {c ** 0.5:.1f} ADU left), reproducible")
+    core.setProperty(cam, "SimType_DriftXyNmPerSqrtSec", "0")
+    core.setProperty(cam, "SimType_DriftZNmPerSqrtSec", "0")
+    core.setProperty(cam, "SimType_CellFieldAbsorptionPerUm", "0")
+    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
+    core.setProperty(cam, "General_BrightFieldQuality", "3")
+    core.setProperty(cam, "General_ImagingModality", "SuperRes")
+    core.setExposure(20.0)
+    core.setProperty(cam, "General_AcqMode", "Live")
+
+
+SECTIONS = ("props", "xy", "live", "precomputed", "zrange", "zsign", "bleach", "widefield", "wfzseq", "brightfield",
+            "bfzseq", "drift")
+
+
+def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ", only=None):
+    """Every section, or only those named in `only` (the setup and the search for a FOV with
+    structure always run; each section sets up what it needs from there)."""
+    want = lambda name: only is None or name in only
     core.loadDevice(cam, "inSiliScope", "Camera")
     core.setProperty(cam, "SimType_RandomSeed", "7")
     core.initializeDevice(cam)
@@ -76,56 +182,61 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
         print("ZStage starts at 0.5 um")
     core.setCameraDevice(cam)
     core.setXYStageDevice(xy)
+    # 300-frame stacks (the most any check reads; the default is 1000): a stack costs its length.
+    core.setProperty(cam, "General_StackLength", "300")
     core.setPosition(z, 1.5)  # focal plane 1.5 um above the coverslip (was the old default view)
 
-    # ---- property surface -------------------------------------------------
-    for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
-              "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
-              "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldLabelingPctBleaching",
-              "SimType_CellFieldFocusHeightUm", "SimType_CellFieldMilliActivationRatePerDyePerSec", "SimType_CellFieldZRangeUm",
-              "SimType_CellFieldLabelingPctNonBleaching"):
-        assert core.hasProperty(cam, p), f"missing camera property {p}"
-    # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
-    for p, v in (("SimType_CellFieldNucBaseMinUm", 0.4), ("SimType_CellFieldNucBaseMaxUm", 0.9),
-                 ("SimType_CellFieldNucIrregMin", 0.03), ("SimType_CellFieldNucIrregMax", 0.2),
-                 ("SimType_CellFieldNucBendMin", 0.0), ("SimType_CellFieldNucBendMax", 0.3),
-                 ("SimType_CellFieldNucSmooth", 2.5), ("SimType_CellFieldNucThickIrreg", 0.1),
-                 ("SimType_CellFieldNucAsym", 0.5), ("SimType_CellFieldNucWidestMin", 0.2),
-                 ("SimType_CellFieldNucWidestMax", 0.4), ("SimType_CellFieldMicrotubuleStartDecayPct", 1.6),
-                 ("SimType_CellFieldMicrotubuleEndDecayPct", 20.0), ("SimType_CellFieldMicrotubuleDirKappa", 1.5)):
-        assert core.hasProperty(cam, p), f"missing camera property {p}"
-        got = float(core.getProperty(cam, p))
-        assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
-    for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
-        assert core.hasProperty(xy, p), f"missing XY stage property {p}"
-    assert "CellField" in core.getAllowedPropertyValues(cam, "SimType_Pattern")
-    defaults = {p: float(core.getProperty(cam, "SimType_CellField" + p)) for p in
-                ("LabelingPctBleaching", "LabelingPctNonBleaching", "MilliActivationRatePerDyePerSec")}
-    assert defaults == {"LabelingPctBleaching": 0.0, "LabelingPctNonBleaching": 70.0,
-                        "MilliActivationRatePerDyePerSec": 1.43}, f"CellField labelling defaults {defaults}"
-    print("CellField/XY stage properties present (defaults: 70% non-bleaching, 1.43e-3/s)")
+    if want("props"):
+        # ---- property surface -------------------------------------------------
+        for p in ("SimType_CellFieldChunkSizeUm", "SimType_CellFieldOccupancy", "SimType_CellFieldPacking",
+                  "SimType_CellFieldCellDiameterMinUm", "SimType_CellFieldCellDiameterMaxUm",
+                  "SimType_CellFieldMicrotubuleDensityPerUm2", "SimType_CellFieldLabelingPctBleaching",
+                  "SimType_CellFieldFocusHeightUm", "SimType_CellFieldMilliActivationRatePerDyePerSec", "SimType_CellFieldZRangeUm",
+                  "SimType_CellFieldLabelingPctNonBleaching"):
+            assert core.hasProperty(cam, p), f"missing camera property {p}"
+        # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
+        for p, v in (("SimType_CellFieldNucBaseMinUm", 0.4), ("SimType_CellFieldNucBaseMaxUm", 0.9),
+                     ("SimType_CellFieldNucIrregMin", 0.03), ("SimType_CellFieldNucIrregMax", 0.2),
+                     ("SimType_CellFieldNucBendMin", 0.0), ("SimType_CellFieldNucBendMax", 0.3),
+                     ("SimType_CellFieldNucSmooth", 2.5), ("SimType_CellFieldNucThickIrreg", 0.1),
+                     ("SimType_CellFieldNucAsym", 0.5), ("SimType_CellFieldNucWidestMin", 0.2),
+                     ("SimType_CellFieldNucWidestMax", 0.4), ("SimType_CellFieldMicrotubuleStartDecayPct", 1.6),
+                     ("SimType_CellFieldMicrotubuleEndDecayPct", 20.0), ("SimType_CellFieldMicrotubuleDirKappa", 1.5)):
+            assert core.hasProperty(cam, p), f"missing camera property {p}"
+            got = float(core.getProperty(cam, p))
+            assert abs(got - v) < 1e-9, f"{p} default {got}, expected {v}"
+        for p in ("General_StageSpeedUmPerSec", "General_StageSettleMs", "General_StageLimitUm"):
+            assert core.hasProperty(xy, p), f"missing XY stage property {p}"
+        assert "CellField" in core.getAllowedPropertyValues(cam, "SimType_Pattern")
+        defaults = {p: float(core.getProperty(cam, "SimType_CellField" + p)) for p in
+                    ("LabelingPctBleaching", "LabelingPctNonBleaching", "MilliActivationRatePerDyePerSec")}
+        assert defaults == {"LabelingPctBleaching": 0.0, "LabelingPctNonBleaching": 70.0,
+                            "MilliActivationRatePerDyePerSec": 1.43}, f"CellField labelling defaults {defaults}"
+        print("CellField/XY stage properties present (defaults: 70% non-bleaching, 1.43e-3/s)")
+
     # The checks below were tuned on sparse bleaching labelling: 10% bleaching dyes.
     core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
     core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
 
-    # ---- XY stage motion --------------------------------------------------
-    core.setXYPosition(xy, 0.0, 0.0)
-    _wait_idle(core, xy)
-    core.setProperty(xy, "General_StageSpeedUmPerSec", "1000")
-    core.setProperty(xy, "General_StageSettleMs", "20")
-    t0 = time.time()
-    core.setXYPosition(xy, 300.0, 400.0)  # 500 um at 1000 um/s = 0.5 s (+ 20 ms settle)
-    busy_right_after = core.deviceBusy(xy)
-    mid = core.getXYPosition(xy)
-    _wait_idle(core, xy)
-    took = time.time() - t0
-    pos = core.getXYPosition(xy)
-    assert busy_right_after, "XY stage should report Busy right after a move starts"
-    assert 0.45 < took < 1.0, f"500 um at 1000 um/s took {took:.3f} s, expected ~0.52 s"
-    assert abs(pos[0] - 300) < 0.02 and abs(pos[1] - 400) < 0.02, f"arrived at {pos}"
-    assert mid[0] < 300 and mid[1] < 400, f"position mid-move {mid} should be on the way"
-    core.setProperty(xy, "General_StageSpeedUmPerSec", "100000")
-    print(f"XY stage OK: 500 um move took {took:.3f} s at 1000 um/s, Busy during, arrived at {pos}")
+    if want("xy"):
+        # ---- XY stage motion --------------------------------------------------
+        core.setXYPosition(xy, 0.0, 0.0)
+        _wait_idle(core, xy)
+        core.setProperty(xy, "General_StageSpeedUmPerSec", "1000")
+        core.setProperty(xy, "General_StageSettleMs", "20")
+        t0 = time.time()
+        core.setXYPosition(xy, 300.0, 400.0)  # 500 um at 1000 um/s = 0.5 s (+ 20 ms settle)
+        busy_right_after = core.deviceBusy(xy)
+        mid = core.getXYPosition(xy)
+        _wait_idle(core, xy)
+        took = time.time() - t0
+        pos = core.getXYPosition(xy)
+        assert busy_right_after, "XY stage should report Busy right after a move starts"
+        assert 0.45 < took < 1.0, f"500 um at 1000 um/s took {took:.3f} s, expected ~0.52 s"
+        assert abs(pos[0] - 300) < 0.02 and abs(pos[1] - 400) < 0.02, f"arrived at {pos}"
+        assert mid[0] < 300 and mid[1] < 400, f"position mid-move {mid} should be on the way"
+        core.setProperty(xy, "General_StageSpeedUmPerSec", "100000")
+        print(f"XY stage OK: 500 um move took {took:.3f} s at 1000 um/s, Busy during, arrived at {pos}")
 
     # ---- live mode: a feature moves by the stage step ----------------------
     core.setProperty(cam, "SimType_Pattern", "CellField")
@@ -153,32 +264,33 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
                 best = (s, x, y)
     s, x0, y0 = best
     assert s > 5.0, f"no structure found in any test FOV (best std {s:.2f}): CellField renders nothing?"
-    core.setXYPosition(xy, x0, y0)
-    _wait_idle(core, xy)
-    core.snapImage()
-    a = _live_sum(core, 40)
-    step_um = 2.0
-    core.setXYPosition(xy, x0 + step_um, y0)
-    _wait_idle(core, xy)
-    core.snapImage()
-    b = _live_sum(core, 40)
-    dy, dx, peak = _shift(a, b)
-    expect = -round(step_um / px_um)
-    assert (dy, dx) == (0, expect), f"stage +{step_um} um in x: image shift (dy, dx) = ({dy}, {dx}), expected (0, {expect})"
-    print(f"Live CellField OK: stage +{step_um} um in x moved the structure by {dx} px (expected {expect}), "
-          f"correlation peak {peak:.2f}")
+    if want("live"):
+        core.setXYPosition(xy, x0, y0)
+        _wait_idle(core, xy)
+        core.snapImage()
+        a = _live_sum(core, 40)
+        step_um = 2.0
+        core.setXYPosition(xy, x0 + step_um, y0)
+        _wait_idle(core, xy)
+        core.snapImage()
+        b = _live_sum(core, 40)
+        dy, dx, peak = _shift(a, b)
+        expect = -round(step_um / px_um)
+        assert (dy, dx) == (0, expect), f"stage +{step_um} um in x: image shift (dy, dx) = ({dy}, {dx}), expected (0, {expect})"
+        print(f"Live CellField OK: stage +{step_um} um in x moved the structure by {dx} px (expected {expect}), "
+              f"correlation peak {peak:.2f}")
 
-    # MM's standard mirroring flips the direction.
-    core.setProperty(xy, "TransposeMirrorX", "1")
-    ux, uy = core.getXYPosition(xy)
-    core.setXYPosition(xy, ux + step_um, uy)
-    _wait_idle(core, xy)
-    core.snapImage()
-    c = _live_sum(core, 40)
-    dy2, dx2, _ = _shift(b, c)
-    core.setProperty(xy, "TransposeMirrorX", "0")
-    assert (dy2, dx2) == (0, -expect), f"with TransposeMirrorX=1, +{step_um} um moved the image by ({dy2}, {dx2})"
-    print(f"TransposeMirrorX OK: the same user-coordinate step now moves the image by {dx2} px")
+        # MM's standard mirroring flips the direction.
+        core.setProperty(xy, "TransposeMirrorX", "1")
+        ux, uy = core.getXYPosition(xy)
+        core.setXYPosition(xy, ux + step_um, uy)
+        _wait_idle(core, xy)
+        core.snapImage()
+        c = _live_sum(core, 40)
+        dy2, dx2, _ = _shift(b, c)
+        core.setProperty(xy, "TransposeMirrorX", "0")
+        assert (dy2, dx2) == (0, -expect), f"with TransposeMirrorX=1, +{step_um} um moved the image by ({dy2}, {dx2})"
+        print(f"TransposeMirrorX OK: the same user-coordinate step now moves the image by {dx2} px")
 
     # ---- precomputed: stage 1 mm away and back, identical stack -----------
     core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "10")
@@ -196,25 +308,27 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
             frames.append(core.getImage().copy())
         return frames
 
-    t0 = time.time()
-    first = stack_frames_at(x0, y0)
-    gen_s = time.time() - t0
-    stack_frames_at(x0 + 1000.0, y0)
-    back = stack_frames_at(x0, y0)
-    assert all(np.array_equal(f, g) for f, g in zip(first, back)), \
-        "precomputed CellField stack differs after the stage went 1 mm away and back"
-    assert any(f.std() > 3 for f in first), "precomputed CellField frames look empty"
-    print(f"Precomputed CellField OK: 1000-frame stack in {gen_s:.1f} s, byte-identical after a 1 mm excursion")
+    if want("precomputed"):
+        t0 = time.time()
+        first = stack_frames_at(x0, y0)
+        gen_s = time.time() - t0
+        stack_frames_at(x0 + 1000.0, y0)
+        back = stack_frames_at(x0, y0)
+        assert all(np.array_equal(f, g) for f, g in zip(first, back)), \
+            "precomputed CellField stack differs after the stage went 1 mm away and back"
+        assert any(f.std() > 3 for f in first), "precomputed CellField frames look empty"
+        print(f"Precomputed CellField OK: 300-frame stack in {gen_s:.1f} s, byte-identical after a 1 mm excursion")
 
     # SimType_CellFieldZRangeUm is its own setting: a thin slab renders fewer
     # dyes than the default 7 um one, 0 (no z limit) at least as many.
     def mean_signal(zr):
         core.setProperty(cam, "SimType_CellFieldZRangeUm", str(zr))
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
-    thin, default, unlimited = mean_signal(0.2), mean_signal(7), mean_signal(0)
-    core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
-    assert thin < default <= unlimited + 1e-9, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
-    print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) <= {unlimited:.2f} ADU (no limit)")
+    if want("zrange"):
+        thin, default, unlimited = mean_signal(0.2), mean_signal(7), mean_signal(0)
+        core.setProperty(cam, "SimType_CellFieldZRangeUm", "7")
+        assert thin < default <= unlimited + 1e-9, f"z range 0.2/7/0 um: mean {thin:.3f}/{default:.3f}/{unlimited:.3f} ADU"
+        print(f"CellFieldZRangeUm OK: mean frame {thin:.2f} (0.2 um) < {default:.2f} (7 um) <= {unlimited:.2f} ADU (no limit)")
 
     # ZStage = focal-plane height above the coverslip (+Z focuses up): at
     # +4 um the 7 um slab still holds the cells' dyes, at -4 um (below the
@@ -222,48 +336,58 @@ def run_checks(core, cam="CFCam", xy="CFXY", z="CFZ"):
     def mean_at_z(zpos):
         core.setPosition(z, zpos)
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
-    up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
-    core.setPosition(z, 1.5)
-    assert up > empty + 1.0 and abs(down - empty) < 0.5, \
-        f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+    if want("zsign"):
+        up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
+        core.setPosition(z, 1.5)
+        assert up > empty + 1.0 and abs(down - empty) < 0.5, \
+            f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+        print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
+
     # Bleaching dyes run out, non-bleaching (DNA-PAINT-like) sites do not:
-    # 1000 frames x 20 ms at 0.5 activations/dye/s -- the bleaching-only
-    # signal collapses over the stack, the non-bleaching one stays flat.
+    # 300 frames x 20 ms at 1 activation/dye/s (300 snaps: a snap takes its
+    # exposure) -- the bleaching-only signal collapses, the non-bleaching one
+    # stays flat.
     def early_late(bleach_pct, nonbleach_pct):
         core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", str(bleach_pct))
         core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", str(nonbleach_pct))
-        core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "500")
+        core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "1000")
         core.setXYPosition(xy, x0, y0)
         _wait_idle(core, xy)
         core.setProperty(cam, "General_GenerateStack", "1")
         _wait_for_stack(core, cam)
         sig = []
-        for _ in range(1000):
+        for _ in range(300):
             core.snapImage()
             sig.append(core.getImage().astype(np.float64).mean() - 100.0)
-        return float(np.mean(sig[:100])), float(np.mean(sig[-100:]))
-    b_early, b_late = early_late(10, 0)
-    p_early, p_late = early_late(0, 1)
-    core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
-    core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
-    core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "10")
-    assert b_late < 0.2 * b_early, f"bleaching dyes should run out: {b_early:.2f} -> {b_late:.2f} ADU"
-    assert 0.8 < p_late / p_early < 1.25, f"non-bleaching sites should not: {p_early:.2f} -> {p_late:.2f} ADU"
-    print(f"Bleaching vs non-bleaching OK: signal {b_early:.2f} -> {b_late:.2f} ADU (bleaching), "
-          f"{p_early:.2f} -> {p_late:.2f} ADU (non-bleaching) over 20 s")
+        return float(np.mean(sig[:30])), float(np.mean(sig[-30:]))
+    if want("bleach"):
+        b_early, b_late = early_late(10, 0)
+        p_early, p_late = early_late(0, 1)
+        core.setProperty(cam, "SimType_CellFieldLabelingPctBleaching", "10")
+        core.setProperty(cam, "SimType_CellFieldLabelingPctNonBleaching", "0")
+        core.setProperty(cam, "SimType_CellFieldMilliActivationRatePerDyePerSec", "10")
+        assert b_late < 0.2 * b_early, f"bleaching dyes should run out: {b_early:.2f} -> {b_late:.2f} ADU"
+        assert 0.8 < p_late / p_early < 1.25, f"non-bleaching sites should not: {p_early:.2f} -> {p_late:.2f} ADU"
+        print(f"Bleaching vs non-bleaching OK: signal {b_early:.2f} -> {b_late:.2f} ADU (bleaching), "
+              f"{p_early:.2f} -> {p_late:.2f} ADU (non-bleaching) over 6 s")
 
-    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
-
-    _widefield_checks(core, cam, xy, x0, y0)
-    _zsequence_checks(core, cam, z, "WideField")
-    _brightfield_checks(core, cam, z)
+    if want("widefield"):
+        _widefield_checks(core, cam, xy, x0, y0)
+    if want("wfzseq"):
+        _zsequence_checks(core, cam, z, "WideField")
+    if want("brightfield"):
+        _brightfield_checks(core, cam, z)
     # BrightField: foci through and around the cells (above them the
     # defocused images differ too little to tell apart in noise).
     # A bright lamp (16000 photons/px per 20 ms frame, below 16-bit
     # saturation): at the default 800 the single frames are shot-noise
     # limited (~3.5% against ~1-2% cell contrast) and close foci swap.
-    core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
-    _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
+    if want("bfzseq"):
+        core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "800000")
+        core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0")
+        _zsequence_checks(core, cam, z, "BrightField", (-4.0, -1.5, 1.0, 3.5))
+    if want("drift"):
+        _drift_checks(core, cam, xy, x0, y0)
     core.setProperty(cam, "General_BrightFieldPhotonsPerPxPerSec", "80000")
     core.setProperty(cam, "General_BrightFieldQuality", "3")
     core.setProperty(cam, "CamParam_GainStdPctPerPixel", "0.5")
@@ -312,9 +436,10 @@ def _widefield_checks(core, cam, xy, x0, y0):
     core.setXYPosition(xy, x0, y0)
     _wait_idle(core, xy)
 
-    # The bleaching law at 4x the default flux (t1/2 30 s): 30 s of stack
-    # then shows a clear decay, with signal well above the noise.
-    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e9")
+    # The bleaching law at 40x the default flux (t1/2 3 s): 3 s of stack (60
+    # snaps; a snap takes its exposure) shows a clear decay, the signal well
+    # above the noise.
+    core.setProperty(cam, "FluoParam_WideFieldExcitationPhotonsPerUm2PerSec", "1.6e10")
     t_half = _wf_half_time_s(core, cam)
 
     def stack_signal(bleach_pct, nonbleach_pct):
@@ -323,21 +448,21 @@ def _widefield_checks(core, cam, xy, x0, y0):
         core.setProperty(cam, "General_GenerateStack", "1")
         _wait_for_stack(core, cam)
         sig = []
-        for _ in range(1000):
+        for _ in range(100):
             core.snapImage()
             sig.append(core.getImage().astype(np.float64).mean() - offset)
         return np.array(sig)
 
     b = stack_signal(20, 0)
     assert "WideField" in core.getProperty(cam, "General_GpuStatus"), core.getProperty(cam, "General_GpuStatus")
-    ratio = b[590:610].mean() / b[0:20].mean()
-    expect = 2.0 ** (-(600 * 0.05) / t_half)
+    ratio = b[50:70].mean() / b[0:20].mean()
+    expect = 2.0 ** (-(50 * 0.05) / t_half)
     assert b[0:20].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
-        f"WideField bleaching: frames 590-609 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
+        f"WideField bleaching: frames 50-69 / 0-19 = {ratio:.3f}, expected {expect:.3f} (signal {b[0:20].mean():.2f} ADU)"
     p = stack_signal(0, 70)
-    pr = p[-100:].mean() / p[:100].mean()
-    assert p[:100].mean() > 5 and abs(pr - 1) < 0.02, f"WideField non-bleaching should stay flat: ratio {pr:.3f}"
-    print(f"WideField stack OK: 20% bleaching labelling decays to {ratio:.3f} at {600 * 0.05:.0f} s "
+    pr = p[-20:].mean() / p[:20].mean()
+    assert p[:20].mean() > 5 and abs(pr - 1) < 0.02, f"WideField non-bleaching should stay flat: ratio {pr:.3f}"
+    print(f"WideField stack OK: 20% bleaching labelling decays to {ratio:.3f} at {50 * 0.05:.1f} s "
           f"(expected {expect:.3f}, t1/2 {t_half:.1f} s); 70% non-bleaching flat ({pr:.3f})")
 
     # Live: a world-anchored bleach map. Bright excitation (t1/2 ~ 0.3 s),
@@ -500,12 +625,31 @@ def _zsequence_checks(core, cam, z, modality, positions=(0.5, 1.25, 2.0, 2.75)):
 
 
 if __name__ == "__main__":
+    import argparse
+    import builtins
+
     from pymmcore_plus import CMMCorePlus
+
+    ap = argparse.ArgumentParser(description="CellField / XY stage checks; every section by default.")
+    ap.add_argument("--only", help="comma-separated sections: " + ",".join(SECTIONS))
+    args = ap.parse_args()
+    only = set(args.only.split(",")) if args.only else None
+    if only and not only <= set(SECTIONS):
+        sys.exit(f"unknown section(s) {sorted(only - set(SECTIONS))}; known: {', '.join(SECTIONS)}")
+    # Every line printed carries the time since the previous one: what each check costs.
+    _t = [time.time(), time.time()]
+    _print = builtins.print
+
+    def _timed(*a, **k):
+        now = time.time()
+        _print(f"[{now - _t[0]:6.1f} s]", *a, **k)
+        _t[0] = now
+    builtins.print = _timed
 
     core = CMMCorePlus()
     dirs = [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR")) if d]
     if not dirs:
         sys.exit("Set ADAPTER_DIR to the directory holding the inSiliScope adapter.")
     core.setDeviceAdapterSearchPaths(dirs)
-    run_checks(core)
-    print("All CellField / XY stage checks passed.")
+    run_checks(core, only=only)
+    print(f"All CellField / XY stage checks passed ({time.time() - _t[1]:.0f} s in total).")

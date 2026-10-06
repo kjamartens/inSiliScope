@@ -9,6 +9,7 @@
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
 import { scopeKernel, scopeWorld } from './scope_movie.js';
 import { noiseMaps, applyNoiseChain } from './render.js';
+import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 
 const AVOGADRO = 6.02214076e23;
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
@@ -134,7 +135,7 @@ export function fft1(re, im, off, stride, n, sign, bufR, bufI) {
   fftRec(p, bufR, bufI, 0, 1, n, p.sr, p.si, 0, 0, 1, sign);
   for (let j = 0; j < n; j++) { re[off + j * stride] = p.sr[j]; im[off + j * stride] = p.si[j]; }
 }
-function fft2(re, im, nx, ny, sign) {
+export function fft2(re, im, nx, ny, sign) {
   const bR = new Float64Array(Math.max(nx, ny)), bI = new Float64Array(bR.length);
   for (let y = 0; y < ny; y++) fft1(re, im, y * nx, 1, nx, sign, bR, bI);
   for (let x = 0; x < nx; x++) fft1(re, im, x, nx, ny, sign, bR, bI);
@@ -214,8 +215,34 @@ function dyePlanes(world, g) {
   return { planes, nBleaching: nB, nPersistent: nP };
 }
 
+// ApplyShiftRamp (Drift.cpp) on a full complex spectrum, inverse, crop the FOV cells: image(j + frac).
+export function shiftedCrop(Sr, Si, nx, ny, fracX, fracY, fovX, fovY, cw, ch) {
+  if (fracX !== 0 || fracY !== 0) {
+    const px = new Float64Array(2 * nx), py = new Float64Array(2 * ny);
+    for (let kx = 0; kx < nx; kx++) {
+      const s = kx <= nx / 2 ? kx : kx - nx, a = 2.0 * Math.PI * s * fracX / nx;
+      px[2 * kx] = Math.cos(a); px[2 * kx + 1] = kx === nx / 2 ? 0 : Math.sin(a);
+    }
+    for (let ky = 0; ky < ny; ky++) {
+      const s = ky <= ny / 2 ? ky : ky - ny, a = 2.0 * Math.PI * s * fracY / ny;
+      py[2 * ky] = Math.cos(a); py[2 * ky + 1] = ky === ny / 2 ? 0 : Math.sin(a);
+    }
+    for (let ky = 0; ky < ny; ky++) for (let kx = 0; kx < nx; kx++) {
+      const fr = px[2 * kx] * py[2 * ky] - px[2 * kx + 1] * py[2 * ky + 1], fi = px[2 * kx] * py[2 * ky + 1] + px[2 * kx + 1] * py[2 * ky];
+      const i = ky * nx + kx, r = Sr[i], m = Si[i];
+      Sr[i] = r * fr - m * fi; Si[i] = r * fi + m * fr;
+    }
+  }
+  fft2(Sr, Si, nx, ny, 1);
+  const img = new Float32Array(cw * ch), scale = 1 / (nx * ny);
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img[y * cw + x] = Sr[(fovY + y) * nx + fovX + x] * scale;
+  return img;
+}
+
 // ---- the scene: images of the persistent channel and the bleaching channel (anchor weights) ----
-function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
+// opt.keep: also each channel's full spectrum before the sub-cell shift (spec: {re, im}; a drifting sample);
+// opt.fixed: {R, nx, ny} of the scene (FocusSeries: the scene's FFT at other foci).
+function sceneImages(ws, g, dyes, psf, wp, wbAnchor, opt = {}) {
   const dz = g.zPlaneUm;
   // Kernel radius (SetupFft).
   const cap = Math.max(1, Math.ceil(ws.kernelCapUm / g.pitchUm - 1e-9));
@@ -228,10 +255,10 @@ function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
     pLo = Math.min(a, b); pHi = Math.min(psf.maxPlane, Math.max(a, b) + 1);
   }
   const natural = pLo <= pHi ? psf.radius(pLo, pHi) : psf.radius(0, 0);
-  const R = Math.max(1, Math.min(cap, natural));
+  const R = opt.fixed ? opt.fixed.R : Math.max(1, Math.min(cap, natural));
   const u = Math.max(1, ws.upscale), cw = ws.width * u, ch = ws.height * u;
   const need = (n, fov0, fovN) => fastSize(Math.max(n + 8, fov0 + fovN + R + 6, n + R + 6 - Math.min(fov0, n)), 8);
-  const nx = need(g.nx, g.fovX, cw), ny = need(g.ny, g.fovY, ch);
+  const nx = opt.fixed ? opt.fixed.nx : need(g.nx, g.fovX, cw), ny = opt.fixed ? opt.fixed.ny : need(g.ny, g.fovY, ch);
   // Focus plan: dye plane k -> PSF planes p0 (w0) and p0 + 1 (w1).
   const kLo = snapFloor(g.zMinUm / dz), kHi = -snapFloor(-g.zMaxUm / dz);
   const deps = [];
@@ -286,28 +313,37 @@ function sceneImages(ws, g, dyes, psf, wp, wbAnchor) {
       for (let i = 0; i < Sr.length; i++) { Sr[i] += a[i] * K.re[i] - im[i] * K.im[i]; Si[i] += a[i] * K.im[i] + im[i] * K.re[i]; }
     }
     // Sub-cell shift (Nyquist bins: real factor), inverse, crop.
-    if (g.fracX !== 0 || g.fracY !== 0) {
-      const px = new Float64Array(2 * nx), py = new Float64Array(2 * ny);
-      for (let kx = 0; kx < nx; kx++) {
-        const s = kx <= nx / 2 ? kx : kx - nx, a = 2.0 * Math.PI * s * g.fracX / nx;
-        px[2 * kx] = Math.cos(a); px[2 * kx + 1] = kx === nx / 2 ? 0 : Math.sin(a);
-      }
-      for (let ky = 0; ky < ny; ky++) {
-        const s = ky <= ny / 2 ? ky : ky - ny, a = 2.0 * Math.PI * s * g.fracY / ny;
-        py[2 * ky] = Math.cos(a); py[2 * ky + 1] = ky === ny / 2 ? 0 : Math.sin(a);
-      }
-      for (let ky = 0; ky < ny; ky++) for (let kx = 0; kx < nx; kx++) {
-        const fr = px[2 * kx] * py[2 * ky] - px[2 * kx + 1] * py[2 * ky + 1], fi = px[2 * kx] * py[2 * ky + 1] + px[2 * kx + 1] * py[2 * ky];
-        const i = ky * nx + kx, r = Sr[i], m = Si[i];
-        Sr[i] = r * fr - m * fi; Si[i] = r * fi + m * fr;
-      }
-    }
-    fft2(Sr, Si, nx, ny, 1);
-    const img = new Float32Array(cw * ch), scale = 1 / (nx * ny);
-    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) img[y * cw + x] = Sr[(g.fovY + y) * nx + g.fovX + x] * scale;
-    return img;
+    const spec = opt.keep ? { re: Sr.slice(), im: Si.slice() } : null;
+    const img = shiftedCrop(Sr, Si, nx, ny, g.fracX, g.fracY, g.fovX, g.fovY, cw, ch);
+    return opt.keep ? { img, spec } : img;
   };
-  return { persistent: channel(1, wp), bleach: wbAnchor ? channel(0, wbAnchor) : null, cw, ch, u, R, nx, ny, clamped };
+  const im = { cw, ch, u, R, nx, ny, clamped, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY };
+  const P = channel(1, wp), Bc = wbAnchor ? channel(0, wbAnchor) : null;
+  if (!opt.keep) return { ...im, persistent: P, bleach: Bc };
+  return { ...im, persistent: P && P.img, bleach: Bc && Bc.img, specP: P && P.spec, specB: Bc && Bc.spec };
+}
+
+// RenderShiftedImages: the frame (bleach coefficient a) interpolated between two foci' images (weight w of i1)
+// with the sample moved by (dxCells, dyCells): spectra summed, one phase ramp, crop, max(0, .), bin into cam.
+function renderShiftedImages(i0, i1, w, a, dxCells, dyCells, cam) {
+  const { nx, ny } = i0, n = nx * ny, Sr = new Float64Array(n), Si = new Float64Array(n);
+  let any = false;
+  const add = (spec, c) => {
+    if (!spec || c === 0) return;
+    any = true;
+    for (let i = 0; i < n; i++) { Sr[i] += c * spec.re[i]; Si[i] += c * spec.im[i]; }
+  };
+  const addImages = (im, wi) => { add(im.specP, wi); if (a) add(im.specB, a * wi); };
+  addImages(i0, i1 ? 1.0 - w : 1.0);
+  if (i1 && w !== 0) addImages(i1, w);
+  if (!any) return;
+  const img = shiftedCrop(Sr, Si, nx, ny, i0.fracX - dxCells, i0.fracY - dyCells, i0.fovX, i0.fovY, i0.cw, i0.ch);
+  const { cw, u } = i0, W = cw / u, H = i0.ch / u;
+  for (let Y = 0; Y < H; ++Y) for (let X = 0; X < W; ++X) {
+    let acc = 0.0;
+    for (let sy = 0; sy < u; ++sy) for (let sx = 0; sx < u; ++sx) acc += Math.max(0, img[(Y * u + sy) * cw + X * u + sx]);
+    cam[Y * W + X] += acc;
+  }
 }
 
 // WidefieldImages::Render: cam += bin(max(0, P + a B)).
@@ -341,7 +377,11 @@ export function renderWidefieldMovie(P, spec, S, onFrame, opts = {}) {
       extinctionCoeff: Math.max(0, O('wf-extinction-coeff')) },
     eta: collectionEfficiency(O('na'), O('immersion-index')), exposureSec: S.p.frameDurationSec,
   };
-  const sq = { w: S.W * um, h: S.H * um };
+  // A drifting sample: its frames are its images shifted, so the square lights the FOV grown by the xy drift
+  // (plus a pixel) and the grid holds the dyes the drift brings within the kernel's reach.
+  const driftMarginUm = S.driftOn ? (Math.ceil(driftMaxXyNm(S.driftBounds) / S.p.pixelSizeNm) + 1.0) * um : 0.0;
+  ws.marginUm += driftMarginUm;
+  const sq = { w: S.W * um + 2.0 * driftMarginUm, h: S.H * um + 2.0 * driftMarginUm };
   const kernel = scopeKernel(spec, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)));
   let psf;
   if (kernel) { ws.upscale = validUpscale(kernel.oversampling, ws.upscale); psf = kernelPsf(kernel, ws.upscale); }
@@ -369,7 +409,20 @@ export function renderWidefieldMovie(P, spec, S, onFrame, opts = {}) {
   };
   const framesBefore0 = Math.max(0.0, O('start-sec')) / S.expSec;
   const wb0 = freshWeights(framesBefore0);
-  const images = sceneImages(ws, g, dyes, psf, wp, dyes.nBleaching ? wb0 : null);
+  const images = sceneImages(ws, g, dyes, psf, wp, dyes.nBleaching ? wb0 : null, { keep: S.driftOn });
+  // Drift: the images on the focus grid (FocusSeries: the scene's FFT, the slab moved with the focus).
+  let grid = null, series = null;
+  if (S.driftOn) {
+    grid = driftFocusGrid(S.driftBounds);
+    series = [];
+    for (let k = 0; k < grid.n; k++) {
+      const f = ws.focusWorldUm - driftGridDzNm(grid, k) / 1000.0, shift = f - ws.focusWorldUm;
+      const wsk = { ...ws, focusWorldUm: f, slabCentreUm: ws.slabCentreUm + shift };
+      const gk = ws.slabHalfUm > 0.0 ? { ...g, zMinUm: g.zMinUm + shift, zMaxUm: g.zMaxUm + shift } : g;
+      series.push(sceneImages(wsk, gk, dyes, psf, wp, dyes.nBleaching ? wb0 : null,
+        { keep: true, fixed: { R: images.R, nx: images.nx, ny: images.ny } }));
+    }
+  }
   // One-group basis coefficient: wb[iMax] / phi[iMax] (BleachCoefficients).
   let iMax = 0;
   for (let i = 1; i < n2; i++) if (Math.abs(wb0[i]) > Math.abs(wb0[iMax])) iMax = i;
@@ -380,13 +433,18 @@ export function renderWidefieldMovie(P, spec, S, onFrame, opts = {}) {
     // Only the anchor column's weight is used: freshWeights' value there (a float32).
     const wbMax = Math.fround(bleachingPhotons(ws.eta, B, (framesBefore0 + f) * dD[iMax], dD[iMax]));
     const a = wb0[iMax] !== 0 ? wbMax / wb0[iMax] : 0.0;
-    renderImages(images, a, cam);
+    if (S.driftOn) {
+      const d = S.drift[f], [k, w] = driftGridWeights(grid, d.z), pitchNm = g.pitchUm * 1000.0;
+      const i1 = w !== 0 && k + 1 < grid.n ? series[k + 1] : null;
+      renderShiftedImages(series[k], i1, i1 ? w : 0.0, dyes.nBleaching ? a : 0, d.x / pitchNm, d.y / pitchNm, cam);
+    } else renderImages(images, a, cam);
     if (onFrame(f, applyNoiseChain(cam, S.cam, maps, f), cam) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);
   }
   return { width: S.W, height: S.H, frames: S.N, dyes: dyes.nBleaching + dyes.nPersistent, bleachingDyes: dyes.nBleaching,
     halfTimeSec: phot.halfTimeSec(ws.phot, 1.0), clamped: images.clamped, fft: [images.nx, images.ny], kernelRadius: images.R,
     totalSec: (performance.now() - t0) / 1000, psf: kernel ? 'GibsonLanniZernike' : 'Gaussian',
+    driftNm: S.drift.flatMap(d => [d.x, d.y, d.z]),
     grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY },
     images: opts.keepImages ? images : undefined };
 }

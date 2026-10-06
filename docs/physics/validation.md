@@ -24,6 +24,8 @@ What is checked, against what, and where.
 - The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 um elsewhere).
 - Brightfield: only cytoplasm, nucleus and microtubules make contrast (no nucleoli, vesicles, lipid droplets...: not
   simulated yet, kept out on purpose); scalar forward multislice, monochromatic, flat Koehler field; CellField only.
-- Widefield: the Gaussian PSF (`psf-model=0`, not the default) ignores defocus; no drift; CellField only.
+- Widefield: the Gaussian PSF (`psf-model=0`, not the default) ignores defocus; CellField only.
+- Drift: the z drift of widefield and brightfield frames is interpolated between foci 10 nm apart; the background map
+  does not move with the sample.
 - Not yet verified by eye in every Micro-Manager configuration (headless pymmcore tests cover every property and the render path).
 - Debug-only dye geometry in the JS prototype uses a sequential stream; the C++ hashing is normative and only the *statistics* match.

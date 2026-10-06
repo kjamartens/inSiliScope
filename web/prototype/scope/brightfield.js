@@ -13,7 +13,8 @@
 import { scopePsfRequest, scopeWorld } from './scope_movie.js';
 import { noiseMaps, applyNoiseChain } from './render.js';
 import { roundZernike, zernikeWavefrontWaves, NUM_ZERNIKE } from './psf.js';
-import { fft1, fastSize } from './widefield.js';
+import { fft1, fft2, fastSize, shiftedCrop } from './widefield.js';
+import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 
 const f32 = Math.fround;
 const kPi = 3.14159265358979323846;
@@ -73,6 +74,9 @@ export function scopeBrightfieldSpec(spec, S) {
     nMicrotubule: O('bf-n-microtubule'), absorptionPerUm: Math.max(0.0, O('bf-absorption-per-um')),
     zernike: new Array(NUM_ZERNIKE).fill(0),
   };
+  // A drifting sample: the frames are the grid's image shifted, so the margin grows by the xy drift (plus a pixel).
+  if (S.driftOn)
+    bs.marginUm = resolved(bs).marginUm + (Math.ceil(driftMaxXyNm(S.driftBounds) / S.p.pixelSizeNm) + 1.0) * S.p.pixelSizeNm / 1000.0;
   if (O('bf-aberrations') !== 0) {
     const req = scopePsfRequest(spec); // null for the Gaussian: no aberrations
     if (req) bs.zernike = req.zernike.map(roundZernike); // the C++ passes them through their 6-digit text
@@ -261,6 +265,56 @@ export class BrightfieldScene {
     return [uR, uI];
   }
 
+  // Defocus to the focal plane x the pupil (zero where evanescent).
+  defocus(focusUm) {
+    const N = this.nx * this.ny, d = this.objectZ - focusUm;
+    const dR = new Float32Array(N), dI = new Float32Array(N);
+    for (let i = 0; i < N; ++i) {
+      if (!(this.kz[i] >= 0)) continue;
+      const a = f32(this.kz[i] * d), cR = f32(Math.cos(a)), cI = f32(Math.sin(a));
+      const pr = this.pupR[i], pi = this.pupI[i];
+      dR[i] = f32(f32(pr * cR) - f32(pi * cI)); dI[i] = f32(f32(pr * cI) + f32(pi * cR));
+    }
+    return [dR, dI];
+  }
+
+  // FineSpectrum: the transmitted intensity on the whole grid (mean of the sources, source order) as its spectrum
+  // ({re, im}, full complex): periodic and band-limited, so a drifting sample's frame is it shifted.
+  fineSpectrum(focusUm) {
+    const nx = this.nx, ny = this.ny, N = nx * ny, ns = this.src.length;
+    const [dR, dI] = this.defocus(focusUm);
+    const img = new Float32Array(N), scale = f32(1.0 / (f32(nx) * f32(ny)));
+    for (let s = 0; s < ns; ++s) {
+      const [uR, uI] = this.focalField(s, dR, dI);
+      for (let i = 0; i < N; ++i) {
+        const re = f32(uR[i] * scale), im = f32(uI[i] * scale);
+        img[i] = f32(img[i] + f32(f32(re * re) + f32(im * im)));
+      }
+    }
+    const inv = f32(1.0 / ns), re = new Float64Array(N), im = new Float64Array(N);
+    for (let i = 0; i < N; ++i) re[i] = f32(img[i] * inv);
+    fft2(re, im, nx, ny, -1);
+    return { re, im };
+  }
+
+  // Source s's field at the focal plane (inverse transformed, unnormalised).
+  focalField(s, dR, dI) {
+    const nx = this.nx, ny = this.ny, N = nx * ny, sp = this.src[s];
+    let uR, uI;
+    if (this.slices === 1) {
+      [uR, uI] = this.fieldBuffers();
+      const sxs = new Int32Array(nx);
+      for (let x = 0; x < nx; ++x) sxs[x] = (((x - sp.mx) % nx) + nx) % nx;
+      for (let y = 0; y < ny; ++y) {
+        const sy = (((y - sp.my) % ny) + ny) % ny, so = sy * nx, o = y * nx;
+        for (let x = 0; x < nx; ++x) { uR[o + x] = this.thinR[so + sxs[x]]; uI[o + x] = this.thinI[so + sxs[x]]; }
+      }
+    } else [uR, uI] = this.exitField(sp);
+    for (let i = 0; i < N; ++i) cmulInto(uR, uI, i, dR[i], dI[i]);
+    fft2f(uR, uI, nx, ny, +1, this.bR, this.bI);
+    return [uR, uI];
+  }
+
   sourceImage(s, dR, dI, camOut, off) {
     const nx = this.nx, ny = this.ny, N = nx * ny, sp = this.src[s];
     let uR, uI;
@@ -335,16 +389,42 @@ export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
   const bs = scopeBrightfieldSpec(spec, S);
   const scene = brightfieldScene(world, bs);
   const focusUm = S.q.zCullCentreUm;
-  const trans = scene.image(focusUm);
+  // A drifting sample: the fine-grid spectra on the drift's focus grid, a shifted, interpolated image per frame.
+  let grid = null, specs = null;
+  if (S.driftOn) {
+    grid = driftFocusGrid(S.driftBounds);
+    specs = [];
+    for (let k = 0; k < grid.n; k++) specs.push(scene.fineSpectrum(focusUm - driftGridDzNm(grid, k) / 1000.0));
+  }
+  const trans = S.driftOn ? null : scene.image(focusUm);
   const flux = Math.max(0.0, S.O('bf-photons-per-px-per-sec')) * S.expSec;
-  const photons = new Float32Array(trans.length);
-  for (let i = 0; i < trans.length; ++i) photons[i] = trans[i] * flux;
+  const NP = S.W * S.H, photons = new Float32Array(NP);
+  if (trans) for (let i = 0; i < NP; ++i) photons[i] = trans[i] * flux;
   const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
   for (let f = 0; f < S.N; f++) {
+    if (S.driftOn) {
+      // BrightfieldDriftFrames::Image: lerp the two foci's spectra, shift, crop the FOV cells, mean per pixel.
+      const d = S.drift[f], [k, w] = driftGridWeights(grid, d.z), N = scene.nx * scene.ny;
+      const two = w !== 0 && k + 1 < grid.n, c0 = f32(two ? 1.0 - w : 1.0), c1 = f32(w);
+      const Sr = new Float64Array(N), Si = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        Sr[i] = two ? c0 * specs[k].re[i] + c1 * specs[k + 1].re[i] : specs[k].re[i];
+        Si[i] = two ? c0 * specs[k].im[i] + c1 * specs[k + 1].im[i] : specs[k].im[i];
+      }
+      const up = scene.up, m = scene.margin, cw = S.W * up, ch = S.H * up, pitchNm = scene.pitch * 1000.0;
+      const img = shiftedCrop(Sr, Si, scene.nx, scene.ny, -d.x / pitchNm, -d.y / pitchNm, m, m, cw, ch);
+      const norm = 1.0 / (up * up);
+      for (let Y = 0; Y < S.H; ++Y) for (let X = 0; X < S.W; ++X) {
+        let acc = 0.0;
+        for (let sy = 0; sy < up; ++sy) for (let sx = 0; sx < up; ++sx) acc += Math.max(0, img[(Y * up + sy) * cw + X * up + sx]);
+        photons[Y * S.W + X] = f32(acc * norm) * flux;
+      }
+    }
     if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);
   }
   return { width: S.W, height: S.H, frames: S.N, quality: bs.quality, sources: scene.src.length, slices: scene.slices,
     grid: [scene.nx, scene.ny], focusUm, objectZUm: scene.objectZ, setupMs: scene.setupMs, imageMs: scene.imageMs,
-    totalSec: (performance.now() - t0) / 1000, transmission: opts.keepImages ? trans : undefined };
+    totalSec: (performance.now() - t0) / 1000, transmission: opts.keepImages ? trans : undefined,
+    driftNm: S.drift.flatMap(d => [d.x, d.y, d.z]) };
 }

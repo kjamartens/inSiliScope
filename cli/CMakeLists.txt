@@ -9,6 +9,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/ScopeMovie.cpp
   ${ISC_SIM}/BrightfieldRender.cpp
   ${ISC_SIM}/CellFieldSource.cpp
+  ${ISC_SIM}/Drift.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/Illumination.cpp
   ${ISC_SIM}/WidefieldRender.cpp
@@ -111,6 +112,18 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(widefield_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME widefield COMMAND widefield_check)
+
+  add_executable(drift_check drift_check.cpp ${ISC_SIM_SRC})
+  target_include_directories(drift_check PRIVATE ${ISC_SIM})
+  target_link_libraries(drift_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(drift_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(drift_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(drift_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(drift_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME drift COMMAND drift_check)
 
   # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
   add_executable(brightfield_check brightfield_check.cpp ${ISC_SIM_SRC})

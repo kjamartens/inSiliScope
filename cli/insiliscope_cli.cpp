@@ -7,6 +7,8 @@
 //
 //   insiliscope_cli --out movie.tif [--seed 42] [--x 0 --y 0] [--frames 1000] ...
 //   insiliscope_cli --help
+// With drift (--drift-xy-nm-per-sqrt-sec / --drift-z-nm-per-sqrt-sec), the
+// true per-frame drift goes to <out without .tif>.drift.csv.
 #include "ScopeMovie.h"
 
 #include <cstdint>
@@ -134,6 +136,18 @@ int main(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
+   if (!info.driftNm.empty()) {
+      // The true sample drift per frame (ground truth for drift correction).
+      const std::string csv = (out.size() > 4 && out.compare(out.size() - 4, 4, ".tif") == 0 ? out.substr(0, out.size() - 4) : out) +
+                              ".drift.csv";
+      FILE* f = std::fopen(csv.c_str(), "wb");
+      if (!f) { std::fprintf(stderr, "cannot write %s\n", csv.c_str()); return 1; }
+      std::fprintf(f, "frame,dx_nm,dy_nm,dz_nm\n");
+      for (size_t k = 0; k + 2 < info.driftNm.size(); k += 3)
+         std::fprintf(f, "%zu,%.6f,%.6f,%.6f\n", k / 3, info.driftNm[k], info.driftNm[k + 1], info.driftNm[k + 2]);
+      std::fclose(f);
+      std::printf("%s: sample drift per frame\n", csv.c_str());
+   }
    if (sim::ScopeSpecGet(spec, "modality") == 2)
       std::printf("%s: %ld frames %ux%u, BrightField (setup %.2f s), total %.2f s\n", out.c_str(), info.frames,
                   info.width, info.height, info.querySec, info.totalSec);

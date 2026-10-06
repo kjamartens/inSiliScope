@@ -451,6 +451,7 @@ void BrightfieldScene::Finish(bool deferSources)
          EnsureExitFields();
    }
    valid_ = true;
+   ++version_;
 }
 
 void BrightfieldScene::EnsureExitFields()
@@ -508,6 +509,66 @@ void BrightfieldScene::ExitField(const Source& s, std::vector<cfloat>& u, std::v
 void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u,
                                    std::vector<cfloat>& work, float* camOut) const
 {
+   SourceFocalSpectrum(s, defocus, u, work);
+   const unsigned W = spec_.width, H = spec_.height;
+   FftInverse(u.data(), work, margin_, margin_ + H * up_);
+   const float norm = 1.0f / static_cast<float>(up_ * up_);
+   for (unsigned j = 0; j < H; ++j)
+      for (unsigned i = 0; i < W; ++i)
+      {
+         float acc = 0.0f;
+         for (unsigned b = 0; b < up_; ++b)
+            for (unsigned a = 0; a < up_; ++a)
+            {
+               const cfloat v = u[static_cast<size_t>(margin_ + j * up_ + b) * nx_ + margin_ + i * up_ + a];
+               acc += v.real() * v.real() + v.imag() * v.imag();   // std::norm's operations
+            }
+         camOut[static_cast<size_t>(j) * W + i] = acc * norm;
+      }
+}
+
+bool BrightfieldScene::FineSpectrum(double focusUm, std::vector<cfloat>& spec, std::string& err)
+{
+   if (!valid_)
+   {
+      err = "BrightField: scene not set up.";
+      return false;
+   }
+   if (fineFft_.Nx() != nx_ || fineFft_.Ny() != ny_)
+      fineFft_ = RealFft2d(nx_, ny_);
+   const size_t N = static_cast<size_t>(nx_) * ny_;
+   std::vector<cfloat> defocus;
+   Defocus(focusUm, defocus);
+   EnsureExitFields();
+   // Sources in blocks (parallel within a block), summed in source order.
+   const unsigned S = static_cast<unsigned>(src_.size()), B = 8;
+   std::vector<float> slots(N * std::min(B, S)), img(N, 0.0f);
+   for (unsigned s0 = 0; s0 < S; s0 += B)
+   {
+      const unsigned nb = std::min(B, S - s0);
+      ParallelFor(nb, [&](unsigned k) {
+         std::vector<cfloat> u, work;
+         SourceFocalSpectrum(static_cast<int>(s0 + k), defocus, u, work);
+         FftInverse(u.data(), work, 0, ny_);
+         float* o = &slots[k * N];
+         for (size_t i = 0; i < N; ++i)
+            o[i] = u[i].real() * u[i].real() + u[i].imag() * u[i].imag();
+      });
+      for (unsigned k = 0; k < nb; ++k)
+         for (size_t i = 0; i < N; ++i)
+            img[i] += slots[k * N + i];
+   }
+   const float inv = 1.0f / static_cast<float>(S);
+   for (float& v : img)
+      v *= inv;
+   spec.resize(fineFft_.SpecSize());
+   fineFft_.Forward(img.data(), nx_, ny_, nx_, spec.data());
+   return true;
+}
+
+void BrightfieldScene::SourceFocalSpectrum(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u,
+                                           std::vector<cfloat>& work) const
+{
    const size_t N = static_cast<size_t>(nx_) * ny_;
    const Source& sp = src_[s];
    if (slices_ == 1)
@@ -533,21 +594,6 @@ void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, st
       ExitField(sp, u, work);
    // Pupil and defocus to the focal plane (Image), zero outside the band.
    MulInPlace(u.data(), defocus.data(), N);
-   const unsigned W = spec_.width, H = spec_.height;
-   FftInverse(u.data(), work, margin_, margin_ + H * up_);
-   const float norm = 1.0f / static_cast<float>(up_ * up_);
-   for (unsigned j = 0; j < H; ++j)
-      for (unsigned i = 0; i < W; ++i)
-      {
-         float acc = 0.0f;
-         for (unsigned b = 0; b < up_; ++b)
-            for (unsigned a = 0; a < up_; ++a)
-            {
-               const cfloat v = u[static_cast<size_t>(margin_ + j * up_ + b) * nx_ + margin_ + i * up_ + a];
-               acc += v.real() * v.real() + v.imag() * v.imag();   // std::norm's operations
-            }
-         camOut[static_cast<size_t>(j) * W + i] = acc * norm;
-      }
 }
 
 bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::string& err)
@@ -631,6 +677,83 @@ bool BrightfieldScene::SetImageFromSources(double focusUm, const float* slots)
    haveImage_ = true;
    imageFocus_ = focusUm;
    return true;
+}
+
+// ---- Drift ---------------------------------------------------------------------
+
+void BrightfieldDriftFrames::Begin(const DriftBounds& b, const std::vector<double>& baseFocusUm)
+{
+   grid_ = DriftFocusGrid::For(b);
+   base_ = baseFocusUm;
+   spec_.assign(base_.size() * static_cast<size_t>(grid_.n), std::vector<cfloat>());
+   version_ = 0;
+}
+
+bool BrightfieldDriftFrames::Refresh(BrightfieldScene& scene, size_t base, std::string& err)
+{
+   if (version_ != scene.Version())
+   {
+      for (auto& s : spec_)
+         s.clear();
+      version_ = scene.Version();
+   }
+   if (base >= base_.size())
+      return false;
+   // The sample sits dz higher: the focal plane is dz lower in it.
+   for (int k = 0; k < grid_.n; ++k)
+   {
+      std::vector<cfloat>& s = spec_[base * static_cast<size_t>(grid_.n) + static_cast<size_t>(k)];
+      if (s.empty() && !scene.FineSpectrum(base_[base] - grid_.DzNm(k) / 1000.0, s, err))
+         return false;
+   }
+   return true;
+}
+
+bool BrightfieldDriftFrames::Ensure(BrightfieldScene& scene, size_t base, double dzNm, std::string& err)
+{
+   if (version_ != scene.Version())
+   {
+      for (auto& s : spec_)
+         s.clear();
+      version_ = scene.Version();
+   }
+   if (base >= base_.size())
+      return false;
+   int k = 0;
+   double w = 0.0;
+   grid_.Weights(dzNm, k, w);
+   for (int j = k; j <= std::min(k + 1, grid_.n - 1); ++j)
+   {
+      std::vector<cfloat>& s = spec_[base * static_cast<size_t>(grid_.n) + static_cast<size_t>(j)];
+      if (s.empty() && !scene.FineSpectrum(base_[base] - grid_.DzNm(j) / 1000.0, s, err))
+         return false;
+   }
+   return true;
+}
+
+void BrightfieldDriftFrames::Image(const BrightfieldScene& scene, size_t base, const DriftNm& d,
+                                   std::vector<float>& out) const
+{
+   const BrightfieldSpec& sp = scene.Spec();
+   out.assign(static_cast<size_t>(sp.width) * sp.height, 0.0f);
+   if (base >= base_.size())
+      return;
+   int k = 0;
+   double w = 0.0;
+   grid_.Weights(d.z, k, w);
+   const size_t i = base * static_cast<size_t>(grid_.n) + static_cast<size_t>(k);
+   const std::vector<cfloat>& s0 = spec_[i];
+   if (s0.empty())
+      return;
+   std::vector<cfloat> S(s0.size());
+   const bool two = w != 0.0 && k + 1 < grid_.n && spec_[i + 1].size() == s0.size();
+   const float c0 = static_cast<float>(two ? 1.0 - w : 1.0), c1 = static_cast<float>(w);
+   for (size_t j = 0; j < S.size(); ++j)
+      S[j] = two ? c0 * s0[j] + c1 * spec_[i + 1][j] : s0[j];
+   const unsigned up = scene.Upscale(), m = scene.MarginCells();
+   const double pitchNm = scene.PitchUm() * 1000.0;
+   ShiftedCamera(scene.FineFft(), S, -d.x / pitchNm, -d.y / pitchNm, m, m, sp.width * up, sp.height * up, up,
+                 1.0f / static_cast<float>(up * up), out);
 }
 
 } // namespace sim

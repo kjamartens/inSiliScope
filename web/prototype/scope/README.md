@@ -14,6 +14,7 @@ change merges to main. ES modules, no build, Node or browser.
 | `render.js` | `SMLMSimulation.cpp` `RenderPhotonImage`/`BucketEventsByFrame`, `SMLMNoise.cpp` | frame photons, noise maps, `ApplyNoiseChain` (sCMOS, EMCCD) |
 | `widefield.js` | `WidefieldRender.cpp` (CPU path), `Illumination.cpp`, `ScopeMovie.cpp` `WidefieldMovie` | dye planes on world tiles, PSF-plane deposition, FFT convolution, sub-cell shift, bleaching integral |
 | `brightfield.js` | `BrightfieldRender.cpp`, `ScopeMovie.cpp` `ScopeBrightfieldSpec`/`RenderBrightfieldMovie` | refractive-index slices from the optical volume, margin taper, Abbe sources, thin / multislice propagation, detection pupil, defocus, binning |
+| `drift.js` | `Drift.cpp` | random-walk sample drift (trajectory, focus grid); also the webSMLM block's `driftTrajectory` |
 | `scope_movie.js` | `ScopeMovie.cpp` + `CellFieldSource.cpp` | the option table (= `insiliscope_cli` options), setup, `renderScopeMovie` |
 
 Same operations in the same order as the C++ (doubles; `Math.fround` where the C++ stores floats).
@@ -32,5 +33,5 @@ renderScopeMovie(P, 'world-seed=1249 x=68 y=7 size=64 frames=20', (f, adu, photo
 
 Changing the model: edit here, look at it in the lab (A/B against main's C++, which then differs on purpose),
 note it in `PORT_PENDING.md`; the port brings the named C++ file in line until `scope_parity.mjs` passes again.
-Not here: the RichardsWolf/GibsonLanni PSFs (JVM in the adapter), drift, the non-CellField patterns, live
-mode's bleach field.
+Not here: the RichardsWolf/GibsonLanni PSFs (JVM in the adapter), the non-CellField patterns, live mode's bleach
+field and live drift.

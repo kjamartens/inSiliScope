@@ -36,4 +36,38 @@ A background map multiplies an illumination field and fades with time:
 
 ## Drift
 
-A random drift direction per seed (its own RNG stream), speed `SimType_DriftNmPerSec`.
+The sample drifts as a random walk, set separately for xy and z: every frame adds an independent normal step per axis,
+and the steps add up (the "cumulative normal distribution" of Cnossen et al. 2021, used by Ma et al. 2024 at RMS drifts of
+5, 10 and 20 nm/s). The step of a frame of length \(\Delta t\) has variance \(\sigma^2 \Delta t\) per axis, so
+
+\[
+d(0) = 0, \qquad d(f) = d(f-1) + \sigma \sqrt{\Delta t}\; g_f, \qquad \langle d(t)^2 \rangle = \sigma^2 t ,
+\]
+
+and \(\sigma\) is the RMS displacement per axis after 1 s whatever the frame rate (strictly nm/\(\sqrt{\text{s}}\); "nm/s" in
+the papers' wording). x and y each get \(\sigma_{xy}\) (`SimType_DriftXyNmPerSqrtSec`, cli/viewer
+`drift-xy-nm-per-sqrt-sec`), z gets \(\sigma_z\) (`SimType_DriftZNmPerSqrtSec`, `drift-z-nm-per-sqrt-sec`); both default
+to 0. A stable setup (optical table, active isolation, constant temperature) drifts a few nm/s.
+
+- The draws are counter-based per (seed, frame) on a stream of their own, so a precomputed stack, live mode, the cli, the
+  viewer and webSMLM's `CellField.driftTrajectory` follow the same path for one seed, and no other draw moves. The drift
+  starts at zero at each acquisition (the movie's first frame; every Live/MDA start in Micro-Manager) and is constant
+  within a frame (motion during the exposure is ignored).
+- The drift is the sample's displacement in camera axes, +z away from the coverslip: the focal plane sits \(d_z\) lower
+  in the sample.
+- **SuperRes**: every blink is drawn at its position plus the drift, with the focal plane moved by \(-d_z\).
+- **WideField and BrightField**: under uniform illumination the image of a moved sample is the image moved. A frame is
+  the scene's full-grid image spectrum (periodic and band-limited: grid pitch \(\le \lambda/4\mathrm{NA}\) resp.
+  \(\lambda/4n\)) times a phase ramp, cropped and binned, so a sub-pixel drift is exact rather than re-binned. The
+  illuminated square and the dye grid (WideField) or the grid margin (BrightField) grow by the xy drift. The z drift
+  uses images at foci 10 nm apart, linearly interpolated (WideField: 2e-5 rms, BrightField: 2e-4 of the contrast
+  against the exact focus). In Micro-Manager's live mode WideField moves the field of view over the sample instead
+  (exact, camera-fixed illumination) and BrightField shifts the image of a scene anchored within 1 µm.
+- The background map (`Background_CellContrast`, haze) stays fixed to the camera.
+- The cli writes the true drift per frame next to the movie (`<name>.drift.csv`: frame, dx, dy, dz in nm), ground
+  truth for testing drift correction.
+
+References: J. Cnossen, T. J. Cui, C. Joo, C. Smith, "Drift correction in localization microscopy using entropy
+minimization", *Opt. Express* **29**(18), 27961-27974 (2021), doi:10.1364/OE.426620. H. Ma, M. Chen, P. Nguyen, Y. Liu,
+"Toward drift-free high-throughput nanoscopy through adaptive intersection maximization", *Sci. Adv.* **10**(21),
+eadm7765 (2024), doi:10.1126/sciadv.adm7765.

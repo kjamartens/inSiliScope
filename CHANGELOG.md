@@ -4,6 +4,15 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
+  adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM
+  `SimType_DriftXyNmPerSqrtSec` / `SimType_DriftZNmPerSqrtSec`, cli/viewer `drift-xy-nm-per-sqrt-sec` /
+  `drift-z-nm-per-sqrt-sec` (default 0: outputs unchanged), in SuperRes, WideField and BrightField, stacks and live; the
+  cli writes the true drift to `<name>.drift.csv`; the webSMLM block gains `CellField.driftTrajectory`. **Removed**
+  `SimType_DriftNmPerSec` (the linear drift; a saved configuration that sets it must drop it).
+- `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
+  (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
+  use short stacks and run in under 5 minutes (were ~25).
 - **seed** Shaped nuclei (issue 12, 2026-10-05): lobes, a kidney bend, uneven thickness, a wider base and a lowered
   widest point per cell (`nucIrregMin/Max`, `nucBendMin/Max`, `nucSmooth`, `nucThickIrreg`, `nucAsym`,
   `nucWidestMin/Max`); the nucleus sits `nucBaseMin/Max` (0.4-0.9 um) above the coverslip and the dome top follows it

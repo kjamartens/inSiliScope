@@ -36,6 +36,9 @@ Notes:
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
+- **Drift xy** and **Drift z** (Acquisition) make the sample drift as a random walk: the RMS displacement per axis after
+  1 s, in nm (see [Camera and background](physics/camera.md#drift)). A drifting widefield movie renders on the CPU, a
+  drifting brightfield movie on one worker.
 - Brightfield movies run on the CPU, spread over the browser's workers (the condenser source points are shared out;
   the movie's info line says how many workers took part); the **BF quality** slider trades speed for precision (1: thin
   object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second

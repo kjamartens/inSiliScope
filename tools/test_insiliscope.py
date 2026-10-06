@@ -21,6 +21,21 @@ import numpy as np
 from pymmcore_plus import CMMCorePlus
 from pymmcore_plus._util import USER_DATA_DIR
 
+# Every line printed carries the seconds since the previous one: what each check costs.
+import builtins
+
+_t = [time.time(), time.time()]
+_print = builtins.print
+
+
+def _timed(*a, **k):
+    now = time.time()
+    _print(f"[{now - _t[0]:6.1f} s]", *a, **k)
+    _t[0] = now
+
+
+builtins.print = _timed
+
 
 def find_active_mm_dir() -> str:
     """Locate the active pymmcore-plus-managed MicroManager install.
@@ -48,12 +63,13 @@ def load_camera(core: CMMCorePlus, label: str, seed: int, fov: str = "128x128") 
     core.initializeDevice(label)
     core.setCameraDevice(label)
     core.setProperty(label, "General_FovSize", fov)  # regular property, set after init
+    # 200 frames (the most any check reads) instead of the default 1000: a stack costs its length.
+    assert int(core.getProperty(label, "General_StackLength")) == 1000, "General_StackLength default should be 1000"
+    core.setProperty(label, "General_StackLength", "200")
 
 
-# Generous default: the precomputed stack is a fixed 1000 frames now that
-# General_StackLength is gone (see CLAUDE.md), and the default PSF model is
-# the comparatively expensive GibsonLanniZernike -- a single generation is
-# tens of seconds, not the couple of seconds a 50-frame stack used to be.
+# Generous default: the default PSF model is the comparatively expensive
+# GibsonLanniZernike (load_camera keeps stacks at 200 frames).
 def wait_for_stack(core: CMMCorePlus, label: str, timeout_s: float = 600.0) -> None:
     t0 = time.time()
     while True:
@@ -184,7 +200,7 @@ renamed = [
 missing = [n for n in renamed if n not in all_props]
 assert not missing, f"expected renamed properties to exist, missing: {missing}"
 gone = [
-    "General_StackLength", "General_StackLoop", "PSFParam_PsfKernelHalfWidthPx",
+    "General_StackLoop", "PSFParam_PsfKernelHalfWidthPx",
     "CamParam_CameraGainPhotonsPerADU", "CamParam_CameraOffsetADU", "CamParam_CameraOffsetStdADU",
     "CamParam_PixelGainStdPct", "CamParam_PixelReadNoiseStdPct",
     # Removed with the wide-kernel-incorrect Direct evaluator (webSMLM parity round 2):
@@ -247,50 +263,48 @@ assert np.array_equal(nup_img_a, nup_img_b), \
     "expected NUP pattern to be byte-identical across two runs of the same seed"
 print("NUP pattern OK: non-blank, byte-identical across two runs of the same seed")
 
-# --- Labeling efficiency: fewer distinct bright sites at low efficiency --
-# Emitter density is an AREAL rate independent of site count, so arrivals
-# concentrate onto fewer sites rather than dropping in total count --
-# assert on the number of distinct bright pixels (site coverage), not on
-# mean/std intensity, which would not reliably change.
+# --- Labeling efficiency: the same blinks on fewer sites ------------------
+# Emitter density is an AREAL rate independent of site count, so at 10%
+# labelling the same number of blinks lands on a tenth of the sites: the
+# 100-frame sum piles up higher on them (its peak rises). A dense blink rate
+# (10 /um^2/s) makes sites repeat within a short stack. Not coverage: the
+# Shell's labelled sites still cover the same pixels.
 core.setProperty("SMLMCam", "SimType_Pattern", "Shell")
 core.setProperty("SMLMCam", "Background_BackgroundPhotonsPerSec", "0.0")
+core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "10")
 
 
-def summed_bright_area(threshold_frac=0.5):
+def summed_peak(n=100):
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
     wait_for_stack(core, "SMLMCam")
     total = np.zeros((128, 128), dtype=np.float64)
-    for _ in range(50):
+    for _ in range(n):
         core.snapImage()
         total += core.getImage().astype(np.float64)
-    # Every pixel carries a uniform accumulated camera-offset baseline (50
-    # frames x ~100 ADU) that swamps a threshold based on total.max() alone
-    # -- subtract total.min() first so the threshold isolates actual signal
-    # contrast rather than the flat offset floor.
-    signal = total - total.min()
-    peak = signal.max()
-    if peak <= 0.0:
-        return 0
-    return int(np.count_nonzero(signal > threshold_frac * peak))
+    return float(total.max() - np.median(total))
 
 
 core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "100")
-area_full = summed_bright_area()
+peak_full = summed_peak()
 core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "10")
-area_low = summed_bright_area()
+peak_low = summed_peak()
 core.setProperty("SMLMCam", "General_LabelingEfficiencyPct", "70")  # restore default
-assert area_low < area_full, (
-    f"expected LabelingEfficiencyPct=10 to light up fewer distinct sites than =100 "
-    f"(full={area_full}px, low={area_low}px) -- labeling filter may not be reaching the renderer"
+core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.5")  # restore default
+assert peak_low > 1.1 * peak_full, (
+    f"expected LabelingEfficiencyPct=10 to pile the blinks onto fewer sites than =100 "
+    f"(summed peak full={peak_full:.0f}, low={peak_low:.0f} ADU) -- labeling filter may not be reaching the renderer"
 )
-print(f"Labeling efficiency OK: bright-site area dropped {area_full}px -> {area_low}px at 10% labeling")
+print(f"Labeling efficiency OK: summed peak {peak_full:.0f} -> {peak_low:.0f} ADU at 10% labeling (fewer sites)")
 
 # --- Per-emitter z: 3D structure should visibly defocus vs flat ----------
 # Only meaningful with a diffraction PsfModel; GibsonLanni needs the JVM
 # (PSFGenerator jar), so skip gracefully if that path isn't available.
 core.setProperty("SMLMCam", "SimType_Pattern", "Uniform3D")
 core.setProperty("SMLMCam", "PSFParam_PsfModel", "GibsonLanni")
-core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "7")
+# One frame per stack, and a kernel just wide and deep enough (+/-1 um of emitters): the JVM kernel is the cost.
+core.setProperty("SMLMCam", "General_StackLength", "10")
+core.setProperty("SMLMCam", "PSFParam_PsfKernelHalfWidthNm", "2000")
+core.setProperty("SMLMCam", "PSFParam_PsfZRangeUm", "3")
 core.setProperty("SMLMCam", "SimType_StructureZRangeNm", "2000")
 core.setProperty("SMLMCam", "General_GenerateStack", "1")
 wait_for_stack(core, "SMLMCam")
@@ -316,6 +330,8 @@ else:
         f"(flat.std={img_flat.std():.3f}, 3d.std={img_3d.std():.3f}) -- per-emitter z may not be reaching PSF plane selection"
     )
     print(f"Per-emitter z OK: flat.std={img_flat.std():.3f} > 3d.std={img_3d.std():.3f} (defocus reduces peak/std)")
+core.setProperty("SMLMCam", "General_StackLength", "200")
+core.setProperty("SMLMCam", "PSFParam_PsfKernelHalfWidthNm", "7000")
 core.setProperty("SMLMCam", "SimType_StructureZRangeNm", "500")  # restore default
 
 # --- Live responsiveness: a large NUP site-list build must not happen ----
@@ -425,6 +441,7 @@ assert interp_values == INTERP_VALUES, f"unexpected PsfInterp values: {interp_va
 # would take Fft placement far past wait_for_stack's timeout).
 core.setProperty("SMLMCam", "SimType_Pattern", "Circle")
 core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.1")
+core.setProperty("SMLMCam", "General_StackLength", "10")  # one frame is read per mode
 for interp in sorted(INTERP_VALUES):
     core.setProperty("SMLMCam", "PSFParam_PsfInterp", interp)
     core.setProperty("SMLMCam", "General_GenerateStack", "1")
@@ -432,6 +449,7 @@ for interp in sorted(INTERP_VALUES):
     core.snapImage()
     img = core.getImage()
     assert img.std() > 0, f"expected non-blank frame at PsfInterp={interp}"
+core.setProperty("SMLMCam", "General_StackLength", "200")
 print(f"PsfInterp OK: allowed values confirmed, all {len(INTERP_VALUES)} modes produce non-blank frames")
 core.setProperty("SMLMCam", "PSFParam_PsfInterp", "Cubic")  # restore default
 core.setProperty("SMLMCam", "General_EmitterDensityPerSec", "0.5")  # restore default
@@ -580,6 +598,8 @@ else:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_cellfield_stage import run_checks as run_cellfield_checks
 
-run_cellfield_checks(core)
+# --no-cellfield: these checks alone (tools/test_cellfield_stage.py runs the rest on its own, --only to pick).
+if "--no-cellfield" not in sys.argv:
+    run_cellfield_checks(core)
 
-print("All inSiliScope smoke tests passed.")
+print(f"All inSiliScope smoke tests passed ({time.time() - _t[1]:.0f} s in total).")

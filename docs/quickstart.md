@@ -50,6 +50,9 @@ build/native/cli/insiliscope_cli --help          # every option and its default
 build/native/cli/insiliscope_cli --prepare 1 --disk-cache 2   # warm the caches (world, cells, PSF kernel), no movie
 ```
 
+With `--drift-xy-nm-per-sqrt-sec` / `--drift-z-nm-per-sqrt-sec` the sample drifts (a random walk, RMS nm after 1 s) and
+the CLI writes the true drift per frame to `movie.drift.csv`.
+
 The CLI keeps the packed cell positions in the same per-user cache directory as the adapter (`--disk-cache 1`, the
 default); `--disk-cache 2` adds the PSF kernel, `0` writes nothing.
 

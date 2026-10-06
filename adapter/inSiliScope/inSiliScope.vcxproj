@@ -113,6 +113,7 @@
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
     <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="Simulation\Drift.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
@@ -149,6 +150,7 @@
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="Simulation\Drift.h" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />

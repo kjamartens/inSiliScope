@@ -289,21 +289,6 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
    }
 }
 
-void ComputeDriftOffsetPx(double elapsedSec, double driftNmPerSec, double angleRad, double pixelSizeNm,
-                           double& outDx, double& outDy)
-{
-   double driftPx = driftNmPerSec * elapsedSec / pixelSizeNm;
-   outDx = driftPx * std::cos(angleRad);
-   outDy = driftPx * std::sin(angleRad);
-}
-
-double DriftAngleForSeed(long seed)
-{
-   std::mt19937_64 rng(static_cast<uint64_t>(seed) ^ 0x4452494654444952ULL); // "DRIFTDIR"
-   std::uniform_real_distribution<double> unif01(0.0, 1.0);
-   return unif01(rng) * 2.0 * kPi;
-}
-
 void EmitterModel::SetPattern(std::unique_ptr<IPatternGenerator> pattern)
 {
    pattern_ = std::move(pattern);

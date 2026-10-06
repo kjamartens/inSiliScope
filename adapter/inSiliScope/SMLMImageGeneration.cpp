@@ -13,6 +13,7 @@
 
 #include "InSiliScopeCamera.h"
 #include "Simulation/CacheDir.h"
+#include "Simulation/Parallel.h"
 #include "Simulation/SharedStageState.h"
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <thread>
@@ -70,8 +72,8 @@ sim::SimulationParams CInSiliScopeCamera::SnapshotParams() const
    p.readNoiseElectrons = readNoiseElectrons_.load();
    p.pixelGainStdFraction = pixelGainStdPct_.load() / 100.0;
    p.pixelReadNoiseStdFraction = pixelReadNoiseStdPct_.load() / 100.0;
-   p.driftNmPerSecX = driftNmPerSecX_.load();
-   p.driftAngleRad = sim::DriftAngleForSeed(randomSeed_);
+   p.drift.xyNmPerSqrtSec = driftXyNmPerSqrtSec_.load();
+   p.drift.zNmPerSqrtSec = driftZNmPerSqrtSec_.load();
    p.frameDurationSec = expSec;
    p.blinkBleachProb = blinkBleachProb_.load();
    // Same clamp rationale as onLifetimeFrames above (lead-in window size).
@@ -442,18 +444,23 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
                                               double stageYUm, const sim::PsfKernelCache& psfCache,
                                               const sim::StackShapingFields& shaping,
                                               const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
-                                              const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed)
+                                              const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed,
+                                              const std::vector<sim::DriftNm>& drift)
 {
-   if (params.driftNmPerSecX > 0.0)
-      LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
    auto t0 = std::chrono::steady_clock::now();
    std::string err;
    sim::CellFieldSource source;
+   // A drifting sample: frames are its images shifted in the spectrum and
+   // interpolated on a focus grid (WidefieldDriftFrames), on the CPU.
+   const bool drifting = params.drift.On() && drift.size() >= static_cast<size_t>(stackLength);
+   const sim::DriftBounds driftRange = drifting ? sim::DriftRange(drift) : sim::DriftBounds();
+   const double driftMarginUm =
+      drifting ? (std::ceil(driftRange.MaxXyNm() / params.pixelSizeNm) + 1.0) * params.pixelSizeNm / 1000.0 : 0.0;
    // GPU: the focus work (spectra, re-pairing, images) and the frames
    // (dyes, background, noise), the same Direct3D 11 host for both.
    std::unique_ptr<sim::WidefieldGpuD3D11> gpuHolder;
    bool gpuTried = false;
-   sim::WidefieldGpuD3D11* gpu = WideFieldGpu(gpuHolder, gpuTried);
+   sim::WidefieldGpuD3D11* gpu = drifting ? nullptr : WideFieldGpu(gpuHolder, gpuTried);
    // An armed z sequence (a hardware-triggered z stack) gives frame f the
    // position seq[f % n], all made at once (FocusSeries); otherwise the Z
    // stage, read per batch of frames.
@@ -464,11 +471,14 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
    sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
    sim::WidefieldSceneSpec spec = BuildWidefieldSceneSpec(params, q);
    spec.worldVersion = WideFieldWorldVersion(cellField);
+   // Drift: the dyes and the light reach as far as the sample moves.
+   spec.marginUm += driftMarginUm;
    std::unique_ptr<sim::WidefieldPsf> psf = MakeWidefieldPsf(psfCache, spec);
    LogWidefieldPhotophysics(spec);
-   const sim::SquareIllumination ill(w * spec.pixelUm, h * spec.pixelUm);
+   const sim::SquareIllumination ill(w * spec.pixelUm + 2.0 * driftMarginUm, h * spec.pixelUm + 2.0 * driftMarginUm);
    sim::WidefieldScene scene;
    scene.SetTiles(wfTiles_);
+   scene.SetKeepSpectra(drifting);
    if (gpu)
    {
       scene.SetGpuMode(true);
@@ -526,8 +536,15 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
             seqFocus.push_back(CellFieldQueryFor(stageXUm, stageYUm, p, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0)
                                   .zCullCentreUm);
          }
+   // Drift: the focus grid around the Z stage's focus (or every sequence position).
+   sim::WidefieldDriftFrames driftFrames;
+   auto beginDrift = [&]() {
+      if (drifting)
+         driftFrames.Begin(driftRange, useSeq ? seqFocus : std::vector<double>(1, spec.focusWorldUm));
+   };
+   beginDrift();
    auto refreshSeries = [&]() {
-      if (!ok || !useSeq || seriesVersion == scene.ImagesVersion())
+      if (!ok || !useSeq || drifting || seriesVersion == scene.ImagesVersion())
          return;
       std::string e;
       if (!scene.FocusSeries(seqFocus, series, e))
@@ -549,12 +566,14 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
       long f;
       std::vector<double> a;
       const sim::WidefieldImages* img;
+      size_t base = 0; // drift: the focus grid's base focus
    };
    std::vector<Pending> pending;
    auto flushCpu = [&](size_t from) {
       std::atomic<size_t> next{from};
       auto worker = [&]() {
          std::vector<float> img;
+         ++sim::ParallelDepth(); // one frame per thread: no nested pools in the FFTs
          for (size_t i; (i = next.fetch_add(1)) < pending.size();)
          {
             const Pending& p = pending[i];
@@ -562,11 +581,14 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
             sim::RenderPhotonImage(img, w, h, none, p.f, params.pixelSizeNm, params.psfSigmaPx,
                                    params.photonsPerBlink, params.backgroundPhotons, 0.0, 0.0, nullptr, 0.0, nullptr,
                                    nullptr, &extras);
-            if (p.img)
+            if (p.img && drifting)
+               driftFrames.Render(scene, p.base, drift[static_cast<size_t>(p.f)], p.a, img);
+            else if (p.img)
                p.img->Render(p.a, img);
             sim::ApplyNoiseChain(img, stack[static_cast<size_t>(p.f)], w, h, cam, offsetMap, gainMap, readNoiseMap,
                                  noiseSeed, static_cast<uint32_t>(p.f));
          }
+         --sim::ParallelDepth();
       };
       std::vector<std::thread> pool;
       for (unsigned t = 1; t < nThreads; ++t)
@@ -602,6 +624,16 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
          }
          done = end;
       }
+      if (drifting && ok && done < pending.size())
+      {
+         std::string e;
+         if (!driftFrames.Refresh(scene, e))
+         {
+            LogMessage("WideField: " + e, false);
+            for (size_t i = done; i < pending.size(); ++i)
+               pending[i].img = nullptr;
+         }
+      }
       if (done < pending.size())
          flushCpu(done);
       pending.clear();
@@ -622,6 +654,7 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
          if (!ok)
             LogMessage("WideField: " + err, false);
          clampedMax = std::max(clampedMax, ok ? scene.ClampedDyes() : 0L);
+         beginDrift();
       }
       for (long f = f0; f < f1; ++f)
       {
@@ -637,8 +670,14 @@ void CInSiliScopeCamera::RenderWidefieldStack(std::vector<std::vector<uint16_t>>
                p.a = scene.AnchorCoefficients();
             }
             refreshSeries();
-            p.img = useSeq ? &series[seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]]]
-                           : &scene.Images();
+            if (drifting)
+            {
+               p.img = &scene.Images(); // a marker: driftFrames renders it
+               p.base = useSeq ? seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]] : 0;
+            }
+            else
+               p.img = useSeq ? &series[seqIndex[zseq.positions[static_cast<size_t>(f) % zseq.positions.size()]]]
+                              : &scene.Images();
          }
          pending.push_back(std::move(p));
       }
@@ -697,10 +736,13 @@ void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t
                                                 const sim::CellFieldSettings& cellField, double stageXUm,
                                                 double stageYUm, const sim::PixelOffsetMap& offsetMap,
                                                 const sim::PixelGainMap& gainMap,
-                                                const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed)
+                                                const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed,
+                                                const std::vector<sim::DriftNm>& drift)
 {
-   if (params.driftNmPerSecX > 0.0)
-      LogMessage("BrightField: SimType_DriftNmPerSec is not applied in BrightField (yet).", false);
+   // A drifting sample: frames are the grid's image shifted in its spectrum
+   // and interpolated on a focus grid (BrightfieldDriftFrames).
+   const bool drifting = params.drift.On() && drift.size() >= static_cast<size_t>(stackLength);
+   const sim::DriftBounds driftRange = drifting ? sim::DriftRange(drift) : sim::DriftBounds();
    auto t0 = std::chrono::steady_clock::now();
    std::string err;
    sim::CellFieldSource source;
@@ -714,7 +756,10 @@ void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t
    };
    const sim::CellFieldQuery q =
       CellFieldQueryFor(stageXUm, stageYUm, 0.0, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
-   const sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, q, w, h);
+   sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, q, w, h);
+   if (drifting)
+      spec.marginUm = spec.Resolved().marginUm +
+                      (std::ceil(driftRange.MaxXyNm() / params.pixelSizeNm) + 1.0) * params.pixelSizeNm / 1000.0;
    sim::BrightfieldScene scene;
    bool ok = source.Configure(cellField, err) && scene.Update(source, spec, 1, err);
    if (!ok)
@@ -748,22 +793,64 @@ void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t
    const unsigned nThreads = std::max(1u, std::min(std::thread::hardware_concurrency(), 32u));
    const long batch = static_cast<long>(nThreads) * 4;
    const std::vector<float> dark(static_cast<size_t>(w) * h, 0.0f);
+   // Drift: the focus grid around each focus a frame can have.
+   sim::BrightfieldDriftFrames driftFrames;
+   std::map<double, size_t> driftBase;
+   double driftZ = std::numeric_limits<double>::quiet_NaN();
    for (long f0 = 0; f0 < stackLength; f0 += batch)
    {
       const long f1 = std::min(stackLength, f0 + batch);
       std::vector<const std::vector<float>*> src(static_cast<size_t>(f1 - f0));
+      std::vector<size_t> base(static_cast<size_t>(f1 - f0), 0);
+      std::vector<bool> drawn(static_cast<size_t>(f1 - f0), false);
       const double zNow = sim::GetSharedStageState().zPositionUm.load();
+      if (drifting && ok && (useSeq ? driftBase.empty() : zNow != driftZ))
+      {
+         std::vector<double> foci;
+         driftBase.clear();
+         for (double z : useSeq ? zseq.positions : std::vector<double>(1, zNow))
+            if (!driftBase.count(focusOf(z)))
+            {
+               driftBase[focusOf(z)] = foci.size();
+               foci.push_back(focusOf(z));
+            }
+         driftFrames.Begin(driftRange, foci);
+         driftZ = zNow;
+      }
       for (long f = f0; f < f1; ++f)
       {
          const double z = useSeq ? zseq.positions[static_cast<size_t>(f) % zseq.positions.size()] : zNow;
-         const std::vector<float>* img = imageAt(focusOf(z));
+         if (drifting && ok)
+         {
+            const size_t b = driftBase[focusOf(z)];
+            if (driftFrames.Refresh(scene, b, err))
+            {
+               base[static_cast<size_t>(f - f0)] = b;
+               drawn[static_cast<size_t>(f - f0)] = true;
+               src[static_cast<size_t>(f - f0)] = nullptr;
+               continue;
+            }
+         }
+         const std::vector<float>* img = drifting ? nullptr : imageAt(focusOf(z));
          src[static_cast<size_t>(f - f0)] = img ? img : &dark;
       }
       std::atomic<long> next{f0};
       auto worker = [&]() {
+         std::vector<float> photons;
+         ++sim::ParallelDepth(); // one frame per thread: no nested pools in the FFTs
          for (long f; (f = next.fetch_add(1)) < f1;)
-            sim::ApplyNoiseChain(*src[static_cast<size_t>(f - f0)], stack[static_cast<size_t>(f)], w, h, cam,
-                                 offsetMap, gainMap, readNoiseMap, noiseSeed, static_cast<uint32_t>(f));
+         {
+            const size_t k = static_cast<size_t>(f - f0);
+            if (drawn[k])
+            {
+               driftFrames.Image(scene, base[k], drift[static_cast<size_t>(f)], photons);
+               for (float& v : photons)
+                  v = static_cast<float>(v * flux);
+            }
+            sim::ApplyNoiseChain(drawn[k] ? photons : *src[k], stack[static_cast<size_t>(f)], w, h, cam, offsetMap,
+                                 gainMap, readNoiseMap, noiseSeed, static_cast<uint32_t>(f));
+         }
+         --sim::ParallelDepth();
       };
       std::vector<std::thread> pool;
       for (unsigned t = 1; t < nThreads; ++t)
@@ -958,6 +1045,10 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    if ((wideField || brightField) && !isCellField)
       LogMessage(std::string("General_ImagingModality = ") + (wideField ? "WideField" : "BrightField") +
                  " applies to the CellField pattern only; rendering SuperRes.", false);
+   // The sample drift of every frame (zero at frame 0): one path per seed.
+   const std::vector<sim::DriftNm> stackDrift =
+      sim::DriftTrajectory(seed, stackLength, params.frameDurationSec, params.drift);
+   const sim::DriftBounds stackDriftRange = sim::DriftRange(stackDrift);
    std::vector<sim::BlinkEvent> events;
    // CellField: the query runs on its own thread while the maps and the PSF
    // kernel are made below (neither depends on it); joined before events is
@@ -972,11 +1063,12 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          auto t0 = std::chrono::steady_clock::now();
          sim::CellFieldSource source;
          std::string err;
-         double d1x = 0.0, d1y = 0.0;
-         sim::ComputeDriftOffsetPx(stackLength * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
-                                   params.pixelSizeNm, d1x, d1y);
-         sim::CellFieldQuery q = CellFieldQueryFor(stageXUm, stageYUm, stageZUm, fullW, fullH, params, 0.0, 0.0, d1x,
-                                                   d1y, 0, 0.0, stackLength * params.frameDurationSec);
+         const sim::DriftBounds& b = stackDriftRange;
+         sim::CellFieldQuery q = CellFieldQueryFor(
+            stageXUm, stageYUm, stageZUm, fullW, fullH, params, b.xLo / params.pixelSizeNm, b.yLo / params.pixelSizeNm,
+            b.xHi / params.pixelSizeNm, b.yHi / params.pixelSizeNm, 0, 0.0, stackLength * params.frameDurationSec);
+         if (q.zHalfRangeUm > 0.0)
+            sim::DriftWidenZCull(b, q.zCullCentreUm, q.zHalfRangeUm);
          const std::string zWarn = CellFieldZRangeWarning();
          if (!zWarn.empty())
             LogMessage(zWarn, false);
@@ -1085,13 +1177,16 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       evs.clear();
       for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
          evs.push_back(events[idx]);
-      sim::ComputeDriftOffsetPx(f * params.frameDurationSec, params.driftNmPerSecX, params.driftAngleRad,
-                                 params.pixelSizeNm, dx, dy);
+      const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
+      dx = d.x / params.pixelSizeNm;
+      dy = d.y / params.pixelSizeNm;
       // Read the InSiliScopeZStage device's current position fresh each frame,
       // same as any other live-adjustable parameter (see LiveProducerLoop),
-      // or the z sequence's position for this frame.
-      zOffsetUm = stackUsesSeq ? stackSeq.positions[static_cast<size_t>(f) % stackSeq.positions.size()]
-                               : sim::GetSharedStageState().zPositionUm.load();
+      // or the z sequence's position for this frame; the sample's z drift
+      // puts the focal plane that much lower in it.
+      zOffsetUm = (stackUsesSeq ? stackSeq.positions[static_cast<size_t>(f) % stackSeq.positions.size()]
+                                : sim::GetSharedStageState().zPositionUm.load()) -
+                  d.z / 1000.0;
    };
 
    std::unique_ptr<sim::GpuSimulator> gpu;
@@ -1100,10 +1195,10 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    auto startTime = std::chrono::steady_clock::now();
    if (bf)
       RenderBrightfieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm,
-                             localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed);
+                             localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed, stackDrift);
    else if (wf)
       RenderWidefieldStack(newStack, stackLength, fullW, fullH, params, cellField, stageXUm, stageYUm, localPsfCache,
-                           shaping, localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed);
+                           shaping, localOffsetMap, localGainMap, localReadNoiseMap, noiseSeed, stackDrift);
    if (gpuOk)
    {
       // Batches of frames per dispatch: one GPU round trip per batch rather
@@ -1292,6 +1387,15 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // "structure z extent misconfigured" case; this also catches "the Z
    // stage was driven out of range while streaming".
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
+   // The sample drift (nm) at liveDriftFrame frames since the drift origin.
+   sim::DriftNm liveDrift;
+   long liveDriftFrame = 0;
+   // BrightField with drift: the scene's anchor (the drift it was built at)
+   // and the focus-grid spectra around its focus.
+   sim::DriftNm bfAnchor;
+   bool bfAnchored = false;
+   sim::BrightfieldDriftFrames bfDrift;
+   double bfDriftFocus = std::numeric_limits<double>::quiet_NaN();
    // CellField pattern: the world (configured on the rebuild trigger below)
    // and the simulated time its dye schedules are read at, which advances by
    // one frame duration per produced frame -- across config changes too, so
@@ -1516,8 +1620,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          {
             gpuOk = false;
             bfErrLogged = false;
-            if (params.driftNmPerSecX > 0.0)
-               LogMessage("BrightField: SimType_DriftNmPerSec is not applied in BrightField (yet).", false);
+            if (params.drift.On())
+               LogMessage("BrightField: the SimType_Drift* sample drift is not applied in BrightField (yet).", false);
          }
          wfActive = WideFieldSelected() && CurrentPatternType() == sim::PATTERN_CELL_FIELD;
          if (WideFieldSelected() && !wfActive)
@@ -1542,8 +1646,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                wfPrefetch.scene.SetGpuMode(wfGpuMode);
             }
             wfScene.SetAccelerator(acc);
-            if (params.driftNmPerSecX > 0.0)
-               LogMessage("WideField: SimType_DriftNmPerSec is not applied in WideField (yet).", false);
+            if (params.drift.On())
+               LogMessage("WideField: the SimType_Drift* sample drift is not applied in WideField (yet).", false);
             sim::WidefieldSceneSpec base = BuildWidefieldSceneSpec(params, sim::CellFieldQuery());
             wfPsf = MakeWidefieldPsf(psfCache, base);
             wfUpscale = base.grid.upscale;
@@ -1563,21 +1667,39 @@ void CInSiliScopeCamera::LiveProducerLoop()
          appliedConfigVersion = currentConfigVersion;
       }
 
-      // Drift ramps up from zero at liveDriftOriginFrame_ (reset at
+      // The drift starts from zero at liveDriftOriginFrame_ (reset at
       // StartLiveProducer() and at the start of every Live/MDA sequence
-      // acquisition) rather than from an absolute movie length, since a
-      // live stream has no fixed end to normalize against.
+      // acquisition): the sum of the steps of frames 1 .. n since then, the
+      // stack's path for the same seed (each step with the current settings).
       long framesSinceDriftOrigin = std::max(0L, liveFrameCounter_.load(std::memory_order_relaxed) -
                                                       liveDriftOriginFrame_.load(std::memory_order_relaxed));
-      double dx = 0.0, dy = 0.0;
-      sim::ComputeDriftOffsetPx(framesSinceDriftOrigin * params.frameDurationSec, params.driftNmPerSecX,
-                                 params.driftAngleRad, params.pixelSizeNm, dx, dy);
+      if (framesSinceDriftOrigin < liveDriftFrame)
+      {
+         liveDrift = sim::DriftNm();
+         liveDriftFrame = 0;
+      }
+      if (!params.drift.On())
+      {
+         liveDrift = sim::DriftNm(); // off: no steps (switched on later, it starts from here at zero)
+         liveDriftFrame = framesSinceDriftOrigin;
+      }
+      while (liveDriftFrame < framesSinceDriftOrigin)
+      {
+         ++liveDriftFrame;
+         const sim::DriftNm st =
+            sim::DriftStep(sim::DriftSeed(randomSeed_), liveDriftFrame, params.frameDurationSec, params.drift);
+         liveDrift.x += st.x;
+         liveDrift.y += st.y;
+         liveDrift.z += st.z;
+      }
+      const double dx = liveDrift.x / params.pixelSizeNm, dy = liveDrift.y / params.pixelSizeNm;
       // InSiliScopeZStage's current position, read fresh every tick so moving
       // it live in Micro-Manager sharpens/blurs the rendered PSFs in
       // real time -- or, during a sequence acquisition with an armed z
       // sequence, the sequence's next position (one per frame).
       long frameEpoch = 0;
-      double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch);
+      // The sample's z drift puts the focal plane that much lower in it.
+      double zOffsetUm = sim::GetSharedStageState().NextFrameZ(&frameEpoch) - liveDrift.z / 1000.0;
 
       std::vector<sim::BlinkEvent> events;
       if (CurrentPatternType() == sim::PATTERN_CELL_FIELD)
@@ -1590,7 +1712,58 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::GetSharedStageState().PositionXyAt(sim::SharedStageState::Clock::now(), sx, sy);
             sim::CellFieldQuery q = CellFieldQueryFor(sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
                                                       liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
-            if (bfActive)
+            // WideField: the sample drift is the FOV moving the other way over
+            // it (sx - d), exact under the camera-fixed illumination.
+            const double dUmX = liveDrift.x / 1000.0, dUmY = liveDrift.y / 1000.0;
+            if (wfActive && (dUmX != 0.0 || dUmY != 0.0))
+               q = CellFieldQueryFor(sx - dUmX, sy - dUmY, zOffsetUm, w, h, params, 0.0, 0.0, 0.0, 0.0,
+                                     liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
+            if (bfActive && params.drift.On())
+            {
+               // BrightField with drift: the scene stays at an anchor pose
+               // (rebuilt when the sample has moved 1 um from it) and each
+               // frame is its fine-grid image shifted by the rest of the
+               // drift, the z drift interpolated on a focus grid
+               // (BrightfieldDriftFrames).
+               const double zBase = zOffsetUm + liveDrift.z / 1000.0;
+               if (!bfAnchored || std::fabs(liveDrift.x - bfAnchor.x) > 1000.0 ||
+                   std::fabs(liveDrift.y - bfAnchor.y) > 1000.0)
+               {
+                  bfAnchor = liveDrift;
+                  bfAnchored = true;
+               }
+               const sim::CellFieldQuery qa =
+                  CellFieldQueryFor(sx - bfAnchor.x / 1000.0, sy - bfAnchor.y / 1000.0, zBase, w, h, params, 0.0,
+                                    0.0, 0.0, 0.0, liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
+               std::string err;
+               sim::BrightfieldSpec spec = BuildBrightfieldSpec(params, qa, w, h);
+               spec.marginUm = spec.Resolved().marginUm + 1.0 + params.pixelSizeNm / 1000.0;
+               bool ok = bfScene.Update(cellField, spec, static_cast<uint64_t>(appliedConfigVersion), err);
+               if (ok && qa.zCullCentreUm != bfDriftFocus)
+               {
+                  sim::DriftBounds zb;
+                  zb.zLo = -20000.0;
+                  zb.zHi = 20000.0;
+                  bfDrift.Begin(zb, std::vector<double>(1, qa.zCullCentreUm));
+                  bfDriftFocus = qa.zCullCentreUm;
+               }
+               ok = ok && bfDrift.Ensure(bfScene, 0, liveDrift.z, err);
+               if (ok)
+               {
+                  sim::DriftNm rest = liveDrift;
+                  rest.x -= bfAnchor.x;
+                  rest.y -= bfAnchor.y;
+                  bfDrift.Image(bfScene, 0, rest, bfImage);
+               }
+               else
+               {
+                  bfImage.clear();
+                  if (!bfErrLogged)
+                     LogMessage("BrightField: " + err, false);
+                  bfErrLogged = true;
+               }
+            }
+            else if (bfActive)
             {
                // A new pose or setting rebuilds the scene (seconds at high
                // quality); a focus change re-images it (one inverse FFT per
@@ -1628,7 +1801,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                   if (!wfPrefetch.ok)
                      LogMessage("WideField: destination prefetch failed (" + wfPrefetch.err + ")", false);
                }
-               if (wfPrefetch.ready && std::fabs(sx - wfPrefetch.x) < 1e-6 && std::fabs(sy - wfPrefetch.y) < 1e-6)
+               if (wfPrefetch.ready && std::fabs(sx - wfPrefetch.x) < 1e-6 && std::fabs(sy - wfPrefetch.y) < 1e-6 &&
+                   dUmX == 0.0 && dUmY == 0.0)
                {
                   // The prefetch ran on the CPU (the GPU host belongs to
                   // this thread); its scene takes the host from here on.
@@ -1696,7 +1870,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                   wfPrefetch.x = tx;
                   wfPrefetch.y = ty;
                   sim::WidefieldSceneSpec ts = BuildWidefieldSceneSpec(
-                     params, CellFieldQueryFor(tx, ty, zOffsetUm, w, h, params, dx, dy, dx, dy, 0, 0.0, 0.0));
+                     params, CellFieldQueryFor(tx - dUmX, ty - dUmY, zOffsetUm, w, h, params, 0.0, 0.0, 0.0, 0.0, 0,
+                                               0.0, 0.0));
                   ts.grid.upscale = wfUpscale;
                   ts.psfVersion = wfPsfVersion;
                   ts.worldVersion = wfWorldVersion;
@@ -2186,6 +2361,24 @@ int CInSiliScopeCamera::OnStackStatus(MM::PropertyBase* pProp, MM::ActionType eA
    return DEVICE_OK;
 }
 
+int CInSiliScopeCamera::OnStackLength(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(stackLength_);
+   else if (eAct == MM::AfterSet)
+   {
+      long v = 0;
+      pProp->Get(v);
+      v = std::max(1L, std::min(100000L, v));
+      if (v != stackLength_)
+      {
+         stackLength_ = v;
+         InvalidateStack();
+      }
+   }
+   return DEVICE_OK;
+}
+
 int CInSiliScopeCamera::OnEndOfStackReached(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
@@ -2298,10 +2491,17 @@ int CInSiliScopeCamera::OnPixelReadNoiseStdPct(MM::PropertyBase* pProp, MM::Acti
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnDriftNmPerSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliScopeCamera::OnDriftXyNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   if (eAct == MM::BeforeGet) pProp->Set(driftNmPerSecX_.load());
-   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftNmPerSecX_ = v; InvalidateStack(); }
+   if (eAct == MM::BeforeGet) pProp->Set(driftXyNmPerSqrtSec_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftXyNmPerSqrtSec_ = v; InvalidateStack(); }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnDriftZNmPerSqrtSec(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet) pProp->Set(driftZNmPerSqrtSec_.load());
+   else if (eAct == MM::AfterSet) { double v; pProp->Get(v); driftZNmPerSqrtSec_ = v; InvalidateStack(); }
    return DEVICE_OK;
 }
 

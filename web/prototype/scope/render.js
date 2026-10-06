@@ -35,13 +35,14 @@ function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhotons) {
 
 // One frame's photon image (background + every event overlapping [f, f+1)). kernel: PSF kernel cache or
 // null (Gaussian of psfSigmaPx). zStageUm: focal-plane height; an emitter's plane is zNm/1000 - zStageUm.
-export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm) {
+// dxPx, dyPx: the sample drift (added to every emitter's position).
+export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm, dxPx = 0.0, dyPx = 0.0) {
   const img = new Float32Array(width * height).fill(o.backgroundPhotons);
   for (const e of events) {
     let ov = Math.min(frameIndex + 1, e.tEnd) - Math.max(frameIndex, e.tStart);
     if (ov <= 0.0) continue;
     if (ov > 1.0) ov = 1.0;
-    const xPx = e.xUm * 1000.0 / o.pixelSizeNm, yPx = e.yUm * 1000.0 / o.pixelSizeNm;
+    const xPx = e.xUm * 1000.0 / o.pixelSizeNm + dxPx, yPx = e.yUm * 1000.0 / o.pixelSizeNm + dyPx;
     let photons = o.photonsPerBlink * ov;
     if (e.brightness !== 1.0) photons *= e.brightness;
     if (!kernel) { renderGaussian(img, width, height, xPx, yPx, o.psfSigmaPx, photons); continue; }
