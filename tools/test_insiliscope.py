@@ -217,7 +217,26 @@ set_light(core, True, False)
 generate_stack(core)
 lit = np.stack(snaps(5))
 assert lit.mean() > dark.mean() + 1.0, "the lasers' shutter open should light the sample"
-print(f"Shutters OK: dark {dark.mean():.2f} ADU with no light, {lit.mean():.2f} ADU with the lasers open")
+# Both open: the fluorescence plus the lamp through one camera (the lamp dimmed so the fluorescence shows).
+core.setProperty("TransmittedLamp", "IntensityPhotonsPerPxPerSec", "4000")
+set_light(core, False, True)
+generate_stack(core)
+lamp = np.stack(snaps(5))
+set_light(core, True, True)
+generate_stack(core)
+both = np.stack(snaps(5))
+fl, added = lit.mean() - dark.mean(), both.mean() - lamp.mean()
+assert abs(added - fl) < 0.1 * fl, f"both lights: {added:.1f} ADU above the lamp alone, the lasers alone give {fl:.1f}"
+# Live: the same sum (each frame its own time, so only roughly).
+precomputed(core, False)
+live = {}
+for name, epi, trans in (("lamp", False, True), ("both", True, True)):
+    set_light(core, epi, trans)
+    live[name] = np.stack(snaps(3)).mean()
+assert live["both"] - live["lamp"] > 0.3 * fl, live
+precomputed(core)
+print(f"Shutters OK: dark {dark.mean():.2f} ADU with no light, {lit.mean():.2f} ADU with the lasers open, "
+      f"both = lamp + {added:.1f} ADU (lasers alone {fl:.1f}); live both - lamp {live['both'] - live['lamp']:.1f} ADU")
 
 # --- labelling: fewer labelled sites, less light -----------------------------
 # dSTORM AF647 (no imager background); the initial ON burst switched off in a custom dye (InitialOnSec 0). Each

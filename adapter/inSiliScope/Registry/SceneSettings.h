@@ -31,12 +31,21 @@ namespace isc {
 // reach in (spec/PORT.md 6.2; a few kernel half-widths of the in-focus core).
 constexpr double kCellFieldMarginUm = 2.0;
 
-// The imaging the open light sources give: 0 Fluorescence (the epi light),
-// 1 BrightField (the transmitted lamp alone).
+// The imaging the open light sources give: 0 Fluorescence (the epi light,
+// alone or with the lamp), 1 BrightField (the transmitted lamp alone).
 int Modality(const SceneState& s);
 inline bool BrightFieldSelected(const SceneState& s) { return Modality(s) == 1; }
 // Any light source open (none: dark frames).
 inline bool LightOn(const SceneState& s) { return s.epiOpen.load() || s.transOpen.load(); }
+// The light of a frame: -1 none (dark), 0 epi (fluorescence), 1 the lamp
+// (BrightField), 2 both (fluorescence + the lamp's photons x its QE, one
+// noise chain; the engine's light-epi + light-trans).
+enum LightMode { LIGHT_NONE = -1, LIGHT_EPI = 0, LIGHT_TRANS = 1, LIGHT_BOTH = 2 };
+inline int LightModeOf(const SceneState& s)
+{
+   const bool e = s.epiOpen.load(), t = s.transOpen.load();
+   return e && t ? LIGHT_BOTH : e ? LIGHT_EPI : t ? LIGHT_TRANS : LIGHT_NONE;
+}
 
 // Noise chain and timing: the per-second rates at the current exposure.
 sim::SimulationParams SnapshotParams(const SceneState& s);

@@ -292,6 +292,8 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
          s[std::string("p.") + g_CellFieldCoreParam[i]] = st.cellField[i].load();
    // Imaging.
    s["modality"] = Modality(st);
+   s["light-epi"] = st.epiOpen.load() ? 1 : 0;
+   s["light-trans"] = st.transOpen.load() ? 1 : 0;
    s["wf-upscale"] = st.wideField[WF_UPSCALING].load();
    s["wf-plane-nm"] = st.wideField[WF_Z_PLANE_NM].load();
    s["wf-kernel-um"] = std::max(0.1, st.psfKernelHalfWidthNm.load() / 1000.0);

@@ -239,8 +239,16 @@ private:
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
 bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs);
 
+// Which lights are on (JS scopeLights): light-epi (the lasers' shutter) and
+// light-trans (the lamp's), each 1 open / 0 closed / -1 from modality
+// (Fluorescence: epi, BrightField: trans).
+void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans);
+
 // Renders the movie, calling onFrame(f, adu) for f = 0..frames-1 (return
-// false to stop). False (with err) on a failure.
+// false to stop). False (with err) on a failure. The lights choose the
+// imaging: epi only = fluorescence, trans only = BrightField, both = the
+// fluorescence photons plus the BrightField photons x the camera's QE at the
+// lamp wavelength through one noise chain, none = dark frames.
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress = nullptr);
 

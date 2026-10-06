@@ -2,7 +2,8 @@
 // i.e. what insiliscope_cli / the viewer's isc_scope_movie render, option for option:
 //   world (seed, p.* geometry, one label per structure) -> modality 0 Fluorescence (fluorescence.js: every label in
 //   its mode -- blinks splatted with their own PSF, continuous populations mean-field or per dye, the DNA-PAINT imager
-//   background -- then ApplyNoiseChain) or modality 1 BrightField (brightfield.js).
+//   background -- then ApplyNoiseChain) or modality 1 BrightField (brightfield.js); light-epi / light-trans (the
+//   shutters) both on: the two summed before one noise chain, both off: dark frames.
 // Issue 16: dyes (dye_library.js, data/dyes) on structures, a light path (lasers, dichroic, emission filter, camera QE
 // curve) and camera presets replace the single dye and the SuperRes/WideField split.
 // This is the JS REFERENCE for imaging. Iterate on photophysics/PSF/camera here (web/lab), then port to
@@ -10,8 +11,8 @@
 import { World, STRUCTURES } from './world.js';
 import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE, planSplat,
   splatRows } from './psf.js';
-import { renderGaussian } from './render.js';
-import { renderBrightfieldMovie } from './brightfield.js';
+import { renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
+import { renderBrightfieldMovie, brightfieldPhotons } from './brightfield.js';
 import { driftOn, driftTrajectory, driftRange } from './drift.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
 import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
@@ -107,7 +108,9 @@ export const SCOPE_OPTIONS = [
   ['em-gain', -1, 'CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it'],
   ['cic', 0.002, 'CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)'],
   ['bit-depth', 16, 'CamParam_BitDepth (EMCCD)'],
-  ['modality', 0, 'General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)'],
+  ['modality', 0, 'General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted); the shorthand for light-epi / light-trans'],
+  ['light-epi', -1, 'Lasers shutter: 1 open, 0 closed, -1 = from modality (open in Fluorescence)'],
+  ['light-trans', -1, 'TransmittedLamp shutter: 1 open, 0 closed, -1 = from modality (open in BrightField). Both open: fluorescence + BrightField through one camera; none: dark frames'],
   ['wf-upscale', 1, 'General_WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)'],
   ['wf-plane-nm', 25, 'General_WideFieldZPlaneNm: mean-field dye plane thickness, nm'],
   ['wf-kernel-um', 7, 'mean-field PSF kernel radius cap, um'],
@@ -200,10 +203,17 @@ export function scopeDims(spec) {
 const CAMERA_KEYS = { qe: 'quantumEfficiency', 'dark-per-sec': 'darkCurrentElectronsPerSec', gain: 'gainElectronsPerAdu',
   offset: 'offsetAdu', 'offset-std': 'offsetStdAdu', 'read-noise': 'readNoiseElectrons', 'gain-std-pct': 'gainStdPct',
   'read-noise-std-pct': 'readNoiseStdPct', cic: 'cicElectrons', 'bit-depth': 'bitDepth' };
-// The preset's gain depends on the imaging (cameraPresetGain): BrightField, or every structure in WideField mode.
+// Which lights are on (ScopeLights): light-epi (the lasers' shutter) and light-trans (the lamp's), each 1 open / 0
+// closed / -1 from modality (Fluorescence: epi, BrightField: trans).
+export function scopeLights(spec) {
+  const O = getter(spec), e = O('light-epi'), t = O('light-trans'), brightField = O('modality') === 1;
+  return { epi: e >= 0 ? e !== 0 : !brightField, trans: t >= 0 ? t !== 0 : brightField };
+}
+
+// The preset's gain depends on the imaging (cameraPresetGain): the lamp on (BrightField, alone or with fluorescence),
+// or every structure in WideField mode.
 function wideFieldOrBrightField(spec) {
-  const O = getter(spec);
-  if (O('modality') === 1) return true;
+  if (scopeLights(spec).trans) return true;
   return STRUCTURES.every((s, i) => scopeStructureDye(spec, i).eff.mode === 'WideField');
 }
 
@@ -309,7 +319,8 @@ export function scopeSetup(P, spec) {
   const pixelSizeNm = O('pixel-nm');
   const camera = scopeCamera(spec);
   const lp = scopeLightPath(spec, camera);
-  const brightField = O('modality') === 1;
+  const lights = scopeLights(spec);
+  const brightField = lights.trans && !lights.epi;   // both: the fluorescence chain at QE 1, the lamp's photons x its QE
   const labels = scopeLabels(spec, lp);
   // Fluorescence: the photon image is already in detected photons (QE(lambda) in each dye's detected fraction), so
   // the noise chain runs at QE 1; the flat background takes the QE at the emission filter's centre. BrightField:
@@ -474,11 +485,35 @@ export function renderScopeMovie(P, specIn, onFrame, opts = {}) {
     // The world (scopeWorld's memo) and, for Fluorescence, the labels' PSF kernels; no frames (PrepareScope).
     scopeWorld(P, S);
     const tWorld = (performance.now() - t0) / 1000;
-    const kernels = S.O('modality') === 1 ? [] : S.labels.flatMap(l => Object.values(l.states))
+    const kernels = !scopeLights(spec).epi ? [] : S.labels.flatMap(l => Object.values(l.states))
       .filter(st => st && st.detectedFraction > 0).map(st => scopeKernel(spec, kernelWavelengthNm(st.lambdaNm)));
     return { width: S.W, height: S.H, frames: 0, blinks: 0, querySec: tWorld, totalSec: (performance.now() - t0) / 1000,
       psf: kernels.some(Boolean) ? 'GibsonLanniZernike' : 'Gaussian' };
   }
-  if (S.O('modality') === 1) return renderBrightfieldMovie(P, spec, S, onFrame, opts);
+  const { epi, trans } = scopeLights(spec);
+  if (!epi && !trans) return renderDarkMovie(S, onFrame);
+  if (epi && trans) return renderCombinedMovie(P, spec, S, onFrame, opts);
+  if (trans) return renderBrightfieldMovie(P, spec, S, onFrame, opts);
   return renderFluorescenceMovie(P, spec, S, onFrame, opts);
+}
+
+// No light: the camera's noise on zero photons (RenderDarkMovie).
+function renderDarkMovie(S, onFrame) {
+  const t0 = performance.now(), maps = noiseMaps(S.seed, S.W, S.H, S.cam), photons = new Float32Array(S.W * S.H);
+  for (let f = 0; f < S.N; f++) if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
+  return { width: S.W, height: S.H, frames: S.N, blinks: 0, totalSec: (performance.now() - t0) / 1000, light: 'none' };
+}
+
+// Both lights (RenderCombinedMovie): the fluorescence photons (its noise chain at QE 1) plus the lamp's photons x the
+// camera's QE at the lamp wavelength, then that one noise chain.
+function renderCombinedMovie(P, spec, S, onFrame, opts) {
+  const lamp = brightfieldPhotons(P, spec, S);
+  const qeLamp = sampleAt(S.lp.qe, S.O('bf-wavelength-nm'));
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam), sum = new Float32Array(S.W * S.H);
+  const info = renderFluorescenceMovie(P, spec, S, onFrame, { ...opts, onPhotons: (f, fl) => {
+    const bf = lamp.at(f);
+    for (let i = 0; i < sum.length; i++) sum[i] = fl[i] + Math.fround(bf[i] * qeLamp);
+    return onFrame(f, applyNoiseChain(sum, S.cam, maps, f), sum);
+  } });
+  return { ...info, light: 'epi+trans', bfPhotonsPerPx: lamp.flux, bfQe: qeLamp };
 }

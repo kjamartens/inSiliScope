@@ -150,7 +150,9 @@ int main(int argc, char** argv)
       std::fclose(f);
       std::printf("%s: sample drift per frame\n", csv.c_str());
    }
-   if (sim::ScopeSpecGet(spec, "modality") == 1)
+   bool epi = false, trans = false;
+   sim::ScopeLights(spec, epi, trans);
+   if (trans && !epi)
       std::printf("%s: %ld frames %ux%u, BrightField (setup %.2f s), total %.2f s\n", out.c_str(), info.frames,
                   info.width, info.height, info.querySec, info.totalSec);
    else

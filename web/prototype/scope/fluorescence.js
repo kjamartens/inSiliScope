@@ -193,7 +193,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         paths.push(`${POP_NAME[p.state]}: per dye (${p.wins.length} windows)`);
       }
     }
-    if (onFrame(f, applyNoiseChain(img, S.cam, maps, f), img) === false) break;
+    // opts.onPhotons(f, photons): the photon image goes there instead of the noise chain and onFrame (C++
+    // FluorescenceFrameOptions::onPhotons; the combined light adds the lamp and runs its own noise chain).
+    if ((opts.onPhotons ? opts.onPhotons(f, img) : onFrame(f, applyNoiseChain(img, S.cam, maps, f), img)) === false) break;
     // Which backend drew this frame: the SMLM splat for blinks, mean-field or per dye for each continuous population.
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / N, {
       frame: f, frames: N, blinks: blinks - frameBlinks0, backends: [...(anyBlinks ? [`SMLM: ${blinks - frameBlinks0} blinks (splat)`] : []), ...paths] });

@@ -89,6 +89,15 @@ the quad ZET405/488/561/640xv2, and Semrock FF01-405/10, FF01-488/10, FF01-561/1
 band pass (`ex-lo-nm`, `ex-hi-nm`). Semrock's MaxDiode/MaxLine clean-ups (LD01-405/10, LL02-561, ...) have no FPbase
 curve; the FF01 band passes stand in for them.
 
+## Which light: the shutters
+
+The lasers (epi) and the transmitted lamp each have a shutter: `light-epi` and `light-trans` (1 open, 0 closed;
+`-1`, the default, follows `modality`: Fluorescence opens the lasers, BrightField the lamp). In Micro-Manager they
+are the `Lasers` and `TransmittedLamp` shutter devices. Lasers alone give the fluorescence image, the lamp alone the
+BrightField image. **Both open** add up on one camera: the fluorescence photons plus the lamp's photons times the
+camera's QE at the lamp wavelength, then one noise chain (so the lamp's shot noise sits on the fluorescence, as it
+would on a real scope). **None open** gives dark frames: offset, read noise and dark current only.
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds a flat offset per pixel and second of

@@ -381,15 +381,14 @@ export function brightfieldScene(world, bs) {
   return sceneMemo.scene;
 }
 
-// RenderBrightfieldMovie: the image at the spec's focus x bf-photons-per-px-per-sec x exposure, then the camera
-// noise per frame (the specimen does not change between frames).
-export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
-  const t0 = performance.now();
+// The lamp's photons per frame (C++ BrightfieldPhotons): the image at the spec's focus x bf-photons-per-px-per-sec x
+// exposure; a drifting sample: the fine-grid spectra on the drift's focus grid, a shifted, interpolated image per
+// frame. { bs, scene, focusUm, flux, trans (no drift), at(f) -> Float32Array (valid until the next call) }.
+export function brightfieldPhotons(P, spec, S) {
   const world = scopeWorld(P, S);
   const bs = scopeBrightfieldSpec(spec, S);
   const scene = brightfieldScene(world, bs);
   const focusUm = S.q.zCullCentreUm;
-  // A drifting sample: the fine-grid spectra on the drift's focus grid, a shifted, interpolated image per frame.
   let grid = null, specs = null;
   if (S.driftOn) {
     grid = driftFocusGrid(S.driftBounds);
@@ -400,8 +399,7 @@ export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
   const flux = Math.max(0.0, S.O('bf-photons-per-px-per-sec')) * S.expSec;
   const NP = S.W * S.H, photons = new Float32Array(NP);
   if (trans) for (let i = 0; i < NP; ++i) photons[i] = trans[i] * flux;
-  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
-  for (let f = 0; f < S.N; f++) {
+  const at = f => {
     if (S.driftOn) {
       // BrightfieldDriftFrames::Image: lerp the two foci's spectra, shift, crop the FOV cells, mean per pixel.
       const d = S.drift[f], [k, w] = driftGridWeights(grid, d.z), N = scene.nx * scene.ny;
@@ -420,6 +418,18 @@ export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
         photons[Y * S.W + X] = f32(acc * norm) * flux;
       }
     }
+    return photons;
+  };
+  return { bs, scene, focusUm, flux, trans, at };
+}
+
+// RenderBrightfieldMovie: the lamp's photons, then the camera noise per frame.
+export function renderBrightfieldMovie(P, spec, S, onFrame, opts = {}) {
+  const t0 = performance.now();
+  const { bs, scene, focusUm, trans, at } = brightfieldPhotons(P, spec, S);
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam);
+  for (let f = 0; f < S.N; f++) {
+    const photons = at(f);
     if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / S.N);
   }

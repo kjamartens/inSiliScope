@@ -157,7 +157,9 @@ const OptionTable& Options()
          { "em-gain", -1, "CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it" },
          { "cic", 0.002, "CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)" },
          { "bit-depth", 16, "CamParam_BitDepth (EMCCD)" },
-         { "modality", 0, "General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)" },
+         { "modality", 0, "General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted); the shorthand for light-epi / light-trans" },
+         { "light-epi", -1, "Lasers shutter: 1 open, 0 closed, -1 = from modality (open in Fluorescence)" },
+         { "light-trans", -1, "TransmittedLamp shutter: 1 open, 0 closed, -1 = from modality (open in BrightField). Both open: fluorescence + BrightField through one camera; none: dark frames" },
          { "wf-upscale", 1, "General_WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)" },
          { "wf-plane-nm", 25, "General_WideFieldZPlaneNm: mean-field dye plane thickness, nm" },
          { "wf-kernel-um", 7, "mean-field PSF kernel radius cap, um" },
@@ -503,12 +505,21 @@ struct ScopeCamera
    double gainStdFraction = 0, readNoiseStdFraction = 0, emGain = 300, cicElectrons = 0, bitDepth = 16;
 };
 
-// The preset's gain depends on the imaging (CameraPresetGain): BrightField, or
-// every structure in WideField mode (JS wideFieldOrBrightField).
+void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans)
+{
+   const double e = ScopeSpecGet(spec, "light-epi"), t = ScopeSpecGet(spec, "light-trans");
+   const bool brightField = ScopeSpecGet(spec, "modality") == 1;
+   epi = e >= 0 ? e != 0 : !brightField;
+   trans = t >= 0 ? t != 0 : brightField;
+}
+
+// The preset's gain depends on the imaging (CameraPresetGain): the lamp on
+// (BrightField, alone or with fluorescence), or every structure in WideField
+// mode (JS wideFieldOrBrightField).
 static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string& err)
 {
-   auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
-   out = O("modality") == 1;
+   bool epi = false;
+   ScopeLights(spec, epi, out);
    if (out)
       return true;
    out = true;
@@ -698,7 +709,9 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    if (!MakeScopeCamera(spec, S.camera, err) || !MakeScopeLightPath(spec, S.camera, S.lp, err) ||
        !MakeScopeLabels(spec, S.lp, S.labels, err))
       return false;
-   const bool brightField = O("modality") == 1;
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   const bool brightField = trans && !epi;   // both: the fluorescence chain at QE 1, the lamp's photons x its QE
    const ScopeCamera& c = S.camera;
 
    // Fluorescence: the photon image is already in detected photons (QE(lambda)
@@ -2123,9 +2136,54 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
-// The frames of a BrightField movie from its scene: the image at the spec's
-// focus (computed, or assembled by SetImageFromSources), times the lamp,
-// then the camera noise per frame.
+// The lamp's photons per frame (BrightfieldFrames, the combined light): the
+// image at the spec's focus (computed, or assembled by SetImageFromSources)
+// times bf-photons-per-px-per-sec x exposure; a drifting sample: the
+// fine-grid spectra on the drift's focus grid, a shifted, interpolated image
+// per frame (JS brightfieldPhotons).
+struct BrightfieldPhotons
+{
+   BrightfieldDriftFrames driftFrames;
+   std::vector<float> trans, photons;
+   double flux = 0.0;
+   bool drift = false;
+
+   bool Begin(const ScopeSpec& spec, const ScopeSetup& S, BrightfieldScene& scene, std::string& err)
+   {
+      const double focusUm = S.q.zCullCentreUm;
+      auto tPhase = TimingClock::now();
+      drift = S.driftOn;
+      if (drift)
+      {
+         driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
+         if (!driftFrames.Refresh(scene, 0, err))
+            return false;
+      }
+      else if (!scene.Image(focusUm, trans, err))
+         return false;
+      TimingLog("bf.image", TimingSince(tPhase));
+      flux = std::max(0.0, ScopeSpecGet(spec, "bf-photons-per-px-per-sec")) * S.expSec;
+      photons.resize(trans.size());
+      for (size_t i = 0; i < trans.size(); ++i)
+         photons[i] = static_cast<float>(trans[i] * flux);
+      return true;
+   }
+   // Frame f's photons (valid until the next call).
+   const std::vector<float>& At(BrightfieldScene& scene, const ScopeSetup& S, long f)
+   {
+      if (drift)
+      {
+         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
+         photons.resize(trans.size());
+         for (size_t i = 0; i < trans.size(); ++i)
+            photons[i] = static_cast<float>(trans[i] * flux);
+      }
+      return photons;
+   }
+};
+
+// The frames of a BrightField movie from its scene: the lamp's photons, then
+// the camera noise per frame.
 static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const BrightfieldSpec& bs,
                               BrightfieldScene& scene, std::chrono::steady_clock::time_point t0,
                               unsigned long spawns0,
@@ -2134,24 +2192,13 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    const SimulationParams& p = S.p;
-   std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   auto tPhase = TimingClock::now();
-   // A drifting sample: the fine-grid spectra on the drift's focus grid, a
-   // shifted, interpolated image per frame.
-   BrightfieldDriftFrames driftFrames;
-   if (S.driftOn)
-   {
-      driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
-      if (!driftFrames.Refresh(scene, 0, err))
-         return false;
-   }
-   else if (!scene.Image(focusUm, trans, err))
+   BrightfieldPhotons lamp;
+   if (!lamp.Begin(spec, S, scene, err))
       return false;
-   TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
-   const double flux = std::max(0.0, O("bf-photons-per-px-per-sec")) * S.expSec;
+   const double flux = lamp.flux;
    const BrightfieldQuality q = bs.Resolved();
    info.width = W;
    info.height = H;
@@ -2171,20 +2218,11 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    info.description = desc;
    DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);
-   std::vector<float> photons(trans.size());
-   for (size_t i = 0; i < trans.size(); ++i)
-      photons[i] = static_cast<float>(trans[i] * flux);
    std::vector<uint16_t> adu;
    TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
-      if (S.driftOn)
-      {
-         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
-         photons.resize(trans.size());
-         for (size_t i = 0; i < trans.size(); ++i)
-            photons[i] = static_cast<float>(trans[i] * flux);
-      }
+      const std::vector<float>& photons = lamp.At(scene, S, f);
       tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
@@ -2508,7 +2546,9 @@ static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::strin
    }
    const double tWorld = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
    bool anyKernel = false;
-   if (ScopeSpecGet(spec, "modality") != 1)
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (epi)
    {
       std::vector<double> lambdas;
       for (const LabelPhysics& l : S.labels)
@@ -2547,12 +2587,91 @@ bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs)
    return cache.source.Prefetch(S.q, marginUm, budgetMs);
 }
 
+// No light: the camera's noise on zero photons (dark current, read noise,
+// offset; JS renderDarkMovie).
+static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   info = ScopeMovieInfo();
+   info.width = S.W;
+   info.height = S.H;
+   info.frames = S.N;
+   char desc[256];
+   std::snprintf(desc, sizeof desc, "insiliscope light=none seed=%ld size=%u pixel_nm=%g exposure_ms=%g frames=%ld",
+                 S.seed, S.W, S.p.pixelSizeNm, S.expSec * 1000, S.N);
+   info.description = desc;
+   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const std::vector<float> photons(static_cast<size_t>(S.W) * S.H, 0.0f);
+   std::vector<uint16_t> adu;
+   for (long f = 0; f < S.N; f++)
+   {
+      ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                      noise.noiseSeed, static_cast<uint32_t>(f));
+      if (!onFrame(f, adu))
+         break;
+   }
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   return true;
+}
+
+// Both lights (JS renderCombinedMovie): the fluorescence movie's photons (its
+// noise chain runs at QE 1) plus the lamp's photons x the camera's QE at the
+// lamp wavelength, then that one noise chain. The fluorescence movie holds
+// the shared cache (world, BrightField scene) for this thread while it lives.
+static bool RenderCombinedMovie(const ScopeSpec& spec,
+                                const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                                ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
+{
+   FluorescenceMovie fm;
+   ScopeSetup S;
+   BrightfieldSpec bs;
+   if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
+      return false;
+   MovieCache& cache = SharedMovieCache();
+   if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+      return false;
+   BrightfieldPhotons lamp;
+   if (!lamp.Begin(spec, S, cache.brightfield, err))
+      return false;
+   const double qeLamp = SampleAt(S.lp.qe, ScopeSpecGet(spec, "bf-wavelength-nm"));
+   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const CameraNoiseParams cam = S.p.Camera();
+   std::vector<float> sum;
+   std::vector<uint16_t> adu;
+   FluorescenceFrameOptions opt;
+   opt.onPhotons = [&](long f, const std::vector<float>& fl) {
+      const std::vector<float>& bf = lamp.At(cache.brightfield, S, f);
+      sum.resize(fl.size());
+      for (size_t i = 0; i < fl.size(); ++i)
+         sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
+      ApplyNoiseChain(sum, adu, S.W, S.H, cam, noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
+                      static_cast<uint32_t>(f));
+      return onFrame(f, adu);
+   };
+   if (!fm.Render(onFrame, info, err, progress, &opt))
+      return false;
+   char b[96];
+   std::snprintf(b, sizeof b, " light=epi+trans bf_photons_per_px=%.4g bf_qe=%.4g", lamp.flux, qeLamp);
+   info.description += b;
+   return true;
+}
+
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
 {
    if (ScopeSpecGet(spec, "prepare") >= 1)
       return PrepareScope(spec, info, err);
-   if (ScopeSpecGet(spec, "modality") == 1)
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (!epi && !trans)
+      return RenderDarkMovie(spec, onFrame, info, err);
+   if (epi && trans)
+      return RenderCombinedMovie(spec, onFrame, info, err, progress);
+   if (trans)
       return RenderBrightfieldMovie(spec, onFrame, info, err);
    FluorescenceMovie fm;
    return fm.Begin(spec, false, err) && fm.Render(onFrame, info, err, progress);

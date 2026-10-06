@@ -95,6 +95,10 @@ const CASES = [
   // photon count (the ~1e-5 relative intensity difference flips more Poisson draws), 99.35% at 80000.
   ['BrightField multislice (quality 3), defocused', `${B} size=40 frames=3 modality=BrightField z=2 bf-photons-per-px-per-sec=40000`, 0.995],
   ['BrightField drift xy 40, z 30 nm/sqrt(s) (quality 2)', `${B} size=40 frames=6 modality=BrightField bf-quality=2 bf-photons-per-px-per-sec=40000 drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30`, 0.995],
+  // The shutters: both lights summed before one noise chain (the lamp x its QE), none: the camera's noise alone.
+  ['Both lights: DNA-PAINT + BrightField (quality 1)', `${B} size=40 frames=3 psf-model=0 light-epi=1 light-trans=1 bf-quality=1 bf-photons-per-px-per-sec=20000`, 0.995],
+  ['Both lights, drift xy 40 nm/sqrt(s) (quality 1)', `${B} size=32 frames=4 psf-model=0 modality=BrightField light-epi=1 bf-quality=1 bf-photons-per-px-per-sec=20000 drift-xy-nm-per-sqrt-sec=40`, 0.995],
+  ['No light: dark frames', `${B} size=32 frames=3 light-epi=0`, 1],
   ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=1 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {

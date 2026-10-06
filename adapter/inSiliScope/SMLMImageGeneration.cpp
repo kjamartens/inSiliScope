@@ -333,7 +333,7 @@ void CInSiliScopeCamera::StartStackGeneration()
 
    stackGenThread_ = std::thread(&CInSiliScopeCamera::StackGenerationWorker, this, length, fullW, fullH, params, seed,
                                   cellField, stageX, stageY, stageZ,
-                                  isc::LightOn(St()) ? isc::Modality(St()) : -1);
+                                  isc::LightModeOf(St()));
 }
 
 void CInSiliScopeCamera::LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1,
@@ -384,9 +384,9 @@ void CInSiliScopeCamera::SyncHistoryWorld()
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, long seed,
                                              sim::CellFieldSettings cellField,
-                                             double stageXUm, double stageYUm, double stageZUm, int modality)
+                                             double stageXUm, double stageYUm, double stageZUm, int light)
 {
-   const bool bf = modality == 1;
+   const bool bf = light == isc::LIGHT_TRANS, both = light == isc::LIGHT_BOTH;
    // The noise maps' stream (the CellField dyes come from the core, not from it).
    std::mt19937_64 localRng(static_cast<uint64_t>(seed));
    // Illumination: a fixed field for the whole stack (no rng).
@@ -419,7 +419,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    auto startTime = std::chrono::steady_clock::now();
    bool gpuOk = false;
    std::string where = "the CPU";
-   if (modality < 0)
+   if (light == isc::LIGHT_NONE)
    {
       // No light source open: dark frames (offset, read noise, dark current).
       const std::vector<float> dark(static_cast<size_t>(fullW) * fullH, 0.0f);
@@ -455,6 +455,67 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       LitRect(stageXUm, stageYUm, lx0, ly0, lx1, ly1);
       const sim::ClockSnapshot clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
       bool lit = false;
+      // Both lights: the lamp's photons x its QE join each frame before the
+      // noise (the BrightField stack's scene at each frame's focus; drifting:
+      // its shifted image), so the frames render on the CPU.
+      sim::CellFieldSource lampSource;
+      sim::BrightfieldScene lampScene;
+      sim::BrightfieldDriftFrames lampDrift;
+      std::map<double, std::vector<float>> lampImages;
+      std::vector<float> lampImg;
+      double lampDriftFocus = std::numeric_limits<double>::quiet_NaN();
+      bool lampOk = false;
+      const bool lampDrifting = both && params.drift.On();
+      const double lampFlux = std::max(0.0, St().brightField[isc::BF_PHOTONS_PER_PX_PER_SEC].load()) *
+                              params.frameDurationSec * isc::BrightFieldQe(St());
+      auto lampFocus = [&](double z) {
+         return isc::CellFieldQueryFor(St(), stageXUm, stageYUm, z, fullW, fullH, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0,
+                                       0.0).zCullCentreUm;
+      };
+      if (both)
+      {
+         std::string lampErr;
+         const sim::CellFieldQuery q0 = isc::CellFieldQueryFor(St(), stageXUm, stageYUm, 0.0, fullW, fullH, params, 0.0,
+                                                               0.0, 0.0, 0.0, 0, 0.0, 0.0);
+         sim::BrightfieldSpec bs = isc::BuildBrightfieldSpec(St(), params, q0, fullW, fullH);
+         if (lampDrifting)
+            bs.marginUm = bs.Resolved().marginUm + (std::ceil(sim::DriftRange(stackDrift).MaxXyNm() / params.pixelSizeNm) +
+                                                     1.0) * params.pixelSizeNm / 1000.0;
+         lampOk = lampSource.Configure(cellField, lampErr) && lampScene.Update(lampSource, bs, 1, lampErr);
+         if (!lampOk)
+            LogMessage("BrightField (with the fluorescence): nothing rendered (" + lampErr + ")", false);
+      }
+      // Frame f's lamp photons (x QE) added to photons.
+      auto addLamp = [&](long f, std::vector<float>& photons) {
+         if (!lampOk)
+            return;
+         std::string lampErr;
+         const double focus = lampFocus(zOf(f));
+         const std::vector<float>* img = nullptr;
+         if (lampDrifting)
+         {
+            if (focus != lampDriftFocus)
+            {
+               lampDrift.Begin(sim::DriftRange(stackDrift), std::vector<double>(1, focus));
+               lampDriftFocus = focus;
+            }
+            if (lampDrift.Refresh(lampScene, 0, lampErr))
+            {
+               lampDrift.Image(lampScene, 0, stackDrift[static_cast<size_t>(f)], lampImg);
+               img = &lampImg;
+            }
+         }
+         else
+         {
+            auto it = lampImages.find(focus);
+            if (it == lampImages.end() && lampScene.Image(focus, lampImg, lampErr))
+               it = lampImages.emplace(focus, lampImg).first;
+            img = it == lampImages.end() ? nullptr : &it->second;
+         }
+         if (img && img->size() == photons.size())
+            for (size_t i = 0; i < photons.size(); ++i)
+               photons[i] += static_cast<float>((*img)[i] * lampFlux);
+      };
       sim::FluorescenceMovie fm;
       std::string err;
       std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
@@ -473,8 +534,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             gp.photonsPerBlink = plan.photonsPerBlink;
             gp.backgroundPhotons = plan.backgroundPhotons;
             gp.psfSigmaPx = plan.sigmaPx;
-            gpuOk = plan.kernel && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
-                                              localReadNoiseMap, shaping, gp);
+            gpuOk = plan.kernel && !both && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
+                                                       localReadNoiseMap, shaping, gp);
          }
          else if (St().useGpu.load() && !fm.HasPopulations())
             SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
@@ -541,8 +602,16 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                opt.illumField = &shaping.illum;
             if (decaySec > 0)
                opt.backgroundScale = [&](long f) { return sim::BackgroundFadeScale(f * params.frameDurationSec, decaySec); };
+            std::vector<float> sum;
             opt.onPhotons = [&](long f, const std::vector<float>& photons) {
-               sim::ApplyNoiseChain(photons, newStack[static_cast<size_t>(f)], fullW, fullH, cam, localOffsetMap,
+               const std::vector<float>* p = &photons;
+               if (both)
+               {
+                  sum = photons;
+                  addLamp(f, sum);
+                  p = &sum;
+               }
+               sim::ApplyNoiseChain(*p, newStack[static_cast<size_t>(f)], fullW, fullH, cam, localOffsetMap,
                                     localGainMap, localReadNoiseMap, noiseSeed, static_cast<uint32_t>(f), true);
                stackFramesGenerated_ = f + 1;
                return true;
@@ -764,7 +833,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // configures the cell field when it starts and after a setting changed.
       const long frameLight = St().lightVersion.load();
       const bool lightOn = isc::LightOn(St());
-      bfActive = lightOn && isc::BrightFieldSelected(St());
+      const bool epiOn = St().epiOpen.load();
+      bfActive = St().transOpen.load();   // the lamp: BrightField, alone or with the fluorescence
       if (bfActive && cellFieldVersion != appliedConfigVersion)
       {
          std::string err;
@@ -820,19 +890,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
       double lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
       sim::ClockSnapshot clock;
       LitFrame lit;
-      if (!lightOn)
-      {
-         // No light source open: a dark frame (offset, read noise, dark current).
-         photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
-         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
-                              liveNoiseSeed, noiseFrame, true);
-      }
-      else if (bfActive)
-      {
-         // A new pose or setting rebuilds the scene (seconds at high quality);
-         // a focus change re-images it (one inverse FFT per source). The lamp:
-         // photons per pixel of the empty field times the transmitted
-         // intensity (dark if the scene failed); camera noise.
+      // The lamp's photons of this frame (x qe) into out. A new pose or setting
+      // rebuilds the scene (seconds at high quality); a focus change re-images
+      // it (one inverse FFT per source). Photons per pixel of the empty field
+      // times the transmitted intensity (dark if the scene failed).
+      auto lampInto = [&](std::vector<float>& out, double qe) {
          if (cellFieldOk && params.drift.On())
          {
             // With drift: the scene stays at an anchor pose (rebuilt when the
@@ -896,11 +958,24 @@ void CInSiliScopeCamera::LiveProducerLoop()
             bfLastQuery = q;
             bfQueried = true;
          }
-         const double flux = std::max(0.0, St().brightField[isc::BF_PHOTONS_PER_PX_PER_SEC].load()) * params.frameDurationSec;
+         const double flux = std::max(0.0, St().brightField[isc::BF_PHOTONS_PER_PX_PER_SEC].load()) *
+                             params.frameDurationSec * qe;
+         out.assign(static_cast<size_t>(w) * h, 0.0f);
+         if (bfImage.size() == out.size())
+            for (size_t i = 0; i < out.size(); ++i)
+               out[i] = static_cast<float>(bfImage[i] * flux);
+      };
+      if (!lightOn)
+      {
+         // No light source open: a dark frame (offset, read noise, dark current).
          photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
-         if (bfImage.size() == photonImg.size())
-            for (size_t i = 0; i < photonImg.size(); ++i)
-               photonImg[i] = static_cast<float>(bfImage[i] * flux);
+         sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
+                              liveNoiseSeed, noiseFrame, true);
+      }
+      else if (bfActive && !epiOn)
+      {
+         // BrightField alone: the lamp (the noise chain applies its QE).
+         lampInto(photonImg, 1.0);
          sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                               liveNoiseSeed, noiseFrame, true);
       }
@@ -925,7 +1000,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          else
          {
             const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
-            if (plan.ok && plan.kernel && !gpuFailed && St().useGpu.load())
+            // The GPU splat applies the noise itself: not with the lamp's photons to add.
+            if (plan.ok && plan.kernel && !gpuFailed && St().useGpu.load() && !bfActive)
             {
                sim::SimulationParams gp = params;
                gp.photonsPerBlink = plan.photonsPerBlink;
@@ -981,6 +1057,15 @@ void CInSiliScopeCamera::LiveProducerLoop()
          {
             if (!rendered || photonImg.size() != static_cast<size_t>(w) * h)
                photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
+            if (bfActive)
+            {
+               // Both lights: the lamp's photons x the QE at its wavelength
+               // (the fluorescence chain runs at QE 1).
+               std::vector<float> lampPhotons;
+               lampInto(lampPhotons, isc::BrightFieldQe(St()));
+               for (size_t i = 0; i < photonImg.size() && i < lampPhotons.size(); ++i)
+                  photonImg[i] += lampPhotons[i];
+            }
             sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                                  liveNoiseSeed, noiseFrame, true);
          }

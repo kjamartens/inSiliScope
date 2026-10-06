@@ -179,7 +179,7 @@ private:
    void StartStackGeneration();
    void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH, sim::SimulationParams params,
                                long seed, sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
-                               double stageZUm, int modality);
+                               double stageZUm, int light);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
    // ---- live mode -----------------------------------------------------------
