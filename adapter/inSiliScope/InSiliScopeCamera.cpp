@@ -16,6 +16,8 @@
 #include "LiveClock.h"
 #include "Simulation/CacheDir.h"
 #include "Simulation/SharedStageState.h"
+#include "Simulation/Timing.h"
+#include "Simulation/Parallel.h"
 
 #include "CameraImageMetadata.h"
 #include "ModuleInterface.h"
@@ -91,6 +93,7 @@ int CInSiliScopeCamera::Initialize()
 {
    if (initialized_)
       return DEVICE_OK;
+   const sim::TimingScope timing("init.camera");
 
    // The settings' rows (Registry/PropertyTable.cpp) for this session's Detail.
    int nRet = InitRegistry(g_CameraDeviceName);
@@ -166,6 +169,15 @@ int CInSiliScopeCamera::Initialize()
       CreateFloatProperty("Test_LiveRenderMs", 0.0, true, pAct);
       pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLivePrefetchMs);
       CreateStringProperty("Test_LivePrefetchMs", "0/0", true, pAct);
+      // The phase profile (Simulation/Timing.h; tools/bench_live.py --profile):
+      // collecting On starts afresh, WriteTo writes the phases since then as
+      // JSON to the given file and starts afresh again.
+      pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnProfileCollect);
+      CreateStringProperty("Test_ProfileCollect", "Off", false, pAct);
+      AddAllowedValue("Test_ProfileCollect", "Off");
+      AddAllowedValue("Test_ProfileCollect", "On");
+      pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnProfileWriteTo);
+      CreateStringProperty("Test_ProfileWriteTo", "", false, pAct);
    }
 
    nRet = UpdateStatus();
@@ -270,6 +282,9 @@ int CInSiliScopeCamera::Shutdown()
       psfPreloadThread_.join();
    if (stackGenThread_.joinable())
       stackGenThread_.join();
+   // The render threads are done: join the ParallelFor pool's workers (the
+   // DLL may be unloaded next).
+   sim::ParallelPoolShutdown();
    sim::SetScopePsfRequestHook(nullptr);
    if (Hub())
       Hub()->SetInvalidateListener(nullptr);
@@ -280,6 +295,7 @@ int CInSiliScopeCamera::Shutdown()
 
 int CInSiliScopeCamera::SnapImage()
 {
+   const sim::TimingScope timing("mm.snap");
    const auto t0 = std::chrono::steady_clock::now();
    const double exp = GetExposure();
 
@@ -493,7 +509,10 @@ int CInSiliScopeCamera::RunSequenceOnThread()
 
    if (!live && !waiter.WaitUntil(at(i + 1), stopped))
       return DEVICE_OK;
-   return InsertImage();
+   const auto tInsert = std::chrono::steady_clock::now();
+   const int ret = InsertImage();
+   sim::TimingLog("mm.insert-image", std::chrono::duration<double>(std::chrono::steady_clock::now() - tInsert).count());
+   return ret;
 }
 
 bool CInSiliScopeCamera::IsCapturing()

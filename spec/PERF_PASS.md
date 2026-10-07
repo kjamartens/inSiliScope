@@ -13,8 +13,24 @@ physics costs, never what bookkeeping, waiting or rebuilding costs.
 - the first image after loading a config takes < 1.5 s.
 
 Measure with `tools/bench_live.py` (fps per Channel preset x exposure, `Test_LiveRenderMs`, worst frame gap, longest
-prefetch vs budget, action latencies; `--json`) and `ISC_TIMING=1` (phase times on stderr). Report numbers from an idle
-machine: Defender and other load inflated render times 2-3x during the 2026-10-07 runs.
+prefetch vs budget, action latencies; `--json`) and its `--profile` (below), or `ISC_TIMING=1` (phase times on stderr).
+Report numbers from an idle machine: Defender and other load inflated render times 2-3x during the 2026-10-07 runs
+(`MsMpEng` at 6 of 12 cores while builds and checks write files).
+
+## Profiling (done)
+
+Every phase timed with `TimingLog` (`Simulation/Timing.h`) is also collected in memory when profiling is on
+(`ISC_PROFILE=1` from process start, or Camera `Test_ProfileCollect`): count, total, mean and longest per phase name, any
+thread. Camera `Test_ProfileWriteTo <file>` writes them as JSON and starts afresh (a file: MMCore property strings stop
+at 1024 characters). Phases of a live frame, in order on the producer: `live.state`, `live.spec+clock`, `live.begin`
+(the movie setup `fl.*`), `live.render` (`fl.frame.*` on the CPU, `gpu.collect` + `gpu.splat+noise`), `live.lamp`,
+`live.noise`, `live.publish`; `live.frame` = all of them; then `live.prefetch`, `live.idle`, `live.zseq-wait`. The
+camera side: `mm.wait-frame (sequence|snap)`, `mm.frame-age`, `mm.copy+history`, `mm.insert-image`, `mm.snap`; startup
+`init.camera`, `init.preload (background)`, `psf.*`. `tools/bench_live.py --profile` records the profile of the load
+and first image, every live case, every Channel switch and every action; `--history benchmarks.json --version vX` adds
+the run to the release's benchmarks file, and `release.yml` job `mm-bench` (Windows runner, pymmcore 12.5.0.75.0)
+runs it on the DLL just built. `tools/benchmarks_page.py` renders fps per version, the latest frame breakdown (stacked
+bars, every phase in a collapsible table) and the latencies with their largest phases.
 
 ## Baseline (2026-10-07, idle machine, before phase 0)
 
@@ -41,6 +57,21 @@ and stalled frames. Result, BrightField: 99.9 fps at 10 ms, 50.1 at 20, 30.3 at 
 focus + snap 52 ms.
 
 ## Phase 1: a persistent live session (largest win, single-molecule)
+
+Done so far (2026-10-07, every output unchanged: 7 cli frames byte-identical, `adapter_pixel_hash`, ctest 29/29):
+- the phase split found the "not yet split" time: `fl.dye-counts` (counting a continuous population's dyes in the FOV's
+  z column, every frame: dSTORM 9, PALM 29, WideField 105-220 ms) and `fl.mean-field-weights` (a clock lookup and two
+  `exp` per mean-field grid column: 8-18 ms); DNA-PAINT has no continuous population, hence its smaller setup;
+- the dye counts are memoised in the shared `MovieCache` by (box, structure mask) at the dye version (a count is a
+  pure function of the world, the labels and the box);
+- the column weights reuse the value of the previous column's clock (the 0.25 um history tiles span ~2.5 grid columns);
+- a single-frame movie splats in bands of rows on all cores (`RenderExtras::parallel`, bit-identical to serial);
+- `FluorescenceMovie::Render` no longer builds the camera's three noise maps when the host adds the noise (`onPhotons`);
+- `ParallelFor` uses a persistent pool (an empty call: 1.2 -> 0.02 ms; the noise of a 256 px frame 3.0 -> 1.7 ms).
+
+Measured (256 px, 10 ms, loaded laptop, `bench_live.py --profile`): WideField 3.4 -> 50-80 fps, dSTORM 18 -> 25-40,
+PALM 5.5 -> 17-30, DNA-PAINT ~22-30 (GPU splat 22-27 ms per single frame on the Iris Xe; the CPU splat of its many
+emitters takes 39-44 ms even on all cores).
 
 Every live frame builds a spec, a new `FluorescenceMovie` and runs `Begin` (setup: light path integrals, labels,
 camera, kernels, dye clocks, populations) before rendering one frame: 11-73 ms per frame in SR, 258 ms in WideField.
@@ -96,6 +127,11 @@ render on the CPU.
   direction (phase 2's background thread); the disk cache already keeps packed blocks.
 - Kernel size: the default 7000 nm half-width kernel (841 x 841 x 71) is expensive to build, hold and splat; let
   `Renderer.Quality` choose it (Fast: 3000 nm), with `scope_parity` unchanged at Realistic.
+- Per-plane kernel extent (the largest SMLM lever, measured 2026-10-07): an emitter's splat covers the whole 145 x 145
+  px window of the 7000 nm kernel at every z, while an in-focus plane has nearly all its light within ~1 um. Truncate
+  each plane at the radius outside which less than ~1e-4 of its energy lies (far below shot noise), in the C++ and the
+  JS twin alike (`scope_parity` against the truncated JS); about 20x fewer taps for in-focus emitters on the CPU and
+  the GPU. A deliberate output change: new `adapter_pixel_hash`, gallery and docs numbers.
 
 ## Phase 5: CPU per-frame costs
 

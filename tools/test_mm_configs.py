@@ -28,7 +28,7 @@ def check(tier):
     assert not any(p.startswith("Test_") for p in core.getDevicePropertyNames("Camera")), "Test rows without ISC_TEST"
     assert core.getChannelGroup() == "Channel" and core.getAutoShutter()
     start_channel = core.getCurrentConfig("Channel")
-    assert start_channel == "AF647 dSTORM", f"{tier}: startup channel {start_channel!r}"
+    assert start_channel == "ATTO655 DNA-PAINT", f"{tier}: startup channel {start_channel!r}"
 
     def objective_mag():   # the label's (Basic has no Magnification readout): 100x/1.40 Oil -> 100
         return float(core.getProperty("Objective", "Label").split("x/")[0])

@@ -975,6 +975,44 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
+   // Dye counts (Density3d, one bin) by (box, structure mask) at dyeVersion:
+   // a count is a pure function of the world, the labels and the box, so a
+   // live movie per frame at an unchanged pose counts once (the most recent
+   // kDyeCountEntries boxes).
+   struct DyeCount
+   {
+      double box[6];
+      int mask;
+      long n;
+   };
+   std::vector<DyeCount> dyeCounts;
+   uint64_t dyeCountVersion = 0;
+   static constexpr size_t kDyeCountEntries = 16;
+   long CountDyes(double x0, double y0, double x1, double y1, double zMin, double zMax, int mask)
+   {
+      if (dyeCountVersion != dyeVersion)
+      {
+         dyeCounts.clear();
+         dyeCountVersion = dyeVersion;
+      }
+      const double box[6] = { x0, y0, x1, y1, zMin, zMax };
+      for (const DyeCount& c : dyeCounts)
+         if (c.mask == mask && std::equal(box, box + 6, c.box))
+            return c.n;
+      float one = 0;
+      const long n = source.Density3d(x0, y0, x1, y1, zMin, zMax, 1, 1, 1, mask, &one);
+      if (n >= 0)
+      {
+         if (dyeCounts.size() >= kDyeCountEntries)
+            dyeCounts.erase(dyeCounts.begin());
+         DyeCount c;
+         std::copy(box, box + 6, c.box);
+         c.mask = mask;
+         c.n = n;
+         dyeCounts.push_back(c);
+      }
+      return n;
+   }
 };
 
 MovieCache& SharedMovieCache()
@@ -1349,16 +1387,28 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    p.ws = ws;
    if (p.weighted)
    {
-      // Frame 0's mean photons per dye at each grid column's clock.
+      auto tW = TimingClock::now();
+      // Frame 0's mean photons per dye at each grid column's clock (neighbouring
+      // columns mostly share a clock: its value is reused, the same number).
       const WidefieldGridSpec& gr = slot.scene.Grid();
       p.wb0.assign(static_cast<size_t>(gr.nx) * gr.ny, 0.0f);
+      double lastT = std::numeric_limits<double>::quiet_NaN();
+      float lastW = 0.0f;
       for (unsigned j = 0; j < gr.ny; ++j)
          for (unsigned i = 0; i < gr.nx; ++i)
          {
             const double t = clock->At(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm);
-            p.wb0[i + static_cast<size_t>(gr.nx) * j] = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+            if (!(t == lastT))
+            {
+               lastT = t;
+               lastW = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+            }
+            p.wb0[i + static_cast<size_t>(gr.nx) * j] = lastW;
          }
+      TimingLog("fl.mean-field-weights", TimingSince(tW));
+      tW = TimingClock::now();
       WeightedImage(p, p.image);
+      TimingLog("fl.mean-field-render", TimingSince(tW));
    }
    else if (!gpuMode)
       TakeImage(p);
@@ -1483,6 +1533,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    m.clock = clock;
    if (!MakeScopeSetup(spec, m.S, err))
       return false;
+   TimingLog("fl.make-setup", TimingSince(m.t0));
    const ScopeSetup& S = m.S;
    const double pixelNm = S.p.pixelSizeNm, um = pixelNm / 1000.0;
    m.zStage = ScopeSpecGet(spec, "z");
@@ -1507,6 +1558,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // host clock's regions (each queried at its own time over its bounding
    // box, keeping only the dyes whose position has that clock).
    std::vector<ClockRegion> regions;
+   tPhase = TimingClock::now();
    if (clock)
    {
       clock->Regions(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, regions);
@@ -1516,6 +1568,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    }
    else
       regions.push_back({ S.q.tSec, S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um });
+   TimingLog("fl.clock-regions", TimingSince(tPhase), std::to_string(regions.size()).c_str());
    auto regionQuery = [&](const ClockRegion& r) {
       CellFieldQuery q = S.q;
       q.tSec = r.tSec;
@@ -1620,6 +1673,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       err = "cell-field event query failed";
       return false;
    }
+   tPhase = TimingClock::now();
    m.events.clear();
    for (const BlinkEvent& e : all)
       if (groupOf(e.structure, false) >= 0)
@@ -1635,6 +1689,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                m.byGroup[gi].push_back(e);
       m.buckets[gi] = BucketEventsByFrame(m.byGroup[gi], S.N);
    }
+   TimingLog("fl.events-sort", TimingSince(tPhase), std::to_string(m.events.size()).c_str());
 
    // ---- continuous populations ----
    // Counted from the structure's dyes (every dye has the window from t = 0):
@@ -1645,6 +1700,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    const double zMin = S.q.zHalfRangeUm > 0 ? focus - S.q.zHalfRangeUm : -inf;
    const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
    m.pops.clear();
+   tPhase = TimingClock::now();
    for (int s = 0; s < static_cast<int>(S.labels.size()); ++s)
    {
       const LabelPhysics& L = S.labels[static_cast<size_t>(s)];
@@ -1658,10 +1714,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       if (states.empty())
          continue;
       const double ox = S.q.originXUm, oy = S.q.originYUm;
-      float one = 0;
-      const long nZ = source.Density3d(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1, 1, 1, 1 << s, &one);
+      const long nZ = m.cache.CountDyes(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << s);
       const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-      const long nSlab = sHi > sLo ? source.Density3d(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1, 1, 1, 1 << s, &one) : 0;
+      const long nSlab = sHi > sLo ? m.cache.CountDyes(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << s) : 0;
       if (nZ < 0 || nSlab < 0)
       {
          err = "cell-field dye count failed";
@@ -1700,6 +1755,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The per-dye windows in frames (fetched once, for every population that
    // needs them): a dye with a photon budget bleaches at aux x budget /
    // emission rate.
+   TimingLog("fl.dye-counts", TimingSince(tPhase));
+   tPhase = TimingClock::now();
    std::vector<BlinkEvent> windows;
    std::vector<double> windowClock;   // each window's region clock (its dye's time at frame 0)
    bool haveWindows = false;
@@ -1737,6 +1794,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          }
       }
    }
+   TimingLog("fl.windows", TimingSince(tPhase), std::to_string(windows.size()).c_str());
    // The mean-field images of the populations that start mean-field.
    m.sceneQueue.clear();
    for (Population& p : m.pops)
@@ -1894,7 +1952,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    }
    DriftInfo(S, info);
 
-   NoiseSetup noise(S.seed, W, H, S.p);
+   // The noise maps only when the movie applies the noise (a host with
+   // onPhotons adds its own: a live frame skips building three maps).
+   std::unique_ptr<NoiseSetup> noisePtr;
+   if (!opt.onPhotons)
+      noisePtr.reset(new NoiseSetup(S.seed, W, H, S.p));
    const CameraNoiseParams cam = S.p.Camera();
    TimingSum tBlinks, tPops, tNoise, tWrite;
    const unsigned long spawns0 = ParallelForSpawns().load();
@@ -1914,6 +1976,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    long blinks = 0;
    RenderExtras into;
    into.accumulate = true;
+   // A single frame (a live frame): its splats in bands of rows on all cores
+   // (the same pixels as serial, RenderPhotonImage); a batch of frames is
+   // already spread over the cores frame by frame.
+   into.parallel = N == 1;
    RenderExtras blinkInto = into;   // the blinks also see the host's illumination field
    const bool shaped = opt.illumField && opt.illumField->size() == n;
    if (shaped)
@@ -2038,8 +2104,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       tNoise.Start();
       if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
-            ApplyNoiseChain(photons[k], adu[k], W, H, cam, noise.offsetMap, noise.gainMap, noise.rnMap,
-                            noise.noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
+            ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
+                            noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
          });
       tNoise.Stop();
       tWrite.Start();

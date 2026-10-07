@@ -17,12 +17,14 @@
 #include "Simulation/Parallel.h"
 #include "Simulation/DyeLibrary.h"
 #include "Simulation/SharedStageState.h"
+#include "Simulation/Timing.h"
 #include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <chrono>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <limits>
@@ -767,6 +769,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          frontFrame_.swap(frame);
          std::swap(liveFrameLit_, lit);
          liveFrameStart_ = started;
+         liveFramePublished_ = sim::SharedStageState::Clock::now();
          liveFrameW_ = fw;
          liveFrameH_ = fh;
          liveFrameEpoch_ = epoch;
@@ -809,6 +812,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // a frame of this acquisition the consumer has not taken yet must not
       // be overwritten by the next position (it would be lost and every later
       // frame would sit one position off).
+      const auto tZWait = sim::TimingClock::now();
+      bool zWaited = false;
       for (;;)
       {
          if (!liveProducerRun_.load() || !liveSeqCapture_.load() || !liveSeqSkipStale_.load() ||
@@ -819,13 +824,23 @@ void CInSiliScopeCamera::LiveProducerLoop()
             if (liveFrameEpoch_ < liveSeqEpoch_.load())
                break;   // a frame from before this acquisition: skipped anyway
          }
+         zWaited = true;
          std::unique_lock<std::mutex> lk(liveCvMutex_);
          liveCv_.wait_for(lk, std::chrono::milliseconds(2),
                           [this] { return liveTakenSeq_.load() >= liveFrameSeq_.load() || !liveProducerRun_.load(); });
       }
+      if (zWaited)
+         sim::TimingLog("live.zseq-wait", sim::TimingSince(tZWait));
       // Everything this frame reads (settings, pose, focus, clocks) is read
       // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
       const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
+      // Phase times of this frame (Simulation/Timing.h: ISC_TIMING, Test_ProfileCollect).
+      auto tLap = sim::TimingClock::now();
+      auto lap = [&tLap](const char* phase) {
+         const auto now = sim::TimingClock::now();
+         sim::TimingLog(phase, std::chrono::duration<double>(now - tLap).count());
+         tLap = now;
+      };
       sim::SimulationParams params = isc::SnapshotParams(St());
       unsigned w = FullWidth();
       unsigned h = FullHeight();
@@ -998,13 +1013,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
          if (bfImage.size() == out.size())
             for (size_t i = 0; i < out.size(); ++i)
                out[i] = static_cast<float>(bfImage[i] * flux);
+         lap("live.lamp");
       };
+      lap("live.state");
       if (!lightOn)
       {
          // No light source open: a dark frame (offset, read noise, dark current).
          photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
          sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                               liveNoiseSeed, noiseFrame, true);
+         lap("live.noise");
       }
       else if (bfActive && !epiOn)
       {
@@ -1012,6 +1030,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          lampInto(photonImg, 1.0);
          sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                               liveNoiseSeed, noiseFrame, true);
+         lap("live.noise");
       }
       else
       {
@@ -1022,10 +1041,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
          SyncHistoryWorld();
          LitRect(sx, sy, lx0, ly0, lx1, ly1);
          clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1);
+         lap("live.spec+clock");
          sim::FluorescenceMovie fm;
          std::string err;
          bool rendered = false;
-         if (!fm.Begin(spec, false, err, St().useGpu.load() ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr, &clock))
+         const bool begun = fm.Begin(spec, false, err, St().useGpu.load() ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr, &clock);
+         lap("live.begin");
+         if (!begun)
          {
             if (!flErrLogged)
                LogMessage("Fluorescence: " + err, false);
@@ -1050,11 +1072,15 @@ void CInSiliScopeCamera::LiveProducerLoop()
                if (gpuKernelSerial)
                {
                   std::vector<sim::GpuSplatEmitter> ems;
+                  const auto tGpu = sim::TimingClock::now();
                   sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, gp.photonsPerBlink, dx, dy,
                                           *plan.kernel, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
                                           &zTotalSinceRebuild);
+                  sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
+                  const auto tGpuRender = sim::TimingClock::now();
                   rendered = gpu->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed, noiseFrame,
                                               nextFrame, err);
+                  sim::TimingLog("gpu.splat+noise", sim::TimingSince(tGpuRender));
                   if (!rendered)
                   {
                      LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
@@ -1087,6 +1113,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
             }
          }
+         lap("live.render");
          if (!rendered || nextFrame.size() != static_cast<size_t>(w) * h)
          {
             if (!rendered || photonImg.size() != static_cast<size_t>(w) * h)
@@ -1103,6 +1130,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             sim::ApplyNoiseChain(photonImg, nextFrame, w, h, params.Camera(), offsetMap, gainMap, readNoiseMap,
                                  liveNoiseSeed, noiseFrame, true);
          }
+         lap("live.noise");
          // This frame lights the FOV and its margin for one exposure (counted
          // when it is taken).
          if (rendered)
@@ -1119,6 +1147,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       cellFieldTimeSec += params.frameDurationSec;
       publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, frameLight,
               lit, frameStart);
+      lap("live.publish");
+      sim::TimingLog("live.frame", std::chrono::duration<double>(sim::SharedStageState::Clock::now() - frameStart).count());
       ++liveFrameCounter_;
 
       const double exposureMs = GetExposure();
@@ -1145,13 +1175,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
          const double took =
             std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - tPrefetch).count();
+         sim::TimingLog("live.prefetch", took / 1000.0);
          if (took > livePrefetchMaxMs_.load())
          {
             livePrefetchMaxMs_ = took;
             livePrefetchBudgetMs_ = sleepMs - kCellFieldPrefetchSlackMs;
          }
       }
+      const auto tWait = sim::TimingClock::now();
       waiter.WaitUntil(scheduled, [this] { return !liveProducerRun_.load() || liveWakeNow_.load(); });
+      sim::TimingLog("live.idle", sim::TimingSince(tWait));
       if (liveWakeNow_.exchange(false))
          scheduled = sim::SharedStageState::Clock::now();   // a snap: its frame starts now
    }
@@ -1213,6 +1246,8 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       // A snap: a producer waiting for its next tick starts this frame now.
       if (!interruptible)
          liveWakeNow_ = true;
+      const auto tTake = sim::TimingClock::now();
+      sim::SharedStageState::Clock::time_point published;
       for (;;)
       {
          {
@@ -1237,6 +1272,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
                w = liveFrameW_;
                h = liveFrameH_;
                lit = liveFrameLit_;
+               published = liveFramePublished_;
                break;
             }
          }
@@ -1252,10 +1288,15 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       lastConsumedLiveFrameSeq_ = seq;
       liveTakenSeq_ = seq;
       liveCv_.notify_all();   // a hardware z stack's producer waits for this
+      const auto tTaken = sim::TimingClock::now();
+      sim::TimingLog(interruptible ? "mm.wait-frame (sequence)" : "mm.wait-frame (snap)",
+                     std::chrono::duration<double>(tTaken - tTake).count());
+      sim::TimingLog("mm.frame-age", std::chrono::duration<double>(tTaken - published).count());
       CropFullFrameIntoImg(frameCopy, w, h);
       // The frame was taken: its light goes into the illumination history.
       if (lit.valid)
          illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight);
+      sim::TimingLog("mm.copy+history", sim::TimingSince(tTaken));
       return true;
    }
 
@@ -1399,6 +1440,36 @@ int CInSiliScopeCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::Act
    return DEVICE_OK;
 }
 
+int CInSiliScopeCamera::OnProfileCollect(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(sim::TimingCollect().load() ? "On" : "Off");
+   else if (eAct == MM::AfterSet)
+   {
+      std::string v;
+      pProp->Get(v);
+      sim::TimingCollect() = v == "On";
+      sim::TimingProfileTake();   // start afresh
+   }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnProfileWriteTo(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::AfterSet)
+   {
+      std::string path;
+      pProp->Get(path);
+      if (path.empty())
+         return DEVICE_OK;
+      std::ofstream f(path, std::ios::binary);
+      if (!f)
+         return DEVICE_INVALID_PROPERTY_VALUE;
+      f << sim::TimingProfileTake() << "\n";
+   }
+   return DEVICE_OK;
+}
+
 int CInSiliScopeCamera::OnLivePrefetchMs(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
    if (eAct == MM::BeforeGet)
@@ -1457,6 +1528,7 @@ void CInSiliScopeCamera::StartPsfPreload()
    sim::ScopeSpec spec = isc::BuildScopeSpec(St(), sx, sy, Stg().zPositionUm.load(), 60.0, 1);
    spec["prepare"] = 1;
    psfPreloadThread_ = std::thread([this, spec]() {
+      const sim::TimingScope timing("init.preload (background)");
       LogMessage("PSF: preloading the kernels of the current settings in the background.");
       sim::ScopeMovieInfo info;
       std::string err;

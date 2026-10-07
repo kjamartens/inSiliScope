@@ -804,6 +804,14 @@ std::vector<PropDef> BuildTable()
       d.getText = [](H& h) { return h.State().GpuStatus(); };
       d.setText = [](H&, const std::string&) { return true; };
       add(d);
+      // The same for the checks at any Detail (tools/bench_live.py records it).
+      d = Row(R, "Test_GpuStatus", Tier::Test, "test-gpu-status", "GpuStatus at any Detail (read-only).");
+      d.kind = PropKind::Text;
+      d.readOnly = true;
+      d.invalidate = Invalidate::None;
+      d.getText = [](H& h) { return h.State().GpuStatus(); };
+      d.setText = [](H&, const std::string&) { return true; };
+      add(d);
       d = Names(R, "DiskCache", Tier::Advanced, "disk-cache", &SceneState::diskCacheMode, { "Off", "Cells", "CellsAndPsf" },
                 "Keep packed cells (and the PSF kernel, ~200 MB) in the per-user cache directory between sessions.");
       d.invalidate = Invalidate::Live;   // a cache only: no output changes

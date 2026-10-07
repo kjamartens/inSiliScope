@@ -182,7 +182,15 @@ assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `do
 Live pacing (2026-10-07, spec/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
 timing: Windows rounds it up to 15.6 ms), an absolute frame schedule, a condition variable from producer to consumer;
 `tools/bench_live.py` measures fps per channel x exposure and action latencies (Test rows `Test_LiveRenderMs`,
-`Test_LivePrefetchMs`).
+`Test_LivePrefetchMs`). Profiling (2026-10-07): every `TimingLog` phase (`Simulation/Timing.h`; live frames: `live.*`,
+movie setup `fl.*`, GPU `gpu.*`, the camera side `mm.*`, `init.*`) is also collected in memory (`TimingCollect`, on
+with `ISC_PROFILE=1` from process start or Camera `Test_ProfileCollect`), and Camera `Test_ProfileWriteTo <file>` writes
+count/total/mean/max per phase as JSON (MMCore strings stop at 1024 chars) and starts afresh. `bench_live.py --profile
+[--history benchmarks.json --version vX]` records it per case; `release.yml` job `mm-bench` (Windows, pymmcore
+12.5.0.75.0 = device interface 75) runs it on the built DLL and `tools/benchmarks_page.py` shows fps per version and
+the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for any new per-frame step (and a line in
+`benchmarks_page.py` `DESCRIBE`). `ParallelFor` (`Simulation/Parallel.h`) runs on a persistent pool (a per-call
+thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
 `adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's

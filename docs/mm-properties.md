@@ -306,6 +306,11 @@ by `Detail`: the precomputed, seeded stack the reproducibility checks use, and t
 | `Camera` | `Test_AcqMode` |  |
 | `Camera` | `Test_EndOfStackReached` |  |
 | `Camera` | `Test_GenerateStack` |  |
+| `Camera` | `Test_LivePrefetchMs` |  |
+| `Camera` | `Test_LiveRenderMs` |  |
+| `Camera` | `Test_ProfileCollect` |  |
+| `Camera` | `Test_ProfileWriteTo` |  |
 | `Camera` | `Test_StackGenerationStatus` |  |
 | `Camera` | `Test_StackLength` |  |
+| `Renderer` | `Test_GpuStatus` | GpuStatus at any Detail (read-only). |
 | `Renderer` | `Test_WriteRegistryTo` | Set to a file path: writes every row of the property registry there as JSON (the reference docs). |

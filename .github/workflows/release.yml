@@ -93,8 +93,42 @@ jobs:
             gallery.zip
             benchmarks.json
 
+  # Micro-Manager live speed with a phase breakdown (tools/bench_live.py --profile): the DLL just built, loaded by
+  # MMCore through pymmcore (its device interface must match third_party/mmCoreAndDevices: 75), on a Windows runner;
+  # added to the cli benchmarks' entry of this version (benchmarks.json, the site's Benchmarks page).
+  mm-bench:
+    needs: [dll, gallery]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "pymmcore==12.5.0.75.0" "pymmcore-plus==0.18.1"
+      - uses: actions/download-artifact@v4
+        with:
+          name: mmgr_dal_inSiliScope-windows-x64
+          path: dll
+      - uses: actions/download-artifact@v4
+        with:
+          name: gallery
+          path: gallery
+      - name: Live benchmark (Basic configuration, 256 px)
+        shell: bash
+        env:
+          ADAPTER_DIR: dll
+        run: |
+          cp gallery/benchmarks.json benchmarks.json
+          python tools/bench_live.py --profile --history benchmarks.json --version "$VERSION" --json bench_live.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: |
+            benchmarks.json
+            bench_live.json
+
   release:
-    needs: [dll, block, gallery]
+    needs: [dll, block, gallery, mm-bench]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,7 +147,7 @@ jobs:
             echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64). GPL-3.0 as a whole (embeds PSFGenerator). Copy into the Micro-Manager folder."
             echo "- \`inSiliScope_Basic.cfg\`, \`inSiliScope_Advanced.cfg\`, \`inSiliScope_Expert.cfg\`: Micro-Manager hardware configurations (the devices, Channel/Objective/Camera/Quality/Drift groups, pixel sizes) at each level of detail."
             echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
-            echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings (also on the project site)."
+            echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings: the cli, and Micro-Manager live speed with where each frame's time goes (also on the project site)."
             echo
             echo '```'
             cat assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt
@@ -129,7 +163,7 @@ jobs:
             assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Expert.cfg \
             assets/cellfield_block/cellfield_block.js \
             assets/cellfield_block/cellfield_block.js.sha256 \
-            assets/gallery/gallery.zip assets/gallery/benchmarks.json \
+            assets/gallery/gallery.zip assets/benchmarks/benchmarks.json \
             --target "$GITHUB_SHA" --title "inSiliScope $VERSION" --notes-file notes.md
 
   pages:

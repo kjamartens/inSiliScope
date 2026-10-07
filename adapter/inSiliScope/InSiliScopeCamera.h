@@ -116,6 +116,8 @@ public:
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnLiveRenderMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnLivePrefetchMs(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnProfileCollect(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnProfileWriteTo(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Test rows (ISC_TEST=1): the precomputed stack.
    int OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -268,6 +270,8 @@ private:
    // acquisition only frames started after it began (liveSeqStartTicks_,
    // steady_clock ticks).
    sim::SharedStageState::Clock::time_point liveFrameStart_{};
+   // When the front frame was published (its age when taken: mm.frame-age).
+   sim::SharedStageState::Clock::time_point liveFramePublished_{};
    std::atomic<long long> liveSeqStartTicks_{0};
    // The light a live frame shone (under frontFrameLock_): its lit rect, its
    // exposure and the profile's dose weight. It goes into the illumination

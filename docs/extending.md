@@ -59,7 +59,8 @@ Speed-ups keep every output bit-identical (cli TIFF pixel data, `adapter_pixel_h
 parameters), vectorise independent lanes, thread work that is consumed in serial order, re-lay data; never reassociate,
 fuse (ctest `world_checks` `NoContraction` guards the build flags, link-time optimisation included), or change a
 sampler or a default. Measure first: `ISC_TIMING=1` makes a cli or viewer movie print its phase times
-(`Simulation/Timing.h`), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
+(`Simulation/Timing.h`), `ISC_TEST=1 python tools/bench_live.py --profile --json out.json` times the Micro-Manager live
+path per phase (the release's numbers are on the [Benchmarks](benchmarks.md) page), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
 `sr_render_check --bench` the splat, `tools/bench.py` whole movies. A consumer with several worlds (the viewer's
 workers) packs each block once and hands the rows around with ABI 7 `isc_world_pack_block` / `isc_world_set_block`
 (spec/PORT.md 6.5); across runs the same rows live in a small per-user file (ABI 8 `isc_world_set_cache_dir`, spec/PORT.md

@@ -28,7 +28,11 @@ def find_mm_dir() -> str:
     return str(candidates[-1])
 
 
-def search_paths():
+def search_paths(require_mm=True):
+    """ADAPTER_DIR and the Micro-Manager install (its other adapters, e.g. Utilities); require_mm=False: the install
+    only if there is one (the Basic configuration needs only the inSiliScope DLL)."""
+    if not require_mm and not os.environ.get("MM_DIR") and not any((USER_DATA_DIR / "mm").glob("Micro-Manager_*")):
+        return [d for d in (os.environ.get("ADAPTER_DIR"),) if d]
     return [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR") or find_mm_dir()) if d]
 
 

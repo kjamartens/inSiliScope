@@ -19,7 +19,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
   The pixel size is the sensor pixel / (objective x emission magnification), default 0.667x: 97.45 nm in MM (was 100;
   cli/viewer `pixel-nm` stays 100). The EMCCD ignores the sCMOS per-pixel gain and read-noise spreads (no preset sets
   them). `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` render an MM frame in the cli. Live z stacks no
-  longer lose a position when a frame is taken late.
+  longer lose a position when a frame is taken late. The shipped configurations start in `ATTO655 DNA-PAINT`.
+
+- Live speed in Micro-Manager (2026-10-07, `spec/PERF_PASS.md`), every output unchanged: frames on the exposure's clock
+  (was capped at 64 / 32 fps by the Windows timer); per frame no dye recount at an unchanged pose, the single frame's
+  splat and noise on all cores through a persistent thread pool, the mean-field clock weights computed once per distinct
+  clock (256 px, 10 ms, loaded laptop: WideField 3 -> 50-80 fps, dSTORM 18 -> 25-40, PALM 6 -> 17-30). The Benchmarks
+  page now shows Micro-Manager live frame rates and where each frame's time goes, measured on every release.
 
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM

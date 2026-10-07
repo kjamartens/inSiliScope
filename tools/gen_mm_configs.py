@@ -33,7 +33,7 @@ CAMERA_RELAY = {"Kinetix22": 0.667, "iXonUltra897": 1.6}
 # nm per sqrt(s) span the setups of Ma et al. 2024 (references.json ma2024).
 DRIFT = [("Off", 0.0), ("5 nm per sqrt s", 5.0), ("10 nm per sqrt s", 10.0), ("20 nm per sqrt s", 20.0)]
 QUALITY = ("Fast", "Realistic", "Exhaustive")
-STARTUP_MODE = "dSTORM"
+STARTUP_MODE = "DNA-PAINT"   # the engine's default label (ATTO655): the PSF preload at init is the first frame's kernel
 
 
 def preset_name(label):
