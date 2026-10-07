@@ -202,7 +202,7 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
+`adapter_pixel_hash` reference since the drift swings (2026-10-07; only its `drift` case moved): TOTAL 312ea6a1...
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -366,10 +366,14 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
 **Sample drift (2026-10-06, spec/PORT.md 17, docs/physics/camera.md):** a directed part plus a random walk, xy and z
-set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and signed z
-speed, whose direction and strength wander slowly (Ornstein-Uhlenbeck: `SimType_DriftXyAngleWanderDeg`,
-`SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`); only the two speeds are everyday settings, the rest is
-advanced (viewer: Advanced). Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
+set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and a z
+speed magnitude in a direction (`DriftZDirection` Up/Down/Random per seed, the second draw of pixel 2 of frame
+0xFFFFFFFF), whose direction and strength wander slowly (Ornstein-Uhlenbeck: `SimType_DriftXyAngleWanderDeg`,
+`SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`). Since 2026-10-07 the wanders are bounded swings: angle =
+mean + A erf(OU / sqrt 2) (`DriftSwing`, A&S 7.1.26), xy A default 180; z speed x cos(swing), `DriftZAngleWanderDeg`
+default 90 (full speed .. still; 180 also reverses), OU on pixel 3. `SampleHolder.DriftPreset` (Basic) Off / Low /
+Medium / High / Extreme sets both speeds 0/2/5/25/250 nm/s and both walks 0/0.4/1/5/50 nm/sqrt s (maxima 1000 / 200);
+a member set by hand makes it Custom; the viewer's Drift preset select does the same, the rest is advanced. Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
 RMS displacement after 1 s (Cnossen et al. 2021, Ma et al. 2024's 5/10/20 nm/s). `Simulation/Drift.*` (JS twin `web/prototype/scope/drift.js`,
 counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live, cli, viewer and the webSMLM block's
 `CellField.driftTrajectory`). MM `SimType_DriftXyNmPerSqrtSec`/`SimType_DriftZNmPerSqrtSec`, cli/viewer

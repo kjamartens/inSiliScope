@@ -14,17 +14,22 @@
 //                RMS displacement per axis after 1 s whatever the frame rate
 //                (strictly nm / sqrt(s)). x and y each get sigma_xy.
 //
-//                Directed part (2026-10-06): velocity v_xy = V_xy max(0, 1 +
-//                s_xy) along theta0 + phi, v_z = V_z max(0, 1 + s_z) (V_z
-//                signed). theta0 is set or drawn once per seed; phi, s_xy, s_z
-//                are Ornstein-Uhlenbeck processes (mean 0, RMS angleWander /
-//                speedWander, correlation time wanderTimeSec), started from
-//                their stationary distribution, updated exactly per frame
-//                (x' = a x + sigma sqrt(1 - a^2) g, a = exp(-dt / tau)). A frame
-//                moves the sample by v dt (v at the frame's start) plus the
-//                random-walk step. Draws: random walk on pixel 0 of
-//                CounterRng(seed, f) (unchanged), the wanders on pixel 1,
-//                theta0 on pixel 2 of frame 0xFFFFFFFF.
+//                Directed part (2026-10-06; z direction and swings 2026-10-07):
+//                v_xy = V_xy max(0, 1 + w s_xy) along theta0 + A_xy u(phi),
+//                v_z = +/-V_z max(0, 1 + w s_z) cos(A_z u(psi)). theta0 and the z
+//                sign are set or drawn once per seed; phi, psi, s_xy, s_z are
+//                unit Ornstein-Uhlenbeck processes (correlation time
+//                wanderTimeSec), started from their stationary distribution,
+//                updated exactly per frame (x' = a x + sqrt(1 - a^2) g, a =
+//                exp(-dt / tau)); u(x) = erf(x / sqrt 2) = 2 Phi(x) - 1 maps one to
+//                [-1, 1], uniform over time, so a direction swings within
+//                +/- its wander A (xy: A = 180 deg, any direction; z: A = 90 deg,
+//                between full speed onward and standing still, never back;
+//                180 deg also reverses). A frame moves the sample by v dt (v at
+//                the frame's start) plus the random-walk step. Draws: random walk
+//                on pixel 0 of CounterRng(seed, f) (unchanged), phi, s_xy, s_z on
+//                pixel 1, psi on pixel 3; theta0 then the z sign on pixel 2 of
+//                frame 0xFFFFFFFF.
 //
 //                The drift is the sample's displacement in camera axes (+z
 //                away from the coverslip), zero at an acquisition's first
@@ -54,12 +59,16 @@ struct DriftSettings
    // Random walk: RMS displacement after 1 s, x and y each / z.
    double xyNmPerSqrtSec = 0.0;
    double zNmPerSqrtSec = 0.0;
-   // Directed: mean speeds (z signed), the xy direction (< 0: random per
-   // seed), and the slow wander of direction and strength.
+   // Directed: mean speeds, the xy direction (< 0: random per seed), the z
+   // direction (+1 away from the coverslip, -1 towards it, 0: random per
+   // seed; a negative z speed reverses it), and the slow wander of the
+   // directions (each swings within +/- its wander) and strengths.
    double xySpeedNmPerSec = 0.0;
    double zSpeedNmPerSec = 0.0;
    double xyAngleDeg = -1.0;
-   double angleWanderDeg = 0.0;  // RMS of the direction about its mean
+   int zDirection = 0;
+   double angleWanderDeg = 180.0;   // xy direction swing, deg (180: any direction)
+   double zAngleWanderDeg = 90.0;   // z swing, deg (90: onward to standing still; 180: also back)
    double speedWanderPct = 0.0;  // RMS of the xy and z strengths (each), % of the mean
    double wanderTimeSec = 60.0;  // correlation time of the wanders
    bool On() const
@@ -97,8 +106,14 @@ private:
    DriftSettings s_;
    long f_ = 0;
    DriftNm d_;
-   double theta0_ = 0.0, phi_ = 0.0, sxy_ = 0.0, sz_ = 0.0; // phi in units of the angle wander, s in units of the speed wander
+   double theta0_ = 0.0, phi_ = 0.0, sxy_ = 0.0, sz_ = 0.0, psi_ = 0.0; // unit OU states (directions: swings, strengths)
+   bool zUp_ = true;   // the z direction drawn for the seed
 };
+
+// erf(x / sqrt 2) = 2 Phi(x) - 1: a unit normal mapped to [-1, 1] (uniform for a
+// standard normal x; Abramowitz & Stegun 7.1.26, |error| < 1.5e-7, refs
+// abramowitz1964).
+double DriftSwing(double x);
 
 // d(0) = 0, then one DriftWalker step per frame, for f = 0 .. frames - 1.
 std::vector<DriftNm> DriftTrajectory(long randomSeed, long frames, double frameSec, const DriftSettings& s);

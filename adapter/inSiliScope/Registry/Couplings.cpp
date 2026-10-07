@@ -116,6 +116,45 @@ void InSiliScopeHub::ClearLightPreset()
    Notify("light-preset");
 }
 
+// The drift presets: xy and z speed (nm/s), xy and z random walk (nm / sqrt s);
+// tiers chosen by the user, *estimate* (Ma et al. 2024's 5-20 nm/s RMS drifts,
+// refs ma2024, sit between Medium and High).
+const std::vector<std::string>& DriftPresetNames()
+{
+   static const std::vector<std::string> n = { "Off", "Low", "Medium", "High", "Extreme", "Custom" };
+   return n;
+}
+
+void InSiliScopeHub::ApplyDriftPreset(int index)
+{
+   static const double speed[] = { 0.0, 2.0, 5.0, 25.0, 250.0 };
+   static const double walk[] = { 0.0, 0.4, 1.0, 5.0, 50.0 };
+   if (index < 0 || index >= static_cast<int>(DriftPresetNames().size()))
+      return;
+   isc::SceneState& st = state_;
+   st.driftPreset = index;
+   if (index < 5)
+   {
+      st.directedDrift[isc::DD_XY_SPEED] = speed[index];
+      st.directedDrift[isc::DD_Z_SPEED] = speed[index];
+      st.driftXyNmPerSqrtSec = walk[index];
+      st.driftZNmPerSqrtSec = walk[index];
+      Notify("drift-xy-speed");
+      Notify("drift-z-speed");
+      Notify("drift-xy-walk");
+      Notify("drift-z-walk");
+   }
+   Notify("drift-preset");
+}
+
+void InSiliScopeHub::ClearDriftPreset()
+{
+   if (state_.driftPreset.load() == 5)
+      return;
+   state_.driftPreset = 5;
+   Notify("drift-preset");
+}
+
 void InSiliScopeHub::ApplyCameraPreset(int index)
 {
    if (index < 0 || index >= static_cast<int>(sim::CameraIds().size()))

@@ -799,6 +799,20 @@ exact, uniform random direction, wander RMS and correlation time, z sign, random
 directed + wandering), `tools/test_cellfield_stage.py --drift` (its own run; stack: random walk in Fluorescence (an mEGFP WideField
 label); live Fluorescence and BrightField sequences = the stack path), the block check.
 
+Bounded swings and the z direction (2026-10-07): `zSpeedNmPerSec` is a magnitude (>= 0), `zDirection` 1 / -1 / 0 (0:
+random per seed, `Uniform() < 0.5` = up, the draw after theta0 on pixel 2 of frame 0xFFFFFFFF). The wanders are swings
+within bounds: theta = theta0 + alpha S(phi), v_z = u V_z max(0, 1 + w s_z) cos(beta S(psi)), S(x) = erf(x / sqrt 2)
+(`DriftSwing`, A&S 7.1.26 in both languages, `abramowitz1964`), psi a fourth OU state on pixel 3 of the frame's stream
+(the draws of pixels 1 and 2 unchanged). Defaults alpha (`angleWanderDeg`) 180, beta (`zAngleWanderDeg`) 90 (z between
+full speed and still), so the default directed drift wanders; the random walk alone (speeds 0) is unchanged bit for bit.
+cli/viewer `drift-z-direction`, `drift-z-angle-wander-deg`. MM: `SampleHolder.DriftZDirection` (Random/Up/Down) and
+`DriftZAngleWanderDeg` (Expert), `DriftPreset` (Basic: Off/Low/Medium/High/Extreme = speeds 0/2/5/25/250 nm/s and walks
+0/0.4/1/5/50 nm/sqrt s, Custom when a member is set by hand; maxima 1000 nm/s and 200 nm/sqrt s); the shipped configs'
+`Drift` group (every tier) sets the preset. Checks: ctest `drift` (swing bounds, RMS A / sqrt 3, correlation after tau
+(6/pi) asin(1/2e) = 0.353, z mean cos 2/pi, the 180 deg z swing reverses, z up for half the seeds, `DriftSwing` = erf
+within 1.5e-7), `scope_parity` and the block check with a z direction and swing, `test_cellfield_stage.py --drift` (the
+preset).
+
 A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29, 27961 (2021); Ma et al., Sci. Adv. 10,
 eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
 per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleForSeed`.

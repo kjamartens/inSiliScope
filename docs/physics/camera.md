@@ -57,22 +57,47 @@ defocused PSF.
 The sample drift has two parts, set separately for xy and z: a **directed** part (a slow, mostly steady movement in
 one direction, as from thermal expansion or a creeping stage) and a **random walk** on top.
 
+**Preset.** `SampleHolder.DriftPreset` (a Basic property; the viewer's **Drift** select, the `Drift` group of the
+shipped configurations) sets both speeds and both random walks at once; the directions and wanders keep their values.
+The tiers are estimates (Ma et al. 2024's 5-20 nm/\(\sqrt{\text{s}}\) sit between Medium and High):
+
+| Preset | \(V_{xy}\), \(V_z\) (nm/s) | \(\sigma_{xy}\), \(\sigma_z\) (nm/\(\sqrt{\text{s}}\)) |
+|---|---|---|
+| Off (default) | 0 | 0 |
+| Low | 2 | 0.4 |
+| Medium | 5 | 1 |
+| High | 25 | 5 |
+| Extreme | 250 | 50 |
+
+Setting any of the four by hand makes the preset `Custom`. The speeds go up to 1000 nm/s, the walks to
+200 nm/\(\sqrt{\text{s}}\) (4x Extreme).
+
 **Directed part.** A mean velocity: xy speed \(V_{xy}\) (`SampleHolder.DriftXySpeedNmPerSec`, cli/viewer
 `drift-xy-speed-nm-per-sec`) in a direction \(\theta_0\) (`SampleHolder.DriftXyAngleDeg`, degrees from +x; −1, the default,
-draws it once per seed) and a signed z speed \(V_z\) (`SampleHolder.DriftZSpeedNmPerSec`, + = away from the coverslip).
-Direction and strength wander slowly:
+draws it once per seed), and a z speed \(V_z \ge 0\) (`SampleHolder.DriftZSpeedNmPerSec`) in a direction \(u = \pm 1\)
+(`SampleHolder.DriftZDirection`: `Up` = away from the coverslip, `Down`, or `Random`, the default, drawn once per seed;
+cli/viewer `drift-z-direction` 1 / −1 / 0). Direction and strength wander slowly, each within bounds:
 
 \[
-v_{xy} = V_{xy}\,\max(0, 1 + w\,s_{xy})\;(\cos(\theta_0 + \alpha\,\phi),\ \sin(\theta_0 + \alpha\,\phi)), \qquad
-v_z = V_z\,\max(0, 1 + w\,s_z),
+v_{xy} = V_{xy}\,\max(0, 1 + w\,s_{xy})\;(\cos(\theta_0 + \alpha\,S(\phi)),\ \sin(\theta_0 + \alpha\,S(\phi))), \qquad
+v_z = u\,V_z\,\max(0, 1 + w\,s_z)\,\cos(\beta\,S(\psi)),
 \]
 
-where \(\phi, s_{xy}, s_z\) are independent unit-variance Ornstein–Uhlenbeck processes with correlation time \(\tau\)
-(`SampleHolder.DriftWanderTimeSec`, default 60 s), \(\alpha\) the direction wander (`SampleHolder.DriftXyAngleWanderDeg`, deg RMS)
-and \(w\) the speed wander (`SampleHolder.DriftSpeedWanderPct`, % RMS of the mean). So the xy direction strays by about
-\(\alpha\) around \(\theta_0\) and the z drift keeps its sign while its strength fluctuates. With both wanders at 0 the
-velocity is constant. Each frame moves the sample by \(v\,\Delta t\), with \(v\) at the frame's start. The xy and z
-speeds are the everyday settings; direction, wanders and \(\tau\) are advanced (the viewer shows them under Advanced).
+where \(\phi, \psi, s_{xy}, s_z\) are independent unit-variance Ornstein–Uhlenbeck processes with correlation time
+\(\tau\) (`SampleHolder.DriftWanderTimeSec`, default 60 s) and \(S(x) = \operatorname{erf}(x/\sqrt 2)\) maps each to a
+uniform value in (−1, 1) (A&S 7.1.26, [abramowitz1964](../references.md#abramowitz1964)), so the swings stay within
+their bounds:
+
+- \(\alpha\) (`SampleHolder.DriftXyAngleWanderDeg`, default 180): the xy direction swings within \(\pm\alpha\) of
+  \(\theta_0\), RMS \(\alpha/\sqrt 3\); 180 = it can turn to any direction.
+- \(\beta\) (`SampleHolder.DriftZAngleWanderDeg`, default 90, at most 180): the z drift is the speed times the
+  cosine of a swing within \(\pm\beta\). At 90 it moves between full speed in its direction and standing still, never
+  back; at 180 it also reverses for a while; 0 = steady.
+- \(w\) (`SampleHolder.DriftSpeedWanderPct`): the strengths' fluctuation, % RMS of the mean.
+
+With \(\alpha = \beta = w = 0\) the velocity is constant. Each frame moves the sample by \(v\,\Delta t\), with \(v\)
+at the frame's start. The preset (or the two speeds) is the everyday setting; directions, wanders and \(\tau\) are
+advanced (the viewer shows them under Advanced, MM at `Detail` Expert).
 
 **Random walk.** Every frame adds an independent normal step per axis,
 and the steps add up (the "cumulative normal distribution" of Cnossen et al. 2021, used by Ma et al. 2024 at RMS drifts of

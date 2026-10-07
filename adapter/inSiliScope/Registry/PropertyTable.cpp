@@ -599,22 +599,75 @@ std::vector<PropDef> BuildTable()
    // =========================== SampleHolder ===========================
    {
       const char* S = "SampleHolder";
-      add(Arr(S, "DriftXySpeedNmPerSec", Tier::Advanced, "drift-xy-speed", &SceneState::directedDrift, DD_XY_SPEED, 0,
-              10000, "Directed sample drift in xy, mean speed (nm/s)."));
-      add(Arr(S, "DriftZSpeedNmPerSec", Tier::Advanced, "drift-z-speed", &SceneState::directedDrift, DD_Z_SPEED, -10000,
-              10000, "Directed sample drift in z, signed speed (nm/s)."));
-      add(Num(S, "DriftXyNmPerSqrtSec", Tier::Advanced, "drift-xy-walk", &SceneState::driftXyNmPerSqrtSec, 0, 1000,
-              "Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis."));
-      add(Num(S, "DriftZNmPerSqrtSec", Tier::Advanced, "drift-z-walk", &SceneState::driftZNmPerSqrtSec, 0, 1000,
-              "Random-walk drift in z: RMS displacement after 1 s (nm)."));
+      {
+         PropDef d = Row(S, "DriftPreset", Tier::Basic, "drift-preset",
+                         "How much the sample drifts: sets the xy and z drift speeds (0, 2, 5, 25, 250 nm/s) and random "
+                         "walks (0, 0.4, 1, 5, 50 nm/sqrt s). Custom = as set.");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            const int i = h.State().driftPreset.load();
+            return i >= 0 && i < static_cast<int>(DriftPresetNames().size()) ? DriftPresetNames()[static_cast<size_t>(i)]
+                                                                              : DriftPresetNames().back();
+         };
+         d.setText = [](H& h, const std::string& s) {
+            const int i = IndexOf(DriftPresetNames(), s);
+            if (i < 0)
+               return false;
+            h.ApplyDriftPreset(i);
+            return true;
+         };
+         d.choices = [](H&) { return DriftPresetNames(); };
+         add(d);
+      }
+      auto custom = [](H& h) { h.ClearDriftPreset(); };
+      PropDef dd = Arr(S, "DriftXySpeedNmPerSec", Tier::Advanced, "drift-xy-speed", &SceneState::directedDrift,
+                       DD_XY_SPEED, 0, 1000, "Directed sample drift in xy, mean speed (nm/s).");
+      ThenNumber(dd, custom);
+      add(dd);
+      dd = Arr(S, "DriftZSpeedNmPerSec", Tier::Advanced, "drift-z-speed", &SceneState::directedDrift, DD_Z_SPEED, 0,
+               1000, "Directed sample drift in z, mean speed (nm/s); its direction: DriftZDirection.");
+      ThenNumber(dd, custom);
+      add(dd);
+      dd = Num(S, "DriftXyNmPerSqrtSec", Tier::Advanced, "drift-xy-walk", &SceneState::driftXyNmPerSqrtSec, 0, 200,
+               "Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis.");
+      ThenNumber(dd, custom);
+      add(dd);
+      dd = Num(S, "DriftZNmPerSqrtSec", Tier::Advanced, "drift-z-walk", &SceneState::driftZNmPerSqrtSec, 0, 200,
+               "Random-walk drift in z: RMS displacement after 1 s (nm).");
+      ThenNumber(dd, custom);
+      add(dd);
       add(Num(S, "BackgroundPhotonsPerSec", Tier::Advanced, "background-per-sec", &SceneState::backgroundPhotonsPerSec,
               0, 200000, "Uniform background (autofluorescence, out-of-focus light), photons per pixel per second."));
       add(Num(S, "BackgroundDecaySec", Tier::Advanced, "bg-decay-sec", &SceneState::bgDecaySec, 0, 100000,
               "The background fades to 30% with this time constant (s; 0 = no fade)."));
       add(Arr(S, "DriftXyAngleDeg", Tier::Expert, "drift-xy-angle", &SceneState::directedDrift, DD_XY_ANGLE, -1, 360,
               "Direction of the directed xy drift (deg; -1 = random per seed)."));
+      {
+         static const std::vector<std::string> dirs = { "Random", "Up", "Down" };
+         PropDef d = Row(S, "DriftZDirection", Tier::Expert, "drift-z-direction",
+                         "Direction the z drift starts in: Up = away from the coverslip, Down = towards it, Random = per "
+                         "seed.");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            const double v = h.State().directedDrift[DD_Z_DIRECTION].load();
+            return dirs[v > 0 ? 1 : v < 0 ? 2 : 0];
+         };
+         d.setText = [](H& h, const std::string& s) {
+            const int i = IndexOf(dirs, s);
+            if (i < 0)
+               return false;
+            h.State().directedDrift[DD_Z_DIRECTION] = i == 1 ? 1.0 : i == 2 ? -1.0 : 0.0;
+            return true;
+         };
+         d.choices = [](H&) { return dirs; };
+         add(d);
+      }
       add(Arr(S, "DriftXyAngleWanderDeg", Tier::Expert, "drift-angle-wander", &SceneState::directedDrift,
-              DD_ANGLE_WANDER, 0, 180, "RMS wander of the drift direction about its mean (deg)."));
+              DD_ANGLE_WANDER, 0, 180, "The xy drift direction swings slowly within +/- this (deg; 180 = any direction)."));
+      add(Arr(S, "DriftZAngleWanderDeg", Tier::Expert, "drift-z-angle-wander", &SceneState::directedDrift,
+              DD_Z_ANGLE_WANDER, 0, 180,
+              "The z drift swings within +/- this (deg): speed x cos(angle); 90 = between full speed and still, 180 = "
+              "also back."));
       add(Arr(S, "DriftSpeedWanderPct", Tier::Expert, "drift-speed-wander", &SceneState::directedDrift, DD_SPEED_WANDER,
               0, 100, "RMS wander of the drift speeds, % of the mean."));
       add(Arr(S, "DriftWanderTimeSec", Tier::Expert, "drift-wander-time", &SceneState::directedDrift, DD_WANDER_TIME,

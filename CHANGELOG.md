@@ -50,6 +50,13 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec` (advanced); cli/viewer
   options of the same meaning; the block's `driftTrajectory` takes them in `opts`. A live Live/MDA sequence now starts
   its drift exactly at its first frame (a frame already in flight at the start was counted with the old origin).
+- **seed** Drift presets and bounded swings (2026-10-07): `SampleHolder.DriftPreset` (Basic) and the viewer's Drift
+  select: Off / Low / Medium / High / Extreme = xy and z speeds 0 / 2 / 5 / 25 / 250 nm/s and random walks 0 / 0.4 / 1 /
+  5 / 50 nm/sqrt s (estimates; maxima now 1000 nm/s and 200 nm/sqrt s); the configs' `Drift` group sets it, in every
+  tier. The z speed is a magnitude with a direction (`DriftZDirection` Up / Down / Random per seed, cli/viewer
+  `drift-z-direction`, was a signed speed). The direction wander is a swing within +/- the angle (was an RMS), default
+  180 deg; the z drift swings too (`DriftZAngleWanderDeg`, cli/viewer `drift-z-angle-wander-deg`, default 90: between
+  full speed and still). A directed drift's path changes for a seed; the random walk alone does not.
 - `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
   (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
   use short stacks and run in under 5 minutes (were ~25).

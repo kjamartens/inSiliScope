@@ -50,7 +50,7 @@ SceneState::SceneState()
    for (int i = 0; i < WF_COUNT; ++i)
       wideField[i] = wideFieldDefaults[i];
    // Directed drift: off (speeds 0), random direction per seed, no wander, 60 s correlation time.
-   const double directedDriftDefaults[DD_COUNT] = { 0.0, 0.0, -1.0, 0.0, 0.0, 60.0 };
+   const double directedDriftDefaults[DD_COUNT] = { 0.0, 0.0, -1.0, 180.0, 0.0, 60.0, 0.0, 90.0 };
    for (int i = 0; i < DD_COUNT; ++i)
       directedDrift[i] = directedDriftDefaults[i];
    // BrightField: quality 3 (sources/upscaling/samples/slice 0 / -1 = from the

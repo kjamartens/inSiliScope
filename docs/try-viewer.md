@@ -44,9 +44,10 @@ Notes:
   reproduces a viewer movie with the CLI.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
-- **Drift xy** and **Drift z** (Acquisition) make the sample drift: mean speeds in nm/s (z signed), the xy direction
-  drawn per noise seed. Advanced adds the direction, how much direction and speed wander (and how slowly), and a
-  random-walk jitter (see [Camera and background](physics/camera.md#drift)). Drifting mean-field images (WideField labels) render on the CPU, a
+- **Drift** (Acquisition) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250
+  nm/s) and a random-walk jitter (0-50 nm/√s), the directions drawn per noise seed. Advanced shows those four values,
+  the directions, how far direction and z speed swing (and how slowly) (see
+  [Camera and background](physics/camera.md#drift)). Drifting mean-field images (WideField labels) render on the CPU, a
   drifting brightfield movie on one worker.
 - Brightfield movies run on the CPU, spread over the browser's workers (the condenser source points are shared out;
   the movie's info line says how many workers took part); the **BF quality** slider trades speed for precision (1: thin

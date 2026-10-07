@@ -44,9 +44,11 @@ export const SCOPE_OPTIONS = [
   ['exposure-ms', 50, 'frame duration, ms (simulated time per frame)'],
   ['start-sec', 60, 'simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)'],
   ['drift-xy-speed-nm-per-sec', 0, 'SampleHolder.DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)'],
-  ['drift-z-speed-nm-per-sec', 0, 'SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)'],
+  ['drift-z-speed-nm-per-sec', 0, 'SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (its direction: drift-z-direction)'],
   ['drift-xy-angle-deg', -1, 'SampleHolder.DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)'],
-  ['drift-xy-angle-wander-deg', 0, 'SampleHolder.DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)'],
+  ['drift-z-direction', 0, 'SampleHolder.DriftZDirection: direction of the z drift, 1 = away from the coverslip, -1 = towards it, 0 = random per seed (advanced)'],
+  ['drift-xy-angle-wander-deg', 180, 'SampleHolder.DriftXyAngleWanderDeg: the xy direction swings slowly within +/- this, deg (180 = any direction; advanced)'],
+  ['drift-z-angle-wander-deg', 90, 'SampleHolder.DriftZAngleWanderDeg: the z drift swings within +/- this, deg: speed x cos(angle), 90 = between full speed and still, 180 = also back (advanced)'],
   ['drift-speed-wander-pct', 0, 'SampleHolder.DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)'],
   ['drift-wander-time-sec', 60, 'SampleHolder.DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)'],
   ['drift-xy-nm-per-sqrt-sec', 0, 'SampleHolder.DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)'],
@@ -362,7 +364,8 @@ export function scopeSetup(P, spec) {
   // (the renderer adds the drift) and the z window by the largest |dz| (the focus itself stays).
   const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')),
     xySpeedNmPerSec: Math.max(0.0, O('drift-xy-speed-nm-per-sec')), zSpeedNmPerSec: O('drift-z-speed-nm-per-sec'),
-    xyAngleDeg: O('drift-xy-angle-deg'), angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')),
+    xyAngleDeg: O('drift-xy-angle-deg'), zDirection: Math.round(O('drift-z-direction')),
+    angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')), zAngleWanderDeg: Math.max(0.0, O('drift-z-angle-wander-deg')),
     speedWanderPct: Math.max(0.0, O('drift-speed-wander-pct')), wanderTimeSec: Math.max(0.0, O('drift-wander-time-sec')) };
   const isDrift = driftOn(driftSettings);
   const drift = isDrift ? driftTrajectory(seed, N, expSec, driftSettings) : [];

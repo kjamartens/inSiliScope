@@ -10,10 +10,11 @@ export const DRIFT_FOCUS_STEP_NM = 10.0;
 
 // seed ^ "DRFT" as uint32 (ToInt32 keeps the low 32 bits of the integer seed, as the C++ cast does).
 export const driftSeed = seed => (Math.trunc(seed) ^ 0x44524654) >>> 0;
-// DriftSettings with its defaults: random walk (RMS nm after 1 s), directed part (mean speeds, z signed; the xy angle,
-// < 0 = random per seed; the slow wander of direction and strength, and its correlation time).
+// DriftSettings with its defaults: random walk (RMS nm after 1 s), directed part (mean speeds; the xy angle, < 0 =
+// random per seed; the z direction, 1 up / -1 down / 0 random per seed, a negative z speed reversing it; the swings of
+// the xy and z directions, deg; the strength wander, and the correlation time).
 export const DRIFT_DEFAULTS = { xyNmPerSqrtSec: 0, zNmPerSqrtSec: 0, xySpeedNmPerSec: 0, zSpeedNmPerSec: 0, xyAngleDeg: -1,
-  angleWanderDeg: 0, speedWanderPct: 0, wanderTimeSec: 60 };
+  zDirection: 0, angleWanderDeg: 180, zAngleWanderDeg: 90, speedWanderPct: 0, wanderTimeSec: 60 };
 export const driftOn = s => s.xyNmPerSqrtSec > 0 || s.zNmPerSqrtSec > 0 || (s.xySpeedNmPerSec || 0) !== 0 ||
   (s.zSpeedNmPerSec || 0) !== 0;
 
@@ -28,28 +29,43 @@ export function driftStep(seed32, f, frameSec, s) {
   return { x: s.xyNmPerSqrtSec * r * gx, y: s.xyNmPerSqrtSec * r * gy, z: s.zNmPerSqrtSec * r * gz };
 }
 
+// erf(x / sqrt 2) = 2 Phi(x) - 1: a unit normal mapped to [-1, 1] (Abramowitz & Stegun 7.1.26; Drift.cpp DriftSwing).
+export function driftSwing(x) {
+  const z = Math.abs(x) / Math.sqrt(2.0);
+  const t = 1.0 / (1.0 + 0.3275911 * z);
+  const poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
+  const e = 1.0 - poly * Math.exp(-z * z);
+  return x < 0.0 ? -e : e;
+}
+
 // DriftWalker (Drift.cpp): zero at frame f0, then step() per frame. Directed velocity at the frame's start:
-// v_xy = V_xy max(0, 1 + w s_xy) along theta0 + wander x phi, v_z = V_z max(0, 1 + w s_z); phi, s_xy, s_z unit-variance
-// Ornstein-Uhlenbeck (correlation time wanderTimeSec) on pixel 1 of each frame's stream; theta0 on pixel 2 of frame
-// 0xFFFFFFFF; the random walk on pixel 0 (unchanged).
+// v_xy = V_xy max(0, 1 + w s_xy) along theta0 + A_xy swing(phi), v_z = +/-V_z max(0, 1 + w s_z) cos(A_z swing(psi));
+// phi, s_xy, s_z unit-variance Ornstein-Uhlenbeck (correlation time wanderTimeSec) on pixel 1 of each frame's stream,
+// psi on pixel 3; theta0 then the z sign on pixel 2 of frame 0xFFFFFFFF; the random walk on pixel 0 (unchanged).
 export class DriftWalker {
   constructor(seed, s, f0 = 0) {
     this.seed32 = driftSeed(seed); this.s = Object.assign({}, DRIFT_DEFAULTS, s); this.f = f0; this.d = { x: 0, y: 0, z: 0 };
     const a = new CounterRng(this.seed32, 0xFFFFFFFF);
     a.pixel(2);
     this.theta0 = 2.0 * Math.PI * a.uniform();
+    this.zUp = a.uniform() < 0.5;
     const u = new CounterRng(this.seed32, f0);
     u.pixel(1);
     this.phi = counterGauss(u);
     this.sxy = counterGauss(u);
     this.sz = counterGauss(u);
+    const v = new CounterRng(this.seed32, f0);
+    v.pixel(3);
+    this.psi = counterGauss(v);
   }
   step(frameSec) {
     const s = this.s, dt = Math.max(0.0, frameSec);
-    const theta = (s.xyAngleDeg >= 0.0 ? s.xyAngleDeg * Math.PI / 180.0 : this.theta0) + s.angleWanderDeg * Math.PI / 180.0 * this.phi;
+    const theta = (s.xyAngleDeg >= 0.0 ? s.xyAngleDeg * Math.PI / 180.0 : this.theta0) + s.angleWanderDeg * Math.PI / 180.0 * driftSwing(this.phi);
     const w = s.speedWanderPct / 100.0;
     const vxy = s.xySpeedNmPerSec * Math.max(0.0, 1.0 + w * this.sxy);
-    const vz = s.zSpeedNmPerSec * Math.max(0.0, 1.0 + w * this.sz);
+    const up = s.zDirection > 0 ? 1.0 : s.zDirection < 0 ? -1.0 : (this.zUp ? 1.0 : -1.0);
+    const vz = up * s.zSpeedNmPerSec * Math.max(0.0, 1.0 + w * this.sz) *
+      Math.cos(s.zAngleWanderDeg * Math.PI / 180.0 * driftSwing(this.psi));
     const vx = vxy * Math.cos(theta), vy = vxy * Math.sin(theta);
     this.f++;
     const st = driftStep(this.seed32, this.f, frameSec, s), d = this.d;
@@ -64,6 +80,9 @@ export class DriftWalker {
     this.phi = a * this.phi + b * gp;
     this.sxy = a * this.sxy + b * gs;
     this.sz = a * this.sz + b * gz;
+    const v = new CounterRng(this.seed32, this.f);
+    v.pixel(3);
+    this.psi = a * this.psi + b * counterGauss(v);
     return this.d;
   }
 }

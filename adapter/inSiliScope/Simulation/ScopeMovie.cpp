@@ -92,9 +92,11 @@ const OptionTable& Options()
          { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
          { "start-sec", 60, "simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)" },
          { "drift-xy-speed-nm-per-sec", 0, "SampleHolder.DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)" },
-         { "drift-z-speed-nm-per-sec", 0, "SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)" },
+         { "drift-z-speed-nm-per-sec", 0, "SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (its direction: drift-z-direction)" },
          { "drift-xy-angle-deg", -1, "SampleHolder.DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)" },
-         { "drift-xy-angle-wander-deg", 0, "SampleHolder.DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)" },
+         { "drift-z-direction", 0, "SampleHolder.DriftZDirection: direction of the z drift, 1 = away from the coverslip, -1 = towards it, 0 = random per seed (advanced)" },
+         { "drift-xy-angle-wander-deg", 180, "SampleHolder.DriftXyAngleWanderDeg: the xy direction swings slowly within +/- this, deg (180 = any direction; advanced)" },
+         { "drift-z-angle-wander-deg", 90, "SampleHolder.DriftZAngleWanderDeg: the z drift swings within +/- this, deg: speed x cos(angle), 90 = between full speed and still, 180 = also back (advanced)" },
          { "drift-speed-wander-pct", 0, "SampleHolder.DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)" },
          { "drift-wander-time-sec", 60, "SampleHolder.DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)" },
          { "drift-xy-nm-per-sqrt-sec", 0, "SampleHolder.DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)" },
@@ -742,7 +744,9 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.drift.xySpeedNmPerSec = std::max(0.0, O("drift-xy-speed-nm-per-sec"));
    p.drift.zSpeedNmPerSec = O("drift-z-speed-nm-per-sec");
    p.drift.xyAngleDeg = O("drift-xy-angle-deg");
+   p.drift.zDirection = static_cast<int>(std::lround(O("drift-z-direction")));
    p.drift.angleWanderDeg = std::max(0.0, O("drift-xy-angle-wander-deg"));
+   p.drift.zAngleWanderDeg = std::max(0.0, O("drift-z-angle-wander-deg"));
    p.drift.speedWanderPct = std::max(0.0, O("drift-speed-wander-pct"));
    p.drift.wanderTimeSec = std::max(0.0, O("drift-wander-time-sec"));
 
@@ -1956,9 +1960,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       if (S.driftOn)
       {
          const DriftSettings& ds = S.p.drift;
-         std::snprintf(b, sizeof b, " drift_xy_speed=%g drift_z_speed=%g drift_angle=%g drift_angle_wander=%g "
+         std::snprintf(b, sizeof b, " drift_xy_speed=%g drift_z_speed=%g drift_angle=%g drift_z_direction=%d "
+                       "drift_angle_wander=%g drift_z_angle_wander=%g "
                        "drift_speed_wander=%g drift_wander_time=%g drift_xy_rms=%g drift_z_rms=%g",
-                       ds.xySpeedNmPerSec, ds.zSpeedNmPerSec, ds.xyAngleDeg, ds.angleWanderDeg, ds.speedWanderPct,
+                       ds.xySpeedNmPerSec, ds.zSpeedNmPerSec, ds.xyAngleDeg, ds.zDirection, ds.angleWanderDeg,
+                       ds.zAngleWanderDeg, ds.speedWanderPct,
                        ds.wanderTimeSec, ds.xyNmPerSqrtSec, ds.zNmPerSqrtSec);
          d += b;
       }

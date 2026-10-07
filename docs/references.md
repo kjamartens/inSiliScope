@@ -4,6 +4,8 @@ Every literature value, default or model in the simulator names one of these key
 `data/`, code comments, these pages). *Checked* says how the citation, and where stated the values, were verified.
 Generated from `data/references.json` by `tools/gen_dye_library.mjs`; edit that file, not this page.
 
+- <a id="abramowitz1964"></a>**abramowitz1964** -- Abramowitz M, Stegun IA (eds.) (1964). Handbook of Mathematical Functions with Formulas, Graphs, and Mathematical Tables. *National Bureau of Standards, Applied Mathematics Series **55** eq. 7.1.26, p. 299*.   
+  Used for: the rational approximation of erf (|error| <= 1.5e-7) behind the drift swings (DriftSwing in Simulation/Drift.*, driftSwing in web/prototype/scope/drift.js). *Checked: the coefficients and error bound as commonly reproduced from eq. 7.1.26, not re-read from the scan; the bound checked numerically against erf in ctest drift.*
 - <a id="bindels2017"></a>**bindels2017** -- Bindels DS, Haarbosch L, van Weeren L, Postma M, Wiese KE, Mastop M, Aumonier S, Gotthard G, Royant A, Hink MA, Gadella TW (2017). mScarlet: a bright monomeric red fluorescent protein for cellular imaging. *Nature Methods **14** 53-56*. [doi:10.1038/nmeth.4074](https://doi.org/10.1038/nmeth.4074)  
   Used for: mScarlet. *Checked: citation via Europe PMC.*
 - <a id="cnossen2021"></a>**cnossen2021** -- Cnossen J, Cui TJ, Joo C, Smith C (2021). Drift correction in localization microscopy using entropy minimization. *Optics Express **29** 27961-27974*. [doi:10.1364/OE.426620](https://doi.org/10.1364/OE.426620)  

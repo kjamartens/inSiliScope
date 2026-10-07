@@ -157,14 +157,17 @@ The mounted specimen; drift and background of the sample.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `DriftXySpeedNmPerSec` | Advanced | 0 | 0 .. 10000 | Directed sample drift in xy, mean speed (nm/s). |
-| `DriftZSpeedNmPerSec` | Advanced | 0 | -10000 .. 10000 | Directed sample drift in z, signed speed (nm/s). |
-| `DriftXyNmPerSqrtSec` | Advanced | 0 | 0 .. 1000 | Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis. |
-| `DriftZNmPerSqrtSec` | Advanced | 0 | 0 .. 1000 | Random-walk drift in z: RMS displacement after 1 s (nm). |
+| `DriftPreset` | Basic | Off | `Off`, `Low`, `Medium`, `High`, `Extreme`, `Custom` | How much the sample drifts: sets the xy and z drift speeds (0, 2, 5, 25, 250 nm/s) and random walks (0, 0.4, 1, 5, 50 nm/sqrt s). Custom = as set. |
+| `DriftXySpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in xy, mean speed (nm/s). |
+| `DriftZSpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in z, mean speed (nm/s); its direction: DriftZDirection. |
+| `DriftXyNmPerSqrtSec` | Advanced | 0 | 0 .. 200 | Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis. |
+| `DriftZNmPerSqrtSec` | Advanced | 0 | 0 .. 200 | Random-walk drift in z: RMS displacement after 1 s (nm). |
 | `BackgroundPhotonsPerSec` | Advanced | 0 | 0 .. 200000 | Uniform background (autofluorescence, out-of-focus light), photons per pixel per second. |
 | `BackgroundDecaySec` | Advanced | 0 | 0 .. 100000 | The background fades to 30% with this time constant (s; 0 = no fade). |
 | `DriftXyAngleDeg` | Expert | -1 | -1 .. 360 | Direction of the directed xy drift (deg; -1 = random per seed). |
-| `DriftXyAngleWanderDeg` | Expert | 0 | 0 .. 180 | RMS wander of the drift direction about its mean (deg). |
+| `DriftZDirection` | Expert | Random | `Random`, `Up`, `Down` | Direction the z drift starts in: Up = away from the coverslip, Down = towards it, Random = per seed. |
+| `DriftXyAngleWanderDeg` | Expert | 180 | 0 .. 180 | The xy drift direction swings slowly within +/- this (deg; 180 = any direction). |
+| `DriftZAngleWanderDeg` | Expert | 90 | 0 .. 180 | The z drift swings within +/- this (deg): speed x cos(angle); 90 = between full speed and still, 180 = also back. |
 | `DriftSpeedWanderPct` | Expert | 0 | 0 .. 100 | RMS wander of the drift speeds, % of the mean. |
 | `DriftWanderTimeSec` | Expert | 60 | 0.1 .. 100000 | Correlation time of the wanders (s). |
 | `PsfSampleIndex` | Expert | 1.518 | 1 .. 2 | Refractive index of the sample medium in the Gibson-Lanni PSF (= immersion: no mismatch). |

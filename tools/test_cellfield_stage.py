@@ -122,19 +122,31 @@ def _drift_checks(core, cam, xy, x0, y0):
     assert not core.hasProperty("SampleHolder", "DriftNmPerSec"), "DriftNmPerSec should be gone"
     for p, v in (("DriftXyNmPerSqrtSec", 0.0), ("DriftZNmPerSqrtSec", 0.0),
                  ("DriftXySpeedNmPerSec", 0.0), ("DriftZSpeedNmPerSec", 0.0),
-                 ("DriftXyAngleDeg", -1.0), ("DriftXyAngleWanderDeg", 0.0),
+                 ("DriftXyAngleDeg", -1.0), ("DriftXyAngleWanderDeg", 180.0), ("DriftZAngleWanderDeg", 90.0),
                  ("DriftSpeedWanderPct", 0.0), ("DriftWanderTimeSec", 60.0)):
         assert core.hasProperty("SampleHolder", p) and float(core.getProperty("SampleHolder", p)) == v, \
             f"SampleHolder.{p} missing or not {v}"
+    assert core.getProperty("SampleHolder", "DriftZDirection") == "Random"
+    # The preset (Basic): sets the speeds and walks; a member set by hand makes it Custom.
+    assert core.getProperty("SampleHolder", "DriftPreset") == "Off"
+    for name, speed, walk in (("Low", 2, 0.4), ("Medium", 5, 1), ("High", 25, 5), ("Extreme", 250, 50), ("Off", 0, 0)):
+        core.setProperty("SampleHolder", "DriftPreset", name)
+        got = [float(core.getProperty("SampleHolder", p)) for p in
+               ("DriftXySpeedNmPerSec", "DriftZSpeedNmPerSec", "DriftXyNmPerSqrtSec", "DriftZNmPerSqrtSec")]
+        assert got == [speed, speed, walk, walk], f"DriftPreset {name}: {got}"
+    core.setProperty("SampleHolder", "DriftZNmPerSqrtSec", "3")
+    assert core.getProperty("SampleHolder", "DriftPreset") == "Custom", "a drift set by hand should make the preset Custom"
+    core.setProperty("SampleHolder", "DriftPreset", "Off")
+    print("Drift preset OK: Off/Low/Medium/High/Extreme set the speeds and walks; a hand-set value makes it Custom")
     core.setXYPosition(xy, x0, y0)  # the field with structure
     _wait_idle(core, xy)
     _label(core, cam, **GFP)
     custom_microtubule_dye(core, PhotonBudget="1e9")
     seed = int(core.getProperty("Hub", "RandomSeed"))
     px = float(core.getProperty("Camera", "PixelSizeNm"))
-    # 1000 nm/sqrt(s) (the property's maximum) and 100 ms frames: frame 9 (0.9 s) sits ~0.95 um (~9 px rms per axis)
-    # from frame 0. A snap of a precomputed stack takes its exposure: 10 snaps = 1 s per stack.
-    sxy, sz, exp_ms, k = 1000.0, 30.0, 100.0, 9
+    # 200 nm/sqrt(s) (the property's maximum) and 400 ms frames: frame 9 (3.6 s) sits ~0.38 um (~4 px rms per axis)
+    # from frame 0. A snap of a precomputed stack takes its exposure: 10 snaps = 4 s per stack.
+    sxy, sz, exp_ms, k = 200.0, 30.0, 400.0, 9
     path = _drift_nm(seed, k + 1, exp_ms / 1000.0, sxy, sz)
     expect = (round(path[k][1] / px), round(path[k][0] / px))
 

@@ -58,6 +58,9 @@ const std::vector<DeviceInfo>& Peripherals();
 
 } // namespace isc
 
+// SampleHolder.DriftPreset's values: Off, Low, Medium, High, Extreme, Custom (Registry/Couplings.cpp).
+const std::vector<std::string>& DriftPresetNames();
+
 class InSiliScopeHub : public HubBase<InSiliScopeHub>
 {
 public:
@@ -109,6 +112,10 @@ public:
    // Lasers or filters set by hand: the light path is no preset's any more.
    void ClearLightPreset();
    void ApplyCameraPreset(int index);
+   // SampleHolder.DriftPreset: sets the drift speeds and random walks (Custom: leaves them);
+   // ClearDriftPreset: a member set by hand makes the preset Custom.
+   void ApplyDriftPreset(int index);
+   void ClearDriftPreset();
    void ApplyModeGain();
    void ApplyZernikePreset(const std::string& name);
    // A dye slot's new source: its edits go; the microtubules reload if they use it.

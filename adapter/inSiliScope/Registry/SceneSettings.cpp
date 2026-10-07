@@ -58,7 +58,9 @@ sim::SimulationParams SnapshotParams(const SceneState& s)
    p.drift.xySpeedNmPerSec = s.directedDrift[DD_XY_SPEED].load();
    p.drift.zSpeedNmPerSec = s.directedDrift[DD_Z_SPEED].load();
    p.drift.xyAngleDeg = s.directedDrift[DD_XY_ANGLE].load();
+   p.drift.zDirection = static_cast<int>(std::lround(s.directedDrift[DD_Z_DIRECTION].load()));
    p.drift.angleWanderDeg = s.directedDrift[DD_ANGLE_WANDER].load();
+   p.drift.zAngleWanderDeg = s.directedDrift[DD_Z_ANGLE_WANDER].load();
    p.drift.speedWanderPct = s.directedDrift[DD_SPEED_WANDER].load();
    p.drift.wanderTimeSec = s.directedDrift[DD_WANDER_TIME].load();
    p.frameDurationSec = expSec;
@@ -241,7 +243,9 @@ void AddDriftToSpec(sim::ScopeSpec& spec, const sim::DriftSettings& d)
    spec["drift-xy-speed-nm-per-sec"] = d.xySpeedNmPerSec;
    spec["drift-z-speed-nm-per-sec"] = d.zSpeedNmPerSec;
    spec["drift-xy-angle-deg"] = d.xyAngleDeg;
+   spec["drift-z-direction"] = d.zDirection;
    spec["drift-xy-angle-wander-deg"] = d.angleWanderDeg;
+   spec["drift-z-angle-wander-deg"] = d.zAngleWanderDeg;
    spec["drift-speed-wander-pct"] = d.speedWanderPct;
    spec["drift-wander-time-sec"] = d.wanderTimeSec;
 }

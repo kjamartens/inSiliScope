@@ -17,10 +17,10 @@ Open the [viewer](try-viewer.md). Nothing to install.
     - `Channel`: one preset per label mode with its typical dye (`AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
       `mEGFP WideField`) and `BrightField`;
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
-      `Quality` (Fast / Realistic / Exhaustive) and `Specimen`;
+      `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`;
     - and the pixel-size calibration of every objective and camera.
 
-   `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels, a `Drift` group and the
+   `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels and the
    channel `mEGFP WideField + BrightField`; `inSiliScope_Expert.cfg` shows every property. The hub's pre-init `Detail`
    (Basic, Advanced, Expert) decides which properties a session shows; to build a configuration of your own, add the
    hub `inSiliScope` in the Hardware Configuration Wizard, then its devices.

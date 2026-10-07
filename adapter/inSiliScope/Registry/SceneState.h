@@ -93,11 +93,13 @@ enum BrightFieldNumber
 enum DirectedDriftNumber
 {
    DD_XY_SPEED = 0,   // mean xy speed, nm/s
-   DD_Z_SPEED,        // signed z speed, nm/s
+   DD_Z_SPEED,        // z speed, nm/s
    DD_XY_ANGLE,       // direction, deg (-1 = random per seed)
-   DD_ANGLE_WANDER,   // RMS of the direction about its mean, deg
+   DD_ANGLE_WANDER,   // swing of the xy direction, deg
    DD_SPEED_WANDER,   // RMS of the strengths, % of the mean
    DD_WANDER_TIME,    // correlation time of the wanders, s
+   DD_Z_DIRECTION,    // 1 away from the coverslip, -1 towards it, 0 random per seed
+   DD_Z_ANGLE_WANDER, // swing of the z drift, deg
    DD_COUNT
 };
 
@@ -137,6 +139,7 @@ struct SceneState
    std::atomic<double> cicElectrons{0.002};
    std::atomic<int> bitDepth{16};
    std::atomic<int> cameraPreset{0};                 // index into sim::CameraIds()
+   std::atomic<int> driftPreset{0};                  // index into DriftPresetNames() (the last: Custom)
    double EmGain() const;                            // the preset's pre-amplifier sensitivity / the gain
 
    // ---- objective: the detection pupil and the PSF kernel's extent ----
