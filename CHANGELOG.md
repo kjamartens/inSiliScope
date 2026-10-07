@@ -57,6 +57,9 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `drift-z-direction`, was a signed speed). The direction wander is a swing within +/- the angle (was an RMS), default
   180 deg; the z drift swings too (`DriftZAngleWanderDeg`, cli/viewer `drift-z-angle-wander-deg`, default 90: between
   full speed and still). A directed drift's path changes for a seed; the random walk alone does not.
+- **seed** The default DNA-PAINT imager concentration is 1 nM (was 1.43; `mt-imager-nm`, MM
+  `CellField.Microtubules_ImagerNm`; an estimate): about as many emitters per frame as the dSTORM and PALM typical
+  labels (~290 per 20 ms frame of a dense 256 px field each; it was ~550).
 - `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
   (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
   use short stacks and run in under 5 minutes (were ~25).

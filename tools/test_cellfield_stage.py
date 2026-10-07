@@ -227,7 +227,7 @@ def _label(core, cam, mode, dye="Typical", pct=None, imager=None):
 
 # The checks' default label: DNA-PAINT ATTO 655 sites (persistent; the
 # imager's concentration sets both the binding rate and a flat background).
-PAINT = dict(mode="DNA-PAINT", dye="ATTO655", pct=70, imager=1.43)
+PAINT = dict(mode="DNA-PAINT", dye="ATTO655", pct=70, imager=1.0)
 # A continuous image of the microtubule network: mEGFP in WideField mode.
 GFP = dict(mode="WideField", dye="mEGFP")
 
@@ -259,9 +259,9 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
                 ("Label", "Mode", "LabelingPct", "ImagerNm")}
     defaults["Dye"] = core.getProperty("Fluorophores", "Microtubules_EffectiveDye")
     assert defaults["Dye"] == "ATTO655 (DNA-PAINT)" and defaults["Label"] == "Typical" and defaults["Mode"] == "Global" and \
-        float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.43, f"label defaults {defaults}"
+        float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.0, f"label defaults {defaults}"
     assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
-    print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1.43 nM imager)")
+    print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1 nM imager)")
     _label(core, cam, **PAINT)
 
     # ---- XY stage motion --------------------------------------------------
@@ -433,7 +433,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     core.setProperty("Renderer", "BrightFieldQuality", "3")
     core.setProperty("Camera", "sCMOS_GainStdPctPerPixel", "0.5")
     brightfield(core, False)
-    _label(core, cam, mode="DNA-PAINT", pct=70, imager=1.43)  # the defaults
+    _label(core, cam, mode="DNA-PAINT", pct=70, imager=1.0)  # the defaults
 
     core.setProperty("Camera", "Test_AcqMode", "Live")
     core.setXYPosition(xy, 0.0, 0.0)

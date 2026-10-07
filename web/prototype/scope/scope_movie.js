@@ -27,8 +27,9 @@ const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Err
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
 // ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
 export const DEFAULT_LASER_640_KW = 1.0;
-// k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former default activation rate.
-export const DEFAULT_IMAGER_NM = 1.43;
+// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
+// activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
+export const DEFAULT_IMAGER_NM = 1;
 
 // [name, default, help]: ScopeMovieOptions(), same order and defaults.
 export const SCOPE_OPTIONS = [

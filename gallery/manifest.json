@@ -6,7 +6,7 @@
                 "sr": { "frames": 60 }, "wf": { "mt-dye": "mEGFP", "light-preset": "auto", "frames": 20 } },
   "entries": [
     { "id": "sr-default", "group": "Super-resolution (blinking)", "title": "Default SMLM movie",
-      "text": "The default CellField: DNA-PAINT with an ATTO 655 imager (1.43 nM) on 70% of the microtubule binding sites, 640 nm excitation, the free imager's flat background, the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
+      "text": "The default CellField: DNA-PAINT with an ATTO 655 imager (1 nM) on 70% of the microtubule binding sites, 640 nm excitation, the free imager's flat background, the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
       "options": {} },
     { "id": "sr-dense", "group": "Super-resolution (blinking)", "title": "Dense activation",
       "text": "Imager concentration x10 (14.3 nM): ten times the binding rate, overlapping emitters and a ten times brighter free-imager background.",

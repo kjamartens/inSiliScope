@@ -181,7 +181,7 @@ Specimen: a field of cells with their labelled structures.
 |---|---|---|---|---|
 | `Microtubules_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
 | `Microtubules_LabelingPct` | Advanced | 70 | 0 .. 100 | Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion). |
-| `Microtubules_ImagerNm` | Advanced | 1.43 | 0 .. 10000 | DNA-PAINT imager concentration, nM. |
+| `Microtubules_ImagerNm` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration, nM. |
 | `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |

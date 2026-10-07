@@ -52,9 +52,11 @@ namespace {
 // 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
 // photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
 constexpr double kDefaultLaser640KW = 1.0;
-// k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former
-// default activation rate (scope_movie.js DEFAULT_IMAGER_NM).
-constexpr double kDefaultImagerNm = 1.43;
+// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (scope_movie.js
+// DEFAULT_IMAGER_NM; *estimate*, 2026-10-07: was 1.43, the former default
+// activation rate; 1 nM gives about the emitters per frame of the dSTORM and
+// PALM typical labels).
+constexpr double kDefaultImagerNm = 1.0;
 
 // The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
 const char* StructurePrefix(int s)
