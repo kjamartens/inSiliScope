@@ -192,7 +192,8 @@ the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for 
 `benchmarks_page.py` `DESCRIBE`). `ParallelFor` (`Simulation/Parallel.h`) runs on a persistent pool (a per-call
 thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
 Render-ahead (2026-10-07, `LiveAhead.cpp`, spec/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
-state a helper thread renders batches of the next 2-8 frames (one K-frame `FluorescenceMovie`, slot-labelled, clocks =
+state a helper thread renders batches of the next frames (K = 300 ms / exposure, 2-16, ramped from 2 after any change;
+`ISC_AHEAD_K` fixes it; one K-frame `FluorescenceMovie`, slot-labelled, clocks =
 history snapshot + `ClockSnapshot::Advance` per untaken frame); any change flushes; not with the lamp, drift or a shaped
 illumination; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
 starts) and the movie cache: never render a live frame with a CPU mean-field scene while the GPU is in use elsewhere

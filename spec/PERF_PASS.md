@@ -109,7 +109,7 @@ filled while the CPU/GPU would idle, delivered exactly on the exposure schedule:
 Done (2026-10-07, `adapter/inSiliScope/LiveAhead.cpp`, every output unchanged: 7 cli frames byte-identical,
 `adapter_pixel_hash`, `test_insiliscope.py`, `test_cellfield_stage.py` incl. `--drift`):
 - In a sequence acquisition whose state (settings, light, pose, focus, exposure, acquisition) equals the previous
-  slot's, a helper thread renders the next K = clamp(150 ms / exposure, 2, 8) frames as one `FluorescenceMovie` of K
+  slot's, a helper thread renders the next K = clamp(150 ms / exposure, 2, 8) (now 300 ms, 2-16, ramped: below) frames as one `FluorescenceMovie` of K
   frames (one setup, one events query; the GPU splat as one dispatch); the producer hands them out one per slot. Each
   batch frame is labelled with its slot (the live frame counter); its dye clocks are the history snapshot advanced by
   the frames before it not yet taken (`ClockSnapshot::Advance`), its background fade and noise counter its own.
@@ -128,6 +128,22 @@ Done (2026-10-07, `adapter/inSiliScope/LiveAhead.cpp`, every output unchanged: 7
 - Measured (256 px, loaded 12-thread laptop, `bench_live.py --profile`, render-ahead on vs `ISC_RENDER_AHEAD=0`, 10 /
   20 ms exposure): dSTORM 67 / 29 vs 36 / 24 fps, DNA-PAINT 32 / 27 vs 27 / 12, PALM 28 / 37 vs 22 / 28, WideField
   100 / 45 vs 78 / 49 (the 20 ms WideField pair within this machine's noise), BrightField unchanged (not rendered ahead).
+
+Batch size (2026-10-07, outputs unchanged): `ISC_AHEAD_K=<n>` fixes it for measurements. 256 px, Iris Xe laptop
+(loaded, so fps is noisy; the per-frame cost of a batch, batch time / K, is the steadier number), 10 / 20 ms:
+
+| K | dSTORM ms/frame | DNA-PAINT | PALM | WideField | worst gap |
+|---|---|---|---|---|---|
+| 2 | 20 / 24 | 27 / 34 | 22 / 24 | 7.4 / 8.8 | 125-307 ms |
+| 4 | 11.5 / 21.6 | 23 / 26 | 20 / 23 | 4.6 / 5.0 | 47-91 ms |
+| 16 | 10.7 / 18.1 | 21 / 22 | 15.5 / 17.4 | 5.1 / 3.4 | 21-266 ms |
+| 32 | 10.1 / - | 26 / 28 | 15.8 / 18.1 | 4.6 / 2.6 | 33-793 ms |
+
+A longer batch helps by spreading its setup and events query (10-35 ms per batch, more when loaded) over more frames,
+up to about 16; past that the splat itself is the cost (DNA-PAINT ~21 ms per frame on the GPU, the 7000 nm kernel) and
+a batch only takes longer. And the frame after any change waits for the whole first batch (K = 32: up to 0.8 s). So: K
+= clamp(300 ms / exposure, 2, 16) (was 150 ms, 2-8), ramped: 2 frames after any change of state, doubling per batch.
+The pacing reads a batch frame's smoothed cost (batch time / frames), as the batch size now changes.
 
 ## Phase 3: GPU for single-molecule frames
 

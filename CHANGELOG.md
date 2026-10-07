@@ -35,6 +35,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   apart: 70-180 ms to the new focus, was 500-800 ms); its images skip the pupil-blocked FFT columns (same pixels).
   dSTORM and PALM (and fluorescence + BrightField) render on the GPU too: the blinks splat there, their continuous
   populations and the lamp are added before the GPU noise (PALM live 28 -> 83 fps at 10 ms on the Iris Xe laptop).
+  Render-ahead batches grow to 300 ms of frames (up to 16, was 150 ms / 8), from 2 frames after any change, so the
+  per-batch setup is spread over more frames without a longer wait after a stage move or setting change.
 
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM

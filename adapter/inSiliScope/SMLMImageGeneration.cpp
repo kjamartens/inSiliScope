@@ -900,8 +900,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // How long a batch takes and a frame on demand (EMAs; 0: not known yet).
    // Batches slower per frame than frames on demand stop (until the config
    // changes); batches slower than the exposure pace the slots.
-   double aheadBatchMs = 0.0, onDemandMs = 0.0;
-   long aheadBatchK = 0;
+   // A batch frame's cost (batch time / frames, smoothed) and one on demand.
+   double aheadFrameMs = 0.0, onDemandMs = 0.0;
+   // The next batch's size: 2 after any change of state, doubling per batch
+   // up to the cap (a long first batch would hold up the frame after a change).
+   long aheadRamp = 2;
    bool aheadOff = false;
    std::shared_ptr<const LiveStatics> aheadStatics;
    uint32_t noiseCounter = 0;
@@ -986,7 +989,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          st->shaping = shaping;
          st->version = currentConfigVersion;
          aheadStatics = st;
-         aheadBatchMs = 0.0;
+         aheadFrameMs = 0.0;
          onDemandMs = 0.0;
          aheadOff = false;
       }
@@ -1185,6 +1188,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       haveLastStamp = true;
       if (!stable || !(aheadStamp == stamp))
       {
+         aheadRamp = 2;
          if (!aheadQueue.empty() || aheadJobId)
          {
             aheadQueue.clear();
@@ -1236,15 +1240,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
                      aheadQueue.push_back({ std::move(fr), aheadJobStarted, slot++ });
                   zClampedSinceRebuild += b->zClamped;
                   zTotalSinceRebuild += b->zTotal;
-                  aheadBatchMs = aheadBatchMs > 0.0 ? 0.7 * aheadBatchMs + 0.3 * b->ms : b->ms;
-                  aheadBatchK = static_cast<long>(b->frames.size());
+                  const double perFrame = b->ms / std::max<size_t>(1, b->frames.size());
+                  aheadFrameMs = aheadFrameMs > 0.0 ? 0.7 * aheadFrameMs + 0.3 * perFrame : perFrame;
+                  aheadRamp = std::min(64L, 2 * std::max(aheadRamp, static_cast<long>(b->frames.size())));
                   // Slower per frame than rendering on demand: stop (else the
                   // batches pace the slots).
-                  if (onDemandMs > 0.0 && aheadBatchMs / std::max(1L, aheadBatchK) > 1.15 * onDemandMs)
+                  if (onDemandMs > 0.0 && aheadFrameMs > 1.15 * onDemandMs)
                   {
                      aheadOff = true;
                      LogMessage("Render-ahead off until a setting changes: a batch frame took " +
-                                   std::to_string(aheadBatchMs / std::max(1L, aheadBatchK)) + " ms, one on demand " +
+                                   std::to_string(aheadFrameMs) + " ms, one on demand " +
                                    std::to_string(onDemandMs) + " ms",
                                 true);
                   }
@@ -1458,12 +1463,20 @@ void CInSiliScopeCamera::LiveProducerLoop()
       lap("live.publish");
       sim::TimingLog("live.frame", std::chrono::duration<double>(sim::SharedStageState::Clock::now() - frameStart).count());
       ++liveFrameCounter_;
-      // The next batch: about 150 ms of frames (2-8), handed to the helper
+      // The next batch (aheadK below), handed to the helper
       // when it is idle and fewer than that are queued, for the slots after
       // the queued frames. Its dye clocks: the history plus the light of the
       // frames before its first slot not yet taken (the front frame and the
       // queue), exactly what taking them will add (flat illumination).
-      const long aheadK = std::max(2L, std::min(8L, std::lround(150.0 / std::max(1.0, exposureNowMs))));
+      static const long aheadKFixed = [] {
+         const char* e = std::getenv("ISC_AHEAD_K");   // investigation knob: a fixed batch size
+         return e ? std::max(0L, std::min(64L, std::atol(e))) : 0L;
+      }();
+      // About 300 ms of frames, 2-16 (spec/PERF_PASS.md: a batch's setup and
+      // events query, 10-35 ms, spread over more frames; past 16 the splat
+      // itself is the cost), from 2 after a change.
+      const long aheadKMax = std::max(2L, std::min(16L, std::lround(300.0 / std::max(1.0, exposureNowMs))));
+      const long aheadK = aheadKFixed > 0 ? aheadKFixed : std::min(aheadKMax, aheadRamp);
       if (stable && !aheadJobId && aheadQueue.size() < static_cast<size_t>(aheadK) && LiveAheadIdle())
       {
          std::unique_ptr<LiveBatchJob> job(new LiveBatchJob());
@@ -1507,8 +1520,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       double exposureMs = GetExposure();
       // Batches slower than the exposure: their frames spread evenly over
       // the time a batch takes (not a burst after each).
-      if (stable && aheadBatchMs > 0.0 && aheadBatchK > 0 && (aheadJobId || !aheadQueue.empty()))
-         exposureMs = std::max(exposureMs, aheadBatchMs / aheadBatchK);
+      if (stable && aheadFrameMs > 0.0 && (aheadJobId || !aheadQueue.empty()))
+         exposureMs = std::max(exposureMs, aheadFrameMs);
       scheduled += std::chrono::duration_cast<sim::SharedStageState::Clock::duration>(
          std::chrono::duration<double, std::milli>(exposureMs));
       const auto nowAfter = sim::SharedStageState::Clock::now();
