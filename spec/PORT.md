@@ -758,7 +758,7 @@ groups per (structure, state) with their own kernel (`KernelWavelengthNm`, 2 nm;
 the filter centre + the imager offset, blinks per group, continuous populations mean-field (`WidefieldScene`,
 `FlatIllumination` over the FOV + 2 x 2 um, unit dose) or per dye (running image), noise at QE 1. Host hooks for the
 adapter: `FluorescenceFrameOptions` (z per frame, drift, illumination field, background fade, photons out instead of
-ADU), `SimplePlan` (one blink group, no populations: the GPU splat), a `WidefieldAccelerator` for the mean-field scenes
+ADU), `SimplePlan` (one blink group: the GPU splat; its populations from `Render` with `populationsOnly`), a `WidefieldAccelerator` for the mean-field scenes
 (D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`, and `DyeClock`
 (Begin's optional per-region clock: the blinks and per-dye windows are queried per clock region over its bounding box,
 keeping the dyes whose position has that clock; a mean-field population goes to the scene's weighted channel with each

@@ -242,8 +242,9 @@ nothing; a snap takes only a frame started after the call, a sequence only frame
 engine reads each dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a
 mean-field population weighted per grid column in one convolution). Reset on a world change (seed, cell parameters).
 cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`
-frame per tick at the stage pose. The GPU splat is used when a movie is one blink group without continuous
-populations; mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
+frame per tick at the stage pose. The GPU splat is used when a movie's blinks are one group (2026-10-07: also with
+continuous populations and the lamp, added on the GPU before its noise as one CPU photon image per frame,
+`FluorescenceFrameOptions::populationsOnly`); mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
 `mt-imager-nm`, `mt-orient*`, `dye<N>.source`, dye overrides `mt-dye.<field>`/`dye<N>.<field>`, `laser-<nm>`,
 `light-preset` (`auto` = the dye mode's), `dichroic`, `em-filter`, `qe-curve`, `camera-preset`, `mean-field-*`.
 

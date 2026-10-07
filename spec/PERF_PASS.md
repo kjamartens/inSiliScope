@@ -138,6 +138,24 @@ render on the CPU.
 - Batch the frames of the render-ahead queue in one dispatch (as the precomputed stack already does).
 - Check: GPU = CPU on >= 99.8 % of pixels (the existing criterion), CPU fallback on any failure.
 
+Done (2026-10-07; `adapter_pixel_hash` unchanged, it renders on the CPU):
+- `FluorescenceSimplePlan` covers any movie whose blinks are one group (one blinking label): dSTORM with its initial-ON
+  population, PALM with its pre group and pre-state population, DNA-PAINT. `Render` with
+  `FluorescenceFrameOptions::populationsOnly` gives the continuous populations alone (in frame order, mean-field or
+  per dye as before); `GpuSimulator::RenderFrame(s)` takes them as an extra photon image per frame, added after the
+  blinks and before the noise. The lamp's image (both lights) goes into the same image, so fluorescence + BrightField
+  renders on the GPU too. Live frames, render-ahead batches (one dispatch) and the Test-tier stacks use it.
+- The shader stages each frame's emitter list through group-shared memory, 256 records at a time (pixels identical to
+  the per-pixel reads; dSTORM batch 61 -> 48 ms).
+- The live GPU path reads the blinks at the spec's focus (stage z less the z drift), as the CPU path; it used the stage
+  z.
+- Measured: GPU = CPU splat on 99.96 % (dSTORM), 99.9994 % (PALM), 99.935 % (dSTORM + lamp) of pixels, max 1-4 ADU,
+  with the same mean-field images (`test_insiliscope.py` checks PALM: 99.998 %). UseGpu On vs Off differs more for a
+  fresh dSTORM sample (the WideField host's fp16 mean-field image of the ~10^4 photons/px initial ON), as before.
+- The 8-frame batch on the Iris Xe at 256 px, 10 ms: dSTORM 48 ms, PALM 89 ms, DNA-PAINT 173 ms (the splat of the 7000 nm
+  kernel: ~145^2 px x 16 block-sum reads per emitter is the cost now, on GPU as on CPU; see the kernel-size item).
+  Live (loaded laptop, 10 / 20 ms): PALM 28 / 37 -> 83 / 39 fps, dSTORM 67 / 29 -> 80-85 / 26-43 fps.
+
 ## Phase 4: interactive latencies
 
 - First image (3.7-4 s): split it (world, packing the FOV's blocks, PSF kernel, first frame) and start all of them at

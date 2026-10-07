@@ -1858,15 +1858,29 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
 {
    const Impl& m = *impl_;
    FluorescenceSimplePlan sp;
-   if (m.groups.size() != 1 || m.groups[0].pre || !m.pops.empty())
+   // The blink groups: the main groups of the blinking labels (a WideField
+   // label's main group only lights its population).
+   int blinkGroup = -1, blinkGroups = 0;
+   for (size_t gi = 0; gi < m.groups.size(); ++gi)
+   {
+      const Group& g = m.groups[gi];
+      if (g.pre || m.S.labels[static_cast<size_t>(g.structure)].mode == MODE_WIDEFIELD)
+         continue;
+      blinkGroup = static_cast<int>(gi);
+      ++blinkGroups;
+   }
+   if (blinkGroups != 1)
       return sp;
-   const Group& g = m.groups[0];
+   const Group& g = m.groups[static_cast<size_t>(blinkGroup)];
+   if (m.byGroup[static_cast<size_t>(blinkGroup)].size() != m.events.size())
+      return sp;   // blinks of another group (none should be)
    sp.ok = true;
    sp.kernel = g.kernel.valid ? &g.kernel : nullptr;
    sp.photonsPerBlink = g.perFrame;
    sp.sigmaPx = g.sigmaPx;
    sp.backgroundPhotons = m.bg;
-   sp.events = &m.byGroup[0];
+   sp.events = &m.byGroup[static_cast<size_t>(blinkGroup)];
+   sp.populations = !m.pops.empty();
    return sp;
 }
 
@@ -1988,6 +2002,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
 #else
    const long cores = std::max(1L, static_cast<long>(std::thread::hardware_concurrency()));
 #endif
+   const bool popsOnly = opt.populationsOnly && opt.onPhotons;
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
@@ -1999,6 +2014,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       blinkInto.parallel = bands;
       auto blinkFrame = [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
+         frameBlinks[k] = 0;
+         if (popsOnly)
+         {
+            photons[k].assign(n, 0.0f);   // the host splats the background and the blinks
+            return;
+         }
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
          if (!shaped && bgScale == 1.0)
             photons[k].assign(n, static_cast<float>(m.bg));

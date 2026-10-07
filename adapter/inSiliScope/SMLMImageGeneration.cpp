@@ -531,7 +531,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          LogMessage("Fluorescence: nothing rendered (" + err + ")", false);
       else
       {
-         // One blink group and no continuous population: the GPU splat + noise.
+         // One blink group: the GPU splats it and adds the noise; the
+         // continuous populations and the lamp come from the CPU as one extra
+         // photon image per frame.
          const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
          std::unique_ptr<sim::GpuSimulator> gpu;
          sim::SimulationParams gp = params;
@@ -540,11 +542,11 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             gp.photonsPerBlink = plan.photonsPerBlink;
             gp.backgroundPhotons = plan.backgroundPhotons;
             gp.psfSigmaPx = plan.sigmaPx;
-            gpuOk = plan.kernel && !both && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
-                                                       localReadNoiseMap, shaping, gp);
+            gpuOk = plan.kernel && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
+                                              localReadNoiseMap, shaping, gp);
          }
          else if (St().useGpu.load() && !fm.HasPopulations())
-            SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
+            SetGpuStatus("CPU (the GPU splat is for the blinks of one label)");
          {
             std::ostringstream msg;
             msg << "Fluorescence: " << (plan.ok ? std::to_string(plan.events->size()) + " blinks" : std::string("stack"))
@@ -559,13 +561,16 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             const long batch = static_cast<long>(gpu->MaxBatchFrames());
             std::vector<sim::BlinkEvent> evs;
             long zc = 0, zt = 0;
-            for (long f0 = 0; f0 < stackLength && gpuOk; f0 += batch)
-            {
-               const long f1 = std::min(stackLength, f0 + batch);
+            // The batch's extra photons (populations, lamp), by frame - f0.
+            const bool withExtra = plan.populations || both;
+            std::vector<std::vector<float>> extraImg(withExtra ? static_cast<size_t>(batch) : 0);
+            // Frames f0..f1-1 on the GPU (false: failed, the stack goes to the CPU).
+            auto dispatch = [&](long f0, long f1) {
                std::vector<std::vector<sim::GpuSplatEmitter>> ems(static_cast<size_t>(f1 - f0));
                std::vector<uint32_t> frameIds;
                std::vector<double> bgScales;
                std::vector<std::vector<uint16_t>*> outs;
+               std::vector<const std::vector<float>*> extraPtrs;
                for (long f = f0; f < f1; ++f)
                {
                   evs.clear();
@@ -580,17 +585,68 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                   frameIds.push_back(static_cast<uint32_t>(f));
                   bgScales.push_back(extras.backgroundScale);
                   outs.push_back(&newStack[static_cast<size_t>(f)]);
+                  if (withExtra)
+                     extraPtrs.push_back(&extraImg[static_cast<size_t>(f - f0)]);
                }
-               if (!gpu->RenderFrames(ems, frameIds, bgScales, cam, noiseSeed, outs, err))
+               if (!gpu->RenderFrames(ems, frameIds, bgScales, cam, noiseSeed, outs, err,
+                                      withExtra ? &extraPtrs : nullptr))
                {
                   LogMessage("GPU frame render failed, rendering the stack on the CPU: " + err, false);
                   SetGpuStatus("CPU (GPU render failed: " + err + ")");
                   gpuOk = false;
                   stackFramesGenerated_ = 0;
                   zc = zt = 0;
-                  break;
+                  return false;
                }
                stackFramesGenerated_ = f1;
+               return true;
+            };
+            if (!plan.populations)
+               for (long f0 = 0; f0 < stackLength; f0 += batch)
+               {
+                  const long f1 = std::min(stackLength, f0 + batch);
+                  for (long f = f0; f < f1 && both; ++f)
+                  {
+                     std::vector<float>& x = extraImg[static_cast<size_t>(f - f0)];
+                     x.assign(static_cast<size_t>(fullW) * fullH, 0.0f);
+                     addLamp(f, x);
+                  }
+                  if (!dispatch(f0, f1))
+                     break;
+               }
+            else
+            {
+               // The populations frame by frame (in order: the per-dye ones
+               // keep running images), a GPU dispatch per full batch.
+               sim::FluorescenceFrameOptions opt;
+               opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
+               opt.populationsOnly = true;
+               long fBase = 0;
+               opt.onPhotons = [&](long f, const std::vector<float>& photons) {
+                  std::vector<float>& x = extraImg[static_cast<size_t>(f - fBase)];
+                  x = photons;
+                  if (both)
+                     addLamp(f, x);
+                  if (f + 1 - fBase < batch && f + 1 < stackLength)
+                     return true;
+                  const bool ok = dispatch(fBase, f + 1);
+                  fBase = f + 1;
+                  return ok;
+               };
+               sim::ScopeMovieInfo info;
+               if (!fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt))
+               {
+                  LogMessage("Fluorescence (GPU): " + err + "; rendering the stack on the CPU", false);
+                  gpuOk = false;
+                  stackFramesGenerated_ = 0;
+                  zc = zt = 0;
+               }
+               else if (gpuOk && fBase < stackLength)
+               {
+                  gpuOk = false;   // stopped early
+                  stackFramesGenerated_ = 0;
+                  zc = zt = 0;
+               }
             }
             zClampedAll += zc;
             zRenderedAll += zt;
@@ -1283,20 +1339,51 @@ void CInSiliScopeCamera::LiveProducerLoop()
          else
          {
             const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
-            // The GPU splat applies the noise itself: not with the lamp's photons to add.
-            if (useGpu && !bfActive && aheadStatics && PrepareLiveGpu(plan, w, h, *aheadStatics, params))
+            // The GPU splats the blinks and adds the noise; the continuous
+            // populations and the lamp come from the CPU as one photon image.
+            if (useGpu && aheadStatics && PrepareLiveGpu(plan, w, h, *aheadStatics, params))
             {
+               const size_t n = static_cast<size_t>(w) * h;
+               std::vector<float> extraImg;
+               bool extraOk = true;
+               if (plan.populations)
+               {
+                  const auto tPops = sim::TimingClock::now();
+                  sim::FluorescenceFrameOptions opt;
+                  opt.populationsOnly = true;
+                  opt.onPhotons = [&](long, const std::vector<float>& photons) {
+                     extraImg = photons;
+                     return true;
+                  };
+                  sim::ScopeMovieInfo info;
+                  extraOk = fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr,
+                                      &opt) && extraImg.size() == n;
+                  sim::TimingLog("gpu.populations", sim::TimingSince(tPops));
+               }
+               if (extraOk && bfActive)
+               {
+                  // Both lights: the lamp's photons x the QE at its wavelength.
+                  std::vector<float> lampPhotons;
+                  lampInto(lampPhotons, isc::BrightFieldQe(St()));
+                  if (extraImg.size() != n)
+                     extraImg.assign(n, 0.0f);
+                  for (size_t i = 0; i < n && i < lampPhotons.size(); ++i)
+                     extraImg[i] += lampPhotons[i];
+               }
                std::vector<sim::GpuSplatEmitter> ems;
                const auto tGpu = sim::TimingClock::now();
+               // At the spec's focus: the stage z less the z drift (as the CPU path).
                sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, plan.photonsPerBlink, dx, dy,
-                                       *plan.kernel, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
-                                       &zTotalSinceRebuild);
+                                       *plan.kernel, sim::ScopeSpecGet(spec, "z"), &extras, ems,
+                                       &zClampedSinceRebuild, &zTotalSinceRebuild);
                sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
                const auto tGpuRender = sim::TimingClock::now();
-               rendered = liveGpu_.splat->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed,
-                                                      noiseFrame, nextFrame, err);
+               if (extraOk)
+                  rendered = liveGpu_.splat->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed,
+                                                         noiseFrame, nextFrame, err,
+                                                         extraImg.size() == n ? &extraImg : nullptr);
                sim::TimingLog("gpu.splat+noise", sim::TimingSince(tGpuRender));
-               if (!rendered)
+               if (!rendered && extraOk)
                {
                   LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
                   SetGpuStatus("CPU (GPU render failed: " + err + ")");
@@ -1304,7 +1391,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
             }
             else if (!plan.ok && useGpu && liveGpu_.failedAt != currentConfigVersion && !fm.HasPopulations())
-               SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
+               SetGpuStatus("CPU (the GPU splat is for the blinks of one label)");
             if (!rendered)
             {
                sim::FluorescenceFrameOptions opt;

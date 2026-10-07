@@ -177,6 +177,10 @@ struct FluorescenceFrameOptions
    // Set: the photon images (before the camera) go here instead of the noise
    // chain and onFrame (the host adds its own noise).
    std::function<bool(long f, const std::vector<float>& photons)> onPhotons;
+   // With onPhotons: the images hold the continuous populations only (no
+   // background, no blinks) -- a host that splats the blinks itself (the
+   // adapter's GPU, FluorescenceSimplePlan) adds them.
+   bool populationsOnly = false;
 };
 
 // A host's per-region clock (the adapter's illumination history): the
@@ -197,14 +201,18 @@ public:
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };
 
-// The blinks-only case of a movie (one blink group, no continuous
-// population): what the adapter's GPU splat + noise path needs.
+// A movie whose blinks are one group (one structure's main state): what the
+// adapter's GPU splat + noise path needs. The background and the blinks are
+// splatted from this; the continuous populations (populations: there are
+// some), if any, come from Render with populationsOnly and are added before
+// the noise.
 struct FluorescenceSimplePlan
 {
    bool ok = false;
    const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
    double photonsPerBlink = 0, sigmaPx = 1, backgroundPhotons = 0;
    const std::vector<BlinkEvent>* events = nullptr;
+   bool populations = false;
 };
 
 class FluorescenceMovie

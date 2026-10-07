@@ -153,7 +153,32 @@ void CInSiliScopeCamera::LiveAheadLoop()
          return;
       const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
       const sim::CameraNoiseParams cam = job.params.Camera();
-      if (job.useGpu && PrepareLiveGpu(plan, job.w, job.h, st, job.params))
+      bool gpuReady = job.useGpu && PrepareLiveGpu(plan, job.w, job.h, st, job.params);
+      // The continuous populations of the batch (CPU, in frame order), added
+      // on the GPU before the noise.
+      std::vector<std::vector<float>> popImg;
+      if (gpuReady && plan.populations)
+      {
+         const auto tPops = sim::TimingClock::now();
+         popImg.assign(static_cast<size_t>(K), std::vector<float>());
+         sim::FluorescenceFrameOptions opt;
+         opt.populationsOnly = true;
+         opt.onPhotons = [&](long f, const std::vector<float>& photons) {
+            if (cancelled() || f >= K)
+               return false;
+            popImg[static_cast<size_t>(f)] = photons;
+            return true;
+         };
+         sim::ScopeMovieInfo info;
+         std::string err;
+         if (!fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt))
+            return;
+         for (const std::vector<float>& img : popImg)
+            if (img.size() != n)
+               return;   // cancelled
+         sim::TimingLog("ahead.gpu.populations", sim::TimingSince(tPops));
+      }
+      if (gpuReady)
       {
          const auto tGpu = sim::TimingClock::now();
          const std::vector<std::vector<uint32_t>> byFrame = sim::BucketEventsByFrame(*plan.events, K);
@@ -161,6 +186,7 @@ void CInSiliScopeCamera::LiveAheadLoop()
          std::vector<uint32_t> ids;
          std::vector<double> bgScales;
          std::vector<std::vector<uint16_t>*> outs;
+         std::vector<const std::vector<float>*> extraPtrs;
          std::vector<sim::BlinkEvent> evs;
          for (long f = 0; f < K; ++f)
          {
@@ -174,13 +200,16 @@ void CInSiliScopeCamera::LiveAheadLoop()
             ids.push_back(job.noiseBase + static_cast<uint32_t>(f));
             bgScales.push_back(extras.backgroundScale);
             outs.push_back(&out.frames[static_cast<size_t>(f)]);
+            if (!popImg.empty())
+               extraPtrs.push_back(&popImg[static_cast<size_t>(f)]);
          }
          sim::TimingLog("ahead.gpu.collect", sim::TimingSince(tGpu));
          if (cancelled())
             return;
          const auto tSplat = sim::TimingClock::now();
          std::string err;
-         if (liveGpu_.splat->RenderFrames(ems, ids, bgScales, cam, job.noiseSeed, outs, err))
+         if (liveGpu_.splat->RenderFrames(ems, ids, bgScales, cam, job.noiseSeed, outs, err,
+                                          popImg.empty() ? nullptr : &extraPtrs))
          {
             sim::TimingLog("ahead.gpu.splat+noise", sim::TimingSince(tSplat));
             out.ok = true;

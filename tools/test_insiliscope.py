@@ -376,7 +376,15 @@ if status.startswith("GPU"):
     cpu_frames = stack_frames(KERNEL + [("Renderer", "UseGpu", "Off")], n=10)
     same = (gpu_frames == cpu_frames).mean()
     assert same > 0.999, f"GPU/CPU frames agree on only {100*same:.4f}% of pixels"
-    print(f"GPU OK ({status}): {100*same:.4f}% of pixels identical to the CPU path")
+    # PALM: two groups (pre, main) and a continuous population (the pre state,
+    # CPU) added to the GPU's blinks before its noise.
+    PALM = KERNEL + [("Fluorophores", "Mode", "PALM")]
+    gpu_palm = stack_frames(PALM + [("Renderer", "UseGpu", "On")], n=10)
+    assert core.getProperty("Renderer", "GpuStatus").startswith("GPU"), core.getProperty("Renderer", "GpuStatus")
+    same_palm = (gpu_palm == stack_frames(PALM + [("Renderer", "UseGpu", "Off")], n=10)).mean()
+    assert same_palm > 0.998, f"PALM GPU/CPU frames agree on only {100*same_palm:.4f}% of pixels"
+    print(f"GPU OK ({status}): {100*same:.4f}% of pixels identical to the CPU path (PALM, with its population: "
+          f"{100*same_palm:.4f}%)")
 else:
     print(f"GPU check skipped: {status}")
 

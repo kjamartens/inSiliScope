@@ -33,6 +33,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   Live BrightField computes the next focus positions in the background (a z sequence's, else along the last focus
   step) and keeps recent ones, so focusing at low magnification no longer stalls on every step (20x, 0.5 um steps 2 s
   apart: 70-180 ms to the new focus, was 500-800 ms); its images skip the pupil-blocked FFT columns (same pixels).
+  dSTORM and PALM (and fluorescence + BrightField) render on the GPU too: the blinks splat there, their continuous
+  populations and the lamp are added before the GPU noise (PALM live 28 -> 83 fps at 10 ms on the Iris Xe laptop).
 
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM
