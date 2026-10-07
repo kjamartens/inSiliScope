@@ -9,6 +9,7 @@ import sys
 # of the FRAME phases (they follow each other on the producer thread); the others are inside one of them.
 FRAME = [
     ("live.state", "read settings, pose, drift"),
+    ("live.ahead-wait", "wait for a render-ahead batch"),
     ("live.spec+clock", "build the scene spec, illumination clocks"),
     ("live.begin", "movie setup (light path, kernels, dye queries)"),
     ("live.render", "render the photons (splat / GPU)"),
@@ -16,12 +17,20 @@ FRAME = [
     ("live.noise", "camera noise"),
     ("live.publish", "hand the frame to the camera"),
 ]
-COLORS = ["#8d99ae", "#4c78a8", "#f58518", "#e45756", "#72b7b2", "#54a24b", "#b279a2"]
+COLORS = ["#8d99ae", "#bab0ac", "#4c78a8", "#f58518", "#e45756", "#72b7b2", "#54a24b", "#b279a2"]
 DESCRIBE = {
     "live.frame": "producer: one frame from reading the state to publishing it (the render time)",
     "live.idle": "producer: waiting for the next exposure slot",
     "live.prefetch": "producer: pre-loading dyes around the FOV in idle time",
     "live.zseq-wait": "producer: waiting for the consumer in a hardware z stack",
+    "live.ahead-frame": "producer: a frame taken from the render-ahead queue (count)",
+    "live.ahead-submit": "producer: hand the next batch to the render-ahead helper",
+    "live.ahead-flush": "producer: queued frames dropped on a change of state (count)",
+    "live.ahead-drop": "producer: a queued frame for a slot already shown (count)",
+    "ahead.batch": "render-ahead helper: one batch of frames (setup, render, noise)",
+    "ahead.cpu.render+noise": "render-ahead helper: the batch's frames on the CPU",
+    "ahead.gpu.collect": "render-ahead helper: emitters of the batch's frames",
+    "ahead.gpu.splat+noise": "render-ahead helper: the batch's frames in one GPU dispatch",
     "mm.wait-frame (sequence)": "sequence thread: waiting for a fresh frame",
     "mm.wait-frame (snap)": "snap: waiting for a frame started after the call",
     "mm.frame-age": "age of a frame when taken (publish -> take)",
@@ -131,7 +140,8 @@ def mm_section(hist):
     profiled = [r for r in latest["live"] if r.get("profile")]
     if profiled:
         print("### Where a live frame's time goes\n")
-        print("Mean time per frame on the producer thread, at the exposure above, by phase:\n")
+        print("Time per published frame on the producer thread, at the exposure above, by phase (frames from the "
+              "render-ahead queue were rendered by its helper thread meanwhile, `ahead.batch`):\n")
         legend = " ".join(f'<span style="display:inline-block;width:10px;height:10px;background:{col}"></span> '
                           f"`{n}` {html.escape(d)}" for (n, d), col in zip(FRAME, COLORS))
         print(legend + "\n")
@@ -139,7 +149,8 @@ def mm_section(hist):
         totals = {}
         for r in sel:
             ph = r["profile"]["phases"]
-            totals[r["channel"]] = [(n, ph.get(n, {}).get("meanMs", 0.0)) for n, _ in FRAME]
+            frames = max(1, ph.get("live.frame", {}).get("count", 0))
+            totals[r["channel"]] = [(n, ph.get(n, {}).get("totalMs", 0.0) / frames) for n, _ in FRAME]
         scale = max([sum(ms for _, ms in t) for t in totals.values()] + [1e-9])
         print('<div>')
         for r in sel:

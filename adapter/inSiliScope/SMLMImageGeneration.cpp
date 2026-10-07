@@ -22,7 +22,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <chrono>
 #include <fstream>
 #include <functional>
@@ -696,14 +698,21 @@ void CInSiliScopeCamera::StartLiveProducer()
    actualFrameIntervalMs_ = 0.0;
 
    liveProducerRun_ = true;
+   StartLiveAhead();
    liveProducerThread_ = std::thread(&CInSiliScopeCamera::LiveProducerLoop, this);
 }
 
 void CInSiliScopeCamera::StopLiveProducer()
 {
    liveProducerRun_ = false;
+   CancelLiveAhead();
+   {
+      std::lock_guard<std::mutex> g(liveAheadMutex_);
+   }
+   liveAheadCv_.notify_all();   // a producer waiting for a batch
    if (liveProducerThread_.joinable())
       liveProducerThread_.join();
+   StopLiveAhead();
 }
 
 void CInSiliScopeCamera::LiveProducerLoop()
@@ -715,15 +724,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // The illumination field -- rebuilt on the same config-version trigger as
    // everything else here.
    sim::StackShapingFields shaping;
-   // GPU simulator for this thread (created on first use), the kernel it was
-   // loaded with and the background it carries.
-   std::unique_ptr<sim::GpuSimulator> gpu;
-   uint64_t gpuKernelSerial = 0;
-   double gpuBackground = -1.0;
-   bool gpuFailed = false;
-   // The mean-field scenes' Direct3D 11 host of this thread.
-   std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
-   bool wfGpuTried = false;
    // Sentinel: guarantees the very first tick below rebuilds the offset map
    // and the rest of the cached config.
    long appliedConfigVersion = -1;
@@ -757,11 +757,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
    std::vector<float> bfImage;
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics).
+   // started: when the frame's state was read (a frame rendered ahead: its
+   // batch's); slotStart: when this slot began (the render time statistic).
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
-                         long config, long light, LitFrame& lit,
-                         sim::SharedStageState::Clock::time_point started) {
+                         long config, long light, LitFrame& lit, sim::SharedStageState::Clock::time_point started,
+                         sim::SharedStageState::Clock::time_point slotStart) {
       const double renderMs =
-         std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - started).count();
+         std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - slotStart).count();
       const double prevRender = liveRenderMs_.load(std::memory_order_relaxed);
       liveRenderMs_.store(prevRender > 0.0 ? 0.8 * prevRender + 0.2 * renderMs : renderMs, std::memory_order_relaxed);
       {
@@ -805,6 +807,45 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // (liveWakeNow_) starts a frame at once.
    isc::PreciseWaiter waiter;
    sim::SharedStageState::Clock::time_point scheduled = sim::SharedStageState::Clock::now();
+   // Render-ahead (LiveAhead.cpp): frames of the helper's batches queued for
+   // the next slots, the state they were made for (any change drops them), the
+   // job in flight (0: none) and when its state was read. A frame's noise has
+   // its own counter (batches reserve theirs). ISC_RENDER_AHEAD=0 turns it off.
+   struct AheadStamp
+   {
+      long config = -1, light = -1, epoch = -1;
+      long long seqStart = -1;
+      double x = 0, y = 0, z = 0, expMs = 0;
+      unsigned w = 0, h = 0;
+      bool operator==(const AheadStamp& o) const
+      {
+         return config == o.config && light == o.light && epoch == o.epoch && seqStart == o.seqStart && x == o.x &&
+                y == o.y && z == o.z && expMs == o.expMs && w == o.w && h == o.h;
+      }
+   };
+   struct AheadFrame
+   {
+      std::vector<uint16_t> adu;
+      sim::SharedStageState::Clock::time_point started;
+      long slot;   // the live frame counter it is for
+   };
+   std::deque<AheadFrame> aheadQueue;
+   AheadStamp aheadStamp, lastStamp;
+   bool haveLastStamp = false, aheadErrLogged = false;
+   long aheadJobId = 0, aheadNextId = 0, aheadJobK = 0;
+   sim::SharedStageState::Clock::time_point aheadJobStarted;
+   // How long a batch takes and a frame on demand (EMAs; 0: not known yet).
+   // Batches slower per frame than frames on demand stop (until the config
+   // changes); batches slower than the exposure pace the slots.
+   double aheadBatchMs = 0.0, onDemandMs = 0.0;
+   long aheadBatchK = 0;
+   bool aheadOff = false;
+   std::shared_ptr<const LiveStatics> aheadStatics;
+   uint32_t noiseCounter = 0;
+   const bool renderAhead = [] {
+      const char* e = std::getenv("ISC_RENDER_AHEAD");
+      return !(e && *e == '0');
+   }();
 
    while (liveProducerRun_.load())
    {
@@ -833,6 +874,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          sim::TimingLog("live.zseq-wait", sim::TimingSince(tZWait));
       // Everything this frame reads (settings, pose, focus, clocks) is read
       // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
+      const long long seqStartTicks = liveSeqStartTicks_.load();
       const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
       // Phase times of this frame (Simulation/Timing.h: ISC_TIMING, Test_ProfileCollect).
       auto tLap = sim::TimingClock::now();
@@ -866,8 +908,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
          zClampedSinceRebuild = 0;
          zTotalSinceRebuild = 0;
-         gpuKernelSerial = 0;   // reload the GPU (maps, background)
-         gpuFailed = false;
          flErrLogged = false;
          if (!isc::BrightFieldSelected(St()))
          {
@@ -876,6 +916,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
                LogMessage(zWarn, false);
          }
          appliedConfigVersion = currentConfigVersion;
+         std::shared_ptr<LiveStatics> st = std::make_shared<LiveStatics>();
+         st->offsetMap = offsetMap;
+         st->gainMap = gainMap;
+         st->readNoiseMap = readNoiseMap;
+         st->shaping = shaping;
+         st->version = currentConfigVersion;
+         aheadStatics = st;
+         aheadBatchMs = 0.0;
+         onDemandMs = 0.0;
+         aheadOff = false;
       }
       // The light of this frame: the shutters of the light sources (a frame
       // rendered with other light is not taken, liveFrameLight_). BrightField
@@ -932,7 +982,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // Counter-based noise: keyed by the live frame counter, on a seed of
       // its own (live mode was never meant to reproduce precomputed frames).
       const uint32_t liveNoiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(St().seed.load()) ^ 0x4C4E4F49ULL);
-      const uint32_t noiseFrame = static_cast<uint32_t>(liveFrameCounter_.load(std::memory_order_relaxed));
+      const uint32_t noiseFrame = noiseCounter++;
       std::vector<uint16_t> nextFrame;
       sim::ScopeSpec spec;
       // The lit rect of this frame and its illumination clocks.
@@ -1016,7 +1066,126 @@ void CInSiliScopeCamera::LiveProducerLoop()
          lap("live.lamp");
       };
       lap("live.state");
-      if (!lightOn)
+      // Render-ahead: in a sequence acquisition whose state (settings, light,
+      // pose, focus, exposure) is the previous slot's, this slot's frame comes
+      // from the helper's queue; any change drops the queue and the job.
+      const double exposureNowMs = GetExposure();
+      const AheadStamp stamp{ currentConfigVersion, frameLight, frameEpoch, seqStartTicks, sx, sy, zOffsetUm,
+                              exposureNowMs, w, h };
+      const bool aheadEligible = renderAhead && !aheadOff && lightOn && epiOn && !bfActive && liveSeqCapture_.load() &&
+                                 !liveSeqSkipStale_.load() && !params.drift.On() && shaping.illum.empty() &&
+                                 !liveWakeNow_.load() && aheadStatics;
+      const bool stable = aheadEligible && haveLastStamp && stamp == lastStamp;
+      lastStamp = stamp;
+      haveLastStamp = true;
+      if (!stable || !(aheadStamp == stamp))
+      {
+         if (!aheadQueue.empty() || aheadJobId)
+         {
+            aheadQueue.clear();
+            CancelLiveAhead();
+            aheadJobId = 0;
+            sim::TimingLog("live.ahead-flush", 0.0);
+         }
+         aheadStamp = stamp;
+      }
+      bool fromQueue = false;
+      sim::SharedStageState::Clock::time_point queuedStarted = frameStart;
+      const long slotNow = liveFrameCounter_.load(std::memory_order_relaxed);
+      if (stable)
+      {
+         if (aheadJobId)
+         {
+            // Nothing queued for this slot: wait for the batch (a frame on
+            // demand would wait for it too: the batch's movie holds the movie
+            // cache), unless the state changes meanwhile -- then drop it and
+            // start this slot again with the new state.
+            const auto now = sim::SharedStageState::Clock::now();
+            const auto until = aheadQueue.empty() ? now + std::chrono::seconds(10) : now;
+            bool changed = false;
+            std::unique_ptr<LiveBatch> b = TakeLiveAhead(aheadJobId, &until, [&] {
+               double x = 0.0, y = 0.0;
+               Stg().PositionXyAt(sim::SharedStageState::Clock::now(), x, y);
+               changed = liveConfigVersion_.load(std::memory_order_relaxed) != stamp.config ||
+                         St().lightVersion.load() != stamp.light || liveSeqStartTicks_.load() != stamp.seqStart ||
+                         Stg().zPositionUm.load() != stamp.z || x != stamp.x || y != stamp.y ||
+                         GetExposure() != stamp.expMs || !liveSeqCapture_.load();
+               return changed;
+            });
+            if (changed && !b)
+            {
+               aheadQueue.clear();
+               CancelLiveAhead();
+               aheadJobId = 0;
+               haveLastStamp = false;
+               sim::TimingLog("live.ahead-flush", 0.0);
+               lap("live.ahead-wait");
+               continue;
+            }
+            if (b)
+            {
+               if (b->ok)
+               {
+                  long slot = b->firstSlot;
+                  for (std::vector<uint16_t>& fr : b->frames)
+                     aheadQueue.push_back({ std::move(fr), aheadJobStarted, slot++ });
+                  zClampedSinceRebuild += b->zClamped;
+                  zTotalSinceRebuild += b->zTotal;
+                  aheadBatchMs = aheadBatchMs > 0.0 ? 0.7 * aheadBatchMs + 0.3 * b->ms : b->ms;
+                  aheadBatchK = static_cast<long>(b->frames.size());
+                  // Slower per frame than rendering on demand: stop (else the
+                  // batches pace the slots).
+                  if (onDemandMs > 0.0 && aheadBatchMs / std::max(1L, aheadBatchK) > 1.15 * onDemandMs)
+                  {
+                     aheadOff = true;
+                     LogMessage("Render-ahead off until a setting changes: a batch frame took " +
+                                   std::to_string(aheadBatchMs / std::max(1L, aheadBatchK)) + " ms, one on demand " +
+                                   std::to_string(onDemandMs) + " ms",
+                                true);
+                  }
+               }
+               else if (!aheadErrLogged)
+               {
+                  LogMessage("Render-ahead: " + b->err + " (rendering frames on demand)", false);
+                  aheadErrLogged = true;
+               }
+               aheadJobId = 0;
+            }
+            else if (LiveAheadIdle())
+               aheadJobId = 0;   // dropped (cancelled)
+            lap("live.ahead-wait");
+         }
+         // Frames for slots already shown (rendered on demand meanwhile).
+         while (!aheadQueue.empty() && aheadQueue.front().slot < slotNow)
+         {
+            aheadQueue.pop_front();
+            sim::TimingLog("live.ahead-drop", 0.0);
+         }
+         if (!aheadQueue.empty() && aheadQueue.front().slot == slotNow)
+         {
+            nextFrame.swap(aheadQueue.front().adu);
+            queuedStarted = aheadQueue.front().started;
+            aheadQueue.pop_front();
+            fromQueue = nextFrame.size() == static_cast<size_t>(w) * h;
+            if (fromQueue)
+            {
+               LitRect(sx, sy, lx0, ly0, lx1, ly1);
+               lit.valid = true;
+               lit.x0 = lx0;
+               lit.y0 = ly0;
+               lit.x1 = lx1;
+               lit.y1 = ly1;
+               lit.dtSec = params.frameDurationSec;
+               lit.weight = HistoryWeight(shaping, sx, sy);
+               sim::TimingLog("live.ahead-frame", 0.0);
+            }
+         }
+      }
+      if (fromQueue)
+      {
+         // A frame rendered ahead for this state: nothing to render.
+      }
+      else if (!lightOn)
       {
          // No light source open: a dark frame (offset, read noise, dark current).
          photonImg.assign(static_cast<size_t>(w) * h, 0.0f);
@@ -1045,7 +1214,16 @@ void CInSiliScopeCamera::LiveProducerLoop()
          sim::FluorescenceMovie fm;
          std::string err;
          bool rendered = false;
-         const bool begun = fm.Begin(spec, false, err, St().useGpu.load() ? WideFieldGpu(wfGpu, wfGpuTried) : nullptr, &clock);
+         const auto tOnDemand = sim::TimingClock::now();
+         // The shared GPU hosts (waiting for a batch of the render-ahead
+         // helper, like the movie cache: a CPU frame here would switch the
+         // shared mean-field scenes out of their GPU mode and back).
+         std::unique_lock<std::mutex> gpuLock(liveGpu_.m, std::defer_lock);
+         const bool useGpu = St().useGpu.load();
+         if (useGpu)
+            gpuLock.lock();
+         const bool begun = fm.Begin(spec, false, err, useGpu ? WideFieldGpu(liveGpu_.wf, liveGpu_.wfTried) : nullptr,
+                                     &clock);
          lap("live.begin");
          if (!begun)
          {
@@ -1057,39 +1235,26 @@ void CInSiliScopeCamera::LiveProducerLoop()
          {
             const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
             // The GPU splat applies the noise itself: not with the lamp's photons to add.
-            if (plan.ok && plan.kernel && !gpuFailed && St().useGpu.load() && !bfActive)
+            if (useGpu && !bfActive && aheadStatics && PrepareLiveGpu(plan, w, h, *aheadStatics, params))
             {
-               sim::SimulationParams gp = params;
-               gp.photonsPerBlink = plan.photonsPerBlink;
-               gp.backgroundPhotons = plan.backgroundPhotons;
-               if (plan.kernel->Serial() != gpuKernelSerial || plan.backgroundPhotons != gpuBackground)
+               std::vector<sim::GpuSplatEmitter> ems;
+               const auto tGpu = sim::TimingClock::now();
+               sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, plan.photonsPerBlink, dx, dy,
+                                       *plan.kernel, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
+                                       &zTotalSinceRebuild);
+               sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
+               const auto tGpuRender = sim::TimingClock::now();
+               rendered = liveGpu_.splat->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed,
+                                                      noiseFrame, nextFrame, err);
+               sim::TimingLog("gpu.splat+noise", sim::TimingSince(tGpuRender));
+               if (!rendered)
                {
-                  gpuKernelSerial = PrepareGpu(gpu, *plan.kernel, w, h, offsetMap, gainMap, readNoiseMap, shaping, gp)
-                                       ? plan.kernel->Serial() : 0;
-                  gpuBackground = plan.backgroundPhotons;
-                  gpuFailed = gpuKernelSerial == 0;
-               }
-               if (gpuKernelSerial)
-               {
-                  std::vector<sim::GpuSplatEmitter> ems;
-                  const auto tGpu = sim::TimingClock::now();
-                  sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, gp.photonsPerBlink, dx, dy,
-                                          *plan.kernel, zOffsetUm, &extras, ems, &zClampedSinceRebuild,
-                                          &zTotalSinceRebuild);
-                  sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
-                  const auto tGpuRender = sim::TimingClock::now();
-                  rendered = gpu->RenderFrame(ems, params.Camera(), extras.backgroundScale, liveNoiseSeed, noiseFrame,
-                                              nextFrame, err);
-                  sim::TimingLog("gpu.splat+noise", sim::TimingSince(tGpuRender));
-                  if (!rendered)
-                  {
-                     LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
-                     SetGpuStatus("CPU (GPU render failed: " + err + ")");
-                     gpuFailed = true;
-                  }
+                  LogMessage("GPU frame render failed, continuing on the CPU: " + err, false);
+                  SetGpuStatus("CPU (GPU render failed: " + err + ")");
+                  liveGpu_.failedAt = currentConfigVersion;
                }
             }
-            else if (!plan.ok && St().useGpu.load() && !gpuFailed && !fm.HasPopulations())
+            else if (!plan.ok && useGpu && liveGpu_.failedAt != currentConfigVersion && !fm.HasPopulations())
                SetGpuStatus("CPU (the GPU splat is for one blink group without continuous populations)");
             if (!rendered)
             {
@@ -1113,6 +1278,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
             }
          }
+         if (gpuLock.owns_lock())
+            gpuLock.unlock();
          lap("live.render");
          if (!rendered || nextFrame.size() != static_cast<size_t>(w) * h)
          {
@@ -1131,6 +1298,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
                                  liveNoiseSeed, noiseFrame, true);
          }
          lap("live.noise");
+         if (rendered)
+         {
+            const double ms = sim::TimingSince(tOnDemand) * 1000.0;   // with the noise, as a batch
+            onDemandMs = onDemandMs > 0.0 ? 0.7 * onDemandMs + 0.3 * ms : ms;
+         }
          // This frame lights the FOV and its margin for one exposure (counted
          // when it is taken).
          if (rendered)
@@ -1146,12 +1318,61 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       cellFieldTimeSec += params.frameDurationSec;
       publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, frameLight,
-              lit, frameStart);
+              lit, queuedStarted, frameStart);
       lap("live.publish");
       sim::TimingLog("live.frame", std::chrono::duration<double>(sim::SharedStageState::Clock::now() - frameStart).count());
       ++liveFrameCounter_;
+      // The next batch: about 150 ms of frames (2-8), handed to the helper
+      // when it is idle and fewer than that are queued, for the slots after
+      // the queued frames. Its dye clocks: the history plus the light of the
+      // frames before its first slot not yet taken (the front frame and the
+      // queue), exactly what taking them will add (flat illumination).
+      const long aheadK = std::max(2L, std::min(8L, std::lround(150.0 / std::max(1.0, exposureNowMs))));
+      if (stable && !aheadJobId && aheadQueue.size() < static_cast<size_t>(aheadK) && LiveAheadIdle())
+      {
+         std::unique_ptr<LiveBatchJob> job(new LiveBatchJob());
+         job->id = ++aheadNextId;
+         job->spec = isc::BuildScopeSpec(St(), sx, sy, zOffsetUm, 0.0, aheadK);
+         job->params = params;
+         job->w = w;
+         job->h = h;
+         job->zOffsetUm = zOffsetUm;
+         job->statics = aheadStatics;
+         job->decaySec = St().bgDecaySec.load();
+         job->noiseSeed = liveNoiseSeed;
+         job->noiseBase = noiseCounter;
+         noiseCounter += static_cast<uint32_t>(aheadK);
+         job->useGpu = St().useGpu.load();
+         SyncHistoryWorld();
+         double ax0, ay0, ax1, ay1;
+         LitRect(sx, sy, ax0, ay0, ax1, ay1);
+         const long nextSlot = liveFrameCounter_.load(std::memory_order_relaxed);
+         job->firstSlot = aheadQueue.empty() ? nextSlot : aheadQueue.back().slot + 1;
+         const long ahead = std::max(0L, job->firstSlot - nextSlot);
+         size_t pending = static_cast<size_t>(ahead);
+         {
+            std::lock_guard<std::mutex> tg(liveTakeMutex_);
+            job->clock = illumHistory_.Snapshot(ax0, ay0, ax1, ay1);
+            if (liveTakenSeq_.load() < liveFrameSeq_.load())
+               ++pending;   // the front frame, not taken yet
+         }
+         for (size_t k = 0; k < pending; ++k)
+            job->clock.Advance(ax0, ay0, ax1, ay1, params.frameDurationSec);
+         // Frame f of the batch shows framesSinceDriftOrigin + 1 + ahead + f.
+         for (long f = 0; f < aheadK; ++f)
+            job->fadeSec.push_back((framesSinceDriftOrigin + 1 + ahead + f) * params.frameDurationSec);
+         aheadJobId = job->id;
+         aheadJobK = aheadK;
+         aheadJobStarted = sim::SharedStageState::Clock::now();
+         SubmitLiveAhead(std::move(job));
+         lap("live.ahead-submit");
+      }
 
-      const double exposureMs = GetExposure();
+      double exposureMs = GetExposure();
+      // Batches slower than the exposure: their frames spread evenly over
+      // the time a batch takes (not a burst after each).
+      if (stable && aheadBatchMs > 0.0 && aheadBatchK > 0 && (aheadJobId || !aheadQueue.empty()))
+         exposureMs = std::max(exposureMs, aheadBatchMs / aheadBatchK);
       scheduled += std::chrono::duration_cast<sim::SharedStageState::Clock::duration>(
          std::chrono::duration<double, std::milli>(exposureMs));
       const auto nowAfter = sim::SharedStageState::Clock::now();
@@ -1161,7 +1382,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // Spend the wait pre-loading the dyes a stage move would need next (the
       // whole z column and an xy margin around the FOV), so focusing and
       // nearby moves do not stall a frame on generating them.
-      if (sleepMs > kCellFieldPrefetchSlackMs && !liveWakeNow_.load())
+      if (sleepMs > kCellFieldPrefetchSlackMs && !liveWakeNow_.load() && !aheadJobId && aheadQueue.empty())
       {
          const auto tPrefetch = sim::SharedStageState::Clock::now();
          // Not with the lamp on: BrightField reads only the cells' geometry
@@ -1263,7 +1484,10 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             if (stale && seq != lastConsumedLiveFrameSeq_)
             {
                lastConsumedLiveFrameSeq_ = seq;
-               liveTakenSeq_ = seq;
+               {
+                  std::lock_guard<std::mutex> tg(liveTakeMutex_);
+                  liveTakenSeq_ = seq;
+               }
                liveCv_.notify_all();
             }
             else if (seq != lastConsumedLiveFrameSeq_)
@@ -1286,16 +1510,20 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
                           [&] { return liveFrameSeq_.load() != seq || !liveProducerRun_.load(); });
       }
       lastConsumedLiveFrameSeq_ = seq;
-      liveTakenSeq_ = seq;
-      liveCv_.notify_all();   // a hardware z stack's producer waits for this
       const auto tTaken = sim::TimingClock::now();
+      {
+         // The frame was taken: its light goes into the illumination history
+         // (with the taken mark, under one lock: render-ahead reads both).
+         std::lock_guard<std::mutex> tg(liveTakeMutex_);
+         if (lit.valid)
+            illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight);
+         liveTakenSeq_ = seq;
+      }
+      liveCv_.notify_all();   // a hardware z stack's producer waits for this
       sim::TimingLog(interruptible ? "mm.wait-frame (sequence)" : "mm.wait-frame (snap)",
                      std::chrono::duration<double>(tTaken - tTake).count());
       sim::TimingLog("mm.frame-age", std::chrono::duration<double>(tTaken - published).count());
       CropFullFrameIntoImg(frameCopy, w, h);
-      // The frame was taken: its light goes into the illumination history.
-      if (lit.valid)
-         illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight);
       sim::TimingLog("mm.copy+history", sim::TimingSince(tTaken));
       return true;
    }

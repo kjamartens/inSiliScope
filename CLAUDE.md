@@ -191,6 +191,12 @@ count/total/mean/max per phase as JSON (MMCore strings stop at 1024 chars) and s
 the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for any new per-frame step (and a line in
 `benchmarks_page.py` `DESCRIBE`). `ParallelFor` (`Simulation/Parallel.h`) runs on a persistent pool (a per-call
 thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
+Render-ahead (2026-10-07, `LiveAhead.cpp`, spec/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
+state a helper thread renders batches of the next 2-8 frames (one K-frame `FluorescenceMovie`, slot-labelled, clocks =
+history snapshot + `ClockSnapshot::Advance` per untaken frame); any change flushes; not with the lamp, drift or a shaped
+illumination; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
+starts) and the movie cache: never render a live frame with a CPU mean-field scene while the GPU is in use elsewhere
+(the shared scenes rebuild on a GPU/CPU mode switch). Profile phases `live.ahead-*`, `ahead.*`.
 `adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's

@@ -26,6 +26,10 @@ Versions follow semver; while 0.x, any release may change output for a given see
   splat and noise on all cores through a persistent thread pool, the mean-field clock weights computed once per distinct
   clock (256 px, 10 ms, loaded laptop: WideField 3 -> 50-80 fps, dSTORM 18 -> 25-40, PALM 6 -> 17-30). The Benchmarks
   page now shows Micro-Manager live frame rates and where each frame's time goes, measured on every release.
+  Render-ahead: during a sequence acquisition at unchanged settings and pose, the next 2-8 fluorescence frames are
+  rendered as one batch on a helper thread while the current ones are handed out (any change drops them); the GPU
+  devices are created once per session instead of per live start (256 px, loaded laptop, 10 / 20 ms: dSTORM 36 / 24 ->
+  67 / 29 fps, DNA-PAINT 27 / 12 -> 32 / 27, PALM 22 / 28 -> 28 / 37).
 
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM

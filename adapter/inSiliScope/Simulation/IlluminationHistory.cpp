@@ -85,6 +85,21 @@ void IlluminationHistory::Advance(double x0Um, double y0Um, double x1Um, double 
       }
 }
 
+void ClockSnapshot::Advance(double x0Um, double y0Um, double x1Um, double y1Um, double dtSec)
+{
+   if (!(dtSec > 0) || !(x1Um > x0Um) || !(y1Um > y0Um))
+      return;
+   const double T = tileUm;
+   const long ixLo = static_cast<long>(std::ceil(x0Um / T - 0.5)), ixHi = static_cast<long>(std::ceil(x1Um / T - 0.5));
+   const long iyLo = static_cast<long>(std::ceil(y0Um / T - 0.5)), iyHi = static_cast<long>(std::ceil(y1Um / T - 0.5));
+   for (long iy = std::max(iyLo, iy0); iy < std::min(iyHi, iy0 + static_cast<long>(ny)); ++iy)
+      for (long ix = std::max(ixLo, ix0); ix < std::min(ixHi, ix0 + static_cast<long>(nx)); ++ix)
+      {
+         float& v = t[static_cast<size_t>(ix - ix0) + static_cast<size_t>(nx) * static_cast<size_t>(iy - iy0)];
+         v = static_cast<float>(v + dtSec * 1.0);
+      }
+}
+
 ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1Um, double y1Um) const
 {
    ClockSnapshot s;

@@ -34,6 +34,9 @@
     <ClCompile Include="SMLMImageGeneration.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="LiveAhead.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="InSiliScopeModule.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

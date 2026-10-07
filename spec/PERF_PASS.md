@@ -106,6 +106,29 @@ filled while the CPU/GPU would idle, delivered exactly on the exposure schedule:
 - Check: fps = 1000 / exposure while N x render < the time ahead; worst gap < 1 ms + jitter; the z-sequence and stage
   checks of `tools/test_cellfield_stage.py`; a settings change never delivers an old frame.
 
+Done (2026-10-07, `adapter/inSiliScope/LiveAhead.cpp`, every output unchanged: 7 cli frames byte-identical,
+`adapter_pixel_hash`, `test_insiliscope.py`, `test_cellfield_stage.py` incl. `--drift`):
+- In a sequence acquisition whose state (settings, light, pose, focus, exposure, acquisition) equals the previous
+  slot's, a helper thread renders the next K = clamp(150 ms / exposure, 2, 8) frames as one `FluorescenceMovie` of K
+  frames (one setup, one events query; the GPU splat as one dispatch); the producer hands them out one per slot. Each
+  batch frame is labelled with its slot (the live frame counter); its dye clocks are the history snapshot advanced by
+  the frames before it not yet taken (`ClockSnapshot::Advance`), its background fade and noise counter its own.
+- Not with the lamp (BrightField), drift, a shaped illumination profile, a snap, or when stale frames are skipped;
+  `ISC_RENDER_AHEAD=0` turns it off.
+- Any change of state drops the queue and cancels the batch; while the producer waits for a batch it checks the state
+  every 2 ms, so a stage move or setting change does not wait for the batch (`live.ahead-flush`).
+- The producer and the helper share the GPU hosts (`LiveGpu`, kept across live starts: a D3D11 device, its shader
+  compile and self-check took 2-3 s per thread) and the movie cache; whoever renders holds them. A frame on demand
+  waits for the batch in flight rather than switching the shared mean-field scenes to their CPU mode (that rebuilt
+  them: 1-2.5 s per switch, the first version's stalls).
+- Batches slower than the exposure pace the slots (frames spread over a batch's time, not a burst after it); batches
+  slower per frame than a frame on demand turn render-ahead off until the next setting change.
+- Fewer frames than cores (a batch, a live frame): the blinks of each frame splat in bands of rows on all cores, one
+  frame after the other, instead of a frame per core (bit-identical; 8 frames used 8 of 12 cores).
+- Measured (256 px, loaded 12-thread laptop, `bench_live.py --profile`, render-ahead on vs `ISC_RENDER_AHEAD=0`, 10 /
+  20 ms exposure): dSTORM 67 / 29 vs 36 / 24 fps, DNA-PAINT 32 / 27 vs 27 / 12, PALM 28 / 37 vs 22 / 28, WideField
+  100 / 45 vs 78 / 49 (the 20 ms WideField pair within this machine's noise), BrightField unchanged (not rendered ahead).
+
 ## Phase 3: GPU for single-molecule frames
 
 Today the D3D11 splat runs only for one blink group without continuous populations (DNA-PAINT); dSTORM and PALM

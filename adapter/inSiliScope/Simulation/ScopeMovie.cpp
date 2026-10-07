@@ -1976,19 +1976,28 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    long blinks = 0;
    RenderExtras into;
    into.accumulate = true;
-   // A single frame (a live frame): its splats in bands of rows on all cores
-   // (the same pixels as serial, RenderPhotonImage); a batch of frames is
-   // already spread over the cores frame by frame.
-   into.parallel = N == 1;
+   // The continuous populations' per-dye splats run frame by frame: in bands
+   // of rows on all cores (the same pixels as serial, RenderPhotonImage).
+   into.parallel = true;
    RenderExtras blinkInto = into;   // the blinks also see the host's illumination field
    const bool shaped = opt.illumField && opt.illumField->size() == n;
    if (shaped)
       blinkInto.illumField = opt.illumField;
+#if defined(__EMSCRIPTEN__)
+   const long cores = 1;
+#else
+   const long cores = std::max(1L, static_cast<long>(std::thread::hardware_concurrency()));
+#endif
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
       tBlinks.Start();
-      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+      // The blinks: frame per core, or -- fewer frames than cores (a live
+      // frame, a render-ahead batch) -- one frame after the other, each in
+      // bands of rows on all cores.
+      const bool bands = nb < cores;
+      blinkInto.parallel = bands;
+      auto blinkFrame = [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
          if (!shaped && bgScale == 1.0)
@@ -2027,7 +2036,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
                               g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
-      });
+      };
+      if (bands)
+         for (long k = 0; k < nb; ++k)
+            blinkFrame(static_cast<unsigned>(k));
+      else
+         ParallelFor(static_cast<unsigned>(nb), blinkFrame);
       tBlinks.Stop();
       // The continuous populations, frame by frame.
       std::vector<std::vector<std::string>> paths(static_cast<size_t>(nb));

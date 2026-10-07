@@ -35,6 +35,10 @@ class ClockSnapshot : public DyeClock
 public:
    double At(double xUm, double yUm) const override;
    void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const override;
+   // Adds dtSec to the tiles of the snapshot whose centre lies in the rect,
+   // with IlluminationHistory::Advance's arithmetic at weight 1: the snapshot
+   // as the history will be once a frame lit there is taken (render-ahead).
+   void Advance(double x0Um, double y0Um, double x1Um, double y1Um, double dtSec);
    long ix0 = 0, iy0 = 0;
    unsigned nx = 0, ny = 0;
    double tileUm = 0.25;

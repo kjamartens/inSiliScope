@@ -109,6 +109,7 @@
   <ItemGroup>
     <ClCompile Include="InSiliScopeCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
+    <ClCompile Include="LiveAhead.cpp" />
     <ClCompile Include="InSiliScopeHub.cpp" />
     <ClCompile Include="Registry\SceneState.cpp" />
     <ClCompile Include="Registry\SceneSettings.cpp" />

@@ -19,7 +19,8 @@ Upcoming ideas:
   pacing (precise waits, absolute schedule, condition-variable handoff; BrightField 32 -> 50 fps at 20 ms), [x] MMCore
   phase profile (`Test_ProfileWriteTo`, `bench_live.py --profile`, release job `mm-bench`, Benchmarks page), [ ] phase 1
   persistent live session (done so far: dye-count memo, all-core single-frame splat, persistent `ParallelFor` pool,
-  mean-field clock weights memo, no unused noise maps per frame), [ ] phase 2 render-ahead queue + frame-parallel rendering, [ ] phase 3 GPU for SR frames,
+  mean-field clock weights memo, no unused noise maps per frame), [x] phase 2 render-ahead queue + frame-parallel rendering
+  (`LiveAhead.cpp`; the BrightField z-stutter prefetch still open), [ ] phase 3 GPU for SR frames,
   [ ] phase 4 interactive latencies, [ ] phase 5 CPU per-frame costs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.

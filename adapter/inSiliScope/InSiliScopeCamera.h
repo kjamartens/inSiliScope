@@ -33,6 +33,7 @@
 #include "ImgBuffer.h"
 #include "Simulation/BrightfieldRender.h"
 #include "Simulation/CellFieldSource.h"
+#include "Simulation/GpuSimD3D11.h"
 #include "Simulation/IlluminationHistory.h"
 #include "Simulation/ScopeMovie.h"
 #include "Simulation/SMLMSimulation.h"
@@ -193,6 +194,94 @@ private:
    void StartPsfPreload();
    void StopLiveProducer();
    void LiveProducerLoop();
+
+   // ---- render-ahead (LiveAhead.cpp; spec/PERF_PASS.md phase 2) ------------
+   // While a live/MDA sequence runs in an unchanged state, a helper thread
+   // renders batches of the next frames with one movie (one setup and query
+   // per batch, frames side by side on all cores, one GPU dispatch); the
+   // producer hands them out one per exposure slot and drops them on any
+   // change of state.
+   // The camera's per-config statics a batch needs (copied by the producer
+   // when its config version changes).
+   struct LiveStatics
+   {
+      sim::PixelOffsetMap offsetMap;
+      sim::PixelGainMap gainMap;
+      sim::PixelReadNoiseMap readNoiseMap;
+      sim::StackShapingFields shaping;
+      long version = -1;
+   };
+   struct LiveBatchJob
+   {
+      long id = 0;
+      sim::ScopeSpec spec;          // frames = the batch's length
+      sim::ClockSnapshot clock;     // the dye clocks at its first frame
+      sim::SimulationParams params;
+      unsigned w = 0, h = 0;
+      double zOffsetUm = 0.0;
+      std::shared_ptr<const LiveStatics> statics;
+      std::vector<double> fadeSec;  // per frame: the background fade's elapsed time
+      double decaySec = 0.0;
+      uint32_t noiseSeed = 0, noiseBase = 0;
+      bool useGpu = false;
+      long firstSlot = 0;           // the live frame counter of its first frame
+   };
+   struct LiveBatch
+   {
+      long id = 0;
+      bool ok = false;
+      std::vector<std::vector<uint16_t>> frames;
+      long zClamped = 0, zTotal = 0;
+      std::string err;
+      long firstSlot = 0;
+      double ms = 0.0;              // how long it took to render
+   };
+   void StartLiveAhead();
+   void StopLiveAhead();
+   void LiveAheadLoop();
+   // The producer's side: hand a job to the helper (it must be idle), take a
+   // finished batch of job id (until: wait until it is done, at most until
+   // then or until stop() says so; checked every 2 ms), drop all work.
+   void SubmitLiveAhead(std::unique_ptr<LiveBatchJob> job);
+   std::unique_ptr<LiveBatch> TakeLiveAhead(long id, const std::chrono::steady_clock::time_point* until,
+                                            const std::function<bool()>& stop = nullptr);
+   bool LiveAheadIdle();
+   void CancelLiveAhead();
+   std::thread liveAheadThread_;
+   std::mutex liveAheadMutex_;
+   std::condition_variable liveAheadCv_;
+   std::unique_ptr<LiveBatchJob> liveAheadJob_;   // submitted, not started
+   std::unique_ptr<LiveBatch> liveAheadDone_;     // finished, not collected
+   bool liveAheadBusy_ = false;                   // a job is rendering
+   bool liveAheadRun_ = false;
+   std::atomic<long> liveAheadCancel_{0};         // jobs with an id <= this stop early
+   long liveAheadLastId_ = 0;                     // the last job submitted
+   // The consumer takes a frame and adds its light to the history under this
+   // lock; the producer reads the history and whether the front frame was
+   // taken under it too (a batch's clocks: the history plus the frames not
+   // yet taken).
+   std::mutex liveTakeMutex_;
+   // The live GPU hosts, shared by the producer and the render-ahead helper
+   // and kept across live starts (creating a Direct3D 11 device, compiling
+   // its shaders and the self-check take seconds). Whoever renders with them
+   // holds `m`; the producer only try-locks it (when the helper has it, the
+   // producer's frame renders on the CPU instead of waiting).
+   struct LiveGpu
+   {
+      std::mutex m;
+      std::unique_ptr<sim::GpuSimulator> splat;
+      uint64_t kernelSerial = 0;   // the kernel loaded (0: none)
+      double background = -1.0;    // and its background
+      long statics = -1;           // the config version of the camera maps loaded
+      long failedAt = -1;          // the config version the splat failed at
+      std::unique_ptr<sim::WidefieldGpuD3D11> wf;
+      bool wfTried = false;
+   };
+   LiveGpu liveGpu_;
+   // Prepares liveGpu_.splat (hold liveGpu_.m) for this plan and config
+   // version; false: render on the CPU.
+   bool PrepareLiveGpu(const sim::FluorescenceSimplePlan& plan, unsigned w, unsigned h, const LiveStatics& st,
+                       const sim::SimulationParams& params);
 
    // ---- generic frame delivery (defined in SMLMImageGeneration.cpp) --------
    // Used by SnapImage/RunSequenceOnThread. In Precomputed mode, if the stack
