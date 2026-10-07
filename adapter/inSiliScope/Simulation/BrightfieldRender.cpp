@@ -11,11 +11,14 @@
 
 #include "CellFieldSource.h"
 #include "Parallel.h"
+#include "Timing.h"
 #include "ZernikePsf.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <atomic>
+#include <thread>
 
 namespace sim {
 
@@ -179,9 +182,10 @@ void BrightfieldScene::FftForward(cfloat* a, std::vector<cfloat>& work, bool ban
 }
 
 // Inverse = conj(F(conj(X))) / N; the input is zero outside the band columns.
-void BrightfieldScene::FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1) const
+void BrightfieldScene::FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1,
+                                  const std::vector<unsigned>* cols) const
 {
-   FftCols(a, work, bandCols_, true, false);
+   FftCols(a, work, cols ? *cols : bandCols_, true, false);
    FftRows(a, work, row0, row1, false, 1.0f / (static_cast<float>(nx_) * static_cast<float>(ny_)), true);
 }
 
@@ -326,6 +330,7 @@ bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec,
    srcId_ = &src;
    worldVersion_ = worldVersion;
    setupMs_ = Ms(t0);
+   TimingLog("bf.scene", setupMs_ / 1000.0);
    return true;
 }
 
@@ -408,6 +413,15 @@ void BrightfieldScene::Finish(bool deferSources)
          }
       }
    });
+
+   pupilCols_.clear();
+   for (unsigned ix = 0; ix < nx_; ++ix)
+      for (unsigned iy = 0; iy < ny_; ++iy)
+         if (pupil_[static_cast<size_t>(iy) * nx_ + ix] != cfloat(0, 0))
+         {
+            pupilCols_.push_back(ix);
+            break;
+         }
 
    // Thin object: one transmittance spectrum that every source shifts.
    thinSpec_.clear();
@@ -511,7 +525,7 @@ void BrightfieldScene::SourceImage(int s, const std::vector<cfloat>& defocus, st
 {
    SourceFocalSpectrum(s, defocus, u, work);
    const unsigned W = spec_.width, H = spec_.height;
-   FftInverse(u.data(), work, margin_, margin_ + H * up_);
+   FftInverse(u.data(), work, margin_, margin_ + H * up_, &pupilCols_);
    const float norm = 1.0f / static_cast<float>(up_ * up_);
    for (unsigned j = 0; j < H; ++j)
       for (unsigned i = 0; i < W; ++i)
@@ -549,7 +563,7 @@ bool BrightfieldScene::FineSpectrum(double focusUm, std::vector<cfloat>& spec, s
       ParallelFor(nb, [&](unsigned k) {
          std::vector<cfloat> u, work;
          SourceFocalSpectrum(static_cast<int>(s0 + k), defocus, u, work);
-         FftInverse(u.data(), work, 0, ny_);
+         FftInverse(u.data(), work, 0, ny_, &pupilCols_);
          float* o = &slots[k * N];
          for (size_t i = 0; i < N; ++i)
             o[i] = u[i].real() * u[i].real() + u[i].imag() * u[i].imag();
@@ -609,30 +623,63 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
       return true;
    }
    const auto t0 = std::chrono::steady_clock::now();
+   EnsureExitFields();
+   ComputeImage(focusUm, image_);
+   haveImage_ = true;
+   imageFocus_ = focusUm;
+   imageMs_ = Ms(t0);
+   TimingLog("bf.image", imageMs_ / 1000.0);
+   out = image_;
+   return true;
+}
+
+bool BrightfieldScene::Matches(const CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const
+{
+   return valid_ && srcId_ == &src && worldVersion_ == worldVersion && SameSpec(spec_, spec);
+}
+
+bool BrightfieldScene::ComputeImage(double focusUm, std::vector<float>& out, const std::function<bool()>& cancel,
+                                    ParallelPool* pool) const
+{
+   if (!valid_)
+      return false;
    const size_t P = static_cast<size_t>(spec_.width) * spec_.height;
    std::vector<cfloat> defocus;
-   Defocus(focusUm, defocus);
-   EnsureExitFields();
-   std::vector<float> slots(P * src_.size());
-   ParallelFor(static_cast<unsigned>(src_.size()), [&](unsigned s) {
+   Defocus(focusUm, defocus, pool);
+   const unsigned S = static_cast<unsigned>(src_.size());
+   std::vector<float> slots(P * S);
+   std::atomic<bool> stopped{false};
+   ParallelForOn(pool, S, [&](unsigned s) {
+      if (cancel && (stopped.load() || cancel()))
+      {
+         stopped = true;
+         return;
+      }
       std::vector<cfloat> u, work;
       SourceImage(static_cast<int>(s), defocus, u, work, &slots[s * P]);
    });
-   SetImageFromSources(focusUm, slots.data());
-   imageMs_ = Ms(t0);
-   out = image_;
+   if (stopped.load())
+      return false;
+   // SetImageFromSources' sum: the sources in order, then the mean.
+   out.assign(P, 0.0f);
+   for (size_t s = 0; s < S; ++s)
+      for (size_t i = 0; i < P; ++i)
+         out[i] += slots[s * P + i];
+   const float inv = 1.0f / static_cast<float>(S);
+   for (float& v : out)
+      v *= inv;
    return true;
 }
 
 // From the lowest screen (objectZ_ above the coverslip: its slice's
 // mid-plane, or the thin screen's height) to the focal plane, travelling
 // down: distance objectZ_ - focus. Shared by every source.
-void BrightfieldScene::Defocus(double focusUm, std::vector<cfloat>& defocus) const
+void BrightfieldScene::Defocus(double focusUm, std::vector<cfloat>& defocus, ParallelPool* pool) const
 {
    const size_t N = static_cast<size_t>(nx_) * ny_;
    const double d = objectZ_ - focusUm;
    defocus.resize(N);
-   ParallelFor(ny_, [&](unsigned y) {
+   ParallelForOn(pool, ny_, [&](unsigned y) {
       for (size_t i = static_cast<size_t>(y) * nx_; i < static_cast<size_t>(y + 1) * nx_; ++i)
          defocus[i] = kz_[i] >= 0 ? pupil_[i] * std::polar(1.0f, static_cast<float>(kz_[i] * d)) : cfloat(0, 0);
    });

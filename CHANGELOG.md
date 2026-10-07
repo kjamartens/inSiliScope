@@ -30,6 +30,9 @@ Versions follow semver; while 0.x, any release may change output for a given see
   rendered as one batch on a helper thread while the current ones are handed out (any change drops them); the GPU
   devices are created once per session instead of per live start (256 px, loaded laptop, 10 / 20 ms: dSTORM 36 / 24 ->
   67 / 29 fps, DNA-PAINT 27 / 12 -> 32 / 27, PALM 22 / 28 -> 28 / 37).
+  Live BrightField computes the next focus positions in the background (a z sequence's, else along the last focus
+  step) and keeps recent ones, so focusing at low magnification no longer stalls on every step (20x, 0.5 um steps 2 s
+  apart: 70-180 ms to the new focus, was 500-800 ms); its images skip the pupil-blocked FFT columns (same pixels).
 
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM

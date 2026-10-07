@@ -148,6 +148,17 @@ render on the CPU.
 - Objective switch (0.6-1.9 s): the same, per objective (NA, immersion).
 - Stage move (0.5-4 s on a loaded machine): packing and dye blocks of the new region; prefetch along the motion
   direction (phase 2's background thread); the disk cache already keeps packed blocks.
+- BrightField focus steps (done 2026-10-07, pixels unchanged): at 20x a new focus re-imaged a ~1350^2 grid for 24
+  sources (0.3-0.8 s stall per step; 100x: 50-300 ms). `Simulation/BrightfieldLive.*` keeps the live scene, its last
+  4-24 focus images (96 MB) and a thread on half the cores that computes the next foci: an armed z sequence's positions,
+  else the last step continued, back, two steps (0.5 um before any step); a scene rebuild or a focus it has not got
+  stops it before its next source, and a frame whose focus is in flight waits for it. Below normal priority instead,
+  the prefetch starved behind this machine's background load (1-2 s per image, most steps missed); on all cores at
+  normal priority it slowed every live frame (20 -> 70-80 ms). The image's inverse FFT also skips the columns outside
+  the detection pupil (spec/BRIGHTFIELD.md Cost). Measured (20x/0.75, 256 px, 20 ms, loaded laptop, 0.5 um steps):
+  pausing 2 s per focus, most steps show the new focus within 70-180 ms (were 500-800 ms); stepping every 1 s, about
+  two thirds do; faster stepping still waits for the image (0.5-0.9 s). XY moves at low magnification rebuild the scene
+  (seconds, up to hundreds of MB of exit spectra), so neighbouring xy scenes are not prefetched.
 - Kernel size: the default 7000 nm half-width kernel (841 x 841 x 71) is expensive to build, hold and splat; let
   `Renderer.Quality` choose it (Fast: 3000 nm), with `scope_parity` unchanged at Realistic.
 - Per-plane kernel extent (the largest SMLM lever, measured 2026-10-07): an emitter's splat covers the whole 145 x 145

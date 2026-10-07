@@ -28,6 +28,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
 #endif
 
 namespace sim {
@@ -49,6 +50,18 @@ inline std::atomic<unsigned long>& ParallelForSpawns()
 class ParallelPool
 {
 public:
+   // onStart: run first on each worker thread (e.g. a lower priority for a
+   // background pool, BrightfieldLive).
+   // threads: at most this many per call, the caller included (0: the core count).
+   explicit ParallelPool(std::function<void()> onStart = nullptr, unsigned threads = 0)
+      : onStart_(std::move(onStart)), threads_cap_(threads)
+   {
+   }
+   unsigned ThreadCap() const { return threads_cap_; }
+   ParallelPool(const ParallelPool&) = delete;
+   ParallelPool& operator=(const ParallelPool&) = delete;
+   ~ParallelPool() { Shutdown(); }
+
    // Runs fn(0..n-1) on the caller and up to helpers pool threads; false if
    // the pool is busy with another caller's job (nothing was run).
    bool Run(unsigned n, unsigned helpers, const std::function<void(unsigned)>& fn)
@@ -103,6 +116,8 @@ public:
 private:
    void Worker()
    {
+      if (onStart_)
+         onStart_();
       std::unique_lock<std::mutex> g(m_);
       uint64_t seen = gen_;
       for (;;)
@@ -126,6 +141,8 @@ private:
       }
    }
 
+   std::function<void()> onStart_;
+   unsigned threads_cap_ = 0;
    std::mutex callMutex_, m_;
    std::condition_variable cv_, done_;
    std::vector<std::thread> threads_;
@@ -149,6 +166,8 @@ inline void ParallelPoolShutdown()
 {
    SharedParallelPool().Shutdown();
 }
+#else
+class ParallelPool;
 #endif
 
 template <class Fn>
@@ -183,6 +202,31 @@ void ParallelFor(unsigned n, Fn fn)
    worker();
    for (std::thread& t : pool)
       t.join();
+#endif
+}
+
+// ParallelFor on the given pool (nullptr: the shared one, = ParallelFor); a
+// busy pool runs the work serially on the caller.
+template <class Fn>
+void ParallelForOn(ParallelPool* pool, unsigned n, Fn fn)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)pool;
+   for (unsigned i = 0; i < n; ++i)
+      fn(i);
+#else
+   if (!pool)
+   {
+      ParallelFor(n, fn);
+      return;
+   }
+   unsigned T = ParallelDepth() > 0 ? 1u : std::max(1u, std::min(n, std::thread::hardware_concurrency()));
+   if (pool->ThreadCap())
+      T = std::min(T, pool->ThreadCap());
+   const std::function<void(unsigned)> f = [&fn](unsigned i) { fn(i); };
+   if (T <= 1 || !pool->Run(n, T - 1, f))
+      for (unsigned i = 0; i < n; ++i)
+         fn(i);
 #endif
 }
 

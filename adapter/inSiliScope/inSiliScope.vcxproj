@@ -129,6 +129,7 @@
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
+    <ClCompile Include="Simulation\BrightfieldLive.cpp" />
     <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
     <ClCompile Include="..\..\core\src\blockstore.cpp" />
@@ -180,6 +181,7 @@
     <ClInclude Include="Simulation\SplatKernel.inl" />
     <ClInclude Include="Simulation\Illumination.h" />
     <ClInclude Include="Simulation\BrightfieldRender.h" />
+    <ClInclude Include="Simulation\BrightfieldLive.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
     <ClInclude Include="Simulation\WidefieldGpuD3D11.h" />
     <ClInclude Include="Simulation\WidefieldGpuHlsl.inc" />

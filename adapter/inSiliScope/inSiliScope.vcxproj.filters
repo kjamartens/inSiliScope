@@ -89,6 +89,9 @@
     <ClCompile Include="Simulation\BrightfieldRender.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\BrightfieldLive.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\WidefieldRender.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -210,6 +213,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\BrightfieldRender.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BrightfieldLive.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\WidefieldRender.h">

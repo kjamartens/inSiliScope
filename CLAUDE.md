@@ -197,6 +197,10 @@ history snapshot + `ClockSnapshot::Advance` per untaken frame); any change flush
 illumination; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
 starts) and the movie cache: never render a live frame with a CPU mean-field scene while the GPU is in use elsewhere
 (the shared scenes rebuild on a GPU/CPU mode switch). Profile phases `live.ahead-*`, `ahead.*`.
+Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` holds the scene, its recent focus images and
+a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
+last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
+Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
 `adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's

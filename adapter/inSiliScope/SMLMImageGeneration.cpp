@@ -17,6 +17,7 @@
 #include "Simulation/Parallel.h"
 #include "Simulation/DyeLibrary.h"
 #include "Simulation/SharedStageState.h"
+#include "Simulation/BrightfieldLive.h"
 #include "Simulation/Timing.h"
 #include "insiliscope/insiliscope.h"
 
@@ -753,8 +754,14 @@ void CInSiliScopeCamera::LiveProducerLoop()
    bool cellFieldOk = false;
    bool bfActive = false, bfErrLogged = false, flErrLogged = false;
    long cellFieldVersion = -1;   // the config version the cell field was configured at
-   sim::BrightfieldScene bfScene;
+   sim::BrightfieldScene bfScene;   // with drift (BrightfieldDriftFrames)
    std::vector<float> bfImage;
+   // Without drift: the scene, its recent focus images and the prefetch of
+   // the next foci (Simulation/BrightfieldLive.h), along the last focus step
+   // (0: none yet) or an armed z sequence's positions.
+   sim::BrightfieldLive bfLive;
+   bool bfLiveUsed = false, bfPrefetching = false;
+   double bfLastFocus = std::numeric_limits<double>::quiet_NaN(), bfStep = 0.0;
    // Publishes a finished frame (front buffer, sequence counter, interval
    // statistics).
    // started: when the frame's state was read (a frame rendered ahead: its
@@ -934,6 +941,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const bool lightOn = isc::LightOn(St());
       const bool epiOn = St().epiOpen.load();
       bfActive = St().transOpen.load();   // the lamp: BrightField, alone or with the fluorescence
+      if (!bfActive && bfPrefetching)
+      {
+         bfLive.StopPrefetch();   // the lamp is off: no focus images ahead (the scene and cache stay)
+         bfPrefetching = false;
+      }
       if (bfActive && cellFieldVersion != appliedConfigVersion)
       {
          std::string err;
@@ -1000,6 +1012,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
             // sample has moved 1 um from it) and each frame is its fine-grid
             // image shifted by the rest of the drift, the z drift interpolated
             // on a focus grid (BrightfieldDriftFrames).
+            if (bfLiveUsed)
+            {
+               bfLive.Reset();
+               bfLiveUsed = false;
+            }
             if (!bfAnchored || std::fabs(liveDrift.x - bfAnchor.x) > 1000.0 ||
                 std::fabs(liveDrift.y - bfAnchor.y) > 1000.0)
             {
@@ -1045,8 +1062,40 @@ void CInSiliScopeCamera::LiveProducerLoop()
                                                             liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
             std::string err;
             const sim::BrightfieldSpec bs = isc::BuildBrightfieldSpec(St(), params, q, w, h);
-            const bool ok = bfScene.Update(cellField, bs, static_cast<uint64_t>(appliedConfigVersion), err) &&
-                            bfScene.Image(q.zCullCentreUm, bfImage, err);
+            if (bfScene.Valid())
+               bfScene = sim::BrightfieldScene();   // the drift path's
+            bfLiveUsed = true;
+            const double focus = q.zCullCentreUm;
+            const bool ok =
+               bfLive.Image(cellField, bs, static_cast<uint64_t>(appliedConfigVersion), focus, bfImage, err);
+            if (ok)
+            {
+               // The foci to have ready next: an armed z sequence's positions,
+               // else continuing the last step, then back, then two steps.
+               if (!(std::fabs(focus - bfLastFocus) <= 1e-6))
+               {
+                  if (bfLastFocus == bfLastFocus)
+                     bfStep = focus - bfLastFocus;
+                  bfLastFocus = focus;
+               }
+               std::vector<double> next;
+               const sim::SharedStageState::ZSequence zs = Stg().GetZSequence();
+               if (zs.armed && !zs.positions.empty())
+               {
+                  // Focus = stage z (+ the focus offset): the sequence in the same frame.
+                  const double off = focus - zOffsetUm;
+                  for (double p : zs.positions)
+                     next.push_back(p + off);
+               }
+               const double s = bfStep != 0.0 ? bfStep : 0.5;
+               for (double k : { 1.0, -1.0, 2.0, -2.0, 3.0 })
+                  next.push_back(focus + k * s);
+               if (bfStep == 0.0)
+                  for (double k : { 2.0, -2.0 })
+                     next.push_back(focus + k);
+               bfLive.Prefetch(next);
+               bfPrefetching = true;
+            }
             if (!ok)
             {
                bfImage.clear();
