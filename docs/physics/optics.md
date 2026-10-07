@@ -49,6 +49,33 @@ camera pixel is one interpolation.
 
 A Cramer-Rao bound summary is logged to the Micro-Manager core log after each kernel computation.
 
+!!! danger "Single-molecule PSFs are cut where their light is negligible (Renderer.Quality)"
+    **A blinking emitter (dSTORM, PALM, DNA-PAINT) is not drawn with its whole +/-7 um PSF.** Since 2026-10-07 each
+    blink's splat leaves out every camera pixel that would get less than a fixed share of the emitter's photons: the
+    **halo cut** (`Renderer.PsfHaloCut`, cli/viewer `psf-halo-cut`), set by `Renderer.Quality`:
+
+    | Quality | Halo cut | What it means |
+    |---|---|---|
+    | Fast | 1e-5 | no left-out pixel would have had more than 1 photon in 100 000 of the emitter's |
+    | **Realistic** (default) | **3e-6** | no left-out pixel would have had more than 3 photons in a million |
+    | Exhaustive | 0 | the whole kernel, every pixel (the output before 2026-10-07) |
+
+    The cut is per plane and per pixel row: it follows the PSF, a small disc in focus (~4.4 um radius at 3e-6) and a
+    wide one out of focus (~8.8 um at 3.5 um defocus; the square's corners at 3e-6 beyond ~3 um). Pixels inside it get
+    exactly the uncut values, **nothing is renormalized**: the left-out light (the far halo, a few 1e-4 of a blink's
+    photons in all) is missing, not moved. On the default kernel the splat keeps ~57-59 % of the square's pixels at
+    3e-6 (39 % at 1e-5). Measured live at 5 ms exposure (256 px, Iris Xe GPU, 2026-10-07): dSTORM ~64 -> ~91 fps
+    (Realistic) -> ~104 fps (Fast), DNA-PAINT ~97 -> ~100 -> ~104 fps (its frame time is mostly elsewhere). The test is strict (the largest kernel block
+    sum a pixel can read at any sub-pixel position, with a 1.5625x margin for cubic interpolation's overshoot; ctest
+    `sr_render` checks every left-out pixel against it).
+
+    What it does **not** touch: WideField labels, the mean-field and per-dye continuous populations (PALM pre states,
+    the dSTORM initial ON phase), the free-imager background and BrightField keep the whole kernel. A dense
+    continuous population sums the halos of very many dyes, and a cut there shows as edges of out-of-focus light.
+
+    When it matters: summing very many frames of blinks to study the PSF's far wings (localization background models,
+    out-of-focus haze), or comparing with webSMLM pixel for pixel. Use `Exhaustive` (or `PsfHaloCut` 0) for that.
+
 !!! warning "Why the evaluator choice matters"
     A direct polar quadrature with 40 azimuthal samples aliased beyond ~1.6 um and made every emitter 17-20% too dim on
     the default kernel; it was removed. Chirp-Z is the only evaluator.
@@ -58,9 +85,10 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 The command line and the viewer use the same PSF as the adapter: `GibsonLanniZernike` by default (the same C++ code and
 kernel cache), with options that mirror the adapter's PSF properties (`Objective.*`, `Renderer.Psf*`; `psf-model`, `psf-zernike-preset`, `zern.<j>`,
 `psf-mask`, `psf-oversampling`, `psf-kernel-half-width-nm`, `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
-`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-pupil-samples`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-pupil-samples`, `psf-halo-cut`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
 selects the Gaussian; `RichardsWolf`/`GibsonLanni` need PSFGenerator's JVM and exist only in the adapter. The viewer uses
-a 3 um kernel half width (instead of 7 um) to save browser memory.
+a 3 um kernel half width (instead of 7 um) to save browser memory; its blinks take the same halo cut (3e-6) within
+that square.
 
 ## WideField imaging
 

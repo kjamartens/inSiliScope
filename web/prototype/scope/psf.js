@@ -427,9 +427,56 @@ export function planSplat(cache, zIndex, xPx, yPx, totalPhotons, interpMode) {
     const rx = roundHalfUp(tx), ry = roundHalfUp(ty);
     const shifted = fftShiftKernelTile(cache.planes[zIndex], n, tx - rx, ty - ry);
     st.bx = rx; st.by = ry;
-    return { st, B: buildBlockSums(shifted, n, os) };
+    return { st, B: buildBlockSums(shifted, n, os), zIndex };
   }
-  return { st: splatSetup(cache, xPx, yPx, interpMode), B: cache.blockSums[zIndex] };
+  return { st: splatSetup(cache, xPx, yPx, interpMode), B: cache.blockSums[zIndex], zIndex };
+}
+
+// WithHaloCut (C++ PsfGeneratorBridge.cpp): a copy of cache whose splats leave out every camera pixel whose share of the
+// emitter's photons -- the largest block sum it can read at any sub-pixel position -- is below threshold; per plane and
+// row dy the kept columns [lo, hi]. threshold <= 0: the cache itself (the whole square). Memoized per (kernel, threshold).
+const haloMemo = new WeakMap();
+export function withHaloCut(cache, threshold) {
+  if (!(threshold > 0) || !cache || !cache.valid) return cache;
+  const os = Math.max(1, cache.oversampling), camRad = Math.trunc(cache.halfWidthOversampled / os);
+  if (camRad < 1) return cache;
+  let byThr = haloMemo.get(cache);
+  if (!byThr) { byThr = new Map(); haloMemo.set(cache, byThr); }
+  const key = threshold + 10 * cache.interpMode;
+  const hit = byThr.get(key);
+  if (hit) return hit;
+  // Catmull-Rom weights sum to at most 1.25 in absolute value per axis: a cubic (or Fourier-shifted) read can exceed
+  // the largest block sum it reads by 1.25^2, so the spans keep that margin.
+  const thr = threshold / (cache.interpMode === PSF_INTERP.Cubic || cache.interpMode === PSF_INTERP.Fft ? 1.5625 : 1.0);
+  const n = 2 * camRad + 1, bw = cache.blockSumWidth, halfOv = cache.halfWidthOversampled;
+  const lo = new Int16Array(n * cache.nz), hi = new Int16Array(n * cache.nz);
+  const colMax = new Float32Array(bw * n);
+  let kept = 0;
+  for (let z = 0; z < cache.nz; ++z) {
+    const B = cache.blockSums[z];
+    for (let r = 0; r < bw; ++r)
+      for (let dx = -camRad; dx <= camRad; ++dx) {
+        const c0 = Math.max(0, halfOv - 2 + dx * os), c1 = Math.min(bw - 1, halfOv + os + 1 + dx * os);
+        let m = 0;
+        for (let c = c0; c <= c1; ++c) m = Math.max(m, B[r * bw + c]);
+        colMax[r * n + dx + camRad] = m;
+      }
+    for (let dy = -camRad; dy <= camRad; ++dy) {
+      const r0 = Math.max(0, halfOv - 2 + dy * os), r1 = Math.min(bw - 1, halfOv + os + 1 + dy * os);
+      let l = camRad + 1, h = -camRad - 1;
+      for (let dx = -camRad; dx <= camRad; ++dx) {
+        let m = 0;
+        for (let r = r0; r <= r1; ++r) m = Math.max(m, colMax[r * n + dx + camRad]);
+        if (m >= thr) { l = Math.min(l, dx); h = Math.max(h, dx); }
+      }
+      lo[z * n + dy + camRad] = l;
+      hi[z * n + dy + camRad] = h;
+      if (l <= h) kept += h - l + 1;
+    }
+  }
+  const out = { ...cache, halo: { threshold, camRad, nz: cache.nz, lo, hi, keptFraction: kept / (n * n * cache.nz) } };
+  byThr.set(key, out);
+  return out;
 }
 
 // SplatRows over rows [rowLo, rowHi): img (Float32Array) += photons x interpolated block sums.
@@ -441,11 +488,14 @@ export function splatRows(img, width, height, rowLo, rowHi, cache, plan, totalPh
   const { st, B } = plan, NT = st.nTaps, wx = st.wx, wy = st.wy;
   const dyLo = Math.max(-camRad, yLo - st.y0), dyHi = Math.min(camRad, yHi - 1 - st.y0);
   const dxLo = Math.max(-camRad, -st.x0), dxHi = Math.min(camRad, width - 1 - st.x0);
+  const halo = cache.halo && cache.halo.camRad === camRad ? cache.halo : null;
+  const row0 = halo ? plan.zIndex * (2 * camRad + 1) + camRad : 0;
   for (let dy = dyLo; dy <= dyHi; ++dy) {
     const r0 = st.by + dy * os + off;
     const jLo = Math.max(0, -r0), jHi = Math.min(NT, bw - r0);
     const rowOut = (st.y0 + dy) * width;
-    for (let dx = dxLo; dx <= dxHi; ++dx) {
+    const rLo = halo ? Math.max(dxLo, halo.lo[row0 + dy]) : dxLo, rHi = halo ? Math.min(dxHi, halo.hi[row0 + dy]) : dxHi;
+    for (let dx = rLo; dx <= rHi; ++dx) {
       const c0 = st.bx + dx * os + off;
       const iLo = Math.max(0, -c0), iHi = Math.min(NT, bw - c0);
       let sum = 0.0;

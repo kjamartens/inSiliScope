@@ -115,13 +115,13 @@ bool CInSiliScopeCamera::PrepareLiveGpu(const sim::FluorescenceSimplePlan& plan,
    LiveGpu& g = liveGpu_;
    if (!plan.ok || !plan.kernel || g.failedAt == st.version)
       return false;
-   if (plan.kernel->Serial() != g.kernelSerial || plan.backgroundPhotons != g.background || st.version != g.statics)
+   if (plan.kernel->SplatSerial() != g.kernelSerial || plan.backgroundPhotons != g.background || st.version != g.statics)
    {
       sim::SimulationParams gp = params;
       gp.photonsPerBlink = plan.photonsPerBlink;
       gp.backgroundPhotons = plan.backgroundPhotons;
       g.kernelSerial = PrepareGpu(g.splat, *plan.kernel, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, st.shaping,
-                                  gp) ? plan.kernel->Serial() : 0;
+                                  gp) ? plan.kernel->SplatSerial() : 0;
       g.background = plan.backgroundPhotons;
       g.statics = st.version;
       if (!g.kernelSerial)

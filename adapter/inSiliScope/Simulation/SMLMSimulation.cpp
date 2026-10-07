@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace sim {
 
@@ -246,6 +247,9 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
       g.plane = zIndex;
       g.nTaps = st.nTaps;
       g.photons = static_cast<float>(photons);
+      g.cutRadius2 = cache.halo && zIndex >= 0 && zIndex < static_cast<int>(cache.halo->radius2.size())
+                        ? cache.halo->radius2[static_cast<size_t>(zIndex)]
+                        : std::numeric_limits<int32_t>::max();
       for (int k = 0; k < 4; ++k)
       {
          g.wx[k] = static_cast<float>(st.wx[k]);

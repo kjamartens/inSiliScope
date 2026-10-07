@@ -60,6 +60,11 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - **seed** The default DNA-PAINT imager concentration is 1 nM (was 1.43; `mt-imager-nm`, MM
   `CellField.Microtubules_ImagerNm`; an estimate): about as many emitters per frame as the dSTORM and PALM typical
   labels (~290 per 20 ms frame of a dense 256 px field each; it was ~550).
+- **seed** **Blink PSFs are cut where their light is negligible** (2026-10-07; docs/physics/optics.md): a dSTORM, PALM or
+  DNA-PAINT blink's splat leaves out every camera pixel that would get less than `psf-halo-cut` of its photons (MM
+  `Renderer.PsfHaloCut`), set by `Renderer.Quality`: Fast 1e-5, **Realistic 3e-6 (the default)**, Exhaustive 0 (the
+  whole kernel, the old output). Nothing is renormalized; WideField and the continuous populations keep the whole
+  kernel. On the default 7 um kernel a blink touches ~58 % of the square's pixels at 3e-6.
 - **seed** The GibsonLanniZernike PSF samples its pupil as finely as the kernel window needs (2026-10-07): 160 x 160
   on the default +/-7 um window, 140 on the viewer's +/-3 um (was 64 x 64, webSMLM's). A sampled pupil makes the PSF
   periodic; at 64 samples the period (~14.6 um in the red, ~10.9 um in the green at NA 1.4) was shorter than the 14 um

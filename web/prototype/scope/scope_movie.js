@@ -149,6 +149,7 @@ export const SCOPE_OPTIONS = [
   ['psf-working-distance-um', 150, 'Objective.WorkingDistanceUm (Gibson-Lanni ti0)'],
   ['psf-sample-depth-nm', 0, 'SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)'],
   ['psf-pupil-samples', 0, 'Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)'],
+  ['psf-halo-cut', 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)"],
   ['psf-interp', 2, 'Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)'],
 ];
 // Per-structure dye overrides `<prefix>-dye.<field>` and slot overrides `dye<N>.<field>` (DYE_FIELDS keys).

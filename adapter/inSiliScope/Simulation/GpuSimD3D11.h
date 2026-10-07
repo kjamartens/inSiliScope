@@ -50,7 +50,8 @@ struct GpuSplatEmitter
 {
    int32_t x0, y0, bx, by;
    int32_t plane, nTaps;
-   float photons, pad;
+   float photons;
+   int32_t cutRadius2;   // the halo cut's largest dx^2 + dy^2 at this plane (PsfHaloSpans::radius2); no cut: INT32_MAX
    float wx[4];
    float wy[4];
 };

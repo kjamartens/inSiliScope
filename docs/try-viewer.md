@@ -41,7 +41,8 @@ Notes:
   kernel beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from
   the focal plane.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
-  reproduces a viewer movie with the CLI.
+  reproduces a viewer movie with the CLI. Blinks also take the default halo cut (pixels below 3e-6 of the emitter's
+  photons are left out; [Optics](physics/optics.md)).
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
 - **Drift** (Acquisition) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250

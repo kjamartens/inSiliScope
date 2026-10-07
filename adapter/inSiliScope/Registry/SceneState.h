@@ -184,6 +184,7 @@ struct SceneState
    std::atomic<int> psfOversampling{6};
    std::atomic<int> psfInterp{static_cast<int>(sim::PsfInterpMode::Cubic)};
    std::atomic<int> psfPupilSamples{0};
+   std::atomic<double> psfHaloCut{3e-6};   // Renderer.Quality Realistic
    std::atomic<bool> useGpu{true};
    std::atomic<int> diskCacheMode{1};                // 0 Off, 1 Cells, 2 CellsAndPsf
    std::atomic<double> wideField[WF_COUNT];

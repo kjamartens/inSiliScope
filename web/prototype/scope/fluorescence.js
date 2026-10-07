@@ -16,7 +16,7 @@
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
 import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, kernelWavelengthNm, driftInfo } from './scope_movie.js';
 import { bucketEventsByFrame, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
-import { nearestZIndex, planSplat, splatRows } from './psf.js';
+import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
 import { meanFieldImage, renderShiftedImages } from './widefield.js';
 import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 import { EVENT_STATE } from './dyes.js';
@@ -64,7 +64,8 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   for (const w of wanted) {
     const lambdaNm = kernelWavelengthNm(w.st.lambdaNm);
     const kernel = scopeKernel(spec, lambdaNm, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)), wanted.length + 1);
-    const g = { structure: w.s, role: w.role, lambdaNm, kernel, sigmaPx: gaussianSigmaPx(lambdaNm, S.p.na, pixelNm),
+    // blinkKernel: with the halo cut (psf-halo-cut), for the blinks; the continuous populations keep kernel.
+    const g = { structure: w.s, role: w.role, lambdaNm, kernel, blinkKernel: kernel && withHaloCut(kernel, S.O('psf-halo-cut')), sigmaPx: gaussianSigmaPx(lambdaNm, S.p.na, pixelNm),
       detectedFraction: w.st.detectedFraction, detectedPerSec: w.st.detectedPerSec, perFrame: w.st.detectedPerSec * S.expSec };
     groups.push(g);
     groupOf.set(`${w.s},${w.role}`, g);
@@ -160,7 +161,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       if (g.role !== 'main') return;
       const evs = buckets[gi][f].map(i => byGroup[gi][i]);
       blinks += evs.length;
-      renderPhotonImage(W, H, evs, f, { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx }, g.kernel, zf, img, dx, dy);
+      renderPhotonImage(W, H, evs, f, { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx }, g.blinkKernel, zf, img, dx, dy);
     });
     for (const p of pops) {
       const tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;

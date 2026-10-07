@@ -1037,11 +1037,122 @@ void BuildPolyphaseSums(PsfKernelPlanes& d, int bw, int os)
    });
 }
 
+namespace {
+std::atomic<uint64_t> g_kernelSerial{0};
+} // namespace
+
 void PsfKernelCache::SetData(PsfKernelPlanes&& d)
 {
-   static std::atomic<uint64_t> serial{0};
-   d.serial = ++serial;
+   d.serial = ++g_kernelSerial;
    data = std::make_shared<const PsfKernelPlanes>(std::move(d));
+}
+
+namespace {
+
+// The spans of PsfHaloSpans for one plane's block sums B (bw x bw). Camera
+// pixel dx of a splat reads block-sum columns c0 + i, c0 = bx + dx*os + os-1,
+// taps i < nTaps; over every sub-pixel position and interpolation (bx in
+// [kc - os - 1, kc] with kc = halfOv, SplatSetup) that is
+// [kc - 2 + dx*os, kc + os + 1 + dx*os]; rows likewise.
+void HaloPlaneSpans(const float* B, int bw, int os, int halfOv, int camRad, double thr, int16_t* lo, int16_t* hi,
+                    long& kept, int32_t& radius2)
+{
+   const int n = 2 * camRad + 1;
+   std::vector<float> colMax(static_cast<size_t>(bw) * n);   // [r][dx]: max over the pixel's columns
+   for (int r = 0; r < bw; ++r)
+   {
+      const float* row = B + static_cast<size_t>(r) * bw;
+      for (int dx = -camRad; dx <= camRad; ++dx)
+      {
+         const int c0 = std::max(0, halfOv - 2 + dx * os), c1 = std::min(bw - 1, halfOv + os + 1 + dx * os);
+         float m = 0.0f;
+         for (int c = c0; c <= c1; ++c)
+            m = std::max(m, row[c]);
+         colMax[static_cast<size_t>(r) * n + (dx + camRad)] = m;
+      }
+   }
+   kept = 0;
+   radius2 = -1;
+   for (int dy = -camRad; dy <= camRad; ++dy)
+   {
+      const int r0 = std::max(0, halfOv - 2 + dy * os), r1 = std::min(bw - 1, halfOv + os + 1 + dy * os);
+      int l = camRad + 1, h = -camRad - 1;
+      for (int dx = -camRad; dx <= camRad; ++dx)
+      {
+         float m = 0.0f;
+         for (int r = r0; r <= r1; ++r)
+            m = std::max(m, colMax[static_cast<size_t>(r) * n + (dx + camRad)]);
+         if (static_cast<double>(m) >= thr)
+         {
+            l = std::min(l, dx);
+            h = std::max(h, dx);
+         }
+      }
+      lo[dy + camRad] = static_cast<int16_t>(l);
+      hi[dy + camRad] = static_cast<int16_t>(h);
+      if (l <= h)
+      {
+         kept += h - l + 1;
+         radius2 = std::max(radius2, dy * dy + std::max(l * l, h * h));
+      }
+   }
+}
+
+} // namespace
+
+PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold)
+{
+   PsfKernelCache out = cache;
+   out.halo.reset();
+   const int os = std::max(1, cache.oversampling);
+   const int camRad = cache.halfWidthOversampled / os;
+   if (!(threshold > 0.0) || !cache.valid || cache.BlockSums().size() != static_cast<size_t>(cache.nz) ||
+       camRad < 1 || camRad > 16000)
+      return out;
+   static std::mutex mutex;
+   static std::vector<std::pair<std::pair<uint64_t, double>, std::shared_ptr<const PsfHaloSpans>>> memo;   // newest first
+   const std::pair<uint64_t, double> key(cache.Serial(), threshold + 10.0 * static_cast<int>(cache.interpMode));
+   {
+      std::lock_guard<std::mutex> lock(mutex);
+      for (const auto& e : memo)
+         if (e.first == key)
+         {
+            out.halo = e.second;
+            return out;
+         }
+   }
+   auto h = std::make_shared<PsfHaloSpans>();
+   h->threshold = threshold;
+   h->camRad = camRad;
+   h->nz = cache.nz;
+   const size_t n = static_cast<size_t>(2 * camRad + 1);
+   h->lo.assign(n * cache.nz, 0);
+   h->hi.assign(n * cache.nz, 0);
+   h->radius2.assign(static_cast<size_t>(cache.nz), -1);
+   std::vector<long> kept(static_cast<size_t>(cache.nz), 0);
+   // Catmull-Rom weights sum to at most 1.25 in absolute value per axis, so a
+   // cubic (or Fourier-shifted) read can exceed the largest block sum it
+   // reads by 1.25^2: the spans keep a margin for it.
+   const double overshoot =
+      cache.interpMode == PsfInterpMode::Cubic || cache.interpMode == PsfInterpMode::Fft ? 1.5625 : 1.0;
+   ParallelFor(static_cast<unsigned>(cache.nz), [&](unsigned z) {
+      HaloPlaneSpans(cache.BlockSums()[z].data(), cache.blockSumWidth, os, cache.halfWidthOversampled, camRad,
+                     threshold / overshoot, h->lo.data() + z * n, h->hi.data() + z * n, kept[z], h->radius2[z]);
+   });
+   double sum = 0.0;
+   for (long k : kept)
+      sum += static_cast<double>(k);
+   h->keptFraction = sum / (static_cast<double>(n) * n * cache.nz);
+   h->serial = ++g_kernelSerial;
+   std::shared_ptr<const PsfHaloSpans> hc = h;
+   {
+      std::lock_guard<std::mutex> lock(mutex);
+      memo.insert(memo.begin(), { key, hc });
+      if (memo.size() > 8)
+         memo.pop_back();
+   }
+   out.halo = hc;
+   return out;
 }
 
 namespace {
@@ -1237,6 +1348,7 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
    const int os = std::max(1, cache.oversampling);
    const int n = cache.sizeOversampled;
    const std::vector<std::vector<float>>& poly = cache.PolySums();
+   plan.zIndex = zIndex;
    plan.B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
    plan.P = nullptr;
    if (poly.size() == static_cast<size_t>(cache.nz) && !poly[static_cast<size_t>(zIndex)].empty())
@@ -1289,6 +1401,12 @@ void SplatRows(std::vector<float>& img, unsigned width, unsigned height, int row
    a.wx = plan.st.wx;
    a.wy = plan.st.wy;
    a.photons = totalPhotons;
+   if (cache.halo && plan.zIndex >= 0 && plan.zIndex < cache.halo->nz && cache.halo->camRad == a.camRad)
+   {
+      const size_t row0 = static_cast<size_t>(plan.zIndex) * (2 * a.camRad + 1);
+      a.spanLo = cache.halo->lo.data() + row0;
+      a.spanHi = cache.halo->hi.data() + row0;
+   }
    if (splat_avx2::Available())
       splat_avx2::SplatRows(a);
    else

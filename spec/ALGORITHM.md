@@ -614,6 +614,25 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   At 64 it was 7e-4 to 2.9e-3, 1.5e-4, 1.5e-4. `psf-pupil-samples` > 0 fixes M (64 = webSMLM, the `zernike_psf`
   fixture).
 
+## PSF halo cut (2026-10-07)
+
+- **What.** A blink's splat skips every camera pixel whose share of the emitter's photons is below `psf-halo-cut`
+  (`WithHaloCut`, JS `withHaloCut`; MM `Renderer.PsfHaloCut`, set by `Renderer.Quality`: Fast 1e-5, Realistic 3e-6,
+  Exhaustive 0). Per kernel plane and splat row dy a column span [lo, hi] (camera pixels from the emitter's pixel): the
+  pixels whose largest readable block sum -- block-sum rows/columns [kc - 2 + d os, kc + os + 1 + d os], every sub-pixel
+  phase and tap -- is >= threshold, divided by 1.5625 for Cubic/Fft (Catmull-Rom's sum |w| <= 1.25 per axis). The CPU
+  splat (`SplatKernel.inl`), the D3D11 gather (`GpuSimD3D11`, a span buffer) and the JS clamp each row to its span.
+- **Why no renormalization.** Kept pixels stay exact and every left-out one is off by < threshold x photons; a
+  renormalized cut would move the halo's light into the core instead (a few 1e-4 of the blink, biasing every pixel).
+- **Why blinks only.** A WideField or mean-field image sums the halos of many dyes, so a per-pixel bound per dye is no
+  bound on the image: cut squares or circles showed as edges of out-of-focus light (1-2 sigma per frame in the
+  2026-10-07 study). Single blinks are sparse: at most 0.09 sigma per frame at 1e-5 in the same study.
+- **Cost.** The spans are memoized per (kernel, threshold, interpolation); computing them is one pass over the block
+  sums (~50 ms for the default kernel). On the default kernel the splat keeps ~58 % of the square's pixels at 3e-6, ~39
+  % at 1e-5 (all planes alike; emitters near focus keep less).
+- **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
+  threshold (Nearest, Linear, Cubic, Fft). `scope_parity`/`engine_check` run the default (3e-6) on both sides.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

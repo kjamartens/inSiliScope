@@ -286,6 +286,7 @@ How the images are computed: quality, GPU, caches, numerics.
 | `PsfModel` | Expert | GibsonLanniZernike | `Gaussian`, `RichardsWolf`, `GibsonLanni`, `GibsonLanniZernike` | The PSF model (GibsonLanniZernike: scalar Gibson-Lanni + Zernike pupil; RichardsWolf/GibsonLanni: JVM). |
 | `PsfOversampling` | Expert | 6 | 1 .. 16 | PSF kernel samples per camera pixel. |
 | `PsfInterp` | Expert | Cubic | `Nearest`, `Linear`, `Cubic`, `Fft` | Sub-pixel placement of the PSF (Fft: exact, slow, CPU only). |
+| `PsfHaloCut` | Expert | 3e-06 | 0 .. 0.001 | Blink splats leave out camera pixels below this share of the emitter's photons (Quality: Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel). WideField and other continuous dyes keep the whole kernel. |
 | `PsfPupilSamples` | Expert | 0 | 0 .. 1024 | GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds light back into a wide window). |
 | `PsfGeneratorJavaHome` | Expert |  |  | JRE/JDK root for the JVM PSF models (empty: auto-detect; read once per process). |
 | `WideFieldUpscaling` | Expert | 1 | 1 .. 4 | Mean-field grid cells per pixel (WideField-mode populations). |

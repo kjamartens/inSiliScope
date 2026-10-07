@@ -327,6 +327,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["psf-sample-depth-nm"] = st.psfSampleDepthNm.load();
    s["psf-interp"] = st.psfInterp.load();
    s["psf-pupil-samples"] = st.psfPupilSamples.load();
+   s["psf-halo-cut"] = st.psfHaloCut.load();
    return s;
 }
 

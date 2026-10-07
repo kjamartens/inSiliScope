@@ -32,7 +32,7 @@ cbuffer Params : register(b0)
 {
    uint W; uint H; uint NFrames; int CamRad;
    int Os; int Bw; int Bh; int Off;
-   uint PlaneStride; uint Seed; uint Pad2; uint Emccd;
+   uint PlaneStride; uint Seed; uint UseSpans; uint Emccd;
    float Pad3; float Qe; float Dark; float Cic;
    float EmGain; float MaxAdu; float Pad0; float Pad1;
 };
@@ -47,7 +47,7 @@ struct FrameInfo
 struct Em
 {
    int x0; int y0; int bx; int by;
-   int plane; int nt; float photons; float pad;
+   int plane; int nt; float photons; int cutR2;
    float4 wx; float4 wy;
 };
 
@@ -56,6 +56,7 @@ StructuredBuffer<Em> Ems : register(t1);
 StructuredBuffer<float4> Pix : register(t2); // offset ADU, gain photons/ADU, read noise e-, background
 StructuredBuffer<FrameInfo> Frames : register(t3);
 StructuredBuffer<float> Extra : register(t4);   // photons added before the noise (continuous populations, a lamp)
+StructuredBuffer<int2> Spans : register(t5);    // the halo cut: columns [x, y] per (plane, dy) (PsfHaloSpans)
 RWStructuredBuffer<uint> Out : register(u0);
 
 void Pcg4d(inout uint4 v)
@@ -158,6 +159,14 @@ void main(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : S
          if (!inside || abs(dx) > CamRad || abs(dy) > CamRad)
             continue;
          Em em = sEm[k];
+         if (dx * dx + dy * dy > em.cutR2)
+            continue;
+         if (UseSpans != 0u)
+         {
+            int2 sp = Spans[(uint)em.plane * (uint)(2 * CamRad + 1) + (uint)(dy + CamRad)];
+            if (dx < sp.x || dx > sp.y)
+               continue;
+         }
          int r0 = em.by + dy * Os + Off, c0 = em.bx + dx * Os + Off;
          uint base = (uint)em.plane * PlaneStride;
          float s = 0.0f;
@@ -214,7 +223,7 @@ struct alignas(16) ParamsCB
    uint32_t w, h, nFrames;
    int32_t camRad;
    int32_t os, bw, bh, off;
-   uint32_t planeStride, seed, pad2, emccd;
+   uint32_t planeStride, seed, useSpans, emccd;
    float pad3, qe, dark, cic;
    float emGain, maxAdu, pad0, pad1;
 };
@@ -260,6 +269,9 @@ struct GpuSimulator::Impl
 
    ComPtr<ID3D11Buffer> sums;
    ComPtr<ID3D11ShaderResourceView> sumsSrv;
+   ComPtr<ID3D11Buffer> spans;
+   ComPtr<ID3D11ShaderResourceView> spansSrv;
+   bool useSpans = false;
    int os = 1, bw = 0, bh = 0, off = 0, camRad = 0;
    uint32_t planeStride = 0;
 
@@ -406,8 +418,23 @@ bool GpuSimulator::SetKernel(const PsfKernelCache& cache, std::string& outError)
    all.reserve(static_cast<size_t>(m.planeStride) * cache.BlockSums().size());
    for (const std::vector<float>& p : cache.BlockSums())
       all.insert(all.end(), p.begin(), p.end());
-   return m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
-                           outError);
+   if (!m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
+                         outError))
+      return false;
+   // The halo cut's spans (one dummy entry without a cut: the slot is bound either way).
+   m.useSpans = cache.halo && cache.halo->camRad == m.camRad && cache.halo->nz == static_cast<int>(cache.BlockSums().size());
+   std::vector<int32_t> spans(2, 0);
+   if (m.useSpans)
+   {
+      spans.resize(2 * cache.halo->lo.size());
+      for (size_t i = 0; i < cache.halo->lo.size(); ++i)
+      {
+         spans[2 * i] = cache.halo->lo[i];
+         spans[2 * i + 1] = cache.halo->hi[i];
+      }
+   }
+   return m.MakeStructured(2 * sizeof(int32_t), static_cast<UINT>(spans.size() / 2), spans.data(), false, m.spans,
+                           m.spansSrv, outError);
 }
 
 bool GpuSimulator::SetStatic(unsigned width, unsigned height, const std::vector<float>& offset,
@@ -590,6 +617,7 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
    p.off = m.off;
    p.planeStride = m.planeStride;
    p.seed = noiseSeed;
+   p.useSpans = m.useSpans ? 1u : 0u;
    p.emccd = cam.emccd ? 1u : 0u;
    p.qe = static_cast<float>(cam.quantumEfficiency);
    p.dark = static_cast<float>(cam.darkCurrentElectrons);
@@ -608,12 +636,12 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       m.ctx->Unmap(m.cb.Get(), 0);
    }
 
-   ID3D11ShaderResourceView* srvs[5] = {m.sumsSrv.Get(), m.emsSrv.Get(), m.pixSrv.Get(), m.framesSrv.Get(),
-                                        m.extraSrv.Get()};
+   ID3D11ShaderResourceView* srvs[6] = {m.sumsSrv.Get(), m.emsSrv.Get(), m.pixSrv.Get(), m.framesSrv.Get(),
+                                        m.extraSrv.Get(), m.spansSrv.Get()};
    ID3D11UnorderedAccessView* uavs[1] = {m.outUav.Get()};
    ID3D11Buffer* cbs[1] = {m.cb.Get()};
    m.ctx->CSSetShader(m.cs.Get(), nullptr, 0);
-   m.ctx->CSSetShaderResources(0, 5, srvs);
+   m.ctx->CSSetShaderResources(0, 6, srvs);
    m.ctx->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
    m.ctx->CSSetConstantBuffers(0, 1, cbs);
    m.ctx->Dispatch((m.w + 15) / 16, (m.h + 15) / 16, static_cast<UINT>(nf));

@@ -186,6 +186,26 @@ struct PsfKernelPlanes
    uint64_t serial = 0;
 };
 
+// The halo cut of a kernel (2026-10-07, spec/ALGORITHM.md "PSF halo cut"):
+// per plane and camera-pixel row dy of a splat, the columns [lo, hi] (camera
+// pixels from the emitter's pixel) outside which every pixel's share of the
+// emitter's photons is below `threshold` -- the largest kernel block sum the
+// pixel can read at any sub-pixel position, x 1.5625 for Cubic/Fft placement
+// (their interpolation can overshoot). The splat skips those pixels (no
+// renormalization: the pixels it keeps are exact, each left-out pixel is off
+// by less than threshold x the emitter's photons). Blink splats only; the
+// continuous (WideField, mean-field) populations keep the whole kernel.
+struct PsfHaloSpans
+{
+   double threshold = 0.0;
+   int camRad = 0;                 // the kernel's half width, camera pixels
+   int nz = 0;
+   std::vector<int16_t> lo, hi;    // [z * (2 camRad + 1) + dy + camRad]; lo > hi: an empty row
+   std::vector<int32_t> radius2;   // per plane: the largest dx^2 + dy^2 kept (-1: none); the GPU's quick reject
+   uint64_t serial = 0;            // unique per (kernel, threshold), as PsfKernelPlanes::serial
+   double keptFraction = 0.0;      // kept pixels / the square's, mean over planes (reports)
+};
+
 // One oversampled PSF kernel (or Z-stack of them), as computed by
 // ComputePsfKernelCache (ZernikePsf.h in C++, or the embedded PSFGenerator
 // JVM bridge). Every plane is normalized to sum 1 (see PsfKernelPlanes), so
@@ -205,11 +225,16 @@ struct PsfKernelCache
    int blockSumWidth = 0;
    // The planes, block sums and polyphase sums (shared, immutable).
    std::shared_ptr<const PsfKernelPlanes> data;
+   // The halo cut the splat applies (WithHaloCut); nullptr: the whole square.
+   std::shared_ptr<const PsfHaloSpans> halo;
 
    const std::vector<std::vector<float>>& Planes() const { return data ? data->planes : NoPlanes(); }
    const std::vector<std::vector<float>>& BlockSums() const { return data ? data->blockSums : NoPlanes(); }
    const std::vector<std::vector<float>>& PolySums() const { return data ? data->polySums : NoPlanes(); }
    uint64_t Serial() const { return data ? data->serial : 0; }
+   // Serial of what a splat reads: the kernel and its halo cut (a GPU
+   // holding the block sums and the spans reloads when it changes).
+   uint64_t SplatSerial() const { return halo ? halo->serial : Serial(); }
    // Takes the arrays of a freshly built stack (assigns their serial).
    void SetData(PsfKernelPlanes&& d);
    static const std::vector<std::vector<float>>& NoPlanes()
@@ -317,6 +342,13 @@ struct SplatSetupResult
 };
 SplatSetupResult SplatSetup(const PsfKernelCache& cache, double xPx, double yPx, PsfInterpMode interpMode);
 
+// A copy of cache whose splats leave out every camera pixel whose share of the
+// emitter's photons is below threshold (PsfHaloSpans); threshold <= 0 or an
+// invalid cache: the whole square (halo = nullptr), bit for bit the uncut
+// splat. The spans are memoized per (kernel, threshold). JS twin
+// web/prototype/scope/psf.js withHaloCut.
+PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold);
+
 // Splats totalPhotons worth of the cached (sum-1) kernel plane at zIndex,
 // centred at camera position (xPx, yPx) (pixel X spans [X-0.5, X+0.5)),
 // into img: per camera pixel within the kernel's half-width, one
@@ -340,6 +372,7 @@ struct SplatPlan
    const float* B = nullptr;        // block sums read (the plane's, or shiftedSums)
    const float* P = nullptr;        // the plane's polySums (nullptr: Fft, or none built)
    std::vector<float> shiftedSums;  // Fft only
+   int zIndex = -1;                 // the plane (the halo cut's spans)
 };
 bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, double totalPhotons,
                PsfInterpMode interpMode, SplatPlan& plan, bool parallelFft = false);

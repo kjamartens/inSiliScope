@@ -18,6 +18,8 @@ Open the [viewer](try-viewer.md). Nothing to install.
       `mEGFP WideField`) and `BrightField`;
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
       `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`;
+      **Quality also sets how much of each blink's PSF halo is drawn**: Fast and Realistic leave out pixels below 1e-5
+      and 3e-6 of the emitter's photons, Exhaustive draws the whole kernel ([the halo cut](physics/optics.md));
     - and the pixel-size calibration of every objective and camera.
 
    `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels and the

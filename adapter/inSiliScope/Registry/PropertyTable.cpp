@@ -817,13 +817,13 @@ std::vector<PropDef> BuildTable()
       PropDef d = Row(R, "Quality", Tier::Basic, "quality",
                       "Speed vs fidelity: Fast, Realistic (the reference settings) or Exhaustive. Custom: set by hand.");
       d.kind = PropKind::Text;
-      // (BrightField quality level, PSF oversampling, mean-field upscaling) per quality.
-      struct Q { const char* name; double bf; int os; double wf; };
-      static const Q qs[] = { { "Fast", 1, 4, 1 }, { "Realistic", 3, 6, 1 }, { "Exhaustive", 4, 8, 2 } };
+      // (BrightField quality level, PSF oversampling, mean-field upscaling, blink halo cut) per quality.
+      struct Q { const char* name; double bf; int os; double wf; double halo; };
+      static const Q qs[] = { { "Fast", 1, 4, 1, 1e-5 }, { "Realistic", 3, 6, 1, 3e-6 }, { "Exhaustive", 4, 8, 2, 0.0 } };
       d.getText = [](H& h) {
          for (const Q& q : qs)
             if (h.State().brightField[BF_QUALITY].load() == q.bf && h.State().psfOversampling.load() == q.os &&
-                h.State().wideField[WF_UPSCALING].load() == q.wf)
+                h.State().wideField[WF_UPSCALING].load() == q.wf && h.State().psfHaloCut.load() == q.halo)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -836,9 +836,11 @@ std::vector<PropDef> BuildTable()
                h.State().brightField[BF_QUALITY] = q.bf;
                h.State().psfOversampling = q.os;
                h.State().wideField[WF_UPSCALING] = q.wf;
+               h.State().psfHaloCut = q.halo;
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("wf-upscale");
+               h.Notify("psf-halo-cut");
                return true;
             }
          return false;
@@ -887,6 +889,11 @@ std::vector<PropDef> BuildTable()
       add(d);
       add(Names(R, "PsfInterp", Tier::Expert, "psf-interp", &SceneState::psfInterp, { "Nearest", "Linear", "Cubic", "Fft" },
                 "Sub-pixel placement of the PSF (Fft: exact, slow, CPU only)."));
+      d = Num(R, "PsfHaloCut", Tier::Expert, "psf-halo-cut", &SceneState::psfHaloCut, 0.0, 1e-3,
+              "Blink splats leave out camera pixels below this share of the emitter's photons (Quality: Fast 1e-5, "
+              "Realistic 3e-6, Exhaustive 0 = the whole kernel). WideField and other continuous dyes keep the whole kernel.");
+      ThenNumber(d, quality);
+      add(d);
       add(Int(R, "PsfPupilSamples", Tier::Expert, "psf-pupil-samples", &SceneState::psfPupilSamples, 0, 1024,
               "GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds "
               "light back into a wide window)."));

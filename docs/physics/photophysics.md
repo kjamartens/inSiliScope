@@ -13,6 +13,12 @@ start costs nothing extra.
 
 ## Blinking dyes (dSTORM, PALM)
 
+!!! danger "Each blink is drawn with a cut PSF"
+    Blinks are splatted without the pixels that would get less than 3e-6 of the emitter's photons (`Renderer.Quality`
+    Realistic; Fast: 1e-5; Exhaustive: the whole kernel). Nothing is renormalized. Continuous populations keep the whole
+    kernel. Details: [Optics, the halo cut](optics.md).
+
+
 1. First activation at \(t_{act} = -\ln U / k_{act}\), with \(k_{act}\) the activation rate per dark dye (from the
    dye's off time and the 405 nm or primed-conversion light, see the light-path page).
 2. Repeat: ON for \(\mathrm{Exp}(\tau_{on})\) (`on-sec`); then bleach with probability \(p_b\) (`bleach-prob`),

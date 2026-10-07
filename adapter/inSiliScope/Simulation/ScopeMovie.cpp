@@ -199,6 +199,7 @@ const OptionTable& Options()
          { "psf-working-distance-um", 150, "Objective.WorkingDistanceUm (Gibson-Lanni ti0)" },
          { "psf-sample-depth-nm", 0, "SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)" },
          { "psf-pupil-samples", 0, "Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)" },
+         { "psf-halo-cut", 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)" },
          { "psf-interp", 2, "Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
@@ -1136,6 +1137,9 @@ struct Group
    bool pre = false;       // role 'pre' (PALM pre state), else 'main'
    double lambdaNm = 0;
    PsfKernelCache kernel;  // !valid: the Gaussian of sigmaPx
+   // kernel with the halo cut (psf-halo-cut): the blinks' splats. The
+   // continuous populations keep kernel (spec/ALGORITHM.md "PSF halo cut").
+   PsfKernelCache blinkKernel;
    double sigmaPx = 1;
    double detectedFraction = 0, detectedPerSec = 0, perFrame = 0;
 };
@@ -1650,8 +1654,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    auto kernels = [&]() {
       const auto tk = TimingClock::now();
       for (Group& g : m.groups)
+      {
          if (psfOk && !ScopePsfKernel(spec, g.lambdaNm, g.kernel, psfErr))
             psfOk = false;
+         if (psfOk)
+            g.blinkKernel = WithHaloCut(g.kernel, ScopeSpecGet(spec, "psf-halo-cut"));
+      }
       psfSec = TimingSince(tk);
    };
    std::vector<BlinkEvent> all;
@@ -1883,7 +1891,7 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
    if (m.byGroup[static_cast<size_t>(blinkGroup)].size() != m.events.size())
       return sp;   // blinks of another group (none should be)
    sp.ok = true;
-   sp.kernel = g.kernel.valid ? &g.kernel : nullptr;
+   sp.kernel = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
    sp.photonsPerBlink = g.perFrame;
    sp.sigmaPx = g.sigmaPx;
    sp.backgroundPhotons = m.bg;
@@ -2065,7 +2073,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                fe[k].push_back(m.byGroup[gi][i]);
             frameBlinks[k] += static_cast<long>(fe[k].size());
             RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
-                              g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &blinkInto);
+                              g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
       };
       if (bands)

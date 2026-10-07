@@ -20,6 +20,11 @@ What is checked, against what, and where.
 
 ## Known deviations
 
+- **Blink PSFs are cut** (since 2026-10-07): at the default `Renderer.Quality` (Realistic) a blink's splat leaves out every
+  camera pixel that would get less than 3e-6 of its photons (Fast: 1e-5; Exhaustive: none), without renormalizing. A
+  movie summed over many frames lacks that far halo; compare with webSMLM, or study the PSF's wings, at Exhaustive.
+  [Optics, the halo cut](optics.md).
+
 - The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 um elsewhere).
 - Brightfield: only cytoplasm, nucleus and microtubules make contrast (no nucleoli, vesicles, lipid droplets...: not
   simulated yet, kept out on purpose); scalar forward multislice, monochromatic, flat Koehler field; CellField only.

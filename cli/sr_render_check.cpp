@@ -391,6 +391,52 @@ int main(int argc, char** argv)
       Check(same, what);
    }
 
+   // The halo cut (WithHaloCut): threshold 0 = the uncut splat bit for bit; with a
+   // threshold every pixel the splat keeps is exact and every pixel it leaves
+   // out would have had less than threshold x the emitter's photons.
+   for (int m = 0; m < 4; ++m)
+   {
+      bool zeroSame = true, keptExact = true, cutSmall = true, cutSome = false;
+      double worst = 0.0;
+      for (int os : {4, 5})
+      {
+         const PsfKernelCache kc = SyntheticKernel(os, 8, 5, modes[m]);
+         const PsfKernelCache k0 = WithHaloCut(kc, 0.0);
+         zeroSame = zeroSame && !k0.halo;
+         for (double thr : {1e-3, 1e-4})
+         {
+            const PsfKernelCache kt = WithHaloCut(kc, thr);
+            const int nEm = modes[m] == PsfInterpMode::Fft ? 20 : 200;
+            for (int k = 0; k < nEm; ++k)
+            {
+               const double x = ux(rng), y = uy(rng), ph = up(rng);
+               const int z = k % 5;
+               std::vector<float> full(static_cast<size_t>(W) * H, 0.0f), zero = full, cut = full;
+               SplatPsfKernel(full, W, H, kc, z, x, y, ph, modes[m]);
+               SplatPsfKernel(zero, W, H, k0, z, x, y, ph, modes[m]);
+               SplatPsfKernel(cut, W, H, kt, z, x, y, ph, modes[m]);
+               zeroSame = zeroSame && SameFloats(full, zero);
+               for (size_t i = 0; i < full.size(); ++i)
+               {
+                  if (cut[i] == full[i])
+                     continue;
+                  if (cut[i] != 0.0f)
+                     keptExact = false;
+                  cutSome = true;
+                  worst = std::max(worst, std::fabs(full[i]) / (thr * ph));
+                  if (std::fabs(full[i]) >= thr * ph)
+                     cutSmall = false;
+               }
+            }
+         }
+      }
+      char what[200];
+      std::snprintf(what, sizeof what,
+                    "%s halo cut: 0 = the uncut splat, kept pixels exact, left-out pixels < threshold "
+                    "(largest %.2f of it)", names[m], worst);
+      Check(zeroSame && keptExact && cutSmall && cutSome, what);
+   }
+
    // Whole frames: parallel bands (render) and rows (noise) = serial.
    std::vector<BlinkEvent> events;
    for (int k = 0; k < 300; ++k)
