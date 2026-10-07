@@ -218,6 +218,7 @@ sim::PsfGeneratorRequest FixtureRequest()
    r.zStepNm = 100.0;
    r.maskModes = 5;
    r.maskWaist = 1.0;
+   r.pupilSamples = 64;   // webSMLM's PSF_FFT_M, as the fixture was made
    return r;
 }
 

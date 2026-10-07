@@ -134,6 +134,12 @@ struct PsfGeneratorRequest
    // PSFGenerator's own minimum of 3 planes -- see ComputePsfKernelCache.
    int nz = 1;
    double zStepNm = 100.0;
+   // GibsonLanniZernike-only (ignored otherwise): pupil samples per axis of
+   // the chirp-Z evaluation. 0 = as many as the kernel needs
+   // (ZernikePupilSamples, 2026-10-07); 64 = webSMLM's PSF_FFT_M (the PSF
+   // then repeats every 60 lambda / (2 NA), ~13.7 um in the red, so a wide
+   // window held folded-back light; spec/ALGORITHM.md).
+   int pupilSamples = 0;
 
    // JRE/JDK install root (the directory containing bin\server\jvm.dll),
    // used only to locate the JVM to embed -- everything else (PSFGenerator

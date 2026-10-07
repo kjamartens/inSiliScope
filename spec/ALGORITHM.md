@@ -598,6 +598,22 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 - **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
   illuminated chamber height. Documented as such rather than modelled half-way.
 
+## PSF pupil sampling (2026-10-07)
+
+- **The pupil grid follows the kernel window** (`ZernikePupilSamples`, JS `pupilSamples`). The chirp-Z evaluator
+  samples the pupil disc on an M x M grid with spacing dk = 2 kMax / (M - 4), so the PSF it returns is periodic with
+  period 2 pi / dk = (M - 4) lambda / (2 NA). With webSMLM's fixed M = 64 that was ~14.6 um (680 nm) / ~10.9 um
+  (510 nm) at NA 1.4, shorter than the 14 um wide default kernel: defocused light folded back into the window (axes
+  4.7x the diagonals at 3 um defocus in the green; stepped bands of out-of-focus light in WideField, up to 3-4 sigma
+  per frame). Rule: the smallest multiple of 4 in [64, 512] whose period covers the window's diagonal (light can fold
+  in only from beyond it), then raised to fill the chirp-Z length (power of two >= M + size - 1, up to 512), which is
+  free and shrinks the pupil-edge staircase error. Default window: 160; viewer: 140.
+- **Why not more.** The geometric defocus disc (z tan theta: 18 um at 3.5 um defocus and NA 1.49) asked for 512 and
+  2.5x the kernel time; measured against 768 samples, 160 is already within 9e-5 of an emitter's photons per camera
+  pixel in the core, 1.3e-5 at 2-4 um and 8e-6 beyond, at NA 1.4 and 1.49, 510 and 680 nm (512 gets 1e-6 beyond 4 um).
+  At 64 it was 7e-4 to 2.9e-3, 1.5e-4, 1.5e-4. `psf-pupil-samples` > 0 fixes M (64 = webSMLM, the `zernike_psf`
+  fixture).
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

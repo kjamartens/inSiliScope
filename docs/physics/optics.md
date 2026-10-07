@@ -22,11 +22,24 @@
 `GibsonLanniZernike` is a **scalar** model: a unit-amplitude pupil (no apodization, no polarization) whose phase is the
 Gibson-Lanni optical path difference (sample depth and immersion defocus), the Zernike sum and an optional mask. It is the
 same model as webSMLM's, computed in C++ (`Simulation/ZernikePsf.cpp`), identical to webSMLM's JavaScript to the last
-float32 bit on the reference cases (ctest `zernike_psf`) and to the original Java class (`GibsonLanniZernikePSF.java`, kept
+float32 bit on the reference cases at webSMLM's 64-sample pupil (ctest `zernike_psf`; the default grid is finer, below) and to the original Java class (`GibsonLanniZernikePSF.java`, kept
 as a reference) to ~1e-12 relative L2. It needs no Java; only `RichardsWolf` and `GibsonLanni` run in PSFGenerator's JVM.
 
 The Zernike model evaluates the pupil-to-image integral on a Cartesian pupil grid with a separable 2D **chirp-Z (Bluestein)
-transform**. Other pieces: the double-helix mask (`PsfMaskType = DoubleHelix`, Gauss-Laguerre modes), the Gibson-Lanni focal
+transform**. The grid has as many samples as the kernel window needs (`Renderer.PsfPupilSamples`, cli/viewer
+`psf-pupil-samples`, 0 = automatic): a sampled pupil makes the PSF repeat every \((M-4)\,\lambda/(2\,\mathrm{NA})\), so the
+period must cover the window's diagonal, and the count is then raised to fill the transform's power-of-two length (free).
+The default +/-7 um window gets 160 x 160 samples, the viewer's +/-3 um one 140.
+
+!!! warning "Pupil sampling before 2026-10-07"
+    The grid used to be 64 x 64 (webSMLM's `PSF_FFT_M`). Its period, ~14.6 um in the red and ~10.9 um in the green at
+    NA 1.4, was shorter than the 14 um wide kernel, so defocused light folded back into the window: WideField images
+    showed stepped, square-ish bands of out-of-focus light (up to 3-4 sigma per frame), and near focus a camera pixel was
+    off by up to 0.3 % of the emitter's photons (1.5 % of the brightest pixel). Against a 768-sample reference the
+    automatic grid is within 1e-4 of an emitter's photons per camera pixel in the core and 1.3e-5 beyond 2 um.
+    `psf-pupil-samples=64` gives the old grid (and webSMLM's PSF, to the last bit).
+
+Other pieces: the double-helix mask (`PsfMaskType = DoubleHelix`, Gauss-Laguerre modes), the Gibson-Lanni focal
 shift for depth (the z stack is centred at \(t_{i0} - d\,n_i/n_s\)), and presets of aberrations (astigmatism, coma, spherical,
 trefoil, saddle point, extended-range engineered PSFs) taken from webSMLM.
 
@@ -45,7 +58,7 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 The command line and the viewer use the same PSF as the adapter: `GibsonLanniZernike` by default (the same C++ code and
 kernel cache), with options that mirror the adapter's PSF properties (`Objective.*`, `Renderer.Psf*`; `psf-model`, `psf-zernike-preset`, `zern.<j>`,
 `psf-mask`, `psf-oversampling`, `psf-kernel-half-width-nm`, `psf-z-range-um`, `psf-z-step-um`, `psf-sample-index`,
-`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
+`psf-working-distance-um`, `psf-sample-depth-nm`, `psf-pupil-samples`, `psf-interp`; `insiliscope_cli --help` lists them). `psf-model=0`
 selects the Gaussian; `RichardsWolf`/`GibsonLanni` need PSFGenerator's JVM and exist only in the adapter. The viewer uses
 a 3 um kernel half width (instead of 7 um) to save browser memory.
 

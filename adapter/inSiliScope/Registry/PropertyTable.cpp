@@ -887,6 +887,9 @@ std::vector<PropDef> BuildTable()
       add(d);
       add(Names(R, "PsfInterp", Tier::Expert, "psf-interp", &SceneState::psfInterp, { "Nearest", "Linear", "Cubic", "Fft" },
                 "Sub-pixel placement of the PSF (Fft: exact, slow, CPU only)."));
+      add(Int(R, "PsfPupilSamples", Tier::Expert, "psf-pupil-samples", &SceneState::psfPupilSamples, 0, 1024,
+              "GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds "
+              "light back into a wide window)."));
       d = Row(R, "PsfGeneratorJavaHome", Tier::Expert, "java-home",
               "JRE/JDK root for the JVM PSF models (empty: auto-detect; read once per process).");
       d.kind = PropKind::Text;

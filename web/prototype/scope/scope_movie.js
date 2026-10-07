@@ -148,6 +148,7 @@ export const SCOPE_OPTIONS = [
   ['psf-sample-index', 1.518, 'SampleHolder.PsfSampleIndex: sample refractive index (Gibson-Lanni)'],
   ['psf-working-distance-um', 150, 'Objective.WorkingDistanceUm (Gibson-Lanni ti0)'],
   ['psf-sample-depth-nm', 0, 'SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)'],
+  ['psf-pupil-samples', 0, 'Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)'],
   ['psf-interp', 2, 'Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)'],
 ];
 // Per-structure dye overrides `<prefix>-dye.<field>` and slot overrides `dye<N>.<field>` (DYE_FIELDS keys).
@@ -407,7 +408,7 @@ export function scopePsfRequest(spec, wavelengthNm) {
     nz: Math.round(Math.max(0, O('psf-z-range-um')) / zStepUm) + 1, zStepNm: zStepUm * 1000.0,
     sampleIndex: O('psf-sample-index'), workingDistanceUm: O('psf-working-distance-um'), sampleDepthNm: O('psf-sample-depth-nm'),
     zernike, maskType: O('psf-mask') === 1 ? 1 : 0, maskModes: Math.trunc(Math.min(8, Math.max(2, O('psf-mask-modes')))),
-    maskWaist: O('psf-mask-waist'), interpMode: Math.trunc(Math.min(3, Math.max(0, O('psf-interp')))),
+    maskWaist: O('psf-mask-waist'), pupilSamples: Math.trunc(Math.max(0, O('psf-pupil-samples'))), interpMode: Math.trunc(Math.min(3, Math.max(0, O('psf-interp')))),
   };
 }
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path or dye changes reuse a kernel.

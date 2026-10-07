@@ -107,6 +107,7 @@ sim::PsfGeneratorRequest BuildPsfGeneratorRequest(const SceneState& s)
    }
    req.javaHome = s.JavaHome();
    req.interpMode = static_cast<sim::PsfInterpMode>(s.psfInterp.load());
+   req.pupilSamples = s.psfPupilSamples.load();
    req.maskType = static_cast<sim::PsfMaskType>(s.psfMaskType.load());
    req.maskModes = s.psfMaskModes.load();
    req.maskWaist = s.psfMaskWaist.load();
@@ -325,6 +326,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["psf-working-distance-um"] = st.workingDistanceUm.load();
    s["psf-sample-depth-nm"] = st.psfSampleDepthNm.load();
    s["psf-interp"] = st.psfInterp.load();
+   s["psf-pupil-samples"] = st.psfPupilSamples.load();
    return s;
 }
 

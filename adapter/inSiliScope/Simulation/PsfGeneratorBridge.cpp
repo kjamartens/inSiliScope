@@ -680,7 +680,7 @@ bool SameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
           a.pixelSizeNm == b.pixelSizeNm && a.zernikeCoefficients == b.zernikeCoefficients &&
           a.maskType == b.maskType && a.maskModes == b.maskModes && a.maskWaist == b.maskWaist &&
           a.oversampling == b.oversampling && a.kernelHalfWidthPx == b.kernelHalfWidthPx && a.nz == b.nz &&
-          a.zStepNm == b.zStepNm;
+          a.zStepNm == b.zStepNm && a.pupilSamples == b.pupilSamples;
 }
 
 // ---- the opt-in disk store of the last kernel (SetPsfKernelDiskCacheDir) ----
@@ -690,7 +690,7 @@ std::string g_psfDiskDir;
 constexpr char kPsfFileMagic[8] = { 'I', 'S', 'C', 'P', 'S', 'F', '0', '1' };
 // Bump when the kernel computation changes (ZernikePsf.cpp, the JVM models'
 // request mapping): planes stored by an older version are not taken.
-constexpr const char* kPsfKernelCodeVersion = "2026-10-04";
+constexpr const char* kPsfKernelCodeVersion = "2026-10-07";   // the pupil grid follows the window
 constexpr double kPsfDiskMaxBytes = 512.0 * 1024 * 1024;
 
 uint64_t FnvMix(uint64_t h, const void* data, size_t n)
@@ -709,8 +709,8 @@ uint64_t KernelFingerprint(const PsfGeneratorRequest& r)
 {
    uint64_t h = 14695981039346656037ull;
    h = FnvMix(h, kPsfKernelCodeVersion, std::strlen(kPsfKernelCodeVersion));
-   const int32_t ints[6] = { static_cast<int32_t>(r.model), static_cast<int32_t>(r.maskType), r.maskModes,
-                             r.oversampling, r.kernelHalfWidthPx, r.nz };
+   const int32_t ints[7] = { static_cast<int32_t>(r.model), static_cast<int32_t>(r.maskType), r.maskModes,
+                             r.oversampling, r.kernelHalfWidthPx, r.nz, r.pupilSamples };
    h = FnvMix(h, ints, sizeof ints);
    const double dbls[9] = { r.wavelengthNm, r.na, r.immersionIndex, r.sampleIndex, r.workingDistanceUm,
                             r.sampleDepthNm, r.pixelSizeNm, r.maskWaist, r.zStepNm };

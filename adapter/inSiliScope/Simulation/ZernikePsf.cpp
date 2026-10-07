@@ -29,7 +29,6 @@ namespace sim {
 
 namespace {
 
-constexpr int kFftM = 64; // webSMLM's PSF_FFT_M, Java's FFT_M
 constexpr double kPi = 3.14159265358979323846;
 
 // OSA/ANSI single index j -> (n, m): j = n(n+1)/2 + l, m = -n + 2l.
@@ -132,6 +131,22 @@ StackGeometry GeometryFor(const PsfGeneratorRequest& req)
 
 } // namespace
 
+int ZernikePupilSamples(const PsfGeneratorRequest& req)
+{
+   if (req.pupilSamples > 0)
+      return std::max(8, std::min(1024, req.pupilSamples));
+   const StackGeometry g = GeometryFor(req);
+   const double diagonalUm = 2.0 * std::sqrt(2.0) * std::max(1, req.kernelHalfWidthPx) * req.pixelSizeNm / 1000.0;
+   const double m = 4.0 + 2.0 * req.na * diagonalUm / (req.wavelengthNm / 1000.0);
+   const int need = std::max(64, std::min(512, 4 * static_cast<int>(std::ceil(m / 4.0))));
+   // The chirp-Z length is a power of two >= M + size - 1: more samples up to
+   // it cost almost nothing and shrink the pupil-edge (staircase) error.
+   int fftLen = 1;
+   while (fftLen < need + g.size - 1)
+      fftLen <<= 1;
+   return std::max(need, std::min(512, (fftLen - g.size + 1) / 4 * 4));
+}
+
 bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::vector<float>>& out,
                              std::string& outError)
 {
@@ -173,6 +188,7 @@ bool ComputeZernikePsfPlanes(const PsfGeneratorRequest& req, std::vector<std::ve
    const double k0 = 2.0 * kPi / lambda;
    const double bMax = std::min(1.0, ns / NA);
    const double kMax = k0 * NA * bMax;
+   const int kFftM = ZernikePupilSamples(req);
    const double dk = (2.0 * kMax) / (kFftM - 4);
    const double kMin = -std::floor(kFftM / 2.0) * dk;
    const int nx = g.size, ny = g.size;

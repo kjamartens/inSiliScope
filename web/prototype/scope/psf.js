@@ -179,7 +179,6 @@ class CztPlan {
   }
 }
 
-const FFT_M = 64;
 
 export function psfGeometry(req) {
   const oversampling = Math.max(1, req.oversampling);
@@ -188,6 +187,23 @@ export function psfGeometry(req) {
   const nzWanted = Math.max(3, req.nz);
   return { oversampling, halfOv, size: 2 * halfOv + 1, nz: nzWanted % 2 === 1 ? nzWanted : nzWanted + 1,
     resLateralNm: req.pixelSizeNm / oversampling };
+}
+
+// Pupil samples per axis (C++ ZernikePupilSamples): req.pupilSamples when > 0, else the smallest multiple of 4 (64-512)
+// whose PSF repeat distance (M - 4) lambda / (2 NA) is the window's diagonal, raised to fill the chirp-Z transform's
+// power-of-two length (free). A sampled pupil makes the PSF periodic; with too few samples (64, webSMLM's PSF_FFT_M)
+// light beyond half the period folds back into a wide window.
+export function pupilSamples(req) {
+  if (req.pupilSamples > 0) return Math.max(8, Math.min(1024, Math.trunc(req.pupilSamples)));
+  const g = psfGeometry(req);
+  const diagonalUm = 2.0 * Math.sqrt(2.0) * Math.max(1, req.kernelHalfWidthPx) * req.pixelSizeNm / 1000.0;
+  const m = 4.0 + 2.0 * req.na * diagonalUm / (req.wavelengthNm / 1000.0);
+  const need = Math.max(64, Math.min(512, 4 * Math.ceil(m / 4.0)));
+  // The chirp-Z length is a power of two >= M + size - 1: more samples up to it cost almost nothing and shrink the
+  // pupil-edge (staircase) error.
+  let fftLen = 1;
+  while (fftLen < need + g.size - 1) fftLen *= 2;
+  return Math.max(need, Math.min(512, Math.trunc((fftLen - g.size + 1) / 4) * 4));
 }
 
 // Raw intensity planes (Float32Array size*size each), plane k at defocus (k - (nz-1)/2) zStep.
@@ -211,6 +227,7 @@ export function computeZernikePsfPlanes(req, onPlane) {
   const k0 = 2.0 * Math.PI / lambda;
   const bMax = Math.min(1.0, ns / NA);
   const kMax = k0 * NA * bMax;
+  const FFT_M = pupilSamples(req);
   const dk = (2.0 * kMax) / (FFT_M - 4);
   const kMin = -Math.floor(FFT_M / 2.0) * dk;
   const nx = g.size, ny = g.size;

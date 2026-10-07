@@ -198,6 +198,7 @@ const OptionTable& Options()
          { "psf-sample-index", 1.518, "SampleHolder.PsfSampleIndex: sample refractive index (Gibson-Lanni)" },
          { "psf-working-distance-um", 150, "Objective.WorkingDistanceUm (Gibson-Lanni ti0)" },
          { "psf-sample-depth-nm", 0, "SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)" },
+         { "psf-pupil-samples", 0, "Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)" },
          { "psf-interp", 2, "Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
@@ -917,6 +918,7 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.sampleIndex = O("psf-sample-index");
    req.workingDistanceUm = O("psf-working-distance-um");
    req.sampleDepthNm = O("psf-sample-depth-nm");
+   req.pupilSamples = static_cast<int>(std::max(0.0, O("psf-pupil-samples")));
    const std::vector<std::string>& presets = ZernikePresetNames();
    const int preset = static_cast<int>(O("psf-zernike-preset"));
    if (preset < 0 || preset >= static_cast<int>(presets.size()))

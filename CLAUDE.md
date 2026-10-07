@@ -202,7 +202,7 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the 1 nM imager default (2026-10-07; the cases on the default label moved): TOTAL 491a7dd5...
+`adapter_pixel_hash` reference since the pupil grid follows the window (2026-10-07; every diffraction-PSF case moved): TOTAL c64e931a...
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -493,7 +493,10 @@ the DLL**:
 reference); `ComputePsfKernelCache` (memoized, every platform) sends `GibsonLanniZernike` there and only
 `RichardsWolf`/`GibsonLanni` to the JVM (Windows). Same planes: relative L2 0 vs webSMLM's JS (ctest `zernike_psf`,
 `tests/psf/zernike_ref.bin`), ~1e-12 vs the JVM at the adapter defaults (`tools/psf_parity_check/README.md`);
-`adapter_pixel_hash` unchanged. The default 841x841x71 kernel takes ~0.8 s (12 threads). The Linux test `.so`, the
+`adapter_pixel_hash` unchanged. The default 841x841x71 kernel takes ~0.8 s (12 threads). Pupil grid (2026-10-07,
+spec/ALGORITHM.md): `ZernikePupilSamples` sizes it to the window (160 on the default 7 um window, was webSMLM's fixed 64,
+whose PSF period was shorter than the window: folded light); option `psf-pupil-samples` / `Renderer.PsfPupilSamples`
+(0 auto, 64 = webSMLM and the `zernike_psf` fixture). The Linux test `.so`, the
 cli and the viewer get the real model too.
 
 **Licensing (2026-10-01):** this project's own source is BSD-3-Clause (`LICENSE`);
