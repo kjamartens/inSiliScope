@@ -12,6 +12,7 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
+#include "LiveClock.h"
 #include "Simulation/CacheDir.h"
 #include "Simulation/Parallel.h"
 #include "Simulation/DyeLibrary.h"
@@ -757,6 +758,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
    auto publish = [this](std::vector<uint16_t>& frame, unsigned fw, unsigned fh, long epoch, long frameIndex,
                          long config, long light, LitFrame& lit,
                          sim::SharedStageState::Clock::time_point started) {
+      const double renderMs =
+         std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - started).count();
+      const double prevRender = liveRenderMs_.load(std::memory_order_relaxed);
+      liveRenderMs_.store(prevRender > 0.0 ? 0.8 * prevRender + 0.2 * renderMs : renderMs, std::memory_order_relaxed);
       {
          MMThreadGuard g(frontFrameLock_);
          frontFrame_.swap(frame);
@@ -767,8 +772,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
          liveFrameEpoch_ = epoch;
          liveFrameConfig_ = config;
          liveFrameLight_ = light;
+         // Under the lock: a consumer reads the frame and its number together.
+         liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
       }
-      liveFrameSeq_.fetch_add(1, std::memory_order_relaxed);
+      {
+         std::lock_guard<std::mutex> lk(liveCvMutex_);
+      }
+      liveCv_.notify_all();
       MM::MMTime publishTime = GetCurrentMMTime();
       if (frameIndex > 0)
       {
@@ -786,6 +796,12 @@ void CInSiliScopeCamera::LiveProducerLoop()
    };
    sim::CellFieldQuery bfLastQuery;
    bool bfQueried = false;
+   // The frame schedule: frame k+1 starts one exposure after frame k was due
+   // to start (an absolute schedule, so wake-up latency does not add up); a
+   // frame that took longer than the exposure starts the next at once. A snap
+   // (liveWakeNow_) starts a frame at once.
+   isc::PreciseWaiter waiter;
+   sim::SharedStageState::Clock::time_point scheduled = sim::SharedStageState::Clock::now();
 
    while (liveProducerRun_.load())
    {
@@ -803,12 +819,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
             if (liveFrameEpoch_ < liveSeqEpoch_.load())
                break;   // a frame from before this acquisition: skipped anyway
          }
-         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+         std::unique_lock<std::mutex> lk(liveCvMutex_);
+         liveCv_.wait_for(lk, std::chrono::milliseconds(2),
+                          [this] { return liveTakenSeq_.load() >= liveFrameSeq_.load() || !liveProducerRun_.load(); });
       }
       // Everything this frame reads (settings, pose, focus, clocks) is read
       // after this instant (GenerateNextFrameIntoImg: liveFrameStart_).
       const sim::SharedStageState::Clock::time_point frameStart = sim::SharedStageState::Clock::now();
-      MM::MMTime tickStart = GetCurrentMMTime();
       sim::SimulationParams params = isc::SnapshotParams(St());
       unsigned w = FullWidth();
       unsigned h = FullHeight();
@@ -1104,30 +1121,39 @@ void CInSiliScopeCamera::LiveProducerLoop()
               lit, frameStart);
       ++liveFrameCounter_;
 
-      double exposureMs = GetExposure();
-      MM::MMTime elapsed = GetCurrentMMTime() - tickStart;
-      double sleepMs = exposureMs - elapsed.getMsec();
+      const double exposureMs = GetExposure();
+      scheduled += std::chrono::duration_cast<sim::SharedStageState::Clock::duration>(
+         std::chrono::duration<double, std::milli>(exposureMs));
+      const auto nowAfter = sim::SharedStageState::Clock::now();
+      if (scheduled < nowAfter)
+         scheduled = nowAfter;   // rendering took longer than the exposure: no catch-up burst
+      double sleepMs = std::chrono::duration<double, std::milli>(scheduled - nowAfter).count();
       // Spend the wait pre-loading the dyes a stage move would need next (the
       // whole z column and an xy margin around the FOV), so focusing and
       // nearby moves do not stall a frame on generating them.
-      if (sleepMs > kCellFieldPrefetchSlackMs)
+      if (sleepMs > kCellFieldPrefetchSlackMs && !liveWakeNow_.load())
       {
-         if (bfActive && cellFieldOk && bfQueried)
-         {
-            sim::CellFieldQuery next = bfLastQuery;
-            next.tSec = cellFieldTimeSec;
-            next.spanSec = params.frameDurationSec;
-            cellField.Prefetch(next, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
-         }
-         else if (!bfActive && !spec.empty())
+         const auto tPrefetch = sim::SharedStageState::Clock::now();
+         // Not with the lamp on: BrightField reads only the cells' geometry
+         // (its scene is rebuilt on a pose change), and the dye prefetch of a
+         // whole z column overran its budget by half a second (one work item
+         // is checked against the budget only when it ends), stalling frames.
+         if (!bfActive && !spec.empty())
          {
             spec["start-sec"] = clock.At(sx, sy);
             sim::PrefetchScope(spec, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs);
          }
-         sleepMs = exposureMs - (GetCurrentMMTime() - tickStart).getMsec();
+         const double took =
+            std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - tPrefetch).count();
+         if (took > livePrefetchMaxMs_.load())
+         {
+            livePrefetchMaxMs_ = took;
+            livePrefetchBudgetMs_ = sleepMs - kCellFieldPrefetchSlackMs;
+         }
       }
-      if (sleepMs > 0.0)
-         CDeviceUtils::SleepMs(static_cast<unsigned long>(sleepMs));
+      waiter.WaitUntil(scheduled, [this] { return !liveProducerRun_.load() || liveWakeNow_.load(); });
+      if (liveWakeNow_.exchange(false))
+         scheduled = sim::SharedStageState::Clock::now();   // a snap: its frame starts now
    }
 }
 
@@ -1184,6 +1210,9 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
          interruptible ? sim::SharedStageState::Clock::time_point(
                             sim::SharedStageState::Clock::duration(liveSeqStartTicks_.load()))
                        : sim::SharedStageState::Clock::now();
+      // A snap: a producer waiting for its next tick starts this frame now.
+      if (!interruptible)
+         liveWakeNow_ = true;
       for (;;)
       {
          {
@@ -1200,6 +1229,7 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             {
                lastConsumedLiveFrameSeq_ = seq;
                liveTakenSeq_ = seq;
+               liveCv_.notify_all();
             }
             else if (seq != lastConsumedLiveFrameSeq_)
             {
@@ -1214,10 +1244,14 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
             return false;
          if (interruptible && thd_ && thd_->IsStopped())
             return false;
-         CDeviceUtils::SleepMs(1);
+         // Woken by the next publish (the timeout only re-checks the stop flags).
+         std::unique_lock<std::mutex> lk(liveCvMutex_);
+         liveCv_.wait_for(lk, std::chrono::milliseconds(5),
+                          [&] { return liveFrameSeq_.load() != seq || !liveProducerRun_.load(); });
       }
       lastConsumedLiveFrameSeq_ = seq;
       liveTakenSeq_ = seq;
+      liveCv_.notify_all();   // a hardware z stack's producer waits for this
       CropFullFrameIntoImg(frameCopy, w, h);
       // The frame was taken: its light goes into the illumination history.
       if (lit.valid)
@@ -1362,6 +1396,25 @@ int CInSiliScopeCamera::OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::Act
 {
    if (eAct == MM::BeforeGet)
       pProp->Set(actualFrameIntervalMs_.load(std::memory_order_relaxed));
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnLivePrefetchMs(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+   {
+      std::ostringstream o;
+      o << std::fixed << std::setprecision(1) << livePrefetchMaxMs_.exchange(0.0) << "/"
+        << livePrefetchBudgetMs_.exchange(0.0);
+      pProp->Set(o.str().c_str());
+   }
+   return DEVICE_OK;
+}
+
+int CInSiliScopeCamera::OnLiveRenderMs(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   if (eAct == MM::BeforeGet)
+      pProp->Set(liveRenderMs_.load(std::memory_order_relaxed));
    return DEVICE_OK;
 }
 

@@ -179,6 +179,10 @@ with data for the mode). Shipped configs `adapter/inSiliScope/config/inSiliScope
 assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
 `tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
 (precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
+Live pacing (2026-10-07, spec/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
+timing: Windows rounds it up to 15.6 ms), an absolute frame schedule, a condition variable from producer to consumer;
+`tools/bench_live.py` measures fps per channel x exposure and action latencies (Test rows `Test_LiveRenderMs`,
+`Test_LivePrefetchMs`).
 `adapter_pixel_hash` reference since the 0.667 default: TOTAL 5fe6140f... (commit 59f66e8).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's

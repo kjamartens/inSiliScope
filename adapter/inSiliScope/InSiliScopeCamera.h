@@ -42,6 +42,8 @@
 #include "Simulation/WidefieldRender.h"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -112,6 +114,8 @@ public:
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnExposureProperty(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnLiveRenderMs(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnLivePrefetchMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Test rows (ISC_TEST=1): the precomputed stack.
    int OnAcqMode(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnGenerateStack(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -230,6 +234,18 @@ private:
    // decoupled from MM's Snap/Live/sequence pull cadence.
    std::thread liveProducerThread_;
    std::atomic<bool> liveProducerRun_{false};
+   // A publish wakes the consumers waiting for a new frame (no polling).
+   std::mutex liveCvMutex_;
+   std::condition_variable liveCv_;
+   // A snap asks the producer to start its frame now instead of at the next
+   // tick of the exposure schedule.
+   std::atomic<bool> liveWakeNow_{false};
+   // The sequence acquisition's start on the steady clock and its interval
+   // (ms; 0 = as fast as the exposure allows): frame i is taken no earlier
+   // than start + i x interval (precomputed playback: start + (i + 1) x
+   // exposure).
+   std::chrono::steady_clock::time_point seqStartClock_;
+   double seqIntervalMs_ = 0.0;
    // Sequence acquisitions and the ZStage's z sequence (the hub's stage
    // state): the acquisition epoch, whether one runs, whether it must skip
    // frames rendered before it started (an armed z sequence), and the epoch of
@@ -285,6 +301,12 @@ private:
    int frameIntervalHistoryPos_ = 0;
    MM::MMTime lastFramePublishTime_;
    std::atomic<double> actualFrameIntervalMs_{0.0};
+   // Exponential average of the live producer's render time per frame (start
+   // of the frame to its publish), ms (Test_LiveRenderMs, tools/bench_live.py).
+   std::atomic<double> liveRenderMs_{0.0};
+   // The longest prefetch in the producer's spare time since the last read,
+   // and its budget, ms (Test_LivePrefetchMs: "longest/budget").
+   std::atomic<double> livePrefetchMaxMs_{0.0}, livePrefetchBudgetMs_{0.0};
    std::mt19937_64 liveRng_;
    std::atomic<long> liveFrameCounter_{0};
    // Value of liveFrameCounter_ at the start of the current drift path

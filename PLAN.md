@@ -15,6 +15,10 @@ Upcoming ideas:
   filters, [x] light from the shutters (both summed, none dark), [x] EMCCD without sCMOS spreads, [x] emission
   magnification 0.667x (97.45 nm), [x] generated configs + property reference, `insiliscope_cli --spec`. Next: [ ] load
   the configs in Micro-Manager Studio (Channel group images, Mode switch updates the Label list, Basic <= 30 rows).
+- Live performance pass (2026-10-07, [spec/PERF_PASS.md](spec/PERF_PASS.md), single-molecule first): [x] phase 0 frame
+  pacing (precise waits, absolute schedule, condition-variable handoff; BrightField 32 -> 50 fps at 20 ms), [ ] phase 1
+  persistent live session, [ ] phase 2 render-ahead queue + frame-parallel rendering, [ ] phase 3 GPU for SR frames,
+  [ ] phase 4 interactive latencies, [ ] phase 5 CPU per-frame costs.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

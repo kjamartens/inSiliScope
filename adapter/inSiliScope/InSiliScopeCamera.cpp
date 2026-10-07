@@ -13,6 +13,7 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "InSiliScopeCamera.h"
+#include "LiveClock.h"
 #include "Simulation/CacheDir.h"
 #include "Simulation/SharedStageState.h"
 
@@ -161,6 +162,10 @@ int CInSiliScopeCamera::Initialize()
       CreateStringProperty("Test_StackGenerationStatus", "Idle", true, pAct);
       pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnEndOfStackReached);
       CreateStringProperty("Test_EndOfStackReached", "No", true, pAct);
+      pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLiveRenderMs);
+      CreateFloatProperty("Test_LiveRenderMs", 0.0, true, pAct);
+      pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLivePrefetchMs);
+      CreateStringProperty("Test_LivePrefetchMs", "0/0", true, pAct);
    }
 
    nRet = UpdateStatus();
@@ -275,17 +280,15 @@ int CInSiliScopeCamera::Shutdown()
 
 int CInSiliScopeCamera::SnapImage()
 {
-   MM::MMTime startTime = GetCurrentMMTime();
-   double exp = GetExposure();
+   const auto t0 = std::chrono::steady_clock::now();
+   const double exp = GetExposure();
 
    GenerateNextFrameIntoImg(false);
 
-   MM::MMTime s0(0, 0);
-   if (s0 < startTime)
-   {
-      while (exp > (GetCurrentMMTime() - startTime).getMsec())
-         CDeviceUtils::SleepMs(1);
-   }
+   // A snap takes at least its exposure (a frame that rendered faster waits
+   // out the rest, to the 0.1 ms: LiveClock.h).
+   isc::PreciseWaiter().WaitUntil(t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                          std::chrono::duration<double, std::milli>(exp)));
    return DEVICE_OK;
 }
 
@@ -401,6 +404,8 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
 
    sequenceStartTime_ = GetCurrentMMTime();
    imageCounter_ = 0;
+   seqStartClock_ = std::chrono::steady_clock::now();
+   seqIntervalMs_ = std::max(0.0, interval_ms);
 
    // A fresh Live/MDA acquisition restarts the drift from zero rather than
    // continuing wherever the previous acquisition left off.
@@ -461,8 +466,22 @@ int CInSiliScopeCamera::InsertImage()
 
 int CInSiliScopeCamera::RunSequenceOnThread()
 {
-   MM::MMTime startTime = GetCurrentMMTime();
-   double exposure = GetExposure();
+   // Live: the producer paces the frames (one per exposure, LiveProducerLoop),
+   // so a frame is taken as soon as it is published; only an interval longer
+   // than that holds frame i back to start + i x interval. Precomputed
+   // playback (Test rows): frame i is inserted at start + (i + 1) x
+   // max(exposure, interval). Absolute times, so waits do not add up.
+   const bool live = acqMode_ == SMLM_MODE_LIVE;
+   const double periodMs = std::max(seqIntervalMs_, live ? 0.0 : GetExposure());
+   const long i = imageCounter_;
+   isc::PreciseWaiter waiter;
+   auto at = [&](long k) {
+      return seqStartClock_ + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                 std::chrono::duration<double, std::milli>(k * periodMs));
+   };
+   auto stopped = [this] { return thd_->IsStopped(); };
+   if (live && periodMs > 0.0 && !waiter.WaitUntil(at(i), stopped))
+      return DEVICE_OK;
 
    if (!GenerateNextFrameIntoImg(true))
    {
@@ -472,13 +491,8 @@ int CInSiliScopeCamera::RunSequenceOnThread()
       return DEVICE_OK;
    }
 
-   while ((GetCurrentMMTime() - startTime).getMsec() < exposure)
-   {
-      if (thd_->IsStopped())
-         break;
-      CDeviceUtils::SleepMs(1);
-   }
-
+   if (!live && !waiter.WaitUntil(at(i + 1), stopped))
+      return DEVICE_OK;
    return InsertImage();
 }
 
