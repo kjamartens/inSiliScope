@@ -3280,7 +3280,7 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
 }
 
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err)
+                        std::string& err, const DyeClock* clock)
 {
    const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
    bool epi = false, trans = false;
@@ -3309,7 +3309,8 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       FluorescenceMovie fm;
       ScopeSetup S;
       BrightfieldSpec bs;
-      if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
+      if (!fm.Begin(spec, false, err, nullptr, clock) || !MakeScopeSetup(spec, S, err) ||
+          !ScopeBrightfieldSpec(spec, bs, err))
          return false;
       MovieCache& cache = SharedMovieCache();
       if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
@@ -3361,7 +3362,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
    FluorescenceMovie fm;
    FluorescenceFrameOptions opt;
    opt.onPhotons = onPhotons;
-   return fm.Begin(spec, false, err) && fm.Render(noFrames, info, err, nullptr, &opt);
+   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, nullptr, &opt);
 }
 
 } // namespace sim

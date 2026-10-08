@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <functional>
 #include <limits>
+#include <memory>
 
 namespace probes {
 namespace {
@@ -92,6 +93,44 @@ struct Json
    void KNum(const char* k, double v) { Key(k); Num(v); }
    void KStr(const char* k, const std::string& v) { Key(k); Str(v); }
    void KBool(const char* k, bool v) { Key(k); Bool(v); }
+};
+
+// --history-before: every place of the sample lit since clock 0, with the past spec's kinetic env (lasers, filters,
+// imager, dyes) until start-sec and the movie's own from then on (its frames), as one tile of Micro-Manager's
+// illumination history keeps it (IlluminationHistory: a rate history of two segments).
+class PastClock : public sim::DyeClock
+{
+public:
+   PastClock(const sim::ScopeSpec& past, const sim::ScopeSpec& now, double t0)
+      : past_(sim::ScopeKineticEnv(past)), now_(sim::ScopeKineticEnv(now)), t0_(t0) {}
+   double At(double, double) const override { return t0_; }
+   void KeyAt(double, double, double& tSec, uint32_t& history) const override
+   {
+      tSec = t0_;
+      history = 1;
+   }
+   void Segments(uint32_t, std::vector<sim::ClockSegment>& out) const override
+   {
+      out.assign(2, sim::ClockSegment());
+      out[0].env = &past_;
+      out[1].tStart = t0_;
+      out[1].env = &now_;
+   }
+   void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<sim::ClockRegion>& out) const override
+   {
+      sim::ClockRegion r;
+      r.tSec = t0_;
+      r.x0Um = x0Um;
+      r.y0Um = y0Um;
+      r.x1Um = x1Um;
+      r.y1Um = y1Um;
+      r.history = 1;
+      out.assign(1, r);
+   }
+
+private:
+   sim::KineticEnv past_, now_;
+   double t0_;
 };
 
 bool WriteText(const std::string& path, const std::string& text, std::string& err)
@@ -427,8 +466,17 @@ bool PresetsJson(const std::string& path, std::string& err)
    return WriteText(path, j.s, err);
 }
 
-bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovieInfo& info, std::string& err)
+std::unique_ptr<sim::DyeClock> MakePastClock(const sim::ScopeSpec& past, const sim::ScopeSpec& now)
 {
+   return std::unique_ptr<sim::DyeClock>(new PastClock(past, now, std::max(0.0, sim::ScopeSpecGet(now, "start-sec"))));
+}
+
+bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovieInfo& info, std::string& err,
+             const sim::ScopeSpec* past)
+{
+   std::unique_ptr<sim::DyeClock> clock;
+   if (past)
+      clock = MakePastClock(*past, spec);
    TiffWriter tif(path);
    if (!tif.ok())
    {
@@ -442,7 +490,7 @@ bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovi
    const bool ok = sim::RenderScopePhotons(spec, [&](long f, const std::vector<float>& photons) {
       writeOk = tif.Page(photons, W, H, f == 0 ? "insiliscope photons (before the camera)" : "");
       return writeOk;
-   }, info, err);
+   }, info, err, clock.get());
    if (ok && !writeOk)
       err = "write error " + path;
    return ok && writeOk;

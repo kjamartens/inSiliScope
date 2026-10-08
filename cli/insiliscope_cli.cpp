@@ -53,6 +53,9 @@ void Usage()
                "                         their states (spectra, rates, detected fraction), PSF request, BrightField\n"
                "  --presets-json <file>  the Quality and Drift preset tables (RenderPresets.h), Zernike presets\n"
                "  --photons-out <f.tif>  each frame's photon image before the camera (float32)\n"
+               "  --history-before <k=v,...>  ... of a sample lit from clock 0 to start-sec with these options\n"
+               "                         changed (lasers, filters, imager, dyes), the frames then under the spec's\n"
+               "                         own (a rate history, as Micro-Manager's illumination history keeps it)\n"
                "  --psf-out <prefix>     the movie's PSF: .planes.tif, .cams.tif, .pupil.tif (wavefront), .json\n"
                "  --splat-out <f.tif>    one blink of 1 photon as a movie draws it (halo cut, interpolation)\n"
                "  --splat-at dx,dy,z     its offset from the centre pixel's centre (px) and height above focus (um)\n"
@@ -89,6 +92,7 @@ int RunCli(int argc, char** argv)
    double splatAt[3] = { 0, 0, 0 }, dyesRect[4] = { 0, 0, 0, 0 }, dyesZ[2] = { -1e9, 1e9 }, dyesT[2] = { 0, 1 };
    double densityZ[3] = { 0, 4, 8 }, densityUp = 1;
    bool haveDyesRect = false;
+   std::string historyBefore;
    sim::ScopeSpec spec;
    for (int i = 1; i < argc; i++) {
       const std::string a = argv[i];
@@ -97,6 +101,7 @@ int RunCli(int argc, char** argv)
       if (a == "--geometry-json" && i + 1 < argc) { geometryOut = argv[++i]; continue; }
       if (a == "--geometry-um" && i + 1 < argc) { geometryUm = std::atof(argv[++i]); continue; }
       if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
+      if (a == "--history-before" && i + 1 < argc) { historyBefore = argv[++i]; continue; }
       if (i + 1 < argc) {
          struct { const char* name; std::string* dst; } paths[] = {
             { "--setup-json", &setupOut }, { "--presets-json", &presetsOut }, { "--photons-out", &photonsOut },
@@ -145,6 +150,21 @@ int RunCli(int argc, char** argv)
       }
       i++;
    }
+   // --history-before: the past's spec, the movie's with those options changed.
+   sim::ScopeSpec past = spec;
+   {
+      std::stringstream ss(historyBefore);
+      std::string item;
+      while (std::getline(ss, item, ',')) {
+         const size_t eq = item.find('=');
+         double v = 0.0;
+         if (eq == std::string::npos || !sim::ScopeOptionValue(item.substr(0, eq), item.substr(eq + 1).c_str(), v) ||
+             !sim::ScopeSpecSet(past, item.substr(0, eq), v)) {
+            std::fprintf(stderr, "--history-before: bad option '%s'\n", item.c_str());
+            return 2;
+         }
+      }
+   }
    {
       // Diagnostic outputs first; without --out they are all that is written.
       std::string err;
@@ -178,8 +198,8 @@ int RunCli(int argc, char** argv)
       run(nucleusOut, "nuclei", [&] { return probes::NucleusJson(spec, geometryUm, nucleusOut, err); });
       run(photonsOut, "photons", [&] {
          sim::ScopeMovieInfo pinfo;
-         if (!probes::Photons(spec, photonsOut, pinfo, err)) return false;
-         std::printf("%s: %ld frames %ux%u (setup %.2f s), total %.2f s\n", photonsOut.c_str(), pinfo.frames, pinfo.width,
+         if (!probes::Photons(spec, photonsOut, pinfo, err, historyBefore.empty() ? nullptr : &past)) return false;
+         std::printf("%s: %ld frames %ux%u (setup %.4f s), total %.4f s\n", photonsOut.c_str(), pinfo.frames, pinfo.width,
                      pinfo.height, pinfo.querySec, pinfo.totalSec);
          return true;
       });
@@ -241,10 +261,10 @@ int RunCli(int argc, char** argv)
    bool epi = false, trans = false;
    sim::ScopeLights(spec, epi, trans);
    if (trans && !epi)
-      std::printf("%s: %ld frames %ux%u, BrightField (setup %.2f s), total %.2f s\n", out.c_str(), info.frames,
+      std::printf("%s: %ld frames %ux%u, BrightField (setup %.4f s), total %.4f s\n", out.c_str(), info.frames,
                   info.width, info.height, info.querySec, info.totalSec);
    else
-      std::printf("%s: %ld frames %ux%u, %zu blinks, %ld dyes in continuous populations (setup %.2f s), total %.2f s\n",
+      std::printf("%s: %ld frames %ux%u, %zu blinks, %ld dyes in continuous populations (setup %.4f s), total %.4f s\n",
                   out.c_str(), info.frames, info.width, info.height, info.blinks, info.dyes, info.querySec, info.totalSec);
    return 0;
 }

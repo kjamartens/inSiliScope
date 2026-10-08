@@ -44,8 +44,8 @@ that finishes them.
   and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics pages' figures**: one registered
-  function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`,
-  `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
+  function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
+  (`--history-before`: a two-epoch rate history, a cli `DyeClock`), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
   `--presets-json`; `cli/scope_probes.*`, ctest `cli_probes`) and only draws; `pages.yml` rebuilds them on every
   deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->` marker in `docs/physics/*.md`.
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, and ABI 11

@@ -76,7 +76,8 @@ The CLI keeps the packed cell positions in the same per-user cache directory as 
 default); `--disk-cache 2` adds the PSF kernel, `0` writes nothing.
 
 The [physics pages](physics/world-model.md)' figures are made with the CLI's diagnostic outputs, which change no movie:
-the expected photons before the camera (`--photons-out`), the PSF kernel and pupil (`--psf-out`), one blink as a movie
+the expected photons before the camera (`--photons-out`; with `--history-before` for a sample lit under other settings
+before the movie, as Micro-Manager's illumination history keeps it), the PSF kernel and pupil (`--psf-out`), one blink as a movie
 splats it (`--splat-out`), the resolved light path and camera (`--setup-json`), dye sites and schedules (`--dyes-json`),
 the mean-field dye density (`--density-out`), BrightField phase screens (`--bf-screens-out`) and the preset tables
 (`--presets-json`); `--help` lists them. `tools/build_physics_figures.py` turns them into the figures.
