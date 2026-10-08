@@ -43,6 +43,11 @@ that finishes them.
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
+- `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics pages' figures**: one registered
+  function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`,
+  `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
+  `--presets-json`; `cli/scope_probes.*`, ctest `cli_probes`) and only draws; `pages.yml` rebuilds them on every
+  deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->` marker in `docs/physics/*.md`.
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
   JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
@@ -121,6 +126,10 @@ that finishes them.
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
   with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
   preparation switches need none).
+- Physics figures: `python tools/build_physics_figures.py --cli build/msvc/cli/Release/insiliscope_cli.exe` (all,
+  into `physics_figures/`, not committed; `--only <id>,...`, `--list`), then `bash tools/build_site.sh site` injects them
+  (needs numpy, pillow, tifffile, matplotlib). A model change reaches the figures by itself; a new model, preset or
+  quality knob gets a figure (a comparison table for presets), and its marker with a lead-in sentence.
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 
@@ -494,7 +503,7 @@ reference); `ComputePsfKernelCache` (memoized, every platform) sends `GibsonLann
 `RichardsWolf`/`GibsonLanni` to the JVM (Windows). Same planes: relative L2 0 vs webSMLM's JS (ctest `zernike_psf`,
 `tests/psf/zernike_ref.bin`), ~1e-12 vs the JVM at the adapter defaults (`tools/psf_parity_check/README.md`);
 `adapter_pixel_hash` unchanged. The default 841x841x71 kernel takes ~0.8 s (12 threads). Pupil grid (2026-10-07,
-spec/ALGORITHM.md): `ZernikePupilSamples` sizes it to the window (160 on the default 7 um window, was webSMLM's fixed 64,
+spec/ALGORITHM.md): `ZernikePupilSamples` sizes it to the window (184 on the default 7 um window, was webSMLM's fixed 64,
 whose PSF period was shorter than the window: folded light); option `psf-pupil-samples` / `Renderer.PsfPupilSamples`
 (0 auto, 64 = webSMLM and the `zernike_psf` fixture). **Halo cut** (2026-10-07, spec/ALGORITHM.md): blink splats leave
 out camera pixels below `psf-halo-cut` of the emitter's photons (`WithHaloCut`: per plane and row a column span, no

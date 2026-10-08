@@ -55,3 +55,48 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Physics figures (tools/build_physics_figures.py, injected by tools/build_site.sh). */
+.md-typeset .isc-fig {
+  width: 100%;
+  margin: 1em 0;
+}
+.md-typeset .isc-fig img {
+  width: 100%;
+  height: auto;
+}
+.md-typeset .isc-fig figcaption {
+  max-width: none;
+  margin: 0.4em 0 0;
+  font-size: 0.7rem;
+  font-style: normal;
+  text-align: left;
+  color: var(--md-default-fg-color--light);
+}
+/* Comparison tables: one column per level; camera images keep square pixels and share the width between the
+   columns (--isc-n, set per table); below their minimum the table scrolls sideways (Material's table wrapper). */
+.md-typeset .isc-cmp {
+  container-type: inline-size;
+}
+.md-typeset .isc-cmp table:not([class]) {
+  font-size: 0.66rem;
+}
+.md-typeset .isc-cmp td {
+  vertical-align: middle;
+}
+.md-typeset .isc-cmp th code {
+  white-space: nowrap;
+}
+.md-typeset .isc-cmp td:first-child {
+  min-width: 6rem;
+  max-width: 9rem;
+}
+.md-typeset .isc-cmp img.isc-px {
+  image-rendering: pixelated;
+  width: clamp(4rem, calc((100cqw - 9rem) / var(--isc-n, 4) - 1.8rem), 10rem);
+  height: auto;
+  max-width: none;
+}
+.md-typeset .isc-small img.isc-px {
+  width: clamp(3.2rem, calc((100cqw - 9rem) / var(--isc-n, 4) - 1.8rem), 7rem);
+}

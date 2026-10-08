@@ -11,6 +11,10 @@ illumination came on. cli and viewer movies start at **60 s** (`start-sec`), pas
 Micro-Manager adapter reads each dye at its place's own clock (the illumination history, below). Only blinks in the window a movie asks for are scheduled (the window \([t_0, 2t_1)\)), so a late
 start costs nothing extra.
 
+What a few dyes of each mode emit over time, read from the core's schedules through the cli's dye output:
+
+<!-- fig:photo-traces -->
+
 ## Blinking dyes (dSTORM, PALM)
 
 !!! danger "Each blink is drawn with a cut PSF"
@@ -27,9 +31,17 @@ start costs nothing extra.
    bright).
 4. At most 1000 blinks per dye; \(p_b\) is clamped to [0.01, 1].
 
+The spread of the per-blink brightness on one field:
+
+<!-- fig:photo-brightness -->
+
 **dSTORM** dyes start in an **initial ON** phase: every dye emits from \(t = 0\) for \(\mathrm{Exp}(\tau_{init})\)
 (`initial-on-sec`, its own draw) before the blink schedule starts. The dSTORM times scale with the excitation rate so
 photons per blink and duty cycle stay as measured [[dempsey2011](../references.md#dempsey2011)].
+
+The initial ON phase at the start of the illumination:
+
+<!-- fig:photo-dstorm-start -->
 
 **PALM** proteins with a **pre state** (mEos3.2, Dendra2: green before photoconversion) emit in that state from \(t=0\)
 until their first activation (and bleach in it at their pre photon budget). The pre state has its own spectrum, so it
@@ -49,6 +61,10 @@ Every labelled dye emits from \(t=0\) and bleaches after an emitted-photon budge
 \(B \times\) an Exp(1) draw): the bleach rate is \(\lambda = k_{em}/B\), the half time \(\ln 2\,B/k_{em}\). A frame
 holds the exact mean photons per dye, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\) with \(r\) the detected rate,
 rendered mean-field or per dye.
+
+Bleaching over ten minutes, the rendered photons against the model's half time:
+
+<!-- fig:photo-wf-bleach -->
 
 ## Continuous populations
 

@@ -24,6 +24,8 @@ markdown_extensions:
   - pymdownx.arithmatex: { generic: true }
   - pymdownx.superfences
   - pymdownx.details
+  - attr_list
+  - md_in_html
 
 extra_javascript:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js

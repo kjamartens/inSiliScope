@@ -32,6 +32,10 @@ On top of the lobes the outline has a fractal wiggle: harmonics 6-64 with amplit
 box-counting dimension \(D\) (`cellFractalDim`, default 1.35, as measured on cultured cell contours), scaled by the
 blobbiness (`cellRough` x `cellBlob`: a round cell stays smooth).
 
+The outline built up term by term on one cell, from the cli's geometry output:
+
+<!-- fig:world-outline -->
+
 **Packing - move, don't shrink.** Cells are never resized to avoid overlap. A fixed number of Jacobi relaxation
 iterations moves overlapping neighbours apart by half the overlap using a same-iteration snapshot, so a pair separates
 symmetrically and independent of evaluation order. Cells still stuck afterwards are removed by a per-candidate priority
@@ -39,6 +43,10 @@ hash, never shrunk. Packing is *chaotic*: a \(10^{-15}\) difference in a positio
 the geometry has to be bit-exact between implementations.
 
 Packing runs on fixed 8x8-chunk blocks, so the result for a cell does not depend on the viewport.
+
+The same field without and with the packing step:
+
+<!-- fig:world-packing -->
 
 ## Bit-exactness rules
 

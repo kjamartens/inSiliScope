@@ -19,6 +19,14 @@ sCMOS; it was 5% until 2026-10-01, which hid little in single-molecule frames bu
 project's dark current. The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier per pixel): an EMCCD
 reads every pixel through one amplifier, so it ignores them (since 2026-10-06; the per-pixel offset applies to both).
 
+The chain switched on step by step, ending with both camera presets:
+
+<!-- fig:cam-chain -->
+
+The gain spread on a BrightField image, where it matters:
+
+<!-- fig:cam-prnu -->
+
 The gain (`Camera.GainElectronsPerADU`, e⁻/ADU) is the whole conversion from photoelectrons to counts for both sensor
 types. The EM gain does not scale the signal: the multiplication is drawn as Gamma(shape = n, scale = 1) on the n
 photoelectrons, so its mean stays n and it adds the \(\sqrt{2}\) excess noise factor; the EM gain divides the read noise
@@ -29,6 +37,14 @@ Ultra 897 preset sets the gain per photoelectron: 0.0066 e⁻/ADU (about 150 ADU
 for dSTORM, PALM and DNA-PAINT, 0.1 e⁻/ADU (EM gain 10) for WideField and BrightField, where 0.0066 would saturate the
 16-bit output (*estimates*). A mode or modality change re-applies it (viewer and Micro-Manager); the cli picks it from
 the spec's mode and modality unless `gain` is given.
+
+The gain and the EMCCD's excess noise, measured as photon transfer curves on the cli's frames:
+
+<!-- fig:cam-ptc -->
+
+The two presets and an ideal camera on one frame:
+
+<!-- fig:cam-presets -->
 
 Noise draws are counter-based (`pcg4d`), so frames are independent and the CPU and GPU paths agree except for float32 rounding
 (at least 99.8% of pixels identical; the rest differ by one electron in a Poisson draw). Two draws from one sequential stream
@@ -71,6 +87,10 @@ The tiers are estimates (Ma et al. 2024's 5-20 nm/\(\sqrt{\text{s}}\) sit betwee
 
 Setting any of the four by hand makes the preset `Custom`. The speeds go up to 1000 nm/s, the walks to
 200 nm/\(\sqrt{\text{s}}\) (4x Extreme).
+
+The presets on a 30 s movie:
+
+<!-- fig:drift-presets -->
 
 **Directed part.** A mean velocity: xy speed \(V_{xy}\) (`SampleHolder.DriftXySpeedNmPerSec`, cli/viewer
 `drift-xy-speed-nm-per-sec`) in a direction \(\theta_0\) (`SampleHolder.DriftXyAngleDeg`, degrees from +x; −1, the default,

@@ -13,7 +13,7 @@ cell radius.
 Real nuclei are not ellipsoids: their outlines are smooth egg, bean or rounded-triangle shapes with radius deviations of
 a few to ~10 %, and adherent nuclei are wider at the base. Each nucleus therefore gets, from its own hash stream:
 
-- **lobes**: the footprint radius is \(1 + \sum_{k=2}^{8} (a_k \cos k	heta + b_k \sin k	heta)\) (soft-clamped), with a
+- **lobes**: the footprint radius is \(1 + \sum_{k=2}^{8} (a_k \cos k\theta + b_k \sin k\theta)\) (soft-clamped), with a
   \(k^{-\gamma}\) spectrum (`nucSmooth`, default 2.5) normalised so the rms relative deviation is the cell's
   irregularity (`nucIrregMin`-`nucIrregMax`, default 0.03-0.2);
 - a **kidney bend** (`nucBendMin`-`nucBendMax`, 0-0.3): an invertible shear of the outline;
@@ -29,6 +29,10 @@ outline with that margin.
 In Micro-Manager these are the `CellField.Nuc*` properties (`NucBaseMinUm`/`MaxUm`, `NucIrregMin`/`Max`,
 `NucBendMin`/`Max`, `NucSmooth`, `NucThickIrreg`, `NucAsym`, `NucWidestMin`/`Max`); in the cli and viewer, `p.<name>`.
 
+Shaped nuclei next to the plain ellipsoids the same cells would have with every shape term at 0:
+
+<!-- fig:struct-nucleus -->
+
 ## Cytoplasm
 
 A height field over the cell footprint: dome over the nucleus (slope capped, `cytoDomeSlope`), a saturating rise from the
@@ -39,6 +43,10 @@ profile is a min/max of distance fields and has creases ("folds"), so the height
 \(h - \ell^2 \nabla^2 h = h_{raw}\) (\(\ell\) = `cytoRelaxUm`, default 1 um), a membrane under tension pulled toward the
 profile, with \(h = 0\) on the exact outline and \(h \ge\) nucleus top + margin over the nucleus. Microtubules, dyes and
 the brightfield volume all use this relaxed height, not the raw analytic one.
+
+The raw and the relaxed height of one cell:
+
+<!-- fig:struct-cytoplasm -->
 
 ## Microtubules
 
@@ -64,6 +72,10 @@ Each microtubule is a 3D path from near the nucleus to near the cell edge:
 
 Density is given per um\(^2\) of cell footprint (default 0.9/um\(^2\)).
 
+The microtubules of one cell from above and from the side, and with the direction preference switched off:
+
+<!-- fig:struct-microtubules -->
+
 ## Fluorophore sites (dye lattice)
 
 A microtubule is a 25 nm cylinder carrying the 13_3 protofilament lattice: 13 protofilaments, protofilament \(k\) at angle
@@ -78,6 +90,10 @@ A microtubule is a 25 nm cylinder carrying the 13_3 protofilament lattice: 13 pr
 Sites are **never materialised for a whole field**. A dye's identity is a hash of `(cell, microtubule, protofilament,
 dimer)`; whether it is labelled, whether it ever activates and what it does are decided from hashes first, and 3D positions are
 only computed for dyes that will emit. The unit of generation is a *block*: 1 um of one microtubule.
+
+The lattice as the core generates it, read back through the cli's dye-site output:
+
+<!-- fig:struct-lattice -->
 
 **Labelling.** Each structure carries one label (issue 16): a share of its sites (`density`, cli/viewer `mt-label-pct`,
 MM `CellField.Microtubules_LabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them

@@ -38,6 +38,10 @@ per-structure overrides.
 Changing the mode sets the labelled share of the binding sites to the mode's suggestion (DNA-PAINT 70 %, dSTORM 3 %,
 PALM 25 %, WideField 70 %; *estimates* of typical densities), as the viewer does.
 
+The four modes on one field:
+
+<!-- fig:light-modes -->
+
 ## Excitation, emission and detection
 
 For each dye state (main, or a PALM pre state) and the light path:
@@ -58,6 +62,10 @@ emitting are \(k_{em}\,\eta\,F\) with the objective's collection efficiency
 detected-spectrum-weighted wavelength, rounded to 2 nm (one kernel per distinct wavelength). MM shows the
 microtubules' main state as read-only properties: `Fluorophores.Microtubules_DetectedPct` (\(100F\), *without* \(\eta\)),
 `EffectiveEmissionNm` and `PhotonsPerSecOn` (\(k_{em}\eta F\)).
+
+The four typical labels through their light presets, as a movie resolves them:
+
+<!-- fig:light-spectra -->
 
 Because the QE is in \(F\), the camera noise chain runs at QE 1 for fluorescence; the flat `background-per-sec` is
 multiplied by the QE at the filter's centre. BrightField uses the curve's QE at its lamp wavelength.
@@ -99,6 +107,8 @@ BrightField image. **Both open** add up on one camera: the fluorescence photons 
 camera's QE at the lamp wavelength, then one noise chain (so the lamp's shot noise sits on the fluorescence, as it
 would on a real scope). **None open** gives dark frames: offset, read noise and dark current only.
 
+<!-- fig:light-shutters -->
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds a flat offset per pixel and second of
@@ -109,6 +119,10 @@ with \(c\) the imager concentration, \(H\) the illuminated chamber height (`cham
 `Epi` geometry illuminates the whole chamber) and \(A_{px}\) the pixel area in the sample. **Imager depletion and its
 exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
 binds.
+
+The background against the imager concentration, the model next to the rendered photons:
+
+<!-- fig:light-imager -->
 
 ## Continuous populations: mean field or per dye
 
@@ -123,6 +137,10 @@ Pre states, the dSTORM initial ON and WideField-mode dyes emit continuously. Suc
 The switch is per frame: mean field while the expected emitters exceed `mean-field-density-per-um2` (default 20) in the
 `mean-field-slab-nm` (500 nm) slab around focus, or `mean-field-max-emitters` (5000) in the z range; per dye below
 (MM `Renderer.MeanField*`). Both give the same mean (checked within 1 % in total, a few % per pixel).
+
+One population rendered both ways:
+
+<!-- fig:light-meanfield -->
 
 ## Where it lives
 

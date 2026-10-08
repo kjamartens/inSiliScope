@@ -25,11 +25,15 @@ same model as webSMLM's, computed in C++ (`Simulation/ZernikePsf.cpp`), identica
 float32 bit on the reference cases at webSMLM's 64-sample pupil (ctest `zernike_psf`; the default grid is finer, below) and to the original Java class (`GibsonLanniZernikePSF.java`, kept
 as a reference) to ~1e-12 relative L2. It needs no Java; only `RichardsWolf` and `GibsonLanni` run in PSFGenerator's JVM.
 
+The default PSF next to the unaberrated one, as the movie's kernel holds it:
+
+<!-- fig:psf-sections -->
+
 The Zernike model evaluates the pupil-to-image integral on a Cartesian pupil grid with a separable 2D **chirp-Z (Bluestein)
 transform**. The grid has as many samples as the kernel window needs (`Renderer.PsfPupilSamples`, cli/viewer
 `psf-pupil-samples`, 0 = automatic): a sampled pupil makes the PSF repeat every \((M-4)\,\lambda/(2\,\mathrm{NA})\), so the
 period must cover the window's diagonal, and the count is then raised to fill the transform's power-of-two length (free).
-The default +/-7 um window gets 160 x 160 samples, the viewer's +/-3 um one 140.
+The default +/-7 um window gets 184 x 184 samples, the viewer's +/-3 um one 152.
 
 !!! warning "Pupil sampling before 2026-10-07"
     The grid used to be 64 x 64 (webSMLM's `PSF_FFT_M`). Its period, ~14.6 um in the red and ~10.9 um in the green at
@@ -39,13 +43,29 @@ The default +/-7 um window gets 160 x 160 samples, the viewer's +/-3 um one 140.
     automatic grid is within 1e-4 of an emitter's photons per camera pixel in the core and 1.3e-5 beyond 2 um.
     `psf-pupil-samples=64` gives the old grid (and webSMLM's PSF, to the last bit).
 
+The pupil grid measured against a finer one:
+
+<!-- fig:psf-pupil -->
+
 Other pieces: the double-helix mask (`PsfMaskType = DoubleHelix`, Gauss-Laguerre modes), the Gibson-Lanni focal
 shift for depth (the z stack is centred at \(t_{i0} - d\,n_i/n_s\)), and presets of aberrations (astigmatism, coma, spherical,
 trefoil, saddle point, extended-range engineered PSFs) taken from webSMLM.
 
+Every preset, its pupil wavefront and its PSF through focus:
+
+<!-- fig:psf-presets -->
+
 Placement: `Nearest` (box average), `Linear`, `Cubic` (Catmull-Rom, default) or `Fft` (Fourier shift, slow) sample the
 oversampled kernel at the true emitter position. Kernel planes are normalised to sum 1 with precomputed block sums, so each
 camera pixel is one interpolation.
+
+The four placements against the exact Fourier shift:
+
+<!-- fig:psf-interp -->
+
+The kernel's oversampling (`Renderer.PsfOversampling`, cli `psf-oversampling`, default 6) sets how finely the kernel is sampled between camera pixel centres; its cost is the kernel's size and compute time:
+
+<!-- fig:psf-oversampling -->
 
 A Cramer-Rao bound summary is logged to the Micro-Manager core log after each kernel computation.
 
@@ -62,9 +82,11 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 
     The cut is per plane and per pixel row: it follows the PSF, a small disc in focus (~4.4 um radius at 3e-6) and a
     wide one out of focus (~8.8 um at 3.5 um defocus; the square's corners at 3e-6 beyond ~3 um). Pixels inside it get
-    exactly the uncut values, **nothing is renormalized**: the left-out light (the far halo, a few 1e-4 of a blink's
-    photons in all) is missing, not moved. On the default kernel the splat keeps ~57-59 % of the square's pixels at
-    3e-6 (39 % at 1e-5). Measured live at 5 ms exposure (256 px, Iris Xe GPU, 2026-10-07): dSTORM ~64 -> ~91 fps
+    exactly the uncut values, **nothing is renormalized**: the left-out light (the far halo: ~0.5 % of a blink's
+    photons at 3e-6, in focus and averaged over the planes; 1.1 % in focus and up to 1.9 % out of focus at 1e-5;
+    measured 2026-10-08, the table below has the current values) is missing, not moved. On the default kernel the splat
+    keeps ~60 % of the square's pixels at 3e-6 averaged over the planes (29 % in focus), 40 % at 1e-5 (13 % in
+    focus). Measured live at 5 ms exposure (256 px, Iris Xe GPU, 2026-10-07): dSTORM ~64 -> ~91 fps
     (Realistic) -> ~104 fps (Fast), DNA-PAINT ~97 -> ~100 -> ~104 fps (its frame time is mostly elsewhere). The test is strict (the largest kernel block
     sum a pixel can read at any sub-pixel position, with a 1.5625x margin for cubic interpolation's overshoot; ctest
     `sr_render` checks every left-out pixel against it).
@@ -75,6 +97,10 @@ A Cramer-Rao bound summary is logged to the Micro-Manager core log after each ke
 
     When it matters: summing very many frames of blinks to study the PSF's far wings (localization background models,
     out-of-focus haze), or comparing with webSMLM pixel for pixel. Use `Exhaustive` (or `PsfHaloCut` 0) for that.
+
+The halo cut measured on one blink and on a movie:
+
+<!-- fig:psf-halo -->
 
 !!! warning "Why the evaluator choice matters"
     A direct polar quadrature with 40 azimuthal samples aliased beyond ~1.6 um and made every emitter 17-20% too dim on
@@ -99,6 +125,10 @@ camera pixels:
 
 \[ I(x,y) = \sum_{z} (n_z * \mathrm{PSF}_{z - Z})(x,y) \]
 
+The steps on one field:
+
+<!-- fig:wf-pipeline -->
+
 Implementation points that matter for accuracy and speed:
 
 - the grid and dye tiles are anchored to the world, not the camera, so the same dyes bin the same way from every stage pose;
@@ -108,6 +138,14 @@ Implementation points that matter for accuracy and speed:
 - frames are weighted sums of precomputed images; bleaching uses a small basis of dose maps (or 12 Chebyshev maps) instead of
   per-frame spectra;
 - coarser-grid "focus bands" exist but are gated at 0.1% rms error, which no sharp-pupil PSF currently meets.
+
+How fine the grid and the z planes need to be:
+
+<!-- fig:wf-grid -->
+
+WideField images through focus:
+
+<!-- fig:wf-defocus -->
 
 A GPU path runs the same WGSL source on WebGPU in the viewer and on Direct3D 11 in the adapter (fp16 plane spectra, noise on the
 GPU), self-checks against the CPU at startup and falls back to the CPU on any failure.
@@ -120,6 +158,10 @@ microtubule, and the renderer turns them into refractive-index slices (`CellFiel
 `...Cytoplasm` 1.35, `...Nucleus` 1.35, `...Microtubule` 1.48; optional absorption `CellField.AbsorptionPerUm`).
 Structures that dominate real brightfield images (nucleoli, lipid droplets, vesicles, mitochondria...) are absent until
 the world simulates them.
+
+What the BrightField renderer sees of one field, and the image it makes:
+
+<!-- fig:bf-scene -->
 
 The model is scalar wave optics with partially coherent Koehler illumination (Abbe): the condenser aperture
 (`TransmittedLamp.CondenserNA`, default 0.4) is sampled by equal-area source points; each tilted plane wave is
@@ -139,6 +181,20 @@ One number trades speed for precision (`Renderer.BrightFieldQuality`, cli/viewer
 | 3 (default) | 24 | 2 | 0.5 um | 0.4 s / 16 ms |
 | 4 | 48 | 2 | 0.25 um | 1.5 s / 33 ms |
 
+The levels against a finer reference:
+
+<!-- fig:bf-quality -->
+
 Each knob can also be set alone (`bf-sources`, `bf-upscale`, `bf-sub`, `bf-slice-um`). A weak phase object in focus
 shows almost no contrast; defocus brings it out with opposite signs above and below focus, as in a real microscope.
 Details, the package survey and the list of missing structures: `spec/BRIGHTFIELD.md`.
+
+Focus and condenser aperture:
+
+<!-- fig:bf-defocus -->
+
+## Renderer.Quality: one knob for speed against precision
+
+Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets four of the knobs above together: the blink halo cut, the PSF oversampling, the WideField grid and the BrightField quality. The three levels side by side on the three kinds of image:
+
+<!-- fig:quality-bundle -->

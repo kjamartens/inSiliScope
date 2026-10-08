@@ -22,6 +22,10 @@ Upcoming ideas:
   mean-field clock weights memo, no unused noise maps per frame), [x] phase 2 render-ahead queue + frame-parallel rendering
   (`LiveAhead.cpp`; BrightField focus prefetch `BrightfieldLive`), [x] phase 3 GPU for SR frames (dSTORM/PALM, populations and lamp added on the GPU),
   [ ] phase 4 interactive latencies, [ ] phase 5 CPU per-frame costs.
+- Physics figures (2026-10-08, branch `claude/physics-figures`): [x] cli diagnostic outputs (`cli/scope_probes.*`,
+  output-neutral, ctest `cli_probes`), [x] `tools/build_physics_figures.py` (33 figures, quality/realism presets as
+  side-by-side tables), [x] markers in `docs/physics/*.md`, injected by `build_site.sh`, [x] rebuilt by `pages.yml`.
+  Next: [ ] the viewer's drift preset table from `RenderPresets.h` (`web/index.html` keeps its own copy).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

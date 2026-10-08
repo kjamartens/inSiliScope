@@ -623,7 +623,8 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   phase and tap -- is >= threshold, divided by 1.5625 for Cubic/Fft (Catmull-Rom's sum |w| <= 1.25 per axis). The CPU
   splat (`SplatKernel.inl`), the D3D11 gather (`GpuSimD3D11`, a span buffer) and the JS clamp each row to its span.
 - **Why no renormalization.** Kept pixels stay exact and every left-out one is off by < threshold x photons; a
-  renormalized cut would move the halo's light into the core instead (a few 1e-4 of the blink, biasing every pixel).
+  renormalized cut would move the halo's light into the core instead (~0.5 % of the blink at 3e-6, 1-2 % at 1e-5,
+  measured 2026-10-08 with `insiliscope_cli --splat-out`; biasing every pixel).
 - **Why blinks only.** A WideField or mean-field image sums the halos of many dyes, so a per-pixel bound per dye is no
   bound on the image: cut squares or circles showed as edges of out-of-focus light (1-2 sigma per frame in the
   2026-10-07 study). Single blinks are sparse: at most 0.09 sigma per frame at 1e-5 in the same study.

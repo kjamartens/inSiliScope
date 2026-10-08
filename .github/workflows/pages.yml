@@ -2,12 +2,16 @@ name: Pages
 
 # Project site on GitHub Pages: docs (mkdocs-material), the viewer at /viewer/, and, when a release
 # exists, its gallery and benchmark history (downloaded from the latest release's assets).
-# Runs on every push to main (docs/viewer changes) and is called by release.yml after a release.
+# The physics pages' figures are rendered here by the cli (tools/build_physics_figures.py), so they follow the code.
+# Runs on every push to main (docs/viewer/render-code changes) and is called by release.yml after a release.
 # One-time setup: repository Settings -> Pages -> Source: GitHub Actions.
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'mkdocs.yml', 'web/**', 'core/**', 'tools/build_site.sh', 'tools/embed_web_module.mjs', 'gallery/**', '.github/workflows/pages.yml']
+    paths: ['docs/**', 'mkdocs.yml', 'web/**', 'core/**', 'tools/build_site.sh', 'tools/embed_web_module.mjs', 'gallery/**', '.github/workflows/pages.yml',
+            # the physics figures are rendered by the cli from the adapter's render code
+            'adapter/inSiliScope/Simulation/**', 'adapter/inSiliScope/Registry/**', 'cli/**', 'data/**',
+            'tools/physics_figures/**', 'tools/build_physics_figures.py', 'CMakeLists.txt', 'CMakePresets.json']
   workflow_call:
   workflow_dispatch:
 
@@ -36,7 +40,7 @@ jobs:
         with:
           version: ${{ env.EMSDK_VERSION }}
       - run: sudo apt-get install -y ninja-build
-      - run: pip install "mkdocs<2" mkdocs-material
+      - run: pip install "mkdocs<2" mkdocs-material numpy pillow tifffile matplotlib
       # The viewer module is regenerated here, not trusted from the committed copy.
       - name: Build the viewer's WASM module
         run: |
@@ -49,6 +53,14 @@ jobs:
           # newest release incl. pre-releases (plain `gh release download` skips those)
           tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
           if [ -n "$tag" ]; then gh release download "$tag" --pattern gallery.zip --pattern benchmarks.json --dir release_assets; else echo "no release yet"; fi
+      # The physics pages' figures, from the native cli (the adapter's Simulation/ render code); build_site.sh
+      # puts them in place of the pages' <!-- fig:<id> --> markers.
+      - name: Physics figures
+        env: { CC: gcc, CXX: g++ }   # the native cli, not emsdk's compilers
+        run: |
+          cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native --target insiliscope_cli
+          python tools/build_physics_figures.py --cli build/native/cli/insiliscope_cli --out physics_figures
       - name: Build the site
         run: bash tools/build_site.sh site
       - uses: actions/upload-pages-artifact@v3
