@@ -127,6 +127,9 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(probes_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME cli_probes COMMAND probes_check WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  # --serve (many commands in one process, the figure builder's way) = separate runs, byte for byte.
+  add_test(NAME cli_serve COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:insiliscope_cli>
+           -DDIR=${CMAKE_CURRENT_BINARY_DIR}/serve_check -P ${CMAKE_CURRENT_SOURCE_DIR}/serve_check.cmake)
 
   # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
   add_executable(brightfield_check brightfield_check.cpp ${ISC_SIM_SRC})

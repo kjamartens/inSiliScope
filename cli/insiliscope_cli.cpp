@@ -10,7 +10,8 @@
 // With drift (--drift-xy-nm-per-sqrt-sec / --drift-z-nm-per-sqrt-sec), the
 // true per-frame drift goes to <out without .tif>.drift.csv. Diagnostic
 // outputs (--setup-json, --photons-out, --psf-out, ...: scope_probes.h) are
-// read-only views of the same movie for the docs' physics figures.
+// read-only views of the same movie for the docs' physics figures. --serve
+// runs many commands in one process (one per stdin line).
 #include "ScopeMovie.h"
 #include "scope_probes.h"
 #include "tiff_writer.h"
@@ -21,6 +22,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -59,7 +61,11 @@ void Usage()
                "  --density-out <f.tif>  dye counts per z plane over the FOV (float32, as the mean field bins them)\n"
                "  --density-z zmin,zmax,nz  its planes (0,4,8); --density-up <n> cells per pixel (1)\n"
                "  --bf-screens-out <prefix>  the BrightField phase/attenuation screens per slice, .json\n"
-               "  --nucleus-json <file>  the shaped nucleus surface of the cells within --geometry-um\n");
+               "  --nucleus-json <file>  the shaped nucleus surface of the cells within --geometry-um\n"
+               "\n"
+               "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
+               "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
+               "                         the process keeps its world and PSF kernel between commands\n");
 }
 
 // "a,b,c" -> n numbers; false if fewer.
@@ -73,9 +79,7 @@ bool ParseList(const char* text, double* out, int n)
    return k == n;
 }
 
-} // namespace
-
-int main(int argc, char** argv)
+int RunCli(int argc, char** argv)
 {
    std::string out, geometryOut;
    double geometryUm = 160.0;
@@ -141,20 +145,6 @@ int main(int argc, char** argv)
       }
       i++;
    }
-   if (!geometryOut.empty()) {
-      std::string json, err;
-      if (!sim::ScopeGeometryJson(spec, geometryUm, geometryDetail, json, err)) {
-         std::fprintf(stderr, "%s\n", err.c_str());
-         return 1;
-      }
-      FILE* f = std::fopen(geometryOut.c_str(), "wb");
-      const bool wrote = f && std::fwrite(json.data(), 1, json.size(), f) == json.size();
-      if (f) std::fclose(f);
-      if (!wrote) { std::fprintf(stderr, "cannot write %s\n", geometryOut.c_str()); return 1; }
-      std::printf("%s: geometry of %g um around (%g, %g), %zu bytes\n", geometryOut.c_str(), geometryUm,
-                  sim::ScopeSpecGet(spec, "x"), sim::ScopeSpecGet(spec, "y"), json.size());
-      return 0;
-   }
    {
       // Diagnostic outputs first; without --out they are all that is written.
       std::string err;
@@ -195,6 +185,20 @@ int main(int argc, char** argv)
       });
       if (!ok) return 1;
       if (any && out.empty() && geometryOut.empty()) return 0;
+   }
+   if (!geometryOut.empty()) {
+      std::string json, err;
+      if (!sim::ScopeGeometryJson(spec, geometryUm, geometryDetail, json, err)) {
+         std::fprintf(stderr, "%s\n", err.c_str());
+         return 1;
+      }
+      FILE* f = std::fopen(geometryOut.c_str(), "wb");
+      const bool wrote = f && std::fwrite(json.data(), 1, json.size(), f) == json.size();
+      if (f) std::fclose(f);
+      if (!wrote) { std::fprintf(stderr, "cannot write %s\n", geometryOut.c_str()); return 1; }
+      std::printf("%s: geometry of %g um around (%g, %g), %zu bytes\n", geometryOut.c_str(), geometryUm,
+                  sim::ScopeSpecGet(spec, "x"), sim::ScopeSpecGet(spec, "y"), json.size());
+      return 0;
    }
    if (sim::ScopeSpecGet(spec, "prepare") >= 1) {
       // The world and the PSF kernel only (warms the memo and, with
@@ -243,4 +247,38 @@ int main(int argc, char** argv)
       std::printf("%s: %ld frames %ux%u, %zu blinks, %ld dyes in continuous populations (setup %.2f s), total %.2f s\n",
                   out.c_str(), info.frames, info.width, info.height, info.blinks, info.dyes, info.querySec, info.totalSec);
    return 0;
+}
+
+// --serve: many runs in one process (the docs' figure builder sends its cli
+// commands this way). Each stdin line is one command's arguments, separated by
+// tabs; it runs exactly as a separate process would, except that the movie
+// cache (world, scenes, PSF kernel memo) stays warm between commands.
+int Serve()
+{
+   std::setvbuf(stdout, nullptr, _IONBF, 0); // the reader waits for the done line
+   std::string line;
+   while (std::getline(std::cin, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.empty()) continue;
+      std::vector<std::string> args{ "insiliscope_cli" };
+      std::stringstream ss(line);
+      std::string a;
+      while (std::getline(ss, a, '\t'))
+         if (!a.empty()) args.push_back(a);
+      std::vector<char*> argv;
+      for (std::string& x : args) argv.push_back(&x[0]);
+      argv.push_back(nullptr);
+      const int code = RunCli(static_cast<int>(args.size()), argv.data());
+      std::fflush(stderr);
+      std::printf("@@isc-done %d\n", code);
+   }
+   return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+   if (argc == 2 && std::string(argv[1]) == "--serve") return Serve();
+   return RunCli(argc, argv);
 }
