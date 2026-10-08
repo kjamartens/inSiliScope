@@ -26,9 +26,12 @@ What a few dyes of each mode emit over time, read from the core's schedules thro
 1. First activation at \(t_{act} = -\ln U / k_{act}\), with \(k_{act}\) the activation rate per dark dye (from the
    dye's off time and the 405 nm or primed-conversion light, see the light-path page).
 2. Repeat: ON for \(\mathrm{Exp}(\tau_{on})\) (`on-sec`); then bleach with probability \(p_b\) (`bleach-prob`),
-   otherwise dark for \(\mathrm{Exp}(\tau_{off})\) (`off-sec`) and blink again.
+   otherwise dark for \(\mathrm{Exp}(\tau_{off})\) (`off-sec`) and blink again. For dSTORM dyes the three follow from
+   the measured photons per switching cycle, duty cycle and switching cycles (\(\tau_{on}\) = photons / detected rate,
+   duty cycle = \(\tau_{on}/(\tau_{on}+\tau_{off})\), \(p_b\) = 1/cycles) [[dempsey2011](../references.md#dempsey2011)];
+   the PALM values are *estimates*.
 3. Per-blink brightness is log-normal with mean 1 and coefficient of variation `photon-cv` (0 = every blink equally
-   bright).
+   bright; the log-normal shape and the library's 0.5 are *estimates*).
 4. At most 1000 blinks per dye; \(p_b\) is clamped to [0.01, 1].
 
 The spread of the per-blink brightness on one field:
@@ -36,33 +39,37 @@ The spread of the per-blink brightness on one field:
 <!-- fig:photo-brightness -->
 
 **dSTORM** dyes start in an **initial ON** phase: every dye emits from \(t = 0\) for \(\mathrm{Exp}(\tau_{init})\)
-(`initial-on-sec`, its own draw) before the blink schedule starts. The dSTORM times scale with the excitation rate so
-photons per blink and duty cycle stay as measured [[dempsey2011](../references.md#dempsey2011)].
+(`initial-on-sec`, its own draw; 2 s at the reference intensity in the library, an *estimate*) before the blink
+schedule starts. The dSTORM times scale with the excitation rate so photons per blink and duty cycle stay as measured
+[[dempsey2011](../references.md#dempsey2011)].
 
 The initial ON phase at the start of the illumination:
 
 <!-- fig:photo-dstorm-start -->
 
-**PALM** proteins with a **pre state** (mEos3.2, Dendra2: green before photoconversion) emit in that state from \(t=0\)
-until their first activation (and bleach in it at their pre photon budget). The pre state has its own spectrum, so it
-is detected (and imaged with its own PSF) only as far as the light path lets it through.
+**PALM** proteins with a **pre state** (mEos3.2 [[zhang2012](../references.md#zhang2012)], Dendra2
+[[gurskaya2006](../references.md#gurskaya2006)]: green before photoconversion) emit in that state from \(t=0\) until
+their first activation (and bleach in it at their pre photon budget, 2e5 in the library, an *estimate*). The pre state
+has its own spectrum, so it is detected (and imaged with its own PSF) only as far as the light path lets it through.
 
 ## DNA-PAINT
 
-Persistent sites never bleach. The imager binds at rate \(k_{on} c\) (`kon` x `mt-imager-nm`), a Poisson process for ever,
-addressed per 1 s time bin (count, start times, ON time \(\mathrm{Exp}(\tau_{on})\) capped at \(20\tau_{on}\),
-brightness), so any window is answered without running from \(t=0\). Overlapping binding events on one site are allowed
-(fine while \(k_{on}c\,\tau_{on} \ll 1\)). The free imager adds a flat background (see the light-path page; its
-depletion and its exclusion from cells are ignored).
+Persistent sites never bleach. The imager binds at rate \(k_{on} c\) (`kon` x `mt-imager-nm`)
+[[jungmann2010](../references.md#jungmann2010), [schnitzbauer2017](../references.md#schnitzbauer2017)], a Poisson
+process for ever, addressed per 1 s time bin (count, start times, ON time \(\mathrm{Exp}(\tau_{on})\) capped at
+\(20\tau_{on}\), brightness), so any window is answered without running from \(t=0\). Overlapping binding events on one
+site are allowed (fine while \(k_{on}c\,\tau_{on} \ll 1\)). The free imager adds a flat background (see the light-path
+page; its depletion and its exclusion from cells are ignored).
 
 ## WideField
 
 Every labelled dye emits from \(t=0\) and bleaches after an emitted-photon budget \(B\) (`photon-budget`, per dye
-\(B \times\) an Exp(1) draw): the bleach rate is \(\lambda = k_{em}/B\), the half time \(\ln 2\,B/k_{em}\). A frame
+\(B \times\) an Exp(1) draw, i.e. a constant bleaching probability per emitted photon; the library's \(B = 10^5\) is an
+*estimate*): the bleach rate is \(\lambda = k_{em}/B\), the half time \(\ln 2\,B/k_{em}\). A frame
 holds the exact mean photons per dye, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\) with \(r\) the detected rate,
 rendered mean-field or per dye.
 
-Bleaching over ten minutes, the rendered photons against the model's half time:
+Bleaching over 200 s, the rendered photons against the model's half time:
 
 <!-- fig:photo-wf-bleach -->
 
@@ -79,7 +86,7 @@ In a cli or viewer movie the whole sample has been lit since \(t=0\).
 
 ## Illumination history (Micro-Manager adapter)
 
-The adapter remembers how long each place has been lit and under which settings. Each 0.25 um tile of the world keeps
+The adapter remembers how long each place has been lit and under which settings. Each 0.25 µm tile of the world keeps
 its seconds of illumination (weighted by the illumination profile, in 1/16 steps) and its **rate history**: the lit
 time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
 dichroic, imager concentration, the dye's kinetic overrides). Every dye's schedule is read at its tile's clock through
@@ -99,7 +106,11 @@ was and the future follows the new rates.
 The clock is lit time, so processes that need no light (DNA-PAINT binding, PALM spontaneous activation, dark times)
 also advance only while the place is lit.
 
-A frame lights the FOV and its 2 um margin for one exposure when the lasers' shutter is open, the light path carries
+Two of these changes, rendered by the cli with the same rate history (`--history-before`):
+
+<!-- fig:photo-history -->
+
+A frame lights the FOV and its 2 µm margin for one exposure when the lasers' shutter is open, the light path carries
 power to the sample, and the frame is acquired (a snap or a sequence acquisition) or, with
 `SampleHolder.TimeWhileIdle` = `Running` (the default), the shutter was opened by hand (Live off with the shutter open
 still lights the sample, as on a real microscope; with autoshutter, the shutter is closed between acquisitions).
@@ -108,4 +119,4 @@ called, a sequence acquisition frames started after it began, so the first frame
 place. The lit area follows the sample drift ([Camera](camera.md#drift)), and the background fade reads the
 clock at the FOV centre. A stack reads the history once at its first frame and adds its frames along its own seeded
 drift path (so a stack is reproducible only on a freshly loaded device). The history is cleared when the world changes
-(seed, cell parameters). Precision: tile 0.25 um.
+(seed, cell parameters). Precision: tile 0.25 µm.

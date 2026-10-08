@@ -3,6 +3,7 @@ spread on BrightField, and the drift presets."""
 import numpy as np
 
 from .common import COLORS, SPOT, figure, img, load, read_drift, register, robust_range, sig, stack, table
+from .light import typical
 
 IDEAL = {"gain": 1, "read-noise": 0, "read-noise-std-pct": 0, "gain-std-pct": 0, "offset": 0, "offset-std": 0,
          "dark-per-sec": 0}
@@ -18,12 +19,12 @@ def cam_chain(ctx):
     base = dict(SPOT, size=64, frames=1)
     r = ctx.cli(base, tag="photons", photons_out=True)
     ph = stack(r["photons_out"])[0]
-    steps = [("shot noise only", dict(IDEAL)),
-             ("+ dark current, read noise", dict(IDEAL, **{"read-noise": 1.2, "read-noise-std-pct": 20,
+    steps = [("Shot noise only", dict(IDEAL)),
+             ("+ Dark current, read noise", dict(IDEAL, **{"read-noise": 1.2, "read-noise-std-pct": 20,
                                                           "dark-per-sec": 1.03})),
              ("Kinetix22 (default)", {}),
              ("iXon Ultra 897 (EMCCD)", {"camera-preset": "iXonUltra897"})]
-    frames = [("expected photons", ph)]
+    frames = [("Expected photons", ph)]
     for k, (name, opts) in enumerate(steps):
         r = ctx.cli(dict(base, **opts), tag="step%d" % (k + 1), out=True, setup_json=True)
         frames.append((name, electrons(stack(r["out"])[0], load(r["setup_json"])["camera"])))
@@ -37,12 +38,12 @@ def cam_chain(ctx):
             ax.plot(np.arange(-12, 13), e[iy, ix - 12:ix + 13] if 12 <= ix < e.shape[1] - 12 else
                     np.interp(np.arange(-12, 13), np.arange(e.shape[1]) - ix, e[iy]),
                     color=st["fg"] if k == 0 else COLORS[k - 1], lw=1.6 if k == 0 else 0.9, label=name)
-        ax.set_xlabel("pixels from the brightest pixel, along its row")
-        ax.set_ylabel("photons / photoelectrons")
+        ax.set_xlabel("Pixels from the brightest pixel, along its row")
+        ax.set_ylabel("Photons / photoelectrons")
         ax.legend(fontsize=6.5)
 
     prof = ctx.plot("profile", draw, h=2.0, alt="One row through a blink at each step")
-    return table([n for n, _ in frames], [tiles]) + "\n" + \
+    return table([n for n, _ in frames], [tiles], label_col=False) + "\n" + \
         figure(prof, "The camera's noise chain switched on step by step, on one frame of the default movie (ATTO 655 "
                      "DNA-PAINT, 64 px). Every panel in photoelectrons on one grey scale ((ADU - offset) x gain): the "
                      "expected photons (the photon image before the camera), Poisson shot noise only, plus dark "
@@ -81,8 +82,8 @@ def cam_ptc(ctx):
             xs = np.logspace(np.log10(p[:, 0].min()), np.log10(p[:, 0].max()), 50)
             ax.loglog(xs, enf2 * xs / g, "--", color=COLORS[k], lw=0.8,
                       label="ENF$^2$/gain = %s ADU (fitted: %s)" % (sig(enf2 / g, 3), sig(slope, 3)))
-        ax.set_xlabel("mean signal (ADU above the offset)")
-        ax.set_ylabel("temporal variance (ADU$^2$)")
+        ax.set_xlabel("Mean signal (ADU above the offset)")
+        ax.set_ylabel("Temporal variance (ADU$^2$)")
         ax.legend(fontsize=6.5)
 
     body = ctx.plot("", draw, h=2.6, alt="Photon transfer curves")
@@ -91,8 +92,9 @@ def cam_ptc(ctx):
                   "(occupancy 0) under a flat background of increasing intensity, the variance from the difference "
                   "of two frames (the per-pixel offset and gain patterns cancel). Shot noise makes the variance grow "
                   "with the mean at 1/gain (gain in electrons per ADU); the EMCCD's multiplication doubles that (an "
-                  "excess noise factor of &radic;2); at low signal the read-noise floor shows. The fit is the slope "
-                  "through the three brightest levels; levels that reach the 16-bit ceiling are left out. The "
+                  "excess noise factor of &radic;2 [[hirsch2013](../references.md#hirsch2013)]); at low signal "
+                  "the read-noise floor shows. The fit is the slope through the three brightest levels; levels "
+                  "that reach the 16-bit ceiling are left out. The "
                   "lowest points sit on the free imager's background (the default DNA-PAINT label).")
 
 
@@ -100,7 +102,7 @@ def cam_ptc(ctx):
 def cam_presets(ctx):
     base = dict(SPOT, size=64, frames=1)
     cams = [("Kinetix22 (sCMOS, default)", {}), ("iXon Ultra 897 (EMCCD)", {"camera-preset": "iXonUltra897"}),
-            ("ideal (QE 1, shot noise only)", dict(IDEAL, **{"camera-preset": "Custom", "qe-curve": "Custom",
+            ("Ideal (QE 1, shot noise only)", dict(IDEAL, **{"camera-preset": "Custom", "qe-curve": "Custom",
                                                              "qe": 1}))]
     cols, tiles, f_row, rn_row, gain_row, snr_row = [], [], [], [], [], []
     for k, (name, opts) in enumerate(cams):
@@ -121,14 +123,15 @@ def cam_presets(ctx):
         dim = np.sort(e.ravel())[: e.size // 2]
         snr_row.append(sig(peak / (3 * float(np.std(dim))), 2))
     return table([""] + cols,
-                 [["one frame (ADU)"] + tiles,
-                  ["detected fraction F of the label (holds the QE curve)"] + f_row,
-                  ["read noise"] + rn_row, ["gain (e<sup>-</sup>/ADU)"] + gain_row,
-                  ["brightest blink (3 x 3 px) / noise of the dimmer half of the pixels"] + snr_row]) + \
+                 [["Frame (ADU)"] + tiles,
+                  ["Detected fraction F (holds the QE)"] + f_row,
+                  ["Read noise"] + rn_row, ["Gain (e<sup>-</sup>/ADU)"] + gain_row,
+                  ["Brightest blink / noise"] + snr_row]) + \
         "\nThe camera presets (`Camera.CameraPreset`, cli `camera-preset`) on one frame of the default movie (ATTO " \
         "655 DNA-PAINT, 64 px), and an ideal camera to compare. Each image its own contrast. The QE curve enters " \
-        "through the label's detected fraction; the last row is a rough signal-to-noise measure on the frame " \
-        "itself (the dimmer pixels hold the imager background's shot noise too).\n"
+        "through the label's detected fraction F. 'Brightest blink / noise': a rough signal-to-noise measure on the " \
+        "frame itself, the brightest blink's 3 &times; 3 px sum over the noise of the dimmer half of the pixels " \
+        "(which holds the imager background's shot noise too).\n"
 
 
 @register("cam-prnu", "camera")
@@ -140,8 +143,9 @@ def cam_prnu(ctx):
     lo, hi = robust_range(ph, 0.5, 99.5)
     pad = 0.25 * (hi - lo)
     lo, hi = lo - pad, hi + pad
+    spreads = [0.25, 0.5]
     one, mean, flat1, flat20 = [], [], [], []
-    for pct in (0.5, 5.0):
+    for pct in spreads:
         r = ctx.cli(dict(base, frames=20, **{"gain-std-pct": pct}), tag="g%g" % pct, out=True, setup_json=True)
         off = load(r["setup_json"])["camera"]["offset_adu"]
         f = stack(r["out"]) - off
@@ -151,50 +155,65 @@ def cam_prnu(ctx):
                           out=True)["out"]) - off
         flat1.append(sig(100 * float(e[0].std() / e[0].mean()), 2))
         flat20.append(sig(100 * float(e.mean(0).std() / e.mean(0).mean()), 2))
-    return table(["", "no noise (photons)", "gain spread 0.5 % (default)", "gain spread 5 % (before 2026-10-01)"],
-                 [["one frame", img(ctx.tile("photons", ph, cmap="gray", vmin=lo, vmax=hi))] + one,
-                  ["mean of 20 frames", ""] + mean,
-                  ["the cells' contrast / an empty field's pixel spread, one frame (% of the mean)",
-                   sig(100 * float(ph.std()), 2)] + flat1,
-                  ["... mean of 20 frames", ""] + flat20]) + \
+    return table(["", "No noise (photons)"] + ["Gain spread %g %%%s" % (p, " (default)" if p == 0.5 else "")
+                                               for p in spreads],
+                 [["One frame", img(ctx.tile("photons", ph, cmap="gray", vmin=lo, vmax=hi))] + one,
+                  ["Mean of 20 frames", ""] + mean,
+                  ["Cells' contrast (rms, % of the mean)", sig(100 * float(ph.std()), 2)] + [""] * len(spreads),
+                  ["Empty field: pixel spread, one frame (%)", ""] + flat1,
+                  ["... in the mean of 20 frames (%)", ""] + flat20]) + \
         "\nThe sCMOS per-pixel gain spread (PRNU; `Camera.sCMOS_GainStdPctPerPixel`, cli `gain-std-pct`) is a fixed " \
-        "pattern proportional to the signal. BrightField cells are weak phase objects: here (focus 1 um above the " \
-        "coverslip, the default lamp of 4000 photons per pixel and frame) their contrast is about the size of one " \
-        "frame's shot noise. Averaging frames removes the shot noise but not the pattern: at 0.5 % (typical of " \
-        "sCMOS) the cells come out of the mean, at 5 % they never do. One grey scale for all (intensity / its mean).\n"
+        "pattern proportional to the signal. BrightField cells are weak phase objects: here (focus 1 µm above the " \
+        "coverslip, the default lamp of 4000 photons per pixel and frame) their contrast is below one frame's shot " \
+        "noise (the empty field's spread in one frame). Averaging frames removes the shot noise but not the pattern, " \
+        "so the gain spread sets how far averaging helps: compare the empty field's spread in the mean of 20 frames " \
+        "with the cells' contrast. The default 0.5 % is an *estimate*, above a published sCMOS PRNU of 0.06-0.3 % " \
+        "rms [[orcaflash4v3-technote](../references.md#orcaflash4v3-technote)]; it was 5 % before 2026-10-01, a " \
+        "pattern far above the cells' contrast. One grey scale for all (intensity / its mean).\n"
 
 
 @register("drift-presets", "camera")
 def drift_presets(ctx):
     pr = load(ctx.cli({}, tag="presets", presets_json=True)["presets_json"])["drift"]
-    traj, tiles = {}, []
+    dt = 0.05
+    traj = {}
     for d in pr:
         opts = {k: v for k, v in d.items() if k != "name"}
-        r = ctx.cli(dict(SPOT, size=64, frames=600, **opts), tag=d["name"], out=True)
+        r = ctx.cli(dict(SPOT, size=16, frames=600, **opts), tag=d["name"], out=True)
         traj[d["name"]] = read_drift(r["out"])
-        mean = stack(r["out"]).mean(0)
-        lo, hi = robust_range(mean, 0.5, 99.8)
-        tiles.append(img(ctx.tile(d["name"], mean, cmap="gray", vmin=lo, vmax=hi)))
+    # A movie of the Extreme preset: mEGFP WideField, so the structure (and its drift) shows in every frame.
+    ext = next(d for d in pr if d["name"] == "Extreme")
+    n, step = 300, 3
+    r = ctx.cli(dict(SPOT, size=96, frames=n, **typical("WideField"), **{k: v for k, v in ext.items() if k != "name"}),
+                tag="extreme-movie", out=True)
+    mv = stack(r["out"])[::step]
+    lo, hi = robust_range(mv, 0.5, 99.8)
+    gif = ctx.gif("extreme", mv, cmap="gray", vmin=lo, vmax=hi, fps=1 / (step * dt),
+                  labels=["t = %.1f s" % (k * step * dt) for k in range(len(mv))])
 
     def draw(fig, st):
         a, b = fig.subplots(1, 2, sharey=True)
         for k, (name, t) in enumerate(traj.items()):
             if t is None:
                 continue   # Off: no drift, no trajectory file
-            sec = t[1:, 0] * 0.05
+            sec = t[1:, 0] * dt
             a.plot(sec, np.hypot(t[1:, 1], t[1:, 2]), color=COLORS[k], lw=0.9, label=name)
             b.plot(sec, np.abs(t[1:, 3]), color=COLORS[k], lw=0.9, label=name)
         for ax, what in ((a, "xy"), (b, "z")):
+            ax.set_xscale("log")
             ax.set_yscale("log")
-            ax.set_xlabel("time (s)")
-            ax.set_title("%s displacement" % what, fontsize=7.5)
+            ax.set_xlabel("Time (s)")
+            ax.set_title("Displacement in %s" % what, fontsize=7.5)
         a.set_ylabel("nm")
         b.legend(ncol=2, fontsize=6.5)
 
     body = ctx.plot("", draw, h=2.4, alt="Drift trajectories per preset")
-    return table([d["name"] for d in pr], [tiles]) + "\n" + \
+    return figure(img(gif, "Extreme drift"),
+                  "The Extreme drift preset (250 nm/s directed, 50 nm/&radic;s random walk, xy and z) on mEGFP "
+                  "WideField, 96 px (9.6 µm), %g s of 50 ms frames, every %drd frame, in real time: the field "
+                  "slides and the focus wanders into the cell. One grey scale for all frames." % (n * dt, step),
+                  max_width="24rem") + "\n" + \
         figure(body, "`SampleHolder.DriftPreset` (viewer: Drift; cli: the speeds and walks it sets, from the cli's "
-                     "preset table) on 600 frames of 50 ms (30 s), default movie, seed 42. Top: the mean of the 600 "
-                     "frames, smeared as the sample moves. Bottom: how far the sample has moved, per frame (the "
-                     "cli's `.drift.csv`, the true drift): the directed part plus the random walk, direction and "
-                     "wander drawn per seed.")
+                     "preset table): how far the sample has moved after each 50 ms frame over 30 s (the cli's "
+                     "`.drift.csv`, the true drift; seed 42, the direction and its wander drawn per seed). On log axes "
+                     "the random walk grows as &radic;t at first and the directed part as t later.")

@@ -47,7 +47,7 @@ def world_packing(ctx):
 
     def draw(fig, st):
         axs = fig.subplots(1, 2)
-        for ax, geo, title in ((axs[0], loose, "candidates (packing 0)"), (axs[1], packed, "packed (packing 1)")):
+        for ax, geo, title in ((axs[0], loose, "Candidates (packing 0)"), (axs[1], packed, "Packed (packing 1)")):
             x0, y0, x1, y1 = geo["x0"], geo["y0"], geo["x1"], geo["y1"]
             for g in np.arange(np.ceil(x0 / chunk) * chunk, x1, chunk):
                 ax.axvline(g, color=st["grid"], lw=0.6, zorder=0)
@@ -57,36 +57,36 @@ def world_packing(ctx):
                 o = np.array(c["outline"] + c["outline"][:1])
                 ax.fill(o[:, 0], o[:, 1], color=COLORS[1], alpha=0.35, lw=0)
                 ax.plot(o[:, 0], o[:, 1], color=COLORS[1], lw=0.7)
-            ax.plot(cand[:, 0], cand[:, 1], "o", ms=2.2, color=st["fg"], label="candidate centres")
+            ax.plot(cand[:, 0], cand[:, 1], "o", ms=2.2, color=st["fg"], label="Candidate centres")
             if geo is packed:
-                ax.plot(new[:, 0], new[:, 1], "x", ms=3.5, color=COLORS[3], label="packed centres")
+                ax.plot(new[:, 0], new[:, 1], "x", ms=3.5, color=COLORS[3], label="Packed centres")
                 ax.plot(cand[~kept, 0], cand[~kept, 1], "o", ms=7, mfc="none", color=COLORS[3], lw=0.8,
-                        label="removed (still overlapping)")
+                        label="Removed (still overlapping)")
             ax.set_xlim(x0, x1)
             ax.set_ylim(y1, y0)  # row 0 at the top, as in the camera images
             ax.set_aspect("equal")
             ax.set_title(title)
-            ax.set_xlabel("x (um)")
-        axs[0].set_ylabel("y (um)")
+            ax.set_xlabel("x (µm)")
+        axs[0].set_ylabel("y (µm)")
         h0, l0 = axs[1].get_legend_handles_labels()
         fig.legend(h0, l0, loc="lower center", ncol=3, bbox_to_anchor=(0.5, -0.04))
 
     body = ctx.plot("", draw, h=3.9, alt="Cells before and after packing")
     return figure(body,
-                  "Each 26 um chunk (grey grid) holds at most one candidate cell centre (dots). Left: the candidates "
+                  "Each 26 µm chunk (grey grid) holds at most one candidate cell centre (dots). Left: the candidates "
                   "as drawn, overlapping (darker blue): **%s %%** of the covered area lies in two cells. Right: "
                   "packing moves overlapping neighbours apart (x: new centres) and removes those still stuck after its "
                   "fixed number of iterations (circled; %d of %d candidates kept): **%s %%** overlap. Cell sizes "
-                  "never change. Seed 42, occupancy %g (default 0.33), a %g um square around (%g, %g) um."
+                  "never change. Seed 42, occupancy %g (default 0.33), a %g µm square around (%g, %g) µm."
                   % (sig(100 * f0, 2), int(kept.sum()), len(cand), sig(100 * f1, 2), occ, size, SPOT["x"], SPOT["y"]))
 
 
 @register("world-outline", "world-model")
 def world_outline(ctx):
     steps = [
-        ("ellipse", {"p.cellBlob": 0, "p.cellRough": 0}, "ellipse|cellBlob 0"),
-        ("lobes", {"p.cellRough": 0}, "+ lobes|cellBlob 1.75, cellRough 0"),
-        ("fractal105", {"p.cellFractalDim": 1.05}, "+ fractal edge|D = 1.05"),
+        ("ellipse", {"p.cellBlob": 0, "p.cellRough": 0}, "Ellipse|cellBlob 0"),
+        ("lobes", {"p.cellRough": 0}, "+ Lobes|cellBlob 1.75, cellRough 0"),
+        ("fractal105", {"p.cellFractalDim": 1.05}, "+ Fractal edge|D = 1.05"),
         ("fractal", {}, "D = 1.35|(default)"),
         ("fractal18", {"p.cellFractalDim": 1.8}, "D = 1.8"),
     ]
@@ -110,11 +110,11 @@ def world_outline(ctx):
             ax.set_title(title.replace("|", chr(10)), fontsize=7.5)
             ax.set_xticks([-10, 0, 10])
             ax.set_yticks([-10, 0, 10])
-            ax.set_xlabel("um")
+            ax.set_xlabel("µm")
 
     body = ctx.plot("", draw, h=2.2, alt="One cell outline step by step")
     return figure(body,
                   "One cell's outline as the parameters are switched on (packing off, so the cell stays put): an "
                   "ellipse, then the angular harmonics (lobes), then the fractal tail of harmonics 6-64 with "
                   "amplitude k<sup>-(2.5-D)</sup>; a larger box-counting dimension D roughens the edge. Area-equivalent "
-                  "diameters: %s um." % " / ".join("%.1f" % d for d in diam))
+                  "diameters: %s µm." % " / ".join("%.1f" % d for d in diam))

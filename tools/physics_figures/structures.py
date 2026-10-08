@@ -1,7 +1,5 @@
 """Structures page: the shaped nucleus, the relaxed cytoplasm height, microtubule paths and the dye lattice."""
 import numpy as np
-from PIL import Image, ImageDraw
-
 from matplotlib.collections import LineCollection
 
 from .common import COLORS, SPOT, figure, load, register, rows, sig
@@ -34,29 +32,49 @@ def silhouette(rg, c0, u):
     return np.r_[us.min(1), us.max(1)[::-1], us.min(1)[:1]], np.r_[z, z[::-1], z[:1]]
 
 
-def height_raster(cell, step):
-    """The cytoplasm mesh of one cell rasterised (each quad at its mean height): (image, x0, y0)."""
+def mesh_raster(cell, x0, y0, step, W, H):
+    """The cytoplasm mesh of one cell sampled at the centres of a W x H grid of step um from (x0, y0): linear on
+    its triangles (each quad split in two), NaN off the mesh. (matplotlib's triangulation refuses the mesh's
+    zero-area triangles at its centre.)"""
     m = cell["mesh"]
     R, n, v = m["rings"], m["n"], np.asarray(m["v"], float)
+    k, i = np.arange(R)[:, None], np.arange(n)[None, :]
+    a, b = (k * n + i).ravel(), (k * n + (i + 1) % n).ravel()
+    c, d = ((k + 1) * n + (i + 1) % n).ravel(), ((k + 1) * n + i).ravel()
+    out = np.full((H, W), np.nan)
+    for t in np.r_[np.c_[a, b, c], np.c_[a, c, d]]:
+        (xa, ya, za), (xb, yb, zb), (xc, yc, zc) = v[t]
+        det = (yb - yc) * (xa - xc) + (xc - xb) * (ya - yc)
+        if abs(det) < 1e-12:
+            continue
+        ix0 = max(0, int(np.ceil((min(xa, xb, xc) - x0) / step - 0.5)))
+        ix1 = min(W - 1, int(np.floor((max(xa, xb, xc) - x0) / step - 0.5)))
+        iy0 = max(0, int(np.ceil((min(ya, yb, yc) - y0) / step - 0.5)))
+        iy1 = min(H - 1, int(np.floor((max(ya, yb, yc) - y0) / step - 0.5)))
+        if ix1 < ix0 or iy1 < iy0:
+            continue
+        X, Y = np.meshgrid(x0 + (np.arange(ix0, ix1 + 1) + 0.5) * step, y0 + (np.arange(iy0, iy1 + 1) + 0.5) * step)
+        l1 = ((yb - yc) * (X - xc) + (xc - xb) * (Y - yc)) / det
+        l2 = ((yc - ya) * (X - xc) + (xa - xc) * (Y - yc)) / det
+        l3 = 1 - l1 - l2
+        inside = (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+        out[iy0:iy1 + 1, ix0:ix1 + 1][inside] = (l1 * za + l2 * zb + l3 * zc)[inside]
+    return out
+
+
+def height_raster(cell, step):
+    """The cytoplasm height of one cell on a grid of step um (NaN outside): (image, x0, y0)."""
+    v = np.asarray(cell["mesh"]["v"], float)
     x0, y0 = v[:, 0].min() - step, v[:, 1].min() - step
     W = int(np.ceil((v[:, 0].max() - x0) / step)) + 2
     H = int(np.ceil((v[:, 1].max() - y0) / step)) + 2
-    im = Image.new("F", (W, H), 0.0)
-    d = ImageDraw.Draw(im)
-    for k in range(R):
-        for i in range(n):
-            j = (i + 1) % n
-            q = v[[k * n + i, k * n + j, (k + 1) * n + j, (k + 1) * n + i]]
-            d.polygon([((p[0] - x0) / step, (p[1] - y0) / step) for p in q], fill=float(q[:, 2].mean()))
-    return np.asarray(im, float), x0, y0
+    return mesh_raster(cell, x0, y0, step, W, H), x0, y0
 
 
-def sample_line(img, x0, y0, step, p0, p1, n=600):
-    t = np.linspace(0, 1, n)
-    xs, ys = p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t
-    ix = np.clip(((xs - x0) / step).astype(int), 0, img.shape[1] - 1)
-    iy = np.clip(((ys - y0) / step).astype(int), 0, img.shape[0] - 1)
-    return t * np.hypot(p1[0] - p0[0], p1[1] - p0[1]), img[iy, ix]
+def row_profile(cell, x0, x1, y, n=1500):
+    """The height along the row at world y: (x, height; NaN off the cell)."""
+    step = (x1 - x0) / n
+    return x0 + (np.arange(n) + 0.5) * step, mesh_raster(cell, x0, y - step / 2, step, n, 1)[0]
 
 
 def axis_of(nucleus):
@@ -89,19 +107,19 @@ def struct_nucleus(ctx):
             for k in range(1, len(rg) - 1, 3):
                 rr = np.vstack([rg[k], rg[k][:1]])
                 axs[0, col].plot((rr[:, :2] - c0) @ u, (rr[:, :2] - c0) @ w, color=COLORS[4], lw=0.4, alpha=0.6)
-            for g, style, label in ((rgp, dict(color=st["muted"], ls="--", lw=0.9), "plain ellipsoid"),
-                                    (rg, dict(color=COLORS[4], lw=1.2), "shaped (default)")):
+            for g, style, label in ((rgp, dict(color=st["muted"], ls=":", lw=0.6), "Plain ellipsoid"),
+                                    (rg, dict(color=COLORS[4], lw=1.2), "Shaped (default)")):
                 ring = widest(g)
                 axs[0, col].plot((ring[:, :2] - c0) @ u, (ring[:, :2] - c0) @ w, label=label, **style)
                 axs[1, col].plot(*silhouette(g, c0, u), **style)
             axs[0, col].set_aspect("equal")
-            axs[0, col].set_title("cell at (%.0f, %.0f) um" % (cell["x"], cell["y"]), fontsize=7.5)
+            axs[0, col].set_title("Cell at (%.0f, %.0f) µm" % (cell["x"], cell["y"]), fontsize=7.5)
             axs[1, col].axhline(0, color=st["muted"], lw=0.8)
             axs[1, col].set_aspect("equal")
             axs[1, col].set_ylim(-0.4, None)
-            axs[1, col].set_xlabel("along the long axis (um)", fontsize=7)
-        axs[0, 0].set_ylabel("top view (um)")
-        axs[1, 0].set_ylabel("height (um)")
+            axs[1, col].set_xlabel("Along the long axis (µm)", fontsize=7)
+        axs[0, 0].set_ylabel("Top view (µm)")
+        axs[1, 0].set_ylabel("Height (µm)")
         h, l = axs[0, 0].get_legend_handles_labels()
         fig.legend(h, l, loc="outside upper center", ncol=2)
 
@@ -110,9 +128,9 @@ def struct_nucleus(ctx):
                   "The nuclei of the four cells nearest the figures' spot (seed 42). Top: in each nucleus's own frame "
                   "(long axis horizontal), the widest section and, faint, every third section. Bottom: the "
                   "silhouette seen from the side. Pink: the shaped nucleus (defaults: lobes, kidney bend, uneven "
-                  "thickness, wider base, lowered widest point); dashed: the same cell with every shape term at 0, "
-                  "the plain ellipsoid. The line at height 0 is the coverslip: the nucleus sits on a basal layer of "
-                  "cytoplasm.")
+                  "thickness, wider base, lowered widest point); dotted grey: the same cell with every shape term at "
+                  "0, the plain ellipsoid. The line at height 0 is the coverslip: the nucleus sits on a basal layer "
+                  "of cytoplasm.")
 
 
 @register("struct-cytoplasm", "structures")
@@ -123,49 +141,65 @@ def struct_cytoplasm(ctx):
         cell, rg = cell_with_nucleus(ctx, tag, opts)[0]
         out[tag] = (cell, height_raster(cell, step), rg)
     cell, (img, x0, y0), rg = out["relaxed"]
-    u = axis_of(cell["nucleus"])
-    c = np.array([cell["nucleus"]["x"], cell["nucleus"]["y"]])
     o = np.asarray(cell["outline"])
-    half = np.max(np.abs((o - c) @ u)) * 1.02
-    p0, p1 = c - half * u, c + half * u
-    hmax = float(max(img.max(), out["raw"][1][0].max()))
+    yc = float(cell["nucleus"]["y"])   # the section: the row through the nucleus centre, left to right
+    bx0, bx1 = o[:, 0].min() - 1, o[:, 0].max() + 1
+    by0, by1 = o[:, 1].min() - 1, o[:, 1].max() + 1
+    hmax = float(max(np.nanmax(img), np.nanmax(out["raw"][1][0])))
+    htop = hmax * 1.12
 
     def draw(fig, st):
-        gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.5])
+        gs = fig.add_gridspec(2, 1, height_ratios=[by1 - by0, htop + 0.4])
         ax = fig.add_subplot(gs[0])
         ext = [x0, x0 + img.shape[1] * step, y0 + img.shape[0] * step, y0]
-        im = ax.imshow(np.where(img > 0, img, np.nan), extent=ext, cmap="viridis", vmin=0, vmax=hmax)
+        im = ax.imshow(img, extent=ext, cmap="viridis", vmin=0, vmax=hmax)
         oo = np.vstack([o, o[:1]])
         ax.plot(oo[:, 0], oo[:, 1], color=st["fg"], lw=0.6)
-        ax.plot([p0[0], p1[0]], [p0[1], p1[1]], color=COLORS[3], lw=1, ls="--")
+        ax.plot([bx0, bx1], [yc, yc], color=COLORS[3], lw=1, ls="--")
+        ax.set_xlim(bx0, bx1)
+        ax.set_ylim(by1, by0)
         ax.set_aspect("equal")
-        ax.set_xlabel("x (um)")
-        ax.set_ylabel("y (um)")
-        ax.set_title("relaxed height (default)")
-        cb = fig.colorbar(im, ax=ax, shrink=0.75)
-        cb.set_label("height (um)")
-        ax2 = fig.add_subplot(gs[1])
-        sx, sz = silhouette(rg, c, u)
-        ax2.fill(sx, sz, color=COLORS[4], alpha=0.35, lw=0, label="nucleus (silhouette)")
-        for tag, color, label in (("raw", COLORS[0], "raw profile (cytoRelaxUm 0)"),
-                                  ("relaxed", COLORS[2], "relaxed, cytoRelaxUm 1 (default)")):
-            im_t, xx0, yy0 = out[tag][1]
-            s, h = sample_line(im_t, xx0, yy0, step, p0, p1)
-            ax2.plot(s - half, h, color=color, lw=1.2, label=label)
+        ax.set_ylabel("y (µm)")
+        ax.tick_params(labelbottom=False)
+        ax.set_title("Relaxed height (default); the dashed line is the section below", fontsize=8)
+        cb = fig.colorbar(im, ax=ax, location="right", shrink=0.7, pad=0.02)
+        cb.set_label("Height (µm)")
+        ax2 = fig.add_subplot(gs[1], sharex=ax)
+        # The nucleus where the section cuts it: its rings' x extent at this y, per slice.
+        cut = []
+        for r in rg:
+            rr = np.vstack([r, r[:1]])
+            xs = []
+            for a, b in zip(rr[:-1], rr[1:]):
+                if (a[1] - yc) * (b[1] - yc) <= 0 and a[1] != b[1]:
+                    xs.append(a[0] + (yc - a[1]) / (b[1] - a[1]) * (b[0] - a[0]))
+            if len(xs) >= 2:
+                cut.append((min(xs), max(xs), r[:, 2].mean()))
+        if cut:
+            cut = np.array(cut)
+            ax2.fill(np.r_[cut[:, 0], cut[::-1, 1]], np.r_[cut[:, 2], cut[::-1, 2]], color=COLORS[4], alpha=0.35,
+                     lw=0, label="Nucleus (cut)")
+        for tag, color, label in (("raw", COLORS[0], "Raw profile (cytoRelaxUm 0)"),
+                                  ("relaxed", COLORS[2], "Relaxed, cytoRelaxUm 1 (default)")):
+            xs, h = row_profile(out[tag][0], bx0, bx1, yc)
+            ax2.plot(xs, h, color=color, lw=1.1, label=label)
         ax2.axhline(0, color=st["muted"], lw=0.8)
-        ax2.set_xlabel("along the dashed line (um)")
-        ax2.set_ylabel("height (um)")
-        ax2.set_ylim(-0.1, hmax * 1.45)
-        ax2.legend(loc="upper left", fontsize=6.5)
-        ax2.set_title("section along the dashed line (height stretched)")
+        ax2.set_ylim(-0.2, htop)
+        ax2.set_aspect("equal")
+        ax2.set_xlabel("x (µm)")
+        ax2.set_ylabel("Height (µm)")
+        fig.legend(*ax2.get_legend_handles_labels(), loc="outside lower center", ncol=3, fontsize=7)
 
-    body = ctx.plot("", draw, h=3.3, alt="Cytoplasm height map and a cross-section")
+    w = 6.0
+    h = w * 0.82 * ((by1 - by0) + htop + 0.4) / (bx1 - bx0) + 1.1
+    body = ctx.plot("", draw, w=w, h=h, alt="Cytoplasm height map and a cross-section")
     return figure(body,
                   "The cytoplasm height of the cell nearest the spot, from the core's mesh (the BrightField volume, "
-                  "microtubules and dyes use the same height). Right: a section along the nucleus's long axis. The "
-                  "raw profile (a min/max of distance fields) has creases where its pieces meet; the relaxed one "
-                  "solves h - l<sup>2</sup>&nabla;<sup>2</sup>h = h<sub>raw</sub> on a 0.25 um grid, with h = 0 on "
-                  "the outline and at least the nucleus top plus its margin over the nucleus.")
+                  "microtubules and dyes use the same height). Below: the section along the dashed line through the "
+                  "nucleus centre, at the same scale as the map (cells are flat). The raw profile (a min/max of "
+                  "distance fields) has creases where its pieces meet; the relaxed one solves h - l<sup>2</sup>"
+                  "&nabla;<sup>2</sup>h = h<sub>raw</sub> on a 0.25 µm grid, with h = 0 on the outline and at least "
+                  "the nucleus top plus its margin over the nucleus.", max_width="38rem")
 
 
 def thin(p, step=0.2):
@@ -215,19 +249,19 @@ def struct_microtubules(ctx):
         ax.autoscale_view()
         ax.set_ylim(ax.get_ylim()[::-1])
         ax.set_title(title, fontsize=8)
-        ax.set_xlabel("x (um)")
+        ax.set_xlabel("x (µm)")
         return lc
 
     def draw(fig, st):
         gs = fig.add_gridspec(2, 2, height_ratios=[1.7, 1])
         a0 = fig.add_subplot(gs[0, 0])
         lc = top(a0, cell, rg, st, "mtDirKappa 1.5 (default)")
-        a0.set_ylabel("y (um)")
+        a0.set_ylabel("y (µm)")
         c1, rg1 = cells["kappa0"]
         a1 = fig.add_subplot(gs[0, 1])
         top(a1, c1, rg1, st, "mtDirKappa 0: end point in any direction")
         cb = fig.colorbar(lc, ax=[a0, a1], shrink=0.8, location="right")
-        cb.set_label("height (um)")
+        cb.set_label("Height (µm)")
         a2 = fig.add_subplot(gs[1, :])
         side = [np.c_[(p[:, :2] - c0) @ u, p[:, 2]] for p in (thin(np.asarray(mt, float)) for mt in subset(cell["mts"]))
                 if len(p) > 1]
@@ -235,9 +269,10 @@ def struct_microtubules(ctx):
         a2.autoscale_view()
         a2.fill(*silhouette(rg, c0, u), color=COLORS[4], alpha=0.35, lw=0)
         a2.axhline(0, color=st["muted"], lw=0.8)
-        a2.set_xlabel("along the nucleus's long axis (um)")
-        a2.set_ylabel("height (um)")
-        a2.set_title("side view (default): the paths ride over or under the nucleus (pink)", fontsize=8)
+        a2.set_xlabel("Along the nucleus's long axis (µm)")
+        a2.set_ylabel("Height (µm)")
+        a2.set_title("Side view (default): the paths ride over or under the nucleus (pink); height stretched",
+                     fontsize=8)
 
     body = ctx.plot("", draw, h=5.4, alt="Microtubule paths of one cell")
     return figure(body,
@@ -265,6 +300,14 @@ def local_frame(sites, piece):
         r_out.append(q - foot[k])
         t_out.append(t_hat[k])
     return np.array(s_out), np.array(r_out).reshape(-1, 3), np.array(t_out).reshape(-1, 3)
+
+
+def end_on(rv, th):
+    """The radial offsets seen along the axis: (x1, x2) in nm in a frame across the local tangent."""
+    e1 = np.cross(th, [0, 0, 1.0])
+    e1 /= np.linalg.norm(e1, axis=1)[:, None]
+    e2 = np.cross(th, e1)
+    return np.einsum("ij,ij->i", rv, e1) * 1000, np.einsum("ij,ij->i", rv, e2) * 1000
 
 
 def straight_piece(cell, length, clear=0.25):
@@ -302,8 +345,9 @@ def struct_lattice(ctx):
     piece = straight_piece(cell, 1.2)
     length = float(np.linalg.norm(np.diff(piece, axis=0), axis=1).sum())
     lo, hi = piece.min(0) - 0.08, piece.max(0) + 0.08
+    shares = [(100, ""), (70, "DNA-PAINT"), (25, "PALM"), (3, "dSTORM")]
     labelled = {}
-    for pct in (100, 70, 25, 3):
+    for pct, _ in shares:
         r = ctx.cli(dict(SPOT, **{"mt-label-pct": pct, "dyes-rect": [lo[0], lo[1], hi[0], hi[1]],
                                   "dyes-z": [lo[2], hi[2]], "dyes-t": [60, 60.05]}), tag="pct%d" % pct, dyes_json=True)
         sites = rows(load(r["dyes_json"])["sites"], 5)[:, :3]
@@ -311,48 +355,54 @@ def struct_lattice(ctx):
         keep = (np.linalg.norm(rv, axis=1) < 0.04) & (s > 0.05) & (s < length - 0.05)
         labelled[pct] = (s[keep], rv[keep], th[keep])
     s, rv, th = labelled[100]
-    e1 = np.cross(th, [0, 0, 1.0])
-    e1 /= np.linalg.norm(e1, axis=1)[:, None]
-    e2 = np.cross(th, e1)
-    x1, x2 = np.einsum("ij,ij->i", rv, e1) * 1000, np.einsum("ij,ij->i", rv, e2) * 1000
+    x1, x2 = end_on(rv, th)
     radius = np.hypot(x1, x2)
     span = s.max() - s.min()
     per_um = len(s) / span
+    t = np.linspace(0, 2 * np.pi, 200)
+
+    def rings(ax, st):
+        for R in (12.5, 24.5):
+            ax.plot(R * np.cos(t), R * np.sin(t), color=st["muted"], lw=0.6, ls="--")
+        ax.set_aspect("equal")
+        ax.set_xlim(-36, 36)
+        ax.set_ylim(-36, 36)
 
     def draw(fig, st):
-        gs = fig.add_gridspec(2, 2, width_ratios=[1, 2.2], height_ratios=[1, 1])
+        gs = fig.add_gridspec(2, 4, width_ratios=[2.1, 1, 1, 1], height_ratios=[1, 1])
         a = fig.add_subplot(gs[:, 0])
         a.scatter(x1, x2, s=1.2, color=COLORS[1], lw=0)
-        t = np.linspace(0, 2 * np.pi, 200)
-        for R in (12.5, 24.5):
-            a.plot(R * np.cos(t), R * np.sin(t), color=st["muted"], lw=0.6, ls="--")
-        a.set_aspect("equal")
-        a.set_xlim(-36, 36)
-        a.set_ylim(-36, 36)
+        rings(a, st)
         a.set_xlabel("nm")
         a.set_ylabel("nm")
-        a.set_title("end-on, every site labelled\n(%d dyes over %.2f um)" % (len(s), span), fontsize=7.5)
-        b = fig.add_subplot(gs[0, 1])
+        a.set_title("End-on, every site labelled\n(%d dyes over %.2f µm)" % (len(s), span), fontsize=7.5)
+        b = fig.add_subplot(gs[0, 1:])
         b.hist(np.degrees(np.arctan2(x2, x1)), bins=np.linspace(-180, 180, 145), color=COLORS[1])
-        b.set_xlabel("angle around the axis (deg)")
-        b.set_ylabel("dyes")
+        b.set_xlabel("Angle around the axis (°)")
+        b.set_ylabel("Dyes")
         b.set_xticks([-180, -90, 0, 90, 180])
-        b.set_title("13 protofilaments: %.0f dyes per um (13 per 8 nm dimer: 1625)" % per_um, fontsize=7.5)
-        c = fig.add_subplot(gs[1, 1])
-        for k, pct in enumerate((70, 25, 3)):
-            ss = labelled[pct][0]
-            c.plot(ss - s.min(), np.full(len(ss), -k), "|", ms=7, color=COLORS[k], mew=0.5)
-        c.set_yticks([0, -1, -2], ["70 % (DNA-PAINT)", "25 % (PALM)", "3 % (dSTORM)"])
-        c.set_xlabel("along the axis (um)")
-        c.set_ylim(-2.6, 0.6)
-        c.set_xlim(0, span)
-        c.set_title("the labelled sites at each mode's typical share", fontsize=7.5)
+        b.set_title("13 protofilaments: %.0f dyes per µm (13 per 8 nm dimer: 1625)" % per_um, fontsize=7.5)
+        for k, (pct, mode) in enumerate(shares[1:]):
+            c = fig.add_subplot(gs[1, 1 + k])
+            ss, rr, tt = labelled[pct]
+            y1, y2 = end_on(rr, tt)
+            c.scatter(y1, y2, s=2.5 if pct < 50 else 1.2, color=COLORS[k + 2] if k else COLORS[2], lw=0)
+            rings(c, st)
+            c.set_xticks([-25, 0, 25])
+            c.set_yticks([-25, 0, 25])
+            c.tick_params(labelsize=6.5)
+            c.set_title("%d %% (%s)\n%d dyes" % (pct, mode, len(ss)), fontsize=7)
+            if k == 0:
+                c.set_ylabel("nm")
+            c.set_xlabel("nm")
 
-    body = ctx.plot("", draw, h=3.6, alt="Dye sites on one microtubule")
+    body = ctx.plot("", draw, h=3.9, alt="Dye sites on one microtubule")
     return figure(body,
-                  "Dye positions on a %.1f um piece of one microtubule, from the core's site query (each site's "
-                  "offset from the centreline). End-on, the dyes form a ring: the 12.5 nm lattice (inner dashed "
-                  "circle) plus the 12 nm binder (outer), spread by the 2-5 nm linker; measured radius %s &plusmn; "
-                  "%s nm. Around the axis: 13 peaks, one per protofilament, widened by the linker. Bottom: the sites "
-                  "that carry a dye at "
-                  "each mode's typical labelling." % (length, sig(radius.mean(), 3), sig(radius.std(), 2)))
+                  "Dye positions on a %.1f µm piece of one microtubule, from the core's site query (each site's "
+                  "offset from the centreline). End-on, the dyes form a ring: the 12.5 nm lattice radius "
+                  "[[mikhaylova2015](../references.md#mikhaylova2015)] (inner dashed circle) plus the 12 nm binder "
+                  "(outer; *estimate*), spread by the 2-5 nm linker (*estimate*); measured radius %s &plusmn; %s nm. "
+                  "Around the axis: 13 peaks, one per protofilament [[tilney1973](../references.md#tilney1973)], "
+                  "widened by the linker. Bottom: the same piece end-on at each mode's typical labelled share (the "
+                  "sites that carry a dye)."
+                  % (length, sig(radius.mean(), 3), sig(radius.std(), 2)))

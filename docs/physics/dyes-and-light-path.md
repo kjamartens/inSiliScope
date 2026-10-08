@@ -51,16 +51,17 @@ For each dye state (main, or a PALM pre state) and the light path:
 
 with \(\varepsilon\) the extinction coefficient, \(E\) the normalised excitation spectrum, \(\Phi\) the laser's photon
 flux (from its intensity in kW/cm\(^2\)) and \(T_D\) the dichroic's transmission (a long-pass reflects the laser onto
-the sample). The emission rate is \(k_{em} = \mathrm{QY}\,k_{exc}\). The detected fraction of the emission spectrum
-\(S\) is
+the sample). \(\sigma\) is the Beer-Lambert cross-section: \(10^{-\varepsilon c l} = e^{-\sigma n l}\) with
+\(n = 10^{-3} c N_A\) molecules per cm\(^3\) for \(c\) in mol/L. The emission rate is \(k_{em} = \mathrm{QY}\,k_{exc}\).
+The detected fraction of the emission spectrum \(S\) is
 
 \[ F = \frac{\sum S\,T_D\,T_F\,\mathrm{QE}}{\sum S}, \]
 
 through the dichroic, the emission filter \(T_F\) and the camera's QE curve, and the detected photons per second while
 emitting are \(k_{em}\,\eta\,F\) with the objective's collection efficiency
-\(\eta = \tfrac12\bigl(1 - \sqrt{1 - (\mathrm{NA}/n)^2}\bigr)\). The PSF of each state is computed at the
-detected-spectrum-weighted wavelength, rounded to 2 nm (one kernel per distinct wavelength). MM shows the
-microtubules' main state as read-only properties: `Fluorophores.Microtubules_DetectedPct` (\(100F\), *without* \(\eta\)),
+\(\eta = \tfrac12\bigl(1 - \sqrt{1 - (\mathrm{NA}/n)^2}\bigr)\), the share of isotropic emission inside the objective's
+cone (\(\sin\theta = \mathrm{NA}/n\)). The PSF of each state is computed at the detected-spectrum-weighted wavelength,
+rounded to 2 nm (one kernel per distinct wavelength). MM shows the microtubules' main state as read-only properties: `Fluorophores.Microtubules_DetectedPct` (\(100F\), *without* \(\eta\)),
 `EffectiveEmissionNm` and `PhotonsPerSecOn` (\(k_{em}\eta F\)).
 
 The four typical labels through their light presets, as a movie resolves them:
@@ -73,19 +74,22 @@ multiplied by the QE at the filter's centre. BrightField uses the curve's QE at 
 **Activation and switching rates** follow the lasers too: dSTORM switches on at \(1/\tau_{off} + a_{405} I_{405}\), and
 its ON, spontaneous-dark and initial-ON times scale as \(k_{exc,ref}/k_{exc}\), so the photons per blink and the duty
 cycle stay as measured at Dempsey et al.'s intensities (488 nm 1.2, 561 nm 2.2, 647 nm 0.8 kW/cm\(^2\))
-[[dempsey2011](../references.md#dempsey2011)]. PALM activates at the spontaneous rate plus \(a_{405} I_{405}\) plus, for
-primed conversion, a term in the product of the 470-510 nm and 690-780 nm intensities. DNA-PAINT blinks at
-\(k_{on} c\), with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNm`).
+[[dempsey2011](../references.md#dempsey2011)] (\(a_{405}\) set from the 405 nm sensitivity grades of its Table 2). PALM
+activates at the spontaneous rate plus \(a_{405} I_{405}\) plus, for primed conversion, a term in the product of the
+470-510 nm and 690-780 nm intensities [[dempsey2015](../references.md#dempsey2015),
+[turkowyd2017](../references.md#turkowyd2017)] (the PALM rate coefficients are *estimates*). DNA-PAINT blinks at
+\(k_{on} c\) [[jungmann2010](../references.md#jungmann2010)] (\(k_{on}\) of the order of \(10^6\) /M/s, an *estimate*),
+with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNm`).
 
 ## Light-path presets
 
 `data/dyes/light_path.json` defines the lasers (405, 488, 561, 640, 730 nm and a custom line), dichroics, emission
-filters and presets: `dSTORM-640/561/488` (Dempsey's conditions), `PAINT-640/561/488`, `PALM-561`, `PALM-primed`,
-`WF-405/488/561/640`. Intensities without a source are *estimates*. Every dye mode names its preset; `light-preset=auto`
-(cli/viewer) or a dye/mode change (viewer, MM `Lasers.Preset`) applies it, setting every laser, the dichroic and the
-filter the spec does not give. The default is `PAINT-640` (640 nm at 1 kW/cm\(^2\), LP650, 676/37) for the default
-ATTO 655 DNA-PAINT label. Camera presets (`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the
-QE curve.
+filters and presets: `dSTORM-640/561/488` (Dempsey's conditions [[dempsey2011](../references.md#dempsey2011)]),
+`PAINT-640/561/488`, `PALM-561`, `PALM-primed`, `WF-405/488/561/640`. Intensities without a source are *estimates*.
+Every dye mode names its preset; `light-preset=auto` (cli/viewer) or a dye/mode change (viewer, MM `Lasers.Preset`)
+applies it, setting every laser, the dichroic and the filter the spec does not give. The default is `PAINT-640` (640 nm
+at 1 kW/cm\(^2\), an *estimate*; LP650, 676/37) for the default ATTO 655 DNA-PAINT label. Camera presets
+(`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the QE curve.
 
 ## Excitation (laser clean-up) filters
 
@@ -93,10 +97,10 @@ An excitation filter sits between the lasers and the dichroic (`ex-filter`, MM `
 `FilterCube`). Each laser line's intensity is multiplied by the filter's transmission at that line, so a 640 nm
 clean-up blocks the 561 nm line, as on a real scope. The library has `None` (the default, and every preset's),
 ideal laser-line band passes of +/- 5 nm (`BP405-10`, `BP488-10`, `BP561-10`, `BP640-10`), an ideal quad (`Quad`),
-measured curves from FPbase (Lambert 2019; `lambert2019`) of Chroma ZET405/20x, ZET488/10x, ZET561/10x, ZET642/20x and
-the quad ZET405/488/561/640xv2, and Semrock FF01-405/10, FF01-488/10, FF01-561/14 and FF01-640/14, and a `Custom`
-band pass (`ex-lo-nm`, `ex-hi-nm`). Semrock's MaxDiode/MaxLine clean-ups (LD01-405/10, LL02-561, ...) have no FPbase
-curve; the FF01 band passes stand in for them.
+measured curves from FPbase [[lambert2019](../references.md#lambert2019)] of Chroma ZET405/20x, ZET488/10x,
+ZET561/10x, ZET642/20x and the quad ZET405/488/561/640xv2, and Semrock FF01-405/10, FF01-488/10, FF01-561/14 and
+FF01-640/14, and a `Custom` band pass (`ex-lo-nm`, `ex-hi-nm`). Semrock's MaxDiode/MaxLine clean-ups (LD01-405/10,
+LL02-561, ...) have no FPbase curve; the FF01 band passes stand in for them.
 
 ## Which light: the shutters
 
@@ -115,9 +119,9 @@ Unbound imager in the illuminated volume adds a flat offset per pixel and second
 
 \[ c\,N_A\,H\,A_{px}\;k_{em}\eta F, \]
 
-with \(c\) the imager concentration, \(H\) the illuminated chamber height (`chamber-height-um`, default 5 um: the
-`Epi` geometry illuminates the whole chamber) and \(A_{px}\) the pixel area in the sample. **Imager depletion and its
-exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
+with \(c\) the imager concentration, \(H\) the illuminated chamber height (`chamber-height-um`, default 5 µm, an
+*estimate*: the `Epi` geometry illuminates the whole chamber) and \(A_{px}\) the pixel area in the sample. **Imager
+depletion and its exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
 binds.
 
 The background against the imager concentration, the model next to the rendered photons:
@@ -129,7 +133,7 @@ The background against the imager concentration, the model next to the rendered 
 Pre states, the dSTORM initial ON and WideField-mode dyes emit continuously. Such a population renders either
 
 - **mean field**: the structure's dye density binned on world-anchored z planes (`wf-plane-nm`) on a grid
-  (`wf-upscale` cells per pixel, spanning the FOV plus a 2 um margin), convolved with the state's PSF, times the exact
+  (`wf-upscale` cells per pixel, spanning the FOV plus a 2 µm margin), convolved with the state's PSF, times the exact
   mean photons per dye of the frame, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\); or
 - **per dye**: each dye's window (its own address-based end: bleached at aux \(\times\) budget / \(k_{em}\), activated,
   or the initial ON's end) splatted as a unit image into a running image that changes only where windows start or end.

@@ -121,11 +121,11 @@
     },
     "kinetix-datasheet": {
       "authors": "Teledyne Photometrics",
-      "year": 2021,
-      "title": "Kinetix sCMOS camera datasheet (Sensitivity / CMS mode)",
+      "year": 2024,
+      "title": "Kinetix22 CMOS camera datasheet (Sensitivity / CMS mode)",
       "url": "https://www.photometrics.com/products/kinetix-family/kinetix",
-      "use": "Kinetix22 preset noise values (read noise 1.2 e-, dark current, conversion gain) -- the adapter's defaults since 2026-09; QE curve via FPbase",
-      "checked": "values as used since the noise model was added (docs/dev/vectorial-psf-plan.md); not re-checked here"
+      "use": "Kinetix22 preset noise values (read noise 1.2 e-, dark current, conversion gain) -- the adapter's defaults since 2026-09; 6.5 um pixels; QE curve via FPbase",
+      "checked": "datasheet revision 2024-10-21 read: 6.5 um pixels, peak QE 95 %; Sensitivity mode 12-bit, read noise 1.2 e-, dark current 1.03 e-/pixel/s at 0 C, conversion gain 0.25 e-/count (the preset's values); the scalar QE 0.85, the offset (100 ADU, std 0.5 ADU) and the per-pixel spreads are not on the datasheet"
     },
     "ixon897-datasheet": {
       "authors": "Andor Technology (Oxford Instruments)",
@@ -133,7 +133,7 @@
       "title": "iXon Ultra 897 EMCCD camera specifications",
       "url": "https://andor.oxinst.com/products/ixon-emccd-cameras/ixon-ultra-897",
       "use": "iXon Ultra 897 preset (EMCCD read noise, clock-induced charge, dark current at -80 C, EM gain range); QE curve via FPbase",
-      "checked": "typical published values; not re-checked against the current datasheet -- see the preset's notes"
+      "checked": "the preset's values are typical published ones; the current iXon Ultra specification sheet (andor.oxinst.com/downloads/uploads/andor-ixon-ultra-emccd-specifications.pdf) gives for the 897: 16 um pixels, QE > 95 %, EMCCD-amplifier read noise 89 / 65 / 37 / 15 e- at 17 / 10 / 5 / 1 MHz (< 1 e- with EM gain), dark current 0.00030 e-/pixel/s at -80 C, spurious background 0.0018 events/pixel at x1000 gain and -85 C, EM gain 1-1000. The preset's 50 e-, 0.00025 e-/pixel/s and 0.005 e- CIC differ (0.00025 and 0.005 are the Ultra 888's values in the same table)"
     },
     "cnossen2021": {
       "authors": "Cnossen J, Cui TJ, Joo C, Smith C",
@@ -142,7 +142,7 @@
       "journal": "Optics Express", "volume": "29", "pages": "27961-27974",
       "doi": "10.1364/OE.426620",
       "use": "sample drift as a random walk: a normal step per frame, cumulated (the drift model of Simulation/Drift.*)",
-      "checked": "bibliographic details from the DOI record; the model as cited by Ma et al. 2024 (not re-read from the full text)"
+      "checked": "bibliographic details from the DOI record; the model read from the bioRxiv preprint full text (doi:10.1101/2021.03.30.437682): drift 'simulated using a cumulative normal distribution', a new offset per frame from N(0.02 nm, 4 nm^2) (Fig. 3 caption; Fig. 4); the published version not re-read"
     },
     "ma2024": {
       "authors": "Ma H, Chen M, Nguyen P, Liu Y",
@@ -150,8 +150,8 @@
       "title": "Toward drift-free high-throughput nanoscopy through adaptive intersection maximization",
       "journal": "Science Advances", "volume": "10", "pages": "eadm7765",
       "doi": "10.1126/sciadv.adm7765",
-      "use": "RMS drift of 5, 10 and 20 nm/s as test values, drift as a cumulative normal distribution (after Cnossen et al. 2021): the scale of SampleHolder.DriftXyNmPerSqrtSec / ZNmPerSqrtSec",
-      "checked": "bibliographic details from the DOI record; the 5/10/20 nm/s values and the model as quoted from the paper by the user (not re-read from the full text)"
+      "use": "RMS drift of 5, 10 and 20 nm/s as test values, drift as a cumulative normal distribution (after Cnossen et al. 2021); a stable setup (optical table, active vibration isolation, constant room temperature) drifts several nm/s (Materials and Methods, Numerical simulation, 'Magnitude of drift'): the scale of SampleHolder.DriftXyNmPerSqrtSec / ZNmPerSqrtSec",
+      "checked": "the 5/10/20 nm/s values, the model and the stable-setup statement read from the Europe PMC full text (PMC11114195)"
     },
     "abramowitz1964": {
       "authors": "Abramowitz M, Stegun IA (eds.)",
@@ -160,6 +160,240 @@
       "journal": "National Bureau of Standards, Applied Mathematics Series", "volume": "55", "pages": "eq. 7.1.26, p. 299",
       "use": "the rational approximation of erf (|error| <= 1.5e-7) behind the drift swings (DriftSwing in Simulation/Drift.*, driftSwing in web/prototype/scope/drift.js)",
       "checked": "the coefficients and error bound as commonly reproduced from eq. 7.1.26, not re-read from the scan; the bound checked numerically against erf in ctest drift"
+    },
+    "jarzynski2020": {
+      "authors": "Jarzynski M, Olano M",
+      "year": 2020,
+      "title": "Hash Functions for GPU Rendering",
+      "journal": "Journal of Computer Graphics Techniques", "volume": "9", "pages": "20-38",
+      "url": "https://jcgt.org/published/0009/03/02/",
+      "use": "the pcg4d hash (4 uint32 in, 4 out; introduced in the paper, Table 1 'This paper'; on the quality/speed Pareto frontier) behind every address-based random draw of the world (core/src/rng.h)",
+      "checked": "title, volume, issue 3, pages 20-38 and the pcg4d statements read from the paper PDF at jcgt.org; the core's constants and steps match the commonly reproduced pcg4d listing, not compared against the paper's supplemental code"
+    },
+    "kim2015": {
+      "authors": "Kim YJ, Kim H-D, Kim HH, Shin S-M, Kang CJ, Lee KH",
+      "year": 2015,
+      "title": "Fractal analysis of cell boundary ultrastructure imaged by atomic force microscopy",
+      "journal": "Animal Cells and Systems", "volume": "19", "pages": "161-167",
+      "doi": "10.1080/19768354.2015.1037347",
+      "use": "contour fractal dimension of adherent cells: box counting on AFM images of cultured human epithelial MCF10A cells gives D = 1.352 +/- 0.044 for individual cells despite their varied shapes, lowered by cytochalasin D (actin-dependent): the default cellFractalDim 1.35",
+      "checked": "bibliographic details from the Crossref DOI record; D = 1.352 +/- 0.044 and the cytochalasin D result from the abstract (Korea University repository record); the full text was not open, so the box sizes and cell numbers were not read"
+    },
+    "gneiting2004": {
+      "authors": "Gneiting T, Schlather M",
+      "year": 2004,
+      "title": "Stochastic models that separate fractal dimension and the Hurst effect",
+      "journal": "SIAM Review", "volume": "46", "pages": "269-282",
+      "doi": "10.1137/S0036144501394387",
+      "url": "https://arxiv.org/abs/physics/0109031",
+      "use": "D = n + 1 - H for a self-similar (self-affine) profile or surface in n dimensions (eq. 1; D = 2 - H for an outline) and the equivalence of the small-lag correlation behaviour that sets D with the decay of the spectral density: behind the k^-(2.5-D) amplitudes of the cell outline's fractal tail",
+      "checked": "eq. (1) and the spectral-density remark read from the arXiv preprint (physics/0109031v1); the amplitude exponent H + 1/2 (power spectrum k^-(2H+1), so 2.5 - D) is worked out from it here, not quoted; journal details from the Crossref DOI record"
+    },
+    "mandelkow1986": {
+      "authors": "Mandelkow E-M, Schultheiss R, Rapp R, Müller M, Mandelkow E",
+      "year": 1986,
+      "title": "On the surface lattice of microtubules: helix starts, protofilament number, seam, and handedness",
+      "journal": "Journal of Cell Biology", "volume": "102", "pages": "1067-1073",
+      "doi": "10.1083/jcb.102.3.1067", "pmcid": "PMC2114131",
+      "use": "the microtubule surface lattice: 4 nm monomer (8 nm dimer) repeat along a protofilament, monomers on a left-handed 3-start helix, B-lattice with a seam; neighbouring protofilaments staggered by 12 nm / 13 = 0.923 nm for 13 protofilaments (Results, Fig. 3, Fig. 4, Table I)",
+      "checked": "read from the Europe PMC full text (PMC2114131)"
+    },
+    "tilney1973": {
+      "authors": "Tilney LG, Bryan J, Bush DJ, Fujiwara K, Mooseker MS, Murphy DB, Snyder DH",
+      "year": 1973,
+      "title": "Microtubules: evidence for 13 protofilaments",
+      "journal": "Journal of Cell Biology", "volume": "59", "pages": "267-275",
+      "doi": "10.1083/jcb.59.2.267", "pmcid": "PMC2109099",
+      "use": "13 equally spaced protofilaments in cellular microtubules (seven kinds, the mitotic apparatus among them)",
+      "checked": "citation and abstract via PubMed"
+    },
+    "mikhaylova2015": {
+      "authors": "Mikhaylova M, Cloin BMC, Finan K, van den Berg R, Teeuw J, Kijanka MM, Sokolowski M, Katrukha EA, Maidorn M, Opazo F, Moutel S, Vantard M, Perez F, van Bergen en Henegouwen PMP, Hoogenraad CC, Ewers H, Kapitein LC",
+      "year": 2015,
+      "title": "Resolving bundled microtubules using anti-tubulin nanobodies",
+      "journal": "Nature Communications", "volume": "6", "pages": "7933",
+      "doi": "10.1038/ncomms8933", "pmcid": "PMC4918323",
+      "use": "microtubules are hollow, 25 nm in diameter; most labels widen them by 20-40 nm, anti-tubulin nanobodies less (abstract): the 12.5 nm attachment radius and the scale of the binder stalk plus linker",
+      "checked": "citation and abstract via PubMed"
+    },
+    "weber1978": {
+      "authors": "Weber K, Rathke PC, Osborn M",
+      "year": 1978,
+      "title": "Cytoplasmic microtubular images in glutaraldehyde-fixed tissue culture cells by electron microscopy and by immunofluorescence microscopy",
+      "journal": "Proceedings of the National Academy of Sciences of the USA", "volume": "75", "pages": "1820-1824",
+      "doi": "10.1073/pnas.75.4.1820", "pmcid": "PMC392432",
+      "use": "cytoplasmic microtubules about 250 A (25 nm) in diameter, about 600 A (60 nm) when decorated by primary and secondary antibodies (abstract): the scale of an antibody label's displacement",
+      "checked": "citation and abstract via PubMed"
+    },
+    "gittes1993": {
+      "authors": "Gittes F, Mickey B, Nettleton J, Howard J",
+      "year": 1993,
+      "title": "Flexural rigidity of microtubules and actin filaments measured from thermal fluctuations in shape",
+      "journal": "Journal of Cell Biology", "volume": "120", "pages": "923-934",
+      "doi": "10.1083/jcb.120.4.923", "pmcid": "PMC2200075",
+      "use": "persistence length of taxol-stabilized microtubules in vitro, 5,200 um: rigid over cellular dimensions (abstract), far longer than the path correlation length used for microtubules in cells",
+      "checked": "abstract via PubMed; the value also in the Europe PMC full text (PMC2200075)"
+    },
+    "steelman2017": {
+      "authors": "Steelman ZA, Eldridge WJ, Weintraub JB, Wax A",
+      "year": 2017,
+      "title": "Is the nuclear refractive index lower than cytoplasm? Validation of phase measurements and implications for light scattering technologies",
+      "journal": "Journal of Biophotonics", "volume": "10", "pages": "1714-1722",
+      "doi": "10.1002/jbio.201600314", "pmcid": "PMC5647217",
+      "use": "refractive indices at 540 nm from quantitative phase images of freshly plated (spherical) cells and isolated nuclei of four cell lines (MCF-7, A549, BEAS-2B, HVE): whole cells 1.3568-1.3775, nuclei 1.3427-1.3527, the nucleus below the cytoplasm; PBS 1.335 (Methods 2.3, Results 3.1): the scale of the BrightField index defaults",
+      "checked": "values read from the Europe PMC full text (PMC5647217)"
+    },
+    "zhang2007": {
+      "authors": "Zhang B, Zerubia J, Olivo-Marin J-C",
+      "year": 2007,
+      "title": "Gaussian approximations of fluorescence microscope point-spread function models",
+      "journal": "Applied Optics", "volume": "46", "pages": "1819-1829",
+      "doi": "10.1364/AO.46.001819",
+      "use": "the Gaussian approximation of the in-focus widefield PSF, sigma = 0.21 lambda/NA (Renderer.PsfModel = Gaussian)",
+      "checked": "citation and abstract via PubMed; the full text was not open: sigma = 0.21 lambda/NA as quoted from it by Linden et al. 2017 (Nat Commun 8:15115, PMC5418599, Methods 'Prior distributions')"
+    },
+    "richards1959": {
+      "authors": "Richards B, Wolf E",
+      "year": 1959,
+      "title": "Electromagnetic diffraction in optical systems, II. Structure of the image field in an aplanatic system",
+      "journal": "Proceedings of the Royal Society of London A", "volume": "253", "pages": "358-379",
+      "doi": "10.1098/rspa.1959.0200",
+      "use": "the vectorial focus-field model behind PSFGenerator's Richards & Wolf PSF (Renderer.PsfModel = RichardsWolf)",
+      "checked": "bibliographic details from the Crossref DOI record; named as the source of the Richards & Wolf model on the PSFGenerator page (bigwww.epfl.ch/algorithms/psfgenerator); not re-read"
+    },
+    "kirshner2013": {
+      "authors": "Kirshner H, Aguet F, Sage D, Unser M",
+      "year": 2013,
+      "title": "3-D PSF fitting for fluorescence microscopy: implementation and localization application",
+      "journal": "Journal of Microscopy", "volume": "249", "pages": "13-25",
+      "doi": "10.1111/j.1365-2818.2012.03675.x",
+      "use": "PSFGenerator (EPFL Biomedical Imaging Group), which computes the RichardsWolf and GibsonLanni PSFs in the adapter's JVM",
+      "checked": "citation and abstract via PubMed; listed as a reference for PSF Generator on its page (bigwww.epfl.ch/algorithms/psfgenerator)"
+    },
+    "gibson1992": {
+      "authors": "Gibson SF, Lanni F",
+      "year": 1992,
+      "title": "Experimental test of an analytical model of aberration in an oil-immersion objective lens used in three-dimensional light microscopy",
+      "journal": "Journal of the Optical Society of America A", "volume": "9", "pages": "154-166",
+      "doi": "10.1364/JOSAA.9.000154",
+      "use": "the Gibson-Lanni model: the aberration of an oil-immersion objective used with a sample whose index differs from the design, at depth (the pupil phase of the GibsonLanni and GibsonLanniZernike PSFs)",
+      "checked": "citation and abstract via PubMed, which lists it as the corrected republication of J Opt Soc Am A 8(10):1601 (1991), doi:10.1364/JOSAA.8.001601 (Crossref); not re-read"
+    },
+    "thibos2002": {
+      "authors": "Thibos LN, Applegate RA, Schwiegerling JT, Webb R; VSIA Standards Taskforce Members",
+      "year": 2002,
+      "title": "Standards for reporting the optical aberrations of eyes",
+      "journal": "Journal of Refractive Surgery", "volume": "18", "pages": "S652-S660",
+      "doi": "10.3928/1081-597X-20020901-30",
+      "use": "the OSA/ANSI Zernike polynomials and their single index j = (n(n+2)+m)/2 (Renderer.PsfZernikeCoefficients, Simulation/SMLMZernike.h)",
+      "checked": "citation and abstract via PubMed; the full text was not available, so the single-index formula is the one used in the code, not re-read from the paper"
+    },
+    "rabiner1969": {
+      "authors": "Rabiner LR, Schafer RW, Rader CM",
+      "year": 1969,
+      "title": "The chirp z-transform algorithm",
+      "journal": "IEEE Transactions on Audio and Electroacoustics", "volume": "17", "pages": "86-92",
+      "doi": "10.1109/TAU.1969.1162034",
+      "use": "the chirp-z transform (a DFT on an arbitrary frequency grid by a convolution), which evaluates the GibsonLanniZernike pupil-to-image integral (Simulation/ZernikePsf.*, Simulation/ChirpZ.h)",
+      "checked": "bibliographic details from the Crossref DOI record; not re-read"
+    },
+    "bluestein1970": {
+      "authors": "Bluestein L",
+      "year": 1970,
+      "title": "A linear filtering approach to the computation of discrete Fourier transform",
+      "journal": "IEEE Transactions on Audio and Electroacoustics", "volume": "18", "pages": "451-455",
+      "doi": "10.1109/TAU.1970.1162132",
+      "use": "Bluestein's algorithm (a DFT as a chirp convolution), the core of the chirp-z transform",
+      "checked": "bibliographic details from the Crossref DOI record; not re-read"
+    },
+    "pavani2008": {
+      "authors": "Pavani SRP, Piestun R",
+      "year": 2008,
+      "title": "High-efficiency rotating point spread functions",
+      "journal": "Optics Express", "volume": "16", "pages": "3484-3489",
+      "doi": "10.1364/OE.16.003484",
+      "use": "rotating (double-helix) PSFs designed in the Gauss-Laguerre modal plane: the double-helix pupil mask (Renderer.PsfMaskType = DoubleHelix)",
+      "checked": "citation and abstract via PubMed"
+    },
+    "pavani2009": {
+      "authors": "Pavani SRP, Thompson MA, Biteen JS, Lord SJ, Liu N, Twieg RJ, Piestun R, Moerner WE",
+      "year": 2009,
+      "title": "Three-dimensional, single-molecule fluorescence imaging beyond the diffraction limit by using a double-helix point spread function",
+      "journal": "Proceedings of the National Academy of Sciences of the USA", "volume": "106", "pages": "2995-2999",
+      "doi": "10.1073/pnas.0900245106", "pmcid": "PMC2651341",
+      "use": "the double-helix PSF for 3D single-molecule localization: two lobes whose orientation rotates with the emitter's z",
+      "checked": "citation and abstract via PubMed"
+    },
+    "catmull1974": {
+      "authors": "Catmull E, Rom R",
+      "year": 1974,
+      "title": "A class of local interpolating splines",
+      "journal": "Computer Aided Geometric Design (Academic Press)", "pages": "317-326",
+      "doi": "10.1016/B978-0-12-079050-0.50020-5",
+      "use": "the Catmull-Rom cubic of the Cubic PSF placement (Renderer.PsfInterp = Cubic)",
+      "checked": "bibliographic details from the Crossref DOI record; not re-read"
+    },
+    "ober2004": {
+      "authors": "Ober RJ, Ram S, Ward ES",
+      "year": 2004,
+      "title": "Localization accuracy in single-molecule microscopy",
+      "journal": "Biophysical Journal", "volume": "86", "pages": "1185-1200",
+      "doi": "10.1016/S0006-3495(04)74193-4", "pmcid": "PMC1303911",
+      "use": "the Fisher information / Cramer-Rao bound of single-molecule localization, including pixelation and noise (the Cramer-Rao summary the adapter logs, DescribePsfCramerRao)",
+      "checked": "citation and abstract via Europe PMC"
+    },
+    "cowley1957": {
+      "authors": "Cowley JM, Moodie AF",
+      "year": 1957,
+      "title": "The scattering of electrons by atoms and crystals. I. A new theoretical approach",
+      "journal": "Acta Crystallographica", "volume": "10", "pages": "609-619",
+      "doi": "10.1107/S0365110X57002194",
+      "use": "the multislice method (thin phase screens alternating with free-space propagation steps): the BrightField propagation through the cell slices",
+      "checked": "bibliographic details from the Crossref DOI record; not re-read"
+    },
+    "zuo2017": {
+      "authors": "Zuo C, Sun J, Li J, Zhang J, Asundi A, Chen Q",
+      "year": 2017,
+      "title": "High-resolution transport-of-intensity quantitative phase microscopy with annular illumination",
+      "journal": "Scientific Reports", "volume": "7", "pages": "7654",
+      "doi": "10.1038/s41598-017-06837-1", "pmcid": "PMC5550517",
+      "use": "Koehler illumination as the incoherent sum of the coherent images of all condenser source points (Abbe's method; Eqs. 1-2), defocus as an angular-spectrum factor in the objective pupil, and the weak-object phase transfer function odd in defocus (no phase contrast in focus, opposite signs at +/- dz): the BrightField model and its contrast through focus",
+      "checked": "read from the Europe PMC full text (PMC5550517)"
+    },
+    "hirsch2013": {
+      "authors": "Hirsch M, Wareham RJ, Martin-Fernandez ML, Hobson MP, Rolfe DJ",
+      "year": 2013,
+      "title": "A stochastic model for electron multiplication charge-coupled devices -- from theory to practice",
+      "journal": "PLoS One", "volume": "8", "pages": "e53671",
+      "doi": "10.1371/journal.pone.0053671", "pmcid": "PMC3561409",
+      "use": "the EMCCD noise model: Poisson photoelectrons and spurious charge (dark current, clock-induced charge), the EM register as a gamma distribution (shape = input electrons, scale = EM gain), Gaussian read noise; the model gives the measured excess noise factor sqrt(2) (Results, 'The EM register model', 'The combined Poisson-Gamma distribution')",
+      "checked": "read from the Europe PMC full text (PMC3561409)"
+    },
+    "huang2013": {
+      "authors": "Huang F, Hartwich TMP, Rivera-Molina FE, Lin Y, Duim WC, Long JJ, Uchil PD, Myers JR, Baird MA, Mothes W, Davidson MW, Toomre D, Bewersdorf J",
+      "year": 2013,
+      "title": "Video-rate nanoscopy using sCMOS camera-specific single-molecule localization algorithms",
+      "journal": "Nature Methods", "volume": "10", "pages": "653-658",
+      "doi": "10.1038/nmeth.2488", "pmcid": "PMC3696415",
+      "use": "every sCMOS pixel has its own offset, read-noise variance and gain, measured per pixel from dark and illuminated frames (Online Methods, 'Camera variance, gain and offset calibration'): the per-pixel offset, gain and read-noise maps of the sCMOS noise chain",
+      "checked": "read from the Europe PMC full text (PMC3696415); it gives no percentage for the gain spread"
+    },
+    "orcaflash4v3-technote": {
+      "authors": "Hamamatsu Photonics K.K.",
+      "year": 2018,
+      "title": "ORCA-Flash4.0 V3 digital CMOS camera C13440-20CU, technical note (Cat. No. SCAS0134E01)",
+      "url": "https://hep.hamamatsu.com/resources/pdf/sys/SCAS0134E_C13440-20CU_tec.pdf",
+      "use": "a published sCMOS photo response non-uniformity (PRNU): 0.06 % rms at 15 000 e- and 0.3 % rms at 700 e- (specifications table; Fig. 5 measures 0.06-0.11 %): the scale of the sCMOS gain spread",
+      "checked": "values read from the PDF (Cat. No. SCAS0134E01, June 2018)"
+    },
+    "sage2019": {
+      "authors": "Sage D, Pham T-A, Babcock H, Lukes T, Pengo T, Chao J, Velmurugan R, Herbert A, Agrawal A, Colabrese S, Wheeler A, Archetti A, Rieger B, Ober R, Hagen GM, Sibarita J-B, Ries J, Henriques R, Unser M, Holden S",
+      "year": 2019,
+      "title": "Super-resolution fight club: assessment of 2D and 3D single-molecule localization microscopy software",
+      "journal": "Nature Methods", "volume": "16", "pages": "387-395",
+      "doi": "10.1038/s41592-019-0364-4", "pmcid": "PMC6684258",
+      "use": "the SMLM Challenge (simulated 2D, astigmatic, biplane and double-helix datasets): the comparison of the PSF and noise models in docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md",
+      "checked": "citation and abstract via PubMed"
     }
   }
 }

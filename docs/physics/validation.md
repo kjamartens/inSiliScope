@@ -15,7 +15,7 @@ What is checked, against what, and where.
 | C++ chirp-Z PSF (`ZernikePsf.cpp`) vs webSMLM's JS / the Java class | 0 / ~1e-12 relative L2 | ctest `zernike_psf`, `tools/psf_parity_check/` |
 | Chirp-Z PSF vs webSMLM's own chirp-Z | n <= 6 Zernikes, double-helix mask, depth shift: 0.0000% relative L2 | `tools/psf_parity_check/` |
 | Chirp-Z vs the old direct quadrature | 0.22-0.29% relative L2 | history in `docs/dev/` |
-| PSF and noise models vs SMLM Challenge methodology | research comparison; the Challenge ground truth is a measured PSF table, so it gives no Zernike targets | `docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md` |
+| PSF and noise models vs SMLM Challenge methodology [[sage2019](../references.md#sage2019)] | research comparison; the Challenge ground truth is a measured PSF table, so it gives no Zernike targets | `docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md` |
 | Adapter output unchanged by refactors | pixel hashes of fixed configurations | `tools/adapter_pixel_hash.py` |
 
 ## Known deviations
@@ -25,7 +25,7 @@ What is checked, against what, and where.
   movie summed over many frames lacks that far halo; compare with webSMLM, or study the PSF's wings, at Exhaustive.
   [Optics, the halo cut](optics.md).
 
-- The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 um elsewhere).
+- The cytoplasm mesh uses `std::pow`, which matches JS only on the libm Node was built with (differences below 1e-6 µm elsewhere).
 - Brightfield: only cytoplasm, nucleus and microtubules make contrast (no nucleoli, vesicles, lipid droplets...: not
   simulated yet, kept out on purpose); scalar forward multislice, monochromatic, flat Koehler field; CellField only.
 - Widefield: the Gaussian PSF (`psf-model=0`, not the default) ignores defocus; CellField only.

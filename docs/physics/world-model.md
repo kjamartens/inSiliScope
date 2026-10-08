@@ -5,7 +5,8 @@ stored for the whole field, only the blocks around the window being imaged are e
 
 ## Address-based randomness
 
-All randomness comes from `pcg4d`, a counter-based hash on four `uint32` words:
+All randomness comes from `pcg4d` [[jarzynski2020](../references.md#jarzynski2020)], a counter-based hash on four
+`uint32` words:
 
 $$ (a, b, c, d) = \mathrm{pcg4d}(\text{seed},\, x,\, y,\, \text{channel}) $$
 
@@ -20,7 +21,7 @@ dropped caches.
 
 ## Cells
 
-The plane is divided into chunks (default 26 um). Each chunk has at most one candidate cell centre, jittered within the
+The plane is divided into chunks (default 26 µm). Each chunk has at most one candidate cell centre, jittered within the
 chunk (a stratified-jitter point field: O(1) per chunk, no global state, unlike Poisson-disk sampling). An occupancy
 draw decides whether the candidate becomes a cell.
 
@@ -29,8 +30,11 @@ a few angular harmonics ("blobbiness") to look like a confluent-culture cell. Ke
 blobbiness needed three separate fixes (a symmetric clamp, a numeric area correction per cell, and a per-cell modulation
 floor instead of whole-cell scaling); they are described in `spec/ALGORITHM.md` and must not be "simplified" away.
 On top of the lobes the outline has a fractal wiggle: harmonics 6-64 with amplitudes \(\propto k^{-(2.5-D)}\), so a
-box-counting dimension \(D\) (`cellFractalDim`, default 1.35, as measured on cultured cell contours), scaled by the
-blobbiness (`cellRough` x `cellBlob`: a round cell stays smooth).
+box-counting dimension \(D\) (a self-affine outline has \(D = 2 - H\) for Hurst exponent \(H\)
+[[gneiting2004](../references.md#gneiting2004)], and amplitudes \(\propto k^{-(H+1/2)}\)). `cellFractalDim` defaults to
+1.35: box counting on the contours of cultured MCF10A epithelial cells gives \(D = 1.352 \pm 0.044\), whatever their shape
+[[kim2015](../references.md#kim2015)]. The wiggle is scaled by the blobbiness (`cellRough` x `cellBlob`: a round cell
+stays smooth).
 
 The outline built up term by term on one cell, from the cli's geometry output:
 

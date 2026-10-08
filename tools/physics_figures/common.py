@@ -300,6 +300,44 @@ class Ctx:
         """A difference image, blue (negative) .. white .. red (positive), +/- scale."""
         return self.tile(name, d, cmap="RdBu_r", vmin=-scale, vmax=scale, **kw)
 
+    def gif(self, name, frames, cmap="gray", vmin=None, vmax=None, fps=8, min_px=0, labels=None, levels=64):
+        """An animated GIF of data frames (row 0 = top) through a colormap on one scale, at the data's own pixels
+        (the page scales it up, pixelated) or upscaled by a whole factor to >= min_px; labels (one per frame,
+        optional) are written into the top-left corner. levels: grey levels kept (camera noise compresses badly;
+        64 levels make a third of the file). Returns fig/<file>."""
+        a = np.asarray(frames, dtype=np.float64)
+        vmin = float(np.nanmin(a)) if vmin is None else vmin
+        vmax = float(np.nanmax(a)) if vmax is None else vmax
+        pal = (colormaps[cmap](np.linspace(0, 1, 256))[:, :3] * 255 + 0.5).astype(np.uint8)
+        k = max(1, -(-min_px // max(a.shape[1], a.shape[2])))
+        font = None
+        if labels:
+            from matplotlib import font_manager
+            from PIL import ImageFont
+            # DejaVu Sans (matplotlib's own) has the micro sign; drawn without anti-aliasing, so it stays crisp when
+            # the page scales the image up.
+            font = ImageFont.truetype(font_manager.findfont("DejaVu Sans"), max(10, a.shape[1] * k // 10))
+        out = []
+        for i, f in enumerate(a):
+            t = np.clip((f - vmin) / (vmax - vmin) if vmax > vmin else np.zeros_like(f), 0, 1)
+            q = np.round(np.round(np.nan_to_num(t) * (levels - 1)) * (255 / (levels - 1))).astype(np.uint8)
+            im = Image.fromarray(q, "P")
+            im.putpalette(pal.ravel().tolist())
+            if k > 1:
+                im = im.resize((im.width * k, im.height * k), Image.NEAREST)
+            if labels:
+                from PIL import ImageDraw
+                d = ImageDraw.Draw(im)
+                d.fontmode = "1"
+                x, y = max(2, im.width // 40), max(1, im.height // 50)
+                d.text((x + 1, y + 1), labels[i], fill=0, font=font)
+                d.text((x, y), labels[i], fill=255, font=font)
+            out.append(im)
+        fname = self._name(name, "gif")
+        out[0].save(os.path.join(self.fig_dir, fname), save_all=True, append_images=out[1:],
+                    duration=int(round(1000 / fps)), loop=0, optimize=False)
+        return "fig/" + fname
+
     def plot(self, name, draw, w=PLOT_W, h=3.0, alt=""):
         """A matplotlib figure in a light and a dark variant: draw(fig, style) builds it. Returns the Markdown of
         both images (Material shows one per theme)."""
@@ -370,7 +408,19 @@ def sig(x, n=2, tex=False):
 
 
 def secs(t):
-    return "%.2f s" % t if t < 10 else "%.1f s" % t
+    """A duration in the unit that suits it, to 2-3 significant digits: 12.3 s, 1.23 s, 35 ms, 4.1 ms, 240 µs. The
+    cli prints its times to 0.1 ms; per-frame and per-blink times are divided over many frames or blinks."""
+    if t is None or not np.isfinite(t):
+        return "-"
+    if t <= 0:
+        return "< 0.1 ms"
+    if t >= 100:
+        return "%.0f s" % t
+    if t >= 1:
+        return "%s s" % sig(t, 3)
+    if t >= 1e-3:
+        return "%s ms" % sig(t * 1e3, 2 if t < 0.1 else 3)
+    return "%s µs" % sig(t * 1e6, 2)
 
 
 def robust_range(a, lo=0.5, hi=99.8):
@@ -384,18 +434,25 @@ def img(path, alt="", cls="isc-px"):
     return "![%s](%s){ .%s }" % (alt, path, cls) if cls else "![%s](%s)" % (alt, path)
 
 
-def figure(body, caption):
-    """A figure with a caption (md_in_html)."""
-    return '<figure markdown="span" class="isc-fig">\n%s\n<figcaption>%s</figcaption>\n</figure>\n' % (body, caption)
+def figure(body, caption, max_width=None):
+    """A figure with a caption (md_in_html); max_width (css, e.g. "34rem") for a figure narrower than the column."""
+    style = ' style="max-width: %s"' % max_width if max_width else ""
+    # md_in_html parses a nested element only when it has its own markdown attribute (code spans, links, emphasis).
+    return '<figure markdown="span" class="isc-fig"%s>\n%s\n<figcaption markdown="span">%s</figcaption>\n</figure>\n' % (
+        style, body, caption)
 
 
-def table(header, body_rows, cls="isc-cmp"):
+def table(header, body_rows, cls="isc-cmp", label_col=True):
     """A Markdown table; cells are Markdown (images allowed). Wrapped so the CSS can size its images: --isc-n (the
-    columns after the first) lets it share the width between them."""
+    image columns) lets it share the width between them. label_col: the first column holds row labels (small,
+    narrow); False: every column is an image column."""
     def row(cells):
         return "| " + " | ".join(str(c).replace("|", "&#124;") for c in cells) + " |"   # a pipe would split a cell
-    out = ['<div class="%s" style="--isc-n: %d" markdown>' % (cls, max(1, len(header) - 1)), "", row(header),
-           "|" + "|".join([":--"] + [":-:"] * (len(header) - 1)) + "|"]
+    n = len(header) - 1 if label_col else len(header)
+    if not label_col:
+        cls += " isc-nolabel"
+    out = ['<div class="%s" style="--isc-n: %d" markdown>' % (cls, max(1, n)), "", row(header),
+           "|" + "|".join([":--" if label_col else ":-:"] + [":-:"] * (len(header) - 1)) + "|"]
     out += [row(r) for r in body_rows]
     out += ["", "</div>", ""]
     return "\n".join(out)

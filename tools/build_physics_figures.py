@@ -8,8 +8,8 @@
 Every image and number comes from insiliscope_cli (the adapter's Simulation/ render code and the core; its read-only
 diagnostic outputs --photons-out, --psf-out, --setup-json, ... in cli/scope_probes.h). The figures are rebuilt on every
 Pages deploy (.github/workflows/pages.yml), so the docs show what the current code renders. Each figure is a function in
-tools/physics_figures/<page>.py; it writes <out>/fig/*.png and returns the Markdown that replaces the marker
-`<!-- fig:<id> -->` (a line of its own) in docs/physics/*.md: <out>/snippets/<id>.md. <out>/figures.json lists the
+tools/physics_figures/<page>.py; it writes <out>/fig/*.png (and *.gif movies) and returns the Markdown that replaces
+the marker `<!-- fig:<id> -->` (a line of its own) in docs/physics/*.md: <out>/snippets/<id>.md. <out>/figures.json lists the
 figures, their cli commands and times.
 
 --inject (tools/build_site.sh): copies <from>/fig to <site docs>/physics/fig and replaces the markers. Strict after a
