@@ -5,6 +5,7 @@ usage: build_gallery.py --cli build/native/cli/insiliscope_cli --out site_galler
 Needs: numpy, pillow, tifffile (pip install numpy pillow tifffile).
 Outputs <out>/<id>.gif, <out>/<id>.tif (16-bit), <out>/gallery.json and <out>/gallery.md, and, when the manifest
 has an "overview" block, the 2x2 overview panels (tools/build_overview.py) at the top of the page.
+An entry with "z_sweep": [lo, hi, step] is a focus sweep: one frame per height (cli z) from lo to hi and back.
 """
 import argparse, json, os, subprocess, sys, time
 import numpy as np
@@ -28,6 +29,42 @@ def to_gif(stack, path, fps=10, scale=2):
     frames[0].save(path, save_all=True, append_images=frames[1:], duration=int(1000 / fps), loop=0)
 
 
+def sweep_heights(lo, hi, step):
+    """A focus sweep's heights: lo to hi and back (each end once)."""
+    up = [round(lo + k * step, 4) for k in range(int(round((hi - lo) / step)) + 1)]
+    return up, up + up[-2:0:-1]
+
+
+def run_sweep(cli, out_dir, eid, args, sweep):
+    """An entry with "z_sweep": [lo, hi, step]: one frame per focal height (cli z), rendered by one served cli
+    (--serve keeps the world, PSF kernel and scenes between heights); the frames in sweep order, up and back."""
+    heights, order = sweep_heights(*sweep)
+    p = subprocess.Popen([cli, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True)
+    frames = {}
+    try:
+        for z in heights:
+            tif = os.path.join(out_dir, "%s.z%g.tif" % (eid, z))
+            p.stdin.write("\t".join(["--out", tif] + args + ["--z", str(z), "--frames", "1"]) + "\n")
+            p.stdin.flush()
+            log = []
+            while True:
+                line = p.stdout.readline()
+                if not line:
+                    raise RuntimeError("insiliscope_cli --serve ended: " + "".join(log)[-400:])
+                if line.startswith("@@isc-done "):
+                    if line.split()[1] != "0":
+                        raise RuntimeError("z %g failed: %s" % (z, "".join(log)[-400:]))
+                    break
+                log.append(line)
+            frames[z] = tifffile.imread(tif)
+            os.remove(tif)
+    finally:
+        p.stdin.close()
+        p.wait()
+    return np.stack([frames[z] for z in order]), heights
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cli", required=True)
@@ -35,6 +72,7 @@ def main():
     ap.add_argument("--manifest", default=os.path.join(os.path.dirname(__file__), "..", "gallery", "manifest.json"))
     ap.add_argument("--only", default="")
     a = ap.parse_args()
+    a.cli = os.path.abspath(a.cli)   # Windows' CreateProcess does not resolve a relative path with forward slashes
     man = json.load(open(a.manifest, encoding="utf-8"))
     only = set(filter(None, a.only.split(",")))
     os.makedirs(a.out, exist_ok=True)
@@ -50,22 +88,35 @@ def main():
         opts = dict(man.get("defaults", {}))
         opts.update(e["options"])
         tif = os.path.join(a.out, e["id"] + ".tif")
+        sweep = e.get("z_sweep")
+        if sweep:
+            opts = {k: v for k, v in opts.items() if k not in ("z", "frames")}
         args = []
         for k, v in opts.items():
             args += ["--" + k, str(v)]
         t0 = time.time()
-        r = subprocess.run([a.cli, "--out", tif] + args, capture_output=True, text=True)
+        if sweep:
+            try:
+                stack, heights = run_sweep(a.cli, a.out, e["id"], args, sweep)
+            except RuntimeError as err:
+                print("FAILED", e["id"], err, file=sys.stderr)
+                sys.exit(1)
+            tifffile.imwrite(tif, stack)
+            cli = "for z in %s: insiliscope_cli --out %s.z<z>.tif %s --z <z> --frames 1" % (
+                " ".join("%g" % z for z in heights), e["id"], " ".join(args))
+        else:
+            r = subprocess.run([a.cli, "--out", tif] + args, capture_output=True, text=True)
+            if r.returncode != 0:
+                print("FAILED", e["id"], r.stderr[-400:], file=sys.stderr)
+                sys.exit(1)
+            stack = tifffile.imread(tif)
+            cli = "insiliscope_cli --out %s.tif %s" % (e["id"], " ".join(args))
         dt = time.time() - t0
-        if r.returncode != 0:
-            print("FAILED", e["id"], r.stderr[-400:], file=sys.stderr)
-            sys.exit(1)
-        stack = tifffile.imread(tif)
         if stack.ndim == 2:
             stack = stack[None]
-        to_gif(stack, os.path.join(a.out, e["id"] + ".gif"))
+        to_gif(stack, os.path.join(a.out, e["id"] + ".gif"), fps=6 if sweep else 10)
         meta.append({**e, "resolved_options": opts, "frames_rendered": int(stack.shape[0]),
-                     "seconds": round(dt, 2),
-                     "cli": "insiliscope_cli --out %s.tif %s" % (e["id"], " ".join(args))})
+                     "seconds": round(dt, 2), "cli": cli})
         print("%-18s %3d frames  %.1fs" % (e["id"], stack.shape[0], dt))
     json.dump(meta, open(os.path.join(a.out, "gallery.json"), "w"), indent=1)
     lines = ["# Gallery", "",
