@@ -10,6 +10,7 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "ScopeMovie.h"
+#include "ScopeResolved.h"
 
 #include "CacheDir.h"
 
@@ -2796,6 +2797,130 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
       return RenderBrightfieldMovie(spec, onFrame, info, err);
    FluorescenceMovie fm;
    return fm.Begin(spec, false, err) && fm.Render(onFrame, info, err, progress);
+}
+
+// ---- read-only views for diagnostics (ScopeResolved.h) ----
+
+bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
+{
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   out = ScopeResolved();
+   out.W = S.W;
+   out.H = S.H;
+   out.N = S.N;
+   out.seed = S.seed;
+   out.expSec = S.expSec;
+   out.t0Sec = S.t0Sec;
+   const ScopeCamera& c = S.camera;
+   ScopeResolvedCamera& o = out.camera;
+   o.preset = c.preset;
+   o.qeCurve = c.qeCurve;
+   o.qeFlat = c.qeFlat;
+   o.emccd = c.emccd;
+   o.darkPerSec = c.darkPerSec;
+   o.gainElectronsPerAdu = c.gainPhotonsPerAdu;
+   o.offsetAdu = c.offsetAdu;
+   o.offsetStdAdu = c.offsetStdAdu;
+   o.readNoiseElectrons = c.readNoiseElectrons;
+   o.gainStdFraction = c.gainStdFraction;
+   o.readNoiseStdFraction = c.readNoiseStdFraction;
+   o.emGain = c.emGain;
+   o.cicElectrons = c.cicElectrons;
+   o.bitDepth = c.bitDepth;
+   out.p = S.p;
+   out.lp = S.lp;
+   out.labels = S.labels;
+   out.cf = S.cf;
+   out.q = S.q;
+   out.drift = S.drift;
+   return true;
+}
+
+bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
+                        std::string& err)
+{
+   const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (!epi && !trans)
+   {
+      // RenderDarkMovie without its noise chain: zero photons.
+      const auto t0 = std::chrono::steady_clock::now();
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
+      for (long f = 0; f < S.N; f++)
+         if (!onPhotons(f, zero))
+            break;
+      info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      return true;
+   }
+   if (epi && trans)
+   {
+      // RenderCombinedMovie up to its noise chain.
+      FluorescenceMovie fm;
+      ScopeSetup S;
+      BrightfieldSpec bs;
+      if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
+         return false;
+      MovieCache& cache = SharedMovieCache();
+      if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+         return false;
+      BrightfieldPhotons lamp;
+      if (!lamp.Begin(spec, S, cache.brightfield, err))
+         return false;
+      const double qeLamp = SampleAt(S.lp.qe, ScopeSpecGet(spec, "bf-wavelength-nm"));
+      std::vector<float> sum;
+      FluorescenceFrameOptions opt;
+      opt.onPhotons = [&](long f, const std::vector<float>& fl) {
+         const std::vector<float>& bf = lamp.At(cache.brightfield, S, f);
+         sum.resize(fl.size());
+         for (size_t i = 0; i < fl.size(); ++i)
+            sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
+         return onPhotons(f, sum);
+      };
+      return fm.Render(noFrames, info, err, nullptr, &opt);
+   }
+   if (trans)
+   {
+      // RenderBrightfieldMovie / BrightfieldFrames up to the noise chain: the lamp's photons per frame.
+      const auto t0 = std::chrono::steady_clock::now();
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      MovieCache& cache = SharedMovieCache();
+      std::lock_guard<std::mutex> lock(cache.mutex);
+      if (!ConfigureShared(cache, S.cf, err))
+         return false;
+      BrightfieldSpec bs;
+      if (!ScopeBrightfieldSpec(spec, bs, err) || !cache.brightfield.Update(cache.source, bs, cache.version, err))
+         return false;
+      BrightfieldPhotons lamp;
+      if (!lamp.Begin(spec, S, cache.brightfield, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      DriftInfo(S, info);
+      for (long f = 0; f < S.N; f++)
+         if (!onPhotons(f, lamp.At(cache.brightfield, S, f)))
+            break;
+      info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      return true;
+   }
+   FluorescenceMovie fm;
+   FluorescenceFrameOptions opt;
+   opt.onPhotons = onPhotons;
+   return fm.Begin(spec, false, err) && fm.Render(noFrames, info, err, nullptr, &opt);
 }
 
 } // namespace sim

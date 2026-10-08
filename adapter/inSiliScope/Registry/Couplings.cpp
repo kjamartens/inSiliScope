@@ -15,6 +15,7 @@
 #include "../InSiliScopeHub.h"
 
 #include "../Simulation/DyeLibrary.h"
+#include "../Simulation/RenderPresets.h"
 #include "../Simulation/SMLMZernike.h"
 
 #include "SceneSettings.h"
@@ -116,9 +117,8 @@ void InSiliScopeHub::ClearLightPreset()
    Notify("light-preset");
 }
 
-// The drift presets: xy and z speed (nm/s), xy and z random walk (nm / sqrt s);
-// tiers chosen by the user, *estimate* (Ma et al. 2024's 5-20 nm/s RMS drifts,
-// refs ma2024, sit between Medium and High).
+// The drift presets: Simulation/RenderPresets.h kDriftPresets (xy and z speed,
+// xy and z random walk; the cli's --presets-json prints the same table).
 const std::vector<std::string>& DriftPresetNames()
 {
    static const std::vector<std::string> n = { "Off", "Low", "Medium", "High", "Extreme", "Custom" };
@@ -127,18 +127,17 @@ const std::vector<std::string>& DriftPresetNames()
 
 void InSiliScopeHub::ApplyDriftPreset(int index)
 {
-   static const double speed[] = { 0.0, 2.0, 5.0, 25.0, 250.0 };
-   static const double walk[] = { 0.0, 0.4, 1.0, 5.0, 50.0 };
    if (index < 0 || index >= static_cast<int>(DriftPresetNames().size()))
       return;
    isc::SceneState& st = state_;
    st.driftPreset = index;
-   if (index < 5)
+   if (index < sim::kDriftPresetCount)
    {
-      st.directedDrift[isc::DD_XY_SPEED] = speed[index];
-      st.directedDrift[isc::DD_Z_SPEED] = speed[index];
-      st.driftXyNmPerSqrtSec = walk[index];
-      st.driftZNmPerSqrtSec = walk[index];
+      const sim::DriftPreset& d = sim::kDriftPresets[index];
+      st.directedDrift[isc::DD_XY_SPEED] = d.speedNmPerSec;
+      st.directedDrift[isc::DD_Z_SPEED] = d.speedNmPerSec;
+      st.driftXyNmPerSqrtSec = d.walkNmPerSqrtSec;
+      st.driftZNmPerSqrtSec = d.walkNmPerSqrtSec;
       Notify("drift-xy-speed");
       Notify("drift-z-speed");
       Notify("drift-xy-walk");

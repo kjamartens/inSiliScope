@@ -248,6 +248,7 @@ bool ApplyField(DyeData& d, int mode, const std::string& k, double v, std::strin
    }
    return true;
 }
+} // namespace
 
 bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& err)
 {
@@ -268,7 +269,6 @@ bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& 
    em = *b;
    return true;
 }
-} // namespace
 
 bool MakeEffectiveDye(int choice, const std::vector<DyeSlot>& slots, const DyeOverrides& overrides, int modeIndex,
                       EffectiveDye& out, std::string& err)

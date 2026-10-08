@@ -179,6 +179,9 @@ struct StatePhysics
    const char* color = nullptr;
 };
 bool StatePhotophysics(const StateData& st, const LightPath& lp, StatePhysics& out, std::string& err);
+// A state's excitation and emission spectra on the spectra grid (the data's
+// FPbase curves, or the parametric ones); false (with err) for a dark state.
+bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& err);
 
 struct LabelPhysicsOptions
 {

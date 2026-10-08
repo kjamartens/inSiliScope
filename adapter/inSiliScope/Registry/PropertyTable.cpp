@@ -21,6 +21,7 @@
 #include "../InSiliScopeHub.h"
 #include "../Simulation/CacheDir.h"
 #include "../Simulation/DyeLibrary.h"
+#include "../Simulation/RenderPresets.h"
 #include "../Simulation/ScopeMovie.h"
 #include "../Simulation/SMLMZernike.h"
 #include "SceneSettings.h"
@@ -817,9 +818,10 @@ std::vector<PropDef> BuildTable()
       PropDef d = Row(R, "Quality", Tier::Basic, "quality",
                       "Speed vs fidelity: Fast, Realistic (the reference settings) or Exhaustive. Custom: set by hand.");
       d.kind = PropKind::Text;
-      // (BrightField quality level, PSF oversampling, mean-field upscaling, blink halo cut) per quality.
-      struct Q { const char* name; double bf; int os; double wf; double halo; };
-      static const Q qs[] = { { "Fast", 1, 4, 1, 1e-5 }, { "Realistic", 3, 6, 1, 3e-6 }, { "Exhaustive", 4, 8, 2, 0.0 } };
+      // (BrightField quality level, PSF oversampling, mean-field upscaling, blink halo cut) per quality:
+      // Simulation/RenderPresets.h (the cli's --presets-json prints the same table).
+      using Q = sim::QualityPreset;
+      static const auto& qs = sim::kQualityPresets;
       d.getText = [](H& h) {
          for (const Q& q : qs)
             if (h.State().brightField[BF_QUALITY].load() == q.bf && h.State().psfOversampling.load() == q.os &&

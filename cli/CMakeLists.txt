@@ -63,7 +63,7 @@ if(EMSCRIPTEN)
   return()
 endif()
 
-add_executable(insiliscope_cli insiliscope_cli.cpp ${ISC_SIM_SRC})
+add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp ${ISC_SIM_SRC})
 target_include_directories(insiliscope_cli PRIVATE ${ISC_SIM})
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_core)
 if(WIN32)
@@ -114,6 +114,19 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(drift_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME drift COMMAND drift_check)
+
+  # The cli's diagnostic outputs (scope_probes.h: the docs' physics figures) show what a movie renders.
+  add_executable(probes_check probes_check.cpp scope_probes.cpp ${ISC_SIM_SRC})
+  target_include_directories(probes_check PRIVATE ${ISC_SIM})
+  target_link_libraries(probes_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(probes_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(probes_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(probes_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(probes_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME cli_probes COMMAND probes_check WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
   # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
   add_executable(brightfield_check brightfield_check.cpp ${ISC_SIM_SRC})
