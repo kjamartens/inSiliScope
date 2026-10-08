@@ -49,12 +49,10 @@ The pupil grid measured against a finer one:
 
 <!-- fig:psf-pupil -->
 
-Other pieces: the double-helix mask (`PsfMaskType = DoubleHelix`, Gauss-Laguerre modes
-[[pavani2008](../references.md#pavani2008), [pavani2009](../references.md#pavani2009)]), the Gibson-Lanni focal
-shift for depth (paraxial: the z stack is centred at \(t_{i0} - d\,n_i/n_s\)), and presets of aberrations (astigmatism,
-coma, spherical, trefoil, saddle point, extended-range engineered PSFs) taken from webSMLM (the single-mode amplitudes,
-0.07-0.3 waves, and the default `MixedRealisticObjective` mix are order-of-magnitude *estimates*, not values measured
-on an objective).
+Other pieces: the Gibson-Lanni focal shift for depth (paraxial: the z stack is centred at \(t_{i0} - d\,n_i/n_s\)),
+and presets of aberrations (astigmatism, coma, spherical, trefoil, saddle point, extended-range engineered PSFs) taken
+from webSMLM (the single-mode amplitudes, 0.07-0.3 waves, and the default `MixedRealisticObjective` mix are
+order-of-magnitude *estimates*, not values measured on an objective).
 
 Every preset, its pupil wavefront and its PSF through focus:
 

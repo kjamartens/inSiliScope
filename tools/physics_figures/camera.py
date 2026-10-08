@@ -143,7 +143,7 @@ def cam_prnu(ctx):
     lo, hi = robust_range(ph, 0.5, 99.5)
     pad = 0.25 * (hi - lo)
     lo, hi = lo - pad, hi + pad
-    spreads = [0.25, 0.5]
+    spreads = [0.5]
     one, mean, flat1, flat20 = [], [], [], []
     for pct in spreads:
         r = ctx.cli(dict(base, frames=20, **{"gain-std-pct": pct}), tag="g%g" % pct, out=True, setup_json=True)

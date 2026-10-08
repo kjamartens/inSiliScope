@@ -253,7 +253,7 @@ def struct_microtubules(ctx):
         return lc
 
     def draw(fig, st):
-        gs = fig.add_gridspec(2, 2, height_ratios=[1.7, 1])
+        gs = fig.add_gridspec(2, 2, height_ratios=[2.4, 0.9])
         a0 = fig.add_subplot(gs[0, 0])
         lc = top(a0, cell, rg, st, "mtDirKappa 1.5 (default)")
         a0.set_ylabel("y (µm)")
@@ -265,16 +265,18 @@ def struct_microtubules(ctx):
         a2 = fig.add_subplot(gs[1, :])
         side = [np.c_[(p[:, :2] - c0) @ u, p[:, 2]] for p in (thin(np.asarray(mt, float)) for mt in subset(cell["mts"]))
                 if len(p) > 1]
-        a2.add_collection(LineCollection(side, lw=0.7, color=COLORS[1], alpha=0.9))
+        a2.add_collection(LineCollection(side, lw=0.6, color=COLORS[1], alpha=0.9))
         a2.autoscale_view()
         a2.fill(*silhouette(rg, c0, u), color=COLORS[4], alpha=0.35, lw=0)
         a2.axhline(0, color=st["muted"], lw=0.8)
+        a2.set_ylim(-0.2, zmax + 0.2)
+        a2.set_aspect("equal")   # height on the same scale as the length
+        a2.set_yticks(np.arange(0, zmax + 0.01, 2))
         a2.set_xlabel("Along the nucleus's long axis (µm)")
         a2.set_ylabel("Height (µm)")
-        a2.set_title("Side view (default): the paths ride over or under the nucleus (pink); height stretched",
-                     fontsize=8)
+        a2.set_title("Side view (default): the paths ride over or under the nucleus (pink)", fontsize=8)
 
-    body = ctx.plot("", draw, h=5.4, alt="Microtubule paths of one cell")
+    body = ctx.plot("", draw, h=3.5, alt="Microtubule paths of one cell")
     return figure(body,
                   "Microtubule centrelines of the cell nearest the spot, coloured by height: %d of its %d shown. Top: "
                   "with the default "

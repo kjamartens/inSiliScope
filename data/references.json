@@ -306,24 +306,6 @@
       "use": "Bluestein's algorithm (a DFT as a chirp convolution), the core of the chirp-z transform",
       "checked": "bibliographic details from the Crossref DOI record; not re-read"
     },
-    "pavani2008": {
-      "authors": "Pavani SRP, Piestun R",
-      "year": 2008,
-      "title": "High-efficiency rotating point spread functions",
-      "journal": "Optics Express", "volume": "16", "pages": "3484-3489",
-      "doi": "10.1364/OE.16.003484",
-      "use": "rotating (double-helix) PSFs designed in the Gauss-Laguerre modal plane: the double-helix pupil mask (Renderer.PsfMaskType = DoubleHelix)",
-      "checked": "citation and abstract via PubMed"
-    },
-    "pavani2009": {
-      "authors": "Pavani SRP, Thompson MA, Biteen JS, Lord SJ, Liu N, Twieg RJ, Piestun R, Moerner WE",
-      "year": 2009,
-      "title": "Three-dimensional, single-molecule fluorescence imaging beyond the diffraction limit by using a double-helix point spread function",
-      "journal": "Proceedings of the National Academy of Sciences of the USA", "volume": "106", "pages": "2995-2999",
-      "doi": "10.1073/pnas.0900245106", "pmcid": "PMC2651341",
-      "use": "the double-helix PSF for 3D single-molecule localization: two lobes whose orientation rotates with the emitter's z",
-      "checked": "citation and abstract via PubMed"
-    },
     "catmull1974": {
       "authors": "Catmull E, Rom R",
       "year": 1974,

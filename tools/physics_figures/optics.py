@@ -37,6 +37,17 @@ def xz(planes):
     return planes[:, planes.shape[1] // 2, :]
 
 
+def xz_true(planes, meta, half):
+    """The x-z section through the centre, half kernel pixels either side, on the kernel's lateral pitch in z too
+    (linear between the planes, which lie z_step apart), +z up: an image at one scale."""
+    um = meta["pixel_nm"] / meta["oversampling"] / 1000
+    z = zs(meta)
+    c = planes.shape[-1] // 2
+    sec = xz(planes)[:, c - half:c + half + 1]
+    zz = np.arange(z[0], z[-1] + 1e-9, um)
+    return np.array([np.interp(zz, z, col) for col in sec.T]).T[::-1]
+
+
 def centre(a, half):
     c = a.shape[-1] // 2
     return a[..., c - half:c + half + 1, c - half:c + half + 1]
@@ -131,7 +142,7 @@ def psf_presets(ctx):
                  img(ctx.tile(tag + "-pupil", pupil, cmap="RdBu_r", vmin=-w, vmax=w, nan=(128, 128, 128), min_px=96))
                  if w > 0 else "flat",
                  "%.2f" % float(np.sqrt(np.nanmean(pupil ** 2))) if w > 0 else "0",
-                 img(log_tile(ctx, tag + "-xz", xz(planes)[:, c - h:c + h + 1], 4, min_px=96))]
+                 img(log_tile(ctx, tag + "-xz", xz_true(planes, meta, h), 4, min_px=96))]
         for zz in (-0.6, 0.0, 0.6):
             pl = planes[int(np.argmin(np.abs(z - zz)))][c - h:c + h + 1, c - h:c + h + 1]
             cells.append(img(ctx.tile("%s-z%+.1f" % (tag, zz), pl, cmap="magma", vmin=0, min_px=96)))
@@ -140,7 +151,8 @@ def psf_presets(ctx):
                  cls="isc-cmp isc-small") + \
         "\nEvery Zernike preset (`Objective.ZernikePreset`, cli `psf-zernike-preset`), " \
         "default label (678 nm, NA 1.4). Pupil phase: the Zernike wavefront over the pupil (blue to red, each row " \
-        "its own scale; its rms beside it). x-z: 2 µm wide, 2.4 µm deep, four decades. x-y planes: 2 µm across, " \
+        "its own scale; its rms beside it). x-z: 2 µm wide, 2.4 µm deep (+z up), x and z at one scale, four " \
+        "decades. x-y planes: 2 µm across, " \
         "linear, each its own scale. The astigmatic and extended-range presets stretch the spot one way above " \
         "focus and the other way below (z encoding).\n"
 
