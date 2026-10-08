@@ -128,30 +128,51 @@ def psf_sections(ctx):
 def psf_presets(ctx):
     pr = presets(ctx)
     small = {"psf-kernel-half-width-nm": 1500, "psf-z-range-um": 2.4, "psf-z-step-um": 0.1}
-    cases = [(z["name"], {"psf-zernike-preset": z["name"]}) for z in pr["zernike"]]
-    out = []
-    for name, opts in cases:
+    runs = []
+    for zp in pr["zernike"]:
+        name = zp["name"]
         tag = name.split()[0]
-        planes, cams, pupil, meta, _ = psf(ctx, dict(small, **opts), tag)
+        planes, cams, pupil, meta, _ = psf(ctx, dict(small, **{"psf-zernike-preset": name}), tag)
+        peak = float(np.nanmax(np.abs(pupil))) if np.isfinite(pupil).any() else 0.0
+        runs.append((name, tag, planes, pupil, meta, peak))
+    # One colour scale for every preset, so the colours show each one's strength; the engineered presets (a peak
+    # above ENGINEERED waves, several times any objective's aberration) share a second, wider one.
+    ENGINEERED = 0.5
+
+    def nice(x):
+        step = 0.05 if x < 0.5 else 0.5
+        return step * np.ceil(x / step - 1e-9)
+
+    w_ab = nice(max([r[-1] for r in runs if r[-1] <= ENGINEERED] or [0.1]))
+    w_eng = nice(max([r[-1] for r in runs if r[-1] > ENGINEERED] or [1.0]))
+    eng = [r[0] for r in runs if r[-1] > ENGINEERED]
+    out = []
+    for name, tag, planes, pupil, meta, peak in runs:
         z = zs(meta)
         um = meta["pixel_nm"] / meta["oversampling"] / 1000
         h = int(round(1.0 / um))
         c = planes.shape[-1] // 2
-        w = float(np.nanmax(np.abs(pupil))) if np.isfinite(pupil).any() else 0.0
+        w = w_eng if peak > ENGINEERED else w_ab
         cells = [name,
-                 img(ctx.tile(tag + "-pupil", pupil, cmap="RdBu_r", vmin=-w, vmax=w, nan=(128, 128, 128), min_px=96))
-                 if w > 0 else "flat",
-                 "%.2f" % float(np.sqrt(np.nanmean(pupil ** 2))) if w > 0 else "0",
+                 img(ctx.tile(tag + "-pupil", pupil, cmap="RdBu_r", vmin=-w, vmax=w, nan=(128, 128, 128),
+                              min_px=96)) + "<br>&plusmn;%g" % w,
+                 "rms %s<br>peak %s" % (sig(float(np.sqrt(np.nanmean(pupil ** 2))), 2), sig(peak, 2)) if peak > 0
+                 else "0",
                  img(log_tile(ctx, tag + "-xz", xz_true(planes, meta, h), 4, min_px=96))]
         for zz in (-0.6, 0.0, 0.6):
             pl = planes[int(np.argmin(np.abs(z - zz)))][c - h:c + h + 1, c - h:c + h + 1]
             cells.append(img(ctx.tile("%s-z%+.1f" % (tag, zz), pl, cmap="magma", vmin=0, min_px=96)))
         out.append(cells)
-    return table(["Preset", "Pupil phase", "rms (waves)", "x-z (log)", "z = -0.6 µm", "z = 0", "z = +0.6 µm"], out,
-                 cls="isc-cmp isc-small") + \
+    eng_txt = (", ".join(eng[:-1]) + " and " + eng[-1]) if len(eng) > 1 else "".join(eng)
+    return table(["Preset", "Pupil phase (waves)", "Wavefront (waves)", "x-z (log)", "z = -0.6 µm", "z = 0",
+                  "z = +0.6 µm"], out, cls="isc-cmp isc-small") + \
         "\nEvery Zernike preset (`Objective.ZernikePreset`, cli `psf-zernike-preset`), " \
-        "default label (678 nm, NA 1.4). Pupil phase: the Zernike wavefront over the pupil (blue to red, each row " \
-        "its own scale; its rms beside it). x-z: 2 µm wide, 2.4 µm deep (+z up), x and z at one scale, four " \
+        "default label (678 nm, NA 1.4). Pupil phase: the Zernike wavefront over the pupil, blue negative, red " \
+        "positive, on one scale for every preset (&plusmn;%g waves) so the colours compare their strengths. " % \
+        w_ab + \
+        ("The engineered %s (peak above %g wave, made for a longer z range) share a wider scale (&plusmn;%g waves). "
+         % (eng_txt, ENGINEERED, w_eng) if eng else "") + \
+        "Beside it the wavefront's rms and peak. x-z: 2 µm wide, 2.4 µm deep (+z up), x and z at one scale, four " \
         "decades. x-y planes: 2 µm across, " \
         "linear, each its own scale. The astigmatic and extended-range presets stretch the spot one way above " \
         "focus and the other way below (z encoding).\n"
