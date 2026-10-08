@@ -2279,7 +2279,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 10) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 10');
+  if (M._isc_abi_version() !== 11) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 11');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;

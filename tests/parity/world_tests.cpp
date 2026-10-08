@@ -934,6 +934,164 @@ bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEv
    return true;
 }
 
+// ABI 11: a kinetics history (piecewise-constant rates in clock time). One
+// segment = no history; a segment appended at T leaves everything before T as
+// it was; the new rates act after T (PALM activation off, dSTORM 10x faster,
+// DNA-PAINT from the next bin); two histories alternating on one world (the
+// parked schedule slots) answer as fresh worlds.
+void KineticsHistoryChecks()
+{
+   Params p;
+   const uint32_t seed = 1249;
+   Kinetics kin;
+   kin.activationRatePerSec = 0.05; kin.onSec = 0.05; kin.offSec = 1.0; kin.bleachProb = 0.5; kin.photonCV = 0.5;
+   std::vector<Cell> near;
+   World probe(seed, p);
+   probe.CellsInRect(-30, -30, 30, 30, near);
+   if (near.empty()) { Check(false, "cells near the origin"); return; }
+   const double x0 = near[0].x + 6, y0 = near[0].y - 2, x1 = x0 + 4, y1 = y0 + 4, zLo = -5, zHi = 50;
+   auto events = [&](World& w, double t0, double t1) {
+      std::vector<WorldEvent> e;
+      w.EventsInWindow(x0, y0, x1, y1, zLo, zHi, t0, t1, e);
+      return e;
+   };
+   auto cont = [&](World& w) {
+      std::vector<WorldEvent> c;
+      w.ContinuousInWindow(x0, y0, x1, y1, zLo, zHi, -INF, c);
+      return c;
+   };
+   auto before = [](std::vector<WorldEvent> e, double T) {
+      e.erase(std::remove_if(e.begin(), e.end(), [&](const WorldEvent& x) { return !(x.tOff < T); }), e.end());
+      return e;
+   };
+   const double T = 30.3;
+
+   Kinetics pre = kin;
+   pre.initialOnSec = 2;
+   struct Case { const char* name; Label l; };
+   Kinetics dp = kin;
+   dp.activationRatePerSec = 0.02;
+   Label palm = MakeLabel(LabelMode::PALM, 0.1, kin);
+   palm.preState = true;
+   const Case cases[] = { { "PALM", palm }, { "dSTORM", MakeLabel(LabelMode::dSTORM, 0.1, pre) },
+                          { "DNA-PAINT", MakeLabel(LabelMode::DnaPaint, 0.3, dp) } };
+   for (const Case& c : cases) {
+      World plain = LabelledWorld(seed, p, c.l), one = LabelledWorld(seed, p, c.l), two = LabelledWorld(seed, p, c.l);
+      Check(one.SetKineticsHistory({ 0.0 }, { c.l.kin }), "SetKineticsHistory: one segment accepted");
+      Kinetics k2 = c.l.kin;
+      k2.activationRatePerSec *= 3; k2.onSec *= 0.2; k2.offSec *= 0.5; k2.bleachProb = 0.9;
+      Check(two.SetKineticsHistory({ 0.0, T }, { c.l.kin, k2 }), "SetKineticsHistory: two segments accepted");
+      const auto e0 = events(plain, 0, 100), e1 = events(one, 0, 100), e2 = events(two, 0, 100);
+      const bool same1 = IdenticalEvents(e0, e1) && IdenticalEvents(cont(plain), cont(one));
+      const bool prefix = SameEvents(before(e0, T), before(e2, T)) && !SameEvents(e0, e2);
+      std::printf("      %s: %zu blinks; one segment %s, a segment at %.1f s keeps the %zu before it %s\n", c.name,
+                  e0.size(), same1 ? "identical" : "DIFFERENT", T, before(e0, T).size(), prefix ? "(ok)" : "(DIFFERENT)");
+      Check(same1, "kinetics history: one segment = no history, bit for bit");
+      Check(prefix, "kinetics history: the past before a new segment is unchanged, the future follows it");
+   }
+   // Bad histories are refused (and change nothing).
+   {
+      World w = LabelledWorld(seed, p, palm);
+      Kinetics bad = kin;
+      bad.onSec = 0;
+      Check(!w.SetKineticsHistory({ 1.0 }, { kin }) && !w.SetKineticsHistory({ 0.0, 0.0 }, { kin, kin }) &&
+               !w.SetKineticsHistory({ 0.0 }, { bad }) && !w.SetKineticsHistory({ 0.0 }, {}) && !w.HistoryOf(0),
+            "kinetics history: a bad history is refused");
+   }
+   // PALM, UV off at T: no activation after T (each pre window ends by T or never), activated dyes still blink.
+   {
+      World w = LabelledWorld(seed, p, palm);
+      Kinetics off = kin;
+      off.activationRatePerSec = 0;
+      w.SetKineticsHistory({ 0.0, T }, { kin, off });
+      bool ok = true;
+      size_t pending = 0;
+      for (const WorldEvent& e : cont(w))
+         if (e.state == STATE_PRE) { ok = ok && (e.tOff <= T || std::isinf(e.tOff)); pending += std::isinf(e.tOff); }
+      size_t after = 0;
+      for (const WorldEvent& e : events(w, T, T + 5)) after += e.tOn >= T;
+      std::printf("      PALM, activation off at %.1f s: %zu dyes never activated, %zu blinks in the 5 s after\n", T, pending,
+                  after);
+      Check(ok && pending > 0 && after > 0, "kinetics history: PALM activation off stops new activations, not blinking");
+   }
+   // dSTORM, ON and OFF 10x shorter after T: the mean ON of blinks starting after T + 1 is ~onSec/10.
+   {
+      Kinetics fast = kin;
+      fast.onSec = kin.onSec / 10; fast.offSec = kin.offSec / 10;
+      World w = LabelledWorld(seed, p, MakeLabel(LabelMode::dSTORM, 0.1, kin));
+      w.SetKineticsHistory({ 0.0, T }, { kin, fast });
+      double m = 0, mb = 0;
+      size_t n = 0, nb = 0;
+      for (const WorldEvent& e : events(w, 0, T + 20)) {
+         if (e.tOn > T + 1) { m += e.tOff - e.tOn; n++; }
+         else if (e.tOff < T) { mb += e.tOff - e.tOn; nb++; }
+      }
+      m /= std::max<size_t>(1, n);
+      mb /= std::max<size_t>(1, nb);
+      std::printf("      dSTORM, rates x10 at %.1f s: mean ON %.4f s before (%.3f), %.4f s after (%.4f), %zu / %zu blinks\n",
+                  T, mb, kin.onSec, m, fast.onSec, nb, n);
+      Check(n > 50 && nb > 50 && std::fabs(m / fast.onSec - 1) < 0.25 && std::fabs(mb / kin.onSec - 1) < 0.25,
+            "kinetics history: dSTORM ON times follow the segment they start in");
+   }
+   // DNA-PAINT, imager x10 at 60.4 s: bin 60 as without the change, bins from 61 busier.
+   {
+      Label l = MakeLabel(LabelMode::DnaPaint, 0.3, dp);
+      Kinetics more = dp;
+      more.activationRatePerSec = dp.activationRatePerSec * 10;
+      World a = LabelledWorld(seed, p, l), b = LabelledWorld(seed, p, l);
+      b.SetKineticsHistory({ 0.0, 60.4 }, { dp, more });
+      auto inBin = [](std::vector<WorldEvent> e, double lo, double hi) {
+         e.erase(std::remove_if(e.begin(), e.end(), [&](const WorldEvent& x) { return !(x.tOn >= lo && x.tOn < hi); }),
+                 e.end());
+         return e;
+      };
+      const auto ea = events(a, 59, 64), eb = events(b, 59, 64);
+      const size_t na = inBin(ea, 61, 63).size(), nb = inBin(eb, 61, 63).size();
+      const bool bin60 = SameEvents(inBin(ea, 60, 61), inBin(eb, 60, 61));
+      std::printf("      DNA-PAINT, imager x10 at 60.4 s: bin 60 %s, %zu -> %zu blinks starting in [61, 63)\n",
+                  bin60 ? "unchanged" : "CHANGED", na, nb);
+      Check(bin60 && nb > 5 * na && na > 0, "kinetics history: DNA-PAINT rates change at the next bin");
+   }
+   // Two histories alternating on one world = fresh worlds (PALM and DNA-PAINT).
+   for (const Case& c : { cases[0], cases[2] }) {
+      Kinetics k2 = c.l.kin;
+      k2.activationRatePerSec *= 4;
+      const std::vector<double> tA = { 0.0, 20.0 }, tB = { 0.0, 40.0 };
+      const std::vector<Kinetics> kA = { c.l.kin, k2 }, kB = { k2, c.l.kin };
+      World w = LabelledWorld(seed, p, c.l), fa = LabelledWorld(seed, p, c.l), fb = LabelledWorld(seed, p, c.l);
+      fa.SetKineticsHistory(tA, kA);
+      fb.SetKineticsHistory(tB, kB);
+      const auto ra = events(fa, 50, 50.5), rb = events(fb, 50, 50.5);
+      World fresh = LabelledWorld(seed, p, c.l);
+      const auto r0 = events(fresh, 50, 50.5);
+      bool ok = true;
+      for (int i = 0; i < 6; i++) {
+         const bool useA = i % 2 == 0;
+         w.SetKineticsHistory(useA ? tA : tB, useA ? kA : kB);
+         ok = ok && IdenticalEvents(events(w, 50, 50.5), useA ? ra : rb);
+      }
+      w.SetKineticsHistory({}, {});
+      ok = ok && !w.HistoryOf(0) && IdenticalEvents(events(w, 50, 50.5), r0);
+      std::printf("      %s: histories A, B alternating x3, then none: %s\n", c.name, ok ? "as fresh worlds" : "DIFFERENT");
+      Check(ok, "kinetics history: alternating histories on one world = fresh worlds");
+      // A label change of the kinetics alone keeps the schedules made under a
+      // history (they never read it): the answers stay those of fresh worlds.
+      w.SetKineticsHistory(tA, kA);
+      events(w, 50, 50.5);
+      Label l2 = c.l;
+      l2.kin.activationRatePerSec *= 2;
+      l2.kin.onSec *= 0.5;
+      w.SetLabel(0, l2);
+      World f2 = LabelledWorld(seed, p, l2);
+      bool ok2 = IdenticalEvents(events(w, 50, 50.5), ra);
+      w.SetKineticsHistory({}, {});
+      ok2 = ok2 && IdenticalEvents(events(w, 50, 50.5), events(f2, 50, 50.5));
+      std::printf("      %s: a kinetics-only label change under a history: %s\n", c.name,
+                  ok2 ? "as fresh worlds" : "DIFFERENT");
+      Check(ok2, "kinetics history: a kinetics-only label change keeps history schedules, renews the rest");
+   }
+}
+
 void Threads(LabelMode mode, double density, const char* name)
 {
    std::printf("    %s\n", name);
@@ -1442,6 +1600,7 @@ static const std::vector<Section>& Sections()
       { "density3d", Density3d },
       { "optical_volume", OpticalVolume },
       { "edge_and_height", EdgeAndHeight },
+      { "kinetics_history", KineticsHistoryChecks },
    };
    return s;
 }
