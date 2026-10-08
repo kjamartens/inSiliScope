@@ -250,6 +250,8 @@ public:
                                            {
                                               long v = 0;
                                               p->Get(v);
+                                              if (epi_)
+                                                 this->Hub()->State().epiExplicit = true;
                                               this->Hub()->SetLight(epi_, v != 0);
                                               this->GetCoreCallback()->OnShutterOpenChanged(this, v != 0);
                                            }

@@ -21,6 +21,8 @@
  * isc_world_set_kinetics and the labelEfficiency/labelNonBleaching params),
  * events with structure/state/aux (stride 10), isc_continuous_in_window,
  * sites with their structure (stride 5), isc_density3d_in_window by structure.
+ * ABI 11: isc_world_set_kinetics_history (piecewise-constant rates in clock
+ * time: a change acts from its start, the past stays).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -41,7 +43,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 10
+#define ISC_ABI_VERSION 11
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -195,6 +197,27 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  * ON <= 0, negative rates); -2 for what is not implemented yet (a motion
  * other than Static, off-target entries). Nothing changes on an error. */
 ISC_API int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int32_t n);
+
+/* ABI 11. Kinetics history: nSeg rows of ISC_KIN_ROW doubles, a segment start
+ * tStart (clock seconds; the first 0, then increasing, the last lasting for
+ * ever) and, per structure s, ISC_KIN_COUNT kinetics at 1 + s*ISC_KIN_COUNT.
+ * The following isc_events_in_window, isc_continuous_in_window and
+ * isc_world_prefetch calls schedule each dye with the rates of the segment
+ * its clock is in (the same draws: everything before a segment start is what
+ * the shorter history gives). One segment = those kinetics from t = 0; a
+ * DNA-PAINT bin uses the segment holding its start. The rest of the label
+ * (mode, pre state, density) is the label's. nSeg = 0: no history (each
+ * label's own kinetics, the default). Returns 0; -1 on bad arguments
+ * (nothing changes then). */
+#define ISC_KIN_ACTIVATION_RATE 0
+#define ISC_KIN_ON_SEC 1
+#define ISC_KIN_OFF_SEC 2
+#define ISC_KIN_BLEACH_PROB 3
+#define ISC_KIN_PHOTON_CV 4
+#define ISC_KIN_INITIAL_ON_SEC 5
+#define ISC_KIN_COUNT 6
+#define ISC_KIN_ROW (1 + ISC_KIN_COUNT * ISC_STRUCT_COUNT)
+ISC_API int32_t isc_world_set_kinetics_history(IscWorld* w, const double* rows, int32_t nSeg);
 
 /* Blinks overlapping [t0, t1) (tOn < t1 and tOff > t0) of the fluorescent
  * dyes in the window, ISC_EVENT_STRIDE doubles each: x, y, z, tOn, tOff,

@@ -26,6 +26,7 @@
 #include <climits>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <sstream>
 
 const char* g_CameraDeviceName = "Camera";
@@ -169,6 +170,9 @@ int CInSiliScopeCamera::Initialize()
       CreateFloatProperty("Test_LiveRenderMs", 0.0, true, pAct);
       pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnLivePrefetchMs);
       CreateStringProperty("Test_LivePrefetchMs", "0/0", true, pAct);
+      // The sample drift of the last frame taken ("x y z", nm).
+      pAct = new CPropertyAction(this, &CInSiliScopeCamera::OnDriftNm);
+      CreateStringProperty("Test_DriftNm", "0 0 0", true, pAct);
       // The phase profile (Simulation/Timing.h; tools/bench_live.py --profile):
       // collecting On starts afresh, WriteTo writes the phases since then as
       // JSON to the given file and starts afresh again.
@@ -423,25 +427,20 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    seqStartClock_ = std::chrono::steady_clock::now();
    seqIntervalMs_ = std::max(0.0, interval_ms);
 
-   // A fresh Live/MDA acquisition restarts the drift from zero rather than
-   // continuing wherever the previous acquisition left off.
-   // An armed z sequence (hardware z stack) restarts at its first position;
+   // The drift continues from where the sample is (it is the sample's, not
+   // the acquisition's). An armed z sequence (hardware z stack) restarts at its first position;
    // the camera steps it one position per frame.
    const sim::SharedStageState::ZSequence zseq = Stg().GetZSequence();
    liveSeqEpoch_ = Stg().BeginSequenceAcquisition();
    // Live: the first frame is one started from here (the pose, focus and
-   // settings of this moment).
-   liveSeqStartTicks_ = sim::SharedStageState::Clock::now().time_since_epoch().count();
+   // settings of this moment); the producer counts a frame as the
+   // acquisition's (the sample's time, its light) when capturing and started
+   // after this instant (no start in between: never a frame counted early).
+   liveSeqStartTicks_ = std::numeric_limits<long long>::max();
    liveSeqSkipStale_ = zseq.armed;
    liveSeqCapture_ = true;
-   if (acqMode_ == SMLM_MODE_LIVE)
-   {
-      // The producer restarts the drift at the start of its next frame (a
-      // frame already in flight was rendered with the old origin and is
-      // skipped by the sequence).
-      ++liveDriftRestart_;
-   }
-   else
+   liveSeqStartTicks_ = sim::SharedStageState::Clock::now().time_since_epoch().count();
+   if (acqMode_ != SMLM_MODE_LIVE)
    {
       // A precomputed stack made for another (or no) z sequence is remade
       // for this one: frame f at position f mod n.

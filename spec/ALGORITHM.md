@@ -587,14 +587,32 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   (plus the primed term).
 - **Movies start at 60 s** (`start-sec`), past the dSTORM initial ON phase: the default movie shows the steady state
   without the user knowing about initial ON. The windowed schedules make the late start free.
-- **The adapter's illumination history is a per-place clock, not a dose map per population.** Every mode's kinetics
-  are functions of time under the light, so one map of lit seconds (0.25 um tiles) serves bleaching, photoconversion and
-  dSTORM depletion alike, and the dyes stay address-based (a dye's schedule is still a pure function of its address,
-  read at its place's clock). Light counts when a frame is *taken* (snap, sequence), not when the live loop renders one,
-  so an idle Micro-Manager bleaches nothing. All lit columns advance by the same exposure, so a mean-field population's
-  per-column weights only scale from frame to frame (the scene's one-channel fast path); the lit rect is 0.5 um wider
-  than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge columns keep their
-  clock and every frame re-convolves).
+- **The adapter's illumination history is a per-place clock with a rate history, not a dose map per population**
+  (2026-10-08). Every mode's kinetics are functions of time under the light, so one map of lit seconds (0.25 um tiles)
+  serves bleaching, photoconversion and dSTORM depletion alike, and the dyes stay address-based. Each tile also keeps
+  its past as segments of lit time, each in an *epoch* (the light path's and labels' kinetic inputs then: lasers,
+  excitation filter, dichroic, imager concentration, dye overrides), interned in a trie of (parent, tStart, epoch) so
+  tiles with the same past share one node. The core (ABI 11, `isc_world_set_kinetics_history`) then walks each dye's
+  hazards piecewise: the *same* exponential draws, consumed segment by segment (activation `t + E/a_i` while it lands in
+  segment i, else `E -= a_i (s_{i+1} - t)`; ON/OFF/initial ON the same in scale form; the blink cycle keeps the old
+  `t += on + off` arithmetic when both end in one segment). Why: re-reading the whole past at the current rates (the old
+  per-place clock with today's label) made every change act backwards -- PALM with the 405 off emptied the field at
+  once (no dye had ever been activated at the new rate), a power step jumped to the look after T seconds at the new
+  power. With the walk, every event before a new boundary is bit-identical to the schedule without it (the past is
+  unchanged) and the future follows the new rates; one segment is today's code bit for bit, so fresh devices and the
+  cli/viewer are unchanged. DNA-PAINT changes per 1 s bin (the segment holding the bin's start), so bins already shown
+  never change. A dye block keeps up to 16 schedule slots keyed by the history's fingerprint, so two clock regions with
+  different pasts do not rebuild each other every frame; a label change of the kinetics alone keeps them. Lit time stays
+  the clock variable, so light-independent processes (DNA-PAINT binding, PALM spontaneous activation, dark times) run
+  only while lit (*estimate*-level simplification, documented). A change of dye or mode re-reads the past light for the
+  new dye (the epochs' light with the current dye), since the old dye's states mean nothing to the new one. Light counts
+  when a frame is *published* if it lights the sample (shutter open, power at the sample, and an acquisition takes it or
+  `SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter), so the next frame always sees it; a snap outside
+  those counts at its take. All lit columns advance by the same exposure, so a mean-field population's per-column
+  weights only scale from frame to frame (the scene's one-channel fast path); the lit rect follows the drifted pose and
+  is 0.5 um wider than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge
+  columns keep their clock and every frame re-convolves). Populations with a history: survival `exp(-sum lambda_i
+  Delta_i)`, the mean-field column weight `rate S (1 - exp(-lambda exp)) / lambda` at the current lambda.
 - **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
   illuminated chamber height. Documented as such rather than modelled half-way.
 

@@ -158,6 +158,7 @@ The mounted specimen; drift and background of the sample.
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
 | `DriftPreset` | Basic | Off | `Off`, `Low`, `Medium`, `High`, `Extreme`, `Custom` | How much the sample drifts: sets the xy and z drift speeds (0, 2, 5, 25, 250 nm/s) and random walks (0, 0.4, 1, 5, 50 nm/sqrt s). Custom = as set. |
+| `TimeWhileIdle` | Basic | Running | `Running`, `Paused` | Between acquisitions: Running = the sample drifts on and an opened lasers' shutter keeps lighting it (bleaching, activating); Paused = nothing changes until the next frame is acquired. |
 | `DriftXySpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in xy, mean speed (nm/s). |
 | `DriftZSpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in z, mean speed (nm/s); its direction: DriftZDirection. |
 | `DriftXyNmPerSqrtSec` | Advanced | 0 | 0 .. 200 | Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis. |
@@ -309,6 +310,7 @@ by `Detail`: the precomputed, seeded stack the reproducibility checks use, and t
 | Device | Property | Description |
 |---|---|---|
 | `Camera` | `Test_AcqMode` |  |
+| `Camera` | `Test_DriftNm` |  |
 | `Camera` | `Test_EndOfStackReached` |  |
 | `Camera` | `Test_GenerateStack` |  |
 | `Camera` | `Test_LivePrefetchMs` |  |

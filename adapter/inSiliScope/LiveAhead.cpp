@@ -146,6 +146,7 @@ void CInSiliScopeCamera::LiveAheadLoop()
       if (job.useGpu)
          gpuLock.lock();
       sim::FluorescenceMovie fm;
+      fm.CarryRunningImages(true);
       if (!fm.Begin(job.spec, false, out.err, job.useGpu ? WideFieldGpu(liveGpu_.wf, liveGpu_.wfTried) : nullptr,
                     &job.clock))
          return;

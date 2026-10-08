@@ -162,8 +162,15 @@ struct SceneState
    std::atomic<bool> epiOpen{true};
    std::atomic<bool> transOpen{false};
    std::atomic<long> lightVersion{0};
+   // The lasers' shutter was opened or closed through its device (by hand or
+   // the autoshutter) since it loaded: only then does an open shutter light
+   // the sample between acquisitions (TimeWhileIdle Running).
+   std::atomic<bool> epiExplicit{false};
 
    // ---- sample holder ----
+   // Between acquisitions the sample's time runs (0: drift, and light through
+   // an opened lasers' shutter) or stands still (1: Paused).
+   std::atomic<int> timeWhileIdle{0};
    std::atomic<double> backgroundPhotonsPerSec{0.0};
    std::atomic<double> bgDecaySec{0.0};
    std::atomic<double> driftXyNmPerSqrtSec{0.0};

@@ -118,7 +118,9 @@ def _drift_checks(core, cam, xy, x0, y0):
     in ctest drift / brightfield and scope_parity):
     - Precomputed (Fluorescence): frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
       seed's drift path, the path the cli and viewer take (_drift_nm).
-    - Live, each modality: frame 9 of a sequence acquisition moves by the same path as the stacks' frame 9."""
+    - Live, each modality: the drift is the sample's (TimeWhileIdle Paused here, so it moves only while frames are
+      acquired): the first sequence on a fresh sample follows the seed's path from 0 (Camera.Test_DriftNm per frame),
+      frame 9 moves by it, and the next sequence continues where the last one stopped (no restart at 0)."""
     assert not core.hasProperty("SampleHolder", "DriftNmPerSec"), "DriftNmPerSec should be gone"
     for p, v in (("DriftXyNmPerSqrtSec", 0.0), ("DriftZNmPerSqrtSec", 0.0),
                  ("DriftXySpeedNmPerSec", 0.0), ("DriftZSpeedNmPerSec", 0.0),
@@ -184,27 +186,46 @@ def _drift_checks(core, cam, xy, x0, y0):
             f"{modality}: stack frame {k} moved by ({dy}, {dx}) px, the drift path says {expect}"
         print(f"Drift OK ({modality}, precomputed): frame {k} moved by ({dy}, {dx}) px (path {expect})")
 
-    # Live: a 10-frame sequence acquisition at 200 ms restarts the drift at its first frame, so its frame 9 must move
-    # by the same seed path as the stacks' frame 9 (live = precomputed).
+    # Live: the drift is the sample's. The first sequence on this fresh sample (the drift was off so far) follows the
+    # seed's path from 0, frame by frame (Test_DriftNm, read as each 400 ms frame arrives), and its frame 9 moves by
+    # it; the next sequence continues a few steps on (frames made while the first one stopped), never from 0.
     core.setProperty("Camera", "Test_AcqMode", "Live")
+    long_path = _drift_nm(seed, 4 * (k + 1), exp_ms / 1000.0, sxy, sz)
+    last_index = None
     for modality in ("Fluorescence", "BrightField"):
         setup(modality)
         drift(True)
-        time.sleep(0.5)  # the live scene is built
+        time.sleep(0.5)  # the live scene is built (paused: the sample does not move meanwhile)
         core.startSequenceAcquisition(k + 1, 0, True)
-        frames, t0 = [], time.time()
+        frames, drifts, t0 = [], [], time.time()
         while len(frames) < k + 1:
             if core.getRemainingImageCount() > 0:
                 frames.append(core.popNextImage().astype(np.float64))
+                drifts.append(tuple(float(v) for v in core.getProperty("Camera", "Test_DriftNm").split()))
             elif time.time() - t0 > 120:
                 sys.exit(f"{modality} live drift: sequence timed out")
             else:
                 time.sleep(0.005)
         core.stopSequenceAcquisition()
+        # Where on the seed's path each frame sits.
+        idx = []
+        for d in drifts:
+            hit = [j for j, q in enumerate(long_path) if max(abs(q[a] - d[a]) for a in range(3)) < 1e-3]
+            assert hit, f"{modality} live: drift {d} is not on the seed's path"
+            idx.append(hit[0])
+        assert idx == list(range(idx[0], idx[0] + k + 1)), f"{modality} live: path steps {idx}, expected consecutive"
+        if last_index is None:
+            assert idx[0] == 0, f"{modality} live: the first sequence starts at path step {idx[0]}, expected 0"
+        else:
+            assert last_index < idx[0] <= last_index + 4, \
+                f"{modality} live: the next sequence starts at path step {idx[0]} (the last ended at {last_index})"
+        exp_k = (round((drifts[k][1] - drifts[0][1]) / px), round((drifts[k][0] - drifts[0][0]) / px))
         dy, dx, e = _ls_shift(frames[0], frames[k])
-        assert abs(dy - expect[0]) <= 1 and abs(dx - expect[1]) <= 1, \
-            f"{modality} live: frame {k} of a sequence moved by ({dy}, {dx}) px, the drift path says {expect}"
-        print(f"Drift OK ({modality}, live): sequence frame {k} moved by ({dy}, {dx}) px (path {expect})")
+        assert abs(dy - exp_k[0]) <= 1 and abs(dx - exp_k[1]) <= 1, \
+            f"{modality} live: frame {k} of a sequence moved by ({dy}, {dx}) px, its drift says {exp_k}"
+        print(f"Drift OK ({modality}, live): path steps {idx[0]}..{idx[-1]}, frame {k} moved by ({dy}, {dx}) px "
+              f"(drift {exp_k})")
+        last_index = idx[-1]
 
     drift(False)
     core.setProperty("CellField", "AbsorptionPerUm", "0")

@@ -79,14 +79,33 @@ In a cli or viewer movie the whole sample has been lit since \(t=0\).
 
 ## Illumination history (Micro-Manager adapter)
 
-The adapter remembers how long each place has been lit: seconds of illumination per 0.25 um tile of the world, weighted
-by the illumination profile (in 1/16 steps). Every dye's schedule is read at its tile's clock, so imaging bleaches,
-photoconverts and uses up dyes only where the light fell: bleach a region, move away and come back, and it is still
-dim; a place never lit starts at clock 0 (dSTORM dyes in their initial ON phase, PALM proteins unconverted, WideField
-dyes unbleached). A live frame lights the FOV and its 2 um margin for one exposure when it is taken (a snap or a
-sequence acquisition; an idle live loop lights nothing). A snap takes a frame started after it was called, a sequence
-acquisition frames started after it began, so the first frame after a stage move shows the new place and each snap's
-clocks include the light of the one before; a stack reads the history and adds its whole duration (so a
-stack is reproducible only on a freshly loaded device). Clocks are in seconds at the light path's current settings: a
-later change of laser power does not rescale the time already accumulated. The history is cleared when the world
-changes (seed, cell parameters). Precision: tile 0.25 um; the lit rect is the stage pose's, drift is not followed.
+The adapter remembers how long each place has been lit and under which settings. Each 0.25 um tile of the world keeps
+its seconds of illumination (weighted by the illumination profile, in 1/16 steps) and its **rate history**: the lit
+time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
+dichroic, imager concentration, the dye's kinetic overrides). Every dye's schedule is read at its tile's clock through
+that history, with the same random draws whatever the history, so a change acts **from now on**: the past stays as it
+was and the future follows the new rates.
+
+- Bleach a region, move away and come back: it is still dim. A place never lit starts at clock 0 (dSTORM dyes in their
+  initial ON phase, PALM proteins unconverted, WideField dyes unbleached).
+- PALM, 405 nm off: the proteins converted so far blink on until they bleach, no new ones follow; 405 nm up: the
+  density of blinking dyes rises over the activation time instead of jumping.
+- More (or less) laser power in dSTORM or WideField: the field continues from its present state at the new rates
+  (WideField x4 power: the next frame is ~4x as bright, the dyes bleached so far stay bleached).
+- DNA-PAINT: a change of imager concentration acts from the next 1 s binding bin; bins already shown never change.
+- Another dye or mode for a structure: the past light is re-read for the new dye (the new dye as it would be under the
+  light the place has had).
+
+The clock is lit time, so processes that need no light (DNA-PAINT binding, PALM spontaneous activation, dark times)
+also advance only while the place is lit.
+
+A frame lights the FOV and its 2 um margin for one exposure when the lasers' shutter is open, the light path carries
+power to the sample, and the frame is acquired (a snap or a sequence acquisition) or, with
+`SampleHolder.TimeWhileIdle` = `Running` (the default), the shutter was opened by hand (Live off with the shutter open
+still lights the sample, as on a real microscope; with autoshutter, the shutter is closed between acquisitions).
+`Paused` stops the sample's time between acquisitions: no light, no drift. A snap takes a frame started after it was
+called, a sequence acquisition frames started after it began, so the first frame after a stage move shows the new
+place. The lit area follows the sample drift ([Camera](camera.md#drift)), and the background fade reads the
+clock at the FOV centre. A stack reads the history once at its first frame and adds its frames along its own seeded
+drift path (so a stack is reproducible only on a freshly loaded device). The history is cleared when the world changes
+(seed, cell parameters). Precision: tile 0.25 um.

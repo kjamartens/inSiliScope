@@ -110,6 +110,12 @@ public:
    // cached.
    bool Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs);
 
+   // The kinetics history of the following Events / Continuous / Prefetch
+   // (isc_world_set_kinetics_history, ABI 11: nSeg rows of ISC_KIN_ROW
+   // doubles; 0 = none, each label's kinetics from t = 0). A host that sets
+   // one sets it before every query (the world is shared). False on bad rows.
+   bool SetKineticsHistory(const double* rows, int nSeg);
+
    // Fluorescent-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
    // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], of the structures in
    // structureMask (bit s = ISC_STRUCT_s; isc_density3d_in_window). Returns

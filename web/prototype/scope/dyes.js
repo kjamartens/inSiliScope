@@ -215,44 +215,139 @@ export function dyeSchedule(h1, k, n, kin, out = [], tMax = Infinity) {
   return out;
 }
 
+// A kinetics history (ABI 11, core dyes.h KineticsHistory): {tStart: [0, ...], kin: [kinetics per segment]}; segment
+// i holds from tStart[i] to tStart[i+1], the last for ever. A schedule under a history spends each state's
+// unit-exponential draw as the integral of that state's rate over the segments: the same draws give the same past,
+// and a change of rates acts from its segment on. One segment = its kinetics from t = 0 (the code without history).
+export function kineticsSegmentAt(h, t) {
+  let lo = 0, hi = h.tStart.length;
+  while (hi - lo > 1) { const mid = (lo + hi) >>> 1; if (h.tStart[mid] <= t) lo = mid; else hi = mid; }
+  return lo;
+}
+
+// The C++ HazardWalk: draws spent over the segments in a dye's local time (absolute - t0); within one segment the
+// single-segment arithmetic (tau + E / rate, tau + E x scale).
+class HazardWalk {
+  constructor(h, t0) { this.h = h; this.t0 = t0; this.i = 0; }
+  end(s) { return s + 1 < this.h.tStart.length ? this.h.tStart[s + 1] - this.t0 : Infinity; }
+  sync(tau) {
+    while (this.i + 1 < this.h.tStart.length && this.h.tStart[this.i + 1] - this.t0 <= tau) this.i++;
+    return this.i;
+  }
+  afterRate(tau, E, rateOf) {
+    for (let s = this.sync(tau); ; s++) {
+      const a = rateOf(this.h.kin[s]), end = this.end(s);
+      if (a > 0) {
+        const t = tau + E / a;
+        if (!(t >= end)) return t;
+        E = Math.max(0.0, E - a * (end - tau));
+      } else if (end === Infinity) return Infinity;
+      tau = end;
+    }
+  }
+  afterScale(tau, E, scaleOf) {
+    for (let s = this.sync(tau); ; s++) {
+      const sc = scaleOf(this.h.kin[s]), end = this.end(s);
+      if (!(sc > 0)) return tau;
+      const t = tau + E * sc;
+      if (!(t >= end)) return t;
+      E = Math.max(0.0, E - (end - tau) / sc);
+      tau = end;
+    }
+  }
+}
+const rateAct = q => q.activationRatePerSec;
+const scaleOn = q => q.onSec, scaleOff = q => q.offSec, scaleInitialOn = q => q.initialOnSec;
+
+// dyeSchedule under a history of two or more segments, in local time (absolute - t0): a blink cycle that ends in the
+// segment it started in uses dyeSchedule's arithmetic, so the blinks before a later segment's start are unchanged by
+// it. Bleach with the probability of the segment the ON ended in; brightness CV of the segment it started in.
+export function dyeScheduleHistory(h1, k, n, h, t0, out = [], tMax = Infinity) {
+  const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
+  const w = new HazardWalk(h, t0);
+  let t = w.afterRate(0.0, -Math.log(U(DYE_CH.ACT)), rateAct);
+  for (let j = 0; j < DYE_MAX_BLINKS; j++) {
+    if (t >= tMax) break;
+    const base = DYE_CH.SCHED0 + j * DYE_CH.SCHED_STRIDE;
+    const seg = w.sync(t), q = h.kin[seg], end = w.end(seg);
+    const eOn = -Math.log(U(base + DYE_CH.ON));
+    const on = eOn * q.onSec;
+    let b = 1;
+    const cv = Math.max(0.0, q.photonCV);
+    if (cv > 0) {
+      const u1 = U(base + DYE_CH.BRIGHT1);
+      const u2 = U(base + DYE_CH.BRIGHT2);
+      b = logNormalMean1(cv, u1, u2);
+    }
+    const onInSeg = !(t + on >= end);
+    const tOff = onInSeg ? t + on : w.afterScale(t, eOn, scaleOn);
+    out.push({ tOn: t, tOff, brightness: b });
+    const pBleach = Math.min(1.0, Math.max(0.01, h.kin[w.sync(tOff)].bleachProb));
+    if (U(base + DYE_CH.BLEACH) < pBleach) break;
+    const eOff = -Math.log(U(base + DYE_CH.OFF));
+    const off = eOff * q.offSec;
+    if (onInSeg && !(t + (on + off) >= end)) t += on + off;
+    else t = w.afterScale(tOff, eOff, scaleOff);
+  }
+  return out;
+}
+
+function binKinetics(kin) {
+  const rate = kin.activationRatePerSec, m = rate * PERSIST_BIN_SEC, small = m <= 30;
+  return { rate, onSec: kin.onSec, cv: Math.max(0.0, kin.photonCV), maxOn: PERSIST_ON_CAP * kin.onSec, m, small,
+    expM: small ? Math.exp(-m) : 0.0 };
+}
+
 // Blinks of persistent site (k, n) starting in time bins [b0, b1] that keep(tOn, on) accepts, in (bin, j)
-// order: emit(bin, j, tOn, on, brightness). Addressed per (site, bin, j).
-export function persistentGen(h1, k, n, kin, b0, b1, keep, emit) {
-  const rate = kin.activationRatePerSec;
-  if (!(rate > 0)) return;
+// order: emit(bin, j, tOn, on, brightness). Addressed per (site, bin, j). hist (two or more segments): each bin takes
+// the kinetics of the segment holding its start, so a change acts from the next bin and earlier bins never change.
+export function persistentGen(h1, k, n, kin, b0, b1, keep, emit, hist = null) {
+  const multi = hist && hist.tStart.length >= 2 ? hist : null;
+  const one = hist && hist.tStart.length === 1 ? hist.kin[0] : kin;
+  if (!multi && !(one.activationRatePerSec > 0)) return;
   const key = pcgA(h1, k >>> 0, n >>> 0, DYE_CH.PERSIST);
   const U = (bin, j, ch) => unit(pcgA(key, bin >>> 0, j >>> 0, ch));
   const COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5;
-  const cv = Math.max(0.0, kin.photonCV);
-  const maxOn = PERSIST_ON_CAP * kin.onSec;
-  const m = rate * PERSIST_BIN_SEC;
-  const small = m <= 30;
-  const expM = small ? Math.exp(-m) : 0.0;
+  let seg = multi ? kineticsSegmentAt(multi, Math.max(0, b0) * PERSIST_BIN_SEC) : 0;
+  let p = binKinetics(multi ? multi.kin[seg] : one);
   for (let b = Math.max(0, b0); b <= b1; b++) {
-    const c = small ? poissonInverse(m, expM, U(b, 0, COUNT)) : poissonFromUniform(m, U(b, 0, COUNT), U(b, 0, COUNT2));
+    if (multi) {
+      const s = kineticsSegmentAt(multi, b * PERSIST_BIN_SEC);
+      if (s !== seg) { seg = s; p = binKinetics(multi.kin[s]); }
+      if (!(p.rate > 0)) continue;
+    }
+    const c = p.small ? poissonInverse(p.m, p.expM, U(b, 0, COUNT)) : poissonFromUniform(p.m, U(b, 0, COUNT), U(b, 0, COUNT2));
     for (let j = 0; j < c; j++) {
       const tOn = (b + U(b, j, START)) * PERSIST_BIN_SEC;
-      const on = Math.min(maxOn, -Math.log(U(b, j, ON)) * kin.onSec);
+      const on = Math.min(p.maxOn, -Math.log(U(b, j, ON)) * p.onSec);
       if (!keep(tOn, on)) continue;
       let br = 1;
-      if (cv > 0) {
+      if (p.cv > 0) {
         const u1 = U(b, j, BRIGHT1);
         const u2 = U(b, j, BRIGHT2);
-        br = logNormalMean1(cv, u1, u2);
+        br = logNormalMean1(p.cv, u1, u2);
       }
       emit(b, j, tOn, on, br);
     }
   }
 }
 
+// The longest persistent ON under kin / hist (PERSIST_ON_CAP x the largest onSec): a window query's lookback.
+export function persistentMaxOn(kin, hist = null) {
+  if (!hist || !hist.tStart.length) return PERSIST_ON_CAP * kin.onSec;
+  let m = 0;
+  for (const q of hist.kin) m = Math.max(m, PERSIST_ON_CAP * q.onSec);
+  return m;
+}
+
 // Blinks of persistent site (k, n) overlapping [t0, t1).
-export function persistentBlinks(h1, k, n, kin, t0, t1, out = []) {
+export function persistentBlinks(h1, k, n, kin, t0, t1, out = [], hist = null) {
   if (!(t1 > t0)) return out;
-  const maxOn = PERSIST_ON_CAP * kin.onSec;
+  const maxOn = persistentMaxOn(kin, hist);
   const b0 = Math.max(0, Math.floor((t0 - maxOn) / PERSIST_BIN_SEC));
   const b1 = Math.floor(t1 / PERSIST_BIN_SEC);
   persistentGen(h1, k, n, kin, b0, b1, (tOn, on) => tOn < t1 && tOn + on > t0,
-    (bin, j, tOn, on, br) => out.push({ tOn, tOff: tOn + on, brightness: br }));
+    (bin, j, tOn, on, br) => out.push({ tOn, tOff: tOn + on, brightness: br }), hist);
   return out;
 }
 
@@ -264,8 +359,12 @@ export function persistentBlinks(h1, k, n, kin, t0, t1, out = []) {
 // dSTORM: ON from 0 for Exp(initialOnSec) (none at 0), then dyeSchedule shifted to start there. PALM: dyeSchedule;
 // its pre window ends at the first blink (never, at activation rate 0). Pure functions of the address.
 // blinks / continuous: null to skip that list. tMax: blinks starting before it only (dyeSchedule).
-export function labelSchedule(h1, k, n, label, blinks = [], continuous = [], tMax = Infinity) {
-  const kin = label.kinetics;
+// hist (ABI 11): the kinetics per segment of the clock (null: label.kinetics from t = 0; one segment: its kinetics,
+// the same code). dSTORM under a history: the initial ON spends its draw over 1 / initialOnSec per segment (there is
+// one iff segment 0 has initialOnSec > 0); PALM: the pre window ends at the first activation of dyeScheduleHistory.
+export function labelSchedule(h1, k, n, label, blinks = [], continuous = [], tMax = Infinity, hist = null) {
+  const multi = hist && hist.tStart.length >= 2 ? hist : null;
+  const kin = hist && hist.tStart.length === 1 ? hist.kin[0] : label.kinetics;
   const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
   const aux = () => -Math.log(U(DYE_CH.AUX));
   if (label.mode === 'WideField') {
@@ -273,17 +372,25 @@ export function labelSchedule(h1, k, n, label, blinks = [], continuous = [], tMa
     return { blinks, continuous };
   }
   if (label.mode === 'DNA-PAINT') return { blinks, continuous };
-  const shift = label.mode === 'dSTORM' && kin.initialOnSec > 0 ? -Math.log(U(DYE_CH.INIT_ON)) * kin.initialOnSec : 0;
+  let shift = 0;
+  if (label.mode === 'dSTORM') {
+    if (!multi && kin.initialOnSec > 0) shift = -Math.log(U(DYE_CH.INIT_ON)) * kin.initialOnSec;
+    else if (multi && multi.kin[0].initialOnSec > 0)
+      shift = new HazardWalk(multi, 0.0).afterScale(0.0, -Math.log(U(DYE_CH.INIT_ON)), scaleInitialOn);
+  }
   if (continuous && shift) continuous.push({ tOn: 0, tOff: shift, state: EVENT_STATE.INITIAL_ON, aux: 0 });
   if (blinks) {
     const first = blinks.length;
-    dyeSchedule(h1, k, n, kin, blinks, tMax - shift);
+    if (multi) dyeScheduleHistory(h1, k, n, multi, shift, blinks, tMax - shift);
+    else dyeSchedule(h1, k, n, kin, blinks, tMax - shift);
     if (shift) for (let i = first; i < blinks.length; i++) { blinks[i].tOn += shift; blinks[i].tOff += shift; }
   }
   // The pre state lasts until the first activation: dyeSchedule's first blink time, the ACT draw.
-  if (continuous && label.mode === 'PALM' && label.preState)
-    continuous.push({ tOn: 0, tOff: kin.activationRatePerSec > 0 ? -Math.log(U(DYE_CH.ACT)) / kin.activationRatePerSec : Infinity,
-      state: EVENT_STATE.PRE, aux: aux() });
+  if (continuous && label.mode === 'PALM' && label.preState) {
+    const tOff = multi ? new HazardWalk(multi, 0.0).afterRate(0.0, -Math.log(U(DYE_CH.ACT)), rateAct)
+      : kin.activationRatePerSec > 0 ? -Math.log(U(DYE_CH.ACT)) / kin.activationRatePerSec : Infinity;
+    continuous.push({ tOn: 0, tOff, state: EVENT_STATE.PRE, aux: aux() });
+  }
   return { blinks, continuous };
 }
 
