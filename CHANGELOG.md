@@ -60,6 +60,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
 - **seed** The default DNA-PAINT imager concentration is 1 nM (was 1.43; `mt-imager-nm`, MM
   `CellField.Microtubules_ImagerNm`; an estimate): about as many emitters per frame as the dSTORM and PALM typical
   labels (~290 per 20 ms frame of a dense 256 px field each; it was ~550).
+- The `Objective` turret no longer offers `20x/0.75 Air` (2026-10-08): a 20x field asks too much of the renderer for now
+  (the shipped configs lose its `Objective` preset and pixel sizes). `Custom` NA, immersion and magnification still work.
 - **seed** **Blink PSFs are cut where their light is negligible** (2026-10-07; docs/physics/optics.md): a dSTORM, PALM or
   DNA-PAINT blink's splat leaves out every camera pixel that would get less than `psf-halo-cut` of its photons (MM
   `Renderer.PsfHaloCut`), set by `Renderer.Quality`: Fast 1e-5, **Realistic 3e-6 (the default)**, Exhaustive 0 (the

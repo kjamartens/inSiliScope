@@ -54,7 +54,10 @@ const ObjectiveSpec kObjectives[] = {
    { "100x/1.49 Oil TIRF", 100, 1.49, 1.518 },
    { "60x/1.42 Oil", 60, 1.42, 1.518 },
    { "60x/1.20 Water", 60, 1.20, 1.333 },
-   { "20x/0.75 Air", 20, 0.75, 1.0 },
+   // Hidden for now (2026-10-08): a 20x field asks too much of the renderer
+   // (many cells and dyes per frame, slow live BrightField focusing). Put it
+   // back here; tools/gen_mm_configs.py picks the positions up from the DLL.
+   // { "20x/0.75 Air", 20, 0.75, 1.0 },
 };
 constexpr int kObjectiveCount = static_cast<int>(sizeof(kObjectives) / sizeof(kObjectives[0]));
 
