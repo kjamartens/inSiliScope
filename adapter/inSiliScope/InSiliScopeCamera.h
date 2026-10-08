@@ -33,6 +33,7 @@
 #include "ImgBuffer.h"
 #include "Simulation/BrightfieldRender.h"
 #include "Simulation/CellFieldSource.h"
+#include "Simulation/Drift.h"
 #include "Simulation/GpuSimD3D11.h"
 #include "Simulation/IlluminationHistory.h"
 #include "Simulation/ScopeMovie.h"
@@ -117,6 +118,7 @@ public:
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnLiveRenderMs(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnLivePrefetchMs(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnDriftNm(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnProfileCollect(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnProfileWriteTo(MM::PropertyBase* pProp, MM::ActionType eAct);
    // Test rows (ISC_TEST=1): the precomputed stack.
@@ -146,7 +148,8 @@ private:
    // takes the nearest FOV pixel); empty for the flat profile.
    std::function<double(double, double)> HistoryWeight(const sim::StackShapingFields& shaping, double stageXUm,
                                                        double stageYUm) const;
-   // Clears the history when the world (seed, cells, packing) changed.
+   // Clears the history (and the sample's drift) when the world (seed, cells,
+   // packing) changed.
    void SyncHistoryWorld();
    // BrightField precomputed stack: one image per distinct focus, times the
    // lamp flux, camera noise per frame; Z is read per batch of frames.
@@ -220,7 +223,8 @@ private:
       unsigned w = 0, h = 0;
       double zOffsetUm = 0.0;
       std::shared_ptr<const LiveStatics> statics;
-      std::vector<double> fadeSec;  // per frame: the background fade's elapsed time
+      std::vector<double> fadeSec;  // per frame: the background fade's elapsed time (the lit clock)
+      uint32_t epoch = 0;           // the rates its frames are lit with
       double decaySec = 0.0;
       uint32_t noiseSeed = 0, noiseBase = 0;
       bool useGpu = false;
@@ -350,9 +354,16 @@ private:
    // change or a shutter switch skips frames rendered with the old settings.
    long liveFrameConfig_ = 0;
    long liveFrameLight_ = 0;
-   // Drift restarts asked for (a Live/MDA sequence start): the producer
-   // applies a restart at the start of its next frame (that frame has drift 0).
-   std::atomic<long> liveDriftRestart_{0};
+   // The sample's drift (Simulation/Drift.h): one walker for the session,
+   // stepped by the producer -- every frame while SampleHolder.TimeWhileIdle
+   // is Running, else only the frames of an acquisition -- so it continues
+   // across Live stop/start; reset with the world (SyncHistoryWorld). The
+   // precomputed stack keeps its own seeded path from 0.
+   sim::DriftWalker driftWalker_;
+   std::atomic<long> driftWorldResets_{0};
+   long driftResetApplied_ = -1;
+   // The drift of the last frame taken (Camera.Test_DriftNm), nm.
+   std::atomic<double> takenDriftNm_[3] = {};
    // When the frame in the front buffer started (under frontFrameLock_): its
    // stage pose, focus, settings and illumination clocks were read after this.
    // A snap takes only a frame started after the snap was called, a sequence
@@ -362,15 +373,20 @@ private:
    // When the front frame was published (its age when taken: mm.frame-age).
    sim::SharedStageState::Clock::time_point liveFramePublished_{};
    std::atomic<long long> liveSeqStartTicks_{0};
-   // The light a live frame shone (under frontFrameLock_): its lit rect, its
-   // exposure and the profile's dose weight. It goes into the illumination
-   // history only when the frame is taken (a snap or a sequence acquisition);
-   // frames rendered while nothing acquires bleach nothing.
+   // The light a live frame shone (under frontFrameLock_): its lit rect (the
+   // drifted FOV: the light follows the sample), its exposure, the profile's
+   // dose weight and the epoch (the rates it was lit with). It goes into the
+   // illumination history when the frame is published if it lights the
+   // sample then (an acquisition's frame, or TimeWhileIdle Running with the
+   // lasers' shutter opened on purpose; light reaching the sample), else when
+   // a snap takes it (counted: already in). Also the frame's drift.
    struct LitFrame
    {
-      bool valid = false;
+      bool valid = false, counted = false;
       double x0 = 0, y0 = 0, x1 = 0, y1 = 0, dtSec = 0;
       std::function<double(double, double)> weight;
+      uint32_t epoch = 0;
+      double driftNm[3] = { 0, 0, 0 };
    };
    LitFrame liveFrameLit_;
    // The z sequence the precomputed stack was made for (-1: none).
@@ -400,11 +416,7 @@ private:
    // The longest prefetch in the producer's spare time since the last read,
    // and its budget, ms (Test_LivePrefetchMs: "longest/budget").
    std::atomic<double> livePrefetchMaxMs_{0.0}, livePrefetchBudgetMs_{0.0};
-   std::mt19937_64 liveRng_;
    std::atomic<long> liveFrameCounter_{0};
-   // Value of liveFrameCounter_ at the start of the current drift path
-   // (reset in StartLiveProducer() and at every Live/MDA sequence start).
-   std::atomic<long> liveDriftOriginFrame_{0};
    // Bumped by InvalidateStack(); LiveProducerLoop compares against its own
    // last-applied value each tick to know when to rebuild its cached state.
    std::atomic<long> liveConfigVersion_{0};

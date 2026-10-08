@@ -30,6 +30,10 @@ for dSTORM, PALM and DNA-PAINT, 0.1 e⁻/ADU (EM gain 10) for WideField and Brig
 16-bit output (*estimates*). A mode or modality change re-applies it (viewer and Micro-Manager); the cli picks it from
 the spec's mode and modality unless `gain` is given.
 
+The per-pixel maps (offset, gain and read-noise spreads) are a pure function of the seed and the camera settings, so
+the same camera keeps the same fixed pattern in live mode and in a stack, whatever else changes (since 2026-10-08; live
+mode redrew them on every property change before).
+
 Noise draws are counter-based (`pcg4d`), so frames are independent and the CPU and GPU paths agree except for float32 rounding
 (at least 99.8% of pixels identical; the rest differ by one electron in a Poisson draw). Two draws from one sequential stream
 are never put in one C++ expression (evaluation order is unspecified); this once made the sCMOS noise non-reproducible across
@@ -39,7 +43,9 @@ rebuilds.
 
 A flat background (`SampleHolder.BackgroundPhotonsPerSec`) multiplies an illumination field and fades with time:
 
-- **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`SampleHolder.BackgroundDecaySec`);
+- **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`SampleHolder.BackgroundDecaySec`); \(t\) is the movie's time, in
+  Micro-Manager the lit clock at the FOV centre ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter):
+  one value per frame, the fade does not vary across the FOV);
 - **illumination** (Micro-Manager adapter): a peak-normalised profile (`Lasers.IlluminationProfile`,
   `Lasers.IlluminationFwhmPct`) multiplies background and blinks.
 
@@ -113,9 +119,15 @@ the papers' wording; advanced, "jitter" in the viewer). x and y each get \(\sigm
 to 0. A stable setup (optical table, active isolation, constant temperature) drifts a few nm/s.
 
 - The draws are counter-based per (seed, frame) on a stream of their own, so a precomputed stack, live mode, the cli, the
-  viewer and webSMLM's `CellField.driftTrajectory` follow the same path for one seed, and no other draw moves. The drift
-  starts at zero at each acquisition (the movie's first frame; every Live/MDA start in Micro-Manager) and is constant
-  within a frame (motion during the exposure is ignored).
+  viewer and webSMLM's `CellField.driftTrajectory` follow the same path for one seed, and no other draw moves. A movie's
+  (and a precomputed stack's) drift starts at zero at its first frame and is constant within a frame (motion during the
+  exposure is ignored).
+- In Micro-Manager's live mode the drift is the sample's: it starts at zero when the world is made (device load, seed or
+  cell parameters) and **continues** across Live/MDA stops and starts (since 2026-10-08; it restarted at zero before).
+  The first acquisition on a fresh sample follows the seed's path step by step. Between acquisitions
+  `SampleHolder.TimeWhileIdle` decides: `Running` (default) keeps the sample drifting at the wall-clock rate (steps of at
+  most 10 s), `Paused` holds it still. Switching the drift off keeps the sample where it is. `Camera.Test_DriftNm` (Test
+  tier) reports the drift of the last frame taken.
 - The drift is the sample's displacement in camera axes, +z away from the coverslip: the focal plane sits \(d_z\) lower
   in the sample.
 - **Blinks and per-dye emitters** (dSTORM, PALM, DNA-PAINT; WideField labels drawn per dye): every emitter is drawn at

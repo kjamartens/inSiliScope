@@ -183,21 +183,47 @@ struct FluorescenceFrameOptions
    bool populationsOnly = false;
 };
 
+// The inputs a dye's rates depend on (ScopeKineticEnv): the options of the
+// lasers, excitation filter, dichroic, the imager concentrations, and the
+// dyes with their modes and overrides. An epoch of the adapter's
+// illumination history.
+using KineticEnv = ScopeSpec;
+KineticEnv ScopeKineticEnv(const ScopeSpec& spec);
+// The excitation a spec's light path brings to the sample (every laser line
+// through the excitation filter and the dichroic), kW/cm^2; 0 (or a bad
+// spec): it lights nothing.
+double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
+
 // A host's per-region clock (the adapter's illumination history): the
 // seconds of illumination each world position (um) has had before frame 0. A
 // dye's schedule is read at its position's clock instead of start-sec; frame
 // f adds f x exposure everywhere (the whole query rect is lit while the movie
-// runs). Regions: the distinct clocks in a rect, each with the bounding box
-// of the positions that have it.
+// runs). Regions: the distinct (clock, history) pairs in a rect, each with the
+// bounding box of the positions that have it. A history (an id) is the rate
+// past of a position: its segments, each an env from clock tStart on (the
+// first from 0; the last is the movie's own, the frames run in it). None
+// (Segments empty): the movie's env from 0.
+struct ClockSegment
+{
+   double tStart = 0;
+   const KineticEnv* env = nullptr;
+};
 struct ClockRegion
 {
    double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
+   uint32_t history = 0;
 };
 class DyeClock
 {
 public:
    virtual ~DyeClock() = default;
    virtual double At(double xUm, double yUm) const = 0;
+   virtual void KeyAt(double xUm, double yUm, double& tSec, uint32_t& history) const
+   {
+      tSec = At(xUm, yUm);
+      history = 0;
+   }
+   virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };
 
@@ -226,6 +252,12 @@ public:
    // during Begin only).
    bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr,
               const DyeClock* clock = nullptr);
+   // Live (a movie per frame at a host clock): the per-dye populations' running
+   // images carry over to the next movie in this process at the same geometry,
+   // which then splats only the dyes whose windows changed (float rounding may
+   // differ from a fresh build; off by default: stacks stay reproducible).
+   // Call before Begin.
+   void CarryRunningImages(bool on);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.
@@ -245,7 +277,9 @@ private:
 
 // Warms the shared world's caches around the spec's FOV (CellFieldSource::
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
-bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs);
+// clock (optional): the dyes' clock and rate history at the FOV centre
+// instead of start-sec.
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, const DyeClock* clock = nullptr);
 
 // Which lights are on (JS scopeLights): light-epi (the lasers' shutter) and
 // light-trans (the lamp's), each 1 open / 0 closed / -1 from modality

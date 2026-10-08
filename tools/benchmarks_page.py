@@ -47,6 +47,7 @@ DESCRIBE = {
     "fl.make-setup": "camera, light path, labels",
     "fl.configure": "configure the shared cell field",
     "fl.clock-regions": "distinct illumination clocks in the FOV",
+    "fl.history": "the clock regions' rate histories (past light paths and labels)",
     "fl.psf-kernels": "PSF kernels (memo hit, or computed)",
     "fl.events-query": "blink events of the frame from the core",
     "fl.events-sort": "group and bucket the events",

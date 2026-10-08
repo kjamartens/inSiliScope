@@ -38,7 +38,8 @@ def search_paths(require_mm=True):
 
 def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICES, epi=True, trans=False):
     """The hub and its devices (labels = device names), initialized; camera, stages and shutter roles set. The light:
-    the lasers open (fluorescence) unless epi is False, the lamp open if trans; autoshutter off."""
+    the lasers open (fluorescence) unless epi is False, the lamp open if trans; autoshutter off; the sample's time
+    paused between acquisitions (SampleHolder.TimeWhileIdle)."""
     core.loadDevice(HUB, "inSiliScope", "inSiliScope")
     core.setProperty(HUB, "Detail", detail)
     core.setProperty(HUB, "RandomSeed", str(seed))
@@ -55,6 +56,10 @@ def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICE
     if "ZStage" in devices:
         core.setFocusDevice("ZStage")
     core.setAutoShutter(False)
+    # Deterministic checks: the sample's time stands still between acquisitions
+    # (no drift, no light from the opened lasers while nothing acquires).
+    if "SampleHolder" in devices:
+        core.setProperty("SampleHolder", "TimeWhileIdle", "Paused")
     set_light(core, epi, trans)
 
 

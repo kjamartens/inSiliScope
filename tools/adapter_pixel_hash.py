@@ -128,6 +128,10 @@ def load_hub_layout(core, seed):
     core.initializeAllDevices()
     core.setCameraDevice("Camera")
     core.setAutoShutter(False)
+    # The sample's time stands still between acquisitions (else the idle live
+    # loop, with the lasers opened here, would light it before the stack).
+    if core.hasProperty("SampleHolder", "TimeWhileIdle"):
+        core.setProperty("SampleHolder", "TimeWhileIdle", "Paused")
     core.setProperty("Lasers", "State", "1")   # the epi light on (fluorescence)
     core.setPosition("ZStage", 0.0)            # the coverslip in focus (the old layout had no ZStage)
     set_checked(core, "Renderer", "UseGpu", "Off")

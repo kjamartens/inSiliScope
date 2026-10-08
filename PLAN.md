@@ -73,6 +73,11 @@ Upcoming ideas:
   the WideField GPU paths, [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
 - 2026-10-07: [x] drift presets (`SampleHolder.DriftPreset` Off ... Extreme, Basic; the viewer's Drift select; the
   configs' Drift group in every tier), the z drift as a magnitude with a direction, bounded direction/z swings.
+- 2026-10-08: [x] the sample's history in MM: rate history per tile (epochs, core ABI 11
+  `isc_world_set_kinetics_history`, JS twin; a light/label change acts from now on: PALM 405 off keeps the converted
+  dyes, power steps continue from the present state), light counted at publish, lit rect follows the drift, drift
+  continues across Live stops/starts, `SampleHolder.TimeWhileIdle` (Running/Paused), fixed camera pattern maps, live
+  per-dye running images carried across frames; `tools/test_history.py`.
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
   envelope (generic obstacle interface), [x] ported to the core bit-exactly (ABI 9 nucleus rings, optical volume),

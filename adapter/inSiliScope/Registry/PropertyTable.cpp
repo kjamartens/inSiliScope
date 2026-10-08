@@ -619,6 +619,25 @@ std::vector<PropDef> BuildTable()
          d.choices = [](H&) { return DriftPresetNames(); };
          add(d);
       }
+      {
+         static const std::vector<std::string> modes = { "Running", "Paused" };
+         PropDef d = Row(S, "TimeWhileIdle", Tier::Basic, "time-while-idle",
+                         "Between acquisitions: Running = the sample drifts on and an opened lasers' shutter keeps "
+                         "lighting it (bleaching, activating); Paused = nothing changes until the next frame is "
+                         "acquired.");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) { return modes[h.State().timeWhileIdle.load() == 1 ? 1 : 0]; };
+         d.setText = [](H& h, const std::string& s) {
+            const int i = IndexOf(modes, s);
+            if (i < 0)
+               return false;
+            h.State().timeWhileIdle = i;
+            return true;
+         };
+         d.choices = [](H&) { return modes; };
+         d.invalidate = Invalidate::None;   // read by the producer per frame; no image changes
+         add(d);
+      }
       auto custom = [](H& h) { h.ClearDriftPreset(); };
       PropDef dd = Arr(S, "DriftXySpeedNmPerSec", Tier::Advanced, "drift-xy-speed", &SceneState::directedDrift,
                        DD_XY_SPEED, 0, 1000, "Directed sample drift in xy, mean speed (nm/s).");

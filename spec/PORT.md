@@ -771,10 +771,30 @@ mean-field path per scene, `movie-progress` from the WASM); webSMLM block abiVer
 
 **Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties): a `ScopeSpec` from the properties drives
 `FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
-light per 0.25 um tile, a place never lit at 0; a live frame adds its exposure over its lit rect (FOV + 2.5 um) when it
-is taken (a snap takes a frame started after the call, a sequence only frames started after it began: never one in
-flight at the old pose or clocks), a stack its duration after rendering; live renders one movie frame per tick; `General_ImagingModality` =
-Fluorescence | BrightField.
+light per 0.25 um tile, a place never lit at 0; a stack its duration after rendering; live renders one movie frame per
+tick; `General_ImagingModality` = Fluorescence | BrightField.
+
+**Rate history (2026-10-08, core ABI 11).** Each tile also keeps its past as segments of lit time in *epochs*
+(`KineticEnv` = the spec's light keys -- `laser-*`, `light-preset`, `ex-filter`, `ex-lo/hi-nm`, `dichroic`,
+`dichroic-edge-nm`, `*-imager-nm` -- and dye keys -- the modes, dyes and dye overrides; `ScopeKineticEnv`), interned
+per tile in a trie of (parent, tStart, epoch) nodes; `Snapshot(rect, epoch)` interns the node continuing in the frame's
+epoch, `ClockRegion` = (T, node), `DyeClock::KeyAt`/`Segments`. `Begin` turns each region's segments into kinetics rows
+(`EnvSpec`: the current spec with the epoch's light; the epoch's dye keys only if every structure keeps its dye and
+mode, else the current dye under the past light) and sends them with `isc_world_set_kinetics_history(w, rows, nSeg)`
+(row = tStart + `ISC_KIN_COUNT` per structure: activation rate, ON, OFF, bleach probability, photon CV, initial ON;
+nSeg 0 = none) before the region's queries; populations use survival exp(-sum lambda_i Delta_i), the mean-field
+weight rate S (1 - e^{-lambda exp}) / lambda and a walked photon-budget end (`HistBleachEnd`). The core walks the
+hazards per segment with the same draws (`dyes.cpp` `HazardWalk`; one segment = the old code bit for bit), keeps up to
+16 schedules per dye block keyed by the history's fingerprint, and DNA-PAINT bins take the segment of their start. JS
+twin: `world.js setKineticsHistory`, `dyes.js`; checks `label_parity.mjs` (HCASES), ctest
+`world_checks.kinetics_history`, `tools/test_history.py`. Light counts at the producer when a frame is published if it
+lights the sample (the lasers' shutter open, `ScopeSampleIntensityKwCm2` > 0, and a sequence or snap takes it, or
+`SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter, `epiExplicit`), else at a snap's take; the lit rect
+and its weight follow the drifted pose; the background fade reads the lit clock at the FOV centre. Live per-dye
+populations carry their running image across frames (`FluorescenceMovie::CarryRunningImages`, in `MovieCache`): a
+frame splats only the dyes whose windows changed (a state that parks a population just under the mean-field limit,
+e.g. AF647's initial ON kept by non-exciting light, cost seconds per frame without it); a full build splats on row
+bands (bit-identical).
 
 Checks: ctest `world_checks` (label determinism, FLUOR nesting, modes, cache under load, threads), `widefield`
 (`MeanFieldVsPerDye`), `label_parity.mjs`, `scope_parity.mjs` (every mode, PALM pre state, several lasers, per dye and
@@ -792,9 +812,12 @@ is bit for bit the random walk alone. MM `SimType_DriftXySpeedNmPerSec`, `SimTyp
 `SimType_DriftXyAngleDeg`, `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`
 (the speeds everyday, the rest advanced); cli/viewer `drift-xy-speed-nm-per-sec`, `drift-z-speed-nm-per-sec`,
 `drift-xy-angle-deg`, `drift-xy-angle-wander-deg`, `drift-speed-wander-pct`, `drift-wander-time-sec`. Live mode keeps one
-`DriftWalker` (settings may change between frames; the wander state carries on); a Live/MDA sequence start asks the
-producer for a drift restart, applied at the start of its next frame (drift 0), and the sequence skips frames rendered
-before it (`liveDriftRestart_`), so a live sequence follows the stack's path. Checks: ctest `drift` (constant velocity
+`DriftWalker` (settings may change between frames; the wander state carries on). Since 2026-10-08 it is the sample's
+(camera session state): it starts at 0 when the world is made (reset with the illumination history) and continues across
+Live/MDA stops and starts; a frame shows the walker's position, then the walker steps (by the frame time while acquiring;
+between acquisitions by the wall time since the last frame, at most 10 s, if `SampleHolder.TimeWhileIdle` = Running,
+else not). The first sequence on a fresh sample follows the stack's path; `Camera.Test_DriftNm` reports the drift of the
+last frame taken. (It used to restart at 0 on every sequence start, `liveDriftRestart_`.) Checks: ctest `drift` (constant velocity
 exact, uniform random direction, wander RMS and correlation time, z sign, random walk unchanged), `scope_parity` (SR
 directed + wandering), `tools/test_cellfield_stage.py --drift` (its own run; stack: random walk in Fluorescence (an mEGFP WideField
 label); live Fluorescence and BrightField sequences = the stack path), the block check.

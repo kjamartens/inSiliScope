@@ -209,6 +209,13 @@ bool CellFieldSource::Continuous(const CellFieldQuery& q, std::vector<BlinkEvent
    }, out);
 }
 
+bool CellFieldSource::SetKineticsHistory(const double* rows, int nSeg)
+{
+   if (!world_)
+      return nSeg == 0;
+   return isc_world_set_kinetics_history(world_, nSeg > 0 ? rows : nullptr, static_cast<int32_t>(std::max(0, nSeg))) == 0;
+}
+
 bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs)
 {
    if (!world_ || !(budgetMs > 0))

@@ -43,8 +43,8 @@ that finishes them.
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
-- `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
-  JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
+- `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, and ABI 11
+  kinetics histories, C++ = JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
   coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
@@ -99,8 +99,9 @@ that finishes them.
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
-  the same with `--drift` (the sample drift checks), then `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the
-  shipped configs, < 1 min). After a registry change: `python tools/gen_mm_configs.py` and
+  the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
+  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), then `ADAPTER_DIR=<dll dir> python
+  tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
   `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
@@ -236,12 +237,22 @@ sets the labelling to the mode's suggestion and applies the mode's light preset)
 chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the dyes'
 clocks come from the **illumination history** (`Simulation/IlluminationHistory.*`, 2026-10-05): seconds of illumination
 per 0.25 um tile of the world, weighted by the illumination profile (1/16 steps); a place never lit is at clock 0
-(fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). A live frame adds its exposure to its lit
-rect (FOV + 2 um margin + 0.5 um) when it is taken (a snap or a sequence acquisition: an idle live loop bleaches
-nothing; a snap takes only a frame started after the call, a sequence only frames started after it began,
-`liveFrameStart_`); a stack reads the history and then adds its frames (stacks are reproducible only on a fresh device). The
-engine reads each dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a
-mean-field population weighted per grid column in one convolution). Reset on a world change (seed, cell parameters).
+(fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). **Rate history (2026-10-08, core ABI 11,
+spec/PORT.md 16):** each tile keeps its lit time as segments in epochs (`KineticEnv` = the spec's light and dye keys,
+`ScopeKineticEnv`; a per-tile trie of (parent, tStart, epoch)), the engine sends each clock region's kinetics rows
+(`isc_world_set_kinetics_history`) and the core walks the hazards per segment with the same draws, so a change acts from
+now on (PALM 405 off: converted dyes blink out, no new ones; a power step continues from the present state; DNA-PAINT
+from the next 1 s bin; another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
+bit for bit. Light counts at the producer when a frame is published if it lights the sample (lasers' shutter open,
+power at the sample, and a sequence or snap takes it, or `SampleHolder.TimeWhileIdle` = `Running` (default) with a
+hand-opened shutter), over its lit rect (the drifted pose's FOV + 2 um margin + 0.5 um; a snap takes only a frame
+started after the call, a sequence only frames started after it began, `liveFrameStart_`); a stack reads the history and
+then adds its frames along its own drift path (stacks are reproducible only on a fresh device). The engine reads each
+dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a mean-field population
+weighted per grid column in one convolution); live per-dye populations carry their running image from frame to frame
+(`CarryRunningImages`; without it a population parked just under the mean-field limit cost seconds per frame). The
+background fade reads the lit clock at the FOV centre. Reset on a world change (seed, cell parameters). The camera's
+fixed-pattern maps are a function of the seed and camera settings (the same in live mode and stacks).
 cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`
 frame per tick at the stage pose. The GPU splat is used when a movie's blinks are one group (2026-10-07: also with
 continuous populations and the lamp, added on the GPU before its noise as one CPU photon image per frame,
@@ -375,7 +386,9 @@ default 90 (full speed .. still; 180 also reverses), OU on pixel 3. `SampleHolde
 Medium / High / Extreme sets both speeds 0/2/5/25/250 nm/s and both walks 0/0.4/1/5/50 nm/sqrt s (maxima 1000 / 200);
 a member set by hand makes it Custom; the viewer's Drift preset select does the same, the rest is advanced. Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
 RMS displacement after 1 s (Cnossen et al. 2021, Ma et al. 2024's 5/10/20 nm/s). `Simulation/Drift.*` (JS twin `web/prototype/scope/drift.js`,
-counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live, cli, viewer and the webSMLM block's
+counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live (the sample's walker, 2026-10-08: from 0
+at world creation, continuing across Live stops and starts, stepping between acquisitions only with `TimeWhileIdle` =
+`Running`; `Camera.Test_DriftNm`), cli, viewer and the webSMLM block's
 `CellField.driftTrajectory`). MM `SimType_DriftXyNmPerSqrtSec`/`SimType_DriftZNmPerSqrtSec`, cli/viewer
 `drift-xy-nm-per-sqrt-sec`/`drift-z-nm-per-sqrt-sec`, default 0 (outputs unchanged; `SimType_DriftNmPerSec`, the linear
 drift, is gone). SR adds it per emitter (focus - dz); WideField/BrightField shift the full-grid image spectrum by a phase
