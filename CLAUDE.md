@@ -158,6 +158,14 @@ releasing, or touching the source repos (`C:\GitHub\websmlm`, `C:\GitHub\demoCam
 PRs or pushes to other repos; webSMLM integration lands only in the fork, never as a direct push upstream. Commit per milestone
 step, ending with the `Co-Authored-By` line.
 
+**Session notes (2026-10-08).** Every session that goes past 200k tokens gets a notes file in `claude_notes/` (repo
+root): `claude_notes/YYYY-MM-DD_<short-slug>.md` (the session's start date), headed by a one-line description, then a
+bullet list of the most important findings, then a detailed account (what was asked, decisions and why, what changed,
+measurements with their runtimes, open points, commits); images from the chat go in `claude_notes/img/` and are linked.
+Create it when the session passes 200k tokens and keep it updated until the session ends (a continued session after a
+summary updates the same file). `claude_notes/` is gitignored: the notes stay local and are never committed; a session
+working in another worktree writes them into the main checkout's `claude_notes/` (`C:\GitHub\inSiliScope_2`).
+
 **Keep the online docs in step with the code.** The published site (https://kjamartens.github.io/inSiliScope/, built from
 `docs/` + `mkdocs.yml`, plus `README.md`) is what users read. In the same commit as any change to behaviour, defaults,
 options/properties, models or performance, check `docs/index.md`, `docs/quickstart.md`, `docs/try-viewer.md`,

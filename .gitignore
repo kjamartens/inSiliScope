@@ -49,3 +49,4 @@ benchmarks.json
 gallery.zip
 # Physics figures (tools/build_physics_figures.py; built by pages.yml, not committed)
 /physics_figures/
+claude_notes/
