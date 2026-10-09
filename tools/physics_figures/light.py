@@ -181,33 +181,62 @@ def light_blink_regimes(ctx):
     regimes = (("Splat (SMLM)", {"blink-binned-density-per-um2": 1e9}),
                ("Binned (approximate SMLM)", {"blink-binned-max-emitters": 0}),
                ("Mean field", {"blink-mean-field-max-emitters": 0}))
-    rows = []
+    rows, slab_um = [], 0.5
     for nm, level in ((1, "Low"), (10, "Medium"), (100, "High")):
         dens = dict(base, **{"mt-imager-nm": nm})
         got = []
         for name, opts in regimes:
-            r = ctx.cli(dict(dens, **opts), tag="%gnM-%s" % (nm, name.split()[0].lower()), out=True, photons_out=True)
+            r = ctx.cli(dict(dens, **opts), tag="%gnM-%s" % (nm, name.split()[0].lower()), out=True, photons_out=True,
+                        setup_json=True)
             st = r.time("out")
             got.append((stack(r["out"]).astype(np.float64), stack(r["photons_out"]), (st[1] - st[0]) / frames))
+        fr = load(r["setup_json"])["frame"]
+        t0, t1 = fr["start_s"], fr["start_s"] + frames * fr["exposure_s"]
+        # The ON emitters per frame (overlap-weighted, what the splat draws) in the field of view: over all depths (the
+        # binned rule's density) and within the focal slab (the mean-field rule's, there as an expectation).
+        d = load(ctx.cli(dict(dens, **{"dyes-t": [t0, t1]}), tag="%gnM-dyes" % nm, dyes_json=True)["dyes_json"])
+        e = np.asarray(d["events"], dtype=np.float64).reshape(-1, 10)
+        x0, y0, x1, y1 = d["rect"]
+        ov = np.clip(np.minimum(e[:, 4], t1) - np.maximum(e[:, 3], t0), 0, None) / fr["exposure_s"]
+        area = (x1 - x0) * (y1 - y0)
+        on_fov = ov.sum() / frames / area
+        on_slab = ov[np.abs(e[:, 2] - fr["focus_um"]) < slab_um / 2].sum() / frames / area
         dflt = stack(ctx.cli(dens, tag="%gnM-default" % nm, photons_out=True)["photons_out"])
         picked = next((name for (name, _), g in zip(regimes, got) if np.array_equal(dflt, g[1])), "?")
         lo, hi = robust_range(np.concatenate([g[0] for g in got]), 0.5, 99.9)
         p0 = got[0][1]
-        gifs, stats = [], []
+        cells, stats = [], []
         for (name, _), (adu, ph, t) in zip(regimes, got):
-            gifs.append(img(ctx.gif("%gnM-%s" % (nm, name.split()[0].lower()), adu, vmin=lo, vmax=hi, min_px=192)))
+            cells.append(img(ctx.gif("%gnM-%s" % (nm, name.split()[0].lower()), adu, vmin=lo, vmax=hi, min_px=192)))
             fluct = float(ph.std(axis=0).mean() / max(ph.mean(), 1e-12))
             stats.append("%s / frame<br>photons %+.1f %%<br>frame-to-frame std %s %% of the mean" % (
                 secs(t), 100 * (ph.sum() / p0.sum() - 1), sig(100 * fluct, 2)))
-        rows.append(["<b>%s</b>: %g nM imager<br>default: %s" % (level, nm, picked.split(" (")[0].lower())] + gifs)
+        diff = got[1][1][0] - p0[0]
+        scale = float(np.abs(diff).max())
+        cells.append(img(ctx.diff_tile("%gnM-diff" % nm, diff, scale, min_px=192)))
+        stats.append("&plusmn;%s photons = %s %% of the splat frame's peak<br>rms %s %% of its mean" % (
+            sig(scale, 2), sig(100 * scale / float(p0[0].max()), 2),
+            sig(100 * float(np.sqrt(np.mean(diff ** 2))) / float(p0[0].mean()), 2)))
+        rows.append(["<b>%s</b>: %g nM imager<br>%s ON / &micro;m<sup>2</sup> (all z)<br>%s ON / &micro;m<sup>2</sup> "
+                     "in the focal slab<br>default: %s" % (level, nm, sig(on_fov, 2), sig(on_slab, 2),
+                                                           picked.split(" (")[0].lower())] + cells)
         rows.append([""] + stats)
-    return table(["", "Splat (SMLM)", "Binned (approximate SMLM)", "Mean field"], rows) + \
+    return table(["", "Splat (SMLM)", "Binned (approximate SMLM)", "Mean field", "Binned &minus; splat (frame 0)"],
+                 rows) + \
         "\nDNA-PAINT (ATTO 655 imager, %d px, %d frames of 50 ms) at three imager concentrations, each rendered in the " \
         "three blink regimes, forced by their thresholds (one movie per cell, camera ADU on one scale per row). " \
-        "Splat and binned draw the same blinks (binned snaps them to half-pixel cells, so the images match to the " \
-        "sub-pixel detail); mean field draws none, only each dye's expected ON time, so its frames hold still apart " \
-        "from shot noise. *default* is the regime the renderer picks by itself: binned above 10 ON blinks per " \
-        "µm<sup>2</sup> of the field of view, mean field never (off by default). Photons: the movie's total against " \
-        "the splat's; frame-to-frame std: of the photon images (before the camera's shot noise), per pixel, averaged: " \
-        "0 for mean field, whose expected image stays put. Times on the build machine " \
-        "(%d threads), per frame.\n" % (size, frames, BUILD_INFO.get("cores", 0))
+        "Splat and binned draw the same blinks; binned snaps each to a cell of half a pixel (&plusmn;25 nm), and the " \
+        "last column is what that moves: the photon images (before the camera's noise) of frame 0, binned minus " \
+        "splat, red where binned has more light, blue where less, on &plusmn; the largest difference. Mean field draws " \
+        "no blinks, only each dye's expected ON time, so its frames hold still apart from shot noise.\n\n" \
+        "*ON / &micro;m<sup>2</sup>*: the ON emitters per frame (each blink weighted by the part of the frame it is " \
+        "ON) per &micro;m<sup>2</sup> of the field of view, over all depths and within the %d nm focal slab " \
+        "(`mean-field-slab-nm`), averaged over the movie. *default* is the regime the renderer picks by itself: " \
+        "binned while more than 10 are ON per &micro;m<sup>2</sup> of the field of view (`blink-binned-density-per-um2`; " \
+        "the rule counts the blinks the movie queries, which reach a little beyond the field of view), splat below. " \
+        "Mean field is never picked by default: it takes over only when you set `blink-mean-field-density-per-um2` " \
+        "below the expected ON density in the focal slab (or `blink-mean-field-max-emitters` below the expected ON " \
+        "count over all depths); both are 1e9 by default, because mean field loses the blinking. Photons: the " \
+        "movie's total against the splat's; frame-to-frame std: of the photon images, per pixel, averaged (0 for " \
+        "mean field, whose expected image stays put). Times on the build machine (%d threads), per frame.\n" % (
+            size, frames, round(1000 * slab_um), BUILD_INFO.get("cores", 0))
