@@ -277,6 +277,16 @@ continuous populations and the lamp, added on the GPU before its noise as one CP
 `mt-imager-nm`, `mt-orient*`, `dye<N>.source`, dye overrides `mt-dye.<field>`/`dye<N>.<field>`, `laser-<nm>`,
 `light-preset` (`auto` = the dye mode's), `dichroic`, `em-filter`, `qe-curve`, `camera-preset`, `mean-field-*`.
 
+**Blink render regimes (2026-10-08, spec/ALGORITHM.md, spec/PORT.md 19):** blinks render per label and frame splatted
+(SMLM), **binned** (approximate SMLM: the same events, `CollectFrameEmitters`, snapped to `blink-binned-upscale` (2)
+cells per pixel, one FFT convolution per PSF plane; `Simulation/BinnedBlinks.*`) above `blink-binned-density-per-um2`
+(10 ON per um^2 of the FOV) or `blink-binned-max-emitters`, or **mean-field** (no events: `ExpectedBlinkOnSeconds`,
+`Simulation/BlinkExpectation.*`, x the dye density via the populations' mean-field scene; the blinking is lost, so off
+by default: `blink-mean-field-*` 1e9). JS twins `binned_blinks.js`, `blink_expectation.js` (`scope_parity` 100 %). MM
+`Renderer.Blink*` (Expert); the adapter's GPU splats only frames where `FluorescenceMovie::HostSplatsBlinks(f)`, the
+others come in the `populationsOnly` image. ctest `blink_regimes`. `RealFft2d` has per-thread line scratch now (a
+per-block heap allocation serialized 12 threads: 10x).
+
 **WideField modality (2026-09-27; since issue 16 the WideField label mode, rendered mean-field by the same
 `WidefieldScene`; the photophysics properties and the live bleach map below are history):** every labelled dye emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
 default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5

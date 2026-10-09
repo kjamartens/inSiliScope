@@ -950,6 +950,19 @@ std::vector<PropDef> BuildTable()
       add(Opt(R, "MeanFieldSlabNm", Tier::Expert, "mean-field-slab-nm", 0, 10000, "The density's z slab, nm."));
       add(Opt(R, "MeanFieldMaxEmitters", Tier::Expert, "mean-field-max-emitters", 0, 1e9,
               "Populations with more emitters than this render mean-field."));
+      // The blink render regimes (spec/ALGORITHM.md "Blink render regimes"): splat, binned FFT, mean-field.
+      add(Opt(R, "BlinkBinnedDensityPerUm2", Tier::Expert, "blink-binned-density-per-um2", 0, 1e9,
+              "A frame's blinks render binned (the same blinks on a sub-pixel grid, FFT-convolved: approximate "
+              "SMLM, the cost per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV."));
+      add(Opt(R, "BlinkBinnedMaxEmitters", Tier::Expert, "blink-binned-max-emitters", 0, 1e9,
+              "And binned above this many ON emitters in the frame."));
+      add(Opt(R, "BlinkBinnedUpscale", Tier::Expert, "blink-binned-upscale", 1, 8,
+              "Cells of the binned grid per pixel, per axis (a blink is snapped to +-half a cell)."));
+      add(Opt(R, "BlinkMeanFieldDensityPerUm2", Tier::Expert, "blink-mean-field-density-per-um2", 0, 1e9,
+              "A frame's blinks render mean-field (no blinks drawn: each dye's expected ON time; the blinking "
+              "itself is lost) above this many expected ON emitters per um^2 of the focal slab. 1e9 = never."));
+      add(Opt(R, "BlinkMeanFieldMaxEmitters", Tier::Expert, "blink-mean-field-max-emitters", 0, 1e9,
+              "And mean-field above this many expected ON emitters in the z range. 1e9 = never."));
       d = Row(R, "WriteScopeSpecTo", Tier::Expert, "write-spec",
               "Set to a file path: writes the engine spec of the current settings and stage pose there "
               "(insiliscope_cli --spec reproduces the frames).");

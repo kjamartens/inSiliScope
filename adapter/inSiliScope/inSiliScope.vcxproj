@@ -127,6 +127,8 @@
     <ClCompile Include="Simulation\LightPath.cpp" />
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
+    <ClCompile Include="Simulation\BinnedBlinks.cpp" />
+    <ClCompile Include="Simulation\BlinkExpectation.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
     <ClCompile Include="Simulation\BrightfieldLive.cpp" />
@@ -175,6 +177,8 @@
     <ClInclude Include="Simulation\IlluminationHistory.h" />
     <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
+    <ClInclude Include="Simulation\BinnedBlinks.h" />
+    <ClInclude Include="Simulation\BlinkExpectation.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />
     <ClInclude Include="Simulation\SplatKernel.h" />

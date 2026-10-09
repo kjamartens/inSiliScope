@@ -192,8 +192,9 @@ void CInSiliScopeCamera::LiveAheadLoop()
          for (long f = 0; f < K; ++f)
          {
             evs.clear();
-            for (uint32_t idx : byFrame[static_cast<size_t>(f)])
-               evs.push_back((*plan.events)[idx]);
+            if (fm.HostSplatsBlinks(f))   // else binned or mean-field: in popImg
+               for (uint32_t idx : byFrame[static_cast<size_t>(f)])
+                  evs.push_back((*plan.events)[idx]);
             const sim::RenderExtras extras = st.shaping.Extras(job.fadeSec[static_cast<size_t>(f)], job.decaySec);
             sim::CollectGpuEmitters(evs, f, job.w, job.h, job.params.pixelSizeNm, plan.photonsPerBlink, 0.0, 0.0,
                                     *plan.kernel, job.zOffsetUm, &extras, ems[static_cast<size_t>(f)], &out.zClamped,

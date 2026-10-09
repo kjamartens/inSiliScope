@@ -41,7 +41,7 @@ export function validUpscale(os, requested) {
   for (let u = Math.max(1, Math.min(requested, os)); u > 1; --u) if (os % u === 0) return u;
   return 1;
 }
-function kernelPsf(c, upscale) {
+export function kernelPsf(c, upscale) {
   const os = Math.max(1, c.oversampling), r = Math.max(1, Math.trunc(os / validUpscale(os, upscale)));
   const kc = (c.sizeOversampled - 1) / 2.0, s0 = Math.floor(kc - r / 2.0 + 1.0), n = c.sizeOversampled;
   return {

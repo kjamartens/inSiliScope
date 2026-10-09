@@ -83,6 +83,12 @@
     <ClCompile Include="Simulation\Fft2d.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\BinnedBlinks.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\BlinkExpectation.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\Illumination.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -204,6 +210,12 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Fft2d.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BinnedBlinks.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BlinkExpectation.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Parallel.h">

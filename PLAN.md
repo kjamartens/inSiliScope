@@ -26,6 +26,10 @@ Upcoming ideas:
   output-neutral, ctest `cli_probes`), [x] `tools/build_physics_figures.py` (33 figures, quality/realism presets as
   side-by-side tables), [x] markers in `docs/physics/*.md`, injected by `build_site.sh`, [x] rebuilt by `pages.yml`.
   Next: [ ] the viewer's drift preset table from `RenderPresets.h` (`web/index.html` keeps its own copy).
+- Blink render regimes (2026-10-08, spec/ALGORITHM.md "Blink render regimes", spec/PORT.md 19): [x] binned FFT
+  (approximate SMLM) above 10 ON blinks per um^2 (C++ + JS, 100 % identical ADU), [x] blink mean-field (expected ON
+  time, off by default), [x] adapter GPU splats only the SMLM frames, `Renderer.Blink*` rows, viewer controls, docs.
+  Next: [ ] a D3D11 binned FFT if live profiling of dense DNA-PAINT asks for it.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

@@ -98,7 +98,9 @@ kernel computation.
 
     What it does **not** touch: WideField labels, the mean-field and per-dye continuous populations (PALM pre states,
     the dSTORM initial ON phase), the free-imager background and BrightField keep the whole kernel. A dense
-    continuous population sums the halos of very many dyes, and a cut there shows as edges of out-of-focus light.
+    continuous population sums the halos of very many dyes, and a cut there shows as edges of out-of-focus light. Binned blinks
+    (approximate SMLM, dense frames) keep the kernel within the cut's largest radius over the planes, slightly more
+    than the splat; blinks rendered mean-field keep the whole kernel.
 
     When it matters: summing very many frames of blinks to study the PSF's far wings (localization background models,
     out-of-focus haze), or comparing with webSMLM pixel for pixel. Use `Exhaustive` (or `PsfHaloCut` 0) for that.

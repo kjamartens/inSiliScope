@@ -385,6 +385,37 @@ if status.startswith("GPU"):
     assert same_palm > 0.998, f"PALM GPU/CPU frames agree on only {100*same_palm:.4f}% of pixels"
     print(f"GPU OK ({status}): {100*same:.4f}% of pixels identical to the CPU path (PALM, with its population: "
           f"{100*same_palm:.4f}%)")
+    # The blink render regimes (DNA-PAINT 10 nM, forced by the Renderer rows; 20-frame stacks): binned and mean-field
+    # frames come from the CPU with the populations, the GPU splats none of their blinks (no double counting), and
+    # each regime's mean signal is the splat's. Mean-field scenes convolve on the D3D11 host (fp16 spectra), so there
+    # GPU and CPU agree in the mean, not pixel for pixel.
+    def regime_frames(rows, n=3):
+        fresh()
+        core.setProperty("Camera", "Test_StackLength", "20")
+        precomputed(core)
+        for dev, p, v in KERNEL + [("CellField", "Microtubules_ImagerNm", "10")] + rows:
+            core.setProperty(dev, p, v)
+        generate_stack(core)
+        return np.stack(snaps(n))
+
+    regimes = {}
+    for name, row in (("splat", ("BlinkBinnedDensityPerUm2", "1e9")), ("binned", ("BlinkBinnedMaxEmitters", "0")),
+                      ("mean-field", ("BlinkMeanFieldMaxEmitters", "0"))):
+        g, c = (regime_frames([("Renderer",) + row, ("Renderer", "UseGpu", u)]) for u in ("On", "Off"))
+        same_r = (g == c).mean()
+        if name == "mean-field":
+            assert abs(g.mean() - c.mean()) < 0.002 * c.mean(), f"{name}: GPU mean {g.mean():.3f} vs CPU {c.mean():.3f}"
+        else:
+            assert same_r > 0.998, f"{name}: GPU/CPU frames agree on only {100*same_r:.4f}% of pixels"
+        regimes[name] = c
+    sig = {k: v.mean() - 100.0 for k, v in regimes.items()}
+    assert (regimes["binned"] != regimes["splat"]).mean() > 0.1, "binned frames should differ from the splat's"
+    for k in ("binned", "mean-field"):
+        assert abs(sig[k] - sig["splat"]) < 0.02 * sig["splat"], f"{k}: mean signal {sig[k]:.3f} vs the splat's {sig['splat']:.3f}"
+    std_splat, std_mf = (regimes[k].std(axis=0).mean() for k in ("splat", "mean-field"))
+    assert std_mf < std_splat, f"mean-field frames should fluctuate less than the blinking ({std_mf:.1f} vs {std_splat:.1f})"
+    print("Blink regimes OK: GPU = CPU (mean-field in the mean), mean signal splat / binned / mean-field "
+          f"{sig['splat']:.1f} / {sig['binned']:.1f} / {sig['mean-field']:.1f} ADU, frame std {std_splat:.0f} -> {std_mf:.0f}")
 else:
     print(f"GPU check skipped: {status}")
 

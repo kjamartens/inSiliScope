@@ -74,6 +74,12 @@ const CASES = [
   ['DNA-PAINT, GibsonLanniZernike, Cubic', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500`, 1],
   ['DNA-PAINT, drift xy 30, z 40 nm/sqrt(s)', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
   ['DNA-PAINT, directed drift, wandering', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=150 drift-z-direction=-1 drift-z-angle-wander-deg=120 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10`, 0.999],
+  // The blink render regimes: binned FFT (approximate SMLM) and blink mean-field, forced by a zero threshold.
+  ['DNA-PAINT, blinks binned (FFT, upscale 2)', `${B} size=40 frames=6 psf-kernel-half-width-nm=2500 blink-binned-max-emitters=0`, 0.999],
+  ['dSTORM AF647, blinks binned (upscale 3), Gaussian PSF', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto blink-binned-max-emitters=0 blink-binned-upscale=3`, 0.999],
+  ['DNA-PAINT, blinks mean-field', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500 blink-mean-field-max-emitters=0`, 0.999],
+  ['dSTORM AF647 from t = 0, blinks mean-field', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 blink-mean-field-max-emitters=0`, 0.999],
+  ['DNA-PAINT, blinks mean-field, drift xy 30, z 40 nm/sqrt(s)', `${B} size=40 frames=12 psf-kernel-half-width-nm=2500 blink-mean-field-max-emitters=0 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
   ['dSTORM AF647 from t = 0 (initial ON, mean field), light-preset=auto', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0`, 0.999],
   ['dSTORM AF647 at 60 s, double helix, Linear', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear zern.5=0.2 mt-dye=AF647 light-preset=auto', 1],
   ['PALM mEos3.2, pre state, 405 + 488 + 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=mEos3.2 light-preset=auto laser-405=0.05 laser-488=0.5`, 0.999],

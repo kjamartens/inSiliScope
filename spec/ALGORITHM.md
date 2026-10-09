@@ -652,6 +652,62 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 - **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
   threshold (Nearest, Linear, Cubic, Fft). `scope_parity`/`engine_check` run the default (3e-6) on both sides.
 
+## Blink render regimes (2026-10-08)
+
+Blinks render per label (main group) and per frame in one of three regimes; the continuous populations keep their two
+(mean field, per dye).
+
+- **SMLM (splat).** Every event through `RenderPhotonImage` (or the adapter's GPU splat). Cost per event x footprint:
+  256 px x 100 frames of DNA-PAINT took 2.9 / 22.9 / 240 s at 1 / 10 / 100 nM imager (12 threads).
+- **Binned (approximate SMLM)**, `BinnedBlinks.*` (JS `binned_blinks.js`). The *same* events and the same per-event
+  arithmetic as the splat (`CollectFrameEmitters`, JS `frameEmitters`: overlap, photons, illumination at the undrifted
+  site, drifted position, `NearestZIndex`), deposited at the nearest cell of a grid of u = `blink-binned-upscale`
+  cells per pixel (a divisor of the PSF oversampling, `KernelWidefieldPsf::ValidUpscale`) anchored at the FOV's pixel
+  (0, 0) corner, one density per PSF plane; each occupied plane forward FFT x that plane's kernel spectrum, summed,
+  one inverse, max(0, .), binned u x u. Margin R cells (no wrap-around) = the kernel radius, capped by the halo cut's
+  largest radius over the planes (the cut splat draws nothing beyond it; inside it the grid kernel keeps every cell).
+  FFT size `FastSize(W u + 2R, 2, no5)`: radix-5 stages were 2-3x slower per point. The kernel spectra are made on first
+  use per plane and kept process-wide for the last two grids (live frames reuse them). Exact: which dyes blink, their
+  photons and z plane, the fluctuation; lost: the position within a cell. Cost per FOV area: 3-4 s (u = 1), 13-20 s
+  (u = 2), 30-38 s (u = 3) for the movie above at any density. Accuracy (photons): sum within 0.04 %, image relative L2
+  4.3 / 2.1 / 1.8 % at u = 1 / 2 / 3 against the splat of the same events; ADU movies 0.5-2 % in the mean image (u =
+  2). The C++ FFT is float (`RealFft2d`), the JS float64: `scope_parity` still gives 100 % identical ADU.
+- **Mean field**, `BlinkExpectation.*` (JS `blink_expectation.js`). No events: each dye's expected ON seconds in the
+  frame, `ExpectedBlinkOnSeconds(mode, segments, t0, t1)`, x the detected rate x the structure's dye density image (the
+  continuous populations' mean-field machinery: `BuildMeanField`, drift, per clock region with a host clock).
+  - dSTORM / PALM: the chain the core walks (`dyes.cpp`): I (initial ON) -> D (first dark, activation rate) -> ON
+    (1/onSec) -> B (p/onSec) | OFF ((1-p)/onSec) -> ON (1/offSec), p clamped to [0.01, 1]; piecewise constant per
+    history segment; an I with initialOnSec <= 0 in a segment moves to D at once. The ON-time integral is the integral
+    row of exp(Q T) for the 6x6 generator augmented with an integral state (scaling and squaring to ||A|| <= 0.5,
+    Taylor order 16, `std::exp` only in DNA-PAINT; no jsm needed: the same double operations in the same order on both
+    sides).
+  - DNA-PAINT: per 1 s bin, rate x the exact integral over a uniform start in the bin of the overlap of a
+    min(Exp(tau), 20 tau) blink with [t0, t1) (piecewise closed form at the cut points t0, t1, t0 - 20 tau, t1 - 20 tau).
+  - Not modelled: the core's 1000-blink cap per dye and its normal approximation above 30 counts per bin (both
+    negligible at real rates).
+  - Checked against the core's own blinks (ctest `blink_regimes`, ~2e5 dyes; a first run on 1e7 dyes gave -0.18,
+    +0.08, -0.05, +0.05 %): dSTORM initial ON / steady / A-B-A history, PALM +- history, DNA-PAINT +- a history step
+    inside a bin, all within 2 sigma (per-dye sums: one dye's blinks are correlated).
+- **Why blink mean field is off by default.** Continuous mean field is exact up to shot noise (a sum of independent
+  Poisson emitters is one Poisson draw around the summed mean). Blinks are not: which dyes are ON is the signal, and the
+  blink fluctuation's variance is about (photons per event) x the shot-noise variance. A mean-field blink movie has the
+  right total (+0.1 % at 20 nM DNA-PAINT) but only shot noise frame to frame (std 41 vs 126 ADU): a speed / visual
+  approximation, never SMLM data. Thresholds 1e9 = off.
+- **Decision.** Mean field first, before the events query (so a mean-field frame draws no events and a movie
+  mean-field throughout queries none), from the expected ON emitters at the reference clock (start-sec, or the host
+  clock at the FOV centre): `nSlab x onFrac / FOV area > blink-mean-field-density-per-um2` or `nZ x onFrac >
+  blink-mean-field-max-emitters` (nZ the structure's dyes in the query rect and z range, nSlab in the FOV within
+  `mean-field-slab-nm`, `CountDyes`, half-open). Else binned when the frame's ON emitters (overlap-weighted, what the
+  splat would draw) per um^2 of the *FOV* (not the slab: the splat costs per event wherever it is, the FFT per area)
+  exceed `blink-binned-density-per-um2` (10, measured: the splat/binned break-even at u = 2 is ~10 nM DNA-PAINT) or
+  in all `blink-binned-max-emitters` (1e9). Unlike the continuous populations the regime can go both ways in a movie.
+  Not available: blink mean field with a host clock *and* drift (the weighted scene does not follow drift).
+- **Host GPU.** `FluorescenceMovie::HostSplatsBlinks(f)`: the adapter's GPU splats only the SMLM frames; the binned
+  and mean-field frames' blinks come with the populations (`populationsOnly`) as the extra photon image.
+- **Faster FFT** found on the way: `RealFft2d` allocated its line buffers per block of lines; with 12 threads the
+  Windows heap serialized them (a 432^2 transform 75-100 ms in a movie vs 5-10 ms alone). Per-thread scratch
+  (`LineScratch`), bit-identical; the WideField / mean-field path gains too.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

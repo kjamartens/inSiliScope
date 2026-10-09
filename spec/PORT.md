@@ -906,3 +906,28 @@ webSMLM have it too). Every new option's default keeps the earlier output.
   written into the spec's `pixel-nm` (the cli/viewer default stays 100); `Renderer.WriteScopeSpecTo` writes the spec
   of the next frame and `insiliscope_cli --spec <file>` reads it (a precomputed MM frame with the GPU off is
   reproduced bit for bit).
+
+## 19. Blink render regimes (2026-10-08)
+
+Blinks render per label and frame splatted (SMLM), binned (approximate SMLM: the same events on a sub-pixel grid, one
+FFT convolution per PSF plane) or mean-field (no events: expected ON time x dye density); the why and the numbers are
+in spec/ALGORITHM.md "Blink render regimes". C++ and JS written together (no iteration mode).
+
+- Engine (C++ `Simulation/BinnedBlinks.*`, `BlinkExpectation.*`, `ScopeMovie.cpp`; JS `binned_blinks.js`,
+  `blink_expectation.js`, `fluorescence.js`, `render.js` `frameEmitters`): options `blink-binned-density-per-um2` (10),
+  `blink-binned-max-emitters` (1e9), `blink-binned-upscale` (2), `blink-mean-field-density-per-um2` (1e9 = off),
+  `blink-mean-field-max-emitters` (1e9 = off); the slab is `mean-field-slab-nm`. MM `Renderer.Blink*` (Expert), viewer
+  controls next to the mean-field ones (Advanced).
+- **Default output changes only where a frame has more than 10 ON blinks per um^2 of the FOV** (dense DNA-PAINT, e.g.
+  the bench config `sr-dense-128px`); sparse movies are unchanged (ctest `blink_regimes` `DefaultsSparse`).
+- Shared per-event arithmetic: `CollectFrameEmitters` (SMLMSimulation) / `frameEmitters` (JS) feed the splat, the GPU
+  emitters and the binned grid (a bit-identical refactor).
+- The adapter's GPU splats only frames where `FluorescenceMovie::HostSplatsBlinks(f)`; the binned and mean-field
+  frames' blinks come in the `populationsOnly` image (with the illumination field), and `SimplePlan().populations` is
+  set when any frame needs that.
+- Checks: ctest `blink_regimes` (`cli/blink_regimes_check.cpp`, ~25 s: expectation vs the core's blinks, binned vs
+  splat photons and serial = parallel, movie totals, sparse defaults unchanged); `scope_parity` cases binned
+  (DNA-PAINT u = 2, dSTORM u = 3 Gaussian) and mean-field (DNA-PAINT, dSTORM from t = 0, DNA-PAINT + drift), all 100 %
+  identical ADU.
+- `RealFft2d`: per-thread line scratch (`LineScratch`, was a heap allocation per block of lines, serialized across
+  threads), `Forward(.., skipZeroRows)`, `FastSize(.., no5)`; bit-identical.

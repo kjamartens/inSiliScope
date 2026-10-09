@@ -606,8 +606,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                for (long f = f0; f < f1; ++f)
                {
                   evs.clear();
-                  for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
-                     evs.push_back((*plan.events)[idx]);
+                  if (fm.HostSplatsBlinks(f))   // else binned or mean-field: in the extra image
+                     for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
+                        evs.push_back((*plan.events)[idx]);
                   const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
                   const double dx = d.x / params.pixelSizeNm, dy = d.y / params.pixelSizeNm;
                   sim::RenderExtras extras = shaping.Extras(fadeT0 + f * params.frameDurationSec, decaySec);
@@ -653,6 +654,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                sim::FluorescenceFrameOptions opt;
                opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
                opt.populationsOnly = true;
+               if (!shaping.illum.empty())
+                  opt.illumField = &shaping.illum;   // the binned blinks
                long fBase = 0;
                opt.onPhotons = [&](long f, const std::vector<float>& photons) {
                   std::vector<float>& x = extraImg[static_cast<size_t>(f - fBase)];
@@ -1437,6 +1440,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                   const auto tPops = sim::TimingClock::now();
                   sim::FluorescenceFrameOptions opt;
                   opt.populationsOnly = true;
+                  if (!shaping.illum.empty())
+                     opt.illumField = &shaping.illum;   // the binned blinks
                   opt.onPhotons = [&](long, const std::vector<float>& photons) {
                      extraImg = photons;
                      return true;
@@ -1459,7 +1464,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
                std::vector<sim::GpuSplatEmitter> ems;
                const auto tGpu = sim::TimingClock::now();
                // At the spec's focus: the stage z less the z drift (as the CPU path).
-               sim::CollectGpuEmitters(*plan.events, 0, w, h, params.pixelSizeNm, plan.photonsPerBlink, dx, dy,
+               // Binned or mean-field blinks are in extraImg.
+               static const std::vector<sim::BlinkEvent> noEvents;
+               sim::CollectGpuEmitters(fm.HostSplatsBlinks(0) ? *plan.events : noEvents, 0, w, h, params.pixelSizeNm, plan.photonsPerBlink, dx, dy,
                                        *plan.kernel, sim::ScopeSpecGet(spec, "z"), &extras, ems,
                                        &zClampedSinceRebuild, &zTotalSinceRebuild);
                sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));

@@ -178,8 +178,9 @@ struct FluorescenceFrameOptions
    // chain and onFrame (the host adds its own noise).
    std::function<bool(long f, const std::vector<float>& photons)> onPhotons;
    // With onPhotons: the images hold the continuous populations only (no
-   // background, no blinks) -- a host that splats the blinks itself (the
-   // adapter's GPU, FluorescenceSimplePlan) adds them.
+   // background, no splatted blinks; the binned and mean-field frames' blinks
+   // are in) -- a host that splats the blinks itself (the adapter's GPU,
+   // FluorescenceSimplePlan, HostSplatsBlinks) adds the rest.
    bool populationsOnly = false;
 };
 
@@ -230,8 +231,8 @@ public:
 // A movie whose blinks are one group (one structure's main state): what the
 // adapter's GPU splat + noise path needs. The background and the blinks are
 // splatted from this; the continuous populations (populations: there are
-// some), if any, come from Render with populationsOnly and are added before
-// the noise.
+// some) and the blinks of binned or mean-field frames (HostSplatsBlinks), if
+// any, come from Render with populationsOnly and are added before the noise.
 struct FluorescenceSimplePlan
 {
    bool ok = false;
@@ -266,6 +267,10 @@ public:
    FluorescenceSimplePlan SimplePlan() const;
    // Whether the movie has continuous populations (mean-field or per dye).
    bool HasPopulations() const;
+   // Whether a host that splats the blinks itself (SimplePlan) draws frame f's:
+   // false when they render binned or mean-field (Render with populationsOnly
+   // then adds them to that frame's image).
+   bool HostSplatsBlinks(long f) const;
    bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
                std::string& err, const ScopeProgress* progress = nullptr,
                const FluorescenceFrameOptions* options = nullptr);

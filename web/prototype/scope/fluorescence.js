@@ -15,7 +15,9 @@
 //      most once, mean-field -> per dye.
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
 import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, kernelWavelengthNm, driftInfo } from './scope_movie.js';
-import { bucketEventsByFrame, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
+import { bucketEventsByFrame, frameEmitters, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
+import { binnedBlinkRenderer } from './binned_blinks.js';
+import { expectedBlinkOnSeconds } from './blink_expectation.js';
 import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
 import { meanFieldImage, renderShiftedImages } from './widefield.js';
 import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
@@ -72,9 +74,42 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   }
   const tPsf = performance.now();
 
-  // ---- blinks (none to query when every label is WideField) ----
+  // ---- blink mean-field frames (BlinkExpectation.cpp), decided before the query from the expected ON emitters at
+  // start-sec: such a frame draws no events, a movie mean-field throughout queries none ----
   const anyBlinks = S.labels.some(L => L.mode !== 'WideField');
-  const events = anyBlinks ? cellFieldEvents(world, S.q).filter(e => groupOf.has(`${e.structure},main`)) : [];
+  const fovArea = W * H * um * um, BM = S.blinkMeanField;
+  const blinkMfPossible = BM.densityPerUm2 < 1e9 || BM.maxEmitters < 1e9;
+  let queryBlinks = false;
+  for (const g of groups) {
+    const L = S.labels[g.structure];
+    if (g.role !== 'main' || L.mode === 'WideField') continue;
+    g.mode = L.mode;
+    if (blinkMfPossible) {
+      const focus = S.q.zCullCentreUm, slabHalf = S.meanField.slabNm / 2000, ox = S.q.originXUm, oy = S.q.originYUm;
+      const [zMin, zMax] = S.q.zHalfRangeUm > 0 ? [focus - S.q.zHalfRangeUm, focus + S.q.zHalfRangeUm] : [-Infinity, Infinity];
+      let nZ = 0, nSlab = 0;
+      world.forEachDye(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, (b, i) => {
+        if (b.structure !== g.structure) return;
+        nZ++;
+        if (b.x[i] >= ox && b.x[i] < ox + W * um && b.y[i] >= oy && b.y[i] < oy + H * um && b.z[i] >= Math.max(zMin, focus - slabHalf) && b.z[i] < Math.min(zMax, focus + slabHalf)) nSlab++;
+      });
+      const k = L.label.kinetics;
+      g.nZ = nZ; g.nSlab = nSlab;
+      g.segs = [{ tStart: 0, activationRatePerSec: k.activationRatePerSec, onSec: k.onSec, offSec: k.offSec, bleachProb: k.bleachProb, initialOnSec: k.initialOnSec }];
+      g.mfFrame = new Uint8Array(N);
+      g.allMf = nZ > 0; g.anyMf = false;
+      for (let f = 0; f < N; f++) {
+        const t = S.t0Sec + f * S.expSec, on = expectedBlinkOnSeconds(L.mode, g.segs, t, t + S.expSec) / S.expSec;
+        const mf = nZ > 0 && (nSlab * on / fovArea > BM.densityPerUm2 || nZ * on > BM.maxEmitters);
+        g.mfFrame[f] = mf ? 1 : 0;
+        g.anyMf = g.anyMf || mf; g.allMf = g.allMf && mf;
+      }
+    }
+    queryBlinks = queryBlinks || !g.allMf;
+  }
+
+  // ---- blinks (none to query when every label is WideField or every frame is mean-field) ----
+  const events = queryBlinks ? cellFieldEvents(world, S.q).filter(e => groupOf.has(`${e.structure},main`)) : [];
   if (opts.onEvents) opts.onEvents(events, S);
   const byGroup = groups.map(g => events.filter(e => e.structure === g.structure && g.role === 'main'));
   const buckets = byGroup.map(ev => bucketEventsByFrame(ev, N));
@@ -83,7 +118,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   // Counted from the structure's dyes (every dye has the window from t = 0): nZ in the query rect and z range, nSlab
   // in the FOV within the focal slab. The per-dye windows are fetched only if some frame renders per dye.
   const pops = [];
-  const focus = S.q.zCullCentreUm, slabHalf = S.meanField.slabNm / 2000, fovArea = W * H * um * um;
+  const focus = S.q.zCullCentreUm, slabHalf = S.meanField.slabNm / 2000;
   const [zMin, zMax] = S.q.zHalfRangeUm > 0 ? [focus - S.q.zHalfRangeUm, focus + S.q.zHalfRangeUm] : [-Infinity, Infinity];
   S.labels.forEach((L, s) => {
     const states = [];
@@ -130,6 +165,11 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     }
   }
   allWindows = null;
+  // The blink populations of the groups with mean-field frames (photons per dye: rate x expected ON time).
+  for (const g of groups)
+    if (g.anyMf)
+      pops.push({ structure: g.structure, state: EVENT_STATE.BLINK, blink: true, g, rate: g.detectedPerSec, nZ: g.nZ, nSlab: g.nSlab,
+        mode: g.mode, segs: g.segs, image: null, mf: null, meanFieldFrames: 0, perDyeFrames: 0 });
   const querySec = (performance.now() - t0) / 1000;
   // Running image of the windows that cover frame f fully (unit photons each).
   const advanceAcc = (p, f, z, dx, dy) => {
@@ -148,6 +188,19 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     p.accFrame = f;
   };
 
+  // The binned blink regime (BinnedBlinks.cpp): per main group, used for a frame whose ON emitters per um^2 of the FOV
+  // (or in all) pass the thresholds.
+  const BB = S.blinkBinned;
+  const binnedPossible = BB.densityPerUm2 < 1e9 || BB.maxEmitters < 1e9;
+  for (const g of groups)
+    if (g.role === 'main' && binnedPossible) g.binned = binnedBlinkRenderer(g.blinkKernel, g.sigmaPx, W, H, BB.upscale);
+  const binnedFrame = (g, evs, f) => {
+    if (!g.binned) return false;
+    let nOn = 0.0;
+    for (const e of evs) { const ov = Math.min(f + 1, e.tEnd) - Math.max(f, e.tStart); if (ov > 0.0) nOn += Math.min(ov, 1.0); }
+    return nOn / fovArea > BB.densityPerUm2 || nOn > BB.maxEmitters;
+  };
+  let binnedFrames = 0;
   const maps = noiseMaps(S.seed, W, H, S.cam);
   const imagerPerFrame = S.labels.reduce((sum, L) => sum + L.imagerBackgroundPerPxPerSec(um), 0) * S.expSec;
   const bg = S.p.backgroundPhotons + imagerPerFrame;
@@ -157,14 +210,40 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     const frameBlinks0 = blinks, paths = [];
     const img = new Float32Array(W * H).fill(bg);
     const zf = zAt(f), [dx, dy] = dPx(f);
+    let binned = false, mfBlinks = false;
     groups.forEach((g, gi) => {
       if (g.role !== 'main') return;
+      if (g.mfFrame && g.mfFrame[f]) { mfBlinks = true; return; }
       const evs = buckets[gi][f].map(i => byGroup[gi][i]);
       blinks += evs.length;
-      renderPhotonImage(W, H, evs, f, { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx }, g.blinkKernel, zf, img, dx, dy);
+      const o = { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx };
+      if (binnedFrame(g, evs, f)) {
+        g.binned.render(frameEmitters(evs, f, o, g.blinkKernel, zf, dx, dy), img);
+        binned = true;
+        return;
+      }
+      renderPhotonImage(W, H, evs, f, o, g.blinkKernel, zf, img, dx, dy);
     });
+    if (binned) binnedFrames++;
     for (const p of pops) {
       const tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
+      if (p.blink) {
+        if (!p.g.mfFrame[f]) continue;   // drawn from its events (splat or binned)
+        if (!p.mf) { p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm); p.image = p.mf.image; }
+        let image = p.image;
+        if (drift) {
+          const d = S.drift[f], [k, w] = driftGridWeights(driftGrid, d.z);
+          const at = kk => p.mf.imagesAt(S.q.zRefUm + zStage - driftGridDzNm(driftGrid, kk) / 1000.0);
+          const i0 = at(k), i1 = w !== 0 && k + 1 < driftGrid.n ? at(k + 1) : null, pitchNm = p.mf.pitchUm * 1000.0;
+          image = new Float32Array(W * H);
+          renderShiftedImages(i0, i1, i1 ? w : 0.0, d.x / pitchNm, d.y / pitchNm, image);
+        }
+        const m = Math.fround(p.rate * expectedBlinkOnSeconds(p.mode, p.segs, tf0, tf1));
+        for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * image[i]);
+        p.meanFieldFrames++;
+        paths.push('blinks: mean-field (FFT)');
+        continue;
+      }
       if (isMeanField(p, f)) {
         if (!p.mf) {
           p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm);
@@ -199,17 +278,17 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     if ((opts.onPhotons ? opts.onPhotons(f, img) : onFrame(f, applyNoiseChain(img, S.cam, maps, f), img)) === false) break;
     // Which backend drew this frame: the SMLM splat for blinks, mean-field or per dye for each continuous population.
     if (opts.onProgress) opts.onProgress('frames', (f + 1) / N, {
-      frame: f, frames: N, blinks: blinks - frameBlinks0, backends: [...(anyBlinks ? [`SMLM: ${blinks - frameBlinks0} blinks (splat)`] : []), ...paths] });
+      frame: f, frames: N, blinks: blinks - frameBlinks0, backends: [...(anyBlinks && !(mfBlinks && blinks === frameBlinks0) ? [`SMLM: ${blinks - frameBlinks0} blinks (${binned ? 'binned FFT' : 'splat'})`] : []), ...paths] });
   }
   return {
-    width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, psfSec: (tPsf - t0) / 1000, querySec,
+    width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, binnedFrames, psfSec: (tPsf - t0) / 1000, querySec,
     totalSec: (performance.now() - t0) / 1000, psf: groups.some(g => g.kernel) ? 'GibsonLanniZernike' : 'Gaussian',
     imagerBackgroundPerPxPerFrame: imagerPerFrame, driftNm: driftInfo(S),
     labels: S.labels.map((L, s) => ({ structure: STRUCTURES[s].id, dye: L.dye.id, mode: L.mode, kActPerSec: L.kActPerSec,
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
         detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) })),
     groups: groups.map(g => ({ structure: g.structure, role: g.role, lambdaNm: g.lambdaNm, perFrame: g.perFrame })),
-    populations: pops.map(p => ({ structure: p.structure, state: p.state, dyes: p.nZ, inSlab: p.nSlab,
+    populations: pops.filter(p => !p.blink).map(p => ({ structure: p.structure, state: p.state, dyes: p.nZ, inSlab: p.nSlab,
       meanFieldFrames: p.meanFieldFrames, perDyeFrames: p.perDyeFrames })),
   };
 }

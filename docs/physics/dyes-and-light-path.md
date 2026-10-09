@@ -146,9 +146,40 @@ One population rendered both ways:
 
 <!-- fig:light-meanfield -->
 
+## Blinks: splat, binned or mean field
+
+The blinks of dSTORM, PALM and DNA-PAINT render in one of three regimes, chosen per label and per frame:
+
+| Regime | What is drawn | Exact | Lost |
+|---|---|---|---|
+| **SMLM** (splat) | every blink, its PSF splatted at its position | everything | -- |
+| **Binned** (approximate SMLM) | the same blinks, each snapped to a grid of `blink-binned-upscale` cells per pixel, one density per PSF z plane, FFT-convolved with that plane's kernel | which dyes blink, their photons and z plane, the frame-to-frame fluctuation | the position within a cell (±half a cell, ±25 nm at the default 2 cells per 100 nm pixel) |
+| **Mean field** | no blinks: each dye's *expected* ON time in the frame times the dye density, convolved once | the mean image | the blinking itself |
+
+- **Splat or binned.** The splat costs per blink, the binned FFT per field-of-view area. A frame renders binned while
+  more than `blink-binned-density-per-um2` (default 10) blinks are ON per µm² of the field of view, or
+  `blink-binned-max-emitters` (1e9) in all; splatted below. The default is an *estimate*, measured on this
+  implementation: 256 px × 100 frames of DNA-PAINT took 2.9 / 22.9 / 240 s splatted at 1 / 10 / 100 nM imager and
+  13–20 s binned at any density (upscale 2; 3–4 s at upscale 1). Binned against splat, same blinks: the photons agree
+  within 0.1 %, the mean image within 0.5–2 % (relative L2).
+- **Mean field** is decided before any blink is drawn, from the expected ON emitters: above
+  `blink-mean-field-density-per-um2` per µm² of the `mean-field-slab-nm` slab, or `blink-mean-field-max-emitters` in
+  the z range. A movie that is mean-field throughout draws no blinks at all. The expected ON time is closed form:
+  dSTORM and PALM follow the dye's chain (initial ON → first dark → ON → bleached | OFF → ON) as a matrix exponential
+  through each piece of the light history; DNA-PAINT integrates its 1 s binding bins exactly. It matches the core's
+  own blinks to within 0.2 % (some 10^5 to 10^7 dyes).
+- **Mean field is off by default** (both thresholds 1e9), on purpose. For continuous emitters the mean image is exact
+  up to shot noise. For blinks it is not: the blink fluctuation has a variance of about (photons per blink) times the
+  shot-noise variance, and that fluctuation *is* the SMLM signal. A blink-mean-field movie has the right total signal
+  (within 0.1 %), but its frame-to-frame noise is shot noise only (std 41 against 126 ADU in the check). Use it as a
+  fast picture of where a dense label sits, not as SMLM data.
+- The regime can change both ways within a movie (a power step, a 405 nm pulse). The progress line says which one drew
+  a frame: `SMLM: N blinks (splat)`, `(binned FFT)`, or `blinks: mean-field (FFT)`.
+
 ## Where it lives
 
 JS reference: `web/prototype/scope/spectra.js`, `dye_library.js`, `fluorescence.js`, `scope_movie.js`. C++:
 `adapter/inSiliScope/Simulation/Spectra.*`, `LightPath.*`, `DyeLibrary.*` (data generated into `DyeLibraryData.inc` by
-`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`). The core's label model (ABI 10) is in
+`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`), `BinnedBlinks.*` and `BlinkExpectation.*` (JS `binned_blinks.js`,
+`blink_expectation.js`). The core's label model (ABI 10) is in
 `core/src/dyes.*`; spec/PORT.md section 16 has the details.

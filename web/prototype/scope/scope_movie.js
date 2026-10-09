@@ -120,6 +120,11 @@ export const SCOPE_OPTIONS = [
   ['mean-field-density-per-um2', 20, 'Renderer.MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below'],
   ['mean-field-slab-nm', 500, 'Renderer.MeanFieldSlabNm: that slab\'s thickness around the focal plane'],
   ['mean-field-max-emitters', 5000, 'Renderer.MeanFieldMaxEmitters: and mean-field above this many emitting dyes in the z range (cost cap of the per-dye path)'],
+  ['blink-binned-density-per-um2', 10, 'Renderer.BlinkBinnedDensityPerUm2: the blinks of a frame render binned (approximate SMLM: the same events on a grid of blink-binned-upscale cells per pixel, FFT-convolved per PSF plane; the cost is per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV, splatted one by one below'],
+  ['blink-binned-max-emitters', 1e9, 'Renderer.BlinkBinnedMaxEmitters: and binned above this many ON emitters in the frame'],
+  ['blink-mean-field-density-per-um2', 1e9, 'Renderer.BlinkMeanFieldDensityPerUm2: a frame\'s blinks render mean-field (no events drawn: every dye\'s expected ON time in the frame from its kinetics x the dye density, convolved once; the blinking itself is lost, only shot noise stays) above this many expected ON emitters per um^2 of the focal slab (mean-field-slab-nm); 1e9 = never'],
+  ['blink-mean-field-max-emitters', 1e9, 'Renderer.BlinkMeanFieldMaxEmitters: and mean-field above this many expected ON emitters in the z range; 1e9 = never'],
+  ['blink-binned-upscale', 2, 'Renderer.BlinkBinnedUpscale: the cells of the binned grid per pixel, per axis (a divisor of the PSF oversampling; the position is snapped to +-half a cell)'],
   ['bf-quality', 3, 'Renderer.BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given'],
   ['bf-sources', 0, 'Renderer.BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)'],
   ['bf-upscale', 0, 'Renderer.BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)'],
@@ -381,7 +386,11 @@ export function scopeSetup(P, spec) {
   }
   return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
-      maxEmitters: Math.max(0, O('mean-field-max-emitters')) } };
+      maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
+    blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),
+      upscale: Math.max(1, Math.min(8, Math.round(O('blink-binned-upscale')))) },
+    blinkMeanField: { densityPerUm2: Math.max(0, O('blink-mean-field-density-per-um2')),
+      maxEmitters: Math.max(0, O('blink-mean-field-max-emitters')) } };
 }
 
 // info.driftNm: x, y, z per frame (empty without drift).

@@ -56,7 +56,7 @@ DESCRIBE = {
     "fl.mean-field-scene": "mean-field scene update",
     "fl.mean-field-weights": "per-column dye clocks -> photons",
     "fl.mean-field-render": "weighted mean-field image",
-    "fl.frame.blinks (batches)": "splat the blinks (CPU)",
+    "fl.frame.blinks (batches)": "splat the blinks, or bin them (binned FFT) in dense frames (CPU)",
     "fl.frame.continuous": "add the continuous populations",
     "gpu.populations": "GPU path: the frame's continuous populations (CPU)",
     "gpu.collect": "GPU: emitters of the frame",
