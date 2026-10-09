@@ -172,3 +172,42 @@ def light_meanfield(ctx):
         "mean field above 20 emitting dyes per µm<sup>2</sup> of the 500 nm focal slab " \
         "(`mean-field-density-per-um2`). Times on the build machine (%d threads): the setup in a fresh process, " \
         "the frame time averaged over %d frames.\n" % (BUILD_INFO.get("cores", 0), frames)
+
+
+@register("light-blink-regimes", "dyes-and-light-path", timed=True)
+def light_blink_regimes(ctx):
+    frames, size = 20, 64
+    base = dict(SPOT, size=size, frames=frames, **typical("DNA-PAINT"))
+    regimes = (("Splat (SMLM)", {"blink-binned-density-per-um2": 1e9}),
+               ("Binned (approximate SMLM)", {"blink-binned-max-emitters": 0}),
+               ("Mean field", {"blink-mean-field-max-emitters": 0}))
+    rows = []
+    for nm, level in ((1, "Low"), (10, "Medium"), (100, "High")):
+        dens = dict(base, **{"mt-imager-nm": nm})
+        got = []
+        for name, opts in regimes:
+            r = ctx.cli(dict(dens, **opts), tag="%gnM-%s" % (nm, name.split()[0].lower()), out=True, photons_out=True)
+            st = r.time("out")
+            got.append((stack(r["out"]).astype(np.float64), stack(r["photons_out"]), (st[1] - st[0]) / frames))
+        dflt = stack(ctx.cli(dens, tag="%gnM-default" % nm, photons_out=True)["photons_out"])
+        picked = next((name for (name, _), g in zip(regimes, got) if np.array_equal(dflt, g[1])), "?")
+        lo, hi = robust_range(np.concatenate([g[0] for g in got]), 0.5, 99.9)
+        p0 = got[0][1]
+        gifs, stats = [], []
+        for (name, _), (adu, ph, t) in zip(regimes, got):
+            gifs.append(img(ctx.gif("%gnM-%s" % (nm, name.split()[0].lower()), adu, vmin=lo, vmax=hi, min_px=192)))
+            fluct = float(ph.std(axis=0).mean() / max(ph.mean(), 1e-12))
+            stats.append("%s / frame<br>photons %+.1f %%<br>frame-to-frame std %s %% of the mean" % (
+                secs(t), 100 * (ph.sum() / p0.sum() - 1), sig(100 * fluct, 2)))
+        rows.append(["<b>%s</b>: %g nM imager<br>default: %s" % (level, nm, picked.split(" (")[0].lower())] + gifs)
+        rows.append([""] + stats)
+    return table(["", "Splat (SMLM)", "Binned (approximate SMLM)", "Mean field"], rows) + \
+        "\nDNA-PAINT (ATTO 655 imager, %d px, %d frames of 50 ms) at three imager concentrations, each rendered in the " \
+        "three blink regimes, forced by their thresholds (one movie per cell, camera ADU on one scale per row). " \
+        "Splat and binned draw the same blinks (binned snaps them to half-pixel cells, so the images match to the " \
+        "sub-pixel detail); mean field draws none, only each dye's expected ON time, so its frames hold still apart " \
+        "from shot noise. *default* is the regime the renderer picks by itself: binned above 10 ON blinks per " \
+        "µm<sup>2</sup> of the field of view, mean field never (off by default). Photons: the movie's total against " \
+        "the splat's; frame-to-frame std: of the photon images (before the camera's shot noise), per pixel, averaged: " \
+        "0 for mean field, whose expected image stays put. Times on the build machine " \
+        "(%d threads), per frame.\n" % (size, frames, BUILD_INFO.get("cores", 0))

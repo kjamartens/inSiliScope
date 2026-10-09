@@ -176,6 +176,10 @@ The blinks of dSTORM, PALM and DNA-PAINT render in one of three regimes, chosen 
 - The regime can change both ways within a movie (a power step, a 405 nm pulse). The progress line says which one drew
   a frame: `SMLM: N blinks (splat)`, `(binned FFT)`, or `blinks: mean-field (FFT)`.
 
+The three regimes at a low, medium and high imager concentration:
+
+<!-- fig:light-blink-regimes -->
+
 ## Where it lives
 
 JS reference: `web/prototype/scope/spectra.js`, `dye_library.js`, `fluorescence.js`, `scope_movie.js`. C++:
