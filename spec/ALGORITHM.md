@@ -699,8 +699,8 @@ Blinks render per label (main group) and per frame in one of three regimes; the 
   blink-mean-field-max-emitters` (nZ the structure's dyes in the query rect and z range, nSlab in the FOV within
   `mean-field-slab-nm`, `CountDyes`, half-open). Else binned when the frame's ON emitters (overlap-weighted, what the
   splat would draw) per um^2 of the *FOV* (not the slab: the splat costs per event wherever it is, the FFT per area)
-  exceed `blink-binned-density-per-um2` (25; the measured splat/binned break-even at u = 2 is ~10 nM DNA-PAINT, ~10 ON
-  per um^2: 25 keeps the exact splat until it costs ~2-3x the binned FFT, 2026-10-09) or
+  exceed `blink-binned-density-per-um2` (12.5; the measured splat/binned break-even at u = 2 is ~10 nM DNA-PAINT, ~10 ON
+  per um^2: 12.5 sits just above it, 2026-10-09) or
   in all `blink-binned-max-emitters` (1e9). Unlike the continuous populations the regime can go both ways in a movie.
   Not available: blink mean field with a host clock *and* drift (the weighted scene does not follow drift).
 - **Host GPU.** `FluorescenceMovie::HostSplatsBlinks(f)`: the adapter's GPU splats only the SMLM frames; the binned

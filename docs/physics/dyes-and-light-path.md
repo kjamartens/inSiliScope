@@ -157,9 +157,9 @@ The blinks of dSTORM, PALM and DNA-PAINT render in one of three regimes, chosen 
 | **Mean field** | no blinks: each dye's *expected* ON time in the frame times the dye density, convolved once | the mean image | the blinking itself |
 
 - **Splat or binned.** The splat costs per blink, the binned FFT per field-of-view area. A frame renders binned while
-  more than `blink-binned-density-per-um2` (default 25; MM `Renderer.BlinkBinnedDensityPerUm2`) blinks are ON per µm² of the field of view, or
+  more than `blink-binned-density-per-um2` (default 12.5; MM `Renderer.BlinkBinnedDensityPerUm2`) blinks are ON per µm² of the field of view, or
   `blink-binned-max-emitters` (1e9) in all; splatted below. The default is an *estimate*, measured on this
-  implementation (the splat/binned break-even is ~10 per µm²; 25 keeps the splat a little longer): 256 px × 100 frames of DNA-PAINT took 2.9 / 22.9 / 240 s splatted at 1 / 10 / 100 nM imager and
+  implementation (the splat/binned break-even is ~10 per µm²; 12.5 sits just above it): 256 px × 100 frames of DNA-PAINT took 2.9 / 22.9 / 240 s splatted at 1 / 10 / 100 nM imager and
   13–20 s binned at any density (upscale 2; 3–4 s at upscale 1). Binned against splat, same blinks: the photons agree
   within 0.1 %, the mean image within 0.5–2 % (relative L2).
 - **Mean field** is decided before any blink is drawn, from the expected ON emitters: above

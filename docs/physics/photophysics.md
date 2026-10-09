@@ -77,7 +77,7 @@ Bleaching over 200 s, the rendered photons against the model's half time:
 
 The dSTORM initial ON, PALM pre states and WideField dyes are **continuous populations**: rendered mean-field while
 dense, per dye when sparse ([details](dyes-and-light-path.md#continuous-populations-mean-field-or-per-dye)).
-Blinks are splatted one by one, or above 25 ON per µm² binned on a sub-pixel grid and FFT-convolved (approximate
+Blinks are splatted one by one, or above 12.5 ON per µm² binned on a sub-pixel grid and FFT-convolved (approximate
 SMLM); a mean-field regime without blinking exists but is off by default
 ([details](dyes-and-light-path.md#blinks-splat-binned-or-mean-field)).
 

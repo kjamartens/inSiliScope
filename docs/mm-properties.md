@@ -300,7 +300,7 @@ How the images are computed: quality, GPU, caches, numerics.
 | `MeanFieldDensityPerUm2` | Expert | 20 | 0 .. 1000000 | Continuous populations denser than this render mean-field. |
 | `MeanFieldSlabNm` | Expert | 500 | 0 .. 10000 | The density's z slab, nm. |
 | `MeanFieldMaxEmitters` | Expert | 5000 | 0 .. 1000000000 | Populations with more emitters than this render mean-field. |
-| `BlinkBinnedDensityPerUm2` | Expert | 25 | 0 .. 1000000000 | A frame's blinks render binned (the same blinks on a sub-pixel grid, FFT-convolved: approximate SMLM, the cost per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV. |
+| `BlinkBinnedDensityPerUm2` | Expert | 12.5 | 0 .. 1000000000 | A frame's blinks render binned (the same blinks on a sub-pixel grid, FFT-convolved: approximate SMLM, the cost per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV. |
 | `BlinkBinnedMaxEmitters` | Expert | 1000000000 | 0 .. 1000000000 | And binned above this many ON emitters in the frame. |
 | `BlinkBinnedUpscale` | Expert | 2 | 1 .. 8 | Cells of the binned grid per pixel, per axis (a blink is snapped to +-half a cell). |
 | `BlinkMeanFieldDensityPerUm2` | Expert | 1000000000 | 0 .. 1000000000 | A frame's blinks render mean-field (no blinks drawn: each dye's expected ON time; the blinking itself is lost) above this many expected ON emitters per um^2 of the focal slab. 1e9 = never. |

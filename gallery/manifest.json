@@ -12,7 +12,7 @@
       "text": "Imager concentration 14.3 nM (the default is 1 nM): ~14 times the binding rate, overlapping emitters and a ~14 times brighter free-imager background.",
       "options": { "mt-imager-nm": 14.3 } },
     { "id": "sr-dense-binned", "group": "Super-resolution (blinking)", "title": "Very dense: binned blinks (approximate SMLM)",
-      "text": "Imager 100 nM: over 25 ON blinks per um^2 (~130), so every frame renders binned (blink-binned-density-per-um2 25): the same blinks snapped to a grid of 2 cells per pixel (+-25 nm) and FFT-convolved per PSF plane, at a cost per field of view instead of per blink.",
+      "text": "Imager 100 nM: over 12.5 ON blinks per um^2 (~130), so every frame renders binned (blink-binned-density-per-um2 12.5): the same blinks snapped to a grid of 2 cells per pixel (+-25 nm) and FFT-convolved per PSF plane, at a cost per field of view instead of per blink.",
       "options": { "mt-imager-nm": 100 } },
     { "id": "sr-dense-meanfield", "group": "Super-resolution (blinking)", "title": "Very dense: blinks mean-field",
       "text": "The same 100 nM movie with blink-mean-field-max-emitters 0: no blinks drawn, each dye's expected ON time x the dye density, convolved once. The total signal is right, but the blinking is gone (only shot noise is left), so this is not SMLM data; off by default.",

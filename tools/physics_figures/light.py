@@ -232,7 +232,7 @@ def light_blink_regimes(ctx):
         "*ON / &micro;m<sup>2</sup>*: the ON emitters per frame (each blink weighted by the part of the frame it is " \
         "ON) per &micro;m<sup>2</sup> of the field of view, over all depths and within the %d nm focal slab " \
         "(`mean-field-slab-nm`), averaged over the movie. *default* is the regime the renderer picks by itself: " \
-        "binned while more than 25 are ON per &micro;m<sup>2</sup> of the field of view (`blink-binned-density-per-um2`; " \
+        "binned while more than 12.5 are ON per &micro;m<sup>2</sup> of the field of view (`blink-binned-density-per-um2`; " \
         "the rule counts the blinks the movie queries, which reach a little beyond the field of view), splat below. " \
         "Mean field is never picked by default: it takes over only when you set `blink-mean-field-density-per-um2` " \
         "below the expected ON density in the focal slab (or `blink-mean-field-max-emitters` below the expected ON " \

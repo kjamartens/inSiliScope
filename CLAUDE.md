@@ -280,7 +280,7 @@ continuous populations and the lamp, added on the GPU before its noise as one CP
 **Blink render regimes (2026-10-08, spec/ALGORITHM.md, spec/PORT.md 19):** blinks render per label and frame splatted
 (SMLM), **binned** (approximate SMLM: the same events, `CollectFrameEmitters`, snapped to `blink-binned-upscale` (2)
 cells per pixel, one FFT convolution per PSF plane; `Simulation/BinnedBlinks.*`) above `blink-binned-density-per-um2`
-(25 ON per um^2 of the FOV; MM `Renderer.BlinkBinnedDensityPerUm2`) or `blink-binned-max-emitters`, or **mean-field** (no events: `ExpectedBlinkOnSeconds`,
+(12.5 ON per um^2 of the FOV; MM `Renderer.BlinkBinnedDensityPerUm2`) or `blink-binned-max-emitters`, or **mean-field** (no events: `ExpectedBlinkOnSeconds`,
 `Simulation/BlinkExpectation.*`, x the dye density via the populations' mean-field scene; the blinking is lost, so off
 by default: `blink-mean-field-*` 1e9). JS twins `binned_blinks.js`, `blink_expectation.js` (`scope_parity` 100 %). MM
 `Renderer.Blink*` (Expert); the adapter's GPU splats only frames where `FluorescenceMovie::HostSplatsBlinks(f)`, the
