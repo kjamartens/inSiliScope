@@ -104,6 +104,13 @@ struct ScopeStateReadout
 };
 bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateReadout& out, std::string& err);
 
+// Structure s's effective dye and mode as the spec gives them (JS scopeStructureDye): <prefix>-mode -2 (Global) takes
+// the mode option, <prefix>-dye -1 (Typical) the target's typical dye in that mode (data/dyes/library.json
+// typicalLabels); choice: the resolved index into DyeChoices(). And its labelled % (-1: the target's typical % in mode).
+struct EffectiveDye;
+bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err);
+double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode);
+
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);
@@ -170,34 +177,69 @@ struct FluorescenceFrameOptions
    // Set: the photon images (before the camera) go here instead of the noise
    // chain and onFrame (the host adds its own noise).
    std::function<bool(long f, const std::vector<float>& photons)> onPhotons;
+   // With onPhotons: the images hold the continuous populations only (no
+   // background, no splatted blinks; the binned and mean-field frames' blinks
+   // are in) -- a host that splats the blinks itself (the adapter's GPU,
+   // FluorescenceSimplePlan, HostSplatsBlinks) adds the rest.
+   bool populationsOnly = false;
 };
+
+// The inputs a dye's rates depend on (ScopeKineticEnv): the options of the
+// lasers, excitation filter, dichroic, the imager concentrations, and the
+// dyes with their modes and overrides. An epoch of the adapter's
+// illumination history.
+using KineticEnv = ScopeSpec;
+KineticEnv ScopeKineticEnv(const ScopeSpec& spec);
+// The excitation a spec's light path brings to the sample (every laser line
+// through the excitation filter and the dichroic), kW/cm^2; 0 (or a bad
+// spec): it lights nothing.
+double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
 
 // A host's per-region clock (the adapter's illumination history): the
 // seconds of illumination each world position (um) has had before frame 0. A
 // dye's schedule is read at its position's clock instead of start-sec; frame
 // f adds f x exposure everywhere (the whole query rect is lit while the movie
-// runs). Regions: the distinct clocks in a rect, each with the bounding box
-// of the positions that have it.
+// runs). Regions: the distinct (clock, history) pairs in a rect, each with the
+// bounding box of the positions that have it. A history (an id) is the rate
+// past of a position: its segments, each an env from clock tStart on (the
+// first from 0; the last is the movie's own, the frames run in it). None
+// (Segments empty): the movie's env from 0.
+struct ClockSegment
+{
+   double tStart = 0;
+   const KineticEnv* env = nullptr;
+};
 struct ClockRegion
 {
    double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
+   uint32_t history = 0;
 };
 class DyeClock
 {
 public:
    virtual ~DyeClock() = default;
    virtual double At(double xUm, double yUm) const = 0;
+   virtual void KeyAt(double xUm, double yUm, double& tSec, uint32_t& history) const
+   {
+      tSec = At(xUm, yUm);
+      history = 0;
+   }
+   virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };
 
-// The blinks-only case of a movie (one blink group, no continuous
-// population): what the adapter's GPU splat + noise path needs.
+// A movie whose blinks are one group (one structure's main state): what the
+// adapter's GPU splat + noise path needs. The background and the blinks are
+// splatted from this; the continuous populations (populations: there are
+// some) and the blinks of binned or mean-field frames (HostSplatsBlinks), if
+// any, come from Render with populationsOnly and are added before the noise.
 struct FluorescenceSimplePlan
 {
    bool ok = false;
    const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
    double photonsPerBlink = 0, sigmaPx = 1, backgroundPhotons = 0;
    const std::vector<BlinkEvent>* events = nullptr;
+   bool populations = false;
 };
 
 class FluorescenceMovie
@@ -211,6 +253,12 @@ public:
    // during Begin only).
    bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr,
               const DyeClock* clock = nullptr);
+   // Live (a movie per frame at a host clock): the per-dye populations' running
+   // images carry over to the next movie in this process at the same geometry,
+   // which then splats only the dyes whose windows changed (float rounding may
+   // differ from a fresh build; off by default: stacks stay reproducible).
+   // Call before Begin.
+   void CarryRunningImages(bool on);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.
@@ -219,6 +267,10 @@ public:
    FluorescenceSimplePlan SimplePlan() const;
    // Whether the movie has continuous populations (mean-field or per dye).
    bool HasPopulations() const;
+   // Whether a host that splats the blinks itself (SimplePlan) draws frame f's:
+   // false when they render binned or mean-field (Render with populationsOnly
+   // then adds them to that frame's image).
+   bool HostSplatsBlinks(long f) const;
    bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
                std::string& err, const ScopeProgress* progress = nullptr,
                const FluorescenceFrameOptions* options = nullptr);
@@ -230,10 +282,20 @@ private:
 
 // Warms the shared world's caches around the spec's FOV (CellFieldSource::
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
-bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs);
+// clock (optional): the dyes' clock and rate history at the FOV centre
+// instead of start-sec.
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, const DyeClock* clock = nullptr);
+
+// Which lights are on (JS scopeLights): light-epi (the lasers' shutter) and
+// light-trans (the lamp's), each 1 open / 0 closed / -1 from modality
+// (Fluorescence: epi, BrightField: trans).
+void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans);
 
 // Renders the movie, calling onFrame(f, adu) for f = 0..frames-1 (return
-// false to stop). False (with err) on a failure.
+// false to stop). False (with err) on a failure. The lights choose the
+// imaging: epi only = fluorescence, trans only = BrightField, both = the
+// fluorescence photons plus the BrightField photons x the camera's QE at the
+// lamp wavelength through one noise chain, none = dark frames.
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress = nullptr);
 

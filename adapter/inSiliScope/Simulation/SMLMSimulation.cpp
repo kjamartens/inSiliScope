@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace sim {
 
@@ -43,19 +44,58 @@ void RenderGaussianRows(std::vector<float>& img, unsigned width, unsigned height
    }
 }
 
-// One emitter of a frame, as RenderPhotonImage places it.
-struct FrameEmitter
-{
-   double xPx, yPx, photons;
-   int zIndex;
-};
-
 } // namespace
 
 void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
                         double xPx, double yPx, double sigmaPx, double totalPhotons)
 {
    RenderGaussianRows(img, width, height, 0, static_cast<int>(height), xPx, yPx, sigmaPx, totalPhotons);
+}
+
+void CollectFrameEmitters(const std::vector<BlinkEvent>& events, long frameIndex, unsigned width, unsigned height,
+                          double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
+                          const PsfKernelCache* psfCache, double globalZOffsetUm, const std::vector<float>* illum,
+                          std::vector<FrameEmitter>& out, long* outZClampedCount, long* outZTotalCount)
+{
+   out.reserve(out.size() + events.size());
+   for (const BlinkEvent& e : events)
+   {
+      double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
+                  std::max(static_cast<double>(frameIndex), e.tStart);
+      if (ov <= 0.0)
+         continue;
+      if (ov > 1.0)
+         ov = 1.0;
+
+      double sitePxX = e.xUm * 1000.0 / pixelSizeNm;
+      double sitePxY = e.yUm * 1000.0 / pixelSizeNm;
+      double xPx = sitePxX + driftOffsetXPx;
+      double yPx = sitePxY + driftOffsetYPx;
+      double photons = photonsPerBlink * ov;
+      if (e.brightness != 1.0)
+         photons *= e.brightness;
+      // Illumination is read at the emitter's own (undrifted) site, as
+      // webSMLM's illumAt does -- the beam is fixed to the sample, the
+      // drift moves both.
+      if (illum)
+         photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
+      int zIndex = 0;
+      if (psfCache)
+      {
+         // The Z stage position is the focal plane's height and the emitter
+         // sits at its own depth: what the PSF sees is the difference, the
+         // emitter's height above the focal plane (+Z moves focus up).
+         // Looked up per emitter (zNm varies per emitter) rather than once
+         // per frame the way a single shared z used to allow.
+         bool clamped = false;
+         zIndex = psfCache->NearestZIndex(e.zNm / 1000.0 - globalZOffsetUm, &clamped);
+         if (outZTotalCount)
+            ++*outZTotalCount;
+         if (clamped && outZClampedCount)
+            ++*outZClampedCount;
+      }
+      out.push_back({xPx, yPx, photons, ov, zIndex});
+   }
 }
 
 void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
@@ -100,45 +140,9 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    // Every emitter's position, photons and plane, in event order.
    bool useKernel = psfCache && psfCache->valid;
    std::vector<FrameEmitter> ems;
-   ems.reserve(events.size());
-   for (const BlinkEvent& e : events)
-   {
-      double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
-                  std::max(static_cast<double>(frameIndex), e.tStart);
-      if (ov <= 0.0)
-         continue;
-      if (ov > 1.0)
-         ov = 1.0;
-
-      double sitePxX = e.xUm * 1000.0 / pixelSizeNm;
-      double sitePxY = e.yUm * 1000.0 / pixelSizeNm;
-      double xPx = sitePxX + driftOffsetXPx;
-      double yPx = sitePxY + driftOffsetYPx;
-      double photons = photonsPerBlink * ov;
-      if (e.brightness != 1.0)
-         photons *= e.brightness;
-      // Illumination is read at the emitter's own (undrifted) site, as
-      // webSMLM's illumAt does -- the beam is fixed to the sample, the
-      // drift moves both.
-      if (illum)
-         photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
-      int zIndex = 0;
-      if (useKernel)
-      {
-         // The Z stage position is the focal plane's height and the emitter
-         // sits at its own depth: what the PSF sees is the difference, the
-         // emitter's height above the focal plane (+Z moves focus up).
-         // Looked up per emitter (zNm varies per emitter) rather than once
-         // per frame the way a single shared z used to allow.
-         bool clamped = false;
-         zIndex = psfCache->NearestZIndex(e.zNm / 1000.0 - globalZOffsetUm, &clamped);
-         if (outZTotalCount)
-            ++*outZTotalCount;
-         if (clamped && outZClampedCount)
-            ++*outZClampedCount;
-      }
-      ems.push_back({xPx, yPx, photons, zIndex});
-   }
+   CollectFrameEmitters(events, frameIndex, width, height, pixelSizeNm, photonsPerBlink, driftOffsetXPx,
+                        driftOffsetYPx, useKernel ? psfCache : nullptr, globalZOffsetUm, illum, ems,
+                        outZClampedCount, outZTotalCount);
 
    if (!accumulate)
       img.resize(n);
@@ -213,31 +217,16 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
    const size_t n = static_cast<size_t>(width) * height;
    const std::vector<float>* illum =
       (extras && extras->illumField && extras->illumField->size() == n) ? extras->illumField : nullptr;
-   for (const BlinkEvent& e : events)
+   std::vector<FrameEmitter> ems;
+   CollectFrameEmitters(events, frameIndex, width, height, pixelSizeNm, photonsPerBlink, driftOffsetXPx,
+                        driftOffsetYPx, &cache, globalZOffsetUm, illum, ems, outZClampedCount, outZTotalCount);
+   for (const FrameEmitter& em : ems)
    {
-      // Mirrors RenderPhotonImage's per-emitter arithmetic exactly.
-      double ov = std::min(static_cast<double>(frameIndex + 1), e.tEnd) -
-                  std::max(static_cast<double>(frameIndex), e.tStart);
-      if (ov <= 0.0)
-         continue;
-      if (ov > 1.0)
-         ov = 1.0;
-      double sitePxX = e.xUm * 1000.0 / pixelSizeNm;
-      double sitePxY = e.yUm * 1000.0 / pixelSizeNm;
-      double photons = photonsPerBlink * ov;
-      if (e.brightness != 1.0)
-         photons *= e.brightness;
-      if (illum)
-         photons *= IlluminationAt(*illum, width, height, sitePxX, sitePxY);
-      bool clamped = false;
-      int zIndex = cache.NearestZIndex(e.zNm / 1000.0 - globalZOffsetUm, &clamped);
-      if (outZTotalCount)
-         ++*outZTotalCount;
-      if (clamped && outZClampedCount)
-         ++*outZClampedCount;
+      const double photons = em.photons;
+      const int zIndex = em.zIndex;
       if (photons <= 0.0)
          continue;
-      SplatSetupResult st = SplatSetup(cache, sitePxX + driftOffsetXPx, sitePxY + driftOffsetYPx, cache.interpMode);
+      SplatSetupResult st = SplatSetup(cache, em.xPx, em.yPx, cache.interpMode);
       GpuSplatEmitter g = {};
       g.x0 = st.x0;
       g.y0 = st.y0;
@@ -246,6 +235,9 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
       g.plane = zIndex;
       g.nTaps = st.nTaps;
       g.photons = static_cast<float>(photons);
+      g.cutRadius2 = cache.halo && zIndex >= 0 && zIndex < static_cast<int>(cache.halo->radius2.size())
+                        ? cache.halo->radius2[static_cast<size_t>(zIndex)]
+                        : std::numeric_limits<int32_t>::max();
       for (int k = 0; k < 4; ++k)
       {
          g.wx[k] = static_cast<float>(st.wx[k]);

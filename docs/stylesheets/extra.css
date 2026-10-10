@@ -55,3 +55,67 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Physics figures (tools/build_physics_figures.py, injected by tools/build_site.sh). */
+.md-typeset .isc-fig {
+  width: 100%;
+  margin: 1em 0;
+}
+.md-typeset .isc-fig img {
+  width: 100%;
+  height: auto;
+}
+/* Camera images and movies at their own pixels, scaled up by the browser: square pixels, not smoothed. */
+.md-typeset .isc-fig img.isc-px {
+  image-rendering: pixelated;
+}
+.md-typeset .isc-fig figcaption {
+  max-width: none;
+  margin: 0.4em 0 0;
+  font-size: 0.7rem;
+  font-style: normal;
+  text-align: left;
+  color: var(--md-default-fg-color--light);
+}
+/* Comparison tables: one column per level; camera images keep square pixels and share the width between the
+   columns (--isc-n, set per table); below their minimum the table scrolls sideways (Material's table wrapper). */
+.md-typeset .isc-cmp {
+  container-type: inline-size;
+}
+.md-typeset .isc-cmp table:not([class]) {
+  font-size: 0.64rem;
+  line-height: 1.3;
+}
+.md-typeset .isc-cmp table:not([class]) th,
+.md-typeset .isc-cmp table:not([class]) td {
+  padding: 0.3em 0.35em;
+  min-width: 0;
+  vertical-align: middle;
+}
+.md-typeset .isc-cmp th code {
+  white-space: nowrap;
+}
+/* The row labels: small and narrow, so the images get the width. */
+.md-typeset .isc-cmp:not(.isc-nolabel) table:not([class]) td:first-child,
+.md-typeset .isc-cmp:not(.isc-nolabel) table:not([class]) th:first-child {
+  width: 5.5rem;
+  max-width: 6.5rem;
+  padding-left: 0.1em;
+  font-size: 0.58rem;
+  font-weight: normal;
+  color: var(--md-default-fg-color--light);
+}
+.md-typeset .isc-cmp img.isc-px {
+  image-rendering: pixelated;
+  width: clamp(3.5rem, calc((100cqw - 6.5rem) / var(--isc-n, 4) - 0.8rem), 11rem);
+  height: auto;
+  max-width: none;
+  display: block;
+  margin: 0 auto;
+}
+.md-typeset .isc-nolabel img.isc-px {
+  width: clamp(3.5rem, calc(100cqw / var(--isc-n, 4) - 0.8rem), 11rem);
+}
+.md-typeset .isc-small img.isc-px {
+  width: clamp(3rem, calc((100cqw - 6.5rem) / var(--isc-n, 4) - 0.8rem), 7rem);
+}

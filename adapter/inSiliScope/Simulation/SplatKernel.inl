@@ -93,8 +93,19 @@ void Rows(const SplatArgs& a)
       const int r0 = a.by + dy * os + off;
       const int jLo = MaxI(0, -r0), jHi = MinI(NT, bw - r0);
       float* rowOut = a.img + static_cast<size_t>(a.y0 + dy) * a.width;
+      // The row's columns: the square's, or the halo cut's within it. A
+      // pixel kept gets the same value either way.
+      int rLo = dxLo, rHi = dxHi;
+      if (a.spanLo)
+      {
+         rLo = MaxI(rLo, a.spanLo[dy + camRad]);
+         rHi = MinI(rHi, a.spanHi[dy + camRad]);
+         if (rLo > rHi)
+            continue;
+      }
+      const int iA = MaxI(dxA, rLo), iB = MinI(dxB, rHi);
       // Left edge (and every pixel when there is no polyphase plane).
-      for (int dx = dxLo; dx < dxA && dx <= dxHi; ++dx)
+      for (int dx = rLo; dx < iA && dx <= rHi; ++dx)
       {
          const int c0 = base + dx * os;
          const int iLo = MaxI(0, -c0), iHi = MinI(NT, bw - c0);
@@ -102,9 +113,9 @@ void Rows(const SplatArgs& a)
       }
       // Interior: per pixel k the same `row = 0; row += wx[i]*B; sum += wy[j]*row;
       // out += float(photons*sum)` sequence as PixelTaps, on lanes.
-      for (int dx0 = dxA; dx0 <= dxB; dx0 += kChunk)
+      for (int dx0 = iA; dx0 <= iB; dx0 += kChunk)
       {
-         const int n = MinI(kChunk, dxB - dx0 + 1);
+         const int n = MinI(kChunk, iB - dx0 + 1);
          for (int k = 0; k < n; ++k)
             sumv[k] = 0.0;
          for (int j = jLo; j < jHi; ++j)
@@ -130,7 +141,7 @@ void Rows(const SplatArgs& a)
             o[k] += static_cast<float>(ph * sumv[k]);
       }
       // Right edge.
-      for (int dx = MaxI(dxB + 1, dxA); dx <= dxHi; ++dx)
+      for (int dx = MaxI(MaxI(dxB + 1, dxA), rLo); dx <= rHi; ++dx)
       {
          const int c0 = base + dx * os;
          const int iLo = MaxI(0, -c0), iHi = MinI(NT, bw - c0);

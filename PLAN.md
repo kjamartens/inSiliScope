@@ -10,6 +10,26 @@ Upcoming ideas:
   per-dye populations, imager background; cli movies = the JS, 100 % identical ADU in every mode tried),
   [x] cli/viewer module/block (ABI 10 in the viewer, sites stride 5, labels on sites jobs, the WebGPU mean-field path
   per scene, movie-progress from the WASM; block abiVersion 10; engine_check: lab.html = WASM), [x] adapter, [x] checks + benchmarks, [x] docs.
+- MM adapter as a hub with devices (2026-10-06, branch `claude/mm-devices`, spec/MM_DEVICES.md): [x] hub + peripherals,
+  tiered registry, Test tier, [x] label model (global mode, typical labels, specimen registry, Cy3B), [x] excitation
+  filters, [x] light from the shutters (both summed, none dark), [x] EMCCD without sCMOS spreads, [x] emission
+  magnification 0.667x (97.45 nm), [x] generated configs + property reference, `insiliscope_cli --spec`. Next: [ ] load
+  the configs in Micro-Manager Studio (Channel group images, Mode switch updates the Label list, Basic <= 30 rows).
+- Live performance pass (2026-10-07, [spec/PERF_PASS.md](spec/PERF_PASS.md), single-molecule first): [x] phase 0 frame
+  pacing (precise waits, absolute schedule, condition-variable handoff; BrightField 32 -> 50 fps at 20 ms), [x] MMCore
+  phase profile (`Test_ProfileWriteTo`, `bench_live.py --profile`, release job `mm-bench`, Benchmarks page), [ ] phase 1
+  persistent live session (done so far: dye-count memo, all-core single-frame splat, persistent `ParallelFor` pool,
+  mean-field clock weights memo, no unused noise maps per frame), [x] phase 2 render-ahead queue + frame-parallel rendering
+  (`LiveAhead.cpp`; BrightField focus prefetch `BrightfieldLive`), [x] phase 3 GPU for SR frames (dSTORM/PALM, populations and lamp added on the GPU),
+  [ ] phase 4 interactive latencies, [ ] phase 5 CPU per-frame costs.
+- Physics figures (2026-10-08, branch `claude/physics-figures`): [x] cli diagnostic outputs (`cli/scope_probes.*`,
+  output-neutral, ctest `cli_probes`), [x] `tools/build_physics_figures.py` (33 figures, quality/realism presets as
+  side-by-side tables), [x] markers in `docs/physics/*.md`, injected by `build_site.sh`, [x] rebuilt by `pages.yml`.
+  Next: [ ] the viewer's drift preset table from `RenderPresets.h` (`web/index.html` keeps its own copy).
+- Blink render regimes (2026-10-08, spec/ALGORITHM.md "Blink render regimes", spec/PORT.md 19): [x] binned FFT
+  (approximate SMLM) above 12.5 ON blinks per um^2 (C++ + JS, 100 % identical ADU), [x] blink mean-field (expected ON
+  time, off by default), [x] adapter GPU splats only the SMLM frames, `Renderer.Blink*` rows, viewer controls, docs.
+  Next: [ ] a D3D11 binned FFT if live profiling of dense DNA-PAINT asks for it.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT
@@ -59,6 +79,13 @@ Upcoming ideas:
 - 2026-10-06: [x] sample drift as a random walk, xy and z separately (`Simulation/Drift.*`, `drift.js`; MM, cli, viewer,
   webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 17). Next: [ ] drift on
   the WideField GPU paths, [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
+- 2026-10-07: [x] drift presets (`SampleHolder.DriftPreset` Off ... Extreme, Basic; the viewer's Drift select; the
+  configs' Drift group in every tier), the z drift as a magnitude with a direction, bounded direction/z swings.
+- 2026-10-08: [x] the sample's history in MM: rate history per tile (epochs, core ABI 11
+  `isc_world_set_kinetics_history`, JS twin; a light/label change acts from now on: PALM 405 off keeps the converted
+  dyes, power steps continue from the present state), light counted at publish, lit rect follows the drift, drift
+  continues across Live stops/starts, `SampleHolder.TimeWhileIdle` (Running/Paused), fixed camera pattern maps, live
+  per-dye running images carried across frames; `tools/test_history.py`.
 - 2026-10-05: [x] shaped nuclei (issue 12: lobes, kidney bend, thickness, wider base, widest point, basal gap; dome
   follows the nucleus), [x] microtubule starts/ends sampled by distance with a direction pick, smooth over/under
   envelope (generic obstacle interface), [x] ported to the core bit-exactly (ABI 9 nucleus rings, optical volume),

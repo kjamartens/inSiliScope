@@ -175,6 +175,103 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
    }
 }
 
+size_t KineticsHistory::SegmentAt(double t) const
+{
+   size_t lo = 0, hi = tStart.size();
+   while (hi - lo > 1) {
+      const size_t mid = (lo + hi) / 2;
+      if (tStart[mid] <= t) lo = mid; else hi = mid;
+   }
+   return lo;
+}
+
+namespace {
+// Spends unit-exponential draws over a history's segments in a dye's local time (absolute time - t0). Within one
+// segment the arithmetic is the single-segment schedule's (tau + E / rate, tau + E x scale).
+struct HazardWalk {
+   const KineticsHistory& h;
+   double t0;
+   size_t i = 0;   // the segment of the last time synced to (times only increase)
+   HazardWalk(const KineticsHistory& hh, double t0In) : h(hh), t0(t0In) {}
+   double End(size_t s) const { return s + 1 < h.Size() ? h.tStart[s + 1] - t0 : INFINITY; }
+   size_t Sync(double tau)
+   {
+      while (i + 1 < h.Size() && h.tStart[i + 1] - t0 <= tau) i++;
+      return i;
+   }
+   // When rateOf(segment) integrated from tau reaches E (INFINITY if never).
+   template <class Rate> double AfterRate(double tau, double E, Rate rateOf)
+   {
+      for (size_t s = Sync(tau);; s++) {
+         const double a = rateOf(h.kin[s]), end = End(s);
+         if (a > 0) {
+            const double t = tau + E / a;
+            if (!(t >= end)) return t;
+            E = std::max(0.0, E - a * (end - tau));
+         } else if (end == INFINITY) {
+            return INFINITY;
+         }
+         tau = end;
+      }
+   }
+   // The same for a state of mean duration scaleOf(segment) (rate 1 / scale); a scale <= 0 leaves at once.
+   template <class Scale> double AfterScale(double tau, double E, Scale scaleOf)
+   {
+      for (size_t s = Sync(tau);; s++) {
+         const double sc = scaleOf(h.kin[s]), end = End(s);
+         if (!(sc > 0)) return tau;
+         const double t = tau + E * sc;
+         if (!(t >= end)) return t;
+         E = std::max(0.0, E - (end - tau) / sc);
+         tau = end;
+      }
+   }
+};
+double RateAct(const Kinetics& q) { return q.activationRatePerSec; }
+double ScaleOn(const Kinetics& q) { return q.onSec; }
+double ScaleOff(const Kinetics& q) { return q.offSec; }
+double ScaleInitialOn(const Kinetics& q) { return q.initialOnSec; }
+} // namespace
+
+void DyeScheduleHistory(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, std::vector<Blink>& out,
+                        double tMax)
+{
+   auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
+   HazardWalk w(h, t0);
+   double t = w.AfterRate(0.0, -jsm::log(U(DYE_CH::ACT)), RateAct);
+   double lnCv = -1;
+   LogNormalParams ln = { 0, 0 };
+   for (int j = 0; j < DYE_MAX_BLINKS; j++) {
+      if (t >= tMax) break;
+      const uint32_t base = DYE_CH::SCHED0 + (uint32_t)j * DYE_CH::SCHED_STRIDE;
+      const size_t seg = w.Sync(t);
+      const Kinetics& q = h.kin[seg];
+      const double end = w.End(seg);
+      const double eOn = -jsm::log(U(base + DYE_CH::ON));
+      const double on = eOn * q.onSec;
+      double b = 1;
+      const double cv = std::max(0.0, q.photonCV);
+      if (cv > 0) {
+         if (cv != lnCv) { ln = LogNormalFor(cv); lnCv = cv; }
+         const double u1 = U(base + DYE_CH::BRIGHT1);
+         const double u2 = U(base + DYE_CH::BRIGHT2);
+         b = LogNormalMean1(ln, u1, u2);
+      }
+      const bool onInSeg = !(t + on >= end);
+      const double tOff = onInSeg ? t + on : w.AfterScale(t, eOn, ScaleOn);
+      out.push_back({ t, tOff, b });
+      // Bleach after the ON with the probability of the segment it ended in.
+      const double pBleach = std::min(1.0, std::max(0.01, h.kin[w.Sync(tOff)].bleachProb));
+      if (U(base + DYE_CH::BLEACH) < pBleach) break;
+      const double eOff = -jsm::log(U(base + DYE_CH::OFF));
+      const double off = eOff * q.offSec;
+      if (onInSeg && !(t + (on + off) >= end))
+         t += on + off;   // the cycle stays in its segment: DyeSchedule's sum
+      else
+         t = w.AfterScale(tOff, eOff, ScaleOff);
+   }
+}
+
 const char* ValidateLabel(const Label& l)
 {
    const int mode = (int)l.mode, orient = (int)l.orientation.mode;
@@ -189,27 +286,41 @@ const char* ValidateLabel(const Label& l)
 bool LabelNotImplemented(const Label& l) { return l.motion != 0 || l.offTargetCount != 0; }
 
 void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::vector<Blink>* blinks,
-                   std::vector<ContWindow>* cont, double tMax)
+                   std::vector<ContWindow>* cont, double tMax, const KineticsHistory* hist)
 {
-   const Kinetics& kin = label.kin;
+   // Two or more segments: the walk over them; else one set of kinetics from t = 0.
+   const KineticsHistory* multi = hist && hist->Size() >= 2 ? hist : nullptr;
+   const Kinetics& kin = hist && hist->Size() == 1 ? hist->kin[0] : label.kin;
    auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
    if (label.mode == LabelMode::WideField) {
       if (cont) cont->push_back({ 0.0, INFINITY, STATE_ALWAYS_ON, -jsm::log(U(DYE_CH::AUX)) });
       return;
    }
    if (label.mode == LabelMode::DnaPaint) return;
-   const double shift = label.mode == LabelMode::dSTORM && kin.initialOnSec > 0
-                           ? -jsm::log(U(DYE_CH::INIT_ON)) * kin.initialOnSec : 0.0;
+   double shift = 0.0;
+   if (label.mode == LabelMode::dSTORM) {
+      if (!multi && kin.initialOnSec > 0)
+         shift = -jsm::log(U(DYE_CH::INIT_ON)) * kin.initialOnSec;
+      else if (multi && multi->kin[0].initialOnSec > 0)
+         shift = HazardWalk(*multi, 0.0).AfterScale(0.0, -jsm::log(U(DYE_CH::INIT_ON)), ScaleInitialOn);
+   }
    if (cont && shift != 0) cont->push_back({ 0.0, shift, STATE_INITIAL_ON, 0.0 });
    if (blinks) {
       const size_t first = blinks->size();
-      DyeSchedule(h1, k, n, kin, *blinks, tMax - shift);
+      if (multi)
+         DyeScheduleHistory(h1, k, n, *multi, shift, *blinks, tMax - shift);
+      else
+         DyeSchedule(h1, k, n, kin, *blinks, tMax - shift);
       if (shift != 0)
          for (size_t i = first; i < blinks->size(); i++) { (*blinks)[i].tOn += shift; (*blinks)[i].tOff += shift; }
    }
    // The pre state lasts until the first activation: DyeSchedule's first blink time, the ACT draw.
    if (cont && label.mode == LabelMode::PALM && label.preState) {
-      const double tOff = kin.activationRatePerSec > 0 ? -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec : INFINITY;
+      double tOff;
+      if (multi)
+         tOff = HazardWalk(*multi, 0.0).AfterRate(0.0, -jsm::log(U(DYE_CH::ACT)), RateAct);
+      else
+         tOff = kin.activationRatePerSec > 0 ? -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec : INFINITY;
       cont->push_back({ 0.0, tOff, STATE_PRE, -jsm::log(U(DYE_CH::AUX)) });
    }
 }
@@ -242,37 +353,61 @@ namespace {
 // for every blink starting in bins [b0, b1]. keep(tOn, on) decides whether a
 // blink is wanted before its brightness is drawn (the draws are addressed,
 // so skipping them changes no other value).
-template <class Keep, class Emit>
-void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long b0, long b1, Keep keep, Emit emit)
+// A bin's kinetics, derived once per set of kinetics (per site, or per segment under a history).
+struct BinKinetics {
+   double rate, onSec, cv, maxOn, m, expM;
+   bool small;
+   LogNormalParams ln;
+};
+BinKinetics BinKineticsOf(const Kinetics& kin)
 {
-   const double rate = kin.activationRatePerSec;
-   if (!(rate > 0)) return;
+   BinKinetics p;
+   p.rate = kin.activationRatePerSec;
+   p.onSec = kin.onSec;
+   p.cv = std::max(0.0, kin.photonCV);
+   p.ln = LogNormalFor(p.cv);
+   p.maxOn = PERSIST_ON_CAP * kin.onSec;
+   p.m = p.rate * PERSIST_BIN_SEC;
+   // PoissonFromUniform, with exp(-m) once per site and the second uniform
+   // (addressed, so skipping it changes nothing) only where it is used.
+   p.small = p.m <= 30;
+   p.expM = p.small ? jsm::exp(-p.m) : 0.0;
+   return p;
+}
+
+// hist with two or more segments: bin b takes the kinetics of the segment holding its start b x PERSIST_BIN_SEC.
+template <class Keep, class Emit>
+void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, const KineticsHistory* hist, long b0, long b1,
+                   Keep keep, Emit emit)
+{
+   const KineticsHistory* multi = hist && hist->Size() >= 2 ? hist : nullptr;
+   const Kinetics& one = hist && hist->Size() == 1 ? hist->kin[0] : kin;
+   if (!multi && !(one.activationRatePerSec > 0)) return;
    // Per-site stream key, then per (bin, j, purpose).
    const uint32_t key = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::PERSIST).a;
    auto U = [&](uint32_t bin, uint32_t j, uint32_t ch) { return Unit(Pcg4d(key, bin, j, ch).a); };
    enum : uint32_t { COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5 };
-   const double cv = std::max(0.0, kin.photonCV);
-   const LogNormalParams ln = LogNormalFor(cv);
-   const double maxOn = PERSIST_ON_CAP * kin.onSec;
-   const double m = rate * PERSIST_BIN_SEC;
-   // PoissonFromUniform, with exp(-m) once per site and the second uniform
-   // (addressed, so skipping it changes nothing) only where it is used.
-   const bool small = m <= 30;
-   const double expM = small ? jsm::exp(-m) : 0.0;
+   size_t seg = multi ? multi->SegmentAt(std::max(0L, b0) * PERSIST_BIN_SEC) : 0;
+   BinKinetics p = BinKineticsOf(multi ? multi->kin[seg] : one);
    for (long b = std::max(0L, b0); b <= b1; b++) {
+      if (multi) {
+         const size_t s = multi->SegmentAt(b * PERSIST_BIN_SEC);
+         if (s != seg) { seg = s; p = BinKineticsOf(multi->kin[s]); }
+         if (!(p.rate > 0)) continue;
+      }
       const uint32_t bin = (uint32_t)b;
-      const long c = small ? PoissonInverse(m, expM, U(bin, 0, COUNT))
-                           : PoissonFromUniform(m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
+      const long c = p.small ? PoissonInverse(p.m, p.expM, U(bin, 0, COUNT))
+                             : PoissonFromUniform(p.m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
       for (long j = 0; j < c; j++) {
          const uint32_t jj = (uint32_t)j;
          const double tOn = (b + U(bin, jj, START)) * PERSIST_BIN_SEC;
-         const double on = std::min(maxOn, -jsm::log(U(bin, jj, ON)) * kin.onSec);
+         const double on = std::min(p.maxOn, -jsm::log(U(bin, jj, ON)) * p.onSec);
          if (!keep(tOn, on)) continue;
          double br = 1;
-         if (cv > 0) {
+         if (p.cv > 0) {
             const double u1 = U(bin, jj, BRIGHT1);
             const double u2 = U(bin, jj, BRIGHT2);
-            br = LogNormalMean1(ln, u1, u2);
+            br = LogNormalMean1(p.ln, u1, u2);
          }
          emit(bin, jj, tOn, on, br);
       }
@@ -280,22 +415,30 @@ void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long 
 }
 } // namespace
 
+double PersistentMaxOn(const Kinetics& kin, const KineticsHistory* hist)
+{
+   if (!hist || !hist->Size()) return PERSIST_ON_CAP * kin.onSec;
+   double m = 0;
+   for (const Kinetics& q : hist->kin) m = std::max(m, PERSIST_ON_CAP * q.onSec);
+   return m;
+}
+
 void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
-                      std::vector<Blink>& out)
+                      std::vector<Blink>& out, const KineticsHistory* hist)
 {
    if (!(t1 > t0)) return;
-   const double maxOn = PERSIST_ON_CAP * kin.onSec;
+   const double maxOn = PersistentMaxOn(kin, hist);
    const long b0 = std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC));
    const long b1 = (long)std::floor(t1 / PERSIST_BIN_SEC);
-   PersistentGen(h1, k, n, kin, b0, b1,
+   PersistentGen(h1, k, n, kin, hist, b0, b1,
                  [&](double tOn, double on) { return tOn < t1 && tOn + on > t0; },
                  [&](uint32_t, uint32_t, double tOn, double on, double br) { out.push_back({ tOn, tOn + on, br }); });
 }
 
 void PersistentBlinksInBins(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long binLo, long binHi,
-                            std::vector<BinBlink>& out)
+                            std::vector<BinBlink>& out, const KineticsHistory* hist)
 {
-   PersistentGen(h1, k, n, kin, binLo, binHi, [](double, double) { return true; },
+   PersistentGen(h1, k, n, kin, hist, binLo, binHi, [](double, double) { return true; },
                  [&](uint32_t bin, uint32_t j, double tOn, double on, double br) {
                     out.push_back({ tOn, tOn + on, br, bin, j });
                  });

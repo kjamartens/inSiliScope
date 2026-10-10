@@ -63,15 +63,20 @@ public:
 
    // Spectrum of the nx x ny image that is `in` (inW x inH, row stride
    // inStride) at the origin and zero elsewhere. spec: SpecSize().
-   void Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec) const;
+   // skipZeroRows: rows of `in` that are all zero are not transformed (their
+   // spectrum rows set to zero): the same values, faster for a sparse image
+   // (the binned blinks, BinnedBlinks.h); the sign of an exact zero may differ.
+   void Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec,
+                bool skipZeroRows = false) const;
    // Inverse, normalised (1/(nx ny)): rows [row0, row0 + rows) of the image,
    // columns [col0, col0 + cols), into out (row stride outStride). spec is
    // destroyed.
    void Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, unsigned col0, unsigned cols,
                 size_t outStride) const;
 
-   // Smallest m >= n with m = 2^a 3^b 5^c and m % multiple == 0.
-   static unsigned FastSize(unsigned n, unsigned multiple = 2);
+   // Smallest m >= n with m = 2^a 3^b 5^c and m % multiple == 0; no5: 2^a 3^b
+   // only (the radix-5 stages are several times slower per point).
+   static unsigned FastSize(unsigned n, unsigned multiple = 2, bool no5 = false);
 
 private:
    unsigned nx_ = 0, ny_ = 0, m_ = 0; // m = nx / 2

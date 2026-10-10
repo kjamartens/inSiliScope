@@ -281,7 +281,7 @@ cfloat* FftPlan1d::Forward(cfloat* x, cfloat* y, unsigned B) const
    return x;
 }
 
-unsigned RealFft2d::FastSize(unsigned n, unsigned multiple)
+unsigned RealFft2d::FastSize(unsigned n, unsigned multiple, bool no5)
 {
    multiple = std::max(1u, multiple);
    for (unsigned m = std::max(n, 1u);; ++m)
@@ -290,8 +290,12 @@ unsigned RealFft2d::FastSize(unsigned n, unsigned multiple)
          continue;
       unsigned r = m;
       for (unsigned p : {2u, 3u, 5u})
+      {
+         if (no5 && p == 5u)
+            continue;
          while (r % p == 0)
             r /= p;
+      }
       if (r == 1)
          return m;
    }
@@ -308,15 +312,50 @@ RealFft2d::RealFft2d(unsigned nx, unsigned ny)
    }
 }
 
-void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec) const
+// The 2D passes' line buffers: per thread, kept (a heap allocation per block
+// of lines contended across threads; every element is written before it is read).
+static void LineScratch(size_t n, cfloat*& a, cfloat*& t)
+{
+   thread_local std::vector<cfloat> A, T;
+   if (A.size() < n)
+   {
+      A.resize(n);
+      T.resize(n);
+   }
+   a = A.data();
+   t = T.data();
+}
+
+void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec,
+                        bool skipZeroRows) const
 {
    const unsigned M = m_, W = SpecW(), B = kBlock;
    inH = std::min(inH, ny_);
    inW = std::min(inW, nx_);
    // Rows: z[n] = x[2n] + i x[2n+1], Z = FFT_M(z), X[k] = E[k] + w^k O[k].
    ParallelFor((inH + B - 1) / B, [&](unsigned blk) {
-      std::vector<cfloat> a(static_cast<size_t>(M) * B), t(static_cast<size_t>(M) * B);
+      cfloat *a, *t;
+      LineScratch(static_cast<size_t>(M) * B, a, t);
       const unsigned r0 = blk * B, rb = std::min(B, inH - r0);
+      if (skipZeroRows)
+      {
+         bool zero = true;
+         for (unsigned b = 0; b < rb && zero; ++b)
+         {
+            const float* row = in + static_cast<size_t>(r0 + b) * inStride;
+            for (unsigned x = 0; x < inW; ++x)
+               if (row[x] != 0.0f)
+               {
+                  zero = false;
+                  break;
+               }
+         }
+         if (zero)
+         {
+            std::fill(spec + static_cast<size_t>(r0) * W, spec + static_cast<size_t>(r0 + rb) * W, cfloat(0.0f, 0.0f));
+            return;
+         }
+      }
       for (unsigned b = 0; b < rb; ++b)
       {
          const float* row = in + static_cast<size_t>(r0 + b) * inStride;
@@ -329,7 +368,7 @@ void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inSt
       for (unsigned b = rb; b < B; ++b)
          for (unsigned n = 0; n < M; ++n)
             a[static_cast<size_t>(n) * B + b] = cfloat(0.0f, 0.0f);
-      const cfloat* Z = rows_.Forward(a.data(), t.data(), B);
+      const cfloat* Z = rows_.Forward(a, t, B);
       for (unsigned k = 0; k <= M; ++k)
       {
          const unsigned kk = k % M, km = (M - k) % M;
@@ -349,7 +388,8 @@ void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inSt
    // Columns.
    const unsigned ny = ny_;
    ParallelFor((W + B - 1) / B, [&](unsigned blk) {
-      std::vector<cfloat> a(static_cast<size_t>(ny) * B), t(static_cast<size_t>(ny) * B);
+      cfloat *a, *t;
+      LineScratch(static_cast<size_t>(ny) * B, a, t);
       const unsigned c0 = blk * B, cb = std::min(B, W - c0);
       for (unsigned y = 0; y < ny; ++y)
       {
@@ -360,7 +400,7 @@ void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inSt
          for (unsigned b = cb; b < B; ++b)
             dst[b] = cfloat(0.0f, 0.0f);
       }
-      const cfloat* r = cols_.Forward(a.data(), t.data(), B);
+      const cfloat* r = cols_.Forward(a, t, B);
       for (unsigned y = 0; y < ny; ++y)
       {
          cfloat* dst = spec + static_cast<size_t>(y) * W + c0;
@@ -381,7 +421,8 @@ void RealFft2d::Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, 
       return;
    // Columns (inverse = conj . forward . conj), keeping the wanted rows only.
    ParallelFor((W + B - 1) / B, [&](unsigned blk) {
-      std::vector<cfloat> a(static_cast<size_t>(ny) * B), t(static_cast<size_t>(ny) * B);
+      cfloat *a, *t;
+      LineScratch(static_cast<size_t>(ny) * B, a, t);
       const unsigned c0 = blk * B, cb = std::min(B, W - c0);
       for (unsigned y = 0; y < ny; ++y)
       {
@@ -392,7 +433,7 @@ void RealFft2d::Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, 
          for (unsigned b = cb; b < B; ++b)
             dst[b] = cfloat(0.0f, 0.0f);
       }
-      const cfloat* r = cols_.Forward(a.data(), t.data(), B);
+      const cfloat* r = cols_.Forward(a, t, B);
       for (unsigned y = row0; y < row0 + rows; ++y)
       {
          cfloat* dst = spec + static_cast<size_t>(y) * W + c0;
@@ -405,7 +446,8 @@ void RealFft2d::Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, 
    // O = (X[k] - conj X[M-k]) / 2 conj(w^k); z = IFFT_M(Z).
    const float scale = 1.0f / (static_cast<float>(M) * static_cast<float>(ny));
    ParallelFor((rows + B - 1) / B, [&](unsigned blk) {
-      std::vector<cfloat> a(static_cast<size_t>(M) * B), t(static_cast<size_t>(M) * B);
+      cfloat *a, *t;
+      LineScratch(static_cast<size_t>(M) * B, a, t);
       const unsigned r0 = blk * B, rb = std::min(B, rows - r0);
       for (unsigned k = 0; k < M; ++k)
       {
@@ -424,7 +466,7 @@ void RealFft2d::Inverse(cfloat* spec, float* out, unsigned row0, unsigned rows, 
          for (unsigned b = rb; b < B; ++b)
             a[static_cast<size_t>(k) * B + b] = cfloat(0.0f, 0.0f);
       }
-      const cfloat* z = rows_.Forward(a.data(), t.data(), B);
+      const cfloat* z = rows_.Forward(a, t, B);
       for (unsigned b = 0; b < rb; ++b)
       {
          float* dst = out + static_cast<size_t>(r0 + b) * outStride;

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the project site into $1 (default: site): docs via mkdocs-material, the viewer under
-# viewer/, and, if release_assets/ holds them, the gallery and benchmark history.
+# viewer/, and, if release_assets/ holds them, the gallery and benchmark history; the physics
+# figures if physics_figures/ holds them.
 # Needs: pip install mkdocs-material; web/insiliscope_module.js up to date
 # (node tools/embed_web_module.mjs).
 set -euo pipefail
@@ -21,6 +22,14 @@ fi
 # The Home page's 2x2 overview shows the release's gallery images; without them, drop it (no broken images).
 if [ ! -f .site_docs/gallery/overview_map.png ]; then
   sed -i '/<!-- overview:start/,/<!-- overview:end -->/d' .site_docs/index.md
+fi
+
+# The physics pages' figures (tools/build_physics_figures.py, rendered by the cli in pages.yml): each
+# `<!-- fig:<id> -->` marker becomes its figure. Without physics_figures/ the markers stay invisible comments.
+if [ -f physics_figures/figures.json ]; then
+  python3 tools/build_physics_figures.py --inject .site_docs --from physics_figures
+else
+  echo "no physics_figures/ (tools/build_physics_figures.py): the physics pages are built without their figures"
 fi
 
 if [ -f release_assets/benchmarks.json ]; then

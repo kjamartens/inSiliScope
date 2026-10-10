@@ -758,7 +758,7 @@ groups per (structure, state) with their own kernel (`KernelWavelengthNm`, 2 nm;
 the filter centre + the imager offset, blinks per group, continuous populations mean-field (`WidefieldScene`,
 `FlatIllumination` over the FOV + 2 x 2 um, unit dose) or per dye (running image), noise at QE 1. Host hooks for the
 adapter: `FluorescenceFrameOptions` (z per frame, drift, illumination field, background fade, photons out instead of
-ADU), `SimplePlan` (one blink group, no populations: the GPU splat), a `WidefieldAccelerator` for the mean-field scenes
+ADU), `SimplePlan` (one blink group: the GPU splat; its populations from `Render` with `populationsOnly`), a `WidefieldAccelerator` for the mean-field scenes
 (D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`, and `DyeClock`
 (Begin's optional per-region clock: the blinks and per-dye windows are queried per clock region over its bounding box,
 keeping the dyes whose position has that clock; a mean-field population goes to the scene's weighted channel with each
@@ -771,10 +771,30 @@ mean-field path per scene, `movie-progress` from the WASM); webSMLM block abiVer
 
 **Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties): a `ScopeSpec` from the properties drives
 `FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
-light per 0.25 um tile, a place never lit at 0; a live frame adds its exposure over its lit rect (FOV + 2.5 um) when it
-is taken (a snap takes a frame started after the call, a sequence only frames started after it began: never one in
-flight at the old pose or clocks), a stack its duration after rendering; live renders one movie frame per tick; `General_ImagingModality` =
-Fluorescence | BrightField.
+light per 0.25 um tile, a place never lit at 0; a stack its duration after rendering; live renders one movie frame per
+tick; `General_ImagingModality` = Fluorescence | BrightField.
+
+**Rate history (2026-10-08, core ABI 11).** Each tile also keeps its past as segments of lit time in *epochs*
+(`KineticEnv` = the spec's light keys -- `laser-*`, `light-preset`, `ex-filter`, `ex-lo/hi-nm`, `dichroic`,
+`dichroic-edge-nm`, `*-imager-nm` -- and dye keys -- the modes, dyes and dye overrides; `ScopeKineticEnv`), interned
+per tile in a trie of (parent, tStart, epoch) nodes; `Snapshot(rect, epoch)` interns the node continuing in the frame's
+epoch, `ClockRegion` = (T, node), `DyeClock::KeyAt`/`Segments`. `Begin` turns each region's segments into kinetics rows
+(`EnvSpec`: the current spec with the epoch's light; the epoch's dye keys only if every structure keeps its dye and
+mode, else the current dye under the past light) and sends them with `isc_world_set_kinetics_history(w, rows, nSeg)`
+(row = tStart + `ISC_KIN_COUNT` per structure: activation rate, ON, OFF, bleach probability, photon CV, initial ON;
+nSeg 0 = none) before the region's queries; populations use survival exp(-sum lambda_i Delta_i), the mean-field
+weight rate S (1 - e^{-lambda exp}) / lambda and a walked photon-budget end (`HistBleachEnd`). The core walks the
+hazards per segment with the same draws (`dyes.cpp` `HazardWalk`; one segment = the old code bit for bit), keeps up to
+16 schedules per dye block keyed by the history's fingerprint, and DNA-PAINT bins take the segment of their start. JS
+twin: `world.js setKineticsHistory`, `dyes.js`; checks `label_parity.mjs` (HCASES), ctest
+`world_checks.kinetics_history`, `tools/test_history.py`. Light counts at the producer when a frame is published if it
+lights the sample (the lasers' shutter open, `ScopeSampleIntensityKwCm2` > 0, and a sequence or snap takes it, or
+`SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter, `epiExplicit`), else at a snap's take; the lit rect
+and its weight follow the drifted pose; the background fade reads the lit clock at the FOV centre. Live per-dye
+populations carry their running image across frames (`FluorescenceMovie::CarryRunningImages`, in `MovieCache`): a
+frame splats only the dyes whose windows changed (a state that parks a population just under the mean-field limit,
+e.g. AF647's initial ON kept by non-exciting light, cost seconds per frame without it); a full build splats on row
+bands (bit-identical).
 
 Checks: ctest `world_checks` (label determinism, FLUOR nesting, modes, cache under load, threads), `widefield`
 (`MeanFieldVsPerDye`), `label_parity.mjs`, `scope_parity.mjs` (every mode, PALM pre state, several lasers, per dye and
@@ -792,12 +812,29 @@ is bit for bit the random walk alone. MM `SimType_DriftXySpeedNmPerSec`, `SimTyp
 `SimType_DriftXyAngleDeg`, `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`
 (the speeds everyday, the rest advanced); cli/viewer `drift-xy-speed-nm-per-sec`, `drift-z-speed-nm-per-sec`,
 `drift-xy-angle-deg`, `drift-xy-angle-wander-deg`, `drift-speed-wander-pct`, `drift-wander-time-sec`. Live mode keeps one
-`DriftWalker` (settings may change between frames; the wander state carries on); a Live/MDA sequence start asks the
-producer for a drift restart, applied at the start of its next frame (drift 0), and the sequence skips frames rendered
-before it (`liveDriftRestart_`), so a live sequence follows the stack's path. Checks: ctest `drift` (constant velocity
+`DriftWalker` (settings may change between frames; the wander state carries on). Since 2026-10-08 it is the sample's
+(camera session state): it starts at 0 when the world is made (reset with the illumination history) and continues across
+Live/MDA stops and starts; a frame shows the walker's position, then the walker steps (by the frame time while acquiring;
+between acquisitions by the wall time since the last frame, at most 10 s, if `SampleHolder.TimeWhileIdle` = Running,
+else not). The first sequence on a fresh sample follows the stack's path; `Camera.Test_DriftNm` reports the drift of the
+last frame taken. (It used to restart at 0 on every sequence start, `liveDriftRestart_`.) Checks: ctest `drift` (constant velocity
 exact, uniform random direction, wander RMS and correlation time, z sign, random walk unchanged), `scope_parity` (SR
 directed + wandering), `tools/test_cellfield_stage.py --drift` (its own run; stack: random walk in Fluorescence (an mEGFP WideField
 label); live Fluorescence and BrightField sequences = the stack path), the block check.
+
+Bounded swings and the z direction (2026-10-07): `zSpeedNmPerSec` is a magnitude (>= 0), `zDirection` 1 / -1 / 0 (0:
+random per seed, `Uniform() < 0.5` = up, the draw after theta0 on pixel 2 of frame 0xFFFFFFFF). The wanders are swings
+within bounds: theta = theta0 + alpha S(phi), v_z = u V_z max(0, 1 + w s_z) cos(beta S(psi)), S(x) = erf(x / sqrt 2)
+(`DriftSwing`, A&S 7.1.26 in both languages, `abramowitz1964`), psi a fourth OU state on pixel 3 of the frame's stream
+(the draws of pixels 1 and 2 unchanged). Defaults alpha (`angleWanderDeg`) 180, beta (`zAngleWanderDeg`) 90 (z between
+full speed and still), so the default directed drift wanders; the random walk alone (speeds 0) is unchanged bit for bit.
+cli/viewer `drift-z-direction`, `drift-z-angle-wander-deg`. MM: `SampleHolder.DriftZDirection` (Random/Up/Down) and
+`DriftZAngleWanderDeg` (Expert), `DriftPreset` (Basic: Off/Low/Medium/High/Extreme = speeds 0/2/5/25/250 nm/s and walks
+0/0.4/1/5/50 nm/sqrt s, Custom when a member is set by hand; maxima 1000 nm/s and 200 nm/sqrt s); the shipped configs'
+`Drift` group (every tier) sets the preset. Checks: ctest `drift` (swing bounds, RMS A / sqrt 3, correlation after tau
+(6/pi) asin(1/2e) = 0.353, z mean cos 2/pi, the 180 deg z swing reverses, z up for half the seeds, `DriftSwing` = erf
+within 1.5e-7), `scope_parity` and the block check with a z direction and swing, `test_cellfield_stage.py --drift` (the
+preset).
 
 A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29, 27961 (2021); Ma et al., Sci. Adv. 10,
 eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
@@ -845,3 +882,52 @@ per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleFo
   shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
   scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
   drift cases), `tests/block/check_cellfield_block.mjs`.
+
+## 18. Micro-Manager hub and devices (2026-10-06)
+
+The adapter's device layout, tiers and naming are in `spec/MM_DEVICES.md`; this section lists what changed in the
+engine (C++ `Simulation/ScopeMovie.*` and its JS twin `web/prototype/scope/scope_movie.js`, so the cli, the viewer and
+webSMLM have it too). Every new option's default keeps the earlier output.
+
+- Labels: `specimen` (0 = CellField, `data/specimens.json`), `mode` (the experiment's label mode, for targets whose
+  `<prefix>-mode` is -2 Global; -1 = each target's own), `<prefix>-dye` -1 = Typical (`data/dyes/library.json`
+  `typicalLabels.<target>.<mode>`), `<prefix>-label-pct` -1 = the typical labelling. New dye Cy3B.
+- Excitation (laser clean-up) filters: `ex-filter` (`light_path.json` `excitationFilters`: None, ideal +/-5 nm band
+  passes, an ideal quad (`multiband`), FPbase curves of Chroma ZET and Semrock FF01 clean-ups, Custom with `ex-lo-nm` /
+  `ex-hi-nm`); each laser line's intensity x the filter's T at the line; light presets carry an `excitationFilter`
+  (None). Parity case: the quad clean-up.
+- Light from the shutters: `light-epi`, `light-trans` (1 open, 0 closed, -1 from `modality`). Both open: the
+  fluorescence photons (its noise chain at QE 1) + the lamp's photons x the camera QE at `bf-wavelength-nm`, then one
+  noise chain (`RenderCombinedMovie`, JS `renderCombinedMovie`); none: dark frames. Parity cases: both, both + drift,
+  dark.
+- The EMCCD ignores `gain-std-pct` / `read-noise-std-pct` (the sCMOS per-pixel spreads), in `MakeScopeSetup`, JS
+  `scopeSetup` and the adapter's `SnapshotParams`.
+- The adapter: pixel size = `Camera.SensorPixelUm` / (objective x `EmissionPath.EmissionMagnification`, default 0.667),
+  written into the spec's `pixel-nm` (the cli/viewer default stays 100); `Renderer.WriteScopeSpecTo` writes the spec
+  of the next frame and `insiliscope_cli --spec <file>` reads it (a precomputed MM frame with the GPU off is
+  reproduced bit for bit).
+
+## 19. Blink render regimes (2026-10-08)
+
+Blinks render per label and frame splatted (SMLM), binned (approximate SMLM: the same events on a sub-pixel grid, one
+FFT convolution per PSF plane) or mean-field (no events: expected ON time x dye density); the why and the numbers are
+in spec/ALGORITHM.md "Blink render regimes". C++ and JS written together (no iteration mode).
+
+- Engine (C++ `Simulation/BinnedBlinks.*`, `BlinkExpectation.*`, `ScopeMovie.cpp`; JS `binned_blinks.js`,
+  `blink_expectation.js`, `fluorescence.js`, `render.js` `frameEmitters`): options `blink-binned-density-per-um2` (12.5),
+  `blink-binned-max-emitters` (1e9), `blink-binned-upscale` (2), `blink-mean-field-density-per-um2` (1e9 = off),
+  `blink-mean-field-max-emitters` (1e9 = off); the slab is `mean-field-slab-nm`. MM `Renderer.Blink*` (Expert), viewer
+  controls next to the mean-field ones (Advanced).
+- **Default output changes only where a frame has more than 12.5 ON blinks per um^2 of the FOV** (dense DNA-PAINT, e.g.
+  the bench config `sr-dense-128px`); sparse movies are unchanged (ctest `blink_regimes` `DefaultsSparse`).
+- Shared per-event arithmetic: `CollectFrameEmitters` (SMLMSimulation) / `frameEmitters` (JS) feed the splat, the GPU
+  emitters and the binned grid (a bit-identical refactor).
+- The adapter's GPU splats only frames where `FluorescenceMovie::HostSplatsBlinks(f)`; the binned and mean-field
+  frames' blinks come in the `populationsOnly` image (with the illumination field), and `SimplePlan().populations` is
+  set when any frame needs that.
+- Checks: ctest `blink_regimes` (`cli/blink_regimes_check.cpp`, ~25 s: expectation vs the core's blinks, binned vs
+  splat photons and serial = parallel, movie totals, sparse defaults unchanged); `scope_parity` cases binned
+  (DNA-PAINT u = 2, dSTORM u = 3 Gaussian) and mean-field (DNA-PAINT, dSTORM from t = 0, DNA-PAINT + drift), all 100 %
+  identical ADU.
+- `RealFft2d`: per-thread line scratch (`LineScratch`, was a heap allocation per block of lines, serialized across
+  threads), `Forward(.., skipZeroRows)`, `FastSize(.., no5)`; bit-identical.

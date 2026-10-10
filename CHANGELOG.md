@@ -4,6 +4,40 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
+  `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope
+  (`Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, the Advanced `ExcitationFilter` /
+  `Dichroic` / `EmissionFilter` wheels, `Lasers`, `TransmittedLamp`, `SampleHolder`, `CellField`, `Fluorophores`,
+  `Renderer`). Every property has a tier and a name without group prefix (`Objective.NA`, was `PSFParam_PsfNa`); the
+  full list: `docs/mm-properties.md`. **Configurations from before must be re-made**: the release ships
+  `inSiliScope_{Basic,Advanced,Expert}.cfg` with Channel / Objective / Camera / Quality / Drift / Specimen groups and
+  pixel sizes. Acquisition in MM is live only (snap, live, sequences, hardware z stacks); the precomputed stack stays
+  for the tests (`ISC_TEST=1`). The light comes from the shutters (lasers: fluorescence, lamp: BrightField, both:
+  summed on the camera, none: dark frames; cli/viewer `light-epi` / `light-trans`, `modality` unchanged). Labels:
+  an experiment-wide `Fluorophores.Mode` and `CellField.Microtubules_Label` (`Typical` per mode, or a dye with data for
+  it); new dye Cy3B. Excitation (laser clean-up) filters (cli/viewer `ex-filter`, default `None`: outputs unchanged).
+  The pixel size is the sensor pixel / (objective x emission magnification), default 0.667x: 97.45 nm in MM (was 100;
+  cli/viewer `pixel-nm` stays 100). The EMCCD ignores the sCMOS per-pixel gain and read-noise spreads (no preset sets
+  them). `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` render an MM frame in the cli. Live z stacks no
+  longer lose a position when a frame is taken late. The shipped configurations start in `ATTO655 DNA-PAINT`.
+
+- Live speed in Micro-Manager (2026-10-07, `spec/PERF_PASS.md`), every output unchanged: frames on the exposure's clock
+  (was capped at 64 / 32 fps by the Windows timer); per frame no dye recount at an unchanged pose, the single frame's
+  splat and noise on all cores through a persistent thread pool, the mean-field clock weights computed once per distinct
+  clock (256 px, 10 ms, loaded laptop: WideField 3 -> 50-80 fps, dSTORM 18 -> 25-40, PALM 6 -> 17-30). The Benchmarks
+  page now shows Micro-Manager live frame rates and where each frame's time goes, measured on every release.
+  Render-ahead: during a sequence acquisition at unchanged settings and pose, the next 2-8 fluorescence frames are
+  rendered as one batch on a helper thread while the current ones are handed out (any change drops them); the GPU
+  devices are created once per session instead of per live start (256 px, loaded laptop, 10 / 20 ms: dSTORM 36 / 24 ->
+  67 / 29 fps, DNA-PAINT 27 / 12 -> 32 / 27, PALM 22 / 28 -> 28 / 37).
+  Live BrightField computes the next focus positions in the background (a z sequence's, else along the last focus
+  step) and keeps recent ones, so focusing at low magnification no longer stalls on every step (20x, 0.5 um steps 2 s
+  apart: 70-180 ms to the new focus, was 500-800 ms); its images skip the pupil-blocked FFT columns (same pixels).
+  dSTORM and PALM (and fluorescence + BrightField) render on the GPU too: the blinks splat there, their continuous
+  populations and the lamp are added before the GPU noise (PALM live 28 -> 83 fps at 10 ms on the Iris Xe laptop).
+  Render-ahead batches grow to 300 ms of frames (up to 16, was 150 ms / 8), from 2 frames after any change, so the
+  per-batch setup is spread over more frames without a longer wait after a stage move or setting change.
+
 - Sample drift as a random walk, xy and z set separately (2026-10-06; Cnossen et al. 2021, Ma et al. 2024): every frame
   adds a normal step of variance sigma^2 x frame time per axis, so sigma is the RMS displacement after 1 s. MM
   `SimType_DriftXyNmPerSqrtSec` / `SimType_DriftZNmPerSqrtSec`, cli/viewer `drift-xy-nm-per-sqrt-sec` /
@@ -16,6 +50,30 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `SimType_DriftXyAngleWanderDeg`, `SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec` (advanced); cli/viewer
   options of the same meaning; the block's `driftTrajectory` takes them in `opts`. A live Live/MDA sequence now starts
   its drift exactly at its first frame (a frame already in flight at the start was counted with the old origin).
+- **seed** Drift presets and bounded swings (2026-10-07): `SampleHolder.DriftPreset` (Basic) and the viewer's Drift
+  select: Off / Low / Medium / High / Extreme = xy and z speeds 0 / 2 / 5 / 25 / 250 nm/s and random walks 0 / 0.4 / 1 /
+  5 / 50 nm/sqrt s (estimates; maxima now 1000 nm/s and 200 nm/sqrt s); the configs' `Drift` group sets it, in every
+  tier. The z speed is a magnitude with a direction (`DriftZDirection` Up / Down / Random per seed, cli/viewer
+  `drift-z-direction`, was a signed speed). The direction wander is a swing within +/- the angle (was an RMS), default
+  180 deg; the z drift swings too (`DriftZAngleWanderDeg`, cli/viewer `drift-z-angle-wander-deg`, default 90: between
+  full speed and still). A directed drift's path changes for a seed; the random walk alone does not.
+- **seed** The default DNA-PAINT imager concentration is 1 nM (was 1.43; `mt-imager-nm`, MM
+  `CellField.Microtubules_ImagerNm`; an estimate): about as many emitters per frame as the dSTORM and PALM typical
+  labels (~290 per 20 ms frame of a dense 256 px field each; it was ~550).
+- The `Objective` turret no longer offers `20x/0.75 Air` (2026-10-08): a 20x field asks too much of the renderer for now
+  (the shipped configs lose its `Objective` preset and pixel sizes). `Custom` NA, immersion and magnification still work.
+- **seed** **Blink PSFs are cut where their light is negligible** (2026-10-07; docs/physics/optics.md): a dSTORM, PALM or
+  DNA-PAINT blink's splat leaves out every camera pixel that would get less than `psf-halo-cut` of its photons (MM
+  `Renderer.PsfHaloCut`), set by `Renderer.Quality`: Fast 1e-5, **Realistic 3e-6 (the default)**, Exhaustive 0 (the
+  whole kernel, the old output). Nothing is renormalized; WideField and the continuous populations keep the whole
+  kernel. On the default 7 um kernel a blink touches ~58 % of the square's pixels at 3e-6.
+- **seed** The GibsonLanniZernike PSF samples its pupil as finely as the kernel window needs (2026-10-07): 160 x 160
+  on the default +/-7 um window, 140 on the viewer's +/-3 um (was 64 x 64, webSMLM's). A sampled pupil makes the PSF
+  periodic; at 64 samples the period (~14.6 um in the red, ~10.9 um in the green at NA 1.4) was shorter than the 14 um
+  window, so out-of-focus light folded back into it: stepped, square-ish bands in WideField images (up to 3-4 sigma per
+  frame), and in focus a camera pixel was off by up to 3e-3 of the emitter's photons. Now within 1e-4 in the core
+  and 1.3e-5 beyond 2 um of a 768-sample reference, at the same kernel time. New option `psf-pupil-samples` (cli/viewer;
+  MM `Renderer.PsfPupilSamples`, Expert; 0 = automatic, 64 = the old grid).
 - `General_StackLength` is back (frames of a precomputed stack, default 1000): the MM test scripts
   (`tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, now with `--only <sections>` and per-check timings)
   use short stacks and run in under 5 minutes (were ~25).

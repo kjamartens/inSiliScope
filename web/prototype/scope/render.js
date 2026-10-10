@@ -35,13 +35,11 @@ export function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhoto
   }
 }
 
-// One frame's photon image (background + every event overlapping [f, f+1)). kernel: PSF kernel cache or
-// null (Gaussian of psfSigmaPx). zStageUm: focal-plane height; an emitter's plane is zNm/1000 - zStageUm.
-// into: add to this image instead (no background; several dyes, each with its own PSF, issue 16).
-// dxPx, dyPx: the sample drift (added to every emitter's position).
-export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm, into = null, dxPx = 0.0,
-                                  dyPx = 0.0) {
-  const img = into || new Float32Array(width * height).fill(o.backgroundPhotons);
+// The emitters of frame f among events (CollectFrameEmitters): camera-pixel position (drift added), photons (overlap
+// x brightness), the overlap and the kernel plane (nearestZIndex of zNm/1000 - zStageUm; 0 without a kernel). The one
+// per-emitter arithmetic of the splat and the binned renderer (binned_blinks.js).
+export function frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx = 0.0, dyPx = 0.0) {
+  const out = [];
   for (const e of events) {
     let ov = Math.min(frameIndex + 1, e.tEnd) - Math.max(frameIndex, e.tStart);
     if (ov <= 0.0) continue;
@@ -49,9 +47,22 @@ export function renderPhotonImage(width, height, events, frameIndex, o, kernel, 
     const xPx = e.xUm * 1000.0 / o.pixelSizeNm + dxPx, yPx = e.yUm * 1000.0 / o.pixelSizeNm + dyPx;
     let photons = o.photonsPerBlink * ov;
     if (e.brightness !== 1.0) photons *= e.brightness;
-    if (!kernel) { renderGaussian(img, width, height, xPx, yPx, o.psfSigmaPx, photons); continue; }
-    const plan = planSplat(kernel, nearestZIndex(kernel, e.zNm / 1000.0 - zStageUm), xPx, yPx, photons, kernel.interpMode);
-    if (plan) splatRows(img, width, height, 0, height, kernel, plan, photons);
+    out.push({ xPx, yPx, photons, overlap: ov, zIndex: kernel ? nearestZIndex(kernel, e.zNm / 1000.0 - zStageUm) : 0 });
+  }
+  return out;
+}
+
+// One frame's photon image (background + every event overlapping [f, f+1)). kernel: PSF kernel cache or
+// null (Gaussian of psfSigmaPx). zStageUm: focal-plane height; an emitter's plane is zNm/1000 - zStageUm.
+// into: add to this image instead (no background; several dyes, each with its own PSF, issue 16).
+// dxPx, dyPx: the sample drift (added to every emitter's position).
+export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm, into = null, dxPx = 0.0,
+                                  dyPx = 0.0) {
+  const img = into || new Float32Array(width * height).fill(o.backgroundPhotons);
+  for (const em of frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx, dyPx)) {
+    if (!kernel) { renderGaussian(img, width, height, em.xPx, em.yPx, o.psfSigmaPx, em.photons); continue; }
+    const plan = planSplat(kernel, em.zIndex, em.xPx, em.yPx, em.photons, kernel.interpMode);
+    if (plan) splatRows(img, width, height, 0, height, kernel, plan, em.photons);
   }
   return img;
 }

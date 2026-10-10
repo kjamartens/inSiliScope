@@ -14,6 +14,8 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/LightPath.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
+  ${ISC_SIM}/BinnedBlinks.cpp
+  ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
   ${ISC_SIM}/WidefieldRender.cpp
   ${ISC_SIM}/GpuSimD3D11.cpp
@@ -63,7 +65,7 @@ if(EMSCRIPTEN)
   return()
 endif()
 
-add_executable(insiliscope_cli insiliscope_cli.cpp ${ISC_SIM_SRC})
+add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp ${ISC_SIM_SRC})
 target_include_directories(insiliscope_cli PRIVATE ${ISC_SIM})
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_core)
 if(WIN32)
@@ -114,6 +116,35 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     target_link_libraries(drift_check PRIVATE Threads::Threads)
   endif()
   add_test(NAME drift COMMAND drift_check)
+
+  # The blink render regimes: expected ON time = the core's blinks, binned = splat, mean-field movie totals.
+  add_executable(blink_regimes_check blink_regimes_check.cpp ${ISC_SIM_SRC})
+  target_include_directories(blink_regimes_check PRIVATE ${ISC_SIM})
+  target_link_libraries(blink_regimes_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(blink_regimes_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(blink_regimes_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(blink_regimes_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(blink_regimes_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME blink_regimes COMMAND blink_regimes_check)
+
+  # The cli's diagnostic outputs (scope_probes.h: the docs' physics figures) show what a movie renders.
+  add_executable(probes_check probes_check.cpp scope_probes.cpp ${ISC_SIM_SRC})
+  target_include_directories(probes_check PRIVATE ${ISC_SIM})
+  target_link_libraries(probes_check PRIVATE insiliscope_core)
+  if(WIN32)
+    target_include_directories(probes_check PRIVATE ${PROJECT_SOURCE_DIR}/third_party/jni ${PROJECT_SOURCE_DIR}/third_party/jni/win32)
+    target_compile_definitions(probes_check PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(probes_check PRIVATE d3d11 d3dcompiler dxgi)
+  else()
+    target_link_libraries(probes_check PRIVATE Threads::Threads)
+  endif()
+  add_test(NAME cli_probes COMMAND probes_check WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  # --serve (many commands in one process, the figure builder's way) = separate runs, byte for byte.
+  add_test(NAME cli_serve COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:insiliscope_cli>
+           -DDIR=${CMAKE_CURRENT_BINARY_DIR}/serve_check -P ${CMAKE_CURRENT_SOURCE_DIR}/serve_check.cmake)
 
   # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
   add_executable(brightfield_check brightfield_check.cpp ${ISC_SIM_SRC})

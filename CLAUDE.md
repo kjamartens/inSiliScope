@@ -16,6 +16,8 @@ that finishes them.
   flat buffers, opaque handles; no exceptions or STL across it).
 - `adapter/inSiliScope/` -- the MM device adapter (MSBuild only; do not force CMake on it).
   `Simulation/` there is the render engine (PSF, noise, GPU); it may move to a shared `render/` later.
+  The hub, its devices and the property registry: `InSiliScopeHub.*`, `Devices/`, `Registry/` ([spec/MM_DEVICES.md](spec/MM_DEVICES.md));
+  `config/` the shipped MM configurations (generated).
 - `web/prototype/scope/` -- the **JS imaging reference** (dyes, blink kinetics, Gibson-Lanni+Zernike PSF, splat, camera
   noise, WideField, BrightField with the optical-volume query): the C++ imaging path mirrored file for file (its README
   maps them); `tests/parity/scope_parity.mjs` checks it equals the C++ (the committed WASM: SR 100% identical ADU,
@@ -41,15 +43,21 @@ that finishes them.
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
-- `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, C++ =
-  JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
+- `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics pages' figures**: one registered
+  function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
+  (`--history-before`: a two-epoch rate history, a cli `DyeClock`), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
+  `--presets-json`; `cli/scope_probes.*`, ctest `cli_probes`) and only draws; `pages.yml` rebuilds them on every
+  deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->` marker in `docs/physics/*.md`.
+- `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, and ABI 11
+  kinetics histories, C++ = JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
   coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
   `cli/brightfield_check.cpp` (ctest `brightfield`);
   `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
-  `adapter_pixel_hash.py`, `test_insiliscope.py`, `psf_parity_check/`.
+  `adapter_pixel_hash.py`, `test_insiliscope.py`, `test_cellfield_stage.py`, `test_mm_configs.py`, `isc_mm.py`,
+  `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in spec/m0-feasibility.md)
 
@@ -96,7 +104,10 @@ that finishes them.
   `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
-  the same with `--drift` (the sample drift checks). Off Windows, `tools/build_adapter_linux.sh`
+  the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
+  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), then `ADAPTER_DIR=<dll dir> python
+  tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
+  `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
 - WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a
@@ -116,6 +127,10 @@ that finishes them.
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
   with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
   preparation switches need none).
+- Physics figures: `python tools/build_physics_figures.py --cli build/msvc/cli/Release/insiliscope_cli.exe` (all,
+  into `physics_figures/`, not committed; `--only <id>,...`, `--list`), then `bash tools/build_site.sh site` injects them
+  (needs numpy, pillow, tifffile, matplotlib). A model change reaches the figures by itself; a new model, preset or
+  quality knob gets a figure (a comparison table for presets), and its marker with a lead-in sentence.
 - Windows: long paths. Enable `core.longpaths` for the submodule, and keep build trees at short
   paths (MSBuild fails past 260 characters).
 
@@ -143,6 +158,14 @@ releasing, or touching the source repos (`C:\GitHub\websmlm`, `C:\GitHub\demoCam
 PRs or pushes to other repos; webSMLM integration lands only in the fork, never as a direct push upstream. Commit per milestone
 step, ending with the `Co-Authored-By` line.
 
+**Session notes (2026-10-08).** Every session that goes past 200k tokens gets a notes file in `claude_notes/` (repo
+root): `claude_notes/YYYY-MM-DD_<short-slug>.md` (the session's start date), headed by a one-line description, then a
+bullet list of the most important findings, then a detailed account (what was asked, decisions and why, what changed,
+measurements with their runtimes, open points, commits); images from the chat go in `claude_notes/img/` and are linked.
+Create it when the session passes 200k tokens and keep it updated until the session ends (a continued session after a
+summary updates the same file). `claude_notes/` is gitignored: the notes stay local and are never committed; a session
+working in another worktree writes them into the main checkout's `claude_notes/` (`C:\GitHub\inSiliScope_2`).
+
 **Keep the online docs in step with the code.** The published site (https://kjamartens.github.io/inSiliScope/, built from
 `docs/` + `mkdocs.yml`, plus `README.md`) is what users read. In the same commit as any change to behaviour, defaults,
 options/properties, models or performance, check `docs/index.md`, `docs/quickstart.md`, `docs/try-viewer.md`,
@@ -156,6 +179,48 @@ PSF models, not "vectorial" (old `docs/dev/vectorial-psf-*` file names are histo
 ---
 
 ## inSiliScope adapter (`adapter/inSiliScope/`) -- overview
+
+**Hub + devices (2026-10-06, spec/MM_DEVICES.md; branch `claude/mm-devices`):** the module offers the hub `inSiliScope`
+(pre-init `Detail` Basic/Advanced/Expert, `RandomSeed`) and its peripherals `Camera`, `XYStage`, `ZStage`, `Objective`,
+`EmissionPath`, `FilterCube`, `ExcitationFilter`/`Dichroic`/`EmissionFilter` (Advanced wheels), `Lasers`,
+`TransmittedLamp`, `SampleHolder`, `CellField`, `Fluorophores`, `Renderer`. Every property is one row of
+`Registry/PropertyTable.cpp` with a tier; rows above `Detail` are never created. Users get live acquisition only (snap,
+live, sequences, hardware z stacks); the precomputed seeded stack is the Test tier (`Camera.Test_AcqMode`,
+`Test_GenerateStack`, `Test_StackLength`, with `ISC_TEST=1`; `tools/isc_mm.py` sets it). The light comes from the
+shutters (`Lasers` = fluorescence, `TransmittedLamp` = BrightField, both = summed before one noise chain, none = dark
+frames; engine options `light-epi`/`light-trans`, `modality` stays the cli/viewer shorthand). Pixel size = the camera's
+`SensorPixelUm` / (objective x `EmissionPath.EmissionMagnification`, default 0.667: 97.45 nm with the Kinetix22 at 100x;
+the cli/viewer `pixel-nm` stays 100). Excitation (laser clean-up) filters: engine `ex-filter`/`ex-lo-nm`/`ex-hi-nm`,
+a line's power x the filter's T at it. The EMCCD ignores the sCMOS per-pixel spreads. Labels: `Fluorophores.Mode`
+(experiment-wide) and `CellField.Microtubules_Label` (`Typical` = `data/dyes/library.json` `typicalLabels`, or a dye
+with data for the mode). Shipped configs `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg` (release
+assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
+`tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
+(precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
+Live pacing (2026-10-07, spec/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
+timing: Windows rounds it up to 15.6 ms), an absolute frame schedule, a condition variable from producer to consumer;
+`tools/bench_live.py` measures fps per channel x exposure and action latencies (Test rows `Test_LiveRenderMs`,
+`Test_LivePrefetchMs`). Profiling (2026-10-07): every `TimingLog` phase (`Simulation/Timing.h`; live frames: `live.*`,
+movie setup `fl.*`, GPU `gpu.*`, the camera side `mm.*`, `init.*`) is also collected in memory (`TimingCollect`, on
+with `ISC_PROFILE=1` from process start or Camera `Test_ProfileCollect`), and Camera `Test_ProfileWriteTo <file>` writes
+count/total/mean/max per phase as JSON (MMCore strings stop at 1024 chars) and starts afresh. `bench_live.py --profile
+[--history benchmarks.json --version vX]` records it per case; `release.yml` job `mm-bench` (Windows, pymmcore
+12.5.0.75.0 = device interface 75) runs it on the built DLL and `tools/benchmarks_page.py` shows fps per version and
+the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for any new per-frame step (and a line in
+`benchmarks_page.py` `DESCRIBE`). `ParallelFor` (`Simulation/Parallel.h`) runs on a persistent pool (a per-call
+thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
+Render-ahead (2026-10-07, `LiveAhead.cpp`, spec/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
+state a helper thread renders batches of the next frames (K = 300 ms / exposure, 2-16, ramped from 2 after any change;
+`ISC_AHEAD_K` fixes it; one K-frame `FluorescenceMovie`, slot-labelled, clocks =
+history snapshot + `ClockSnapshot::Advance` per untaken frame); any change flushes; not with the lamp, drift or a shaped
+illumination; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
+starts) and the movie cache: never render a live frame with a CPU mean-field scene while the GPU is in use elsewhere
+(the shared scenes rebuild on a GPU/CPU mode switch). Profile phases `live.ahead-*`, `ahead.*`.
+Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` holds the scene, its recent focus images and
+a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
+last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
+Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
+`adapter_pixel_hash` reference since the blink halo cut (2026-10-07, Realistic 3e-6; `defaults` and `zernike` moved): TOTAL eff940e4...
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -189,17 +254,38 @@ sets the labelling to the mode's suggestion and applies the mode's light preset)
 chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the dyes'
 clocks come from the **illumination history** (`Simulation/IlluminationHistory.*`, 2026-10-05): seconds of illumination
 per 0.25 um tile of the world, weighted by the illumination profile (1/16 steps); a place never lit is at clock 0
-(fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). A live frame adds its exposure to its lit
-rect (FOV + 2 um margin + 0.5 um) when it is taken (a snap or a sequence acquisition: an idle live loop bleaches
-nothing; a snap takes only a frame started after the call, a sequence only frames started after it began,
-`liveFrameStart_`); a stack reads the history and then adds its frames (stacks are reproducible only on a fresh device). The
-engine reads each dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a
-mean-field population weighted per grid column in one convolution). Reset on a world change (seed, cell parameters).
+(fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). **Rate history (2026-10-08, core ABI 11,
+spec/PORT.md 16):** each tile keeps its lit time as segments in epochs (`KineticEnv` = the spec's light and dye keys,
+`ScopeKineticEnv`; a per-tile trie of (parent, tStart, epoch)), the engine sends each clock region's kinetics rows
+(`isc_world_set_kinetics_history`) and the core walks the hazards per segment with the same draws, so a change acts from
+now on (PALM 405 off: converted dyes blink out, no new ones; a power step continues from the present state; DNA-PAINT
+from the next 1 s bin; another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
+bit for bit. Light counts at the producer when a frame is published if it lights the sample (lasers' shutter open,
+power at the sample, and a sequence or snap takes it, or `SampleHolder.TimeWhileIdle` = `Running` (default) with a
+hand-opened shutter), over its lit rect (the drifted pose's FOV + 2 um margin + 0.5 um; a snap takes only a frame
+started after the call, a sequence only frames started after it began, `liveFrameStart_`); a stack reads the history and
+then adds its frames along its own drift path (stacks are reproducible only on a fresh device). The engine reads each
+dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a mean-field population
+weighted per grid column in one convolution); live per-dye populations carry their running image from frame to frame
+(`CarryRunningImages`; without it a population parked just under the mean-field limit cost seconds per frame). The
+background fade reads the lit clock at the FOV centre. Reset on a world change (seed, cell parameters). The camera's
+fixed-pattern maps are a function of the seed and camera settings (the same in live mode and stacks).
 cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`
-frame per tick at the stage pose. The GPU splat is used when a movie is one blink group without continuous
-populations; mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
+frame per tick at the stage pose. The GPU splat is used when a movie's blinks are one group (2026-10-07: also with
+continuous populations and the lamp, added on the GPU before its noise as one CPU photon image per frame,
+`FluorescenceFrameOptions::populationsOnly`); mean-field scenes convolve on the D3D11 host. cli/viewer options: `mt-dye`, `mt-mode`, `mt-label-pct`,
 `mt-imager-nm`, `mt-orient*`, `dye<N>.source`, dye overrides `mt-dye.<field>`/`dye<N>.<field>`, `laser-<nm>`,
 `light-preset` (`auto` = the dye mode's), `dichroic`, `em-filter`, `qe-curve`, `camera-preset`, `mean-field-*`.
+
+**Blink render regimes (2026-10-08, spec/ALGORITHM.md, spec/PORT.md 19):** blinks render per label and frame splatted
+(SMLM), **binned** (approximate SMLM: the same events, `CollectFrameEmitters`, snapped to `blink-binned-upscale` (2)
+cells per pixel, one FFT convolution per PSF plane; `Simulation/BinnedBlinks.*`) above `blink-binned-density-per-um2`
+(12.5 ON per um^2 of the FOV; MM `Renderer.BlinkBinnedDensityPerUm2`) or `blink-binned-max-emitters`, or **mean-field** (no events: `ExpectedBlinkOnSeconds`,
+`Simulation/BlinkExpectation.*`, x the dye density via the populations' mean-field scene; the blinking is lost, so off
+by default: `blink-mean-field-*` 1e9). JS twins `binned_blinks.js`, `blink_expectation.js` (`scope_parity` 100 %). MM
+`Renderer.Blink*` (Expert); the adapter's GPU splats only frames where `FluorescenceMovie::HostSplatsBlinks(f)`, the
+others come in the `populationsOnly` image. ctest `blink_regimes`. `RealFft2d` has per-thread line scratch now (a
+per-block heap allocation serialized 12 threads: 10x).
 
 **WideField modality (2026-09-27; since issue 16 the WideField label mode, rendered mean-field by the same
 `WidefieldScene`; the photophysics properties and the live bleach map below are history):** every labelled dye emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
@@ -318,12 +404,18 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
 **Sample drift (2026-10-06, spec/PORT.md 17, docs/physics/camera.md):** a directed part plus a random walk, xy and z
-set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and signed z
-speed, whose direction and strength wander slowly (Ornstein-Uhlenbeck: `SimType_DriftXyAngleWanderDeg`,
-`SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`); only the two speeds are everyday settings, the rest is
-advanced (viewer: Advanced). Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
+set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and a z
+speed magnitude in a direction (`DriftZDirection` Up/Down/Random per seed, the second draw of pixel 2 of frame
+0xFFFFFFFF), whose direction and strength wander slowly (Ornstein-Uhlenbeck: `SimType_DriftXyAngleWanderDeg`,
+`SimType_DriftSpeedWanderPct`, `SimType_DriftWanderTimeSec`). Since 2026-10-07 the wanders are bounded swings: angle =
+mean + A erf(OU / sqrt 2) (`DriftSwing`, A&S 7.1.26), xy A default 180; z speed x cos(swing), `DriftZAngleWanderDeg`
+default 90 (full speed .. still; 180 also reverses), OU on pixel 3. `SampleHolder.DriftPreset` (Basic) Off / Low /
+Medium / High / Extreme sets both speeds 0/2/5/25/250 nm/s and both walks 0/0.4/1/5/50 nm/sqrt s (maxima 1000 / 200);
+a member set by hand makes it Custom; the viewer's Drift preset select does the same, the rest is advanced. Random walk: each frame adds a normal step of variance sigma^2 x frame time, so sigma is the
 RMS displacement after 1 s (Cnossen et al. 2021, Ma et al. 2024's 5/10/20 nm/s). `Simulation/Drift.*` (JS twin `web/prototype/scope/drift.js`,
-counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live, cli, viewer and the webSMLM block's
+counter-based draws on `seed ^ "DRFT"` per frame: one path per seed for stacks, live (the sample's walker, 2026-10-08: from 0
+at world creation, continuing across Live stops and starts, stepping between acquisitions only with `TimeWhileIdle` =
+`Running`; `Camera.Test_DriftNm`), cli, viewer and the webSMLM block's
 `CellField.driftTrajectory`). MM `SimType_DriftXyNmPerSqrtSec`/`SimType_DriftZNmPerSqrtSec`, cli/viewer
 `drift-xy-nm-per-sqrt-sec`/`drift-z-nm-per-sqrt-sec`, default 0 (outputs unchanged; `SimType_DriftNmPerSec`, the linear
 drift, is gone). SR adds it per emitter (focus - dz); WideField/BrightField shift the full-grid image spectrum by a phase
@@ -354,7 +446,8 @@ up and when a PSF control changes. Options that change no output (`disk-cache`, 
 Renamed from SMLMDemoCam on 2026-09-25 (M3; module then `inSiliCellScope`) and again to
 `inSiliScope` the same day, with the repo (was `insilicell`): module/DLL `mmgr_dal_inSiliScope`, devices
 `Camera`, `XYStage`, `ZStage` (were `SMLMDemoCam`, `SMLMDemoXYStage`, `SMLMDemoZStage`). Hardware
-configurations saved with an old module name must be re-made. Property names did not change. The
+configurations saved with an old module name must be re-made. Property names did not change then (they did with the
+hub, 2026-10-06: configurations from before it must be re-made too). The
 `Simulation/SMLM*` engine files keep their names (they describe the SMLM model, not the device).
 
 A synthetic SMLM (Single-Molecule Localization Microscopy) camera device
@@ -368,73 +461,17 @@ or a live-streaming mode with parameters adjustable while running.
   outputs `mmgr_dal_inSiliScope.dll` to `adapter/inSiliScope/build/Release/x64/`
 - Cell field + XY stage integration: spec in [spec/PORT.md](spec/PORT.md).
 
-## MM property naming convention
+## MM devices and property names
 
-Every user-facing MM property name is prefixed with the group it belongs
-to, mirroring the UI section groupings in the webSMLM reference simulator
-(`C:\GitHub\websmlm\webSMLM.html` -- see that project's `PARITY.md`):
-
-- `General_` -- FOV/binning/acquisition-mode/stack-playback plumbing, plus
-  every property that sat in webSMLM's flat "User parameters" group
-  (pixel size, frame-interval readback).
-  Includes MM-adapter-only properties with no webSMLM equivalent at all
-  (`AcqMode`, `GenerateStack`, `StackLength`, `UseGpu`, `GpuStatus`, `DiskCache`, etc.), the WideField
-  modality's `ImagingModality`/`WideFieldUpscaling`/`WideFieldZPlaneNm`, the BrightField
-  `BrightFieldQuality`/`Sources`/`Upscaling`/`GeometrySamples`/`SliceUm`/`CondenserNa`/`WavelengthNm`/
-  `PhotonsPerPxPerSec`/`Aberrations`, and the
-  `XYStage` device's `StageSpeedUmPerSec`/`StageSettleMs`/`StageLimitUm`, and the
-  mean-field switch `MeanFieldDensityPerUm2`/`SlabNm`/`MaxEmitters`.
-- `SimType_` -- webSMLM's "Simulation type" group: the specimen, i.e. the
-  `CellField*` properties of the cell field (with the microtubules' label:
-  `CellFieldMicrotubuleDye`/`LabelMode`/`LabelingPct`/`ImagerNm`/
-  `Orientation`/`OrientPolarDeg`/`OrientAzimuthDeg`/`WobbleConeDeg`/`Motion`), including
-  the specimen's BrightField optics `CellFieldIndexMedium`/`IndexCytoplasm`/
-  `IndexNucleus`/`IndexMicrotubule`/`AbsorptionPerUm`, the nucleus shape
-  `CellFieldNucBaseMinUm`/`MaxUm`/`NucIrregMin`/`Max`/`NucBendMin`/`Max`/`NucSmooth`/
-  `NucThickIrreg`/`NucAsym`/`NucWidestMin`/`Max` and the microtubule ends
-  `CellFieldMicrotubuleStartDecayPct`/`EndDecayPct`/`DirKappa`), plus
-  `DriftXyNmPerSqrtSec`/`DriftZNmPerSqrtSec`, the directed drift `DriftXySpeedNmPerSec`/`DriftZSpeedNmPerSec`/
-  `DriftXyAngleDeg`/`DriftXyAngleWanderDeg`/`DriftSpeedWanderPct`/`DriftWanderTimeSec`, and `RandomSeed`.
-- `FluoParam_` -- webSMLM's "Fluorophore parameters" group: the dyes. The
-  microtubules' dye fields `Microtubule_FluorescentPct`/`Qy`/`ExtCoeff`/
-  `OnSec`/`OffSec`/`BleachProb`/`InitialOnSec`/`Activation405`/
-  `SpontActivation`/`Primed`/`PrePhotonBudget`/`Kon`/`PhotonCv`/
-  `PhotonBudget`, the read-only `Microtubule_DetectedPct`/
-  `EffectiveEmissionNm`/`PhotonsPerSecOn`, and the slots `Dye{1,2,3}_Source`
-  plus the same fields (`Dye1_OnSec`, ...).
-- `Optics_` -- the light path (issue 16; no webSMLM group): `Laser{405,488,
-  561,640,730}KWcm2`, `LaserCustomNm`/`KWcm2`, `IlluminationGeometry`,
-  `ChamberHeightUm`, `Dichroic`/`DichroicEdgeNm`, `EmissionFilter`/
-  `EmissionLoNm`/`HiNm`, `Preset`, and the illumination profile
-  `IlluminationProfile`/`IlluminationFwhmPct` (were `FluoParam_Illum*`).
-- `CamParam_` -- webSMLM's "Camera parameters" group: gain, offset,
-  offset-std, read noise, QE, dark current, the sCMOS per-pixel-map
-  std-pct properties, the EMCCD ones (`CameraType`, `EmGain` -- read-only
-  since 2026-10-05: the preset's pre-amplifier sensitivity / the gain, which is
-  per photoelectron for both sensors --, `CicElectrons`, `BitDepth`),
-  `CameraPreset` and `QeCurve`.
-- `PSFParam_` -- webSMLM's "PSF parameters" group: every `Psf*` property
-  (`PsfModel`, `PsfNa`, `PsfEmissionWavelengthNm`, `PsfInterp`,
-  `PsfMaskType`/`PsfMaskModes`/`PsfMaskWaist`, etc., including
-  `PsfGeneratorJavaHome`, which has no direct webSMLM analog but is
-  PSF-generator-specific machinery).
-- `Background_` -- webSMLM's "Background" group (added in its 2026-09-19
-  builds): `BackgroundPhotonsPerSec` (was `General_BackgroundPhotonsPerSec`)
-  and `DecaySec`.
-
-Standard MM keywords this device inherits (`Exposure`, `PixelType`,
-`Name`, `Description`, `CameraName`, `CameraID`, and `ZStage`'s
-`Position`) are **not** prefixed -- MM Core and Micro-Manager Studio's own
-GUI depend on those literal names, and they aren't part of this project's
-own property surface. Allowed-*value* strings (e.g. `Circle`, `Gaussian`,
-`TopDown`, `Direct`) are also unprefixed -- only property *names* get a
-group prefix.
-
-**Keep this convention up to date**: any new MM property added to this
-device must get one of the seven prefixes above (pick by which webSMLM UI
-section the analogous concept would sit in, or `General_` if there's no
-webSMLM analog at all) -- update this section's bullet list and, if the
-mapping to webSMLM's groups shifts, `PARITY.md` in the websmlm repo too.
+**Since 2026-10-06 the adapter is a hub with peripherals and a tiered property registry: [spec/MM_DEVICES.md](spec/MM_DEVICES.md)
+says which device and tier a new property gets, how to name it and what else to update. Follow it.** Names: the device is
+the group, so property names carry no group prefix (`Objective.NA`, `Camera.OffsetADU`); per-target rows are
+`<Target>_<Name>` (`CellField.Microtubules_Label`); sensor-specific rows `sCMOS_` / `EMCCD_`; rows only the tests see
+`Test_` (created with `ISC_TEST=1`). MM's standard keywords (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...)
+and allowed-value strings are unchanged. The old single-camera names with group prefixes (`General_`, `SimType_`,
+`FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`, `Background_`) in the history sections of this file are the pre-hub
+names; every current device and property, with tier, default and help: [docs/mm-properties.md](docs/mm-properties.md)
+(generated). Keep `PARITY.md` in the websmlm repo in step when a mapping to webSMLM's groups shifts.
 
 ## Diffraction PSF feature -- status
 
@@ -496,7 +533,14 @@ the DLL**:
 reference); `ComputePsfKernelCache` (memoized, every platform) sends `GibsonLanniZernike` there and only
 `RichardsWolf`/`GibsonLanni` to the JVM (Windows). Same planes: relative L2 0 vs webSMLM's JS (ctest `zernike_psf`,
 `tests/psf/zernike_ref.bin`), ~1e-12 vs the JVM at the adapter defaults (`tools/psf_parity_check/README.md`);
-`adapter_pixel_hash` unchanged. The default 841x841x71 kernel takes ~0.8 s (12 threads). The Linux test `.so`, the
+`adapter_pixel_hash` unchanged. The default 841x841x71 kernel takes ~0.8 s (12 threads). Pupil grid (2026-10-07,
+spec/ALGORITHM.md): `ZernikePupilSamples` sizes it to the window (184 on the default 7 um window, was webSMLM's fixed 64,
+whose PSF period was shorter than the window: folded light); option `psf-pupil-samples` / `Renderer.PsfPupilSamples`
+(0 auto, 64 = webSMLM and the `zernike_psf` fixture). **Halo cut** (2026-10-07, spec/ALGORITHM.md): blink splats leave
+out camera pixels below `psf-halo-cut` of the emitter's photons (`WithHaloCut`: per plane and row a column span, no
+renormalization; MM `Renderer.PsfHaloCut`, `Renderer.Quality` Fast 1e-5 / Realistic 3e-6 / Exhaustive 0; CPU splat, D3D11
+gather and JS); continuous populations (WideField, mean field, per dye) keep the whole kernel. Keep the docs' warning
+(docs/physics/optics.md) in step. The Linux test `.so`, the
 cli and the viewer get the real model too.
 
 **Licensing (2026-10-01):** this project's own source is BSD-3-Clause (`LICENSE`);

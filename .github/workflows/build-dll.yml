@@ -76,6 +76,7 @@ jobs:
           Copy-Item LICENSE-GPL-3.0.txt out/LICENSE-GPL-3.0.txt
           Copy-Item LICENSE out/LICENSE
           Copy-Item THIRD_PARTY_NOTICES.md out/THIRD_PARTY_NOTICES.md
+          Copy-Item adapter/inSiliScope/config/*.cfg out/
           $hash = (Get-FileHash out/mmgr_dal_inSiliScope.dll -Algorithm SHA256).Hash.ToLower()
           "$hash  mmgr_dal_inSiliScope.dll" | Out-File -Encoding ascii out/mmgr_dal_inSiliScope.dll.sha256
           @(
@@ -87,7 +88,8 @@ jobs:
             "Licence: with PSFGenerator (GPL-3.0, EPFL BIG, https://github.com/Biomedical-Imaging-Group/PSFGenerator) embedded",
             "this DLL is GPL-3.0 as a whole (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE).",
             "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime only for the RichardsWolf/GibsonLanni PSF models);",
-            "devices: Camera, XYStage, ZStage in module inSiliScope."
+            "devices: the hub inSiliScope and its peripherals (Camera, XYStage, ZStage, Objective, EmissionPath, FilterCube, ExcitationFilter, Dichroic, EmissionFilter, Lasers, TransmittedLamp, SampleHolder, CellField, Fluorophores, Renderer) in module inSiliScope;",
+            "configurations: inSiliScope_Basic.cfg, inSiliScope_Advanced.cfg, inSiliScope_Expert.cfg (File > Load System Configuration in Micro-Manager)."
           ) | Out-File -Encoding utf8 out/BUILD_INFO.txt
           Get-Content out/BUILD_INFO.txt
       - uses: actions/upload-artifact@v4

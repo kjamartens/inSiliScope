@@ -20,7 +20,8 @@ namespace sim {
 bool MakeLightPath(const LightPathSettings& s, LightPath& out, std::string& err)
 {
    out = LightPath();
-   auto filter = [&](const FilterData& (*at)(int), size_t n, int i, bool dichroic, std::string& name, Spectrum& T) {
+   enum Which { Excitation, Dichroic, Emission };
+   auto filter = [&](const FilterData& (*at)(int), size_t n, int i, Which which, std::string& name, Spectrum& T) {
       if (i < 0 || static_cast<size_t>(i) >= n)
       {
          err = "filter index " + std::to_string(i) + " out of range";
@@ -42,19 +43,21 @@ bool MakeLightPath(const LightPathSettings& s, LightPath& out, std::string& err)
       IdealFilterSpec spec = f.ideal;
       if (!std::strcmp(f.id, "Custom"))
       {
-         if (dichroic)
+         if (which == Dichroic)
             spec.edgeNm = s.dichroicEdgeNm;
          else
          {
-            spec.loNm = s.emLoNm;
-            spec.hiNm = s.emHiNm;
+            spec.loNm = which == Excitation ? s.exLoNm : s.emLoNm;
+            spec.hiNm = which == Excitation ? s.exHiNm : s.emHiNm;
          }
       }
       T = IdealTransmission(spec);
       return true;
    };
-   if (!filter(DichroicAt, DichroicIds().size(), s.dichroic, true, out.dichroicName, out.dichroicT) ||
-       !filter(EmissionFilterAt, EmissionFilterIds().size(), s.emissionFilter, false, out.emissionFilterName,
+   if (!filter(ExcitationFilterAt, ExcitationFilterIds().size(), s.excitationFilter, Excitation,
+               out.excitationFilterName, out.excitationT) ||
+       !filter(DichroicAt, DichroicIds().size(), s.dichroic, Dichroic, out.dichroicName, out.dichroicT) ||
+       !filter(EmissionFilterAt, EmissionFilterIds().size(), s.emissionFilter, Emission, out.emissionFilterName,
                out.emissionT))
       return false;
    const CameraData* cam = s.qeCurve >= 0 && static_cast<size_t>(s.qeCurve) < CameraIds().size() ? &CameraAt(s.qeCurve) : nullptr;
@@ -63,7 +66,7 @@ bool MakeLightPath(const LightPathSettings& s, LightPath& out, std::string& err)
    out.qeName = cam ? cam->id : "Flat";
    for (const LaserLine& l : s.lasers)
       if (l.kWPerCm2 > 0)
-         out.lasers.push_back(l);
+         out.lasers.push_back({ l.nm, l.kWPerCm2 * SampleAt(out.excitationT, l.nm) });
    out.na = s.na;
    out.immersionIndex = s.immersionIndex;
    out.chamberHeightUm = s.chamberHeightUm;

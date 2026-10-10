@@ -71,7 +71,7 @@ const dt = CellField.driftTrajectory(42, 200, 0.05, 20, 30);
 const ref = driftTrajectory(42, 200, 0.05, { xyNmPerSqrtSec: 20, zNmPerSqrtSec: 30 });
 ok(dt.length === 200 && dt.every((d, i) => d.x === ref[i].x && d.y === ref[i].y && d.z === ref[i].z) &&
    dt[0].x === 0 && Math.abs(dt[199].x) > 0, `driftTrajectory = the JS reference (frame 199: ${dt[199].x.toFixed(1)}, ${dt[199].y.toFixed(1)}, ${dt[199].z.toFixed(1)} nm)`);
-const opts = { xySpeedNmPerSec: 15, zSpeedNmPerSec: -4, angleWanderDeg: 20, speedWanderPct: 30, wanderTimeSec: 5 };
+const opts = { xySpeedNmPerSec: 15, zSpeedNmPerSec: 4, zDirection: -1, angleWanderDeg: 20, zAngleWanderDeg: 120, speedWanderPct: 30, wanderTimeSec: 5 };
 const dd = CellField.driftTrajectory(42, 200, 0.05, 20, 30, opts);
 const rd = driftTrajectory(42, 200, 0.05, { xyNmPerSqrtSec: 20, zNmPerSqrtSec: 30, ...opts });
 ok(dd.every((d, i) => d.x === rd[i].x && d.y === rd[i].y && d.z === rd[i].z) && dd[199].x !== dt[199].x,

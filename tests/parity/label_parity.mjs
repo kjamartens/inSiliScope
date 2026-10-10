@@ -1,7 +1,8 @@
-// Issue 16 labels: the C++ core (WASM build, C ABI 10) against the JS reference (web/prototype/scope/world.js),
+// Issue 16 labels: the C++ core (WASM build, C ABI 11) against the JS reference (web/prototype/scope/world.js),
 // number for number and in order: fluorescent dyes (sitesInWindow), blinks (eventsInWindow) and continuous windows
 // (continuousInWindow) for every label mode, a fluorescent fraction, a pre state and an initial ON, over a query
-// history (late window first, then a long one, then early ones).
+// history (late window first, then a long one, then early ones); then ABI 11 kinetics histories (rate steps per mode,
+// two histories alternating on one world).
 //   node tests/parity/label_parity.mjs [path to build/wasm/core/insiliscope.js]
 import fs from 'fs';
 import path from 'path';
@@ -16,7 +17,7 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const P = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const { World } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const D = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dyes.js')).href);
-if (M._isc_abi_version() !== 10) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 10');
+if (M._isc_abi_version() !== 11) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 11');
 
 const seed = 1249, geom = P.paramsFrom(P.defaults);
 const MODES = { dSTORM: 0, PALM: 1, 'DNA-PAINT': 2, WideField: 3 };
@@ -82,6 +83,47 @@ for (const [name, opts] of CASES) {
   for (const tMin of [-Infinity, 1.0]) {
     same(`${name}: continuous windows ending after ${tMin}`, rows((b, c) => M._isc_continuous_in_window(w, ...win, tMin, b, c), 10),
       js.continuousInWindow(...win, tMin).map(evRow));
+  }
+  M._isc_world_free(w);
+}
+// ABI 11: kinetics histories. Each case: segments [tStart, kinetics] (the label's mode, density, pre state stay).
+const KIN_KEYS = ['activationRatePerSec', 'onSec', 'offSec', 'bleachProb', 'photonCV', 'initialOnSec'];
+function setHistory(w, js, segs) {
+  const tStart = segs.map(x => x[0]), kins = segs.map(x => [{ initialOnSec: 0, ...x[1] }]);
+  js.setKineticsHistory(tStart, kins);
+  const v = segs.flatMap((x, i) => [x[0], ...KIN_KEYS.map(k => kins[i][0][k])]);
+  const buf = M._malloc(Math.max(1, v.length) * 8);
+  M.HEAPF64.set(v, buf / 8);
+  const r = M._isc_world_set_kinetics_history(w, buf, segs.length);
+  M._free(buf);
+  if (r !== 0) throw new Error('isc_world_set_kinetics_history: ' + r);
+}
+const HCASES = [
+  ['dSTORM initial ON 2 s, 405 x10 at 30 s, off at 90 s', { mode: 'dSTORM', density: 0.1, kinetics: { ...kin, initialOnSec: 2 } },
+    [[[0, { ...kin, initialOnSec: 2 }], [1.5, { ...kin, initialOnSec: 0.5 }], [30, { ...kin, activationRatePerSec: 0.5, initialOnSec: 0.5 }],
+      [90, { ...kin, activationRatePerSec: 0, initialOnSec: 0.5 }]],
+     [[0, { ...kin, initialOnSec: 2 }], [30, { ...kin, onSec: 0.005, offSec: 0.1 }]]]],
+  ['PALM pre state, UV off at 50 s, high at 100 s', { mode: 'PALM', density: 0.1, fluorescentFraction: 0.6, preState: true, kinetics: kin },
+    [[[0, kin], [50, { ...kin, activationRatePerSec: 0 }], [100, { ...kin, activationRatePerSec: 0.5 }]],
+     [[0, { ...kin, activationRatePerSec: 0.2 }]]]],
+  ['DNA-PAINT, imager x10 mid bin', { mode: 'DNA-PAINT', density: 0.7, kinetics: { ...kin, activationRatePerSec: 0.00143 } },
+    [[[0, { ...kin, activationRatePerSec: 0.00143 }], [60.4, { ...kin, activationRatePerSec: 0.0143, onSec: 0.2 }]],
+     [[0, { ...kin, activationRatePerSec: 0.00143 }], [10, { ...kin, activationRatePerSec: 0 }]]]],
+  ['WideField, rates step', { mode: 'WideField', density: 0.3, kinetics: kin },
+    [[[0, kin], [40, { ...kin, onSec: 0.5 }]], [[0, kin]]]],
+];
+for (const [name, opts, hists] of HCASES) {
+  const label = D.makeLabel(opts);
+  const js = new World(P, seed, geom, [label]), w = cWorld(label);
+  // History A, B, A again on the same worlds (the C++ keeps a schedule per history).
+  for (const [hi, h] of [[0, hists[0]], [1, hists[1]], [0, hists[0]]]) {
+    setHistory(w, js, h);
+    for (const [t0, t1] of [[120, 120.05], [0, 200], [29.9, 30.2], [60, 62]]) {
+      same(`${name} (history ${'AB'[hi]}): blinks [${t0}, ${t1})`, rows((b, c) => M._isc_events_in_window(w, ...win, t0, t1, b, c), 10),
+        js.eventsInWindow(...win, t0, t1).map(evRow));
+    }
+    same(`${name} (history ${'AB'[hi]}): continuous windows`, rows((b, c) => M._isc_continuous_in_window(w, ...win, -Infinity, b, c), 10),
+      js.continuousInWindow(...win, -Infinity).map(evRow));
   }
   M._isc_world_free(w);
 }

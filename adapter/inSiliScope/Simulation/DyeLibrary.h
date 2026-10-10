@@ -42,9 +42,10 @@ constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 // ---- the generated data's types (DyeLibraryData.inc) ----
 struct SpectrumData { const char* key; const double* values; };
 struct FilterData { const char* id; const char* name; const char* curve; IdealFilterSpec ideal; };
-struct LightPresetData { const char* id; const char* name; double lasers[5]; const char* dichroic; const char* emissionFilter; };
+struct LightPresetData { const char* id; const char* name; double lasers[5]; const char* excitationFilter; const char* dichroic;
+                         const char* emissionFilter; };
 enum CameraField { CAM_QE, CAM_READ_NOISE, CAM_GAIN, CAM_PREAMP, CAM_CIC, CAM_OFFSET, CAM_OFFSET_STD, CAM_DARK,
-                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_FIELDS };
+                   CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_PIXEL_UM, CAM_FIELDS };
 struct CameraData { const char* id; const char* name; const char* type; const char* qeCurve; double v[CAM_FIELDS]; };
 // A camera preset's gain (e-/ADU, per photoelectron) for the imaging at hand: CAM_GAIN_WF, when the preset has one,
 // for WideField-only labels or BrightField, else CAM_GAIN (JS cameraPresetGain). NaN: the preset sets no gain.
@@ -100,23 +101,54 @@ struct DyeData
 const std::vector<std::string>& DyeIds();           // the library dyes
 const std::vector<std::string>& DyeChoices();       // DyeIds() + Dye1, Dye2, Dye3 (a structure's dye)
 const std::vector<std::string>& DyeModeNames();     // dSTORM, PALM, DNA-PAINT, WideField
+const std::vector<std::string>& ExcitationFilterIds();   // laser clean-up filters
 const std::vector<std::string>& DichroicIds();
 const std::vector<std::string>& EmissionFilterIds();
 const std::vector<std::string>& CameraIds();
 const std::vector<std::string>& LightPresetIds();
 const std::vector<int>& LaserLines();               // 405, 488, 561, 640, 730
 const DyeData& DyeAt(int i);
+const FilterData& ExcitationFilterAt(int i);
 const FilterData& DichroicAt(int i);
 const FilterData& EmissionFilterAt(int i);
 const CameraData& CameraAt(int i);
 const LightPresetData* FindLightPreset(const std::string& id);
 // A sampled spectrum by key ("fp:<id>"); nullptr if unknown.
 const Spectrum* SpectrumByKey(const char* key);
-double SuggestedLabelingPct(int mode);
 int IndexOf(const std::vector<std::string>& list, const std::string& id);   // -1 if absent
+const char* DefaultExcitationFilter();
 const char* DefaultDichroic();
 const char* DefaultEmissionFilter();
 const char* DefaultCamera();
+
+// The library has data for this dye in this mode (not the generic values every dye gets in every mode).
+bool DyeHasModeData(int dye, int mode);
+int DefaultDyeMode();                               // the library's default mode (DyeMode)
+
+// ---- specimens and their targets (data/specimens.json; tools/gen_dye_library.mjs) ----
+// A target: a labelled structure of a specimen. prefix: its engine options (<prefix>-dye, ...); structure: the core's
+// ISC_STRUCT_* (= its index in TargetAt); the typical label per mode (library.json typicalLabels): the dye (index into
+// DyeIds()) and the % of the sites labelled.
+struct TargetData
+{
+   const char* id;
+   const char* name;
+   const char* prefix;
+   const char* specimen;
+   int structure;
+   int typicalDye[MODE_COUNT];
+   double typicalPct[MODE_COUNT];
+};
+struct SpecimenData
+{
+   const char* id;
+   const char* name;
+   int firstTarget, targetCount;   // its targets in TargetAt order
+};
+int TargetCount();
+const TargetData& TargetAt(int i);
+const std::vector<std::string>& SpecimenIds();
+const SpecimenData& SpecimenAt(int i);
 
 // The override fields (`<prefix>-dye.<field>`, `dye<N>.<field>`; JS DYE_FIELDS), in their order.
 const std::vector<std::string>& DyeFieldNames();
@@ -147,6 +179,9 @@ struct StatePhysics
    const char* color = nullptr;
 };
 bool StatePhotophysics(const StateData& st, const LightPath& lp, StatePhysics& out, std::string& err);
+// A state's excitation and emission spectra on the spectra grid (the data's
+// FPbase curves, or the parametric ones); false (with err) for a dark state.
+bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& err);
 
 struct LabelPhysicsOptions
 {

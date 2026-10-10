@@ -109,7 +109,13 @@
   <ItemGroup>
     <ClCompile Include="InSiliScopeCamera.cpp" />
     <ClCompile Include="SMLMImageGeneration.cpp" />
-    <ClCompile Include="ScopeProperties.cpp" />
+    <ClCompile Include="LiveAhead.cpp" />
+    <ClCompile Include="InSiliScopeHub.cpp" />
+    <ClCompile Include="Registry\SceneState.cpp" />
+    <ClCompile Include="Registry\SceneSettings.cpp" />
+    <ClCompile Include="Registry\PropertyTable.cpp" />
+    <ClCompile Include="Registry\Couplings.cpp" />
+    <ClCompile Include="Devices\Peripherals.cpp" />
     <ClCompile Include="Simulation\ScopeMovie.cpp" />
     <ClCompile Include="Simulation\IlluminationHistory.cpp" />
     <ClCompile Include="InSiliScopeModule.cpp" />
@@ -121,8 +127,11 @@
     <ClCompile Include="Simulation\LightPath.cpp" />
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
+    <ClCompile Include="Simulation\BinnedBlinks.cpp" />
+    <ClCompile Include="Simulation\BlinkExpectation.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
+    <ClCompile Include="Simulation\BrightfieldLive.cpp" />
     <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
     <ClCompile Include="..\..\core\src\blockstore.cpp" />
@@ -151,6 +160,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="InSiliScopeCamera.h" />
+    <ClInclude Include="InSiliScopeHub.h" />
+    <ClInclude Include="Registry\SceneState.h" />
+    <ClInclude Include="Registry\SceneSettings.h" />
+    <ClInclude Include="Registry\PropertyTable.h" />
+    <ClInclude Include="Registry\RegistryDevice.h" />
+    <ClInclude Include="Devices\Peripherals.h" />
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
     <ClInclude Include="Simulation\CellFieldSource.h" />
@@ -162,12 +177,15 @@
     <ClInclude Include="Simulation\IlluminationHistory.h" />
     <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
+    <ClInclude Include="Simulation\BinnedBlinks.h" />
+    <ClInclude Include="Simulation\BlinkExpectation.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />
     <ClInclude Include="Simulation\SplatKernel.h" />
     <ClInclude Include="Simulation\SplatKernel.inl" />
     <ClInclude Include="Simulation\Illumination.h" />
     <ClInclude Include="Simulation\BrightfieldRender.h" />
+    <ClInclude Include="Simulation\BrightfieldLive.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
     <ClInclude Include="Simulation\WidefieldGpuD3D11.h" />
     <ClInclude Include="Simulation\WidefieldGpuHlsl.inc" />

@@ -195,6 +195,32 @@ int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1, double 
    }
 }
 
+int32_t isc_world_set_kinetics_history(IscWorld* w, const double* rows, int32_t nSeg)
+{
+   if (!w || nSeg < 0 || nSeg > 1000000 || (nSeg > 0 && !rows)) return -1;
+   std::vector<double> tStart((size_t)nSeg);
+   std::vector<isc::Kinetics> kin((size_t)nSeg * ISC_STRUCT_COUNT);
+   for (int32_t i = 0; i < nSeg; i++) {
+      const double* r = rows + (size_t)i * ISC_KIN_ROW;
+      tStart[(size_t)i] = r[0];
+      for (int s = 0; s < ISC_STRUCT_COUNT; s++) {
+         const double* k = r + 1 + s * ISC_KIN_COUNT;
+         isc::Kinetics& q = kin[(size_t)i * ISC_STRUCT_COUNT + (size_t)s];
+         q.activationRatePerSec = k[ISC_KIN_ACTIVATION_RATE];
+         q.onSec = k[ISC_KIN_ON_SEC];
+         q.offSec = k[ISC_KIN_OFF_SEC];
+         q.bleachProb = k[ISC_KIN_BLEACH_PROB];
+         q.photonCV = k[ISC_KIN_PHOTON_CV];
+         q.initialOnSec = k[ISC_KIN_INITIAL_ON_SEC];
+      }
+   }
+   try {
+      return w->w.SetKineticsHistory(tStart, kin) ? 0 : -1;
+   } catch (...) {
+      return -1;
+   }
+}
+
 int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int32_t n)
 {
    if (!w || structure < 0 || structure >= ISC_STRUCT_COUNT || n < 0 || n > ISC_LABEL_COUNT || (n > 0 && !v)) return -1;

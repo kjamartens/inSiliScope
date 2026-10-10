@@ -32,13 +32,15 @@ dSTORM/PALM/DNA-PAINT presets are combinations of the labelling fractions, activ
 
 ## Recipe: a new MM property
 
-Give it one of the six group prefixes (`General_`, `SimType_`, `FluoParam_`, `CamParam_`, `PSFParam_`, `Background_`), update the
-prefix list in `CLAUDE.md`, and add the same option to `ScopeMovieOptions()` so the CLI and viewer reach it.
+Add one row to the property registry (`adapter/inSiliScope/Registry/PropertyTable.cpp`) on the device and tier that
+`spec/MM_DEVICES.md` picks, with a one-line help, and add the same option to `ScopeMovieOptions()` and its JS twin so
+the CLI and viewer reach it. Regenerate `docs/mm-properties.md` (`tools/gen_property_reference.py`) and, if a config
+group sets it, the shipped configurations (`tools/gen_mm_configs.py`).
 
 ## Recipe: a new modality
 
-Follow WideField or BrightField: a render path in `Simulation/`, a modality value in `General_ImagingModality`, a
-CLI/viewer option, an entry in `gallery/manifest.json`, a CI check, and a section in the physics docs. A modality that
+Follow WideField or BrightField: a render path in `Simulation/`, a light source (a shutter device in Micro-Manager, an engine
+option `light-<name>`; `spec/MM_DEVICES.md`), a CLI/viewer option, an entry in `gallery/manifest.json`, a CI check, and a section in the physics docs. A modality that
 needs new geometry gets it from a core query (BrightField: `isc_optical_volume_in_window`, pure geometry; the optics
 live in the renderer). A new structure should also say what it does to brightfield (its refractive index) and be added
 to the optical volume, so brightfield never shows structures the world does not simulate.
@@ -57,7 +59,8 @@ Speed-ups keep every output bit-identical (cli TIFF pixel data, `adapter_pixel_h
 parameters), vectorise independent lanes, thread work that is consumed in serial order, re-lay data; never reassociate,
 fuse (ctest `world_checks` `NoContraction` guards the build flags, link-time optimisation included), or change a
 sampler or a default. Measure first: `ISC_TIMING=1` makes a cli or viewer movie print its phase times
-(`Simulation/Timing.h`), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
+(`Simulation/Timing.h`), `ISC_TEST=1 python tools/bench_live.py --profile --json out.json` times the Micro-Manager live
+path per phase (the release's numbers are on the [Benchmarks](benchmarks.md) page), `isc_core_bench` (native) and `node tools/bench_core.mjs` (WASM) time the core per phase,
 `sr_render_check --bench` the splat, `tools/bench.py` whole movies. A consumer with several worlds (the viewer's
 workers) packs each block once and hands the rows around with ABI 7 `isc_world_pack_block` / `isc_world_set_block`
 (spec/PORT.md 6.5); across runs the same rows live in a small per-user file (ABI 8 `isc_world_set_cache_dir`, spec/PORT.md

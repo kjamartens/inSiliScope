@@ -80,7 +80,11 @@ or a new frame count or noise setting, reuses the cells and the multislice. 2026
 loops (detection pupil, slice transmittances, propagator, per-focus defocus, taper) run in parallel, the complex products
 are written out (no `__mulsc3` call per element in WASM) and the thin path's shifted column index is a table; with the
 core's worker pool and parallel cell generation the 256 px level 3 movie is 0.47 s cli cold (was 0.59) and level 4
-1.4 s (was 2.0) in `tools/bench.py`; in the viewer 0.7 s and 2.5 s (were 0.9 and 3.7).
+1.4 s (was 2.0) in `tools/bench.py`; in the viewer 0.7 s and 2.5 s (were 0.9 and 3.7). 2026-10-07 (pixels unchanged):
+the image's inverse transform skips the columns where the detection pupil is zero (|kx| > k0 NA; at 20x/0.75 about
+27 % of the columns are left instead of 47 %, at NA >= n_medium nothing changes): the 128 px 20x cli movie 4.8 -> 3.8 s.
+A focus image at low magnification stays expensive (256 px at 20x: a ~1350^2 grid, 24 sources, ~0.5-0.8 s on 12
+threads), so live Micro-Manager computes the next foci ahead (`Simulation/BrightfieldLive.*`, spec/PERF_PASS.md).
 
 ## Quality: speed vs precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`)
 

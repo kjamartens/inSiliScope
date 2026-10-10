@@ -587,16 +587,127 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   (plus the primed term).
 - **Movies start at 60 s** (`start-sec`), past the dSTORM initial ON phase: the default movie shows the steady state
   without the user knowing about initial ON. The windowed schedules make the late start free.
-- **The adapter's illumination history is a per-place clock, not a dose map per population.** Every mode's kinetics
-  are functions of time under the light, so one map of lit seconds (0.25 um tiles) serves bleaching, photoconversion and
-  dSTORM depletion alike, and the dyes stay address-based (a dye's schedule is still a pure function of its address,
-  read at its place's clock). Light counts when a frame is *taken* (snap, sequence), not when the live loop renders one,
-  so an idle Micro-Manager bleaches nothing. All lit columns advance by the same exposure, so a mean-field population's
-  per-column weights only scale from frame to frame (the scene's one-channel fast path); the lit rect is 0.5 um wider
-  than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge columns keep their
-  clock and every frame re-convolves).
+- **The adapter's illumination history is a per-place clock with a rate history, not a dose map per population**
+  (2026-10-08). Every mode's kinetics are functions of time under the light, so one map of lit seconds (0.25 um tiles)
+  serves bleaching, photoconversion and dSTORM depletion alike, and the dyes stay address-based. Each tile also keeps
+  its past as segments of lit time, each in an *epoch* (the light path's and labels' kinetic inputs then: lasers,
+  excitation filter, dichroic, imager concentration, dye overrides), interned in a trie of (parent, tStart, epoch) so
+  tiles with the same past share one node. The core (ABI 11, `isc_world_set_kinetics_history`) then walks each dye's
+  hazards piecewise: the *same* exponential draws, consumed segment by segment (activation `t + E/a_i` while it lands in
+  segment i, else `E -= a_i (s_{i+1} - t)`; ON/OFF/initial ON the same in scale form; the blink cycle keeps the old
+  `t += on + off` arithmetic when both end in one segment). Why: re-reading the whole past at the current rates (the old
+  per-place clock with today's label) made every change act backwards -- PALM with the 405 off emptied the field at
+  once (no dye had ever been activated at the new rate), a power step jumped to the look after T seconds at the new
+  power. With the walk, every event before a new boundary is bit-identical to the schedule without it (the past is
+  unchanged) and the future follows the new rates; one segment is today's code bit for bit, so fresh devices and the
+  cli/viewer are unchanged. DNA-PAINT changes per 1 s bin (the segment holding the bin's start), so bins already shown
+  never change. A dye block keeps up to 16 schedule slots keyed by the history's fingerprint, so two clock regions with
+  different pasts do not rebuild each other every frame; a label change of the kinetics alone keeps them. Lit time stays
+  the clock variable, so light-independent processes (DNA-PAINT binding, PALM spontaneous activation, dark times) run
+  only while lit (*estimate*-level simplification, documented). A change of dye or mode re-reads the past light for the
+  new dye (the epochs' light with the current dye), since the old dye's states mean nothing to the new one. Light counts
+  when a frame is *published* if it lights the sample (shutter open, power at the sample, and an acquisition takes it or
+  `SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter), so the next frame always sees it; a snap outside
+  those counts at its take. All lit columns advance by the same exposure, so a mean-field population's per-column
+  weights only scale from frame to frame (the scene's one-channel fast path); the lit rect follows the drifted pose and
+  is 0.5 um wider than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge
+  columns keep their clock and every frame re-convolves). Populations with a history: survival `exp(-sum lambda_i
+  Delta_i)`, the mean-field column weight `rate S (1 - exp(-lambda exp)) / lambda` at the current lambda.
 - **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
   illuminated chamber height. Documented as such rather than modelled half-way.
+
+## PSF pupil sampling (2026-10-07)
+
+- **The pupil grid follows the kernel window** (`ZernikePupilSamples`, JS `pupilSamples`). The chirp-Z evaluator
+  samples the pupil disc on an M x M grid with spacing dk = 2 kMax / (M - 4), so the PSF it returns is periodic with
+  period 2 pi / dk = (M - 4) lambda / (2 NA). With webSMLM's fixed M = 64 that was ~14.6 um (680 nm) / ~10.9 um
+  (510 nm) at NA 1.4, shorter than the 14 um wide default kernel: defocused light folded back into the window (axes
+  4.7x the diagonals at 3 um defocus in the green; stepped bands of out-of-focus light in WideField, up to 3-4 sigma
+  per frame). Rule: the smallest multiple of 4 in [64, 512] whose period covers the window's diagonal (light can fold
+  in only from beyond it), then raised to fill the chirp-Z length (power of two >= M + size - 1, up to 512), which is
+  free and shrinks the pupil-edge staircase error. Default window: 160; viewer: 140.
+- **Why not more.** The geometric defocus disc (z tan theta: 18 um at 3.5 um defocus and NA 1.49) asked for 512 and
+  2.5x the kernel time; measured against 768 samples, 160 is already within 9e-5 of an emitter's photons per camera
+  pixel in the core, 1.3e-5 at 2-4 um and 8e-6 beyond, at NA 1.4 and 1.49, 510 and 680 nm (512 gets 1e-6 beyond 4 um).
+  At 64 it was 7e-4 to 2.9e-3, 1.5e-4, 1.5e-4. `psf-pupil-samples` > 0 fixes M (64 = webSMLM, the `zernike_psf`
+  fixture).
+
+## PSF halo cut (2026-10-07)
+
+- **What.** A blink's splat skips every camera pixel whose share of the emitter's photons is below `psf-halo-cut`
+  (`WithHaloCut`, JS `withHaloCut`; MM `Renderer.PsfHaloCut`, set by `Renderer.Quality`: Fast 1e-5, Realistic 3e-6,
+  Exhaustive 0). Per kernel plane and splat row dy a column span [lo, hi] (camera pixels from the emitter's pixel): the
+  pixels whose largest readable block sum -- block-sum rows/columns [kc - 2 + d os, kc + os + 1 + d os], every sub-pixel
+  phase and tap -- is >= threshold, divided by 1.5625 for Cubic/Fft (Catmull-Rom's sum |w| <= 1.25 per axis). The CPU
+  splat (`SplatKernel.inl`), the D3D11 gather (`GpuSimD3D11`, a span buffer) and the JS clamp each row to its span.
+- **Why no renormalization.** Kept pixels stay exact and every left-out one is off by < threshold x photons; a
+  renormalized cut would move the halo's light into the core instead (~0.5 % of the blink at 3e-6, 1-2 % at 1e-5,
+  measured 2026-10-08 with `insiliscope_cli --splat-out`; biasing every pixel).
+- **Why blinks only.** A WideField or mean-field image sums the halos of many dyes, so a per-pixel bound per dye is no
+  bound on the image: cut squares or circles showed as edges of out-of-focus light (1-2 sigma per frame in the
+  2026-10-07 study). Single blinks are sparse: at most 0.09 sigma per frame at 1e-5 in the same study.
+- **Cost.** The spans are memoized per (kernel, threshold, interpolation); computing them is one pass over the block
+  sums (~50 ms for the default kernel). On the default kernel the splat keeps ~58 % of the square's pixels at 3e-6, ~39
+  % at 1e-5 (all planes alike; emitters near focus keep less).
+- **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
+  threshold (Nearest, Linear, Cubic, Fft). `scope_parity`/`engine_check` run the default (3e-6) on both sides.
+
+## Blink render regimes (2026-10-08)
+
+Blinks render per label (main group) and per frame in one of three regimes; the continuous populations keep their two
+(mean field, per dye).
+
+- **SMLM (splat).** Every event through `RenderPhotonImage` (or the adapter's GPU splat). Cost per event x footprint:
+  256 px x 100 frames of DNA-PAINT took 2.9 / 22.9 / 240 s at 1 / 10 / 100 nM imager (12 threads).
+- **Binned (approximate SMLM)**, `BinnedBlinks.*` (JS `binned_blinks.js`). The *same* events and the same per-event
+  arithmetic as the splat (`CollectFrameEmitters`, JS `frameEmitters`: overlap, photons, illumination at the undrifted
+  site, drifted position, `NearestZIndex`), deposited at the nearest cell of a grid of u = `blink-binned-upscale`
+  cells per pixel (a divisor of the PSF oversampling, `KernelWidefieldPsf::ValidUpscale`) anchored at the FOV's pixel
+  (0, 0) corner, one density per PSF plane; each occupied plane forward FFT x that plane's kernel spectrum, summed,
+  one inverse, max(0, .), binned u x u. Margin R cells (no wrap-around) = the kernel radius, capped by the halo cut's
+  largest radius over the planes (the cut splat draws nothing beyond it; inside it the grid kernel keeps every cell).
+  FFT size `FastSize(W u + 2R, 2, no5)`: radix-5 stages were 2-3x slower per point. The kernel spectra are made on first
+  use per plane and kept process-wide for the last two grids (live frames reuse them). Exact: which dyes blink, their
+  photons and z plane, the fluctuation; lost: the position within a cell. Cost per FOV area: 3-4 s (u = 1), 13-20 s
+  (u = 2), 30-38 s (u = 3) for the movie above at any density. Accuracy (photons): sum within 0.04 %, image relative L2
+  4.3 / 2.1 / 1.8 % at u = 1 / 2 / 3 against the splat of the same events; ADU movies 0.5-2 % in the mean image (u =
+  2). The C++ FFT is float (`RealFft2d`), the JS float64: `scope_parity` still gives 100 % identical ADU.
+- **Mean field**, `BlinkExpectation.*` (JS `blink_expectation.js`). No events: each dye's expected ON seconds in the
+  frame, `ExpectedBlinkOnSeconds(mode, segments, t0, t1)`, x the detected rate x the structure's dye density image (the
+  continuous populations' mean-field machinery: `BuildMeanField`, drift, per clock region with a host clock).
+  - dSTORM / PALM: the chain the core walks (`dyes.cpp`): I (initial ON) -> D (first dark, activation rate) -> ON
+    (1/onSec) -> B (p/onSec) | OFF ((1-p)/onSec) -> ON (1/offSec), p clamped to [0.01, 1]; piecewise constant per
+    history segment; an I with initialOnSec <= 0 in a segment moves to D at once. The ON-time integral is the integral
+    row of exp(Q T) for the 6x6 generator augmented with an integral state (scaling and squaring to ||A|| <= 0.5,
+    Taylor order 16, `std::exp` only in DNA-PAINT; no jsm needed: the same double operations in the same order on both
+    sides).
+  - DNA-PAINT: per 1 s bin, rate x the exact integral over a uniform start in the bin of the overlap of a
+    min(Exp(tau), 20 tau) blink with [t0, t1) (piecewise closed form at the cut points t0, t1, t0 - 20 tau, t1 - 20 tau).
+  - Not modelled: the core's 1000-blink cap per dye and its normal approximation above 30 counts per bin (both
+    negligible at real rates).
+  - Checked against the core's own blinks (ctest `blink_regimes`, ~2e5 dyes; a first run on 1e7 dyes gave -0.18,
+    +0.08, -0.05, +0.05 %): dSTORM initial ON / steady / A-B-A history, PALM +- history, DNA-PAINT +- a history step
+    inside a bin, all within 2 sigma (per-dye sums: one dye's blinks are correlated).
+- **Why blink mean field is off by default.** Continuous mean field is exact up to shot noise (a sum of independent
+  Poisson emitters is one Poisson draw around the summed mean). Blinks are not: which dyes are ON is the signal, and the
+  blink fluctuation's variance is about (photons per event) x the shot-noise variance. A mean-field blink movie has the
+  right total (+0.1 % at 20 nM DNA-PAINT) but only shot noise frame to frame (std 41 vs 126 ADU): a speed / visual
+  approximation, never SMLM data. Thresholds 1e9 = off.
+- **Decision.** Mean field first, before the events query (so a mean-field frame draws no events and a movie
+  mean-field throughout queries none), from the expected ON emitters at the reference clock (start-sec, or the host
+  clock at the FOV centre): `nSlab x onFrac / FOV area > blink-mean-field-density-per-um2` or `nZ x onFrac >
+  blink-mean-field-max-emitters` (nZ the structure's dyes in the query rect and z range, nSlab in the FOV within
+  `mean-field-slab-nm`, `CountDyes`, half-open). Else binned when the frame's ON emitters (overlap-weighted, what the
+  splat would draw) per um^2 of the *FOV* (not the slab: the splat costs per event wherever it is, the FFT per area)
+  exceed `blink-binned-density-per-um2` (12.5; the measured splat/binned break-even at u = 2 is ~10 nM DNA-PAINT, ~10 ON
+  per um^2: 12.5 sits just above it, 2026-10-09) or
+  in all `blink-binned-max-emitters` (1e9). Unlike the continuous populations the regime can go both ways in a movie.
+  Not available: blink mean field with a host clock *and* drift (the weighted scene does not follow drift).
+- **Host GPU.** `FluorescenceMovie::HostSplatsBlinks(f)`: the adapter's GPU splats only the SMLM frames; the binned
+  and mean-field frames' blinks come with the populations (`populationsOnly`) as the extra photon image.
+- **Faster FFT** found on the way: `RealFft2d` allocated its line buffers per block of lines; with 12 threads the
+  Windows heap serialized them (a 432^2 transform 75-100 ms in a movie vs 5-10 ms alone). Per-thread scratch
+  (`LineScratch`), bit-identical; the WideField / mean-field path gains too.
 
 ## Known limitations / not yet done
 

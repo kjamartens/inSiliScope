@@ -19,13 +19,11 @@
 #pragma once
 
 #include "DeviceBase.h"
+#include "Registry/RegistryDevice.h"
 
 extern const char* g_XYStageDeviceName;
-extern const char* g_PropStageSpeedUmPerSec;
-extern const char* g_PropStageSettleMs;
-extern const char* g_PropStageLimitUm;
 
-class InSiliScopeXYStage : public CXYStageBase<InSiliScopeXYStage>
+class InSiliScopeXYStage : public isc::RegistryDevice<InSiliScopeXYStage, CXYStageBase<InSiliScopeXYStage>>
 {
 public:
    InSiliScopeXYStage();
@@ -55,14 +53,10 @@ public:
       return DEVICE_OK;
    }
 
-   // action interface
-   int OnSpeed(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnSettleMs(MM::PropertyBase* pProp, MM::ActionType eAct);
-   int OnLimitUm(MM::PropertyBase* pProp, MM::ActionType eAct);
-
 private:
    static constexpr double kStepSizeUm = 0.01;
 
+   double LimitUm() const { return Hub() ? Hub()->State().xyLimitUm.load() : 1e6; }
+
    bool initialized_ = false;
-   double limitUm_ = 1e6;   // the field is effectively unbounded
 };

@@ -32,21 +32,22 @@ cbuffer Params : register(b0)
 {
    uint W; uint H; uint NFrames; int CamRad;
    int Os; int Bw; int Bh; int Off;
-   uint PlaneStride; uint Seed; uint Pad2; uint Emccd;
+   uint PlaneStride; uint Seed; uint UseSpans; uint Emccd;
    float Pad3; float Qe; float Dark; float Cic;
    float EmGain; float MaxAdu; float Pad0; float Pad1;
 };
 
-// One frame of the batch: its emitters are Ems[emStart .. emStart+emCount).
+// One frame of the batch: its emitters are Ems[emStart .. emStart+emCount);
+// extra != 0xffffffff: its photon image (W x H) starts at Extra[extra].
 struct FrameInfo
 {
-   uint emStart; uint emCount; uint frame; float bgScale;
+   uint emStart; uint emCount; uint frame; float bgScale; uint extra;
 };
 
 struct Em
 {
    int x0; int y0; int bx; int by;
-   int plane; int nt; float photons; float pad;
+   int plane; int nt; float photons; int cutR2;
    float4 wx; float4 wy;
 };
 
@@ -54,6 +55,8 @@ StructuredBuffer<float> Sums : register(t0);
 StructuredBuffer<Em> Ems : register(t1);
 StructuredBuffer<float4> Pix : register(t2); // offset ADU, gain photons/ADU, read noise e-, background
 StructuredBuffer<FrameInfo> Frames : register(t3);
+StructuredBuffer<float> Extra : register(t4);   // photons added before the noise (continuous populations, a lamp)
+StructuredBuffer<int2> Spans : register(t5);    // the halo cut: columns [x, y] per (plane, dy) (PsfHaloSpans)
 RWStructuredBuffer<uint> Out : register(u0);
 
 void Pcg4d(inout uint4 v)
@@ -125,43 +128,70 @@ float GammaDraw(float k)
    return d;
 }
 
+// The group's 16 x 16 pixels share the frame's emitter list: it is staged
+// through group-shared memory in chunks of 256 (one record per thread), so a
+// record is read from the buffer once per group instead of once per pixel.
+#define CHUNK 256
+groupshared Em sEm[CHUNK];
+
 [numthreads(16, 16, 1)]
-void main(uint3 id : SV_DispatchThreadID)
+void main(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : SV_GroupID)
 {
-   if (id.x >= W || id.y >= H || id.z >= NFrames)
-      return;
+   // Every thread of the group takes part in the staging (barriers), also
+   // those outside the frame; one group is one frame (gid.z < NFrames).
+   const bool inside = id.x < W && id.y < H;
    uint i = id.y * W + id.x;
-   float4 px = Pix[i];
-   FrameInfo fi = Frames[id.z];
+   float4 px = inside ? Pix[i] : float4(0.0f, 0.0f, 1.0f, 0.0f);
+   FrameInfo fi = Frames[gid.z];
 
    // Splat: gather this frame's emitters, in list order, onto this pixel.
    float acc = px.w * fi.bgScale;
    int X = (int)id.x, Y = (int)id.y;
-   [loop] for (uint e = fi.emStart; e < fi.emStart + fi.emCount; e++)
+   [loop] for (uint e0 = 0; e0 < fi.emCount; e0 += CHUNK)
    {
-      Em em = Ems[e];
-      int dx = X - em.x0, dy = Y - em.y0;
-      if (abs(dx) > CamRad || abs(dy) > CamRad)
-         continue;
-      int r0 = em.by + dy * Os + Off, c0 = em.bx + dx * Os + Off;
-      uint base = (uint)em.plane * PlaneStride;
-      float s = 0.0f;
-      [loop] for (int j = 0; j < em.nt; j++)
+      uint cnt = min((uint)CHUNK, fi.emCount - e0);
+      if (gi < cnt)
+         sEm[gi] = Ems[fi.emStart + e0 + gi];
+      GroupMemoryBarrierWithGroupSync();
+      [loop] for (uint k = 0; k < cnt; k++)
       {
-         int r = r0 + j;
-         if (r < 0 || r >= Bh)
+         int dx = X - sEm[k].x0, dy = Y - sEm[k].y0;
+         if (!inside || abs(dx) > CamRad || abs(dy) > CamRad)
             continue;
-         float row = 0.0f;
-         [loop] for (int ii = 0; ii < em.nt; ii++)
+         Em em = sEm[k];
+         if (dx * dx + dy * dy > em.cutR2)
+            continue;
+         if (UseSpans != 0u)
          {
-            int c = c0 + ii;
-            if (c >= 0 && c < Bw)
-               row += em.wx[ii] * Sums[base + (uint)(r * Bw + c)];
+            int2 sp = Spans[(uint)em.plane * (uint)(2 * CamRad + 1) + (uint)(dy + CamRad)];
+            if (dx < sp.x || dx > sp.y)
+               continue;
          }
-         s += em.wy[j] * row;
+         int r0 = em.by + dy * Os + Off, c0 = em.bx + dx * Os + Off;
+         uint base = (uint)em.plane * PlaneStride;
+         float s = 0.0f;
+         [loop] for (int j = 0; j < em.nt; j++)
+         {
+            int r = r0 + j;
+            if (r < 0 || r >= Bh)
+               continue;
+            float row = 0.0f;
+            [loop] for (int ii = 0; ii < em.nt; ii++)
+            {
+               int c = c0 + ii;
+               if (c >= 0 && c < Bw)
+                  row += em.wx[ii] * Sums[base + (uint)(r * Bw + c)];
+            }
+            s += em.wy[j] * row;
+         }
+         acc += em.photons * s;
       }
-      acc += em.photons * s;
+      GroupMemoryBarrierWithGroupSync();
    }
+   if (!inside)
+      return;
+   if (fi.extra != 0xffffffffu)
+      acc += Extra[fi.extra + i];
 
    // Noise: this pixel's own counter stream.
    g_frame = fi.frame;
@@ -193,7 +223,7 @@ struct alignas(16) ParamsCB
    uint32_t w, h, nFrames;
    int32_t camRad;
    int32_t os, bw, bh, off;
-   uint32_t planeStride, seed, pad2, emccd;
+   uint32_t planeStride, seed, useSpans, emccd;
    float pad3, qe, dark, cic;
    float emGain, maxAdu, pad0, pad1;
 };
@@ -204,7 +234,10 @@ struct FrameInfoCpu
 {
    uint32_t emStart, emCount, frame;
    float bgScale;
+   uint32_t extra;
 };
+static_assert(sizeof(FrameInfoCpu) == 20, "frame layout must match the HLSL struct FrameInfo");
+constexpr uint32_t kNoExtra = 0xffffffffu;
 
 // Output buffer budget: frames per dispatch = this / (4 bytes * pixels).
 constexpr size_t kBatchBytes = 64ull << 20;
@@ -236,6 +269,9 @@ struct GpuSimulator::Impl
 
    ComPtr<ID3D11Buffer> sums;
    ComPtr<ID3D11ShaderResourceView> sumsSrv;
+   ComPtr<ID3D11Buffer> spans;
+   ComPtr<ID3D11ShaderResourceView> spansSrv;
+   bool useSpans = false;
    int os = 1, bw = 0, bh = 0, off = 0, camRad = 0;
    uint32_t planeStride = 0;
 
@@ -246,6 +282,10 @@ struct GpuSimulator::Impl
    ComPtr<ID3D11Buffer> frames;
    ComPtr<ID3D11ShaderResourceView> framesSrv;
    size_t framesCapacity = 0;
+
+   ComPtr<ID3D11Buffer> extra;
+   ComPtr<ID3D11ShaderResourceView> extraSrv;
+   size_t extraCapacity = 0;
 
    ComPtr<ID3D11Buffer> pix;
    ComPtr<ID3D11ShaderResourceView> pixSrv;
@@ -378,8 +418,23 @@ bool GpuSimulator::SetKernel(const PsfKernelCache& cache, std::string& outError)
    all.reserve(static_cast<size_t>(m.planeStride) * cache.BlockSums().size());
    for (const std::vector<float>& p : cache.BlockSums())
       all.insert(all.end(), p.begin(), p.end());
-   return m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
-                           outError);
+   if (!m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
+                         outError))
+      return false;
+   // The halo cut's spans (one dummy entry without a cut: the slot is bound either way).
+   m.useSpans = cache.halo && cache.halo->camRad == m.camRad && cache.halo->nz == static_cast<int>(cache.BlockSums().size());
+   std::vector<int32_t> spans(2, 0);
+   if (m.useSpans)
+   {
+      spans.resize(2 * cache.halo->lo.size());
+      for (size_t i = 0; i < cache.halo->lo.size(); ++i)
+      {
+         spans[2 * i] = cache.halo->lo[i];
+         spans[2 * i + 1] = cache.halo->hi[i];
+      }
+   }
+   return m.MakeStructured(2 * sizeof(int32_t), static_cast<UINT>(spans.size() / 2), spans.data(), false, m.spans,
+                           m.spansSrv, outError);
 }
 
 bool GpuSimulator::SetStatic(unsigned width, unsigned height, const std::vector<float>& offset,
@@ -452,15 +507,18 @@ size_t GpuSimulator::MaxBatchFrames() const
 
 bool GpuSimulator::RenderFrame(const std::vector<GpuSplatEmitter>& emitters, const CameraNoiseParams& cam,
                                double backgroundScale, uint32_t noiseSeed, uint32_t frame,
-                               std::vector<uint16_t>& out, std::string& outError)
+                               std::vector<uint16_t>& out, std::string& outError, const std::vector<float>* extra)
 {
-   return RenderFrames({emitters}, {frame}, {backgroundScale}, cam, noiseSeed, {&out}, outError);
+   const std::vector<const std::vector<float>*> extras{extra};
+   return RenderFrames({emitters}, {frame}, {backgroundScale}, cam, noiseSeed, {&out}, outError,
+                       extra ? &extras : nullptr);
 }
 
 bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>& emitters,
                                 const std::vector<uint32_t>& frames, const std::vector<double>& backgroundScales,
                                 const CameraNoiseParams& cam, uint32_t noiseSeed,
-                                const std::vector<std::vector<uint16_t>*>& outs, std::string& outError)
+                                const std::vector<std::vector<uint16_t>*>& outs, std::string& outError,
+                                const std::vector<const std::vector<float>*>* extras)
 {
    Impl& m = *impl_;
    if (!m.sumsSrv || !m.pixSrv || !m.outUav)
@@ -479,7 +537,10 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
          std::vector<uint32_t> fr(frames.begin() + s, frames.begin() + e);
          std::vector<double> bs(backgroundScales.begin() + s, backgroundScales.begin() + e);
          std::vector<std::vector<uint16_t>*> os(outs.begin() + s, outs.begin() + e);
-         if (!RenderFrames(em, fr, bs, cam, noiseSeed, os, outError))
+         std::vector<const std::vector<float>*> ex;
+         if (extras)
+            ex.assign(extras->begin() + s, extras->begin() + e);
+         if (!RenderFrames(em, fr, bs, cam, noiseSeed, os, outError, extras ? &ex : nullptr))
             return false;
       }
       return true;
@@ -488,8 +549,11 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
    if (nf == 0)
       return true;
 
-   // Concatenate the batch's emitter lists; each frame gets its range.
+   // Concatenate the batch's emitter lists and extra images; each frame gets
+   // its ranges.
+   const size_t n = static_cast<size_t>(m.w) * m.h;
    std::vector<GpuSplatEmitter> all;
+   std::vector<float> allExtra;
    std::vector<FrameInfoCpu> info(nf);
    for (size_t k = 0; k < nf; ++k)
    {
@@ -497,7 +561,19 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       info[k].emCount = static_cast<uint32_t>(emitters[k].size());
       info[k].frame = frames[k];
       info[k].bgScale = static_cast<float>(backgroundScales[k]);
+      info[k].extra = kNoExtra;
       all.insert(all.end(), emitters[k].begin(), emitters[k].end());
+      const std::vector<float>* x = extras && k < extras->size() ? (*extras)[k] : nullptr;
+      if (x)
+      {
+         if (x->size() != n)
+         {
+            outError = "extra photon image of the wrong size";
+            return false;
+         }
+         info[k].extra = static_cast<uint32_t>(allExtra.size());
+         allExtra.insert(allExtra.end(), x->begin(), x->end());
+      }
    }
 
    // Dynamic buffers, grown (by doubling) when needed.
@@ -526,7 +602,8 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       return true;
    };
    if (!upload(all.data(), all.size(), sizeof(GpuSplatEmitter), m.ems, m.emsSrv, m.emsCapacity) ||
-       !upload(info.data(), info.size(), sizeof(FrameInfoCpu), m.frames, m.framesSrv, m.framesCapacity))
+       !upload(info.data(), info.size(), sizeof(FrameInfoCpu), m.frames, m.framesSrv, m.framesCapacity) ||
+       !upload(allExtra.data(), allExtra.size(), sizeof(float), m.extra, m.extraSrv, m.extraCapacity))
       return false;
 
    ParamsCB p = {};
@@ -540,6 +617,7 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
    p.off = m.off;
    p.planeStride = m.planeStride;
    p.seed = noiseSeed;
+   p.useSpans = m.useSpans ? 1u : 0u;
    p.emccd = cam.emccd ? 1u : 0u;
    p.qe = static_cast<float>(cam.quantumEfficiency);
    p.dark = static_cast<float>(cam.darkCurrentElectrons);
@@ -558,17 +636,17 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       m.ctx->Unmap(m.cb.Get(), 0);
    }
 
-   ID3D11ShaderResourceView* srvs[4] = {m.sumsSrv.Get(), m.emsSrv.Get(), m.pixSrv.Get(), m.framesSrv.Get()};
+   ID3D11ShaderResourceView* srvs[6] = {m.sumsSrv.Get(), m.emsSrv.Get(), m.pixSrv.Get(), m.framesSrv.Get(),
+                                        m.extraSrv.Get(), m.spansSrv.Get()};
    ID3D11UnorderedAccessView* uavs[1] = {m.outUav.Get()};
    ID3D11Buffer* cbs[1] = {m.cb.Get()};
    m.ctx->CSSetShader(m.cs.Get(), nullptr, 0);
-   m.ctx->CSSetShaderResources(0, 4, srvs);
+   m.ctx->CSSetShaderResources(0, 6, srvs);
    m.ctx->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
    m.ctx->CSSetConstantBuffers(0, 1, cbs);
    m.ctx->Dispatch((m.w + 15) / 16, (m.h + 15) / 16, static_cast<UINT>(nf));
    ID3D11UnorderedAccessView* nullUav[1] = {nullptr};
    m.ctx->CSSetUnorderedAccessViews(0, 1, nullUav, nullptr);
-   const size_t n = static_cast<size_t>(m.w) * m.h;
    D3D11_BOX box = {0, 0, 0, static_cast<UINT>(sizeof(uint32_t) * n * nf), 1, 1};
    m.ctx->CopySubresourceRegion(m.staging.Get(), 0, 0, 0, 0, m.out.Get(), 0, &box);
 
@@ -612,14 +690,15 @@ bool GpuSimulator::SetStatic(unsigned, unsigned, const std::vector<float>&, cons
    return false;
 }
 bool GpuSimulator::RenderFrame(const std::vector<GpuSplatEmitter>&, const CameraNoiseParams&, double, uint32_t,
-                               uint32_t, std::vector<uint16_t>&, std::string& e)
+                               uint32_t, std::vector<uint16_t>&, std::string& e, const std::vector<float>*)
 {
    e = "unsupported";
    return false;
 }
 bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&, const std::vector<uint32_t>&,
                                 const std::vector<double>&, const CameraNoiseParams&, uint32_t,
-                                const std::vector<std::vector<uint16_t>*>&, std::string& e)
+                                const std::vector<std::vector<uint16_t>*>&, std::string& e,
+                                const std::vector<const std::vector<float>*>*)
 {
    e = "unsupported";
    return false;

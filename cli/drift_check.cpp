@@ -145,7 +145,10 @@ void Directed()
       DriftSettings s;
       s.xySpeedNmPerSec = 50.0;
       s.xyAngleDeg = 30.0;
-      s.zSpeedNmPerSec = -8.0;
+      s.zSpeedNmPerSec = 8.0;
+      s.zDirection = -1;
+      s.angleWanderDeg = 0.0;
+      s.zAngleWanderDeg = 0.0;
       const std::vector<DriftNm> t = DriftTrajectory(7, 201, dt, s);
       const double T = 200 * dt;
       const double ex = 50.0 * std::cos(kPi / 6) * T, ey = 50.0 * std::sin(kPi / 6) * T, ez = -8.0 * T;
@@ -155,34 +158,44 @@ void Directed()
                     t[200].x, t[200].y, t[200].z);
       Check(ok, msg);
    }
-   // Random direction per seed: uniform (mean resultant length ~ 1/sqrt(n)).
+   // Random direction per seed: xy uniform (mean resultant length ~ 1/sqrt(n)), z up for half the seeds.
    {
       DriftSettings s;
       s.xySpeedNmPerSec = 10.0;
+      s.zSpeedNmPerSec = 10.0;
+      s.angleWanderDeg = 0.0;
+      s.zAngleWanderDeg = 0.0;
       double c = 0, sn = 0;
+      int up = 0;
       const int n = 2000;
       for (int seed = 1; seed <= n; seed++) {
          const std::vector<DriftNm> t = DriftTrajectory(seed, 2, 1.0, s);
          c += t[1].x / 10.0;
          sn += t[1].y / 10.0;
+         up += t[1].z > 0.0 ? 1 : 0;
       }
-      const double R = std::sqrt(c * c + sn * sn) / n;
-      char msg[120];
-      std::snprintf(msg, sizeof msg, "random direction per seed: mean resultant length %.3f over %d seeds (uniform: ~%.3f)", R, n,
-                    1.0 / std::sqrt(n));
-      Check(R < 4.0 / std::sqrt(n), msg);
+      const double R = std::sqrt(c * c + sn * sn) / n, fUp = static_cast<double>(up) / n;
+      char msg[160];
+      std::snprintf(msg, sizeof msg,
+                    "random direction per seed: xy mean resultant length %.3f over %d seeds (uniform: ~%.3f), z up %.3f (0.5)",
+                    R, n, 1.0 / std::sqrt(n), fUp);
+      Check(R < 4.0 / std::sqrt(n) && std::fabs(fUp - 0.5) < 4.0 * 0.5 / std::sqrt(n), msg);
    }
-   // Wanders: direction RMS 20 deg, speed RMS 30%, correlation time 5 s; z keeps its sign.
+   // Wanders: the xy direction swings within +/- 30 deg (uniform: RMS 30 / sqrt 3, correlation after tau (6 / pi)
+   // asin(1 / 2e) = 0.353), speed RMS 30%, correlation time 5 s; z up with a 90 deg swing: speed x cos, never back,
+   // mean cos 2 / pi.
    {
       DriftSettings s;
       s.xySpeedNmPerSec = 40.0;
       s.xyAngleDeg = 90.0;
       s.zSpeedNmPerSec = 10.0;
-      s.angleWanderDeg = 20.0;
+      s.zDirection = 1;
+      s.angleWanderDeg = 30.0;
+      s.zAngleWanderDeg = 90.0;
       s.speedWanderPct = 30.0;
       s.wanderTimeSec = 5.0;
       const int n = 2000, lag = 100;   // 100 frames = 5 s = tau
-      double a2 = 0, aa = 0, sp = 0, sp2 = 0;
+      double a2 = 0, aa = 0, amax = 0, sp = 0, sp2 = 0, zc = 0;
       bool zSign = true;
       for (int seed = 1; seed <= n; seed++) {
          const std::vector<DriftNm> t = DriftTrajectory(seed, 50 + lag + 2, dt, s);
@@ -192,18 +205,50 @@ void Directed()
          const double a = std::atan2(vy, vx) - kPi / 2, b = std::atan2(wy, wx) - kPi / 2;
          a2 += a * a;
          aa += a * b;
+         amax = std::max(amax, std::fabs(a));
          const double v = std::sqrt(vx * vx + vy * vy) / 40.0;
          sp += v;
          sp2 += (v - 1.0) * (v - 1.0);
+         zc += vz / 10.0;
          zSign = zSign && vz >= 0.0 && wz >= 0.0;
       }
       const double rmsDeg = std::sqrt(a2 / n) * 180 / kPi, corr = aa / a2, mean = sp / n, rmsSpeed = std::sqrt(sp2 / n);
-      char msg[220];
+      const double maxDeg = amax * 180 / kPi, zMean = zc / n, swingCorr = 6.0 / kPi * std::asin(std::exp(-1.0) / 2.0);
+      char msg[300];
       std::snprintf(msg, sizeof msg,
-                    "wander: direction RMS %.1f deg (20), correlation after tau %.3f (1/e = 0.368), speed mean %.3f (~1) RMS %.3f (0.30), z never reverses",
-                    rmsDeg, corr, mean, rmsSpeed);
-      Check(std::fabs(rmsDeg / 20.0 - 1) < 0.07 && std::fabs(corr - 0.3679) < 0.06 && std::fabs(mean - 1) < 0.03 &&
-            std::fabs(rmsSpeed / 0.3 - 1) < 0.1 && zSign, msg);
+                    "wander: direction RMS %.1f deg (%.1f), max %.1f (<= 30), correlation after tau %.3f (%.3f), speed mean "
+                    "%.3f (~1) RMS %.3f (0.30), z mean %.3f (2/pi = 0.637) and never back",
+                    rmsDeg, 30.0 / std::sqrt(3.0), maxDeg, corr, swingCorr, mean, rmsSpeed, zMean);
+      Check(std::fabs(rmsDeg / (30.0 / std::sqrt(3.0)) - 1) < 0.07 && maxDeg <= 30.0 + 1e-6 &&
+            std::fabs(corr - swingCorr) < 0.06 && std::fabs(mean - 1) < 0.03 && std::fabs(rmsSpeed / 0.3 - 1) < 0.1 &&
+            std::fabs(zMean / (2.0 / kPi) - 1) < 0.05 && zSign, msg);
+   }
+   // A 180 deg z swing also reverses: some seeds move down although the direction is up.
+   {
+      DriftSettings s;
+      s.zSpeedNmPerSec = 10.0;
+      s.zDirection = 1;
+      s.zAngleWanderDeg = 180.0;
+      int down = 0;
+      const int n = 400;
+      for (int seed = 1; seed <= n; seed++) {
+         const std::vector<DriftNm> t = DriftTrajectory(seed, 2, dt, s);
+         down += t[1].z < 0.0 ? 1 : 0;
+      }
+      char msg[120];
+      std::snprintf(msg, sizeof msg, "z swing 180 deg: %d of %d seeds start downwards (~half)", down, n);
+      Check(down > n / 4 && down < 3 * n / 4, msg);
+   }
+   // The swing: erf(x / sqrt 2) within 1.5e-7 (A&S 7.1.26) at a few points (2 Phi(x) - 1).
+   {
+      const double xs[] = { 0.0, 0.5, 1.0, 2.0, -1.5 };
+      const double ref[] = { 0.0, 0.38292492254802624, 0.6826894921370859, 0.9544997361036416, -0.8663855974622838 };
+      double worst = 0.0;
+      for (int i = 0; i < 5; i++)
+         worst = std::max(worst, std::fabs(DriftSwing(xs[i]) - ref[i]));
+      char msg[120];
+      std::snprintf(msg, sizeof msg, "swing = erf(x / sqrt 2) within %.2g (< 1.5e-7)", worst);
+      Check(worst < 1.5e-7, msg);
    }
    // The directed part does not move the random walk's draws: with speeds 0 the path is the step sum.
    {

@@ -3,14 +3,16 @@
 // geometry (cells, packing, microtubules are the prototype's own functions). Same answers and the same
 // event ORDER as the C++ (the renderer sums in that order). Caches are for speed only.
 import { hashUnit } from './rng.js';
-import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, dyeH1, dyeOrientation, mtSegmentAt,
+import { DYE_DATA } from './dye_library_data.js';
+import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
   mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM, MT_BINDER_NM,
-  MT_LINKER_MAX_NM, PERSIST_BIN_SEC, PERSIST_ON_CAP } from './dyes.js';
+  MT_LINKER_MAX_NM, PERSIST_BIN_SEC } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
-// The structures that carry labels (issue 16): one label each, indexed by their position here. Only the
-// microtubules for now; a new structure (nucleus DNA, NPCs, ...) adds an entry and its site generator.
-export const STRUCTURES = [{ id: 'microtubules', prefix: 'mt', name: 'Microtubules' }];
+// The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
+// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*). Only the microtubules for now; a
+// new structure (nucleus DNA, NPCs, ...) adds a target there and its site generator here and in core/.
+export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name }));
 export const STRUCTURE_MT = 0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
 // ALWAYS_ON; continuousInWindow).
@@ -45,7 +47,28 @@ export class World {
     this.assets = new Map();   // cell assets by chunk
     this.dyeBlocks = new Map();
     this.labels = [];
+    this.hist = STRUCTURES.map(() => null);   // kinetics history per structure (setKineticsHistory)
+    this.histKey = STRUCTURES.map(() => '');
     this.setLabels(labels);
+  }
+
+  // isc_world_set_kinetics_history (ABI 11): tStart (0, then increasing; the last segment lasts for ever) and kin[i][s]
+  // (the kinetics of segment i for structure s: activationRatePerSec, onSec, offSec, bleachProb, photonCV,
+  // initialOnSec). The following queries schedule each dye with the rates of its clock's segment. [] = no history.
+  setKineticsHistory(tStart = [], kin = []) {
+    if (kin.length !== tStart.length) throw new Error('setKineticsHistory: one kinetics row per segment');
+    tStart.forEach((t, i) => {
+      if (!Number.isFinite(t) || (i === 0 ? t !== 0 : !(t > tStart[i - 1]))) throw new Error('setKineticsHistory: bad tStart');
+    });
+    STRUCTURES.forEach((_, s) => {
+      const h = tStart.length ? { tStart: tStart.slice(), kin: kin.map(r => {
+        const q = r[s];
+        return { activationRatePerSec: q.activationRatePerSec, onSec: q.onSec, offSec: q.offSec, bleachProb: q.bleachProb,
+          photonCV: q.photonCV, initialOnSec: q.initialOnSec };
+      }) } : null;
+      this.hist[s] = h;
+      this.histKey[s] = h ? JSON.stringify(h) : '';
+    });
   }
 
   // A change of density or fluorescent fraction redraws the dyes (the cells and microtubules stay); any other label
@@ -207,7 +230,8 @@ export class World {
   // t = 0 and stops at the horizon), so a query outside the window re-schedules the block and gets the same blinks.
   // Millions of bleaching dyes cost their blinks in the movie's span, not their lifetimes.
   schedule(b, tLo = -Infinity, tMax = Infinity) {
-    if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo) return;
+    if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo && b.histKey === this.histKey[b.structure]) return;
+    b.histKey = this.histKey[b.structure];
     const horizon = 2 * tMax;
     b.events = []; b.persistent = []; b.maxOn = 0;
     const label = this.labels[b.structure], s = b.structure;
@@ -216,7 +240,7 @@ export class World {
       const blinks = [];
       for (let i = 0; i < b.n; i++) {
         blinks.length = 0;
-        labelSchedule(b.h1, b.k[i], b.nIdx[i], label, blinks, null, horizon);
+        labelSchedule(b.h1, b.k[i], b.nIdx[i], label, blinks, null, horizon, this.hist[s]);
         for (const bl of blinks) {
           if (!(bl.tOff > tLo)) continue;
           b.events.push({ x: b.x[i], y: b.y[i], z: b.z[i], tOn: bl.tOn, tOff: bl.tOff, brightness: bl.brightness, id: b.id[i],
@@ -247,9 +271,9 @@ export class World {
     this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
       if (!b.n || b.zHi < zMin || b.zLo >= zMax) return;
       this.schedule(b, t0, t1);
-      const kin = this.labels[b.structure].kinetics;
-      const persist = kin.activationRatePerSec > 0 && t1 > t0;
-      const maxOn = PERSIST_ON_CAP * kin.onSec;
+      const kin = this.labels[b.structure].kinetics, hist = this.hist[b.structure];
+      const persist = (hist ? hist.kin.some(q => q.activationRatePerSec > 0) : kin.activationRatePerSec > 0) && t1 > t0;
+      const maxOn = persistentMaxOn(kin, hist);
       const b0 = Math.max(0, Math.floor((t0 - maxOn) / PERSIST_BIN_SEC));
       const b1 = Math.floor(t1 / PERSIST_BIN_SEC);
       const ev = b.events, tLo = t0 - b.maxOn;
@@ -264,7 +288,8 @@ export class World {
         const x = b.x[di], y = b.y[di], z = b.z[di], id = b.id[di];
         if (!(z >= zMin && z < zMax && x >= x0 && x < x1 && y >= y0 && y < y1)) continue;
         persistentGen(b.h1, b.k[di], b.nIdx[di], kin, b0, b1, (tOn, on) => tOn < t1 && tOn + on > t0,
-          (bin, j, tOn, on, br) => out.push({ x, y, z, tOn, tOff: tOn + on, brightness: br, id, structure: b.structure, state: 0, aux: 0 }));
+          (bin, j, tOn, on, br) => out.push({ x, y, z, tOn, tOff: tOn + on, brightness: br, id, structure: b.structure, state: 0, aux: 0 }),
+          hist);
       }
     });
     return out;
@@ -279,7 +304,7 @@ export class World {
       const label = this.labels[b.structure];
       if (label.mode === 'DNA-PAINT') return;
       cont.length = 0;
-      labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont);
+      labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont, Infinity, this.hist[b.structure]);
       for (const w of cont)
         if (w.tOff > tMin)
           out.push({ x: b.x[i], y: b.y[i], z: b.z[i], tOn: w.tOn, tOff: w.tOff, brightness: 1, id: b.id[i], structure: b.structure,

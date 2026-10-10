@@ -73,7 +73,13 @@ const CASES = [
   ['DNA-PAINT ATTO 655 + imager background, Gaussian PSF', `${B} size=48 frames=12 psf-model=0`, 1],
   ['DNA-PAINT, GibsonLanniZernike, Cubic', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500`, 1],
   ['DNA-PAINT, drift xy 30, z 40 nm/sqrt(s)', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
-  ['DNA-PAINT, directed drift, wandering', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=-150 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10`, 0.999],
+  ['DNA-PAINT, directed drift, wandering', `${B} size=48 frames=40 psf-kernel-half-width-nm=2500 drift-xy-speed-nm-per-sec=400 drift-z-speed-nm-per-sec=150 drift-z-direction=-1 drift-z-angle-wander-deg=120 drift-xy-angle-wander-deg=30 drift-speed-wander-pct=40 drift-wander-time-sec=0.5 drift-xy-nm-per-sqrt-sec=10`, 0.999],
+  // The blink render regimes: binned FFT (approximate SMLM) and blink mean-field, forced by a zero threshold.
+  ['DNA-PAINT, blinks binned (FFT, upscale 2)', `${B} size=40 frames=6 psf-kernel-half-width-nm=2500 blink-binned-max-emitters=0`, 0.999],
+  ['dSTORM AF647, blinks binned (upscale 3), Gaussian PSF', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto blink-binned-max-emitters=0 blink-binned-upscale=3`, 0.999],
+  ['DNA-PAINT, blinks mean-field', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500 blink-mean-field-max-emitters=0`, 0.999],
+  ['dSTORM AF647 from t = 0, blinks mean-field', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 blink-mean-field-max-emitters=0`, 0.999],
+  ['DNA-PAINT, blinks mean-field, drift xy 30, z 40 nm/sqrt(s)', `${B} size=40 frames=12 psf-kernel-half-width-nm=2500 blink-mean-field-max-emitters=0 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
   ['dSTORM AF647 from t = 0 (initial ON, mean field), light-preset=auto', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0`, 0.999],
   ['dSTORM AF647 at 60 s, double helix, Linear', 'world-seed=1249 x=58 y=-2 size=32 frames=10 psf-kernel-half-width-nm=2000 psf-mask=DoubleHelix psf-interp=Linear zern.5=0.2 mt-dye=AF647 light-preset=auto', 1],
   ['PALM mEos3.2, pre state, 405 + 488 + 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=mEos3.2 light-preset=auto laser-405=0.05 laser-488=0.5`, 0.999],
@@ -84,12 +90,21 @@ const CASES = [
   ['WideField mEGFP, per dye, directed drift', `${B} size=32 frames=6 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 drift-xy-speed-nm-per-sec=300 drift-z-speed-nm-per-sec=100`, 0.999],
   ['WideField Gaussian, upscale 2, sub-pixel pose', 'world-seed=1249 x=63.04 y=3.07 size=40 frames=3 psf-model=0 wf-upscale=2 mt-dye=mEGFP light-preset=auto', 0.999],
   ['Gaussian-spectrum slot dye (Custom in Dye1)', `${B} size=40 frames=6 psf-model=0 dye1.source=Custom mt-dye=Dye1 light-preset=auto`, 0.999],
+  // The label model (specimen registry): the global mode with each target Global and its Typical dye, and Cy3B.
+  ['Global mode dSTORM, Typical dye (AF647), typical labelling', `${B} size=40 frames=8 psf-model=0 mode=dSTORM mt-mode=Global mt-dye=Typical light-preset=auto`, 0.999],
+  ['DNA-PAINT Cy3B imager, 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=Cy3B light-preset=auto`, 1],
+  // A laser clean-up filter (vendor curve) in front of the dichroic: each line x its transmission.
+  ['dSTORM AF647, 561 + 640 nm through a quad clean-up (ZET405/488/561/640xv2)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto laser-561=1 ex-filter=ChromaZET405-488-561-640xv2`, 0.999],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the
   // photon count (the ~1e-5 relative intensity difference flips more Poisson draws), 99.35% at 80000.
   ['BrightField multislice (quality 3), defocused', `${B} size=40 frames=3 modality=BrightField z=2 bf-photons-per-px-per-sec=40000`, 0.995],
   ['BrightField drift xy 40, z 30 nm/sqrt(s) (quality 2)', `${B} size=40 frames=6 modality=BrightField bf-quality=2 bf-photons-per-px-per-sec=40000 drift-xy-nm-per-sqrt-sec=40 drift-z-nm-per-sqrt-sec=30`, 0.995],
+  // The shutters: both lights summed before one noise chain (the lamp x its QE), none: the camera's noise alone.
+  ['Both lights: DNA-PAINT + BrightField (quality 1)', `${B} size=40 frames=3 psf-model=0 light-epi=1 light-trans=1 bf-quality=1 bf-photons-per-px-per-sec=20000`, 0.995],
+  ['Both lights, drift xy 40 nm/sqrt(s) (quality 1)', `${B} size=32 frames=4 psf-model=0 modality=BrightField light-epi=1 bf-quality=1 bf-photons-per-px-per-sec=20000 drift-xy-nm-per-sqrt-sec=40`, 0.995],
+  ['No light: dark frames', `${B} size=32 frames=3 light-epi=0`, 1],
   ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=1 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {

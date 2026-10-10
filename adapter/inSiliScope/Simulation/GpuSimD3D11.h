@@ -50,7 +50,8 @@ struct GpuSplatEmitter
 {
    int32_t x0, y0, bx, by;
    int32_t plane, nTaps;
-   float photons, pad;
+   float photons;
+   int32_t cutRadius2;   // the halo cut's largest dx^2 + dy^2 at this plane (PsfHaloSpans::radius2); no cut: INT32_MAX
    float wx[4];
    float wy[4];
 };
@@ -76,18 +77,23 @@ public:
                   const std::vector<float>& readNoise, const std::vector<float>& background, double flatBg,
                   const CameraNoiseParams& cam, std::string& outError);
 
-   // Renders + noises one frame into out (width*height, row-major).
+   // Renders + noises one frame into out (width*height, row-major). extra
+   // (optional, width*height): photons added to each pixel before the noise --
+   // what the CPU renders of the frame besides the blinks and the background
+   // (continuous populations, a transmitted lamp's image).
    bool RenderFrame(const std::vector<GpuSplatEmitter>& emitters, const CameraNoiseParams& cam,
                     double backgroundScale, uint32_t noiseSeed, uint32_t frame, std::vector<uint16_t>& out,
-                    std::string& outError);
+                    std::string& outError, const std::vector<float>* extra = nullptr);
 
    // Same for a batch of frames in ONE dispatch and ONE read-back -- the
    // per-frame GPU round trip is what dominates otherwise. emitters[k],
    // frames[k], backgroundScales[k] describe batch frame k; outs[k] receives
-   // it. Batches are split internally to bound GPU memory.
+   // it; (*extras)[k] (optional, nullptr: none) its extra photons. Batches
+   // are split internally to bound GPU memory.
    bool RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>& emitters, const std::vector<uint32_t>& frames,
                      const std::vector<double>& backgroundScales, const CameraNoiseParams& cam, uint32_t noiseSeed,
-                     const std::vector<std::vector<uint16_t>*>& outs, std::string& outError);
+                     const std::vector<std::vector<uint16_t>*>& outs, std::string& outError,
+                     const std::vector<const std::vector<float>*>* extras = nullptr);
 
    // How many frames of this size one RenderFrames dispatch handles.
    size_t MaxBatchFrames() const;

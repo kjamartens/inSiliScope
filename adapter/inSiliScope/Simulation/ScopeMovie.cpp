@@ -10,9 +10,12 @@
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #include "ScopeMovie.h"
+#include "ScopeResolved.h"
 
 #include "CacheDir.h"
 
+#include "BinnedBlinks.h"
+#include "BlinkExpectation.h"
 #include "BrightfieldRender.h"
 #include "DyeLibrary.h"
 #include "Illumination.h"
@@ -52,12 +55,17 @@ namespace {
 // 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
 // photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
 constexpr double kDefaultLaser640KW = 1.0;
-// k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former
-// default activation rate (scope_movie.js DEFAULT_IMAGER_NM).
-constexpr double kDefaultImagerNm = 1.43;
+// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (scope_movie.js
+// DEFAULT_IMAGER_NM; *estimate*, 2026-10-07: was 1.43, the former default
+// activation rate; 1 nM gives about the emitters per frame of the dSTORM and
+// PALM typical labels).
+constexpr double kDefaultImagerNm = 1.0;
 
-// The structures' option prefixes (JS world.js STRUCTURES), index = ISC_STRUCT_*.
-const char* const kStructurePrefix[ISC_STRUCT_COUNT] = { "mt" };
+// The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
+const char* StructurePrefix(int s)
+{
+   return TargetAt(s).prefix;
+}
 
 struct OptionTable
 {
@@ -77,7 +85,7 @@ const OptionTable& Options()
       auto idx = [](const std::vector<std::string>& list, const char* id) { return static_cast<double>(IndexOf(list, id)); };
       std::vector<ScopeOption>& v = o.opts;
       v = {
-         { "seed", 42, "SimType_RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)" },
+         { "seed", 42, "Hub.RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)" },
          { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
          { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
          { "prepare", 0, "1 = build the world and the PSF kernel only (warms the caches), no frames" },
@@ -88,103 +96,119 @@ const OptionTable& Options()
          { "frames", 1000, "number of frames" },
          { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
          { "start-sec", 60, "simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)" },
-         { "drift-xy-speed-nm-per-sec", 0, "SimType_DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)" },
-         { "drift-z-speed-nm-per-sec", 0, "SimType_DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)" },
-         { "drift-xy-angle-deg", -1, "SimType_DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)" },
-         { "drift-xy-angle-wander-deg", 0, "SimType_DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)" },
-         { "drift-speed-wander-pct", 0, "SimType_DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)" },
-         { "drift-wander-time-sec", 60, "SimType_DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)" },
-         { "drift-xy-nm-per-sqrt-sec", 0, "SimType_DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)" },
-         { "drift-z-nm-per-sqrt-sec", 0, "SimType_DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)" },
+         { "drift-xy-speed-nm-per-sec", 0, "SampleHolder.DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)" },
+         { "drift-z-speed-nm-per-sec", 0, "SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (its direction: drift-z-direction)" },
+         { "drift-xy-angle-deg", -1, "SampleHolder.DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)" },
+         { "drift-z-direction", 0, "SampleHolder.DriftZDirection: direction of the z drift, 1 = away from the coverslip, -1 = towards it, 0 = random per seed (advanced)" },
+         { "drift-xy-angle-wander-deg", 180, "SampleHolder.DriftXyAngleWanderDeg: the xy direction swings slowly within +/- this, deg (180 = any direction; advanced)" },
+         { "drift-z-angle-wander-deg", 90, "SampleHolder.DriftZAngleWanderDeg: the z drift swings within +/- this, deg: speed x cos(angle), 90 = between full speed and still, 180 = also back (advanced)" },
+         { "drift-speed-wander-pct", 0, "SampleHolder.DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)" },
+         { "drift-wander-time-sec", 60, "SampleHolder.DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)" },
+         { "drift-xy-nm-per-sqrt-sec", 0, "SampleHolder.DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)" },
+         { "drift-z-nm-per-sqrt-sec", 0, "SampleHolder.DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)" },
          { "pixel-nm", 100, "pixel size, nm" },
-         { "background-per-sec", 0, "Background_BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)" },
-         { "na", 1.4, "PSFParam_PsfNa: numerical aperture" },
-         { "focus-um", 0, "SimType_CellFieldFocusHeightUm (focus offset added to z)" },
-         { "z-range-um", 7.0, "SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-         { "mt-dye", idx(DyeChoices(), "ATTO655"), "SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)" },
-         { "mt-mode", -1, "SimType_CellFieldMicrotubuleLabelMode: -1 = the dye's default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
-         { "mt-label-pct", -1, "SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
-         { "mt-imager-nm", kDefaultImagerNm, "SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)" },
-         { "mt-orient", 0, "SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)" },
-         { "mt-orient-polar-deg", 90, "SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis" },
-         { "mt-orient-azimuth-deg", 0, "SimType_CellFieldMicrotubuleOrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction" },
-         { "mt-wobble-deg", 0, "SimType_CellFieldMicrotubuleWobbleConeDeg: fast wobble cone half-angle (Fixed, Random)" },
-         { "mt-motion", 0, "SimType_CellFieldMicrotubuleMotion: 0 Static (single-particle tracking: future)" },
-         { "dye1.source", idx(DyeIds(), "AF647"), "FluoParam_Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)" },
-         { "dye2.source", idx(DyeIds(), "mEos3.2"), "FluoParam_Dye2_Source" },
-         { "dye3.source", idx(DyeIds(), "mEGFP"), "FluoParam_Dye3_Source" },
+         { "background-per-sec", 0, "SampleHolder.BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)" },
+         { "na", 1.4, "Objective.NA: numerical aperture" },
+         { "focus-um", 0, "CellField.FocusHeightUm (focus offset added to z)" },
+         { "z-range-um", 7.0, "CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
+         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)" },
+         { "mode", -1, "Fluorophores Mode: the experiment's label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted)" },
+         { "mt-dye", idx(DyeChoices(), "ATTO655"), "CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)" },
+         { "mt-mode", -1, "CellField Microtubules_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
+         { "mt-label-pct", -1, "CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
+         { "mt-imager-nm", kDefaultImagerNm, "CellField.Microtubules_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)" },
+         { "mt-orient", 0, "CellField.Microtubules_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)" },
+         { "mt-orient-polar-deg", 90, "CellField.Microtubules_OrientPolarDeg: Fixed dipole angle from the microtubule axis" },
+         { "mt-orient-azimuth-deg", 0, "CellField.Microtubules_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction" },
+         { "mt-wobble-deg", 0, "CellField.Microtubules_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)" },
+         { "mt-motion", 0, "CellField.Microtubules_Motion: 0 Static (single-particle tracking: future)" },
+         { "dye1.source", idx(DyeIds(), "AF647"), "Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)" },
+         { "dye2.source", idx(DyeIds(), "mEos3.2"), "Fluorophores.Dye2_Source" },
+         { "dye3.source", idx(DyeIds(), "mEGFP"), "Fluorophores.Dye3_Source" },
       };
       for (int nm : LaserLines())
          v.push_back({ keep("laser-" + std::to_string(nm)), nm == 640 ? kDefaultLaser640KW : 0.0,
-                       keep("Optics_Laser" + std::to_string(nm) + "KWcm2: " + std::to_string(nm) +
+                       keep("Lasers.Laser" + std::to_string(nm) + "KWcm2: " + std::to_string(nm) +
                             " nm laser intensity at the sample, kW/cm^2 (0 = off)") });
       const std::vector<ScopeOption> rest = {
-         { "laser-custom-nm", 0, "Optics_LaserCustomNm: wavelength of an extra laser line, nm (0 = none)" },
-         { "laser-custom", 0, "Optics_LaserCustomKWcm2: its intensity, kW/cm^2" },
-         { "light-preset", -1, "Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure's dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, dichroic and em-filter the spec does not give." },
-         { "illum-geometry", 0, "Optics_IlluminationGeometry: 0 Epi (TIRF/HILO: future)" },
-         { "chamber-height-um", 5, "Optics_ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)" },
-         { "dichroic", idx(DichroicIds(), DefaultDichroic()), "Optics_Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)" },
-         { "dichroic-edge-nm", 650, "Optics_DichroicEdgeNm: the Custom dichroic's long-pass edge" },
-         { "em-filter", idx(EmissionFilterIds(), DefaultEmissionFilter()), "Optics_EmissionFilter (names accepted)" },
-         { "em-lo-nm", 657.5, "Optics_EmissionLoNm: Custom band pass, low edge" },
-         { "em-hi-nm", 694.5, "Optics_EmissionHiNm: Custom band pass, high edge" },
-         { "chunk-um", 26, "SimType_CellFieldChunkSizeUm" },
-         { "occupancy", 0.33, "SimType_CellFieldOccupancy" },
-         { "cell-diam-min-um", 25, "SimType_CellFieldCellDiameterMinUm" },
-         { "cell-diam-max-um", 35, "SimType_CellFieldCellDiameterMaxUm" },
-         { "mt-density", 0.9, "SimType_CellFieldMicrotubuleDensityPerUm2" },
-         { "packing", 1, "SimType_CellFieldPacking (1 on, 0 off)" },
-         { "camera-preset", idx(CameraIds(), DefaultCamera()), "CamParam_CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)" },
-         { "qe-curve", -1, "CamParam_QeCurve: QE(lambda) of a camera (index/name), -1 = the preset's, Custom = flat at qe" },
-         { "qe", 0.85, "CamParam_QuantumEfficiency (the flat QE of the Custom curve)" },
-         { "camera-type", -1, "CamParam_CameraType: -1 = the preset's, 0 sCMOS, 1 EMCCD" },
-         { "dark-per-sec", 1.03, "CamParam_DarkCurrentElectronsPerSec" },
-         { "gain", 0.25, "CamParam_GainPhotonsPerADU (electrons per ADU)" },
-         { "offset", 100, "CamParam_OffsetADU" },
-         { "offset-std", 0.5, "CamParam_OffsetStdADU" },
-         { "read-noise", 1.2, "CamParam_ReadNoiseElectrons" },
-         { "gain-std-pct", 0.5, "CamParam_GainStdPctPerPixel (per-pixel gain spread, PRNU)" },
-         { "read-noise-std-pct", 20, "CamParam_ReadNoiseStdPctPerPixel" },
-         { "em-gain", -1, "CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it" },
-         { "cic", 0.002, "CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)" },
-         { "bit-depth", 16, "CamParam_BitDepth (EMCCD)" },
-         { "modality", 0, "General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)" },
-         { "wf-upscale", 1, "General_WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)" },
-         { "wf-plane-nm", 25, "General_WideFieldZPlaneNm: mean-field dye plane thickness, nm" },
+         { "laser-custom-nm", 0, "wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)" },
+         { "laser-custom", 0, "its intensity, kW/cm^2" },
+         { "light-preset", -1, "Lasers.Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure's dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
+         { "illum-geometry", 0, "Lasers.IlluminationGeometry: 0 Epi (TIRF/HILO: future)" },
+         { "chamber-height-um", 5, "Lasers.ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)" },
+         { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
+         { "ex-lo-nm", 635, "ExcitationFilter Custom band pass, low edge" },
+         { "ex-hi-nm", 645, "ExcitationFilter Custom band pass, high edge" },
+         { "dichroic", idx(DichroicIds(), DefaultDichroic()), "Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)" },
+         { "dichroic-edge-nm", 650, "Dichroic.CustomEdgeNm: the Custom dichroic's long-pass edge" },
+         { "em-filter", idx(EmissionFilterIds(), DefaultEmissionFilter()), "EmissionFilter (names accepted)" },
+         { "em-lo-nm", 657.5, "EmissionFilter.CustomLoNm: Custom band pass, low edge" },
+         { "em-hi-nm", 694.5, "EmissionFilter.CustomHiNm: Custom band pass, high edge" },
+         { "chunk-um", 26, "CellField.ChunkSizeUm" },
+         { "occupancy", 0.33, "CellField.Occupancy" },
+         { "cell-diam-min-um", 25, "CellField.CellDiameterMinUm" },
+         { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
+         { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2" },
+         { "packing", 1, "CellField.Packing (1 on, 0 off)" },
+         { "camera-preset", idx(CameraIds(), DefaultCamera()), "Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)" },
+         { "qe-curve", -1, "Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset's, Custom = flat at qe" },
+         { "qe", 0.85, "Camera.QuantumEfficiency (the flat QE of the Custom curve)" },
+         { "camera-type", -1, "Camera.CameraType: -1 = the preset's, 0 sCMOS, 1 EMCCD" },
+         { "dark-per-sec", 1.03, "Camera.DarkCurrentElectronsPerSec" },
+         { "gain", 0.25, "Camera.GainElectronsPerADU (electrons per ADU)" },
+         { "offset", 100, "Camera.OffsetADU" },
+         { "offset-std", 0.5, "Camera.OffsetStdADU" },
+         { "read-noise", 1.2, "Camera.ReadNoiseElectrons" },
+         { "gain-std-pct", 0.5, "Camera.sCMOS_GainStdPctPerPixel (per-pixel gain spread, PRNU)" },
+         { "read-noise-std-pct", 20, "Camera.sCMOS_ReadNoiseStdPctPerPixel" },
+         { "em-gain", -1, "Camera.EMCCD_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it" },
+         { "cic", 0.002, "Camera.EMCCD_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)" },
+         { "bit-depth", 16, "Camera.BitDepth (EMCCD)" },
+         { "modality", 0, "0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted); the shorthand for light-epi / light-trans (Micro-Manager: the Lasers and TransmittedLamp shutters)" },
+         { "light-epi", -1, "Lasers shutter: 1 open, 0 closed, -1 = from modality (open in Fluorescence)" },
+         { "light-trans", -1, "TransmittedLamp shutter: 1 open, 0 closed, -1 = from modality (open in BrightField). Both open: fluorescence + BrightField through one camera; none: dark frames" },
+         { "wf-upscale", 1, "Renderer.WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)" },
+         { "wf-plane-nm", 25, "Renderer.WideFieldZPlaneNm: mean-field dye plane thickness, nm" },
          { "wf-kernel-um", 7, "mean-field PSF kernel radius cap, um" },
-         { "mean-field-density-per-um2", 20, "General_MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below" },
-         { "mean-field-slab-nm", 500, "General_MeanFieldSlabNm: that slab's thickness around the focal plane" },
-         { "mean-field-max-emitters", 5000, "General_MeanFieldMaxEmitters: and mean-field above this many emitting dyes in the z range (cost cap of the per-dye path)" },
-         { "bf-quality", 3, "General_BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given" },
-         { "bf-sources", 0, "General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)" },
-         { "bf-upscale", 0, "General_BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)" },
-         { "bf-sub", 0, "General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/2)" },
-         { "bf-slice-um", -1, "General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/0.5/0.5/0.25)" },
+         { "mean-field-density-per-um2", 20, "Renderer.MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below" },
+         { "mean-field-slab-nm", 500, "Renderer.MeanFieldSlabNm: that slab's thickness around the focal plane" },
+         { "mean-field-max-emitters", 5000, "Renderer.MeanFieldMaxEmitters: and mean-field above this many emitting dyes in the z range (cost cap of the per-dye path)" },
+         { "blink-binned-density-per-um2", 12.5, "Renderer.BlinkBinnedDensityPerUm2: a frame's blinks render binned (approximate SMLM: the same events on a grid of blink-binned-upscale cells per pixel, FFT-convolved per PSF plane; the cost is per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV, splatted one by one below" },
+         { "blink-binned-max-emitters", 1e9, "Renderer.BlinkBinnedMaxEmitters: and binned above this many ON emitters in the frame" },
+         { "blink-mean-field-density-per-um2", 1e9, "Renderer.BlinkMeanFieldDensityPerUm2: a frame's blinks render mean-field (no events drawn: every dye's expected ON time in the frame from its kinetics x the dye density, convolved once; the blinking itself is lost, only shot noise stays) above this many expected ON emitters per um^2 of the focal slab (mean-field-slab-nm); 1e9 = never" },
+         { "blink-mean-field-max-emitters", 1e9, "Renderer.BlinkMeanFieldMaxEmitters: and mean-field above this many expected ON emitters in the z range; 1e9 = never" },
+         { "blink-binned-upscale", 2, "Renderer.BlinkBinnedUpscale: the binned grid's cells per pixel, per axis (a divisor of the PSF oversampling; the position is snapped to +-half a cell)" },
+         { "bf-quality", 3, "Renderer.BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given" },
+         { "bf-sources", 0, "Renderer.BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)" },
+         { "bf-upscale", 0, "Renderer.BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)" },
+         { "bf-sub", 0, "Renderer.BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/2)" },
+         { "bf-slice-um", -1, "Renderer.BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/0.5/0.5/0.25)" },
          { "bf-margin-um", 0, "BrightField grid margin around the FOV, um (0 = from bf-quality: 3-5)" },
-         { "bf-condenser-na", 0.4, "General_BrightFieldCondenserNa: illumination NA (0 = coherent)" },
-         { "bf-wavelength-nm", 550, "General_BrightFieldWavelengthNm: illumination wavelength (the camera QE is read there)" },
-         { "bf-photons-per-px-per-sec", 80000, "General_BrightFieldPhotonsPerPxPerSec: empty-field photons per pixel per second" },
-         { "bf-aberrations", 1, "General_BrightFieldAberrations: 1 = the PSF's Zernike aberrations in the detection pupil, 0 = none" },
-         { "bf-n-medium", 1.337, "SimType_CellFieldIndexMedium: refractive index of the medium" },
-         { "bf-n-cytoplasm", 1.35, "SimType_CellFieldIndexCytoplasm" },
-         { "bf-n-nucleus", 1.35, "SimType_CellFieldIndexNucleus" },
-         { "bf-n-microtubule", 1.48, "SimType_CellFieldIndexMicrotubule (12.5 nm tubes)" },
-         { "bf-absorption-per-um", 0, "SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)" },
-         { "immersion-index", 1.518, "PSFParam_PsfImmersionIndex (PSF and collection efficiency)" },
-         { "psf-model", 3, "PSFParam_PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter's JVM)" },
-         { "psf-zernike-preset", 9, "PSFParam_PsfZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)" },
-         { "psf-mask", 0, "PSFParam_PsfMaskType: 0 = None, 1 = DoubleHelix (names accepted)" },
-         { "psf-mask-modes", 5, "PSFParam_PsfMaskModes: double-helix Gauss-Laguerre modes (2-8)" },
-         { "psf-mask-waist", 1.0, "PSFParam_PsfMaskWaist: double-helix waist, pupil radii" },
-         { "psf-oversampling", 6, "PSFParam_PsfOversampling: kernel samples per camera pixel, per axis (1-16)" },
-         { "psf-kernel-half-width-nm", 7000, "PSFParam_PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)" },
-         { "psf-z-range-um", 7.0, "PSFParam_PsfZRangeUm: span of the PSF z stack" },
-         { "psf-z-step-um", 0.1, "PSFParam_PsfZStepUm: PSF z plane spacing" },
-         { "psf-sample-index", 1.518, "PSFParam_PsfSampleIndex: sample refractive index (Gibson-Lanni)" },
-         { "psf-working-distance-um", 150, "PSFParam_PsfWorkingDistanceUm (Gibson-Lanni ti0)" },
-         { "psf-sample-depth-nm", 0, "PSFParam_PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)" },
-         { "psf-interp", 2, "PSFParam_PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
+         { "bf-condenser-na", 0.4, "TransmittedLamp.CondenserNA: illumination NA (0 = coherent)" },
+         { "bf-wavelength-nm", 550, "TransmittedLamp.WavelengthNm: illumination wavelength (the camera QE is read there)" },
+         { "bf-photons-per-px-per-sec", 80000, "TransmittedLamp.IntensityPhotonsPerPxPerSec: empty-field photons per pixel per second" },
+         { "bf-aberrations", 1, "TransmittedLamp.UseObjectiveAberrations: 1 = the PSF's Zernike aberrations in the detection pupil, 0 = none" },
+         { "bf-n-medium", 1.337, "CellField.IndexMedium: refractive index of the medium" },
+         { "bf-n-cytoplasm", 1.35, "CellField.IndexCytoplasm" },
+         { "bf-n-nucleus", 1.35, "CellField.IndexNucleus" },
+         { "bf-n-microtubule", 1.48, "CellField.IndexMicrotubule (12.5 nm tubes)" },
+         { "bf-absorption-per-um", 0, "CellField.AbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)" },
+         { "immersion-index", 1.518, "Objective.ImmersionIndex (PSF and collection efficiency)" },
+         { "psf-model", 3, "Renderer.PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter's JVM)" },
+         { "psf-zernike-preset", 9, "Objective.ZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)" },
+         { "psf-mask", 0, "pupil mask: 0 = None, 1 = DoubleHelix (names accepted; not in Micro-Manager)" },
+         { "psf-mask-modes", 5, "double-helix Gauss-Laguerre modes (2-8)" },
+         { "psf-mask-waist", 1.0, "double-helix waist, pupil radii" },
+         { "psf-oversampling", 6, "Renderer.PsfOversampling: kernel samples per camera pixel, per axis (1-16)" },
+         { "psf-kernel-half-width-nm", 7000, "Objective.PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)" },
+         { "psf-z-range-um", 7.0, "Objective.PsfZRangeUm: span of the PSF z stack" },
+         { "psf-z-step-um", 0.1, "Objective.PsfZStepUm: PSF z plane spacing" },
+         { "psf-sample-index", 1.518, "SampleHolder.PsfSampleIndex: sample refractive index (Gibson-Lanni)" },
+         { "psf-working-distance-um", 150, "Objective.WorkingDistanceUm (Gibson-Lanni ti0)" },
+         { "psf-sample-depth-nm", 0, "SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)" },
+         { "psf-pupil-samples", 0, "Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)" },
+         { "psf-halo-cut", 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)" },
+         { "psf-interp", 2, "Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
       return o;
@@ -207,10 +231,13 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["psf-zernike-preset"] = ZernikePresetNames();
       m["mt-dye"] = DyeChoices();
       m["mt-mode"] = DyeModeNames();
+      m["mode"] = DyeModeNames();
+      m["specimen"] = SpecimenIds();
       m["mt-orient"] = { "Free", "Fixed", "Random" };
       m["mt-motion"] = { "Static" };
       for (const char* k : { "dye1.source", "dye2.source", "dye3.source" })
          m[k] = DyeIds();
+      m["ex-filter"] = ExcitationFilterIds();
       m["dichroic"] = DichroicIds();
       m["em-filter"] = EmissionFilterIds();
       m["light-preset"] = lightPresets;
@@ -270,7 +297,7 @@ bool ParseOverrideKey(const std::string& k, OverrideKey& out)
          if (c < 'a' || c > 'z')
             return false;
       for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
-         if (prefix == kStructurePrefix[s])
+         if (prefix == StructurePrefix(s))
             out.structure = s;
       return true;   // an unknown prefix: a bad option (ScopeSpecSet)
    }
@@ -326,6 +353,22 @@ bool ScopeOptionValue(const std::string& name, const char* text, double& value)
    value = std::strtod(text, &end);
    if (end != text && *end == 0)
       return true;
+   // The special values: a target's Typical dye, its DyeDefault / Global mode; no global mode.
+   auto endsWith = [&](const char* suffix) {
+      const size_t n = std::strlen(suffix);
+      return name.size() > n && name.compare(name.size() - n, n, suffix) == 0;
+   };
+   const std::string t = text;
+   if ((endsWith("-dye") && t == "Typical") || (endsWith("-mode") && t == "DyeDefault") || (name == "mode" && t == "None"))
+   {
+      value = -1;
+      return true;
+   }
+   if (endsWith("-mode") && t == "Global")
+   {
+      value = -2;
+      return true;
+   }
    if (const std::vector<std::string>* names = OptionNames(name))
    {
       const int i = IndexOf(*names, text);
@@ -422,6 +465,48 @@ std::string Opt(const char* prefix, const char* name)
 
 } // namespace
 
+// A structure's dye choice and mode request as the spec gives them, resolved (JS structureDyeChoice): <prefix>-mode
+// -2 = the global mode option (-1 there: none); <prefix>-dye -1 = the target's typical dye in that mode (the library's
+// default mode when none is asked).
+static void StructureDyeChoice(const ScopeSpec& spec, int s, int& choice, int& mode)
+{
+   auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
+   const char* P = StructurePrefix(s);
+   mode = static_cast<int>(O(Opt(P, "mode")));
+   if (mode == -2)
+      mode = static_cast<int>(O("mode"));
+   if (mode < -1)
+      mode = -1;
+   choice = static_cast<int>(O(Opt(P, "dye")));
+   if (choice == -1)
+   {
+      if (mode < 0)
+         mode = DefaultDyeMode();
+      choice = TargetAt(s).typicalDye[mode];
+   }
+}
+
+bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err)
+{
+   if (s < 0 || s >= ISC_STRUCT_COUNT)
+   {
+      err = "structure " + std::to_string(s) + " out of range";
+      return false;
+   }
+   std::vector<DyeSlot> slots;
+   std::vector<DyeOverrides> byStructure;
+   SpecOverrides(spec, slots, byStructure);
+   int mode = -1;
+   StructureDyeChoice(spec, s, choice, mode);
+   return MakeEffectiveDye(choice, slots, byStructure[static_cast<size_t>(s)], mode, eff, err);
+}
+
+double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode)
+{
+   const double pct = ScopeSpecGet(spec, Opt(StructurePrefix(s), "label-pct").c_str());
+   return pct >= 0 ? pct : TargetAt(s).typicalPct[mode];
+}
+
 // The camera of a spec: the preset's values for every option the spec does
 // not set (JS scopeCamera).
 struct ScopeCamera
@@ -434,24 +519,29 @@ struct ScopeCamera
    double gainStdFraction = 0, readNoiseStdFraction = 0, emGain = 300, cicElectrons = 0, bitDepth = 16;
 };
 
-// The preset's gain depends on the imaging (CameraPresetGain): BrightField, or
-// every structure in WideField mode (JS wideFieldOrBrightField).
+void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans)
+{
+   const double e = ScopeSpecGet(spec, "light-epi"), t = ScopeSpecGet(spec, "light-trans");
+   const bool brightField = ScopeSpecGet(spec, "modality") == 1;
+   epi = e >= 0 ? e != 0 : !brightField;
+   trans = t >= 0 ? t != 0 : brightField;
+}
+
+// The preset's gain depends on the imaging (CameraPresetGain): the lamp on
+// (BrightField, alone or with fluorescence), or every structure in WideField
+// mode (JS wideFieldOrBrightField).
 static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string& err)
 {
-   auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
-   out = O("modality") == 1;
+   bool epi = false;
+   ScopeLights(spec, epi, out);
    if (out)
       return true;
-   std::vector<DyeSlot> slots;
-   std::vector<DyeOverrides> byStructure;
-   SpecOverrides(spec, slots, byStructure);
    out = true;
    for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
    {
-      const char* P = kStructurePrefix[s];
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye"))), slots, byStructure[static_cast<size_t>(s)],
-                            static_cast<int>(O(Opt(P, "mode"))), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
       out = out && DyeModeNames()[static_cast<size_t>(eff.mode)] == "WideField";
    }
@@ -503,13 +593,9 @@ static bool ScopeLightPreset(const ScopeSpec& spec, const LightPresetData*& out,
    std::string id;
    if (i == 0)
    {
-      std::vector<DyeSlot> slots;
-      std::vector<DyeOverrides> byStructure;
-      SpecOverrides(spec, slots, byStructure);
-      const char* P = kStructurePrefix[0];
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye").c_str())), slots, byStructure[0],
-                            static_cast<int>(O(Opt(P, "mode").c_str())), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, 0, eff, choice, err))
          return false;
       id = eff.dye.modes[eff.mode].lightPreset ? eff.dye.modes[eff.mode].lightPreset : "";
    }
@@ -541,6 +627,8 @@ static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camer
          if (!spec.count(k))
             spec[k] = q->lasers[l];
       }
+      if (!spec.count("ex-filter"))
+         spec["ex-filter"] = IndexOf(ExcitationFilterIds(), q->excitationFilter);
       if (!spec.count("dichroic"))
          spec["dichroic"] = IndexOf(DichroicIds(), q->dichroic);
       if (!spec.count("em-filter"))
@@ -552,6 +640,9 @@ static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camer
       s.lasers.push_back({ static_cast<double>(nm), std::max(0.0, O(("laser-" + std::to_string(nm)).c_str())) });
    if (O("laser-custom-nm") > 0)
       s.lasers.push_back({ O("laser-custom-nm"), std::max(0.0, O("laser-custom")) });
+   s.excitationFilter = static_cast<int>(O("ex-filter"));
+   s.exLoNm = O("ex-lo-nm");
+   s.exHiNm = O("ex-hi-nm");
    s.dichroic = static_cast<int>(O("dichroic"));
    s.dichroicEdgeNm = O("dichroic-edge-nm");
    s.emissionFilter = static_cast<int>(O("em-filter"));
@@ -570,18 +661,15 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
                             std::string& err)
 {
    auto O = [&](const std::string& n) { return ScopeSpecGet(spec, n.c_str()); };
-   std::vector<DyeSlot> slots;
-   std::vector<DyeOverrides> byStructure;
-   SpecOverrides(spec, slots, byStructure);
    labels.assign(ISC_STRUCT_COUNT, LabelPhysics());
    for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
    {
-      const char* P = kStructurePrefix[s];
+      const char* P = StructurePrefix(s);
       EffectiveDye eff;
-      if (!MakeEffectiveDye(static_cast<int>(O(Opt(P, "dye"))), slots, byStructure[static_cast<size_t>(s)],
-                            static_cast<int>(O(Opt(P, "mode"))), eff, err))
+      int choice = 0;
+      if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
-      const double pct = O(Opt(P, "label-pct")) >= 0 ? O(Opt(P, "label-pct")) : SuggestedLabelingPct(eff.mode);
+      const double pct = ScopeStructureLabelingPct(spec, s, eff.mode);
       LabelPhysicsOptions o;
       o.density = std::min(1.0, std::max(0.0, pct / 100));
       o.imagerNm = O(Opt(P, "imager-nm"));
@@ -594,6 +682,71 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
          return false;
    }
    return true;
+}
+
+// The kinetic inputs of a spec (ScopeMovie.h KineticEnv): the light keys (the
+// lasers, the light preset, excitation filter and dichroic, the imager
+// concentrations) and the dye keys (dye choices, modes, overrides).
+static bool IsLightKey(const std::string& k)
+{
+   auto ends = [&](const char* e) {
+      const size_t n = std::strlen(e);
+      return k.size() >= n && k.compare(k.size() - n, n, e) == 0;
+   };
+   return k.compare(0, 6, "laser-") == 0 || k == "light-preset" || k == "ex-filter" || k == "ex-lo-nm" ||
+          k == "ex-hi-nm" || k == "dichroic" || k == "dichroic-edge-nm" || ends("-imager-nm");
+}
+static bool IsDyeKey(const std::string& k)
+{
+   auto ends = [&](const char* e) {
+      const size_t n = std::strlen(e);
+      return k.size() >= n && k.compare(k.size() - n, n, e) == 0;
+   };
+   OverrideKey ok;
+   return k == "mode" || ends("-mode") || ends("-dye") || (ParseOverrideKey(k, ok) && (ok.slot >= 0 || ok.structure >= 0));
+}
+
+KineticEnv ScopeKineticEnv(const ScopeSpec& spec)
+{
+   KineticEnv e;
+   for (const auto& kv : spec)
+      if (IsLightKey(kv.first) || IsDyeKey(kv.first))
+         e.insert(kv);
+   return e;
+}
+
+double ScopeSampleIntensityKwCm2(const ScopeSpec& spec)
+{
+   ScopeCamera camera;
+   LightPath lp;
+   std::string err;
+   if (!MakeScopeCamera(spec, camera, err) || !MakeScopeLightPath(spec, camera, lp, err))
+      return 0.0;
+   return LaserIntensityIn(lp, 0.0, 1e9);
+}
+
+// The spec a past epoch's rates come from: the current spec with the epoch's
+// light keys, and its dye keys too when every structure's dye and mode are
+// the current ones (an override change acts from then on); a dye or mode
+// changed since: the current dye under the past light (spec/ALGORITHM.md).
+static ScopeSpec EnvSpec(const ScopeSpec& cur, const KineticEnv& env)
+{
+   ScopeSpec out;
+   bool sameDyes = true;
+   for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
+   {
+      int c0 = 0, m0 = 0, c1 = 0, m1 = 0;
+      StructureDyeChoice(cur, s, c0, m0);
+      StructureDyeChoice(env, s, c1, m1);
+      sameDyes = sameDyes && c0 == c1 && m0 == m1;
+   }
+   for (const auto& kv : cur)
+      if (!IsLightKey(kv.first) && !(sameDyes && IsDyeKey(kv.first)))
+         out.insert(kv);
+   for (const auto& kv : env)
+      if (IsLightKey(kv.first) || sameDyes)
+         out[kv.first] = kv.second;
+   return out;
 }
 
 struct ScopeSetup
@@ -613,6 +766,9 @@ struct ScopeSetup
    LightPath lp;
    std::vector<LabelPhysics> labels;
    double meanFieldDensityPerUm2 = 20, meanFieldSlabNm = 500, meanFieldMaxEmitters = 5000;
+   double blinkBinnedDensityPerUm2 = 12.5, blinkBinnedMaxEmitters = 1e9;
+   double blinkMeanFieldDensityPerUm2 = 1e9, blinkMeanFieldMaxEmitters = 1e9;
+   int blinkBinnedUpscale = 2;
 };
 
 // JS scopeSetup: frame-equivalent parameters, world settings, the FOV query,
@@ -627,10 +783,17 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    ScopeMovieDims(spec, W, H, N);
    const double expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
    const double t0Sec = std::max(0.0, O("start-sec"));
+   if (static_cast<int>(O("specimen")) != 0)
+   {
+      err = "specimen " + std::to_string(static_cast<int>(O("specimen"))) + ": only the CellField (0) exists";
+      return false;
+   }
    if (!MakeScopeCamera(spec, S.camera, err) || !MakeScopeLightPath(spec, S.camera, S.lp, err) ||
        !MakeScopeLabels(spec, S.lp, S.labels, err))
       return false;
-   const bool brightField = O("modality") == 1;
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   const bool brightField = trans && !epi;   // both: the fluorescence chain at QE 1, the lamp's photons x its QE
    const ScopeCamera& c = S.camera;
 
    // Fluorescence: the photon image is already in detected photons (QE(lambda)
@@ -647,8 +810,10 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.offsetAdu = c.offsetAdu;
    p.offsetStdAdu = c.offsetStdAdu;
    p.readNoiseElectrons = c.readNoiseElectrons;
-   p.pixelGainStdFraction = c.gainStdFraction;
-   p.pixelReadNoiseStdFraction = c.readNoiseStdFraction;
+   // The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier
+   // per pixel); an EMCCD reads every pixel through one (JS scopeSetup).
+   p.pixelGainStdFraction = c.emccd ? 0.0 : c.gainStdFraction;
+   p.pixelReadNoiseStdFraction = c.emccd ? 0.0 : c.readNoiseStdFraction;
    p.emccd = c.emccd;
    p.emGain = c.emGain;
    p.cicElectrons = c.cicElectrons;
@@ -659,7 +824,9 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.drift.xySpeedNmPerSec = std::max(0.0, O("drift-xy-speed-nm-per-sec"));
    p.drift.zSpeedNmPerSec = O("drift-z-speed-nm-per-sec");
    p.drift.xyAngleDeg = O("drift-xy-angle-deg");
+   p.drift.zDirection = static_cast<int>(std::lround(O("drift-z-direction")));
    p.drift.angleWanderDeg = std::max(0.0, O("drift-xy-angle-wander-deg"));
+   p.drift.zAngleWanderDeg = std::max(0.0, O("drift-z-angle-wander-deg"));
    p.drift.speedWanderPct = std::max(0.0, O("drift-speed-wander-pct"));
    p.drift.wanderTimeSec = std::max(0.0, O("drift-wander-time-sec"));
 
@@ -714,6 +881,11 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.meanFieldDensityPerUm2 = std::max(0.0, O("mean-field-density-per-um2"));
    S.meanFieldSlabNm = std::max(0.0, O("mean-field-slab-nm"));
    S.meanFieldMaxEmitters = std::max(0.0, O("mean-field-max-emitters"));
+   S.blinkBinnedDensityPerUm2 = std::max(0.0, O("blink-binned-density-per-um2"));
+   S.blinkBinnedMaxEmitters = std::max(0.0, O("blink-binned-max-emitters"));
+   S.blinkBinnedUpscale = std::max(1, std::min(8, static_cast<int>(std::lround(O("blink-binned-upscale")))));
+   S.blinkMeanFieldDensityPerUm2 = std::max(0.0, O("blink-mean-field-density-per-um2"));
+   S.blinkMeanFieldMaxEmitters = std::max(0.0, O("blink-mean-field-max-emitters"));
    // Sample drift: the per-frame path, and the query rect grown so every
    // frame's dyes are in it (the renderer adds the drift; the dyes a frame can
    // show sit that far back) and the z window by the largest |dz| (the focus
@@ -828,6 +1000,7 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.sampleIndex = O("psf-sample-index");
    req.workingDistanceUm = O("psf-working-distance-um");
    req.sampleDepthNm = O("psf-sample-depth-nm");
+   req.pupilSamples = static_cast<int>(std::max(0.0, O("psf-pupil-samples")));
    const std::vector<std::string>& presets = ZernikePresetNames();
    const int preset = static_cast<int>(O("psf-zernike-preset"));
    if (preset < 0 || preset >= static_cast<int>(presets.size()))
@@ -892,6 +1065,56 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
+   // Dye counts (Density3d, one bin) by (box, structure mask) at dyeVersion:
+   // a count is a pure function of the world, the labels and the box, so a
+   // live movie per frame at an unchanged pose counts once (the most recent
+   // kDyeCountEntries boxes).
+   struct DyeCount
+   {
+      double box[6];
+      int mask;
+      long n;
+   };
+   std::vector<DyeCount> dyeCounts;
+   uint64_t dyeCountVersion = 0;
+   static constexpr size_t kDyeCountEntries = 16;
+   long CountDyes(double x0, double y0, double x1, double y1, double zMin, double zMax, int mask)
+   {
+      if (dyeCountVersion != dyeVersion)
+      {
+         dyeCounts.clear();
+         dyeCountVersion = dyeVersion;
+      }
+      const double box[6] = { x0, y0, x1, y1, zMin, zMax };
+      for (const DyeCount& c : dyeCounts)
+         if (c.mask == mask && std::equal(box, box + 6, c.box))
+            return c.n;
+      float one = 0;
+      const long n = source.Density3d(x0, y0, x1, y1, zMin, zMax, 1, 1, 1, mask, &one);
+      if (n >= 0)
+      {
+         if (dyeCounts.size() >= kDyeCountEntries)
+            dyeCounts.erase(dyeCounts.begin());
+         DyeCount c;
+         std::copy(box, box + 6, c.box);
+         c.mask = mask;
+         c.n = n;
+         dyeCounts.push_back(c);
+      }
+      return n;
+   }
+   // Live: the per-dye populations' running images by population (structure x
+   // 4 + state), carried from one movie to the next at the same geometry
+   // (FluorescenceMovie::CarryRunningImages): the image, its geometry key and
+   // the dyes in it (by identity, sorted).
+   struct RunningImage
+   {
+      std::vector<uint64_t> key;
+      std::vector<double> acc;
+      std::vector<std::pair<uint64_t, BlinkEvent>> in;
+      long carried = 0;   // movies since the last full build
+   };
+   std::map<int, RunningImage> running;
 };
 
 MovieCache& SharedMovieCache()
@@ -1000,6 +1223,54 @@ double MeanPhotons(double ratePerSec, double lambda, double t0, double t1)
                      : ratePerSec * (t1 - t0);
 }
 
+// A clock history's rates (ABI 11): the core's kinetics rows (tStart, then
+// ISC_KIN_COUNT per structure) and each segment's physics. multi false: the
+// movie's own env from 0, i.e. no history (the label's kinetics, today's
+// arithmetic everywhere).
+struct HistInfo
+{
+   bool multi = false;
+   std::vector<double> rows, tStart;
+   std::vector<const std::vector<LabelPhysics>*> phys;
+};
+using EnvPhysicsMemo = std::map<const KineticEnv*, std::vector<LabelPhysics>>;
+bool MakeHistInfo(const ScopeSpec& spec, const ScopeCamera& camera, const KineticEnv& curEnv,
+                  const std::vector<ClockSegment>& segs, EnvPhysicsMemo& memo, HistInfo& out, std::string& err)
+{
+   out = HistInfo();
+   if (segs.empty() || (segs.size() == 1 && segs[0].env && *segs[0].env == curEnv))
+      return true;
+   out.multi = true;
+   for (const ClockSegment& seg : segs)
+   {
+      if (!seg.env)
+      {
+         err = "clock history without an env";
+         return false;
+      }
+      auto it = memo.find(seg.env);
+      if (it == memo.end())
+      {
+         const ScopeSpec es = EnvSpec(spec, *seg.env);
+         LightPath lp;
+         std::vector<LabelPhysics> labels;
+         if (!MakeScopeLightPath(es, camera, lp, err) || !MakeScopeLabels(es, lp, labels, err))
+            return false;
+         it = memo.emplace(seg.env, std::move(labels)).first;
+      }
+      out.tStart.push_back(seg.tStart);
+      out.phys.push_back(&it->second);
+      out.rows.push_back(seg.tStart);
+      for (int st = 0; st < ISC_STRUCT_COUNT; ++st)
+      {
+         const std::vector<double>& l = it->second[static_cast<size_t>(st)].label;
+         for (int k = 0; k < ISC_KIN_COUNT; ++k)
+            out.rows.push_back(l[static_cast<size_t>(ISC_LABEL_ACTIVATION_RATE + k)]);
+      }
+   }
+   return true;
+}
+
 // A (structure, state) with its PSF and detected photons per frame.
 struct Group
 {
@@ -1007,8 +1278,23 @@ struct Group
    bool pre = false;       // role 'pre' (PALM pre state), else 'main'
    double lambdaNm = 0;
    PsfKernelCache kernel;  // !valid: the Gaussian of sigmaPx
+   // kernel with the halo cut (psf-halo-cut): the blinks' splats. The
+   // continuous populations keep kernel (spec/ALGORITHM.md "PSF halo cut").
+   PsfKernelCache blinkKernel;
    double sigmaPx = 1;
    double detectedFraction = 0, detectedPerSec = 0, perFrame = 0;
+   // The binned blink regime's grid and kernel spectra (main groups).
+   BinnedBlinkRenderer binned;
+   // The blink mean-field regime (main groups of a blinking label): the label
+   // mode, its dyes in the z range / focal slab, the kinetics at the reference
+   // clock (start-sec, or the host clock at the FOV centre) and which frames
+   // render mean-field (no events drawn for them).
+   int mode = 0;
+   long nZ = 0, nSlab = 0;
+   std::vector<BlinkKineticsSegment> refSegs;
+   double refClock = 0;
+   std::vector<char> mfFrame;
+   bool anyMf = false, allMf = false;
 };
 
 // A continuous population (WideField dyes, a PALM pre state, the dSTORM
@@ -1020,6 +1306,10 @@ struct Population
    double lambda = 0, budget = 0, emissionPerSec = 0, rate = 0;
    long nZ = 0, nSlab = 0;
    bool meanFieldAt0 = false, needWindows = false;
+   // A rate history in some region (HistInfo multi): the largest survival at
+   // frame 0 over the regions (the mean-field switch reads it instead of tMin).
+   bool histMulti = false;
+   double maxSurvival = 1.0;
    // A host clock (DyeClock): the mean-field image is frame 0's photons with
    // each grid column at its own clock (wb0: mean photons per dye per column);
    // frame f is it x exp(-lambda f exposure).
@@ -1039,11 +1329,84 @@ struct Population
    std::map<double, WidefieldImages> driftImages;
    std::vector<double> driftCoef;
    long meanFieldFrames = 0, perDyeFrames = 0;
+   // A blink population (state ISC_STATE_BLINK, the blink mean-field regime):
+   // the label mode, its kinetics (no clock), and with a clock each grid
+   // cell's key (clock, history) into keyClock / keySegs, and the focus the
+   // weighted scene is at.
+   int mode = 0;
+   std::vector<BlinkKineticsSegment> blinkSegs;
+   std::vector<uint32_t> cellKey;
+   std::vector<double> keyClock;
+   std::vector<std::vector<BlinkKineticsSegment>> keySegs;
+   double sceneZ = 0;
 };
+
+// A population's decay rate under a label's physics (per second): the
+// WideField dyes' bleaching, the dSTORM initial ON's end, the PALM pre state's
+// activation and bleaching.
+double PopulationLambda(int state, const LabelPhysics& L)
+{
+   if (state == ISC_STATE_ALWAYS_ON)
+      return L.photonBudget > 0 ? L.main.emissionPerSec / L.photonBudget : 0;
+   if (state == ISC_STATE_INITIAL_ON)
+      return L.initialOnSec > 0 ? 1 / L.initialOnSec : std::numeric_limits<double>::infinity();
+   return L.kActPerSec + (L.prePhotonBudget > 0 ? L.pre.emissionPerSec / L.prePhotonBudget : 0);
+}
+
+// ... its photon-budget bleaching alone (a dye's own end: aux x budget / emission).
+double PopulationBleachRate(int state, const LabelPhysics& L)
+{
+   if (state == ISC_STATE_ALWAYS_ON)
+      return L.photonBudget > 0 ? L.main.emissionPerSec / L.photonBudget : 0;
+   if (state == ISC_STATE_PRE)
+      return L.prePhotonBudget > 0 ? L.pre.emissionPerSec / L.prePhotonBudget : 0;
+   return 0;
+}
+
+// exp(-the population's hazard integrated over the history up to clock T).
+double HistSurvival(const HistInfo& h, int structure, int state, double T)
+{
+   double L = 0;
+   const size_t n = h.tStart.size();
+   for (size_t i = 0; i < n; ++i)
+   {
+      const double s1 = i + 1 < n ? h.tStart[i + 1] : std::numeric_limits<double>::infinity();
+      const double d = std::min(T, s1) - h.tStart[i];
+      if (!(d > 0))
+         break;
+      const double lam = PopulationLambda(state, (*h.phys[i])[static_cast<size_t>(structure)]);
+      if (lam > 0)
+         L += lam * d;
+   }
+   return std::exp(-L);
+}
+
+// The clock at which a dye of unit-exponential draw aux has used its photon
+// budget over the history (infinity: never).
+double HistBleachEnd(const HistInfo& h, int structure, int state, double aux)
+{
+   double acc = 0;
+   const size_t n = h.tStart.size();
+   for (size_t i = 0; i < n; ++i)
+   {
+      const double lb = PopulationBleachRate(state, (*h.phys[i])[static_cast<size_t>(structure)]);
+      if (!(lb > 0))
+         continue;
+      const double s1 = i + 1 < n ? h.tStart[i + 1] : std::numeric_limits<double>::infinity();
+      const double d = lb * (s1 - h.tStart[i]);
+      if (acc + d >= aux)
+         return h.tStart[i] + (aux - acc) / lb;
+      acc += d;
+   }
+   return std::numeric_limits<double>::infinity();
+}
 
 const char* PopulationName(int state)
 {
-   return state == ISC_STATE_ALWAYS_ON ? "WideField dyes" : state == ISC_STATE_INITIAL_ON ? "initial ON" : "pre state";
+   return state == ISC_STATE_ALWAYS_ON    ? "WideField dyes"
+          : state == ISC_STATE_INITIAL_ON ? "initial ON"
+          : state == ISC_STATE_BLINK      ? "blinks"
+                                          : "pre state";
 }
 
 // The running image's unit splats (sign +1 or -1) in double, each pixel's
@@ -1074,9 +1437,10 @@ void GaussianUnitInto(std::vector<double>& img, unsigned width, unsigned height,
 }
 
 void SplatUnitInto(std::vector<double>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
-                   const SplatPlan& plan, double sign)
+                   const SplatPlan& plan, double sign, int yLo = 0, int yHi = -1)
 {
-   const int yLo = 0, yHi = static_cast<int>(height);
+   if (yHi < 0)
+      yHi = static_cast<int>(height);
    const int os = std::max(1, cache.oversampling);
    const int camRad = cache.halfWidthOversampled / os;
    const int off = os - 1, bw = cache.blockSumWidth;
@@ -1156,16 +1520,122 @@ struct FluorescenceMovie::Impl
    bool gpuMode = false;
    WidefieldAccelerator* accel = nullptr;
    const DyeClock* clock = nullptr;   // per-region dye clocks (Begin only)
+   bool carry = false;                // CarryRunningImages
    double tMin = 0;                   // the smallest clock in the query (the mean-field switch)
+   // The rate histories of the clock (Begin only): by history id, and the
+   // physics of each env met.
+   KineticEnv curEnv;
+   EnvPhysicsMemo envPhys;
+   std::map<uint32_t, HistInfo> hists;
+   const HistInfo* HistOf(uint32_t h, std::string& err)
+   {
+      auto it = hists.find(h);
+      if (it != hists.end())
+         return &it->second;
+      std::vector<ClockSegment> segs;
+      if (clock)
+         clock->Segments(h, segs);
+      HistInfo info;
+      if (!MakeHistInfo(spec, S.camera, curEnv, segs, envPhys, info, err))
+         return nullptr;
+      return &(hists[h] = std::move(info));
+   }
    std::vector<Population*> sceneQueue;   // the populations whose mean-field scene images are pending (GPU mode)
    Impl() : cache(SharedMovieCache()), lock(cache.mutex, std::defer_lock) {}
 
    bool IsMeanField(const Population& p, long f) const
    {
-      const double tMid = (clock ? tMin : S.t0Sec) + (f + 0.5) * S.expSec, P = std::exp(-p.lambda * tMid);
+      const double tMid = (clock ? tMin : S.t0Sec) + (f + 0.5) * S.expSec;
+      const double P = p.histMulti ? p.maxSurvival * std::exp(-p.lambda * ((f + 0.5) * S.expSec))
+                                   : std::exp(-p.lambda * tMid);
       return p.nSlab * P / fovArea > S.meanFieldDensityPerUm2 || p.nZ * P > S.meanFieldMaxEmitters;
    }
    bool BuildMeanField(Population& p, std::string& err);
+   // The binned blink regime (spec/ALGORITHM.md "Blink render regimes"): main
+   // group gi's frame f renders binned when its ON emitters (overlap-weighted:
+   // what the splat would draw) per um^2 of the FOV, or in all, pass the
+   // thresholds -- the splat costs per emitter, the binned FFT per FOV area.
+   bool BinnedFrame(size_t gi, long f) const
+   {
+      if (!groups[gi].binned.Valid())
+         return false;
+      double nOn = 0.0;
+      for (uint32_t i : buckets[gi][static_cast<size_t>(f)])
+      {
+         const BlinkEvent& e = byGroup[gi][i];
+         const double ov = std::min(static_cast<double>(f + 1), e.tEnd) - std::max(static_cast<double>(f), e.tStart);
+         if (ov > 0.0)
+            nOn += std::min(ov, 1.0);
+      }
+      return nOn / fovArea > S.blinkBinnedDensityPerUm2 || nOn > S.blinkBinnedMaxEmitters;
+   }
+   // Main group gi's blinks of frame f are splatted one by one (neither
+   // binned nor mean-field).
+   bool SplatFrame(size_t gi, long f) const
+   {
+      const Group& g = groups[gi];
+      return !(!g.mfFrame.empty() && g.mfFrame[static_cast<size_t>(f)]) && !BinnedFrame(gi, f);
+   }
+   // A structure's kinetics segments for blinks under history hid (no clock,
+   // or a history of one segment in the movie's env: the label's, from 0).
+   bool BlinkSegments(uint32_t hid, int structure, std::vector<BlinkKineticsSegment>& out, std::string& err)
+   {
+      out.clear();
+      const HistInfo* hi = clock ? HistOf(hid, err) : nullptr;
+      if (clock && !hi)
+         return false;
+      auto add = [&](const double* k, double t) {
+         BlinkKineticsSegment g;
+         g.tStart = t;
+         g.activationRatePerSec = k[ISC_KIN_ACTIVATION_RATE];
+         g.onSec = k[ISC_KIN_ON_SEC];
+         g.offSec = k[ISC_KIN_OFF_SEC];
+         g.bleachProb = k[ISC_KIN_BLEACH_PROB];
+         g.initialOnSec = k[ISC_KIN_INITIAL_ON_SEC];
+         out.push_back(g);
+      };
+      if (hi && hi->multi)
+         for (size_t i = 0; i < hi->tStart.size(); ++i)
+            add(&hi->rows[i * ISC_KIN_ROW + 1 + static_cast<size_t>(structure) * ISC_KIN_COUNT], hi->tStart[i]);
+      else
+         add(&S.labels[static_cast<size_t>(structure)].label[ISC_LABEL_ACTIVATION_RATE], 0.0);
+      return true;
+   }
+   // A weighted blink population's photons per dye in frame f, per grid cell.
+   void BlinkWeights(const Population& p, long f, std::vector<float>& wb) const
+   {
+      std::vector<float> val(p.keyClock.size());
+      for (size_t k = 0; k < val.size(); ++k)
+      {
+         const double t = p.keyClock[k] + f * S.expSec;
+         val[k] = static_cast<float>(p.rate * ExpectedBlinkOnSeconds(p.mode, p.keySegs[k], t, t + S.expSec));
+      }
+      wb.resize(p.cellKey.size());
+      for (size_t i = 0; i < wb.size(); ++i)
+         wb[i] = val[p.cellKey[i]];
+   }
+   // ... and its frame f at stage z into img (+=): the scene refocused if z
+   // moved, rendered with the frame's weights.
+   void BlinkWeightedFrame(Population& p, long f, double z, std::vector<float>& img)
+   {
+      if (z != p.sceneZ)
+      {
+         WidefieldSceneSpec ws = p.ws;
+         ws.focusWorldUm = ws.slabCentreUm = S.q.zRefUm + z;
+         const double um = S.p.pixelSizeNm / 1000.0;
+         const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
+         std::string err;
+         p.slot->scene.SetDeferImages(false);
+         if (!p.slot->scene.Update(cache.source, ill, ws, *p.slot->psf, err))
+            return;
+         p.sceneZ = z;
+      }
+      std::vector<float> wb, frame(static_cast<size_t>(S.W) * S.H, 0.0f);
+      BlinkWeights(p, f, wb);
+      p.slot->scene.RenderFrame(wb, frame);
+      for (size_t i = 0; i < img.size(); ++i)
+         img[i] += frame[i];
+   }
    void TakeImage(Population& p);
    // Weighted (clock) mean-field: frame 0's photons of the scene's grid.
    void WeightedImage(Population& p, std::vector<float>& img);
@@ -1181,6 +1651,10 @@ struct FluorescenceMovie::Impl
 };
 
 FluorescenceMovie::FluorescenceMovie() : impl_(new Impl) {}
+void FluorescenceMovie::CarryRunningImages(bool on)
+{
+   impl_->carry = on;
+}
 FluorescenceMovie::~FluorescenceMovie() = default;
 
 // The mean-field image of the population's structure (JS meanFieldImage):
@@ -1266,16 +1740,77 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    p.ws = ws;
    if (p.weighted)
    {
-      // Frame 0's mean photons per dye at each grid column's clock.
+      auto tW = TimingClock::now();
+      // Frame 0's mean photons per dye at each grid column's clock (neighbouring
+      // columns mostly share a clock: its value is reused, the same number).
       const WidefieldGridSpec& gr = slot.scene.Grid();
       p.wb0.assign(static_cast<size_t>(gr.nx) * gr.ny, 0.0f);
+      if (p.state == ISC_STATE_BLINK)
+      {
+         // Each grid cell's key (clock, history); frame f's weights are the
+         // expected photons per dye at each key (BlinkWeights).
+         p.cellKey.assign(static_cast<size_t>(gr.nx) * gr.ny, 0);
+         p.keyClock.clear();
+         p.keySegs.clear();
+         std::map<std::pair<double, uint32_t>, uint32_t> index;
+         for (unsigned j = 0; j < gr.ny; ++j)
+            for (unsigned i = 0; i < gr.nx; ++i)
+            {
+               double t = 0;
+               uint32_t hid = 0;
+               clock->KeyAt(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm, t, hid);
+               auto it = index.find({ t, hid });
+               if (it == index.end())
+               {
+                  std::vector<BlinkKineticsSegment> segs;
+                  if (!BlinkSegments(hid, p.structure, segs, err))
+                     return false;
+                  it = index.emplace(std::make_pair(t, hid), static_cast<uint32_t>(p.keyClock.size())).first;
+                  p.keyClock.push_back(t);
+                  p.keySegs.push_back(std::move(segs));
+               }
+               p.cellKey[i + static_cast<size_t>(gr.nx) * j] = it->second;
+            }
+         BlinkWeights(p, 0, p.wb0);
+         p.sceneZ = zStage;
+         TimingLog("fl.mean-field-weights", TimingSince(tW));
+         tW = TimingClock::now();
+         WeightedImage(p, p.image);
+         TimingLog("fl.mean-field-render", TimingSince(tW));
+         return true;
+      }
+      // With a rate history: rate x survival to t x the frame's fraction.
+      double lastT = std::numeric_limits<double>::quiet_NaN();
+      uint32_t lastH = 0;
+      float lastW = 0.0f;
       for (unsigned j = 0; j < gr.ny; ++j)
          for (unsigned i = 0; i < gr.nx; ++i)
          {
-            const double t = clock->At(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm);
-            p.wb0[i + static_cast<size_t>(gr.nx) * j] = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+            double t = 0;
+            uint32_t hid = 0;
+            clock->KeyAt(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm, t, hid);
+            if (!(t == lastT && hid == lastH))
+            {
+               lastT = t;
+               lastH = hid;
+               const HistInfo* hi = HistOf(hid, err);
+               if (!hi)
+                  return false;
+               if (!hi->multi)
+                  lastW = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+               else
+               {
+                  const double sv = HistSurvival(*hi, p.structure, p.state, t);
+                  lastW = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
+                                                          : p.rate * sv * S.expSec);
+               }
+            }
+            p.wb0[i + static_cast<size_t>(gr.nx) * j] = lastW;
          }
+      TimingLog("fl.mean-field-weights", TimingSince(tW));
+      tW = TimingClock::now();
       WeightedImage(p, p.image);
+      TimingLog("fl.mean-field-render", TimingSince(tW));
    }
    else if (!gpuMode)
       TakeImage(p);
@@ -1361,6 +1896,53 @@ void FluorescenceMovie::Impl::TakeImage(Population& p)
    p.slot->scene.Images().Render({}, p.image);
 }
 
+// A dye's identity in a running image (its position and aux draw; the query
+// origin is part of the image's key).
+uint64_t RunningDyeId(const BlinkEvent& e)
+{
+   uint64_t h = 1469598103934665603ull;
+   for (double v : { e.xUm, e.yUm, e.zNm, e.aux })
+   {
+      uint64_t b;
+      std::memcpy(&b, &v, sizeof b);
+      h = (h ^ b) * 1099511628211ull;
+      h ^= h >> 29;
+   }
+   return h;
+}
+
+// The unit splats of dyes (sign each) into img: with a kernel and many dyes on
+// row bands on all cores, each band adding every dye in order, so every pixel
+// sums the same terms in the same order as one thread (bit-identical).
+void SplatUnits(std::vector<double>& img, unsigned W, unsigned H, const std::vector<const BlinkEvent*>& dyes,
+                const std::vector<double>& signs, const Group& g, double zStage, double pixelNm, double dxPx,
+                double dyPx)
+{
+   const size_t n = dyes.size();
+   if (!g.kernel.valid || n < 16)
+   {
+      for (size_t i = 0; i < n; ++i)
+         SplatUnit(img, W, H, *dyes[i], g, zStage, pixelNm, signs[i], dxPx, dyPx);
+      return;
+   }
+   std::vector<SplatPlan> plans(n);
+   std::vector<char> ok(n, 0);
+   ParallelFor(static_cast<unsigned>(n), [&](unsigned i) {
+      const BlinkEvent& e = *dyes[i];
+      const double xPx = e.xUm * 1000.0 / pixelNm + dxPx, yPx = e.yUm * 1000.0 / pixelNm + dyPx;
+      ok[i] = PlanSplat(g.kernel, g.kernel.NearestZIndex(e.zNm / 1000.0 - zStage), xPx, yPx, 1.0,
+                        g.kernel.interpMode, plans[i]);
+   });
+   const unsigned bands = std::max(1u, std::min(H, 64u));
+   ParallelFor(bands, [&](unsigned b) {
+      const int y0 = static_cast<int>(static_cast<uint64_t>(H) * b / bands);
+      const int y1 = static_cast<int>(static_cast<uint64_t>(H) * (b + 1) / bands);
+      for (size_t i = 0; i < n; ++i)
+         if (ok[i])
+            SplatUnitInto(img, W, H, g.kernel, plans[i], signs[i], y0, y1);
+   });
+}
+
 void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double dxPx, double dyPx)
 {
    const Group& g = groups[p.group];
@@ -1370,21 +1952,108 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double
    p.accZ = z;
    p.accDx = dxPx;
    p.accDy = dyPx;
+   std::vector<const BlinkEvent*> dyes;
+   std::vector<double> signs;
+   auto covers = [](const BlinkEvent& e, long fr) { return e.tStart <= fr && e.tEnd >= fr + 1; };
    if (p.accFrame < 0)
    {
-      p.acc.assign(static_cast<size_t>(S.W) * S.H, 0.0);
+      // Live: the last movie's running image at this geometry, updated by the
+      // dyes that entered or left it.
+      std::vector<uint64_t> key;
+      MovieCache::RunningImage* run = nullptr;
+      if (carry)
+      {
+         auto bits = [&](double v) {
+            uint64_t b;
+            std::memcpy(&b, &v, sizeof b);
+            key.push_back(b);
+         };
+         for (double v : { static_cast<double>(S.W), static_cast<double>(S.H), pixelNm, S.q.originXUm,
+                           S.q.originYUm, z, dxPx, dyPx, g.sigmaPx, static_cast<double>(g.kernel.valid),
+                           static_cast<double>(g.kernel.interpMode) })
+            bits(v);
+         key.push_back(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(g.kernel.data.get())));
+         key.push_back(cache.version);
+         key.push_back(cache.dyeVersion);
+         run = &cache.running[p.structure * 4 + p.state];
+      }
+      std::vector<std::pair<uint64_t, const BlinkEvent*>> now;
       for (const BlinkEvent& e : p.wins)
-         if (e.tStart <= f && e.tEnd >= f + 1)
-            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, 1, dxPx, dyPx);
+         if (covers(e, f))
+            now.push_back({ run ? RunningDyeId(e) : 0, &e });
+      auto byId = [](const std::pair<uint64_t, const BlinkEvent*>& a, const std::pair<uint64_t, const BlinkEvent*>& b) {
+         return a.first < b.first;
+      };
+      bool built = false;
+      if (run && run->key == key && run->carried < 256 && run->acc.size() == static_cast<size_t>(S.W) * S.H)
+      {
+         std::vector<std::pair<uint64_t, const BlinkEvent*>> sorted = now;
+         std::sort(sorted.begin(), sorted.end(), byId);
+         size_t i = 0, j = 0;
+         while (i < run->in.size() || j < sorted.size())
+         {
+            if (j == sorted.size() || (i < run->in.size() && run->in[i].first < sorted[j].first))
+            {
+               dyes.push_back(&run->in[i++].second);
+               signs.push_back(-1);
+            }
+            else if (i == run->in.size() || sorted[j].first < run->in[i].first)
+            {
+               dyes.push_back(sorted[j++].second);
+               signs.push_back(1);
+            }
+            else
+            {
+               ++i;
+               ++j;
+            }
+         }
+         if (dyes.size() < now.size())   // fewer changes than a fresh build
+         {
+            p.acc.swap(run->acc);
+            SplatUnits(p.acc, S.W, S.H, dyes, signs, g, z, pixelNm, dxPx, dyPx);
+            run->carried++;
+            built = true;
+         }
+         dyes.clear();
+         signs.clear();
+      }
+      if (!built)
+      {
+         // In the windows' order (the reference's summation order).
+         p.acc.assign(static_cast<size_t>(S.W) * S.H, 0.0);
+         for (const auto& d : now)
+         {
+            dyes.push_back(d.second);
+            signs.push_back(1);
+         }
+         SplatUnits(p.acc, S.W, S.H, dyes, signs, g, z, pixelNm, dxPx, dyPx);
+         if (run)
+            run->carried = 0;
+      }
+      if (run)
+      {
+         std::sort(now.begin(), now.end(), byId);
+         run->key = key;
+         run->in.clear();
+         run->in.reserve(now.size());
+         for (const auto& d : now)
+            run->in.push_back({ d.first, *d.second });
+         run->acc = p.acc;   // the image at frame f (later frames of this movie update p.acc only)
+      }
    }
    else
    {
       for (const BlinkEvent& e : p.wins)
       {
-         const bool was = e.tStart <= p.accFrame && e.tEnd >= p.accFrame + 1, now = e.tStart <= f && e.tEnd >= f + 1;
-         if (was != now)
-            SplatUnit(p.acc, S.W, S.H, e, g, z, pixelNm, now ? 1 : -1, dxPx, dyPx);
+         const bool was = covers(e, p.accFrame), isNow = covers(e, f);
+         if (was != isNow)
+         {
+            dyes.push_back(&e);
+            signs.push_back(isNow ? 1 : -1);
+         }
       }
+      SplatUnits(p.acc, S.W, S.H, dyes, signs, g, z, pixelNm, dxPx, dyPx);
    }
    p.accFrame = f;
 }
@@ -1400,6 +2069,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    m.clock = clock;
    if (!MakeScopeSetup(spec, m.S, err))
       return false;
+   TimingLog("fl.make-setup", TimingSince(m.t0));
    const ScopeSetup& S = m.S;
    const double pixelNm = S.p.pixelSizeNm, um = pixelNm / 1000.0;
    m.zStage = ScopeSpecGet(spec, "z");
@@ -1420,10 +2090,14 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return false;
    CellFieldSource& source = m.cache.source;
    TimingLog("fl.configure", TimingSince(tPhase));
+   m.curEnv = ScopeKineticEnv(spec);
+   m.envPhys.clear();
+   m.hists.clear();
    // The dye clocks: one region at start-sec over the whole query, or the
    // host clock's regions (each queried at its own time over its bounding
    // box, keeping only the dyes whose position has that clock).
    std::vector<ClockRegion> regions;
+   tPhase = TimingClock::now();
    if (clock)
    {
       clock->Regions(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, regions);
@@ -1432,7 +2106,35 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          m.tMin = std::min(m.tMin, r.tSec);
    }
    else
-      regions.push_back({ S.q.tSec, S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um });
+   {
+      ClockRegion r;
+      r.tSec = S.q.tSec;
+      r.x0Um = S.q.x0Um;
+      r.y0Um = S.q.y0Um;
+      r.x1Um = S.q.x1Um;
+      r.y1Um = S.q.y1Um;
+      regions.push_back(r);
+   }
+   TimingLog("fl.clock-regions", TimingSince(tPhase), std::to_string(regions.size()).c_str());
+   // Their rate histories (ABI 11): the kinetics rows of each region's past
+   // (segments in other envs: their light path and labels).
+   tPhase = TimingClock::now();
+   size_t multiRegions = 0;
+   for (const ClockRegion& r : regions)
+   {
+      const HistInfo* hi = clock ? m.HistOf(r.history, err) : nullptr;
+      if (clock && !hi)
+         return false;
+      multiRegions += hi && hi->multi;
+   }
+   TimingLog("fl.history", TimingSince(tPhase), std::to_string(multiRegions).c_str());
+   auto useHistory = [&](const ClockRegion& r) {
+      std::string e;
+      const HistInfo* hi = clock ? m.HistOf(r.history, e) : nullptr;
+      if (hi && hi->multi)
+         return source.SetKineticsHistory(hi->rows.data(), static_cast<int>(hi->tStart.size()));
+      return source.SetKineticsHistory(nullptr, 0);
+   };
    auto regionQuery = [&](const ClockRegion& r) {
       CellFieldQuery q = S.q;
       q.tSec = r.tSec;
@@ -1443,25 +2145,31 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return q;
    };
    auto inRegion = [&](const BlinkEvent& e, const ClockRegion& r) {
-      return !clock || clock->At(e.xUm + S.q.originXUm, e.yUm + S.q.originYUm) == r.tSec;
+      if (!clock)
+         return true;
+      double t = 0;
+      uint32_t h = 0;
+      clock->KeyAt(e.xUm + S.q.originXUm, e.yUm + S.q.originYUm, t, h);
+      return t == r.tSec && h == r.history;
    };
-   auto regionEvents = [&](bool continuous, std::vector<BlinkEvent>& out, std::vector<double>* tOfEvent) {
+   auto regionEvents = [&](bool continuous, std::vector<BlinkEvent>& out, std::vector<const ClockRegion*>* regionOf) {
       for (const ClockRegion& r : regions)
       {
          const CellFieldQuery q = regionQuery(r);
          if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um))
             continue;
          std::vector<BlinkEvent> got;
-         if (!(continuous ? source.Continuous(q, got) : source.Events(q, got)))
+         if (!useHistory(r) || !(continuous ? source.Continuous(q, got) : source.Events(q, got)))
             return false;
          for (const BlinkEvent& e : got)
             if (inRegion(e, r))
             {
                out.push_back(e);
-               if (tOfEvent)
-                  tOfEvent->push_back(r.tSec);
+               if (regionOf)
+                  regionOf->push_back(&r);
             }
       }
+      source.SetKineticsHistory(nullptr, 0);
       return true;
    };
 
@@ -1498,6 +2206,58 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    for (const LabelPhysics& l : S.labels)
       m.anyBlinks = m.anyBlinks || l.mode != MODE_WIDEFIELD;
 
+   // ---- blink mean-field frames (spec/ALGORITHM.md "Blink render regimes") ----
+   // Decided before the events query from the expected ON emitters at the
+   // reference clock: a frame that renders mean-field draws no events, and a
+   // movie mean-field throughout queries none. Not with a host clock and drift
+   // together (the weighted scene does not follow the drift).
+   m.fovArea = S.W * S.H * um * um;
+   bool queryBlinks = false;
+   const bool blinkMfPossible =
+      (S.blinkMeanFieldDensityPerUm2 < 1e9 || S.blinkMeanFieldMaxEmitters < 1e9) && !(clock && S.driftOn);
+   for (Group& g : m.groups)
+   {
+      const LabelPhysics& L = S.labels[static_cast<size_t>(g.structure)];
+      if (g.pre || L.mode == MODE_WIDEFIELD)
+         continue;
+      g.mode = L.mode;
+      if (blinkMfPossible)
+      {
+         const double inf = std::numeric_limits<double>::infinity();
+         const double focus = S.q.zCullCentreUm, slabHalf = S.meanFieldSlabNm / 2000;
+         const double zMin = S.q.zHalfRangeUm > 0 ? focus - S.q.zHalfRangeUm : -inf;
+         const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
+         const double ox = S.q.originXUm, oy = S.q.originYUm;
+         const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
+         g.nZ = m.cache.CountDyes(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << g.structure);
+         g.nSlab = sHi > sLo ? m.cache.CountDyes(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << g.structure) : 0;
+         if (g.nZ < 0 || g.nSlab < 0)
+         {
+            err = "cell-field dye count failed";
+            return false;
+         }
+         uint32_t hid = 0;
+         g.refClock = S.t0Sec;
+         if (clock)
+            clock->KeyAt(S.q.originXUm + (S.W - 1) * um / 2, S.q.originYUm + (S.H - 1) * um / 2, g.refClock, hid);
+         if (!m.BlinkSegments(hid, g.structure, g.refSegs, err))
+            return false;
+         g.mfFrame.assign(static_cast<size_t>(S.N), 0);
+         g.allMf = g.nZ > 0;
+         for (long f = 0; f < S.N; ++f)
+         {
+            const double t = g.refClock + f * S.expSec;
+            const double on = ExpectedBlinkOnSeconds(L.mode, g.refSegs, t, t + S.expSec) / S.expSec;
+            const bool mf = g.nZ > 0 && (g.nSlab * on / m.fovArea > S.blinkMeanFieldDensityPerUm2 ||
+                                         g.nZ * on > S.blinkMeanFieldMaxEmitters);
+            g.mfFrame[static_cast<size_t>(f)] = mf;
+            g.anyMf = g.anyMf || mf;
+            g.allMf = g.allMf && mf;
+         }
+      }
+      queryBlinks = queryBlinks || !g.allMf;
+   }
+
    // The PSF kernels compute while the blinks are queried (as the camera's
    // stack generation does); serially under Emscripten.
    std::string psfErr;
@@ -1506,8 +2266,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    auto kernels = [&]() {
       const auto tk = TimingClock::now();
       for (Group& g : m.groups)
+      {
          if (psfOk && !ScopePsfKernel(spec, g.lambdaNm, g.kernel, psfErr))
             psfOk = false;
+         if (psfOk)
+            g.blinkKernel = WithHaloCut(g.kernel, ScopeSpecGet(spec, "psf-halo-cut"));
+      }
       psfSec = TimingSince(tk);
    };
    std::vector<BlinkEvent> all;
@@ -1515,12 +2279,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
 #if defined(__EMSCRIPTEN__)
    kernels();
    const auto tEv = TimingClock::now();
-   if (psfOk && m.anyBlinks)
+   if (psfOk && queryBlinks)
       eventsOk = regionEvents(false, all, nullptr);
    eventsSec = TimingSince(tEv);
 #else
    std::thread psfThread(kernels);
-   if (m.anyBlinks)
+   if (queryBlinks)
       eventsOk = regionEvents(false, all, nullptr);
    eventsSec = TimingSince(tPhase);
    psfThread.join();
@@ -1537,6 +2301,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       err = "cell-field event query failed";
       return false;
    }
+   // The binned blink regime (its kernel spectra are made on first use).
+   const bool binnedPossible = S.blinkBinnedDensityPerUm2 < 1e9 || S.blinkBinnedMaxEmitters < 1e9;
+   for (Group& g : m.groups)
+      if (!g.pre && binnedPossible)
+         g.binned.Setup(g.blinkKernel.valid ? &g.blinkKernel : nullptr, g.sigmaPx, S.W, S.H, S.blinkBinnedUpscale);
+   tPhase = TimingClock::now();
    m.events.clear();
    for (const BlinkEvent& e : all)
       if (groupOf(e.structure, false) >= 0)
@@ -1552,6 +2322,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                m.byGroup[gi].push_back(e);
       m.buckets[gi] = BucketEventsByFrame(m.byGroup[gi], S.N);
    }
+   TimingLog("fl.events-sort", TimingSince(tPhase), std::to_string(m.events.size()).c_str());
 
    // ---- continuous populations ----
    // Counted from the structure's dyes (every dye has the window from t = 0):
@@ -1562,6 +2333,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    const double zMin = S.q.zHalfRangeUm > 0 ? focus - S.q.zHalfRangeUm : -inf;
    const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
    m.pops.clear();
+   tPhase = TimingClock::now();
    for (int s = 0; s < static_cast<int>(S.labels.size()); ++s)
    {
       const LabelPhysics& L = S.labels[static_cast<size_t>(s)];
@@ -1575,10 +2347,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       if (states.empty())
          continue;
       const double ox = S.q.originXUm, oy = S.q.originYUm;
-      float one = 0;
-      const long nZ = source.Density3d(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1, 1, 1, 1 << s, &one);
+      const long nZ = m.cache.CountDyes(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << s);
       const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-      const long nSlab = sHi > sLo ? source.Density3d(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1, 1, 1, 1 << s, &one) : 0;
+      const long nSlab = sHi > sLo ? m.cache.CountDyes(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << s) : 0;
       if (nZ < 0 || nSlab < 0)
       {
          err = "cell-field dye count failed";
@@ -1611,14 +2382,30 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          p.rate = st.detectedPerSec;
          p.nZ = nZ;
          p.nSlab = nSlab;
+         // Rate histories: the largest survival at frame 0 over the regions.
+         if (clock)
+         {
+            double maxS = 0;
+            for (const ClockRegion& r : regions)
+            {
+               const HistInfo* hi = m.HistOf(r.history, err);
+               if (!hi)
+                  return false;
+               p.histMulti = p.histMulti || hi->multi;
+               maxS = std::max(maxS, hi->multi ? HistSurvival(*hi, s, state, r.tSec) : std::exp(-p.lambda * r.tSec));
+            }
+            p.maxSurvival = maxS;
+         }
          m.pops.push_back(std::move(p));
       }
    }
    // The per-dye windows in frames (fetched once, for every population that
    // needs them): a dye with a photon budget bleaches at aux x budget /
    // emission rate.
+   TimingLog("fl.dye-counts", TimingSince(tPhase));
+   tPhase = TimingClock::now();
    std::vector<BlinkEvent> windows;
-   std::vector<double> windowClock;   // each window's region clock (its dye's time at frame 0)
+   std::vector<const ClockRegion*> windowRegion;   // each window's region (its dye's clock at frame 0, its history)
    bool haveWindows = false;
    for (Population& p : m.pops)
    {
@@ -1628,7 +2415,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          continue;   // mean-field to the end: no windows needed
       if (!haveWindows)
       {
-         if (!regionEvents(true, windows, &windowClock))
+         if (!regionEvents(true, windows, &windowRegion))
          {
             err = "cell-field window query failed";
             return false;
@@ -1640,10 +2427,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          const BlinkEvent& e = windows[wi];
          if (e.structure != p.structure || e.state != p.state)
             continue;
-         const double tq = windowClock[wi];
+         const ClockRegion& reg = *windowRegion[wi];
+         const double tq = reg.tSec;
          double tEndSec = (e.tEnd - S.q.frameIndex) * S.expSec + tq;   // back to seconds (Continuous mapped it)
          if (p.budget > 0)
-            tEndSec = std::min(tEndSec, e.aux * p.budget / p.emissionPerSec);
+         {
+            // The photon budget: used up at aux x budget / emission, or over a
+            // rate history at the clock where the walk reaches aux.
+            const HistInfo* hi = clock ? m.HistOf(reg.history, err) : nullptr;
+            tEndSec = std::min(tEndSec, hi && hi->multi ? HistBleachEnd(*hi, p.structure, p.state, e.aux)
+                                                        : e.aux * p.budget / p.emissionPerSec);
+         }
          const double b = (tEndSec - tq) / S.expSec;
          if (b > 0)
          {
@@ -1653,6 +2447,25 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             p.wins.push_back(w);
          }
       }
+   }
+   TimingLog("fl.windows", TimingSince(tPhase), std::to_string(windows.size()).c_str());
+   // The blink populations of the groups with mean-field frames.
+   for (size_t gi = 0; gi < m.groups.size(); ++gi)
+   {
+      const Group& g = m.groups[gi];
+      if (!g.anyMf)
+         continue;
+      Population p;
+      p.structure = g.structure;
+      p.state = ISC_STATE_BLINK;
+      p.group = gi;
+      p.rate = g.detectedPerSec;
+      p.nZ = g.nZ;
+      p.nSlab = g.nSlab;
+      p.mode = g.mode;
+      p.blinkSegs = g.refSegs;
+      p.meanFieldAt0 = true;
+      m.pops.push_back(std::move(p));
    }
    // The mean-field images of the populations that start mean-field.
    m.sceneQueue.clear();
@@ -1678,6 +2491,16 @@ bool FluorescenceMovie::HasPopulations() const
 {
    return !impl_->pops.empty();
 }
+
+bool FluorescenceMovie::HostSplatsBlinks(long f) const
+{
+   const Impl& m = *impl_;
+   for (size_t gi = 0; gi < m.groups.size(); ++gi)
+      if (!m.groups[gi].pre && f >= 0 && static_cast<size_t>(f) < m.buckets[gi].size() && !m.SplatFrame(gi, f))
+         return false;
+   return true;
+}
+
 
 int FluorescenceMovie::MeanFieldScenes() const
 {
@@ -1717,15 +2540,32 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
 {
    const Impl& m = *impl_;
    FluorescenceSimplePlan sp;
-   if (m.groups.size() != 1 || m.groups[0].pre || !m.pops.empty())
+   // The blink groups: the main groups of the blinking labels (a WideField
+   // label's main group only lights its population).
+   int blinkGroup = -1, blinkGroups = 0;
+   for (size_t gi = 0; gi < m.groups.size(); ++gi)
+   {
+      const Group& g = m.groups[gi];
+      if (g.pre || m.S.labels[static_cast<size_t>(g.structure)].mode == MODE_WIDEFIELD)
+         continue;
+      blinkGroup = static_cast<int>(gi);
+      ++blinkGroups;
+   }
+   if (blinkGroups != 1)
       return sp;
-   const Group& g = m.groups[0];
+   const Group& g = m.groups[static_cast<size_t>(blinkGroup)];
+   if (m.byGroup[static_cast<size_t>(blinkGroup)].size() != m.events.size())
+      return sp;   // blinks of another group (none should be)
    sp.ok = true;
-   sp.kernel = g.kernel.valid ? &g.kernel : nullptr;
+   sp.kernel = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
    sp.photonsPerBlink = g.perFrame;
    sp.sigmaPx = g.sigmaPx;
    sp.backgroundPhotons = m.bg;
-   sp.events = &m.byGroup[0];
+   sp.events = &m.byGroup[static_cast<size_t>(blinkGroup)];
+   // Frames whose blinks are binned or mean-field come from Render too.
+   sp.populations = !m.pops.empty();
+   for (long f = 0; f < m.S.N && !sp.populations; ++f)
+      sp.populations = !m.SplatFrame(static_cast<size_t>(blinkGroup), f);
    return sp;
 }
 
@@ -1764,7 +2604,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    info.blinks = m.events.size();
    info.dyes = 0;
    for (const Population& p : m.pops)
-      info.dyes += p.nZ;
+      if (p.state != ISC_STATE_BLINK)
+         info.dyes += p.nZ;
    info.halfTimeSec = std::numeric_limits<double>::infinity();
    info.querySec = m.setupSec;
    {
@@ -1801,9 +2642,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       if (S.driftOn)
       {
          const DriftSettings& ds = S.p.drift;
-         std::snprintf(b, sizeof b, " drift_xy_speed=%g drift_z_speed=%g drift_angle=%g drift_angle_wander=%g "
+         std::snprintf(b, sizeof b, " drift_xy_speed=%g drift_z_speed=%g drift_angle=%g drift_z_direction=%d "
+                       "drift_angle_wander=%g drift_z_angle_wander=%g "
                        "drift_speed_wander=%g drift_wander_time=%g drift_xy_rms=%g drift_z_rms=%g",
-                       ds.xySpeedNmPerSec, ds.zSpeedNmPerSec, ds.xyAngleDeg, ds.angleWanderDeg, ds.speedWanderPct,
+                       ds.xySpeedNmPerSec, ds.zSpeedNmPerSec, ds.xyAngleDeg, ds.zDirection, ds.angleWanderDeg,
+                       ds.zAngleWanderDeg, ds.speedWanderPct,
                        ds.wanderTimeSec, ds.xyNmPerSqrtSec, ds.zNmPerSqrtSec);
          d += b;
       }
@@ -1811,7 +2654,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    }
    DriftInfo(S, info);
 
-   NoiseSetup noise(S.seed, W, H, S.p);
+   // The noise maps only when the movie applies the noise (a host with
+   // onPhotons adds its own: a live frame skips building three maps).
+   std::unique_ptr<NoiseSetup> noisePtr;
+   if (!opt.onPhotons)
+      noisePtr.reset(new NoiseSetup(S.seed, W, H, S.p));
    const CameraNoiseParams cam = S.p.Camera();
    TimingSum tBlinks, tPops, tNoise, tWrite;
    const unsigned long spawns0 = ParallelForSpawns().load();
@@ -1828,21 +2675,41 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    std::vector<std::vector<float>> photons(slots);
    std::vector<std::vector<BlinkEvent>> fe(slots);
    std::vector<long> frameBlinks(slots);
-   long blinks = 0;
+   std::vector<char> frameBinned(slots), frameMf(slots);
+   long blinks = 0, binnedFrames = 0;
    RenderExtras into;
    into.accumulate = true;
+   // The continuous populations' per-dye splats run frame by frame: in bands
+   // of rows on all cores (the same pixels as serial, RenderPhotonImage).
+   into.parallel = true;
    RenderExtras blinkInto = into;   // the blinks also see the host's illumination field
    const bool shaped = opt.illumField && opt.illumField->size() == n;
    if (shaped)
       blinkInto.illumField = opt.illumField;
+#if defined(__EMSCRIPTEN__)
+   const long cores = 1;
+#else
+   const long cores = std::max(1L, static_cast<long>(std::thread::hardware_concurrency()));
+#endif
+   const bool popsOnly = opt.populationsOnly && opt.onPhotons;
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
       tBlinks.Start();
-      ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+      // The blinks: frame per core, or -- fewer frames than cores (a live
+      // frame, a render-ahead batch) -- one frame after the other, each in
+      // bands of rows on all cores.
+      const bool bands = nb < cores;
+      blinkInto.parallel = bands;
+      auto blinkFrame = [&](unsigned k) {
          const long f = f0 + static_cast<long>(k);
+         frameBlinks[k] = 0;
+         frameBinned[k] = 0;
+         frameMf[k] = 0;
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
-         if (!shaped && bgScale == 1.0)
+         if (popsOnly)
+            photons[k].assign(n, 0.0f);   // the host splats the background and the SMLM frames' blinks
+         else if (!shaped && bgScale == 1.0)
             photons[k].assign(n, static_cast<float>(m.bg));
          else
          {
@@ -1871,14 +2738,36 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             const Group& g = m.groups[gi];
             if (g.pre)
                continue;
+            if (!g.mfFrame.empty() && g.mfFrame[static_cast<size_t>(f)])
+            {
+               frameMf[k] = 1;   // the blink population draws it
+               continue;
+            }
+            const bool binnedFrame = m.BinnedFrame(gi, f);
+            if (popsOnly && !binnedFrame)
+               continue;   // the host splats them (HostSplatsBlinks)
             fe[k].clear();
             for (uint32_t i : m.buckets[gi][static_cast<size_t>(f)])
                fe[k].push_back(m.byGroup[gi][i]);
             frameBlinks[k] += static_cast<long>(fe[k].size());
+            if (binnedFrame)
+            {
+               std::vector<FrameEmitter> ems;
+               CollectFrameEmitters(fe[k], f, W, H, pixelNm, g.perFrame, dx, dy,
+                                    g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, blinkInto.illumField, ems);
+               g.binned.Render(ems, photons[k]);
+               frameBinned[k] = 1;
+               continue;
+            }
             RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
-                              g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &blinkInto);
+                              g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
-      });
+      };
+      if (bands)
+         for (long k = 0; k < nb; ++k)
+            blinkFrame(static_cast<unsigned>(k));
+      else
+         ParallelFor(static_cast<unsigned>(nb), blinkFrame);
       tBlinks.Stop();
       // The continuous populations, frame by frame.
       std::vector<std::vector<std::string>> paths(static_cast<size_t>(nb));
@@ -1892,6 +2781,29 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          {
             const Group& g = m.groups[p.group];
             const double tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
+            if (p.state == ISC_STATE_BLINK)
+            {
+               if (!g.mfFrame[static_cast<size_t>(f)])
+                  continue;   // drawn from its events (splat or binned)
+               if (p.weighted)
+                  m.BlinkWeightedFrame(p, f, zf, img);
+               else
+               {
+                  std::vector<float> driftImage;
+                  if (drift)
+                  {
+                     driftImage.assign(n, 0.0f);
+                     m.DriftMeanField(p, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
+                  }
+                  const std::vector<float>& image = drift ? driftImage : m.ImageAt(p, zf);
+                  const float mp = static_cast<float>(p.rate * ExpectedBlinkOnSeconds(p.mode, p.blinkSegs, tf0, tf1));
+                  for (size_t i = 0; i < n; ++i)
+                     img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
+               }
+               p.meanFieldFrames++;
+               paths[static_cast<size_t>(k)].push_back("blinks: mean-field (FFT)");
+               continue;
+            }
             if (m.IsMeanField(p, f))
             {
                if (p.image.empty())
@@ -1955,8 +2867,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       tNoise.Start();
       if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
-            ApplyNoiseChain(photons[k], adu[k], W, H, cam, noise.offsetMap, noise.gainMap, noise.rnMap,
-                            noise.noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
+            ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
+                            noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
          });
       tNoise.Stop();
       tWrite.Start();
@@ -1964,6 +2876,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       for (long k = 0; k < nb && more; k++)
       {
          blinks += frameBlinks[static_cast<size_t>(k)];
+         binnedFrames += frameBinned[static_cast<size_t>(k)];
          more = opt.onPhotons ? opt.onPhotons(f0 + k, photons[static_cast<size_t>(k)])
                               : onFrame(f0 + k, adu[static_cast<size_t>(k)]);
          if (progress && *progress)
@@ -1972,9 +2885,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             std::string j = "{\"frame\":" + std::to_string(f0 + k) + ",\"frames\":" + std::to_string(N) +
                             ",\"blinks\":" + std::to_string(frameBlinks[static_cast<size_t>(k)]) + ",\"backends\":[";
             bool first = true;
-            if (m.anyBlinks)
+            if (m.anyBlinks && !(frameMf[static_cast<size_t>(k)] && !frameBlinks[static_cast<size_t>(k)]))
             {
-               j += "\"SMLM: " + std::to_string(frameBlinks[static_cast<size_t>(k)]) + " blinks (splat)\"";
+               j += "\"SMLM: " + std::to_string(frameBlinks[static_cast<size_t>(k)]) +
+                    (frameBinned[static_cast<size_t>(k)] ? " blinks (binned FFT)\"" : " blinks (splat)\"");
                first = false;
             }
             for (const std::string& s : paths[static_cast<size_t>(k)])
@@ -1997,9 +2911,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    tWrite.Log("fl.frame.onFrame");
    if (TimingEnabled())
    {
-      char b[128];
-      std::snprintf(b, sizeof b, "blinks %ld, groups %zu, populations %zu, ParallelFor spawns %lu", blinks,
-                    m.groups.size(), m.pops.size(), ParallelForSpawns().load() - spawns0);
+      char b[160];
+      std::snprintf(b, sizeof b, "blinks %ld, binned frames %ld, groups %zu, populations %zu, ParallelFor spawns %lu",
+                    blinks, binnedFrames, m.groups.size(), m.pops.size(), ParallelForSpawns().load() - spawns0);
       TimingLog("fl.total", info.totalSec, b);
    }
    return true;
@@ -2055,9 +2969,54 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
-// The frames of a BrightField movie from its scene: the image at the spec's
-// focus (computed, or assembled by SetImageFromSources), times the lamp,
-// then the camera noise per frame.
+// The lamp's photons per frame (BrightfieldFrames, the combined light): the
+// image at the spec's focus (computed, or assembled by SetImageFromSources)
+// times bf-photons-per-px-per-sec x exposure; a drifting sample: the
+// fine-grid spectra on the drift's focus grid, a shifted, interpolated image
+// per frame (JS brightfieldPhotons).
+struct BrightfieldPhotons
+{
+   BrightfieldDriftFrames driftFrames;
+   std::vector<float> trans, photons;
+   double flux = 0.0;
+   bool drift = false;
+
+   bool Begin(const ScopeSpec& spec, const ScopeSetup& S, BrightfieldScene& scene, std::string& err)
+   {
+      const double focusUm = S.q.zCullCentreUm;
+      auto tPhase = TimingClock::now();
+      drift = S.driftOn;
+      if (drift)
+      {
+         driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
+         if (!driftFrames.Refresh(scene, 0, err))
+            return false;
+      }
+      else if (!scene.Image(focusUm, trans, err))
+         return false;
+      TimingLog("bf.image", TimingSince(tPhase));
+      flux = std::max(0.0, ScopeSpecGet(spec, "bf-photons-per-px-per-sec")) * S.expSec;
+      photons.resize(trans.size());
+      for (size_t i = 0; i < trans.size(); ++i)
+         photons[i] = static_cast<float>(trans[i] * flux);
+      return true;
+   }
+   // Frame f's photons (valid until the next call).
+   const std::vector<float>& At(BrightfieldScene& scene, const ScopeSetup& S, long f)
+   {
+      if (drift)
+      {
+         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
+         photons.resize(trans.size());
+         for (size_t i = 0; i < trans.size(); ++i)
+            photons[i] = static_cast<float>(trans[i] * flux);
+      }
+      return photons;
+   }
+};
+
+// The frames of a BrightField movie from its scene: the lamp's photons, then
+// the camera noise per frame.
 static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const BrightfieldSpec& bs,
                               BrightfieldScene& scene, std::chrono::steady_clock::time_point t0,
                               unsigned long spawns0,
@@ -2066,24 +3025,13 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    const SimulationParams& p = S.p;
-   std::vector<float> trans;
    const double focusUm = S.q.zCullCentreUm;
-   auto tPhase = TimingClock::now();
-   // A drifting sample: the fine-grid spectra on the drift's focus grid, a
-   // shifted, interpolated image per frame.
-   BrightfieldDriftFrames driftFrames;
-   if (S.driftOn)
-   {
-      driftFrames.Begin(S.driftRange, std::vector<double>(1, focusUm));
-      if (!driftFrames.Refresh(scene, 0, err))
-         return false;
-   }
-   else if (!scene.Image(focusUm, trans, err))
+   BrightfieldPhotons lamp;
+   if (!lamp.Begin(spec, S, scene, err))
       return false;
-   TimingLog("bf.image", TimingSince(tPhase));
    const unsigned W = S.W, H = S.H;
    const long N = S.N;
-   const double flux = std::max(0.0, O("bf-photons-per-px-per-sec")) * S.expSec;
+   const double flux = lamp.flux;
    const BrightfieldQuality q = bs.Resolved();
    info.width = W;
    info.height = H;
@@ -2103,20 +3051,11 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
    info.description = desc;
    DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);
-   std::vector<float> photons(trans.size());
-   for (size_t i = 0; i < trans.size(); ++i)
-      photons[i] = static_cast<float>(trans[i] * flux);
    std::vector<uint16_t> adu;
    TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
    {
-      if (S.driftOn)
-      {
-         driftFrames.Image(scene, 0, S.drift[static_cast<size_t>(f)], trans);
-         photons.resize(trans.size());
-         for (size_t i = 0; i < trans.size(); ++i)
-            photons[i] = static_cast<float>(trans[i] * flux);
-      }
+      const std::vector<float>& photons = lamp.At(scene, S, f);
       tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
                       static_cast<uint32_t>(f));
@@ -2440,7 +3379,9 @@ static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::strin
    }
    const double tWorld = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
    bool anyKernel = false;
-   if (ScopeSpecGet(spec, "modality") != 1)
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (epi)
    {
       std::vector<double> lambdas;
       for (const LabelPhysics& l : S.labels)
@@ -2466,17 +3407,109 @@ static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::strin
    return true;
 }
 
-bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs)
+bool PrefetchScope(const ScopeSpec& specIn, double marginUm, double budgetMs, const DyeClock* clock)
 {
+   ScopeSpec spec = specIn;
+   std::vector<ClockSegment> segs;
+   if (clock)
+   {
+      // The FOV centre's clock and rate history.
+      double t = 0;
+      uint32_t h = 0;
+      clock->KeyAt(ScopeSpecGet(spec, "x"), ScopeSpecGet(spec, "y"), t, h);
+      spec["start-sec"] = t;
+      clock->Segments(h, segs);
+   }
    ScopeSetup S;
    std::string err;
    if (!MakeScopeSetup(spec, S, err))
+      return false;
+   HistInfo hi;
+   EnvPhysicsMemo memo;
+   if (!MakeHistInfo(spec, S.camera, ScopeKineticEnv(spec), segs, memo, hi, err))
       return false;
    MovieCache& cache = SharedMovieCache();
    std::unique_lock<std::mutex> lock(cache.mutex, std::try_to_lock);
    if (!lock.owns_lock() || !cache.haveWorld || !cache.world.SameWorld(S.cf))
       return false;
-   return cache.source.Prefetch(S.q, marginUm, budgetMs);
+   const bool histOk = hi.multi ? cache.source.SetKineticsHistory(hi.rows.data(), static_cast<int>(hi.tStart.size()))
+                                : cache.source.SetKineticsHistory(nullptr, 0);
+   const bool ok = histOk && cache.source.Prefetch(S.q, marginUm, budgetMs);
+   cache.source.SetKineticsHistory(nullptr, 0);
+   return ok;
+}
+
+// No light: the camera's noise on zero photons (dark current, read noise,
+// offset; JS renderDarkMovie).
+static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                            ScopeMovieInfo& info, std::string& err)
+{
+   const auto t0 = std::chrono::steady_clock::now();
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   info = ScopeMovieInfo();
+   info.width = S.W;
+   info.height = S.H;
+   info.frames = S.N;
+   char desc[256];
+   std::snprintf(desc, sizeof desc, "insiliscope light=none seed=%ld size=%u pixel_nm=%g exposure_ms=%g frames=%ld",
+                 S.seed, S.W, S.p.pixelSizeNm, S.expSec * 1000, S.N);
+   info.description = desc;
+   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const std::vector<float> photons(static_cast<size_t>(S.W) * S.H, 0.0f);
+   std::vector<uint16_t> adu;
+   for (long f = 0; f < S.N; f++)
+   {
+      ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
+                      noise.noiseSeed, static_cast<uint32_t>(f));
+      if (!onFrame(f, adu))
+         break;
+   }
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   return true;
+}
+
+// Both lights (JS renderCombinedMovie): the fluorescence movie's photons (its
+// noise chain runs at QE 1) plus the lamp's photons x the camera's QE at the
+// lamp wavelength, then that one noise chain. The fluorescence movie holds
+// the shared cache (world, BrightField scene) for this thread while it lives.
+static bool RenderCombinedMovie(const ScopeSpec& spec,
+                                const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
+                                ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
+{
+   FluorescenceMovie fm;
+   ScopeSetup S;
+   BrightfieldSpec bs;
+   if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
+      return false;
+   MovieCache& cache = SharedMovieCache();
+   if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+      return false;
+   BrightfieldPhotons lamp;
+   if (!lamp.Begin(spec, S, cache.brightfield, err))
+      return false;
+   const double qeLamp = SampleAt(S.lp.qe, ScopeSpecGet(spec, "bf-wavelength-nm"));
+   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const CameraNoiseParams cam = S.p.Camera();
+   std::vector<float> sum;
+   std::vector<uint16_t> adu;
+   FluorescenceFrameOptions opt;
+   opt.onPhotons = [&](long f, const std::vector<float>& fl) {
+      const std::vector<float>& bf = lamp.At(cache.brightfield, S, f);
+      sum.resize(fl.size());
+      for (size_t i = 0; i < fl.size(); ++i)
+         sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
+      ApplyNoiseChain(sum, adu, S.W, S.H, cam, noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
+                      static_cast<uint32_t>(f));
+      return onFrame(f, adu);
+   };
+   if (!fm.Render(onFrame, info, err, progress, &opt))
+      return false;
+   char b[96];
+   std::snprintf(b, sizeof b, " light=epi+trans bf_photons_per_px=%.4g bf_qe=%.4g", lamp.flux, qeLamp);
+   info.description += b;
+   return true;
 }
 
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
@@ -2484,10 +3517,141 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
 {
    if (ScopeSpecGet(spec, "prepare") >= 1)
       return PrepareScope(spec, info, err);
-   if (ScopeSpecGet(spec, "modality") == 1)
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (!epi && !trans)
+      return RenderDarkMovie(spec, onFrame, info, err);
+   if (epi && trans)
+      return RenderCombinedMovie(spec, onFrame, info, err, progress);
+   if (trans)
       return RenderBrightfieldMovie(spec, onFrame, info, err);
    FluorescenceMovie fm;
    return fm.Begin(spec, false, err) && fm.Render(onFrame, info, err, progress);
+}
+
+// ---- read-only views for diagnostics (ScopeResolved.h) ----
+
+bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
+{
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   out = ScopeResolved();
+   out.W = S.W;
+   out.H = S.H;
+   out.N = S.N;
+   out.seed = S.seed;
+   out.expSec = S.expSec;
+   out.t0Sec = S.t0Sec;
+   const ScopeCamera& c = S.camera;
+   ScopeResolvedCamera& o = out.camera;
+   o.preset = c.preset;
+   o.qeCurve = c.qeCurve;
+   o.qeFlat = c.qeFlat;
+   o.emccd = c.emccd;
+   o.darkPerSec = c.darkPerSec;
+   o.gainElectronsPerAdu = c.gainPhotonsPerAdu;
+   o.offsetAdu = c.offsetAdu;
+   o.offsetStdAdu = c.offsetStdAdu;
+   o.readNoiseElectrons = c.readNoiseElectrons;
+   o.gainStdFraction = c.gainStdFraction;
+   o.readNoiseStdFraction = c.readNoiseStdFraction;
+   o.emGain = c.emGain;
+   o.cicElectrons = c.cicElectrons;
+   o.bitDepth = c.bitDepth;
+   out.p = S.p;
+   out.lp = S.lp;
+   out.labels = S.labels;
+   out.cf = S.cf;
+   out.q = S.q;
+   out.drift = S.drift;
+   return true;
+}
+
+bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
+                        std::string& err, const DyeClock* clock)
+{
+   const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   if (!epi && !trans)
+   {
+      // RenderDarkMovie without its noise chain: zero photons.
+      const auto t0 = std::chrono::steady_clock::now();
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
+      for (long f = 0; f < S.N; f++)
+         if (!onPhotons(f, zero))
+            break;
+      info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      return true;
+   }
+   if (epi && trans)
+   {
+      // RenderCombinedMovie up to its noise chain.
+      FluorescenceMovie fm;
+      ScopeSetup S;
+      BrightfieldSpec bs;
+      if (!fm.Begin(spec, false, err, nullptr, clock) || !MakeScopeSetup(spec, S, err) ||
+          !ScopeBrightfieldSpec(spec, bs, err))
+         return false;
+      MovieCache& cache = SharedMovieCache();
+      if (!cache.brightfield.Update(cache.source, bs, cache.version, err))
+         return false;
+      BrightfieldPhotons lamp;
+      if (!lamp.Begin(spec, S, cache.brightfield, err))
+         return false;
+      const double qeLamp = SampleAt(S.lp.qe, ScopeSpecGet(spec, "bf-wavelength-nm"));
+      std::vector<float> sum;
+      FluorescenceFrameOptions opt;
+      opt.onPhotons = [&](long f, const std::vector<float>& fl) {
+         const std::vector<float>& bf = lamp.At(cache.brightfield, S, f);
+         sum.resize(fl.size());
+         for (size_t i = 0; i < fl.size(); ++i)
+            sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
+         return onPhotons(f, sum);
+      };
+      return fm.Render(noFrames, info, err, nullptr, &opt);
+   }
+   if (trans)
+   {
+      // RenderBrightfieldMovie / BrightfieldFrames up to the noise chain: the lamp's photons per frame.
+      const auto t0 = std::chrono::steady_clock::now();
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      MovieCache& cache = SharedMovieCache();
+      std::lock_guard<std::mutex> lock(cache.mutex);
+      if (!ConfigureShared(cache, S.cf, err))
+         return false;
+      BrightfieldSpec bs;
+      if (!ScopeBrightfieldSpec(spec, bs, err) || !cache.brightfield.Update(cache.source, bs, cache.version, err))
+         return false;
+      BrightfieldPhotons lamp;
+      if (!lamp.Begin(spec, S, cache.brightfield, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      DriftInfo(S, info);
+      for (long f = 0; f < S.N; f++)
+         if (!onPhotons(f, lamp.At(cache.brightfield, S, f)))
+            break;
+      info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      return true;
+   }
+   FluorescenceMovie fm;
+   FluorescenceFrameOptions opt;
+   opt.onPhotons = onPhotons;
+   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, nullptr, &opt);
 }
 
 } // namespace sim

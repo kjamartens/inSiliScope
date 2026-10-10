@@ -158,6 +158,21 @@ public:
    bool SetLabel(int structure, const Label& l);
    const Label& GetLabel(int structure) const { return labels_[(size_t)structure]; }
 
+   // ABI 11: the kinetics history of the following queries (EventsInWindow,
+   // ContinuousInWindow, Prefetch): segment starts tStart (tStart[0] = 0,
+   // increasing) and per segment the kinetics of every structure, kin[i *
+   // STRUCTURE_COUNT + s]. Empty: none (each label's kinetics from t = 0). The
+   // dye blocks keep a schedule per history, up to 1 + kParkedSlots (clock
+   // regions sharing a block do not rebuild each other; a label change of the
+   // kinetics alone keeps those made under a history). False (nothing
+   // changes) on bad input.
+   bool SetKineticsHistory(const std::vector<double>& tStart, const std::vector<Kinetics>& kin);
+   // Structure s's history (nullptr: none).
+   const KineticsHistory* HistoryOf(int s) const
+   {
+      return hist_[(size_t)s].Size() ? &hist_[(size_t)s] : nullptr;
+   }
+
    // Mean emission dipole of a dye from SitesInWindow (DyeOrientation; false
    // for Free), cell-local.
    bool DyeOrientationOf(const WorldDye& d, Pt3& dir);
@@ -235,7 +250,22 @@ private:
       uint64_t used = 0;                    // last query that touched the block
       uint32_t phase = 0;                   // per-block hash, staggers the extensions
       bool generated = false;               // dyes filled in (ForEachDyeBlock)
+      // The kinetics history the schedule fields above (scheduled ... pBin1)
+      // belong to (its fingerprint, 0 = none), and up to kParkedSlots others
+      // (UseHistorySlot swaps them in).
+      uint64_t fp = 0;
+      struct Slot {
+         uint64_t fp = 0;
+         bool scheduled = false;
+         double tLo = 0, horizon = 0, maxOn = 0;
+         std::vector<WorldEvent> events;
+         std::vector<PersistentEvent> pEvents;
+         long pBin0 = 0, pBin1 = 0;
+      };
+      std::vector<Slot> parked;
    };
+   // A shaped illumination's 1/16 dose steps make up to 16 histories in a FOV.
+   static constexpr size_t kParkedSlots = 15;
    using BlockKey = std::array<int32_t, 4>; // cx, cy, mtIndex, block
    struct BlockKeyHash {
       size_t operator()(const BlockKey& k) const
@@ -284,10 +314,14 @@ private:
    // sequential from t = 0 and stops at the horizon), so any query history
    // gives the same blinks. True if it built (touches only b).
    bool Schedule(DyeBlock& b, double tLo, double tMax) const;
-   static bool ScheduleCovers(const DyeBlock& b, double tLo, double tMax)
+   bool ScheduleCovers(const DyeBlock& b, double tLo, double tMax) const
    {
-      return b.scheduled && b.horizon >= tMax && b.tLo <= tLo;
+      return b.fp == histFp_[(size_t)b.structure] && b.scheduled && b.horizon >= tMax && b.tLo <= tLo;
    }
+   // Makes b's schedule fields those of the current history of its structure:
+   // a parked slot of that history, else empty ones (the old ones parked).
+   // Touches only b.
+   void UseHistorySlot(DyeBlock& b) const;
    // The DNA-PAINT bin range of a query [t0, t1) for structure s.
    struct PersistRange { bool persist; long b0, b1; };
    PersistRange PersistFor(int s, double t0, double t1) const;
@@ -322,11 +356,16 @@ private:
    bool stopped_ = false;
    struct PrefetchRegion {
       double x0, y0, x1, y1, zMin, zMax;
-      uint64_t evictions, labelVersion;
+      uint64_t evictions, labelVersion, histVersion;
       bool valid = false;
    };
    PrefetchRegion prefetchDone_ = {};
    std::array<Label, STRUCTURE_COUNT> labels_;
+   // The kinetics history per structure (SetKineticsHistory; empty: none),
+   // its fingerprint (0: none) and a count of its changes.
+   std::array<KineticsHistory, STRUCTURE_COUNT> hist_;
+   std::array<uint64_t, STRUCTURE_COUNT> histFp_ = {};
+   uint64_t histVersion_ = 0;
    std::vector<const PersistentEvent*> persistentScratch_;
    // Built ahead in parallel for the current walk (PackedBlock / Assets take
    // them from here instead of building).

@@ -85,6 +85,19 @@ struct Kinetics {
    double initialOnSec = 0.0;
 };
 
+// A dye clock split into segments of constant kinetics (ABI 11, spec/ALGORITHM.md "Rate history"): segment i holds
+// from tStart[i] to tStart[i+1] (tStart[0] = 0, the last for ever). A schedule under a history spends each state's
+// unit-exponential draw as the integral of that state's rate over the segments, so the same draws give the same
+// past and a change of rates acts from its segment on (a change at T leaves every event before T as it was). One
+// segment is the label's kinetics from t = 0 (the old schedules, bit for bit).
+struct KineticsHistory {
+   std::vector<double> tStart;
+   std::vector<Kinetics> kin;
+   size_t Size() const { return tStart.size(); }
+   // The segment holding t (the last with tStart <= t; 0 before the first).
+   size_t SegmentAt(double t) const;
+};
+
 // ---- labels (issue 16; JS scope/dyes.js makeLabel) ----
 // A structure's label: which binding sites carry a dye, and how that dye
 // emits. The world model knows no spectra or light: the imaging side turns a
@@ -142,6 +155,12 @@ uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex);
 // are the same; a movie needs only its own time span).
 void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out,
                  double tMax = INFINITY);
+// The same under a history of two or more segments, in the dye's local time (absolute time - t0: the segments start
+// at tStart - t0): first activation, ON, dark and bleach per segment (KineticsHistory). A blink cycle that ends in
+// the segment it started in uses DyeSchedule's arithmetic, so the blinks before a later segment's start are
+// DyeSchedule's (or this function's without that segment) bit for bit.
+void DyeScheduleHistory(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, std::vector<Blink>& out,
+                        double tMax = INFINITY);
 
 // The emission of label dye (k, n) (JS labelSchedule): blinks of the main
 // state (dSTORM, PALM; DNA-PAINT blinks come from PersistentBlinks) and the
@@ -150,19 +169,30 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
 // state, a PRE window until the first blink (never at activation rate 0).
 // WideField: one ALWAYS_ON window. blinks / cont: nullptr to skip. tMax: as
 // DyeSchedule's (in absolute time).
+// hist (ABI 11): the label's kinetics per segment of the clock (nullptr: label.kin from t = 0; one segment: its
+// kinetics from t = 0, the same code). dSTORM: the initial ON spends its draw over 1 / initialOnSec per segment
+// (there is one iff segment 0 has initialOnSec > 0), the blinks run in local time from its end; PALM: the pre
+// window ends at the first activation of DyeScheduleHistory.
 void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::vector<Blink>* blinks,
-                   std::vector<ContWindow>* cont, double tMax = INFINITY);
+                   std::vector<ContWindow>* cont, double tMax = INFINITY, const KineticsHistory* hist = nullptr);
 
 // Blinks of persistent site (k, n) overlapping [t0, t1) (t >= 0), a pure
-// function of (address, time bin). Appends, by bin.
+// function of (address, time bin). Appends, by bin. hist (ABI 11): each bin
+// takes the kinetics of the segment holding its start (nullptr or one
+// segment: kin / that segment's for every bin), so a change acts from the next
+// bin and the bins before it never change.
 void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
-                      std::vector<Blink>& out);
+                      std::vector<Blink>& out, const KineticsHistory* hist = nullptr);
 
 // Every blink of persistent site (k, n) starting in time bins [binLo, binHi]
 // (bins of PERSIST_BIN_SEC), unfiltered. Same values as PersistentBlinks,
 // which is this plus the overlap filter. Appends, by bin then j.
 void PersistentBlinksInBins(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, long binLo, long binHi,
-                            std::vector<BinBlink>& out);
+                            std::vector<BinBlink>& out, const KineticsHistory* hist = nullptr);
+
+// The longest ON a persistent blink can have under kin / hist (PERSIST_ON_CAP x the largest onSec): the lookback of
+// a window query.
+double PersistentMaxOn(const Kinetics& kin, const KineticsHistory* hist);
 
 struct Dye {
    Pt3 pos;          // cell-local, um

@@ -204,8 +204,9 @@ function cellFieldFactory(SRC) {
   // The sample drift (insiliscope's Simulation/Drift.h, the JS twin web/prototype/scope/drift.js): per frame
   // f = 0 .. frames-1, the sample's displacement {x, y, z} in nm, 0 at frame 0. A random walk (every frame a normal
   // step per axis of variance sigma^2 x frameSec, sigma = RMS nm after 1 s: xyNmPerSqrtSec for x and y each,
-  // zNmPerSqrtSec) plus, in opts, a directed part: xySpeedNmPerSec, zSpeedNmPerSec (signed), xyAngleDeg (-1 =
-  // random per seed), angleWanderDeg, speedWanderPct, wanderTimeSec (the slow wander of direction and strength).
+  // zNmPerSqrtSec) plus, in opts, a directed part: xySpeedNmPerSec, zSpeedNmPerSec, xyAngleDeg (-1 = random per
+  // seed), zDirection (1 up, -1 down, 0 random per seed), angleWanderDeg and zAngleWanderDeg (each direction swings
+  // within +/- this, deg; defaults 180 and 90), speedWanderPct, wanderTimeSec (the slow wander's correlation time).
   // The same path as an insiliscope movie of that seed (its `seed` option) with the same settings.
   const Drift = __DRIFT__;
   function driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec, opts) {

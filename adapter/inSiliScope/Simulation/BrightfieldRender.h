@@ -29,12 +29,14 @@
 #include "SMLMZernike.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace sim {
 
 class CellFieldSource;
+class ParallelPool;
 
 // The speed/precision trade-off as one number: level 1 (fastest) .. 4 (most
 // precise) are exposed; 3 is the default. Level 5 exists as a reference for
@@ -125,6 +127,15 @@ public:
    // Transmitted intensity per camera pixel (1 = the empty field) with the
    // focal plane at focusUm (um above the coverslip). Cached per focus.
    bool Image(double focusUm, std::vector<float>& out, std::string& err);
+   // Update would return at once: the scene is this spec's and world's.
+   bool Matches(const CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const;
+   // Image(focusUm)'s pixels without touching the scene, so several threads
+   // may call it at once while nobody updates the scene (BrightfieldLive's
+   // focus prefetch). cancel() is asked before each source, on any thread
+   // (true: the image is dropped, false returned).
+   // pool: the threads to use (nullptr: the shared ParallelFor pool).
+   bool ComputeImage(double focusUm, std::vector<float>& out, const std::function<bool()>& cancel = nullptr,
+                     ParallelPool* pool = nullptr) const;
    // The transmitted intensity on the whole grid (margins included; mean of
    // the sources, summed in source order), as its spectrum (FineFft()'s
    // layout): periodic and band-limited (pitch <= lambda / 4n), so a drifting
@@ -155,7 +166,9 @@ private:
    // undefined; the inverse expects them zero). The inverse writes rows
    // [row0, row1) only (the rest undefined), normalised.
    void FftForward(cfloat* a, std::vector<cfloat>& work, bool band) const;
-   void FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1) const;
+   // cols: the columns that can be nonzero (default: the band).
+   void FftInverse(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1,
+                   const std::vector<unsigned>* cols = nullptr) const;
    void FftRows(cfloat* a, std::vector<cfloat>& work, unsigned row0, unsigned row1, bool conjIn, float outScale,
                 bool conjOut) const;
    void FftCols(cfloat* a, std::vector<cfloat>& work, const std::vector<unsigned>& cols, bool conjIn,
@@ -163,7 +176,7 @@ private:
    void ExitField(const Source& s, std::vector<cfloat>& u, std::vector<cfloat>& work) const;
    bool Begin(const BrightfieldSpec& spec, std::string& err);
    void Finish(bool deferSources);
-   void Defocus(double focusUm, std::vector<cfloat>& defocus) const;
+   void Defocus(double focusUm, std::vector<cfloat>& defocus, ParallelPool* pool = nullptr) const;
    void EnsureExitFields();   // the deferred per-source propagation (parallel over the sources)
    void SourceImage(int s, const std::vector<cfloat>& defocus, std::vector<cfloat>& u, std::vector<cfloat>& work,
                     float* camOut) const;
@@ -187,6 +200,10 @@ private:
    std::vector<cfloat> prop_;         // one slice step dz: exp(i kz dz), 0 where evanescent
    std::vector<cfloat> trans_;        // per slice transmittance exp(i phase) * amplitude (empty: on the fly)
    std::vector<unsigned> allCols_, bandCols_; // FFT columns: all, and those with |kx| < k0 n_medium
+   // The columns where the detection pupil is nonzero (|kx| <= k0 NA within
+   // the band): a field after the pupil is zero in the others, so its inverse
+   // transform skips them (the same pixels; fewer columns at low NA).
+   std::vector<unsigned> pupilCols_;
    std::vector<cfloat> thinSpec_;     // one slice: the transmittance spectrum (every source shifts it)
    std::vector<std::vector<cfloat>> exit_; // multislice: per source exit spectrum (empty: recompute)
    bool haveImage_ = false;

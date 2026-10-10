@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 
 namespace isc {
 
@@ -387,8 +388,14 @@ bool World::PastDeadline()
 World::PersistRange World::PersistFor(int s, double t0, double t1) const
 {
    const Kinetics& kin = labels_[(size_t)s].kin;
-   const double maxOn = PERSIST_ON_CAP * kin.onSec;
-   return { kin.activationRatePerSec > 0 && t1 > t0, std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC)),
+   const KineticsHistory* h = HistoryOf(s);
+   const double maxOn = PersistentMaxOn(kin, h);
+   bool any = kin.activationRatePerSec > 0;
+   if (h) {
+      any = false;
+      for (const Kinetics& q : h->kin) any = any || q.activationRatePerSec > 0;
+   }
+   return { any && t1 > t0, std::max(0L, (long)std::floor((t0 - maxOn) / PERSIST_BIN_SEC)),
             (long)std::floor(t1 / PERSIST_BIN_SEC) };
 }
 
@@ -397,10 +404,10 @@ bool World::Prefetch(double x0, double y0, double x1, double y1, double zMin, do
 {
    PoolScope scope(pool_);
    // Nothing new since the last complete prefetch of a region holding this one.
-   const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, labelVersion_, true };
+   const PrefetchRegion r = { x0, y0, x1, y1, zMin, zMax, evictions_, labelVersion_, histVersion_, true };
    const PrefetchRegion& d = prefetchDone_;
    if (d.valid && x0 >= d.x0 && y0 >= d.y0 && x1 <= d.x1 && y1 <= d.y1 && zMin >= d.zMin && zMax <= d.zMax &&
-       d.evictions == evictions_ && d.labelVersion == labelVersion_)
+       d.evictions == evictions_ && d.labelVersion == labelVersion_ && d.histVersion == histVersion_)
       return true;
    const auto deadline = std::chrono::steady_clock::now() +
                          std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -489,8 +496,92 @@ void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& p
    blk.generated = true;
 }
 
+void World::UseHistorySlot(DyeBlock& b) const
+{
+   const uint64_t fp = histFp_[(size_t)b.structure];
+   if (b.fp == fp) return;
+   DyeBlock::Slot cur;
+   cur.fp = b.fp;
+   cur.scheduled = b.scheduled;
+   cur.tLo = b.tLo;
+   cur.horizon = b.horizon;
+   cur.maxOn = b.maxOn;
+   cur.events.swap(b.events);
+   cur.pEvents.swap(b.pEvents);
+   cur.pBin0 = b.pBin0;
+   cur.pBin1 = b.pBin1;
+   auto it = std::find_if(b.parked.begin(), b.parked.end(), [&](const DyeBlock::Slot& s) { return s.fp == fp; });
+   if (it != b.parked.end()) {
+      b.scheduled = it->scheduled;
+      b.tLo = it->tLo;
+      b.horizon = it->horizon;
+      b.maxOn = it->maxOn;
+      b.events.swap(it->events);
+      b.pEvents.swap(it->pEvents);
+      b.pBin0 = it->pBin0;
+      b.pBin1 = it->pBin1;
+      b.parked.erase(it);
+   } else {
+      b.scheduled = false;
+      b.tLo = b.horizon = b.maxOn = 0;
+      b.pBin0 = b.pBin1 = 0;
+   }
+   b.fp = fp;
+   if (cur.scheduled || !cur.pEvents.empty()) {
+      b.parked.push_back(std::move(cur));
+      if (b.parked.size() > kParkedSlots) b.parked.erase(b.parked.begin());   // the oldest
+   }
+}
+
+bool World::SetKineticsHistory(const std::vector<double>& tStart, const std::vector<Kinetics>& kin)
+{
+   const size_t n = tStart.size();
+   if (kin.size() != n * STRUCTURE_COUNT) return false;
+   for (size_t i = 0; i < n; i++)
+      if (!std::isfinite(tStart[i]) || (i == 0 ? tStart[i] != 0 : !(tStart[i] > tStart[i - 1]))) return false;
+   for (const Kinetics& q : kin)
+      if (!std::isfinite(q.activationRatePerSec) || !(q.activationRatePerSec >= 0) || !std::isfinite(q.onSec) ||
+          !(q.onSec > 0) || !std::isfinite(q.offSec) || !(q.offSec >= 0) || !std::isfinite(q.bleachProb) ||
+          !(q.bleachProb > 0) || !std::isfinite(q.photonCV) || !(q.photonCV >= 0) || !std::isfinite(q.initialOnSec) ||
+          !(q.initialOnSec >= 0))
+         return false;
+   bool changed = false;
+   for (int s = 0; s < STRUCTURE_COUNT; s++) {
+      KineticsHistory h;
+      h.tStart = tStart;
+      for (size_t i = 0; i < n; i++) h.kin.push_back(kin[i * STRUCTURE_COUNT + (size_t)s]);
+      // FNV-1a over the segments' bits (0 is kept for "no history").
+      uint64_t fp = 0;
+      if (n) {
+         fp = 0xcbf29ce484222325ull;
+         auto mix = [&](double v) {
+            uint64_t u;
+            std::memcpy(&u, &v, sizeof u);
+            for (int byte = 0; byte < 8; byte++) { fp ^= (u >> (8 * byte)) & 0xFF; fp *= 0x100000001b3ull; }
+         };
+         for (size_t i = 0; i < n; i++) {
+            const Kinetics& q = h.kin[i];
+            mix(h.tStart[i]); mix(q.activationRatePerSec); mix(q.onSec); mix(q.offSec);
+            mix(q.bleachProb); mix(q.photonCV); mix(q.initialOnSec);
+         }
+         if (fp == 0) fp = 1;
+      }
+      if (fp != histFp_[(size_t)s]) changed = true;
+      hist_[(size_t)s] = std::move(h);
+      histFp_[(size_t)s] = fp;
+   }
+   if (changed) {
+      // The prefetch's key: the histories themselves (two alternating
+      // histories do not redo each other's prefetch).
+      histVersion_ = 0;
+      for (uint64_t f : histFp_) histVersion_ = (histVersion_ ^ f) * 0x100000001b3ull + 0x9E3779B97F4A7C15ull;
+   }
+   return true;
+}
+
 bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
 {
+   UseHistorySlot(b);
    if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo) return false;
    const double horizon = 2 * tMax;
    b.events.clear();
@@ -501,7 +592,7 @@ bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
       std::vector<Blink> blinks;
       for (const PackedDye& d : b.dyes) {
          blinks.clear();
-         LabelSchedule(b.h1, d.K(), d.N(), label, &blinks, nullptr, horizon);
+         LabelSchedule(b.h1, d.K(), d.N(), label, &blinks, nullptr, horizon, HistoryOf(b.structure));
          for (const Blink& bl : blinks) {
             if (!(bl.tOff > tLo)) continue;
             b.events.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, 0.0, d.id, (uint8_t)b.structure,
@@ -521,16 +612,23 @@ bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
 
 bool World::CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const
 {
-   if (b0 < b.pBin0 || b0 >= b.pBin1) return true;
+   if (b.fp != histFp_[(size_t)b.structure] || b0 < b.pBin0 || b0 >= b.pBin1) return true;
    const double frac = b.phase * (1.0 / 4294967296.0);
    return !(b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC);
 }
 
 bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const
 {
+   UseHistorySlot(b);
    const Kinetics& kin = labels_[(size_t)b.structure].kin;
+   const KineticsHistory* hist = HistoryOf(b.structure);
+   double rate = kin.activationRatePerSec;
+   if (hist) {
+      rate = 0;
+      for (const Kinetics& q : hist->kin) rate = std::max(rate, q.activationRatePerSec);
+   }
    // Bins per build: up to 16 or ~2048 expected blinks.
-   const double perBin = (double)b.dyes.size() * kin.activationRatePerSec * PERSIST_BIN_SEC;
+   const double perBin = (double)b.dyes.size() * rate * PERSIST_BIN_SEC;
    const long L = (long)std::min(16.0, std::max(1.0, std::floor(2048.0 / std::max(perBin, 1e-9))));
    long lo, hi;
    if (b0 < b.pBin0 || b0 >= b.pBin1) {
@@ -561,7 +659,7 @@ bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool short
    for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
       const PackedDye& d = b.dyes[i];
       bl.clear();
-      PersistentBlinksInBins(b.h1, d.K(), d.N(), kin, lo, hi - 1, bl);
+      PersistentBlinksInBins(b.h1, d.K(), d.N(), kin, lo, hi - 1, bl, hist);
       for (const BinBlink& e : bl) b.pEvents.push_back({ e.tOn, e.tOff, e.brightness, i, e.bin, e.j });
    }
    // The new bins all start after the kept ones, so sorting them keeps the
@@ -577,6 +675,13 @@ bool World::SetLabel(int structure, const Label& l)
    if (structure < 0 || structure >= STRUCTURE_COUNT || ValidateLabel(l)) return false;
    Label& cur = labels_[(size_t)structure];
    const bool dyesChange = l.density != cur.density || l.fluorescentFraction != cur.fluorescentFraction;
+   // Only the kinetics change: the schedules made under a kinetics history
+   // (fp != 0) never read the label's kinetics, so they stay.
+   const bool kinOnly = !dyesChange && l.mode == cur.mode && l.preState == cur.preState &&
+                        l.orientation.mode == cur.orientation.mode && l.orientation.polarDeg == cur.orientation.polarDeg &&
+                        l.orientation.azimuthDeg == cur.orientation.azimuthDeg &&
+                        l.orientation.wobbleDeg == cur.orientation.wobbleDeg && l.motion == cur.motion &&
+                        l.offTargetCount == cur.offTargetCount;
    cur = l;
    labelVersion_++;
    prefetchDone_.valid = false;
@@ -588,10 +693,16 @@ bool World::SetLabel(int structure, const Label& l)
    }
    for (auto& e : dyeLru_) {
       if (e.second.structure != structure) continue;
+      if (kinOnly) {
+         auto& pk = e.second.parked;
+         pk.erase(std::remove_if(pk.begin(), pk.end(), [](const DyeBlock::Slot& x) { return x.fp == 0; }), pk.end());
+         if (e.second.fp != 0) continue;
+      }
       e.second.scheduled = false;
       std::vector<WorldEvent>().swap(e.second.events);
       std::vector<PersistentEvent>().swap(e.second.pEvents);
       e.second.pBin0 = e.second.pBin1 = 0;
+      if (!kinOnly) e.second.parked.clear();
    }
    return true;
 }
@@ -735,7 +846,7 @@ void World::ContinuousInWindow(double x0, double y0, double x1, double y1, doubl
       const Label& label = labels_[(size_t)b.structure];
       if (label.mode == LabelMode::DnaPaint) return;
       cont.clear();
-      LabelSchedule(b.h1, d.K(), d.N(), label, nullptr, &cont);
+      LabelSchedule(b.h1, d.K(), d.N(), label, nullptr, &cont, INFINITY, HistoryOf(b.structure));
       for (const ContWindow& w : cont)
          if (w.tOff > tMin)
             out.push_back({ d.x, d.y, d.z, w.tOn, w.tOff, 1.0, w.aux, d.id, (uint8_t)b.structure, w.state });

@@ -14,9 +14,15 @@
     "notes": "Dempsey et al. 2011 measured Table 1 at 488 nm (1.2 kW/cm^2), 561 nm (2.2 kW/cm^2) and 647 nm (0.8 kW/cm^2; modelled with the 640 nm line) in TIRF, through ET535/50m, FF01-617/73 and ET700/75m (modelled as ideal band passes), on an EMCCD (QE 0.9 assumed). They found photons per switching cycle largely independent of the laser intensity, because the emission rate and the off-switching rate both depend linearly on it, and the duty cycle about constant (on-switching linear too; Results, 'Dependence of switching properties on light intensity', Supplementary Fig. 32). So a dSTORM dye's ON time, spontaneous dark time and initial ON time scale as 1 / (its excitation rate relative to kExcRef, the rate at this reference); the 405 nm activation adds on top. Exceptions they report (Cy3B photons rising with intensity; fewer switching cycles at high intensity for e.g. ATTO 655) are not modelled.",
     "refs": ["dempsey2011"]
   },
-  "suggestedLabelingPct": {
-    "DNA-PAINT": 70, "dSTORM": 3, "PALM": 25, "WideField": 70,
-    "notes": "% of the microtubule binding sites (1625 /um) a structure gets when its mode changes (the viewer, Micro-Manager) or with mt-label-pct = -1 (cli): estimates. DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites."
+  "typicalLabels": {
+    "microtubules": {
+      "dSTORM": { "dye": "AF647", "labelingPct": 3 },
+      "PALM": { "dye": "mEos3.2", "labelingPct": 25 },
+      "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 70 },
+      "WideField": { "dye": "mEGFP", "labelingPct": 70 }
+    },
+    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites).",
+    "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017"]
   },
   "dyes": [
     {
@@ -75,6 +81,22 @@
                        "refs": ["jungmann2010", "schnitzbauer2017"], "notes": "as ATTO 655 (estimate)" },
         "WideField": { "photonBudget": 100000, "notes": "estimate" }
       }
+    },
+    {
+      "id": "Cy3B", "name": "Cy3B", "category": "organic dye", "defaultMode": "DNA-PAINT",
+      "fpbase": { "dye": "Cy3B" },
+      "override": { "exMaxNm": 559, "emMaxNm": 570 },
+      "fluorescentFraction": 1.0,
+      "modes": {
+        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
+                       "refs": ["jungmann2014"],
+                       "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; kinetics as ATTO 655 (estimate: k_on of 9-10 nt imagers, onSec the default look)." },
+        "dSTORM": { "laser": 561, "detectedPhotonsPerCycle": 1365, "dutyCycle": 0.0003, "switchingCycles": 8,
+                    "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
+                    "refs": ["dempsey2011"], "notes": "Table 1 (MEA: 1,365 photons per cycle, duty cycle 0.0003, 8 switching cycles); 405 nm sensitivity '+' (Table 2); initialOnSec estimate. Its photons per cycle rise with the excitation intensity (Results), which is not modelled (dstormReference notes)." },
+        "WideField": { "photonBudget": 100000, "notes": "estimate" }
+      },
+      "notes": "FPbase has no peak wavelengths for Cy3B: 559/570 nm from dempsey2011 Table 1 (override); its extinction coefficient (130,000) and quantum yield (0.67) are FPbase's, as in that table."
     },
     {
       "id": "mEos3.2", "name": "mEos3.2", "category": "photoconvertible FP", "defaultMode": "PALM",

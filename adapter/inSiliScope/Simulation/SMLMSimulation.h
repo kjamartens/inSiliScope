@@ -145,6 +145,27 @@ struct StackShapingFields
 void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
                         double xPx, double yPx, double sigmaPx, double totalPhotons);
 
+// One emitter of a frame as RenderPhotonImage places it: camera-pixel position
+// (drift included), photons (overlap x brightness x illumination at the
+// undrifted site), the overlap with the frame, and the kernel z plane
+// (NearestZIndex of zNm/1000 - globalZOffsetUm; 0 without a kernel).
+struct FrameEmitter
+{
+   double xPx, yPx, photons, overlap;
+   int zIndex;
+};
+
+// The emitters of frame frameIndex among events (those overlapping it), in
+// event order, appended to out: the one per-emitter arithmetic shared by the
+// splat (RenderPhotonImage), the GPU emitters and the binned renderer
+// (BinnedBlinks.h). psfCache null = no plane lookup (Gaussian); illum: the
+// illumination field (width*height) or null.
+void CollectFrameEmitters(const std::vector<BlinkEvent>& events, long frameIndex, unsigned width, unsigned height,
+                          double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
+                          const PsfKernelCache* psfCache, double globalZOffsetUm, const std::vector<float>* illum,
+                          std::vector<FrameEmitter>& out, long* outZClampedCount = nullptr,
+                          long* outZTotalCount = nullptr);
+
 // Renders one frame's clean photon-count image (background + all emitters
 // whose [tStart,tEnd) overlaps [frameIndex, frameIndex+1)) into img (resized
 // to width*height as needed).

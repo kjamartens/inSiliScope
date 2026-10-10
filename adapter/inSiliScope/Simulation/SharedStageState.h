@@ -3,20 +3,12 @@
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Process-wide shared state linking the InSiliScopeZStage device
-//                (InSiliScopeZStage.h/.cpp) to CInSiliScopeCamera's frame renderer,
-//                without either device needing to know about the other or
-//                MM's device-linking mechanism: InSiliScopeZStage writes
-//                zPositionUm, and both StackGenerationWorker and
-//                LiveProducerLoop (SMLMImageGeneration.cpp) read it each
-//                frame as a uniform focus offset applied to every emitter
-//                (see RenderPhotonImage's globalZOffsetUm parameter in
-//                SMLMSimulation.h). InSiliScopeXYStage (InSiliScopeXYStage.h/.cpp)
-//                likewise drives the XY motion model below, which the camera
-//                samples once per produced frame for the CellField pattern
-//                (spec/PORT.md section 7). A single process-wide instance is
-//                sufficient -- Micro-Manager loads one instance of each
-//                device type per process.
+// DESCRIPTION:   The stage state shared by the inSiliScope devices: the ZStage
+//                writes zPositionUm (and its hardware z sequence), the XYStage
+//                drives the XY motion model, and the camera reads both for
+//                every frame it renders (one pose per frame, spec/PORT.md 7).
+//                One instance, owned by the hub (InSiliScopeHub::Stage()); no
+//                device knows another.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -182,13 +174,5 @@ private:
    double speedUmPerSec_ = 5000.0;
    double settleSec_ = 0.02;
 };
-
-// Process-wide singleton, lazily constructed on first use (thread-safe by
-// C++11 function-local static initialization rules).
-inline SharedStageState& GetSharedStageState()
-{
-   static SharedStageState state;
-   return state;
-}
 
 } // namespace sim

@@ -14,7 +14,7 @@ const IMG_GROUPS = [
   ['acquisition', /^(modality|size|frames|exposure-ms|start-sec|pixel-nm|z|focus-um|z-range-um|seed|drift-.*)$/],
   ['labels & dyes', /^(mt-|dye[1-3]\.)/],
   ['light path', /^(laser-|light-preset|illum-|chamber-|dichroic|em-)/],
-  ['mean field', /^(mean-field-|wf-)/],
+  ['mean field', /^(mean-field-|wf-|blink-)/],
   ['PSF', /^(psf-|wavelength-nm|na|immersion-index)/],
   ['BrightField', /^bf-/],
   ['camera & background', /./],

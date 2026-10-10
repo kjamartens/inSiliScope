@@ -40,12 +40,12 @@ Spectrum SkewedGaussian(double peakNm, double leftWidthNm, double rightWidthNm);
 Spectrum ParametricExcitation(double peakNm, double widthNm);   // long blue tail
 Spectrum ParametricEmission(double peakNm, double widthNm);     // long red tail
 
-enum class FilterType { None, LongPass, ShortPass, BandPass, Notch };
+enum class FilterType { None, LongPass, ShortPass, BandPass, Notch, MultiBand };
 struct IdealFilterSpec
 {
    FilterType type;
    double edgeNm, loNm, hiNm;
-   int nBands;            // Notch: reflected bands
+   int nBands;            // Notch: reflected bands; MultiBand: transmitted bands
    double bands[8][2];
 };
 // Transmission of an ideal filter (hard edges on the grid).

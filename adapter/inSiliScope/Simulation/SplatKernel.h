@@ -32,6 +32,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace sim {
 
@@ -53,6 +54,10 @@ struct SplatArgs
    const double* wx = nullptr;    // tap weights (nTaps each)
    const double* wy = nullptr;
    double photons = 0.0;
+   // The halo cut's columns per row of this plane (PsfHaloSpans), indexed
+   // dy + camRad; nullptr: every column of the square.
+   const int16_t* spanLo = nullptr;
+   const int16_t* spanHi = nullptr;
 };
 
 namespace splat_sse2 {

@@ -2,7 +2,8 @@
 // i.e. what insiliscope_cli / the viewer's isc_scope_movie render, option for option:
 //   world (seed, p.* geometry, one label per structure) -> modality 0 Fluorescence (fluorescence.js: every label in
 //   its mode -- blinks splatted with their own PSF, continuous populations mean-field or per dye, the DNA-PAINT imager
-//   background -- then ApplyNoiseChain) or modality 1 BrightField (brightfield.js).
+//   background -- then ApplyNoiseChain) or modality 1 BrightField (brightfield.js); light-epi / light-trans (the
+//   shutters) both on: the two summed before one noise chain, both off: dark frames.
 // Issue 16: dyes (dye_library.js, data/dyes) on structures, a light path (lasers, dichroic, emission filter, camera QE
 // curve) and camera presets replace the single dye and the SuperRes/WideField split.
 // This is the JS REFERENCE for imaging. Iterate on photophysics/PSF/camera here (web/lab), then port to
@@ -10,11 +11,11 @@
 import { World, STRUCTURES } from './world.js';
 import { ZERNIKE_PRESETS, zernikePresetCoefficients, psfKernelHalfWidthPx, buildZernikeKernelCache, NUM_ZERNIKE, planSplat,
   splatRows } from './psf.js';
-import { renderGaussian } from './render.js';
-import { renderBrightfieldMovie } from './brightfield.js';
+import { renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
+import { renderBrightfieldMovie, brightfieldPhotons } from './brightfield.js';
 import { driftOn, driftTrajectory, driftRange } from './drift.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
-import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
+import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
   backgroundQe } from './dye_library.js';
 import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
@@ -26,12 +27,13 @@ const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Err
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
 // ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
 export const DEFAULT_LASER_640_KW = 1.0;
-// k_on 1e6 /M/s x 1.43 nM = 1.43e-3 bindings per site per second, the former default activation rate.
-export const DEFAULT_IMAGER_NM = 1.43;
+// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
+// activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
+export const DEFAULT_IMAGER_NM = 1;
 
 // [name, default, help]: ScopeMovieOptions(), same order and defaults.
 export const SCOPE_OPTIONS = [
-  ['seed', 42, 'SimType_RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)'],
+  ['seed', 42, 'Hub.RandomSeed (cell field = seed ^ 0x43454C4C unless world-seed >= 0; noise as the adapter)'],
   ['world-seed', -1, 'cell-field world seed used as is (the viewer\'s seed); -1 = derive it from seed'],
   ['disk-cache', 1, 'per-user cache on disk (the C++ hosts; no file here): 0 = none, 1 = the packed cell positions, 2 = also the PSF kernel'],
   ['prepare', 0, '1 = build the world and the PSF kernel only (warms the caches), no frames'],
@@ -42,102 +44,118 @@ export const SCOPE_OPTIONS = [
   ['frames', 1000, 'number of frames'],
   ['exposure-ms', 50, 'frame duration, ms (simulated time per frame)'],
   ['start-sec', 60, 'simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)'],
-  ['drift-xy-speed-nm-per-sec', 0, 'SimType_DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)'],
-  ['drift-z-speed-nm-per-sec', 0, 'SimType_DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (signed: + = away from the coverslip)'],
-  ['drift-xy-angle-deg', -1, 'SimType_DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)'],
-  ['drift-xy-angle-wander-deg', 0, 'SimType_DriftXyAngleWanderDeg: how far that direction strays from its mean, deg RMS (advanced)'],
-  ['drift-speed-wander-pct', 0, 'SimType_DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)'],
-  ['drift-wander-time-sec', 60, 'SimType_DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)'],
-  ['drift-xy-nm-per-sqrt-sec', 0, 'SimType_DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)'],
-  ['drift-z-nm-per-sqrt-sec', 0, 'SimType_DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)'],
+  ['drift-xy-speed-nm-per-sec', 0, 'SampleHolder.DriftXySpeedNmPerSec: directed sample drift, mean xy speed, nm/s (0 = none)'],
+  ['drift-z-speed-nm-per-sec', 0, 'SampleHolder.DriftZSpeedNmPerSec: directed sample drift, mean z speed, nm/s (its direction: drift-z-direction)'],
+  ['drift-xy-angle-deg', -1, 'SampleHolder.DriftXyAngleDeg: direction of the xy drift, deg from +x (-1 = random per seed; advanced)'],
+  ['drift-z-direction', 0, 'SampleHolder.DriftZDirection: direction of the z drift, 1 = away from the coverslip, -1 = towards it, 0 = random per seed (advanced)'],
+  ['drift-xy-angle-wander-deg', 180, 'SampleHolder.DriftXyAngleWanderDeg: the xy direction swings slowly within +/- this, deg (180 = any direction; advanced)'],
+  ['drift-z-angle-wander-deg', 90, 'SampleHolder.DriftZAngleWanderDeg: the z drift swings within +/- this, deg: speed x cos(angle), 90 = between full speed and still, 180 = also back (advanced)'],
+  ['drift-speed-wander-pct', 0, 'SampleHolder.DriftSpeedWanderPct: how much the xy and z drift strengths fluctuate, % RMS of the mean (advanced)'],
+  ['drift-wander-time-sec', 60, 'SampleHolder.DriftWanderTimeSec: how slowly direction and strength wander (correlation time), s (advanced)'],
+  ['drift-xy-nm-per-sqrt-sec', 0, 'SampleHolder.DriftXyNmPerSqrtSec: random-walk drift on top, RMS nm per axis after 1 s (advanced)'],
+  ['drift-z-nm-per-sqrt-sec', 0, 'SampleHolder.DriftZNmPerSqrtSec: random-walk drift in z, RMS nm after 1 s (advanced)'],
   ['pixel-nm', 100, 'pixel size, nm'],
-  ['background-per-sec', 0, 'Background_BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)'],
-  ['na', 1.4, 'PSFParam_PsfNa: numerical aperture'],
-  ['focus-um', 0, 'SimType_CellFieldFocusHeightUm (focus offset added to z)'],
-  ['z-range-um', 7.0, 'SimType_CellFieldZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)'],
-  // ---- the microtubules' label (SimType_CellFieldMicrotubule*, FluoParam_Microtubule_*) ----
-  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'SimType_CellFieldMicrotubuleDye: a library dye or Dye1..Dye3 (names accepted; data/dyes/library.json)'],
-  ['mt-mode', -1, 'SimType_CellFieldMicrotubuleLabelMode: -1 = the dye\'s default, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', -1, 'SimType_CellFieldMicrotubuleLabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the suggestion of the mode (data/dyes suggestedLabelingPct: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
-  ['mt-imager-nm', DEFAULT_IMAGER_NM, 'SimType_CellFieldMicrotubuleImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
-  ['mt-orient', 0, 'SimType_CellFieldMicrotubuleOrientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
-  ['mt-orient-polar-deg', 90, 'SimType_CellFieldMicrotubuleOrientPolarDeg: Fixed dipole angle from the microtubule axis'],
-  ['mt-orient-azimuth-deg', 0, 'SimType_CellFieldMicrotubuleOrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction'],
-  ['mt-wobble-deg', 0, 'SimType_CellFieldMicrotubuleWobbleConeDeg: fast wobble cone half-angle (Fixed, Random)'],
-  ['mt-motion', 0, 'SimType_CellFieldMicrotubuleMotion: 0 Static (single-particle tracking: future)'],
-  // ---- dye slots (FluoParam_DyeN_*): a library dye + overrides, chosen by mt-dye = Dye1..Dye3 ----
-  ['dye1.source', idx(DYE_IDS, 'AF647'), 'FluoParam_Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)'],
-  ['dye2.source', idx(DYE_IDS, 'mEos3.2'), 'FluoParam_Dye2_Source'],
-  ['dye3.source', idx(DYE_IDS, 'mEGFP'), 'FluoParam_Dye3_Source'],
-  // ---- light path (Optics_*) ----
-  ...LASER_LINES.map(nm => [`laser-${nm}`, nm === 640 ? DEFAULT_LASER_640_KW : 0, `Optics_Laser${nm}KWcm2: ${nm} nm laser intensity at the sample, kW/cm^2 (0 = off)`]),
-  ['laser-custom-nm', 0, 'Optics_LaserCustomNm: wavelength of an extra laser line, nm (0 = none)'],
-  ['laser-custom', 0, 'Optics_LaserCustomKWcm2: its intensity, kW/cm^2'],
-  ['light-preset', -1, 'Optics_Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, dichroic and em-filter the spec does not give.'],
-  ['illum-geometry', 0, 'Optics_IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
-  ['chamber-height-um', 5, 'Optics_ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
-  ['dichroic', idx(DICHROIC_IDS, DYE_DATA.lightPathDefaults.dichroic), 'Optics_Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)'],
-  ['dichroic-edge-nm', 650, 'Optics_DichroicEdgeNm: the Custom dichroic\'s long-pass edge'],
-  ['em-filter', idx(EMISSION_FILTER_IDS, DYE_DATA.lightPathDefaults.emissionFilter), 'Optics_EmissionFilter (names accepted)'],
-  ['em-lo-nm', 657.5, 'Optics_EmissionLoNm: Custom band pass, low edge'],
-  ['em-hi-nm', 694.5, 'Optics_EmissionHiNm: Custom band pass, high edge'],
-  ['chunk-um', 26, 'SimType_CellFieldChunkSizeUm'],
-  ['occupancy', 0.33, 'SimType_CellFieldOccupancy'],
-  ['cell-diam-min-um', 25, 'SimType_CellFieldCellDiameterMinUm'],
-  ['cell-diam-max-um', 35, 'SimType_CellFieldCellDiameterMaxUm'],
-  ['mt-density', 0.9, 'SimType_CellFieldMicrotubuleDensityPerUm2'],
-  ['packing', 1, 'SimType_CellFieldPacking (1 on, 0 off)'],
-  // ---- camera (CamParam_*): a preset sets every value below that the spec does not give ----
-  ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'CamParam_CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],
-  ['qe-curve', -1, 'CamParam_QeCurve: QE(lambda) of a camera (index/name), -1 = the preset\'s, Custom = flat at qe'],
-  ['qe', 0.85, 'CamParam_QuantumEfficiency (the flat QE of the Custom curve)'],
-  ['camera-type', -1, 'CamParam_CameraType: -1 = the preset\'s, 0 sCMOS, 1 EMCCD'],
-  ['dark-per-sec', 1.03, 'CamParam_DarkCurrentElectronsPerSec'],
-  ['gain', 0.25, 'CamParam_GainPhotonsPerADU (electrons per ADU)'],
-  ['offset', 100, 'CamParam_OffsetADU'],
-  ['offset-std', 0.5, 'CamParam_OffsetStdADU'],
-  ['read-noise', 1.2, 'CamParam_ReadNoiseElectrons'],
-  ['gain-std-pct', 0.5, 'CamParam_GainStdPctPerPixel (per-pixel gain spread, PRNU)'],
-  ['read-noise-std-pct', 20, 'CamParam_ReadNoiseStdPctPerPixel'],
-  ['em-gain', -1, 'CamParam_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it'],
-  ['cic', 0.002, 'CamParam_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)'],
-  ['bit-depth', 16, 'CamParam_BitDepth (EMCCD)'],
-  ['modality', 0, 'General_ImagingModality: 0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted)'],
-  ['wf-upscale', 1, 'General_WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)'],
-  ['wf-plane-nm', 25, 'General_WideFieldZPlaneNm: mean-field dye plane thickness, nm'],
+  ['background-per-sec', 0, 'SampleHolder.BackgroundPhotonsPerSec (photons/pixel/s at the camera, x the QE at the emission filter centre)'],
+  ['na', 1.4, 'Objective.NA: numerical aperture'],
+  ['focus-um', 0, 'CellField.FocusHeightUm (focus offset added to z)'],
+  ['z-range-um', 7.0, 'CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)'],
+  // ---- the microtubules' label (Micro-Manager: CellField.Microtubules_*, Fluorophores) ----
+  ['specimen', 0, 'SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)'],
+  ['mode', -1, 'Fluorophores Mode: the experiment\'s label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target\'s own; names accepted)'],
+  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules\' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)'],
+  ['mt-mode', -1, 'CellField Microtubules_Mode: -1 DyeDefault = the dye\'s default (Typical: the library\'s default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
+  ['mt-label-pct', -1, 'CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target\'s typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
+  ['mt-imager-nm', DEFAULT_IMAGER_NM, 'CellField.Microtubules_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
+  ['mt-orient', 0, 'CellField.Microtubules_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
+  ['mt-orient-polar-deg', 90, 'CellField.Microtubules_OrientPolarDeg: Fixed dipole angle from the microtubule axis'],
+  ['mt-orient-azimuth-deg', 0, 'CellField.Microtubules_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction'],
+  ['mt-wobble-deg', 0, 'CellField.Microtubules_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)'],
+  ['mt-motion', 0, 'CellField.Microtubules_Motion: 0 Static (single-particle tracking: future)'],
+  // ---- dye slots (Fluorophores.DyeN_*): a library dye + overrides, chosen by mt-dye = Dye1..Dye3 ----
+  ['dye1.source', idx(DYE_IDS, 'AF647'), 'Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)'],
+  ['dye2.source', idx(DYE_IDS, 'mEos3.2'), 'Fluorophores.Dye2_Source'],
+  ['dye3.source', idx(DYE_IDS, 'mEGFP'), 'Fluorophores.Dye3_Source'],
+  // ---- light path (Micro-Manager: Lasers, the filter wheels) ----
+  ...LASER_LINES.map(nm => [`laser-${nm}`, nm === 640 ? DEFAULT_LASER_640_KW : 0, `Lasers.Laser${nm}KWcm2: ${nm} nm laser intensity at the sample, kW/cm^2 (0 = off)`]),
+  ['laser-custom-nm', 0, 'wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)'],
+  ['laser-custom', 0, 'its intensity, kW/cm^2'],
+  ['light-preset', -1, 'Lasers.Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give.'],
+  ['illum-geometry', 0, 'Lasers.IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
+  ['chamber-height-um', 5, 'Lasers.ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
+  ['ex-filter', idx(EXCITATION_FILTER_IDS, DYE_DATA.lightPathDefaults.excitationFilter), 'ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)'],
+  ['ex-lo-nm', 635, 'ExcitationFilter Custom band pass, low edge'],
+  ['ex-hi-nm', 645, 'ExcitationFilter Custom band pass, high edge'],
+  ['dichroic', idx(DICHROIC_IDS, DYE_DATA.lightPathDefaults.dichroic), 'Dichroic: reflects the lasers (R = 1 - T), transmits the emission (names accepted)'],
+  ['dichroic-edge-nm', 650, 'Dichroic.CustomEdgeNm: the Custom dichroic\'s long-pass edge'],
+  ['em-filter', idx(EMISSION_FILTER_IDS, DYE_DATA.lightPathDefaults.emissionFilter), 'EmissionFilter (names accepted)'],
+  ['em-lo-nm', 657.5, 'EmissionFilter.CustomLoNm: Custom band pass, low edge'],
+  ['em-hi-nm', 694.5, 'EmissionFilter.CustomHiNm: Custom band pass, high edge'],
+  ['chunk-um', 26, 'CellField.ChunkSizeUm'],
+  ['occupancy', 0.33, 'CellField.Occupancy'],
+  ['cell-diam-min-um', 25, 'CellField.CellDiameterMinUm'],
+  ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
+  ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2'],
+  ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
+  // ---- camera (Micro-Manager: Camera): a preset sets every value below that the spec does not give ----
+  ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],
+  ['qe-curve', -1, 'Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset\'s, Custom = flat at qe'],
+  ['qe', 0.85, 'Camera.QuantumEfficiency (the flat QE of the Custom curve)'],
+  ['camera-type', -1, 'Camera.CameraType: -1 = the preset\'s, 0 sCMOS, 1 EMCCD'],
+  ['dark-per-sec', 1.03, 'Camera.DarkCurrentElectronsPerSec'],
+  ['gain', 0.25, 'Camera.GainElectronsPerADU (electrons per ADU)'],
+  ['offset', 100, 'Camera.OffsetADU'],
+  ['offset-std', 0.5, 'Camera.OffsetStdADU'],
+  ['read-noise', 1.2, 'Camera.ReadNoiseElectrons'],
+  ['gain-std-pct', 0.5, 'Camera.sCMOS_GainStdPctPerPixel (per-pixel gain spread, PRNU)'],
+  ['read-noise-std-pct', 20, 'Camera.sCMOS_ReadNoiseStdPctPerPixel'],
+  ['em-gain', -1, 'Camera.EMCCD_EmGain (EMCCD): -1 = the pre-amplifier sensitivity of the camera preset (1 e-/ADU when it has none) / gain, as the viewer and Micro-Manager derive it; > 0 sets it'],
+  ['cic', 0.002, 'Camera.EMCCD_CicElectrons (EMCCD clock-induced charge, e-/pixel/frame)'],
+  ['bit-depth', 16, 'Camera.BitDepth (EMCCD)'],
+  ['modality', 0, '0 = Fluorescence (every label in its mode), 1 = BrightField (transmitted light; names accepted); the shorthand for light-epi / light-trans (Micro-Manager: the Lasers and TransmittedLamp shutters)'],
+  ['light-epi', -1, 'Lasers shutter: 1 open, 0 closed, -1 = from modality (open in Fluorescence)'],
+  ['light-trans', -1, 'TransmittedLamp shutter: 1 open, 0 closed, -1 = from modality (open in BrightField). Both open: fluorescence + BrightField through one camera; none: dark frames'],
+  ['wf-upscale', 1, 'Renderer.WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)'],
+  ['wf-plane-nm', 25, 'Renderer.WideFieldZPlaneNm: mean-field dye plane thickness, nm'],
   ['wf-kernel-um', 7, 'mean-field PSF kernel radius cap, um'],
-  ['mean-field-density-per-um2', 20, 'General_MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below'],
-  ['mean-field-slab-nm', 500, 'General_MeanFieldSlabNm: that slab\'s thickness around the focal plane'],
-  ['mean-field-max-emitters', 5000, 'General_MeanFieldMaxEmitters: and mean-field above this many emitting dyes in the z range (cost cap of the per-dye path)'],
-  ['bf-quality', 3, 'General_BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given'],
-  ['bf-sources', 0, 'General_BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)'],
-  ['bf-upscale', 0, 'General_BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)'],
-  ['bf-sub', 0, 'General_BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/2)'],
-  ['bf-slice-um', -1, 'General_BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/0.5/0.5/0.25)'],
+  ['mean-field-density-per-um2', 20, 'Renderer.MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below'],
+  ['mean-field-slab-nm', 500, 'Renderer.MeanFieldSlabNm: that slab\'s thickness around the focal plane'],
+  ['mean-field-max-emitters', 5000, 'Renderer.MeanFieldMaxEmitters: and mean-field above this many emitting dyes in the z range (cost cap of the per-dye path)'],
+  ['blink-binned-density-per-um2', 12.5, 'Renderer.BlinkBinnedDensityPerUm2: the blinks of a frame render binned (approximate SMLM: the same events on a grid of blink-binned-upscale cells per pixel, FFT-convolved per PSF plane; the cost is per FOV area instead of per blink) above this many ON emitters per um^2 of the FOV, splatted one by one below'],
+  ['blink-binned-max-emitters', 1e9, 'Renderer.BlinkBinnedMaxEmitters: and binned above this many ON emitters in the frame'],
+  ['blink-mean-field-density-per-um2', 1e9, 'Renderer.BlinkMeanFieldDensityPerUm2: a frame\'s blinks render mean-field (no events drawn: every dye\'s expected ON time in the frame from its kinetics x the dye density, convolved once; the blinking itself is lost, only shot noise stays) above this many expected ON emitters per um^2 of the focal slab (mean-field-slab-nm); 1e9 = never'],
+  ['blink-mean-field-max-emitters', 1e9, 'Renderer.BlinkMeanFieldMaxEmitters: and mean-field above this many expected ON emitters in the z range; 1e9 = never'],
+  ['blink-binned-upscale', 2, 'Renderer.BlinkBinnedUpscale: the cells of the binned grid per pixel, per axis (a divisor of the PSF oversampling; the position is snapped to +-half a cell)'],
+  ['bf-quality', 3, 'Renderer.BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given'],
+  ['bf-sources', 0, 'Renderer.BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)'],
+  ['bf-upscale', 0, 'Renderer.BrightFieldUpscaling: optical grid cells per pixel, per axis (a minimum, raised to keep the grid pitch <= lambda / 4n; 0 = from bf-quality: 1)'],
+  ['bf-sub', 0, 'Renderer.BrightFieldGeometrySamples: geometry samples per grid cell side (0 = from bf-quality: 1/1/2/2)'],
+  ['bf-slice-um', -1, 'Renderer.BrightFieldSliceUm: multislice step, um; 0 = one thin slice (-1 = from bf-quality: 0/0.5/0.5/0.25)'],
   ['bf-margin-um', 0, 'BrightField grid margin around the FOV, um (0 = from bf-quality: 3-5)'],
-  ['bf-condenser-na', 0.4, 'General_BrightFieldCondenserNa: illumination NA (0 = coherent)'],
-  ['bf-wavelength-nm', 550, 'General_BrightFieldWavelengthNm: illumination wavelength (the camera QE is read there)'],
-  ['bf-photons-per-px-per-sec', 80000, 'General_BrightFieldPhotonsPerPxPerSec: empty-field photons per pixel per second'],
-  ['bf-aberrations', 1, 'General_BrightFieldAberrations: 1 = the PSF\'s Zernike aberrations in the detection pupil, 0 = none'],
-  ['bf-n-medium', 1.337, 'SimType_CellFieldIndexMedium: refractive index of the medium'],
-  ['bf-n-cytoplasm', 1.35, 'SimType_CellFieldIndexCytoplasm'],
-  ['bf-n-nucleus', 1.35, 'SimType_CellFieldIndexNucleus'],
-  ['bf-n-microtubule', 1.48, 'SimType_CellFieldIndexMicrotubule (12.5 nm tubes)'],
-  ['bf-absorption-per-um', 0, 'SimType_CellFieldAbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)'],
-  ['immersion-index', 1.518, 'PSFParam_PsfImmersionIndex (PSF and collection efficiency)'],
-  ['psf-model', 3, 'PSFParam_PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter\'s JVM)'],
-  ['psf-zernike-preset', 9, 'PSFParam_PsfZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)'],
-  ['psf-mask', 0, 'PSFParam_PsfMaskType: 0 = None, 1 = DoubleHelix (names accepted)'],
-  ['psf-mask-modes', 5, 'PSFParam_PsfMaskModes: double-helix Gauss-Laguerre modes (2-8)'],
-  ['psf-mask-waist', 1.0, 'PSFParam_PsfMaskWaist: double-helix waist, pupil radii'],
-  ['psf-oversampling', 6, 'PSFParam_PsfOversampling: kernel samples per camera pixel, per axis (1-16)'],
-  ['psf-kernel-half-width-nm', 7000, 'PSFParam_PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)'],
-  ['psf-z-range-um', 7.0, 'PSFParam_PsfZRangeUm: span of the PSF z stack'],
-  ['psf-z-step-um', 0.1, 'PSFParam_PsfZStepUm: PSF z plane spacing'],
-  ['psf-sample-index', 1.518, 'PSFParam_PsfSampleIndex: sample refractive index (Gibson-Lanni)'],
-  ['psf-working-distance-um', 150, 'PSFParam_PsfWorkingDistanceUm (Gibson-Lanni ti0)'],
-  ['psf-sample-depth-nm', 0, 'PSFParam_PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)'],
-  ['psf-interp', 2, 'PSFParam_PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)'],
+  ['bf-condenser-na', 0.4, 'TransmittedLamp.CondenserNA: illumination NA (0 = coherent)'],
+  ['bf-wavelength-nm', 550, 'TransmittedLamp.WavelengthNm: illumination wavelength (the camera QE is read there)'],
+  ['bf-photons-per-px-per-sec', 80000, 'TransmittedLamp.IntensityPhotonsPerPxPerSec: empty-field photons per pixel per second'],
+  ['bf-aberrations', 1, 'TransmittedLamp.UseObjectiveAberrations: 1 = the PSF\'s Zernike aberrations in the detection pupil, 0 = none'],
+  ['bf-n-medium', 1.337, 'CellField.IndexMedium: refractive index of the medium'],
+  ['bf-n-cytoplasm', 1.35, 'CellField.IndexCytoplasm'],
+  ['bf-n-nucleus', 1.35, 'CellField.IndexNucleus'],
+  ['bf-n-microtubule', 1.48, 'CellField.IndexMicrotubule (12.5 nm tubes)'],
+  ['bf-absorption-per-um', 0, 'CellField.AbsorptionPerUm: intensity absorption of cell material, 1/um (unstained: 0)'],
+  ['immersion-index', 1.518, 'Objective.ImmersionIndex (PSF and collection efficiency)'],
+  ['psf-model', 3, 'Renderer.PsfModel: 0 = Gaussian, 3 = GibsonLanniZernike (names accepted; 1/2 need the adapter\'s JVM)'],
+  ['psf-zernike-preset', 9, 'Objective.ZernikePreset: index or name (0 None ... 9 MixedRealisticObjective ... 12)'],
+  ['psf-mask', 0, 'pupil mask: 0 = None, 1 = DoubleHelix (names accepted; not in Micro-Manager)'],
+  ['psf-mask-modes', 5, 'double-helix Gauss-Laguerre modes (2-8)'],
+  ['psf-mask-waist', 1.0, 'double-helix waist, pupil radii'],
+  ['psf-oversampling', 6, 'Renderer.PsfOversampling: kernel samples per camera pixel, per axis (1-16)'],
+  ['psf-kernel-half-width-nm', 7000, 'Objective.PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)'],
+  ['psf-z-range-um', 7.0, 'Objective.PsfZRangeUm: span of the PSF z stack'],
+  ['psf-z-step-um', 0.1, 'Objective.PsfZStepUm: PSF z plane spacing'],
+  ['psf-sample-index', 1.518, 'SampleHolder.PsfSampleIndex: sample refractive index (Gibson-Lanni)'],
+  ['psf-working-distance-um', 150, 'Objective.WorkingDistanceUm (Gibson-Lanni ti0)'],
+  ['psf-sample-depth-nm', 0, 'SampleHolder.PsfSampleDepthNm: emitter depth below the coverslip (Gibson-Lanni)'],
+  ['psf-pupil-samples', 0, 'Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)'],
+  ['psf-halo-cut', 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)"],
+  ['psf-interp', 2, 'Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)'],
 ];
 // Per-structure dye overrides `<prefix>-dye.<field>` and slot overrides `dye<N>.<field>` (DYE_FIELDS keys).
 export const DYE_FIELD_NAMES = Object.keys(DYE_FIELDS);
@@ -146,8 +164,9 @@ const NAMES = {
   modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', 'RichardsWolf', 'GibsonLanni', 'GibsonLanniZernike'],
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
   'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
+  mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
-  dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
+  'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
 };
 const DYE_OVERRIDE = /^(?:([a-z]+)-dye|dye([1-3]))\.([a-z0-9-]+)$/;
@@ -162,6 +181,12 @@ export function parseSpec(spec) {
     if (!(k in DEFAULTS) && !ov && !/^p\.\w+$/.test(k) && !/^zern\.\d{1,2}$/.test(k)) throw new Error(`bad option '${k}'`);
     let x = typeof v === 'number' ? v : (String(v).trim() === '' ? NaN : Number(v));
     if (Number.isNaN(x) && NAMES[k]) { const i = NAMES[k].indexOf(String(v)); x = i >= 0 ? i : NaN; }
+    // The special values (ScopeOptionValue): a target's Typical dye, its DyeDefault / Global mode; no global mode.
+    if (Number.isNaN(x)) {
+      const t = String(v);
+      if ((k.endsWith('-dye') && t === 'Typical') || (k.endsWith('-mode') && t === 'DyeDefault') || (k === 'mode' && t === 'None')) x = -1;
+      else if (k.endsWith('-mode') && t === 'Global') x = -2;
+    }
     if (Number.isNaN(x)) throw new Error(`bad option '${k}=${v}'`);
     out[k] = x;
   };
@@ -188,13 +213,39 @@ export function scopeDims(spec) {
 const CAMERA_KEYS = { qe: 'quantumEfficiency', 'dark-per-sec': 'darkCurrentElectronsPerSec', gain: 'gainElectronsPerAdu',
   offset: 'offsetAdu', 'offset-std': 'offsetStdAdu', 'read-noise': 'readNoiseElectrons', 'gain-std-pct': 'gainStdPct',
   'read-noise-std-pct': 'readNoiseStdPct', cic: 'cicElectrons', 'bit-depth': 'bitDepth' };
-// The preset's gain depends on the imaging (cameraPresetGain): BrightField, or every structure in WideField mode.
+// Which lights are on (ScopeLights): light-epi (the lasers' shutter) and light-trans (the lamp's), each 1 open / 0
+// closed / -1 from modality (Fluorescence: epi, BrightField: trans).
+export function scopeLights(spec) {
+  const O = getter(spec), e = O('light-epi'), t = O('light-trans'), brightField = O('modality') === 1;
+  return { epi: e >= 0 ? e !== 0 : !brightField, trans: t >= 0 ? t !== 0 : brightField };
+}
+
+// The preset's gain depends on the imaging (cameraPresetGain): the lamp on (BrightField, alone or with fluorescence),
+// or every structure in WideField mode.
 function wideFieldOrBrightField(spec) {
-  const O = getter(spec);
-  if (O('modality') === 1) return true;
-  const { slots, byStructure } = dyeOverrides(spec);
-  return STRUCTURES.every(s => effectiveDye(Math.trunc(O(`${s.prefix}-dye`)), slots, byStructure[s.prefix],
-    Math.trunc(O(`${s.prefix}-mode`))).mode === 'WideField');
+  if (scopeLights(spec).trans) return true;
+  return STRUCTURES.every((s, i) => scopeStructureDye(spec, i).eff.mode === 'WideField');
+}
+
+// A structure's dye choice and mode as the spec gives them, resolved (ScopeStructureDye): <prefix>-mode -2 = the global
+// mode option (-1 there: none); <prefix>-dye -1 = the target's typical dye in that mode (the library's default mode
+// when none is asked). { eff, choice }: the effective dye and the resolved index into DYE_CHOICES.
+export function scopeStructureDye(spec, s) {
+  const O = getter(spec), P = STRUCTURES[s].prefix, { slots, byStructure } = dyeOverrides(spec);
+  let mode = Math.trunc(O(`${P}-mode`));
+  if (mode === -2) mode = Math.trunc(O('mode'));
+  if (mode < -1) mode = -1;
+  let choice = Math.trunc(O(`${P}-dye`));
+  if (choice === -1) {
+    if (mode < 0) mode = MODES.indexOf(DYE_DATA.dyeDefault.mode);
+    choice = DYE_IDS.indexOf(DYE_DATA.typicalLabels[STRUCTURES[s].id][MODES[mode]].dye);
+  }
+  return { eff: effectiveDye(choice, slots, byStructure[P], mode), choice };
+}
+// A structure's labelled % (-1: the target's typical % in its mode).
+export function scopeStructureLabelingPct(spec, s, mode) {
+  const pct = getter(spec)(`${STRUCTURES[s].prefix}-label-pct`);
+  return pct >= 0 ? pct : DYE_DATA.typicalLabels[STRUCTURES[s].id][mode].labelingPct;
 }
 export function scopeCamera(spec) {
   const O = getter(spec), preset = cameraPreset(Math.trunc(O('camera-preset')));
@@ -208,14 +259,13 @@ export function scopeCamera(spec) {
     emGain: O('em-gain') > 0 ? O('em-gain') : emGainFromGain(cameraPreamp(preset), C('gain')), cicElectrons: C('cic'), bitDepth: C('bit-depth') };
 }
 
-// The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, dichroic, emissionFilter}.
+// The light preset a spec asks for (LightPreset): null, or {lasers: {nm: kW}, excitationFilter?, dichroic, emissionFilter}.
 export function scopeLightPreset(spec) {
   const O = getter(spec), i = Math.trunc(O('light-preset'));
   if (i < 0) return null;
   let id = LIGHT_PRESET_CHOICES[i];
   if (id === 'auto') {
-    const { slots, byStructure } = dyeOverrides(spec), P = STRUCTURES[0].prefix;
-    const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
+    const { eff } = scopeStructureDye(spec, 0);
     id = eff.dye.modes[eff.mode].lightPreset;
   }
   const q = DYE_DATA.lightPresets.find(x => x.id === id);
@@ -228,13 +278,15 @@ export function scopeLightPath(spec, camera = scopeCamera(spec)) {
   if (q) {
     spec = { ...spec };
     for (const nm of LASER_LINES) if (!(`laser-${nm}` in spec)) spec[`laser-${nm}`] = q.lasers[nm] ?? 0;
+    if (!('ex-filter' in spec)) spec['ex-filter'] = EXCITATION_FILTER_IDS.indexOf(q.excitationFilter ?? 'None');
     if (!('dichroic' in spec)) spec.dichroic = DICHROIC_IDS.indexOf(q.dichroic);
     if (!('em-filter' in spec)) spec['em-filter'] = EMISSION_FILTER_IDS.indexOf(q.emissionFilter);
   }
   const O = getter(spec);
   const lasers = LASER_LINES.map(nm => ({ nm, kWPerCm2: Math.max(0, O(`laser-${nm}`)) }));
   if (O('laser-custom-nm') > 0) lasers.push({ nm: O('laser-custom-nm'), kWPerCm2: Math.max(0, O('laser-custom')) });
-  return makeLightPath({ lasers, dichroic: Math.trunc(O('dichroic')), dichroicEdgeNm: O('dichroic-edge-nm'),
+  return makeLightPath({ lasers, excitationFilter: Math.trunc(O('ex-filter')), exLoNm: O('ex-lo-nm'), exHiNm: O('ex-hi-nm'),
+    dichroic: Math.trunc(O('dichroic')), dichroicEdgeNm: O('dichroic-edge-nm'),
     emissionFilter: Math.trunc(O('em-filter')), emLoNm: O('em-lo-nm'), emHiNm: O('em-hi-nm'), qeCurve: camera.qeCurve,
     qeFlat: camera.qeFlat, na: O('na'), immersionIndex: O('immersion-index'), chamberHeightUm: Math.max(0, O('chamber-height-um')) });
 }
@@ -254,11 +306,11 @@ function dyeOverrides(spec) {
 
 // Per structure: its effective dye, mode, world label and photophysics (labelPhotophysics).
 export function scopeLabels(spec, lp) {
-  const O = getter(spec), { slots, byStructure } = dyeOverrides(spec);
-  return STRUCTURES.map(s => {
+  const O = getter(spec);
+  return STRUCTURES.map((s, i) => {
     const P = s.prefix;
-    const eff = effectiveDye(Math.trunc(O(`${P}-dye`)), slots, byStructure[P], Math.trunc(O(`${P}-mode`)));
-    const pct = O(`${P}-label-pct`) >= 0 ? O(`${P}-label-pct`) : DYE_DATA.suggestedLabelingPct[eff.mode];
+    const { eff } = scopeStructureDye(spec, i);
+    const pct = scopeStructureLabelingPct(spec, i, eff.mode);
     return labelPhotophysics(eff, lp, {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
@@ -273,10 +325,12 @@ export function scopeSetup(P, spec) {
   const seed = Math.trunc(O('seed'));
   const { width: W, height: H, frames: N } = scopeDims(spec);
   const expSec = Math.max(1e-6, O('exposure-ms') / 1000.0), t0Sec = Math.max(0.0, O('start-sec'));
+  if (Math.trunc(O('specimen')) !== 0) throw new Error(`specimen ${Math.trunc(O('specimen'))}: only the CellField (0) exists`);
   const pixelSizeNm = O('pixel-nm');
   const camera = scopeCamera(spec);
   const lp = scopeLightPath(spec, camera);
-  const brightField = O('modality') === 1;
+  const lights = scopeLights(spec);
+  const brightField = lights.trans && !lights.epi;   // both: the fluorescence chain at QE 1, the lamp's photons x its QE
   const labels = scopeLabels(spec, lp);
   // Fluorescence: the photon image is already in detected photons (QE(lambda) in each dye's detected fraction), so
   // the noise chain runs at QE 1; the flat background takes the QE at the emission filter's centre. BrightField:
@@ -288,7 +342,10 @@ export function scopeSetup(P, spec) {
     quantumEfficiency: brightField ? sampleAt(lp.qe, O('bf-wavelength-nm')) : 1.0,
     darkCurrentElectrons: camera.darkPerSec * expSec, gainPhotonsPerAdu: camera.gainPhotonsPerAdu,
     offsetAdu: camera.offsetAdu, offsetStdAdu: camera.offsetStdAdu, readNoiseElectrons: camera.readNoiseElectrons,
-    gainStdFraction: camera.gainStdFraction, readNoiseStdFraction: camera.readNoiseStdFraction,
+    // The per-pixel gain and read-noise spreads are an sCMOS's (an amplifier per pixel); an EMCCD reads every pixel
+    // through one (MakeScopeSetup).
+    gainStdFraction: camera.emccd ? 0.0 : camera.gainStdFraction,
+    readNoiseStdFraction: camera.emccd ? 0.0 : camera.readNoiseStdFraction,
     emccd: camera.emccd, emGain: camera.emGain, cicElectrons: camera.cicElectrons, bitDepth: camera.bitDepth,
   };
   const ws = O('world-seed');
@@ -315,7 +372,8 @@ export function scopeSetup(P, spec) {
   // (the renderer adds the drift) and the z window by the largest |dz| (the focus itself stays).
   const driftSettings = { xyNmPerSqrtSec: Math.max(0.0, O('drift-xy-nm-per-sqrt-sec')), zNmPerSqrtSec: Math.max(0.0, O('drift-z-nm-per-sqrt-sec')),
     xySpeedNmPerSec: Math.max(0.0, O('drift-xy-speed-nm-per-sec')), zSpeedNmPerSec: O('drift-z-speed-nm-per-sec'),
-    xyAngleDeg: O('drift-xy-angle-deg'), angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')),
+    xyAngleDeg: O('drift-xy-angle-deg'), zDirection: Math.round(O('drift-z-direction')),
+    angleWanderDeg: Math.max(0.0, O('drift-xy-angle-wander-deg')), zAngleWanderDeg: Math.max(0.0, O('drift-z-angle-wander-deg')),
     speedWanderPct: Math.max(0.0, O('drift-speed-wander-pct')), wanderTimeSec: Math.max(0.0, O('drift-wander-time-sec')) };
   const isDrift = driftOn(driftSettings);
   const drift = isDrift ? driftTrajectory(seed, N, expSec, driftSettings) : [];
@@ -328,7 +386,11 @@ export function scopeSetup(P, spec) {
   }
   return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
-      maxEmitters: Math.max(0, O('mean-field-max-emitters')) } };
+      maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
+    blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),
+      upscale: Math.max(1, Math.min(8, Math.round(O('blink-binned-upscale')))) },
+    blinkMeanField: { densityPerUm2: Math.max(0, O('blink-mean-field-density-per-um2')),
+      maxEmitters: Math.max(0, O('blink-mean-field-max-emitters')) } };
 }
 
 // info.driftNm: x, y, z per frame (empty without drift).
@@ -356,7 +418,7 @@ export function scopePsfRequest(spec, wavelengthNm) {
     nz: Math.round(Math.max(0, O('psf-z-range-um')) / zStepUm) + 1, zStepNm: zStepUm * 1000.0,
     sampleIndex: O('psf-sample-index'), workingDistanceUm: O('psf-working-distance-um'), sampleDepthNm: O('psf-sample-depth-nm'),
     zernike, maskType: O('psf-mask') === 1 ? 1 : 0, maskModes: Math.trunc(Math.min(8, Math.max(2, O('psf-mask-modes')))),
-    maskWaist: O('psf-mask-waist'), interpMode: Math.trunc(Math.min(3, Math.max(0, O('psf-interp')))),
+    maskWaist: O('psf-mask-waist'), pupilSamples: Math.trunc(Math.max(0, O('psf-pupil-samples'))), interpMode: Math.trunc(Math.min(3, Math.max(0, O('psf-interp')))),
   };
 }
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path or dye changes reuse a kernel.
@@ -441,11 +503,35 @@ export function renderScopeMovie(P, specIn, onFrame, opts = {}) {
     // The world (scopeWorld's memo) and, for Fluorescence, the labels' PSF kernels; no frames (PrepareScope).
     scopeWorld(P, S);
     const tWorld = (performance.now() - t0) / 1000;
-    const kernels = S.O('modality') === 1 ? [] : S.labels.flatMap(l => Object.values(l.states))
+    const kernels = !scopeLights(spec).epi ? [] : S.labels.flatMap(l => Object.values(l.states))
       .filter(st => st && st.detectedFraction > 0).map(st => scopeKernel(spec, kernelWavelengthNm(st.lambdaNm)));
     return { width: S.W, height: S.H, frames: 0, blinks: 0, querySec: tWorld, totalSec: (performance.now() - t0) / 1000,
       psf: kernels.some(Boolean) ? 'GibsonLanniZernike' : 'Gaussian' };
   }
-  if (S.O('modality') === 1) return renderBrightfieldMovie(P, spec, S, onFrame, opts);
+  const { epi, trans } = scopeLights(spec);
+  if (!epi && !trans) return renderDarkMovie(S, onFrame);
+  if (epi && trans) return renderCombinedMovie(P, spec, S, onFrame, opts);
+  if (trans) return renderBrightfieldMovie(P, spec, S, onFrame, opts);
   return renderFluorescenceMovie(P, spec, S, onFrame, opts);
+}
+
+// No light: the camera's noise on zero photons (RenderDarkMovie).
+function renderDarkMovie(S, onFrame) {
+  const t0 = performance.now(), maps = noiseMaps(S.seed, S.W, S.H, S.cam), photons = new Float32Array(S.W * S.H);
+  for (let f = 0; f < S.N; f++) if (onFrame(f, applyNoiseChain(photons, S.cam, maps, f), photons) === false) break;
+  return { width: S.W, height: S.H, frames: S.N, blinks: 0, totalSec: (performance.now() - t0) / 1000, light: 'none' };
+}
+
+// Both lights (RenderCombinedMovie): the fluorescence photons (its noise chain at QE 1) plus the lamp's photons x the
+// camera's QE at the lamp wavelength, then that one noise chain.
+function renderCombinedMovie(P, spec, S, onFrame, opts) {
+  const lamp = brightfieldPhotons(P, spec, S);
+  const qeLamp = sampleAt(S.lp.qe, S.O('bf-wavelength-nm'));
+  const maps = noiseMaps(S.seed, S.W, S.H, S.cam), sum = new Float32Array(S.W * S.H);
+  const info = renderFluorescenceMovie(P, spec, S, onFrame, { ...opts, onPhotons: (f, fl) => {
+    const bf = lamp.at(f);
+    for (let i = 0; i < sum.length; i++) sum[i] = fl[i] + Math.fround(bf[i] * qeLamp);
+    return onFrame(f, applyNoiseChain(sum, S.cam, maps, f), sum);
+  } });
+  return { ...info, light: 'epi+trans', bfPhotonsPerPx: lamp.flux, bfQe: qeLamp };
 }

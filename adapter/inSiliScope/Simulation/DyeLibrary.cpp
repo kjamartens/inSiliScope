@@ -70,6 +70,12 @@ const std::vector<std::string>& DyeModeNames()
    return v;
 }
 
+const std::vector<std::string>& ExcitationFilterIds()
+{
+   static const std::vector<std::string> v = IdsOf(kExcitationFilters, Count(kExcitationFilters));
+   return v;
+}
+
 const std::vector<std::string>& DichroicIds()
 {
    static const std::vector<std::string> v = IdsOf(kDichroics, Count(kDichroics));
@@ -111,6 +117,7 @@ const std::vector<int>& LaserLines()
 }
 
 const DyeData& DyeAt(int i) { return kDyes[i]; }
+const FilterData& ExcitationFilterAt(int i) { return kExcitationFilters[i]; }
 const FilterData& DichroicAt(int i) { return kDichroics[i]; }
 const FilterData& EmissionFilterAt(int i) { return kEmissionFilters[i]; }
 const CameraData& CameraAt(int i) { return kCameras[i]; }
@@ -137,7 +144,29 @@ const Spectrum* SpectrumByKey(const char* key)
    return it == all.end() ? nullptr : &it->second;
 }
 
-double SuggestedLabelingPct(int mode) { return kSuggestedLabelingPct[mode]; }
+bool DyeHasModeData(int dye, int mode)
+{
+   return dye >= 0 && dye < static_cast<int>(DyeIds().size()) && mode >= 0 && mode < MODE_COUNT &&
+          !kDyes[dye].modes[mode].generic;
+}
+
+int DefaultDyeMode() { return IndexOf(DyeModeNames(), kDefaultDyeMode); }
+
+int TargetCount() { return static_cast<int>(sizeof(kTargets) / sizeof(kTargets[0])); }
+const TargetData& TargetAt(int i) { return kTargets[i]; }
+
+const std::vector<std::string>& SpecimenIds()
+{
+   static const std::vector<std::string> v = [] {
+      std::vector<std::string> ids;
+      for (const SpecimenData& s : kSpecimens)
+         ids.push_back(s.id);
+      return ids;
+   }();
+   return v;
+}
+
+const SpecimenData& SpecimenAt(int i) { return kSpecimens[i]; }
 
 int IndexOf(const std::vector<std::string>& list, const std::string& id)
 {
@@ -145,6 +174,7 @@ int IndexOf(const std::vector<std::string>& list, const std::string& id)
    return it == list.end() ? -1 : static_cast<int>(it - list.begin());
 }
 
+const char* DefaultExcitationFilter() { return kDefaultExcitationFilter; }
 const char* DefaultDichroic() { return kDefaultDichroic; }
 const char* DefaultEmissionFilter() { return kDefaultEmissionFilter; }
 const char* DefaultCamera() { return kDefaultCamera; }
@@ -218,6 +248,7 @@ bool ApplyField(DyeData& d, int mode, const std::string& k, double v, std::strin
    }
    return true;
 }
+} // namespace
 
 bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& err)
 {
@@ -238,7 +269,6 @@ bool StateSpectra(const StateData& st, Spectrum& ex, Spectrum& em, std::string& 
    em = *b;
    return true;
 }
-} // namespace
 
 bool MakeEffectiveDye(int choice, const std::vector<DyeSlot>& slots, const DyeOverrides& overrides, int modeIndex,
                       EffectiveDye& out, std::string& err)

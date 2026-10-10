@@ -6,28 +6,43 @@ Open the [viewer](try-viewer.md). Nothing to install.
 
 ## Micro-Manager
 
-1. Download `mmgr_dal_inSiliScope.dll` from the latest [release](https://github.com/kjamartens/inSiliScope/releases)
-   (verify with the `.sha256` file) and copy it into your Micro-Manager folder.
+1. Download `mmgr_dal_inSiliScope.dll` and the configurations `inSiliScope_Basic.cfg`, `inSiliScope_Advanced.cfg` and
+   `inSiliScope_Expert.cfg` from the latest [release](https://github.com/kjamartens/inSiliScope/releases) (verify the
+   DLL with its `.sha256` file) and copy them into your Micro-Manager folder.
    The default PSF (`GibsonLanniZernike`) and the Gaussian need nothing else. A Java runtime is needed only for the
    `RichardsWolf` and `GibsonLanni` models (the DLL embeds PSFGenerator and starts, or attaches to, a JVM).
-2. In the Hardware Configuration Wizard add the module **inSiliScope** and the devices `Camera`, `XYStage` and `ZStage`.
-   The devices share state in-process; no linking is needed.
-3. Take a snapshot of the cell field (the only specimen), move the XY stage, change the Z stage. The Z stage
-   position is the focal plane height above the coverslip (0 = coverslip in focus; it starts at 0.5 um).
-4. Pick the microtubules' label: `SimType_CellFieldMicrotubuleDye` (AF647, mEos3.2, ATTO655, mEGFP, ...) and
-   `SimType_CellFieldMicrotubuleLabelMode` (the dye's default, dSTORM, PALM, DNA-PAINT or WideField). A dye or mode
-   change loads the dye's fields (`FluoParam_Microtubule_*`), the mode's labelling and its light preset
-   (`Optics_Preset`: lasers, dichroic, emission filter). The default is DNA-PAINT with an ATTO 655 imager.
-5. Switch `General_ImagingModality` between `Fluorescence` and `BrightField` (transmitted light;
-   `General_BrightFieldQuality` 1-4 trades speed for precision).
+2. Start Micro-Manager with `inSiliScope_Basic.cfg`. It loads the hub `inSiliScope` and one device per part of the
+   microscope: `Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, `Lasers`, `TransmittedLamp`,
+   `SampleHolder`, `CellField`, `Fluorophores` and `Renderer`, with the config groups
+    - `Channel`: one preset per label mode with its typical dye (`AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
+      `mEGFP WideField`) and `BrightField`;
+    - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
+      `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`;
+      **Quality also sets how much of each blink's PSF halo is drawn**: Fast and Realistic leave out pixels below 1e-5
+      and 3e-6 of the emitter's photons, Exhaustive draws the whole kernel ([the halo cut](physics/optics.md));
+    - and the pixel-size calibration of every objective and camera.
 
-Property names are grouped by prefix: `General_`, `SimType_`, `FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`,
-`Background_`. The camera remembers how long each place of the sample has been lit (snaps, live
-acquisition and stacks add to it): imaging bleaches and uses up dyes where you imaged, a place never lit starts fresh
-(dSTORM dyes first in their bright initial ON phase).
+   `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels and the
+   channel `mEGFP WideField + BrightField`; `inSiliScope_Expert.cfg` shows every property. The hub's pre-init `Detail`
+   (Basic, Advanced, Expert) decides which properties a session shows; to build a configuration of your own, add the
+   hub `inSiliScope` in the Hardware Configuration Wizard, then its devices.
+3. Take a snapshot of the cell field, move the XY stage, change the Z stage. The Z stage position is the focal plane
+   height above the coverslip (0 = coverslip in focus; it starts at 0.5 um).
+4. Pick a `Channel`: the label mode and its typical dye; the lasers and the filter cube follow (`Lasers.Preset`).
+   `CellField.Microtubules_Label` offers the other dyes with data for the mode (`Fluorophores.Mode`); custom dyes are
+   `Fluorophores.Dye1..3_*` (Expert).
+5. The light comes from the shutters: `Lasers` (fluorescence) and `TransmittedLamp` (BrightField). With both open
+   (the Utilities `Multi Shutter`, as in the Advanced channel `mEGFP WideField + BrightField`) the camera sums the two;
+   with none open it takes dark frames. The autoshutter opens the Core-Shutter for each image.
+
+Every device and property, with its tier and default: [Micro-Manager properties](mm-properties.md). Snaps, live mode and
+sequences (also hardware z stacks: the `ZStage` is sequenceable) render live. `Renderer.WriteScopeSpecTo` (Expert)
+writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers how
+long each place of the sample has been lit (snaps, live acquisition and sequences add to it): imaging bleaches and uses
+up dyes where you imaged, a place never lit starts fresh (dSTORM dyes first in their bright initial ON phase).
 
 The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not
-wait for it. `General_DiskCache` (default `Cells`) keeps the packed cell positions of the field in a small per-user file
+wait for it. `Renderer.DiskCache` (default `Cells`) keeps the packed cell positions of the field in a small per-user file
 (`%LOCALAPPDATA%\inSiliScope\cache`, or `$ISC_CACHE_DIR`), so a restart with the same seed and cell parameters starts
 with the cells in place; `CellsAndPsf` also stores the PSF kernel (one file of ~200 MB at the defaults, read in about
 half the time it takes to compute); `Off` writes nothing.
@@ -38,12 +53,8 @@ From Python (pymmcore-plus):
 from pymmcore_plus import CMMCorePlus
 core = CMMCorePlus()
 core.setDeviceAdapterSearchPaths([r"C:\Program Files\Micro-Manager-2.0"])
-core.loadDevice("Camera", "inSiliScope", "Camera")
-core.loadDevice("XYStage", "inSiliScope", "XYStage")
-core.loadDevice("Z", "inSiliScope", "ZStage")
-core.initializeAllDevices()
-core.setCameraDevice("Camera")
-core.setProperty("Camera", "General_ImagingModality", "WideField")
+core.loadSystemConfiguration(r"C:\Program Files\Micro-Manager-2.0\inSiliScope_Basic.cfg")
+core.setConfig("Channel", "mEGFP WideField")
 core.snapImage(); img = core.getImage()
 ```
 
@@ -63,6 +74,13 @@ frame to `movie.drift.csv`.
 
 The CLI keeps the packed cell positions in the same per-user cache directory as the adapter (`--disk-cache 1`, the
 default); `--disk-cache 2` adds the PSF kernel, `0` writes nothing.
+
+The [physics pages](physics/world-model.md)' figures are made with the CLI's diagnostic outputs, which change no movie:
+the expected photons before the camera (`--photons-out`; with `--history-before` for a sample lit under other settings
+before the movie, as Micro-Manager's illumination history keeps it), the PSF kernel and pupil (`--psf-out`), one blink as a movie
+splats it (`--splat-out`), the resolved light path and camera (`--setup-json`), dye sites and schedules (`--dyes-json`),
+the mean-field dye density (`--density-out`), BrightField phase screens (`--bf-screens-out`) and the preset tables
+(`--presets-json`); `--help` lists them. `tools/build_physics_figures.py` turns them into the figures.
 
 ## webSMLM
 
