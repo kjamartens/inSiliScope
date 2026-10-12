@@ -410,17 +410,17 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 **DNA-origami nanorulers (2026-10-12, spec/PORT.md 20, spec/ALGORITHM.md, docs/samples/nanorulers/):** a second
 specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 1). `core/src/origami.*`
 (JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
-tiles, Matern-II field (`origamiDensity` 0.3 /um^2, `origamiMinSpacingNm` 250), designs `data/origami/designs.json`
+tiles, Matern-II field (`origamiDensity` 1.2 /um^2, `origamiMinSpacingNm` 0 = no thinning), designs `data/origami/designs.json`
 (3D-ready schema; v1 `Nanoruler80`: 200 x 13 nm cylinder, spots at 20/100/180 nm, a 5-strand ring each,
 `origamiStrandsPerSpot` keeps ring positions 0..N-1), in-plane 2D worm-like-chain bending (`origamiLpNm` 1500, Advanced;
-273.1 is the docs' softer option), random roll, every strand at 13.5 nm (`origamiHeights` 1 = ring heights, untested).
+the explorer's 273.1 is not used), random roll, every strand at 13.5 nm (`origamiHeights` 1 = ring heights, untested).
 The `World` branches on `specimen` (one dye block per molecule; no cells, empty optical volume, so BrightField is
 noise only); the photophysics is shared; only the mounted specimen's labels render. Core ABI 12 (`isc_origami_*`).
 Engine options `specimen`, `origami-*`, per-target label options from the registry (`ruler-*`); `z` defaults to the
 strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: history and drift reset), device
 `Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
-`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. DNA-PAINT at the defaults (1 nM)
-is sparse: a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
+`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. Their DNA-PAINT imager defaults
+to 20 nM (`paint.imagerNm`; the microtubules 1 nM): a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
 the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s; docking strands 1e6, 0.2885 s
 = 200 ms half-time), options `<prefix>-paint-kon` / `<prefix>-paint-on-sec` (light keys of the rate history: a change
 acts from now on), MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec` (Advanced); the dyes' DNA-PAINT modes keep only

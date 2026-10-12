@@ -294,10 +294,10 @@ static const DyeData kDyes[] = {
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
 // typicalLabels: dye index, % of the sites) in the order dSTORM, PALM, DNA-PAINT, WideField; the DNA-PAINT binding kinetics
-// (paint: k_on /M/s, mean bound time s).
+// (paint: k_on /M/s, mean bound time s, default imager concentration nM).
 static const TargetData kTargets[] = {
-   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 1000000.0, 0.05 },
-   { "docking", "Docking strands", "ruler", "Nanorulers", 1, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, 1000000.0, 0.28853900817779266 },
+   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 1000000.0, 0.05, 1.0 },
+   { "docking", "Docking strands", "ruler", "Nanorulers", 1, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, 1000000.0, 0.28853900817779266, 20.0 },
 };
 static const SpecimenData kSpecimens[] = {
    { "CellField", "Cell field", 0, 1 },

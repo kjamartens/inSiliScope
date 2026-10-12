@@ -56,11 +56,6 @@ namespace {
 // 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
 // photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
 constexpr double kDefaultLaser640KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (scope_movie.js
-// DEFAULT_IMAGER_NM; *estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and
-// PALM typical labels).
-constexpr double kDefaultImagerNm = 1.0;
 
 // The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
 const char* StructurePrefix(int s)
@@ -96,7 +91,7 @@ const TargetText& TextOf(const TargetData& t)
 }
 
 // The DNA-origami defaults (core params origami*; JS origami.js ORIGAMI_DEFAULTS).
-constexpr double kOrigamiDensity = 0.3, kOrigamiMinSpacingNm = 250, kOrigamiLpNm = 1500, kOrigamiStrandsPerSpot = 5,
+constexpr double kOrigamiDensity = 1.2, kOrigamiMinSpacingNm = 0, kOrigamiLpNm = 1500, kOrigamiStrandsPerSpot = 5,
                  kOrigamiAttachNm = 7, kOrigamiLinkerNm = 3;
 
 // The design ids (data/origami/designs.json), from the core.
@@ -169,7 +164,9 @@ const OptionTable& Options()
          v.push_back({ keep(P + "-label-pct"), -1,
                        keep(dev + " " + row + "_LabelingPct: " + T.sites +
                             "; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: " + T.typicalPct + ")") });
-         v.push_back({ keep(P + "-imager-nm"), kDefaultImagerNm,
+         // The target's default imager concentration (data/specimens.json paint.imagerNm: microtubules 1 nM,
+         // docking strands 20 nM; estimates).
+         v.push_back({ keep(P + "-imager-nm"), tg.paintImagerNm,
                        keep(dev + "." + row + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
          v.push_back({ keep(P + "-paint-kon"), tg.paintKonPerMPerSec,
                        keep(dev + "." + row + "_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)") });

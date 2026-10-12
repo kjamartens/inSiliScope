@@ -1679,7 +1679,7 @@ void Origami()
    }
    // The field: minimum spacing and the Matern-II density.
    {
-      OrigamiField F(1234, P({ { "origamiDensity", 2 } }));
+      OrigamiField F(1234, P({ { "origamiDensity", 2 }, { "origamiMinSpacingNm", 250 } }));
       const double S = 20;
       std::vector<OrigamiMolecule> all;
       F.MoleculesInRect(-1, -1, S + 1, S + 1, all, -F.ReachUm());

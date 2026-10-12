@@ -139,6 +139,7 @@ struct TargetData
    int typicalDye[MODE_COUNT];
    double typicalPct[MODE_COUNT];
    double paintKonPerMPerSec, paintOnSec;   // DNA-PAINT binding kinetics (data/specimens.json paint)
+   double paintImagerNm;                     // the default imager concentration, nM
 };
 struct SpecimenData
 {

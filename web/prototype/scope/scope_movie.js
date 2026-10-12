@@ -28,9 +28,6 @@ const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Err
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
 // ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
 export const DEFAULT_LASER_640_KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
-export const DEFAULT_IMAGER_NM = 1;
 
 // The label options of a target (structure), named by its prefix: the microtubules' mt-*, the docking strands' ruler-*
 // (ScopeTargetLabelOptions). Texts per target; a new target adds its entry.
@@ -49,7 +46,7 @@ function targetLabelOptions(t) {
     [`${P}-dye`, idx(DYE_CHOICES, 'ATTO655'), `${T.dev} ${T.row}_Label: a library dye or Dye1..Dye3; -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
     [`${P}-mode`, -1, `${T.dev} ${T.row}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
     [`${P}-label-pct`, -1, `${T.dev} ${T.row}_LabelingPct: ${T.sites}; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: ${T.typicalPct})`],
-    [`${P}-imager-nm`, DEFAULT_IMAGER_NM, `${T.dev}.${T.row}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-imager-nm`, t.paint.imagerNm, `${T.dev}.${T.row}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
     [`${P}-paint-kon`, t.paint.konPerMPerSec, `${T.dev}.${T.row}_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)`],
     [`${P}-paint-on-sec`, t.paint.onSec, `${T.dev}.${T.row}_BoundTimeSec: DNA-PAINT mean bound time of an imager, s (exponential; half-time = ln 2 x this; data/specimens.json paint)`],
     [`${P}-orient`, 0, `${T.dev}.${T.row}_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)`],

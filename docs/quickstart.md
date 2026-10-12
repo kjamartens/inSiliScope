@@ -38,7 +38,7 @@ Open the [viewer](try-viewer.md). Nothing to install.
    `CellField.Microtubules_Label` (the nanorulers: `Nanorulers.Docking_Label`) offers the other dyes with data for the
    mode (`Fluorophores.Mode`); custom dyes are `Fluorophores.Dye1..3_*` (Expert). In DNA-PAINT,
    `CellField.Microtubules_ImagerNanoMol` / `Nanorulers.Docking_ImagerNanoMol` (Advanced: the imager concentration in
-   the buffer, default 1 nM) sets how many sites blink per frame: binding events per site per second = k<sub>on</sub>
+   the buffer, default 1 nM for the microtubules, 20 nM for the nanorulers) sets how many sites blink per frame: binding events per site per second = k<sub>on</sub>
    × c, from the moment it changes. More imager means denser frames and more free-imager background.
 5. The light comes from the shutters: `Lasers` (fluorescence) and `TransmittedLamp` (BrightField). With both open
    (the Utilities `Multi Shutter`, as in the Advanced channel `mEGFP WideField + BrightField`) the camera sums the two;
@@ -73,7 +73,7 @@ core.snapImage(); img = core.getImage()
 cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native --target insiliscope_cli
 build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128 --seed 42
-build/native/cli/insiliscope_cli --specimen Nanorulers --out rulers.tif --frames 1000 --size 64 --ruler-imager-nm 5 --exposure-ms 100
+build/native/cli/insiliscope_cli --specimen Nanorulers --out rulers.tif --frames 1000 --size 64 --exposure-ms 100
 build/native/cli/insiliscope_cli --help          # every option and its default
 build/native/cli/insiliscope_cli --prepare 1 --disk-cache 2   # warm the caches (world, cells, PSF kernel), no movie
 ```

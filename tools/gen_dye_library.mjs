@@ -129,7 +129,8 @@ const targets = specimens.specimens.flatMap(sp => sp.targets.map(t => ({ ...t, s
 targets.forEach((t, i) => { if (t.structure !== i) throw new Error(`target ${t.id}: structure ${t.structure}, expected ${i} (the core's ISC_STRUCT_* order)`); });
 targets.forEach(t => {
   const q = t.paint;
-  if (!q || !(q.konPerMPerSec >= 0) || !(q.onSec > 0)) throw new Error(`target ${t.id}: paint { konPerMPerSec >= 0, onSec > 0 } (its DNA-PAINT binding kinetics)`);
+  if (!q || !(q.konPerMPerSec >= 0) || !(q.onSec > 0) || !(q.imagerNm >= 0))
+    throw new Error(`target ${t.id}: paint { konPerMPerSec >= 0, onSec > 0, imagerNm >= 0 } (its DNA-PAINT binding kinetics, default imager)`);
   checkRefs(`target ${t.id} paint`, q.refs);
 });
 const typicalLabels = Object.fromEntries(targets.map(t => {
@@ -299,9 +300,9 @@ ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, 
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
 // typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}; the DNA-PAINT binding kinetics
-// (paint: k_on /M/s, mean bound time s).
+// (paint: k_on /M/s, mean bound time s, default imager concentration nM).
 static const TargetData kTargets[] = {
-${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)} },`).join('\n')}
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)}, ${num(t.paint.imagerNm)} },`).join('\n')}
 };
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}

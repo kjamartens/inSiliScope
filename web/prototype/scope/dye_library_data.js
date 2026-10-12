@@ -1614,12 +1614,13 @@ export const DYE_DATA = {
      "paint": {
       "konPerMPerSec": 1000000,
       "onSec": 0.05,
+      "imagerNm": 1,
       "refs": [
        "jungmann2010",
        "schnitzbauer2017",
        "jungmann2014"
       ],
-      "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s (half-time 35 ms) keeps the pre-issue-16 default look (estimate); 9 nt docking strands bind for ~0.3-1 s."
+      "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s (half-time 35 ms) keeps the pre-issue-16 default look (estimate); 9 nt docking strands bind for ~0.3-1 s. imagerNm 1 nM: about the emitters per frame of the dSTORM and PALM typical labels (estimate, 2026-10-07)."
      }
     }
    ]
@@ -1636,11 +1637,12 @@ export const DYE_DATA = {
      "paint": {
       "konPerMPerSec": 1000000,
       "onSec": 0.28853900817779266,
+      "imagerNm": 20,
       "refs": [
        "jungmann2010",
        "schnitzbauer2017"
       ],
-      "notes": "k_on as the microtubules' (estimate). onSec = 0.2 s / ln 2: a bound half-time of 200 ms (estimate, chosen 2026-10-12), in the order of 9 nt docking strands (~0.3-1 s mean)."
+      "notes": "k_on as the microtubules' (estimate). onSec = 0.2 s / ln 2: a bound half-time of 200 ms (estimate, chosen 2026-10-12), in the order of 9 nt docking strands (~0.3-1 s mean). imagerNm 20 nM (estimate, chosen 2026-10-12): a rod with 12 strands binds every ~4 s."
      }
     }
    ]

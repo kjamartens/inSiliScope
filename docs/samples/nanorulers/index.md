@@ -23,26 +23,21 @@ The 80 nm nanoruler (`Nanoruler80`, `data/origami/designs.json`):
   modelling choice, not a product's specification; no published strand count per spot was found. `StrandsPerSpot`
   (1-5) keeps positions 1..N of each ring, the same subset on every rod.
 
-The schema is ready for 3D designs (a body shape, a deformation model, a landing model and spot lists). Only what
-the 80 nm ruler needs is implemented: a cylinder, the in-plane bending below or none, and a uniform or fixed roll.
-Other bodies (cuboids, meshes), 3D bending, stiffness patches, built-in curvature and explicit strand lists are
-rejected as not implemented yet.
-
 ## The field
 
 The coverslip is cut into 2 µm tiles. Each tile holds a Poisson number of candidate rods (mean = the density × 4
-µm²; `DensityPerUm2`, default 0.3 µm⁻², *estimate*), each at a uniform position in the tile and a uniform direction.
-A candidate is removed when a candidate of higher priority (a random number per candidate) lies within the minimum
-spacing (`MinSpacingNm`, default 250 nm, *estimate*), looking across the neighbouring tiles too (Matérn type II
-thinning). The rods left are therefore never closer than that, centre to centre, and the density after thinning is a
-little below the set one. The draws for the field are separate from those for the bending, so changing the
+µm²; `DensityPerUm2`, default 1.2 µm⁻², *estimate*), each at a uniform position in the tile and a uniform direction.
+By default the rods are placed independently (a Poisson field: they may touch or cross). A minimum spacing
+(`MinSpacingNm`, default 0 = none) removes a candidate when a candidate of higher priority (a random number per
+candidate) lies within it, looking across the neighbouring tiles too (Matérn type II thinning): the rods left are then
+never closer than that, centre to centre, and the density after thinning is below the set one. The draws for the field are separate from those for the bending, so changing the
 persistence length never moves or turns a rod.
 
 ## Bending
 
 A rod lying on the glass bends within the plane. Its centreline is a two-dimensional worm-like chain: a chain that
 has equilibrated on the surface, as DNA can on a suitable one [[rivetti1996](../../references.md#rivetti1996)]. The
-rod is cut into n = max(8, ⌈L / (D/2)⌉) = 31 segments of length Δs = L / n. Segment j turns the direction by a normal
+rod is cut into \(n = \max\left(8, \lceil L / (D/2) \rceil\right) = 31\) segments of length \(\Delta s = L / n\). Segment j turns the direction by a normal
 angle step:
 
 $$ \Delta\theta_j = z_j \sqrt{\Delta s / L_p}, \qquad z_j \sim \mathcal{N}(0, 1) $$
@@ -52,8 +47,7 @@ contour length stays L. Cross-sections stay straight and normal to the centrelin
 and a strand keeps its place along the rod and across it. The bent rod is then placed with the line between its ends
 along its direction and the middle of that line at its position. For this chain:
 
-- the end tangents differ by a normal angle of variance L / L<sub>p</sub>: 20.9° RMS at the default 1500 nm, 48.9° at
-  273.1 nm;
+- the end tangents differ by a normal angle of variance L / L<sub>p</sub>: 20.9° RMS at the default 1500 nm;
 - the tangent correlation over a contour s is ⟨cos Δθ(s)⟩ = e<sup>−s / 2L<sub>p</sub></sup> (the 3D chain's
   e<sup>−s / L<sub>p</sub></sup>, with half the freedom to turn);
 - so the mean square distance between two points s apart is the 3D chain's formula with L<sub>p</sub> → 2L<sub>p</sub>:
@@ -63,13 +57,12 @@ along its direction and the middle of that line at its position. For this chain:
 persistence lengths of DNA-origami helix bundles are 740 nm to 1 µm for four-helix, 1-3 µm for six-helix and 3-8.2 µm
 for eight-helix bundles [[chhabra2020](../../references.md#chhabra2020)] (their summary of the measurements, p. 4 of
 the arXiv version; simulations give somewhat higher values). A 12-helix rod is stiffer still, so 1500 nm leans to the
-soft side. 273.1 nm (the value tuned by eye in the model's explorer, `tools/origami_reference/origami_bend.py`) bends
-the rods visibly more. `Bending` Off makes every rod straight.
+soft side. `Bending` Off makes every rod straight.
 
 <!-- fig:ruler-shapes -->
 
 How far bending moves the spots: the outer spots, 160 nm apart along the rod, are 158.6 nm apart (RMS, the formula
-above) at 1500 nm and 152.6 nm at 273.1 nm; bending can only bring them closer.
+above) at 1500 nm; bending can only bring them closer.
 
 <!-- fig:ruler-wlc -->
 
@@ -101,16 +94,16 @@ They take a label like the cell field's microtubules: a dye of the library in a 
 - **Linker** (`LinkerNm`, 3 nm, *estimate*): each dye lies at a random point within this distance of its strand's
   anchor, on the outer side.
 - **DNA-PAINT:** each strand binds imagers at k<sub>on</sub> × c, with c the imager concentration in the buffer
-  (`Docking_ImagerNanoMol`, Advanced, 1 nM by default: the setting for how dense the frames are), and the free imager adds a
+  (`Docking_ImagerNanoMol`, Advanced, 20 nM by default: the setting for how dense the frames are), and the free imager adds a
   uniform background ([photophysics](../../physics/photophysics.md#dna-paint)). The binding kinetics are the docking
   strands' (`data/specimens.json` `paint`), not the dye's: k<sub>on</sub> 10⁶ M⁻¹ s⁻¹ (`KonPerMolarPerSec`) and a
   bound half-time of **200 ms** (mean 0.289 s, `BoundTimeSec`), both *estimates* (9 nt docking strands bind for about
-  0.3-1 s). A rod with 12 labelled strands then binds an imager about every 80 s per nM, each binding lasting a few
-  frames. At the defaults a movie is therefore sparse: few binding events per hundred frames over a field of view.
-  Raise the imager concentration (with its background) and take thousands of frames, as in a real DNA-PAINT
-  experiment.
+  0.3-1 s). A rod with 12 labelled strands then binds an imager about every 80 s per nM: every ~4 s at the default
+  20 nM, each binding lasting a few frames, so a field of view shows a few rods binding per frame over the free
+  imager's background. Lower the concentration for sparser frames and less background; take thousands of frames, as
+  in a real DNA-PAINT experiment.
 
-<!-- fig:ruler-image -->
+<!-- fig:ruler-field -->
 
 ## Parameters
 
@@ -118,16 +111,16 @@ They take a label like the cell field's microtubules: a dye of the library in a 
 |---|---|---|---|---|
 | Specimen | `SampleHolder` | `--specimen` | CellField | |
 | Design | `Nanorulers.Design` | `--origami-design` | Nanoruler80 | [[scheckenbach2020](../../references.md#scheckenbach2020)] (body) |
-| Density | `Nanorulers.DensityPerUm2` | `--origami-density` | 0.3 µm⁻² | *estimate* |
+| Density | `Nanorulers.DensityPerUm2` | `--origami-density` | 1.2 µm⁻² | *estimate* |
 | Strands per spot | `Nanorulers.StrandsPerSpot` | `--origami-strands-per-spot` | 5 | modelling choice |
 | Bending | `Nanorulers.Bending` | `--origami-bend` | On | |
 | Persistence length | `Nanorulers.PersistenceLengthNm` | `--origami-lp-nm` | 1500 nm | *estimate*, [[chhabra2020](../../references.md#chhabra2020)] (range) |
-| Min spacing | `Nanorulers.MinSpacingNm` | `--origami-min-spacing-nm` | 250 nm | *estimate* |
+| Min spacing | `Nanorulers.MinSpacingNm` | `--origami-min-spacing-nm` | 0 (none) | |
 | Height above glass | `Nanorulers.AttachHeightNm` | `--origami-attach-nm` | 7 nm | *estimate* |
 | Linker | `Nanorulers.LinkerNm` | `--origami-linker-nm` | 3 nm | *estimate* |
 | Roll, roll angle | `Nanorulers.Roll`, `RollDeg` | `--origami-roll`, `--origami-roll-deg` | Uniform, 0° | |
 | 3D strand heights | `Nanorulers.KeepHeights` | `--origami-heights` | Off | |
-| Docking strands label | `Nanorulers.Docking_Label`, `_Mode`, `_LabelingPct`, `_ImagerNanoMol` | `--ruler-dye`, `--ruler-mode`, `--ruler-label-pct`, `--ruler-imager-nm` | Typical (ATTO 655 DNA-PAINT), 80 %, 1 nM | *estimates* |
+| Docking strands label | `Nanorulers.Docking_Label`, `_Mode`, `_LabelingPct`, `_ImagerNanoMol` | `--ruler-dye`, `--ruler-mode`, `--ruler-label-pct`, `--ruler-imager-nm` | Typical (ATTO 655 DNA-PAINT), 80 %, 20 nM | *estimates* |
 | DNA-PAINT binding | `Nanorulers.Docking_BoundTimeSec`, `_KonPerMolarPerSec` | `--ruler-paint-on-sec`, `--ruler-paint-kon` | 0.289 s (half-time 200 ms), 10⁶ M⁻¹s⁻¹ | *estimates* |
 
 The core parameters are the `origami*` names (`origamiLpNm`, ...; `p.<name>` on the CLI). The CLI's `--geometry-json`
@@ -139,7 +132,8 @@ molecule's frame, labelled or not); the figures on this page are made from it.
 
 - Two-dimensional: the rods lie flat, the strands at one height; no 3D designs yet.
 - Every rod is whole: no broken rods, missing spots or misfolded molecules beyond the labelled %.
-- Uniform stiffness, no built-in curvature; rods may overlap where their bends cross (they are thinned by their
-  centres only).
+- Uniform stiffness, no built-in curvature; rods may touch or cross (a minimum spacing thins them by their centres
+  only).
+- Only the cylinder body with in-plane bending (or none) and a uniform or fixed roll is implemented.
 - No BrightField contrast (see [Samples](../index.md)).
 - The viewer draws the rods in its map; its animation exports do not include them yet.

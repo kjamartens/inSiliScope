@@ -887,8 +887,7 @@ std::vector<PropDef> BuildTable()
       add(OnOffOpt(N, "Bending", Tier::Advanced, "origami-bend",
                    "On: the rod bends in the coverslip plane as a worm-like chain (PersistenceLengthNm); Off: rigid."));
       add(Opt(N, "PersistenceLengthNm", Tier::Advanced, "origami-lp-nm", 10, 100000,
-              "Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um; 273 nm bends "
-              "visibly more)."));
+              "Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um)."));
       add(Opt(N, "MinSpacingNm", Tier::Advanced, "origami-min-spacing-nm", 0, 5000,
               "No two molecule centres closer than this, nm (0 = no thinning)."));
       add(Opt(N, "AttachHeightNm", Tier::Advanced, "origami-attach-nm", 0, 1000,

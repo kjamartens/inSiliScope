@@ -228,15 +228,15 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 |---|---|---|---|---|
 | `Docking_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
 | `Design` | Basic | Nanoruler80 | `Nanoruler80` | The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands 80 nm apart on a 200 x 13 nm rod. |
-| `DensityPerUm2` | Basic | 0.3 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
+| `DensityPerUm2` | Basic | 1.2 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
 | `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
 | `Docking_LabelingPct` | Advanced | 80 | 0 .. 100 | Labelled fraction of the docking strands' sites, % (a mode change sets its suggestion). |
-| `Docking_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `Docking_ImagerNanoMol` | Advanced | 20 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `Docking_BoundTimeSec` | Advanced | 0.2885390082 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `Docking_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `Bending` | Advanced | On | `On`, `Off` | On: the rod bends in the coverslip plane as a worm-like chain (PersistenceLengthNm); Off: rigid. |
-| `PersistenceLengthNm` | Advanced | 1500 | 10 .. 100000 | Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um; 273 nm bends visibly more). |
-| `MinSpacingNm` | Advanced | 250 | 0 .. 5000 | No two molecule centres closer than this, nm (0 = no thinning). |
+| `PersistenceLengthNm` | Advanced | 1500 | 10 .. 100000 | Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um). |
+| `MinSpacingNm` | Advanced | 0 | 0 .. 5000 | No two molecule centres closer than this, nm (0 = no thinning). |
 | `AttachHeightNm` | Advanced | 7 | 0 .. 1000 | Height of the rod's bottom above the glass (the surface coating), nm. |
 | `LinkerNm` | Advanced | 3 | 0 .. 50 | A dye lies within this distance of its strand's anchor, outward, nm. |
 | `Roll` | Advanced | Uniform | `Uniform`, `Fixed` | How each rod landed about its own axis: Uniform = a random roll each, Fixed = RollDeg. |
