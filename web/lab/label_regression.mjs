@@ -6,6 +6,8 @@
 //    (the targets do not touch each other's draws).
 // 2. The label model's statistics: fluorescent-fraction nesting, dSTORM initial ON, WideField windows, the PALM pre
 //    state, orientations; the pores' labelled fraction and nesting, their Fixed orientation about the pore axis.
+// 3. The label linkage (dyes.js linkedDye): a preset's dye distances from the microtubule axis and from the pore
+//    sites, the binder's cone, the same dyes (ids) whatever the linkage.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -128,6 +130,67 @@ if (NPC >= 0) {
   const fo = own(fw.sitesInWindow(...box)).slice(0, 3000);
   const worst = fo.reduce((m, d) => { const o = fw.dyeOrientation(d), q = byCand.get(d.n); return Math.max(m, Math.abs(o.x * q.n[0] + o.y * q.n[1] + o.z * q.n[2])); }, 0);
   report(worst < 1e-12, `pores: Fixed polar 90 deg dipoles perpendicular to the pore axis (max |cos| ${worst.toExponential(1)})`);
+}
+// ---- 3. linkage ----
+{
+  const w = newWorld({ density: 0.7 });
+  const c = w.cellsInRect(...win.slice(0, 4))[0], A = w.cellAssets(c);
+  const i = A.mts.findIndex((m, j) => m.length > 1 && w.frames(A, j).length > 3);
+  const pts = A.mts[i], fr = w.frames(A, i);
+  // Per dye: the distance from the axis (nm, perpendicular to the tangent), and the binder tip's tilt from the radial
+  // direction (with no linker).
+  const mtDyes = lk => {
+    const raw = [];
+    for (let b = 0; b < 3; b++) D.dyesInBlock(seed, c.cx, c.cy, i, pts, fr, b, 0.7, 1, raw, D.normLinkage(lk));
+    return raw.map(d => {
+      const S = (D.mtProtofilamentOffsetNm(d.k) + d.n * D.MT_DIMER_NM) * 1e-3, seg = D.mtSegmentAt(fr, S);
+      const p = D.pointAtArc(pts, fr, S), T = fr.T[seg], u = fr.U[seg], v = fr.V[seg];
+      const dx = d.pos.x - p.x, dy = d.pos.y - p.y, dz = d.pos.z - p.z, along = dx * T.x + dy * T.y + dz * T.z;
+      const ct = Math.cos(d.theta), st = Math.sin(d.theta);
+      const a = [ct * u.x + st * v.x, ct * u.y + st * v.y, ct * u.z + st * v.z];
+      const R = D.MT_RADIUS_NM * 1e-3, bx = dx - a[0] * R, by = dy - a[1] * R, bz = dz - a[2] * R, bl = Math.hypot(bx, by, bz);
+      return { id: d.id, r: Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along)) * 1000,
+        cosTilt: (bx * a[0] + by * a[1] + bz * a[2]) / bl };
+    });
+  };
+  const presets = (await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dye_library_data.js')).href)).DYE_DATA.linkagePresets;
+  const preset = id => presets.find(x => x.id === id);
+  const legacy = mtDyes(D.LEGACY_LINKAGE.microtubules), igg = mtDyes(preset('IgG2-STORM'));
+  const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+  const rI = igg.map(d => d.r), rL = legacy.map(d => d.r);
+  const lo = 12.5 + 10 - 12, hi = 12.5 + 10 + 12;
+  report(legacy.length === igg.length && legacy.every((d, j) => d.id === igg[j].id),
+    `linkage: the same ${igg.length} dyes (ids) under Legacy and IgG2-STORM`);
+  report(Math.min(...rL) >= 12.5 + 12 - 5 - 1e-9 && Math.max(...rL) <= Math.hypot(12.5 + 12 + 5, 0) + 1e-9 &&
+    Math.min(...rI) >= lo - 1e-9 && Math.max(...rI) <= hi + 1e-9 && Math.abs(mean(rI) - 22.5) < 1.5,
+    `linkage: microtubule dye radius Legacy ${mean(rL).toFixed(2)} nm, IgG2-STORM ${mean(rI).toFixed(2)} nm (shell 22.5, Fruh 2021) in [${Math.min(...rI).toFixed(1)}, ${Math.max(...rI).toFixed(1)}]`);
+  // A 60 deg cone, no linker: the tilt is uniform on the cap (mean cos = (1 + cos 60) / 2 = 0.75), every dye inside it.
+  const cone = mtDyes({ binderNm: 10, coneDeg: 60, linkerMinNm: 0, linkerMaxNm: 0 });
+  const mc = mean(cone.map(d => d.cosTilt)), minC = Math.min(...cone.map(d => d.cosTilt));
+  report(Math.abs(mc - 0.75) < 0.01 && minC >= 0.5 - 1e-9 && cone.every((d, j) => d.id === legacy[j].id),
+    `linkage: 60 deg cone, mean cos tilt ${mc.toFixed(4)} (0.75), min ${minC.toFixed(4)} (>= 0.5), same dyes`);
+  // Pores: the dye's offset from its site along the corner's radial direction averages the binder (the linker ball is
+  // symmetric), its distance <= binder + linker.
+  if (NPC >= 0) {
+    const pw = newWorld({ density: 0 }, D.makeLabel({ kinetics: kin, density: 0.6 }));
+    const pc = pw.cellsInRect(...win.slice(0, 4))[0], N = pw.npcs(pw.cellAssets(pc));
+    const ids = N.pores.map((_, j) => j).slice(0, 200), pl = D.normLinkage(preset('IgG2-STORM'));
+    const raw = [];
+    D.npcDyesInBlock(seed, pc.cx, pc.cy, N.pores, ids, N.sites, 0.6, 1, raw, pl);
+    let sum = 0, far = 0;
+    for (const d of raw) {
+      const p = N.pores[d.pore], k = d.k, th = ((k & 31) >> 2) * Math.PI / 4, ct = Math.cos(th), st = Math.sin(th);
+      const sa = N.sites[3 * k] * 1e-3, sb = N.sites[3 * k + 1] * 1e-3, sc = N.sites[3 * k + 2] * 1e-3;
+      const at = [0, 1, 2].map(j => [p.x, p.y, p.z][j] + sa * p.e1[j] + sb * p.e2[j] + sc * p.n[j]);
+      const off = [d.pos.x - at[0], d.pos.y - at[1], d.pos.z - at[2]];
+      const a = [0, 1, 2].map(j => ct * p.e1[j] + st * p.e2[j]);
+      sum += (off[0] * a[0] + off[1] * a[1] + off[2] * a[2]) * 1000;
+      far = Math.max(far, Math.hypot(...off) * 1000);
+    }
+    const m = sum / raw.length;
+    report(Math.abs(m - 10) < 0.3 && far <= 10 + 12 + 1e-9,
+      `linkage: pore dyes (IgG2-STORM) ${m.toFixed(2)} nm out along the corner direction (10), farthest ${far.toFixed(1)} nm (<= 22), ${raw.length} dyes`);
+  }
 }
 for (const [what, l] of [['SPT motion', { motion: 'Diffusive' }], ['off-target', { offTarget: [{ structure: 1, fraction: 0.05 }] }]]) {
   let threw = false;

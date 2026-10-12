@@ -75,6 +75,32 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
   old default light path (lab check).
 - The `mode` option is only the fallback for `<prefix>-mode = -2`; PSF preview: the first emitting target.
 
+### 5. Label linkage (`scope/dyes.js` -> `core/src/dyes.*`; the user's request: the dye-to-structure distance of both targets)
+
+- One model for every structure: `linkedDye(b, a, p1, p2, attachNm, L, h1, k, n, r1, r2, r3)`. Cone 0 (every preset): binder
+  tip = b + a (attachNm + binderNm) NM, **one product** as before (bit-identical: MT attachNm 12.5 + binder 12, pore 0 +
+  0). Cone > 0: tip = b + a (attachNm NM) + d (binderNm NM), d on the cap: cos tilt = 1 - u (1 - cos cone) with u =
+  `DYE_CH.BIND_U` (13), azimuth 2 pi `BIND_PHI` (14) from p1 towards p2. Then the linker exactly as before; cubes
+  `l*l*l` (the microtubule path used `pow(l, 3)`: equal at 2 and 5 nm, checked).
+- Axes: microtubule a = the protofilament's radial direction (ct U + st V), p1 = T, p2 = ct V - st U, attachNm = 12.5;
+  pore a = the corner's direction cos(c pi/4) e1 + sin(c pi/4) e2 (c = (k & 31) >> 2), p1 = n, p2 = cos e2 - sin e1,
+  base = the site, attachNm = 0.
+- `LEGACY_LINKAGE` (by target id): microtubules {12, 0, 2, 5}, npcs {0, 0, 2, 5} = the numbers before the model. A label
+  without a linkage gets its structure's; `normLinkage` clamps (>= 0, cone <= 180, max >= min). A linkage change redraws
+  the dyes (like density). Cull reach: `mtDyeReach` = (12.5 + binder + linkerMax) 1e-3 (same operation order as the
+  old constant), `npcDyeReach` + (binder + linkerMax) 1e-3.
+- Core ABI 12: `ISC_LABEL_BINDER_NM` 16, `ISC_LABEL_BINDER_CONE_DEG` 17, `ISC_LABEL_LINKER_MIN_NM` 18,
+  `ISC_LABEL_LINKER_MAX_NM` 19, `ISC_LABEL_COUNT` 20; a vector shorter than 20 (or NaN there) = the structure's legacy.
+- Data: `library.json` `linkagePresets` (Legacy = structure default; Fruh et al. 2021 Table 1 antibody shells as binder =
+  shell radius - 12.5 nm and a ball L = FWHM / sqrt 2; nanobody, SNAP/Halo, FP). `gen_dye_library.mjs` emits them to the JS
+  only; the port adds `kLinkagePresets` (+ its struct in `DyeLibrary.h`).
+- Options per target: `<prefix>-binder` (preset, names), `-binder-nm`, `-binder-cone-deg`, `-linker-min-nm`,
+  `-linker-max-nm` (-1 = the preset's; `scopeLinkage`). MM: `<Target>_Binder` (Advanced), the four numbers (Expert).
+- Defaults stay Legacy (output unchanged). Switching the microtubules' default to a cited preset changes every default
+  image: **ask the user first** (asked 2026-10-12, open).
+- Visualisation: `web/lab/linkage.html` (cross-sections, histograms). The port: the viewer's `linkage` layer (close-up:
+  sites, dyes, site-to-dye lines), a physics figure (`structures.md`), `--dyes-json` with each dye's binding site.
+
 ## The port's to-do (Phase B, the plan)
 
 Core (npcs.cpp, params, world, dyes, capi, ABI 12) and tests (world_checks.Npcs, golden npc lines with Node 24,
@@ -87,12 +113,10 @@ target, NPC density, the 8-fold ring layer in `web/scene/core.js`, pack-key rege
 docs/spec (ALGORITHM, PORT new section, BRIGHTFIELD: no NPC contrast, MM_DEVICES section 4, physics pages + figures,
 gallery, CLAUDE.md -- also its "Wanninger et al. 2023 CIR4MICS" is Theiss et al. 2023), PLAN.md; then delete this file.
 
-Still to come in Phase A: the shared dye-to-structure linkage model (binder + linker, a `Legacy` preset = today's
-numbers first) and its visualisation.
-
 ## Checks (Phase A)
 
 `node web/lab/check.mjs` (includes `web/lab/npc_check.mjs`: count = round(density x area), spacing, on the membrane
 with an outward normal, orthonormal frames, cap vs side counts, history independence; two-target imaging cases; pores
 off = the old light path), `node web/lab/label_regression.mjs` (the microtubules == origin/main in every mode, with
-and without labelled pores; pore labelling statistics and orientation). `engine_check` fails until the port.
+and without labelled pores; pore labelling statistics and orientation; the linkage: the same dyes under any preset,
+the antibody shell radius, the cone's tilt distribution, the pores' binder offset). `engine_check` fails until the port.

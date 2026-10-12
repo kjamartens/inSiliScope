@@ -18,10 +18,11 @@ import { renderFluorescenceMovie } from './fluorescence.js';
 import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_NONE, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
   backgroundQe } from './dye_library.js';
-import { ORIENTATION_MODES, MOTION_MODES, makeLabel } from './dyes.js';
+import { ORIENTATION_MODES, MOTION_MODES, makeLabel, LEGACY_LINKAGE } from './dyes.js';
 import { sampleAt } from './spectra.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
+export const LINKAGE_PRESET_IDS = DYE_DATA.linkagePresets.map(q => q.id);
 export { LIGHT_PRESET_CHOICES };
 const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Error(`no '${id}'`); return i; };
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
@@ -48,6 +49,11 @@ function targetOptions(s) {
     [`${P}-orient-azimuth-deg`, 0, `CellField.${T}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],
     [`${P}-wobble-deg`, 0, `CellField.${T}_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)`],
     [`${P}-motion`, 0, `CellField.${T}_Motion: 0 Static (single-particle tracking: future)`],
+    [`${P}-binder`, 0, `CellField.${T}_Binder: how the dye is attached (data/dyes/library.json linkagePresets): ${LINKAGE_PRESET_IDS.map((id, i) => `${i} ${id}`).join(', ')} (0 = the structure's built-in numbers; names accepted)`],
+    [`${P}-binder-nm`, -1, `CellField.${T}_BinderNm: binder length from the attachment point along the structure's axis, nm (-1 = the preset's)`],
+    [`${P}-binder-cone-deg`, -1, `CellField.${T}_BinderConeDeg: the binder's tilt from that axis, uniform within this half-angle, deg (-1 = the preset's)`],
+    [`${P}-linker-min-nm`, -1, `CellField.${T}_LinkerMinNm: shortest linker from the binder tip to the dye, nm (-1 = the preset's)`],
+    [`${P}-linker-max-nm`, -1, `CellField.${T}_LinkerMaxNm: longest linker, nm (the length is uniform in volume between the two; -1 = the preset's)`],
   ];
 }
 
@@ -177,7 +183,7 @@ const NAMES = {
   modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', 'RichardsWolf', 'GibsonLanni', 'GibsonLanniZernike'],
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
   ...Object.fromEntries(STRUCTURES.flatMap(s => [[`${s.prefix}-dye`, DYE_CHOICES], [`${s.prefix}-mode`, MODES],
-    [`${s.prefix}-orient`, ORIENTATION_MODES], [`${s.prefix}-motion`, MOTION_MODES]])),
+    [`${s.prefix}-orient`, ORIENTATION_MODES], [`${s.prefix}-motion`, MOTION_MODES], [`${s.prefix}-binder`, LINKAGE_PRESET_IDS]])),
   mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
@@ -352,6 +358,19 @@ function offLabel(eff) {
   return { label: makeLabel({ density: 0, mode: eff.mode }), mode: eff.mode, dye: null, off: true, states: {}, kActPerSec: 0,
     excitationScale: 1, onSecNow: 0, photonBudget: 0, prePhotonBudget: 0, imagerBackgroundPerPxPerSec: () => 0, notes: null };
 }
+// A target's label linkage (dyes.js linkedDye): its <prefix>-binder preset (Legacy: the structure's built-in numbers),
+// then each of -binder-nm, -binder-cone-deg, -linker-min-nm, -linker-max-nm that is >= 0.
+export function scopeLinkage(spec, i) {
+  const O = getter(spec), s = STRUCTURES[i], P = s.prefix;
+  const q = DYE_DATA.linkagePresets[Math.trunc(O(`${P}-binder`))];
+  if (!q) throw new Error(`${P}-binder: no linkage preset ${O(`${P}-binder`)}`);
+  const lk = { ...(q.structureDefault ? LEGACY_LINKAGE[s.id] : q) };
+  for (const [opt, f] of [['binder-nm', 'binderNm'], ['binder-cone-deg', 'coneDeg'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']]) {
+    const v = O(`${P}-${opt}`);
+    if (v >= 0) lk[f] = v;
+  }
+  return { binderNm: lk.binderNm, coneDeg: lk.coneDeg, linkerMinNm: lk.linkerMinNm, linkerMaxNm: lk.linkerMaxNm };
+}
 // Per structure: its effective dye, mode, world label and photophysics (labelPhotophysics).
 export function scopeLabels(spec, lp) {
   const O = getter(spec);
@@ -364,7 +383,7 @@ export function scopeLabels(spec, lp) {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
         azimuthDeg: O(`${P}-orient-azimuth-deg`), wobbleDeg: O(`${P}-wobble-deg`) },
-      motion: MOTION_MODES[Math.trunc(O(`${P}-motion`))] });
+      motion: MOTION_MODES[Math.trunc(O(`${P}-motion`))], linkage: scopeLinkage(spec, i) });
   });
 }
 

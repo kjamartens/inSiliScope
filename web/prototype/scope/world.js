@@ -5,8 +5,9 @@
 import { hashUnit } from './rng.js';
 import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
-  mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM, MT_BINDER_NM,
-  MT_LINKER_MAX_NM, PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, NPC_LINKER_MAX_NM } from './dyes.js';
+  mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM,
+  PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, LEGACY_LINKAGE, normLinkage,
+  linkageReachNm } from './dyes.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
@@ -23,7 +24,6 @@ export const EVENTS_BLINKS = 1;
 // = ISC_WORLD_VERSION (core/include/insiliscope/insiliscope.h): the generator's version, the
 // date spec/golden was last re-frozen. Bump both when a cell moves (engine_check compares them).
 export const WORLD_VERSION = '2026-10-05';
-const DYE_REACH_UM = (MT_RADIUS_NM + MT_BINDER_NM + MT_LINKER_MAX_NM) * 1e-3;
 const floorDiv = (a, b) => Math.floor(a / b);
 
 function rectDist(px, py, x0, y0, x1, y1) {
@@ -74,13 +74,20 @@ export class World {
     });
   }
 
-  // A change of density or fluorescent fraction redraws the dyes (the cells and microtubules stay); any other label
-  // change only re-schedules them (isc_world_set_label).
+  // A change of density, fluorescent fraction or linkage redraws the dyes (the cells and microtubules stay); any other
+  // label change only re-schedules them (isc_world_set_label). A label without a linkage gets its structure's
+  // LEGACY_LINKAGE.
   setLabels(labels) {
     if (labels.length !== STRUCTURES.length) throw new Error(`setLabels: ${STRUCTURES.length} labels expected`);
-    const next = labels.map(l => { const c = structuredClone(l); validateLabel(c); return c; });
+    const next = labels.map((l, i) => {
+      const c = structuredClone(l); validateLabel(c);
+      c.linkage = normLinkage(c.linkage ?? LEGACY_LINKAGE[STRUCTURES[i].id]);
+      return c;
+    });
+    const sameLk = (a, b) => a.binderNm === b.binderNm && a.coneDeg === b.coneDeg && a.linkerMinNm === b.linkerMinNm &&
+      a.linkerMaxNm === b.linkerMaxNm;
     const dyesChange = next.some((l, i) => !this.labels[i] || l.density !== this.labels[i].density ||
-      l.fluorescentFraction !== this.labels[i].fluorescentFraction);
+      l.fluorescentFraction !== this.labels[i].fluorescentFraction || !sameLk(l.linkage, this.labels[i].linkage));
     this.labels = next;
     if (dyesChange) this.dyeBlocks.clear();
     else for (const b of this.dyeBlocks.values()) { b.scheduled = false; b.events = null; b.continuous = null; }
@@ -187,21 +194,27 @@ export class World {
   }
 
   // The farthest a pore's dye can be from its centre (um): the attachment ring's outer edge and half the ring
-  // separation, plus the longest linker.
+  // separation, plus the label's binder and longest linker.
   npcDyeReach() {
     const p = this.p;
-    return Math.hypot(p.npcRadiusNm + p.npcCornerSpreadNm / 2, p.npcRingSepNm / 2) * 1e-3 + NPC_LINKER_MAX_NM * 1e-3;
+    return Math.hypot(p.npcRadiusNm + p.npcCornerSpreadNm / 2, p.npcRingSepNm / 2) * 1e-3 +
+      linkageReachNm(this.labels[STRUCTURE_NPC].linkage) * 1e-3;
+  }
+  // The farthest a microtubule dye can be from the axis (um): the lattice radius, the binder and the longest linker.
+  mtDyeReach() {
+    const lk = this.labels[STRUCTURE_MT].linkage;
+    return (MT_RADIUS_NM + lk.binderNm + lk.linkerMaxNm) * 1e-3;
   }
 
   // fn(block) for every 1 um dye block that can reach the rect/z range, in the C++ order.
   forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, fn) {
-    const blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
+    const mtReach = this.mtDyeReach(), blockReach = DYE_BLOCK_UM / 2 + mtReach;
     for (const c of this.cellsInRect(x0, y0, x1, y1)) {
       const A = this.cellAssets(c);
       const centreDist = rectDist(c.x, c.y, x0, y0, x1, y1);
       for (let i = 0; i < A.mts.length; i++) {
         const pts = A.mts[i];
-        if (pts.length < 2 || centreDist > A.mtReach[i] + DYE_REACH_UM) continue;
+        if (pts.length < 2 || centreDist > A.mtReach[i] + mtReach) continue;
         const fr = this.frames(A, i);
         const len = fr.length;
         const nBlocks = Math.ceil(len / DYE_BLOCK_UM);
@@ -237,7 +250,7 @@ export class World {
     if (blk) return blk;
     const raw = [], label = this.labels[STRUCTURE_MT];
     dyesInBlock(this.seed, c.cx, c.cy, mtIndex, A.mts[mtIndex], this.frames(A, mtIndex), block,
-      label.density, label.fluorescentFraction, raw);
+      label.density, label.fluorescentFraction, raw, label.linkage);
     const n = raw.length;
     blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
       k: new Uint8Array(n), nIdx: new Int32Array(n), theta: new Float64Array(MT_N_PROTOFILAMENTS),
@@ -260,7 +273,7 @@ export class World {
     let blk = this.dyeBlocks.get(key);
     if (blk) return blk;
     const N = this.npcs(A), raw = [], label = this.labels[STRUCTURE_NPC];
-    npcDyesInBlock(this.seed, c.cx, c.cy, N.pores, N.blocks[block].ids, N.sites, label.density, label.fluorescentFraction, raw);
+    npcDyesInBlock(this.seed, c.cx, c.cy, N.pores, N.blocks[block].ids, N.sites, label.density, label.fluorescentFraction, raw, label.linkage);
     const n = raw.length;
     blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
       k: new Uint8Array(n), nIdx: new Int32Array(n), theta: null,

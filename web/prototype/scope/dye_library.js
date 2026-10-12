@@ -168,7 +168,7 @@ export function labelPhotophysics(eff, lp, o) {
     kin.activationRatePerSec = kAct;
   }
   const label = makeLabel({ density: o.density, fluorescentFraction: dye.fluorescentFraction, mode, kinetics: kin,
-    preState: !!pre || (mode === 'PALM' && !!dye.states.pre), orientation: o.orientation, motion: o.motion, offTarget: o.offTarget });
+    preState: !!pre || (mode === 'PALM' && !!dye.states.pre), orientation: o.orientation, motion: o.motion, offTarget: o.offTarget, linkage: o.linkage });
   const states = { main };
   if (pre) states.pre = pre;
   return {
