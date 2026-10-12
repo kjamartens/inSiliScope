@@ -62,7 +62,9 @@ function cellFieldFactory(SRC) {
   // microtubule start/end sampling of 2026-10-05 at the core's defaults), passed
   // explicitly so a change of the core's own defaults cannot move webSMLM's field. Every lattice
   // site carries a dye (the microtubules' label at density 1, fluorescent fraction 1; core ABI 10), as
-  // in the JS it replaces: webSMLM applies its own labelling efficiency to the returned sites.
+  // in the JS it replaces: webSMLM applies its own labelling efficiency to the returned sites. No nuclear pores
+  // (npcDensity 0; insiliscope's cell field has 12 per um^2 of envelope since issue 15): webSMLM's field stays the
+  // microtubules; opts.params { npcDensity: 12, ... } adds them (sites with structure 1).
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
     cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
@@ -76,14 +78,16 @@ function cellFieldFactory(SRC) {
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
     mtDensity: 0.9, mtStartDecayPct: 1.6, mtEndDecayPct: 20, mtDirKappa: 1.5, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
+    npcDensity: 0, npcMinDistNm: 120, npcRadiusNm: 53.5, npcRingSepNm: 50, npcCornerSpreadNm: 12,
   };
   // The labelled site fraction (before ABI 10 the params labelEfficiency + labelNonBleaching; still accepted
   // in opts.params and mapped onto the label's density).
   const LABEL_KEYS = ['labelEfficiency', 'labelNonBleaching'];
   const PAD_UM = (12.5 + 12 + 5) / 1000;   // MT radius + binder + max linker: dye reach from the centreline
   // The specimens (insiliscope's data/specimens.json, the core param 'specimen', ABI 12): 0 the cell field, 1 the
-  // DNA-origami nanorulers (their params origami*: core/src/params.h); STRUCTURES = ISC_STRUCT_COUNT.
-  const SPECIMENS = ['CellField', 'Nanorulers'], STRUCTURES = 2, ORIGAMI_STRIDE = 10;
+  // DNA-origami nanorulers (their params origami*: core/src/params.h); STRUCTURES = ISC_STRUCT_COUNT (ABI 13: 0 the
+  // microtubules, 1 the nuclear pores, 2 the docking strands).
+  const SPECIMENS = ['CellField', 'Nanorulers'], STRUCTURES = 3, ORIGAMI_STRIDE = 10;
   let M = null, world = 0, worldKey = '';
 
   function mod() {
@@ -116,7 +120,8 @@ function cellFieldFactory(SRC) {
     const lp = M._malloc(16);
     M.HEAPF64[lp >> 3] = density;
     M.HEAPF64[(lp >> 3) + 1] = 1;
-    // every structure (ISC_STRUCT_*: the microtubules, the nanorulers' docking strands; a world yields its own only)
+    // every structure (ISC_STRUCT_*: the microtubules, the nuclear pores, the nanorulers' docking strands; a world
+    // yields its own only), each with its built-in label linkage (the rest of the label NaN / default)
     let r = 0;
     for (let s = 0; s < STRUCTURES && r === 0; s++) r = M._isc_world_set_label(world, s, lp, 2);   // ISC_LABEL_DENSITY, ISC_LABEL_FLUORESCENT_FRACTION
     M._free(lp);
@@ -179,12 +184,13 @@ function cellFieldFactory(SRC) {
   }
 
   // Same contract as the JS IIFE it replaces. w,h = structure canvas (px); the window is w x h px
-  // (pxnm each) centred on world (xUm, yUm) um. Returns { sites: [[x px, y px, z nm], ...], nCells,
+  // (pxnm each) centred on world (xUm, yUm) um. Returns { sites: [[x px, y px, z nm, structure], ...], nCells,
   // nMt, removed, packed }: z measured from focusUm above the coverslip, sites within +-slabNm of it.
   // nCells = cells whose footprint reaches within 0.5 um of the window; nMt = microtubules whose
   // centreline comes within dye reach of the window (slab included); removed = null (cells are
   // packed on fixed 8x8-chunk blocks, independent of the window, so a pan never re-packs; the
-  // per-window prune count no longer exists); packed = packing on.
+  // per-window prune count no longer exists); packed = packing on. structure (the 4th entry; the IIFE had 3): 0 a
+  // microtubule's dye, 1 a nuclear pore's (only with opts.params.npcDensity > 0), 2 a nanoruler's docking strand.
   // Optional opts.params: overrides of DEFAULTS (core parameter names).
   // Optional opts.specimen: 'CellField' (default) or 'Nanorulers' (or 0 / 1): DNA-origami rods lying on the
   // coverslip, three spots of docking strands 80 nm apart; their params (origamiDensity, origamiLpNm,
@@ -208,7 +214,7 @@ function cellFieldFactory(SRC) {
     const sites = new Array(n);
     for (let i = 0; i < n; i++) {
       const X = buf[5 * i], Y = buf[5 * i + 1], Z = buf[5 * i + 2];
-      sites[i] = [w / 2 + (X - o.xUm) / pxUm, h / 2 + (Y - o.yUm) / pxUm, (Z - o.focusUm) * 1000];
+      sites[i] = [w / 2 + (X - o.xUm) / pxUm, h / 2 + (Y - o.yUm) / pxUm, (Z - o.focusUm) * 1000, buf[5 * i + 4]];
     }
     if (sp === 1) {
       const [nRulers] = query(ORIGAMI_STRIDE, (ptr, cap) => M._isc_origami_in_window(wd, win.x0, win.y0, win.x1, win.y1, ptr, cap));

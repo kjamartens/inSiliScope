@@ -113,11 +113,13 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
 ## The port's to-do (Phase B, the plan)
 
 ~~Core (npcs.cpp, params, world, dyes, capi, ABI 13) and tests (world_checks.npcs, golden npcs lines with Node 24,
-label_parity with three structures, wasm_abi_smoke 13)~~ (done); scope_parity two-target cases; engine (ScopeMovie per-target options,
-None, off targets, auto preset; `SimplePlan` and the D3D11 splat for up to 4 blink groups, `HostSplatsBlinks(gi, f)`,
-every group's kernel preloaded); cli probes and `--geometry-json` pores; viewer (`web/index.html` label group per
-target, NPC density, the 8-fold ring layer in `web/scene/core.js`, pack-key regex) and `embed_web_module.mjs`; block
-(three labels, structure column, abiVersion 13); adapter (per-target rows from `TargetCount()`, `_Mode` Basic,
+label_parity with three structures, wasm_abi_smoke 13)~~ (done); ~~scope_parity two-target cases; engine (ScopeMovie
+per-target options, None, off targets, auto preset)~~ (done); `SimplePlan` and the D3D11 splat for up to 4 blink groups,
+`HostSplatsBlinks(gi, f)`, every group's kernel preloaded; cli probes and `--geometry-json` pores; ~~viewer
+(`web/index.html` label group per target with None and the attachment rows, NPC group, combined auto light on a dye or
+mode pick, a structure's data layers image it alone, pack-key regex, engine_check with pores and linkage) and
+`embed_web_module.mjs`; block (three labels, structure column, npcDensity 0 by default, abiVersion 13)~~ (done; the
+8-fold ring layer in `web/scene/core.js` and per-structure dye colours go with the visualisation branch); adapter (per-target rows from `TargetCount()`, `_Mode` Basic,
 `Fluorophores.Mode` removed, NPC geometry rows, configs, property reference, `adapter_pixel_hash`, `bench_live.py`);
 docs/spec (ALGORITHM, PORT new section, BRIGHTFIELD: no NPC contrast, MM_DEVICES section 4, physics pages + figures,
 gallery, CLAUDE.md -- also its "Wanninger et al. 2023 CIR4MICS" is Theiss et al. 2023), PLAN.md; then delete this file.

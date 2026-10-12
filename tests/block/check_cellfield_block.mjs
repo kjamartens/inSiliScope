@@ -34,8 +34,8 @@ console.log(`window 25.6 x 25.6 um: ${a.sites.length} sites, ${a.nCells} cells, 
             `first ${(t1 - t0).toFixed(0)} ms, cached ${(t2 - t1).toFixed(0)} ms`);
 ok(CellField.abiVersion >= 3, `ABI ${CellField.abiVersion}`);
 ok(a.sites.length > 1000 && a.nCells > 0 && a.nMt > 0, 'sites, cells and microtubules in the default window');
-ok(a.sites.every(s => s.length === 3 && s[0] >= 0 && s[0] < W && s[1] >= 0 && s[1] < H && Math.abs(s[2]) <= 500),
-   'every site inside the canvas and the +-slab');
+ok(a.sites.every(s => s.length === 4 && s[0] >= 0 && s[0] < W && s[1] >= 0 && s[1] < H && Math.abs(s[2]) <= 500 && s[3] === 0),
+   'every site inside the canvas and the +-slab, a microtubule\'s (structure 0: no pores by default)');
 ok(a.removed === null && a.packed === true, 'removed = null, packed = true');
 
 const key = s => s.map(v => v.toFixed(6)).join(',');
@@ -61,11 +61,19 @@ ok(sparse.sites.length < a.sites.length / 2, `mtDensity 0.1: ${sparse.sites.leng
 const thin = CellField.buildWindow(W, H, { ...base, slabNm: 100 });
 ok(thin.sites.length < a.sites.length && thin.sites.every(s => Math.abs(s[2]) <= 100), `slab 100 nm: ${thin.sites.length} sites`);
 
+// The nuclear pores (ABI 13, issue 15), off in the block by default: opts.params.npcDensity adds pore dyes
+// (structure 1) and leaves the microtubules' sites as they were.
+const pores = CellField.buildWindow(W, H, { ...base, focusUm: 3, slabNm: 3000, params: { npcDensity: 12 } });
+const noPores = CellField.buildWindow(W, H, { ...base, focusUm: 3, slabNm: 3000 });
+const nPore = pores.sites.filter(s => s[3] === 1).length;
+ok(nPore > 1000 && same(pores.sites.filter(s => s[3] === 0), noPores.sites),
+   `npcDensity 12: ${nPore} pore dyes (structure 1) in 0-6 um, the microtubules' ${noPores.sites.length} unchanged`);
+
 // The DNA-origami nanorulers (opts.specimen, ABI 12): docking-strand dyes near the coverslip, no cells, the same
 // answer twice, two halves = the full window, and the strands-per-spot switch reaching the world.
 const NR = { ...base, specimen: 'Nanorulers', focusUm: 0, slabNm: 100 };
 const r = CellField.buildWindow(W, H, NR);
-ok(r.nRulers > 50 && r.nCells === 0 && r.nMt === 0 && r.sites.length > 10 * r.nRulers / 2 && r.sites.every(s => s[2] > 0 && s[2] < 30),
+ok(r.nRulers > 50 && r.nCells === 0 && r.nMt === 0 && r.sites.length > 10 * r.nRulers / 2 && r.sites.every(s => s[2] > 0 && s[2] < 30 && s[3] === 2),
    `nanorulers: ${r.nRulers} rulers, ${r.sites.length} docking-strand dyes at 0-30 nm`);
 ok(same(r.sites, CellField.buildWindow(W, H, { ...NR, specimen: 1 }).sites), 'nanorulers: specimen 1 = \'Nanorulers\', identical');
 const NL = { ...NR, xUm: -6.4 }, NRr = { ...NR, xUm: 6.4 };
