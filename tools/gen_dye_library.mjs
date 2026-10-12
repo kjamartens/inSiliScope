@@ -319,10 +319,19 @@ ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, 
 };
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
-// typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}.
+// typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}, and the default linkage preset
+// (index into kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
 static const TargetData kTargets[] = {
-${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} } },`).join('\n')}
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${t.id in linkageDefaults ? linkagePresets.findIndex(q => q.id === linkageDefaults[t.id]) : -1} },`).join('\n')}
 };
+// The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is
+// each structure's built-in numbers (structureDefault).
+static const LinkagePresetData kLinkagePresets[] = {
+${linkagePresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, ${q.structureDefault ? 'true' : 'false'}, { ${['binderNm', 'binderFlexNm', 'linkerMinNm', 'linkerMaxNm'].map(k => num(q[k])).join(', ')} } },`).join('\n')}
+};
+// The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
+static const char* const kMultiTargetDichroic = ${str(data.lightPathMultiTarget.dichroic)};
+static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiTarget.emissionFilter)};
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}
 };

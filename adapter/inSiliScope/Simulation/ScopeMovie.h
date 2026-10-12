@@ -119,13 +119,20 @@ bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateR
 struct EffectiveDye;
 bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err);
 double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode);
+// Whether target s is mounted, labelled and present (JS scopeTargetOn): its specimen is mounted, its dye is not None,
+// its labelled % is not 0 and its geometry exists (<prefix>-density > 0 where that option exists: mt-density,
+// npc-density). An off target has no dyes, no PSF group, no imager background; the auto light preset leaves it out.
+bool ScopeTargetOn(const ScopeSpec& spec, int s);
+// The state a movie's PSF preview uses (JS scopePsfPreview): the first labelled target's main state, else its PALM pre
+// state; emits = false (the caller takes 670 nm) when no target emits.
+bool ScopePreviewState(const ScopeSpec& spec, ScopeStateReadout& out, std::string& err);
 
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);
 
 // The PSF a movie of the spec uses, for display (the viewer's Preview PSF): the
-// microtubules' emitting state's kernel (KernelWavelengthNm of its detected
+// first labelled target's emitting state's kernel (KernelWavelengthNm of its detected
 // wavelength; the pre state when the main one is dark) and, per z plane, the
 // camera image (camSize^2) of one emitter of 1 photon at the centre of the
 // middle pixel, splatted as a movie does (PlanSplat/SplatRows with the spec's

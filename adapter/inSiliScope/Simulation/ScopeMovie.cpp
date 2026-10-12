@@ -39,6 +39,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <deque>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -76,16 +77,16 @@ struct TargetText
    const char* row;
    const char* what;
    const char* sites;
-   const char* typicalPct;
    const char* axis;
 };
 const TargetText kTargetText[] = {
    { "microtubules", "CellField", "Microtubules", "the microtubules'",
-     "% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label", "DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70",
-     "the microtubule axis" },
+     "% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label", "the microtubule axis" },
+   { "npcs", "CellField", "NuclearPores", "the nuclear pores'", "% of the 64 Nup96 sites per pore that carry a label",
+     "the pore axis" },
    { "docking", "Nanorulers", "Docking", "the docking strands'",
      "% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)",
-     "80 in every mode", "the rod axis" },
+     "the rod axis" },
 };
 const TargetText& TextOf(const TargetData& t)
 {
@@ -111,14 +112,13 @@ std::vector<std::string> OrigamiDesignIds()
 struct OptionTable
 {
    std::vector<ScopeOption> opts;
-   std::vector<std::string> strings;   // storage of the generated names and help texts
+   std::deque<std::string> strings;   // storage of the generated names and help texts (a deque: push_back moves no element, so the c_str() handed out stay valid)
 };
 
 const OptionTable& Options()
 {
    static const OptionTable t = [] {
       OptionTable o;
-      o.strings.reserve(64);
       auto keep = [&](const std::string& s) {
          o.strings.push_back(s);
          return o.strings.back().c_str();
@@ -153,31 +153,57 @@ const OptionTable& Options()
          { "focus-um", 0, "CellField.FocusHeightUm (focus offset added to z)" },
          { "z-range-um", 7.0, "CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
          { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers; data/specimens.json; names accepted)" },
-         { "mode", -1, "Fluorophores Mode: the experiment's label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted)" },
+         { "mode", -1, "fallback label mode for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted). Each target has its own mode (<prefix>-mode); Micro-Manager has no experiment-wide mode since issue 15" },
       };
-      // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Target>_* rows, Fluorophores).
+      // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Row>_* rows, Fluorophores):
+      // <prefix>-dye, -mode, -label-pct, -imager-nm, -orient*, -wobble-deg, -motion, and for a target with a linkage
+      // model (library.json linkagePresets.defaults) -binder, -binder-nm, -binder-flex-nm, -linker-min-nm,
+      // -linker-max-nm. The default dye: the target's typical dye in the library's default mode (JS targetLabelOptions).
       for (int s = 0; s < TargetCount(); ++s)
       {
          const TargetData& t = TargetAt(s);
          const TargetText& T = TextOf(t);
-         const std::string P = t.prefix, dev = T.dev, row = T.row;
-         v.push_back({ keep(P + "-dye"), idx(DyeChoices(), "ATTO655"),
-                       keep(dev + " " + row + "_Label: a library dye or Dye1..Dye3; -1 Typical = " + T.what +
+         const std::string P = t.prefix, D = std::string(T.dev) + "." + T.row;
+         std::string pcts;
+         for (int m = 0; m < MODE_COUNT; ++m)
+         {
+            char b[64];
+            std::snprintf(b, sizeof b, "%s%s %g", m ? ", " : "", DyeModeNames()[static_cast<size_t>(m)].c_str(), t.typicalPct[m]);
+            pcts += b;
+         }
+         v.push_back({ keep(P + "-dye"), static_cast<double>(t.typicalDye[DefaultDyeMode()]),
+                       keep(D + "_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = " + T.what +
                             " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
          v.push_back({ keep(P + "-mode"), -1,
-                       keep(dev + " " + row + "_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)") });
+                       keep(D + "_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)") });
          v.push_back({ keep(P + "-label-pct"), -1,
-                       keep(dev + " " + row + "_LabelingPct: " + T.sites +
-                            "; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: " + T.typicalPct + ")") });
+                       keep(D + "_LabelingPct: " + T.sites + " (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: " + pcts + ")") });
          v.push_back({ keep(P + "-imager-nm"), kDefaultImagerNm,
-                       keep(dev + "." + row + "_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
+                       keep(D + "_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
          v.push_back({ keep(P + "-orient"), 0,
-                       keep(dev + "." + row + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
-         v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(dev + "." + row + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });
+                       keep(D + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
+         v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(D + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });
          v.push_back({ keep(P + "-orient-azimuth-deg"), 0,
-                       keep(dev + "." + row + "_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction") });
-         v.push_back({ keep(P + "-wobble-deg"), 0, keep(dev + "." + row + "_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)") });
-         v.push_back({ keep(P + "-motion"), 0, keep(dev + "." + row + "_Motion: 0 Static (single-particle tracking: future)") });
+                       keep(D + "_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction") });
+         v.push_back({ keep(P + "-wobble-deg"), 0, keep(D + "_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)") });
+         v.push_back({ keep(P + "-motion"), 0, keep(D + "_Motion: 0 Static (single-particle tracking: future)") });
+         if (t.linkageDefault < 0)
+            continue;
+         std::string list;
+         for (size_t i = 0; i < LinkagePresetIds().size(); ++i)
+            list += (i ? ", " : "") + std::to_string(i) + " " + LinkagePresetIds()[i];
+         const std::string def = LinkagePresetIds()[static_cast<size_t>(t.linkageDefault)];
+         v.push_back({ keep(P + "-binder"), static_cast<double>(t.linkageDefault),
+                       keep(D + "_Binder: how the dye is attached (data/dyes/library.json linkagePresets; default " + def + "): " + list +
+                            " (0 Legacy = the structure's numbers before the linkage model; names accepted)") });
+         v.push_back({ keep(P + "-binder-nm"), -1,
+                       keep(D + "_BinderNm: the probe (binder) reaches this far from the binding site along the structure's axis, nm (-1 = the preset's)") });
+         v.push_back({ keep(P + "-binder-flex-nm"), -1,
+                       keep(D + "_BinderFlexNm: the probe's flexibility: its end lies uniformly in a ball of this radius about that point, nm (-1 = the preset's)") });
+         v.push_back({ keep(P + "-linker-min-nm"), -1,
+                       keep(D + "_LinkerMinNm: shortest chemical linker from the probe to the dye, nm (-1 = the preset's)") });
+         v.push_back({ keep(P + "-linker-max-nm"), -1,
+                       keep(D + "_LinkerMaxNm: longest linker, nm (the length is uniform in volume between the two, the direction uniform; -1 = the preset's)") });
       }
       const std::vector<ScopeOption> slots = {
          { "dye1.source", idx(DyeIds(), "AF647"), "Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)" },
@@ -192,7 +218,7 @@ const OptionTable& Options()
       const std::vector<ScopeOption> rest = {
          { "laser-custom-nm", 0, "wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)" },
          { "laser-custom", 0, "its intensity, kW/cm^2" },
-         { "light-preset", -1, "Lasers.Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure's dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
+         { "light-preset", 0, "Lasers.Preset: auto (0, the default) = the light presets of the labelled targets' dyes in their modes combined: each laser line at its highest power over them, the filters of the one preset, or the multi-band set (light_path.json multiTarget) when the presets' filters differ; -1 = none (the laser/dichroic/filter options as given); or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
          { "illum-geometry", 0, "Lasers.IlluminationGeometry: 0 Epi (TIRF/HILO: future)" },
          { "chamber-height-um", 5, "Lasers.ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)" },
          { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
@@ -207,7 +233,8 @@ const OptionTable& Options()
          { "occupancy", 0.33, "CellField.Occupancy" },
          { "cell-diam-min-um", 25, "CellField.CellDiameterMinUm" },
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
-         { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2" },
+         { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)" },
+         { "npc-density", 12, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (12: chosen by the user 2026-10-12, above the measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
          { "origami-density", kOrigamiDensity, "Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them" },
@@ -306,6 +333,8 @@ const std::vector<std::string>* OptionNames(const std::string& name)
          m[P + "-mode"] = DyeModeNames();
          m[P + "-orient"] = { "Free", "Fixed", "Random" };
          m[P + "-motion"] = { "Static" };
+         if (TargetAt(s).linkageDefault >= 0)
+            m[P + "-binder"] = LinkagePresetIds();
       }
       m["mode"] = DyeModeNames();
       m["specimen"] = SpecimenIds();
@@ -610,6 +639,8 @@ static void StructureDyeChoice(const ScopeSpec& spec, int s, int& choice, int& m
    if (mode < -1)
       mode = -1;
    choice = static_cast<int>(O(Opt(P, "dye")));
+   if (choice == DyeNoneChoice())
+      choice = -1;   // no label: resolved as Typical for the callers that ask; ScopeTargetOn is false
    if (choice == -1)
    {
       if (mode < 0)
@@ -637,6 +668,19 @@ double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode)
 {
    const double pct = ScopeSpecGet(spec, Opt(StructurePrefix(s), "label-pct").c_str());
    return pct >= 0 ? pct : TargetAt(s).typicalPct[mode];
+}
+
+bool ScopeTargetOn(const ScopeSpec& spec, int s)
+{
+   const std::vector<int> mounted = ScopeMountedStructures(spec);
+   if (std::find(mounted.begin(), mounted.end(), s) == mounted.end())
+      return false;
+   const char* P = StructurePrefix(s);
+   if (static_cast<int>(ScopeSpecGet(spec, Opt(P, "dye").c_str())) == DyeNoneChoice() ||
+       ScopeSpecGet(spec, Opt(P, "label-pct").c_str()) == 0)
+      return false;
+   const std::string density = Opt(P, "density");
+   return !IsNamedOption(density) || ScopeSpecGet(spec, density.c_str()) > 0;
 }
 
 // The camera of a spec: the preset's values for every option the spec does
@@ -669,14 +713,19 @@ static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string
    if (out)
       return true;
    out = true;
+   int on = 0;
    for (int s : ScopeMountedStructures(spec))
    {
+      if (!ScopeTargetOn(spec, s))
+         continue;
       EffectiveDye eff;
       int choice = 0;
       if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
       out = out && DyeModeNames()[static_cast<size_t>(eff.mode)] == "WideField";
+      ++on;
    }
+   out = out && on > 0;
    return true;
 }
 
@@ -714,32 +763,103 @@ static bool MakeScopeCamera(const ScopeSpec& spec, ScopeCamera& c, std::string& 
    return true;
 }
 
-// The light preset a spec asks for (JS scopeLightPreset): nullptr for none.
-static bool ScopeLightPreset(const ScopeSpec& spec, const LightPresetData*& out, std::string& err)
+// A resolved light preset: a library preset, or the auto preset's combination of several.
+struct ResolvedLightPreset
+{
+   std::string id, excitationFilter, dichroic, emissionFilter;
+   std::vector<double> lasers;   // per LaserLines(), kW/cm^2
+   explicit ResolvedLightPreset(const LightPresetData& q)
+      : id(q.id), excitationFilter(q.excitationFilter ? q.excitationFilter : "None"), dichroic(q.dichroic),
+        emissionFilter(q.emissionFilter), lasers(q.lasers, q.lasers + LaserLines().size())
+   {
+   }
+};
+
+// The light preset of target s's dye in its mode.
+static const LightPresetData* TargetLightPreset(const ScopeSpec& spec, int s, std::string& err)
+{
+   EffectiveDye eff;
+   int choice = 0;
+   if (!ScopeStructureDye(spec, s, eff, choice, err))
+      return nullptr;
+   const char* id = eff.dye.modes[eff.mode].lightPreset;
+   const LightPresetData* q = FindLightPreset(id ? id : "");
+   if (!q)
+      err = std::string("no light preset '") + (id ? id : "") + "' for " + eff.dye.id;
+   return q;
+}
+
+// The auto light preset (JS autoLightPreset): the presets of the labelled targets' dyes in their modes, in target
+// order. One distinct preset: it. Several: each laser line at its highest power over them; their excitation filter,
+// dichroic and emission filter where all agree, else no clean-up filter and the multi-band set (light_path.json
+// multiTarget). No labelled target: the first mounted target's preset (a dark sample, the light as if it were labelled).
+static bool AutoLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPreset>& out, std::string& err)
+{
+   std::vector<const LightPresetData*> qs;
+   for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
+   {
+      if (!ScopeTargetOn(spec, s))
+         continue;
+      const LightPresetData* q = TargetLightPreset(spec, s, err);
+      if (!q)
+         return false;
+      if (std::find(qs.begin(), qs.end(), q) == qs.end())
+         qs.push_back(q);
+   }
+   if (qs.empty())
+   {
+      const std::vector<int> mounted = ScopeMountedStructures(spec);
+      const LightPresetData* q = mounted.empty() ? nullptr : TargetLightPreset(spec, mounted[0], err);
+      if (!q)
+         return false;
+      qs.push_back(q);
+   }
+   ResolvedLightPreset r(*qs[0]);
+   if (qs.size() > 1)
+   {
+      auto same = [&](const char* LightPresetData::*f) {
+         for (const LightPresetData* q : qs)
+            if (std::strcmp(q->*f ? q->*f : "None", qs[0]->*f ? qs[0]->*f : "None"))
+               return false;
+         return true;
+      };
+      const bool filtersAgree = same(&LightPresetData::dichroic) && same(&LightPresetData::emissionFilter);
+      for (size_t k = 1; k < qs.size(); ++k)
+      {
+         r.id += "+" + std::string(qs[k]->id);
+         for (size_t l = 0; l < r.lasers.size(); ++l)
+            r.lasers[l] = std::max(r.lasers[l], qs[k]->lasers[l]);
+      }
+      if (!(filtersAgree && same(&LightPresetData::excitationFilter)))
+         r.excitationFilter = "None";
+      if (!filtersAgree)
+      {
+         r.dichroic = MultiTargetDichroic();
+         r.emissionFilter = MultiTargetEmissionFilter();
+      }
+   }
+   out.assign(1, r);
+   return true;
+}
+
+// The light preset a spec asks for (JS scopeLightPreset): none (out empty), a library preset, or the auto one.
+static bool ScopeLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPreset>& out, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
-   out = nullptr;
+   out.clear();
    const int i = static_cast<int>(O("light-preset"));
    if (i < 0)
       return true;
-   std::string id;
    if (i == 0)
-   {
-      EffectiveDye eff;
-      int choice = 0;
-      const std::vector<int> mounted = ScopeMountedStructures(spec);
-      if (mounted.empty() || !ScopeStructureDye(spec, mounted[0], eff, choice, err))
-         return false;
-      id = eff.dye.modes[eff.mode].lightPreset ? eff.dye.modes[eff.mode].lightPreset : "";
-   }
-   else if (i - 1 < static_cast<int>(LightPresetIds().size()))
-      id = LightPresetIds()[static_cast<size_t>(i - 1)];
-   out = FindLightPreset(id);
-   if (!out)
+      return AutoLightPreset(spec, out, err);
+   const LightPresetData* q =
+      i - 1 < static_cast<int>(LightPresetIds().size()) ? FindLightPreset(LightPresetIds()[static_cast<size_t>(i - 1)]) : nullptr;
+   if (!q)
    {
       err = "light preset " + std::to_string(i) + " out of range";
       return false;
    }
+   out.assign(1, ResolvedLightPreset(*q));
    return true;
 }
 
@@ -747,25 +867,26 @@ static bool ScopeLightPreset(const ScopeSpec& spec, const LightPresetData*& out,
 // the options the spec does not give.
 static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camera, LightPath& lp, std::string& err)
 {
-   const LightPresetData* q = nullptr;
-   if (!ScopeLightPreset(specIn, q, err))
+   std::vector<ResolvedLightPreset> preset;
+   if (!ScopeLightPreset(specIn, preset, err))
       return false;
    ScopeSpec spec = specIn;
    const std::vector<int>& lines = LaserLines();
-   if (q)
+   if (!preset.empty())
    {
+      const ResolvedLightPreset& q = preset[0];
       for (size_t l = 0; l < lines.size(); ++l)
       {
          const std::string k = "laser-" + std::to_string(lines[l]);
          if (!spec.count(k))
-            spec[k] = q->lasers[l];
+            spec[k] = q.lasers[l];
       }
       if (!spec.count("ex-filter"))
-         spec["ex-filter"] = IndexOf(ExcitationFilterIds(), q->excitationFilter);
+         spec["ex-filter"] = IndexOf(ExcitationFilterIds(), q.excitationFilter);
       if (!spec.count("dichroic"))
-         spec["dichroic"] = IndexOf(DichroicIds(), q->dichroic);
+         spec["dichroic"] = IndexOf(DichroicIds(), q.dichroic);
       if (!spec.count("em-filter"))
-         spec["em-filter"] = IndexOf(EmissionFilterIds(), q->emissionFilter);
+         spec["em-filter"] = IndexOf(EmissionFilterIds(), q.emissionFilter);
    }
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    LightPathSettings s;
@@ -789,6 +910,58 @@ static bool MakeScopeLightPath(const ScopeSpec& specIn, const ScopeCamera& camer
    return MakeLightPath(s, lp, err);
 }
 
+// An off target (ScopeTargetOn false; JS offLabel): no dyes (density 0; the label is dyes.js makeLabel({ density: 0,
+// mode })), no emitting state (no PSF group, no population), no imager background.
+static LabelPhysics OffLabel(const EffectiveDye& eff)
+{
+   LabelPhysics L;
+   L.eff = eff;
+   L.mode = eff.mode;
+   L.off = true;
+   L.label.assign(ISC_LABEL_COUNT, 0.0);
+   L.label[ISC_LABEL_FLUORESCENT_FRACTION] = 1.0;
+   L.label[ISC_LABEL_MODE] = eff.mode;
+   L.label[ISC_LABEL_ACTIVATION_RATE] = 0.01;   // dyes.js DEFAULT_KINETICS
+   L.label[ISC_LABEL_ON_SEC] = 0.05;
+   L.label[ISC_LABEL_OFF_SEC] = 1.0;
+   L.label[ISC_LABEL_BLEACH_PROB] = 1.0;
+   L.label[ISC_LABEL_PHOTON_CV] = 0.5;
+   L.label[ISC_LABEL_ORIENT_POLAR_DEG] = 90;
+   for (int i = ISC_LABEL_BINDER_NM; i <= ISC_LABEL_LINKER_MAX_NM; ++i)
+      L.label[static_cast<size_t>(i)] = std::numeric_limits<double>::quiet_NaN();
+   return L;
+}
+
+// A target's label linkage (JS scopeLinkage): its <prefix>-binder preset (Legacy: the structure's built-in numbers),
+// then each of -binder-nm, -binder-flex-nm, -linker-min-nm, -linker-max-nm that is >= 0; false for a target with no
+// linkage model (the docking strands).
+static bool ScopeLinkage(const ScopeSpec& spec, int s, double nm[4], std::string& err)
+{
+   const TargetData& t = TargetAt(s);
+   if (t.linkageDefault < 0)
+      return false;
+   const char* P = t.prefix;
+   const int i = static_cast<int>(ScopeSpecGet(spec, Opt(P, "binder").c_str()));
+   if (i < 0 || i >= static_cast<int>(LinkagePresetIds().size()))
+   {
+      err = Opt(P, "binder") + ": no linkage preset " + std::to_string(i);
+      return false;
+   }
+   const LinkagePresetData& q = LinkagePresetAt(i);
+   if (q.structureDefault)
+      LegacyLinkageNm(t.id, nm);
+   else
+      std::copy(q.nm, q.nm + 4, nm);
+   const char* const opts[4] = { "binder-nm", "binder-flex-nm", "linker-min-nm", "linker-max-nm" };
+   for (int k = 0; k < 4; ++k)
+   {
+      const double v = ScopeSpecGet(spec, Opt(P, opts[k]).c_str());
+      if (v >= 0)
+         nm[k] = v;
+   }
+   return true;
+}
+
 // Per structure: its effective dye, mode, world label and photophysics (JS scopeLabels).
 static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vector<LabelPhysics>& labels,
                             std::string& err)
@@ -802,6 +975,11 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
       int choice = 0;
       if (!ScopeStructureDye(spec, s, eff, choice, err))
          return false;
+      if (!ScopeTargetOn(spec, s))
+      {
+         labels[static_cast<size_t>(s)] = OffLabel(eff);
+         continue;
+      }
       const double pct = ScopeStructureLabelingPct(spec, s, eff.mode);
       LabelPhysicsOptions o;
       o.density = std::min(1.0, std::max(0.0, pct / 100));
@@ -811,6 +989,12 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
       o.azimuthDeg = O(Opt(P, "orient-azimuth-deg"));
       o.wobbleDeg = O(Opt(P, "wobble-deg"));
       o.motion = static_cast<int>(O(Opt(P, "motion")));
+      if (TargetAt(s).linkageDefault >= 0)
+      {
+         if (!ScopeLinkage(spec, s, o.linkageNm, err))
+            return false;
+         o.hasLinkage = true;
+      }
       if (!MakeLabelPhysics(eff, lp, o, labels[static_cast<size_t>(s)], err))
          return false;
    }
@@ -979,7 +1163,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
-      { "mtDensity", O("mt-density") },
+      { "mtDensity", O("mt-density") }, { "npcDensity", O("npc-density") },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // The specimen and its params (the origami-* options; p.<name> on top, below).
@@ -1293,18 +1477,33 @@ double GaussianSigmaPx(double lambdaNm, double na, double pixelNm)
 
 } // namespace
 
+bool ScopePreviewState(const ScopeSpec& spec, ScopeStateReadout& out, std::string& err)
+{
+   ScopeSetup S;
+   out = ScopeStateReadout();
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   for (int s = 0; s < static_cast<int>(S.labels.size()); ++s)
+   {
+      const LabelPhysics& L = S.labels[static_cast<size_t>(s)];
+      const StatePhysics* st = L.main.emits ? &L.main : L.pre.emits ? &L.pre : nullptr;
+      if (L.off || !st)
+         continue;
+      out.emits = true;
+      out.detectedFraction = st->detectedFraction;
+      out.lambdaNm = st->lambdaNm;
+      out.detectedPerSec = st->detectedPerSec;
+      out.onSecNow = L.onSecNow;
+      return true;
+   }
+   return true;
+}
+
 bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::string& err)
 {
    ScopeStateReadout st;
-   if (!ScopeLabelState(spec, 0, false, st, err))
+   if (!ScopePreviewState(spec, st, err))
       return false;
-   if (!st.emits)
-   {
-      ScopeStateReadout pre;
-      if (ScopeLabelState(spec, 0, true, pre, err) && pre.emits)
-         st = pre;
-      err.clear();
-   }
    out = ScopePsfPreview();
    out.lambdaNm = KernelWavelengthNm(st.emits ? st.lambdaNm : 670.0);
    PsfKernelCache cache;
@@ -2776,7 +2975,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          if (!S.Mounted(static_cast<int>(s)))
             continue;
          const LabelPhysics& L = S.labels[s];
-         std::snprintf(b, sizeof b, " label%zu=%s:%s:%.4g%%:kact=%.4g", s, L.eff.dye.id, DyeModeNames()[static_cast<size_t>(L.mode)].c_str(),
+         std::snprintf(b, sizeof b, " label%zu=%s:%s:%.4g%%:kact=%.4g", s, L.off ? "None" : L.eff.dye.id, DyeModeNames()[static_cast<size_t>(L.mode)].c_str(),
                        100 * L.label[ISC_LABEL_DENSITY], L.kActPerSec);
          d += b;
       }

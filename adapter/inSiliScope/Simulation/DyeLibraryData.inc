@@ -293,12 +293,29 @@ static const DyeData kDyes[] = {
 };
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
-// typicalLabels: dye index, % of the sites) in the order dSTORM, PALM, DNA-PAINT, WideField.
+// typicalLabels: dye index, % of the sites) in the order dSTORM, PALM, DNA-PAINT, WideField, and the default linkage preset
+// (index into kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
 static const TargetData kTargets[] = {
-   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 } },
-   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 } },
-   { "docking", "Docking strands", "ruler", "Nanorulers", 2, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 } },
+   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 3 },
+   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 }, 7 },
+   { "docking", "Docking strands", "ruler", "Nanorulers", 2, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, -1 },
 };
+// The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is
+// each structure's built-in numbers (structureDefault).
+static const LinkagePresetData kLinkagePresets[] = {
+   { "Legacy", "Built-in (before the linkage model)", true, { kNaN, kNaN, kNaN, kNaN } },
+   { "IgG2-STORM", "Primary + secondary antibody (dye)", false, { 10.0, 12.0, 0.5, 0.5 } },
+   { "IgG1-STORM", "Labelled primary antibody (dye)", false, { 7.7, 7.1, 0.5, 0.5 } },
+   { "IgG2-PAINT", "Primary + secondary antibody (DNA-PAINT docking strand)", false, { 19.3, 15.3, 0.5, 0.5 } },
+   { "IgG1-PAINT", "Labelled primary antibody (DNA-PAINT docking strand)", false, { 11.0, 11.8, 0.5, 0.5 } },
+   { "Nanobody", "Nanobody (dye)", false, { 1.5, 1.0, 0.5, 0.5 } },
+   { "Nanobody-PAINT", "Nanobody with a DNA-PAINT docking strand", false, { 1.5, 1.0, 1.0, 4.0 } },
+   { "SNAP-Halo", "SNAP / Halo tag (dye or docking strand)", false, { 2.5, 2.0, 0.5, 1.0 } },
+   { "FP", "Fluorescent protein fusion", false, { 2.0, 2.0, 0.0, 0.0 } },
+};
+// The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
+static const char* const kMultiTargetDichroic = "ChromaZT405-488-561-640rpc";
+static const char* const kMultiTargetEmissionFilter = "ChromaZET405-488-561-640m";
 static const SpecimenData kSpecimens[] = {
    { "CellField", "Cell field", 0, 2 },
    { "Nanorulers", "DNA-origami nanorulers", 2, 1 },

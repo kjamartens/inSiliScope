@@ -4,7 +4,9 @@
 // Checks: blink events of a dSTORM label (count, order, values to 1e-9), the BrightField optical volume
 // (bit-identical), then fluorescence movies (issue 16: every label mode, a PALM pre state, several lasers, per-dye and
 // mean-field continuous populations, a Gaussian-spectrum slot dye, light-preset=auto, start 0 and 60 s) and
-// BrightField movies pixel by pixel, for both specimens (the DNA-origami nanorulers: ABI 12). Expected after a port: blinks only 100% identical ADU, mean-field movies >= 99.9%
+// BrightField movies pixel by pixel, for both specimens (the DNA-origami nanorulers: ABI 12), and the cell field's two
+// targets (issue 15, ABI 13: the default field x=63 y=3 lies over a nucleus, so the default movies image the pores'
+// DNA-PAINT Cy3B too; pores alone, two colours under the combined auto preset, pores off, the label linkage). Expected after a port: blinks only 100% identical ADU, mean-field movies >= 99.9%
 // (the C++ convolves in float32), BrightField >= 99.5% (complex float32 FFTs through the slices: single-electron
 // Poisson flips) and its intensity within 1e-4 relative.
 // In iteration mode (PORT_PENDING.md) the JS is ahead on purpose and this fails: run it in the port.
@@ -16,6 +18,7 @@ import { loadWasmScope } from './wasm_scope.mjs';
 import { World } from '../../web/prototype/scope/world.js';
 import { renderScopeMovie } from '../../web/prototype/scope/scope_movie.js';
 import { makeLabel } from '../../web/prototype/scope/dyes.js';
+import { STRUCTURES } from '../../web/prototype/scope/world.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -34,7 +37,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
   const seed = 1249;
   const kin = { activationRatePerSec: 0.05, onSec: 0.05, offSec: 1, bleachProb: 0.5, photonCV: 0.5, initialOnSec: 2 };
   const label = makeLabel({ mode: 'dSTORM', density: 0.07, kinetics: kin });
-  const W = new World(P, seed, P.paramsFrom(P.defaults), [label, makeLabel()]);
+  const W = new World(P, seed, P.paramsFrom(P.defaults), STRUCTURES.map((_, s) => s ? makeLabel() : label));
   const rect = quick ? [61, 1, 64, 4] : [60, 0, 66, 6];
   const js = W.eventsInWindow(...rect, 0, 4, 0, 30);
   const o = label.orientation, k = label.kinetics;   // isc_world_set_label's layout (ISC_LABEL_*)
@@ -96,6 +99,14 @@ const CASES = [
   ['DNA-PAINT Cy3B imager, 561 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=Cy3B light-preset=auto`, 1],
   // A laser clean-up filter (vendor curve) in front of the dichroic: each line x its transmission.
   ['dSTORM AF647, 561 + 640 nm through a quad clean-up (ZET405/488/561/640xv2)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto laser-561=1 ex-filter=ChromaZET405-488-561-640xv2`, 0.999],
+  // Two targets (issue 15): the pores alone, two colours (the auto preset's multi-band set), pores WideField, pores off,
+  // the label linkage (presets and overrides, a Fixed pore dipole), sparse pores.
+  ['Pores alone: DNA-PAINT Cy3B, 561 nm, 20 nM imager (mt-dye=None)', `${B} size=40 frames=8 psf-model=0 mt-dye=None npc-imager-nm=20`, 1],
+  ['Two colours: microtubules dSTORM AF647 + pores DNA-PAINT Cy3B, auto multi-band', `${B} size=40 frames=8 psf-kernel-half-width-nm=2500 mt-dye=AF647`, 0.999],
+  ['Pores WideField mEGFP (mean field) + microtubules DNA-PAINT', `${B} size=40 frames=3 psf-kernel-half-width-nm=2500 npc-mode=WideField npc-dye=mEGFP`, 0.999],
+  ['Pores off (npc-density=0)', `${B} size=40 frames=6 psf-model=0 npc-density=0`, 1],
+  ['Linkage: microtubules Legacy, binder 5 nm; pores IgG1-PAINT, linker to 8 nm, Fixed', `${B} size=40 frames=6 psf-model=0 mt-binder=Legacy mt-binder-nm=5 npc-binder=IgG1-PAINT npc-linker-max-nm=8 npc-orient=Fixed`, 1],
+  ['Sparse pores (4 /um^2, 300 nm apart, radius 60 nm), microtubules off', `${B} size=40 frames=6 psf-model=0 mt-label-pct=0 npc-density=4 p.npcMinDistNm=300 p.npcRadiusNm=60`, 1],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the
