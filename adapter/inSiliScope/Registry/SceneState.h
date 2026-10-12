@@ -220,8 +220,13 @@ struct SceneState
    void ClearDyeEditsWithPrefix(const std::string& prefix);
    std::map<std::string, double> Options() const;
    std::map<std::string, double> DyeEdits() const;
-   // The microtubules' effective mode at the last dye load (the camera preset's gain and the labelling suggestion follow it).
-   std::atomic<int> lastMtMode{-1};
+   // Each target's effective mode at its last dye load (index = sim::TargetAt; the labelling suggestion follows it, the
+   // camera preset's gain follows the mounted specimen's first target: MountedMode).
+   static constexpr int kMaxTargets = 8;
+   std::atomic<int> lastTargetMode[kMaxTargets] = {};
+   // The mounted specimen (option "specimen": its index in data/specimens.json, SampleHolder) and its first target's mode.
+   int MountedSpecimen() const;
+   int MountedMode() const;
 
 private:
    mutable std::mutex textMutex_;

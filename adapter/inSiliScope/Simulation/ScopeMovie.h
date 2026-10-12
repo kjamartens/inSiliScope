@@ -61,6 +61,8 @@ double ScopeSpecGet(const ScopeSpec& spec, const char* name);
 int ScopeSpecimen(const ScopeSpec& spec);
 std::vector<int> ScopeMountedStructures(const ScopeSpec& spec);
 std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec);
+// The DNA-origami design ids (data/origami/designs.json; option origami-design = the index).
+std::vector<std::string> ScopeOrigamiDesignIds();
 // The focus when the spec gives no z (ScopeSpecGet(spec, "z") returns it): 0.5 um for the cell field, the docking
 // strands' height for the nanorulers (JS scopeDefaultZ).
 double ScopeDefaultZ(const ScopeSpec& spec);

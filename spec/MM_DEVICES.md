@@ -26,8 +26,9 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `ExcitationFilter`, `Dichroic`, `EmissionFilter` (Advanced) | State (wheels) | one filter each (`None` is a position of each); their Custom edges | |
 | `Lasers` | Shutter | excitation: line powers, beam profile, geometry, the light preset; its shutter = the epi light (the custom line is cli/viewer only) | filters |
 | `TransmittedLamp` | Shutter | transmitted light: intensity, condenser NA, wavelength; its shutter = the BrightField light | |
-| `SampleHolder` | State | which specimen is mounted; what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
+| `SampleHolder` | State | which specimen is mounted (its positions: `data/specimens.json`, engine option `specimen`); what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
 | `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (`Microtubules_Label`: which dye, how dense) | photophysics of a dye |
+| `Nanorulers` | Generic | the DNA-origami nanorulers: design, density, strands per spot, bending (persistence length), landing; their target's labelling (`Docking_Label`) | photophysics of a dye |
 | `Fluorophores` | Generic | the dyes: the experiment's label `Mode`, the targets' photophysics readouts, custom dyes (Expert) | which target is labelled |
 | `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, GPU, caches, debugging | physics |
 
@@ -75,17 +76,26 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 
 ## 4. Specimens and targets
 
-- One **specimen** device per kind of sample (`CellField` now; a DNA-PAINT nanoruler, a bead slide, NPCs on a
-  coverslip later). `SampleHolder` mounts exactly one; optional **overlays** (fiducial beads, autofluorescence) add on
-  top. Specimens do not overlap in space: one is mounted at a time.
-- A specimen has **targets**: its labelled structures (CellField: `Microtubules`; later NPCs, DNA, actin). The
+- One **specimen** device per kind of sample (`CellField`, `Nanorulers` (DNA-origami rods, 2026-10-12); a bead
+  slide, NPCs on a coverslip later). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
+  option `specimen`); optional **overlays** (fiducial beads, autofluorescence) add on top. Specimens do not overlap in
+  space: one is mounted at a time. Mounting another is a new world (`BuildSampleSettings` carries the specimen and,
+  while it is mounted, its params): the illumination history and the drift start afresh; the ZStage stays where it is
+  (the nanorulers' dyes sit ~0.02 um above the coverslip, the cell field's start focus is 0.5 um). Every specimen's
+  device and rows exist whichever is mounted; only the mounted one's labels render.
+- A specimen has **targets**: its labelled structures (CellField: `Microtubules`; Nanorulers: `Docking` (the docking
+  strands); later NPCs, DNA, actin). The
   registry is `data/specimens.json` (specimens, their targets, each target's option prefix and core structure) plus
   `typicalLabels` in `data/dyes/library.json` (each target's usual dye and labelling % per mode, with references);
   `tools/gen_dye_library.mjs` builds both into the C++ (`TargetAt`, `SpecimenAt`) and the JS (`DYE_DATA.specimens`,
   `typicalLabels`) for the engine, the viewer and this adapter.
 - Each target gets the same label rows (`<Target>_Label`: Typical or a dye with data in the mode; `_LabelingPct`,
-  `_ImagerNm`; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `TargetLabel()` in the registry, so a
-  new target is a registry entry, not new code. The photophysics is shared: every target's label goes through the same
+  `_ImagerNm`; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `AddTargetLabelRows()` /
+  `AddTargetOrientRows()` in the registry on the specimen's device, and its readouts on `Fluorophores`
+  (`<Target>_EffectiveDye`, `_DetectedPct`, `_EmissionNm`, `_PhotonsPerSecOn`: `AddTargetReadoutRows()`), so a new
+  target is a registry entry, not new code. `<Target>` is the target's id, capitalised. A label change of a target
+  (`InSiliScopeHub::LoadTargetDye`) sets its labelling suggestion; the camera's mode gain and the light preset follow
+  only the mounted specimen's target. The photophysics is shared: every target's label goes through the same
   dye library and `ScopeStructureDye` / `MakeLabelPhysics`, whatever the specimen.
 - **The label model.** `Fluorophores.Mode` is the experiment's mode (engine option `mode`); a target follows it
   (`<prefix>-mode = -2`, Global) unless its own `_Mode` says otherwise. `<Target>_Label` offers `Typical`
@@ -150,8 +160,10 @@ rows exist in a session; a row above it is never created and its setting keeps i
 structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`, C++ and JS twin);
 its label rows (`TargetLabel(device, s)` in the specimen's block of the registry).
 
-**A new specimen:** the core generator and ABI; a specimen device (section 3); its `SampleHolder` position; its
-targets (above); the viewer's specimen choice comes from the same registry.
+**A new specimen:** the core generator and ABI; its entry in `data/specimens.json` (the `SampleHolder` position and
+the viewer's choice come from it); a specimen device (section 3: `Devices/Peripherals.*`, `InSiliScopeHub::Peripherals`,
+`CreateDevice`, `tools/isc_mm.py` `ALL_DEVICES`) with its rows bound to its engine options; its params in
+`ScopeSpecimenParams` (so `BuildSampleSettings` sees them); its targets (above); a check in `tools/test_specimens.py`.
 
 **A new light source:** a Shutter device (section 5), the engine option, a parity case, the configs.
 

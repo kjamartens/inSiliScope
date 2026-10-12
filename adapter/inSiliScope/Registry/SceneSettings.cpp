@@ -141,6 +141,13 @@ sim::SampleSettings BuildSampleSettings(const SceneState& s)
    for (int i = 0; i < CF_COUNT; ++i)
       if (g_CellFieldCoreParam[i])
          c.params.push_back({g_CellFieldCoreParam[i], s.cellField[i].load()});
+   // The mounted specimen and its params (SampleHolder, the Nanorulers device: the origami-* options; the engine's
+   // ScopeSpecimenParams): mounting another specimen is a new world, and so is a nanoruler param while they are
+   // mounted (the cell field ignores them: editing them keeps its world and illumination history).
+   const int specimen = s.MountedSpecimen();
+   for (const auto& kv : sim::ScopeSpecimenParams(BuildScopeSpec(s, 0, 0, 0, 0, 1)))
+      if (kv.first == "specimen" || specimen != 0)
+         c.params.push_back(kv.first == "specimen" ? std::make_pair(kv.first, static_cast<double>(specimen)) : kv);
    // No labels: BrightField reads the geometry only (the fluorescence movie
    // sets its own labels from the spec, BuildScopeSpec).
    c.cacheDir = s.diskCacheMode.load() >= 1 ? sim::DefaultCacheDir() : std::string();

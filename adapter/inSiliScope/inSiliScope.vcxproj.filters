@@ -125,6 +125,9 @@
     <ClCompile Include="..\..\core\src\microtubules.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\origami.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\packing.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -255,6 +258,9 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\microtubules.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\core\src\origami.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\packing.h">

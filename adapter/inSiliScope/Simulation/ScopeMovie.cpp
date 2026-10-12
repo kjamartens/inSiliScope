@@ -158,9 +158,9 @@ const OptionTable& Options()
       // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Target>_* rows, Fluorophores).
       for (int s = 0; s < TargetCount(); ++s)
       {
-         const TargetData& t = TargetAt(s);
-         const TargetText& T = TextOf(t);
-         const std::string P = t.prefix, dev = T.dev, row = T.row;
+         const TargetData& tg = TargetAt(s);
+         const TargetText& T = TextOf(tg);
+         const std::string P = tg.prefix, dev = T.dev, row = T.row;
          v.push_back({ keep(P + "-dye"), idx(DyeChoices(), "ATTO655"),
                        keep(dev + " " + row + "_Label: a library dye or Dye1..Dye3; -1 Typical = " + T.what +
                             " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
@@ -440,6 +440,11 @@ std::vector<int> ScopeMountedStructures(const ScopeSpec& spec)
    for (int t = d.firstTarget; t < d.firstTarget + d.targetCount; ++t)
       out.push_back(TargetAt(t).structure);
    return out;
+}
+
+std::vector<std::string> ScopeOrigamiDesignIds()
+{
+   return OrigamiDesignIds();
 }
 
 std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec)

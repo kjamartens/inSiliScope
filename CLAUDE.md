@@ -105,8 +105,9 @@ that finishes them.
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
   the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
-  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), then `ADAPTER_DIR=<dll dir> python
-  tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
+  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), `ADAPTER_DIR=<dll dir> python
+  tools/test_specimens.py` (SampleHolder: CellField / Nanorulers, the switch is a new world; < 30 s), then
+  `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
   `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
