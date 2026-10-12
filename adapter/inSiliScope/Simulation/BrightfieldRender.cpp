@@ -9,7 +9,7 @@
 
 #include "BrightfieldRender.h"
 
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Parallel.h"
 #include "Timing.h"
 #include "ZernikePsf.h"
@@ -227,7 +227,7 @@ bool BrightfieldScene::Begin(const BrightfieldSpec& spec, std::string& err)
    return true;
 }
 
-bool BrightfieldScene::Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion,
+bool BrightfieldScene::Update(SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion,
                               bool deferSources, std::string& err)
 {
    if (valid_ && srcId_ == &src && worldVersion_ == worldVersion && SameSpec(spec_, spec))
@@ -633,7 +633,7 @@ bool BrightfieldScene::Image(double focusUm, std::vector<float>& out, std::strin
    return true;
 }
 
-bool BrightfieldScene::Matches(const CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const
+bool BrightfieldScene::Matches(const SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const
 {
    return valid_ && srcId_ == &src && worldVersion_ == worldVersion && SameSpec(spec_, spec);
 }

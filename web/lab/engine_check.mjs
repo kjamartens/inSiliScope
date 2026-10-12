@@ -118,6 +118,30 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
     `${name}: pack with remembered blocks handed in: identical reply, world version ${pw.version} ${diff(pw3, pw)}`);
 }
 
+// A nanoruler world (the Sample select at Nanorulers: params() adds specimen + origami*; ABI 12): the origami job
+// (molecules and their bent outlines), the sites and the blinks of the docking strands (structure 1), and a movie.
+{
+  const name = 'nanorulers, seed 1249', seed = 1249, p = viewerParams({ ...VIEWER_DEFAULTS, mv_specimen: '1' }), rect = [-3, -3, 3, 3];
+  const [oj, ow] = both({ type: 'origami', id: 6, key: 'k', rect, seed, p, nPerSide: 24 });
+  report(p.specimen === 1 && !diff(oj, ow) && ow.mols.length > 0, `${name}: origami job, ${ow.mols.length / 10} molecules ${diff(oj, ow)}`);
+  const labels = [{ density: 0.7, fluorescentFraction: 1 }, { density: 0.8, fluorescentFraction: 0.9 }];
+  const [sj, sw] = both({ type: 'sites', id: 7, key: 'k', rect, seed, p, labels });
+  const ruler = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).every(st => st === 1);
+  report(!diff(sj, sw) && sw.sites.length > 0 && ruler, `${name}: sites, ${sw.sites.length / 5} docking-strand dyes ${diff(sj, sw)}`);
+  const kinetics = { activationRatePerSec: 0.05, onSec: 0.3, offSec: 1, bleachProb: 1, photonCV: 0.3, initialOnSec: 0 };
+  const label = { density: 0.8, fluorescentFraction: 1, mode: 'DNA-PAINT', kinetics, preState: false,
+    orientation: { mode: 'Free', polarDeg: 90, azimuthDeg: 0, wobbleDeg: 0 }, motion: 'Static', offTarget: [] };
+  const [ej, ew] = both({ type: 'events', id: 8, rect, zMin: -1, zMax: 1, t0: 0, t1: 60, labels: [label, label], seed, p });
+  report(!diff(ej, ew) && ew.events.length > 0, `${name}: events (DNA-PAINT), ${ew.events.length / 7} blinks in 60 s ${diff(ej, ew)}`);
+  const spec = `specimen=1 size=40 frames=20 ruler-imager-nm=50 world-seed=${seed} x=0 y=0 psf-kernel-half-width-nm=2500 ` +
+    Object.entries(p).map(([k, v]) => `p.${k}=${+v}`).join(' ');
+  const [mj, mw] = both({ type: 'movie', id: 9, spec, rect: [0, 0, 1, 1] });
+  let same = 0;
+  for (let i = 0; mw.frames && i < mw.frames.length; i++) if (mj.frames[i] === mw.frames[i]) same++;
+  report(!mj.error && !mw.error && same === mw.frames.length && mw.blinks > 0,
+    `${name}: DNA-PAINT movie, ${mw.blinks} blinks, ${mw.frames ? (100 * same / mw.frames.length).toFixed(3) : 0}% of pixels identical ${mj.error || ''} ${mw.error || ''}`);
+}
+
 // Movies through handle(), the viewer's spec form (p.* = its params()). The mean-field populations take the WASM
 // CPU path here (no WebGPU in Node), which is what the GPU path is checked against anyway.
 const p = viewerParams(VIEWER_DEFAULTS), pSpec = Object.entries(p).map(([k, v]) => `p.${k}=${+v}`).join(' ');

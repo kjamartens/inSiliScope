@@ -55,6 +55,15 @@ using ScopeSpec = std::map<std::string, double>;
 // False for a name that is neither a named option nor p.* / zern.*.
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
+// The mounted specimen (the spec's 'specimen': its index in data/specimens.json; JS scopeSpecimen), its targets'
+// structure ids (ISC_STRUCT_*; only those labels render; JS mountedStructures) and the world's specimen params
+// (core params specimen + origami*: the origami-* options, p.<name> on top; JS scopeSpecimenParams).
+int ScopeSpecimen(const ScopeSpec& spec);
+std::vector<int> ScopeMountedStructures(const ScopeSpec& spec);
+std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec);
+// The focus when the spec gives no z (ScopeSpecGet(spec, "z") returns it): 0.5 um for the cell field, the docking
+// strands' height for the nanorulers (JS scopeDefaultZ).
+double ScopeDefaultZ(const ScopeSpec& spec);
 // An option's value from text: a number, or a name (modality: Fluorescence,
 // BrightField; psf-model: Gaussian, GibsonLanniZernike, ...; psf-mask: None,
 // DoubleHelix; psf-interp: Nearest, Linear, Cubic, Fft; psf-zernike-preset:
@@ -138,6 +147,10 @@ bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::strin
 // "mesh":{"rings","n","v":[[x,y,h]...]}, "mts":[[[x,y,z]...]...]}]}. The
 // cell-local geometry is rotated by packRot and moved to the cell's x, y
 // (the viewer's localToWorld). Image row 0 of a movie is the smallest y.
+// ABI 12: also "specimen" and "origami":[{"tx","ty","i","design","x","y",
+// "yaw","roll","endAngle","fold","outline":[[x,y]...], with detail also
+// "sites":[[k,n,x,y,z,restX,restY,restH,bentX,bentY,fluorescent]...]}] (a
+// nanoruler world's molecules; none in a cell field, which has no cells then).
 bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::string& json, std::string& err);
 
 // Frame size and count of a spec (no rendering).
@@ -280,7 +293,7 @@ private:
    std::unique_ptr<Impl> impl_;
 };
 
-// Warms the shared world's caches around the spec's FOV (CellFieldSource::
+// Warms the shared world's caches around the spec's FOV (SampleSource::
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
 // clock (optional): the dyes' clock and rate history at the FOV centre
 // instead of start-sec.

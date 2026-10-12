@@ -16,7 +16,7 @@
 
 #include "ScopeMovie.h"
 
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Drift.h"
 #include "DyeLibrary.h"
 #include "LightPath.h"
@@ -54,8 +54,8 @@ struct ScopeResolved
    SimulationParams p;
    LightPath lp;
    std::vector<LabelPhysics> labels;
-   CellFieldSettings cf;
-   CellFieldQuery q;
+   SampleSettings cf;
+   SampleQuery q;
    std::vector<DriftNm> drift;
 };
 bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err);

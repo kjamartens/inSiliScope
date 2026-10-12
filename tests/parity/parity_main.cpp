@@ -9,6 +9,7 @@
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
+#include "origami.h"
 #include "packing.h"
 #include "params.h"
 #include "rng.h"
@@ -117,6 +118,38 @@ void CellsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p,
    }
 }
 
+// The molecules of a window of a nanoruler field (js_reference.mjs 'origami').
+void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1, Params p)
+{
+   p.specimen = SPECIMEN_NANORULERS;
+   OrigamiField F(seed, p);
+   std::vector<OrigamiMolecule> mols;
+   F.MoleculesInRect(x0, y0, x1, y1, mols);
+   for (const OrigamiMolecule& m : mols) {
+      const OrigamiShape S = F.Shape(m);
+      std::fprintf(f, "ori %s %d %d %d %d", id.c_str(), m.tx, m.ty, m.i, S.fold ? 1 : 0);
+      PrintD(f, m.x); PrintD(f, m.y); PrintD(f, m.yaw); PrintD(f, OrigamiMoleculeRoll(F.P(), m.h1));
+      PrintD(f, S.endAngle);
+      std::fprintf(f, "\n");
+      const std::vector<double> o = OrigamiShapeOutline(S, 16);
+      double sum = 0;
+      for (double v : o) sum += v;
+      std::fprintf(f, "oro %s %d %d %d %zu", id.c_str(), m.tx, m.ty, m.i, o.size() / 2);
+      PrintD(f, sum);
+      for (size_t j = 0; j < o.size(); j += 16) { PrintD(f, o[j]); PrintD(f, o[j + 1]); }
+      std::fprintf(f, "\n");
+      std::vector<OrigamiSite> st;
+      OrigamiMoleculeSites(F.Design(), F.P(), m, S, 1, 1, st, true);
+      std::fprintf(f, "ors %s %d %d %d %zu", id.c_str(), m.tx, m.ty, m.i, st.size());
+      for (const OrigamiSite& q : st) {
+         std::fprintf(f, " %d %d %u", q.k, q.n, q.id);
+         PrintD(f, q.x); PrintD(f, q.y); PrintD(f, q.z);
+         PrintD(f, q.rest[0]); PrintD(f, q.rest[1]); PrintD(f, q.rest[2]); PrintD(f, q.bent[0]); PrintD(f, q.bent[1]);
+      }
+      std::fprintf(f, "\n");
+   }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -168,6 +201,18 @@ int main(int argc, char** argv)
          std::string id, pname; long long seed; int cx0, cy0, cx1, cy1, maxCells;
          ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1 >> maxCells;
          CellsCase(f, id, ToU32(seed), paramSets.at(pname), cx0, cy0, cx1, cy1, maxCells);
+      } else if (kind == "origami") {
+         std::string id, kv; long long seed; double x0, y0, x1, y1;
+         ss >> id >> seed >> x0 >> y0 >> x1 >> y1;
+         Params p;
+         while (ss >> kv) {
+            const size_t eq = kv.find('=');
+            if (!SetParam(p, kv.substr(0, eq).c_str(), std::stod(kv.substr(eq + 1)))) {
+               std::fprintf(stderr, "unknown param %s\n", kv.c_str());
+               return 2;
+            }
+         }
+         OrigamiCase(f, id, ToU32(seed), x0, y0, x1, y1, p);
       } else if (kind == "case") {
          std::string id, pname; long long seed; int cx0, cy0, cx1, cy1;
          ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1;

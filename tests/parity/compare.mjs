@@ -34,6 +34,8 @@ function parse(path) {
       case 'cell': geomLine(r, t[1], `cell ${t[2]},${t[3]}`, [t[5]]); break;
       case 'mesh': geomLine(r, t[1], `mesh ${t[2]},${t[3]}`, t.slice(4)); break;
       case 'mtp': case 'mtl': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
+      // DNA-origami molecules (ABI 12): their first value (count / x) must match like the cells'
+      case 'ori': case 'oro': case 'ors': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
     }
   }
   return r;

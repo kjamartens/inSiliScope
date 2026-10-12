@@ -35,7 +35,7 @@
 
 namespace sim {
 
-class CellFieldSource;
+class SampleSource;
 class ParallelPool;
 
 // The speed/precision trade-off as one number: level 1 (fastest) .. 4 (most
@@ -81,7 +81,7 @@ class BrightfieldScene
 public:
    // Builds the slices and the per-source exit fields for spec (world
    // `worldVersion` of src). A repeat with the same spec and version is free.
-   bool Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, std::string& err)
+   bool Update(SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, std::string& err)
    {
       return Update(src, spec, worldVersion, false, err);
    }
@@ -89,7 +89,7 @@ public:
    // Image / SourceImageAt, which compute it on demand (the viewer's worker
    // split, spec/PORT.md 15: another scene gets the phase screens through
    // UpdateFromPhase and computes some of the sources).
-   bool Update(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, bool deferSources,
+   bool Update(SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, bool deferSources,
                std::string& err);
    // The same scene from given phase slices instead of the world (the checks,
    // and the worker split): phase[k * GridNx * GridNy + i] = k0 dz dn of slice
@@ -128,7 +128,7 @@ public:
    // focal plane at focusUm (um above the coverslip). Cached per focus.
    bool Image(double focusUm, std::vector<float>& out, std::string& err);
    // Update would return at once: the scene is this spec's and world's.
-   bool Matches(const CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const;
+   bool Matches(const SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion) const;
    // Image(focusUm)'s pixels without touching the scene, so several threads
    // may call it at once while nobody updates the scene (BrightfieldLive's
    // focus prefetch). cancel() is asked before each source, on any thread

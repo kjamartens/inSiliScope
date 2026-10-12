@@ -17,7 +17,7 @@
 #include "SceneState.h"
 
 #include "../Simulation/BrightfieldRender.h"
-#include "../Simulation/CellFieldSource.h"
+#include "../Simulation/SampleSource.h"
 #include "../Simulation/Drift.h"
 #include "../Simulation/ScopeMovie.h"
 #include "../Simulation/SMLMBackground.h"
@@ -55,14 +55,14 @@ sim::PsfGeneratorRequest BuildPsfGeneratorRequest(const SceneState& s);
 // The illumination field of a w x h frame (empty when flat); meanFactor: its mean.
 sim::StackShapingFields BuildShapingFields(const SceneState& s, unsigned w, unsigned h, double* meanFactor);
 // The cell field's world (seed, geometry, cache directory).
-sim::CellFieldSettings BuildCellFieldSettings(const SceneState& s);
+sim::SampleSettings BuildSampleSettings(const SceneState& s);
 // A warning when the diffraction kernel's z range cannot cover the CellField
 // z slab (dyes beyond it are drawn on the kernel's end plane); empty otherwise.
 std::string CellFieldZRangeWarning(const SceneState& s);
 // The query for a w x h FOV centred on the stage (x, y) with the Z stage at
 // zStageUm over simulated [tSec, tSec + spanSec): the FOV shifted against the
 // drift at the start and end of that span (drift px) plus a PSF margin.
-sim::CellFieldQuery CellFieldQueryFor(const SceneState& s, double stageX, double stageY, double zStageUm, unsigned w,
+sim::SampleQuery SampleQueryFor(const SceneState& s, double stageX, double stageY, double zStageUm, unsigned w,
                                       unsigned h, const sim::SimulationParams& params, double drift0XPx,
                                       double drift0YPx, double drift1XPx, double drift1YPx, long frameIndex,
                                       double tSec, double spanSec);
@@ -70,7 +70,7 @@ sim::CellFieldQuery CellFieldQueryFor(const SceneState& s, double stageX, double
 double BrightFieldQe(const SceneState& s);
 // The BrightField spec at the pose of q (FOV origin), w x h pixels.
 sim::BrightfieldSpec BuildBrightfieldSpec(const SceneState& s, const sim::SimulationParams& params,
-                                          const sim::CellFieldQuery& q, unsigned w, unsigned h);
+                                          const sim::SampleQuery& q, unsigned w, unsigned h);
 // The scope spec for a FOV centred on the stage (x, y) with the Z stage at z,
 // from simulated time startSec, frames long.
 sim::ScopeSpec BuildScopeSpec(const SceneState& s, double stageXUm, double stageYUm, double zStageUm, double startSec,

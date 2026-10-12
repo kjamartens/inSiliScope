@@ -613,7 +613,7 @@ bool DyesJson(const sim::ScopeSpec& spec, const double rect[4], double zMin, dou
    sim::ScopeResolved R;
    if (!sim::ScopeResolve(spec, R, err))
       return false;
-   sim::CellFieldSource src;
+   sim::SampleSource src;
    if (!src.Configure(R.cf, err))
       return false;
    IscWorld* w = src.World();
@@ -673,7 +673,7 @@ bool Density(const sim::ScopeSpec& spec, int nz, double zMin, double zMax, int u
    sim::ScopeResolved R;
    if (!sim::ScopeResolve(spec, R, err))
       return false;
-   sim::CellFieldSource src;
+   sim::SampleSource src;
    if (!src.Configure(R.cf, err))
       return false;
    nz = std::max(1, nz);
@@ -741,7 +741,7 @@ bool NucleusJson(const sim::ScopeSpec& spec, double sizeUm, const std::string& p
    sim::ScopeResolved R;
    if (!sim::ScopeResolve(spec, R, err))
       return false;
-   sim::CellFieldSource src;
+   sim::SampleSource src;
    if (!src.Configure(R.cf, err))
       return false;
    IscWorld* w = src.World();

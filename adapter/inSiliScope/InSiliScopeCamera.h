@@ -32,7 +32,7 @@
 #include "DeviceThreads.h"
 #include "ImgBuffer.h"
 #include "Simulation/BrightfieldRender.h"
-#include "Simulation/CellFieldSource.h"
+#include "Simulation/SampleSource.h"
 #include "Simulation/Drift.h"
 #include "Simulation/GpuSimD3D11.h"
 #include "Simulation/IlluminationHistory.h"
@@ -154,7 +154,7 @@ private:
    // BrightField precomputed stack: one image per distinct focus, times the
    // lamp flux, camera noise per frame; Z is read per batch of frames.
    void RenderBrightfieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength, unsigned w, unsigned h,
-                               const sim::SimulationParams& params, const sim::CellFieldSettings& cellField,
+                               const sim::SimulationParams& params, const sim::SampleSettings& cellField,
                                double stageXUm, double stageYUm, const sim::PixelOffsetMap& offsetMap,
                                const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
                                uint32_t noiseSeed, const std::vector<sim::DriftNm>& drift);
@@ -188,7 +188,7 @@ private:
    // ---- precomputed-stack mode (Test rows) ----------------------------------
    void StartStackGeneration();
    void StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH, sim::SimulationParams params,
-                               long seed, sim::CellFieldSettings cellField, double stageXUm, double stageYUm,
+                               long seed, sim::SampleSettings cellField, double stageXUm, double stageYUm,
                                double stageZUm, int light);
    void CropFullFrameIntoImg(const std::vector<uint16_t>& fullFrame, unsigned fullW, unsigned fullH);
 
@@ -429,7 +429,7 @@ private:
    // add to it; every fluorescence frame reads its dyes' clocks from it).
    sim::IlluminationHistory illumHistory_;
    std::mutex historyWorldMutex_;
-   sim::CellFieldSettings historyWorld_;
+   sim::SampleSettings historyWorld_;
    bool historyHaveWorld_ = false;
 };
 

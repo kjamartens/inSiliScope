@@ -22,7 +22,11 @@
  * events with structure/state/aux (stride 10), isc_continuous_in_window,
  * sites with their structure (stride 5), isc_density3d_in_window by structure.
  * ABI 11: isc_world_set_kinetics_history (piecewise-constant rates in clock
- * time: a change acts from its start, the past stays).
+ * time: a change acts from its start, the past stays). ABI 12: specimens --
+ * the param 'specimen' picks the world's geometry (0 the cell field, 1 the
+ * DNA-origami nanorulers), structure ISC_STRUCT_ORIGAMI_SITES (so
+ * ISC_STRUCT_COUNT 2 and a wider ISC_KIN_ROW), isc_origami_in_window /
+ * isc_origami_outline / isc_origami_sites.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -43,7 +47,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 11
+#define ISC_ABI_VERSION 12
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -83,7 +87,13 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * at all with enablePacking=0), so moving the window away and back gives the
  * same cells and dyes. Params are copied (and normalised) at creation; the
  * dyes follow each structure's label (isc_world_set_label; default: 70 % of
- * the sites, DNA-PAINT). Not thread-safe: use one world per thread. */
+ * the sites, DNA-PAINT). Not thread-safe: use one world per thread.
+ * ABI 12: the param 'specimen' (ISC_SPECIMEN_*) picks the geometry. A
+ * nanoruler world has no cells (the cell calls return 0 rows or -1, its
+ * optical volume is empty, isc_world_set_cache_dir keeps nothing) and only
+ * ISC_STRUCT_ORIGAMI_SITES dyes; a cell field only ISC_STRUCT_MICROTUBULE. */
+#define ISC_SPECIMEN_CELLFIELD 0
+#define ISC_SPECIMEN_NANORULERS 1
 typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);
@@ -144,7 +154,8 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
 /* ---- Labels (ABI 10, issue 16; spec/PORT.md 16) ----
  * The structures that carry dyes, one label each: */
 #define ISC_STRUCT_MICROTUBULE 0
-#define ISC_STRUCT_COUNT 1
+#define ISC_STRUCT_ORIGAMI_SITES 1   /* ABI 12: the docking strands of a nanoruler world */
+#define ISC_STRUCT_COUNT 2
 /* A label is ISC_LABEL_COUNT doubles at these indices:
  *   DENSITY              fraction of the structure's binding sites labelled (0..1)
  *   FLUORESCENT_FRACTION fraction of those whose dye is fluorescent (0..1; 1 = all)
@@ -304,6 +315,39 @@ ISC_API int32_t isc_density3d_in_window(IscWorld* w, double x0, double y0, doubl
 ISC_API int32_t isc_optical_volume_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                              double zMin, double zMax, int32_t nx, int32_t ny, int32_t nz,
                                              int32_t sub, float* out);
+
+/* ---- DNA origami (ABI 12; a nanoruler world, specimen 1) ----
+ * Molecules whose reach meets the window, ISC_ORIGAMI_STRIDE doubles each:
+ * tx, ty, i (the molecule's address: 2 um tile, index), design (index into
+ * data/origami/designs.json), x, y (um, the end-to-end chord's midpoint), yaw,
+ * roll (rad), end angle (rad, the bend's tangent turn end to end), fold (1
+ * when the curvature folds a cross-section over). Order: tile x, tile y,
+ * index. Same cap/return convention; 0 rows in a cell field. */
+#define ISC_ORIGAMI_STRIDE 10
+ISC_API int32_t isc_origami_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out,
+                                      int32_t cap);
+/* The bent top-view outline of molecule (tx, ty, i), world um, as x, y pairs:
+ * 2 (nPerSide + max(2, nPerSide / 4)) points (nPerSide >= 2). Returns the
+ * point count, -1 when there is no such molecule (or a cell field). */
+ISC_API int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t i, int32_t nPerSide, double* out,
+                                    int32_t capPts);
+/* Every designed docking strand of molecule (tx, ty, i) (strands per spot
+ * applied), ISC_ORIGAMI_SITE_STRIDE doubles each: spot k, ring position n,
+ * x, y, z (world um), the straight-frame x, y, h and the bent X, Y (nm,
+ * molecule frame), fluorescent (1 when the label's incorporation and
+ * fluorescent-fraction draws keep it: the dyes isc_sites_in_window gives).
+ * Same cap/return convention, -1 when there is no such molecule. */
+#define ISC_ORIGAMI_SITE_STRIDE 11
+ISC_API int32_t isc_origami_sites(IscWorld* w, int32_t tx, int32_t ty, int32_t i, double* out, int32_t cap);
+/* The designs (data/origami/designs.json): their count, and the id of design
+ * i (NULL out of range). */
+ISC_API int32_t isc_origami_design_count(void);
+ISC_API const char* isc_origami_design_id(int32_t i);
+/* Heights of a nanoruler world of params p (normalised as the world does),
+ * um above the coverslip: out[0] the docking strands' in 2D (attach + D/2,
+ * where one focuses), out[1] the highest a dye can sit (attach + D + linker).
+ * Returns 0, -1 on bad arguments. */
+ISC_API int32_t isc_origami_heights(const IscParams* p, double out[2]);
 
 #ifdef __cplusplus
 }

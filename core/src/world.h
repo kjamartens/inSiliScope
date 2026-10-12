@@ -18,6 +18,7 @@
 #include "cells.h"
 #include "dyes.h"
 #include "microtubules.h"
+#include "origami.h"
 #include "parallel.h"
 #include "params.h"
 
@@ -36,11 +37,17 @@
 namespace isc {
 
 constexpr int PACK_BLOCK_CHUNKS = 8;
-// The structures that carry labels (issue 16; JS world.js STRUCTURES): one
-// label each, indexed by their position. Only the microtubules for now; a new
-// structure (nucleus DNA, NPCs, ...) adds an entry and its site generator.
+// The structures that carry labels (issue 16; JS world.js STRUCTURES = the
+// targets of data/specimens.json): one label each, indexed by their position:
+// the microtubules (CellField) and the docking strands (Nanorulers). A new
+// structure (nucleus DNA, NPCs, ...) adds a target there and its site
+// generator here. A world holds one specimen (Params::specimen): its geometry
+// -- the cell field, or an OrigamiField -- yields the dye blocks; labels,
+// schedules and the queries are shared, and a world never yields a structure
+// of another specimen.
 constexpr int STRUCTURE_MT = 0;
-constexpr int STRUCTURE_COUNT = 1;
+constexpr int STRUCTURE_ORIGAMI = 1;
+constexpr int STRUCTURE_COUNT = 2;
 
 struct CellAssets {
    Cell cell;                                // shape + packed pose
@@ -117,11 +124,15 @@ public:
    const BlockStore* Store() const { return store_.get(); }
 
    const Params& GetParams() const { return p_; }
+   int Specimen() const { return (int)p_.specimen; }
+   // The origami field of a Nanorulers world (nullptr in a cell field).
+   OrigamiField* Origami() { return origami_.get(); }
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
    void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
    uint32_t Seed() const { return seed_; }
 
-   // Cells (packed pose) whose footprint circle (rOuter) intersects the rect.
+   // Cells (packed pose) whose footprint circle (rOuter) intersects the rect
+   // (none in an origami world, as every other cell call).
    void CellsInRect(double x0, double y0, double x1, double y1, std::vector<Cell>& out);
 
    // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um. Only the
@@ -308,6 +319,13 @@ private:
    DyeBlock& FindDyeBlock(const Cell& c, int mtIndex, int block);
    void GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& pts, const MtFrames& fr, int mtIndex,
                      int block) const;
+   // The fluorescent docking strands of one origami molecule (cx, cy, mtIndex
+   // = tile x, tile y, molecule index; k = spot, n = ring position).
+   void GenerateOrigamiDyes(DyeBlock& blk, const OrigamiMolecule& m) const;
+   // ForEachDyeBlock of an origami world: one block per molecule in reach.
+   template <class Fn>
+   void ForEachOrigamiBlock(double x0, double y0, double x1, double y1, const BlockPrep& prep, const BlockNeeds& needs,
+                            Fn fn);
    // Builds b's blink schedule for a query [tLo, tMax) unless the cached one
    // covers it: the blinks ending after tLo and starting before the horizon
    // 2 tMax. A dye's blinks there do not depend on the query (DyeSchedule is
@@ -338,6 +356,7 @@ private:
 
    uint32_t seed_;
    Params p_;
+   std::unique_ptr<OrigamiField> origami_;   // specimen 1
    size_t assetCap_;
    size_t dyeCap_;
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;

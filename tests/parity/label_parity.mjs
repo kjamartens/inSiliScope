@@ -2,7 +2,8 @@
 // number for number and in order: fluorescent dyes (sitesInWindow), blinks (eventsInWindow) and continuous windows
 // (continuousInWindow) for every label mode, a fluorescent fraction, a pre state and an initial ON, over a query
 // history (late window first, then a long one, then early ones); then ABI 11 kinetics histories (rate steps per mode,
-// two histories alternating on one world).
+// two histories alternating on one world); the same for a DNA-origami nanoruler world (ABI 12, specimen 1: the
+// docking strands, structure 1).
 //   node tests/parity/label_parity.mjs [path to build/wasm/core/insiliscope.js]
 import fs from 'fs';
 import path from 'path';
@@ -17,7 +18,7 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const P = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const { World } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const D = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dyes.js')).href);
-if (M._isc_abi_version() !== 11) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 11');
+if (M._isc_abi_version() !== 12) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 12');
 
 const seed = 1249, geom = P.paramsFrom(P.defaults);
 const MODES = { dSTORM: 0, PALM: 1, 'DNA-PAINT': 2, WideField: 3 };
@@ -30,13 +31,20 @@ const labelVector = l => [l.density, l.fluorescentFraction, MODES[l.mode], l.kin
 let fails = 0;
 const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
 
-function cWorld(label) {
+// A C world of `specimen` with `label` on structure s (the other structures keep the default label).
+function cWorld(label, specimen = 0, s = 0, extra = {}) {
   const p = M._isc_params_new();
+  for (const [k, v] of Object.entries({ specimen, ...extra })) {
+    const n = M.lengthBytesUTF8(k) + 1, sp = M._malloc(n);
+    M.stringToUTF8(k, sp, n);
+    if (M._isc_params_set(p, sp, v) !== 0) throw new Error('isc_params_set ' + k);
+    M._free(sp);
+  }
   const w = M._isc_world_new(seed, p);
   M._isc_params_free(p);
   const v = labelVector(label), buf = M._malloc(v.length * 8);
   M.HEAPF64.set(v, buf / 8);
-  const r = M._isc_world_set_label(w, 0, buf, v.length);
+  const r = M._isc_world_set_label(w, s, buf, v.length);
   M._free(buf);
   if (r !== 0) throw new Error('isc_world_set_label: ' + r);
   return w;
@@ -70,9 +78,18 @@ const CASES = [
   ['PALM 10 %, pre state, fraction 0.6', { mode: 'PALM', density: 0.1, fluorescentFraction: 0.6, preState: true, kinetics: kin }],
   ['WideField 30 %', { mode: 'WideField', density: 0.3, kinetics: kin }],
 ];
-for (const [name, opts] of CASES) {
-  const label = D.makeLabel(opts);
-  const js = new World(P, seed, geom, [label]), w = cWorld(label);
+const jsLabels = (label, s) => [0, 1].map(i => i === s ? label : D.makeLabel());
+// The specimens: the cell field (microtubules) and the nanorulers (docking strands; their own params on top).
+const SPECIMENS = [
+  { name: '', specimen: 0, s: 0, extra: {} },
+  { name: 'nanorulers ', specimen: 1, s: 1, extra: {} },
+  { name: 'nanorulers (Lp 273.1, 3 strands, 3D) ', specimen: 1, s: 1,
+    extra: { origamiLpNm: 273.1, origamiStrandsPerSpot: 3, origamiHeights: 1, origamiDensity: 2 } },
+];
+for (const sp of SPECIMENS) for (const [cname, opts] of CASES) {
+  const name = sp.name + cname, label = D.makeLabel(opts);
+  const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s));
+  const w = cWorld(label, sp.specimen, sp.s, sp.extra);
   same(`${name}: dyes`, rows((b, c) => M._isc_sites_in_window(w, ...win, b, c), 5),
     js.sitesInWindow(...win).map(d => [d.x, d.y, d.z, d.id, d.structure]));
   // A query history: late, long, early, frame-sized.
@@ -89,9 +106,10 @@ for (const [name, opts] of CASES) {
 // ABI 11: kinetics histories. Each case: segments [tStart, kinetics] (the label's mode, density, pre state stay).
 const KIN_KEYS = ['activationRatePerSec', 'onSec', 'offSec', 'bleachProb', 'photonCV', 'initialOnSec'];
 function setHistory(w, js, segs) {
-  const tStart = segs.map(x => x[0]), kins = segs.map(x => [{ initialOnSec: 0, ...x[1] }]);
+  // The same kinetics for both structures (ABI 12: a row is tStart + 6 per structure).
+  const tStart = segs.map(x => x[0]), kins = segs.map(x => [0, 1].map(() => ({ initialOnSec: 0, ...x[1] })));
   js.setKineticsHistory(tStart, kins);
-  const v = segs.flatMap((x, i) => [x[0], ...KIN_KEYS.map(k => kins[i][0][k])]);
+  const v = segs.flatMap((x, i) => [x[0], ...kins[i].flatMap(q => KIN_KEYS.map(k => q[k]))]);
   const buf = M._malloc(Math.max(1, v.length) * 8);
   M.HEAPF64.set(v, buf / 8);
   const r = M._isc_world_set_kinetics_history(w, buf, segs.length);
@@ -112,9 +130,10 @@ const HCASES = [
   ['WideField, rates step', { mode: 'WideField', density: 0.3, kinetics: kin },
     [[[0, kin], [40, { ...kin, onSec: 0.5 }]], [[0, kin]]]],
 ];
-for (const [name, opts, hists] of HCASES) {
-  const label = D.makeLabel(opts);
-  const js = new World(P, seed, geom, [label]), w = cWorld(label);
+for (const sp of SPECIMENS.slice(0, 2)) for (const [cname, opts, hists] of HCASES) {
+  const name = sp.name + cname, label = D.makeLabel(opts);
+  const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s));
+  const w = cWorld(label, sp.specimen, sp.s, sp.extra);
   // History A, B, A again on the same worlds (the C++ keeps a schedule per history).
   for (const [hi, h] of [[0, hists[0]], [1, hists[1]], [0, hists[0]]]) {
     setHistory(w, js, h);

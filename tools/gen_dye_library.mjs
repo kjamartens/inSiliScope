@@ -144,12 +144,16 @@ const linkagePresets = library.linkagePresets.presets.map((q, i) => {
   return q.structureDefault ? { id: q.id, name: q.name, structureDefault: true }
     : { id: q.id, name: q.name, binderNm: q.binderNm, binderFlexNm: q.binderFlexNm, linkerMinNm: q.linkerMinNm, linkerMaxNm: q.linkerMaxNm };
 });
-const linkageDefaults = Object.fromEntries(targets.map(t => {
+// Only the targets listed in linkagePresets.defaults take the linkage model (the nanorulers' docking strands have
+// their own geometry: origamiLinkerNm).
+const linkageDefaults = Object.fromEntries(targets.filter(t => t.id in library.linkagePresets.defaults).map(t => {
   const id = library.linkagePresets.defaults[t.id];
   const i = linkagePresets.findIndex(q => q.id === id);
-  if (i < 0) throw new Error(`linkagePresets.defaults: target ${t.id} has no preset (or an unknown one: '${id}')`);
+  if (i < 0) throw new Error(`linkagePresets.defaults: target ${t.id} has an unknown preset '${id}'`);
   return [t.id, id];
 }));
+for (const k of Object.keys(library.linkagePresets.defaults))
+  if (k !== 'notes' && !targets.some(t => t.id === k)) throw new Error(`linkagePresets.defaults: unknown target ${k}`);
 const data = {
   grid: fp.grid,
   fetched: fp.fetched,

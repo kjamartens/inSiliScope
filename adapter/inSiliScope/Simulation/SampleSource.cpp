@@ -1,13 +1,13 @@
 ///////////////////////////////////////////////////////////////////////////////
-// FILE:          CellFieldSource.cpp
+// FILE:          SampleSource.cpp
 // PROJECT:       demoCam_SMLM_MM
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See CellFieldSource.h.
+// DESCRIPTION:   See SampleSource.h.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 
 #include "insiliscope/insiliscope.h"
 
@@ -18,7 +18,7 @@
 
 namespace sim {
 
-int CellFieldSettings::LabelMode(int s) const
+int SampleSettings::LabelMode(int s) const
 {
    if (s < 0 || static_cast<size_t>(s) >= labels.size() || labels[static_cast<size_t>(s)].size() <= ISC_LABEL_MODE)
       return ISC_MODE_DNA_PAINT;
@@ -45,9 +45,9 @@ std::vector<double> MakeLabelVector(int mode, double density, double fluorescent
    return v;
 }
 
-int CellFieldSource::AllStructures() { return (1 << ISC_STRUCT_COUNT) - 1; }
+int SampleSource::AllStructures() { return (1 << ISC_STRUCT_COUNT) - 1; }
 
-int CellFieldSource::PersistentMask() const
+int SampleSource::PersistentMask() const
 {
    int m = 0;
    for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
@@ -56,12 +56,12 @@ int CellFieldSource::PersistentMask() const
    return m;
 }
 
-CellFieldSource::~CellFieldSource()
+SampleSource::~SampleSource()
 {
    isc_world_free(world_);
 }
 
-bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
+bool SampleSource::Configure(const SampleSettings& s, std::string& err)
 {
    if (isc_abi_version() != ISC_ABI_VERSION)
    {
@@ -86,6 +86,13 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
          }
       }
       IscWorld* w = isc_world_new(s.seed, p);
+      double heights[2] = { -1, -1 };
+      bool origami = false;
+      for (const auto& kv : s.params)
+         origami = origami || (kv.first == "specimen" && static_cast<int>(kv.second) == ISC_SPECIMEN_NANORULERS);
+      if (origami)
+         isc_origami_heights(p, heights);
+      origamiTopUm_ = origami ? heights[1] : -1;
       isc_params_free(p);
       if (!w)
       {
@@ -148,7 +155,7 @@ bool CellFieldSource::Configure(const CellFieldSettings& s, std::string& err)
 namespace {
 // The rows of a cap/total query (stride ISC_EVENT_STRIDE) as BlinkEvents in q's frame.
 template <class Query>
-bool EventRows(const CellFieldQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out)
+bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out)
 {
    // The core's cap/total convention: grow and ask again (the second call is
    // served from its caches).
@@ -184,7 +191,7 @@ bool EventRows(const CellFieldQuery& q, std::vector<double>& buf, Query query, s
 }
 } // namespace
 
-bool CellFieldSource::Events(const CellFieldQuery& q, std::vector<BlinkEvent>& out)
+bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)
 {
    if (!world_ || !(q.frameSec > 0))
       return false;
@@ -197,7 +204,7 @@ bool CellFieldSource::Events(const CellFieldQuery& q, std::vector<BlinkEvent>& o
    }, out);
 }
 
-bool CellFieldSource::Continuous(const CellFieldQuery& q, std::vector<BlinkEvent>& out)
+bool SampleSource::Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out)
 {
    if (!world_ || !(q.frameSec > 0))
       return false;
@@ -209,14 +216,14 @@ bool CellFieldSource::Continuous(const CellFieldQuery& q, std::vector<BlinkEvent
    }, out);
 }
 
-bool CellFieldSource::SetKineticsHistory(const double* rows, int nSeg)
+bool SampleSource::SetKineticsHistory(const double* rows, int nSeg)
 {
    if (!world_)
       return nSeg == 0;
    return isc_world_set_kinetics_history(world_, nSeg > 0 ? rows : nullptr, static_cast<int32_t>(std::max(0, nSeg))) == 0;
 }
 
-bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double budgetMs)
+bool SampleSource::Prefetch(const SampleQuery& q, double marginUm, double budgetMs)
 {
    if (!world_ || !(budgetMs > 0))
       return false;
@@ -236,7 +243,7 @@ bool CellFieldSource::Prefetch(const CellFieldQuery& q, double marginUm, double 
    return true;
 }
 
-long CellFieldSource::Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
+long SampleSource::Density3d(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
                                 int ny, int nz, int structureMask, float* out)
 {
    if (!world_)
@@ -244,7 +251,7 @@ long CellFieldSource::Density3d(double x0, double y0, double x1, double y1, doub
    return isc_density3d_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, structureMask, out);
 }
 
-long CellFieldSource::OpticalVolume(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
+long SampleSource::OpticalVolume(double x0, double y0, double x1, double y1, double zMin, double zMax, int nx,
                                     int ny, int nz, int sub, float* out)
 {
    if (!world_)
@@ -252,10 +259,15 @@ long CellFieldSource::OpticalVolume(double x0, double y0, double x1, double y1, 
    return isc_optical_volume_in_window(world_, x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, out);
 }
 
-double CellFieldSource::MaxCellHeight(double x0, double y0, double x1, double y1)
+double SampleSource::MaxCellHeight(double x0, double y0, double x1, double y1)
 {
    if (!world_)
       return -1;
+   if (origamiTopUm_ >= 0)
+   {
+      const int32_t n = isc_origami_in_window(world_, x0, y0, x1, y1, nullptr, 0);
+      return n < 0 ? -1 : n > 0 ? origamiTopUm_ : 0.0;
+   }
    constexpr int kStride = ISC_CELL_STRIDE; // height at 6
    int32_t cap = 64;
    for (;;)

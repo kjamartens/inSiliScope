@@ -297,9 +297,11 @@ static const DyeData kDyes[] = {
 static const TargetData kTargets[] = {
    { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 } },
    { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 } },
+   { "docking", "Docking strands", "ruler", "Nanorulers", 2, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 } },
 };
 static const SpecimenData kSpecimens[] = {
    { "CellField", "Cell field", 0, 2 },
+   { "Nanorulers", "DNA-origami nanorulers", 2, 1 },
 };
 static const char* const kDefaultExcitationFilter = "None";
 static const char* const kDefaultDichroic = "LP650";
