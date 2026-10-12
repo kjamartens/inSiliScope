@@ -30,6 +30,10 @@ Upcoming ideas:
   (approximate SMLM) above 12.5 ON blinks per um^2 (C++ + JS, 100 % identical ADU), [x] blink mean-field (expected ON
   time, off by default), [x] adapter GPU splats only the SMLM frames, `Renderer.Blink*` rows, viewer controls, docs.
   Next: [ ] a D3D11 binned FFT if live profiling of dense DNA-PAINT asks for it.
+- DNA-origami nanorulers, a second specimen (2026-10-12, branch `claude/nanorulers`, spec/PORT.md 20): [x] JS model in
+  iteration mode (2D WLC bending, Lp 1500 nm, 5-strand rings, Matern-II field), [x] core ABI 12, [x] engine/cli, [x]
+  viewer + block, [x] MM (`SampleHolder`, `Nanorulers` device), [x] docs (Samples section), figures, gallery.
+  Next: [ ] 3D designs (cuboid, 3D bending, ring heights validated), [ ] DNA-PAINT kinetics per imager sequence.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

@@ -387,6 +387,15 @@
       "use": "the typical DNA origami nanoruler is a 12-helix bundle about 200 nm long and about 13 nm in diameter (p. 110902-3, Sec. I.A; Fig. 1(e)); three equidistant spots along a 12-helix bundle as a resolution test (Sec. II, Fig. 2(a)); marks placed with an accuracy commonly better than 2 nm (Sec. II): the 80 nm nanoruler's body",
       "checked": "values read from the open-access full text (LMU repository PDF)"
     },
+    "rivetti1996": {
+      "authors": "Rivetti C, Guthold M, Bustamante C",
+      "year": 1996,
+      "title": "Scanning force microscopy of DNA deposited onto mica: equilibration versus kinetic trapping studied by statistical polymer chain analysis",
+      "journal": "Journal of Molecular Biology", "volume": "264", "pages": "919-932",
+      "doi": "10.1006/jmbi.1996.0687",
+      "use": "DNA deposited on a surface can equilibrate on it as a two-dimensional worm-like chain (abstract): the nanorulers' in-plane bending model. Its 2D statistics (tangent correlation exp(-s/2Lp); mean square end-to-end distance = the 3D formula with Lp -> 2Lp) are derived on the nanorulers page, not quoted",
+      "checked": "citation and abstract via PubMed (PMID 9000621); full text not open"
+    },
     "chhabra2020": {
       "authors": "Chhabra H, Mishra G, Cao Y, Prešern D, Skoruppa E, Tortora MMC, Doye JPK",
       "year": 2020,

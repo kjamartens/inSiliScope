@@ -709,6 +709,44 @@ Blinks render per label (main group) and per frame in one of three regimes; the 
   Windows heap serialized them (a 432^2 transform 75-100 ms in a movie vs 5-10 ms alone). Per-thread scratch
   (`LineScratch`), bit-identical; the WideField / mean-field path gains too.
 
+## DNA-origami nanorulers (2026-10-12)
+
+A second specimen (`specimen` 1, `data/specimens.json`): a field of DNA-origami rods on the coverslip
+(`core/src/origami.*`, JS twin `web/prototype/scope/origami.js`, bit-exact; designs `data/origami/designs.json` ->
+`tools/gen_origami_designs.mjs`). The model reference is the user's `tools/origami_reference/origami_bend.py`; the public
+description is `docs/samples/nanorulers/index.md`.
+
+- **Why a specimen switch in the core, not a second world type.** The photophysics (labels, schedules, persistent
+  DNA-PAINT cover, rate history, events / continuous / density3d / site queries) needs per site only `(h1, k, n,
+  structure)`. So the origami world yields its sites as dye blocks with their own address (`BlockKey` cx, cy, mtIndex
+  = tile x, tile y, molecule i; k = spot, n = ring position) and structure 1; everything downstream is unchanged and a
+  cell field world is bit-identical to before (golden CellField lines, `adapter_pixel_hash`). Structures are global
+  (`ISC_STRUCT_COUNT` 2); a world yields only its specimen's.
+- **Field.** 2 um tiles, a Poisson count per tile (`density` x 4 um^2, inversion of one draw, cap 4096), Matern type
+  II thinning against the 3x3 tiles (priority, then ty, tx, i break ties), so the result is a pure function of the tile
+  and its neighbours: any window, any order. Placement draws are on `seed ^ ORIGAMI_SALT`, bending and landing on the
+  molecule hash `h1`: changing Lp never moves or turns a rod.
+- **Bending: a 2D worm-like chain** (the rod lies on the glass). n = max(8, ceil(L / (D/2))) segments, dtheta = z
+  sqrt(ds / Lp) per segment, exact circular arcs (sinc form; half-angle 0 handled), placed with the chord along the
+  yaw and its midpoint at the position (the "aligned" frame of `origami_bend.py`). The normals are Box-Muller on
+  `pcg4d(h1, K_BEND, i >> 1, 0)` (cos for even i, sin for odd) with `jsm::` math, so C++ = JS bit for bit; the
+  cross-check (`tools/origami_reference/crosscheck.py`) feeds `origami_bend.py` the same normals: same sites to 1e-14
+  nm. Statistics (checked in `origami_check.mjs` and `world_checks.Origami`): end-angle variance L/Lp, tangent
+  correlation e^(-s/2Lp), <R^2> of the 2D chain. Fold-over (|kappa| D/2 >= 1) counted, kept.
+- **Default Lp 1500 nm** (*estimate*): measured bending persistence lengths of origami bundles are 0.74-1 um (4HB),
+  1-3 um (6HB), 3-8.2 um (8HB) (chhabra2020); a 12-helix rod is stiffer, so 1500 leans soft. 273.1 nm (tuned by eye in
+  the explorer) is documented as the softer option.
+- **Sites.** Each spot is a ring of 5 strand positions (radius D/2, a modelling choice: no published count per spot);
+  `origamiStrandsPerSpot` N keeps ring positions 0..N-1 (the same subset on every rod, so a lower N is a design change,
+  not a labelling one). Incorporation is the label's density draw (`DYE_CH::LABEL`, the label %), the linker an
+  outward half-ball (radius `origamiLinkerNm`). **v1 is 2D:** every strand at the axis height, attach + D/2 = 13.5 nm;
+  `origamiHeights` 1 keeps the ring heights (the 3D path, unvalidated). The engine's default focus on a nanoruler world
+  is that height (`isc_origami_heights`).
+- **BrightField.** The optical volume of an origami world is empty (13 nm of DNA gives no contrast at these NAs; the
+  BRIGHTFIELD.md rule), so BrightField frames hold lamp and noise only.
+- **Not implemented** (schema slots, validated as "not implemented"): cuboid / mesh bodies, 3D bending, stiffness
+  patches, built-in curvature, explicit strand lists; broken or misfolded rulers.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

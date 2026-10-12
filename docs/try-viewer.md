@@ -6,7 +6,8 @@ hide:
 
 # Viewer
 
-The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field, tilt and turn it for a 3D view,
+The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field (or the DNA-origami
+nanorulers: the **Specimen** select), tilt and turn it for a 3D view,
 then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
 to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
 
@@ -18,14 +19,21 @@ to the `insiliscope_cli` output with the same settings), or make an animation of
 
 Notes:
 
-- The options are grouped the way a microscope is set up: display, sample (cell field, cell shape, nucleus,
-  cytoplasm, packing, microtubules), sample preparation (labelling and fluorophore, refractive index), microscope
+- The options are grouped the way a microscope is set up: display, sample (the specimen; for the cell field its cell
+  shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
+  preparation (labelling and fluorophore, refractive index), microscope
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
   has a unit and an (i) that explains it (hover or Tab to it).
 - The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
   looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
-- **Microtubule label**: the labelled share of the sites, then the mode, then the dye (the Dye select lists the dyes
+- **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
+  groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on).
+  The nanorulers are drawn from above as their bent rods (the **Nanorulers** checkbox, View) with the docking strands' dyes;
+  the **Nanorulers** group sets the design, the density, the docking strands per spot (1-5 of the ring's 5) and, in
+  Advanced, the bending (persistence length, default 1500 nm), the minimum spacing, the landing (attach height, roll)
+  and the linker. A movie of the nanorulers wants the focus on the coverslip (**Focus height** 0-0.02 µm, Acquisition; it stays at 0.5 µm when you switch).
+- **Microtubule label** (the cell field; the nanorulers' is the **Docking strands label**, the same rows): the labelled share of the sites, then the mode, then the dye (the Dye select lists the dyes
   with data for that mode), then the dipole orientation. A mode or dye pick loads the dye's fields, the mode's labelling
   and its light preset (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
   under Geometry, the DNA-PAINT chamber height in Advanced). The preset is also the modality: "BrightField (lasers
