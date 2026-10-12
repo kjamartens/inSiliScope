@@ -7,11 +7,15 @@ import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
   mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM, MT_BINDER_NM,
   MT_LINKER_MAX_NM, PERSIST_BIN_SEC } from './dyes.js';
+import { OrigamiField, SPECIMEN_NANORULERS, STRUCTURE_ORIGAMI } from './origami.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
-// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*). Only the microtubules for now; a
-// new structure (nucleus DNA, NPCs, ...) adds a target there and its site generator here and in core/.
+// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*): the microtubules (CellField) and
+// the docking strands (Nanorulers). A new structure (nucleus DNA, NPCs, ...) adds a target there and its site
+// generator here and in core/. A world holds one specimen (params.specimen; the core param 'specimen'): its geometry
+// (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels, schedules and the queries are
+// shared. A world never yields a structure of another specimen.
 export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name }));
 export const STRUCTURE_MT = 0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
@@ -39,10 +43,12 @@ export function localToWorld(c, lx, ly) {
 export class World {
   // P: loadPrototype() instance. params: prototype params (P.paramsFrom(...)), geometry only. labels: one label
   // (dyes.js makeLabel) per STRUCTURES entry.
-  constructor(P, seed, params, labels = [makeLabel()]) {
+  constructor(P, seed, params, labels = STRUCTURES.map(() => makeLabel())) {
     this.g = P.gen;
     this.seed = seed >>> 0;
     this.p = params;
+    this.specimen = Math.trunc(params.specimen ?? 0);
+    this.origami = this.specimen === SPECIMEN_NANORULERS ? new OrigamiField(this.seed, params) : null;
     this.blocks = new Map();   // packing blocks
     this.assets = new Map();   // cell assets by chunk
     this.dyeBlocks = new Map();
@@ -133,8 +139,9 @@ export class World {
     return true;
   }
 
-  // Cells whose footprint circle (rOuter) meets the rect, in the C++ order.
+  // Cells whose footprint circle (rOuter) meets the rect, in the C++ order (none in an origami world).
   cellsInRect(x0, y0, x1, y1) {
+    if (this.origami) return [];
     const S = this.p.chunkSize, reach = this.cellReachUm();
     const cxLo = Math.floor((x0 - reach) / S), cxHi = Math.floor((x1 + reach) / S);
     const cyLo = Math.floor((y0 - reach) / S), cyHi = Math.floor((y1 + reach) / S);
@@ -163,6 +170,10 @@ export class World {
 
   // fn(block) for every 1 um dye block that can reach the rect/z range, in the C++ order.
   forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, fn) {
+    if (this.origami) {   // one block per molecule
+      for (const m of this.origami.moleculesInRect(x0, y0, x1, y1)) fn(this.origamiDyeBlock(m));
+      return;
+    }
     const blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
     for (const c of this.cellsInRect(x0, y0, x1, y1)) {
       const A = this.cellAssets(c);
@@ -205,6 +216,27 @@ export class World {
       blk.theta[d.k] = d.theta;
       blk.zLo = Math.min(blk.zLo, d.pos.z);
       blk.zHi = Math.max(blk.zHi, d.pos.z);
+    });
+    this.dyeBlocks.set(key, blk);
+    return blk;
+  }
+  // The fluorescent docking strands of one origami molecule as a dye block (cx, cy, mtIndex = tile x, tile y, molecule
+  // index; k = spot, n = ring position).
+  origamiDyeBlock(m) {
+    const key = 'o' + m.tx + ',' + m.ty + ',' + m.i;
+    let blk = this.dyeBlocks.get(key);
+    if (blk) return blk;
+    const label = this.labels[STRUCTURE_ORIGAMI];
+    const sites = this.origami.sites(m, label.density, label.fluorescentFraction);
+    const n = sites.length;
+    blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
+      k: new Uint8Array(n), nIdx: new Int32Array(n), theta: new Float64Array(this.origami.d.spots.length),
+      cx: m.tx, cy: m.ty, mtIndex: m.i, h1: m.h1, structure: STRUCTURE_ORIGAMI,
+      zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
+    sites.forEach((d, i) => {
+      blk.x[i] = d.x; blk.y[i] = d.y; blk.z[i] = d.z; blk.id[i] = d.id; blk.k[i] = d.k; blk.nIdx[i] = d.n;
+      blk.zLo = Math.min(blk.zLo, d.z);
+      blk.zHi = Math.max(blk.zHi, d.z);
     });
     this.dyeBlocks.set(key, blk);
     return blk;
@@ -317,6 +349,7 @@ export class World {
   dyeOrientation(d) {
     const label = this.labels[d.structure];
     if (label.orientation.mode === 'Free') return null;
+    if (d.structure === STRUCTURE_ORIGAMI) throw new Error('dye orientation on origami docking strands is not implemented (Free only)');
     const A = this.cellAssets(this.packedBlock(floorDiv(d.cx, PACK_BLOCK_CHUNKS), floorDiv(d.cy, PACK_BLOCK_CHUNKS))
       .find(c => c.cx === d.cx && c.cy === d.cy));
     const fr = this.frames(A, d.mtIndex), S = (mtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
@@ -343,6 +376,7 @@ export class World {
 
   // Tallest cell (c.height) whose footprint meets the rect; 0 if none (CellFieldSource::MaxCellHeight).
   maxCellHeight(x0, y0, x1, y1) {
+    if (this.origami) return this.origami.moleculesInRect(x0, y0, x1, y1).length ? this.origami.maxHeightUm() : 0;
     let h = 0;
     for (const c of this.cellsInRect(x0, y0, x1, y1)) h = Math.max(h, c.height);
     return h;
@@ -356,6 +390,7 @@ export class World {
     const g = this.g, p = this.p;
     const plane = nx * ny, chan = plane * nz;
     out.fill(0, 0, 3 * chan);
+    // Origami: no BrightField contrast (a 13 nm DNA rod; spec/BRIGHTFIELD.md), so an empty volume.
     const cells = this.cellsInRect(x0, y0, x1, y1);
     const px = (x1 - x0) / nx, py = (y1 - y0) / ny, dz = (zMax - zMin) / nz;
     const subW = 1.0 / (sub * sub);

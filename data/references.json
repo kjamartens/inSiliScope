@@ -376,6 +376,35 @@
       "doi": "10.1038/s41592-019-0364-4", "pmcid": "PMC6684258",
       "use": "the SMLM Challenge (simulated 2D, astigmatic, biplane and double-helix datasets): the comparison of the PSF and noise models in docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md",
       "checked": "citation and abstract via PubMed"
+    },
+    "scheckenbach2020": {
+      "authors": "Scheckenbach M, Bauer J, Zähringer J, Selbach F, Tinnefeld P",
+      "year": 2020,
+      "title": "DNA origami nanorulers and emerging reference structures",
+      "journal": "APL Materials", "volume": "8", "pages": "110902",
+      "doi": "10.1063/5.0022885",
+      "url": "https://epub.ub.uni-muenchen.de/74150/",
+      "use": "the typical DNA origami nanoruler is a 12-helix bundle about 200 nm long and about 13 nm in diameter (p. 110902-3, Sec. I.A; Fig. 1(e)); three equidistant spots along a 12-helix bundle as a resolution test (Sec. II, Fig. 2(a)); marks placed with an accuracy commonly better than 2 nm (Sec. II): the 80 nm nanoruler's body",
+      "checked": "values read from the open-access full text (LMU repository PDF)"
+    },
+    "chhabra2020": {
+      "authors": "Chhabra H, Mishra G, Cao Y, Prešern D, Skoruppa E, Tortora MMC, Doye JPK",
+      "year": 2020,
+      "title": "Computing the elastic mechanical properties of rod-like DNA nanostructures",
+      "journal": "Journal of Chemical Theory and Computation", "volume": "16", "pages": "7748-7763",
+      "doi": "10.1021/acs.jctc.0c00661",
+      "url": "https://arxiv.org/abs/2006.15029",
+      "use": "measured bending persistence lengths of origami helix bundles, summarised from the literature: 740 nm-1 um (four-helix), 1-3 um (six-helix), 3-8.2 um (eight-helix) bundles (Introduction, p. 4 of the arXiv version); oxDNA gives somewhat higher values (abstract): the range the nanorulers' persistence length is compared with",
+      "checked": "values read from the arXiv full text (2006.15029v1); journal citation from the arXiv record"
+    },
+    "kauert2011": {
+      "authors": "Kauert DJ, Kurth T, Liedl T, Seidel R",
+      "year": 2011,
+      "title": "Direct mechanical measurements reveal the material properties of three-dimensional DNA origami",
+      "journal": "Nano Letters", "volume": "11", "pages": "5558-5563",
+      "doi": "10.1021/nl203503s",
+      "use": "bending rigidities of four- and six-helix origami bundles by magnetic tweezers, greatly increased over duplex DNA (abstract); one of the measurements chhabra2020 summarises",
+      "checked": "citation and abstract via PubMed; the numbers are taken from chhabra2020's summary, not read from this paper"
     }
   }
 }

@@ -1,7 +1,8 @@
 // Headless lab check (Node, seconds): the working-tree prototype vs a git baseline.
 //   node web/lab/check.mjs [--base origin/main] [--seed N] [--cells 3] [--set mtWobbleTurn=1.2 ...]
 // Fails on: a load error, NaN geometry, or a cell that differs with query history (address determinism).
-// Prints shape metrics working vs baseline. No build, no C++.
+// Prints shape metrics working vs baseline. No build, no C++. Then the nanorulers: web/lab/origami_check.mjs (the
+// model's checks, ~1 s) and their imaging smoke test.
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
@@ -89,7 +90,10 @@ for (const spec of [`size=32 frames=4 ${K}`,
   `size=32 frames=3 ${K} mt-dye=mEos3.2 mt-label-pct=5 laser-561=1 laser-405=0.02 laser-488=0.05 dichroic=Quad em-filter=BP600-37`,
   `size=32 frames=2 ${K} mt-dye=mEGFP laser-488=0.01 laser-640=0 dichroic=LP505 em-filter=BP525-45`,
   `size=32 frames=3 psf-model=0 mt-dye=Dye1 mt-label-pct=3 laser-640=2 start-sec=20`,
-  'size=32 frames=2 modality=BrightField bf-quality=1']) {
+  'size=32 frames=2 modality=BrightField bf-quality=1',
+  // The nanorulers (specimen 1): DNA-PAINT (dense, so a few frames bind), WideField.
+  `specimen=Nanorulers size=32 frames=3 ${K} origami-density=2 ruler-label-pct=100 ruler-imager-nm=50`,
+  `specimen=Nanorulers size=32 frames=2 ${K} ruler-dye=ATTO655 ruler-mode=WideField`]) {
   const c = workCells[0], t = performance.now();
   const full = `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} ${spec}`;
   let lo = Infinity, hi = -Infinity, nan = 0;
@@ -102,5 +106,8 @@ for (const spec of [`size=32 frames=4 ${K}`,
     else console.log(`imaging ${spec}: ADU ${lo}..${hi}, ${info.blinks ?? info.dyes ?? info.sources} ${info.blinks != null ? 'blinks' : info.dyes != null ? 'dyes' : 'sources'}, ${(performance.now() - t).toFixed(0)} ms`);
   } catch (e) { bad(`imaging ${spec}: ${e.message}`); }
 }
+try {
+  console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/origami_check.mjs')], { encoding: 'utf8' }).trim().split('\n').pop());
+} catch (e) { console.log(String(e.stdout)); bad('web/lab/origami_check.mjs'); }
 console.log(fail ? `lab check: ${fail} failure(s)` : 'lab check: PASS');
 process.exit(fail ? 1 : 0);

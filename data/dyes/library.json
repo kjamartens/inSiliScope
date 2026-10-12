@@ -21,7 +21,13 @@
       "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 70 },
       "WideField": { "dye": "mEGFP", "labelingPct": 70 }
     },
-    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites).",
+    "docking": {
+      "dSTORM": { "dye": "AF647", "labelingPct": 80 },
+      "PALM": { "dye": "mEos3.2", "labelingPct": 80 },
+      "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 80 },
+      "WideField": { "dye": "ATTO655", "labelingPct": 80 }
+    },
+    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites). Docking strands (the origami nanorulers): the % is the incorporation of each designed strand (estimate, 80 %); DNA-PAINT is what such rulers are made for, an ATTO 655 imager as for the microtubules; dSTORM stands for dye-labelled staples, WideField for a dye on every strand; PALM (a protein on a DNA strand) is listed only so every mode has a dye.",
     "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017"]
   },
   "dyes": [

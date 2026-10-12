@@ -296,9 +296,11 @@ static const DyeData kDyes[] = {
 // typicalLabels: dye index, % of the sites) in the order dSTORM, PALM, DNA-PAINT, WideField.
 static const TargetData kTargets[] = {
    { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 } },
+   { "docking", "Docking strands", "ruler", "Nanorulers", 1, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 } },
 };
 static const SpecimenData kSpecimens[] = {
    { "CellField", "Cell field", 0, 1 },
+   { "Nanorulers", "DNA-origami nanorulers", 1, 1 },
 };
 static const char* const kDefaultExcitationFilter = "None";
 static const char* const kDefaultDichroic = "LP650";

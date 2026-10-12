@@ -1641,6 +1641,18 @@ export const DYE_DATA = {
      "structure": 0
     }
    ]
+  },
+  {
+   "id": "Nanorulers",
+   "name": "DNA-origami nanorulers",
+   "targets": [
+    {
+     "id": "docking",
+     "name": "Docking strands",
+     "prefix": "ruler",
+     "structure": 1
+    }
+   ]
   }
  ],
  "specimenDefault": "CellField",
@@ -1661,6 +1673,24 @@ export const DYE_DATA = {
    "WideField": {
     "dye": "mEGFP",
     "labelingPct": 70
+   }
+  },
+  "docking": {
+   "dSTORM": {
+    "dye": "AF647",
+    "labelingPct": 80
+   },
+   "PALM": {
+    "dye": "mEos3.2",
+    "labelingPct": 80
+   },
+   "DNA-PAINT": {
+    "dye": "ATTO655",
+    "labelingPct": 80
+   },
+   "WideField": {
+    "dye": "ATTO655",
+    "labelingPct": 80
    }
   }
  },
