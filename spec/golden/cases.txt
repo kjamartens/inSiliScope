@@ -325,3 +325,7 @@ cells m06 2024 nucplain -2 -2 2 2 2
 cells m07 9001 nucwild -2 -2 2 2 2
 case n00 4711 nucwild -6 -6 7 7
 case r00 31337 rough -6 -6 7 7
+origami o00 1249 0 0 6 6
+origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3
+origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2
+origami o03 5 12345678 -9876543 12345681 -9876540 origamiDensity=8 origamiMinSpacingNm=0 origamiLpNm=50 origamiAttachNm=20

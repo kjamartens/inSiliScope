@@ -12,7 +12,10 @@
 #include <new>
 #include <vector>
 
-static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE == isc::STRUCTURE_MT, "structures");
+static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE == isc::STRUCTURE_MT &&
+                 ISC_STRUCT_ORIGAMI_SITES == isc::STRUCTURE_ORIGAMI, "structures");
+static_assert(ISC_SPECIMEN_CELLFIELD == isc::SPECIMEN_CELLFIELD && ISC_SPECIMEN_NANORULERS == isc::SPECIMEN_NANORULERS,
+              "specimens");
 static_assert(ISC_STATE_BLINK == isc::STATE_BLINK && ISC_STATE_PRE == isc::STATE_PRE &&
                  ISC_STATE_INITIAL_ON == isc::STATE_INITIAL_ON && ISC_STATE_ALWAYS_ON == isc::STATE_ALWAYS_ON, "states");
 static_assert(ISC_MODE_DNA_PAINT == (int)isc::LabelMode::DnaPaint && ISC_MODE_WIDEFIELD == (int)isc::LabelMode::WideField &&
@@ -428,6 +431,73 @@ int32_t isc_optical_volume_in_window(IscWorld* w, double x0, double y0, double x
    try {
       const long n = w->w.OpticalVolumeInWindow(x0, y0, x1, y1, zMin, zMax, nx, ny, nz, sub, out);
       return n > INT32_MAX ? -1 : (int32_t)n;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_origami_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out)) return -1;
+   try {
+      isc::OrigamiField* f = w->w.Origami();
+      if (!f) return 0;
+      std::vector<isc::OrigamiMolecule> mols;
+      f->MoleculesInRect(x0, y0, x1, y1, mols);
+      if (mols.size() > (size_t)INT32_MAX) return -1;
+      for (size_t j = 0; j < mols.size() && (int32_t)j < cap; j++) {
+         const isc::OrigamiMolecule& m = mols[j];
+         const isc::OrigamiShape S = f->Shape(m);
+         double* o = out + j * ISC_ORIGAMI_STRIDE;
+         o[0] = m.tx; o[1] = m.ty; o[2] = m.i; o[3] = f->P().origamiDesign; o[4] = m.x; o[5] = m.y; o[6] = m.yaw;
+         o[7] = isc::OrigamiMoleculeRoll(f->P(), m.h1); o[8] = S.endAngle; o[9] = S.fold ? 1 : 0;
+      }
+      return (int32_t)mols.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t i, int32_t nPerSide, double* out,
+                            int32_t capPts)
+{
+   if (!w || nPerSide < 2 || nPerSide > 100000 || (capPts > 0 && !out)) return -1;
+   try {
+      isc::OrigamiField* f = w->w.Origami();
+      isc::OrigamiMolecule m;
+      if (!f || !f->Find(tx, ty, i, m)) return -1;
+      const std::vector<double> o = f->OutlineWorld(m, nPerSide);
+      const int32_t n = (int32_t)(o.size() / 2);
+      for (int32_t j = 0; j < n && j < capPts; j++) { out[2 * j] = o[2 * (size_t)j]; out[2 * j + 1] = o[2 * (size_t)j + 1]; }
+      return n;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_origami_sites(IscWorld* w, int32_t tx, int32_t ty, int32_t i, double* out, int32_t cap)
+{
+   if (!w || (cap > 0 && !out)) return -1;
+   try {
+      isc::OrigamiField* f = w->w.Origami();
+      isc::OrigamiMolecule m;
+      if (!f || !f->Find(tx, ty, i, m)) return -1;
+      const isc::OrigamiShape S = f->Shape(m);
+      const isc::Label& label = w->w.GetLabel(isc::STRUCTURE_ORIGAMI);
+      std::vector<isc::OrigamiSite> all, lit;
+      isc::OrigamiMoleculeSites(f->Design(), f->P(), m, S, 1, 1, all, true);
+      isc::OrigamiMoleculeSites(f->Design(), f->P(), m, S, label.density, label.fluorescentFraction, lit);
+      size_t q = 0;
+      for (size_t j = 0; j < all.size(); j++) {
+         const isc::OrigamiSite& s = all[j];
+         const bool on = q < lit.size() && lit[q].k == s.k && lit[q].n == s.n;
+         if (on) q++;
+         if ((int32_t)j >= cap) continue;
+         double* o = out + j * ISC_ORIGAMI_SITE_STRIDE;
+         o[0] = s.k; o[1] = s.n; o[2] = s.x; o[3] = s.y; o[4] = s.z; o[5] = s.rest[0]; o[6] = s.rest[1];
+         o[7] = s.rest[2]; o[8] = s.bent[0]; o[9] = s.bent[1]; o[10] = on ? 1 : 0;
+      }
+      return (int32_t)all.size();
    } catch (...) {
       return -1;
    }
