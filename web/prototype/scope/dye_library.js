@@ -14,7 +14,9 @@ export { DYE_DATA };
 export const DYE_IDS = DYE_DATA.dyes.map(d => d.id);
 export const DYE_SLOTS = ['Dye1', 'Dye2', 'Dye3'];
 // A structure's dye choice: a library dye (index into DYE_IDS) or a slot (DYE_IDS.length + slot index).
-export const DYE_CHOICES = [...DYE_IDS, ...DYE_SLOTS];
+// A target's label: a library dye, a slot, or None (no label: the target is off; issue 15, appended so the indices stay).
+export const DYE_CHOICES = [...DYE_IDS, ...DYE_SLOTS, 'None'];
+export const DYE_NONE = DYE_CHOICES.length - 1;
 export const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 export const EXCITATION_FILTER_IDS = DYE_DATA.excitationFilters.map(f => f.id);
 export const DICHROIC_IDS = DYE_DATA.dichroics.map(f => f.id);

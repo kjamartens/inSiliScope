@@ -16,7 +16,7 @@ const MT_OPEN = 'window.__MT_SRC = function () {';
 export const GEN_EXPORTS = ['pcg4d', 'hashUnit', 'hashStream', 'rawCandidate', 'buildCandidateMap', 'packMap',
   'interactionChunks', 'getCytoGeometry', 'sampleCytoMeshHeight', 'cellOutlineLocal', 'ensureCytoCacheFresh',
   'cytoCache', 'getMtCellGeometry', 'buildMicrotubulesForCell', 'buildMicrotubuleLabelPoints', 'CELL_MOD_MAX', 'TAIL_MAX', 'cellRadiusAt',
-  'nucleusColumnLocal', 'nucleusRingsLocal'];
+  'nucleusColumnLocal', 'nucleusRingsLocal', 'nucSurfaceLocal', 'nucSurfaceMesh', 'buildNpcsForCell', 'npcAttachmentPoints'];
 
 function sliceOrThrow(text, a, b, what) {
   if (a < 0 || b < 0 || b <= a) throw new Error(what + ' markers not found');

@@ -143,6 +143,13 @@ const data = {
   dichroics: lightPath.dichroics.map(filterEntry),
   emissionFilters: lightPath.emissionFilters.map(filterEntry),
   lightPathDefaults: lightPath.defaults,
+  // The filters of the 'auto' light preset when the targets' presets differ (light_path.json multiTarget).
+  lightPathMultiTarget: (() => {
+    const m = lightPath.multiTarget;
+    if (!lightPath.dichroics.some(f => f.id === m.dichroic)) throw new Error(`multiTarget: unknown dichroic '${m.dichroic}'`);
+    if (!lightPath.emissionFilters.some(f => f.id === m.emissionFilter)) throw new Error(`multiTarget: unknown emission filter '${m.emissionFilter}'`);
+    return { dichroic: m.dichroic, emissionFilter: m.emissionFilter };
+  })(),
   lightPresets: lightPath.presets.map(q0 => {
     const q = { ...q0, excitationFilter: q0.excitationFilter ?? 'None' };   // no clean-up filter unless the preset names one
     checkRefs(q.id, q.refs);

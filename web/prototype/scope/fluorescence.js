@@ -284,7 +284,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, binnedFrames, psfSec: (tPsf - t0) / 1000, querySec,
     totalSec: (performance.now() - t0) / 1000, psf: groups.some(g => g.kernel) ? 'GibsonLanniZernike' : 'Gaussian',
     imagerBackgroundPerPxPerFrame: imagerPerFrame, driftNm: driftInfo(S),
-    labels: S.labels.map((L, s) => ({ structure: STRUCTURES[s].id, dye: L.dye.id, mode: L.mode, kActPerSec: L.kActPerSec,
+    labels: S.labels.map((L, s) => ({ structure: STRUCTURES[s].id, dye: L.dye ? L.dye.id : "None", mode: L.mode, kActPerSec: L.kActPerSec,
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
         detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) })),
     groups: groups.map(g => ({ structure: g.structure, role: g.role, lambdaNm: g.lambdaNm, perFrame: g.perFrame })),

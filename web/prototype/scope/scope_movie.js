@@ -15,10 +15,10 @@ import { renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
 import { renderBrightfieldMovie, brightfieldPhotons } from './brightfield.js';
 import { driftOn, driftTrajectory, driftRange } from './drift.js';
 import { renderFluorescenceMovie } from './fluorescence.js';
-import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
+import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_NONE, DYE_FIELDS, MODES, EXCITATION_FILTER_IDS, DICHROIC_IDS, EMISSION_FILTER_IDS, CAMERA_IDS, LASER_LINES,
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
   backgroundQe } from './dye_library.js';
-import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
+import { ORIENTATION_MODES, MOTION_MODES, makeLabel } from './dyes.js';
 import { sampleAt } from './spectra.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
@@ -30,6 +30,26 @@ export const DEFAULT_LASER_640_KW = 1.0;
 // k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
 // activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
 export const DEFAULT_IMAGER_NM = 1;
+
+// A target's label options (ScopeMovieOptions' per-target block, made from data/specimens.json): <prefix>-dye, -mode,
+// -label-pct, -imager-nm, -orient*, -wobble-deg, -motion; the Micro-Manager rows CellField.<Target>_* (Target = the
+// target's name without spaces). The default dye: the target's typical dye in the library's default mode.
+export function targetMmName(s) { return s.name.replace(/\s+/g, ''); }
+function targetOptions(s) {
+  const P = s.prefix, T = targetMmName(s), typ = DYE_DATA.typicalLabels[s.id];
+  const pcts = MODES.map(m => `${m} ${typ[m].labelingPct}`).join(', ');
+  return [
+    [`${P}-dye`, idx(DYE_CHOICES, typ[DYE_DATA.dyeDefault.mode].dye), `CellField ${T}_Label: a library dye, Dye1..Dye3, or None (the ${s.name.toLowerCase()} carry no label); -1 Typical = their typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
+    [`${P}-mode`, -1, `CellField ${T}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
+    [`${P}-label-pct`, -1, `CellField ${T}_LabelingPct: % of the binding sites that carry a label (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: ${pcts})`],
+    [`${P}-imager-nm`, DEFAULT_IMAGER_NM, `CellField.${T}_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-orient`, 0, `CellField.${T}_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)`],
+    [`${P}-orient-polar-deg`, 90, `CellField.${T}_OrientPolarDeg: Fixed dipole angle from the structure's axis (microtubule axis, pore axis)`],
+    [`${P}-orient-azimuth-deg`, 0, `CellField.${T}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],
+    [`${P}-wobble-deg`, 0, `CellField.${T}_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)`],
+    [`${P}-motion`, 0, `CellField.${T}_Motion: 0 Static (single-particle tracking: future)`],
+  ];
+}
 
 // [name, default, help]: ScopeMovieOptions(), same order and defaults.
 export const SCOPE_OPTIONS = [
@@ -59,19 +79,11 @@ export const SCOPE_OPTIONS = [
   ['na', 1.4, 'Objective.NA: numerical aperture'],
   ['focus-um', 0, 'CellField.FocusHeightUm (focus offset added to z)'],
   ['z-range-um', 7.0, 'CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)'],
-  // ---- the microtubules' label (Micro-Manager: CellField.Microtubules_*, Fluorophores) ----
+  // ---- the targets' labels (Micro-Manager: CellField.<Target>_*, Fluorophores; one block per target, TARGET_OPTIONS) ----
   ['specimen', 0, 'SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)'],
-  ['mode', -1, 'Fluorophores Mode: the experiment\'s label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target\'s own; names accepted)'],
-  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules\' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)'],
-  ['mt-mode', -1, 'CellField Microtubules_Mode: -1 DyeDefault = the dye\'s default (Typical: the library\'s default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', -1, 'CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target\'s typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
-  ['mt-imager-nm', DEFAULT_IMAGER_NM, 'CellField.Microtubules_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
-  ['mt-orient', 0, 'CellField.Microtubules_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
-  ['mt-orient-polar-deg', 90, 'CellField.Microtubules_OrientPolarDeg: Fixed dipole angle from the microtubule axis'],
-  ['mt-orient-azimuth-deg', 0, 'CellField.Microtubules_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction'],
-  ['mt-wobble-deg', 0, 'CellField.Microtubules_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)'],
-  ['mt-motion', 0, 'CellField.Microtubules_Motion: 0 Static (single-particle tracking: future)'],
-  // ---- dye slots (Fluorophores.DyeN_*): a library dye + overrides, chosen by mt-dye = Dye1..Dye3 ----
+  ['mode', -1, 'fallback label mode for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target\'s own; names accepted). Each target has its own mode (<prefix>-mode); Micro-Manager has no experiment-wide mode since issue 15'],
+  ...STRUCTURES.flatMap(s => targetOptions(s)),
+  // ---- dye slots (Fluorophores.DyeN_*): a library dye + overrides, chosen by <prefix>-dye = Dye1..Dye3 ----
   ['dye1.source', idx(DYE_IDS, 'AF647'), 'Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)'],
   ['dye2.source', idx(DYE_IDS, 'mEos3.2'), 'Fluorophores.Dye2_Source'],
   ['dye3.source', idx(DYE_IDS, 'mEGFP'), 'Fluorophores.Dye3_Source'],
@@ -79,7 +91,7 @@ export const SCOPE_OPTIONS = [
   ...LASER_LINES.map(nm => [`laser-${nm}`, nm === 640 ? DEFAULT_LASER_640_KW : 0, `Lasers.Laser${nm}KWcm2: ${nm} nm laser intensity at the sample, kW/cm^2 (0 = off)`]),
   ['laser-custom-nm', 0, 'wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)'],
   ['laser-custom', 0, 'its intensity, kW/cm^2'],
-  ['light-preset', -1, 'Lasers.Preset: -1 = none (the laser/dichroic/filter options as given); auto = the light preset of the first structure\'s dye in its mode; or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give.'],
+  ['light-preset', 0, 'Lasers.Preset: auto (0, the default) = the light presets of the labelled targets\' dyes in their modes combined: each laser line at its highest power over them, the filters of the one preset, or the multi-band set (light_path.json multiTarget) when the presets\' filters differ; -1 = none (the laser/dichroic/filter options as given); or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give.'],
   ['illum-geometry', 0, 'Lasers.IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
   ['chamber-height-um', 5, 'Lasers.ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
   ['ex-filter', idx(EXCITATION_FILTER_IDS, DYE_DATA.lightPathDefaults.excitationFilter), 'ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)'],
@@ -94,7 +106,8 @@ export const SCOPE_OPTIONS = [
   ['occupancy', 0.33, 'CellField.Occupancy'],
   ['cell-diam-min-um', 25, 'CellField.CellDiameterMinUm'],
   ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
-  ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2'],
+  ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)'],
+  ['npc-density', 6, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (estimate between maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
   // ---- camera (Micro-Manager: Camera): a preset sets every value below that the spec does not give ----
   ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],
@@ -163,7 +176,8 @@ const DEFAULTS = Object.fromEntries(SCOPE_OPTIONS.map(([k, v]) => [k, v]));
 const NAMES = {
   modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', 'RichardsWolf', 'GibsonLanni', 'GibsonLanniZernike'],
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
-  'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
+  ...Object.fromEntries(STRUCTURES.flatMap(s => [[`${s.prefix}-dye`, DYE_CHOICES], [`${s.prefix}-mode`, MODES],
+    [`${s.prefix}-orient`, ORIENTATION_MODES], [`${s.prefix}-motion`, MOTION_MODES]])),
   mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
@@ -224,7 +238,8 @@ export function scopeLights(spec) {
 // or every structure in WideField mode.
 function wideFieldOrBrightField(spec) {
   if (scopeLights(spec).trans) return true;
-  return STRUCTURES.every((s, i) => scopeStructureDye(spec, i).eff.mode === 'WideField');
+  const on = STRUCTURES.map((s, i) => i).filter(i => scopeTargetOn(spec, i));
+  return on.length > 0 && on.every(i => scopeStructureDye(spec, i).eff.mode === 'WideField');
 }
 
 // A structure's dye choice and mode as the spec gives them, resolved (ScopeStructureDye): <prefix>-mode -2 = the global
@@ -236,11 +251,20 @@ export function scopeStructureDye(spec, s) {
   if (mode === -2) mode = Math.trunc(O('mode'));
   if (mode < -1) mode = -1;
   let choice = Math.trunc(O(`${P}-dye`));
+  if (choice === DYE_NONE) choice = -1;   // no label: resolved as Typical for the callers that ask; scopeTargetOn is false
   if (choice === -1) {
     if (mode < 0) mode = MODES.indexOf(DYE_DATA.dyeDefault.mode);
     choice = DYE_IDS.indexOf(DYE_DATA.typicalLabels[STRUCTURES[s].id][MODES[mode]].dye);
   }
   return { eff: effectiveDye(choice, slots, byStructure[P], mode), choice };
+}
+// Whether target s is labelled and present (ScopeTargetOn): its dye is not None, its labelled % is not 0 and its
+// geometry exists (<prefix>-density > 0: mt-density, npc-density). An off target has no dyes, no PSF group, no
+// imager background, and the auto light preset leaves it out.
+export function scopeTargetOn(spec, s) {
+  const O = getter(spec), P = STRUCTURES[s].prefix;
+  if (Math.trunc(O(`${P}-dye`)) === DYE_NONE || O(`${P}-label-pct`) === 0) return false;
+  return !(`${P}-density` in DEFAULTS) || O(`${P}-density`) > 0;
 }
 // A structure's labelled % (-1: the target's typical % in its mode).
 export function scopeStructureLabelingPct(spec, s, mode) {
@@ -263,14 +287,33 @@ export function scopeCamera(spec) {
 export function scopeLightPreset(spec) {
   const O = getter(spec), i = Math.trunc(O('light-preset'));
   if (i < 0) return null;
-  let id = LIGHT_PRESET_CHOICES[i];
-  if (id === 'auto') {
-    const { eff } = scopeStructureDye(spec, 0);
-    id = eff.dye.modes[eff.mode].lightPreset;
-  }
+  const id = LIGHT_PRESET_CHOICES[i];
+  if (id === 'auto') return autoLightPreset(spec);
   const q = DYE_DATA.lightPresets.find(x => x.id === id);
   if (!q) throw new Error(`light preset ${i} out of range`);
   return q;
+}
+// The auto light preset (AutoLightPreset): the presets of the labelled targets' dyes in their modes, in target order.
+// One distinct preset: it. Several: each laser line at its highest power over them; their excitation filter, dichroic
+// and emission filter where all agree, else no clean-up filter and the multi-band set (light_path.json multiTarget).
+// No labelled target: the first target's preset (a dark sample, the light as if it were labelled).
+export function autoLightPreset(spec) {
+  const ids = [];
+  STRUCTURES.forEach((s, i) => {
+    if (!scopeTargetOn(spec, i)) return;
+    const { eff } = scopeStructureDye(spec, i), id = eff.dye.modes[eff.mode].lightPreset;
+    if (!ids.includes(id)) ids.push(id);
+  });
+  if (!ids.length) { const { eff } = scopeStructureDye(spec, 0); ids.push(eff.dye.modes[eff.mode].lightPreset); }
+  const qs = ids.map(id => DYE_DATA.lightPresets.find(x => x.id === id));
+  if (qs.length === 1) return qs[0];
+  const lasers = {};
+  for (const q of qs) for (const [nm, kw] of Object.entries(q.lasers)) lasers[nm] = Math.max(lasers[nm] ?? 0, kw);
+  const same = k => qs.every(q => (q[k] ?? 'None') === (qs[0][k] ?? 'None'));
+  const M = DYE_DATA.lightPathMultiTarget;
+  const filtersAgree = same('dichroic') && same('emissionFilter');
+  return { id: ids.join('+'), lasers, excitationFilter: filtersAgree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
+    dichroic: filtersAgree ? qs[0].dichroic : M.dichroic, emissionFilter: filtersAgree ? qs[0].emissionFilter : M.emissionFilter };
 }
 // The light path of a spec (LightPath): the light preset's values for the options the spec does not give.
 export function scopeLightPath(spec, camera = scopeCamera(spec)) {
@@ -304,12 +347,18 @@ function dyeOverrides(spec) {
   return { slots, byStructure };
 }
 
+// An off target (scopeTargetOn false): no dyes (density 0), no states (no PSF group, no population), no imager.
+function offLabel(eff) {
+  return { label: makeLabel({ density: 0, mode: eff.mode }), mode: eff.mode, dye: null, off: true, states: {}, kActPerSec: 0,
+    excitationScale: 1, onSecNow: 0, photonBudget: 0, prePhotonBudget: 0, imagerBackgroundPerPxPerSec: () => 0, notes: null };
+}
 // Per structure: its effective dye, mode, world label and photophysics (labelPhotophysics).
 export function scopeLabels(spec, lp) {
   const O = getter(spec);
   return STRUCTURES.map((s, i) => {
     const P = s.prefix;
     const { eff } = scopeStructureDye(spec, i);
+    if (!scopeTargetOn(spec, i)) return offLabel(eff);
     const pct = scopeStructureLabelingPct(spec, i, eff.mode);
     return labelPhotophysics(eff, lp, {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
@@ -353,7 +402,7 @@ export function scopeSetup(P, spec) {
     : Number(BigInt.asUintN(32, BigInt(seed) ^ 0x43454C4Cn));
   // Named world options, then p.* (prototype names) on top; the rest are the prototype's defaults.
   const vals = { ...P.defaults, chunkSize: O('chunk-um'), density: O('occupancy'), cellDiamMin: O('cell-diam-min-um'),
-    cellDiamMax: O('cell-diam-max-um'), mtDensity: O('mt-density'), enablePacking: O('packing') !== 0 };
+    cellDiamMax: O('cell-diam-max-um'), mtDensity: O('mt-density'), npcDensity: O('npc-density'), enablePacking: O('packing') !== 0 };
   for (const [k, v] of Object.entries(spec)) {
     if (!k.startsWith('p.')) continue;
     const name = k.slice(2);
@@ -438,12 +487,13 @@ export function scopeKernel(spec, wavelengthNm, onPlane, keep = 2) {
   kernelMemo.length = Math.min(kernelMemo.length, Math.max(2, keep));
   return { ...hit.cache, interpMode: req.interpMode };
 }
-// The PSF a movie of the spec uses, for display (MakeScopePsfPreview, the viewer's Preview PSF): the microtubules'
-// emitting state's kernel (the pre state when the main one is dark) and, per z plane, the camera image of one emitter
+// The PSF a movie of the spec uses, for display (MakeScopePsfPreview, the viewer's Preview PSF): the first labelled
+// target's emitting state's kernel (the pre state when the main one is dark) and, per z plane, the camera image of one emitter
 // of 1 photon at the centre of the middle pixel, splatted as a movie does. Gaussian: one plane, sampled at
 // psf-oversampling, and its renderGaussian image. onPlane(k, nz): kernel progress.
 export function scopePsfPreview(spec, onPlane) {
-  const O = getter(spec), lp = scopeLightPath(spec, scopeCamera(spec)), L = scopeLabels(spec, lp)[0];
+  const O = getter(spec), lp = scopeLightPath(spec, scopeCamera(spec));
+  const L = scopeLabels(spec, lp).find(l => l.states.main || l.states.pre) || { states: {} };
   const st = L.states.main || L.states.pre;
   const lambdaNm = kernelWavelengthNm(st ? st.lambdaNm : 670.0);
   const c = scopeKernel(spec, lambdaNm, onPlane);

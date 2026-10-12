@@ -130,6 +130,15 @@
       <label class="row">Show MT label sites (zoom in) <input type="checkbox" id="showMtLabels"></label>
       <label class="row"><button id="mtLabelDebugBtn" style="width:100%" title="Shows nanobody/antibody + dye label positions on a 1 um stretch of the longest microtubule in view (13-protofilament lattice, 25 nm cylinder). Never labels the whole network.">Debug: view MT labels</button></label>
     </fieldset>
+    <fieldset>
+      <legend>nuclear pores (per cell, on the nuclear envelope)</legend>
+      <label class="row">Density (per µm² of envelope) <input type="range" id="npcDensity" min="0" max="20" step="0.1" value="6"><span id="npcDensityVal"></span></label>
+      <label class="row">Min pore distance (nm) <input type="range" id="npcMinDistNm" min="0" max="500" step="5" value="120"><span id="npcMinDistNmVal"></span></label>
+      <label class="row">Ring radius (nm) <input type="range" id="npcRadiusNm" min="20" max="150" step="0.5" value="53.5"><span id="npcRadiusNmVal"></span></label>
+      <label class="row">Ring separation (nm) <input type="range" id="npcRingSepNm" min="0" max="150" step="1" value="50"><span id="npcRingSepNmVal"></span></label>
+      <label class="row">Corner spread (nm) <input type="range" id="npcCornerSpreadNm" min="0" max="30" step="0.5" value="12"><span id="npcCornerSpreadNmVal"></span></label>
+      <label class="row">Show pores (8-fold rings, zoom in) <input type="checkbox" id="showNpcs" checked></label>
+    </fieldset>
 
 
     <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the drift/
@@ -714,6 +723,221 @@ function nucleusRingsLocal(c, slices, pts) {
     rings.push(ring);
   }
   return rings;
+}
+
+// ---- Nuclear pore complexes (issue 15; spec/ALGORITHM.md "Nuclear pores") ----
+// Pores sit on the nuclear envelope at npcDensity per um^2 of it, uniform by area, each along the local outward
+// normal (the middle plane on the membrane). Area-uniform sampling: a fixed mesh of the surface's parameters (its
+// flat triangles chosen by area, a uniform point on the triangle, mapped back to the parameters and evaluated on the
+// true surface). Pieces: the side, alpha in [0, pi] with zeta = -cos(alpha) and s = the section width (the vertices
+// of nucleusRingsLocal), and the flat caps of a widened half (zeta = -1 / +1, s in [0, f]). Candidate i is
+// pcg4d(seed ^ NPC_POS_SALT, cx, cy, i): address-based; a candidate closer than npcMinDistNm to an accepted pore is
+// rejected and the next one tried (round(density x area) pores or NPC_TRIES_PER_PORE x that many candidates).
+const NPC_POS_SALT = 0x4E504331;     // "NPC1"
+const NPC_MESH_NT = 128;             // angles
+const NPC_MESH_NA = 64;              // side bands (alpha)
+const NPC_MESH_NC = 16;              // cap rings
+const NPC_DIFF = 1e-5;               // central-difference step of the normal (parameter units)
+const NPC_TRIES_PER_PORE = 50;
+const NPC_PIECE_SIDE = 0, NPC_PIECE_BOTTOM = 1, NPC_PIECE_TOP = 2;
+const npcUnit = a => ((a >>> 9) + 0.5) * 1.1920928955078125e-7;
+
+// Surface point of piece `piece` at angle th and radial parameter w (side: alpha; caps: s), cell-local [x, y, z].
+function nucSurfaceLocal(c, piece, th, w) {
+  const C = Math.cos(th), S = Math.sin(th);
+  if (piece !== NPC_PIECE_SIDE) return nucMapLocal(c, w, C, S, piece === NPC_PIECE_BOTTOM ? -1 : 1);
+  const zeta = -Math.cos(w);
+  if (!c.nucShaped) {
+    const s = Math.sqrt(Math.max(0, 1 - zeta * zeta));
+    const lx = C * (c.nucLong / 2) * s, ly = S * (c.nucShort / 2) * s;
+    const cr = Math.cos(c.nucRot), sr = Math.sin(c.nucRot);
+    return [c.nucOffX + lx * cr - ly * sr, c.nucOffY + lx * sr + ly * cr, c.nucZ + zeta * c.nucHeight / 2];
+  }
+  return nucMapLocal(c, nucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop), C, S, zeta);
+}
+
+// The mesh: vertices {th, w, p} and triangles [piece, apex, v1, v2, v3] (apex: v1 is a pole / cap centre, mapped
+// polar below) with their running flat-area CDF. Bottom cap, side, top cap; bands bottom to top, sectors by angle.
+function nucSurfaceMesh(c) {
+  const fBot = c.nucShaped ? c.nucFBot : 0, fTop = c.nucShaped ? c.nucFTop : 0;
+  const NT = NPC_MESH_NT;
+  const verts = [], tris = [];
+  const ring = (piece, w) => {
+    const first = verts.length;
+    for (let i = 0; i <= NT; i++) {
+      const th = (i / NT) * Math.PI * 2;
+      verts.push({ th, w, p: nucSurfaceLocal(c, piece, th, w) });
+    }
+    return first;
+  };
+  // Triangles between ring a (lower / inner) and ring b; apexA / apexB: that ring is one point (a pole, a cap centre).
+  const band = (piece, a, b, apexA, apexB) => {
+    for (let i = 0; i < NT; i++) {
+      if (apexA) tris.push([piece, 1, a + i, b + i, b + i + 1]);
+      else if (apexB) tris.push([piece, 1, b + i, a + i + 1, a + i]);
+      else {
+        tris.push([piece, 0, a + i, a + i + 1, b + i + 1]);
+        tris.push([piece, 0, a + i, b + i + 1, b + i]);
+      }
+    }
+  };
+  const cap = (piece, f) => {
+    let prev = ring(piece, 0);
+    for (let k = 1; k <= NPC_MESH_NC; k++) {
+      const cur = ring(piece, f * (k / NPC_MESH_NC));
+      band(piece, prev, cur, k === 1, false);
+      prev = cur;
+    }
+  };
+  if (fBot > 0) cap(NPC_PIECE_BOTTOM, fBot);
+  let prev = ring(NPC_PIECE_SIDE, 0);
+  for (let j = 1; j <= NPC_MESH_NA; j++) {
+    const cur = ring(NPC_PIECE_SIDE, Math.PI * (j / NPC_MESH_NA));
+    band(NPC_PIECE_SIDE, prev, cur, j === 1 && !(fBot > 0), j === NPC_MESH_NA && !(fTop > 0));
+    prev = cur;
+  }
+  if (fTop > 0) cap(NPC_PIECE_TOP, fTop);
+  const cdf = new Float64Array(tris.length);
+  let A = 0;
+  for (let t = 0; t < tris.length; t++) {
+    const p1 = verts[tris[t][2]].p, p2 = verts[tris[t][3]].p, p3 = verts[tris[t][4]].p;
+    const ux = p2[0] - p1[0], uy = p2[1] - p1[1], uz = p2[2] - p1[2];
+    const vx = p3[0] - p1[0], vy = p3[1] - p1[1], vz = p3[2] - p1[2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    A += 0.5 * Math.sqrt(nx * nx + ny * ny + nz * nz);
+    cdf[t] = A;
+  }
+  return { verts, tris, cdf, area: A, fBot, fTop };
+}
+
+// Outward unit normal at surface parameters (central differences, clamped to the piece's range): side dP/dth x
+// dP/dalpha, bottom cap dP/dth x dP/ds, top cap dP/ds x dP/dth. null where it degenerates.
+function nucSurfaceNormal(c, M, piece, th, w) {
+  const hi = piece === NPC_PIECE_SIDE ? Math.PI : piece === NPC_PIECE_BOTTOM ? M.fBot : M.fTop;
+  const wa = Math.max(0, w - NPC_DIFF), wb = Math.min(hi, w + NPC_DIFF);
+  const pt0 = nucSurfaceLocal(c, piece, th - NPC_DIFF, w), pt1 = nucSurfaceLocal(c, piece, th + NPC_DIFF, w);
+  const pw0 = nucSurfaceLocal(c, piece, th, wa), pw1 = nucSurfaceLocal(c, piece, th, wb);
+  const tx = pt1[0] - pt0[0], ty = pt1[1] - pt0[1], tz = pt1[2] - pt0[2];
+  const wx = pw1[0] - pw0[0], wy = pw1[1] - pw0[1], wz = pw1[2] - pw0[2];
+  let nx, ny, nz;
+  if (piece === NPC_PIECE_TOP) { nx = wy * tz - wz * ty; ny = wz * tx - wx * tz; nz = wx * ty - wy * tx; }
+  else { nx = ty * wz - tz * wy; ny = tz * wx - tx * wz; nz = tx * wy - ty * wx; }
+  const n2 = nx * nx + ny * ny + nz * nz;
+  if (!(n2 > 1e-40)) return null;
+  const inv = 1 / Math.sqrt(n2);
+  return [nx * inv, ny * inv, nz * inv];
+}
+
+// The pores of a cell, in candidate order: [{x, y, z (cell-local um, on the membrane), n: [3] (outward), e1, e2: [3]
+// (the ring plane; e1 = corner 0's direction), cand, piece}]. A pure function of (seed, cell address, params).
+function buildNpcsForCell(seed, cx, cy, c, p) {
+  const out = [];
+  const density = p.npcDensity;
+  if (!(density > 0)) return out;
+  const M = nucSurfaceMesh(c);
+  const want = Math.floor(density * M.area + 0.5);
+  if (want <= 0) return out;
+  const tries = want * NPC_TRIES_PER_PORE;
+  const dMin = Math.max(0, p.npcMinDistNm) * 1e-3, d2 = dMin * dMin;
+  // A grid of cells >= dMin over the accepted centres (speed only: the answer of testing every accepted pore).
+  const G = dMin > 0 ? dMin : 1, grid = new Map();
+  const gkey = (ix, iy, iz) => ix + ',' + iy + ',' + iz;
+  const salt = (seed ^ NPC_POS_SALT) | 0;
+  const nT = M.tris.length, total = M.cdf[nT - 1];
+  for (let i = 0; i < tries && out.length < want; i++) {
+    const q = pcg4d(salt, cx | 0, cy | 0, i | 0);
+    const u0 = npcUnit(q[0]), u1 = npcUnit(q[1]), u2 = npcUnit(q[2]), u3 = npcUnit(q[3]);
+    const target = u0 * total;
+    let lo = 0, hi = nT - 1;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (M.cdf[mid] > target) hi = mid; else lo = mid + 1; }
+    const tr = M.tris[lo], piece = tr[0];
+    const v1 = M.verts[tr[2]], v2 = M.verts[tr[3]], v3 = M.verts[tr[4]];
+    const sq = Math.sqrt(u1);
+    const b1 = 1 - sq, b2 = sq * (1 - u2), b3 = sq * u2;
+    let th, w;
+    if (tr[1]) {   // apex at v1: the polar image of the flat point
+      const b23 = b2 + b3;
+      th = b23 > 0 ? v2.th + (v3.th - v2.th) * (b3 / b23) : v2.th;
+      w = b1 * v1.w + b23 * v2.w;
+    } else {
+      th = b1 * v1.th + b2 * v2.th + b3 * v3.th;
+      w = b1 * v1.w + b2 * v2.w + b3 * v3.w;
+    }
+    const pt = nucSurfaceLocal(c, piece, th, w);
+    const x = pt[0], y = pt[1], z = pt[2];
+    if (dMin > 0) {
+      const ix = Math.floor(x / G), iy = Math.floor(y / G), iz = Math.floor(z / G);
+      let clash = false;
+      for (let dx = -1; dx <= 1 && !clash; dx++)
+        for (let dy = -1; dy <= 1 && !clash; dy++)
+          for (let dz = -1; dz <= 1 && !clash; dz++) {
+            const list = grid.get(gkey(ix + dx, iy + dy, iz + dz));
+            if (!list) continue;
+            for (const o of list) {
+              const ex = x - o.x, ey = y - o.y, ez = z - o.z;
+              if (ex * ex + ey * ey + ez * ez < d2) { clash = true; break; }
+            }
+          }
+      if (clash) continue;
+    }
+    let n = nucSurfaceNormal(c, M, piece, th, w);
+    if (!n) {   // degenerate parameters: the triangle's face normal, turned away from the nucleus centre
+      const p1 = v1.p, p2 = v2.p, p3 = v3.p;
+      const ux = p2[0] - p1[0], uy = p2[1] - p1[1], uz = p2[2] - p1[2];
+      const vx = p3[0] - p1[0], vy = p3[1] - p1[1], vz = p3[2] - p1[2];
+      let fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+      const f2 = fx * fx + fy * fy + fz * fz;
+      if (!(f2 > 0)) continue;
+      const inv = 1 / Math.sqrt(f2);
+      fx *= inv; fy *= inv; fz *= inv;
+      if (fx * (x - c.nucOffX) + fy * (y - c.nucOffY) + fz * (z - c.nucZ) < 0) { fx = -fx; fy = -fy; fz = -fz; }
+      n = [fx, fy, fz];
+    }
+    // Orthonormal basis about n (Duff et al. 2017), turned by 2 pi u3 about it.
+    const nx = n[0], ny = n[1], nz = n[2];
+    const sg = nz >= 0 ? 1 : -1;
+    const a = -1 / (sg + nz), b = nx * ny * a;
+    const f1x = 1 + sg * nx * nx * a, f1y = sg * b, f1z = -sg * nx;
+    const f2x = b, f2y = sg + ny * ny * a, f2z = -ny;
+    const phi = 2 * Math.PI * u3, cp = Math.cos(phi), sp = Math.sin(phi);
+    const e1 = [cp * f1x + sp * f2x, cp * f1y + sp * f2y, cp * f1z + sp * f2z];
+    const e2 = [cp * f2x - sp * f1x, cp * f2y - sp * f1y, cp * f2z - sp * f1z];
+    const pore = { x, y, z, n, e1, e2, cand: i, piece };
+    out.push(pore);
+    if (dMin > 0) {
+      const k = gkey(Math.floor(x / G), Math.floor(y / G), Math.floor(z / G));
+      const list = grid.get(k);
+      if (list) list.push(pore); else grid.set(k, [pore]);
+    }
+  }
+  return out;
+}
+
+// The 64 attachment points of one pore in its own frame (nm): webSMLM's Nup96 model (Thevathasan et al. 2019):
+// 2 rings at -sep/2 (k 0-31, the nucleoplasmic ring, inside the nucleus) and +sep/2 (k 32-63, cytoplasmic) along the
+// pore axis n, 8 corners at 45 deg, at each a 4-point arc (phi = -67.5, -22.5, 22.5, 67.5 deg) of radius spread/2
+// centred on the ring point; a along e1, b along e2. Site k = ring x 32 + corner x 4 + arc. Returns Float64Array(64 x 3).
+const NPC_SITES = 64;
+const NPC_ARC_DEG = [-67.5, -22.5, 22.5, 67.5];
+function npcAttachmentPoints(p) {
+  const out = new Float64Array(NPC_SITES * 3);
+  const R = p.npcRadiusNm, arcR = p.npcCornerSpreadNm / 2, halfSep = p.npcRingSepNm / 2;
+  let k = 0;
+  for (let ring = 0; ring < 2; ring++) {
+    const cz = ring === 0 ? -halfSep : halfSep;
+    for (let corner = 0; corner < 8; corner++) {
+      const th = corner * Math.PI / 4, ct = Math.cos(th), st = Math.sin(th);
+      for (let j = 0; j < 4; j++) {
+        const phi = NPC_ARC_DEG[j] * Math.PI / 180;
+        const u = Math.cos(phi) * arcR, v = Math.sin(phi) * arcR;
+        out[3 * k] = R * ct + (u * ct - v * st);
+        out[3 * k + 1] = R * st + (u * st + v * ct);
+        out[3 * k + 2] = cz;
+        k++;
+      }
+    }
+  }
+  return out;
 }
 
 // The full nucleus must always sit inside the cell volume, with at least
@@ -1842,6 +2066,7 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
+ 'npcDensity', 'npcDensityVal', 'npcMinDistNm', 'npcMinDistNmVal', 'npcRadiusNm', 'npcRadiusNmVal', 'npcRingSepNm', 'npcRingSepNmVal', 'npcCornerSpreadNm', 'npcCornerSpreadNmVal', 'showNpcs',
  'mtLabelDebugBtn', 'showMtLabels', 'tiltDeg', 'tiltDegVal', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView']
   .forEach(id => { els[id] = document.getElementById(id); });
 
@@ -1908,6 +2133,11 @@ function params() {
     mtMinTurnRadius: Math.max(0, +els.mtMinTurnRadius.value),
     mtMinSeparation: +els.mtMinSeparation.value,
     mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
+    npcDensity: Math.max(0, +els.npcDensity.value),
+    npcMinDistNm: Math.max(0, +els.npcMinDistNm.value),
+    npcRadiusNm: +els.npcRadiusNm.value,
+    npcRingSepNm: +els.npcRingSepNm.value,
+    npcCornerSpreadNm: +els.npcCornerSpreadNm.value,
   };
 }
 
@@ -2267,6 +2497,71 @@ function drawNucleus(c) {
   }
 }
 
+// Nuclear pores: each pore's 8-fold symmetry, projected through its own frame (pores on the nucleus flanks are seen
+// edge-on / as ellipses). Zoomed out: one dot per pore; from NPC_CORNER_PX_PER_UM: the 8 corners of both rings
+// (cytoplasmic ring bright, nucleoplasmic ring dark) joined as octagons; from NPC_ARC_PX_PER_UM: all 64 attachment
+// points (the 4-point arcs). Pores per cell are cached per cell object and parameter set.
+const NPC_CORNER_PX_PER_UM = 60, NPC_ARC_PX_PER_UM = 400, NPC_MAX_DRAWN = 60000;
+let npcCache = new WeakMap();
+function cellNpcs(cell, seed, p) {
+  const key = [seed, p.npcDensity, p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm].join('|');
+  let e = npcCache.get(cell);
+  if (!e || e.key !== key) {
+    e = { key, pores: buildNpcsForCell(seed, cell.cx, cell.cy, cell, p), sites: npcAttachmentPoints(p) };
+    npcCache.set(cell, e);
+  }
+  return e;
+}
+function drawNpcs(vis, seed, p, pxPerUm) {
+  if (!(p.npcDensity > 0)) return '';
+  const W = cv.width, H = cv.height;
+  const mode = pxPerUm >= NPC_ARC_PX_PER_UM ? 2 : pxPerUm >= NPC_CORNER_PX_PER_UM ? 1 : 0;
+  let drawn = 0;
+  const RING_COL = ['rgba(150,95,30,0.95)', 'rgba(255,190,90,0.95)'];   // nucleoplasmic, cytoplasmic
+  const dot = Math.max(1.2, Math.min(4, 0.012 * pxPerUm));
+  for (const { cx, cy, cell } of vis) {
+    const { pores, sites } = cellNpcs(cell, seed, p);
+    for (const q of pores) {
+      if (drawn >= NPC_MAX_DRAWN) return 'pore cap reached, some not drawn';
+      const [wx, wy] = localToWorld(cell, q.x, q.y);
+      const [px, py] = project(wx, wy, q.z);
+      if (px < -20 || py < -20 || px > W + 20 || py > H + 20) continue;
+      drawn++;
+      if (mode === 0) {
+        ctx.fillStyle = RING_COL[1];
+        ctx.fillRect(px - 1, py - 1, 2, 2);
+        continue;
+      }
+      const at = (a, b, c) => {
+        const lx = q.x + (a * q.e1[0] + b * q.e2[0] + c * q.n[0]) * 1e-3;
+        const ly = q.y + (a * q.e1[1] + b * q.e2[1] + c * q.n[1]) * 1e-3;
+        const lz = q.z + (a * q.e1[2] + b * q.e2[2] + c * q.n[2]) * 1e-3;
+        const [ux, uy] = localToWorld(cell, lx, ly);
+        return project(ux, uy, lz);
+      };
+      for (let ring = 0; ring < 2; ring++) {
+        ctx.strokeStyle = RING_COL[ring]; ctx.fillStyle = RING_COL[ring];
+        ctx.lineWidth = 1;
+        const cz = ring === 0 ? -p.npcRingSepNm / 2 : p.npcRingSepNm / 2;
+        const corners = [];
+        for (let corner = 0; corner < 8; corner++) {
+          const th = corner * Math.PI / 4;
+          corners.push(at(p.npcRadiusNm * Math.cos(th), p.npcRadiusNm * Math.sin(th), cz));
+        }
+        ctx.globalAlpha = 0.35;
+        polyPath(corners); ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (mode === 1) for (const [sx, sy] of corners) ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
+        else for (let k = ring * 32; k < ring * 32 + 32; k++) {
+          const [sx, sy] = at(sites[3 * k], sites[3 * k + 1], sites[3 * k + 2]);
+          ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
+        }
+      }
+    }
+  }
+  return mode === 0 ? 'zoom in to see the pores\' 8-fold rings' : '';
+}
+
 // ---- generator workers ---------------------------------------------------------
 // Packing a window (~4 s at 60x50 chunks) and building one cell's mesh +
 // microtubules (~0.6 s) are what used to hitch a pan. They run in Web Workers that
@@ -2371,7 +2666,7 @@ const PACK_PAD_VIEWS = 2;
 let packCache = null;   // {key, ex0..ey1, map, removed}
 let packPending = null; // {id, key, win} in flight on the pack worker
 let packId = 0;
-const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$)/;
+const PACK_KEY_SKIP = /^(mt|npc|showCytoContours$|cytoContourStep$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -2445,7 +2740,7 @@ function onPackResult(e) {
 const ASSET_MAX = 220, PREFETCH_VIEWS = 0.5;
 const assets = new Map();
 const assetInflight = new Map(); // key -> sig
-const ASSET_SIG_SKIP = /^(showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$)/;
+const ASSET_SIG_SKIP = /^(npc|showCytoContours$|cytoContourStep$|mtLineWidth$|enablePacking$|allowPackRotation$|packFrac$|relaxIters$|relaxDamping$)/;
 function assetSig(seed, p) {
   const o = [seed];
   for (const k in p) if (!ASSET_SIG_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -2713,6 +3008,7 @@ function draw() {
     ctx.stroke();
   }
   if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
+  if (els.showNpcs.checked) { const nn = drawNpcs(vis, seed, p, pxPerUm); if (nn && !labelNote) labelNote = nn; }
 
   drawScaleBar(pxPerUm);
 
@@ -2784,6 +3080,11 @@ function syncLabels() {
   els.mtMinTurnRadiusVal.textContent = (+els.mtMinTurnRadius.value).toFixed(2) + ' um';
   els.mtMinSeparationVal.textContent = (+els.mtMinSeparation.value).toFixed(2) + ' um';
   els.mtMaxZSlopeVal.textContent = (+els.mtMaxZSlope.value).toFixed(1) + '×';
+  els.npcDensityVal.textContent = (+els.npcDensity.value).toFixed(1) + ' /um²';
+  els.npcMinDistNmVal.textContent = els.npcMinDistNm.value + ' nm';
+  els.npcRadiusNmVal.textContent = (+els.npcRadiusNm.value).toFixed(1) + ' nm';
+  els.npcRingSepNmVal.textContent = els.npcRingSepNm.value + ' nm';
+  els.npcCornerSpreadNmVal.textContent = (+els.npcCornerSpreadNm.value).toFixed(1) + ' nm';
   els.tiltDegVal.textContent = els.tiltDeg.value + '°';
 }
 Object.keys(els).forEach(id => {

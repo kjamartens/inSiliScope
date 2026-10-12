@@ -360,6 +360,10 @@ export const DYE_DATA = {
   "emissionFilter": "BP676-37",
   "preset": "PAINT-640"
  },
+ "lightPathMultiTarget": {
+  "dichroic": "ChromaZT405-488-561-640rpc",
+  "emissionFilter": "ChromaZET405-488-561-640m"
+ },
  "lightPresets": [
   {
    "id": "dSTORM-640",
@@ -1639,6 +1643,12 @@ export const DYE_DATA = {
      "name": "Microtubules",
      "prefix": "mt",
      "structure": 0
+    },
+    {
+     "id": "npcs",
+     "name": "Nuclear pores",
+     "prefix": "npc",
+     "structure": 1
     }
    ]
   }
@@ -1661,6 +1671,24 @@ export const DYE_DATA = {
    "WideField": {
     "dye": "mEGFP",
     "labelingPct": 70
+   }
+  },
+  "npcs": {
+   "dSTORM": {
+    "dye": "AF647",
+    "labelingPct": 58
+   },
+   "PALM": {
+    "dye": "mEos3.2",
+    "labelingPct": 58
+   },
+   "DNA-PAINT": {
+    "dye": "Cy3B",
+    "labelingPct": 60
+   },
+   "WideField": {
+    "dye": "mEGFP",
+    "labelingPct": 100
    }
   }
  },

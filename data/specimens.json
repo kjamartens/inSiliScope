@@ -3,9 +3,10 @@
   "specimens": [
     {
       "id": "CellField", "name": "Cell field",
-      "notes": "Adherent cells packed on a coverslip: cytoplasm, nucleus, microtubules (core/).",
+      "notes": "Adherent cells packed on a coverslip: cytoplasm, nucleus, microtubules, nuclear pore complexes on the nuclear envelope (core/).",
       "targets": [
-        { "id": "microtubules", "name": "Microtubules", "prefix": "mt", "structure": 0 }
+        { "id": "microtubules", "name": "Microtubules", "prefix": "mt", "structure": 0 },
+        { "id": "npcs", "name": "Nuclear pores", "prefix": "npc", "structure": 1 }
       ]
     }
   ],

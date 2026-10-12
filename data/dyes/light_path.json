@@ -396,6 +396,11 @@
     "emissionFilter": "BP676-37",
     "preset": "PAINT-640"
   },
+  "multiTarget": {
+    "notes": "The filter set the light preset 'auto' uses when the labelled targets' own presets need different filters (two colours on one camera): the quad-band dichroic and emission filter pass 405/488/561/640 nm excitation and each dye's emission band; the lasers are each line's highest power over the targets' presets. estimate (a common multi-colour SMLM configuration).",
+    "dichroic": "ChromaZT405-488-561-640rpc",
+    "emissionFilter": "ChromaZET405-488-561-640m"
+  },
   "presets": [
     {
       "id": "dSTORM-640",
