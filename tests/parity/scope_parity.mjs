@@ -4,7 +4,7 @@
 // Checks: blink events of a dSTORM label (count, order, values to 1e-9), the BrightField optical volume
 // (bit-identical), then fluorescence movies (issue 16: every label mode, a PALM pre state, several lasers, per-dye and
 // mean-field continuous populations, a Gaussian-spectrum slot dye, light-preset=auto, start 0 and 60 s) and
-// BrightField movies pixel by pixel. Expected after a port: blinks only 100% identical ADU, mean-field movies >= 99.9%
+// BrightField movies pixel by pixel, for both specimens (the DNA-origami nanorulers: ABI 12). Expected after a port: blinks only 100% identical ADU, mean-field movies >= 99.9%
 // (the C++ convolves in float32), BrightField >= 99.5% (complex float32 FFTs through the slices: single-electron
 // Poisson flips) and its intensity within 1e-4 relative.
 // In iteration mode (PORT_PENDING.md) the JS is ahead on purpose and this fails: run it in the port.
@@ -34,7 +34,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
   const seed = 1249;
   const kin = { activationRatePerSec: 0.05, onSec: 0.05, offSec: 1, bleachProb: 0.5, photonCV: 0.5, initialOnSec: 2 };
   const label = makeLabel({ mode: 'dSTORM', density: 0.07, kinetics: kin });
-  const W = new World(P, seed, P.paramsFrom(P.defaults), [label]);
+  const W = new World(P, seed, P.paramsFrom(P.defaults), [label, makeLabel()]);
   const rect = quick ? [61, 1, 64, 4] : [60, 0, 66, 6];
   const js = W.eventsInWindow(...rect, 0, 4, 0, 30);
   const o = label.orientation, k = label.kinetics;   // isc_world_set_label's layout (ISC_LABEL_*)
@@ -69,6 +69,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 
 // ---- movies ----
 const B = 'world-seed=1249 x=63 y=3';
+const N = 'specimen=Nanorulers world-seed=1249 x=3 y=3 origami-density=2';
 const CASES = [
   ['DNA-PAINT ATTO 655 + imager background, Gaussian PSF', `${B} size=48 frames=12 psf-model=0`, 1],
   ['DNA-PAINT, GibsonLanniZernike, Cubic', `${B} size=48 frames=12 psf-kernel-half-width-nm=2500`, 1],
@@ -106,6 +107,11 @@ const CASES = [
   ['Both lights, drift xy 40 nm/sqrt(s) (quality 1)', `${B} size=32 frames=4 psf-model=0 modality=BrightField light-epi=1 bf-quality=1 bf-photons-per-px-per-sec=20000 drift-xy-nm-per-sqrt-sec=40`, 0.995],
   ['No light: dark frames', `${B} size=32 frames=3 light-epi=0`, 1],
   ['BrightField coherent, absorbing, no aberrations', 'world-seed=1249 x=60 y=0 size=32 frames=2 modality=1 bf-quality=2 bf-absorption-per-um=0.05 bf-aberrations=0 bf-condenser-na=0', 0.995],
+  // The DNA-origami nanorulers (specimen 1): the docking strands' label, focus at the strands by default.
+  ['Nanorulers DNA-PAINT, GibsonLanniZernike', `${N} size=48 frames=20 psf-kernel-half-width-nm=2500 ruler-imager-nm=10`, 1],
+  ['Nanorulers dSTORM AF647, Lp 273.1 nm, 3 strands, 3D heights, drift', `${N} size=40 frames=10 psf-model=0 ruler-dye=AF647 light-preset=auto origami-lp-nm=273.1 origami-strands-per-spot=3 origami-heights=1 drift-xy-nm-per-sqrt-sec=20`, 0.999],
+  ['Nanorulers WideField mEGFP, mean field', `${N} size=40 frames=3 psf-kernel-half-width-nm=2500 ruler-mode=WideField ruler-dye=mEGFP light-preset=auto`, 0.999],
+  ['Nanorulers BrightField (no contrast: noise only)', `${N} size=32 frames=2 modality=BrightField bf-quality=1`, 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
   const t0 = performance.now();

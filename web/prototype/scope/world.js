@@ -374,7 +374,7 @@ export class World {
     return { total, grid: out };
   }
 
-  // Tallest cell (c.height) whose footprint meets the rect; 0 if none (CellFieldSource::MaxCellHeight).
+  // Tallest cell (c.height) whose footprint meets the rect; 0 if none (SampleSource::MaxCellHeight).
   maxCellHeight(x0, y0, x1, y1) {
     if (this.origami) return this.origami.moleculesInRect(x0, y0, x1, y1).length ? this.origami.maxHeightUm() : 0;
     let h = 0;

@@ -436,6 +436,24 @@ int32_t isc_optical_volume_in_window(IscWorld* w, double x0, double y0, double x
    }
 }
 
+int32_t isc_origami_design_count(void) { return isc::OrigamiDesignCount(); }
+
+const char* isc_origami_design_id(int32_t i)
+{
+   return i >= 0 && i < isc::OrigamiDesignCount() ? isc::OrigamiDesignAt(i).id : nullptr;
+}
+
+int32_t isc_origami_heights(const IscParams* ip, double out[2])
+{
+   if (!ip || !out) return -1;
+   isc::Params p = ip->p;
+   isc::NormalizeOrigamiParams(p);
+   const isc::OrigamiDesign& d = isc::OrigamiDesignAt((int)p.origamiDesign);
+   out[0] = (p.origamiAttachNm + d.diameterNm / 2) / 1000.0;
+   out[1] = (p.origamiAttachNm + d.diameterNm + p.origamiLinkerNm) / 1000.0;
+   return 0;
+}
+
 int32_t isc_origami_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out, int32_t cap)
 {
    if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out)) return -1;

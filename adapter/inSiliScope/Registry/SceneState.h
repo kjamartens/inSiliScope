@@ -56,7 +56,7 @@ enum CellFieldNumber
    CF_MT_DIR_KAPPA,
    CF_COUNT
 };
-// The core parameter each CellField number sets as is (nullptr: handled by hand in BuildCellFieldSettings).
+// The core parameter each CellField number sets as is (nullptr: handled by hand in BuildSampleSettings).
 extern const char* g_CellFieldCoreParam[CF_COUNT];
 
 // The mean-field grid of the WideField-mode populations.

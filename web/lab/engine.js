@@ -46,8 +46,10 @@ export async function createEngine(src = {}) {
   }
   function withLabels(w, labels) {
     if (labels) {
-      // a sites job's {density, fluorescentFraction} (the rest the default), or an events job's whole label
-      const want = labels.map(l => makeLabel(l.mode ? l : { density: l.density, fluorescentFraction: l.fluorescentFraction }));
+      // a sites job's {density, fluorescentFraction} (the rest the default), or an events job's whole label; a
+      // structure past the job's list keeps its label (iscEngine sets only the labels it is given)
+      const want = w.labels.map((cur, i) => !labels[i] ? cur
+        : makeLabel(labels[i].mode ? labels[i] : { density: labels[i].density, fluorescentFraction: labels[i].fluorescentFraction }));
       if (want.some((l, i) => JSON.stringify(l) !== JSON.stringify(w.labels[i]))) w.setLabels(want);
     }
     return w;

@@ -46,7 +46,7 @@ void BrightfieldLive::Store(double focusUm, std::vector<float>&& img)
       cache_.pop_back();
 }
 
-bool BrightfieldLive::Image(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, double focusUm,
+bool BrightfieldLive::Image(SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, double focusUm,
                             std::vector<float>& out, std::string& err)
 {
    // Only this thread changes the scene: reading it here needs no lock.

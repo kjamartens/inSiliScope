@@ -121,7 +121,7 @@
     <ClCompile Include="InSiliScopeModule.cpp" />
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
-    <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="Simulation\SampleSource.cpp" />
     <ClCompile Include="Simulation\Drift.cpp" />
     <ClCompile Include="Simulation\DyeLibrary.cpp" />
     <ClCompile Include="Simulation\LightPath.cpp" />
@@ -168,7 +168,7 @@
     <ClInclude Include="Devices\Peripherals.h" />
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
-    <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="Simulation\SampleSource.h" />
     <ClInclude Include="Simulation\Drift.h" />
     <ClInclude Include="Simulation\DyeLibrary.h" />
     <ClInclude Include="Simulation\LightPath.h" />

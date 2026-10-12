@@ -43,7 +43,7 @@
     <ClCompile Include="InSiliScopeXYStage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation\CellFieldSource.cpp">
+    <ClCompile Include="Simulation\SampleSource.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Drift.cpp">
@@ -187,7 +187,7 @@
     <ClInclude Include="InSiliScopeXYStage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Simulation\CellFieldSource.h">
+    <ClInclude Include="Simulation\SampleSource.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Drift.h">

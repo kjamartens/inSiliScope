@@ -18,7 +18,7 @@ change merges to main. ES modules, no build, Node or browser.
 | `widefield.js` | `WidefieldRender.cpp` (CPU path) | the mean-field image of a structure's dyes: dye planes on world tiles, PSF-plane deposition, FFT convolution, sub-cell shift |
 | `brightfield.js` | `BrightfieldRender.cpp`, `ScopeMovie.cpp` `ScopeBrightfieldSpec`/`RenderBrightfieldMovie` | refractive-index slices from the optical volume, margin taper, Abbe sources, thin / multislice propagation, detection pupil, defocus, binning |
 | `drift.js` | `Drift.cpp` | random-walk sample drift (trajectory, focus grid); also the webSMLM block's `driftTrajectory` |
-| `scope_movie.js` | `ScopeMovie.cpp` + `CellFieldSource.cpp` | the option table (= `insiliscope_cli` options), setup, `renderScopeMovie` |
+| `scope_movie.js` | `ScopeMovie.cpp` + `SampleSource.cpp` | the option table (= `insiliscope_cli` options), setup, `renderScopeMovie` |
 
 Same operations in the same order as the C++ (doubles; `Math.fround` where the C++ stores floats).
 `node tests/parity/scope_parity.mjs` compares it with the committed C++ (`web/insiliscope_module.js`, no build):

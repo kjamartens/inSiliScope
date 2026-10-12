@@ -41,7 +41,7 @@
 
 namespace sim {
 
-class CellFieldSource;
+class SampleSource;
 
 struct WidefieldPhotophysics
 {
@@ -110,7 +110,7 @@ struct WidefieldDyeGrid
 
 // Two passes: a z histogram (1 x 1 x planes) finds the occupied planes, then
 // each population is binned over just those. False (with err) on a failure.
-bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, WidefieldDyeGrid& out,
+bool BuildWidefieldDyeGrid(SampleSource& src, const WidefieldGridSpec& spec, WidefieldDyeGrid& out,
                            std::string& err);
 
 // Sparse dye counts: per world plane k and population, (cell, count) pairs,
@@ -135,7 +135,7 @@ struct WidefieldDyePlanes
 // into any grid rect of the same pitch and plane thickness. A small stage move
 // then queries only the tiles that newly enter the view. Thread-safe (the
 // live loop and a prefetch worker share one); each caller passes its own
-// CellFieldSource. Cleared when the key (pitch, plane, column, world) changes;
+// SampleSource. Cleared when the key (pitch, plane, column, world) changes;
 // least recently used tiles are dropped beyond the memory budget.
 class WidefieldDyeTiles
 {
@@ -146,7 +146,7 @@ public:
    // version `world`; the bleaching population = the dyes of the structures
    // in bleachingMask, the persistent one = persistentMask's (bit s =
    // ISC_STRUCT_s). False (with err) on a failure.
-   bool Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask, int persistentMask,
+   bool Planes(SampleSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask, int persistentMask,
                WidefieldDyePlanes& out, std::string& err);
    size_t Bytes() const;
    void Clear();
@@ -159,7 +159,7 @@ private:
       size_t bytes = 0;
       unsigned long long used = 0;
    };
-   bool Fill(CellFieldSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
+   bool Fill(SampleSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
              std::string& err) const;
    mutable std::mutex mutex_;
    std::map<std::pair<long, long>, std::shared_ptr<Tile>> tiles_;
@@ -251,7 +251,7 @@ private:
 
 struct WidefieldSceneSpec
 {
-   // FOV: world um of pixel (0, 0)'s centre (CellFieldQuery::originX/YUm).
+   // FOV: world um of pixel (0, 0)'s centre (SampleQuery::originX/YUm).
    double originXUm = 0.0, originYUm = 0.0;
    unsigned width = 0, height = 0;
    double pixelUm = 0.1;
@@ -262,13 +262,13 @@ struct WidefieldSceneSpec
    WidefieldGridSettings grid;
    double marginUm = 2.0;     // grid margin beyond the FOV, within the illumination support
    double kernelCapUm = 7.0;  // kernel radius cap
-   long worldVersion = 0;     // bump when the CellFieldSource's world changes
+   long worldVersion = 0;     // bump when the SampleSource's world changes
    long psfVersion = 0;       // bump when the WidefieldPsf changes
    WidefieldPhotophysics phot;
    double eta = 0.3;          // collection efficiency
    double exposureSec = 0.05;
    // Issue 16: the structures of each population (bit s = ISC_STRUCT_s; -1 =
-   // the CellFieldSource's label modes: DNA-PAINT dyes persistent, the
+   // the SampleSource's label modes: DNA-PAINT dyes persistent, the
    // others bleaching), and the frame dose per dye at illumination 1 (-1 =
    // phot's k_em x exposure). The mean-field image of a structure is
    // persistentMask = its bit, bleachingMask = 0, unitDose = 1, eta = 1:
@@ -400,7 +400,7 @@ public:
    // settings, world), the kernels (PSF, rect), the illumination and dose
    // maps, the spectra and images of the focus. False (with err) on a
    // failure.
-   bool Update(CellFieldSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
+   bool Update(SampleSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                const WidefieldPsf& psf, std::string& err);
    // The same from a dye grid built elsewhere (tests, synthetic samples);
    // its rect must be GridSpecFor(pattern, spec)'s.

@@ -2,7 +2,7 @@
 // Fft2d.h, Illumination.h) against direct references.
 //
 //   widefield_check          exit code 0 = all checks passed
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Fft2d.h"
 #include "Illumination.h"
 #include "ScopeMovie.h"
@@ -917,8 +917,8 @@ double ImagesRms(const WidefieldImages& a, const WidefieldImages& b)
 // resident: the later jobs carry none).
 void GpuJobs()
 {
-   CellFieldSource src;
-   CellFieldSettings cf;
+   SampleSource src;
+   SampleSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
    cf.labels = { MakeLabelVector(ISC_MODE_DNA_PAINT, 0.6, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;
@@ -960,8 +960,8 @@ void GpuJobs()
 
 void RealWorld()
 {
-   CellFieldSource src;
-   CellFieldSettings cf;
+   SampleSource src;
+   SampleSettings cf;
    cf.seed = 42 ^ 0x43454C4Cu;
    cf.labels = { MakeLabelVector(ISC_MODE_PALM, 0.7, 1, 0.01, 0.05, 1, 1, 0.5) };
    std::string err;

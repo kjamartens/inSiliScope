@@ -339,6 +339,15 @@ ISC_API int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t
  * Same cap/return convention, -1 when there is no such molecule. */
 #define ISC_ORIGAMI_SITE_STRIDE 11
 ISC_API int32_t isc_origami_sites(IscWorld* w, int32_t tx, int32_t ty, int32_t i, double* out, int32_t cap);
+/* The designs (data/origami/designs.json): their count, and the id of design
+ * i (NULL out of range). */
+ISC_API int32_t isc_origami_design_count(void);
+ISC_API const char* isc_origami_design_id(int32_t i);
+/* Heights of a nanoruler world of params p (normalised as the world does),
+ * um above the coverslip: out[0] the docking strands' in 2D (attach + D/2,
+ * where one focuses), out[1] the highest a dye can sit (attach + D + linker).
+ * Returns 0, -1 on bad arguments. */
+ISC_API int32_t isc_origami_heights(const IscParams* p, double out[2]);
 
 #ifdef __cplusplus
 }

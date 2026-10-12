@@ -1,4 +1,4 @@
-// A cell-field movie in JS: the mirror of adapter/inSiliScope/Simulation/ScopeMovie.cpp (+ CellFieldSource),
+// A cell-field movie in JS: the mirror of adapter/inSiliScope/Simulation/ScopeMovie.cpp (+ SampleSource),
 // i.e. what insiliscope_cli / the viewer's isc_scope_movie render, option for option:
 //   world (seed, p.* geometry, one label per structure) -> modality 0 Fluorescence (fluorescence.js: every label in
 //   its mode -- blinks splatted with their own PSF, continuous populations mean-field or per dye, the DNA-PAINT imager
@@ -540,7 +540,7 @@ export function scopeWorld(P, S) {
   return worldMemo.world;
 }
 
-// CellFieldSource::Events: world events of q as BlinkEvents in the FOV frame (+ structure, state, aux).
+// SampleSource::Events: world events of q as BlinkEvents in the FOV frame (+ structure, state, aux).
 const toFov = (q, e) => ({ xUm: e.x - q.originXUm, yUm: e.y - q.originYUm, zNm: (e.z - q.zRefUm) * 1000.0,
   tStart: q.frameIndex + (e.tOn - q.tSec) / q.frameSec, tEnd: q.frameIndex + (e.tOff - q.tSec) / q.frameSec,
   brightness: e.brightness, structure: e.structure, state: e.state, aux: e.aux });
