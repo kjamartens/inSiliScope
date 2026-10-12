@@ -57,11 +57,6 @@ namespace {
 // 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
 // photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
 constexpr double kDefaultLaser640KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (scope_movie.js
-// DEFAULT_IMAGER_NM; *estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and
-// PALM typical labels).
-constexpr double kDefaultImagerNm = 1.0;
 
 // The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
 const char* StructurePrefix(int s)
@@ -97,7 +92,7 @@ const TargetText& TextOf(const TargetData& t)
 }
 
 // The DNA-origami defaults (core params origami*; JS origami.js ORIGAMI_DEFAULTS).
-constexpr double kOrigamiDensity = 0.3, kOrigamiMinSpacingNm = 250, kOrigamiLpNm = 1500, kOrigamiStrandsPerSpot = 5,
+constexpr double kOrigamiDensity = 1.2, kOrigamiMinSpacingNm = 0, kOrigamiLpNm = 1500, kOrigamiStrandsPerSpot = 5,
                  kOrigamiAttachNm = 7, kOrigamiLinkerNm = 3;
 
 // The design ids (data/origami/designs.json), from the core.
@@ -178,8 +173,14 @@ const OptionTable& Options()
                        keep(D + "_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)") });
          v.push_back({ keep(P + "-label-pct"), -1,
                        keep(D + "_LabelingPct: " + T.sites + " (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: " + pcts + ")") });
-         v.push_back({ keep(P + "-imager-nm"), kDefaultImagerNm,
+         // The target's default imager concentration and DNA-PAINT binding kinetics (data/specimens.json paint:
+         // microtubules and pores 1 nM, docking strands 20 nM; estimates).
+         v.push_back({ keep(P + "-imager-nm"), tg.paintImagerNm,
                        keep(D + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
+         v.push_back({ keep(P + "-paint-kon"), tg.paintKonPerMPerSec,
+                       keep(D + "_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)") });
+         v.push_back({ keep(P + "-paint-on-sec"), tg.paintOnSec,
+                       keep(D + "_BoundTimeSec: DNA-PAINT mean bound time of an imager, s (exponential; half-time = ln 2 x this; data/specimens.json paint)") });
          v.push_back({ keep(P + "-orient"), 0,
                        keep(D + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
          v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(D + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });
@@ -1004,6 +1005,8 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
       LabelPhysicsOptions o;
       o.density = std::min(1.0, std::max(0.0, pct / 100));
       o.imagerNm = O(Opt(P, "imager-nm"));
+      o.paintKonPerMPerSec = O(Opt(P, "paint-kon"));
+      o.paintOnSec = O(Opt(P, "paint-on-sec"));
       o.orientationMode = static_cast<int>(O(Opt(P, "orient")));
       o.polarDeg = O(Opt(P, "orient-polar-deg"));
       o.azimuthDeg = O(Opt(P, "orient-azimuth-deg"));
@@ -1023,7 +1026,8 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
 
 // The kinetic inputs of a spec (ScopeMovie.h KineticEnv): the light keys (the
 // lasers, the light preset, excitation filter and dichroic, the imager
-// concentrations) and the dye keys (dye choices, modes, overrides).
+// concentrations and DNA-PAINT binding kinetics: they act from now on) and the
+// dye keys (dye choices, modes, overrides).
 static bool IsLightKey(const std::string& k)
 {
    auto ends = [&](const char* e) {
@@ -1031,7 +1035,8 @@ static bool IsLightKey(const std::string& k)
       return k.size() >= n && k.compare(k.size() - n, n, e) == 0;
    };
    return k.compare(0, 6, "laser-") == 0 || k == "light-preset" || k == "ex-filter" || k == "ex-lo-nm" ||
-          k == "ex-hi-nm" || k == "dichroic" || k == "dichroic-edge-nm" || ends("-imager-nm");
+          k == "ex-hi-nm" || k == "dichroic" || k == "dichroic-edge-nm" || ends("-imager-nm") || ends("-paint-kon") ||
+          ends("-paint-on-sec");
 }
 static bool IsDyeKey(const std::string& k)
 {

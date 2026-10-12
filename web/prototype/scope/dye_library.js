@@ -44,7 +44,7 @@ export const DYE_FIELDS = {
   'on-sec': { mode: 'onSec' }, 'off-sec': { mode: m => m.offSecBetweenBlinks !== undefined ? 'offSecBetweenBlinks' : 'offSec' },
   'bleach-prob': { mode: 'bleachProb' }, 'photon-cv': { mode: 'photonCV' }, 'initial-on-sec': { mode: 'initialOnSec' },
   'activation-405': { mode: 'activation405PerKWcm2PerSec' }, 'spont-activation': { mode: 'spontaneousActivationPerSec' },
-  'primed': { primed: true }, 'kon': { mode: 'konPerMPerSec' }, 'photon-budget': { mode: 'photonBudget' },
+  'primed': { primed: true }, 'photon-budget': { mode: 'photonBudget' },
   'pre-photon-budget': { mode: 'prePhotonBudget' },
 };
 
@@ -139,7 +139,8 @@ export function statePhotophysics(st, lp) {
 }
 
 // The world label (dyes.js makeLabel) and the per-state photophysics of a structure's dye in its mode.
-//   density: site fraction; imagerNm: DNA-PAINT imager concentration; orientation/motion: dyes.js label fields.
+//   density: site fraction; imagerNm: DNA-PAINT imager concentration; paintKonPerMPerSec, paintOnSec: the target's
+//   DNA-PAINT binding kinetics (data/specimens.json paint); orientation/motion: dyes.js label fields.
 // Returns { label, mode, dye, states: {main, pre?}, kActPerSec, imagerBackgroundPerPxPerSec(pixelUm), notes }.
 export function labelPhotophysics(eff, lp, o) {
   const { dye, mode } = eff, m = dye.modes[mode];
@@ -164,7 +165,9 @@ export function labelPhotophysics(eff, lp, o) {
     if (m.primed) kAct += m.primed.perKWcm2SqPerSec * intensityIn(lp, m.primed.primeNm) * intensityIn(lp, m.primed.convertNm);
     Object.assign(kin, { activationRatePerSec: kAct, offSec: m.offSecBetweenBlinks ?? 0.5, bleachProb: m.bleachProb ?? 1 });
   } else if (mode === 'DNA-PAINT') {
-    kAct = (m.konPerMPerSec ?? 1e6) * Math.max(0, o.imagerNm) * 1e-9;
+    // The binding kinetics are the target's (o.paint*), not the dye's.
+    kin.onSec = Math.max(1e-6, o.paintOnSec ?? 0.05);
+    kAct = (o.paintKonPerMPerSec ?? 1e6) * Math.max(0, o.imagerNm) * 1e-9;
     kin.activationRatePerSec = kAct;
   }
   const label = makeLabel({ density: o.density, fluorescentFraction: dye.fluorescentFraction, mode, kinetics: kin,

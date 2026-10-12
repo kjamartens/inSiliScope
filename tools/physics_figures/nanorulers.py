@@ -1,14 +1,11 @@
 """Nanorulers page (docs/samples/nanorulers/): the bent rods and their docking strands from above, the bending
-statistics against the 2D worm-like chain, and what the camera sees of them in DNA-PAINT."""
-import re
-
+statistics against the 2D worm-like chain, and the rods in a field of view."""
 import numpy as np
 
-from .common import COLORS, figure, img, load, register, sig, stack, table
+from .common import COLORS, figure, load, register, sig
 
 L_NM = 200.0                     # Nanoruler80's body length (data/origami/designs.json), for the theory lines
 SPOT_GAP_NM = 160.0              # its outer spots (A at 20 nm, C at 180 nm)
-SOFT_LP = 273.1                  # the softer persistence length the docs mention (nm)
 CENTRE = {"x": 0.0, "y": 0.0}
 
 
@@ -49,12 +46,11 @@ def molecule_frame(m, xy_um):
 def ruler_shapes(ctx):
     size, n_rods, gap = 6.0, 8, 60.0
     cases = [("rigid", {"origami-bend": 0}, "Rigid (Bending Off)"),
-             ("lp1500", {}, "Lp 1500 nm (default)"),
-             ("lp273", {"origami-lp-nm": SOFT_LP}, "Lp %g nm" % SOFT_LP)]
+             ("lp1500", {}, "Lp 1500 nm (default)")]
     geos = [(geometry(ctx, size, tag, **o)["origami"][:n_rods], title) for tag, o, title in cases]
 
     def draw(fig, st):
-        axs = fig.subplots(1, 3, sharey=True)
+        axs = fig.subplots(1, 2, sharey=True)
         for ax, (mols, title) in zip(axs, geos):
             for j, m in enumerate(mols):
                 dy = j * gap
@@ -75,24 +71,23 @@ def ruler_shapes(ctx):
             ax.set_yticks([])
         axs[0].set_ylabel("%d rods, stacked %g nm apart" % (n_rods, gap))
 
-    body = ctx.plot("", draw, h=3.9, alt="Single nanorulers: rigid, Lp 1500 nm, Lp 273.1 nm")
+    body = ctx.plot("", draw, w=4.6, h=3.9, alt="Single nanorulers: rigid and at Lp 1500 nm")
     return figure(body,
                   "The first %d rods of a nanoruler field, each in its own frame (the line between its ends along x, "
                   "its middle at 0) and stacked %g nm apart: the bent 13 nm wide body (blue) and the dyes of its "
                   "docking strands, coloured by spot (A, B, C at 20, 100 and 180 nm along it; hollow grey: a strand "
-                  "the labelling left without a dye, 80 %% incorporation). The same rods, landing and labels in all "
-                  "three: only the bending changes. Left: rigid; middle: the default persistence length of 1500 nm; "
-                  "right: %g nm. Each spot's five strands are a ring around the rod seen from above (a random roll per "
-                  "rod), so they spread across it; the dyes sit up to 3 nm (the linker) off their anchors." %
-                  (n_rods, gap, SOFT_LP))
+                  "the labelling left without a dye, 80 %% incorporation). The same rods, landing and labels in both: "
+                  "only the bending changes. Left: rigid; right: the default persistence length of 1500 nm. Each "
+                  "spot's five strands are a ring around the rod seen from above (a random roll per rod), so they "
+                  "spread across it; the dyes sit up to 3 nm (the linker) off their anchors." % (n_rods, gap))
 
 
 @register("ruler-wlc", "nanorulers")
 def ruler_wlc(ctx):
     size = 40.0
     res = []
-    for tag, lp in (("lp1500", 1500.0), ("lp273", SOFT_LP)):
-        geo = geometry(ctx, size, tag, **({} if lp == 1500.0 else {"origami-lp-nm": lp}))
+    for tag, lp in (("lp1500", 1500.0),):
+        geo = geometry(ctx, size, tag)
         ends = np.degrees([m["endAngle"] for m in geo["origami"]])
         dist = []
         for m in geo["origami"]:
@@ -107,7 +102,7 @@ def ruler_wlc(ctx):
 
     def draw(fig, st):
         axs = fig.subplots(1, 2)
-        lim = 4 * np.degrees(np.sqrt(L_NM / SOFT_LP))
+        lim = 4 * np.degrees(np.sqrt(L_NM / 1500.0))
         xs = np.linspace(-lim, lim, 400)
         bins = np.linspace(-lim, lim, 41)
         for k, (lp, ends, dist, folds) in enumerate(res):
@@ -132,29 +127,18 @@ def ruler_wlc(ctx):
 
     body = ctx.plot("", draw, h=2.7, alt="End angles and spot distances against the 2D worm-like chain")
     return figure(body,
-                  "Bending statistics of the rods in a %g µm square, at the default persistence length and a softer "
-                  "one. Left: the angle between the two end tangents, a normal distribution of variance L/Lp "
+                  "Bending statistics of the rods in a %g µm square, at the default persistence length of 1500 nm. Left: the angle between the two end tangents, a normal distribution of variance L/Lp "
                   "(L = 200 nm) for a 2D worm-like chain. Right: the distance between the centres of the outer spots "
                   "(160 nm apart along the rod); bending only shortens it. The dashed lines are the 2D chain's RMS "
                   "end-to-end distance over 160 nm, √(4 Lp s [1 − (2 Lp/s)(1 − e<sup>−s/2Lp</sup>)]) "
                   "[[rivetti1996](../references.md#rivetti1996)]. Rods whose bend folds a cross-section over "
-                  "(curvature × 6.5 nm ≥ 1): %d and %d of them." % (size, res[0][3], res[1][3]))
+                  "(curvature × 6.5 nm ≥ 1): %d of them." % (size, res[0][3]))
 
 
-@register("ruler-image", "nanorulers")
-def ruler_image(ctx):
-    px, frames, ms, imager = 64, 1000, 100, 5
-    opts = dict(CENTRE, specimen="Nanorulers", size=px, frames=frames, **{"exposure-ms": ms, "ruler-imager-nm": imager})
-    r = ctx.cli(opts, tag="paint", out=True)
-    movie = stack(r["out"])
+@register("ruler-field", "nanorulers")
+def ruler_field(ctx):
+    px = 64
     geo = geometry(ctx, px * 0.1, "fov", detail=True)
-    peak = movie.max(axis=(1, 2))
-    one = movie[int(np.argmax(peak))]
-    mx = movie.max(axis=0)
-    lo = float(np.median(movie))
-    hi = float(np.percentile(mx, 99.9))
-    t_one = ctx.tile("frame", one, cmap="gray", vmin=lo - 3 * np.sqrt(max(lo - 100, 1)), vmax=hi)
-    t_max = ctx.tile("max", mx, cmap="gray", vmin=lo, vmax=hi)
 
     def draw(fig, st):
         ax = fig.subplots()
@@ -165,16 +149,10 @@ def ruler_image(ctx):
         ax.set_xlabel("x (µm)")
         ax.set_ylabel("y (µm)")
 
-    rods = ctx.plot("rods", draw, w=3.2, h=3.2, alt="The rods in the field of view")
-    body = table(["The brightest frame", "Maximum over %d frames" % frames, "The rods in this field of view"],
-                 [[img(t_one, "One frame"), img(t_max, "Maximum projection"), rods]], label_col=False)
-    m = re.search(r"(\d+) blinks", r.stdout)
-    blinks = "%s blinks" % m.group(1) if m else "-"
+    body = ctx.plot("", draw, w=4.6, h=4.6, alt="The nanorulers in a field of view")
     return figure(body,
-                  "A DNA-PAINT movie of the nanorulers with the default ATTO 655 imager at %d nM: %d frames of %d ms, "
-                  "%d × %d px of 100 nm, focus on the docking strands (%s). Left: one frame, a single binding event "
-                  "over the free imager's background; middle: the brightest value each pixel saw, every spot that "
-                  "bound an imager at least once; right: the rods and their dyes in the same field (as above). The "
-                  "spots of a rod lie 80 nm apart, less than a pixel: the camera sees each rod as one blur, and only "
-                  "localising the single binding events (the viewer's Localisations layer, or any SMLM software) "
-                  "separates them." % (imager, frames, ms, px, px, blinks))
+                  "The nanorulers in a %d × %d px field of view of 100 nm pixels (%d rods at the default 1.2 per µm²): "
+                  "the bent bodies and their dyes, coloured by spot as above. The spots of a rod lie 80 nm apart, less "
+                  "than a pixel: the camera sees each rod as one blur, and only localising the single binding events "
+                  "(the viewer's Localisations layer, or any SMLM software) separates them." %
+                  (px, px, len(geo["origami"])))

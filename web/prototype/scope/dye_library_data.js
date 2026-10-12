@@ -650,8 +650,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 647 in data/dyes/library.json",
@@ -722,8 +720,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Alexa Fluor 532 in data/dyes/library.json",
@@ -794,8 +790,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Cy5 in data/dyes/library.json",
@@ -831,15 +825,13 @@ export const DYE_DATA = {
    },
    "modes": {
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "refs": [
       "jungmann2010",
       "schnitzbauer2017",
       "jungmann2014"
      ],
-     "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s.",
+     "notes": "ATTO 655 imagers; the binding kinetics (k_on, bound time) are the target's (data/specimens.json paint).",
      "lightPreset": "PAINT-640"
     },
     "dSTORM": {
@@ -907,14 +899,12 @@ export const DYE_DATA = {
    },
    "modes": {
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "refs": [
       "jungmann2010",
       "schnitzbauer2017"
      ],
-     "notes": "as ATTO 655 (estimate)",
+     "notes": "as ATTO 655 (estimate); binding kinetics: the target's (data/specimens.json paint)",
      "lightPreset": "PAINT-561"
     },
     "WideField": {
@@ -980,13 +970,11 @@ export const DYE_DATA = {
    },
    "modes": {
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "refs": [
       "jungmann2014"
      ],
-     "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; kinetics as ATTO 655 (estimate: k_on of 9-10 nt imagers, onSec the default look).",
+     "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; binding kinetics: the target's (data/specimens.json paint).",
      "lightPreset": "PAINT-561"
     },
     "dSTORM": {
@@ -1107,8 +1095,6 @@ export const DYE_DATA = {
      "kExcRef": 0
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEos3.2 in data/dyes/library.json",
@@ -1198,8 +1184,6 @@ export const DYE_DATA = {
      "kExcRef": 0
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Dendra2 in data/dyes/library.json",
@@ -1275,8 +1259,6 @@ export const DYE_DATA = {
      "kExcRef": 0
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for PAmCherry2 in data/dyes/library.json",
@@ -1347,8 +1329,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mEGFP in data/dyes/library.json",
@@ -1416,8 +1396,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for mScarlet in data/dyes/library.json",
@@ -1482,8 +1460,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for DAPI in data/dyes/library.json",
@@ -1552,8 +1528,6 @@ export const DYE_DATA = {
      "lightPreset": "PALM-561"
     },
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "generic": true,
      "notes": "generic DNA-PAINT values (estimate): no DNA-PAINT data for Hoechst 33342 in data/dyes/library.json",
@@ -1591,8 +1565,6 @@ export const DYE_DATA = {
    },
    "modes": {
     "DNA-PAINT": {
-     "konPerMPerSec": 1000000,
-     "onSec": 0.05,
      "photonCV": 0.5,
      "lightPreset": "PAINT-640"
     },
@@ -1642,13 +1614,36 @@ export const DYE_DATA = {
      "id": "microtubules",
      "name": "Microtubules",
      "prefix": "mt",
-     "structure": 0
+     "structure": 0,
+     "paint": {
+      "konPerMPerSec": 1000000,
+      "onSec": 0.05,
+      "imagerNm": 1,
+      "refs": [
+       "jungmann2010",
+       "schnitzbauer2017",
+       "jungmann2014"
+      ],
+      "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s (half-time 35 ms) keeps the pre-issue-16 default look (estimate); 9 nt docking strands bind for ~0.3-1 s. imagerNm 1 nM: about the emitters per frame of the dSTORM and PALM typical labels (estimate, 2026-10-07)."
+     }
     },
     {
      "id": "npcs",
      "name": "Nuclear pores",
      "prefix": "npc",
-     "structure": 1
+     "structure": 1,
+     "paint": {
+      "konPerMPerSec": 1000000,
+      "onSec": 0.05,
+      "imagerNm": 1,
+      "refs": [
+       "jungmann2010",
+       "schnitzbauer2017",
+       "jungmann2014",
+       "schlichthaerle2019"
+      ],
+      "notes": "As the microtubules' (estimate: k_on of 9-10 nt imagers, onSec 0.05 s, 1 nM), so the default two-target movie keeps its look; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)."
+     }
     }
    ]
   },
@@ -1660,7 +1655,17 @@ export const DYE_DATA = {
      "id": "docking",
      "name": "Docking strands",
      "prefix": "ruler",
-     "structure": 2
+     "structure": 2,
+     "paint": {
+      "konPerMPerSec": 1000000,
+      "onSec": 0.28853900817779266,
+      "imagerNm": 20,
+      "refs": [
+       "jungmann2010",
+       "schnitzbauer2017"
+      ],
+      "notes": "k_on as the microtubules' (estimate). onSec = 0.2 s / ln 2: a bound half-time of 200 ms (estimate, chosen 2026-10-12), in the order of 9 nt docking strands (~0.3-1 s mean). imagerNm 20 nM (estimate, chosen 2026-10-12): a rod with 12 strands binds every ~4 s."
+     }
     }
    ]
   }

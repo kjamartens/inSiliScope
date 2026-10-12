@@ -29,9 +29,6 @@ const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Err
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
 // ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
 export const DEFAULT_LASER_640_KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
-export const DEFAULT_IMAGER_NM = 1;
 
 // A target's label options (ScopeTargetLabelOptions, made from data/specimens.json): <prefix>-dye, -mode, -label-pct,
 // -imager-nm, -orient*, -wobble-deg, -motion, and for a target with a linkage model (library.json linkagePresets.defaults)
@@ -69,7 +66,9 @@ function targetLabelOptions(s) {
     [`${P}-dye`, idx(DYE_CHOICES, typ[DYE_DATA.dyeDefault.mode].dye), `${D}_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
     [`${P}-mode`, -1, `${D}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
     [`${P}-label-pct`, -1, `${D}_LabelingPct: ${T.sites} (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: ${pcts})`],
-    [`${P}-imager-nm`, DEFAULT_IMAGER_NM, `${D}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-imager-nm`, s.paint.imagerNm, `${D}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-paint-kon`, s.paint.konPerMPerSec, `${D}_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)`],
+    [`${P}-paint-on-sec`, s.paint.onSec, `${D}_BoundTimeSec: DNA-PAINT mean bound time of an imager, s (exponential; half-time = ln 2 x this; data/specimens.json paint)`],
     [`${P}-orient`, 0, `${D}_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)`],
     [`${P}-orient-polar-deg`, 90, `${D}_OrientPolarDeg: Fixed dipole angle from ${T.axis}`],
     [`${P}-orient-azimuth-deg`, 0, `${D}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],
@@ -448,6 +447,7 @@ export function scopeLabels(spec, lp) {
     const pct = scopeStructureLabelingPct(spec, i, eff.mode);
     return labelPhotophysics(eff, lp, {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
+      paintKonPerMPerSec: O(`${P}-paint-kon`), paintOnSec: O(`${P}-paint-on-sec`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
         azimuthDeg: O(`${P}-orient-azimuth-deg`), wobbleDeg: O(`${P}-wobble-deg`) },
       motion: MOTION_MODES[Math.trunc(O(`${P}-motion`))], linkage: scopeLinkage(spec, i) });

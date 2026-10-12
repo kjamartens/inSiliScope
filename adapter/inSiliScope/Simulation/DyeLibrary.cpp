@@ -219,7 +219,7 @@ const std::vector<std::string>& DyeFieldNames()
    static const std::vector<std::string> v = {
       "fluorescent-pct", "qy", "ext-coeff", "pre-qy", "pre-ext-coeff", "ex-peak-nm", "em-peak-nm", "ex-width-nm",
       "em-width-nm", "on-sec", "off-sec", "bleach-prob", "photon-cv", "initial-on-sec", "activation-405",
-      "spont-activation", "primed", "kon", "photon-budget", "pre-photon-budget",
+      "spont-activation", "primed", "photon-budget", "pre-photon-budget",
    };
    return v;
 }
@@ -270,7 +270,6 @@ bool ApplyField(DyeData& d, int mode, const std::string& k, double v, std::strin
    else if (k == "initial-on-sec") m.initialOnSec = v;
    else if (k == "activation-405") m.activation405PerKWcm2PerSec = v;
    else if (k == "spont-activation") m.spontaneousActivationPerSec = v;
-   else if (k == "kon") m.konPerMPerSec = v;
    else if (k == "photon-budget") m.photonBudget = v;
    else if (k == "pre-photon-budget") m.prePhotonBudget = v;
    else
@@ -430,7 +429,9 @@ bool MakeLabelPhysics(const EffectiveDye& eff, const LightPath& lp, const LabelP
    }
    else if (mode == MODE_DNA_PAINT)
    {
-      kAct = Or(m.konPerMPerSec, 1e6) * std::max(0.0, o.imagerNm) * 1e-9;
+      // The binding kinetics are the target's (o.paint*: data/specimens.json paint, <prefix>-paint-*), not the dye's.
+      onSec = std::max(1e-6, o.paintOnSec);
+      kAct = o.paintKonPerMPerSec * std::max(0.0, o.imagerNm) * 1e-9;
       act = kAct;
    }
    if (o.motion != 0)

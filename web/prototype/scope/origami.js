@@ -36,8 +36,8 @@ export const ORIGAMI_MIN_SEGMENTS = 8;
 export const ORIGAMI_DEFAULTS = {
   specimen: 0,                  // 0 CellField, 1 Nanorulers
   origamiDesign: 0,             // index into data/origami/designs.json
-  origamiDensity: 0.3,          // molecules per um^2 before thinning (estimate: well-separated rulers)
-  origamiMinSpacingNm: 250,     // Matern-II hard core between molecule centres (estimate: rod length + 50 nm)
+  origamiDensity: 1.2,          // molecules per um^2 before thinning (estimate, 2026-10-12; was 0.3)
+  origamiMinSpacingNm: 0,       // Matern-II hard core between molecule centres (0 = none; 250 until 2026-10-12)
   origamiBend: 1,               // 1 = the design's deformation, 0 = rigid
   origamiLpNm: 1500,            // persistence length, nm (estimate; measured bundles: chhabra2020)
   origamiStrandsPerSpot: 5,     // ring positions 0..N-1 of each spot carry a docking strand (1..ring n)

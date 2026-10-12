@@ -9,7 +9,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   microtubules: by default pores in DNA-PAINT with Cy3B at 561 nm, microtubules in ATTO 655 DNA-PAINT at 640 nm, through
   a multi-band filter set (`light-preset` auto, MM `Lasers.Preset` `Auto`: the labelled targets' presets combined).
   Each target has its own label mode (MM `<Target>_Mode`, Basic; `Fluorophores.Mode` is gone) and a None label
-  (`npc-dye None` images the microtubules alone, as before). A label linkage model for every target (binder,
+  (`npc-dye None` images the microtubules alone, as before); their DNA-PAINT binding kinetics (`data/specimens.json`
+  `paint`) are the microtubules' (1e6 /M/s, 0.05 s, 1 nM; estimates). A label linkage model for every target (binder,
   flexibility, linker; presets from measured antibody / nanobody / SNAP shells): the microtubules' default is now
   primary + secondary antibodies with a docking strand (IgG2-PAINT, dyes on a ~32 nm shell), so every default image
   changed; `mt-binder Legacy` (MM `Microtubules_Binder`) keeps the old dye positions. Core ABI 13 (`isc_cell_npcs`,
@@ -23,6 +24,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `Docking_ImagerNanoMol`); cli/viewer `mt-imager-nm` / `ruler-imager-nm` unchanged. A change of imager concentration
   (any DNA-PAINT rate) in live mode acts at once instead of from the next 1 s binding bin; outputs without a change
   are unchanged.
+- DNA-PAINT binding kinetics (k_on, mean bound time) belong to the target, not the dye: `data/specimens.json` `paint`,
+  cli/viewer `<prefix>-paint-kon` / `<prefix>-paint-on-sec`, MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec`
+  (Advanced). The dye field `kon` (`mt-dye.kon`, `Fluorophores.Dye<N>_Kon`) and the DNA-PAINT `on-sec` dye field are
+  gone. Microtubules unchanged (0.05 s); nanoruler docking strands bind with a 200 ms half-time. Each target has its
+  own default imager concentration (`paint.imagerNm`): microtubules 1 nM, nanorulers 20 nM; nanoruler density 1.2 per
+  µm² (was 0.3), no minimum spacing by default (was 250 nm).
 
 - **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
   `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope

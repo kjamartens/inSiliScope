@@ -17,7 +17,8 @@ export const PACK_BLOCK_CHUNKS = 8;
 // there and its site generator here and in core/. A world holds one specimen (params.specimen; the core param
 // 'specimen'): its geometry (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels,
 // schedules and the queries are shared. A world never yields a structure of another specimen.
-export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name }));
+export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name,
+  paint: t.paint }));
 export const STRUCTURE_MT = 0;
 export const STRUCTURE_NPC = STRUCTURES.findIndex(s => s.id === 'npcs');   // = ISC_STRUCT_NPC
 // Nuclear pore dye blocks: the pores whose centre lies in one cell-local NPC_BLOCK_UM cube.

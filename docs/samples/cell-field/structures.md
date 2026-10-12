@@ -129,7 +129,9 @@ axis (the cytoplasmic one outside the nucleus, the nucleoplasmic one inside), ei
   interphase densities are 5-9 per µm² [[maeshima2006](../../references.md#maeshima2006),
   [dultz2010](../../references.md#dultz2010)]; 12 makes the envelope easy to see. A new pore closer than
   `npcMinDistNm` (120 nm, the pore's diameter, Expert) to one already placed is redrawn.
-- **Label.** Default DNA-PAINT with a Cy3B imager at 561 nm on 60% of the sites; the typical labels per mode follow
+- **Label.** Default DNA-PAINT with a Cy3B imager (1 nM) at 561 nm on 60% of the sites, binding as the
+  microtubules' imager does (k<sub>on</sub> 10⁶ M⁻¹ s⁻¹, mean bound time 0.05 s, *estimates*; `npc-paint-kon`,
+  `npc-paint-on-sec`, MM `NuclearPores_KonPerMolarPerSec`, `_BoundTimeSec`); the typical labels per mode follow
   the pore literature (dSTORM: Nup96-SNAP + BG-AF647, 58%; PALM mEos3.2; WideField mEGFP)
   [[thevathasan2019](../../references.md#thevathasan2019),
   [schlichthaerle2019](../../references.md#schlichthaerle2019)]. Set the pore label to None (`npc-dye None`) to image

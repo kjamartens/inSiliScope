@@ -32,7 +32,7 @@ per-structure overrides.
 |---|---|---|
 | dSTORM | an initial ON phase (all dyes on, Exp(`initial-on-sec`)), then blinks until bleached | blinks; the initial ON as a continuous population |
 | PALM | optional pre-converted state (e.g. mEos3.2 green) until activation, then blinks | blinks; the pre state as a continuous population |
-| DNA-PAINT | persistent binding sites: imager binds at \(k_{on} c\), never bleaches | blinks, plus the free imager's background |
+| DNA-PAINT | persistent binding sites: imager binds at \(k_{on} c\), never bleaches (\(k_{on}\) and the bound time are the target's: [photophysics](photophysics.md#dna-paint)) | blinks, plus the free imager's background |
 | WideField | every dye emits from \(t=0\) and bleaches by its photon budget | a continuous population |
 
 Changing the mode sets the labelled share of the binding sites to the mode's suggestion (DNA-PAINT 70 %, dSTORM 3 %,

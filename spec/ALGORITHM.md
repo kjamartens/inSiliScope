@@ -735,8 +735,7 @@ description is `docs/samples/nanorulers/index.md`.
   nm. Statistics (checked in `origami_check.mjs` and `world_checks.Origami`): end-angle variance L/Lp, tangent
   correlation e^(-s/2Lp), <R^2> of the 2D chain. Fold-over (|kappa| D/2 >= 1) counted, kept.
 - **Default Lp 1500 nm** (*estimate*): measured bending persistence lengths of origami bundles are 0.74-1 um (4HB),
-  1-3 um (6HB), 3-8.2 um (8HB) (chhabra2020); a 12-helix rod is stiffer, so 1500 leans soft. 273.1 nm (tuned by eye in
-  the explorer) is documented as the softer option.
+  1-3 um (6HB), 3-8.2 um (8HB) (chhabra2020); a 12-helix rod is stiffer, so 1500 leans soft.
 - **Sites.** Each spot is a ring of 5 strand positions (radius D/2, a modelling choice: no published count per spot);
   `origamiStrandsPerSpot` N keeps ring positions 0..N-1 (the same subset on every rod, so a lower N is a design change,
   not a labelling one). Incorporation is the label's density draw (`DYE_CH::LABEL`, the label %), the linker an

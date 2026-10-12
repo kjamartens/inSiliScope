@@ -54,8 +54,21 @@ has its own spectrum, so it is detected (and imaged with its own PSF) only as fa
 
 ## DNA-PAINT
 
-Persistent sites never bleach. The imager binds at rate \(k_{on} c\) (`kon` x `mt-imager-nm`)
-[[jungmann2010](../references.md#jungmann2010), [schnitzbauer2017](../references.md#schnitzbauer2017)], a Poisson
+Persistent sites never bleach. The imager binds at rate \(k_{on} c\)
+[[jungmann2010](../references.md#jungmann2010), [schnitzbauer2017](../references.md#schnitzbauer2017)] and stays bound
+for \(\mathrm{Exp}(\tau_{on})\). \(k_{on}\) and \(\tau_{on}\) belong to the docking and imager sequences, so they are
+the **target's**, not the dye's (the dye sets the photons): `data/specimens.json` `paint`, options `<prefix>-paint-kon`
+and `<prefix>-paint-on-sec` (Micro-Manager `<Target>_KonPerMolarPerSec`, `<Target>_BoundTimeSec`, Advanced), with the
+imager concentration \(c\) `<prefix>-imager-nm`. Defaults (*estimates*):
+
+| Target | \(k_{on}\) (M⁻¹s⁻¹) | \(\tau_{on}\) mean | half-time |
+|---|---|---|---|
+| Microtubules (`mt-*`) | 10⁶ | 0.05 s | 35 ms |
+| Nuclear pores (`npc-*`) | 10⁶ | 0.05 s | 35 ms |
+| Nanoruler docking strands (`ruler-*`) | 10⁶ | 0.289 s | 200 ms |
+
+9-10 nt imagers bind with \(k_{on}\) of this order and 9 nt docking strands for about 0.3-1 s; the microtubules' 0.05 s
+keeps their earlier look, and the pores share it. The binding is a Poisson
 process for ever, addressed per 1 s time bin (count, start times, ON time \(\mathrm{Exp}(\tau_{on})\) capped at
 \(20\tau_{on}\), brightness), so any window is answered without running from \(t=0\). Overlapping binding events on one
 site are allowed (fine while \(k_{on}c\,\tau_{on} \ll 1\)). The free imager adds a flat background (see the light-path
