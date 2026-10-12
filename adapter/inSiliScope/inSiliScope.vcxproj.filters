@@ -263,6 +263,9 @@
     <ClInclude Include="..\..\core\src\microtubules.h">
       <Filter>Core</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\core\src\origami.h">
+      <Filter>Core</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\core\src\packing.h">
       <Filter>Core</Filter>
     </ClInclude>

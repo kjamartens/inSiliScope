@@ -69,7 +69,7 @@ function targetLabelOptions(s) {
     [`${P}-dye`, idx(DYE_CHOICES, typ[DYE_DATA.dyeDefault.mode].dye), `${D}_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
     [`${P}-mode`, -1, `${D}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
     [`${P}-label-pct`, -1, `${D}_LabelingPct: ${T.sites} (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: ${pcts})`],
-    [`${P}-imager-nm`, DEFAULT_IMAGER_NM, `${D}_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-imager-nm`, DEFAULT_IMAGER_NM, `${D}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
     [`${P}-orient`, 0, `${D}_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)`],
     [`${P}-orient-polar-deg`, 90, `${D}_OrientPolarDeg: Fixed dipole angle from ${T.axis}`],
     [`${P}-orient-azimuth-deg`, 0, `${D}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],

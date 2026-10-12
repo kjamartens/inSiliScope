@@ -69,12 +69,29 @@ SceneState::SceneState()
    using namespace sim;
    const int mode = DefaultDyeMode();
    options_["mode"] = mode;
-   options_["mt-mode"] = -2;
-   options_["mt-dye"] = -1;
-   options_["mt-label-pct"] = TargetAt(0).typicalPct[mode];
+   for (int t = 0; t < TargetCount() && t < kMaxTargets; ++t)
+   {
+      const std::string prefix = TargetAt(t).prefix;
+      options_[prefix + "-mode"] = -2;
+      options_[prefix + "-dye"] = -1;
+      options_[prefix + "-label-pct"] = TargetAt(t).typicalPct[mode];
+      lastTargetMode[t] = mode;
+   }
    options_["qe-curve"] = IndexOf(CameraIds(), DefaultCamera());
    cameraPreset = IndexOf(CameraIds(), DefaultCamera());
-   lastMtMode = mode;
+}
+
+int SceneState::MountedSpecimen() const
+{
+   const int n = static_cast<int>(sim::SpecimenIds().size());
+   const int i = static_cast<int>(Option("specimen"));
+   return i >= 0 && i < n ? i : 0;
+}
+
+int SceneState::MountedMode() const
+{
+   const int t = sim::SpecimenAt(MountedSpecimen()).firstTarget;
+   return t >= 0 && t < kMaxTargets ? lastTargetMode[t].load() : -1;
 }
 
 double SceneState::EmGain() const

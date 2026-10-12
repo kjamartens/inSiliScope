@@ -966,7 +966,7 @@ bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEv
 // ABI 11: a kinetics history (piecewise-constant rates in clock time). One
 // segment = no history; a segment appended at T leaves everything before T as
 // it was; the new rates act after T (PALM activation off, dSTORM 10x faster,
-// DNA-PAINT from the next bin); two histories alternating on one world (the
+// DNA-PAINT at once); two histories alternating on one world (the
 // parked schedule slots) answer as fresh worlds.
 void KineticsHistoryChecks()
 {
@@ -1062,7 +1062,8 @@ void KineticsHistoryChecks()
       Check(n > 50 && nb > 50 && std::fabs(m / fast.onSec - 1) < 0.25 && std::fabs(mb / kin.onSec - 1) < 0.25,
             "kinetics history: dSTORM ON times follow the segment they start in");
    }
-   // DNA-PAINT, imager x10 at 60.4 s: bin 60 as without the change, bins from 61 busier.
+   // DNA-PAINT, imager x10 at 60.4 s: the blinks before it as without the change, busier from 60.4 s on (at once,
+   // not from the next bin).
    {
       Label l = MakeLabel(LabelMode::DnaPaint, 0.3, dp);
       Kinetics more = dp;
@@ -1076,10 +1077,12 @@ void KineticsHistoryChecks()
       };
       const auto ea = events(a, 59, 64), eb = events(b, 59, 64);
       const size_t na = inBin(ea, 61, 63).size(), nb = inBin(eb, 61, 63).size();
-      const bool bin60 = SameEvents(inBin(ea, 60, 61), inBin(eb, 60, 61));
-      std::printf("      DNA-PAINT, imager x10 at 60.4 s: bin 60 %s, %zu -> %zu blinks starting in [61, 63)\n",
-                  bin60 ? "unchanged" : "CHANGED", na, nb);
-      Check(bin60 && nb > 5 * na && na > 0, "kinetics history: DNA-PAINT rates change at the next bin");
+      const size_t nPa = inBin(ea, 60.4, 61).size(), nPb = inBin(eb, 60.4, 61).size();
+      const bool before = SameEvents(inBin(ea, 0, 60.4), inBin(eb, 0, 60.4));
+      std::printf("      DNA-PAINT, imager x10 at 60.4 s: before it %s, %zu -> %zu blinks starting in [60.4, 61), "
+                  "%zu -> %zu in [61, 63)\n", before ? "unchanged" : "CHANGED", nPa, nPb, na, nb);
+      Check(before && nb > 5 * na && na > 0 && nPb > 3 * std::max<size_t>(nPa, 1),
+            "kinetics history: a DNA-PAINT rate change acts at once, the blinks before it stay");
    }
    // Two histories alternating on one world = fresh worlds (PALM and DNA-PAINT).
    for (const Case& c : { cases[0], cases[2] }) {

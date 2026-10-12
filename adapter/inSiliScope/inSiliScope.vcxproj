@@ -197,6 +197,7 @@
     <ClInclude Include="..\..\core\src\dyes.h" />
     <ClInclude Include="..\..\core\src\jsmath.h" />
     <ClInclude Include="..\..\core\src\microtubules.h" />
+    <ClInclude Include="..\..\core\src\origami.h" />
     <ClInclude Include="..\..\core\src\packing.h" />
     <ClInclude Include="..\..\core\src\parallel.h" />
     <ClInclude Include="..\..\core\src\params.h" />

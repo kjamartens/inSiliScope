@@ -24,34 +24,53 @@
 #include <cmath>
 #include <cstring>
 
-void InSiliScopeHub::LoadMicrotubuleDye(bool modeMayChange)
+void InSiliScopeHub::LoadTargetDye(int s, bool modeMayChange)
 {
    using namespace sim;
    isc::SceneState& st = state_;
-   st.ClearDyeEditsWithPrefix("mt-dye.");
+   if (s < 0 || s >= TargetCount() || s >= isc::SceneState::kMaxTargets)
+      return;
+   const std::string prefix = TargetAt(s).prefix;
+   st.ClearDyeEditsWithPrefix(prefix + "-dye.");
    // The label as the engine resolves it (Typical, Global: ScopeStructureDye).
    EffectiveDye eff;
    int choice = 0;
    std::string err;
-   if (!ScopeStructureDye(isc::BuildScopeSpec(st, 0, 0, 0, 0, 1), 0, eff, choice, err))
+   if (!ScopeStructureDye(isc::BuildScopeSpec(st, 0, 0, 0, 0, 1), s, eff, choice, err))
    {
-      Log("Microtubule dye: " + err, false);
+      Log(std::string(TargetAt(s).name) + " dye: " + err, false);
       return;
    }
-   const bool modeChanged = eff.mode != st.lastMtMode.load();
+   const bool modeChanged = eff.mode != st.lastTargetMode[s].load();
    if (modeMayChange && modeChanged)
    {
-      st.SetOption("mt-label-pct", TargetAt(0).typicalPct[eff.mode]);
-      Notify("mt-label-pct");
+      st.SetOption(prefix + "-label-pct", TargetAt(s).typicalPct[eff.mode]);
+      Notify(prefix + "-label-pct");
    }
-   st.lastMtMode = eff.mode;
-   if (modeChanged)
-      ApplyModeGain();
-   if (eff.dye.modes[eff.mode].lightPreset)
-      ApplyLightPreset(eff.dye.modes[eff.mode].lightPreset);
+   st.lastTargetMode[s] = eff.mode;
+   // The camera gain and the light path follow the mounted specimen's label only.
+   if (SpecimenIds()[static_cast<size_t>(st.MountedSpecimen())] == TargetAt(s).specimen)
+   {
+      if (modeChanged)
+         ApplyModeGain();
+      if (eff.dye.modes[eff.mode].lightPreset)
+         ApplyLightPreset(eff.dye.modes[eff.mode].lightPreset);
+   }
    for (int i = 0; i < 3; ++i)
-      Notify("mt-readout-" + std::to_string(i));
-   Notify("mt-effective");
+      Notify(prefix + "-readout-" + std::to_string(i));
+   Notify(prefix + "-effective");
+}
+
+void InSiliScopeHub::MountSpecimen(int index)
+{
+   if (index < 0 || index >= static_cast<int>(sim::SpecimenIds().size()))
+      return;
+   if (state_.Option("specimen") == index)
+      return;
+   state_.SetOption("specimen", index);
+   Notify("specimen");
+   // The camera's mode gain follows the mounted label (the lasers stay as set).
+   ApplyModeGain();
 }
 
 std::vector<std::string> InSiliScopeHub::LabelChoices(int s)
@@ -75,18 +94,29 @@ std::vector<std::string> InSiliScopeHub::LabelChoices(int s)
 
 void InSiliScopeHub::LabelModeChanged()
 {
-   const std::string key = std::string(sim::TargetAt(0).prefix) + "-dye";
-   // A label the new mode has no data for becomes Typical (the mode's usual dye).
-   const int v = static_cast<int>(state_.Option(key));
-   if (v >= 0)
+   // Every target (the Fluorophores Mode is the experiment's; a target's own mode changes it alone, the others reload
+   // unchanged): the mounted specimen's last, so its light preset is the one that stays.
+   const int first = sim::SpecimenAt(state_.MountedSpecimen()).firstTarget;
+   std::vector<int> order;
+   for (int t = 0; t < sim::TargetCount(); ++t)
+      if (t != first)
+         order.push_back(t);
+   order.push_back(first);
+   for (int t : order)
    {
-      const std::vector<std::string> allowed = LabelChoices(0);
-      if (std::find(allowed.begin(), allowed.end(), sim::DyeChoices()[static_cast<size_t>(v)]) == allowed.end())
-         state_.SetOption(key, -1);
+      const std::string key = std::string(sim::TargetAt(t).prefix) + "-dye";
+      // A label the new mode has no data for becomes Typical (the mode's usual dye).
+      const int v = static_cast<int>(state_.Option(key));
+      if (v >= 0)
+      {
+         const std::vector<std::string> allowed = LabelChoices(t);
+         if (std::find(allowed.begin(), allowed.end(), sim::DyeChoices()[static_cast<size_t>(v)]) == allowed.end())
+            state_.SetOption(key, -1);
+      }
+      RefreshChoices(key);
+      Notify(key);
+      LoadTargetDye(t, true);
    }
-   RefreshChoices(key);
-   Notify(key);
-   LoadMicrotubuleDye(true);
 }
 
 void InSiliScopeHub::ApplyLightPreset(const std::string& id)
@@ -192,7 +222,7 @@ void InSiliScopeHub::ApplyCameraPreset(int index)
    Notify("qe-curve");
    const double gain =
       sim::CameraPresetGain(c, (st.transOpen.load() && !st.epiOpen.load()) ||
-                                  st.lastMtMode.load() == sim::IndexOf(sim::DyeModeNames(), "WideField"));
+                                  st.MountedMode() == sim::IndexOf(sim::DyeModeNames(), "WideField"));
    if (!std::isnan(gain))
    {
       st.gainElectronsPerAdu = gain;
@@ -213,7 +243,7 @@ void InSiliScopeHub::ApplyModeGain()
       return;
    st.gainElectronsPerAdu =
       sim::CameraPresetGain(c, (st.transOpen.load() && !st.epiOpen.load()) ||
-                                  st.lastMtMode.load() == sim::IndexOf(sim::DyeModeNames(), "WideField"));
+                                  st.MountedMode() == sim::IndexOf(sim::DyeModeNames(), "WideField"));
    Notify("gain");
    Notify("em-gain");
 }
@@ -229,7 +259,9 @@ void InSiliScopeHub::DyeSlotSourceChanged(int slot)
 {
    const std::string prefix = "dye" + std::to_string(slot + 1);
    state_.ClearDyeEditsWithPrefix(prefix + ".");
-   if (static_cast<int>(state_.Option("mt-dye")) == static_cast<int>(sim::DyeIds().size()) + slot)
-      LoadMicrotubuleDye(true);
+   for (int t = 0; t < sim::TargetCount(); ++t)
+      if (static_cast<int>(state_.Option(std::string(sim::TargetAt(t).prefix) + "-dye")) ==
+          static_cast<int>(sim::DyeIds().size()) + slot)
+         LoadTargetDye(t, true);
    Notify(prefix + ".fields");
 }

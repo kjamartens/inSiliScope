@@ -68,6 +68,14 @@ public:
    CellFieldDevice();
 };
 
+// The DNA-origami nanorulers (spec/MM_DEVICES.md): their label and geometry; the image shows them when SampleHolder
+// mounts them.
+class NanorulersDevice : public GenericPeripheral<NanorulersDevice>
+{
+public:
+   NanorulersDevice();
+};
+
 class FluorophoresDevice : public GenericPeripheral<FluorophoresDevice>
 {
 public:
@@ -208,7 +216,7 @@ private:
    std::string option_;
 };
 
-// The mounted specimen (CellField; later others, spec/MM_DEVICES.md).
+// The mounted specimen: data/specimens.json's (CellField, Nanorulers; spec/MM_DEVICES.md), option "specimen".
 class SampleHolderDevice : public StatePeripheral<SampleHolderDevice>
 {
 public:
@@ -216,9 +224,9 @@ public:
 
 protected:
    std::vector<std::string> Labels() override;
-   long Position() override { return 0; }
-   void MoveTo(long) override {}
-   std::vector<std::string> WatchedKeys() override { return {}; }
+   long Position() override;
+   void MoveTo(long pos) override;
+   std::vector<std::string> WatchedKeys() override { return { "specimen" }; }
 };
 
 // ---- light sources: shutters whose state is part of every frame ----

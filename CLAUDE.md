@@ -1,7 +1,7 @@
 # insiliscope
 
-One C++ world model of a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
-later NPCs, DNA, other cell types, excitation profile), consumed by (1) the Micro-Manager
+One C++ world model of a sample -- a field of cells (cell body, nucleus, cytoplasm, microtubules, dye sites;
+later NPCs, DNA, other cell types, excitation profile) or DNA-origami nanorulers (`specimen` 1) -- consumed by (1) the Micro-Manager
 inSiliScope adapter (native), (2) the browser viewer in `web/` (WASM) and (3) webSMLM (a
 CI-generated block: WASM as base64 + thin JS wrapper, published by CI; brought into the fork
 `kjamartens/webSMLM` by a separate change there -- CI never opens PRs). No second hand-maintained implementation.
@@ -37,17 +37,19 @@ that finishes them.
   date and tick its section 11 while it exists), `golden/` (frozen JS reference outputs), reports.
 - `data/` -- [dyes/](data/dyes/README.md) (dye library, light-path presets, cameras; FPbase spectra under CC BY-SA 4.0,
   fetched by `tools/fetch_fpbase.mjs`, built into `web/prototype/scope/dye_library_data.js` by `tools/gen_dye_library.mjs
-  [--check]`) and `references.json` (the project reference list, rendered to `docs/references.md`).
+  [--check]`), `references.json` (the project reference list, rendered to `docs/references.md`), `specimens.json` (the
+  samples and their targets) and `origami/designs.json` (DNA-origami designs, `tools/gen_origami_designs.mjs [--check]`).
 - `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
   the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders; CI job `viewer-js` runs these four), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
-- `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics pages' figures**: one registered
+- `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
   (`--history-before`: a two-epoch rate history, a cli `DyeClock`), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
-  `--presets-json`; `cli/scope_probes.*`, ctest `cli_probes`) and only draws; `pages.yml` rebuilds them on every
-  deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->` marker in `docs/physics/*.md`.
+  `--presets-json`, `--geometry-json` for the nanorulers; `cli/scope_probes.*`, ctest `cli_probes`) and only draws;
+  `pages.yml` rebuilds them on every deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->`
+  marker in any page of `docs/` (links in the figures are written as from `docs/physics/` and rebased per page).
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, and ABI 11
   kinetics histories, C++ = JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
@@ -105,8 +107,9 @@ that finishes them.
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
   the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
-  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), then `ADAPTER_DIR=<dll dir> python
-  tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
+  history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), `ADAPTER_DIR=<dll dir> python
+  tools/test_specimens.py` (SampleHolder: CellField / Nanorulers, the switch is a new world; < 30 s), then
+  `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
   `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
@@ -123,7 +126,8 @@ that finishes them.
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
-- Docs: `docs/` is the mkdocs-material site (physics pages, quickstart, extending; `docs/dev/` is excluded history);
+- Docs: `docs/` is the mkdocs-material site (samples pages `docs/samples/`, physics pages, quickstart, extending;
+  `docs/dev/` is excluded history);
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
   with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
   preparation switches need none).
@@ -169,7 +173,7 @@ working in another worktree writes them into the main checkout's `claude_notes/`
 **Keep the online docs in step with the code.** The published site (https://kjamartens.github.io/inSiliScope/, built from
 `docs/` + `mkdocs.yml`, plus `README.md`) is what users read. In the same commit as any change to behaviour, defaults,
 options/properties, models or performance, check `docs/index.md`, `docs/quickstart.md`, `docs/try-viewer.md`,
-`docs/physics/*.md`, `docs/extending.md`, `docs/roadmap.md`, `README.md` and `gallery/manifest.json` (entry texts and
+`docs/samples/**/*.md`, `docs/physics/*.md`, `docs/extending.md`, `docs/roadmap.md`, `README.md` and `gallery/manifest.json` (entry texts and
 options) for statements the change makes wrong, and fix them. `docs/dev/` is excluded history; leave it.
 
 **Words:** `GibsonLanniZernike` (the default PSF, also webSMLM's) is a *scalar* Gibson-Lanni + Zernike model (no
@@ -259,7 +263,7 @@ spec/PORT.md 16):** each tile keeps its lit time as segments in epochs (`Kinetic
 `ScopeKineticEnv`; a per-tile trie of (parent, tStart, epoch)), the engine sends each clock region's kinetics rows
 (`isc_world_set_kinetics_history`) and the core walks the hazards per segment with the same draws, so a change acts from
 now on (PALM 405 off: converted dyes blink out, no new ones; a power step continues from the present state; DNA-PAINT
-from the next 1 s bin; another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
+at once (a 1 s bin with a change takes each part at its own rate, 2026-10-12); another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
 bit for bit. Light counts at the producer when a frame is published if it lights the sample (lasers' shutter open,
 power at the sample, and a sequence or snap takes it, or `SampleHolder.TimeWhileIdle` = `Running` (default) with a
 hand-opened shutter), over its lit rect (the drifted pose's FOV + 2 um margin + 0.5 um; a snap takes only a frame
@@ -402,6 +406,21 @@ maps, scalar pcg lane, trig memos, typed scratch). Build: Release by default, `I
 memory-bound), WF 256 px 20 f 2.7 -> 1.7 s, 200 f 3.3 -> 1.8 s, BF 256 px level 3 0.59 -> 0.47 s, level 4 2.0 -> 1.4 s;
 core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 ms; viewer BF 256 px level 3
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
+
+**DNA-origami nanorulers (2026-10-12, spec/PORT.md 20, spec/ALGORITHM.md, docs/samples/nanorulers/):** a second
+specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 1). `core/src/origami.*`
+(JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
+tiles, Matern-II field (`origamiDensity` 0.3 /um^2, `origamiMinSpacingNm` 250), designs `data/origami/designs.json`
+(3D-ready schema; v1 `Nanoruler80`: 200 x 13 nm cylinder, spots at 20/100/180 nm, a 5-strand ring each,
+`origamiStrandsPerSpot` keeps ring positions 0..N-1), in-plane 2D worm-like-chain bending (`origamiLpNm` 1500, Advanced;
+273.1 is the docs' softer option), random roll, every strand at 13.5 nm (`origamiHeights` 1 = ring heights, untested).
+The `World` branches on `specimen` (one dye block per molecule; no cells, empty optical volume, so BrightField is
+noise only); the photophysics is shared; only the mounted specimen's labels render. Core ABI 12 (`isc_origami_*`).
+Engine options `specimen`, `origami-*`, per-target label options from the registry (`ruler-*`); `z` defaults to the
+strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: history and drift reset), device
+`Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
+`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. DNA-PAINT at the defaults (1 nM,
+the library's 0.05 s ON) is sparse: a rod binds about every 80 s per nM.
 
 **Sample drift (2026-10-06, spec/PORT.md 17, docs/physics/camera.md):** a directed part plus a random walk, xy and z
 set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and a z

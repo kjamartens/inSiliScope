@@ -176,21 +176,21 @@ size_t SegmentAt(const std::vector<BlinkKineticsSegment>& segs, double t)
    return lo;
 }
 
-// Expected overlap of [a, a + D) with [t0, t1) for a uniform in [b, b + 1),
+// Expected overlap of [a, a + D) with [t0, t1) for a uniform start in [b, e),
 // D = min(Exp(tau), cap), integrated over a: the integral over a of
 // tau (exp(-(L - a) / tau) - exp(-(U - a) / tau)), L = max(t0, a),
 // U = min(t1, a + cap), where U > L.
-double PaintBinOverlap(double b, double tau, double cap, double t0, double t1)
+double PaintBinOverlap(double b, double e, double tau, double cap, double t0, double t1)
 {
-   double pts[6] = { b, b + kBinSec, t0, t1, t0 - cap, t1 - cap };
+   double pts[6] = { b, e, t0, t1, t0 - cap, t1 - cap };
    std::sort(pts + 2, pts + 6);
    double cuts[6];
    int n = 0;
    cuts[n++] = b;
    for (int i = 2; i < 6; ++i)
-      if (pts[i] > b && pts[i] < b + kBinSec)
+      if (pts[i] > b && pts[i] < e)
          cuts[n++] = pts[i];
-   cuts[n++] = b + kBinSec;
+   cuts[n++] = e;
    double sum = 0.0;
    for (int i = 0; i + 1 < n; ++i)
    {
@@ -219,12 +219,22 @@ double PaintOnSeconds(const std::vector<BlinkKineticsSegment>& segs, double t0, 
    const long b0 = std::max(0L, static_cast<long>(std::floor((t0 - maxOn) / kBinSec)) - 1);
    const long b1 = static_cast<long>(std::floor(t1 / kBinSec));
    double sum = 0.0;
+   // A bin's part in each segment at that segment's rate (the core's PersistentGen: a change acts at once).
    for (long b = b0; b <= b1; ++b)
    {
-      const BlinkKineticsSegment& k = segs[SegmentAt(segs, b * kBinSec)];
-      if (!(k.activationRatePerSec > 0.0) || !(k.onSec > 0.0))
-         continue;
-      sum += k.activationRatePerSec * PaintBinOverlap(b * kBinSec, k.onSec, kOnCap * k.onSec, t0, t1);
+      const double binEnd = b * kBinSec + kBinSec;
+      for (size_t s = SegmentAt(segs, b * kBinSec); s < segs.size(); ++s)
+      {
+         const bool first = s == SegmentAt(segs, b * kBinSec);
+         if (!first && !(segs[s].tStart < binEnd))
+            break;
+         const double lo = first ? b * kBinSec : segs[s].tStart;
+         const double hi = s + 1 < segs.size() && segs[s + 1].tStart < binEnd ? segs[s + 1].tStart : binEnd;
+         const BlinkKineticsSegment& k = segs[s];
+         if (!(hi > lo) || !(k.activationRatePerSec > 0.0) || !(k.onSec > 0.0))
+            continue;
+         sum += k.activationRatePerSec * PaintBinOverlap(lo, hi, k.onSec, kOnCap * k.onSec, t0, t1);
+      }
    }
    return sum;
 }

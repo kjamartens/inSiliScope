@@ -79,7 +79,7 @@ activates at the spontaneous rate plus \(a_{405} I_{405}\) plus, for primed conv
 470-510 nm and 690-780 nm intensities [[dempsey2015](../references.md#dempsey2015),
 [turkowyd2017](../references.md#turkowyd2017)] (the PALM rate coefficients are *estimates*). DNA-PAINT blinks at
 \(k_{on} c\) [[jungmann2010](../references.md#jungmann2010)] (\(k_{on}\) of the order of \(10^6\) /M/s, an *estimate*),
-with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNm`).
+with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNanoMol`).
 
 ## Light-path presets
 

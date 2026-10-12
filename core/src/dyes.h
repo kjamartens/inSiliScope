@@ -228,10 +228,10 @@ void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::v
                    std::vector<ContWindow>* cont, double tMax = INFINITY, const KineticsHistory* hist = nullptr);
 
 // Blinks of persistent site (k, n) overlapping [t0, t1) (t >= 0), a pure
-// function of (address, time bin). Appends, by bin. hist (ABI 11): each bin
-// takes the kinetics of the segment holding its start (nullptr or one
-// segment: kin / that segment's for every bin), so a change acts from the next
-// bin and the bins before it never change.
+// function of (address, time bin). Appends, by bin. hist (ABI 11): a bin's
+// part in each segment has that segment's kinetics (nullptr or one segment:
+// kin / that segment's for every bin): a change acts at once, and the blinks
+// before it never change (PersistentGen in dyes.cpp).
 void PersistentBlinks(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t0, double t1,
                       std::vector<Blink>& out, const KineticsHistory* hist = nullptr);
 

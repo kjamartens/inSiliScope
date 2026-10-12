@@ -80,6 +80,8 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
       return new isc::SampleHolderDevice();
    if (n == "CellField")
       return new isc::CellFieldDevice();
+   if (n == "Nanorulers")
+      return new isc::NanorulersDevice();
    if (n == "Fluorophores")
       return new isc::FluorophoresDevice();
    if (n == "Renderer")

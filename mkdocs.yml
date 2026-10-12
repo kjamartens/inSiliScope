@@ -44,14 +44,24 @@ extra:
 exclude_docs: |
   dev/
 
+# The pages that moved (2026-10-12) redirect to their new place.
+not_in_nav: |
+  physics/world-model.md
+  physics/structures.md
+
 nav:
   - Home: index.md
   - Viewer (live): try-viewer.md
   - Quickstart: quickstart.md
   - Micro-Manager properties: mm-properties.md
+  - Samples:
+      - Overview: samples/index.md
+      - Cell field:
+          - World model: samples/cell-field/world-model.md
+          - Structures: samples/cell-field/structures.md
+      - Nanorulers:
+          - DNA-origami nanorulers: samples/nanorulers/index.md
   - Physics:
-      - World model: physics/world-model.md
-      - Structures: physics/structures.md
       - Dyes and light path: physics/dyes-and-light-path.md
       - Photophysics: physics/photophysics.md
       - Optics and PSF: physics/optics.md

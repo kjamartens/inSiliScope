@@ -179,7 +179,7 @@ const OptionTable& Options()
          v.push_back({ keep(P + "-label-pct"), -1,
                        keep(D + "_LabelingPct: " + T.sites + " (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: " + pcts + ")") });
          v.push_back({ keep(P + "-imager-nm"), kDefaultImagerNm,
-                       keep(D + "_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
+                       keep(D + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
          v.push_back({ keep(P + "-orient"), 0,
                        keep(D + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
          v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(D + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });
@@ -469,6 +469,11 @@ std::vector<int> ScopeMountedStructures(const ScopeSpec& spec)
    for (int t = d.firstTarget; t < d.firstTarget + d.targetCount; ++t)
       out.push_back(TargetAt(t).structure);
    return out;
+}
+
+std::vector<std::string> ScopeOrigamiDesignIds()
+{
+   return OrigamiDesignIds();
 }
 
 std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec)

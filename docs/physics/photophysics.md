@@ -102,7 +102,8 @@ was and the future follows the new rates.
   density of blinking dyes rises over the activation time instead of jumping.
 - More (or less) laser power in dSTORM or WideField: the field continues from its present state at the new rates
   (WideField x4 power: the next frame is ~4x as bright, the dyes bleached so far stay bleached).
-- DNA-PAINT: a change of imager concentration acts from the next 1 s binding bin; bins already shown never change.
+- DNA-PAINT: a change of imager concentration acts at once (the binding events are drawn per second; a second with
+  a change takes each part at its own rate); the bindings before the change never change.
 - Another dye or mode for a structure: the past light is re-read for the new dye (the new dye as it would be under the
   light the place has had).
 

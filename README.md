@@ -5,9 +5,10 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 **A deterministic in-silico microscope.** inSiliScope generates an endless field of synthetic cells (cell body,
-nucleus, cytoplasm, microtubules, dye sites) and images it as a single-molecule localisation (SMLM) movie or as a
-widefield image, with a physical PSF and camera noise model. Every cell is a pure function of `(seed, address)`, so
-any window of the field can be generated on its own, in any order, on any platform, with identical results.
+nucleus, cytoplasm, microtubules, dye sites) -- or a field of DNA-origami nanorulers -- and images it as a
+single-molecule localisation (SMLM) movie or as a widefield image, with a physical PSF and camera noise model. Every
+cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
+any order, on any platform, with identical results.
 
 - **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, render SMLM/widefield/brightfield movies,
   save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
@@ -27,7 +28,10 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 
 ## What it models
 
-- **World**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
+- **Samples**: the cell field or DNA-origami nanorulers (200 x 13 nm rods with three spots of docking strands 80 nm
+  apart, bent in the coverslip plane as a worm-like chain), switched in the viewer, Micro-Manager's `SampleHolder` or the
+  CLI's `--specimen` ([Samples](https://kjamartens.github.io/inSiliScope/samples/)).
+- **Cell field**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
   field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice with antibody/nanobody linkers.
 - **Labels, dyes, light path**: a dye library (FPbase spectra, literature kinetics) in four label modes -- dSTORM
   (initial ON, blinking, intensity-scaled times), PALM (pre-converted state, 405 nm and primed activation), DNA-PAINT
@@ -42,7 +46,8 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
   microtubules only -- nothing the world does not simulate), partially coherent Koehler illumination, multislice
   wave optics, one quality setting from fast to precise ([spec/BRIGHTFIELD.md](spec/BRIGHTFIELD.md)).
 
-Documentation of the models: [Physics](https://kjamartens.github.io/inSiliScope/physics/world-model/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
+Documentation of the models: [Samples](https://kjamartens.github.io/inSiliScope/samples/) and
+[Physics](https://kjamartens.github.io/inSiliScope/physics/dyes-and-light-path/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
 
 ## Build
 

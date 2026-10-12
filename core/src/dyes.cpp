@@ -487,7 +487,11 @@ BinKinetics BinKineticsOf(const Kinetics& kin)
    return p;
 }
 
-// hist with two or more segments: bin b takes the kinetics of the segment holding its start b x PERSIST_BIN_SEC.
+// hist with two or more segments: bin b's own draws (piece 0) take the kinetics of the segment holding its start
+// b x PERSIST_BIN_SEC and keep the blinks starting before the next segment's start; each later segment starting
+// inside the bin (piece i) adds its own Poisson draws, at its rate over its part of the bin, on channels
+// PIECE_CH x i + purpose, ids j | i << PIECE_SHIFT. So a change acts at once, and what came before it (earlier bins,
+// piece 0 up to the change) never changes. One segment in a bin = the single-segment arithmetic.
 template <class Keep, class Emit>
 void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, const KineticsHistory* hist, long b0, long b1,
                    Keep keep, Emit emit)
@@ -498,30 +502,54 @@ void PersistentGen(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, const
    // Per-site stream key, then per (bin, j, purpose).
    const uint32_t key = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::PERSIST).a;
    auto U = [&](uint32_t bin, uint32_t j, uint32_t ch) { return Unit(Pcg4d(key, bin, j, ch).a); };
-   enum : uint32_t { COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5 };
+   enum : uint32_t { COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5, PIECE_CH = 8, PIECE_SHIFT = 24 };
+   // Blinks of one piece: c draws starting in [lo, hi) (piece 0: (b + u) x PERSIST_BIN_SEC, the single-segment
+   // arithmetic; later ones lo + u (hi - lo)), its kinetics q, channels o + purpose, ids j | id.
+   auto piece = [&](uint32_t bin, long c, const BinKinetics& q, uint32_t o, uint32_t id, double lo, double hi) {
+      for (long j = 0; j < c; j++) {
+         const uint32_t jj = (uint32_t)j;
+         const double u = U(bin, jj, o + START);
+         const double tOn = o == 0 ? (bin + u) * PERSIST_BIN_SEC : lo + u * (hi - lo);
+         if (!(tOn < hi)) continue;
+         const double on = std::min(q.maxOn, -jsm::log(U(bin, jj, o + ON)) * q.onSec);
+         if (!keep(tOn, on)) continue;
+         double br = 1;
+         if (q.cv > 0) {
+            const double u1 = U(bin, jj, o + BRIGHT1);
+            const double u2 = U(bin, jj, o + BRIGHT2);
+            br = LogNormalMean1(q.ln, u1, u2);
+         }
+         emit(bin, jj | id, tOn, on, br);
+      }
+   };
    size_t seg = multi ? multi->SegmentAt(std::max(0L, b0) * PERSIST_BIN_SEC) : 0;
    BinKinetics p = BinKineticsOf(multi ? multi->kin[seg] : one);
    for (long b = std::max(0L, b0); b <= b1; b++) {
+      const uint32_t bin = (uint32_t)b;
+      const double binEnd = (b + 1) * PERSIST_BIN_SEC;
+      double pEnd = INFINITY;   // piece 0 ends where the next segment starts inside the bin
       if (multi) {
          const size_t s = multi->SegmentAt(b * PERSIST_BIN_SEC);
          if (s != seg) { seg = s; p = BinKineticsOf(multi->kin[s]); }
-         if (!(p.rate > 0)) continue;
+         if (s + 1 < multi->Size() && multi->tStart[s + 1] < binEnd) pEnd = multi->tStart[s + 1];
       }
-      const uint32_t bin = (uint32_t)b;
-      const long c = p.small ? PoissonInverse(p.m, p.expM, U(bin, 0, COUNT))
-                             : PoissonFromUniform(p.m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
-      for (long j = 0; j < c; j++) {
-         const uint32_t jj = (uint32_t)j;
-         const double tOn = (b + U(bin, jj, START)) * PERSIST_BIN_SEC;
-         const double on = std::min(p.maxOn, -jsm::log(U(bin, jj, ON)) * p.onSec);
-         if (!keep(tOn, on)) continue;
-         double br = 1;
-         if (p.cv > 0) {
-            const double u1 = U(bin, jj, BRIGHT1);
-            const double u2 = U(bin, jj, BRIGHT2);
-            br = LogNormalMean1(p.ln, u1, u2);
-         }
-         emit(bin, jj, tOn, on, br);
+      if (p.rate > 0) {
+         const long c = p.small ? PoissonInverse(p.m, p.expM, U(bin, 0, COUNT))
+                                : PoissonFromUniform(p.m, U(bin, 0, COUNT), U(bin, 0, COUNT2));
+         piece(bin, c, p, 0, 0, b * PERSIST_BIN_SEC, pEnd);
+      }
+      if (!(pEnd < binEnd)) continue;
+      uint32_t i = 1;
+      for (size_t s = seg + 1; s < multi->Size() && multi->tStart[s] < binEnd; s++, i++) {
+         const double a = multi->tStart[s];
+         const double e = s + 1 < multi->Size() && multi->tStart[s + 1] < binEnd ? multi->tStart[s + 1] : binEnd;
+         const BinKinetics q = BinKineticsOf(multi->kin[s]);
+         if (!(e > a) || !(q.rate > 0)) continue;
+         const double m = q.rate * (e - a);
+         const uint32_t o = PIECE_CH * i;
+         const long c = m <= 30 ? PoissonInverse(m, jsm::exp(-m), U(bin, 0, o + COUNT))
+                                : PoissonFromUniform(m, U(bin, 0, o + COUNT), U(bin, 0, o + COUNT2));
+         piece(bin, c, q, o, i << PIECE_SHIFT, a, e);
       }
    }
 }
