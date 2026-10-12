@@ -34,9 +34,12 @@ Open the [viewer](try-viewer.md). Nothing to install.
    dyes lie 13.5 nm above the glass); the `Nanorulers` device sets their design, density and docking strands per spot
    (Advanced: the bending's persistence length, the landing). Mounting a sample is a new sample: the lit history and
    the drift start afresh.
-4. Pick a `Channel`: the label mode and its typical dye; the lasers and the filter cube follow (`Lasers.Preset`).
-   `CellField.Microtubules_Label` (the nanorulers: `Nanorulers.Docking_Label`) offers the other dyes with data for the
-   mode (`Fluorophores.Mode`); custom dyes are `Fluorophores.Dye1..3_*` (Expert). In DNA-PAINT,
+4. Pick a `Channel`: the label mode and its typical dye for every target; the lasers and the filter cube follow
+   (`Lasers.Preset` `Auto`: the presets of the labelled targets combined). The cell field has two targets, imaged
+   together: the microtubules (`CellField.Microtubules_*`, ATTO 655 DNA-PAINT at 640 nm) and the nuclear pores
+   (`CellField.NuclearPores_*`, Cy3B DNA-PAINT at 561 nm, through a multi-band filter set); the nanorulers have one,
+   `Nanorulers.Docking_*`. Each target has its own mode (`_Mode`) and label (`_Label`: Typical, the other dyes with
+   data for that mode, or None to leave it unlabelled); custom dyes are `Fluorophores.Dye1..3_*` (Expert). In DNA-PAINT,
    `CellField.Microtubules_ImagerNanoMol` / `Nanorulers.Docking_ImagerNanoMol` (Advanced: the imager concentration in
    the buffer, default 1 nM) sets how many sites blink per frame: binding events per site per second = k<sub>on</sub>
    × c, from the moment it changes. More imager means denser frames and more free-imager background.

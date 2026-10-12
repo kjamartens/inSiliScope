@@ -5,7 +5,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 **A deterministic in-silico microscope.** inSiliScope generates an endless field of synthetic cells (cell body,
-nucleus, cytoplasm, microtubules, dye sites) -- or a field of DNA-origami nanorulers -- and images it as a
+nucleus, cytoplasm, microtubules, nuclear pores, dye sites) -- or a field of DNA-origami nanorulers -- and images it as a
 single-molecule localisation (SMLM) movie or as a widefield image, with a physical PSF and camera noise model. Every
 cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
 any order, on any platform, with identical results.
@@ -32,7 +32,9 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
   apart, bent in the coverslip plane as a worm-like chain), switched in the viewer, Micro-Manager's `SampleHolder` or the
   CLI's `--specimen` ([Samples](https://kjamartens.github.io/inSiliScope/samples/)).
 - **Cell field**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
-  field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice with antibody/nanobody linkers.
+  field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice, nuclear pore complexes
+  (Nup96, 64 sites) over the whole nuclear envelope; each target labelled on its own (two colours at once by default)
+  through a probe model (antibodies, nanobody, SNAP/Halo, ...: binder, flexibility, linker).
 - **Labels, dyes, light path**: a dye library (FPbase spectra, literature kinetics) in four label modes -- dSTORM
   (initial ON, blinking, intensity-scaled times), PALM (pre-converted state, 405 nm and primed activation), DNA-PAINT
   (imager binding, free-imager background) and WideField (all dyes at once, bleaching by photon budget); lasers,

@@ -146,7 +146,9 @@ Excluded on purpose until they exist in the core (rule above). Roughly by expect
 7. **Actin** -- cortex and stress fibres (DIC-visible bundles).
 8. **ER, Golgi** -- diffuse; small contribution.
 9. **Cell-cell junctions, other cell types, mitotic/rounded cells, cell debris** -- shape statistics of the field.
-10. **NPCs, DNA** (planned core structures) -- sub-resolution; negligible in BF.
+10. **NPCs, DNA** -- sub-resolution; negligible in BF. The nuclear pores exist in the core since 2026-10-12 (issue 15) and
+    stay out of the optical volume on purpose: a pore is ~120 nm across and ~50 nm thick in a ~10 nm envelope, its
+    extra phase well under 0.01 rad (*estimate*), far below the cell's ~1 rad and the BF noise.
 11. **Substrate and environment** -- coverslip defects, dust, ECM/coating texture, medium meniscus.
 12. **Stains / absorbing dyes** -- the absorption term exists (`SimType_CellFieldAbsorptionPerUm`, all cell material);
     per-structure stains (e.g. H&E-like) need structures first.

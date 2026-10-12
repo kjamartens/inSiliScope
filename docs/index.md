@@ -3,7 +3,8 @@
 **A deterministic in-silico microscope.** inSiliScope generates an endless synthetic sample and images it the way a
 microscope would: as a single-molecule localisation (SMLM) movie or as a widefield image, with a physical PSF and
 camera noise model. Two [samples](samples/index.md) can be mounted: a field of cells (cell body, nucleus, cytoplasm,
-microtubules, fluorophore sites) and DNA-origami nanorulers (rods with three spots of docking strands 80 nm apart).
+microtubules, nuclear pores, fluorophore sites; the microtubules and the pores labelled in two colours) and DNA-origami
+nanorulers (rods with three spots of docking strands 80 nm apart).
 
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
@@ -38,7 +39,7 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   [World model](samples/cell-field/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
-- **Dyes and a light path.** Each structure's label is a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
+- **Dyes and a light path.** Each structure has its own label: a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
   mEGFP, ...) in a mode: *dSTORM*, *PALM* (with the pre-converted state), *DNA-PAINT* (with the free imager's background)
   or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's
   QE curve decide what is excited and detected, and at which wavelength (the PSF follows). See

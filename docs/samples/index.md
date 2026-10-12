@@ -9,7 +9,7 @@ light.
 
 | Sample | What it is | Targets | Pages |
 |---|---|---|---|
-| **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules | Microtubules (`mt-*`) | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
+| **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules, nuclear pores | Microtubules (`mt-*`), nuclear pores (`npc-*`), imaged together | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
 | **Nanorulers** (`Nanorulers`) | DNA-origami rods lying on the coverslip, each with three spots of docking strands 80 nm apart; bent in the plane as a worm-like chain | Docking strands (`ruler-*`) | [DNA-origami nanorulers](nanorulers/index.md) |
 
 The registry of samples and targets is `data/specimens.json`: each target's option prefix and core structure id, and
@@ -33,7 +33,8 @@ What a switch does:
   above it, so set the `ZStage` (the viewer's Focus height) to about 0 - 0.02 µm for them. The CLI focuses on the
   docking strands by itself when `--z` is not given.
 - **Each sample keeps its settings.** The cell field's and the nanorulers' properties and labels exist side by side;
-  switching changes none of them. The camera's gain preset and the light path follow the mounted sample's label.
+  switching changes none of them. The camera's gain preset and the light path follow the mounted sample's labels (the
+  light path: every labelled target's preset combined, `light-preset` auto).
 - **BrightField** shows only what the sample's geometry gives it ([optics](../physics/optics.md#brightfield-imaging)): the
   cells' refractive index. DNA origami 13 nm thick gives no contrast at these NAs, so the nanorulers' BrightField
   frames hold the lamp and the camera noise only.

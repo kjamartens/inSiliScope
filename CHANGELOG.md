@@ -4,6 +4,17 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- **seed** Nuclear pore complexes, a second cell-field target (issue 15, 2026-10-12): Nup96 pores (64 sites in two
+  8-fold rings) over the whole nuclear envelope, 12 per um^2 by default, labelled and imaged together with the
+  microtubules: by default pores in DNA-PAINT with Cy3B at 561 nm, microtubules in ATTO 655 DNA-PAINT at 640 nm, through
+  a multi-band filter set (`light-preset` auto, MM `Lasers.Preset` `Auto`: the labelled targets' presets combined).
+  Each target has its own label mode (MM `<Target>_Mode`, Basic; `Fluorophores.Mode` is gone) and a None label
+  (`npc-dye None` images the microtubules alone, as before). A label linkage model for every target (binder,
+  flexibility, linker; presets from measured antibody / nanobody / SNAP shells): the microtubules' default is now
+  primary + secondary antibodies with a docking strand (IgG2-PAINT, dyes on a ~32 nm shell), so every default image
+  changed; `mt-binder Legacy` (MM `Microtubules_Binder`) keeps the old dye positions. Core ABI 13 (`isc_cell_npcs`,
+  structure ids: nanoruler docking strands now 2). The adapter's GPU splat takes up to four blinking labels.
+
 - DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
   Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
   strands, in-plane worm-like-chain bending, Lp 1500 nm); MM device `Nanorulers`, core ABI 12. Cell-field output

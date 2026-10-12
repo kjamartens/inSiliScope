@@ -33,9 +33,14 @@ Notes:
   the **Nanorulers** group sets the design, the density, the docking strands per spot (1-5 of the ring's 5) and, in
   Advanced, the bending (persistence length, default 1500 nm), the minimum spacing, the landing (attach height, roll)
   and the linker. A movie of the nanorulers wants the focus on the coverslip (**Focus height** 0-0.02 µm, Acquisition; it stays at 0.5 µm when you switch).
-- **Microtubule label** (the cell field; the nanorulers' is the **Docking strands label**, the same rows): the labelled share of the sites, then the mode, then the dye (the Dye select lists the dyes
-  with data for that mode), then the dipole orientation. A mode or dye pick loads the dye's fields, the mode's labelling
-  and its light preset (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
+- **Microtubule label** and **Nuclear pore label** (the cell field's two targets, imaged together; the nanorulers' is
+  the **Docking strands label**, the same rows): the labelled share of the sites, then the mode, then the dye (the Dye
+  select lists the dyes with data for that mode, and None: the target unlabelled), then the attachment (the probe:
+  antibodies, nanobody, SNAP/Halo, ...; Advanced: its length, flexibility and linker) and the dipole orientation.
+  Defaults: microtubules ATTO 655 DNA-PAINT through primary + secondary antibodies, pores Cy3B DNA-PAINT on SNAP-tagged
+  Nup96. **Nuclear pores** sets their density on the nuclear envelope (default 12 per µm²) and, in Advanced, the
+  minimum spacing and the ring geometry. A mode or dye pick loads the dye's fields, the mode's labelling and the light
+  preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
   under Geometry, the DNA-PAINT chamber height in Advanced). The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
@@ -111,7 +116,7 @@ Notes:
   needs it. The data are made one at a time; ✕ removes an item from the queue (it stays removed until "Make"), and an
   item whose cell leaves the view is removed by itself (it queues again when the cell is back at the centre). While an
   image slice is shown, its slice height and the movie's focus height (Acquisition) move together. The data use the movie settings
-  (Microscope, Acquisition, the microtubule label): WideField images the structure's dye in WideField mode, SMLM in the
+  (Microscope, Acquisition, the structure's label; the other targets are left out): WideField images the structure's dye in WideField mode, SMLM in the
   structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
   mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
   the movie's start time (60 s by default). One movie per focus position over the cell's box, from 1 µm below the

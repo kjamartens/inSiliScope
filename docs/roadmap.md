@@ -2,7 +2,9 @@
 
 Ideas, roughly in order of interest. Contributions welcome; see [Extending](extending.md).
 
-- **More targets**: lamins, mitochondria, NPCs and DNA in the cell field, other cell types, tissue.
+- **More targets**: lamins, mitochondria and DNA in the cell field (the nuclear pores are in since 2026-10-12), other
+  cell types, tissue. The pores' variability (CIR4MICS-like ring deformations, missing corners, the 8.8 deg twist
+  between the rings) and a drawn 8-fold ring layer in the viewer.
 - **More samples and origami**: 3D DNA-origami designs (cuboid and mesh bodies, 3D bending, the strands' ring heights
   validated), more nanoruler designs (other spacings, 2D grids), broken and misfolded rulers, stiffness patches and
   built-in curvature (reserved in `data/origami/designs.json`); NPCs or a bead slide as samples of their own.

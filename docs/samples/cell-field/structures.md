@@ -106,17 +106,55 @@ The lattice as the core generates it, read back through the cli's dye-site outpu
 
 <!-- fig:struct-lattice -->
 
-**Labelling.** Each structure carries one label (issue 16): a share of its sites (`density`, cli/viewer `mt-label-pct`,
-MM `CellField.Microtubules_LabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them
+**Labelling.** Each structure carries one label (issue 16): a share of its sites (`density`, cli/viewer `mt-label-pct`
+/ `npc-label-pct`, MM `CellField.Microtubules_LabelingPct` / `NuclearPores_LabelingPct`) carries a dye. One LABEL draw per site, \(u < \) density, picks them
 (the same threshold as before, so a density equal to the old bleaching + persistent fractions gives the same dyes);
 a second, nested FLUOR draw keeps the dye's fluorescent fraction (none at fraction 1). What the dyes do depends on the
 label's mode (dSTORM, PALM, DNA-PAINT, WideField): [Photophysics](../../physics/photophysics.md). Each dye also has an orientation
 (free, fixed or random, with a wobble cone; its own draws), not used by the renderer yet. Default: DNA-PAINT on 70% of
 the sites (an *estimate*).
 
+## Nuclear pore complexes
+
+The cell field's second target (2026-10-12), labelled and imaged together with the microtubules. Each pore is the
+Nup96 model of webSMLM [[thevathasan2019](../../references.md#thevathasan2019)]: two rings 50 nm apart along the pore
+axis (the cytoplasmic one outside the nucleus, the nucleoplasmic one inside), eight corners per ring at a radius of
+53.5 nm, four attachment points per corner on an arc 12 nm across, so 64 sites per pore.
+
+- **Where.** Pores cover the whole nuclear envelope, uniformly by area (a fixed triangle mesh of the shaped nucleus
+  picks the place, which is then put exactly on the membrane), each along the local outward normal with a random twist
+  about it, so pores at the bottom of the nucleus are seen from below and those on its flanks from the side.
+- **How many.** `npc-density` (MM `CellField.NuclearPoreDensityPerUm2`, Advanced) per µm² of envelope, default 12: the
+  count is that times the envelope's area, rounded, so a lower density keeps a subset of the same pores. Measured
+  interphase densities are 5-9 per µm² [[maeshima2006](../../references.md#maeshima2006),
+  [dultz2010](../../references.md#dultz2010)]; 12 makes the envelope easy to see. A new pore closer than
+  `npcMinDistNm` (120 nm, the pore's diameter, Expert) to one already placed is redrawn.
+- **Label.** Default DNA-PAINT with a Cy3B imager at 561 nm on 60% of the sites; the typical labels per mode follow
+  the pore literature (dSTORM: Nup96-SNAP + BG-AF647, 58%; PALM mEos3.2; WideField mEGFP)
+  [[thevathasan2019](../../references.md#thevathasan2019),
+  [schlichthaerle2019](../../references.md#schlichthaerle2019)]. Set the pore label to None (`npc-dye None`) to image
+  the microtubules alone, as before.
+- **Brightfield.** Pores add no brightfield contrast (sub-resolution, far below the cell's phase).
+
+<!-- fig:struct-npc -->
+
+## Label linkage: where the dye sits
+
+A dye does not sit on its structure: a probe holds it there. One model for every target: the **binder** (the probe:
+primary + secondary antibodies, a nanobody, a SNAP or Halo tag, a fusion protein, a docking strand) points away from
+the structure (radially from a microtubule, from a pore's corner outwards) by its length, with a flexibility (a random
+offset in a ball); then a short chemical **linker** in a random direction; then the **dye**. Presets (cli/viewer
+`<prefix>-binder`, MM `<Target>_Binder`, Advanced; the numbers in Expert) come from measured label shells
+[[fruh2021](../../references.md#fruh2021), [nieves2019](../../references.md#nieves2019)]. Defaults: the microtubules
+through primary + secondary antibodies (IgG2-PAINT: the dyes on a shell ~32 nm from the axis around the 12.5 nm tube, as measured for DNA-labelled secondaries), the
+pores on a SNAP/Halo tag (a few nm). `Legacy` keeps the numbers from before the presets (12 nm + a 2-5 nm linker on a
+microtubule).
+
+<!-- fig:struct-linkage -->
+
 ## Adding the missing structures
 
-Lamins, mitochondria, NPCs, DNA and other cell types are not implemented yet; see [Extending](../../extending.md) for how a new
+Lamins, mitochondria, DNA and other cell types are not implemented yet; see [Extending](../../extending.md) for how a new
 per-cell generator keyed off the same `(seed, address, channel)` scheme plugs in.
 
 Further details and the history of each fix: `spec/ALGORITHM.md`.

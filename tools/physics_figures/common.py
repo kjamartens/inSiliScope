@@ -232,6 +232,10 @@ class Ctx:
         setup time that has to be cold: nothing memoized)."""
         opts = dict(opts or {})
         opts.setdefault("disk-cache", 2)
+        # The cell field's nuclear pores (labelled by default since issue 15) only where a figure asks for them: the
+        # figures show one label (the microtubules') unless they set an npc- option.
+        if not any(k.startswith("npc-") for k in opts) and str(opts.get("specimen", "0")) in ("0", "CellField"):
+            opts["npc-dye"] = "None"
         pool = pool_of(opts)
         if pool:
             k = os.path.join(self.cache_root, "pool-" + pool, "psf_kernel.bin")
