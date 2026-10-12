@@ -69,9 +69,8 @@
       "fpbase": { "dye": "ATTO 655" },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
-                       "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s." },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
+                       "notes": "ATTO 655 imagers; the binding kinetics (k_on, bound time) are the target's (data/specimens.json paint)." },
         "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 1105, "dutyCycle": 0.0006, "switchingCycles": 17,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
                     "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 sensitivity '+' (Table 2); initialOnSec estimate." },
@@ -83,8 +82,8 @@
       "fpbase": { "dye": "ATTO 542" },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2010", "schnitzbauer2017"], "notes": "as ATTO 655 (estimate)" },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2010", "schnitzbauer2017"],
+                       "notes": "as ATTO 655 (estimate); binding kinetics: the target's (data/specimens.json paint)" },
         "WideField": { "photonBudget": 100000, "notes": "estimate" }
       }
     },
@@ -94,9 +93,8 @@
       "override": { "exMaxNm": 559, "emMaxNm": 570 },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2014"],
-                       "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; kinetics as ATTO 655 (estimate: k_on of 9-10 nt imagers, onSec the default look)." },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2014"],
+                       "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; binding kinetics: the target's (data/specimens.json paint)." },
         "dSTORM": { "laser": 561, "detectedPhotonsPerCycle": 1365, "dutyCycle": 0.0003, "switchingCycles": 8,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
                     "refs": ["dempsey2011"], "notes": "Table 1 (MEA: 1,365 photons per cycle, duty cycle 0.0003, 8 switching cycles); 405 nm sensitivity '+' (Table 2); initialOnSec estimate. Its photons per cycle rise with the excitation intensity (Results), which is not modelled (dstormReference notes)." },
@@ -175,7 +173,7 @@
       "parametric": { "exPeakNm": 650, "emPeakNm": 670, "exWidthNm": 30, "emWidthNm": 35, "extCoeff": 150000, "qy": 0.5 },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5 },
+        "DNA-PAINT": { "photonCV": 0.5 },
         "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 3000, "dutyCycle": 0.001, "switchingCycles": 10,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5 },
         "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.5, "photonCV": 0.5,

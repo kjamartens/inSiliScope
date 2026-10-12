@@ -81,7 +81,7 @@ struct ModeData
 {
    bool present;
    double laser, onSec, offSec, offSecBetweenBlinks, bleachProb, photonCV, initialOnSec, activation405PerKWcm2PerSec,
-      spontaneousActivationPerSec, konPerMPerSec, photonBudget, prePhotonBudget, kExcRef;
+      spontaneousActivationPerSec, photonBudget, prePhotonBudget, kExcRef;
    PrimedData primed;
    const char* lightPreset;
    bool generic;
@@ -138,6 +138,7 @@ struct TargetData
    int structure;
    int typicalDye[MODE_COUNT];
    double typicalPct[MODE_COUNT];
+   double paintKonPerMPerSec, paintOnSec;   // DNA-PAINT binding kinetics (data/specimens.json paint)
 };
 struct SpecimenData
 {
@@ -187,6 +188,7 @@ struct LabelPhysicsOptions
 {
    double density = 0.7;     // site fraction
    double imagerNm = 0;      // DNA-PAINT imager concentration
+   double paintKonPerMPerSec = 1e6, paintOnSec = 0.05;   // DNA-PAINT binding kinetics (the target's)
    int orientationMode = 0;  // ISC_ORIENT_*
    double polarDeg = 90, azimuthDeg = 0, wobbleDeg = 0;
    int motion = 0;           // 0 = Static

@@ -184,6 +184,8 @@ Specimen: a field of cells with their labelled structures.
 | `Microtubules_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
 | `Microtubules_LabelingPct` | Advanced | 70 | 0 .. 100 | Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion). |
 | `Microtubules_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `Microtubules_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
+| `Microtubules_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
@@ -230,6 +232,8 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
 | `Docking_LabelingPct` | Advanced | 80 | 0 .. 100 | Labelled fraction of the docking strands' sites, % (a mode change sets its suggestion). |
 | `Docking_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `Docking_BoundTimeSec` | Advanced | 0.2885390082 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
+| `Docking_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `Bending` | Advanced | On | `On`, `Off` | On: the rod bends in the coverslip plane as a worm-like chain (PersistenceLengthNm); Off: rigid. |
 | `PersistenceLengthNm` | Advanced | 1500 | 10 .. 100000 | Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um; 273 nm bends visibly more). |
 | `MinSpacingNm` | Advanced | 250 | 0 .. 5000 | No two molecule centres closer than this, nm (0 = no thinning). |
@@ -272,7 +276,6 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `Dye1_SpontActivation` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_Primed` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_PrePhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye1_Kon` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_PhotonCv` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_PhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Source` | Expert | mEos3.2 | `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The library dye this custom dye starts from. |
@@ -287,7 +290,6 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `Dye2_SpontActivation` | Expert | 1e-05 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Primed` | Expert | 0.01 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_PrePhotonBudget` | Expert | 200000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye2_Kon` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_PhotonCv` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_PhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_Source` | Expert | mEGFP | `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The library dye this custom dye starts from. |
@@ -302,7 +304,6 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `Dye3_SpontActivation` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_Primed` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_PrePhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_Kon` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_PhotonCv` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_PhotonBudget` | Expert | 100000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 

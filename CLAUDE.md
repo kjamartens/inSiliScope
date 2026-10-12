@@ -419,8 +419,12 @@ noise only); the photophysics is shared; only the mounted specimen's labels rend
 Engine options `specimen`, `origami-*`, per-target label options from the registry (`ruler-*`); `z` defaults to the
 strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: history and drift reset), device
 `Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
-`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. DNA-PAINT at the defaults (1 nM,
-the library's 0.05 s ON) is sparse: a rod binds about every 80 s per nM.
+`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. DNA-PAINT at the defaults (1 nM)
+is sparse: a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
+the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s; docking strands 1e6, 0.2885 s
+= 200 ms half-time), options `<prefix>-paint-kon` / `<prefix>-paint-on-sec` (light keys of the rate history: a change
+acts from now on), MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec` (Advanced); the dyes' DNA-PAINT modes keep only
+`photonCV` (the generator rejects kon/onSec there; the dye field `kon` and `Fluorophores.Dye<N>_Kon` are gone).
 
 **Sample drift (2026-10-06, spec/PORT.md 17, docs/physics/camera.md):** a directed part plus a random walk, xy and z
 set separately. Directed: mean xy speed (direction random per seed unless `SimType_DriftXyAngleDeg` >= 0) and a z

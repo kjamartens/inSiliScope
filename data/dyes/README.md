@@ -6,7 +6,7 @@ CI runs it with `--check`.
 
 | File | License | What |
 |---|---|---|
-| `library.json` | BSD-3-Clause | dyes and fluorescent proteins: FPbase names, overrides, fluorescent fraction, per-mode kinetics (dSTORM, PALM, DNA-PAINT, WideField) |
+| `library.json` | BSD-3-Clause | dyes and fluorescent proteins: FPbase names, overrides, fluorescent fraction, per-mode kinetics (dSTORM, PALM, WideField; DNA-PAINT only the brightness spread: its binding kinetics are the target's, `data/specimens.json` `paint`) |
 | `light_path.json` | BSD-3-Clause | laser lines, excitation (clean-up) filters, dichroics and emission filters (ideal edges or FPbase curves), defaults |
 | `cameras.json` | BSD-3-Clause | camera presets (noise values, QE curve) |
 | `fpbase_spectra.json` | **CC BY-SA 4.0** | what `tools/fetch_fpbase.mjs` fetched from [FPbase](https://www.fpbase.org): spectra on 300-900 nm / 1 nm and the scalars, generated, do not edit |

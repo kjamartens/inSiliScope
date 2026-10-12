@@ -37,7 +37,7 @@ const GENERIC_MODES = {
   dSTORM: { laser: 640, onSec: 0.02, offSec: 20, bleachProb: 0.1, photonCV: 0.5, initialOnSec: 2, activation405PerKWcm2PerSec: 20 },
   PALM: { onSec: 0.05, offSecBetweenBlinks: 0.5, bleachProb: 0.5, photonCV: 0.5, spontaneousActivationPerSec: 1e-5,
     activation405PerKWcm2PerSec: 1 },
-  'DNA-PAINT': { konPerMPerSec: 1e6, onSec: 0.05, photonCV: 0.5 },
+  'DNA-PAINT': { photonCV: 0.5 },   // the binding kinetics are the target's (data/specimens.json paint)
   WideField: { photonBudget: 100000 },
 };
 const dyes = library.dyes.map(d => {
@@ -62,6 +62,8 @@ const dyes = library.dyes.map(d => {
   }
   for (const [mode, m] of Object.entries(d.modes)) {
     checkRefs(`${d.id} ${mode}`, m.refs);
+    if (mode === 'DNA-PAINT' && (m.konPerMPerSec !== undefined || m.onSec !== undefined))
+      throw new Error(`${d.id} DNA-PAINT: konPerMPerSec / onSec are the target's binding kinetics (data/specimens.json paint), not the dye's`);
     out.modes[mode] = mode === 'dSTORM' ? deriveDstorm(d, out, m) : { ...m };
   }
   // Every dye can be used in every mode: a mode without data gets generic values, marked as such.
@@ -125,6 +127,11 @@ const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 checkRefs('typicalLabels', library.typicalLabels.refs);
 const targets = specimens.specimens.flatMap(sp => sp.targets.map(t => ({ ...t, specimen: sp.id })));
 targets.forEach((t, i) => { if (t.structure !== i) throw new Error(`target ${t.id}: structure ${t.structure}, expected ${i} (the core's ISC_STRUCT_* order)`); });
+targets.forEach(t => {
+  const q = t.paint;
+  if (!q || !(q.konPerMPerSec >= 0) || !(q.onSec > 0)) throw new Error(`target ${t.id}: paint { konPerMPerSec >= 0, onSec > 0 } (its DNA-PAINT binding kinetics)`);
+  checkRefs(`target ${t.id} paint`, q.refs);
+});
 const typicalLabels = Object.fromEntries(targets.map(t => {
   const byMode = library.typicalLabels[t.id];
   if (!byMode) throw new Error(`target ${t.id}: no typicalLabels in data/dyes/library.json`);
@@ -242,7 +249,7 @@ const cMode = m => {
     : '{ false, kNaN, kNaN, kNaN, kNaN, kNaN }';
   return `{ true, ${num(m.laser)}, ${num(m.onSec)}, ${num(m.offSec)}, ${num(m.offSecBetweenBlinks)}, ${num(m.bleachProb)}, `
     + `${num(m.photonCV)}, ${num(m.initialOnSec)}, ${num(m.activation405PerKWcm2PerSec)}, ${num(m.spontaneousActivationPerSec)}, `
-    + `${num(m.konPerMPerSec)}, ${num(m.photonBudget)}, ${num(m.prePhotonBudget)}, ${num(m.kExcRef)}, ${primed}, ${str(m.lightPreset)}, `
+    + `${num(m.photonBudget)}, ${num(m.prePhotonBudget)}, ${num(m.kExcRef)}, ${primed}, ${str(m.lightPreset)}, `
     + `${m.generic ? 'true' : 'false'} }`;
 };
 const CAMERA_FIELDS = ['quantumEfficiency', 'readNoiseElectrons', 'gainElectronsPerAdu', 'preampElectronsPerAdu', 'cicElectrons', 'offsetAdu',
@@ -291,9 +298,10 @@ ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, 
 };
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
-// typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}.
+// typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}; the DNA-PAINT binding kinetics
+// (paint: k_on /M/s, mean bound time s).
 static const TargetData kTargets[] = {
-${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} } },`).join('\n')}
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)} },`).join('\n')}
 };
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}

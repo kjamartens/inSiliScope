@@ -16,7 +16,8 @@ export const PACK_BLOCK_CHUNKS = 8;
 // generator here and in core/. A world holds one specimen (params.specimen; the core param 'specimen'): its geometry
 // (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels, schedules and the queries are
 // shared. A world never yields a structure of another specimen.
-export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name }));
+export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name,
+  paint: t.paint }));
 export const STRUCTURE_MT = 0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
 // ALWAYS_ON; continuousInWindow).

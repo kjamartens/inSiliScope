@@ -102,10 +102,12 @@ They take a label like the cell field's microtubules: a dye of the library in a 
   anchor, on the outer side.
 - **DNA-PAINT:** each strand binds imagers at k<sub>on</sub> × c, with c the imager concentration in the buffer
   (`Docking_ImagerNanoMol`, Advanced, 1 nM by default: the setting for how dense the frames are), and the free imager adds a
-  uniform background ([photophysics](../../physics/photophysics.md)). With the library's ATTO 655 imager
-  (k<sub>on</sub> 10⁶ M⁻¹ s⁻¹, 0.05 s bound, both *estimates*) a rod with 12 labelled strands binds an imager about
-  every 80 s per nM. At the defaults a movie is therefore sparse: few binding events per hundred frames over a field of
-  view. Raise the imager concentration (with its background) and take thousands of frames, as in a real DNA-PAINT
+  uniform background ([photophysics](../../physics/photophysics.md#dna-paint)). The binding kinetics are the docking
+  strands' (`data/specimens.json` `paint`), not the dye's: k<sub>on</sub> 10⁶ M⁻¹ s⁻¹ (`KonPerMolarPerSec`) and a
+  bound half-time of **200 ms** (mean 0.289 s, `BoundTimeSec`), both *estimates* (9 nt docking strands bind for about
+  0.3-1 s). A rod with 12 labelled strands then binds an imager about every 80 s per nM, each binding lasting a few
+  frames. At the defaults a movie is therefore sparse: few binding events per hundred frames over a field of view.
+  Raise the imager concentration (with its background) and take thousands of frames, as in a real DNA-PAINT
   experiment.
 
 <!-- fig:ruler-image -->
@@ -126,6 +128,7 @@ They take a label like the cell field's microtubules: a dye of the library in a 
 | Roll, roll angle | `Nanorulers.Roll`, `RollDeg` | `--origami-roll`, `--origami-roll-deg` | Uniform, 0° | |
 | 3D strand heights | `Nanorulers.KeepHeights` | `--origami-heights` | Off | |
 | Docking strands label | `Nanorulers.Docking_Label`, `_Mode`, `_LabelingPct`, `_ImagerNanoMol` | `--ruler-dye`, `--ruler-mode`, `--ruler-label-pct`, `--ruler-imager-nm` | Typical (ATTO 655 DNA-PAINT), 80 %, 1 nM | *estimates* |
+| DNA-PAINT binding | `Nanorulers.Docking_BoundTimeSec`, `_KonPerMolarPerSec` | `--ruler-paint-on-sec`, `--ruler-paint-kon` | 0.289 s (half-time 200 ms), 10⁶ M⁻¹s⁻¹ | *estimates* |
 
 The core parameters are the `origami*` names (`origamiLpNm`, ...; `p.<name>` on the CLI). The CLI's `--geometry-json`
 lists each molecule in a window (position, direction, roll, end angle, fold, the bent outline and, with

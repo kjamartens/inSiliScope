@@ -965,6 +965,11 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
   nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
   `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
+- DNA-PAINT binding kinetics are the target's (2026-10-12): `data/specimens.json` `paint` (k_on, mean bound time;
+  `TargetData::paintKonPerMPerSec` / `paintOnSec`), options `<prefix>-paint-kon`, `<prefix>-paint-on-sec` right after
+  `<prefix>-imager-nm` (rate-history light keys), `LabelPhysicsOptions::paint*` / `labelPhotophysics` `o.paint*`; the
+  dye library's DNA-PAINT modes have only `photonCV` (dye field `kon` removed). Microtubule outputs unchanged (same
+  values); the docking strands bind for 0.2885 s (half-time 200 ms).
 - Docs: the Samples nav section (`docs/samples/`: overview, Cell field = the moved world-model and structures pages with
   redirect stubs at the old URLs, Nanorulers), figures `tools/physics_figures/nanorulers.py` (`ruler-shapes`,
   `ruler-wlc`, `ruler-image`; `build_physics_figures.py` now injects into every page of `docs/` and rebases the

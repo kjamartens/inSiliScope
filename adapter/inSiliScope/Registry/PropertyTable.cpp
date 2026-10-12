@@ -258,7 +258,7 @@ const std::vector<FieldRow>& FieldRows()
       { "fluorescent-pct", "FluorescentPct", {} },
       { "qy", "Qy", {} },
       { "ext-coeff", "ExtCoeff", {} },
-      { "on-sec", "OnSec", { MODE_DSTORM, MODE_PALM, MODE_DNA_PAINT } },
+      { "on-sec", "OnSec", { MODE_DSTORM, MODE_PALM } },
       { "off-sec", "OffSec", { MODE_DSTORM, MODE_PALM } },
       { "bleach-prob", "BleachProb", { MODE_DSTORM, MODE_PALM } },
       { "initial-on-sec", "InitialOnSec", { MODE_DSTORM } },
@@ -266,7 +266,6 @@ const std::vector<FieldRow>& FieldRows()
       { "spont-activation", "SpontActivation", { MODE_PALM } },
       { "primed", "Primed", { MODE_PALM } },
       { "pre-photon-budget", "PrePhotonBudget", { MODE_PALM } },
-      { "kon", "Kon", { MODE_DNA_PAINT } },
       { "photon-cv", "PhotonCv", { MODE_DSTORM, MODE_PALM, MODE_DNA_PAINT } },
       { "photon-budget", "PhotonBudget", { MODE_WIDEFIELD } },
    };
@@ -291,7 +290,6 @@ double FieldValue(const sim::DyeData& d, int mode, const FieldRow& r)
    if (f == "spont-activation") return m.spontaneousActivationPerSec;
    if (f == "primed") return m.primed.present ? m.primed.perKWcm2SqPerSec : 0.0;
    if (f == "pre-photon-budget") return std::isnan(m.prePhotonBudget) ? 0.0 : m.prePhotonBudget;
-   if (f == "kon") return m.konPerMPerSec;
    if (f == "photon-cv") return m.photonCV;
    if (f == "photon-budget") return m.photonBudget;
    return sim::kNaN;
@@ -404,9 +402,9 @@ PropDef TargetLabel(const char* device, int s)
    return d;
 }
 
-// A target's label rows on its specimen device: the label (Basic), its own mode (Expert), the labelled % and the
-// DNA-PAINT imager concentration (Advanced; NanoMol, not nm); the engine options <prefix>-dye, -mode, -label-pct,
-// -imager-nm.
+// A target's label rows on its specimen device: the label (Basic), its own mode (Expert), the labelled %, the
+// DNA-PAINT imager concentration (NanoMol, not nm) and binding kinetics (the target's, not the dye's) (Advanced); the
+// engine options <prefix>-dye, -mode, -label-pct, -imager-nm, -paint-kon, -paint-on-sec.
 void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
 {
    using namespace sim;
@@ -426,6 +424,12 @@ void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
                    "DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = "
                    "k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a "
                    "uniform background."));
+   t.push_back(Opt(device, P + "_BoundTimeSec", Tier::Advanced, prefix + "-paint-on-sec", 0.001, 100,
+                   "DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x "
+                   "this). A property of the docking/imager sequence, so of the target, not of the dye."));
+   t.push_back(Opt(device, P + "_KonPerMolarPerSec", Tier::Advanced, prefix + "-paint-kon", 0, 1e9,
+                   "DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second "
+                   "= k_on x the imager concentration."));
 }
 
 // A target's dye-orientation rows (Expert): <prefix>-orient, -orient-polar-deg, -orient-azimuth-deg, -wobble-deg,

@@ -12,6 +12,10 @@ Versions follow semver; while 0.x, any release may change output for a given see
   `Docking_ImagerNanoMol`); cli/viewer `mt-imager-nm` / `ruler-imager-nm` unchanged. A change of imager concentration
   (any DNA-PAINT rate) in live mode acts at once instead of from the next 1 s binding bin; outputs without a change
   are unchanged.
+- DNA-PAINT binding kinetics (k_on, mean bound time) belong to the target, not the dye: `data/specimens.json` `paint`,
+  cli/viewer `<prefix>-paint-kon` / `<prefix>-paint-on-sec`, MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec`
+  (Advanced). The dye field `kon` (`mt-dye.kon`, `Fluorophores.Dye<N>_Kon`) and the DNA-PAINT `on-sec` dye field are
+  gone. Microtubules unchanged (0.05 s); nanoruler docking strands bind with a 200 ms half-time.
 
 - **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
   `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope
