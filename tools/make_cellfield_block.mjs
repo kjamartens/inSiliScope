@@ -81,6 +81,9 @@ function cellFieldFactory(SRC) {
   // in opts.params and mapped onto the label's density).
   const LABEL_KEYS = ['labelEfficiency', 'labelNonBleaching'];
   const PAD_UM = (12.5 + 12 + 5) / 1000;   // MT radius + binder + max linker: dye reach from the centreline
+  // The specimens (insiliscope's data/specimens.json, the core param 'specimen', ABI 12): 0 the cell field, 1 the
+  // DNA-origami nanorulers (their params origami*: core/src/params.h); STRUCTURES = ISC_STRUCT_COUNT.
+  const SPECIMENS = ['CellField', 'Nanorulers'], STRUCTURES = 2, ORIGAMI_STRIDE = 10;
   let M = null, world = 0, worldKey = '';
 
   function mod() {
@@ -113,7 +116,9 @@ function cellFieldFactory(SRC) {
     const lp = M._malloc(16);
     M.HEAPF64[lp >> 3] = density;
     M.HEAPF64[(lp >> 3) + 1] = 1;
-    const r = M._isc_world_set_label(world, 0, lp, 2);   // ISC_LABEL_DENSITY, ISC_LABEL_FLUORESCENT_FRACTION
+    // every structure (ISC_STRUCT_*: the microtubules, the nanorulers' docking strands; a world yields its own only)
+    let r = 0;
+    for (let s = 0; s < STRUCTURES && r === 0; s++) r = M._isc_world_set_label(world, s, lp, 2);   // ISC_LABEL_DENSITY, ISC_LABEL_FLUORESCENT_FRACTION
     M._free(lp);
     if (r !== 0) { M._isc_world_free(world); world = 0; throw new Error('CellField: bad label'); }
     worldKey = key;
@@ -181,10 +186,18 @@ function cellFieldFactory(SRC) {
   // packed on fixed 8x8-chunk blocks, independent of the window, so a pan never re-packs; the
   // per-window prune count no longer exists); packed = packing on.
   // Optional opts.params: overrides of DEFAULTS (core parameter names).
+  // Optional opts.specimen: 'CellField' (default) or 'Nanorulers' (or 0 / 1): DNA-origami rods lying on the
+  // coverslip, three spots of docking strands 80 nm apart; their params (origamiDensity, origamiLpNm,
+  // origamiStrandsPerSpot, ...) in opts.params. A nanoruler window has nCells = nMt = 0 and nRulers = the molecules
+  // whose dyes can reach it; its sites are the docking strands' dyes (z ~ 13.5 nm above the coverslip).
   function buildWindow(w, h, o) {
     mod();
     const seed = o.seed | 0, pxUm = o.pxnm / 1000;
-    const p = Object.assign({}, DEFAULTS, o.params || {}, { mtDensity: o.mtDensity, density: o.cellDensity });
+    const sp = typeof o.specimen === 'string' ? SPECIMENS.indexOf(o.specimen) : (o.specimen | 0);
+    if (!(sp >= 0 && sp < SPECIMENS.length)) throw new Error('CellField: unknown specimen ' + o.specimen);
+    const p = Object.assign({}, DEFAULTS, o.params || {}, { specimen: sp });
+    if (o.mtDensity !== undefined) p.mtDensity = o.mtDensity;
+    if (o.cellDensity !== undefined) p.density = o.cellDensity;
     const wd = getWorld(seed, p);
     const halfW = w * pxUm / 2, halfH = h * pxUm / 2, slabUm = o.slabNm / 1000;
     const win = { x0: o.xUm - halfW, x1: o.xUm + halfW, y0: o.yUm - halfH, y1: o.yUm + halfH,
@@ -196,6 +209,10 @@ function cellFieldFactory(SRC) {
     for (let i = 0; i < n; i++) {
       const X = buf[5 * i], Y = buf[5 * i + 1], Z = buf[5 * i + 2];
       sites[i] = [w / 2 + (X - o.xUm) / pxUm, h / 2 + (Y - o.yUm) / pxUm, (Z - o.focusUm) * 1000];
+    }
+    if (sp === 1) {
+      const [nRulers] = query(ORIGAMI_STRIDE, (ptr, cap) => M._isc_origami_in_window(wd, win.x0, win.y0, win.x1, win.y1, ptr, cap));
+      return { sites, nCells: 0, nMt: 0, nRulers, removed: null, packed: false };
     }
     const [nCells, cells] = query(14, (ptr, cap) =>
       M._isc_cells_in_window(wd, win.x0 - 0.5, win.y0 - 0.5, win.x1 + 0.5, win.y1 + 0.5, ptr, cap));

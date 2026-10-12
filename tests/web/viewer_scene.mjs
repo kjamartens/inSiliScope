@@ -158,6 +158,27 @@ const ahead = await page.evaluate(async () => {
 });
 check(ahead.alone > 1000 && ahead.withSr >= 0.95 * ahead.alone, `data: the cytoplasm above an SMLM slice stays visible (${ahead.withSr} of ${ahead.alone} px)`);
 
+// 9. the Sample select: DNA-origami nanorulers (a nanoruler world: no cells, the rods drawn from above with their
+// docking-strand dyes; a movie spec carries the specimen), then back to the cell field
+const set = (id, v) => page.evaluate(([i, x]) => { const el = document.getElementById(i); el.value = x;
+  el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
+await set('mv_specimen', '1');
+await page.waitForFunction(() => /nanorulers [1-9]/.test(document.getElementById('hud').textContent) && dyeSel && dyeSel.n > 0, null, { timeout: 120000 });
+const nr = await page.evaluate(() => {
+  const d = cvBase.getContext('2d').getImageData(0, 0, cvBase.width, cvBase.height).data;
+  let rod = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) rod++;
+  const spec = movieSpec(), groups = [...document.querySelectorAll('details.grp')].filter(g => g.style.display !== 'none').map(g => g.dataset.group);
+  return { hud: /nanorulers \d+/.exec(document.getElementById('hud').textContent)[0], rod, dyes: dyeSel.n, scale: view.scale,
+    spec: /(^| )specimen=1( |$)/.test(spec) && /(^| )p\.origamiLpNm=1500( |$)/.test(spec) && /(^| )ruler-dye=/.test(spec), groups };
+});
+check(nr.rod > 100 && nr.dyes > 0 && nr.scale >= 150 && nr.spec && nr.groups.includes('origami') && nr.groups.includes('rulerlabel') &&
+  !nr.groups.includes('mtlabel') && !nr.groups.includes('shape'),
+  `nanorulers: ${nr.hud}, ${nr.rod} rod px, ${nr.dyes} dyes, the movie spec has specimen=1 (groups ${nr.groups.join(' ')})`);
+await set('mv_specimen', '0');
+await page.waitForFunction(() => /cells [1-9]/.test(document.getElementById('hud').textContent), null, { timeout: 120000 });
+check(true, 'nanorulers: back to the cell field, cells again');
+
 await browser.close();
 server.close();
 process.exit(fail ? 1 : 0);

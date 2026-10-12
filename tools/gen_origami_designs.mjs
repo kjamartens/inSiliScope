@@ -73,7 +73,11 @@ const inc = header + designs.map((d, i) =>
     `${d.segmentNm}, ${ROLL[d.roll]}, ${d.rollDeg}, ${d.attachNm}, kOrigamiSpots${i}, ${d.spots.length}, ${d.maxRingN} },\n`).join('') +
   '};\n';
 
-const outputs = [['web/prototype/scope/origami_designs_data.js', js], ['core/src/origami_designs.inc', inc]];
+// The viewer's panel (a classic script, before any module loads): the design list for its Design select.
+const viewer = `${header}self.ISC_ORIGAMI_DESIGNS = ${JSON.stringify(designs)};\n`;
+
+const outputs = [['web/prototype/scope/origami_designs_data.js', js], ['core/src/origami_designs.inc', inc],
+  ['web/origami_designs.js', viewer]];
 let stale = 0;
 for (const [rel, text] of outputs) {
   const file = path.join(ROOT, rel);

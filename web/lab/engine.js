@@ -1,5 +1,5 @@
 // The viewer's engine (web/index.html iscEngine) on the JS reference instead of the WASM core: the same
-// handle(d) -> [message, transferList] for the jobs 'pack', 'cell', 'sites', 'movie', the same reply fields and
+// handle(d) -> [message, transferList] for the jobs 'pack', 'cell', 'sites', 'origami', 'movie', the same reply fields and
 // buffer types, so web/lab.html (= web/index.html served with self.ISC_ENGINE_URL, see serve.mjs) runs unchanged on
 // it. Geometry from the prototype (web/prototype/index.html + microtubules.js, via load_prototype.mjs), the world
 // and imaging from web/prototype/scope (World, renderScopeMovie). Edit those, reload, see it; port at merge.
@@ -175,6 +175,18 @@ export async function createEngine(src = {}) {
         const list = w.eventsInWindow(x0, y0, x1, y1, d.zMin, d.zMax, d.t0, d.t1), events = new Float64Array(list.length * 7);
         list.forEach((e, i) => events.set([e.x, e.y, e.z, e.tOn, e.tOff, e.brightness, e.id], i * 7));
         return [{ type: 'events', id: d.id, events }, [events.buffer]];
+      }
+      if (d.type === 'origami') {
+        // the WASM engine's origami job: the molecules meeting a rect and their bent outlines (a nanoruler world)
+        const [x0, y0, x1, y1] = d.rect, nps = d.nPerSide || 24, npt = 2 * (nps + Math.max(2, nps >> 2));
+        const list = w.origami ? w.origami.moleculesInRect(x0, y0, x1, y1) : [];
+        const mols = new Float64Array(10 * list.length), outlines = new Float64Array(2 * npt * list.length);
+        list.forEach((m, i) => {
+          const r = w.origami.info(m);
+          mols.set([r.tx, r.ty, r.i, r.design, r.x, r.y, r.yaw, r.roll, r.endAngle, r.fold], 10 * i);
+          outlines.set(w.origami.outlineWorld(m, nps), 2 * npt * i);
+        });
+        return [{ type: 'origami', id: d.id, key: d.key, rect: d.rect, mols, outlines, npt }, [mols.buffer, outlines.buffer]];
       }
       if (d.type === 'sites') {
         inject(w, d.blocks);
