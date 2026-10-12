@@ -92,6 +92,7 @@ for (const s of STRUCTURES) {
     for (const [f] of FIELDS) $(`${s.prefix}-${f}`).value = v[f];
     $(`${s.prefix}-note`).textContent = q.name;
   };
+  $(`${s.prefix}-preset`).value = String(presets.findIndex(q => q.id === DYE_DATA.linkageDefaults[s.id]));
   $(`${s.prefix}-preset`).onchange = () => { fill(); update(); };
   for (const [f] of FIELDS) $(`${s.prefix}-${f}`).onchange = update;
   fill();

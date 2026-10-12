@@ -31,6 +31,8 @@
     "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017", "thevathasan2019", "soeller2025"]
   },
   "linkagePresets": {
+    "defaults": { "microtubules": "IgG2-PAINT", "npcs": "SNAP-Halo",
+      "notes": "each target's preset when its <prefix>-binder option (Micro-Manager CellField.<Target>_Binder) is not set; chosen by the user 2026-10-12 to match the default labels (DNA-PAINT on both targets: microtubules by antibodies with docking strands, pores by Nup96-SNAP with a docking strand). The world model's own default stays Legacy" },
     "presets": [
       { "id": "Legacy", "name": "Built-in (before the linkage model)", "structureDefault": true,
         "notes": "each structure's numbers before the linkage model (scope/dyes.js LEGACY_LINKAGE, bit for bit): microtubules a rigid 12 nm binder radially from the 12.5 nm lattice plus a 2-5 nm linker (the scale of mikhaylova2015, weber1978; estimate); pores webSMLM's 2-5 nm linker on the Nup96 site, no binder (estimate)" },

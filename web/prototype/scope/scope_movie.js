@@ -49,7 +49,7 @@ function targetOptions(s) {
     [`${P}-orient-azimuth-deg`, 0, `CellField.${T}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],
     [`${P}-wobble-deg`, 0, `CellField.${T}_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)`],
     [`${P}-motion`, 0, `CellField.${T}_Motion: 0 Static (single-particle tracking: future)`],
-    [`${P}-binder`, 0, `CellField.${T}_Binder: how the dye is attached (data/dyes/library.json linkagePresets): ${LINKAGE_PRESET_IDS.map((id, i) => `${i} ${id}`).join(', ')} (0 = the structure's built-in numbers; names accepted)`],
+    [`${P}-binder`, idx(LINKAGE_PRESET_IDS, DYE_DATA.linkageDefaults[s.id]), `CellField.${T}_Binder: how the dye is attached (data/dyes/library.json linkagePresets; default ${DYE_DATA.linkageDefaults[s.id]}): ${LINKAGE_PRESET_IDS.map((id, i) => `${i} ${id}`).join(', ')} (0 Legacy = the structure's numbers before the linkage model; names accepted)`],
     [`${P}-binder-nm`, -1, `CellField.${T}_BinderNm: the probe (binder) reaches this far from the binding site along the structure's axis, nm (-1 = the preset's)`],
     [`${P}-binder-flex-nm`, -1, `CellField.${T}_BinderFlexNm: the probe's flexibility: its end lies uniformly in a ball of this radius about that point, nm (-1 = the preset's)`],
     [`${P}-linker-min-nm`, -1, `CellField.${T}_LinkerMinNm: shortest chemical linker from the probe to the dye, nm (-1 = the preset's)`],
@@ -113,7 +113,7 @@ export const SCOPE_OPTIONS = [
   ['cell-diam-min-um', 25, 'CellField.CellDiameterMinUm'],
   ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
   ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)'],
-  ['npc-density', 6, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (estimate between maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
+  ['npc-density', 12, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (12: chosen by the user 2026-10-12, above the measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
   // ---- camera (Micro-Manager: Camera): a preset sets every value below that the spec does not give ----
   ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],

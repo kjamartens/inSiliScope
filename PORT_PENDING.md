@@ -39,8 +39,8 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
 - `npcAttachmentPoints(p)`: 64 x (a, b, c) nm, k = ring x 32 + corner x 4 + arc; ring 0 at c = -sep/2 (inside),
   corner th = corner pi / 4, arc phi in (-67.5, -22.5, 22.5, 67.5) deg, u = cos(phi) spread/2, v = sin(phi) spread/2,
   a = R ct + (u ct - v st), b = R st + (u st + v ct) (webSMLM's `buildNupAttachmentPoints`).
-- New params (core `Params`, `isc_params_set`): `npcDensity` 6 (per um^2 of envelope; estimate between maeshima2006
-  and dultz2010), `npcMinDistNm` 120 (NPC diameter, maeshima2006), `npcRadiusNm` 53.5 (webSMLM; thevathasan2019:
+- New params (core `Params`, `isc_params_set`): `npcDensity` 12 (per um^2 of envelope; the user's choice 2026-10-12, above the
+  measured 5-8.6 of maeshima2006 and dultz2010), `npcMinDistNm` 120 (NPC diameter, maeshima2006), `npcRadiusNm` 53.5 (webSMLM; thevathasan2019:
   53.7), `npcRingSepNm` 50, `npcCornerSpreadNm` 12. `PackingFingerprint` and the pack-key regexes skip `npc*` (no cell
   moves: `ISC_WORLD_VERSION` stays).
 

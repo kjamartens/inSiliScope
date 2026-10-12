@@ -144,6 +144,12 @@ const linkagePresets = library.linkagePresets.presets.map((q, i) => {
   return q.structureDefault ? { id: q.id, name: q.name, structureDefault: true }
     : { id: q.id, name: q.name, binderNm: q.binderNm, binderFlexNm: q.binderFlexNm, linkerMinNm: q.linkerMinNm, linkerMaxNm: q.linkerMaxNm };
 });
+const linkageDefaults = Object.fromEntries(targets.map(t => {
+  const id = library.linkagePresets.defaults[t.id];
+  const i = linkagePresets.findIndex(q => q.id === id);
+  if (i < 0) throw new Error(`linkagePresets.defaults: target ${t.id} has no preset (or an unknown one: '${id}')`);
+  return [t.id, id];
+}));
 const data = {
   grid: fp.grid,
   fetched: fp.fetched,
@@ -177,6 +183,7 @@ const data = {
   specimenDefault: specimens.default,
   typicalLabels,
   linkagePresets,
+  linkageDefaults,
   spectra: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values])),
   spectrumInfo: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => {
     const s = fp.spectra[id];
