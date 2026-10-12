@@ -263,7 +263,7 @@ spec/PORT.md 16):** each tile keeps its lit time as segments in epochs (`Kinetic
 `ScopeKineticEnv`; a per-tile trie of (parent, tStart, epoch)), the engine sends each clock region's kinetics rows
 (`isc_world_set_kinetics_history`) and the core walks the hazards per segment with the same draws, so a change acts from
 now on (PALM 405 off: converted dyes blink out, no new ones; a power step continues from the present state; DNA-PAINT
-from the next 1 s bin; another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
+at once (a 1 s bin with a change takes each part at its own rate, 2026-10-12); another dye or mode re-reads the past light for the new dye); one segment = the old arithmetic
 bit for bit. Light counts at the producer when a frame is published if it lights the sample (lasers' shutter open,
 power at the sample, and a sequence or snap takes it, or `SampleHolder.TimeWhileIdle` = `Running` (default) with a
 hand-opened shutter), over its lit rect (the drifted pose's FOV + 2 um margin + 0.5 um; a snap takes only a frame

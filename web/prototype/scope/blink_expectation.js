@@ -87,9 +87,9 @@ function segmentAt(segs, t) {
   return lo;
 }
 
-function paintBinOverlap(b, tau, cap, t0, t1) {
-  const inner = [t0, t1, t0 - cap, t1 - cap].sort((x, y) => x - y).filter(x => x > b && x < b + BIN_SEC);
-  const cuts = [b, ...inner, b + BIN_SEC];
+function paintBinOverlap(b, e, tau, cap, t0, t1) {
+  const inner = [t0, t1, t0 - cap, t1 - cap].sort((x, y) => x - y).filter(x => x > b && x < e);
+  const cuts = [b, ...inner, e];
   let sum = 0.0;
   for (let i = 0; i + 1 < cuts.length; ++i) {
     const al = cuts[i], be = cuts[i + 1];
@@ -109,10 +109,17 @@ function paintOnSeconds(segs, t0, t1) {
   for (const k of segs) maxOn = Math.max(maxOn, ON_CAP * k.onSec);
   const b0 = Math.max(0, Math.floor((t0 - maxOn) / BIN_SEC) - 1), b1 = Math.floor(t1 / BIN_SEC);
   let sum = 0.0;
+  // A bin's part in each segment at that segment's rate (the core's persistentGen: a change acts at once).
   for (let b = b0; b <= b1; ++b) {
-    const k = segs[segmentAt(segs, b * BIN_SEC)];
-    if (!(k.activationRatePerSec > 0.0) || !(k.onSec > 0.0)) continue;
-    sum += k.activationRatePerSec * paintBinOverlap(b * BIN_SEC, k.onSec, ON_CAP * k.onSec, t0, t1);
+    const binEnd = b * BIN_SEC + BIN_SEC, s0 = segmentAt(segs, b * BIN_SEC);
+    for (let s = s0; s < segs.length; ++s) {
+      if (s !== s0 && !(segs[s].tStart < binEnd)) break;
+      const lo = s === s0 ? b * BIN_SEC : segs[s].tStart;
+      const hi = s + 1 < segs.length && segs[s + 1].tStart < binEnd ? segs[s + 1].tStart : binEnd;
+      const k = segs[s];
+      if (!(hi > lo) || !(k.activationRatePerSec > 0.0) || !(k.onSec > 0.0)) continue;
+      sum += k.activationRatePerSec * paintBinOverlap(lo, hi, k.onSec, ON_CAP * k.onSec, t0, t1);
+    }
   }
   return sum;
 }

@@ -89,8 +89,8 @@ of an existing component. A new device needs, in one commit: its class (`Devices
   `typicalLabels` in `data/dyes/library.json` (each target's usual dye and labelling % per mode, with references);
   `tools/gen_dye_library.mjs` builds both into the C++ (`TargetAt`, `SpecimenAt`) and the JS (`DYE_DATA.specimens`,
   `typicalLabels`) for the engine, the viewer and this adapter.
-- Each target gets the same label rows (`<Target>_Label`: Typical or a dye with data in the mode; `_LabelingPct`,
-  `_ImagerNm`; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `AddTargetLabelRows()` /
+- Each target gets the same label rows (`<Target>_Label`: Typical or a dye with data in the mode; Advanced
+  `_LabelingPct` and `_ImagerNanoMol`, the DNA-PAINT imager concentration in nanomolar; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `AddTargetLabelRows()` /
   `AddTargetOrientRows()` in the registry on the specimen's device, and its readouts on `Fluorophores`
   (`<Target>_EffectiveDye`, `_DetectedPct`, `_EmissionNm`, `_PhotonsPerSecOn`: `AddTargetReadoutRows()`), so a new
   target is a registry entry, not new code. `<Target>` is the target's id, capitalised. A label change of a target

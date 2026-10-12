@@ -405,7 +405,8 @@ PropDef TargetLabel(const char* device, int s)
 }
 
 // A target's label rows on its specimen device: the label (Basic), its own mode (Expert), the labelled % and the
-// DNA-PAINT imager (Advanced); the engine options <prefix>-dye, -mode, -label-pct, -imager-nm.
+// DNA-PAINT imager concentration (Advanced; NanoMol, not nm); the engine options <prefix>-dye, -mode, -label-pct,
+// -imager-nm.
 void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
 {
    using namespace sim;
@@ -421,8 +422,10 @@ void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
    d = Opt(device, P + "_LabelingPct", Tier::Advanced, prefix + "-label-pct", 0, 100, "");
    d.help = "Labelled fraction of the " + what + "' sites, % (a mode change sets its suggestion).";
    t.push_back(d);
-   t.push_back(Opt(device, P + "_ImagerNm", Tier::Advanced, prefix + "-imager-nm", 0, 10000,
-                   "DNA-PAINT imager concentration, nM."));
+   t.push_back(Opt(device, P + "_ImagerNanoMol", Tier::Advanced, prefix + "-imager-nm", 0, 10000,
+                   "DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = "
+                   "k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a "
+                   "uniform background."));
 }
 
 // A target's dye-orientation rows (Expert): <prefix>-orient, -orient-polar-deg, -orient-azimuth-deg, -wobble-deg,

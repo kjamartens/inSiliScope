@@ -4,6 +4,15 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
+  Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
+  strands, in-plane worm-like-chain bending, Lp 1500 nm); MM device `Nanorulers`, core ABI 12. Cell-field output
+  unchanged.
+- MM: `CellField.Microtubules_ImagerNm` is now `Microtubules_ImagerNanoMol` (nanomolar, not nanometre; the nanorulers'
+  `Docking_ImagerNanoMol`); cli/viewer `mt-imager-nm` / `ruler-imager-nm` unchanged. A change of imager concentration
+  (any DNA-PAINT rate) in live mode acts at once instead of from the next 1 s binding bin; outputs without a change
+  are unchanged.
+
 - **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
   `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope
   (`Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, the Advanced `ExcitationFilter` /

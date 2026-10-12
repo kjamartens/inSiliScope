@@ -170,7 +170,7 @@ const OptionTable& Options()
                        keep(dev + " " + row + "_LabelingPct: " + T.sites +
                             "; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: " + T.typicalPct + ")") });
          v.push_back({ keep(P + "-imager-nm"), kDefaultImagerNm,
-                       keep(dev + "." + row + "_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
+                       keep(dev + "." + row + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
          v.push_back({ keep(P + "-orient"), 0,
                        keep(dev + "." + row + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
          v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(dev + "." + row + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });

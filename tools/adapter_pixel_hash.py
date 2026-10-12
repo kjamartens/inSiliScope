@@ -59,7 +59,7 @@ CONFIGS = [
                                  ("Lasers", "Preset", "dSTORM-640")]),
     ("cells-na", 61, GAUSS + [("CellField", "CellDiameterMinUm", "15"), ("CellField", "Occupancy", "0.6"),
                               ("Objective", "NA", "1.2"), ("CellField", "Microtubules_LabelingPct", "30"),
-                              ("CellField", "Microtubules_ImagerNm", "5")]),
+                              ("CellField", "Microtubules_ImagerNanoMol", "5")]),
 ]
 
 # The pre-hub layout: (device, property) -> the camera's old property name.
@@ -69,7 +69,7 @@ OLD = {
     ("Fluorophores", "Mode"): None,   # the old layout: the dye's default mode (each config's dye has the mode's)
     ("CellField", "Microtubules_Label"): "SimType_CellFieldMicrotubuleDye",
     ("CellField", "Microtubules_LabelingPct"): "SimType_CellFieldMicrotubuleLabelingPct",
-    ("CellField", "Microtubules_ImagerNm"): "SimType_CellFieldMicrotubuleImagerNm",
+    ("CellField", "Microtubules_ImagerNanoMol"): "SimType_CellFieldMicrotubuleImagerNm",
     ("CellField", "CellDiameterMinUm"): "SimType_CellFieldCellDiameterMinUm",
     ("CellField", "Occupancy"): "SimType_CellFieldOccupancy",
     ("Camera", "CameraType"): "CamParam_CameraType",
@@ -84,6 +84,8 @@ OLD = {
     ("Objective", "ZernikePreset"): "PSFParam_PsfZernikePreset",
     ("Objective", "NA"): "PSFParam_PsfNa",
 }
+# Hub-layout rows renamed since: the new name -> the name an older hub DLL has.
+RENAMED = {("CellField", "Microtubules_ImagerNanoMol"): "Microtubules_ImagerNanoMol"}
 PERIPHERALS = ["Camera", "XYStage", "ZStage", "Objective", "EmissionPath", "FilterCube", "Lasers", "TransmittedLamp",
                "SampleHolder", "CellField", "Fluorophores", "Renderer"]
 
@@ -157,6 +159,8 @@ def apply(core, hub_layout, settings):
             else:
                 set_checked(core, "Camera", "General_ImagingModality", value)
         elif hub_layout:
+            if not core.hasProperty(device, prop) and (device, prop) in RENAMED:
+                prop = RENAMED[(device, prop)]
             set_checked(core, device, prop, value)
         elif OLD[(device, prop)]:
             old = {"Typical": "AF647"}.get(value, value) if prop == "Microtubules_Label" else value

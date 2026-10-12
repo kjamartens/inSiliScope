@@ -299,35 +299,58 @@ function binKinetics(kin) {
 }
 
 // Blinks of persistent site (k, n) starting in time bins [b0, b1] that keep(tOn, on) accepts, in (bin, j)
-// order: emit(bin, j, tOn, on, brightness). Addressed per (site, bin, j). hist (two or more segments): each bin takes
-// the kinetics of the segment holding its start, so a change acts from the next bin and earlier bins never change.
+// order: emit(bin, j, tOn, on, brightness). Addressed per (site, bin, j). hist (two or more segments): the bin's own
+// draws (piece 0) take the kinetics of the segment holding its start and keep the blinks starting before the next
+// segment's start; each later segment starting inside the bin (piece i) adds its own Poisson draws, at its rate over
+// its part of the bin, on channels PIECE_CH x i + purpose, ids j | i << PIECE_SHIFT. So a change acts at once and what
+// came before it never changes; one segment in a bin = the single-segment arithmetic (core dyes.cpp PersistentGen).
 export function persistentGen(h1, k, n, kin, b0, b1, keep, emit, hist = null) {
   const multi = hist && hist.tStart.length >= 2 ? hist : null;
   const one = hist && hist.tStart.length === 1 ? hist.kin[0] : kin;
   if (!multi && !(one.activationRatePerSec > 0)) return;
   const key = pcgA(h1, k >>> 0, n >>> 0, DYE_CH.PERSIST);
   const U = (bin, j, ch) => unit(pcgA(key, bin >>> 0, j >>> 0, ch));
-  const COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5;
+  const COUNT = 0, COUNT2 = 1, START = 2, ON = 3, BRIGHT1 = 4, BRIGHT2 = 5, PIECE_CH = 8, PIECE_SHIFT = 24;
+  const piece = (b, c, q, o, id, lo, hi) => {
+    for (let j = 0; j < c; j++) {
+      const u = U(b, j, o + START);
+      const tOn = o === 0 ? (b + u) * PERSIST_BIN_SEC : lo + u * (hi - lo);
+      if (!(tOn < hi)) continue;
+      const on = Math.min(q.maxOn, -Math.log(U(b, j, o + ON)) * q.onSec);
+      if (!keep(tOn, on)) continue;
+      let br = 1;
+      if (q.cv > 0) {
+        const u1 = U(b, j, o + BRIGHT1);
+        const u2 = U(b, j, o + BRIGHT2);
+        br = logNormalMean1(q.cv, u1, u2);
+      }
+      emit(b, (j | id) >>> 0, tOn, on, br);
+    }
+  };
   let seg = multi ? kineticsSegmentAt(multi, Math.max(0, b0) * PERSIST_BIN_SEC) : 0;
   let p = binKinetics(multi ? multi.kin[seg] : one);
   for (let b = Math.max(0, b0); b <= b1; b++) {
+    const binEnd = (b + 1) * PERSIST_BIN_SEC;
+    let pEnd = Infinity;
     if (multi) {
       const s = kineticsSegmentAt(multi, b * PERSIST_BIN_SEC);
       if (s !== seg) { seg = s; p = binKinetics(multi.kin[s]); }
-      if (!(p.rate > 0)) continue;
+      if (s + 1 < multi.tStart.length && multi.tStart[s + 1] < binEnd) pEnd = multi.tStart[s + 1];
     }
-    const c = p.small ? poissonInverse(p.m, p.expM, U(b, 0, COUNT)) : poissonFromUniform(p.m, U(b, 0, COUNT), U(b, 0, COUNT2));
-    for (let j = 0; j < c; j++) {
-      const tOn = (b + U(b, j, START)) * PERSIST_BIN_SEC;
-      const on = Math.min(p.maxOn, -Math.log(U(b, j, ON)) * p.onSec);
-      if (!keep(tOn, on)) continue;
-      let br = 1;
-      if (p.cv > 0) {
-        const u1 = U(b, j, BRIGHT1);
-        const u2 = U(b, j, BRIGHT2);
-        br = logNormalMean1(p.cv, u1, u2);
-      }
-      emit(b, j, tOn, on, br);
+    if (p.rate > 0) {
+      const c = p.small ? poissonInverse(p.m, p.expM, U(b, 0, COUNT)) : poissonFromUniform(p.m, U(b, 0, COUNT), U(b, 0, COUNT2));
+      piece(b, c, p, 0, 0, b * PERSIST_BIN_SEC, pEnd);
+    }
+    if (!(pEnd < binEnd)) continue;
+    let i = 1;
+    for (let s = seg + 1; s < multi.tStart.length && multi.tStart[s] < binEnd; s++, i++) {
+      const a = multi.tStart[s];
+      const e = s + 1 < multi.tStart.length && multi.tStart[s + 1] < binEnd ? multi.tStart[s + 1] : binEnd;
+      const q = binKinetics(multi.kin[s]);
+      if (!(e > a) || !(q.rate > 0)) continue;
+      const m = q.rate * (e - a), o = PIECE_CH * i;
+      const c = m <= 30 ? poissonInverse(m, Math.exp(-m), U(b, 0, o + COUNT)) : poissonFromUniform(m, U(b, 0, o + COUNT), U(b, 0, o + COUNT2));
+      piece(b, c, q, o, i << PIECE_SHIFT, a, e);
     }
   }
 }

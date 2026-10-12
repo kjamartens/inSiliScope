@@ -183,7 +183,7 @@ Specimen: a field of cells with their labelled structures.
 |---|---|---|---|---|
 | `Microtubules_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
 | `Microtubules_LabelingPct` | Advanced | 70 | 0 .. 100 | Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion). |
-| `Microtubules_ImagerNm` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration, nM. |
+| `Microtubules_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
@@ -229,7 +229,7 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | `DensityPerUm2` | Basic | 0.3 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
 | `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
 | `Docking_LabelingPct` | Advanced | 80 | 0 .. 100 | Labelled fraction of the docking strands' sites, % (a mode change sets its suggestion). |
-| `Docking_ImagerNm` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration, nM. |
+| `Docking_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `Bending` | Advanced | On | `On`, `Off` | On: the rod bends in the coverslip plane as a worm-like chain (PersistenceLengthNm); Off: rigid. |
 | `PersistenceLengthNm` | Advanced | 1500 | 10 .. 100000 | Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um; 273 nm bends visibly more). |
 | `MinSpacingNm` | Advanced | 250 | 0 .. 5000 | No two molecule centres closer than this, nm (0 = no thinning). |

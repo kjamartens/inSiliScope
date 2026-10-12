@@ -290,7 +290,7 @@ print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms:.1f} ms strea
 core.setProperty("Camera", "OffsetStdADU", "0.0")
 core.setProperty("SampleHolder", "BackgroundPhotonsPerSec", "0.0")
 core.setProperty("CellField", "Microtubules_LabelingPct", "0")   # noise only: no dyes, no imager background
-core.setProperty("CellField", "Microtubules_ImagerNm", "0")
+core.setProperty("CellField", "Microtubules_ImagerNanoMol", "0")
 time.sleep(0.3)
 std_before = float(np.std(snaps(1)[0]))
 core.setProperty("Camera", "OffsetStdADU", "50.0")
@@ -339,7 +339,7 @@ assert dim.mean() - 100.0 < 0.5 * (lib.mean() - 100.0), "a lower quantum yield s
 print("Label modes OK: " + ", ".join(f"{m} {v:.2f}" for m, v in mode_sig.items()) + " ADU above offset; custom dye edit applies")
 
 # --- EMCCD: excess noise doubles the variance; bit-depth clip --------------------
-NO_DYES = [("CellField", "Microtubules_LabelingPct", "0"), ("CellField", "Microtubules_ImagerNm", "0")]
+NO_DYES = [("CellField", "Microtubules_LabelingPct", "0"), ("CellField", "Microtubules_ImagerNanoMol", "0")]
 bg_only = GAUSS + NO_DYES + [("SampleHolder", "BackgroundPhotonsPerSec", "2000"), ("Camera", "ReadNoiseElectrons", "0"),
                              ("Camera", "OffsetStdADU", "0"), ("Camera", "sCMOS_GainStdPctPerPixel", "0"),
                              ("Camera", "GainElectronsPerADU", "1"), ("Camera", "DarkCurrentElectronsPerSec", "0")]
@@ -393,7 +393,7 @@ if status.startswith("GPU"):
         fresh()
         core.setProperty("Camera", "Test_StackLength", "20")
         precomputed(core)
-        for dev, p, v in KERNEL + [("CellField", "Microtubules_ImagerNm", "10")] + rows:
+        for dev, p, v in KERNEL + [("CellField", "Microtubules_ImagerNanoMol", "10")] + rows:
             core.setProperty(dev, p, v)
         generate_stack(core)
         return np.stack(snaps(n))

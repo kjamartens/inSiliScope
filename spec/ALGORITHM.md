@@ -681,7 +681,8 @@ Blinks render per label (main group) and per frame in one of three regimes; the 
     row of exp(Q T) for the 6x6 generator augmented with an integral state (scaling and squaring to ||A|| <= 0.5,
     Taylor order 16, `std::exp` only in DNA-PAINT; no jsm needed: the same double operations in the same order on both
     sides).
-  - DNA-PAINT: per 1 s bin, rate x the exact integral over a uniform start in the bin of the overlap of a
+  - DNA-PAINT: per 1 s bin and per part of it in one history segment (the core's pieces, below), rate x the exact
+    integral over a uniform start in that part of the overlap of a
     min(Exp(tau), 20 tau) blink with [t0, t1) (piecewise closed form at the cut points t0, t1, t0 - 20 tau, t1 - 20 tau).
   - Not modelled: the core's 1000-blink cap per dye and its normal approximation above 30 counts per bin (both
     negligible at real rates).
@@ -746,6 +747,27 @@ description is `docs/samples/nanorulers/index.md`.
   BRIGHTFIELD.md rule), so BrightField frames hold lamp and noise only.
 - **Not implemented** (schema slots, validated as "not implemented"): cuboid / mesh bodies, 3D bending, stiffness
   patches, built-in curvature, explicit strand lists; broken or misfolded rulers.
+
+## DNA-PAINT rate changes act at once (2026-10-12)
+
+The persistent (DNA-PAINT) blinks are drawn per site and 1 s bin (`PersistentGen`, `core/src/dyes.cpp`, JS twin
+`persistentGen`). Under a rate history a bin used to take the kinetics of the segment holding its start, so a change of
+imager concentration showed from the next whole second (the free-imager background, computed per frame, changed at
+once: users saw the background move and not the blinks). Now a bin with a segment start inside it is cut in pieces:
+
+- **Piece 0** = the bin's own draws (count, starts, ON times, brightness: the old addresses and arithmetic) at the
+  bin-start segment's kinetics, keeping only the blinks starting before the next segment's start. So everything before
+  a change stays as it was shown (earlier bins and the bin's first part), and a bin without a change is bit for bit
+  the old one (golden, `adapter_pixel_hash`, every movie without a history unchanged).
+- **Piece i** (each later segment starting inside the bin): its own Poisson count at its rate x its length, starts
+  uniform in its part, ON time and brightness from its segment, on draw channels 8 i + purpose and ids j | i << 24.
+- Why not one count over the bin at the integrated rate (inverse-CDF starts)? That redraws the part before the
+  change: a blink already on screen would vanish or move when the concentration is changed.
+- A union of Poisson processes on disjoint intervals is the inhomogeneous process: exact. The mean-field expectation
+  (`BlinkExpectation`) integrates per piece the same way. Checks: `world_checks.kinetics_history` (x10 at 60.4 s: the
+  blinks before it unchanged, 1612 -> 16204 in [60.4, 61)), `label_parity` (C++ = JS), ctest `blink_regimes`
+  (expectation vs the core across straddled bins, -0.2 sigma). In MM a 1 -> 10 nM step shows in the next frames; only
+  the imagers bound at the change finish their ON time (~50 ms).
 
 ## Known limitations / not yet done
 
