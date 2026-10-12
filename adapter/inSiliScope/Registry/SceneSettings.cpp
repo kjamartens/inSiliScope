@@ -125,9 +125,9 @@ sim::StackShapingFields BuildShapingFields(const SceneState& s, unsigned w, unsi
    return out;
 }
 
-sim::CellFieldSettings BuildCellFieldSettings(const SceneState& s)
+sim::SampleSettings BuildSampleSettings(const SceneState& s)
 {
-   sim::CellFieldSettings c;
+   sim::SampleSettings c;
    // Its own stream of RandomSeed ("CELL"), never the arrival/noise one.
    c.seed = static_cast<uint32_t>(static_cast<uint64_t>(s.seed.load()) ^ 0x43454C4CULL);
    c.params = {
@@ -141,6 +141,13 @@ sim::CellFieldSettings BuildCellFieldSettings(const SceneState& s)
    for (int i = 0; i < CF_COUNT; ++i)
       if (g_CellFieldCoreParam[i])
          c.params.push_back({g_CellFieldCoreParam[i], s.cellField[i].load()});
+   // The mounted specimen and its params (SampleHolder, the Nanorulers device: the origami-* options; the engine's
+   // ScopeSpecimenParams): mounting another specimen is a new world, and so is a nanoruler param while they are
+   // mounted (the cell field ignores them: editing them keeps its world and illumination history).
+   const int specimen = s.MountedSpecimen();
+   for (const auto& kv : sim::ScopeSpecimenParams(BuildScopeSpec(s, 0, 0, 0, 0, 1)))
+      if (kv.first == "specimen" || specimen != 0)
+         c.params.push_back(kv.first == "specimen" ? std::make_pair(kv.first, static_cast<double>(specimen)) : kv);
    // No labels: BrightField reads the geometry only (the fluorescence movie
    // sets its own labels from the spec, BuildScopeSpec).
    c.cacheDir = s.diskCacheMode.load() >= 1 ? sim::DefaultCacheDir() : std::string();
@@ -161,12 +168,12 @@ std::string CellFieldZRangeWarning(const SceneState& s)
    return w.str();
 }
 
-sim::CellFieldQuery CellFieldQueryFor(const SceneState& s, double stageX, double stageY, double zStageUm, unsigned w,
+sim::SampleQuery SampleQueryFor(const SceneState& s, double stageX, double stageY, double zStageUm, unsigned w,
                                       unsigned h, const sim::SimulationParams& params, double drift0XPx,
                                       double drift0YPx, double drift1XPx, double drift1YPx, long frameIndex,
                                       double tSec, double spanSec)
 {
-   sim::CellFieldQuery q;
+   sim::SampleQuery q;
    const double um = params.pixelSizeNm / 1000.0, W = w * um, H = h * um;
    // Stage position = world coordinate of the FOV centre (spec/PORT.md 7.3).
    q.originXUm = stageX - W / 2.0;
@@ -205,7 +212,7 @@ double BrightFieldQe(const SceneState& s)
 }
 
 sim::BrightfieldSpec BuildBrightfieldSpec(const SceneState& st, const sim::SimulationParams& params,
-                                          const sim::CellFieldQuery& q, unsigned w, unsigned h)
+                                          const sim::SampleQuery& q, unsigned w, unsigned h)
 {
    sim::BrightfieldSpec s;
    s.originXUm = q.originXUm;

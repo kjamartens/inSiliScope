@@ -25,6 +25,11 @@ CellFieldDevice::CellFieldDevice()
 {
 }
 
+NanorulersDevice::NanorulersDevice()
+   : GenericPeripheral("Nanorulers", "Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)")
+{
+}
+
 FluorophoresDevice::FluorophoresDevice()
    : GenericPeripheral("Fluorophores", "The dyes: label mode, photophysics readouts, custom dyes")
 {
@@ -223,7 +228,17 @@ SampleHolderDevice::SampleHolderDevice()
 
 std::vector<std::string> SampleHolderDevice::Labels()
 {
-   return { "CellField" };
+   return sim::SpecimenIds();
+}
+
+long SampleHolderDevice::Position()
+{
+   return Hub()->State().MountedSpecimen();
+}
+
+void SampleHolderDevice::MoveTo(long pos)
+{
+   Hub()->MountSpecimen(static_cast<int>(pos));
 }
 
 // ---------------------------------------------------------------------------

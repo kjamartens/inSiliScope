@@ -9,7 +9,7 @@
 
 #include "WidefieldRender.h"
 
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Drift.h"
 #include "PsfGeneratorBridge.h"
 
@@ -132,7 +132,7 @@ double WidefieldGaussianSigmaUm(double defocusUm, double lambdaNm, double na, do
 
 // ---- Dye grid --------------------------------------------------------------
 
-bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, WidefieldDyeGrid& out,
+bool BuildWidefieldDyeGrid(SampleSource& src, const WidefieldGridSpec& spec, WidefieldDyeGrid& out,
                            std::string& err)
 {
    out = WidefieldDyeGrid();
@@ -154,7 +154,7 @@ bool BuildWidefieldDyeGrid(CellFieldSource& src, const WidefieldGridSpec& spec, 
    const double x1 = spec.x0Um + spec.nx * spec.pitchUm, y1 = spec.y0Um + spec.ny * spec.pitchUm;
    std::vector<float> hist(static_cast<size_t>(nH));
    const long n = src.Density3d(spec.x0Um, spec.y0Um, x1, y1, kLo * dz, kHi * dz, 1, 1, static_cast<int>(nH),
-                                CellFieldSource::AllStructures(), hist.data());
+                                SampleSource::AllStructures(), hist.data());
    if (n < 0)
    {
       err = "WideField: dye density query failed";
@@ -409,7 +409,7 @@ void WidefieldDyeTiles::Clear()
    bytes_ = 0;
 }
 
-bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
+bool WidefieldDyeTiles::Fill(SampleSource& src, long tx, long ty, int bleachingMask, int persistentMask, Tile& t,
                              std::string& err) const
 {
    const double p = pitch_, dz = zPlane_;
@@ -475,7 +475,7 @@ bool WidefieldDyeTiles::Fill(CellFieldSource& src, long tx, long ty, int bleachi
    return true;
 }
 
-bool WidefieldDyeTiles::Planes(CellFieldSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask,
+bool WidefieldDyeTiles::Planes(SampleSource& src, const WidefieldGridSpec& rect, long world, int bleachingMask,
                                int persistentMask, WidefieldDyePlanes& out, std::string& err)
 {
    const long tx0 = FloorDiv(rect.ix0, kTile), tx1 = FloorDiv(rect.ix0 + static_cast<long>(rect.nx) - 1, kTile);
@@ -678,7 +678,7 @@ WidefieldGridSpec WidefieldScene::GridSpecFor(const IlluminationPattern& pattern
    return g;
 }
 
-bool WidefieldScene::Update(CellFieldSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
+bool WidefieldScene::Update(SampleSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                             const WidefieldPsf& psf, std::string& err)
 {
    if (spec.width == 0 || spec.height == 0 || !(spec.pixelUm > 0.0))

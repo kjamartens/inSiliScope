@@ -81,7 +81,8 @@ def read_adapter():
 
 
 def channel_presets(tier, typical, modes):
-    """Channel: one preset per mode with its typical label (lasers and filters follow the label), BrightField, and
+    """Channel: one preset per mode with every target's typical label (the cell field's microtubules, the nanorulers'
+    docking strands; lasers and filters follow the mounted one's), BrightField, and
     (Advanced, Expert) fluorescence + BrightField through the Multi Shutter. Every preset closes both shutters; the
     autoshutter opens the Core-Shutter for each image."""
     closed = [("Lasers", "State", "0"), ("TransmittedLamp", "State", "0")]
@@ -89,12 +90,14 @@ def channel_presets(tier, typical, modes):
     order = [m for m in ("dSTORM", "PALM", "DNA-PAINT", "WideField") if m in modes]
     for mode in order:
         out.append((f"{typical[mode]['dye']} {mode}",
-                    [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", "Typical")] + closed +
+                    [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", "Typical"),
+                     ("Nanorulers", "Docking_Label", "Typical")] + closed +
                     [("Core", "Shutter", "Lasers")]))
     out.append(("BrightField", closed + [("Core", "Shutter", "TransmittedLamp")]))
     if tier != "Basic":
         out.append((f"{typical['WideField']['dye']} WideField + BrightField",
-                    [("Fluorophores", "Mode", "WideField"), ("CellField", "Microtubules_Label", "Typical")] + closed +
+                    [("Fluorophores", "Mode", "WideField"), ("CellField", "Microtubules_Label", "Typical"),
+                     ("Nanorulers", "Docking_Label", "Typical")] + closed +
                     [("Core", "Shutter", MULTI)]))
     return out
 
@@ -160,6 +163,7 @@ def build(tier, info, typical, cameras):
     startup += dict(first["Camera"])[cameras[0]]
     startup += dict(first["Quality"])["Realistic"]
     startup += dict(first["Drift"])["Off"]
+    startup += dict(first["Specimen"])["CellField"]
 
     w("# Configuration presets")
     w("# Group: System")

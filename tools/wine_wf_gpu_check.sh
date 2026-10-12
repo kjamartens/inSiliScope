@@ -14,7 +14,7 @@ OUT="$ROOT/build/wine-d3d11"; mkdir -p "$OUT"
 cp "$D3DCOMPILER" "$OUT/d3dcompiler_47.dll"
 x86_64-w64-mingw32-g++ -std=c++17 -O2 -DNOMINMAX -I"$S" -I"$ROOT/core/include" -I"$ROOT/third_party/jni" \
   -I"$ROOT/third_party/jni/win32" "$ROOT/tests/d3d11/wf_gpu_d3d11_check.cpp" "$S"/WidefieldGpuD3D11.cpp \
-  "$S"/WidefieldRender.cpp "$S"/Fft2d.cpp "$S"/Illumination.cpp "$S"/SMLMNoise.cpp "$S"/CellFieldSource.cpp \
+  "$S"/WidefieldRender.cpp "$S"/Fft2d.cpp "$S"/Illumination.cpp "$S"/SMLMNoise.cpp "$S"/SampleSource.cpp \
   "$S"/PsfGeneratorBridge.cpp "$S"/SMLMZernike.cpp \
   $(ls "$ROOT"/core/src/*.cpp | grep -v -e jsmath_std.cpp -e wasm_entry.cpp) \
   -o "$OUT/wf_gpu_d3d11_check.exe" -static -ld3d11 -ld3dcompiler -ldxgi

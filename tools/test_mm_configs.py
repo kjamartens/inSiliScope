@@ -1,6 +1,7 @@
 """Loads the shipped Micro-Manager configurations (adapter/inSiliScope/config/, tools/gen_mm_configs.py) and checks them:
 the startup state, every preset of every group (applies, and MM recognises it as the current one), MM's pixel size =
-the engine's for every objective x camera, and a snap per Channel preset that is not blank.
+the engine's for every objective x camera, a snap per Channel preset that is not blank, and a dSTORM snap of the
+mounted nanorulers (Specimen) that is not blank either.
 
   ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py      (< 2 min)
 """
@@ -66,6 +67,7 @@ def check(tier):
     core.setConfig("Camera", "Kinetix22")
     core.setConfig("Objective", "100x NA 1.40 Oil")
     core.setConfig("Quality", "Realistic")
+    core.setConfig("Specimen", "CellField")
 
     # A snap per Channel preset is not blank (the autoshutter opens the preset's shutter).
     offset = 100.0
@@ -84,6 +86,16 @@ def check(tier):
         assert core.getProperty("Lasers", "State") == "0" and core.getProperty("TransmittedLamp", "State") == "0", \
             f"{tier}: the autoshutter should close the shutters after a snap"
         lines.append(f"{ch}: mean {mean:.0f}, max {top:.0f}")
+    # The nanorulers (Specimen), in focus on the coverslip, in dSTORM: every dye of a fresh place starts ON.
+    core.setConfig("Specimen", "Nanorulers")
+    core.setPosition("ZStage", 0.02)
+    core.setConfig("Channel", next(c for c in core.getAvailableConfigs("Channel") if c.endswith(" dSTORM")))
+    core.waitForSystem()
+    core.snapImage()
+    img = core.getImage().astype(np.float64)
+    med, top = float(np.median(img)), float(img.max())
+    assert top - med > 100, f"{tier}: Specimen Nanorulers, dSTORM snap looks blank (median {med:.1f}, max {top:.0f})"
+    lines.append(f"Nanorulers dSTORM: max {top:.0f}")
     core.unloadAllDevices()
     print(f"[{time.time() - t0:5.1f} s] {tier}: {len(groups)} groups, {n_presets} presets, {n_px} pixel sizes; "
           + "; ".join(lines))

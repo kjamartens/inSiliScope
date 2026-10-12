@@ -43,7 +43,7 @@ public:
    // (rebuilt when they changed: the prefetch stops first). A cached focus
    // (the prefetch's, or one shown before) costs a copy; the focus being
    // prefetched is waited for.
-   bool Image(CellFieldSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, double focusUm,
+   bool Image(SampleSource& src, const BrightfieldSpec& spec, uint64_t worldVersion, double focusUm,
               std::vector<float>& out, std::string& err);
    // The foci to compute in the background, most wanted first (replaces the
    // previous list; those cached are skipped).

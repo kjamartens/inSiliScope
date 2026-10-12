@@ -43,7 +43,7 @@
     <ClCompile Include="InSiliScopeXYStage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation\CellFieldSource.cpp">
+    <ClCompile Include="Simulation\SampleSource.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Drift.cpp">
@@ -125,6 +125,9 @@
     <ClCompile Include="..\..\core\src\microtubules.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\origami.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\packing.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -187,7 +190,7 @@
     <ClInclude Include="InSiliScopeXYStage.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Simulation\CellFieldSource.h">
+    <ClInclude Include="Simulation\SampleSource.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Drift.h">
@@ -255,6 +258,9 @@
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\microtubules.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\core\src\origami.h">
       <Filter>Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\core\src\packing.h">

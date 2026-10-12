@@ -931,3 +931,47 @@ in spec/ALGORITHM.md "Blink render regimes". C++ and JS written together (no ite
   identical ADU.
 - `RealFft2d`: per-thread line scratch (`LineScratch`, was a heap allocation per block of lines, serialized across
   threads), `Forward(.., skipZeroRows)`, `FastSize(.., no5)`; bit-identical.
+
+## 20. DNA-origami nanorulers, a second specimen (2026-10-12)
+
+Iteration mode (JS first, `PORT_PENDING.md`, commit a3c27b2), then the port on the same branch `claude/nanorulers`.
+The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public page `docs/samples/nanorulers/index.md`.
+
+- Registry: `data/specimens.json` specimen 1 `Nanorulers`, target `docking` (prefix `ruler`, structure 1);
+  `data/dyes/library.json` `typicalLabels.docking` (ATTO 655 DNA-PAINT, 80 % = incorporation, *estimate*).
+- Designs: `data/origami/designs.json` -> `tools/gen_origami_designs.mjs [--check]` -> `core/src/origami_designs.inc`,
+  `web/prototype/scope/origami_designs_data.js`, `web/origami_designs.js` (viewer panel).
+- Core (`core/src/origami.{h,cpp}` = `origami.js` line for line): params `specimen`, `origamiDesign`, `origamiDensity`
+  (1.2 /um^2; 0.3 until 2026-10-12), `origamiMinSpacingNm` (0 = none; 250 until 2026-10-12), `origamiBend` (1), `origamiLpNm` (1500), `origamiStrandsPerSpot` (5),
+  `origamiAttachNm` (7), `origamiLinkerNm` (3), `origamiRoll` (0 uniform / 1 fixed), `origamiRollDeg`, `origamiHeights`
+  (0); `PackingFingerprint` skips them (CellField block caches stay valid; no block store on a nanoruler world).
+  `World` branches on `specimen`: one dye block per molecule, no cells (cell calls return 0 rows), empty optical volume.
+  **ABI 12:** `ISC_STRUCT_ORIGAMI_SITES` 1, `ISC_STRUCT_COUNT` 2 (`ISC_KIN_ROW` 13), `ISC_SPECIMEN_*`,
+  `isc_origami_in_window` / `_outline` / `_sites` / `_heights`, `isc_origami_design_count` / `_id`.
+  `ISC_WORLD_VERSION` unchanged (no cell moved).
+- Engine/cli: option `specimen` (0/1 or names); per-target label options from the registry (`mt-*` unchanged, `ruler-*`
+  right after `mode`); `origami-*` after `packing` (`ScopeSpecimenParams`); only the mounted specimen's labels render;
+  `z` defaults to the strands' height on nanorulers; `light-preset auto` and the camera preset follow the mounted
+  targets. `CellFieldSource` / `CellFieldSettings` / `CellFieldQueryFor` were renamed `SampleSource` / `SampleSettings` /
+  `SampleQueryFor` (output identical; the older sections of this file keep the old names). `--geometry-json` adds
+  `specimen` and `origami` (molecules, bent outlines, with `--geometry-detail 1` every strand).
+- Viewer / block: the Sample select, a Nanorulers group (Advanced: bending, Lp, spacing, heights, linker, roll), a label
+  group per target (`mv_<prefix>-*`), an `origami` worker job and the rods drawn from above; `params()` adds the
+  origami params only for nanorulers. Block: `buildWindow({specimen: 'Nanorulers', params})`, `nRulers`.
+- MM: `SampleHolder` positions = the registry's specimens (`MountSpecimen` sets `specimen`; the settings carry the
+  origami params only while mounted, so a switch is a new world); device `Nanorulers` (spec/MM_DEVICES.md); per-target
+  label rows and couplings (`LoadTargetDye`, camera gain and light preset follow the mounted specimen's target).
+- Checks: `web/lab/origami_check.mjs` (33, ~1 s, part of `web/lab/check.mjs`), `world_checks.Origami`, golden (4
+  origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
+  nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
+  `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
+- DNA-PAINT binding kinetics are the target's (2026-10-12): `data/specimens.json` `paint` (k_on, mean bound time;
+  `TargetData::paintKonPerMPerSec` / `paintOnSec`), options `<prefix>-paint-kon`, `<prefix>-paint-on-sec` right after
+  `<prefix>-imager-nm` (rate-history light keys), `LabelPhysicsOptions::paint*` / `labelPhotophysics` `o.paint*`; the
+  dye library's DNA-PAINT modes have only `photonCV` (dye field `kon` removed). Microtubule outputs unchanged (same
+  values); the docking strands bind for 0.2885 s (half-time 200 ms). `paint.imagerNm` = the target's default
+  `<prefix>-imager-nm` (microtubules 1 nM, docking strands 20 nM; `kDefaultImagerNm` / `DEFAULT_IMAGER_NM` are gone).
+- Docs: the Samples nav section (`docs/samples/`: overview, Cell field = the moved world-model and structures pages with
+  redirect stubs at the old URLs, Nanorulers), figures `tools/physics_figures/nanorulers.py` (`ruler-shapes`,
+  `ruler-wlc`, `ruler-field`; `build_physics_figures.py` now injects into every page of `docs/` and rebases the
+  figures' links per page), gallery group Nanorulers.

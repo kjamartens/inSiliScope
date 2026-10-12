@@ -93,7 +93,7 @@ sim::WidefieldGpuD3D11* CInSiliScopeCamera::WideFieldGpu(std::unique_ptr<sim::Wi
 
 void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t>>& stack, long stackLength,
                                                 unsigned w, unsigned h, const sim::SimulationParams& params,
-                                                const sim::CellFieldSettings& cellField, double stageXUm,
+                                                const sim::SampleSettings& cellField, double stageXUm,
                                                 double stageYUm, const sim::PixelOffsetMap& offsetMap,
                                                 const sim::PixelGainMap& gainMap,
                                                 const sim::PixelReadNoiseMap& readNoiseMap, uint32_t noiseSeed,
@@ -105,17 +105,17 @@ void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t
    const sim::DriftBounds driftRange = drifting ? sim::DriftRange(drift) : sim::DriftBounds();
    auto t0 = std::chrono::steady_clock::now();
    std::string err;
-   sim::CellFieldSource source;
+   sim::SampleSource source;
    // As WideField: an armed z sequence gives frame f the position
    // seq[f % n]; otherwise the Z stage, read per batch of frames.
    const sim::SharedStageState::ZSequence zseq = Stg().GetZSequence();
    const bool useSeq = zseq.armed && !zseq.positions.empty();
    stackZSeqVersion_ = useSeq ? zseq.version : -1;
    auto focusOf = [&](double z) {
-      return isc::CellFieldQueryFor(St(), stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0).zCullCentreUm;
+      return isc::SampleQueryFor(St(), stageXUm, stageYUm, z, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0).zCullCentreUm;
    };
-   const sim::CellFieldQuery q =
-      isc::CellFieldQueryFor(St(), stageXUm, stageYUm, 0.0, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
+   const sim::SampleQuery q =
+      isc::SampleQueryFor(St(), stageXUm, stageYUm, 0.0, w, h, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0);
    sim::BrightfieldSpec spec = isc::BuildBrightfieldSpec(St(), params, q, w, h);
    if (drifting)
       spec.marginUm = spec.Resolved().marginUm +
@@ -333,7 +333,7 @@ void CInSiliScopeCamera::StartStackGeneration()
    long length = stackLength_;
    // CellField: the stack is generated for ONE stage pose, snapshot here;
    // moving the XY stage afterwards does not change it (spec/PORT.md 8).
-   sim::CellFieldSettings cellField = isc::BuildCellFieldSettings(St());
+   sim::SampleSettings cellField = isc::BuildSampleSettings(St());
    double stageX = 0.0, stageY = 0.0;
    Stg().PositionXyAt(sim::SharedStageState::Clock::now(), stageX, stageY);
    double stageZ = Stg().zPositionUm.load();
@@ -376,7 +376,7 @@ std::function<double(double, double)> CInSiliScopeCamera::HistoryWeight(const si
 
 void CInSiliScopeCamera::SyncHistoryWorld()
 {
-   const sim::CellFieldSettings world = isc::BuildCellFieldSettings(St());
+   const sim::SampleSettings world = isc::BuildSampleSettings(St());
    std::lock_guard<std::mutex> g(historyWorldMutex_);
    if (!historyHaveWorld_ || !world.SameWorld(historyWorld_))
    {
@@ -414,7 +414,7 @@ void CameraNoiseMaps(unsigned w, unsigned h, const sim::SimulationParams& params
 
 void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW, unsigned fullH,
                                              sim::SimulationParams params, long seed,
-                                             sim::CellFieldSettings cellField,
+                                             sim::SampleSettings cellField,
                                              double stageXUm, double stageYUm, double stageZUm, int light)
 {
    const bool bf = light == isc::LIGHT_TRANS, both = light == isc::LIGHT_BOTH;
@@ -496,7 +496,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       // Both lights: the lamp's photons x its QE join each frame before the
       // noise (the BrightField stack's scene at each frame's focus; drifting:
       // its shifted image), so the frames render on the CPU.
-      sim::CellFieldSource lampSource;
+      sim::SampleSource lampSource;
       sim::BrightfieldScene lampScene;
       sim::BrightfieldDriftFrames lampDrift;
       std::map<double, std::vector<float>> lampImages;
@@ -507,13 +507,13 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       const double lampFlux = std::max(0.0, St().brightField[isc::BF_PHOTONS_PER_PX_PER_SEC].load()) *
                               params.frameDurationSec * isc::BrightFieldQe(St());
       auto lampFocus = [&](double z) {
-         return isc::CellFieldQueryFor(St(), stageXUm, stageYUm, z, fullW, fullH, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0,
+         return isc::SampleQueryFor(St(), stageXUm, stageYUm, z, fullW, fullH, params, 0.0, 0.0, 0.0, 0.0, 0, 0.0,
                                        0.0).zCullCentreUm;
       };
       if (both)
       {
          std::string lampErr;
-         const sim::CellFieldQuery q0 = isc::CellFieldQueryFor(St(), stageXUm, stageYUm, 0.0, fullW, fullH, params, 0.0,
+         const sim::SampleQuery q0 = isc::SampleQueryFor(St(), stageXUm, stageYUm, 0.0, fullW, fullH, params, 0.0,
                                                                0.0, 0.0, 0.0, 0, 0.0, 0.0);
          sim::BrightfieldSpec bs = isc::BuildBrightfieldSpec(St(), params, q0, fullW, fullH);
          if (lampDrifting)
@@ -874,7 +874,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
    // the scene of the current pose (rebuilt when the pose or a setting
    // changes; a focus change only re-images) and the transmitted intensity of
    // the current frame.
-   sim::CellFieldSource cellField;
+   sim::SampleSource cellField;
    bool cellFieldOk = false;
    bool bfActive = false, bfErrLogged = false, flErrLogged = false;
    long cellFieldVersion = -1;   // the config version the cell field was configured at
@@ -930,7 +930,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       lastFramePublishTime_ = publishTime;
    };
-   sim::CellFieldQuery bfLastQuery;
+   sim::SampleQuery bfLastQuery;
    bool bfQueried = false;
    // The frame schedule: frame k+1 starts one exposure after frame k was due
    // to start (an absolute schedule, so wake-up latency does not add up); a
@@ -1081,7 +1081,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       if (bfActive && cellFieldVersion != appliedConfigVersion)
       {
          std::string err;
-         cellFieldOk = cellField.Configure(isc::BuildCellFieldSettings(St()), err);
+         cellFieldOk = cellField.Configure(isc::BuildSampleSettings(St()), err);
          if (!cellFieldOk)
             LogMessage("CellField unavailable: " + err, false);
          bfErrLogged = false;
@@ -1166,8 +1166,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                bfAnchor = liveDrift;
                bfAnchored = true;
             }
-            const sim::CellFieldQuery q =
-               isc::CellFieldQueryFor(St(), sx - bfAnchor.x / 1000.0, sy - bfAnchor.y / 1000.0, zOffsetUm, w, h, params, 0.0, 0.0,
+            const sim::SampleQuery q =
+               isc::SampleQueryFor(St(), sx - bfAnchor.x / 1000.0, sy - bfAnchor.y / 1000.0, zOffsetUm, w, h, params, 0.0, 0.0,
                                  0.0, 0.0, liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
             std::string err;
             sim::BrightfieldSpec bs = isc::BuildBrightfieldSpec(St(), params, q, w, h);
@@ -1201,7 +1201,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          }
          else if (cellFieldOk)
          {
-            const sim::CellFieldQuery q = isc::CellFieldQueryFor(St(), sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
+            const sim::SampleQuery q = isc::SampleQueryFor(St(), sx, sy, zOffsetUm, w, h, params, dx, dy, dx, dy,
                                                             liveFrameCounter_, cellFieldTimeSec, params.frameDurationSec);
             std::string err;
             const sim::BrightfieldSpec bs = isc::BuildBrightfieldSpec(St(), params, q, w, h);

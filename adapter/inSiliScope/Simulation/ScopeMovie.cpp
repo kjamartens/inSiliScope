@@ -24,7 +24,7 @@
 #include "Spectra.h"
 #include "Timing.h"
 
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Drift.h"
 #include "PsfGeneratorBridge.h"
 #include "SMLMZernike.h"
@@ -43,6 +43,7 @@
 #include <limits>
 #include <mutex>
 #include <random>
+#include <stdexcept>
 #if !defined(__EMSCRIPTEN__)
 #include <thread>
 #endif
@@ -55,16 +56,51 @@ namespace {
 // 0.1607 until 2026-10-05, what gave ATTO 655 the single-dye default's 6375
 // photoelectrons/s while ON; scope_movie.js DEFAULT_LASER_640_KW, issue 16).
 constexpr double kDefaultLaser640KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (scope_movie.js
-// DEFAULT_IMAGER_NM; *estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and
-// PALM typical labels).
-constexpr double kDefaultImagerNm = 1.0;
 
 // The structures' option prefixes: the targets of data/specimens.json (JS world.js STRUCTURES), index = ISC_STRUCT_*.
 const char* StructurePrefix(int s)
 {
    return TargetAt(s).prefix;
+}
+
+// The texts of a target's label options (JS scope_movie.js TARGET_TEXT; a new target adds its entry).
+struct TargetText
+{
+   const char* id;
+   const char* dev;
+   const char* row;
+   const char* what;
+   const char* sites;
+   const char* typicalPct;
+   const char* axis;
+};
+const TargetText kTargetText[] = {
+   { "microtubules", "CellField", "Microtubules", "the microtubules'",
+     "% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label", "DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70",
+     "the microtubule axis" },
+   { "docking", "Nanorulers", "Docking", "the docking strands'",
+     "% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)",
+     "80 in every mode", "the rod axis" },
+};
+const TargetText& TextOf(const TargetData& t)
+{
+   for (const TargetText& x : kTargetText)
+      if (!std::strcmp(x.id, t.id))
+         return x;
+   throw std::runtime_error(std::string("ScopeMovie.cpp: no option texts for target '") + t.id + "' (kTargetText)");
+}
+
+// The DNA-origami defaults (core params origami*; JS origami.js ORIGAMI_DEFAULTS).
+constexpr double kOrigamiDensity = 1.2, kOrigamiMinSpacingNm = 0, kOrigamiLpNm = 1500, kOrigamiStrandsPerSpot = 5,
+                 kOrigamiAttachNm = 7, kOrigamiLinkerNm = 3;
+
+// The design ids (data/origami/designs.json), from the core.
+std::vector<std::string> OrigamiDesignIds()
+{
+   std::vector<std::string> ids;
+   for (int32_t i = 0; i < isc_origami_design_count(); ++i)
+      ids.push_back(isc_origami_design_id(i));
+   return ids;
 }
 
 struct OptionTable
@@ -111,21 +147,45 @@ const OptionTable& Options()
          { "na", 1.4, "Objective.NA: numerical aperture" },
          { "focus-um", 0, "CellField.FocusHeightUm (focus offset added to z)" },
          { "z-range-um", 7.0, "CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)" },
+         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers; data/specimens.json; names accepted)" },
          { "mode", -1, "Fluorophores Mode: the experiment's label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted)" },
-         { "mt-dye", idx(DyeChoices(), "ATTO655"), "CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)" },
-         { "mt-mode", -1, "CellField Microtubules_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)" },
-         { "mt-label-pct", -1, "CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)" },
-         { "mt-imager-nm", kDefaultImagerNm, "CellField.Microtubules_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)" },
-         { "mt-orient", 0, "CellField.Microtubules_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)" },
-         { "mt-orient-polar-deg", 90, "CellField.Microtubules_OrientPolarDeg: Fixed dipole angle from the microtubule axis" },
-         { "mt-orient-azimuth-deg", 0, "CellField.Microtubules_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction" },
-         { "mt-wobble-deg", 0, "CellField.Microtubules_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)" },
-         { "mt-motion", 0, "CellField.Microtubules_Motion: 0 Static (single-particle tracking: future)" },
+      };
+      // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Target>_* rows, Fluorophores).
+      for (int s = 0; s < TargetCount(); ++s)
+      {
+         const TargetData& tg = TargetAt(s);
+         const TargetText& T = TextOf(tg);
+         const std::string P = tg.prefix, dev = T.dev, row = T.row;
+         v.push_back({ keep(P + "-dye"), idx(DyeChoices(), "ATTO655"),
+                       keep(dev + " " + row + "_Label: a library dye or Dye1..Dye3; -1 Typical = " + T.what +
+                            " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
+         v.push_back({ keep(P + "-mode"), -1,
+                       keep(dev + " " + row + "_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)") });
+         v.push_back({ keep(P + "-label-pct"), -1,
+                       keep(dev + " " + row + "_LabelingPct: " + T.sites +
+                            "; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: " + T.typicalPct + ")") });
+         // The target's default imager concentration (data/specimens.json paint.imagerNm: microtubules 1 nM,
+         // docking strands 20 nM; estimates).
+         v.push_back({ keep(P + "-imager-nm"), tg.paintImagerNm,
+                       keep(dev + "." + row + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
+         v.push_back({ keep(P + "-paint-kon"), tg.paintKonPerMPerSec,
+                       keep(dev + "." + row + "_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)") });
+         v.push_back({ keep(P + "-paint-on-sec"), tg.paintOnSec,
+                       keep(dev + "." + row + "_BoundTimeSec: DNA-PAINT mean bound time of an imager, s (exponential; half-time = ln 2 x this; data/specimens.json paint)") });
+         v.push_back({ keep(P + "-orient"), 0,
+                       keep(dev + "." + row + "_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)") });
+         v.push_back({ keep(P + "-orient-polar-deg"), 90, keep(dev + "." + row + "_OrientPolarDeg: Fixed dipole angle from " + T.axis) });
+         v.push_back({ keep(P + "-orient-azimuth-deg"), 0,
+                       keep(dev + "." + row + "_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction") });
+         v.push_back({ keep(P + "-wobble-deg"), 0, keep(dev + "." + row + "_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)") });
+         v.push_back({ keep(P + "-motion"), 0, keep(dev + "." + row + "_Motion: 0 Static (single-particle tracking: future)") });
+      }
+      const std::vector<ScopeOption> slots = {
          { "dye1.source", idx(DyeIds(), "AF647"), "Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)" },
          { "dye2.source", idx(DyeIds(), "mEos3.2"), "Fluorophores.Dye2_Source" },
          { "dye3.source", idx(DyeIds(), "mEGFP"), "Fluorophores.Dye3_Source" },
       };
+      v.insert(v.end(), slots.begin(), slots.end());
       for (int nm : LaserLines())
          v.push_back({ keep("laser-" + std::to_string(nm)), nm == 640 ? kDefaultLaser640KW : 0.0,
                        keep("Lasers.Laser" + std::to_string(nm) + "KWcm2: " + std::to_string(nm) +
@@ -150,6 +210,17 @@ const OptionTable& Options()
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
          { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
+         { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
+         { "origami-density", kOrigamiDensity, "Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them" },
+         { "origami-min-spacing-nm", kOrigamiMinSpacingNm, "Nanorulers.MinSpacingNm: no two molecule centres closer than this, nm (0 = no thinning)" },
+         { "origami-bend", 1, "Nanorulers.Bending: 1 = the design's in-plane worm-like-chain bending, 0 = rigid" },
+         { "origami-lp-nm", kOrigamiLpNm, "Nanorulers.PersistenceLengthNm: bending persistence length, nm (estimate; measured helix bundles 0.74-8.2 um)" },
+         { "origami-strands-per-spot", kOrigamiStrandsPerSpot, "Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the design has 5)" },
+         { "origami-attach-nm", kOrigamiAttachNm, "Nanorulers.AttachHeightNm: the rod's bottom above the glass, nm" },
+         { "origami-linker-nm", kOrigamiLinkerNm, "Nanorulers.LinkerNm: the dye lies within this distance of its strand's anchor, outward, nm" },
+         { "origami-roll", 0, "Nanorulers.Roll: 0 Uniform (each rod landed at a random roll about its axis), 1 Fixed (origami-roll-deg; names accepted)" },
+         { "origami-roll-deg", 0, "Nanorulers.RollDeg: the fixed roll, deg" },
+         { "origami-heights", 0, "Nanorulers.KeepHeights: 0 = 2D (every strand at the rod axis height), 1 = the ring's heights (3D)" },
          { "camera-preset", idx(CameraIds(), DefaultCamera()), "Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)" },
          { "qe-curve", -1, "Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset's, Custom = flat at qe" },
          { "qe", 0.85, "Camera.QuantumEfficiency (the flat QE of the Custom curve)" },
@@ -229,12 +300,18 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["psf-mask"] = { "None", "DoubleHelix" };
       m["psf-interp"] = { "Nearest", "Linear", "Cubic", "Fft" };
       m["psf-zernike-preset"] = ZernikePresetNames();
-      m["mt-dye"] = DyeChoices();
-      m["mt-mode"] = DyeModeNames();
+      for (int s = 0; s < TargetCount(); ++s)
+      {
+         const std::string P = TargetAt(s).prefix;
+         m[P + "-dye"] = DyeChoices();
+         m[P + "-mode"] = DyeModeNames();
+         m[P + "-orient"] = { "Free", "Fixed", "Random" };
+         m[P + "-motion"] = { "Static" };
+      }
       m["mode"] = DyeModeNames();
       m["specimen"] = SpecimenIds();
-      m["mt-orient"] = { "Free", "Fixed", "Random" };
-      m["mt-motion"] = { "Static" };
+      m["origami-design"] = OrigamiDesignIds();
+      m["origami-roll"] = { "Uniform", "Fixed" };
       for (const char* k : { "dye1.source", "dye2.source", "dye3.source" })
          m[k] = DyeIds();
       m["ex-filter"] = ExcitationFilterIds();
@@ -341,10 +418,71 @@ double ScopeSpecGet(const ScopeSpec& spec, const char* name)
    auto it = spec.find(name);
    if (it != spec.end())
       return it->second;
+   if (!std::strcmp(name, "z"))
+      return ScopeDefaultZ(spec);
    for (const ScopeOption& o : Options().opts)
       if (!std::strcmp(o.name, name))
          return o.value;
    return 0.0;
+}
+
+int ScopeSpecimen(const ScopeSpec& spec)
+{
+   return static_cast<int>(ScopeSpecGet(spec, "specimen"));
+}
+
+std::vector<int> ScopeMountedStructures(const ScopeSpec& spec)
+{
+   std::vector<int> out;
+   const int sp = ScopeSpecimen(spec);
+   if (sp < 0 || sp >= static_cast<int>(SpecimenIds().size()))
+      return out;
+   const SpecimenData& d = SpecimenAt(sp);
+   for (int t = d.firstTarget; t < d.firstTarget + d.targetCount; ++t)
+      out.push_back(TargetAt(t).structure);
+   return out;
+}
+
+std::vector<std::string> ScopeOrigamiDesignIds()
+{
+   return OrigamiDesignIds();
+}
+
+std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   std::vector<std::pair<std::string, double>> v = {
+      { "specimen", O("specimen") }, { "origamiDesign", O("origami-design") }, { "origamiDensity", O("origami-density") },
+      { "origamiMinSpacingNm", O("origami-min-spacing-nm") }, { "origamiBend", O("origami-bend") },
+      { "origamiLpNm", O("origami-lp-nm") }, { "origamiStrandsPerSpot", O("origami-strands-per-spot") },
+      { "origamiAttachNm", O("origami-attach-nm") }, { "origamiLinkerNm", O("origami-linker-nm") },
+      { "origamiRoll", O("origami-roll") }, { "origamiRollDeg", O("origami-roll-deg") },
+      { "origamiHeights", O("origami-heights") },
+   };
+   for (auto& kv : v)
+   {
+      auto it = spec.find("p." + kv.first);
+      if (it != spec.end())
+         kv.second = it->second;
+   }
+   return v;
+}
+
+double ScopeDefaultZ(const ScopeSpec& spec)
+{
+   double z = 0.5;   // the ZStage's start (the options' default)
+   for (const ScopeOption& o : Options().opts)
+      if (!std::strcmp(o.name, "z"))
+         z = o.value;
+   if (ScopeSpecimen(spec) != 1)
+      return z;
+   IscParams* p = isc_params_new();
+   for (const auto& kv : ScopeSpecimenParams(spec))
+      isc_params_set(p, kv.first.c_str(), kv.second);
+   double h[2] = { z, z };
+   isc_origami_heights(p, h);
+   isc_params_free(p);
+   return h[0];
 }
 
 bool ScopeOptionValue(const std::string& name, const char* text, double& value)
@@ -537,7 +675,7 @@ static bool WideFieldOrBrightField(const ScopeSpec& spec, bool& out, std::string
    if (out)
       return true;
    out = true;
-   for (int s = 0; s < ISC_STRUCT_COUNT; ++s)
+   for (int s : ScopeMountedStructures(spec))
    {
       EffectiveDye eff;
       int choice = 0;
@@ -595,7 +733,8 @@ static bool ScopeLightPreset(const ScopeSpec& spec, const LightPresetData*& out,
    {
       EffectiveDye eff;
       int choice = 0;
-      if (!ScopeStructureDye(spec, 0, eff, choice, err))
+      const std::vector<int> mounted = ScopeMountedStructures(spec);
+      if (mounted.empty() || !ScopeStructureDye(spec, mounted[0], eff, choice, err))
          return false;
       id = eff.dye.modes[eff.mode].lightPreset ? eff.dye.modes[eff.mode].lightPreset : "";
    }
@@ -673,6 +812,8 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
       LabelPhysicsOptions o;
       o.density = std::min(1.0, std::max(0.0, pct / 100));
       o.imagerNm = O(Opt(P, "imager-nm"));
+      o.paintKonPerMPerSec = O(Opt(P, "paint-kon"));
+      o.paintOnSec = O(Opt(P, "paint-on-sec"));
       o.orientationMode = static_cast<int>(O(Opt(P, "orient")));
       o.polarDeg = O(Opt(P, "orient-polar-deg"));
       o.azimuthDeg = O(Opt(P, "orient-azimuth-deg"));
@@ -686,7 +827,8 @@ static bool MakeScopeLabels(const ScopeSpec& spec, const LightPath& lp, std::vec
 
 // The kinetic inputs of a spec (ScopeMovie.h KineticEnv): the light keys (the
 // lasers, the light preset, excitation filter and dichroic, the imager
-// concentrations) and the dye keys (dye choices, modes, overrides).
+// concentrations and DNA-PAINT binding kinetics: they act from now on) and the
+// dye keys (dye choices, modes, overrides).
 static bool IsLightKey(const std::string& k)
 {
    auto ends = [&](const char* e) {
@@ -694,7 +836,8 @@ static bool IsLightKey(const std::string& k)
       return k.size() >= n && k.compare(k.size() - n, n, e) == 0;
    };
    return k.compare(0, 6, "laser-") == 0 || k == "light-preset" || k == "ex-filter" || k == "ex-lo-nm" ||
-          k == "ex-hi-nm" || k == "dichroic" || k == "dichroic-edge-nm" || ends("-imager-nm");
+          k == "ex-hi-nm" || k == "dichroic" || k == "dichroic-edge-nm" || ends("-imager-nm") || ends("-paint-kon") ||
+          ends("-paint-on-sec");
 }
 static bool IsDyeKey(const std::string& k)
 {
@@ -752,8 +895,8 @@ static ScopeSpec EnvSpec(const ScopeSpec& cur, const KineticEnv& env)
 struct ScopeSetup
 {
    SimulationParams p;
-   CellFieldSettings cf;
-   CellFieldQuery q;
+   SampleSettings cf;
+   SampleQuery q;
    unsigned W = 0, H = 0;
    long N = 0;
    long seed = 0;
@@ -765,6 +908,10 @@ struct ScopeSetup
    ScopeCamera camera;
    LightPath lp;
    std::vector<LabelPhysics> labels;
+   // The mounted specimen's structures (ScopeMountedStructures): only their labels render; another specimen's
+   // labels exist in the world but have no sites (JS S.mounted).
+   std::vector<int> mounted;
+   bool Mounted(int s) const { return std::find(mounted.begin(), mounted.end(), s) != mounted.end(); }
    double meanFieldDensityPerUm2 = 20, meanFieldSlabNm = 500, meanFieldMaxEmitters = 5000;
    double blinkBinnedDensityPerUm2 = 12.5, blinkBinnedMaxEmitters = 1e9;
    double blinkMeanFieldDensityPerUm2 = 1e9, blinkMeanFieldMaxEmitters = 1e9;
@@ -783,11 +930,14 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    ScopeMovieDims(spec, W, H, N);
    const double expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
    const double t0Sec = std::max(0.0, O("start-sec"));
-   if (static_cast<int>(O("specimen")) != 0)
+   const int specimen = ScopeSpecimen(spec);
+   if (specimen < 0 || specimen >= static_cast<int>(SpecimenIds().size()))
    {
-      err = "specimen " + std::to_string(static_cast<int>(O("specimen"))) + ": only the CellField (0) exists";
+      err = "specimen " + std::to_string(specimen) + ": not one of 0.." + std::to_string(SpecimenIds().size() - 1) +
+            " (data/specimens.json)";
       return false;
    }
+   S.mounted = ScopeMountedStructures(spec);
    if (!MakeScopeCamera(spec, S.camera, err) || !MakeScopeLightPath(spec, S.camera, S.lp, err) ||
        !MakeScopeLabels(spec, S.lp, S.labels, err))
       return false;
@@ -830,7 +980,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    p.drift.speedWanderPct = std::max(0.0, O("drift-speed-wander-pct"));
    p.drift.wanderTimeSec = std::max(0.0, O("drift-wander-time-sec"));
 
-   CellFieldSettings cf;
+   SampleSettings cf;
    const double worldSeed = O("world-seed");
    cf.seed = worldSeed >= 0 ? static_cast<uint32_t>(static_cast<uint64_t>(worldSeed))
                             : static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x43454C4CULL);
@@ -842,6 +992,9 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
       { "mtDensity", O("mt-density") },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
+   // The specimen and its params (the origami-* options; p.<name> on top, below).
+   for (const auto& kv : ScopeSpecimenParams(spec))
+      world[kv.first] = kv.second;
    // p.* pass-through (known core names only), overriding the named ones.
    IscParams* probe = isc_params_new();
    for (const auto& kv : spec)
@@ -852,9 +1005,9 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    for (const LabelPhysics& l : S.labels)
       cf.labels.push_back(l.label);
 
-   // The camera's CellFieldQueryFor (drift: grown below).
+   // The camera's SampleQueryFor (drift: grown below).
    const double um = p.pixelSizeNm / 1000.0, margin = 2.0;
-   CellFieldQuery q;
+   SampleQuery q;
    q.originXUm = O("x") - W * um / 2;
    q.originYUm = O("y") - H * um / 2;
    q.x0Um = q.originXUm - margin;
@@ -1057,8 +1210,8 @@ struct MeanFieldSlot
 struct MovieCache
 {
    std::mutex mutex;
-   CellFieldSource source;
-   CellFieldSettings world;
+   SampleSource source;
+   SampleSettings world;
    bool haveWorld = false;
    uint64_t version = 0;      // the cells (seed, params): the BrightField scene
    uint64_t dyeVersion = 0;   // the dyes too (labels): the mean-field dye tiles
@@ -1125,7 +1278,7 @@ MovieCache& SharedMovieCache()
 
 // Configures the shared source; bumps the versions when the world (and for
 // dyeVersion the labels) change.
-bool ConfigureShared(MovieCache& c, const CellFieldSettings& cf, std::string& err)
+bool ConfigureShared(MovieCache& c, const SampleSettings& cf, std::string& err)
 {
    if (!c.haveWorld || !c.world.SameWorld(cf))
       ++c.version;
@@ -2088,7 +2241,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
 #endif
    if (!ConfigureShared(m.cache, S.cf, err))
       return false;
-   CellFieldSource& source = m.cache.source;
+   SampleSource& source = m.cache.source;
    TimingLog("fl.configure", TimingSince(tPhase));
    m.curEnv = ScopeKineticEnv(spec);
    m.envPhys.clear();
@@ -2136,7 +2289,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return source.SetKineticsHistory(nullptr, 0);
    };
    auto regionQuery = [&](const ClockRegion& r) {
-      CellFieldQuery q = S.q;
+      SampleQuery q = S.q;
       q.tSec = r.tSec;
       q.x0Um = std::max(S.q.x0Um, r.x0Um);
       q.y0Um = std::max(S.q.y0Um, r.y0Um);
@@ -2155,7 +2308,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    auto regionEvents = [&](bool continuous, std::vector<BlinkEvent>& out, std::vector<const ClockRegion*>* regionOf) {
       for (const ClockRegion& r : regions)
       {
-         const CellFieldQuery q = regionQuery(r);
+         const SampleQuery q = regionQuery(r);
          if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um))
             continue;
          std::vector<BlinkEvent> got;
@@ -2179,6 +2332,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    for (int s = 0; s < static_cast<int>(S.labels.size()); ++s)
       for (bool pre : { false, true })
       {
+         if (!S.Mounted(s))
+            continue;
          const StatePhysics& st = pre ? S.labels[static_cast<size_t>(s)].pre : S.labels[static_cast<size_t>(s)].main;
          if (st.emits && st.detectedFraction >= kMinDetectedFraction && st.detectedPerSec > 0)
             wanted.push_back({ s, pre, &st });
@@ -2203,8 +2358,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return -1;
    };
    m.anyBlinks = false;
-   for (const LabelPhysics& l : S.labels)
-      m.anyBlinks = m.anyBlinks || l.mode != MODE_WIDEFIELD;
+   for (int s : S.mounted)
+      m.anyBlinks = m.anyBlinks || S.labels[static_cast<size_t>(s)].mode != MODE_WIDEFIELD;
 
    // ---- blink mean-field frames (spec/ALGORITHM.md "Blink render regimes") ----
    // Decided before the events query from the expected ON emitters at the
@@ -2336,6 +2491,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    tPhase = TimingClock::now();
    for (int s = 0; s < static_cast<int>(S.labels.size()); ++s)
    {
+      if (!S.Mounted(s))
+         continue;
       const LabelPhysics& L = S.labels[static_cast<size_t>(s)];
       std::vector<int> states;
       if (L.mode == MODE_WIDEFIELD)
@@ -2478,8 +2635,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             m.sceneQueue.push_back(&p);
       }
    m.imagerPerFrame = 0;
-   for (const LabelPhysics& L : S.labels)
-      m.imagerPerFrame = m.imagerPerFrame + L.ImagerBackgroundPerPxPerSec(um);
+   for (size_t s = 0; s < S.labels.size(); ++s)
+      if (S.Mounted(static_cast<int>(s)))
+         m.imagerPerFrame = m.imagerPerFrame + S.labels[s].ImagerBackgroundPerPxPerSec(um);
    m.imagerPerFrame *= S.expSec;
    m.bg = S.p.backgroundPhotons + m.imagerPerFrame;
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
@@ -2625,6 +2783,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       d += " dichroic=" + std::string(DichroicIds()[static_cast<size_t>(O("dichroic"))]);
       for (size_t s = 0; s < S.labels.size(); ++s)
       {
+         if (!S.Mounted(static_cast<int>(s)))
+            continue;
          const LabelPhysics& L = S.labels[s];
          std::snprintf(b, sizeof b, " label%zu=%s:%s:%.4g%%:kact=%.4g", s, L.eff.dye.id, DyeModeNames()[static_cast<size_t>(L.mode)].c_str(),
                        100 * L.label[ISC_LABEL_DENSITY], L.kActPerSec);
@@ -3220,7 +3380,7 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
    ScopeSetup S;
    if (!MakeScopeSetup(spec, S, err))
       return false;
-   CellFieldSource source;
+   SampleSource source;
    if (!source.Configure(S.cf, err))
       return false;
    IscWorld* w = source.World();
@@ -3239,7 +3399,7 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
       return false;
    }
    json.clear();
-   json += "{\"x0\":";
+   json += "{\"specimen\":" + std::to_string(ScopeSpecimen(spec)) + ",\"x0\":";
    AppendNum(json, x0);
    json += ",\"y0\":";
    AppendNum(json, y0);
@@ -3350,6 +3510,72 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
       }
       json += '}';
    }
+   json += ']';
+   // The DNA-origami molecules (a nanoruler world; none in a cell field): isc_origami_in_window's row, the bent
+   // outline, and with detail every designed strand: k, n, x, y, z (world um), the straight-frame x, y, h and the bent
+   // X, Y (nm), fluorescent (0/1 under the label).
+   std::vector<double> mols(static_cast<size_t>(ISC_ORIGAMI_STRIDE) * 256);
+   int32_t nm = isc_origami_in_window(w, x0, y0, x1, y1, mols.data(), 256);
+   if (nm > 256)
+   {
+      mols.resize(static_cast<size_t>(ISC_ORIGAMI_STRIDE) * nm);
+      nm = isc_origami_in_window(w, x0, y0, x1, y1, mols.data(), nm);
+   }
+   if (nm < 0)
+   {
+      err = "origami query failed";
+      return false;
+   }
+   json += ",\"origami\":[";
+   for (int32_t i = 0; i < nm; ++i)
+   {
+      const double* m = mols.data() + static_cast<size_t>(i) * ISC_ORIGAMI_STRIDE;
+      const int32_t tx = static_cast<int32_t>(m[0]), ty = static_cast<int32_t>(m[1]), mi = static_cast<int32_t>(m[2]);
+      static const char* const kKeys[ISC_ORIGAMI_STRIDE] = { "tx", "ty", "i", "design", "x", "y", "yaw", "roll",
+                                                              "endAngle", "fold" };
+      json += i ? ",{" : "{";
+      for (int k = 0; k < ISC_ORIGAMI_STRIDE; ++k)
+      {
+         json += k ? ",\"" : "\"";
+         json += kKeys[k];
+         json += "\":";
+         AppendNum(json, m[k]);
+      }
+      constexpr int32_t kPerSide = 48;
+      std::vector<double> o(static_cast<size_t>(4 * (kPerSide + kPerSide / 4)));
+      const int32_t no = isc_origami_outline(w, tx, ty, mi, kPerSide, o.data(), static_cast<int32_t>(o.size() / 2));
+      json += ",\"outline\":[";
+      for (int32_t k = 0; k < no; ++k)
+      {
+         json += k ? ",[" : "[";
+         AppendNum(json, o[2 * static_cast<size_t>(k)]);
+         json += ',';
+         AppendNum(json, o[2 * static_cast<size_t>(k) + 1]);
+         json += ']';
+      }
+      json += ']';
+      if (detail)
+      {
+         const int32_t ns = isc_origami_sites(w, tx, ty, mi, nullptr, 0);
+         buf.assign(static_cast<size_t>(std::max(0, ns)) * ISC_ORIGAMI_SITE_STRIDE, 0.0);
+         if (ns > 0)
+            isc_origami_sites(w, tx, ty, mi, buf.data(), ns);
+         json += ",\"sites\":[";
+         for (int32_t k = 0; k < ns; ++k)
+         {
+            json += k ? ",[" : "[";
+            for (int f = 0; f < ISC_ORIGAMI_SITE_STRIDE; ++f)
+            {
+               if (f)
+                  json += ',';
+               AppendNum(json, buf[static_cast<size_t>(k) * ISC_ORIGAMI_SITE_STRIDE + f]);
+            }
+            json += ']';
+         }
+         json += ']';
+      }
+      json += '}';
+   }
    json += "]}";
    return true;
 }
@@ -3384,8 +3610,8 @@ static bool PrepareScope(const ScopeSpec& spec, ScopeMovieInfo& info, std::strin
    if (epi)
    {
       std::vector<double> lambdas;
-      for (const LabelPhysics& l : S.labels)
-         for (const StatePhysics* st : { &l.main, &l.pre })
+      for (int s : S.mounted)
+         for (const StatePhysics* st : { &S.labels[static_cast<size_t>(s)].main, &S.labels[static_cast<size_t>(s)].pre })
             if (st->emits && st->detectedFraction > 0)
                lambdas.push_back(KernelWavelengthNm(st->lambdaNm));
       SetPsfKernelMemoEntries(lambdas.size() + 1);

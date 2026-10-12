@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Cell field viewer</title>
+<title>inSiliScope viewer</title>
 <style>
   /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
      below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
@@ -165,7 +165,7 @@
     <div id="sideTop">
       <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
       <div class="bar">
-        <h1>Cell field viewer</h1>
+        <h1>inSiliScope viewer</h1>
         <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       </div>
       <div id="menu" role="menu"></div>
@@ -188,16 +188,18 @@
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
     <div id="animBar"></div>
     <div id="legend">
-      <span class="sw" style="background:#5aa9e6"></span>cell body
+      <span class="cfOnly"><span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
-      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
+      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule</span>
+      <span class="nrOnly" hidden><span class="sw" style="background:#5aa9e6"></span>nanoruler (DNA origami, from above)</span>
       <span class="sw" id="dyeSwatch" style="background:#ff4d4d;margin-left:10px"></span>dye
-      <span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid
+      <span class="cfOnly"><span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid</span>
     </div>
   </div>
 </div>
 
 <script src="dye_library.js"></script>
+<script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
@@ -224,9 +226,13 @@ const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
 const FL = () => modality() === 0, BF = () => modality() === 1;
 // ---- the dye library (web/dye_library.js, generated from data/dyes by tools/gen_dye_library.mjs) ----
 const DD = self.ISC_DYE_DATA;
-// The specimens and their targets (data/specimens.json): the mounted specimen's targets each get a label group. One
-// specimen (CellField) with one target (the microtubules) for now: T0 is it.
-const T0 = DD.specimens[0].targets[0];
+// The specimens and their targets (data/specimens.json): the mounted one is the Sample select's (the engine's
+// specimen option); every target of every specimen has its label group (labelGroup), shown while its specimen is.
+const SPECIMEN_DEFAULT = DD.specimens.findIndex(sp => sp.id === DD.specimenDefault);
+const mounted = () => DD.specimens[$('mv_specimen') ? +$('mv_specimen').value : SPECIMEN_DEFAULT];
+const CF = () => mounted().id === 'CellField', NR = () => mounted().id === 'Nanorulers';
+const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ specimen: sp.id }, t)));
+const curPrefix = () => mounted().targets[0].prefix;   // the mounted specimen's (first) target: the dye in use
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
 const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
@@ -243,37 +249,42 @@ const USER_DYES = {
   name: n => ($('ud' + n + '-name') ? $('ud' + n + '-name').value.trim() : '') || 'Dye ' + n,
   modeIndex: n => +$('ud' + n + '-mode').value,
 };
-const mtChoice = () => ($('mv_mt-dye') ? $('mv_mt-dye').value : String(dyeIndex(DD.dyeDefault.dye)));
-const mtMode = () => {
-  const m = $('mv_mt-mode') ? +$('mv_mt-mode').value : -1, v = mtChoice();
+// A target's dye choice and mode (P: its prefix, data/specimens.json).
+const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(dyeIndex(DD.dyeDefault.dye)));
+const modeOf = P => {
+  const m = $('mv_' + P + '-mode') ? +$('mv_' + P + '-mode').value : -1, v = choiceOf(P);
   if (m >= 0) return MODE_NAMES[m];
   return USER_DYES.isUser(v) ? MODE_NAMES[USER_DYES.modeIndex(USER_DYES.slot(v))] : choiceDye(v).defaultMode;
 };
-const inMode = (...modes) => () => FL() && modes.includes(mtMode());
+// The mounted target's (the camera gain, the light-path readout, the data layers).
+const mtChoice = () => choiceOf(curPrefix()), mtMode = () => modeOf(curPrefix());
+const inMode = (P, ...modes) => () => FL() && modes.includes(modeOf(P));
 // The Dye select lists the library dyes with data for the structure's mode (every dye runs in every mode, on generic
 // values where the library has none; those are not offered); the user dyes are listed whatever the mode.
 const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
 // The target's typical dye in a mode (data/dyes/library.json typicalLabels; the engine's <prefix>-dye = -1).
-const firstDyeFor = m => dyeIndex(DD.typicalLabels[T0.id][m].dye);
-function filterMtDyes() {
-  const sel = $('mv_mt-dye'), m = mtMode();
+const firstDyeFor = (t, m) => dyeIndex(DD.typicalLabels[t.id][m].dye);
+function filterDyes(P) {
+  const sel = $('mv_' + P + '-dye'), m = modeOf(P);
   for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
 }
-// Shows the added user dyes in the structures' Dye select (by name), hides the others, and moves a structure off a
+// Shows the added user dyes in the targets' Dye selects (by name), hides the others, and moves a target off a
 // removed one (to the default library dye).
 function refreshUserDyes() {
-  const sel = $('mv_mt-dye');
-  for (let n = 1; n <= N_USER_DYES; n++) {
-    const o = sel.querySelector('option[value="' + (ND + n - 1) + '"]');
-    o.hidden = o.disabled = !USER_DYES.added[n - 1];
-    o.textContent = USER_DYES.name(n) + ' (custom)';
+  for (const t of TARGETS) {
+    const sel = $('mv_' + t.prefix + '-dye');
+    for (let n = 1; n <= N_USER_DYES; n++) {
+      const o = sel.querySelector('option[value="' + (ND + n - 1) + '"]');
+      o.hidden = o.disabled = !USER_DYES.added[n - 1];
+      o.textContent = USER_DYES.name(n) + ' (custom)';
+    }
+    if (USER_DYES.isUser(sel.value) && !USER_DYES.added[USER_DYES.slot(sel.value) - 1]) {
+      sel.value = String(dyeIndex(DD.dyeDefault.dye));
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
   $('addUserDye').disabled = USER_DYES.added.every(Boolean);
-  if (USER_DYES.isUser(sel.value) && !USER_DYES.added[USER_DYES.slot(sel.value) - 1]) {
-    sel.value = String(dyeIndex(DD.dyeDefault.dye));
-    sel.dispatchEvent(new Event('input', { bubbles: true }));
-    sel.dispatchEvent(new Event('change', { bubbles: true }));
-  }
 }
 // Dye fields (the option suffixes of mt-dye.<field> / dye<N>.<field>): label, unit, tip, value of a dye in a mode,
 // the modes it applies to (null = all). Picking a dye or a mode loads these rows from the library; edit them after.
@@ -281,7 +292,7 @@ const DYE_FIELD_ROWS = [
   ['fluorescent-pct', 'Fluorescent', '%', 'Share of the attached labels whose dye is fluorescent (maturation, photoactivation efficiency, dead dyes).', d => 100 * d.fluorescentFraction, null],
   ['qy', 'Quantum yield', '', 'Fluorescence quantum yield of the dye (main state).', d => d.states.main.qy, null],
   ['ext-coeff', 'Extinction ε', 'M⁻¹cm⁻¹', 'Molar extinction coefficient at the absorption peak (main state); the excitation spectrum scales it at each laser line.', d => d.states.main.extCoeff, null],
-  ['on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). dSTORM: at Dempsey et al. 2011\'s measurement intensity (0.8 kW/cm² at 640 nm, 2.2 at 561, 1.2 at 488), from their photons per cycle; it (and the dark and initial ON times) scales as 1 / excitation, so photons per blink stay as measured. The light-path readout shows the ON time now.', (d, m) => d.modes[m].onSec, ['dSTORM', 'PALM', 'DNA-PAINT']],
+  ['on-sec', 'ON time', 's', 'Mean ON time of a blink (exponential). dSTORM: at Dempsey et al. 2011\'s measurement intensity (0.8 kW/cm² at 640 nm, 2.2 at 561, 1.2 at 488), from their photons per cycle; it (and the dark and initial ON times) scales as 1 / excitation, so photons per blink stay as measured. The light-path readout shows the ON time now.', (d, m) => d.modes[m].onSec, ['dSTORM', 'PALM']],
   ['off-sec', 'Dark time', 's', 'dSTORM: mean spontaneous dark time between blinks (from the duty cycle; 405 nm shortens it). PALM: dark time between the blinks of a converted molecule.', (d, m) => m === 'PALM' ? d.modes[m].offSecBetweenBlinks : d.modes[m].offSec, ['dSTORM', 'PALM']],
   ['bleach-prob', 'Bleach prob.', '/blink', 'Probability that a molecule bleaches after a blink (1 / mean switching cycles).', (d, m) => d.modes[m].bleachProb, ['dSTORM', 'PALM']],
   ['initial-on-sec', 'Initial ON', 's', 'dSTORM: every dye starts ON and is pumped dark after an exponential time of this mean (a bright decay over the first seconds). 0 = none.', (d, m) => d.modes[m].initialOnSec, ['dSTORM']],
@@ -289,13 +300,13 @@ const DYE_FIELD_ROWS = [
   ['spont-activation', 'Spontaneous act.', '/s', 'PALM: activation without 405 nm light.', (d, m) => d.modes[m].spontaneousActivationPerSec, ['PALM']],
   ['primed', 'Primed conversion', '/s per (kW/cm²)²', 'PALM: conversion by blue priming x near-infrared light (488 + 730 nm; Turkowyd et al. 2017): rate = this x I(470-510 nm) x I(690-780 nm).', (d, m) => (d.modes[m].primed ? d.modes[m].primed.perKWcm2SqPerSec : 0), ['PALM']],
   ['pre-photon-budget', 'Pre-state budget', 'photons', 'PALM: photons the pre (e.g. green) state emits before it bleaches (0 = never).', (d, m) => d.modes[m].prePhotonBudget || 0, ['PALM']],
-  ['kon', 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration.', (d, m) => d.modes[m].konPerMPerSec, ['DNA-PAINT']],
   ['photon-cv', 'Brightness spread', 'CV', 'Coefficient of variation of the per-blink (log-normal) brightness.', (d, m) => d.modes[m].photonCV, ['dSTORM', 'PALM', 'DNA-PAINT']],
   ['photon-budget', 'Photon budget', 'photons', 'WideField: photons a dye emits before it bleaches (exponential; 0 = never).', (d, m) => d.modes[m].photonBudget, ['WideField']],
 ];
-// A change of the structure's mode (a dye pick or the mode select) also sets the labelled sites to the target's typical
-// % in that mode (data/dyes/library.json typicalLabels: DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %); the same mode keeps them.
-let lastMtMode = DD.dyeDefault.mode;   // the panel's initial mode
+// A change of a target's mode (a dye pick or the mode select) also sets its labelled sites to the target's typical
+// % in that mode (data/dyes/library.json typicalLabels: microtubules DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %; docking
+// strands 80 %); the same mode keeps them.
+const lastMode = {};   // per target prefix: the mode the panel had (the initial one: the default dye's)
 // It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
 // gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
 const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() || mtMode() === 'WideField')
@@ -303,13 +314,13 @@ const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() |
 // The sensor in use is an EMCCD: the Sensor select, or the camera preset's type when that says "the preset's".
 const emccdChosen = () => { const t = +$('mv_camera-type').value; return t >= 0 ? t === 1 : DD.cameras[+$('mv_camera-preset').value].type === 'EMCCD'; };
 const cameraModeGain = () => { const c = DD.cameras[+$('mv_camera-preset').value]; return c.gainElectronsPerAduWideField !== undefined ? presetGain(c) : undefined; };
-const modeSuggestion = vals => {
-  const m = mtMode();
-  if (lastMtMode !== null && m !== lastMtMode) {
-    vals['mv_mt-label-pct'] = DD.typicalLabels[T0.id][m].labelingPct;
-    if (cameraModeGain() !== undefined) vals['mv_gain'] = cameraModeGain();
+const modeSuggestion = (t, vals) => {
+  const P = t.prefix, m = modeOf(P), last = P in lastMode ? lastMode[P] : DD.dyeDefault.mode;
+  if (m !== last) {
+    vals['mv_' + P + '-label-pct'] = DD.typicalLabels[t.id][m].labelingPct;
+    if (P === curPrefix() && cameraModeGain() !== undefined) vals['mv_gain'] = cameraModeGain();
   }
-  lastMtMode = m;
+  lastMode[P] = m;
   return vals;
 };
 // A light preset as panel values: every laser (those it does not name off), the excitation filter, the dichroic and the
@@ -327,9 +338,49 @@ const lightPresetValues = q => {
 const withLightPreset = (vals, d, mode) => BF() ? vals : Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
-const dyeRows = (prefix, modeOf, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) =>
-  num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dyeIndex(DD.dyeDefault.dye)], DD.dyeDefault.mode)[prefix + k],
-    { adv, show: () => !USER_DYES.isUser(mtChoice()) && (!modes || modes.includes(modeOf())), ...extra }));
+const dyeRows = (P, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) => {
+  const prefix = 'mv_' + P + '-dye.';
+  return num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dyeIndex(DD.dyeDefault.dye)], DD.dyeDefault.mode)[prefix + k],
+    { adv, show: () => !USER_DYES.isUser(choiceOf(P)) && (!modes || modes.includes(modeOf(P))), ...extra });
+});
+// A target's label group (Sample preparation): labelled sites, mode, dye (+ its fields), imager, orientation; ids
+// mv_<prefix>-*, the engine's per-target options. Shown while the target's specimen is mounted.
+const LABEL_TEXT = {
+  microtubules: { dev: 'CellField', row: 'Microtubules', what: 'the microtubules\' label', axis: 'the microtubule axis', pct: 'Labelled sites',
+    sites: 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates).',
+    cells: 'no exclusion from cells' },
+  docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\' label', axis: 'the rod axis', pct: 'Labelled strands',
+    sites: 'Share of the designed docking strands (Strands per spot, Nanorulers) that are incorporated and labelled: each strand independently (80 % in every mode; estimate).',
+    cells: 'the imager reaches every strand' },
+};
+const labelGroup = (t, i) => {
+  const P = t.prefix, T = LABEL_TEXT[t.id], id = k => 'mv_' + P + '-' + k, code = k => '<code>' + T.dev + '.' + T.row + '_' + k + '</code>';
+  return Object.assign(i === 0 ? { sect: 'Sample preparation' } : {}, { id: P + 'label', title: t.name + ' label', open: true,
+    show: () => mounted().id === t.specimen, items: [
+    range(id('label-pct'), T.pct, '%', T.sites + ' ' + code('LabelingPct'), 0, 100, 0.5, DD.typicalLabels[t.id][DD.dyeDefault.mode].labelingPct, { fmt: fx(1) }),
+    select(id('mode'), 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>Fluorophores.Mode</code>',
+      MODE_NAMES.map((m, j) => [String(j), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: () => filterDyes(P), apply: () => {
+        // A mode the dye has no data for moves the target to that mode's dye (whose pick loads its values and preset).
+        const v = $(id('dye')).value, m = modeOf(P);
+        filterDyes(P);
+        if (!USER_DYES.isUser(v) && !dyeHasMode(+v, m)) return { [id('dye')]: firstDyeFor(t, m) };
+        return withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), m)), choiceDye(v), m);
+      } }),
+    select(id('dye'), 'Dye', 'Dye of ' + T.what + ': a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. ' + code('Label'),
+      [...DD.dyes.map((d, j) => [String(j), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
+      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P))), choiceDye(v), modeOf(P)), kids: dyeRows(P) }),
+    num(id('imager-nm'), 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and ' + T.cells + '. ' + code('ImagerNanoMol'), 0, null, 0.1, t.paint.imagerNm, { show: inMode(P, 'DNA-PAINT') }),
+    num(id('paint-on-sec'), 'Bound time', 's', 'DNA-PAINT: mean time an imager stays bound to a docking site (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye (data/specimens.json paint). ' + code('BoundTimeSec'), 0.001, null, 0.01, t.paint.onSec, { adv, show: inMode(P, 'DNA-PAINT') }),
+    num(id('paint-kon'), 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration (the target\'s docking sequence; data/specimens.json paint). ' + code('KonPerMolarPerSec'), 0, null, 1e5, t.paint.konPerMPerSec, { adv, show: inMode(P, 'DNA-PAINT') }),
+    select(id('orient'), 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation), the only one the images use. <b>Fixed and Random are not implemented yet</b>: they are stored but change nothing (dipole emission and polarisation: future). Fixed: at a set angle to ' + T.axis + '. Random: a random fixed direction per dye. Wobble: a fast cone around it. ' + code('Orientation'),
+      [['0', 'Free'], ['1', 'Fixed (not implemented yet)'], ['2', 'Random (not implemented yet)']], '0', { adv, kids: [
+        num(id('orient-polar-deg'), 'Polar angle', '°', 'Not implemented yet (no effect on the image). Fixed: angle of the dipole from ' + T.axis + '. ' + code('OrientPolarDeg'), 0, 180, 1, 90, { adv, show: () => $(id('orient')).value === '1' }),
+        num(id('orient-azimuth-deg'), 'Azimuth', '°', 'Not implemented yet (no effect on the image). Fixed: angle about the axis, from the radial direction. ' + code('OrientAzimuthDeg'), -180, 180, 1, 0, { adv, show: () => $(id('orient')).value === '1' }),
+        num(id('wobble-deg'), 'Wobble cone', '°', 'Not implemented yet (no effect on the image). Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). ' + code('WobbleConeDeg'), 0, 90, 1, 0, { adv, show: () => $(id('orient')).value !== '0' }),
+      ] }),
+  ] });
+};
+const DESIGNS = self.ISC_ORIGAMI_DESIGNS || [{ name: '80 nm nanoruler' }];   // web/origami_designs.js
 // A user dye's fields: every dye field (any mode) plus the pre state's and, for a parametric source (Custom), the
 // spectra. Values from the source in its default mode; a field that mode lacks comes from the first mode that has it.
 // A field the source cannot take (no pre state, measured spectra) is NaN: hidden and not sent.
@@ -393,24 +444,25 @@ const UI_GROUPS = [
 
     head('What is drawn'),
     pair('zClip', 'Z clip', 'µm', 'Draw only what lies between these heights above the coverslip (cytoplasm, nucleus, microtubules, dyes). Drag both knobs together for a moving slab; the full range is off. Display only.', 0, 20, 0.1, 0, 20, { bounded: true }),
-    num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nucleus and dyes; the rest show their cytoplasm. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5),
+    num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nucleus and dyes; the rest show their cytoplasm. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5, { show: CF }),
     select('sceneScope', 'Scope', 'Which cells are drawn: all of them, the centre cell with faint neighbours, or the centre cell alone. Display only.',
-      [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv }),
+      [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv, show: CF }),
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
       [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence']], 'viewer', { adv }),
     grid('Show', [
-      check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true),
-      check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true),
-      check('showMt', 'Microtubules', 'Draw the microtubules.', true),
+      check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true, { show: CF }),
+      check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
+      check('showMt', 'Microtubules', 'Draw the microtubules.', true, { show: CF }),
+      check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
-      check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv }),
-      check('showCytoContours', 'Contours', 'Draw contour lines of the cytoplasm height.', false, { adv }),
+      check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv, show: CF }),
+      check('showCytoContours', 'Contours', 'Draw contour lines of the cytoplasm height.', false, { adv, show: CF }),
     ]),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2), show: () => $('showCytoContours').checked }),
 
     // Simulated data of the cell nearest the view centre: made in the background as soon as a layer needs them; the
     // status list (#dataStatus, filled by the main script) says what is ready, being made or queued.
-    head('Simulated data (centre cell)', 'Simulated microscope data of the cell nearest the view centre, drawn in the scene. A layer\'s data (a z-stack or a localization run) is made in the background as soon as the layer is picked, with the movie settings (Microscope, Acquisition), and kept in this browser; the list below says what is ready and what is still being made.'),
+    head('Simulated data (centre cell)', 'Simulated microscope data of the cell nearest the view centre, drawn in the scene. A layer\'s data (a z-stack or a localization run) is made in the background as soon as the layer is picked, with the movie settings (Microscope, Acquisition), and kept in this browser; the list below says what is ready and what is still being made.', { show: CF }),
     radio('dataSlice', 'Image slice', 'A simulated camera image of the cell, drawn as a horizontal slice at the slice height (= the focus of the image shown), from a z-stack made for the cell.', [
       ['none', 'Off'],
       ['wf', 'WideField', 'The WideField image with focus at the slice height (with the out-of-focus blur of the rest).'],
@@ -418,41 +470,59 @@ const UI_GROUPS = [
       ['sr', 'SMLM frames', 'SMLM camera frames at the slice height (the nearest focus position), blinking.'],
       ['srLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons).'],
       ['bf', 'BrightField', 'The BrightField image of the cell (all structures) with focus at the slice height.'],
-    ], 'none', { kids: [
+    ], 'none', { show: CF, kids: [
       range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown). The z-stacks run from 1 µm below the coverslip to 1 µm above the cell top; so does this slider. It moves the movie\'s focus height (Acquisition) with it.', -1, 20, 0.05, 1.5, { fmt: fx(2), show: sliceOn }),
       check('opaqueSlices', 'Opaque slice', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false, { show: () => ['wf', 'wfSum', 'bf'].includes(sliceKind()) }),
     ] }),
-    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { kids: [
+    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { show: CF, kids: [
       range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2), show: () => $('showWfIso').checked }),
     ] }),
-    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false, { kids: [
+    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false, { show: CF, kids: [
       num('locPrecXyNm', 'Precision xy', 'nm', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; a shorter blink (fewer photons) or one out of focus is localized worse.', 0.5, 200, 0.5, 8, { show: locsOn }),
       num('locPrecZNm', 'Precision z', 'nm', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.', 0.5, 500, 0.5, 20, { show: locsOn }),
       check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv, show: locsOn }),
       num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv, show: locsOn }),
     ] }),
-    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized (the SMLM localizations, and the crosses of "SMLM frames + localized emitters").', 50, 2000, 50, 400, { adv }),
-    check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true),
-    { kind: 'html', html: '<div id="dataStatus" class="dataStatus"></div>' },
-    head('Data acquisition', 'How the data layers\' z-stacks and localization runs are acquired. A change makes new data (the old stays cached).', { adv }),
-    num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv }),
-    num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv }),
-    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack and of the localization run.', 0.1, 2, 0.1, 0.4, { adv }),
-    num('srFramesShown', 'Frames shown', 'frames', 'Camera frames per focus position of the SMLM frame stack (they cycle in the view).', 1, 100, 1, 10, { adv }),
+    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized (the SMLM localizations, and the crosses of "SMLM frames + localized emitters").', 50, 2000, 50, 400, { adv, show: CF }),
+    check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true, { show: CF }),
+    { kind: 'html', html: '<div id="dataStatus" class="dataStatus"></div>', show: CF },
+    head('Data acquisition', 'How the data layers\' z-stacks and localization runs are acquired. A change makes new data (the old stays cached).', { adv, show: CF }),
+    num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv, show: CF }),
+    num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv, show: CF }),
+    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack and of the localization run.', 0.1, 2, 0.1, 0.4, { adv, show: CF }),
+    num('srFramesShown', 'Frames shown', 'frames', 'Camera frames per focus position of the SMLM frame stack (they cycle in the view).', 1, 100, 1, 10, { adv, show: CF }),
     select('planeTimes', 'SMLM planes', 'Fresh: every focus position starts with all dyes unbleached (as if each were a fresh field of the same cell; a blink near two planes shows in both). Sequential: one sample imaged plane after plane, so bleaching dyes run out in the later planes (DNA-PAINT-like labelling keeps a constant supply).',
-      [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv }),
+      [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv, show: CF }),
   ] },
 
-  { sect: 'Sample', id: 'field', title: 'Specimen: ' + DD.specimens[0].name.toLowerCase(), open: true, items: [
-    select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json): the cell field for now; others (a DNA-PAINT nanoruler, beads) will be listed here. <code>SampleHolder</code>',
-      DD.specimens.map((sp, i) => [String(i), sp.name]), String(DD.specimens.findIndex(sp => sp.id === DD.specimenDefault))),
-    num('seed', 'World seed', 'integer', 'Every cell, microtubule and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
+  { sect: 'Sample', id: 'field', title: 'Specimen', open: true, items: [
+    select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json; the Samples pages of the docs): the cell field (adherent cells with microtubules) or DNA-origami nanorulers on the coverslip. Switching zooms to a scale that suits it. <code>SampleHolder</code>',
+      DD.specimens.map((sp, i) => [String(i), sp.name]), String(SPECIMEN_DEFAULT)),
+    num('seed', 'World seed', 'integer', 'Every cell, microtubule, ruler and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
     button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
-    range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, 0.33, { fmt: v => (100 * v).toFixed(0) }),
-    range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, fmt: fx(2) }),
-    num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv }),
+    range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, 0.33, { show: CF, fmt: v => (100 * v).toFixed(0) }),
+    range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
+    num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv, show: CF }),
   ] },
-  { id: 'shape', title: 'Cell shape', open: true, items: [
+  // The DNA-origami nanorulers (core params origami*, web/prototype/scope/origami.js; Micro-Manager: Nanorulers).
+  { id: 'origami', title: 'Nanorulers', open: true, show: NR, items: [
+    select('origamiDesign', 'Design', 'The DNA-origami design (data/origami/designs.json): the 80 nm nanoruler is a 200 × 13 nm rod with three spots of docking strands at 20, 100 and 180 nm along it. <code>Nanorulers.Design</code>',
+      DESIGNS.map((d, i) => [String(i), d.name]), '0'),
+    num('origamiDensity', 'Density', '/µm²', 'Molecules per µm² of coverslip before the minimum spacing thins them (estimate). <code>Nanorulers.DensityPerUm2</code>', 0, 50, 0.05, 1.2),
+    range('origamiStrandsPerSpot', 'Strands per spot', 'of 5', 'Each spot is a ring of 5 docking strands around the rod, seen from above as one spot; positions 1..N of the ring carry a strand. <code>Nanorulers.StrandsPerSpot</code>', 1, 5, 1, 5, { fmt: fx(0) }),
+    check('origamiBend', 'Bending', 'In-plane worm-like-chain bending of each rod as it lies on the glass (exact arcs per segment); off = straight rods. <code>Nanorulers.Bending</code>', true, { adv, kids: [
+      num('origamiLpNm', 'Persistence length', 'nm', 'Bending persistence length of the rod: 1500 nm by default (an estimate inside the measured range of DNA-origami helix bundles, 0.74-8.2 µm; Chhabra et al. 2020). RMS end-to-end angle sqrt(L / Lp). <code>Nanorulers.PersistenceLengthNm</code>', 1, 100000, 10, 1500, { adv, show: () => $('origamiBend').checked }),
+    ] }),
+    num('origamiMinSpacingNm', 'Min spacing', 'nm', 'No two molecule centres closer than this (Matérn thinning of the random positions; 0 = none; estimate). <code>Nanorulers.MinSpacingNm</code>', 0, 5000, 10, 0, { adv }),
+    num('origamiAttachNm', 'Height above glass', 'nm', 'Gap between the coverslip and the bottom of the rod (estimate). The 2D strands sit at its axis: this + 6.5 nm. <code>Nanorulers.AttachHeightNm</code>', 0, 1000, 0.5, 7, { adv }),
+    num('origamiLinkerNm', 'Linker', 'nm', 'The dye lies within this distance of its strand\'s anchor, outward (estimate). <code>Nanorulers.LinkerNm</code>', 0, 50, 0.5, 3, { adv }),
+    select('origamiRoll', 'Roll', 'How each rod lies about its own axis, which turns the ring of strands: Uniform = a random roll per rod, Fixed = the angle below. <code>Nanorulers.Roll</code>',
+      [['0', 'Uniform'], ['1', 'Fixed']], '0', { adv, kids: [
+        num('origamiRollDeg', 'Roll angle', '°', 'The fixed roll. <code>Nanorulers.RollDeg</code>', -180, 180, 1, 0, { adv, show: () => $('origamiRoll').value === '1' }),
+      ] }),
+    check('origamiHeights', '3D strand heights', 'Off (default, 2D): every strand at the rod axis height. On: each strand at its ring height around the rod (3D, not validated yet). <code>Nanorulers.KeepHeights</code>', false, { adv }),
+  ] },
+  { id: 'shape', title: 'Cell shape', open: true, show: CF, items: [
     preset('cellShape', 'Cell shape', 'Sets the footprint and outline (the rows below) to a typical cell shape. Rough starting points, not measured values; editing a row shows "Custom".', {
       'Default': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
       'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellBlob: 0.3, cellRough: 0.05, cellFractalDim: 1.2 },
@@ -468,7 +538,7 @@ const UI_GROUPS = [
       range('cellFractalDim', 'Fractal dim.', 'D', "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.", 1, 2, 0.01, 1.35, { adv, fmt: fx(2) }),
     ]),
   ] },
-  { id: 'nucleus', title: 'Nucleus', items: [
+  { id: 'nucleus', title: 'Nucleus', show: CF, items: [
     pair('nucLong', 'Long axis', 'µm', 'Long axis of the nucleus ellipsoid, per cell.', 2, 30, 0.5, 8, 12),
     pair('nucRatio', 'Short/long axis', 'ratio', 'Short-to-long axis ratio of the nucleus footprint, per cell.', 0.2, 1, 0.05, 0.6, 1),
     pair('nucHeight', 'Height', '× long', 'Height of the ellipsoid as a fraction of its long axis, per cell.', 0.1, 1, 0.05, 0.2, 0.3, { adv }),
@@ -482,7 +552,7 @@ const UI_GROUPS = [
     range('nucAsym', 'Top/bottom asym.', 'a.u.', 'Wider base: > 0 widens the nucleus below its middle toward the mid-section width by this fraction of the difference (e.g. 0.5 and top 5, middle 8, bottom 5 um gives a 6.5 um bottom); < 0 widens the top instead. 0 = symmetric.', -0.9, 0.9, 0.05, 0.5, { adv, fmt: fx(2) }),
     pair('nucWidest', 'Widest point', '× height', 'Height of the widest section of the nucleus as a fraction of its height, per cell: 0 = at the bottom, 0.5 = the middle, 1 = at the top.', 0, 1, 0.05, 0.2, 0.4, { adv }),
   ] },
-  { id: 'cyto', title: 'Cytoplasm', items: [
+  { id: 'cyto', title: 'Cytoplasm', show: CF, items: [
     preset('cellLook', 'Cell look', 'Sets the cytoplasm height profile (the rows below: rim and mid heights, their distances, slope caps) to a typical shape. Rough starting points, not measured values; editing a row shows "Custom".', {
       'Rounded': { cytoRimHeightMin: 0.2, cytoRimHeightMax: 0.5, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5, cytoMidHeightMin: 2, cytoMidHeightMax: 3.5, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3, cytoMaxSlope: 2, cytoDomeSlope: 4 },
       'Classic': { cytoRimHeightMin: 0.1, cytoRimHeightMax: 0.3, cytoEdgeRiseMin: 0.1, cytoEdgeRiseMax: 0.5, cytoMidHeightMin: 1, cytoMidHeightMax: 2, cytoMidDistanceMin: 0.1, cytoMidDistanceMax: 0.3, cytoMaxSlope: 1, cytoDomeSlope: 3 },
@@ -502,14 +572,14 @@ const UI_GROUPS = [
     range('cytoRings', 'Mesh rings', 'rings', 'Radial resolution of the polar cytoplasm mesh.', 4, 60, 1, 60, { adv, fmt: fx(0) }),
     range('cytoTheta', 'Mesh angles', 'samples', 'Angular resolution of the polar cytoplasm mesh.', 32, 512, 4, 256, { adv, fmt: fx(0) }),
   ] },
-  { id: 'packing', title: 'Cell packing', adv, items: [
+  { id: 'packing', title: 'Cell packing', adv, show: CF, items: [
     check('enablePacking', 'Enable packing', 'Move and turn overlapping cells apart (never shrinks them); a cell still stuck after relaxation is dropped.', true),
     check('allowPackRotation', 'Allow rotation', 'Packing may also turn cells.', true),
     range('packFrac', 'Min gap', '× r₁+r₂', 'Smallest allowed centre distance of two cells, as a fraction of their combined radius.', 0.6, 1.1, 0.02, 1, { fmt: fx(2) }),
     range('relaxIters', 'Relax iterations', 'iter.', 'Packing relaxation steps before stuck cells are dropped.', 4, 150, 1, 80, { fmt: fx(0) }),
     range('relaxDamping', 'Relaxation step', 'frac.', 'Fraction of the overlap resolved per relaxation step.', 0.1, 1, 0.05, 0.55, { fmt: fx(2) }),
   ] },
-  { id: 'mt', title: 'Microtubules', items: [
+  { id: 'mt', title: 'Microtubules', show: CF, items: [
     range('mtDensity', 'Density', '/µm²', 'Microtubules per µm² of cell footprint.', 0, 2, 0.005, 0.9, { fmt: fx(3) }),
     range('mtStartDecayPct', 'Start near nucleus', '% size', 'Starts lie in the cytoplasm, more likely near the nucleus: the start density falls off as exp(-distance to the nucleus / L), L = this % of the equivalent diameter of the cell (1.6 % = ~0.5 µm for a 30 µm cell).', 0.05, 10, 0.05, 1.6, { adv, fmt: fx(2) }),
     range('mtEndDecayPct', 'End near edge', '% size', 'Ends lie in the cytoplasm, more likely near the cell edge: the end density falls off as exp(-distance to the edge / L), L = this % of the equivalent diameter of the cell (20 % = ~6 µm for a 30 µm cell).', 0.5, 50, 0.5, 20, { adv, fmt: fx(1) }),
@@ -524,35 +594,15 @@ const UI_GROUPS = [
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
 
-  { sect: 'Sample preparation', id: 'mtlabel', title: T0.name + ' label', open: true, items: [
-    range('mv_mt-label-pct', 'Labelled sites', '%', 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates). <code>CellField.Microtubules_LabelingPct</code>', 0, 100, 0.5, 70, { fmt: fx(1) }),
-    select('mv_mt-mode', 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>Fluorophores.Mode</code>',
-      MODE_NAMES.map((m, i) => [String(i), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: filterMtDyes, apply: () => {
-        // A mode the dye has no data for moves the structure to that mode's dye (whose pick loads its values and preset).
-        const v = $('mv_mt-dye').value, m = mtMode();
-        filterMtDyes();
-        if (!USER_DYES.isUser(v) && !dyeHasMode(+v, m)) return { 'mv_mt-dye': firstDyeFor(m) };
-        return withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), m)), choiceDye(v), m);
-      } }),
-    select('mv_mt-dye', 'Dye', 'Dye of the microtubules\' label: a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. <code>CellField.Microtubules_Label</code>',
-      [...DD.dyes.map((d, i) => [String(i), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
-      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(dyeFieldValues('mv_mt-dye.', choiceDye(v), mtMode())), choiceDye(v), mtMode()), kids: dyeRows('mv_mt-dye.', mtMode) }),
-    num('mv_mt-imager-nm', 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and no exclusion from cells. <code>CellField.Microtubules_ImagerNm</code>', 0, null, 0.1, 1, { show: inMode('DNA-PAINT') }),
-    select('mv_mt-orient', 'Orientation', 'Emission dipole of the dyes. Free: isotropic (fast rotation), the only one the images use. <b>Fixed and Random are not implemented yet</b>: they are stored but change nothing (dipole emission and polarisation: future). Fixed: at a set angle to the microtubule. Random: a random fixed direction per dye. Wobble: a fast cone around it. <code>CellField.Microtubules_Orientation</code>',
-      [['0', 'Free'], ['1', 'Fixed (not implemented yet)'], ['2', 'Random (not implemented yet)']], '0', { adv, kids: [
-        num('mv_mt-orient-polar-deg', 'Polar angle', '°', 'Not implemented yet (no effect on the image). Fixed: angle of the dipole from the microtubule axis. <code>CellField.Microtubules_OrientPolarDeg</code>', 0, 180, 1, 90, { adv, show: () => $('mv_mt-orient').value === '1' }),
-        num('mv_mt-orient-azimuth-deg', 'Azimuth', '°', 'Not implemented yet (no effect on the image). Fixed: angle about the axis, from the radial direction. <code>CellField.Microtubules_OrientAzimuthDeg</code>', -180, 180, 1, 0, { adv, show: () => $('mv_mt-orient').value === '1' }),
-        num('mv_mt-wobble-deg', 'Wobble cone', '°', 'Not implemented yet (no effect on the image). Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). <code>CellField.Microtubules_WobbleConeDeg</code>', 0, 90, 1, 0, { adv, show: () => $('mv_mt-orient').value !== '0' }),
-      ] }),
-  ] },
+  ...TARGETS.map(labelGroup),
   { id: 'slots', title: 'Custom dyes', adv, items: [
     { kind: 'html', html: '<p class="sub">Your own dyes (up to three), picked by a structure\'s Dye by their name. Each starts from a library dye; every value can be edited. <code>Fluorophores.DyeN_*</code></p>' },
-    button('addUserDye', '+ Add a dye', 'Adds a custom dye (up to three) and selects it for the microtubules.', { onClick: () => {
+    button('addUserDye', '+ Add a dye', 'Adds a custom dye (up to three) and selects it for the mounted specimen\'s target (the microtubules, the docking strands).', { onClick: () => {
       const n = USER_DYES.added.indexOf(false) + 1;
       if (n < 1) return;
       USER_DYES.added[n - 1] = true;
       refreshUserDyes();
-      const sel = $('mv_mt-dye');
+      const sel = $('mv_' + curPrefix() + '-dye');
       sel.value = String(ND + n - 1);
       sel.dispatchEvent(new Event('input', { bubbles: true }));
       sel.dispatchEvent(new Event('change', { bubbles: true }));
@@ -576,7 +626,7 @@ const UI_GROUPS = [
       ] })];
     }),
   ] },
-  { id: 'ri', title: 'Refractive index & absorption', show: BF, items: [
+  { id: 'ri', title: 'Refractive index & absorption', show: () => BF() && CF(), items: [
     num('mv_bf-n-medium', 'Medium', 'n', 'Refractive index of the medium around the cells. <code>CellField.IndexMedium</code>', 1, 2, 0.001, 1.337, { show: BF, cls: 'bfRow' }),
     num('mv_bf-n-cytoplasm', 'Cytoplasm', 'n', 'Refractive index of the cytoplasm. <code>CellField.IndexCytoplasm</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
     num('mv_bf-n-nucleus', 'Nucleus', 'n', 'Refractive index of the nucleus. <code>CellField.IndexNucleus</code>', 1, 2, 0.001, 1.35, { show: BF, cls: 'bfRow' }),
@@ -713,7 +763,8 @@ const UI_GROUPS = [
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
-const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues,
+const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
+  structure: () => mounted().targets[0].structure,
   dyeName: () => USER_DYES.isUser(mtChoice()) ? USER_DYES.name(USER_DYES.slot(mtChoice())) : choiceDye(mtChoice()).name };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
@@ -1110,7 +1161,9 @@ const els = {};
  'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
- 'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm']
+ 'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
+ 'mv_specimen', 'showRulers', 'origamiDesign', 'origamiDensity', 'origamiMinSpacingNm', 'origamiStrandsPerSpot', 'origamiStrandsPerSpotVal',
+ 'origamiBend', 'origamiLpNm', 'origamiAttachNm', 'origamiLinkerNm', 'origamiRoll', 'origamiRollDeg', 'origamiHeights']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -1176,17 +1229,40 @@ function params() {
     mtMinTurnRadius: Math.max(0, +els.mtMinTurnRadius.value),
     mtMinSeparation: +els.mtMinSeparation.value,
     mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
+    // The DNA-origami nanorulers (the Sample select at 1 = data/specimens.json's Nanorulers = core param specimen 1):
+    // their core params, only then, so a cell field's params (and every cache keyed on them) stay as they were.
+    ...(+els.mv_specimen.value === 1 ? {
+      specimen: 1,
+      origamiDesign: +els.origamiDesign.value,
+      origamiDensity: Math.max(0, +els.origamiDensity.value),
+      origamiMinSpacingNm: Math.max(0, +els.origamiMinSpacingNm.value),
+      origamiStrandsPerSpot: Math.round(+els.origamiStrandsPerSpot.value),
+      origamiBend: els.origamiBend.checked ? 1 : 0,
+      origamiLpNm: Math.max(1, +els.origamiLpNm.value),
+      origamiAttachNm: Math.max(0, +els.origamiAttachNm.value),
+      origamiLinkerNm: Math.max(0, +els.origamiLinkerNm.value),
+      origamiRoll: +els.origamiRoll.value,
+      origamiRollDeg: +els.origamiRollDeg.value,
+      origamiHeights: els.origamiHeights.checked ? 1 : 0,
+    } : {}),
   };
 }
-// The structures' labels as the world needs them for its dyes (issue 16): one per structure (microtubules), the
-// labelled site fraction and the fluorescent fraction of the dye in use (World.setLabels / isc_world_set_label).
+// The structures' labels as the world needs them for its dyes (issue 16): one per structure (data/specimens.json's
+// targets in structure order: microtubules, docking strands), the labelled site fraction and the fluorescent fraction
+// of the dye in use (World.setLabels / isc_world_set_label).
 function labelsForDyes() {
-  const v = +document.getElementById('mv_mt-dye').value, nd = ISC_DYE_DATA.dyes.length;
-  const ffEl = document.getElementById(v < nd ? 'mv_mt-dye.fluorescent-pct' : 'mv_dye' + (v - nd + 1) + '.fluorescent-pct');
-  const base = v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
-  return [{ density: Math.min(1, Math.max(0, +document.getElementById('mv_mt-label-pct').value / 100)),
-    fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d' }];
+  const out = [], nd = ISC_DYE_DATA.dyes.length;
+  for (const t of DYE_UI.targets) {
+    const P = t.prefix, v = +document.getElementById('mv_' + P + '-dye').value;
+    const ffEl = document.getElementById(v < nd ? 'mv_' + P + '-dye.fluorescent-pct' : 'mv_dye' + (v - nd + 1) + '.fluorescent-pct');
+    const base = v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
+    out[t.structure] = { density: Math.min(1, Math.max(0, +document.getElementById('mv_' + P + '-label-pct').value / 100)),
+      fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d' };
+  }
+  return out;
 }
+// The mounted target's label (its dye colour on the dye layer).
+const mountedLabel = () => labelsForDyes()[DYE_UI.structure()];
 
 // Display-only settings of the View group: never part of params(), which keys the worlds and the cell assets.
 const ZCLIP_LO = 0, ZCLIP_HI = 20;   // the Z clip slider's range; its full range means no clip
@@ -1203,13 +1279,18 @@ function viewParams() {
 // registry's layer ids that are shown (web/scene/core.js), each optionally with a style and clip intervals.
 function stateFromUI() {
   const v = viewParams(), p = params(), layers = {};
+  if (els.showDyes.checked) layers['mt.dyes'] = {};   // the mounted target's dyes
+  if (DYE_UI.nanorulers()) {   // a nanoruler world: the rods (the cell layers and the data layers need cells)
+    if (els.showDyes.checked) layers['mt.dyes'] = { style: { size: 3 } };   // a few dozen dyes per µm²: bigger dots
+    if (els.showRulers.checked) layers['ruler.outline'] = {};
+    return sceneState(v, layers);
+  }
   if (els.showCyto.checked) {
     layers['cyto.surface'] = {}; layers['cyto.outline'] = {};
     if (p.showCytoContours) layers['cyto.contours'] = {};
   }
   if (els.showNucleus.checked) layers['nucleus.surface'] = {};
   if (els.showMt.checked) layers['mt.lines'] = {};
-  if (els.showDyes.checked) layers['mt.dyes'] = {};
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
   if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
@@ -1218,6 +1299,9 @@ function stateFromUI() {
   if (slice === 'bf') layers['cell.bfSlice'] = Object.assign({}, sliceStyle);
   if (els.showWfIso.checked) layers['mt.wfIso'] = { style: { level: +els.isoLevel.value } };
   if (els.showLocs.checked) layers['mt.locs'] = { style: { spread: els.locSpread.checked } };
+  return sceneState(v, layers);
+}
+function sceneState(v, layers) {
   return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
     scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, sweep: null, layers,
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
@@ -2284,7 +2368,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 11) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 11');
+  if (M._isc_abi_version() !== 12) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 12');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -2517,6 +2601,17 @@ function iscEngine(M) {
         const sites = query((ptr, cap) => M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, ptr, cap), 5, 65536);
         return [{ type: 'sites', id: d.id, key: d.key, rect: d.rect, sites }, [sites.buffer]];
       }
+      if (d.type === 'origami') {
+        // The DNA-origami molecules (a nanoruler world, ABI 12) meeting a rect: isc_origami_in_window's rows (tx, ty,
+        // i, design, x, y, yaw, roll, endAngle, fold) and each one's bent top-view outline (isc_origami_outline, npt
+        // points of x, y in world um, nPerSide points per long side).
+        const [x0, y0, x1, y1] = d.rect, nps = d.nPerSide || 24, npt = 2 * (nps + Math.max(2, nps >> 2));
+        const mols = query((ptr, cap) => M._isc_origami_in_window(w, x0, y0, x1, y1, ptr, cap), 10, 256);
+        const n = mols.length / 10, outlines = new Float64Array(2 * npt * n);
+        for (let i = 0; i < n; i++)
+          outlines.set(query((ptr, cap) => M._isc_origami_outline(w, mols[10 * i], mols[10 * i + 1], mols[10 * i + 2], nps, ptr, cap), 2, npt), 2 * npt * i);
+        return [{ type: 'origami', id: d.id, key: d.key, rect: d.rect, mols, outlines, npt }, [mols.buffer, outlines.buffer]];
+      }
       if (d.type === 'events') {
         // The blinks of the fluorescent dyes in a box and time window under the movie's labels (d.labels: one whole
         // label per structure, scopeLabels'), as x, y, z, tOn, tOff, brightness, id (7 per blink, of the core's
@@ -2714,6 +2809,7 @@ function initGenWorkers() {
       else if (t === 'movie-progress') onMovieProgress(e.data);
       else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
+      else if (t === 'origami') onOrigamiResult(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
     genWorkers.ok = true;
@@ -2724,7 +2820,7 @@ function disableGenWorkers() {
   genWorkers.ok = false;
   for (const w of [genWorkers.pack, genWorkers.dyes, ...genWorkers.cells]) if (w) w.terminate();
   genWorkers.pack = null; genWorkers.dyes = null; genWorkers.cells = []; genWorkers.busy = [];
-  blockPending.clear(); dyePending = null;
+  blockPending.clear(); dyePending = null; oriPending = null;
   assetInflight.clear();
   startMainEngine();
 }
@@ -3141,7 +3237,8 @@ function renderFrame(st, target) {
   const coreCount = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
   const pxPerUm = cam.S;
   const bg = useGl ? ctxBase : ctxTop;
-  IscScene.setDyeColor(labelsForDyes()[0].color);   // the dye layer's theme colour: the dye's emission
+  IscScene.setDyeColor(mountedLabel().color);   // the dye layer's theme colour: the mounted target's dye's emission
+  const nr = p.specimen === 1;   // a nanoruler world: no cells (no packing), the rods instead
   const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
     mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null,
@@ -3179,7 +3276,7 @@ function renderFrame(st, target) {
 
   const withinCap = coreCount <= CHUNK_CAP;
   let map = new Map(), covers = false;
-  if (withinCap) {
+  if (withinCap && !nr) {
     const pc = genWorkers.ok ? getPackedMapAsync(seed, p, cx0, cy0, cx1, cy1) : getPackedMapSync(seed, p, cx0, cy0, cx1, cy1);
     if (pc) { map = pc.map; covers = !!pc.covers; } // no map yet => empty until the pack worker delivers
   }
@@ -3229,7 +3326,13 @@ function renderFrame(st, target) {
   const kMt = K['mt.lines'];
   if (F.mtW) for (const { asset, hide } of vis) if (asset.mts && !((hide >> kMt) & 1)) nMt += asset.mts.lens.length;
   const wantDyes = Z.n[K['mt.dyes']] > 0;
-  if (wantDyes) labelNote = updateDyes(seed, p, F, vis); else dyeSel = null;
+  if (wantDyes) labelNote = updateDyes(seed, p, F, vis, nr); else dyeSel = null;
+  let nRulers = 0;
+  if (nr && st.layers['ruler.outline']) {   // under the dyes: the GL canvas is above the base canvas
+    const o = updateOrigami(seed, p, F);
+    if (o) labelNote = labelNote ? o + ', ' + labelNote : o;
+    if (!off) nRulers = drawOrigami(F, useGl ? ctxBase : ctxTop);
+  }
   if (useGl) drawSceneGl(far, p, F);
   else if (Object.keys(DATA_KIND).some(id => st.layers[id])) { drawDataGl(F, F.target); drawSurfaceAndLocs(F, F.target); }   // 2D: only what is missing
   if (!useGl) {
@@ -3247,7 +3350,8 @@ function renderFrame(st, target) {
     drawScaleBar(pxPerUm);
     const nDet = vis.filter(v => v.detailed).length;
     hud.textContent = hudHead + '\n' +
-      `chunks ${coreCount}   cells ${nCells} (${vis.length} on screen${scope === 'all' && N > 0 ? `, ${nDet} detailed` : ''})   microtubules ${nMt}` +
+      (nr ? `nanorulers ${nRulers} on screen` + (oriPending ? '   [loading nanorulers…]' : '')
+        : `chunks ${coreCount}   cells ${nCells} (${vis.length} on screen${scope === 'all' && N > 0 ? `, ${nDet} detailed` : ''})   microtubules ${nMt}`) +
       (st.zClip ? `   z ${st.zClip[0]}–${st.zClip[1]} µm` : '') +
       (!coreReady() ? '   [loading core…]' : '') +
       (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
@@ -3625,7 +3729,7 @@ els.dataStatus.addEventListener('click', ev => {
   statusLast = 0;
 });
 els.resetView.addEventListener('click', () => {
-  view.cx = 0; view.cy = 0; view.scale = 9;
+  view.cx = 0; view.cy = 0; view.scale = DYE_UI.nanorulers() ? 150 : 9;
   requestDraw();
 });
 // Random cell: a random point within 2 mm of the origin, then (once its block is packed) centred on the nearest cell.
@@ -3673,7 +3777,7 @@ let dyeCache = null;    // {key, rect, sites, id}
 let dyePending = null;  // {id, key, rect}
 let dyeId = 0;
 let dyeSel = null;      // {key, ox, oy, pts: Float32Array (x - ox, y - oy, z, 0 per dye), n}
-function dyeKey(seed, p) { const l = labelsForDyes()[0]; return assetSig(seed, p) + '|' + l.density + '|' + l.fluorescentFraction; }
+function dyeKey(seed, p) { return assetSig(seed, p) + '|' + labelsForDyes().map(l => l.density + ',' + l.fluorescentFraction).join('|'); }
 function onDyeResult(e) {
   const d = e.data;
   if (!dyePending || d.id !== dyePending.id) return;
@@ -3729,11 +3833,11 @@ function selectDyes(c, cells, key) {
 }
 // Makes sure the right window is cached or on its way, keeps the selection (and its GPU copy) current and draws the
 // x-z marks; returns a HUD note ('' if none).
-function updateDyes(seed, p, F, vis) {
-  const cam = F.cam, st = F.st, dyeColor = labelsForDyes()[0].color;
+function updateDyes(seed, p, F, vis, nr) {
+  const cam = F.cam, st = F.st, dyeColor = mountedLabel().color;
   document.getElementById('dyeSwatch').style.background = dyeColor;
   if (st.ui && cam.S < DYE_MIN_PX_PER_UM) { dyeSel = null; return 'zoom in to show dyes'; }
-  const limit = (st.scope || 'all') !== 'all' || (st.detailCells === undefined ? 5 : st.detailCells) > 0;
+  const limit = !nr && ((st.scope || 'all') !== 'all' || (st.detailCells === undefined ? 5 : st.detailCells) > 0);
   const cells = limit ? vis.filter(v => v.detailed) : null;
   let r = cam.visibleRect();
   if (cells) {
@@ -3819,6 +3923,57 @@ function drawDyes2D(F) {
   return note;
 }
 
+// ---- the DNA-origami nanorulers (a nanoruler world) ----
+// The molecules meeting the view (padded by ORI_PAD views each side) and their bent outlines, from the origami job
+// (isc_origami_in_window + isc_origami_outline), cached until the view leaves that window or a param changes; drawn
+// from above as filled outlines at the rod axis height, under the dyes. Zoomed far out, none (ORI_MAX_AREA_UM2).
+const ORI_PAD = 0.5, ORI_MAX_AREA_UM2 = 40000, ORI_NPS = 24;
+let oriCache = null, oriPending = null, oriId = 0;   // {key, rect, mols (10 per molecule), outlines (2 npt each), npt}
+function onOrigamiResult(d) {
+  if (!oriPending || d.id !== oriPending.id) return;
+  oriPending = null;
+  oriCache = d;
+  hideLoading();   // a nanoruler world packs no cells: its first molecules end the loading note
+  requestDraw();
+}
+// Makes sure the view's window is cached or on its way; returns a HUD note ('' if none).
+function updateOrigami(seed, p, F) {
+  const r = F.cam.visibleRect(), key = assetSig(seed, p);
+  if ((r[2] - r[0]) * (r[3] - r[1]) > ORI_MAX_AREA_UM2) { hideLoading(); return 'zoom in to show the nanorulers'; }
+  const has = c => c && c.key === key && r[0] >= c.rect[0] && r[1] >= c.rect[1] && r[2] <= c.rect[2] && r[3] <= c.rect[3];
+  if (!has(oriCache) && !has(oriPending)) {
+    const px = (r[2] - r[0]) * ORI_PAD, py = (r[3] - r[1]) * ORI_PAD;
+    const job = { type: 'origami', id: ++oriId, key, rect: [r[0] - px, r[1] - py, r[2] + px, r[3] + py], seed, p, nPerSide: ORI_NPS };
+    if (genWorkers.ok) { oriPending = { id: job.id, key, rect: job.rect }; genWorkers.dyes.postMessage(job); }
+    else if (mainEngine) { oriCache = mainEngine.handle(job)[0]; hideLoading(); }
+  }
+  return '';
+}
+// The cached rods in view, one path, one fill (the theme's ruler.outline style); returns how many.
+function drawOrigami(F, g) {
+  const c = oriCache, cam = F.cam, st = F.st;
+  if (!c || c.key !== assetSig((+els.seed.value) | 0, params())) return 0;
+  const d = (self.ISC_ORIGAMI_DESIGNS || [])[+els.origamiDesign.value], z = (+els.origamiAttachNm.value + (d ? d.diameterNm : 13) / 2) / 1000;
+  if (z < F.zc[0] || z > F.zc[1]) return 0;
+  const s = IscScene.resolveStyle(st.theme, 'ruler.outline', st.layers['ruler.outline'].style), col = s.color || [90, 169, 230];
+  const [x0, y0, x1, y1] = cam.visibleRect(), m = 0.15, path = new Path2D(), npt = c.npt;
+  let n = 0;
+  for (let i = 0; i < c.mols.length / 10; i++) {
+    const x = c.mols[10 * i + 4], y = c.mols[10 * i + 5];
+    if (x < x0 - m || x > x1 + m || y < y0 - m || y > y1 + m) continue;
+    for (let k = 0, o = 2 * npt * i; k < npt; k++) {
+      const [sx, sy] = cam.project(c.outlines[o + 2 * k], c.outlines[o + 2 * k + 1], z);
+      if (k) path.lineTo(sx, sy); else path.moveTo(sx, sy);
+    }
+    path.closePath();
+    n++;
+  }
+  g.fillStyle = g.strokeStyle = rgba([...col, s.opacity === undefined ? 1 : s.opacity]);
+  g.lineWidth = F.pxScale; g.lineJoin = 'round';
+  g.fill(path); g.stroke(path);   // the stroke keeps a rod visible (a short line) when it is under a pixel wide
+  return n;
+}
+
 // ---- blink movie ---------------------------------------------------------------
 // "These fluorophore settings, a few frames of blinking here": the dyes under the
 // view centre rendered by the adapter's own render code (isc_scope_movie = the
@@ -3841,16 +3996,20 @@ let movie = null, moviePending = null, movieId = 0, movieRaf = 0, movieLast = 0,
 // ov: values that replace the panel's (any MOVIE_KEYS key, x, y): the data layers' z-stacks.
 function movieSpec(ov) {
   const p = params(), o = [], has = k => ov && ov[k] !== undefined;
-  // A custom dye (USER_DYES): its own fields are the dye, so the structure's per-field rows are not sent; a slot the
-  // user has not added is not sent at all; the structure's "dye's default" mode is the custom dye's default mode.
-  const mtDye = +document.getElementById('mv_mt-dye').value, userSlot = USER_DYES.isUser(mtDye) ? USER_DYES.slot(mtDye) : 0;
+  // A custom dye (USER_DYES): its own fields are the dye, so the target's per-field rows are not sent; a slot the
+  // user has not added is not sent at all; the target's "dye's default" mode is the custom dye's default mode.
+  const userSlot = {};
+  for (const t of DYE_UI.targets) {
+    const v = +document.getElementById('mv_' + t.prefix + '-dye').value;
+    userSlot[t.prefix] = USER_DYES.isUser(v) ? USER_DYES.slot(v) : 0;
+  }
   for (const k of MOVIE_KEYS) {
     let v = has(k) ? ov[k] : document.getElementById('mv_' + k).value;
     if (v === '' || !Number.isFinite(+v)) continue;   // a dye field that does not apply to the dye's mode
-    const slot = /^dye(\d)\./.exec(k);
+    const slot = /^dye(\d)\./.exec(k), tp = /^([a-z]+)-(dye\.|mode$)/.exec(k), us = tp && userSlot[tp[1]];
     if (slot && !USER_DYES.added[+slot[1] - 1]) continue;
-    if (userSlot && k.startsWith('mt-dye.')) continue;
-    if (userSlot && k === 'mt-mode' && +v < 0) v = USER_DYES.modeIndex(userSlot);
+    if (us && tp[2] === 'dye.') continue;
+    if (us && tp[2] === 'mode' && +v < 0) v = USER_DYES.modeIndex(us);
     o.push(k + '=' + (+v));
   }
   if (ov) for (const k in ov) if (k !== 'x' && k !== 'y' && !MOVIE_KEYS.includes(k)) o.push(k + '=' + (+ov[k]));
@@ -3863,7 +4022,7 @@ function movieSpec(ov) {
 }
 // The PSF settings a movie's kernel depends on (the worker memoizes the last two kernels).
 function moviePsfKey() {
-  return ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset']
+  return ['psf-model', 'psf-zernike-preset', 'pixel-nm', DYE_UI.prefix() + '-dye', 'dichroic', 'em-filter', 'camera-preset', 'specimen']
     .map(k => document.getElementById('mv_' + k).value).join() + ',' + document.getElementById('qeFlat').checked;
 }
 // PSF kernel preload: the movie worker computes the kernel of the current PSF settings when the
@@ -3953,7 +4112,7 @@ function makeMovie() {
 // the SMLM splat for blinks, mean-field (FFT) or per dye for continuous populations, the transmitted-light engine.
 function movieBackendsText() {
   if (document.getElementById('mv_modality').value === '1') return 'Rendering BrightField (transmitted light)…';
-  const v = +document.getElementById('mv_mt-dye').value, dye = choiceDyeOf(v), m = +document.getElementById('mv_mt-mode').value;
+  const P = DYE_UI.prefix(), v = +document.getElementById('mv_' + P + '-dye').value, dye = choiceDyeOf(v), m = +document.getElementById('mv_' + P + '-mode').value;
   const user = USER_DYES.isUser(v) ? USER_DYES.slot(v) : 0, MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
   const mode = m >= 0 ? MODES[m] : user ? MODES[USER_DYES.modeIndex(user)] : dye.defaultMode;
   const name = user ? USER_DYES.name(user) : dye.name;
@@ -4126,7 +4285,7 @@ function dataModeOv(kind) {
   if (!mode) return { modality: 1 };
   const ov = { modality: 0 };
   if (mode !== DYE_UI.mtMode()) {
-    ov['mt-mode'] = BLINK_MODES.concat('WideField').indexOf(mode);   // MODE_NAMES order: dSTORM, PALM, DNA-PAINT, WideField
+    ov[DYE_UI.prefix() + '-mode'] = BLINK_MODES.concat('WideField').indexOf(mode);   // MODE_NAMES order: dSTORM, PALM, DNA-PAINT, WideField
     const q = ISC_DYE_DATA.lightPresets.find(q => q.id === DYE_UI.dye().modes[mode].lightPreset);
     if (q) for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(q))) ov[k.slice(3)] = v;
   }
@@ -4748,7 +4907,8 @@ function drawMovieFov() {
   ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
 }
 document.getElementById('mv_make').addEventListener('click', makeMovie);
-for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', 'mt-dye', 'dichroic', 'em-filter', 'camera-preset'])
+for (const k of ['psf-model', 'psf-zernike-preset', 'pixel-nm', ...DYE_UI.targets.map(t => t.prefix + '-dye'), 'dichroic', 'em-filter',
+  'camera-preset', 'specimen'])
   document.getElementById('mv_' + k).addEventListener('change', schedulePrepare);
 // The modality (the BrightField preset) re-applies an EMCCD preset's gain: single-molecule vs WideField/BrightField.
 let lastModality = document.getElementById('mv_modality').value;
@@ -4775,9 +4935,25 @@ const syncQeFlat = () => { document.getElementById('mv_qe').disabled = !document
 document.getElementById('qeFlat').addEventListener('input', () => { syncQeFlat(); schedulePrepare(); });
 syncQeFlat();
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
-for (const k of ['mt-dye', 'mt-label-pct', 'mt-dye.fluorescent-pct', 'dye1.source', 'dye2.source', 'dye3.source',
-  'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
+for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '-label-pct', t.prefix + '-dye.fluorescent-pct']),
+  'dye1.source', 'dye2.source', 'dye3.source', 'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
   document.getElementById('mv_' + k).addEventListener('input', () => requestDraw());
+// The Sample select: a nanoruler world is looked at from much closer (the rods are 200 nm long), with its dyes on;
+// the cell field's buttons hide. Back to the cell field: its default zoom.
+function syncSpecimen() {
+  const nr = DYE_UI.nanorulers();
+  els.randomCell.hidden = els.prevCell.hidden = nr;
+  for (const e of document.querySelectorAll('#legend .cfOnly')) e.hidden = nr;
+  for (const e of document.querySelectorAll('#legend .nrOnly')) e.hidden = !nr;
+}
+els.mv_specimen.addEventListener('input', () => {
+  const nr = DYE_UI.nanorulers();
+  view.scale = nr ? Math.max(view.scale, 150) : Math.min(view.scale, 9);
+  if (nr && !els.showDyes.checked) { els.showDyes.checked = true; els.showDyes.dispatchEvent(new Event('input', { bubbles: true })); }
+  syncSpecimen();
+  requestDraw();
+});
+syncSpecimen();
 
 // ---- PSF preview (Objective & PSF, advanced) ----
 // The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview; in lab.html the JS
@@ -4860,7 +5036,7 @@ async function drawSpecPlot() {
     specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
     const [SM, DL] = await specMods;
     const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-    const L = SM.scopeLabels(spec, lp)[0];
+    const L = SM.scopeLabels(spec, lp)[DYE_UI.structure()];
     const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8, bot = H - 16;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
     const light = document.body.dataset.uiStyle === 'light';
@@ -4891,7 +5067,7 @@ async function drawSpecPlot() {
       g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
     }
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
-    const mtv = +document.getElementById('mv_mt-dye').value;
+    const mtv = +document.getElementById('mv_' + DYE_UI.prefix() + '-dye').value;
     const dyeName = USER_DYES.isUser(mtv) ? USER_DYES.name(USER_DYES.slot(mtv)) : L.dye.name;
     const parts = [`<b>${dyeName}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
     if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);

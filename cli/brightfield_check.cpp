@@ -6,7 +6,7 @@
 
 #include "BrightfieldRender.h"
 #include "Drift.h"
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "Parallel.h"
 
 #include <algorithm>
@@ -88,9 +88,9 @@ void Grating(int S, double eps, double focus, double& got, double& want, double&
    dc = mean / (static_cast<double>(spec.width) * spec.height);
 }
 
-CellFieldSettings World(double occupancy)
+SampleSettings World(double occupancy)
 {
-   CellFieldSettings cf;
+   SampleSettings cf;
    cf.seed = 42u ^ 0x43454C4Cu;
    cf.params = { { "density", occupancy } };
    return cf;
@@ -145,7 +145,7 @@ int main()
 
    // The empty field: no cells, partially coherent: exactly 1 everywhere.
    {
-      CellFieldSource src;
+      SampleSource src;
       std::string err;
       const bool cfgOk = src.Configure(World(0.0), err);
       BrightfieldScene scene;
@@ -165,7 +165,7 @@ int main()
 
    // The real world (cells around the origin), every exposed quality level (1-4).
    {
-      CellFieldSource src;
+      SampleSource src;
       std::string err;
       bool ok = src.Configure(World(0.33), err);
       for (int q = 1; q <= 4 && ok; ++q)
@@ -231,7 +231,7 @@ int main()
    // its spectrum and interpolated on the focus grid, against scenes posed and
    // focused where the drift puts the sample.
    {
-      CellFieldSource src;
+      SampleSource src;
       std::string err;
       bool ok = src.Configure(World(0.33), err);
       auto rms = [](const std::vector<float>& a, const std::vector<float>& b) {

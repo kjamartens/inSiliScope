@@ -104,10 +104,12 @@ public:
    void Log(const std::string& msg, bool debugOnly = true) { LogMessage(msg, debugOnly); }
 
    // ---- couplings (Registry/Couplings.cpp) ----
-   // A dye pick or label mode change: the labelled sites take the mode's
-   // suggestion (on a mode change), the camera its mode gain, the light path
-   // the dye mode's light preset.
-   void LoadMicrotubuleDye(bool modeMayChange);
+   // A dye pick or label mode change of target s (sim::TargetAt): its labelled sites take the mode's suggestion (on a
+   // mode change); if its specimen is mounted, the camera its mode gain and the light path the dye mode's light preset.
+   void LoadTargetDye(int s, bool modeMayChange);
+   // SampleHolder: mounts specimen `index` (data/specimens.json); the camera's mode gain follows its label. A new
+   // world: the illumination history and the drift start afresh (the camera's SyncHistoryWorld).
+   void MountSpecimen(int index);
    void ApplyLightPreset(const std::string& id);
    // Lasers or filters set by hand: the light path is no preset's any more.
    void ClearLightPreset();
@@ -118,7 +120,7 @@ public:
    void ClearDriftPreset();
    void ApplyModeGain();
    void ApplyZernikePreset(const std::string& name);
-   // A dye slot's new source: its edits go; the microtubules reload if they use it.
+   // A dye slot's new source: its edits go; the targets that use it reload.
    void DyeSlotSourceChanged(int slot);
    // The labels a target (structure s) offers in its effective mode: Typical, the library dyes with data in it, and
    // in Expert the custom dyes.

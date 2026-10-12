@@ -7,7 +7,7 @@ C ABI. Keep that and a new feature works in the Micro-Manager adapter, the viewe
 
 | Layer | Directory | Rule |
 |---|---|---|
-| World model (cells, structures, dyes, schedules) | `core/` | C++17, no MMDevice or GPU/OS dependencies, `extern "C"` ABI only |
+| World model (samples: the cell field, the nanorulers; dyes, schedules) | `core/` | C++17, no MMDevice or GPU/OS dependencies, `extern "C"` ABI only |
 | Rendering (PSF, noise, widefield) | `adapter/inSiliScope/Simulation/` | no MM includes; also built by the CLI and the viewer's WASM target |
 | Device adapter | `adapter/inSiliScope/` | MSBuild, MM properties |
 | Viewer | `web/` | generated module + UI |
@@ -21,9 +21,42 @@ C ABI. Keep that and a new feature works in the Micro-Manager adapter, the viewe
 3. Generate in *blocks* with a stable address so a window query touches only the blocks it needs; cache them in an LRU.
 4. Expose the sites through the existing dye/event queries, so both modalities pick it up.
 5. Add `world_checks` cases: order independence, tiling, 8 threads = 1 thread.
-6. Document the model on a page under `docs/physics/` (equations, parameters with units and defaults, sources, limits).
+6. Document the model on its sample's pages under `docs/samples/` (equations, parameters with units and defaults,
+   sources, limits).
 7. Show it in the overview: add its geometry to `ScopeGeometryJson` (`Simulation/ScopeMovie.cpp`, `insiliscope_cli
    --geometry-json`) and one draw function to `STRUCTURE_LAYERS` in `tools/build_overview.py`.
+
+## Recipe: a new sample
+
+A sample (*specimen* in the code) is a geometry source; the photophysics, light path, PSF and camera are shared. The
+nanorulers (`core/src/origami.*`) are the worked example.
+
+1. **Core:** a param `specimen` value; the world builds the sample's geometry from it (`World` in `core/src/world.cpp`
+   branches on it: an origami world holds an `OrigamiField`) and yields its sites as dye blocks with their own address
+   (`BlockKey`), structure id and draws, so the event, continuous, density and site queries work unchanged. Its
+   params in `Params`/`kFields` (`core/src/params.*`), skipped by `PackingFingerprint`; queries of its own for the hosts
+   (ABI: `isc_origami_*`); `world_checks` cases (determinism under any query order, tiling, statistics); the golden
+   vectors re-frozen with its lines added. Everything has a bit-exact JS twin in `web/prototype/scope/` first
+   (iteration mode, `web/lab/README.md`).
+2. **Registry:** an entry in `data/specimens.json` with its targets (option prefix, core structure id; a new structure
+   id raises `ISC_STRUCT_COUNT`) and their `typicalLabels` in `data/dyes/library.json`; `node tools/gen_dye_library.mjs`.
+3. **Engine:** its params as options (`ScopeSpecimenParams` in `Simulation/ScopeMovie.cpp` and its JS twin); the
+   per-target label options come from the registry by themselves. A `scope_parity.mjs` case and a cli ctest.
+4. **Viewer and block:** an option group shown for it (`show:` predicates in `web/index.html`), its drawing (a worker
+   job and a layer in `web/scene/core.js`), `buildWindow({specimen})` in `tools/make_cellfield_block.mjs`.
+5. **Micro-Manager:** a device for it (`spec/MM_DEVICES.md` "A new specimen"); `SampleHolder` lists it by itself;
+   `tools/test_specimens.py`.
+6. **Docs:** a page under `docs/samples/`, a row in [Samples](samples/index.md), figures
+   (`tools/physics_figures/<page>.py`) and a gallery entry.
+
+## Recipe: a new DNA-origami design
+
+A design is data: add it to `data/origami/designs.json` (body, deformation, landing, spots with a ring; schema in its
+`about`), run `node tools/gen_origami_designs.mjs` (validates it and writes the core's, the JS reference's and the
+viewer's tables; `--check` in CI) and re-freeze the golden vectors if a golden case uses it. Its index is the
+`origamiDesign` param; the viewer, Micro-Manager (`Nanorulers.Design`) and the CLI list it by itself. A body, deformation
+or landing model the code does not implement yet (cuboid, 3D bending, stiffness patches, ...) is validated as "not
+implemented": add it to `origami.js` and `origami.cpp` together.
 
 ## Recipe: a new photophysics preset
 
@@ -87,4 +120,6 @@ build and test; update `spec/` and delete `PORT_PENDING.md` in that commit.
 - ctest passes natively and under WASM (see `CLAUDE.md`);
 - `node tools/embed_web_module.mjs --check` is clean (regenerate after a core change);
 - adapter output unchanged by a refactor: `tools/adapter_pixel_hash.py` before and after;
-- docs and the gallery updated.
+- docs and the gallery updated;
+- Micro-Manager: `tools/test_insiliscope.py`, `test_cellfield_stage.py`, `test_history.py`, `test_specimens.py`,
+  `test_mm_configs.py` (see `CLAUDE.md`).

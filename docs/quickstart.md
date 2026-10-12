@@ -13,11 +13,13 @@ Open the [viewer](try-viewer.md). Nothing to install.
    `RichardsWolf` and `GibsonLanni` models (the DLL embeds PSFGenerator and starts, or attaches to, a JVM).
 2. Start Micro-Manager with `inSiliScope_Basic.cfg`. It loads the hub `inSiliScope` and one device per part of the
    microscope: `Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, `Lasers`, `TransmittedLamp`,
-   `SampleHolder`, `CellField`, `Fluorophores` and `Renderer`, with the config groups
-    - `Channel`: one preset per label mode with its typical dye (`AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
-      `mEGFP WideField`) and `BrightField`;
+   `SampleHolder`, `CellField`, `Nanorulers`, `Fluorophores` and `Renderer`, with the config groups
+    - `Channel`: one preset per label mode with the cell field's typical dye (`AF647 dSTORM`, `mEos3.2 PALM`,
+      `ATTO655 DNA-PAINT`, `mEGFP WideField`; the nanorulers' docking strands take their own typical dye in that mode)
+      and `BrightField`;
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
-      `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`;
+      `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`
+      (`CellField` / `Nanorulers`, the `SampleHolder` position);
       **Quality also sets how much of each blink's PSF halo is drawn**: Fast and Realistic leave out pixels below 1e-5
       and 3e-6 of the emitter's photons, Exhaustive draws the whole kernel ([the halo cut](physics/optics.md));
     - and the pixel-size calibration of every objective and camera.
@@ -27,10 +29,17 @@ Open the [viewer](try-viewer.md). Nothing to install.
    (Basic, Advanced, Expert) decides which properties a session shows; to build a configuration of your own, add the
    hub `inSiliScope` in the Hardware Configuration Wizard, then its devices.
 3. Take a snapshot of the cell field, move the XY stage, change the Z stage. The Z stage position is the focal plane
-   height above the coverslip (0 = coverslip in focus; it starts at 0.5 um).
+   height above the coverslip (0 = coverslip in focus; it starts at 0.5 um). The `Specimen` group (or `SampleHolder`)
+   mounts the [DNA-origami nanorulers](samples/nanorulers/index.md) instead: set the Z stage to about 0.02 um (their
+   dyes lie 13.5 nm above the glass); the `Nanorulers` device sets their design, density and docking strands per spot
+   (Advanced: the bending's persistence length, the landing). Mounting a sample is a new sample: the lit history and
+   the drift start afresh.
 4. Pick a `Channel`: the label mode and its typical dye; the lasers and the filter cube follow (`Lasers.Preset`).
-   `CellField.Microtubules_Label` offers the other dyes with data for the mode (`Fluorophores.Mode`); custom dyes are
-   `Fluorophores.Dye1..3_*` (Expert).
+   `CellField.Microtubules_Label` (the nanorulers: `Nanorulers.Docking_Label`) offers the other dyes with data for the
+   mode (`Fluorophores.Mode`); custom dyes are `Fluorophores.Dye1..3_*` (Expert). In DNA-PAINT,
+   `CellField.Microtubules_ImagerNanoMol` / `Nanorulers.Docking_ImagerNanoMol` (Advanced: the imager concentration in
+   the buffer, default 1 nM for the microtubules, 20 nM for the nanorulers) sets how many sites blink per frame: binding events per site per second = k<sub>on</sub>
+   × c, from the moment it changes. More imager means denser frames and more free-imager background.
 5. The light comes from the shutters: `Lasers` (fluorescence) and `TransmittedLamp` (BrightField). With both open
    (the Utilities `Multi Shutter`, as in the Advanced channel `mEGFP WideField + BrightField`) the camera sums the two;
    with none open it takes dark frames. The autoshutter opens the Core-Shutter for each image.
@@ -64,6 +73,7 @@ core.snapImage(); img = core.getImage()
 cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/native --target insiliscope_cli
 build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128 --seed 42
+build/native/cli/insiliscope_cli --specimen Nanorulers --out rulers.tif --frames 1000 --size 64 --exposure-ms 100
 build/native/cli/insiliscope_cli --help          # every option and its default
 build/native/cli/insiliscope_cli --prepare 1 --disk-cache 2   # warm the caches (world, cells, PSF kernel), no movie
 ```
@@ -75,7 +85,9 @@ frame to `movie.drift.csv`.
 The CLI keeps the packed cell positions in the same per-user cache directory as the adapter (`--disk-cache 1`, the
 default); `--disk-cache 2` adds the PSF kernel, `0` writes nothing.
 
-The [physics pages](physics/world-model.md)' figures are made with the CLI's diagnostic outputs, which change no movie:
+`--specimen Nanorulers` mounts the DNA-origami nanorulers (their options `--origami-*` and the docking strands' label
+`--ruler-*`; without `--z` the focus is on their dyes). The [samples and physics pages](samples/index.md)' figures are
+made with the CLI's diagnostic outputs, which change no movie:
 the expected photons before the camera (`--photons-out`; with `--history-before` for a sample lit under other settings
 before the movie, as Micro-Manager's illumination history keeps it), the PSF kernel and pupil (`--psf-out`), one blink as a movie
 splats it (`--splat-out`), the resolved light path and camera (`--setup-json`), dye sites and schedules (`--dyes-json`),

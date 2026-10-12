@@ -57,7 +57,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const groups = [];
   const groupOf = new Map();   // `${s},${'main'|'pre'}` -> group
   const wanted = [];
+  // Only the mounted specimen's labels (S.mounted): another specimen's structures have no sites in this world.
   S.labels.forEach((L, s) => {
+    if (!S.mounted.includes(s)) return;
     for (const role of ['main', 'pre']) {
       const st = L.states[role];
       if (st && st.detectedFraction >= MIN_DETECTED_FRACTION && st.detectedPerSec > 0) wanted.push({ s, role, st });
@@ -76,7 +78,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
 
   // ---- blink mean-field frames (BlinkExpectation.cpp), decided before the query from the expected ON emitters at
   // start-sec: such a frame draws no events, a movie mean-field throughout queries none ----
-  const anyBlinks = S.labels.some(L => L.mode !== 'WideField');
+  const anyBlinks = S.labels.some((L, s) => S.mounted.includes(s) && L.mode !== 'WideField');
   const fovArea = W * H * um * um, BM = S.blinkMeanField;
   const blinkMfPossible = BM.densityPerUm2 < 1e9 || BM.maxEmitters < 1e9;
   let queryBlinks = false;
@@ -121,6 +123,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const focus = S.q.zCullCentreUm, slabHalf = S.meanField.slabNm / 2000;
   const [zMin, zMax] = S.q.zHalfRangeUm > 0 ? [focus - S.q.zHalfRangeUm, focus + S.q.zHalfRangeUm] : [-Infinity, Infinity];
   S.labels.forEach((L, s) => {
+    if (!S.mounted.includes(s)) return;
     const states = [];
     if (L.mode === 'WideField') states.push(EVENT_STATE.ALWAYS_ON);
     if (L.mode === 'dSTORM' && L.label.kinetics.initialOnSec > 0) states.push(EVENT_STATE.INITIAL_ON);
@@ -202,7 +205,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   };
   let binnedFrames = 0;
   const maps = noiseMaps(S.seed, W, H, S.cam);
-  const imagerPerFrame = S.labels.reduce((sum, L) => sum + L.imagerBackgroundPerPxPerSec(um), 0) * S.expSec;
+  const imagerPerFrame = S.labels.reduce((sum, L, s) => sum + (S.mounted.includes(s) ? L.imagerBackgroundPerPxPerSec(um) : 0), 0) * S.expSec;
   const bg = S.p.backgroundPhotons + imagerPerFrame;
   let blinks = 0;
   const POP_NAME = { [EVENT_STATE.ALWAYS_ON]: 'WideField dyes', [EVENT_STATE.INITIAL_ON]: 'initial ON', [EVENT_STATE.PRE]: 'pre state' };
@@ -284,9 +287,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, binnedFrames, psfSec: (tPsf - t0) / 1000, querySec,
     totalSec: (performance.now() - t0) / 1000, psf: groups.some(g => g.kernel) ? 'GibsonLanniZernike' : 'Gaussian',
     imagerBackgroundPerPxPerFrame: imagerPerFrame, driftNm: driftInfo(S),
-    labels: S.labels.map((L, s) => ({ structure: STRUCTURES[s].id, dye: L.dye.id, mode: L.mode, kActPerSec: L.kActPerSec,
+    labels: S.labels.flatMap((L, s) => !S.mounted.includes(s) ? [] : [{ structure: STRUCTURES[s].id, dye: L.dye.id, mode: L.mode, kActPerSec: L.kActPerSec,
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
-        detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) })),
+        detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) }]),
     groups: groups.map(g => ({ structure: g.structure, role: g.role, lambdaNm: g.lambdaNm, perFrame: g.perFrame })),
     populations: pops.filter(p => !p.blink).map(p => ({ structure: p.structure, state: p.state, dyes: p.nZ, inSlab: p.nSlab,
       meanFieldFrames: p.meanFieldFrames, perDyeFrames: p.perDyeFrames })),

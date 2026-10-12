@@ -32,7 +32,7 @@ per-structure overrides.
 |---|---|---|
 | dSTORM | an initial ON phase (all dyes on, Exp(`initial-on-sec`)), then blinks until bleached | blinks; the initial ON as a continuous population |
 | PALM | optional pre-converted state (e.g. mEos3.2 green) until activation, then blinks | blinks; the pre state as a continuous population |
-| DNA-PAINT | persistent binding sites: imager binds at \(k_{on} c\), never bleaches | blinks, plus the free imager's background |
+| DNA-PAINT | persistent binding sites: imager binds at \(k_{on} c\), never bleaches (\(k_{on}\) and the bound time are the target's: [photophysics](photophysics.md#dna-paint)) | blinks, plus the free imager's background |
 | WideField | every dye emits from \(t=0\) and bleaches by its photon budget | a continuous population |
 
 Changing the mode sets the labelled share of the binding sites to the mode's suggestion (DNA-PAINT 70 %, dSTORM 3 %,
@@ -79,7 +79,7 @@ activates at the spontaneous rate plus \(a_{405} I_{405}\) plus, for primed conv
 470-510 nm and 690-780 nm intensities [[dempsey2015](../references.md#dempsey2015),
 [turkowyd2017](../references.md#turkowyd2017)] (the PALM rate coefficients are *estimates*). DNA-PAINT blinks at
 \(k_{on} c\) [[jungmann2010](../references.md#jungmann2010)] (\(k_{on}\) of the order of \(10^6\) /M/s, an *estimate*),
-with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNm`).
+with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_ImagerNanoMol`).
 
 ## Light-path presets
 

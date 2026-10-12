@@ -9,6 +9,7 @@
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
+#include "origami.h"
 #include "parallel.h"
 #include "params.h"
 #include "world.h"
@@ -40,6 +41,16 @@ void Check(bool ok, const char* what)
 }
 
 const double INF = std::numeric_limits<double>::infinity();
+
+// World::SetKineticsHistory with one kinetics per segment, used for every structure (it takes
+// STRUCTURE_COUNT per segment, kin[i * STRUCTURE_COUNT + s]).
+bool SetHist(World& w, const std::vector<double>& tStart, const std::vector<Kinetics>& perSegment)
+{
+   std::vector<Kinetics> kin;
+   for (const Kinetics& k : perSegment)
+      for (int s = 0; s < STRUCTURE_COUNT; s++) kin.push_back(k);
+   return w.SetKineticsHistory(tStart, kin);
+}
 
 bool SameDyes(const std::vector<WorldDye>& a, const std::vector<WorldDye>& b)
 {
@@ -340,7 +351,7 @@ void CApi()
    };
    Check(tryBad(ISC_LABEL_ACTIVATION_RATE, -1) == -1 && tryBad(ISC_LABEL_ON_SEC, 0) == -1 && tryBad(ISC_LABEL_MODE, 4) == -1 &&
             tryBad(ISC_LABEL_MODE, 1.5) == -1 && tryBad(ISC_LABEL_ORIENT_MODE, 3) == -1 &&
-            isc_world_set_label(w, 1, v, ISC_LABEL_COUNT) == -1 && isc_world_set_label(w, 0, v, ISC_LABEL_COUNT + 1) == -1,
+            isc_world_set_label(w, ISC_STRUCT_COUNT, v, ISC_LABEL_COUNT) == -1 && isc_world_set_label(w, 0, v, ISC_LABEL_COUNT + 1) == -1,
          "C ABI: bad labels rejected (-1)");
    std::memcpy(bad, v, sizeof v);
    bad[ISC_LABEL_MODE] = ISC_MODE_DSTORM; bad[ISC_LABEL_PRE_STATE] = 1;
@@ -434,7 +445,7 @@ void Density3d()
    const int32_t ni = isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 1, 1, all.data());
    Check(slab == flat && ns > 0 && ni >= na, "density3d: nz = 1 slab equals the 2D query");
    Check(isc_density3d_in_window(w, x0, y0, x1, y1, -INF, INF, nx, ny, 2, 1, all.data()) == -1 &&
-            isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 2, all.data()) == -1 &&
+            isc_density3d_in_window(w, x0, y0, x1, y1, zLo, zHi, nx, ny, nz, 1 << ISC_STRUCT_COUNT, all.data()) == -1 &&
             isc_density3d_in_window(w, x0, y0, x1, y1, zHi, zLo, nx, ny, nz, 1, all.data()) == -1,
          "density3d: bad arguments rejected (unknown structure bit too)");
    isc_world_free(w);
@@ -910,7 +921,7 @@ void LabelModel()
       const double d0 = w.GetLabel(STRUCTURE_MT).density;
       Check(ValidateLabel(m) && LabelNotImplemented(m) && ValidateLabel(o) && LabelNotImplemented(o) && ValidateLabel(pr) &&
                !LabelNotImplemented(pr) && !w.SetLabel(STRUCTURE_MT, m) && !w.SetLabel(STRUCTURE_MT, pr) &&
-               !w.SetLabel(1, Label()) && w.GetLabel(STRUCTURE_MT).density == d0 && !ValidateLabel(Label()),
+               !w.SetLabel(STRUCTURE_COUNT, Label()) && w.GetLabel(STRUCTURE_MT).density == d0 && !ValidateLabel(Label()),
             "labels: SPT motion, off-target and a non-PALM pre state refused (nothing changes)");
    }
 }
@@ -937,7 +948,7 @@ bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEv
 // ABI 11: a kinetics history (piecewise-constant rates in clock time). One
 // segment = no history; a segment appended at T leaves everything before T as
 // it was; the new rates act after T (PALM activation off, dSTORM 10x faster,
-// DNA-PAINT from the next bin); two histories alternating on one world (the
+// DNA-PAINT at once); two histories alternating on one world (the
 // parked schedule slots) answer as fresh worlds.
 void KineticsHistoryChecks()
 {
@@ -977,10 +988,10 @@ void KineticsHistoryChecks()
                           { "DNA-PAINT", MakeLabel(LabelMode::DnaPaint, 0.3, dp) } };
    for (const Case& c : cases) {
       World plain = LabelledWorld(seed, p, c.l), one = LabelledWorld(seed, p, c.l), two = LabelledWorld(seed, p, c.l);
-      Check(one.SetKineticsHistory({ 0.0 }, { c.l.kin }), "SetKineticsHistory: one segment accepted");
+      Check(SetHist(one, { 0.0 }, { c.l.kin }), "SetKineticsHistory: one segment accepted");
       Kinetics k2 = c.l.kin;
       k2.activationRatePerSec *= 3; k2.onSec *= 0.2; k2.offSec *= 0.5; k2.bleachProb = 0.9;
-      Check(two.SetKineticsHistory({ 0.0, T }, { c.l.kin, k2 }), "SetKineticsHistory: two segments accepted");
+      Check(SetHist(two, { 0.0, T }, { c.l.kin, k2 }), "SetKineticsHistory: two segments accepted");
       const auto e0 = events(plain, 0, 100), e1 = events(one, 0, 100), e2 = events(two, 0, 100);
       const bool same1 = IdenticalEvents(e0, e1) && IdenticalEvents(cont(plain), cont(one));
       const bool prefix = SameEvents(before(e0, T), before(e2, T)) && !SameEvents(e0, e2);
@@ -994,8 +1005,8 @@ void KineticsHistoryChecks()
       World w = LabelledWorld(seed, p, palm);
       Kinetics bad = kin;
       bad.onSec = 0;
-      Check(!w.SetKineticsHistory({ 1.0 }, { kin }) && !w.SetKineticsHistory({ 0.0, 0.0 }, { kin, kin }) &&
-               !w.SetKineticsHistory({ 0.0 }, { bad }) && !w.SetKineticsHistory({ 0.0 }, {}) && !w.HistoryOf(0),
+      Check(!SetHist(w, { 1.0 }, { kin }) && !SetHist(w, { 0.0, 0.0 }, { kin, kin }) &&
+               !SetHist(w, { 0.0 }, { bad }) && !SetHist(w, { 0.0 }, {}) && !w.HistoryOf(0),
             "kinetics history: a bad history is refused");
    }
    // PALM, UV off at T: no activation after T (each pre window ends by T or never), activated dyes still blink.
@@ -1003,7 +1014,7 @@ void KineticsHistoryChecks()
       World w = LabelledWorld(seed, p, palm);
       Kinetics off = kin;
       off.activationRatePerSec = 0;
-      w.SetKineticsHistory({ 0.0, T }, { kin, off });
+      SetHist(w, { 0.0, T }, { kin, off });
       bool ok = true;
       size_t pending = 0;
       for (const WorldEvent& e : cont(w))
@@ -1019,7 +1030,7 @@ void KineticsHistoryChecks()
       Kinetics fast = kin;
       fast.onSec = kin.onSec / 10; fast.offSec = kin.offSec / 10;
       World w = LabelledWorld(seed, p, MakeLabel(LabelMode::dSTORM, 0.1, kin));
-      w.SetKineticsHistory({ 0.0, T }, { kin, fast });
+      SetHist(w, { 0.0, T }, { kin, fast });
       double m = 0, mb = 0;
       size_t n = 0, nb = 0;
       for (const WorldEvent& e : events(w, 0, T + 20)) {
@@ -1033,13 +1044,14 @@ void KineticsHistoryChecks()
       Check(n > 50 && nb > 50 && std::fabs(m / fast.onSec - 1) < 0.25 && std::fabs(mb / kin.onSec - 1) < 0.25,
             "kinetics history: dSTORM ON times follow the segment they start in");
    }
-   // DNA-PAINT, imager x10 at 60.4 s: bin 60 as without the change, bins from 61 busier.
+   // DNA-PAINT, imager x10 at 60.4 s: the blinks before it as without the change, busier from 60.4 s on (at once,
+   // not from the next bin).
    {
       Label l = MakeLabel(LabelMode::DnaPaint, 0.3, dp);
       Kinetics more = dp;
       more.activationRatePerSec = dp.activationRatePerSec * 10;
       World a = LabelledWorld(seed, p, l), b = LabelledWorld(seed, p, l);
-      b.SetKineticsHistory({ 0.0, 60.4 }, { dp, more });
+      SetHist(b, { 0.0, 60.4 }, { dp, more });
       auto inBin = [](std::vector<WorldEvent> e, double lo, double hi) {
          e.erase(std::remove_if(e.begin(), e.end(), [&](const WorldEvent& x) { return !(x.tOn >= lo && x.tOn < hi); }),
                  e.end());
@@ -1047,10 +1059,12 @@ void KineticsHistoryChecks()
       };
       const auto ea = events(a, 59, 64), eb = events(b, 59, 64);
       const size_t na = inBin(ea, 61, 63).size(), nb = inBin(eb, 61, 63).size();
-      const bool bin60 = SameEvents(inBin(ea, 60, 61), inBin(eb, 60, 61));
-      std::printf("      DNA-PAINT, imager x10 at 60.4 s: bin 60 %s, %zu -> %zu blinks starting in [61, 63)\n",
-                  bin60 ? "unchanged" : "CHANGED", na, nb);
-      Check(bin60 && nb > 5 * na && na > 0, "kinetics history: DNA-PAINT rates change at the next bin");
+      const size_t nPa = inBin(ea, 60.4, 61).size(), nPb = inBin(eb, 60.4, 61).size();
+      const bool before = SameEvents(inBin(ea, 0, 60.4), inBin(eb, 0, 60.4));
+      std::printf("      DNA-PAINT, imager x10 at 60.4 s: before it %s, %zu -> %zu blinks starting in [60.4, 61), "
+                  "%zu -> %zu in [61, 63)\n", before ? "unchanged" : "CHANGED", nPa, nPb, na, nb);
+      Check(before && nb > 5 * na && na > 0 && nPb > 3 * std::max<size_t>(nPa, 1),
+            "kinetics history: a DNA-PAINT rate change acts at once, the blinks before it stay");
    }
    // Two histories alternating on one world = fresh worlds (PALM and DNA-PAINT).
    for (const Case& c : { cases[0], cases[2] }) {
@@ -1059,24 +1073,24 @@ void KineticsHistoryChecks()
       const std::vector<double> tA = { 0.0, 20.0 }, tB = { 0.0, 40.0 };
       const std::vector<Kinetics> kA = { c.l.kin, k2 }, kB = { k2, c.l.kin };
       World w = LabelledWorld(seed, p, c.l), fa = LabelledWorld(seed, p, c.l), fb = LabelledWorld(seed, p, c.l);
-      fa.SetKineticsHistory(tA, kA);
-      fb.SetKineticsHistory(tB, kB);
+      SetHist(fa, tA, kA);
+      SetHist(fb, tB, kB);
       const auto ra = events(fa, 50, 50.5), rb = events(fb, 50, 50.5);
       World fresh = LabelledWorld(seed, p, c.l);
       const auto r0 = events(fresh, 50, 50.5);
       bool ok = true;
       for (int i = 0; i < 6; i++) {
          const bool useA = i % 2 == 0;
-         w.SetKineticsHistory(useA ? tA : tB, useA ? kA : kB);
+         SetHist(w, useA ? tA : tB, useA ? kA : kB);
          ok = ok && IdenticalEvents(events(w, 50, 50.5), useA ? ra : rb);
       }
-      w.SetKineticsHistory({}, {});
+      SetHist(w, {}, {});
       ok = ok && !w.HistoryOf(0) && IdenticalEvents(events(w, 50, 50.5), r0);
       std::printf("      %s: histories A, B alternating x3, then none: %s\n", c.name, ok ? "as fresh worlds" : "DIFFERENT");
       Check(ok, "kinetics history: alternating histories on one world = fresh worlds");
       // A label change of the kinetics alone keeps the schedules made under a
       // history (they never read it): the answers stay those of fresh worlds.
-      w.SetKineticsHistory(tA, kA);
+      SetHist(w, tA, kA);
       events(w, 50, 50.5);
       Label l2 = c.l;
       l2.kin.activationRatePerSec *= 2;
@@ -1084,7 +1098,7 @@ void KineticsHistoryChecks()
       w.SetLabel(0, l2);
       World f2 = LabelledWorld(seed, p, l2);
       bool ok2 = IdenticalEvents(events(w, 50, 50.5), ra);
-      w.SetKineticsHistory({}, {});
+      SetHist(w, {}, {});
       ok2 = ok2 && IdenticalEvents(events(w, 50, 50.5), events(f2, 50, 50.5));
       std::printf("      %s: a kinetics-only label change under a history: %s\n", c.name,
                   ok2 ? "as fresh worlds" : "DIFFERENT");
@@ -1558,6 +1572,237 @@ void NoContraction()
    Check(r == 1.490116119384765625e-8, "no floating-point contraction (x*x - 1 with x = 1 + 2^-27 is exactly 2^-26)");
 }
 
+// ABI 12: the DNA-origami nanorulers (origami.h; the JS twin's checks are web/lab/origami_check.mjs, the equality
+// with it is label_parity.mjs and the golden 'origami' lines). The shape's invariants and its worm-like-chain
+// statistics, the field's Matern spacing and density, a nanoruler World: sites independent of the query history,
+// structure 1 only, the strand subset and incorporation, no cells, 8 threads = 1 thread, and the C ABI rows.
+void Origami()
+{
+   const OrigamiDesign& d = OrigamiDesignAt(0);
+   const double L = d.lengthNm, D = d.diameterNm, R = D / 2;
+   auto P = [](std::initializer_list<std::pair<const char*, double>> kv) {
+      Params p;
+      p.specimen = SPECIMEN_NANORULERS;
+      for (const auto& e : kv) SetParam(p, e.first, e.second);
+      NormalizeOrigamiParams(p);
+      return p;
+   };
+   auto mol = [](uint32_t h1) { OrigamiMolecule m{}; m.h1 = h1; return m; };
+   // Geometry: rigid = identity, sites on the surface, rings centred, 2D height.
+   {
+      const OrigamiShape S = OrigamiBentShape(d, P({ { "origamiBend", 0 } }), 1);
+      double e = 0;
+      for (int j = 0; j < 500; j++) {
+         const double x = (std::fmod(j * 0.6180339887, 1.0) - 0.5) * L, y = (std::fmod(j * 0.7548776662, 1.0) - 0.5) * D;
+         double X, Y;
+         OrigamiTransform(S, x, y, X, Y);
+         e = std::max(e, std::max(std::fabs(X - x), std::fabs(Y - y)));
+      }
+      Check(e < 1e-9, "origami: a rigid rod maps to itself");
+   }
+   {
+      const Params p = P({ { "origamiLpNm", 273.1 }, { "origamiLinkerNm", 0 }, { "origamiHeights", 1 }, { "origamiAttachNm", 0 } });
+      const OrigamiShape S = OrigamiBentShape(d, p, 3);
+      std::vector<OrigamiSite> sites;
+      OrigamiMoleculeSites(d, p, mol(3), S, 1, 1, sites, true);
+      double lo = INF, hi = 0, centre = 0;
+      for (const OrigamiSite& s : sites) {
+         double cx, cy, th;
+         OrigamiCenterline(S, s.rest[0], cx, cy, th);
+         const double r = jsm::hypot(jsm::hypot(s.bent[0] - cx, s.bent[1] - cy), s.z * 1000 - R);
+         lo = std::min(lo, r);
+         hi = std::max(hi, r);
+      }
+      for (int k = 0; k < d.nSpots; k++) {
+         double sx = 0, sy = 0;
+         int n = 0;
+         for (const OrigamiSite& s : sites)
+            if (s.k == k) { sx += s.bent[0]; sy += s.bent[1]; n++; }
+         double ax, ay, th;
+         OrigamiCenterline(S, d.spots[k].atNm - L / 2, ax, ay, th);
+         centre = std::max(centre, jsm::hypot(sx / n - ax, sy / n - ay));
+      }
+      std::printf("      sites %.9f-%.9f nm from the axis, ring centres %.1e nm off it\n", lo, hi, centre);
+      Check(sites.size() == 15 && std::fabs(lo - R) < 1e-9 && std::fabs(hi - R) < 1e-9 && centre < 1e-9,
+            "origami: 15 designed strands on the rod surface, each ring centred on the axis");
+      const Params q = P({});
+      sites.clear();
+      OrigamiMoleculeSites(d, q, mol(5), OrigamiBentShape(d, q, 5), 1, 1, sites, true);
+      bool flat = !sites.empty();
+      for (const OrigamiSite& s : sites) flat = flat && s.z == (q.origamiAttachNm + R) / 1000;
+      Check(flat, "origami: 2D, every strand at attach + D/2");
+   }
+   // Statistics at the default Lp (1500 nm): end angle, tangent correlation, spot distances vs the 2D WLC.
+   {
+      const Params p = P({ { "origamiLinkerNm", 0 } });
+      const double Lp = p.origamiLpNm;
+      const int M = 4000;
+      double e1 = 0, e2 = 0;
+      double corr[9] = {};
+      double d2[3] = {};
+      const int pa[3] = { 0, 1, 0 }, pb[3] = { 1, 2, 2 };
+      for (int j = 0; j < M; j++) {
+         const uint32_t h = OrigamiMoleculeH1(42, j, 0, 0);
+         const OrigamiShape S = OrigamiBentShape(d, p, h);
+         e1 += S.endAngle;
+         e2 += S.endAngle * S.endAngle;
+         double X, Y, th0, th;
+         OrigamiCenterline(S, -L / 2, X, Y, th0);
+         for (int q = 0; q <= 8; q++) {
+            OrigamiCenterline(S, -L / 2 + L * q / 8, X, Y, th);
+            corr[q] += std::cos(th - th0);
+         }
+         std::vector<OrigamiSite> sites;
+         OrigamiMoleculeSites(d, p, mol(h), S, 1, 1, sites, true);
+         double c[3][2] = {};
+         for (const OrigamiSite& s : sites) { c[s.k][0] += s.bent[0] / 5; c[s.k][1] += s.bent[1] / 5; }
+         for (int q = 0; q < 3; q++) {
+            const double dx = c[pa[q]][0] - c[pb[q]][0], dy = c[pa[q]][1] - c[pb[q]][1];
+            d2[q] += dx * dx + dy * dy;
+         }
+      }
+      const double mean = e1 / M, sd = std::sqrt(e2 / M - mean * mean), pred = std::sqrt(L / Lp);
+      std::printf("      Lp %.0f nm: end angle RMS %.2f deg (theory %.2f)\n", Lp, sd * 180 / jsm::PI, pred * 180 / jsm::PI);
+      Check(std::fabs(sd / pred - 1) < 0.04, "origami: end-angle RMS = sqrt(L/Lp) within 4 %");
+      double dev = 0;
+      for (int q = 0; q <= 8; q++) dev = std::max(dev, std::fabs(corr[q] / M - std::exp(-(L * q / 8) / (2 * Lp))));
+      Check(dev < 0.02, "origami: tangent correlation = exp(-s/2Lp) within 0.02");
+      bool ok = true;
+      for (int q = 0; q < 3; q++) {
+         const double s = d.spots[pb[q]].atNm - d.spots[pa[q]].atNm;
+         const double th = std::sqrt(4 * Lp * s * (1 - (2 * Lp / s) * (1 - std::exp(-s / (2 * Lp)))));
+         const double rms = std::sqrt(d2[q] / M);
+         std::printf("      spots %d-%d: RMS distance %.3f nm, 2D WLC %.3f nm\n", pa[q], pb[q], rms, th);
+         ok = ok && std::fabs(rms / th - 1) < 0.005;
+      }
+      Check(ok, "origami: spot distances match the 2D worm-like chain within 0.5 %");
+   }
+   // The field: minimum spacing and the Matern-II density.
+   {
+      OrigamiField F(1234, P({ { "origamiDensity", 2 }, { "origamiMinSpacingNm", 250 } }));
+      const double S = 20;
+      std::vector<OrigamiMolecule> all;
+      F.MoleculesInRect(-1, -1, S + 1, S + 1, all, -F.ReachUm());
+      double dmin = INF;
+      size_t in = 0;
+      for (size_t a = 0; a < all.size(); a++) {
+         if (all[a].x >= 0 && all[a].x < S && all[a].y >= 0 && all[a].y < S) in++;
+         for (size_t b = a + 1; b < all.size(); b++) dmin = std::min(dmin, jsm::hypot(all[a].x - all[b].x, all[a].y - all[b].y));
+      }
+      const double r = 0.25, lamII = (1 - std::exp(-2 * jsm::PI * r * r)) / (jsm::PI * r * r), got = in / (S * S);
+      std::printf("      %zu molecules, closest centres %.1f nm, %.3f /um^2 (Matern II %.3f)\n", in, dmin * 1000, got, lamII);
+      Check(dmin >= 0.25 && std::fabs(got / lamII - 1) < 0.05, "origami: minimum spacing holds, Matern-II density");
+   }
+   // A nanoruler World.
+   {
+      Params p;
+      p.specimen = SPECIMEN_NANORULERS;
+      Kinetics k;
+      k.activationRatePerSec = 0.05; k.onSec = 0.3; k.offSec = 0; k.bleachProb = 1; k.photonCV = 0.3;
+      const Label lab = MakeLabel(LabelMode::DnaPaint, 1.0, k);
+      auto world = [&](const Params& q, const Label& l) {
+         World w(77, q);
+         w.SetLabel(STRUCTURE_ORIGAMI, l);
+         return w;
+      };
+      World w1 = world(p, lab), w2 = world(p, lab);
+      std::vector<WorldDye> junk, s1, s2, all;
+      w2.SitesInWindow(-30, -30, -20, -20, -1, 1, junk);
+      w1.SitesInWindow(0, 0, 8, 8, -1, 1, s1);
+      w2.SitesInWindow(0, 0, 8, 8, -1, 1, s2);
+      Check(!s1.empty() && SameDyes(s1, s2), "origami world: sites independent of the query history");
+      w1.SitesInWindow(0, 0, 30, 30, -1, 1, all);
+      bool only1 = !all.empty();
+      for (const WorldDye& s : all) only1 = only1 && s.structure == STRUCTURE_ORIGAMI;
+      std::vector<Cell> cells;
+      w1.CellsInRect(0, 0, 30, 30, cells);
+      Cell c;
+      Check(only1 && cells.empty() && !w1.FindCell(0, 0, c) && w1.BlockCells(0, 0).empty(),
+            "origami world: structure 1 only, no cells");
+      Params p3 = p;
+      p3.origamiStrandsPerSpot = 3;
+      World w3 = world(p3, lab), w4 = world(p, MakeLabel(LabelMode::DnaPaint, 0.8, k));
+      std::vector<WorldDye> sub, inc;
+      w3.SitesInWindow(0, 0, 30, 30, -1, 1, sub);
+      w4.SitesInWindow(0, 0, 30, 30, -1, 1, inc);
+      auto key = [](const WorldDye& s) { return std::make_tuple(s.cx, s.cy, s.mtIndex, s.k, s.n, s.x, s.y); };
+      std::vector<std::tuple<int32_t, int32_t, int32_t, int32_t, int32_t, double, double>> keys;
+      for (const WorldDye& s : all) keys.push_back(key(s));
+      std::sort(keys.begin(), keys.end());
+      auto has = [&](const WorldDye& s) { return std::binary_search(keys.begin(), keys.end(), key(s)); };
+      bool subOk = !sub.empty(), incOk = !inc.empty();
+      for (const WorldDye& s : sub) subOk = subOk && s.n < 3 && has(s);
+      for (const WorldDye& s : inc) incOk = incOk && has(s);
+      const double frac = (double)inc.size() / all.size();
+      std::printf("      %zu strands; 3 per spot: %zu; 80 %% incorporation: %.1f %%\n", all.size(), sub.size(), 100 * frac);
+      Check(subOk, "origami world: strands per spot 3 = ring positions 0-2 of the same strands");
+      Check(incOk && std::fabs(frac - 0.8) < 0.03, "origami world: incorporation 80 % keeps a subset");
+      // 8 threads = 1 thread, DNA-PAINT events over a moving window and a prefetch.
+      World a = world(p, lab), b = world(p, lab);
+      bool same = true;
+      size_t total = 0;
+      for (int f = 0; f < 6 && same; f++) {
+         const double s = 1.5 * f;
+         std::vector<WorldEvent> ea, eb;
+         SetWorldThreads(1);
+         a.EventsInWindow(s - 6, -6, s + 6, 6, -INF, INF, 20 + f * 0.1, 20 + (f + 1) * 0.1, ea);
+         if (f % 2) a.Prefetch(s - 8, -8, s + 8, 8, -INF, INF, 20, 22, 1e9);
+         SetWorldThreads(8);
+         b.EventsInWindow(s - 6, -6, s + 6, 6, -INF, INF, 20 + f * 0.1, 20 + (f + 1) * 0.1, eb);
+         if (f % 2) b.Prefetch(s - 8, -8, s + 8, 8, -INF, INF, 20, 22, 1e9);
+         SetWorldThreads(0);
+         same = IdenticalEvents(ea, eb);
+         total += ea.size();
+      }
+      std::printf("      %zu DNA-PAINT blinks over 6 frames\n", total);
+      Check(same && total > 50, "origami world: 8 threads = 1 thread (DNA-PAINT events)");
+      std::vector<WorldEvent> cont;
+      w1.ContinuousInWindow(0, 0, 8, 8, -INF, INF, 0, cont);
+      Check(cont.empty(), "origami world: DNA-PAINT has no continuous windows");
+   }
+   // The C ABI.
+   {
+      IscParams* ip = isc_params_new();
+      isc_params_set(ip, "specimen", ISC_SPECIMEN_NANORULERS);
+      IscWorld* w = isc_world_new(77, ip);
+      IscParams* cp = isc_params_new();
+      IscWorld* cw = isc_world_new(77, cp);
+      std::vector<double> rows(ISC_ORIGAMI_STRIDE * 64), cell(ISC_CELL_STRIDE * 4);
+      const int32_t n = isc_origami_in_window(w, 0, 0, 6, 6, rows.data(), 64);
+      bool rowsOk = n > 0 && n <= 64 && isc_origami_in_window(cw, 0, 0, 6, 6, rows.data(), 0) == 0 &&
+                    isc_cells_in_window(w, 0, 0, 30, 30, cell.data(), 4) == 0 && isc_world_set_cache_dir(w, "") == 0;
+      std::vector<double> o(2 * 200), st(ISC_ORIGAMI_SITE_STRIDE * 32), sites(ISC_SITE_STRIDE * 4096);
+      int32_t lit = 0, designed = 0;
+      for (int32_t j = 0; j < n && rowsOk; j++) {
+         const double* r = &rows[(size_t)j * ISC_ORIGAMI_STRIDE];
+         const int32_t no = isc_origami_outline(w, (int32_t)r[0], (int32_t)r[1], (int32_t)r[2], 64, o.data(), 200);
+         const int32_t ns = isc_origami_sites(w, (int32_t)r[0], (int32_t)r[1], (int32_t)r[2], st.data(), 32);
+         rowsOk = rowsOk && no == 2 * (64 + 16) && ns == 15 && r[3] == 0;
+         designed += ns;
+         for (int32_t q = 0; q < ns; q++) lit += st[(size_t)q * ISC_ORIGAMI_SITE_STRIDE + 10] != 0;
+      }
+      rowsOk = rowsOk && isc_origami_outline(w, 0, 0, 999999, 64, o.data(), 200) == -1 &&
+               isc_origami_outline(cw, 0, 0, 0, 64, o.data(), 200) == -1;
+      // Every molecule reaching [0,6)^2 counted; its fluorescent strands = the sites query over the reach.
+      const int32_t nSites = isc_sites_in_window(w, -1, -1, 7, 7, -INF, INF, sites.data(), 4096);
+      std::printf("      C ABI: %d molecules, %d designed strands, %d fluorescent, %d sites in the window\n", n, designed, lit,
+                  nSites);
+      Check(rowsOk && lit > 0 && lit < designed, "C ABI: isc_origami_in_window / _outline / _sites rows");
+      double kin[ISC_KIN_ROW] = {};
+      for (int s = 0; s < ISC_STRUCT_COUNT; s++) {
+         kin[1 + s * ISC_KIN_COUNT + ISC_KIN_ACTIVATION_RATE] = 0.01;
+         kin[1 + s * ISC_KIN_COUNT + ISC_KIN_ON_SEC] = 0.3;
+         kin[1 + s * ISC_KIN_COUNT + ISC_KIN_BLEACH_PROB] = 1;
+      }
+      Check(ISC_KIN_ROW == 13 && isc_world_set_kinetics_history(w, kin, 1) == 0,
+            "C ABI: a kinetics row per structure (two structures)");
+      isc_world_free(w);
+      isc_world_free(cw);
+      isc_params_free(ip);
+      isc_params_free(cp);
+   }
+}
+
 // One entry per ctest test (tests/parity/CMakeLists.txt keeps the same list):
 // `isc_world_tests <section>` runs one, no argument runs all. Each prints its
 // time, so a slow one shows.
@@ -1601,6 +1846,7 @@ static const std::vector<Section>& Sections()
       { "optical_volume", OpticalVolume },
       { "edge_and_height", EdgeAndHeight },
       { "kinetics_history", KineticsHistoryChecks },
+      { "origami", Origami },
    };
    return s;
 }

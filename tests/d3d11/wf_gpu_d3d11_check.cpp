@@ -7,7 +7,7 @@
 //            Direct3D 11 device).
 //   Linux:   tools/wine_wf_gpu_check.sh (mingw-w64 + Wine + Mesa lavapipe).
 #include "WidefieldGpuD3D11.h"
-#include "CellFieldSource.h"
+#include "SampleSource.h"
 #include "insiliscope/insiliscope.h"
 #include <chrono>
 #include <cmath>
@@ -21,7 +21,7 @@ int main() {
   std::string info; auto gpu = WidefieldGpuD3D11::Create(info);
   std::printf("create: %s %s\n", gpu ? "OK" : "unavailable", info.c_str());
   if (!gpu) { std::printf("no usable Direct3D 11 device: nothing to check\n"); return 0; }
-  CellFieldSource src; CellFieldSettings cf; cf.seed = 42 ^ 0x43454C4Cu; std::string err;
+  SampleSource src; SampleSettings cf; cf.seed = 42 ^ 0x43454C4Cu; std::string err;
   cf.labels = { MakeLabelVector(ISC_MODE_PALM, 0.6, 1, 0.01, 0.05, 1, 1, 0.5) };
   src.Configure(cf, err);
   WidefieldSceneSpec s; s.width=s.height=128; s.pixelUm=0.1; s.originXUm=-6.4+0.0123; s.originYUm=-6.4-0.031;

@@ -114,6 +114,8 @@ World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeC
      pool_(AcquireWorkerPool())
 {
    NormalizeParams(p_);
+   NormalizeOrigamiParams(p_);
+   if ((int)p_.specimen == SPECIMEN_NANORULERS) origami_.reset(new OrigamiField(seed_, p_));
 }
 
 World::~World()
@@ -127,7 +129,7 @@ bool World::SetCacheDir(const std::string& dir)
       store_->Flush();
       store_.reset();
    }
-   if (dir.empty()) return true;
+   if (dir.empty() || origami_) return true;   // the store holds packed cells: a cell field's only
    std::unique_ptr<BlockStore> s(new BlockStore());
    if (!s->Open(dir, BlockStoreKey(seed_, PackingFingerprint(p_)))) return false;
    store_ = std::move(s);
@@ -226,6 +228,7 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
 
 void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vector<const Cell*>& out)
 {
+   if (origami_) return;
    PoolScope scope(pool_);
    const double S = p_.chunkSize, reach = CellReachUm(p_);
    const int32_t cxLo = (int32_t)std::floor((x0 - reach) / S), cxHi = (int32_t)std::floor((x1 + reach) / S);
@@ -320,6 +323,10 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
                             const BlockPrep& prep, const BlockNeeds& needs, Fn fn)
 {
    query_++;
+   if (origami_) {
+      ForEachOrigamiBlock(x0, y0, x1, y1, prep, needs, fn);
+      return;
+   }
    std::vector<const Cell*> cells;
    CellsInRectPtr(x0, y0, x1, y1, cells);
    // The assets of the cells not cached, built in parallel (Assets takes them
@@ -376,6 +383,75 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
       dyeLru_.pop_back();
       evictions_++;
    }
+}
+
+template <class Fn>
+void World::ForEachOrigamiBlock(double x0, double y0, double x1, double y1, const BlockPrep& prep, const BlockNeeds& needs,
+                                Fn fn)
+{
+   // As the cell walk: the blocks in order (JS forEachDyeBlock: moleculesInRect), the new ones generated and the
+   // prep work done in parallel (each item touches only its block), then fn serially.
+   std::vector<OrigamiMolecule> mols;
+   origami_->MoleculesInRect(x0, y0, x1, y1, mols);
+   std::vector<DyeBlock*> batch;
+   batch.reserve(mols.size());
+   for (const OrigamiMolecule& m : mols) {
+      if (PastDeadline()) break;
+      const BlockKey key = { m.tx, m.ty, m.i, 0 };
+      auto it = dyeIndex_.find(key);
+      if (it != dyeIndex_.end()) {
+         stats_.dyeBlockHits++;
+         if (it->second != dyeLru_.begin()) dyeLru_.splice(dyeLru_.begin(), dyeLru_, it->second);
+         dyeLru_.front().second.used = query_;
+         batch.push_back(&dyeLru_.front().second);
+         continue;
+      }
+      DyeBlock blk;
+      blk.used = query_;
+      stats_.dyeBlocks++;
+      dyeLru_.emplace_front(key, std::move(blk));
+      dyeIndex_[key] = dyeLru_.begin();
+      batch.push_back(&dyeLru_.front().second);
+   }
+   std::vector<size_t> work;
+   for (size_t k = 0; k < batch.size(); k++)
+      if (!batch[k]->generated) work.push_back(k);
+   ParallelFor(work.size(), 8, [&](size_t w) { GenerateOrigamiDyes(*batch[work[w]], mols[work[w]]); });
+   for (size_t k : work) dyeCount_ += batch[k]->dyes.size();
+   if (prep) {
+      work.clear();
+      for (size_t k = 0; k < batch.size(); k++)
+         if (needs(*batch[k])) work.push_back(k);
+      ParallelFor(work.size(), 2, [&](size_t w) { prep(*batch[work[w]]); });
+   }
+   for (DyeBlock* b : batch) fn(*b);
+   while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
+      dyeCount_ -= dyeLru_.back().second.dyes.size();
+      dyeIndex_.erase(dyeLru_.back().first);
+      dyeLru_.pop_back();
+      evictions_++;
+   }
+}
+
+void World::GenerateOrigamiDyes(DyeBlock& blk, const OrigamiMolecule& m) const
+{
+   const Label& label = labels_[STRUCTURE_ORIGAMI];
+   std::vector<OrigamiSite> sites;
+   OrigamiMoleculeSites(origami_->Design(), origami_->P(), m, origami_->Shape(m), label.density,
+                        label.fluorescentFraction, sites);
+   blk.dyes.clear();
+   blk.dyes.reserve(sites.size());
+   blk.cx = m.tx; blk.cy = m.ty; blk.mtIndex = m.i;
+   blk.h1 = m.h1;
+   blk.structure = STRUCTURE_ORIGAMI;
+   blk.zLo = INFINITY; blk.zHi = -INFINITY;
+   for (const OrigamiSite& d : sites) {
+      blk.dyes.push_back({ d.x, d.y, d.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, d.z);
+      blk.zHi = std::max(blk.zHi, d.z);
+   }
+   blk.phase = Pcg4d((uint32_t)m.tx, (uint32_t)m.ty, (uint32_t)m.i, ORIGAMI_SALT).a;
+   blk.generated = true;
 }
 
 bool World::PastDeadline()
@@ -709,6 +785,7 @@ bool World::SetLabel(int structure, const Label& l)
 
 bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 {
+   if (origami_) return false;
    PoolScope scope(pool_);
    for (const Cell& c : PackedBlock(FloorDiv(cx, PACK_BLOCK_CHUNKS), FloorDiv(cy, PACK_BLOCK_CHUNKS)))
       if (c.cx == cx && c.cy == cy) { out = c; return true; }
@@ -717,6 +794,8 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 
 const std::vector<Cell>& World::BlockCells(int32_t bx, int32_t by)
 {
+   static const std::vector<Cell> none;
+   if (origami_) return none;
    PoolScope scope(pool_);
    return PackedBlock(bx, by);
 }
@@ -724,6 +803,7 @@ const std::vector<Cell>& World::BlockCells(int32_t bx, int32_t by)
 bool World::SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped)
 {
    skipped = false;
+   if (origami_) return false;
    const auto key = std::make_pair(bx, by);
    if (blocks_.count(key)) { skipped = true; return true; }
    std::vector<Cell> cells;
@@ -858,6 +938,8 @@ bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
    PoolScope scope(pool_);
    const Label& label = labels_[(size_t)d.structure];
    if (label.orientation.mode == OrientationMode::Free) return false;
+   // Docking strands: no orientation model (Free only; the JS refuses the others).
+   if (d.structure != STRUCTURE_MT) return false;
    Cell c;
    if (!FindCell(d.cx, d.cy, c)) return false;
    CellAssets& A = Assets(c);

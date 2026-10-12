@@ -133,6 +133,15 @@
       "options": { "packing": 0, "frames": 20, "mt-dye": "mEGFP", "light-preset": "auto" } },
     { "id": "world-dense-cells", "group": "World model", "title": "Higher occupancy, denser microtubules",
       "text": "Occupancy 0.5, microtubule density 1.6 per um^2.",
-      "options": { "occupancy": 0.5, "mt-density": 1.6, "mt-dye": "mEGFP", "light-preset": "auto", "frames": 20 } }
+      "options": { "occupancy": 0.5, "mt-density": 1.6, "mt-dye": "mEGFP", "light-preset": "auto", "frames": 20 } },
+    { "id": "nr-paint", "group": "Nanorulers", "title": "DNA-PAINT nanorulers",
+      "text": "specimen Nanorulers: DNA-origami rods on the coverslip (1.2 per um^2), three spots of five docking strands 80 nm apart, focus on the strands (13.5 nm). The ATTO 655 imager at its default 20 nM with 100 ms frames: binding events (200 ms bound half-time) over the free imager's background; the spots of a rod lie within one pixel.",
+      "options": { "specimen": "Nanorulers", "exposure-ms": 100, "frames": 100 } },
+    { "id": "nr-dstorm", "group": "Nanorulers", "title": "dSTORM nanorulers, AF647",
+      "text": "The docking strands labelled with AF647 in dSTORM (ruler-dye AF647, its light preset), a minute into the acquisition: single blinks of the strands' dyes, each spot a few photons of one rod.",
+      "options": { "specimen": "Nanorulers", "ruler-dye": "AF647", "light-preset": "auto" } },
+    { "id": "nr-widefield", "group": "Nanorulers", "title": "Widefield nanorulers",
+      "text": "Every docking strand's ATTO 655 emitting at once (ruler-mode WideField): diffraction-limited spots, one per rod.",
+      "options": { "specimen": "Nanorulers", "ruler-mode": "WideField", "light-preset": "auto", "frames": 20 } }
   ]
 }

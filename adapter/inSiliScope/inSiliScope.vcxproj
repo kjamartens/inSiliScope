@@ -121,7 +121,7 @@
     <ClCompile Include="InSiliScopeModule.cpp" />
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
-    <ClCompile Include="Simulation\CellFieldSource.cpp" />
+    <ClCompile Include="Simulation\SampleSource.cpp" />
     <ClCompile Include="Simulation\Drift.cpp" />
     <ClCompile Include="Simulation\DyeLibrary.cpp" />
     <ClCompile Include="Simulation\LightPath.cpp" />
@@ -142,6 +142,7 @@
     <ClCompile Include="..\..\core\src\jsmath.cpp" />
     <ClCompile Include="..\..\core\src\jsmath_fdlibm.cpp" />
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
+    <ClCompile Include="..\..\core\src\origami.cpp" />
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
@@ -168,7 +169,7 @@
     <ClInclude Include="Devices\Peripherals.h" />
     <ClInclude Include="InSiliScopeZStage.h" />
     <ClInclude Include="InSiliScopeXYStage.h" />
-    <ClInclude Include="Simulation\CellFieldSource.h" />
+    <ClInclude Include="Simulation\SampleSource.h" />
     <ClInclude Include="Simulation\Drift.h" />
     <ClInclude Include="Simulation\DyeLibrary.h" />
     <ClInclude Include="Simulation\LightPath.h" />
@@ -195,6 +196,7 @@
     <ClInclude Include="..\..\core\src\dyes.h" />
     <ClInclude Include="..\..\core\src\jsmath.h" />
     <ClInclude Include="..\..\core\src\microtubules.h" />
+    <ClInclude Include="..\..\core\src\origami.h" />
     <ClInclude Include="..\..\core\src\packing.h" />
     <ClInclude Include="..\..\core\src\parallel.h" />
     <ClInclude Include="..\..\core\src\params.h" />

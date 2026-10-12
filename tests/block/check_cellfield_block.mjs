@@ -61,6 +61,22 @@ ok(sparse.sites.length < a.sites.length / 2, `mtDensity 0.1: ${sparse.sites.leng
 const thin = CellField.buildWindow(W, H, { ...base, slabNm: 100 });
 ok(thin.sites.length < a.sites.length && thin.sites.every(s => Math.abs(s[2]) <= 100), `slab 100 nm: ${thin.sites.length} sites`);
 
+// The DNA-origami nanorulers (opts.specimen, ABI 12): docking-strand dyes near the coverslip, no cells, the same
+// answer twice, two halves = the full window, and the strands-per-spot switch reaching the world.
+const NR = { ...base, specimen: 'Nanorulers', focusUm: 0, slabNm: 100 };
+const r = CellField.buildWindow(W, H, NR);
+ok(r.nRulers > 50 && r.nCells === 0 && r.nMt === 0 && r.sites.length > 10 * r.nRulers / 2 && r.sites.every(s => s[2] > 0 && s[2] < 30),
+   `nanorulers: ${r.nRulers} rulers, ${r.sites.length} docking-strand dyes at 0-30 nm`);
+ok(same(r.sites, CellField.buildWindow(W, H, { ...NR, specimen: 1 }).sites), 'nanorulers: specimen 1 = \'Nanorulers\', identical');
+const NL = { ...NR, xUm: -6.4 }, NRr = { ...NR, xUm: 6.4 };
+const rh = setOf([...world(CellField.buildWindow(W / 2, H, NL), NL, W / 2, H), ...world(CellField.buildWindow(W / 2, H, NRr), NRr, W / 2, H)]);
+const rf = setOf(world(r, NR, W, H));
+ok(rh.size === rf.size && [...rf].every(k => rh.has(k)), `nanorulers: two half windows = the full window (${rh.size} sites)`);
+const three = CellField.buildWindow(W, H, { ...NR, params: { origamiStrandsPerSpot: 3 } });
+ok(three.nRulers === r.nRulers && Math.abs(three.sites.length / r.sites.length - 0.6) < 0.1,
+   `nanorulers: 3 strands per spot: ${three.sites.length} dyes (${(three.sites.length / r.sites.length).toFixed(2)} of 5 per spot's)`);
+ok(same(a.sites, CellField.buildWindow(W, H, base).sites), 'cell field again after the nanorulers: identical');
+
 // Worker source: an independent CellField with the same answer.
 const CF2 = new Function('return ' + CellField.workerSource())();
 ok(same(a.sites, CF2.buildWindow(W, H, base).sites), 'workerSource() CellField gives the same sites');

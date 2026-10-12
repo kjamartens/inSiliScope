@@ -103,7 +103,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 11 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 12 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
@@ -120,13 +120,15 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   }
   console.log(`events: ${ne} blinks overlapping [1.0, 1.1) s in ${(performance.now() - te).toFixed(0)} ms -> ${eok ? 'ok' : 'MISMATCH'}`);
   if (!eok) bad++;
-  // ABI 11: a one-segment kinetics history equal to the label = no history; a bad one is refused.
+  // ABI 11: a one-segment kinetics history equal to the label = no history; a bad one is refused. ABI 12: a row is
+  // tStart + 6 kinetics per structure (two).
   {
-    const hb = M._malloc(7 * 8 * 2);
-    M.HEAPF64.set([0, 0.5, 0.05, 0.5, 0.3, 0.4, 0, 1, 0.5, 0.05, 0.5, 0.3, 0.4, 0], hb / 8);
+    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 0], row = 1 + 2 * k.length;
+    const hb = M._malloc(row * 8 * 2);
+    M.HEAPF64.set([0, ...k, ...k, 1, ...k, ...k], hb / 8);
     const hok0 = M._isc_world_set_kinetics_history(w, hb, 1) === 0;
     const nh = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, 0, 0);
-    const hbad = M._isc_world_set_kinetics_history(w, hb + 8 * 7, 1) === -1;   // tStart 1: not 0
+    const hbad = M._isc_world_set_kinetics_history(w, hb + 8 * row, 1) === -1;   // tStart 1: not 0
     const hok = hok0 && hbad && nh === ne && M._isc_world_set_kinetics_history(w, 0, 0) === 0;
     console.log(`kinetics history: one segment -> ${nh} blinks (no history ${ne}) -> ${hok ? 'ok' : 'MISMATCH'}`);
     if (!hok) bad++;

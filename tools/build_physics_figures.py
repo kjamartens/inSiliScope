@@ -9,8 +9,9 @@ Every image and number comes from insiliscope_cli (the adapter's Simulation/ ren
 diagnostic outputs --photons-out, --psf-out, --setup-json, ... in cli/scope_probes.h). The figures are rebuilt on every
 Pages deploy (.github/workflows/pages.yml), so the docs show what the current code renders. Each figure is a function in
 tools/physics_figures/<page>.py; it writes <out>/fig/*.png (and *.gif movies) and returns the Markdown that replaces
-the marker `<!-- fig:<id> -->` (a line of its own) in docs/physics/*.md: <out>/snippets/<id>.md. <out>/figures.json lists the
-figures, their cli commands and times.
+the marker `<!-- fig:<id> -->` (a line of its own) in a docs page (docs/physics/*.md, docs/samples/**/*.md):
+<out>/snippets/<id>.md. A snippet's links are written as from docs/physics/ (images fig/<file>, ../references.md);
+--inject rebases them to the page's folder. <out>/figures.json lists the figures, their cli commands and times.
 
 --inject (tools/build_site.sh): copies <from>/fig to <site docs>/physics/fig and replaces the markers. Strict after a
 full build: every marker needs a figure and every figure a marker. Without a build the markers stay HTML comments.
@@ -34,10 +35,30 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from physics_figures import common  # noqa: E402
-from physics_figures import (world, structures, light, photophysics, optics, quality, camera)  # noqa: E402,F401
+from physics_figures import (world, structures, nanorulers, light, photophysics, optics, quality, camera)  # noqa: E402,F401
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARKER = re.compile(r"^<!-- fig:([a-z0-9-]+) -->[ \t]*$", re.M)
+# The links of a snippet: Markdown ](target) and HTML src="target" / href="target".
+LINK = re.compile(r"(\]\(|\b(?:src|href)=\")([^)\s\"]+)")
+SKIP_DIRS = ("dev", "gallery")   # pages that never hold figure markers
+
+
+def rebase_links(md, page_dir):
+    """A snippet written as from docs/physics/ (fig/<file>, ../references.md#key), for a page in page_dir (relative
+    to the docs root, '/' separated): each relative link rebased."""
+    if page_dir == "physics":
+        return md
+
+    def sub(m):
+        target = m.group(2)
+        if re.match(r"^([a-z]+:|/|#)", target):
+            return m.group(0)
+        path, frag = (target.split("#", 1) + [""])[:2]
+        new = os.path.relpath(os.path.normpath(os.path.join("physics", path)), page_dir).replace(os.sep, "/")
+        return m.group(1) + new + ("#" + frag if frag else "")
+
+    return LINK.sub(sub, md)
 
 
 def git_rev():
@@ -182,7 +203,8 @@ def build(args):
 
 
 def inject(site_docs, src):
-    """Replace the markers in <site_docs>/physics/*.md with the snippets of <src>; copy the images."""
+    """Replace the markers in the pages of <site_docs> (physics/, samples/, ...) with the snippets of <src>, their links
+    rebased to each page's folder; copy the images to <site_docs>/physics/fig."""
     meta_path = os.path.join(src, "figures.json")
     if not os.path.exists(meta_path):
         sys.exit("no figures in %s (run the build first)" % src)
@@ -196,9 +218,14 @@ def inject(site_docs, src):
     shutil.rmtree(dst, ignore_errors=True)
     shutil.copytree(os.path.join(src, "fig"), dst)
     used, missing = set(), []
-    pages = sorted(n for n in os.listdir(os.path.join(site_docs, "physics")) if n.endswith(".md"))
+    pages = []
+    for d, dirs, files in os.walk(site_docs):
+        rel = os.path.relpath(d, site_docs).replace(os.sep, "/")
+        dirs[:] = sorted(x for x in dirs if not (rel == "." and x in SKIP_DIRS) and x != "fig")
+        pages += [(("" if rel == "." else rel + "/") + n) for n in sorted(files) if n.endswith(".md")]
     for name in pages:
-        p = os.path.join(site_docs, "physics", name)
+        p = os.path.join(site_docs, *name.split("/"))
+        page_dir = os.path.dirname(name) or "."
         with open(p, encoding="utf-8") as f:
             text = f.read()
 
@@ -208,7 +235,7 @@ def inject(site_docs, src):
                 missing.append("%s (%s)" % (fid, name))
                 return m.group(0)
             used.add(fid)
-            return snippets[fid].rstrip("\n")
+            return rebase_links(snippets[fid].rstrip("\n"), page_dir)
 
         new = MARKER.sub(sub, text)
         if new != text:
@@ -222,7 +249,7 @@ def inject(site_docs, src):
             sys.exit("inject: " + "; ".join(problems))
     elif missing or unused:
         print("inject (partial build): %d markers left as comments, %d figures unused" % (len(missing), len(unused)))
-    print("injected %d figures into %s" % (len(used), os.path.join(site_docs, "physics")))
+    print("injected %d figures into the pages of %s" % (len(used), site_docs))
     return 0
 
 

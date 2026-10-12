@@ -27,6 +27,7 @@
 #include "SceneSettings.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -191,6 +192,22 @@ PropDef OptNames(const char* device, const std::string& name, Tier tier, const s
    return d;
 }
 
+// An On/Off switch that is an engine scope option (1 / 0).
+PropDef OnOffOpt(const char* device, const std::string& name, Tier tier, const std::string& option, const char* help)
+{
+   PropDef d = Row(device, name, tier, option, help);
+   d.kind = PropKind::Text;
+   d.getText = [option](H& h) { return std::string(h.State().Option(option) != 0 ? "On" : "Off"); };
+   d.setText = [option](H& h, const std::string& v) {
+      if (v != "On" && v != "Off")
+         return false;
+      h.State().SetOption(option, v == "On" ? 1 : 0);
+      return true;
+   };
+   d.choices = [](H&) { return std::vector<std::string>{ "On", "Off" }; };
+   return d;
+}
+
 // Wraps a row's setter: after the value is stored, run a coupling (only when the value changed).
 void ThenNumber(PropDef& d, std::function<void(H&)> after)
 {
@@ -241,7 +258,7 @@ const std::vector<FieldRow>& FieldRows()
       { "fluorescent-pct", "FluorescentPct", {} },
       { "qy", "Qy", {} },
       { "ext-coeff", "ExtCoeff", {} },
-      { "on-sec", "OnSec", { MODE_DSTORM, MODE_PALM, MODE_DNA_PAINT } },
+      { "on-sec", "OnSec", { MODE_DSTORM, MODE_PALM } },
       { "off-sec", "OffSec", { MODE_DSTORM, MODE_PALM } },
       { "bleach-prob", "BleachProb", { MODE_DSTORM, MODE_PALM } },
       { "initial-on-sec", "InitialOnSec", { MODE_DSTORM } },
@@ -249,7 +266,6 @@ const std::vector<FieldRow>& FieldRows()
       { "spont-activation", "SpontActivation", { MODE_PALM } },
       { "primed", "Primed", { MODE_PALM } },
       { "pre-photon-budget", "PrePhotonBudget", { MODE_PALM } },
-      { "kon", "Kon", { MODE_DNA_PAINT } },
       { "photon-cv", "PhotonCv", { MODE_DSTORM, MODE_PALM, MODE_DNA_PAINT } },
       { "photon-budget", "PhotonBudget", { MODE_WIDEFIELD } },
    };
@@ -274,7 +290,6 @@ double FieldValue(const sim::DyeData& d, int mode, const FieldRow& r)
    if (f == "spont-activation") return m.spontaneousActivationPerSec;
    if (f == "primed") return m.primed.present ? m.primed.perKWcm2SqPerSec : 0.0;
    if (f == "pre-photon-budget") return std::isnan(m.prePhotonBudget) ? 0.0 : m.prePhotonBudget;
-   if (f == "kon") return m.konPerMPerSec;
    if (f == "photon-cv") return m.photonCV;
    if (f == "photon-budget") return m.photonBudget;
    return sim::kNaN;
@@ -317,18 +332,39 @@ PropDef SlotField(int slot, const FieldRow& r)
    return d;
 }
 
-// The microtubules' label as the engine sees it: 0 detected %, 1 effective emission nm, 2 detected photons/s ON.
-PropDef LabelReadout(const char* name, int what, const char* help)
+// A target's row-name prefix: its id, capitalised ("Microtubules", "Docking").
+std::string TargetRowName(int s)
 {
-   PropDef d = Row("Fluorophores", name, Tier::Advanced, std::string("mt-readout-") + std::to_string(what), help);
+   std::string n = sim::TargetAt(s).id;
+   if (!n.empty())
+      n[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(n[0])));
+   return n;
+}
+
+// A target's name in lower case, for the help texts ("microtubules", "docking strands").
+std::string TargetWhat(int s)
+{
+   std::string n = sim::TargetAt(s).name;
+   for (char& c : n)
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+   return n;
+}
+
+// Target s's label as the engine sees it: 0 detected %, 1 effective emission nm, 2 detected photons/s ON.
+PropDef LabelReadout(int s, const char* suffix, int what, const std::string& help)
+{
+   PropDef d = Row("Fluorophores", TargetRowName(s) + "_" + suffix, Tier::Advanced,
+                   std::string(sim::TargetAt(s).prefix) + "-readout-" + std::to_string(what), "");
+   d.help = help;
    d.readOnly = true;
    d.invalidate = Invalidate::None;
-   d.get = [what](H& h) {
+   const int structure = sim::TargetAt(s).structure;
+   d.get = [structure, what](H& h) {
       double x = 0, y = 0;
       h.Stage().PositionXyAt(sim::SharedStageState::Clock::now(), x, y);
       sim::ScopeStateReadout r;
       std::string err;
-      if (sim::ScopeLabelState(BuildScopeSpec(h.State(), x, y, 0, 60, 1), 0, false, r, err) && r.emits)
+      if (sim::ScopeLabelState(BuildScopeSpec(h.State(), x, y, 0, 60, 1), structure, false, r, err) && r.emits)
          return what == 0 ? 100 * r.detectedFraction : what == 1 ? r.lambdaNm : r.detectedPerSec;
       return 0.0;
    };
@@ -343,7 +379,7 @@ PropDef TargetLabel(const char* device, int s)
 {
    const sim::TargetData& t = sim::TargetAt(s);
    const std::string option = std::string(t.prefix) + "-dye";
-   PropDef d = Row(device, std::string(t.name) + "_Label", Tier::Basic, option,
+   PropDef d = Row(device, TargetRowName(s) + "_Label", Tier::Basic, option,
                    "The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode "
                    "(Dye1-3: the custom dyes of Fluorophores, Expert).");
    d.kind = PropKind::Text;
@@ -360,10 +396,85 @@ PropDef TargetLabel(const char* device, int s)
       const double now = v == "Typical" ? -1 : sim::IndexOf(sim::DyeChoices(), v);
       h.State().SetOption(option, now);
       if (now != old)
-         h.LoadMicrotubuleDye(true);
+         h.LoadTargetDye(s, true);
       return true;
    };
    return d;
+}
+
+// A target's label rows on its specimen device: the label (Basic), its own mode (Expert), the labelled %, the
+// DNA-PAINT imager concentration (NanoMol, not nm) and binding kinetics (the target's, not the dye's) (Advanced); the
+// engine options <prefix>-dye, -mode, -label-pct, -imager-nm, -paint-kon, -paint-on-sec.
+void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
+{
+   using namespace sim;
+   const std::string P = TargetRowName(s), prefix = TargetAt(s).prefix, what = TargetWhat(s);
+   t.push_back(TargetLabel(device, s));
+   std::vector<std::string> modeNames = { "Global", "DyeDefault" };
+   for (const std::string& m : DyeModeNames())
+      modeNames.push_back(m);
+   PropDef d = OptNames(device, P + "_Mode", Tier::Expert, prefix + "-mode", modeNames, -2, "");
+   d.help = "The " + what + "' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default).";
+   ThenText(d, [](H& h) { h.LabelModeChanged(); });
+   t.push_back(d);
+   d = Opt(device, P + "_LabelingPct", Tier::Advanced, prefix + "-label-pct", 0, 100, "");
+   d.help = "Labelled fraction of the " + what + "' sites, % (a mode change sets its suggestion).";
+   t.push_back(d);
+   t.push_back(Opt(device, P + "_ImagerNanoMol", Tier::Advanced, prefix + "-imager-nm", 0, 10000,
+                   "DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = "
+                   "k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a "
+                   "uniform background."));
+   t.push_back(Opt(device, P + "_BoundTimeSec", Tier::Advanced, prefix + "-paint-on-sec", 0.001, 100,
+                   "DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x "
+                   "this). A property of the docking/imager sequence, so of the target, not of the dye."));
+   t.push_back(Opt(device, P + "_KonPerMolarPerSec", Tier::Advanced, prefix + "-paint-kon", 0, 1e9,
+                   "DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second "
+                   "= k_on x the imager concentration."));
+}
+
+// A target's dye-orientation rows (Expert): <prefix>-orient, -orient-polar-deg, -orient-azimuth-deg, -wobble-deg,
+// -motion.
+void AddTargetOrientRows(std::vector<PropDef>& t, const char* device, int s)
+{
+   const std::string P = TargetRowName(s), prefix = sim::TargetAt(s).prefix;
+   PropDef d = OptNames(device, P + "_Orientation", Tier::Expert, prefix + "-orient", { "Free", "Fixed", "Random" }, 0,
+                        "");
+   d.help = "Dipole orientation of the " + TargetWhat(s) + "' dyes.";
+   t.push_back(d);
+   t.push_back(Opt(device, P + "_OrientPolarDeg", Tier::Expert, prefix + "-orient-polar-deg", 0, 180,
+                   "Fixed dipole: polar angle."));
+   t.push_back(Opt(device, P + "_OrientAzimuthDeg", Tier::Expert, prefix + "-orient-azimuth-deg", -360, 360,
+                   "Fixed dipole: azimuth."));
+   t.push_back(Opt(device, P + "_WobbleConeDeg", Tier::Expert, prefix + "-wobble-deg", 0, 90,
+                   "Dipole wobble cone half-angle."));
+   t.push_back(OptNames(device, P + "_Motion", Tier::Expert, prefix + "-motion", { "Static" }, 0, "The dyes' motion."));
+}
+
+// A target's readouts on Fluorophores (Advanced): the dye and mode its label resolves to, and the light path's view.
+void AddTargetReadoutRows(std::vector<PropDef>& t, int s)
+{
+   const std::string P = TargetRowName(s), prefix = sim::TargetAt(s).prefix, what = TargetWhat(s);
+   PropDef d = Row("Fluorophores", P + "_EffectiveDye", Tier::Advanced, prefix + "-effective", "");
+   d.help = "The dye and mode the " + what + "' label resolves to (Typical: the usual dye for the mode; read-only).";
+   d.kind = PropKind::Text;
+   d.readOnly = true;
+   d.invalidate = Invalidate::None;
+   d.getText = [s](H& h) {
+      sim::EffectiveDye eff;
+      int choice = 0;
+      std::string err;
+      if (!sim::ScopeStructureDye(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), s, eff, choice, err))
+         return err;
+      return std::string(eff.dye.id) + " (" + sim::DyeModeNames()[static_cast<size_t>(eff.mode)] + ")";
+   };
+   d.setText = [](H&, const std::string&) { return true; };
+   t.push_back(d);
+   t.push_back(LabelReadout(s, "DetectedPct", 0,
+                            "The " + what + "' dye: % of its emission the light path detects (read-only)."));
+   t.push_back(LabelReadout(s, "EmissionNm", 1,
+                            "The " + what + "' dye: effective detected wavelength, nm (the PSF's; read-only)."));
+   t.push_back(LabelReadout(s, "PhotonsPerSecOn", 2,
+                            "The " + what + "' dye: detected photons per second while ON (read-only)."));
 }
 
 // ---- the objective turret's catalogue ----
@@ -701,19 +812,7 @@ std::vector<PropDef> BuildTable()
    // =========================== CellField ===========================
    {
       const char* F = "CellField";
-      PropDef d = TargetLabel(F, 0);
-      add(d);
-      std::vector<std::string> modeNames = { "Global", "DyeDefault" };
-      for (const std::string& m : DyeModeNames())
-         modeNames.push_back(m);
-      d = OptNames(F, "Microtubules_Mode", Tier::Expert, "mt-mode", modeNames, -2,
-                   "The microtubules' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default).");
-      ThenText(d, [](H& h) { h.LabelModeChanged(); });
-      add(d);
-      add(Opt(F, "Microtubules_LabelingPct", Tier::Advanced, "mt-label-pct", 0, 100,
-              "Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion)."));
-      add(Opt(F, "Microtubules_ImagerNm", Tier::Advanced, "mt-imager-nm", 0, 10000,
-              "DNA-PAINT imager concentration, nM."));
+      AddTargetLabelRows(t, F, 0);
       const char* help[CF_COUNT] = {
          "Size of a packing block, um.",
          "Fraction of the coverslip covered by cells.",
@@ -765,13 +864,45 @@ std::vector<PropDef> BuildTable()
                 "Relax the cells into a packed field (Off: their seeded positions)."));
       add(Arr(F, "AbsorptionPerUm", Tier::Expert, "bf-absorption", &SceneState::brightField, BF_ABSORPTION_PER_UM, 0,
               100, "Absorption of the cell material, per um (0 = unstained)."));
-      add(OptNames(F, "Microtubules_Orientation", Tier::Expert, "mt-orient", { "Free", "Fixed", "Random" }, 0,
-                   "Dipole orientation of the microtubules' dyes."));
-      add(Opt(F, "Microtubules_OrientPolarDeg", Tier::Expert, "mt-orient-polar-deg", 0, 180, "Fixed dipole: polar angle."));
-      add(Opt(F, "Microtubules_OrientAzimuthDeg", Tier::Expert, "mt-orient-azimuth-deg", -360, 360,
-              "Fixed dipole: azimuth."));
-      add(Opt(F, "Microtubules_WobbleConeDeg", Tier::Expert, "mt-wobble-deg", 0, 90, "Dipole wobble cone half-angle."));
-      add(OptNames(F, "Microtubules_Motion", Tier::Expert, "mt-motion", { "Static" }, 0, "The dyes' motion."));
+      AddTargetOrientRows(t, F, 0);
+   }
+
+   // =========================== Nanorulers ===========================
+   // The DNA-origami nanorulers (specimen 1 of data/specimens.json; the engine's origami-* options = the core params
+   // origami*): their docking strands' label, then the molecule and the field.
+   {
+      const char* N = "Nanorulers";
+      for (int s = 0; s < TargetCount(); ++s)
+         if (!std::strcmp(TargetAt(s).specimen, N))
+            AddTargetLabelRows(t, N, s);
+      add(OptNames(N, "Design", Tier::Basic, "origami-design", ScopeOrigamiDesignIds(), 0,
+                   "The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands "
+                   "80 nm apart on a 200 x 13 nm rod."));
+      add(Opt(N, "DensityPerUm2", Tier::Basic, "origami-density", 0, 50,
+              "Molecules per um^2 of coverslip, before the minimum spacing thins them."));
+      PropDef d = Opt(N, "StrandsPerSpot", Tier::Basic, "origami-strands-per-spot", 1, 5,
+                      "Docking strands per spot: ring positions 1..N of the design's 5 carry one.");
+      d.kind = PropKind::Integer;
+      add(d);
+      add(OnOffOpt(N, "Bending", Tier::Advanced, "origami-bend",
+                   "On: the rod bends in the coverslip plane as a worm-like chain (PersistenceLengthNm); Off: rigid."));
+      add(Opt(N, "PersistenceLengthNm", Tier::Advanced, "origami-lp-nm", 10, 100000,
+              "Bending persistence length, nm (an estimate: measured helix bundles 740 nm - 8.2 um)."));
+      add(Opt(N, "MinSpacingNm", Tier::Advanced, "origami-min-spacing-nm", 0, 5000,
+              "No two molecule centres closer than this, nm (0 = no thinning)."));
+      add(Opt(N, "AttachHeightNm", Tier::Advanced, "origami-attach-nm", 0, 1000,
+              "Height of the rod's bottom above the glass (the surface coating), nm."));
+      add(Opt(N, "LinkerNm", Tier::Advanced, "origami-linker-nm", 0, 50,
+              "A dye lies within this distance of its strand's anchor, outward, nm."));
+      add(OptNames(N, "Roll", Tier::Advanced, "origami-roll", { "Uniform", "Fixed" }, 0,
+                   "How each rod landed about its own axis: Uniform = a random roll each, Fixed = RollDeg."));
+      add(Opt(N, "RollDeg", Tier::Advanced, "origami-roll-deg", -360, 360, "The fixed roll (Roll = Fixed), deg."));
+      add(OnOffOpt(N, "KeepHeights", Tier::Expert, "origami-heights",
+                   "Off (2D): every strand at the rod axis height; On: the ring's own heights (3D, not validated "
+                   "yet)."));
+      for (int s = 0; s < TargetCount(); ++s)
+         if (!std::strcmp(TargetAt(s).specimen, N))
+            AddTargetOrientRows(t, N, s);
    }
 
    // =========================== Fluorophores ===========================
@@ -798,27 +929,8 @@ std::vector<PropDef> BuildTable()
       };
       d.choices = [](H&) { return DyeModeNames(); };
       add(d);
-      d = Row("Fluorophores", "Microtubules_EffectiveDye", Tier::Advanced, "mt-effective",
-              "The dye and mode the microtubules' label resolves to (Typical: the usual dye for the mode; read-only).");
-      d.kind = PropKind::Text;
-      d.readOnly = true;
-      d.invalidate = Invalidate::None;
-      d.getText = [](H& h) {
-         sim::EffectiveDye eff;
-         int choice = 0;
-         std::string err;
-         if (!sim::ScopeStructureDye(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), 0, eff, choice, err))
-            return err;
-         return std::string(eff.dye.id) + " (" + DyeModeNames()[static_cast<size_t>(eff.mode)] + ")";
-      };
-      d.setText = [](H&, const std::string&) { return true; };
-      add(d);
-      add(LabelReadout("Microtubules_DetectedPct", 0,
-                       "The microtubules' dye: % of its emission the light path detects (read-only)."));
-      add(LabelReadout("Microtubules_EmissionNm", 1,
-                       "The microtubules' dye: effective detected wavelength, nm (the PSF's; read-only)."));
-      add(LabelReadout("Microtubules_PhotonsPerSecOn", 2,
-                       "The microtubules' dye: detected photons per second while ON (read-only)."));
+      for (int s = 0; s < TargetCount(); ++s)
+         AddTargetReadoutRows(t, s);
       for (int slot = 0; slot < 3; ++slot)
       {
          const std::string option = "dye" + std::to_string(slot + 1) + ".source";

@@ -78,7 +78,7 @@ struct SimulationParams
 };
 
 // A single blinking event: one emitter turning on at tStart (in frame units)
-// and off at tEnd (the cell field's blink schedule, CellFieldSource).
+// and off at tEnd (the cell field's blink schedule, SampleSource).
 struct BlinkEvent
 {
    double xUm = 0.0;
@@ -90,7 +90,7 @@ struct BlinkEvent
    // Multiplies photonsPerBlink at render time.
    double brightness = 1.0;
    // The cell field's structure (ISC_STRUCT_*), state (ISC_STATE_*: a blink,
-   // or a continuous window) and aux draw (issue 16, CellFieldSource).
+   // or a continuous window) and aux draw (issue 16, SampleSource).
    int structure = 0;
    int state = 0;
    double aux = 0.0;

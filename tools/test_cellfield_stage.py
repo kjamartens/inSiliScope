@@ -243,7 +243,7 @@ def _label(core, cam, mode, dye="Typical", pct=None, imager=None):
     if pct is not None:
         core.setProperty("CellField", "Microtubules_LabelingPct", str(pct))
     if imager is not None:
-        core.setProperty("CellField", "Microtubules_ImagerNm", str(imager))
+        core.setProperty("CellField", "Microtubules_ImagerNanoMol", str(imager))
 
 
 # The checks' default label: DNA-PAINT ATTO 655 sites (persistent; the
@@ -264,7 +264,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     # ---- property surface -------------------------------------------------
     for p in ("ChunkSizeUm", "Occupancy", "Packing", "CellDiameterMinUm", "CellDiameterMaxUm",
               "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "Microtubules_Label", "Microtubules_Mode",
-              "Microtubules_LabelingPct", "Microtubules_ImagerNm"):
+              "Microtubules_LabelingPct", "Microtubules_ImagerNanoMol"):
         assert core.hasProperty("CellField", p), f"missing CellField property {p}"
     # Nucleus shape and microtubule start/end (2026-10-05): the core's defaults.
     for p, v in (("NucBaseMinUm", 0.4), ("NucBaseMaxUm", 0.9), ("NucIrregMin", 0.03), ("NucIrregMax", 0.2),
@@ -277,10 +277,10 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     for p in ("StageSpeedUmPerSec", "StageSettleMs", "StageLimitUm"):
         assert core.hasProperty(xy, p), f"missing XY stage property {p}"
     defaults = {p: core.getProperty("CellField", "Microtubules_" + p) for p in
-                ("Label", "Mode", "LabelingPct", "ImagerNm")}
+                ("Label", "Mode", "LabelingPct", "ImagerNanoMol")}
     defaults["Dye"] = core.getProperty("Fluorophores", "Microtubules_EffectiveDye")
     assert defaults["Dye"] == "ATTO655 (DNA-PAINT)" and defaults["Label"] == "Typical" and defaults["Mode"] == "Global" and \
-        float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNm"]) == 1.0, f"label defaults {defaults}"
+        float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNanoMol"]) == 1.0, f"label defaults {defaults}"
     assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
     print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1 nM imager)")
     _label(core, cam, **PAINT)

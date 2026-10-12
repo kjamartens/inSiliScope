@@ -4,6 +4,21 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
+  Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
+  strands, in-plane worm-like-chain bending, Lp 1500 nm); MM device `Nanorulers`, core ABI 12. Cell-field output
+  unchanged.
+- MM: `CellField.Microtubules_ImagerNm` is now `Microtubules_ImagerNanoMol` (nanomolar, not nanometre; the nanorulers'
+  `Docking_ImagerNanoMol`); cli/viewer `mt-imager-nm` / `ruler-imager-nm` unchanged. A change of imager concentration
+  (any DNA-PAINT rate) in live mode acts at once instead of from the next 1 s binding bin; outputs without a change
+  are unchanged.
+- DNA-PAINT binding kinetics (k_on, mean bound time) belong to the target, not the dye: `data/specimens.json` `paint`,
+  cli/viewer `<prefix>-paint-kon` / `<prefix>-paint-on-sec`, MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec`
+  (Advanced). The dye field `kon` (`mt-dye.kon`, `Fluorophores.Dye<N>_Kon`) and the DNA-PAINT `on-sec` dye field are
+  gone. Microtubules unchanged (0.05 s); nanoruler docking strands bind with a 200 ms half-time. Each target has its
+  own default imager concentration (`paint.imagerNm`): microtubules 1 nM, nanorulers 20 nM; nanoruler density 1.2 per
+  µm² (was 0.3), no minimum spacing by default (was 250 nm).
+
 - **seed** Micro-Manager adapter as a hub with devices (2026-10-06, `spec/MM_DEVICES.md`): the module offers the hub
   `inSiliScope` (pre-init `Detail` Basic / Advanced / Expert, `RandomSeed`) and one device per part of the microscope
   (`Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, the Advanced `ExcitationFilter` /

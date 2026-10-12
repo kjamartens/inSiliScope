@@ -61,6 +61,21 @@ struct Params {
    double mtMaxZSlope = 5;
    // The labels (density, fluorescent fraction, mode, kinetics) are not
    // params since issue 16 (ABI 10): World::SetLabel, isc_world_set_label.
+
+   // Specimen (ABI 12; data/specimens.json): 0 the cell field above, 1 the
+   // DNA-origami nanorulers (origami.h; JS origami.js ORIGAMI_DEFAULTS).
+   double specimen = 0;
+   double origamiDesign = 0;            // index into data/origami/designs.json
+   double origamiDensity = 1.2;         // molecules per um^2 before thinning (estimate)
+   double origamiMinSpacingNm = 0;      // Matern-II hard core between molecule centres (0 = none; 250 until 2026-10-12)
+   double origamiBend = 1;              // 1 = the design's deformation, 0 = rigid
+   double origamiLpNm = 1500;           // persistence length, nm (estimate; chhabra2020)
+   double origamiStrandsPerSpot = 5;    // ring positions 0..N-1 of each spot carry a strand
+   double origamiAttachNm = 7;          // the body's bottom above the glass, nm (estimate)
+   double origamiLinkerNm = 3;          // docking-strand linker half-ball radius, nm (estimate)
+   double origamiRoll = 0;              // 0 uniform roll about the axis, 1 fixed at origamiRollDeg
+   double origamiRollDeg = 0;
+   double origamiHeights = 0;           // 0 = 2D (every site at the axis height), 1 = the ring's heights
 };
 
 // params() in the prototype clamps every "max" to at least its "min",
@@ -73,7 +88,8 @@ bool SetParam(Params& p, const char* name, double value);
 // A 64-bit hash of the fields a cell's packed pose depends on: everything
 // but the microtubule (mt*) parameters (and the labels, not params), which only
 // shape what hangs off a packed cell (the viewer's pack key makes the same
-// cut). Keys the packed-block store (blockstore.h).
+// cut), and the specimen's (specimen, origami*), which the cell field never
+// reads. Keys the packed-block store (blockstore.h).
 uint64_t PackingFingerprint(const Params& p);
 
 } // namespace isc

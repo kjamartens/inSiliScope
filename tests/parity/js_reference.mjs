@@ -8,6 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { loadPrototype } from './load_prototype.mjs';
+import { OrigamiField, shapeOutline, moleculeSites } from '../../web/prototype/scope/origami.js';
 
 const [protoPath, casesPath, outPath] = process.argv.slice(2);
 // V8 < 13 computes Math.pow with its own fdlibm port; 13+ calls std::pow
@@ -152,6 +153,25 @@ for (const line of fs.readFileSync(casesPath, 'utf8').split('\n')) {
     out.push(`case ${id} ncand ${ncand} removed ${removed} ms ${ms.toFixed(3)}`);
     out.push(...raw);
     for (const c of map.values()) out.push(`pk ${c.cx} ${c.cy} ${c.x} ${c.y} ${c.packRot}`);
+  } else if (kind === 'origami') {
+    // The molecules of the window, their outline (sum and every 8th point) and every designed strand.
+    const [id, seedS, ...rest] = t.slice(1);
+    const [x0, y0, x1, y1] = rest.slice(0, 4).map(Number);
+    const kv = Object.fromEntries(rest.slice(4).map(e => { const [k, v] = e.split('='); return [k, +v]; }));
+    const F = new OrigamiField(+seedS >>> 0, { specimen: 1, ...kv });
+    const f = x => String(x);
+    for (const m of F.moleculesInRect(x0, y0, x1, y1)) {
+      const I = F.info(m);
+      out.push([`ori ${id} ${m.tx} ${m.ty} ${m.i} ${I.fold}`, I.x, I.y, I.yaw, I.roll, I.endAngle].map(f).join(' '));
+      const o = shapeOutline(F.shape(m), 16);
+      const l = [`oro ${id} ${m.tx} ${m.ty} ${m.i} ${o.length / 2}`, o.reduce((a, v) => a + v, 0)];
+      for (let j = 0; j < o.length; j += 16) l.push(o[j], o[j + 1]);
+      out.push(l.map(f).join(' '));
+      const st = moleculeSites(F.d, F.P, m, F.shape(m), 1, 1, [], true);
+      const q = [`ors ${id} ${m.tx} ${m.ty} ${m.i} ${st.length}`];
+      for (const x of st) q.push(x.k, x.n, x.id, x.x, x.y, x.z, ...x.rest, ...x.bent);
+      out.push(q.map(f).join(' '));
+    }
   }
 }
 fs.writeFileSync(outPath, out.join('\n') + '\n');

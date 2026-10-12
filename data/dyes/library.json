@@ -21,7 +21,13 @@
       "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 70 },
       "WideField": { "dye": "mEGFP", "labelingPct": 70 }
     },
-    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites).",
+    "docking": {
+      "dSTORM": { "dye": "AF647", "labelingPct": 80 },
+      "PALM": { "dye": "mEos3.2", "labelingPct": 80 },
+      "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 80 },
+      "WideField": { "dye": "ATTO655", "labelingPct": 80 }
+    },
+    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites). Docking strands (the origami nanorulers): the % is the incorporation of each designed strand (estimate, 80 %); DNA-PAINT is what such rulers are made for, an ATTO 655 imager as for the microtubules; dSTORM stands for dye-labelled staples, WideField for a dye on every strand; PALM (a protein on a DNA strand) is listed only so every mode has a dye.",
     "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017"]
   },
   "dyes": [
@@ -63,9 +69,8 @@
       "fpbase": { "dye": "ATTO 655" },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
-                       "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s keeps the pre-issue-16 default look; 9 nt docking strands bind for ~0.3-1 s." },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
+                       "notes": "ATTO 655 imagers; the binding kinetics (k_on, bound time) are the target's (data/specimens.json paint)." },
         "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 1105, "dutyCycle": 0.0006, "switchingCycles": 17,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
                     "refs": ["dempsey2011"], "notes": "Table 1 (MEA); 405 sensitivity '+' (Table 2); initialOnSec estimate." },
@@ -77,8 +82,8 @@
       "fpbase": { "dye": "ATTO 542" },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2010", "schnitzbauer2017"], "notes": "as ATTO 655 (estimate)" },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2010", "schnitzbauer2017"],
+                       "notes": "as ATTO 655 (estimate); binding kinetics: the target's (data/specimens.json paint)" },
         "WideField": { "photonBudget": 100000, "notes": "estimate" }
       }
     },
@@ -88,9 +93,8 @@
       "override": { "exMaxNm": 559, "emMaxNm": 570 },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5,
-                       "refs": ["jungmann2014"],
-                       "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; kinetics as ATTO 655 (estimate: k_on of 9-10 nt imagers, onSec the default look)." },
+        "DNA-PAINT": { "photonCV": 0.5, "refs": ["jungmann2014"],
+                       "notes": "Cy3b-labeled imager strands (0.6-3 nM, 561 nm TIR; microtubules and DNA origami) in jungmann2014; binding kinetics: the target's (data/specimens.json paint)." },
         "dSTORM": { "laser": 561, "detectedPhotonsPerCycle": 1365, "dutyCycle": 0.0003, "switchingCycles": 8,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5,
                     "refs": ["dempsey2011"], "notes": "Table 1 (MEA: 1,365 photons per cycle, duty cycle 0.0003, 8 switching cycles); 405 nm sensitivity '+' (Table 2); initialOnSec estimate. Its photons per cycle rise with the excitation intensity (Results), which is not modelled (dstormReference notes)." },
@@ -169,7 +173,7 @@
       "parametric": { "exPeakNm": 650, "emPeakNm": 670, "exWidthNm": 30, "emWidthNm": 35, "extCoeff": 150000, "qy": 0.5 },
       "fluorescentFraction": 1.0,
       "modes": {
-        "DNA-PAINT": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "photonCV": 0.5 },
+        "DNA-PAINT": { "photonCV": 0.5 },
         "dSTORM": { "laser": 640, "detectedPhotonsPerCycle": 3000, "dutyCycle": 0.001, "switchingCycles": 10,
                     "activation405PerKWcm2PerSec": 20, "initialOnSec": 2.0, "photonCV": 0.5 },
         "PALM": { "onSec": 0.05, "offSecBetweenBlinks": 0.5, "bleachProb": 0.5, "photonCV": 0.5,

@@ -1,4 +1,4 @@
-// A cell-field movie in JS: the mirror of adapter/inSiliScope/Simulation/ScopeMovie.cpp (+ CellFieldSource),
+// A cell-field movie in JS: the mirror of adapter/inSiliScope/Simulation/ScopeMovie.cpp (+ SampleSource),
 // i.e. what insiliscope_cli / the viewer's isc_scope_movie render, option for option:
 //   world (seed, p.* geometry, one label per structure) -> modality 0 Fluorescence (fluorescence.js: every label in
 //   its mode -- blinks splatted with their own PSF, continuous populations mean-field or per dye, the DNA-PAINT imager
@@ -19,6 +19,7 @@ import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_FIELDS, MODES, EXCITATION_FILTER_ID
   effectiveDye, makeLightPath, labelPhotophysics, cameraPreset, cameraPresetGain, cameraPreamp, emGainFromGain,
   backgroundQe } from './dye_library.js';
 import { ORIENTATION_MODES, MOTION_MODES } from './dyes.js';
+import { ORIGAMI_DESIGNS, ORIGAMI_DEFAULTS, ORIGAMI_PARAM_NAMES, SPECIMEN_NANORULERS, normalizeOrigamiParams } from './origami.js';
 import { sampleAt } from './spectra.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
@@ -27,9 +28,34 @@ const idx = (list, id) => { const i = list.indexOf(id); if (i < 0) throw new Err
 // The default 640 nm intensity, the DNA-PAINT presets' 1 kW/cm^2 (estimate; was 0.1607 until 2026-10-05, what gave
 // ATTO 655 the single-dye default's 6375 photoelectrons/s while ON; scope/dye_library.js, issue 16).
 export const DEFAULT_LASER_640_KW = 1.0;
-// k_on 1e6 /M/s x 1 nM = 1e-3 bindings per site per second (*estimate*, 2026-10-07: was 1.43, the former default
-// activation rate; 1 nM gives about the emitters per frame of the dSTORM and PALM typical labels).
-export const DEFAULT_IMAGER_NM = 1;
+
+// The label options of a target (structure), named by its prefix: the microtubules' mt-*, the docking strands' ruler-*
+// (ScopeTargetLabelOptions). Texts per target; a new target adds its entry.
+const TARGET_TEXT = {
+  microtubules: { dev: 'CellField', row: 'Microtubules', what: 'the microtubules\'',
+    sites: '% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label',
+    typicalPct: 'DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70', axis: 'the microtubule axis' },
+  docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\'',
+    sites: '% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)',
+    typicalPct: '80 in every mode', axis: 'the rod axis' },
+};
+function targetLabelOptions(t) {
+  const P = t.prefix, T = TARGET_TEXT[t.id];
+  if (!T) throw new Error(`scope_movie.js: no option texts for target '${t.id}' (TARGET_TEXT)`);
+  return [
+    [`${P}-dye`, idx(DYE_CHOICES, 'ATTO655'), `${T.dev} ${T.row}_Label: a library dye or Dye1..Dye3; -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
+    [`${P}-mode`, -1, `${T.dev} ${T.row}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
+    [`${P}-label-pct`, -1, `${T.dev} ${T.row}_LabelingPct: ${T.sites}; -1 = the target's typical % in its mode (data/dyes/library.json typicalLabels: ${T.typicalPct})`],
+    [`${P}-imager-nm`, t.paint.imagerNm, `${T.dev}.${T.row}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
+    [`${P}-paint-kon`, t.paint.konPerMPerSec, `${T.dev}.${T.row}_KonPerMolarPerSec: DNA-PAINT imager association rate k_on, /M/s (the target's docking sequence; data/specimens.json paint)`],
+    [`${P}-paint-on-sec`, t.paint.onSec, `${T.dev}.${T.row}_BoundTimeSec: DNA-PAINT mean bound time of an imager, s (exponential; half-time = ln 2 x this; data/specimens.json paint)`],
+    [`${P}-orient`, 0, `${T.dev}.${T.row}_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)`],
+    [`${P}-orient-polar-deg`, 90, `${T.dev}.${T.row}_OrientPolarDeg: Fixed dipole angle from ${T.axis}`],
+    [`${P}-orient-azimuth-deg`, 0, `${T.dev}.${T.row}_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction`],
+    [`${P}-wobble-deg`, 0, `${T.dev}.${T.row}_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)`],
+    [`${P}-motion`, 0, `${T.dev}.${T.row}_Motion: 0 Static (single-particle tracking: future)`],
+  ];
+}
 
 // [name, default, help]: ScopeMovieOptions(), same order and defaults.
 export const SCOPE_OPTIONS = [
@@ -59,18 +85,10 @@ export const SCOPE_OPTIONS = [
   ['na', 1.4, 'Objective.NA: numerical aperture'],
   ['focus-um', 0, 'CellField.FocusHeightUm (focus offset added to z)'],
   ['z-range-um', 7.0, 'CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)'],
-  // ---- the microtubules' label (Micro-Manager: CellField.Microtubules_*, Fluorophores) ----
-  ['specimen', 0, 'SampleHolder: the mounted specimen (0 = CellField; data/specimens.json; names accepted)'],
+  ['specimen', 0, 'SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers; data/specimens.json; names accepted)'],
   ['mode', -1, 'Fluorophores Mode: the experiment\'s label mode, for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target\'s own; names accepted)'],
-  ['mt-dye', idx(DYE_CHOICES, 'ATTO655'), 'CellField Microtubules_Label: a library dye or Dye1..Dye3; -1 Typical = the microtubules\' typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)'],
-  ['mt-mode', -1, 'CellField Microtubules_Mode: -1 DyeDefault = the dye\'s default (Typical: the library\'s default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)'],
-  ['mt-label-pct', -1, 'CellField Microtubules_LabelingPct: % of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label; -1 = the target\'s typical % in its mode (data/dyes/library.json typicalLabels: DNA-PAINT 70, dSTORM 3, PALM 25, WideField 70)'],
-  ['mt-imager-nm', DEFAULT_IMAGER_NM, 'CellField.Microtubules_ImagerNm: DNA-PAINT imager concentration, nM (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)'],
-  ['mt-orient', 0, 'CellField.Microtubules_Orientation: 0 Free (isotropic), 1 Fixed, 2 Random (no effect on the image yet)'],
-  ['mt-orient-polar-deg', 90, 'CellField.Microtubules_OrientPolarDeg: Fixed dipole angle from the microtubule axis'],
-  ['mt-orient-azimuth-deg', 0, 'CellField.Microtubules_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction'],
-  ['mt-wobble-deg', 0, 'CellField.Microtubules_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)'],
-  ['mt-motion', 0, 'CellField.Microtubules_Motion: 0 Static (single-particle tracking: future)'],
+  // ---- each target's label (data/specimens.json; Micro-Manager: the specimen device's <Target>_* rows, Fluorophores) ----
+  ...STRUCTURES.flatMap(targetLabelOptions),
   // ---- dye slots (Fluorophores.DyeN_*): a library dye + overrides, chosen by mt-dye = Dye1..Dye3 ----
   ['dye1.source', idx(DYE_IDS, 'AF647'), 'Fluorophores.Dye1_Source: library dye of slot 1 (dye1.<field> overrides it)'],
   ['dye2.source', idx(DYE_IDS, 'mEos3.2'), 'Fluorophores.Dye2_Source'],
@@ -96,6 +114,18 @@ export const SCOPE_OPTIONS = [
   ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
   ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2'],
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
+  // ---- the nanorulers (Micro-Manager: Nanorulers; core params origami*, origami.js) ----
+  ['origami-design', ORIGAMI_DEFAULTS.origamiDesign, 'Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)'],
+  ['origami-density', ORIGAMI_DEFAULTS.origamiDensity, 'Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them'],
+  ['origami-min-spacing-nm', ORIGAMI_DEFAULTS.origamiMinSpacingNm, 'Nanorulers.MinSpacingNm: no two molecule centres closer than this, nm (0 = no thinning)'],
+  ['origami-bend', ORIGAMI_DEFAULTS.origamiBend, 'Nanorulers.Bending: 1 = the design\'s in-plane worm-like-chain bending, 0 = rigid'],
+  ['origami-lp-nm', ORIGAMI_DEFAULTS.origamiLpNm, 'Nanorulers.PersistenceLengthNm: bending persistence length, nm (estimate; measured helix bundles 0.74-8.2 um)'],
+  ['origami-strands-per-spot', ORIGAMI_DEFAULTS.origamiStrandsPerSpot, 'Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the design has 5)'],
+  ['origami-attach-nm', ORIGAMI_DEFAULTS.origamiAttachNm, 'Nanorulers.AttachHeightNm: the rod\'s bottom above the glass, nm'],
+  ['origami-linker-nm', ORIGAMI_DEFAULTS.origamiLinkerNm, 'Nanorulers.LinkerNm: the dye lies within this distance of its strand\'s anchor, outward, nm'],
+  ['origami-roll', ORIGAMI_DEFAULTS.origamiRoll, 'Nanorulers.Roll: 0 Uniform (each rod landed at a random roll about its axis), 1 Fixed (origami-roll-deg; names accepted)'],
+  ['origami-roll-deg', ORIGAMI_DEFAULTS.origamiRollDeg, 'Nanorulers.RollDeg: the fixed roll, deg'],
+  ['origami-heights', ORIGAMI_DEFAULTS.origamiHeights, 'Nanorulers.KeepHeights: 0 = 2D (every strand at the rod axis height), 1 = the ring\'s heights (3D)'],
   // ---- camera (Micro-Manager: Camera): a preset sets every value below that the spec does not give ----
   ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],
   ['qe-curve', -1, 'Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset\'s, Custom = flat at qe'],
@@ -163,8 +193,10 @@ const DEFAULTS = Object.fromEntries(SCOPE_OPTIONS.map(([k, v]) => [k, v]));
 const NAMES = {
   modality: ['Fluorescence', 'BrightField'], 'psf-model': ['Gaussian', 'RichardsWolf', 'GibsonLanni', 'GibsonLanniZernike'],
   'psf-mask': ['None', 'DoubleHelix'], 'psf-interp': ['Nearest', 'Linear', 'Cubic', 'Fft'], 'psf-zernike-preset': ZERNIKE_PRESETS,
-  'mt-dye': DYE_CHOICES, 'mt-mode': MODES, 'mt-orient': ORIENTATION_MODES, 'mt-motion': MOTION_MODES,
+  ...Object.fromEntries(STRUCTURES.flatMap(t => [[`${t.prefix}-dye`, DYE_CHOICES], [`${t.prefix}-mode`, MODES],
+    [`${t.prefix}-orient`, ORIENTATION_MODES], [`${t.prefix}-motion`, MOTION_MODES]])),
   mode: MODES, specimen: DYE_DATA.specimens.map(sp => sp.id),
+  'origami-design': ORIGAMI_DESIGNS.map(d => d.id), 'origami-roll': ['Uniform', 'Fixed'],
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
@@ -224,7 +256,35 @@ export function scopeLights(spec) {
 // or every structure in WideField mode.
 function wideFieldOrBrightField(spec) {
   if (scopeLights(spec).trans) return true;
-  return STRUCTURES.every((s, i) => scopeStructureDye(spec, i).eff.mode === 'WideField');
+  return mountedStructures(spec).every(i => scopeStructureDye(spec, i).eff.mode === 'WideField');
+}
+
+// The mounted specimen of a spec (its index in data/specimens.json) and its targets' structure ids (MountedStructures):
+// only those labels render (another specimen's labels exist in the world but have no sites).
+export function scopeSpecimen(spec) {
+  const sp = Math.trunc(getter(spec)('specimen'));
+  if (!(sp >= 0 && sp < DYE_DATA.specimens.length)) throw new Error(`specimen ${sp}: not one of 0..${DYE_DATA.specimens.length - 1} (data/specimens.json)`);
+  return sp;
+}
+export const mountedStructures = spec => DYE_DATA.specimens[scopeSpecimen(spec)].targets.map(t => t.structure);
+
+// The world's specimen params (core params specimen + origami*): the origami-* options, then p.<name> on top.
+export function scopeSpecimenParams(spec) {
+  const O = getter(spec);
+  const v = { specimen: scopeSpecimen(spec), origamiDesign: O('origami-design'), origamiDensity: O('origami-density'),
+    origamiMinSpacingNm: O('origami-min-spacing-nm'), origamiBend: O('origami-bend'), origamiLpNm: O('origami-lp-nm'),
+    origamiStrandsPerSpot: O('origami-strands-per-spot'), origamiAttachNm: O('origami-attach-nm'),
+    origamiLinkerNm: O('origami-linker-nm'), origamiRoll: O('origami-roll'), origamiRollDeg: O('origami-roll-deg'),
+    origamiHeights: O('origami-heights') };
+  for (const n of ORIGAMI_PARAM_NAMES) if (`p.${n}` in spec) v[n] = spec[`p.${n}`];
+  return normalizeOrigamiParams(v);
+}
+// The specimen's default focus (z when the spec does not give it): 0.5 um above the coverslip for the cell field, the
+// docking strands' height for the nanorulers (as when a user focuses on them).
+export function scopeDefaultZ(spec) {
+  const q = scopeSpecimenParams(spec);
+  if (q.specimen !== SPECIMEN_NANORULERS) return DEFAULTS.z;
+  return (q.origamiAttachNm + ORIGAMI_DESIGNS[q.origamiDesign].diameterNm / 2) / 1000.0;
 }
 
 // A structure's dye choice and mode as the spec gives them, resolved (ScopeStructureDye): <prefix>-mode -2 = the global
@@ -265,7 +325,7 @@ export function scopeLightPreset(spec) {
   if (i < 0) return null;
   let id = LIGHT_PRESET_CHOICES[i];
   if (id === 'auto') {
-    const { eff } = scopeStructureDye(spec, 0);
+    const { eff } = scopeStructureDye(spec, mountedStructures(spec)[0]);
     id = eff.dye.modes[eff.mode].lightPreset;
   }
   const q = DYE_DATA.lightPresets.find(x => x.id === id);
@@ -313,6 +373,7 @@ export function scopeLabels(spec, lp) {
     const pct = scopeStructureLabelingPct(spec, i, eff.mode);
     return labelPhotophysics(eff, lp, {
       density: Math.min(1, Math.max(0, pct / 100)), imagerNm: O(`${P}-imager-nm`),
+      paintKonPerMPerSec: O(`${P}-paint-kon`), paintOnSec: O(`${P}-paint-on-sec`),
       orientation: { mode: ORIENTATION_MODES[Math.trunc(O(`${P}-orient`))], polarDeg: O(`${P}-orient-polar-deg`),
         azimuthDeg: O(`${P}-orient-azimuth-deg`), wobbleDeg: O(`${P}-wobble-deg`) },
       motion: MOTION_MODES[Math.trunc(O(`${P}-motion`))] });
@@ -321,11 +382,12 @@ export function scopeLabels(spec, lp) {
 
 // MakeScopeSetup: frame-equivalent parameters, world settings, the FOV query, the camera, light path and labels.
 export function scopeSetup(P, spec) {
+  if (!('z' in spec)) spec = { ...spec, z: scopeDefaultZ(spec) };
   const O = getter(spec);
   const seed = Math.trunc(O('seed'));
   const { width: W, height: H, frames: N } = scopeDims(spec);
   const expSec = Math.max(1e-6, O('exposure-ms') / 1000.0), t0Sec = Math.max(0.0, O('start-sec'));
-  if (Math.trunc(O('specimen')) !== 0) throw new Error(`specimen ${Math.trunc(O('specimen'))}: only the CellField (0) exists`);
+  const mounted = mountedStructures(spec);
   const pixelSizeNm = O('pixel-nm');
   const camera = scopeCamera(spec);
   const lp = scopeLightPath(spec, camera);
@@ -359,7 +421,7 @@ export function scopeSetup(P, spec) {
     const name = k.slice(2);
     if (name in P.defaults) vals[name] = typeof P.defaults[name] === 'boolean' ? v !== 0 : v;
   }
-  const worldParams = P.paramsFrom(vals);
+  const worldParams = { ...P.paramsFrom(vals), ...scopeSpecimenParams(spec) };
   const um = pixelSizeNm / 1000.0, margin = 2.0;
   const originXUm = O('x') - W * um / 2, originYUm = O('y') - H * um / 2;
   const q = {
@@ -384,7 +446,7 @@ export function scopeSetup(P, spec) {
     q.y0Um -= b.yHi / 1000.0; q.y1Um -= b.yLo / 1000.0;
     if (q.zHalfRangeUm > 0.0) q.zHalfRangeUm += Math.max(-b.zLo, b.zHi) / 1000.0;
   }
-  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
+  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, mounted, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
       maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
     blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),
@@ -478,7 +540,7 @@ export function scopeWorld(P, S) {
   return worldMemo.world;
 }
 
-// CellFieldSource::Events: world events of q as BlinkEvents in the FOV frame (+ structure, state, aux).
+// SampleSource::Events: world events of q as BlinkEvents in the FOV frame (+ structure, state, aux).
 const toFov = (q, e) => ({ xUm: e.x - q.originXUm, yUm: e.y - q.originYUm, zNm: (e.z - q.zRefUm) * 1000.0,
   tStart: q.frameIndex + (e.tOn - q.tSec) / q.frameSec, tEnd: q.frameIndex + (e.tOff - q.tSec) / q.frameSec,
   brightness: e.brightness, structure: e.structure, state: e.state, aux: e.aux });

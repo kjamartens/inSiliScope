@@ -1,8 +1,9 @@
 # inSiliScope
 
-**A deterministic in-silico microscope.** inSiliScope generates an endless field of synthetic cells (cell body,
-nucleus, cytoplasm, microtubules, fluorophore sites) and images it the way a microscope would: as a
-single-molecule localisation (SMLM) movie or as a widefield image, with a physical PSF and camera noise model.
+**A deterministic in-silico microscope.** inSiliScope generates an endless synthetic sample and images it the way a
+microscope would: as a single-molecule localisation (SMLM) movie or as a widefield image, with a physical PSF and
+camera noise model. Two [samples](samples/index.md) can be mounted: a field of cells (cell body, nucleus, cytoplasm,
+microtubules, fluorophore sites) and DNA-origami nanorulers (rods with three spots of docking strands 80 nm apart).
 
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
@@ -34,7 +35,7 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 
 - **Address-based determinism.** Every cell, microtubule and dye is a pure function of `(seed, address)`. Any window
   of the infinite field can be generated alone, in any order, on any platform, with identical results. See
-  [World model](physics/world-model.md).
+  [World model](samples/cell-field/world-model.md).
 - **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
   guarded by golden vectors in CI.
 - **Dyes and a light path.** Each structure's label is a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
@@ -46,12 +47,18 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *BrightField* (exploration): transmitted light through
   the cells' refractive index, partially coherent multislice wave optics, a speed/precision quality setting.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
-- **Built to extend.** Targets, photophysics and modalities are separate layers; see [Extending](extending.md).
+- **More than one sample.** The geometry of a sample is separate from the photophysics and the imaging: the cell
+  field and the [nanorulers](samples/nanorulers/index.md) share the dyes, the light path, the PSF and the camera.
+  Switch in the viewer's Sample select, Micro-Manager's `SampleHolder` or the cli's `--specimen`; see
+  [Samples](samples/index.md).
+- **Built to extend.** Samples, targets, photophysics and modalities are separate layers; see
+  [Extending](extending.md).
 
 ## Reading guide
 
 - New here: [Gallery](gallery/index.md), then [Quickstart](quickstart.md).
-- Want the models: [Physics](physics/world-model.md) (world model, structures, photophysics, optics, camera, validation).
+- Want the models: [Samples](samples/index.md) (the cell field's world model and structures, the nanorulers) and
+  [Physics](physics/dyes-and-light-path.md) (dyes and light path, photophysics, optics, camera, validation).
 - Want to add something: [Extending](extending.md) and the [Roadmap](roadmap.md).
 - Timings: [Benchmarks](benchmarks.md).
 

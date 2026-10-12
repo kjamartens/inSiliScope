@@ -40,6 +40,7 @@ const std::vector<DeviceInfo>& Peripherals()
       { "TransmittedLamp", "Transmitted-light lamp and its shutter (BrightField)", Tier::Basic },
       { "SampleHolder", "The mounted specimen; drift and background of the sample", Tier::Basic },
       { "CellField", "Specimen: a field of cells with their labelled structures", Tier::Basic },
+      { "Nanorulers", "Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)", Tier::Basic },
       { "Fluorophores", "The dyes: label mode, photophysics readouts, custom dyes", Tier::Basic },
       { "Renderer", "How the images are computed: quality, GPU, caches, numerics", Tier::Basic },
    };
