@@ -119,8 +119,9 @@ struct CubeSpec
    int excitation, dichroic, emission;
 };
 
-// The (excitation filter, dichroic, emission filter) triples of the light presets, in preset order. A cube without an
-// excitation filter is labelled "<dichroic>+<emission filter>", one with "<excitation>+<dichroic>+<emission>".
+// The (excitation filter, dichroic, emission filter) triples of the light presets, in preset order, then the Auto
+// preset's multi-band set (light_path.json multiTarget: several targets' presets with different filters). A cube
+// without an excitation filter is labelled "<dichroic>+<emission filter>", one with "<excitation>+<dichroic>+<emission>".
 const std::vector<CubeSpec>& Cubes()
 {
    static const std::vector<CubeSpec> cubes = [] {
@@ -140,6 +141,14 @@ const std::vector<CubeSpec>& Cubes()
          if (!seen && x >= 0 && d >= 0 && e >= 0)
             v.push_back({ prefix + p->dichroic + "+" + p->emissionFilter, x, d, e });
       }
+      const int x = sim::IndexOf(sim::ExcitationFilterIds(), "None");
+      const int d = sim::IndexOf(sim::DichroicIds(), sim::MultiTargetDichroic());
+      const int e = sim::IndexOf(sim::EmissionFilterIds(), sim::MultiTargetEmissionFilter());
+      bool seen = false;
+      for (const CubeSpec& c : v)
+         seen = seen || (c.excitation == x && c.dichroic == d && c.emission == e);
+      if (!seen && x >= 0 && d >= 0 && e >= 0)
+         v.push_back({ std::string(sim::MultiTargetDichroic()) + "+" + sim::MultiTargetEmissionFilter(), x, d, e });
       return v;
    }();
    return cubes;

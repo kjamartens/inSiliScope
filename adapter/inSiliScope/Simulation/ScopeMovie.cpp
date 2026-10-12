@@ -161,17 +161,17 @@ const OptionTable& Options()
       // -linker-max-nm. The default dye: the target's typical dye in the library's default mode (JS targetLabelOptions).
       for (int s = 0; s < TargetCount(); ++s)
       {
-         const TargetData& t = TargetAt(s);
-         const TargetText& T = TextOf(t);
-         const std::string P = t.prefix, D = std::string(T.dev) + "." + T.row;
+         const TargetData& tg = TargetAt(s);
+         const TargetText& T = TextOf(tg);
+         const std::string P = tg.prefix, D = std::string(T.dev) + "." + T.row;
          std::string pcts;
          for (int m = 0; m < MODE_COUNT; ++m)
          {
             char b[64];
-            std::snprintf(b, sizeof b, "%s%s %g", m ? ", " : "", DyeModeNames()[static_cast<size_t>(m)].c_str(), t.typicalPct[m]);
+            std::snprintf(b, sizeof b, "%s%s %g", m ? ", " : "", DyeModeNames()[static_cast<size_t>(m)].c_str(), tg.typicalPct[m]);
             pcts += b;
          }
-         v.push_back({ keep(P + "-dye"), static_cast<double>(t.typicalDye[DefaultDyeMode()]),
+         v.push_back({ keep(P + "-dye"), static_cast<double>(tg.typicalDye[DefaultDyeMode()]),
                        keep(D + "_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = " + T.what +
                             " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
          v.push_back({ keep(P + "-mode"), -1,
@@ -187,13 +187,13 @@ const OptionTable& Options()
                        keep(D + "_OrientAzimuthDeg: Fixed dipole azimuth about the axis, from the radial direction") });
          v.push_back({ keep(P + "-wobble-deg"), 0, keep(D + "_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)") });
          v.push_back({ keep(P + "-motion"), 0, keep(D + "_Motion: 0 Static (single-particle tracking: future)") });
-         if (t.linkageDefault < 0)
+         if (tg.linkageDefault < 0)
             continue;
          std::string list;
          for (size_t i = 0; i < LinkagePresetIds().size(); ++i)
             list += (i ? ", " : "") + std::to_string(i) + " " + LinkagePresetIds()[i];
-         const std::string def = LinkagePresetIds()[static_cast<size_t>(t.linkageDefault)];
-         v.push_back({ keep(P + "-binder"), static_cast<double>(t.linkageDefault),
+         const std::string def = LinkagePresetIds()[static_cast<size_t>(tg.linkageDefault)];
+         v.push_back({ keep(P + "-binder"), static_cast<double>(tg.linkageDefault),
                        keep(D + "_Binder: how the dye is attached (data/dyes/library.json linkagePresets; default " + def + "): " + list +
                             " (0 Legacy = the structure's numbers before the linkage model; names accepted)") });
          v.push_back({ keep(P + "-binder-nm"), -1,
@@ -846,6 +846,21 @@ static bool AutoLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPres
    out.assign(1, r);
    return true;
 }
+
+bool ScopeAutoLightPreset(const ScopeSpec& spec, ScopeLightPresetValues& out, std::string& err)
+{
+   std::vector<ResolvedLightPreset> r;
+   if (!AutoLightPreset(spec, r, err))
+      return false;
+   out.id = r[0].id;
+   out.excitationFilter = r[0].excitationFilter;
+   out.dichroic = r[0].dichroic;
+   out.emissionFilter = r[0].emissionFilter;
+   out.lasers = r[0].lasers;
+   return true;
+}
+
+const char* ScopeTargetRow(int s) { return TextOf(TargetAt(s)).row; }
 
 // The light preset a spec asks for (JS scopeLightPreset): none (out empty), a library preset, or the auto one.
 static bool ScopeLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPreset>& out, std::string& err)
@@ -2844,16 +2859,6 @@ bool FluorescenceMovie::HasPopulations() const
    return !impl_->pops.empty();
 }
 
-bool FluorescenceMovie::HostSplatsBlinks(long f) const
-{
-   const Impl& m = *impl_;
-   for (size_t gi = 0; gi < m.groups.size(); ++gi)
-      if (!m.groups[gi].pre && f >= 0 && static_cast<size_t>(f) < m.buckets[gi].size() && !m.SplatFrame(gi, f))
-         return false;
-   return true;
-}
-
-
 int FluorescenceMovie::MeanFieldScenes() const
 {
    return static_cast<int>(impl_->sceneQueue.size());
@@ -2893,31 +2898,34 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
    const Impl& m = *impl_;
    FluorescenceSimplePlan sp;
    // The blink groups: the main groups of the blinking labels (a WideField
-   // label's main group only lights its population).
-   int blinkGroup = -1, blinkGroups = 0;
+   // label's main group only lights its population), in Render's order.
+   size_t blinks = 0;
+   sp.populations = !m.pops.empty();
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
       const Group& g = m.groups[gi];
       if (g.pre || m.S.labels[static_cast<size_t>(g.structure)].mode == MODE_WIDEFIELD)
          continue;
-      blinkGroup = static_cast<int>(gi);
-      ++blinkGroups;
+      FluorescenceSimpleGroup sg;
+      sg.kernel = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
+      sg.photonsPerBlink = g.perFrame;
+      sg.sigmaPx = g.sigmaPx;
+      sg.events = &m.byGroup[gi];
+      // Frames whose blinks are binned or mean-field come from Render too.
+      sg.splatFrame.assign(static_cast<size_t>(std::max(0L, m.S.N)), 1);
+      for (long f = 0; f < m.S.N; ++f)
+         if (!m.SplatFrame(gi, f))
+         {
+            sg.splatFrame[static_cast<size_t>(f)] = 0;
+            sp.populations = true;
+         }
+      blinks += m.byGroup[gi].size();
+      sp.groups.push_back(std::move(sg));
    }
-   if (blinkGroups != 1)
-      return sp;
-   const Group& g = m.groups[static_cast<size_t>(blinkGroup)];
-   if (m.byGroup[static_cast<size_t>(blinkGroup)].size() != m.events.size())
-      return sp;   // blinks of another group (none should be)
+   if (sp.groups.empty() || blinks != m.events.size())
+      return FluorescenceSimplePlan();   // no blinks, or blinks of another group (none should be)
    sp.ok = true;
-   sp.kernel = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
-   sp.photonsPerBlink = g.perFrame;
-   sp.sigmaPx = g.sigmaPx;
    sp.backgroundPhotons = m.bg;
-   sp.events = &m.byGroup[static_cast<size_t>(blinkGroup)];
-   // Frames whose blinks are binned or mean-field come from Render too.
-   sp.populations = !m.pops.empty();
-   for (long f = 0; f < m.S.N && !sp.populations; ++f)
-      sp.populations = !m.SplatFrame(static_cast<size_t>(blinkGroup), f);
    return sp;
 }
 
@@ -3099,7 +3107,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             }
             const bool binnedFrame = m.BinnedFrame(gi, f);
             if (popsOnly && !binnedFrame)
-               continue;   // the host splats them (HostSplatsBlinks)
+               continue;   // the host splats them (FluorescenceSimpleGroup::splatFrame)
             fe[k].clear();
             for (uint32_t i : m.buckets[gi][static_cast<size_t>(f)])
                fe[k].push_back(m.byGroup[gi][i]);
@@ -3697,6 +3705,37 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
                json += ',';
                AppendNum(json, buf[3 * p + 2]);
                json += ']';
+            }
+            json += ']';
+         }
+         json += ']';
+         // Nuclear pores (isc_cell_npcs): centre x, y, z, the outward normal and e1, in world um / unit vectors.
+         std::vector<double> pores(static_cast<size_t>(ISC_NPC_STRIDE) * 1024);
+         int32_t np = isc_cell_npcs(w, ccx, ccy, pores.data(), 1024);
+         if (np > 1024)
+         {
+            pores.resize(static_cast<size_t>(ISC_NPC_STRIDE) * np);
+            np = isc_cell_npcs(w, ccx, ccy, pores.data(), np);
+         }
+         json += ",\"npcs\":[";
+         for (int32_t k = 0; k < np; ++k)
+         {
+            const double* q = pores.data() + static_cast<size_t>(k) * ISC_NPC_STRIDE;
+            double v[ISC_NPC_STRIDE];
+            toWorld(q[0], q[1], v[0], v[1]);
+            v[2] = q[2];
+            for (int a = 3; a < ISC_NPC_STRIDE; a += 3)   // directions: the rotation only
+            {
+               v[a] = q[a] * cr - q[a + 1] * sr;
+               v[a + 1] = q[a] * sr + q[a + 1] * cr;
+               v[a + 2] = q[a + 2];
+            }
+            json += k ? ",[" : "[";
+            for (int a = 0; a < ISC_NPC_STRIDE; ++a)
+            {
+               if (a)
+                  json += ',';
+               AppendNum(json, v[a]);
             }
             json += ']';
          }

@@ -54,6 +54,12 @@ enum CellFieldNumber
    CF_MT_START_DECAY_PCT,
    CF_MT_END_DECAY_PCT,
    CF_MT_DIR_KAPPA,
+   // The nuclear pores (issue 15): the density is the engine's npc-density option (by hand), the geometry core params.
+   CF_NPC_DENSITY,
+   CF_NPC_MIN_DIST_NM,
+   CF_NPC_RADIUS_NM,
+   CF_NPC_RING_SEP_NM,
+   CF_NPC_CORNER_SPREAD_NM,
    CF_COUNT
 };
 // The core parameter each CellField number sets as is (nullptr: handled by hand in BuildSampleSettings).
@@ -205,6 +211,9 @@ struct SceneState
    void SetJavaHome(const std::string& s);
    std::string LightPreset() const;
    void SetLightPreset(const std::string& s);
+   // Sets the lasers and filters to a preset's values and names it (Lasers.Preset).
+   void SetLight(const std::string& name, const std::vector<double>& lasers, const std::string& excitationFilter,
+                 const std::string& dichroic, const std::string& emissionFilter);
    // What the camera renders on (the GPU adapter, or why the CPU).
    std::string GpuStatus() const;
    void SetGpuStatus(const std::string& s);
@@ -233,7 +242,7 @@ private:
    std::string zernikeCoefficients_;
    std::string zernikePreset_ = "MixedRealisticObjective";
    std::string javaHome_;
-   std::string lightPreset_ = "PAINT-640";
+   std::string lightPreset_ = "Auto";
    std::string gpuStatus_ = "Not used yet";
    mutable std::mutex optionMutex_;
    std::map<std::string, double> options_;

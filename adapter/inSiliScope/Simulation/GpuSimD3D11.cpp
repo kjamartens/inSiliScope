@@ -30,11 +30,18 @@ using Microsoft::WRL::ComPtr;
 const char kShaderSource[] = R"HLSL(
 cbuffer Params : register(b0)
 {
-   uint W; uint H; uint NFrames; int CamRad;
-   int Os; int Bw; int Bh; int Off;
-   uint PlaneStride; uint Seed; uint UseSpans; uint Emccd;
-   float Pad3; float Qe; float Dark; float Cic;
+   uint W; uint H; uint NFrames; uint Seed;
+   uint Emccd; float Qe; float Dark; float Cic;
    float EmGain; float MaxAdu; float Pad0; float Pad1;
+};
+
+// Per kernel k (an emitter's plane >> 16): KGeo[k] = camera radius,
+// oversampling, block-sum width (= height), offset; KMisc[k] = plane stride,
+// halo spans on, the first span of its planes in Spans, its Sums buffer.
+cbuffer Kernels : register(b1)
+{
+   int4 KGeo[4];
+   uint4 KMisc[4];
 };
 
 // One frame of the batch: its emitters are Ems[emStart .. emStart+emCount);
@@ -57,7 +64,32 @@ StructuredBuffer<float4> Pix : register(t2); // offset ADU, gain photons/ADU, re
 StructuredBuffer<FrameInfo> Frames : register(t3);
 StructuredBuffer<float> Extra : register(t4);   // photons added before the noise (continuous populations, a lamp)
 StructuredBuffer<int2> Spans : register(t5);    // the halo cut: columns [x, y] per (plane, dy) (PsfHaloSpans)
+// The other kernels' block sums (one buffer each: a default kernel is ~200 MB).
+StructuredBuffer<float> Sums1 : register(t6);
+StructuredBuffer<float> Sums2 : register(t7);
+StructuredBuffer<float> Sums3 : register(t8);
 RWStructuredBuffer<uint> Out : register(u0);
+
+// One emitter's taps from block-sum plane `base` of kernel buffer S.
+float Taps(StructuredBuffer<float> S, uint base, int r0, int c0, int bw, Em em)
+{
+   float s = 0.0f;
+   [loop] for (int j = 0; j < em.nt; j++)
+   {
+      int r = r0 + j;
+      if (r < 0 || r >= bw)
+         continue;
+      float row = 0.0f;
+      [loop] for (int ii = 0; ii < em.nt; ii++)
+      {
+         int c = c0 + ii;
+         if (c >= 0 && c < bw)
+            row += em.wx[ii] * S[base + (uint)(r * bw + c)];
+      }
+      s += em.wy[j] * row;
+   }
+   return s;
+}
 
 void Pcg4d(inout uint4 v)
 {
@@ -155,35 +187,33 @@ void main(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : S
       GroupMemoryBarrierWithGroupSync();
       [loop] for (uint k = 0; k < cnt; k++)
       {
+         const uint kk = (uint)sEm[k].plane >> 16u;
+         const int4 g = KGeo[kk];   // camRad, os, bw, off
          int dx = X - sEm[k].x0, dy = Y - sEm[k].y0;
-         if (!inside || abs(dx) > CamRad || abs(dy) > CamRad)
+         if (!inside || abs(dx) > g.x || abs(dy) > g.x)
             continue;
          Em em = sEm[k];
          if (dx * dx + dy * dy > em.cutR2)
             continue;
-         if (UseSpans != 0u)
+         const uint4 q = KMisc[kk];   // plane stride, spans on, span base, buffer
+         const uint plane = (uint)em.plane & 0xffffu;
+         if (q.y != 0u)
          {
-            int2 sp = Spans[(uint)em.plane * (uint)(2 * CamRad + 1) + (uint)(dy + CamRad)];
+            int2 sp = Spans[q.z + plane * (uint)(2 * g.x + 1) + (uint)(dy + g.x)];
             if (dx < sp.x || dx > sp.y)
                continue;
          }
-         int r0 = em.by + dy * Os + Off, c0 = em.bx + dx * Os + Off;
-         uint base = (uint)em.plane * PlaneStride;
-         float s = 0.0f;
-         [loop] for (int j = 0; j < em.nt; j++)
-         {
-            int r = r0 + j;
-            if (r < 0 || r >= Bh)
-               continue;
-            float row = 0.0f;
-            [loop] for (int ii = 0; ii < em.nt; ii++)
-            {
-               int c = c0 + ii;
-               if (c >= 0 && c < Bw)
-                  row += em.wx[ii] * Sums[base + (uint)(r * Bw + c)];
-            }
-            s += em.wy[j] * row;
-         }
+         int r0 = em.by + dy * g.y + g.w, c0 = em.bx + dx * g.y + g.w;
+         uint base = plane * q.x;
+         float s;
+         [branch] if (q.w == 0u)
+            s = Taps(Sums, base, r0, c0, g.z, em);
+         else if (q.w == 1u)
+            s = Taps(Sums1, base, r0, c0, g.z, em);
+         else if (q.w == 2u)
+            s = Taps(Sums2, base, r0, c0, g.z, em);
+         else
+            s = Taps(Sums3, base, r0, c0, g.z, em);
          acc += em.photons * s;
       }
       GroupMemoryBarrierWithGroupSync();
@@ -220,14 +250,19 @@ void main(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : S
 
 struct alignas(16) ParamsCB
 {
-   uint32_t w, h, nFrames;
-   int32_t camRad;
-   int32_t os, bw, bh, off;
-   uint32_t planeStride, seed, useSpans, emccd;
-   float pad3, qe, dark, cic;
+   uint32_t w, h, nFrames, seed;
+   uint32_t emccd;
+   float qe, dark, cic;
    float emGain, maxAdu, pad0, pad1;
 };
-static_assert(sizeof(ParamsCB) == 80, "cbuffer layout");
+static_assert(sizeof(ParamsCB) == 48, "cbuffer layout");
+
+struct KernelsCB
+{
+   int32_t geo[4][4];     // camRad, os, bw, off
+   uint32_t misc[4][4];   // planeStride, useSpans, spanBase, buffer
+};
+static_assert(sizeof(KernelsCB) == 128, "cbuffer layout");
 static_assert(sizeof(GpuSplatEmitter) == 64, "emitter layout must match the HLSL struct Em");
 
 struct FrameInfoCpu
@@ -266,14 +301,15 @@ struct GpuSimulator::Impl
    ComPtr<ID3D11DeviceContext> ctx;
    ComPtr<ID3D11ComputeShader> cs;
    ComPtr<ID3D11Buffer> cb;
+   ComPtr<ID3D11Buffer> kcb;   // KernelsCB
 
-   ComPtr<ID3D11Buffer> sums;
-   ComPtr<ID3D11ShaderResourceView> sumsSrv;
+   // One block-sum buffer per distinct kernel (t0, t6, t7, t8), the spans of
+   // all in one.
+   ComPtr<ID3D11Buffer> sums[GpuSimulator::kMaxKernels];
+   ComPtr<ID3D11ShaderResourceView> sumsSrv[GpuSimulator::kMaxKernels];
    ComPtr<ID3D11Buffer> spans;
    ComPtr<ID3D11ShaderResourceView> spansSrv;
-   bool useSpans = false;
-   int os = 1, bw = 0, bh = 0, off = 0, camRad = 0;
-   uint32_t planeStride = 0;
+   KernelsCB kernels = {};
 
    ComPtr<ID3D11Buffer> ems;
    ComPtr<ID3D11ShaderResourceView> emsSrv;
@@ -392,6 +428,11 @@ std::unique_ptr<GpuSimulator> GpuSimulator::Create(std::string& outInfo)
    cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
    cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
    hr = impl->dev->CreateBuffer(&cbd, nullptr, &impl->cb);
+   if (SUCCEEDED(hr))
+   {
+      cbd.ByteWidth = sizeof(KernelsCB);
+      hr = impl->dev->CreateBuffer(&cbd, nullptr, &impl->kcb);
+   }
    if (FAILED(hr))
    {
       outInfo = "constant buffer: " + HrText(hr);
@@ -400,38 +441,66 @@ std::unique_ptr<GpuSimulator> GpuSimulator::Create(std::string& outInfo)
    return std::unique_ptr<GpuSimulator>(new GpuSimulator(std::move(impl)));
 }
 
-bool GpuSimulator::SetKernel(const PsfKernelCache& cache, std::string& outError)
+bool GpuSimulator::SetKernels(const std::vector<const PsfKernelCache*>& kernels, std::string& outError)
 {
-   if (!cache.valid || cache.BlockSums().empty())
+   if (kernels.empty() || kernels.size() > kMaxKernels)
    {
-      outError = "no kernel block sums";
+      outError = "the GPU splat takes 1 to " + std::to_string(kMaxKernels) + " kernels, not " +
+                 std::to_string(kernels.size());
       return false;
    }
    Impl& m = *impl_;
-   m.os = std::max(1, cache.oversampling);
-   m.bw = cache.blockSumWidth;
-   m.bh = cache.blockSumWidth;
-   m.off = m.os - 1;
-   m.camRad = cache.halfWidthOversampled / m.os;
-   m.planeStride = static_cast<uint32_t>(m.bw) * static_cast<uint32_t>(m.bh);
-   std::vector<float> all;
-   all.reserve(static_cast<size_t>(m.planeStride) * cache.BlockSums().size());
-   for (const std::vector<float>& p : cache.BlockSums())
-      all.insert(all.end(), p.begin(), p.end());
-   if (!m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums, m.sumsSrv,
-                         outError))
-      return false;
-   // The halo cut's spans (one dummy entry without a cut: the slot is bound either way).
-   m.useSpans = cache.halo && cache.halo->camRad == m.camRad && cache.halo->nz == static_cast<int>(cache.BlockSums().size());
+   m.kernels = {};
+   for (ComPtr<ID3D11Buffer>& b : m.sums)
+      b.Reset();
+   for (ComPtr<ID3D11ShaderResourceView>& v : m.sumsSrv)
+      v.Reset();
+   // The spans of every kernel (one dummy entry without any cut: the slot is bound either way).
    std::vector<int32_t> spans(2, 0);
-   if (m.useSpans)
+   std::vector<const std::vector<std::vector<float>>*> held;   // the distinct kernels' planes, by buffer
+   for (size_t k = 0; k < kernels.size(); ++k)
    {
-      spans.resize(2 * cache.halo->lo.size());
-      for (size_t i = 0; i < cache.halo->lo.size(); ++i)
+      const PsfKernelCache* cache = kernels[k];
+      if (!cache || !cache->valid || cache->BlockSums().empty())
       {
-         spans[2 * i] = cache.halo->lo[i];
-         spans[2 * i + 1] = cache.halo->hi[i];
+         outError = "no kernel block sums";
+         return false;
       }
+      const int os = std::max(1, cache->oversampling);
+      const int bw = cache->blockSumWidth;
+      const int camRad = cache->halfWidthOversampled / os;
+      int32_t* geo = m.kernels.geo[k];
+      uint32_t* misc = m.kernels.misc[k];
+      geo[0] = camRad;
+      geo[1] = os;
+      geo[2] = bw;
+      geo[3] = os - 1;
+      misc[0] = static_cast<uint32_t>(bw) * static_cast<uint32_t>(bw);
+      const bool useSpans = cache->halo && cache->halo->camRad == camRad &&
+                            cache->halo->nz == static_cast<int>(cache->BlockSums().size());
+      misc[1] = useSpans ? 1u : 0u;
+      misc[2] = static_cast<uint32_t>(spans.size() / 2);
+      if (useSpans)
+         for (size_t i = 0; i < cache->halo->lo.size(); ++i)
+         {
+            spans.push_back(cache->halo->lo[i]);
+            spans.push_back(cache->halo->hi[i]);
+         }
+      // The same planes as an earlier kernel (groups at one wavelength): its buffer.
+      size_t b = 0;
+      while (b < held.size() && held[b] != &cache->BlockSums())
+         ++b;
+      misc[3] = static_cast<uint32_t>(b);
+      if (b < held.size())
+         continue;
+      std::vector<float> all;
+      all.reserve(static_cast<size_t>(misc[0]) * cache->BlockSums().size());
+      for (const std::vector<float>& p : cache->BlockSums())
+         all.insert(all.end(), p.begin(), p.end());
+      if (!m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums[b], m.sumsSrv[b],
+                            outError))
+         return false;
+      held.push_back(&cache->BlockSums());
    }
    return m.MakeStructured(2 * sizeof(int32_t), static_cast<UINT>(spans.size() / 2), spans.data(), false, m.spans,
                            m.spansSrv, outError);
@@ -521,7 +590,7 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
                                 const std::vector<const std::vector<float>*>* extras)
 {
    Impl& m = *impl_;
-   if (!m.sumsSrv || !m.pixSrv || !m.outUav)
+   if (!m.sumsSrv[0] || !m.pixSrv || !m.outUav)
    {
       outError = "GPU simulator not set up";
       return false;
@@ -610,14 +679,7 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
    p.w = m.w;
    p.h = m.h;
    p.nFrames = static_cast<uint32_t>(nf);
-   p.camRad = m.camRad;
-   p.os = m.os;
-   p.bw = m.bw;
-   p.bh = m.bh;
-   p.off = m.off;
-   p.planeStride = m.planeStride;
    p.seed = noiseSeed;
-   p.useSpans = m.useSpans ? 1u : 0u;
    p.emccd = cam.emccd ? 1u : 0u;
    p.qe = static_cast<float>(cam.quantumEfficiency);
    p.dark = static_cast<float>(cam.darkCurrentElectrons);
@@ -634,16 +696,27 @@ bool GpuSimulator::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       }
       std::memcpy(ms.pData, &p, sizeof(p));
       m.ctx->Unmap(m.cb.Get(), 0);
+      hr = m.ctx->Map(m.kcb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+      if (FAILED(hr))
+      {
+         outError = "map kernel constants: " + HrText(hr);
+         return false;
+      }
+      std::memcpy(ms.pData, &m.kernels, sizeof(m.kernels));
+      m.ctx->Unmap(m.kcb.Get(), 0);
    }
 
-   ID3D11ShaderResourceView* srvs[6] = {m.sumsSrv.Get(), m.emsSrv.Get(), m.pixSrv.Get(), m.framesSrv.Get(),
-                                        m.extraSrv.Get(), m.spansSrv.Get()};
+   // The unused kernel slots are bound to the first kernel's buffer (never read).
+   auto sumsAt = [&](size_t b) { return m.sumsSrv[b] ? m.sumsSrv[b].Get() : m.sumsSrv[0].Get(); };
+   ID3D11ShaderResourceView* srvs[9] = {sumsAt(0),        m.emsSrv.Get(), m.pixSrv.Get(),
+                                        m.framesSrv.Get(), m.extraSrv.Get(), m.spansSrv.Get(),
+                                        sumsAt(1),        sumsAt(2),      sumsAt(3)};
    ID3D11UnorderedAccessView* uavs[1] = {m.outUav.Get()};
-   ID3D11Buffer* cbs[1] = {m.cb.Get()};
+   ID3D11Buffer* cbs[2] = {m.cb.Get(), m.kcb.Get()};
    m.ctx->CSSetShader(m.cs.Get(), nullptr, 0);
-   m.ctx->CSSetShaderResources(0, 6, srvs);
+   m.ctx->CSSetShaderResources(0, 9, srvs);
    m.ctx->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
-   m.ctx->CSSetConstantBuffers(0, 1, cbs);
+   m.ctx->CSSetConstantBuffers(0, 2, cbs);
    m.ctx->Dispatch((m.w + 15) / 16, (m.h + 15) / 16, static_cast<UINT>(nf));
    ID3D11UnorderedAccessView* nullUav[1] = {nullptr};
    m.ctx->CSSetUnorderedAccessViews(0, 1, nullUav, nullptr);
@@ -681,7 +754,11 @@ std::unique_ptr<GpuSimulator> GpuSimulator::Create(std::string& outInfo)
    outInfo = "the Direct3D 11 GPU path is Windows-only";
    return nullptr;
 }
-bool GpuSimulator::SetKernel(const PsfKernelCache&, std::string& e) { e = "unsupported"; return false; }
+bool GpuSimulator::SetKernels(const std::vector<const PsfKernelCache*>&, std::string& e)
+{
+   e = "unsupported";
+   return false;
+}
 bool GpuSimulator::SetStatic(unsigned, unsigned, const std::vector<float>&, const std::vector<float>&,
                              const std::vector<float>&, const std::vector<float>&, double, const CameraNoiseParams&,
                              std::string& e)

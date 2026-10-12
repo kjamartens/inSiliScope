@@ -236,9 +236,8 @@ def _drift_checks(core, cam, xy, x0, y0):
 
 
 def _label(core, cam, mode, dye="Typical", pct=None, imager=None):
-    """The microtubules' label: the experiment's mode (Fluorophores), their dye (loads its light preset), labelling,
-    imager (DNA-PAINT)."""
-    core.setProperty("Fluorophores", "Mode", mode)
+    """The microtubules' label: their mode, their dye (loads the Lasers' Auto preset), labelling, imager (DNA-PAINT)."""
+    core.setProperty("CellField", "Microtubules_Mode", mode)
     core.setProperty("CellField", "Microtubules_Label", dye)
     if pct is not None:
         core.setProperty("CellField", "Microtubules_LabelingPct", str(pct))
@@ -279,9 +278,11 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     defaults = {p: core.getProperty("CellField", "Microtubules_" + p) for p in
                 ("Label", "Mode", "LabelingPct", "ImagerNanoMol")}
     defaults["Dye"] = core.getProperty("Fluorophores", "Microtubules_EffectiveDye")
-    assert defaults["Dye"] == "ATTO655 (DNA-PAINT)" and defaults["Label"] == "Typical" and defaults["Mode"] == "Global" and \
+    assert defaults["Dye"] == "ATTO655 (DNA-PAINT)" and defaults["Label"] == "Typical" and defaults["Mode"] == "DNA-PAINT" and \
         float(defaults["LabelingPct"]) == 70 and float(defaults["ImagerNanoMol"]) == 1.0, f"label defaults {defaults}"
-    assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
+    # load_scope leaves the nuclear pores unlabelled: the Auto light is the microtubules' PAINT-640.
+    assert core.getProperty("Lasers", "Preset") == "Auto" and core.getProperty("FilterCube", "Label") == "LP650+BP676-37", \
+        (core.getProperty("Lasers", "Preset"), core.getProperty("FilterCube", "Label"))
     print("CellField/XY stage properties present (defaults: DNA-PAINT ATTO 655, 70% of sites, 1 nM imager)")
     _label(core, cam, **PAINT)
 

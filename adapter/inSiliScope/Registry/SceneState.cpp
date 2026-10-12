@@ -12,6 +12,7 @@
 
 #include "../Simulation/DyeLibrary.h"
 #include "../Simulation/ScopeMovie.h"
+#include "SceneSettings.h"
 
 #include <cmath>
 
@@ -33,6 +34,11 @@ const char* g_CellFieldCoreParam[CF_COUNT] = {
    "mtStartDecayPct",
    "mtEndDecayPct",
    "mtDirKappa",
+   nullptr,   // npcDensity: the engine option npc-density (BuildScopeSpec, BuildSampleSettings)
+   "npcMinDistNm",
+   "npcRadiusNm",
+   "npcRingSepNm",
+   "npcCornerSpreadNm",
 };
 
 SceneState::SceneState()
@@ -41,8 +47,11 @@ SceneState::SceneState()
    // around the focal plane (0 = every dye), no focus offset (ZStage = 0 puts
    // the coverslip in focus), then the nucleus shape and microtubule start/end
    // at the core's defaults (core/src/params.h).
+   // The nuclear pores at the core's defaults (core/src/params.h: 12 per um^2 of envelope, 120 nm apart, Nup96 rings of
+   // 53.5 nm radius 50 nm apart, 12 nm corner arcs).
    const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 7.0,
-      0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5 };
+      0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5,
+      12.0, 120.0, 53.5, 50.0, 12.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField[i] = cellFieldDefaults[i];
    // Mean-field grid: 1 cell/pixel, 25 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm).
@@ -64,21 +73,25 @@ SceneState::SceneState()
 
    // The scope options with adapter defaults of their own: the labelling at
    // the default dye's mode suggestion, the QE curve of the default camera.
-   // The labels: the experiment's mode (the library's default, DNA-PAINT), each target in it (Global) with its
-   // typical dye (Typical) -- for the microtubules ATTO 655, the engine's default label.
+   // The labels: each target in its own mode (issue 15: no experiment-wide mode), the library's default (DNA-PAINT),
+   // with its typical dye (Typical) -- microtubules ATTO 655, nuclear pores Cy3B, docking strands ATTO 655.
    using namespace sim;
    const int mode = DefaultDyeMode();
-   options_["mode"] = mode;
    for (int t = 0; t < TargetCount() && t < kMaxTargets; ++t)
    {
       const std::string prefix = TargetAt(t).prefix;
-      options_[prefix + "-mode"] = -2;
+      options_[prefix + "-mode"] = mode;
       options_[prefix + "-dye"] = -1;
       options_[prefix + "-label-pct"] = TargetAt(t).typicalPct[mode];
       lastTargetMode[t] = mode;
    }
    options_["qe-curve"] = IndexOf(CameraIds(), DefaultCamera());
    cameraPreset = IndexOf(CameraIds(), DefaultCamera());
+   // The light: the Auto preset (the labelled targets' presets combined: 561 + 640 nm, the multi-band filter set).
+   ScopeLightPresetValues q;
+   std::string err;
+   if (ScopeAutoLightPreset(BuildScopeSpec(*this, 0, 0, 0, 0, 1), q, err))
+      SetLight("Auto", q.lasers, q.excitationFilter, q.dichroic, q.emissionFilter);
 }
 
 int SceneState::MountedSpecimen() const
@@ -152,6 +165,18 @@ void SceneState::SetLightPreset(const std::string& s)
 {
    std::lock_guard<std::mutex> g(textMutex_);
    lightPreset_ = s;
+}
+
+void SceneState::SetLight(const std::string& name, const std::vector<double>& lasers, const std::string& excitationFilter,
+                          const std::string& dichroic, const std::string& emissionFilter)
+{
+   const std::vector<int>& lines = sim::LaserLines();
+   for (size_t l = 0; l < lines.size() && l < lasers.size(); ++l)
+      SetOption("laser-" + std::to_string(lines[l]), lasers[l]);
+   SetOption("ex-filter", sim::IndexOf(sim::ExcitationFilterIds(), excitationFilter));
+   SetOption("dichroic", sim::IndexOf(sim::DichroicIds(), dichroic));
+   SetOption("em-filter", sim::IndexOf(sim::EmissionFilterIds(), emissionFilter));
+   SetLightPreset(name);
 }
 
 std::string SceneState::GpuStatus() const

@@ -74,7 +74,8 @@ assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub s
 assert basic < expert, "Basic should show a subset of Expert"
 assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
 for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Label"),
-             ("Fluorophores", "Mode"), ("EmissionPath", "EmissionMagnification"),
+             ("CellField", "Microtubules_Mode"), ("CellField", "NuclearPores_Label"), ("CellField", "NuclearPores_Mode"),
+             ("EmissionPath", "EmissionMagnification"),
              ("Renderer", "Quality"), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec")):
     assert must in basic, f"{must} should be Basic"
 for hidden in (("Objective", "NA"), ("Renderer", "PsfOversampling"), ("Camera", "GainElectronsPerADU")):
@@ -121,16 +122,29 @@ assert not np.array_equal(live_frames[0], live_frames[-1]), "expected live frame
 print("Live mode OK:", len(live_frames), "frames captured, frames vary over time")
 
 # --- defaults and couplings across devices ----------------------------------
-fresh()
+# The defaults with both cell-field targets labelled (issue 15): microtubules DNA-PAINT ATTO 655 at 640 nm, nuclear
+# pores DNA-PAINT Cy3B at 561 nm, each in its own mode; the Lasers' Auto preset combines their presets (both lines, the
+# multi-band cube); the pores off (None) leave the microtubules' preset.
+assert not core.hasProperty("Fluorophores", "Mode"), "no experiment-wide mode since issue 15"
+fresh(pores=True)
 for (dev, name), expected in {
     ("Lasers", "IlluminationProfile"): "Flat",
-    ("Fluorophores", "Mode"): "DNA-PAINT",
     ("CellField", "Microtubules_Label"): "Typical",
     ("Fluorophores", "Microtubules_EffectiveDye"): "ATTO655 (DNA-PAINT)",
-    ("CellField", "Microtubules_Mode"): "Global",
+    ("CellField", "Microtubules_Mode"): "DNA-PAINT",
     ("CellField", "Microtubules_LabelingPct"): "70",
-    ("Lasers", "Preset"): "PAINT-640",
-    ("FilterCube", "Label"): "LP650+BP676-37",
+    ("CellField", "Microtubules_Binder"): "IgG2-PAINT",
+    ("CellField", "NuclearPores_Label"): "Typical",
+    ("Fluorophores", "NuclearPores_EffectiveDye"): "Cy3B (DNA-PAINT)",
+    ("CellField", "NuclearPores_Mode"): "DNA-PAINT",
+    ("CellField", "NuclearPores_LabelingPct"): "60",
+    ("CellField", "NuclearPores_Binder"): "SNAP-Halo",
+    ("CellField", "NuclearPoreDensityPerUm2"): "12",
+    ("CellField", "NuclearPoreMinDistNm"): "120",
+    ("Lasers", "Preset"): "Auto",
+    ("Lasers", "Laser561KWcm2"): "1",
+    ("Lasers", "Laser640KWcm2"): "1",
+    ("FilterCube", "Label"): "ChromaZT405-488-561-640rpc+ChromaZET405-488-561-640m",
     ("Objective", "Label"): "100x/1.40 Oil",
     ("Camera", "CameraType"): "sCMOS",
     ("SampleHolder", "BackgroundDecaySec"): "0",
@@ -146,6 +160,19 @@ for (dev, name), expected in {
     actual = core.getProperty(dev, name)
     ok = float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected
     assert ok, f"expected {dev}.{name} to default to {expected!r}, got {actual!r}"
+assert "None" in core.getAllowedPropertyValues("CellField", "NuclearPores_Label")
+assert float(core.getProperty("Fluorophores", "NuclearPores_PhotonsPerSecOn")) > 0
+core.setProperty("CellField", "NuclearPores_Label", "None")
+assert core.getProperty("Lasers", "Preset") == "Auto" and core.getProperty("FilterCube", "Label") == "LP650+BP676-37" and \
+    float(core.getProperty("Lasers", "Laser561KWcm2")) == 0, "the pores off: the microtubules' PAINT-640 light"
+core.setProperty("CellField", "NuclearPores_Label", "Typical")
+core.setProperty("CellField", "NuclearPores_Mode", "dSTORM")
+assert core.getProperty("Fluorophores", "NuclearPores_EffectiveDye") == "AF647 (dSTORM)"
+assert float(core.getProperty("CellField", "NuclearPores_LabelingPct")) == 58, "the pores' mode change sets their labelling"
+assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "ATTO655 (DNA-PAINT)", "the other target keeps its mode"
+print("Two targets OK: pores Cy3B DNA-PAINT + microtubules ATTO 655, Auto light 561 + 640 nm (multi-band cube); "
+      "pores None -> PAINT-640; pores dSTORM -> AF647 58 %")
+fresh()
 # The pixel: the Kinetix's 6.5 um sensor pixel / (100x objective x 0.667x emission path) = 97.45 nm.
 assert float(core.getProperty("EmissionPath", "EmissionMagnification")) == 0.667
 assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 6500 / 66.7) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
@@ -155,19 +182,20 @@ DSTORM_DYES = {"AF647", "AF532", "Cy5", "ATTO655", "Cy3B", "Custom"}
 PALM_DYES = {"mEos3.2", "Dendra2", "PAmCherry2", "Custom"}
 PAINT_DYES = {"ATTO655", "ATTO542", "Cy3B", "Custom"}
 CUSTOM = {"Dye1", "Dye2", "Dye3"}
-assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PAINT_DYES | CUSTOM
-core.setProperty("Fluorophores", "Mode", "PALM")
-assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PALM_DYES | CUSTOM, \
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PAINT_DYES | CUSTOM | {"None"}
+core.setProperty("CellField", "Microtubules_Mode", "PALM")
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | PALM_DYES | CUSTOM | {"None"}, \
     core.getAllowedPropertyValues("CellField", "Microtubules_Label")
 assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "mEos3.2 (PALM)"
 core.setProperty("CellField", "Microtubules_Label", "Dendra2")
-core.setProperty("Fluorophores", "Mode", "dSTORM")
-assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | DSTORM_DYES | CUSTOM
+core.setProperty("CellField", "Microtubules_Mode", "dSTORM")
+assert set(core.getAllowedPropertyValues("CellField", "Microtubules_Label")) == {"Typical"} | DSTORM_DYES | CUSTOM | {"None"}
 assert core.getProperty("CellField", "Microtubules_Label") == "Typical", "a label the new mode lacks becomes Typical"
 assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "AF647 (dSTORM)"
-# A dye pick (or mode) loads its mode's light preset: lasers and filter cube on their own devices.
+# A dye pick (or mode) loads the Auto light preset (here the microtubules' alone: dSTORM-640's lasers and filter cube,
+# on their own devices).
 core.setProperty("CellField", "Microtubules_Label", "AF647")
-assert core.getProperty("Lasers", "Preset") == "dSTORM-640", core.getProperty("Lasers", "Preset")
+assert core.getProperty("Lasers", "Preset") == "Auto", core.getProperty("Lasers", "Preset")
 assert core.getProperty("FilterCube", "Label") == "LP650+ChromaET700-75m", core.getProperty("FilterCube", "Label")
 assert float(core.getProperty("CellField", "Microtubules_LabelingPct")) == 3, "a mode change sets its labelling"
 core.setProperty("Dichroic", "Label", "Quad")
@@ -261,7 +289,7 @@ def stack_frames(settings, n=20, seed=42, skip=0, dye_edits=None):
 
 
 def mean_signal(pct):
-    fr = stack_frames(FAST + [("Fluorophores", "Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647"),
+    fr = stack_frames(FAST + [("CellField", "Microtubules_Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647"),
                               ("CellField", "Microtubules_LabelingPct", str(pct))], n=50,
                       dye_edits={"InitialOnSec": 0})
     return fr.mean() - 100.0
@@ -327,12 +355,12 @@ MODES = {"dSTORM": "AF647", "PALM": "mEos3.2", "DNA-PAINT": "ATTO655", "WideFiel
 GAUSS = [("Renderer", "PsfModel", "Gaussian")]
 mode_sig = {}
 for mode, extra in MODES.items():
-    fr = stack_frames(GAUSS + [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", extra)], n=20,
+    fr = stack_frames(GAUSS + [("CellField", "Microtubules_Mode", mode), ("CellField", "Microtubules_Label", extra)], n=20,
                       dye_edits={"InitialOnSec": 0} if mode == "dSTORM" else None)
     assert fr.std() > 0, f"expected a non-blank {mode} movie"
     mode_sig[mode] = fr.mean() - 100.0
 assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
-DSTORM = GAUSS + [("Fluorophores", "Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647")]
+DSTORM = GAUSS + [("CellField", "Microtubules_Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647")]
 lib = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0})
 dim = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0, "Qy": 0.05})
 assert dim.mean() - 100.0 < 0.5 * (lib.mean() - 100.0), "a lower quantum yield should give less light"
@@ -378,11 +406,23 @@ if status.startswith("GPU"):
     assert same > 0.999, f"GPU/CPU frames agree on only {100*same:.4f}% of pixels"
     # PALM: two groups (pre, main) and a continuous population (the pre state,
     # CPU) added to the GPU's blinks before its noise.
-    PALM = KERNEL + [("Fluorophores", "Mode", "PALM")]
+    PALM = KERNEL + [("CellField", "Microtubules_Mode", "PALM")]
     gpu_palm = stack_frames(PALM + [("Renderer", "UseGpu", "On")], n=10)
     assert core.getProperty("Renderer", "GpuStatus").startswith("GPU"), core.getProperty("Renderer", "GpuStatus")
     same_palm = (gpu_palm == stack_frames(PALM + [("Renderer", "UseGpu", "Off")], n=10)).mean()
     assert same_palm > 0.998, f"PALM GPU/CPU frames agree on only {100*same_palm:.4f}% of pixels"
+    # Two blinking labels (issue 15): the pores' Cy3B (561 nm kernel) with the microtubules' ATTO 655, two kernels on
+    # the GPU; both ATTO 655: two groups on one kernel's planes (held once). (Not dSTORM from a fresh clock: every dye
+    # starts ON, ~43000 ADU, where the GPU's float32 Poisson draw takes another branch than the CPU's on ~1/3 of the
+    # pixels, with or without the pores.)
+    for name, extra in (("pores Cy3B", []), ("pores ATTO 655", [("CellField", "NuclearPores_Label", "ATTO655")])):
+        TWO = KERNEL + [("CellField", "NuclearPores_Label", "Typical")] + extra
+        gpu_two = stack_frames(TWO + [("Renderer", "UseGpu", "On")], n=10)
+        st2 = core.getProperty("Renderer", "GpuStatus")
+        assert st2.startswith("GPU"), f"{name}: {st2}"
+        same_two = (gpu_two == stack_frames(TWO + [("Renderer", "UseGpu", "Off")], n=10)).mean()
+        assert same_two > 0.999, f"{name}: GPU/CPU frames agree on only {100*same_two:.4f}% of pixels"
+        print(f"GPU two labels OK ({name}): {100*same_two:.4f}% of pixels identical to the CPU path", flush=True)
     print(f"GPU OK ({status}): {100*same:.4f}% of pixels identical to the CPU path (PALM, with its population: "
           f"{100*same_palm:.4f}%)")
     # The blink render regimes (DNA-PAINT 10 nM, forced by the Renderer rows; 20-frame stacks): binned and mean-field

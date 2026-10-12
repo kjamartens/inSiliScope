@@ -70,7 +70,7 @@ def read_adapter():
         "objectives": objectives,
         "defaultObjective": objectives[0][0],
         "cameras": [c for c in core.getAllowedPropertyValues("Camera", "CameraPreset") if c != "Custom"],
-        "modes": list(core.getAllowedPropertyValues("Fluorophores", "Mode")),
+        "modes": list(core.getAllowedPropertyValues("CellField", "Microtubules_Mode")),
         "specimens": list(core.getStateLabels("SampleHolder")),
         "quality": list(core.getAllowedPropertyValues("Renderer", "Quality")),
         # SampleHolder.DriftPreset (Basic): Off ... Extreme; Custom is no preset
@@ -81,25 +81,29 @@ def read_adapter():
 
 
 def channel_presets(tier, typical, modes):
-    """Channel: one preset per mode with every target's typical label (the cell field's microtubules, the nanorulers'
-    docking strands; lasers and filters follow the mounted one's), BrightField, and
+    """Channel: one preset per mode with every target in it and its typical label (the cell field's microtubules and
+    nuclear pores, the nanorulers' docking strands; lasers and filters follow the mounted specimen's labels: the Lasers'
+    Auto preset), BrightField, and
     (Advanced, Expert) fluorescence + BrightField through the Multi Shutter. Every preset closes both shutters; the
     autoshutter opens the Core-Shutter for each image."""
     closed = [("Lasers", "State", "0"), ("TransmittedLamp", "State", "0")]
     out = []
     order = [m for m in ("dSTORM", "PALM", "DNA-PAINT", "WideField") if m in modes]
     for mode in order:
-        out.append((f"{typical[mode]['dye']} {mode}",
-                    [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", "Typical"),
-                     ("Nanorulers", "Docking_Label", "Typical")] + closed +
-                    [("Core", "Shutter", "Lasers")]))
+        out.append((f"{typical[mode]['dye']} {mode}", every_target(mode) + closed + [("Core", "Shutter", "Lasers")]))
     out.append(("BrightField", closed + [("Core", "Shutter", "TransmittedLamp")]))
     if tier != "Basic":
         out.append((f"{typical['WideField']['dye']} WideField + BrightField",
-                    [("Fluorophores", "Mode", "WideField"), ("CellField", "Microtubules_Label", "Typical"),
-                     ("Nanorulers", "Docking_Label", "Typical")] + closed +
-                    [("Core", "Shutter", MULTI)]))
+                    every_target("WideField") + closed + [("Core", "Shutter", MULTI)]))
     return out
+
+
+# Every target in one mode with its typical label (data/specimens.json's targets: the device and row of each).
+TARGET_ROWS = [("CellField", "Microtubules"), ("CellField", "NuclearPores"), ("Nanorulers", "Docking")]
+
+
+def every_target(mode):
+    return [p for dev, row in TARGET_ROWS for p in ((dev, row + "_Mode", mode), (dev, row + "_Label", "Typical"))]
 
 
 def build(tier, info, typical, cameras):

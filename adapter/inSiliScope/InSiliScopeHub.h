@@ -105,11 +105,13 @@ public:
 
    // ---- couplings (Registry/Couplings.cpp) ----
    // A dye pick or label mode change of target s (sim::TargetAt): its labelled sites take the mode's suggestion (on a
-   // mode change); if its specimen is mounted, the camera its mode gain and the light path the dye mode's light preset.
+   // mode change); if its specimen is mounted, the camera its mode gain and the light path the Auto preset (the
+   // labelled targets' presets combined).
    void LoadTargetDye(int s, bool modeMayChange);
    // SampleHolder: mounts specimen `index` (data/specimens.json); the camera's mode gain follows its label. A new
    // world: the illumination history and the drift start afresh (the camera's SyncHistoryWorld).
    void MountSpecimen(int index);
+   // A light preset by id, or "Auto": the labelled targets' dyes' presets combined (sim::ScopeAutoLightPreset).
    void ApplyLightPreset(const std::string& id);
    // Lasers or filters set by hand: the light path is no preset's any more.
    void ClearLightPreset();
@@ -122,12 +124,12 @@ public:
    void ApplyZernikePreset(const std::string& name);
    // A dye slot's new source: its edits go; the targets that use it reload.
    void DyeSlotSourceChanged(int slot);
-   // The labels a target (structure s) offers in its effective mode: Typical, the library dyes with data in it, and
-   // in Expert the custom dyes.
+   // The labels a target (structure s) offers in its effective mode: Typical, the library dyes with data in it, in
+   // Expert the custom dyes, and None (no label: the target is off).
    std::vector<std::string> LabelChoices(int s);
-   // The Fluorophores Mode or a target's own mode changed: the label lists follow (a label the new mode lacks becomes
-   // Typical), then the dye loads (labelling, light preset, camera gain).
-   void LabelModeChanged();
+   // Target s's mode changed: its label list follows (a label the new mode lacks becomes Typical), then the dye loads
+   // (labelling, light preset, camera gain).
+   void TargetModeChanged(int s);
 
 private:
    bool initialized_ = false;

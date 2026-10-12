@@ -212,7 +212,7 @@ std::vector<std::vector<uint32_t>> BucketEventsByFrame(const std::vector<BlinkEv
 void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, unsigned width, unsigned height,
                         double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
                         const PsfKernelCache& cache, double globalZOffsetUm, const RenderExtras* extras,
-                        std::vector<GpuSplatEmitter>& out, long* outZClampedCount, long* outZTotalCount)
+                        std::vector<GpuSplatEmitter>& out, long* outZClampedCount, long* outZTotalCount, int kernel)
 {
    const size_t n = static_cast<size_t>(width) * height;
    const std::vector<float>* illum =
@@ -232,7 +232,7 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
       g.y0 = st.y0;
       g.bx = st.bx;
       g.by = st.by;
-      g.plane = zIndex;
+      g.plane = zIndex | (kernel << 16);
       g.nTaps = st.nTaps;
       g.photons = static_cast<float>(photons);
       g.cutRadius2 = cache.halo && zIndex >= 0 && zIndex < static_cast<int>(cache.halo->radius2.size())

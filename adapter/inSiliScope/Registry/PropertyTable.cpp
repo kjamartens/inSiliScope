@@ -334,14 +334,8 @@ PropDef SlotField(int slot, const FieldRow& r)
    return d;
 }
 
-// A target's row-name prefix: its id, capitalised ("Microtubules", "Docking").
-std::string TargetRowName(int s)
-{
-   std::string n = sim::TargetAt(s).id;
-   if (!n.empty())
-      n[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(n[0])));
-   return n;
-}
+// A target's row-name prefix ("Microtubules", "NuclearPores", "Docking"; the engine's option texts).
+std::string TargetRowName(int s) { return sim::ScopeTargetRow(s); }
 
 // A target's name in lower case, for the help texts ("microtubules", "docking strands").
 std::string TargetWhat(int s)
@@ -375,15 +369,16 @@ PropDef LabelReadout(int s, const char* suffix, int what, const std::string& hel
 }
 
 // A target's label (structure s of a specimen device): Typical (the target's typical dye in its mode, data/dyes
-// library.json typicalLabels), every library dye with data in that mode, and in Expert the custom dyes Dye1-3. The list
-// follows the mode (InSiliScopeHub::LabelModeChanged rebuilds it).
+// library.json typicalLabels), every library dye with data in that mode, in Expert the custom dyes Dye1-3, and None (no
+// label: the target is off). The list follows the mode (InSiliScopeHub::TargetModeChanged rebuilds it).
 PropDef TargetLabel(const char* device, int s)
 {
    const sim::TargetData& t = sim::TargetAt(s);
    const std::string option = std::string(t.prefix) + "-dye";
    PropDef d = Row(device, TargetRowName(s) + "_Label", Tier::Basic, option,
-                   "The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode "
-                   "(Dye1-3: the custom dyes of Fluorophores, Expert).");
+                   "The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: "
+                   "the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the "
+                   "Lasers Auto preset.");
    d.kind = PropKind::Text;
    d.getText = [option](H& h) {
       const int v = static_cast<int>(h.State().Option(option));
@@ -404,21 +399,19 @@ PropDef TargetLabel(const char* device, int s)
    return d;
 }
 
-// A target's label rows on its specimen device: the label (Basic), its own mode (Expert), the labelled % and the
-// DNA-PAINT imager concentration (Advanced; NanoMol, not nm); the engine options <prefix>-dye, -mode, -label-pct,
-// -imager-nm.
+// A target's label rows on its specimen device: its mode and label (Basic), the labelled % and the DNA-PAINT imager
+// concentration (Advanced; NanoMol, not nm), and for a target with a linkage model the attachment (Advanced) and its
+// four numbers (Expert); the engine options <prefix>-mode, -dye, -label-pct, -imager-nm, -binder*.
 void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
 {
    using namespace sim;
    const std::string P = TargetRowName(s), prefix = TargetAt(s).prefix, what = TargetWhat(s);
-   t.push_back(TargetLabel(device, s));
-   std::vector<std::string> modeNames = { "Global", "DyeDefault" };
-   for (const std::string& m : DyeModeNames())
-      modeNames.push_back(m);
-   PropDef d = OptNames(device, P + "_Mode", Tier::Expert, prefix + "-mode", modeNames, -2, "");
-   d.help = "The " + what + "' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default).";
-   ThenText(d, [](H& h) { h.LabelModeChanged(); });
+   PropDef d = OptNames(device, P + "_Mode", Tier::Basic, prefix + "-mode", DyeModeNames(), 0, "");
+   d.help = "How the " + what + "' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change "
+            "sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it.";
+   ThenText(d, [s](H& h) { h.TargetModeChanged(s); });
    t.push_back(d);
+   t.push_back(TargetLabel(device, s));
    d = Opt(device, P + "_LabelingPct", Tier::Advanced, prefix + "-label-pct", 0, 100, "");
    d.help = "Labelled fraction of the " + what + "' sites, % (a mode change sets its suggestion).";
    t.push_back(d);
@@ -426,6 +419,25 @@ void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
                    "DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = "
                    "k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a "
                    "uniform background."));
+   if (TargetAt(s).linkageDefault < 0)
+      return;
+   // The label linkage (data/dyes/library.json linkagePresets, with their references; Legacy = the numbers before it).
+   std::vector<std::string> presets;
+   for (int i = 0; i < static_cast<int>(LinkagePresetIds().size()); ++i)
+      presets.push_back(LinkagePresetAt(i).id);
+   d = OptNames(device, P + "_Binder", Tier::Advanced, prefix + "-binder", presets, 0, "");
+   d.help = "How the " + what + "' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with "
+            "or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in "
+            "numbers before the linkage model.";
+   t.push_back(d);
+   const char* rows[4][3] = {
+      { "BinderNm", "binder-nm", "The probe's length from the binding site, outward along the structure's axis, nm (-1 = the Binder preset's)." },
+      { "BinderFlexNm", "binder-flex-nm", "The probe's flexibility: its end lies in a ball of this radius, nm (-1 = the preset's)." },
+      { "LinkerMinNm", "linker-min-nm", "Shortest chemical linker from the probe to the dye, nm (-1 = the preset's)." },
+      { "LinkerMaxNm", "linker-max-nm", "Longest linker, nm (uniform in volume between the two; -1 = the preset's)." },
+   };
+   for (const auto& r : rows)
+      t.push_back(Opt(device, P + "_" + r[0], Tier::Expert, prefix + "-" + r[1], -1, 1000, r[2]));
 }
 
 // A target's dye-orientation rows (Expert): <prefix>-orient, -orient-polar-deg, -orient-azimuth-deg, -wobble-deg,
@@ -657,20 +669,22 @@ std::vector<PropDef> BuildTable()
          add(d);
       }
       PropDef d = Row(L, "Preset", Tier::Basic, "light-preset",
-                      "A light path for a dye mode (lasers + filter cube); a dye pick applies its mode's. None = as set.");
+                      "A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser "
+                      "line at its highest power; the multi-band filter set where their filters differ), what a dye or "
+                      "mode pick applies. A preset by name: one dye mode's. None = as set.");
       d.kind = PropKind::Text;
       d.getText = [](H& h) { return h.State().LightPreset(); };
       d.setText = [](H& h, const std::string& s) {
          if (s == "None")
             h.State().SetLightPreset(s);
-         else if (!FindLightPreset(s))
+         else if (s != "Auto" && !FindLightPreset(s))
             return false;
          else
             h.ApplyLightPreset(s);
          return true;
       };
       d.choices = [](H&) {
-         std::vector<std::string> v = { "None" };
+         std::vector<std::string> v = { "None", "Auto" };
          v.insert(v.end(), LightPresetIds().begin(), LightPresetIds().end());
          return v;
       };
@@ -808,7 +822,9 @@ std::vector<PropDef> BuildTable()
    // =========================== CellField ===========================
    {
       const char* F = "CellField";
-      AddTargetLabelRows(t, F, 0);
+      for (int s = 0; s < TargetCount(); ++s)
+         if (!std::strcmp(TargetAt(s).specimen, F))
+            AddTargetLabelRows(t, F, s);
       const char* help[CF_COUNT] = {
          "Size of a packing block, um.",
          "Fraction of the coverslip covered by cells.",
@@ -831,17 +847,25 @@ std::vector<PropDef> BuildTable()
          "Microtubule starts: decay length, % of the cell radius.",
          "Microtubule ends: decay length, % of the cell radius.",
          "Microtubule direction concentration (von Mises kappa).",
+         "Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (12; measured 5-8.6 in HeLa and "
+         "U2OS nuclei; 0 = no pores, the target is off).",
+         "Smallest centre distance of two pores, nm (120: about a pore's diameter).",
+         "Radius of a pore's Nup96 rings, nm.",
+         "Distance between a pore's cytoplasmic and nucleoplasmic ring, nm.",
+         "Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm.",
       };
       const char* names[CF_COUNT] = { "ChunkSizeUm", "Occupancy", "CellDiameterMinUm", "CellDiameterMaxUm",
          "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "NucBaseMinUm", "NucBaseMaxUm", "NucIrregMin",
          "NucIrregMax", "NucBendMin", "NucBendMax", "NucSmooth", "NucThickIrreg", "NucAsym", "NucWidestMin",
-         "NucWidestMax", "MicrotubuleStartDecayPct", "MicrotubuleEndDecayPct", "MicrotubuleDirKappa" };
+         "NucWidestMax", "MicrotubuleStartDecayPct", "MicrotubuleEndDecayPct", "MicrotubuleDirKappa",
+         "NuclearPoreDensityPerUm2", "NuclearPoreMinDistNm", "NuclearPoreRadiusNm", "NuclearPoreRingSepNm",
+         "NuclearPoreCornerSpreadNm" };
       const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, -10.0, 0.0,
-         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0 };
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0 };
       const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 10.0, 50.0,
-         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0 };
-      // Cell size and density are everyday physics; packing blocks, slab and shape parameters are expert.
-      for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY })
+         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0 };
+      // Cell size and densities are everyday physics; packing blocks, slab and shape parameters are expert.
+      for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY, CF_NPC_DENSITY })
          add(Arr(F, names[i], Tier::Advanced, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
                  help[i]));
       const char* indexNames[] = { "IndexMedium", "IndexCytoplasm", "IndexNucleus", "IndexMicrotubule" };
@@ -853,14 +877,17 @@ std::vector<PropDef> BuildTable()
          add(Arr(F, indexNames[k], Tier::Advanced, std::string("bf.") + indexNames[k], &SceneState::brightField,
                  BF_INDEX_MEDIUM + k, 1.0, 2.0, indexHelp[k]));
       for (int i = 0; i < CF_COUNT; ++i)
-         if (i != CF_CELL_DIAM_MIN_UM && i != CF_CELL_DIAM_MAX_UM && i != CF_OCCUPANCY && i != CF_MT_DENSITY)
+         if (i != CF_CELL_DIAM_MIN_UM && i != CF_CELL_DIAM_MAX_UM && i != CF_OCCUPANCY && i != CF_MT_DENSITY &&
+             i != CF_NPC_DENSITY)
             add(Arr(F, names[i], Tier::Expert, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
                     help[i]));
       add(OnOff(F, "Packing", Tier::Expert, "packing", &SceneState::cellFieldPacking,
                 "Relax the cells into a packed field (Off: their seeded positions)."));
       add(Arr(F, "AbsorptionPerUm", Tier::Expert, "bf-absorption", &SceneState::brightField, BF_ABSORPTION_PER_UM, 0,
               100, "Absorption of the cell material, per um (0 = unstained)."));
-      AddTargetOrientRows(t, F, 0);
+      for (int s = 0; s < TargetCount(); ++s)
+         if (!std::strcmp(TargetAt(s).specimen, F))
+            AddTargetOrientRows(t, F, s);
    }
 
    // =========================== Nanorulers ===========================
@@ -904,28 +931,8 @@ std::vector<PropDef> BuildTable()
 
    // =========================== Fluorophores ===========================
    {
-      // The label mode and the targets' readouts.
-      PropDef d = Row("Fluorophores", "Mode", Tier::Basic, "mode",
-                      "The label mode of the experiment (the buffer/imaging scheme): every target's label follows it.");
-      d.kind = PropKind::Text;
-      d.getText = [](H& h) {
-         const int m = static_cast<int>(h.State().Option("mode"));
-         return m >= 0 && m < static_cast<int>(DyeModeNames().size()) ? DyeModeNames()[static_cast<size_t>(m)]
-                                                                      : std::string("None");
-      };
-      d.setText = [](H& h, const std::string& v) {
-         const int m = IndexOf(DyeModeNames(), v);
-         if (m < 0)
-            return false;
-         if (h.State().Option("mode") != m)
-         {
-            h.State().SetOption("mode", m);
-            h.LabelModeChanged();
-         }
-         return true;
-      };
-      d.choices = [](H&) { return DyeModeNames(); };
-      add(d);
+      // The targets' readouts (each target's mode is its specimen device's <Row>_Mode since issue 15: no experiment-wide
+      // mode).
       for (int s = 0; s < TargetCount(); ++s)
          AddTargetReadoutRows(t, s);
       for (int slot = 0; slot < 3; ++slot)
