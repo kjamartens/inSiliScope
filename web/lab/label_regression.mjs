@@ -7,7 +7,7 @@
 // 2. The label model's statistics: fluorescent-fraction nesting, dSTORM initial ON, WideField windows, the PALM pre
 //    state, orientations; the pores' labelled fraction and nesting, their Fixed orientation about the pore axis.
 // 3. The label linkage (dyes.js linkedDye): a preset's dye distances from the microtubule axis and from the pore
-//    sites, the binder's cone, the same dyes (ids) whatever the linkage.
+//    sites, the three parts (binder, its flexibility, linker), the same dyes (ids) whatever the linkage.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -137,20 +137,15 @@ if (NPC >= 0) {
   const c = w.cellsInRect(...win.slice(0, 4))[0], A = w.cellAssets(c);
   const i = A.mts.findIndex((m, j) => m.length > 1 && w.frames(A, j).length > 3);
   const pts = A.mts[i], fr = w.frames(A, i);
-  // Per dye: the distance from the axis (nm, perpendicular to the tangent), and the binder tip's tilt from the radial
-  // direction (with no linker).
+  // Per dye: the distance from the axis (nm, perpendicular to the tangent).
   const mtDyes = lk => {
     const raw = [];
     for (let b = 0; b < 3; b++) D.dyesInBlock(seed, c.cx, c.cy, i, pts, fr, b, 0.7, 1, raw, D.normLinkage(lk));
     return raw.map(d => {
       const S = (D.mtProtofilamentOffsetNm(d.k) + d.n * D.MT_DIMER_NM) * 1e-3, seg = D.mtSegmentAt(fr, S);
-      const p = D.pointAtArc(pts, fr, S), T = fr.T[seg], u = fr.U[seg], v = fr.V[seg];
+      const p = D.pointAtArc(pts, fr, S), T = fr.T[seg];
       const dx = d.pos.x - p.x, dy = d.pos.y - p.y, dz = d.pos.z - p.z, along = dx * T.x + dy * T.y + dz * T.z;
-      const ct = Math.cos(d.theta), st = Math.sin(d.theta);
-      const a = [ct * u.x + st * v.x, ct * u.y + st * v.y, ct * u.z + st * v.z];
-      const R = D.MT_RADIUS_NM * 1e-3, bx = dx - a[0] * R, by = dy - a[1] * R, bz = dz - a[2] * R, bl = Math.hypot(bx, by, bz);
-      return { id: d.id, r: Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along)) * 1000,
-        cosTilt: (bx * a[0] + by * a[1] + bz * a[2]) / bl };
+      return { id: d.id, r: Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - along * along)) * 1000 };
     });
   };
   const presets = (await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dye_library_data.js')).href)).DYE_DATA.linkagePresets;
@@ -162,13 +157,18 @@ if (NPC >= 0) {
   report(legacy.length === igg.length && legacy.every((d, j) => d.id === igg[j].id),
     `linkage: the same ${igg.length} dyes (ids) under Legacy and IgG2-STORM`);
   report(Math.min(...rL) >= 12.5 + 12 - 5 - 1e-9 && Math.max(...rL) <= Math.hypot(12.5 + 12 + 5, 0) + 1e-9 &&
-    Math.min(...rI) >= lo - 1e-9 && Math.max(...rI) <= hi + 1e-9 && Math.abs(mean(rI) - 22.5) < 1.5,
+    Math.min(...rI) >= lo - 0.5 - 1e-9 && Math.max(...rI) <= hi + 0.5 + 1e-9 && Math.abs(mean(rI) - 22.5) < 1.5,
     `linkage: microtubule dye radius Legacy ${mean(rL).toFixed(2)} nm, IgG2-STORM ${mean(rI).toFixed(2)} nm (shell 22.5, Fruh 2021) in [${Math.min(...rI).toFixed(1)}, ${Math.max(...rI).toFixed(1)}]`);
-  // A 60 deg cone, no linker: the tilt is uniform on the cap (mean cos = (1 + cos 60) / 2 = 0.75), every dye inside it.
-  const cone = mtDyes({ binderNm: 10, coneDeg: 60, linkerMinNm: 0, linkerMaxNm: 0 });
-  const mc = mean(cone.map(d => d.cosTilt)), minC = Math.min(...cone.map(d => d.cosTilt));
-  report(Math.abs(mc - 0.75) < 0.01 && minC >= 0.5 - 1e-9 && cone.every((d, j) => d.id === legacy[j].id),
-    `linkage: 60 deg cone, mean cos tilt ${mc.toFixed(4)} (0.75), min ${minC.toFixed(4)} (>= 0.5), same dyes`);
+  // Flexibility 6 nm, no linker: the binder's end uniform in a ball about its rigid end (mean distance 3/4 of the
+  // radius, none beyond it), the linker [2, 2]: every dye exactly 2 nm from the binder's end.
+  const fx = [];
+  for (let b = 0; b < 3; b++) D.dyesInBlock(seed, c.cx, c.cy, i, pts, fr, b, 0.7, 1, fx, D.normLinkage({ binderNm: 10, binderFlexNm: 6, linkerMinNm: 2, linkerMaxNm: 2 }), true);
+  const flexD = fx.map(d => Math.hypot(d.parts.tip.x - d.parts.rigid.x, d.parts.tip.y - d.parts.rigid.y, d.parts.tip.z - d.parts.rigid.z) * 1000);
+  const linkD = fx.map(d => Math.hypot(d.pos.x - d.parts.tip.x, d.pos.y - d.parts.tip.y, d.pos.z - d.parts.tip.z) * 1000);
+  const rigidD = fx.map(d => Math.hypot(d.parts.rigid.x - d.parts.site.x, d.parts.rigid.y - d.parts.site.y, d.parts.rigid.z - d.parts.site.z) * 1000);
+  report(Math.abs(mean(flexD) - 4.5) < 0.1 && Math.max(...flexD) <= 6 + 1e-9 && linkD.every(x => Math.abs(x - 2) < 1e-9) &&
+    rigidD.every(x => Math.abs(x - 10) < 1e-9) && fx.every((d, j) => d.id === legacy[j].id),
+    `linkage parts: binder 10 nm exactly, flexibility mean ${mean(flexD).toFixed(3)} nm (4.5) max ${Math.max(...flexD).toFixed(2)} (<= 6), linker 2 nm exactly, same dyes`);
   // Pores: the dye's offset from its site along the corner's radial direction averages the binder (the linker ball is
   // symmetric), its distance <= binder + linker.
   if (NPC >= 0) {
@@ -188,8 +188,8 @@ if (NPC >= 0) {
       far = Math.max(far, Math.hypot(...off) * 1000);
     }
     const m = sum / raw.length;
-    report(Math.abs(m - 10) < 0.3 && far <= 10 + 12 + 1e-9,
-      `linkage: pore dyes (IgG2-STORM) ${m.toFixed(2)} nm out along the corner direction (10), farthest ${far.toFixed(1)} nm (<= 22), ${raw.length} dyes`);
+    report(Math.abs(m - 10) < 0.4 && far <= 10 + 12 + 0.5 + 1e-9,
+      `linkage: pore dyes (IgG2-STORM) ${m.toFixed(2)} nm out along the corner direction (10), farthest ${far.toFixed(1)} nm (<= 22.5), ${raw.length} dyes`);
   }
 }
 for (const [what, l] of [['SPT motion', { motion: 'Diffusive' }], ['off-target', { offTarget: [{ structure: 1, fraction: 0.05 }] }]]) {

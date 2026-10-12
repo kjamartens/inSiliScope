@@ -1702,57 +1702,65 @@ export const DYE_DATA = {
    "id": "IgG2-STORM",
    "name": "Primary + secondary antibody (dye)",
    "binderNm": 10,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 12
+   "binderFlexNm": 12,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
   },
   {
    "id": "IgG1-STORM",
    "name": "Labelled primary antibody (dye)",
    "binderNm": 7.7,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 7.1
+   "binderFlexNm": 7.1,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
   },
   {
    "id": "IgG2-PAINT",
    "name": "Primary + secondary antibody (DNA-PAINT docking strand)",
    "binderNm": 19.3,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 15.3
+   "binderFlexNm": 15.3,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
   },
   {
    "id": "IgG1-PAINT",
    "name": "Labelled primary antibody (DNA-PAINT docking strand)",
    "binderNm": 11,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 11.8
+   "binderFlexNm": 11.8,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
   },
   {
    "id": "Nanobody",
    "name": "Nanobody (dye)",
-   "binderNm": 0,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 2.5
+   "binderNm": 1.5,
+   "binderFlexNm": 1,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "Nanobody-PAINT",
+   "name": "Nanobody with a DNA-PAINT docking strand",
+   "binderNm": 1.5,
+   "binderFlexNm": 1,
+   "linkerMinNm": 1,
+   "linkerMaxNm": 4
   },
   {
    "id": "SNAP-Halo",
    "name": "SNAP / Halo tag (dye or docking strand)",
-   "binderNm": 0,
-   "coneDeg": 0,
-   "linkerMinNm": 0,
-   "linkerMaxNm": 5
+   "binderNm": 2.5,
+   "binderFlexNm": 2,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 1
   },
   {
    "id": "FP",
    "name": "Fluorescent protein fusion",
-   "binderNm": 0,
-   "coneDeg": 0,
+   "binderNm": 2,
+   "binderFlexNm": 2,
    "linkerMinNm": 0,
-   "linkerMaxNm": 5
+   "linkerMaxNm": 0
   }
  ],
  "spectra": {

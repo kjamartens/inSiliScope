@@ -84,7 +84,7 @@ export class World {
       c.linkage = normLinkage(c.linkage ?? LEGACY_LINKAGE[STRUCTURES[i].id]);
       return c;
     });
-    const sameLk = (a, b) => a.binderNm === b.binderNm && a.coneDeg === b.coneDeg && a.linkerMinNm === b.linkerMinNm &&
+    const sameLk = (a, b) => a.binderNm === b.binderNm && a.binderFlexNm === b.binderFlexNm && a.linkerMinNm === b.linkerMinNm &&
       a.linkerMaxNm === b.linkerMaxNm;
     const dyesChange = next.some((l, i) => !this.labels[i] || l.density !== this.labels[i].density ||
       l.fluorescentFraction !== this.labels[i].fluorescentFraction || !sameLk(l.linkage, this.labels[i].linkage));
@@ -194,16 +194,17 @@ export class World {
   }
 
   // The farthest a pore's dye can be from its centre (um): the attachment ring's outer edge and half the ring
-  // separation, plus the label's binder and longest linker.
+  // separation, plus the label's binder (with its flexibility) and longest linker.
   npcDyeReach() {
     const p = this.p;
     return Math.hypot(p.npcRadiusNm + p.npcCornerSpreadNm / 2, p.npcRingSepNm / 2) * 1e-3 +
       linkageReachNm(this.labels[STRUCTURE_NPC].linkage) * 1e-3;
   }
-  // The farthest a microtubule dye can be from the axis (um): the lattice radius, the binder and the longest linker.
+  // The farthest a microtubule dye can be from the axis (um): the lattice radius, the binder with its flexibility and
+  // the longest linker.
   mtDyeReach() {
     const lk = this.labels[STRUCTURE_MT].linkage;
-    return (MT_RADIUS_NM + lk.binderNm + lk.linkerMaxNm) * 1e-3;
+    return (MT_RADIUS_NM + lk.binderNm + lk.binderFlexNm + lk.linkerMaxNm) * 1e-3;
   }
 
   // fn(block) for every 1 um dye block that can reach the rect/z range, in the C++ order.

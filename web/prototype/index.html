@@ -51,6 +51,7 @@
       <label class="row">Show cytoplasm <input type="checkbox" id="showCyto" checked></label>
       <label class="row">Show nucleus <input type="checkbox" id="showNucleus" checked></label>
       <label class="row">Show microtubules <input type="checkbox" id="showMt" checked></label>
+      <label class="row">Show nuclear pores <input type="checkbox" id="showNpcs" checked></label>
       <label class="row">Show chunk grid <input type="checkbox" id="showGrid"></label>
       <label class="row"><button id="resetView" style="width:100%">Reset view to origin</button></label>
     </fieldset>
@@ -137,7 +138,6 @@
       <label class="row">Ring radius (nm) <input type="range" id="npcRadiusNm" min="20" max="150" step="0.5" value="53.5"><span id="npcRadiusNmVal"></span></label>
       <label class="row">Ring separation (nm) <input type="range" id="npcRingSepNm" min="0" max="150" step="1" value="50"><span id="npcRingSepNmVal"></span></label>
       <label class="row">Corner spread (nm) <input type="range" id="npcCornerSpreadNm" min="0" max="30" step="0.5" value="12"><span id="npcCornerSpreadNmVal"></span></label>
-      <label class="row">Show pores (8-fold rings, zoom in) <input type="checkbox" id="showNpcs" checked></label>
     </fieldset>
 
 
@@ -163,6 +163,7 @@
       <span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
       <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
+      <span class="sw" style="background:#b02248;margin-left:10px"></span>nuclear pore (cytoplasmic ring light, nucleoplasmic dark)
       <span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid
     </div>
   </div>
@@ -2476,11 +2477,16 @@ function drawBodiesGl(cells, p) {
 }
 
 const NUC_SLICES = 17, NUC_PTS = 48;
-function drawNucleus(c) {
+function drawNucleus(c, pores = [], npc = null) {
   // The surface rings come from the generator in the cell's cached LOCAL
   // frame (see cellOutlineLocal's own comment), so they are placed with
   // localToWorld (packRot + c.x/c.y) like the cytoplasm mesh. Each ring is a
-  // ball section (nucleusRingsLocal), coloured by its mean depth.
+  // ball section (nucleusRingsLocal), coloured by its mean depth, drawn bottom
+  // to top. The cell's pores (sorted by height) are drawn between the slices:
+  // the view is from above (tilt < 90 deg), so a slice hides what is below its
+  // plane and nothing above it -- the pores on the lower envelope are seen
+  // through the translucent slices above them, the upper ones on top.
+  let j = 0;
   for (const ring of nucleusRingsLocal(c, NUC_SLICES, NUC_PTS)) {
     const pts = [];
     let zSum = 0;
@@ -2490,76 +2496,80 @@ function drawNucleus(c) {
       zSum += q.z;
     }
     const zAbs = zSum / ring.length;
+    while (j < pores.length && pores[j].z < zAbs) npc.draw(c, pores[j++]);
     ctx.fillStyle = depthColor(zAbs, 0, c.height, 0.5);
     ctx.strokeStyle = depthColor(zAbs, 0, c.height, 0.85);
     ctx.lineWidth = 1;
     polyPath(pts); ctx.fill(); ctx.stroke();
   }
+  while (j < pores.length) npc.draw(c, pores[j++]);
 }
 
 // Nuclear pores: each pore's 8-fold symmetry, projected through its own frame (pores on the nucleus flanks are seen
-// edge-on / as ellipses). Zoomed out: one dot per pore; from NPC_CORNER_PX_PER_UM: the 8 corners of both rings
-// (cytoplasmic ring bright, nucleoplasmic ring dark) joined as octagons; from NPC_ARC_PX_PER_UM: all 64 attachment
-// points (the 4-point arcs). Pores per cell are cached per cell object and parameter set.
+// edge-on / as ellipses), in bordeaux: the cytoplasmic ring light, the nucleoplasmic ring dark. Zoomed out: one dot
+// per pore; from NPC_CORNER_PX_PER_UM: the 8 corners of both rings joined as octagons; from NPC_ARC_PX_PER_UM: all 64
+// attachment points (the 4-point arcs). Drawn between the nucleus slices by height (drawNucleus), so the nucleus'
+// translucency tints the pores below its surface. Pores per cell are cached per cell object and parameter set.
 const NPC_CORNER_PX_PER_UM = 60, NPC_ARC_PX_PER_UM = 400, NPC_MAX_DRAWN = 60000;
+const NPC_RING_COL = ['rgba(105,8,34,0.95)', 'rgba(176,34,72,0.95)'];   // nucleoplasmic, cytoplasmic
 let npcCache = new WeakMap();
 function cellNpcs(cell, seed, p) {
   const key = [seed, p.npcDensity, p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm].join('|');
   let e = npcCache.get(cell);
   if (!e || e.key !== key) {
-    e = { key, pores: buildNpcsForCell(seed, cell.cx, cell.cy, cell, p), sites: npcAttachmentPoints(p) };
+    const pores = buildNpcsForCell(seed, cell.cx, cell.cy, cell, p);
+    e = { key, pores, byZ: [...pores].sort((a, b) => a.z - b.z), sites: npcAttachmentPoints(p) };
     npcCache.set(cell, e);
   }
   return e;
 }
-function drawNpcs(vis, seed, p, pxPerUm) {
-  if (!(p.npcDensity > 0)) return '';
+// One frame's pore pass: poresOf(cell) = the cell's pores by height (none when the density is 0), draw(cell, pore) one
+// on-screen pore; note = a HUD hint.
+function npcPass(seed, p, pxPerUm) {
   const W = cv.width, H = cv.height;
   const mode = pxPerUm >= NPC_ARC_PX_PER_UM ? 2 : pxPerUm >= NPC_CORNER_PX_PER_UM ? 1 : 0;
-  let drawn = 0;
-  const RING_COL = ['rgba(150,95,30,0.95)', 'rgba(255,190,90,0.95)'];   // nucleoplasmic, cytoplasmic
   const dot = Math.max(1.2, Math.min(4, 0.012 * pxPerUm));
-  for (const { cx, cy, cell } of vis) {
-    const { pores, sites } = cellNpcs(cell, seed, p);
-    for (const q of pores) {
-      if (drawn >= NPC_MAX_DRAWN) return 'pore cap reached, some not drawn';
-      const [wx, wy] = localToWorld(cell, q.x, q.y);
-      const [px, py] = project(wx, wy, q.z);
-      if (px < -20 || py < -20 || px > W + 20 || py > H + 20) continue;
-      drawn++;
-      if (mode === 0) {
-        ctx.fillStyle = RING_COL[1];
-        ctx.fillRect(px - 1, py - 1, 2, 2);
-        continue;
+  const pass = { drawn: 0, note: mode === 0 ? 'zoom in to see the pores\' 8-fold rings' : '' };
+  pass.poresOf = cell => (p.npcDensity > 0 ? cellNpcs(cell, seed, p).byZ : []);
+  pass.draw = (cell, q) => {
+    if (pass.drawn >= NPC_MAX_DRAWN) { pass.note = 'pore cap reached, some not drawn'; return; }
+    const [wx, wy] = localToWorld(cell, q.x, q.y);
+    const [px, py] = project(wx, wy, q.z);
+    if (px < -20 || py < -20 || px > W + 20 || py > H + 20) return;
+    pass.drawn++;
+    if (mode === 0) {
+      ctx.fillStyle = NPC_RING_COL[1];
+      ctx.fillRect(px - 1, py - 1, 2, 2);
+      return;
+    }
+    const sites = cellNpcs(cell, seed, p).sites;
+    const at = (a, b, c) => {
+      const lx = q.x + (a * q.e1[0] + b * q.e2[0] + c * q.n[0]) * 1e-3;
+      const ly = q.y + (a * q.e1[1] + b * q.e2[1] + c * q.n[1]) * 1e-3;
+      const lz = q.z + (a * q.e1[2] + b * q.e2[2] + c * q.n[2]) * 1e-3;
+      const [ux, uy] = localToWorld(cell, lx, ly);
+      return project(ux, uy, lz);
+    };
+    for (let ring = 0; ring < 2; ring++) {
+      ctx.strokeStyle = NPC_RING_COL[ring]; ctx.fillStyle = NPC_RING_COL[ring];
+      ctx.lineWidth = 1;
+      const cz = ring === 0 ? -p.npcRingSepNm / 2 : p.npcRingSepNm / 2;
+      const corners = [];
+      for (let corner = 0; corner < 8; corner++) {
+        const th = corner * Math.PI / 4;
+        corners.push(at(p.npcRadiusNm * Math.cos(th), p.npcRadiusNm * Math.sin(th), cz));
       }
-      const at = (a, b, c) => {
-        const lx = q.x + (a * q.e1[0] + b * q.e2[0] + c * q.n[0]) * 1e-3;
-        const ly = q.y + (a * q.e1[1] + b * q.e2[1] + c * q.n[1]) * 1e-3;
-        const lz = q.z + (a * q.e1[2] + b * q.e2[2] + c * q.n[2]) * 1e-3;
-        const [ux, uy] = localToWorld(cell, lx, ly);
-        return project(ux, uy, lz);
-      };
-      for (let ring = 0; ring < 2; ring++) {
-        ctx.strokeStyle = RING_COL[ring]; ctx.fillStyle = RING_COL[ring];
-        ctx.lineWidth = 1;
-        const cz = ring === 0 ? -p.npcRingSepNm / 2 : p.npcRingSepNm / 2;
-        const corners = [];
-        for (let corner = 0; corner < 8; corner++) {
-          const th = corner * Math.PI / 4;
-          corners.push(at(p.npcRadiusNm * Math.cos(th), p.npcRadiusNm * Math.sin(th), cz));
-        }
-        ctx.globalAlpha = 0.35;
-        polyPath(corners); ctx.stroke();
-        ctx.globalAlpha = 1;
-        if (mode === 1) for (const [sx, sy] of corners) ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
-        else for (let k = ring * 32; k < ring * 32 + 32; k++) {
-          const [sx, sy] = at(sites[3 * k], sites[3 * k + 1], sites[3 * k + 2]);
-          ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
-        }
+      ctx.globalAlpha = 0.35;
+      polyPath(corners); ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (mode === 1) for (const [sx, sy] of corners) ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
+      else for (let k = ring * 32; k < ring * 32 + 32; k++) {
+        const [sx, sy] = at(sites[3 * k], sites[3 * k + 1], sites[3 * k + 2]);
+        ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
       }
     }
-  }
-  return mode === 0 ? 'zoom in to see the pores\' 8-fold rings' : '';
+  };
+  return pass;
 }
 
 // ---- generator workers ---------------------------------------------------------
@@ -3007,8 +3017,16 @@ function draw() {
     for (const { cell, asset } of vis) addContourPath(cell, asset.entry, p.cytoContourStep);
     ctx.stroke();
   }
-  if (els.showNucleus.checked) for (const { cell } of vis) drawNucleus(cell);
-  if (els.showNpcs.checked) { const nn = drawNpcs(vis, seed, p, pxPerUm); if (nn && !labelNote) labelNote = nn; }
+  // Nuclei and their pores, per cell: the pores between the nucleus slices by height (drawNucleus).
+  const npc = els.showNpcs.checked ? npcPass(seed, p, pxPerUm) : null;
+  if (els.showNucleus.checked || npc) {
+    for (const { cell } of vis) {
+      const pores = npc ? npc.poresOf(cell) : [];
+      if (els.showNucleus.checked) drawNucleus(cell, pores, npc);
+      else for (const q of pores) npc.draw(cell, q);
+    }
+    if (npc && npc.note && !labelNote) labelNote = npc.note;
+  }
 
   drawScaleBar(pxPerUm);
 

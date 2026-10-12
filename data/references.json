@@ -449,6 +449,24 @@
       "use": "anti-GFP nanobody labelling with minimal linkage error (abstract; no number taken)",
       "checked": "PubMed abstract only"
     },
+    "ormo1996": {
+      "authors": "Ormö M, Cubitt AB, Kallio K, Gross LA, Tsien RY, Remington SJ",
+      "year": 1996,
+      "title": "Crystal structure of the Aequorea victoria green fluorescent protein",
+      "journal": "Science", "volume": "273", "pages": "1392-1395",
+      "doi": "10.1126/science.273.5280.1392",
+      "use": "GFP is an 11-stranded beta barrel with a coaxial helix; the chromophore forms from the central helix (abstract): a fluorescent protein's emitter sits inside the protein, no chemical linker",
+      "checked": "PubMed abstract (PMID 8703075)"
+    },
+    "yang1996": {
+      "authors": "Yang F, Moss LG, Phillips GN Jr",
+      "year": 1996,
+      "title": "The molecular structure of green fluorescent protein",
+      "journal": "Nature Biotechnology", "volume": "14", "pages": "1246-1251",
+      "doi": "10.1038/nbt1096-1246",
+      "use": "GFP is a cylinder of 11 beta strands with an alpha helix inside; the fluorophores are protected inside the cylinders (abstract)",
+      "checked": "PubMed abstract (PMID 9631087)"
+    },
     "nieves2019": {
       "authors": "Nieves DJ, Hilzenrat G, Tran J, Yang Z, MacRae HH, Baker MAB, Gooding JJ, Gaus K",
       "year": 2019,

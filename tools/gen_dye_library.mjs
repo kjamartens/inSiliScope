@@ -139,10 +139,10 @@ const typicalLabels = Object.fromEntries(targets.map(t => {
 const linkagePresets = library.linkagePresets.presets.map((q, i) => {
   checkRefs(q.id, q.refs);
   if (i === 0 !== !!q.structureDefault) throw new Error('linkagePresets: the first (and only the first) preset is the structure default');
-  if (!q.structureDefault && !(q.binderNm >= 0 && q.coneDeg >= 0 && q.coneDeg <= 180 && q.linkerMinNm >= 0 && q.linkerMaxNm >= q.linkerMinNm))
-    throw new Error(`linkage preset ${q.id}: binderNm, coneDeg (0-180), linkerMinNm <= linkerMaxNm`);
+  if (!q.structureDefault && !(q.binderNm >= 0 && q.binderFlexNm >= 0 && q.linkerMinNm >= 0 && q.linkerMaxNm >= q.linkerMinNm))
+    throw new Error(`linkage preset ${q.id}: binderNm, binderFlexNm >= 0, 0 <= linkerMinNm <= linkerMaxNm`);
   return q.structureDefault ? { id: q.id, name: q.name, structureDefault: true }
-    : { id: q.id, name: q.name, binderNm: q.binderNm, coneDeg: q.coneDeg, linkerMinNm: q.linkerMinNm, linkerMaxNm: q.linkerMaxNm };
+    : { id: q.id, name: q.name, binderNm: q.binderNm, binderFlexNm: q.binderFlexNm, linkerMinNm: q.linkerMinNm, linkerMaxNm: q.linkerMaxNm };
 });
 const data = {
   grid: fp.grid,

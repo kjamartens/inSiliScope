@@ -50,10 +50,10 @@ function targetOptions(s) {
     [`${P}-wobble-deg`, 0, `CellField.${T}_WobbleConeDeg: fast wobble cone half-angle (Fixed, Random)`],
     [`${P}-motion`, 0, `CellField.${T}_Motion: 0 Static (single-particle tracking: future)`],
     [`${P}-binder`, 0, `CellField.${T}_Binder: how the dye is attached (data/dyes/library.json linkagePresets): ${LINKAGE_PRESET_IDS.map((id, i) => `${i} ${id}`).join(', ')} (0 = the structure's built-in numbers; names accepted)`],
-    [`${P}-binder-nm`, -1, `CellField.${T}_BinderNm: binder length from the attachment point along the structure's axis, nm (-1 = the preset's)`],
-    [`${P}-binder-cone-deg`, -1, `CellField.${T}_BinderConeDeg: the binder's tilt from that axis, uniform within this half-angle, deg (-1 = the preset's)`],
-    [`${P}-linker-min-nm`, -1, `CellField.${T}_LinkerMinNm: shortest linker from the binder tip to the dye, nm (-1 = the preset's)`],
-    [`${P}-linker-max-nm`, -1, `CellField.${T}_LinkerMaxNm: longest linker, nm (the length is uniform in volume between the two; -1 = the preset's)`],
+    [`${P}-binder-nm`, -1, `CellField.${T}_BinderNm: the probe (binder) reaches this far from the binding site along the structure's axis, nm (-1 = the preset's)`],
+    [`${P}-binder-flex-nm`, -1, `CellField.${T}_BinderFlexNm: the probe's flexibility: its end lies uniformly in a ball of this radius about that point, nm (-1 = the preset's)`],
+    [`${P}-linker-min-nm`, -1, `CellField.${T}_LinkerMinNm: shortest chemical linker from the probe to the dye, nm (-1 = the preset's)`],
+    [`${P}-linker-max-nm`, -1, `CellField.${T}_LinkerMaxNm: longest linker, nm (the length is uniform in volume between the two, the direction uniform; -1 = the preset's)`],
   ];
 }
 
@@ -359,17 +359,17 @@ function offLabel(eff) {
     excitationScale: 1, onSecNow: 0, photonBudget: 0, prePhotonBudget: 0, imagerBackgroundPerPxPerSec: () => 0, notes: null };
 }
 // A target's label linkage (dyes.js linkedDye): its <prefix>-binder preset (Legacy: the structure's built-in numbers),
-// then each of -binder-nm, -binder-cone-deg, -linker-min-nm, -linker-max-nm that is >= 0.
+// then each of -binder-nm, -binder-flex-nm, -linker-min-nm, -linker-max-nm that is >= 0.
 export function scopeLinkage(spec, i) {
   const O = getter(spec), s = STRUCTURES[i], P = s.prefix;
   const q = DYE_DATA.linkagePresets[Math.trunc(O(`${P}-binder`))];
   if (!q) throw new Error(`${P}-binder: no linkage preset ${O(`${P}-binder`)}`);
   const lk = { ...(q.structureDefault ? LEGACY_LINKAGE[s.id] : q) };
-  for (const [opt, f] of [['binder-nm', 'binderNm'], ['binder-cone-deg', 'coneDeg'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']]) {
+  for (const [opt, f] of [['binder-nm', 'binderNm'], ['binder-flex-nm', 'binderFlexNm'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']]) {
     const v = O(`${P}-${opt}`);
     if (v >= 0) lk[f] = v;
   }
-  return { binderNm: lk.binderNm, coneDeg: lk.coneDeg, linkerMinNm: lk.linkerMinNm, linkerMaxNm: lk.linkerMaxNm };
+  return { binderNm: lk.binderNm, binderFlexNm: lk.binderFlexNm, linkerMinNm: lk.linkerMinNm, linkerMaxNm: lk.linkerMaxNm };
 }
 // Per structure: its effective dye, mode, world label and photophysics (labelPhotophysics).
 export function scopeLabels(spec, lp) {
