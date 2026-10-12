@@ -1,6 +1,7 @@
 #include "dyes.h"
 
 #include "jsmath.h"
+#include "npcs.h"
 
 #include <algorithm>
 #include <cmath>
@@ -62,6 +63,60 @@ SiteGeom SiteGeometryWith(const std::vector<Pt3>& pts, const MtFrames& fr, size_
 constexpr double LINK_MIN_UM = MT_LINKER_MIN_NM * NM, LINK_MAX_UM = MT_LINKER_MAX_NM * NM;
 } // namespace
 
+Linkage LegacyLinkage(int structure)
+{
+   Linkage l;
+   if (structure == 0) { l.binderNm = MT_BINDER_NM; l.linkerMinNm = MT_LINKER_MIN_NM; l.linkerMaxNm = MT_LINKER_MAX_NM; }
+   else if (structure == 1) { l.linkerMinNm = NPC_LINKER_MIN_NM; l.linkerMaxNm = NPC_LINKER_MAX_NM; }
+   return l;
+}
+
+Linkage NormLinkage(const Linkage& lk)
+{
+   auto nz = [](double v) { return v > 0 ? v : 0.0; };
+   Linkage o;
+   o.binderNm = nz(lk.binderNm);
+   o.binderFlexNm = nz(lk.binderFlexNm);
+   o.linkerMinNm = nz(lk.linkerMinNm);
+   o.linkerMaxNm = std::max(o.linkerMinNm, nz(lk.linkerMaxNm));
+   return o;
+}
+
+LinkageSetup::LinkageSetup(const Linkage& l) : lk(l)
+{
+   const double lMin = l.linkerMinNm * NM, lMax = l.linkerMaxNm * NM;
+   minL3 = lMin * lMin * lMin;
+   maxL3 = lMax * lMax * lMax;
+   flexUm = l.binderFlexNm * NM;
+}
+
+Pt3 LinkedDye(const Pt3& b, const Pt3& a, double attachNm, const LinkageSetup& L, uint32_t h1, int32_t k, int32_t n,
+              double r1, double r2, double r3, LinkageParts* parts)
+{
+   const Linkage& lk = L.lk;
+   const double B = (attachNm + lk.binderNm) * NM;
+   double tx = b.x + a.x * B, ty = b.y + a.y * B, tz = b.z + a.z * B;
+   if (parts) {
+      const double A = attachNm * NM;
+      parts->site = { b.x + a.x * A, b.y + a.y * A, b.z + a.z * A };
+      parts->rigid = { tx, ty, tz };
+   }
+   if (lk.binderFlexNm > 0) {
+      const double fu = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::BIND_U).a) * 2 - 1;
+      const double fphi = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::BIND_PHI).a) * 2 * jsm::PI;
+      const double fr = L.flexUm * jsm::cbrt(Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::BIND_R).a));
+      const double fs = jsm::sqrt(1 - fu * fu);
+      tx += fr * fs * jsm::cos(fphi);
+      ty += fr * fs * jsm::sin(fphi);
+      tz += fr * fu;
+   }
+   if (parts) parts->tip = { tx, ty, tz };
+   // The linker: uniform direction, radius uniform in volume (mtDisplaceByLinker, webSMLM's displaceByLinker).
+   const double lu = r1 * 2 - 1, phi = r2 * 2 * jsm::PI, sn = jsm::sqrt(1 - lu * lu);
+   const double r = jsm::cbrt(L.minL3 + (L.maxL3 - L.minL3) * r3);
+   return { tx + r * sn * jsm::cos(phi), ty + r * sn * jsm::sin(phi), tz + r * lu };
+}
+
 SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t seg, double S, double theta,
                         double r1, double r2, double r3)
 {
@@ -70,7 +125,8 @@ SiteGeom MtSiteGeometry(const std::vector<Pt3>& pts, const MtFrames& fr, size_t 
 }
 
 void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::vector<Pt3>& pts, const MtFrames& fr,
-                 int blockIndex, double density, double fluorescentFraction, std::vector<Dye>& out)
+                 int blockIndex, double density, double fluorescentFraction, std::vector<Dye>& out,
+                 const Linkage& linkage, std::vector<LinkageParts>* parts)
 {
    if (pts.size() < 2 || blockIndex < 0) return;
    const double total = fr.Length();
@@ -80,7 +136,7 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
    if (blockNm0 * NM >= total || !(labelledBelow > 0) || !(ff > 0)) return;
    const uint32_t h1 = DyeH1(seed, cx, cy, mtIndex);
    const double phase = MtSeamPhase(seed, cx, cy, mtIndex);
-   const double minL3 = jsm::pow(LINK_MIN_UM, 3), maxL3 = jsm::pow(LINK_MAX_UM, 3);
+   const LinkageSetup L(linkage);
    for (int k = 0; k < MT_N_PROTOFILAMENTS; k++) {
       const double off = MtProtofilamentOffsetNm(k);
       const double theta = MtProtofilamentTheta(phase, k);
@@ -102,8 +158,16 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
          const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
          const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
          const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
-         const SiteGeom g = SiteGeometryWith(pts, fr, MtSegmentAt(fr, S), S, ct, st, minL3, maxL3, r1, r2, r3);
-         out.push_back({ g.dye, mtIndex, k, (int32_t)n, label, theta });
+         // The site: the axis point at arc S, the protofilament's radial direction in the segment's frame.
+         const size_t seg = MtSegmentAt(fr, S);
+         const Pt3& ft = fr.T[seg]; const Pt3& fu = fr.U[seg]; const Pt3& fv = fr.V[seg];
+         const double f = S - fr.cum[seg];
+         const Pt3 c = { pts[seg].x + ft.x * f, pts[seg].y + ft.y * f, pts[seg].z + ft.z * f };
+         const Pt3 a = { ct * fu.x + st * fv.x, ct * fu.y + st * fv.y, ct * fu.z + st * fv.z };
+         LinkageParts lp;
+         const Pt3 pos = LinkedDye(c, a, MT_RADIUS_NM, L, h1, k, (int32_t)n, r1, r2, r3, parts ? &lp : nullptr);
+         out.push_back({ pos, mtIndex, k, (int32_t)n, label, theta });
+         if (parts) parts->push_back(lp);
       }
    }
 }
@@ -111,6 +175,45 @@ void DyesInBlock(uint32_t seed, int32_t cx, int32_t cy, int mtIndex, const std::
 uint32_t DyeH1(uint32_t seed, int32_t cx, int32_t cy, int mtIndex)
 {
    return Pcg4d(seed ^ DYE_SALT, (uint32_t)cx, (uint32_t)cy, (uint32_t)mtIndex).a;
+}
+
+uint32_t NpcH1(uint32_t seed, int32_t cx, int32_t cy)
+{
+   return Pcg4d(seed ^ NPC_DYE_SALT, (uint32_t)cx, (uint32_t)cy, 0u).a;
+}
+
+void NpcDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<Npc>& pores, const std::vector<int32_t>& ids,
+                    const double* sites, double density, double fluorescentFraction, std::vector<NpcDye>& out,
+                    const Linkage& linkage, std::vector<LinkageParts>* parts)
+{
+   const double labelledBelow = std::min(1.0, std::max(0.0, density));
+   const double ff = std::min(1.0, std::max(0.0, fluorescentFraction));
+   if (!(labelledBelow > 0) || !(ff > 0)) return;
+   const uint32_t h1 = NpcH1(seed, cx, cy);
+   const LinkageSetup L(linkage);
+   double corner[8][2];
+   for (int c = 0; c < 8; c++) { corner[c][0] = jsm::cos(c * jsm::PI / 4); corner[c][1] = jsm::sin(c * jsm::PI / 4); }
+   for (int32_t pi : ids) {
+      const Npc& q = pores[(size_t)pi];
+      const int32_t n = q.cand;
+      for (int32_t k = 0; k < NPC_SITES; k++) {
+         const uint32_t label = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LABEL).a;
+         if (Unit(label) >= labelledBelow) continue;
+         if (ff < 1.0 && Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::FLUOR).a) >= ff) continue;
+         const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
+         const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
+         const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
+         const double sa = sites[3 * k] * NM, sb = sites[3 * k + 1] * NM, sc = sites[3 * k + 2] * NM;
+         const Pt3 at = { q.c.x + sa * q.e1.x + sb * q.e2.x + sc * q.n.x, q.c.y + sa * q.e1.y + sb * q.e2.y + sc * q.n.y,
+                          q.c.z + sa * q.e1.z + sb * q.e2.z + sc * q.n.z };
+         const double ct = corner[(k & 31) >> 2][0], st = corner[(k & 31) >> 2][1];
+         const Pt3 a = { ct * q.e1.x + st * q.e2.x, ct * q.e1.y + st * q.e2.y, ct * q.e1.z + st * q.e2.z };
+         LinkageParts lp;
+         const Pt3 pos = LinkedDye(at, a, 0, L, h1, k, n, r1, r2, r3, parts ? &lp : nullptr);
+         out.push_back({ pos, pi, k, n, label });
+         if (parts) parts->push_back(lp);
+      }
+   }
 }
 
 namespace {
@@ -330,22 +433,31 @@ bool DyeOrientation(uint32_t h1, int32_t k, int32_t n, const Label& label, const
 {
    const Orientation& o = label.orientation;
    if (o.mode == OrientationMode::Free) return false;
-   if (o.mode == OrientationMode::Random) {
-      const double cz = 2 * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_U).a) - 1;
-      const double phi = 2 * jsm::PI * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_PHI).a);
-      const double sz = jsm::sqrt(1 - cz * cz);
-      dir = { sz * jsm::cos(phi), sz * jsm::sin(phi), cz };
-      return true;
-   }
+   if (DyeOrientationRandom(h1, k, n, o, dir)) return true;
    const Pt3& t = fr.T[seg]; const Pt3& u = fr.U[seg]; const Pt3& v = fr.V[seg];
    const double ct = jsm::cos(theta), st = jsm::sin(theta);
    const Pt3 r = { ct * u.x + st * v.x, ct * u.y + st * v.y, ct * u.z + st * v.z };            // radial
+   dir = DyeOrientationFixed(o, t, r);
+   return true;
+}
+
+bool DyeOrientationRandom(uint32_t h1, int32_t k, int32_t n, const Orientation& o, Pt3& dir)
+{
+   if (o.mode != OrientationMode::Random) return false;
+   const double cz = 2 * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_U).a) - 1;
+   const double phi = 2 * jsm::PI * Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ORIENT_PHI).a);
+   const double sz = jsm::sqrt(1 - cz * cz);
+   dir = { sz * jsm::cos(phi), sz * jsm::sin(phi), cz };
+   return true;
+}
+
+Pt3 DyeOrientationFixed(const Orientation& o, const Pt3& t, const Pt3& r)
+{
    const Pt3 q = { t.y * r.z - t.z * r.y, t.z * r.x - t.x * r.z, t.x * r.y - t.y * r.x };    // T x r
    const double pol = o.polarDeg * jsm::PI / 180, az = o.azimuthDeg * jsm::PI / 180;
    const double sp = jsm::sin(pol), cp = jsm::cos(pol), ca = jsm::cos(az), sa = jsm::sin(az);
-   dir = { cp * t.x + sp * (ca * r.x + sa * q.x), cp * t.y + sp * (ca * r.y + sa * q.y),
-           cp * t.z + sp * (ca * r.z + sa * q.z) };
-   return true;
+   return { cp * t.x + sp * (ca * r.x + sa * q.x), cp * t.y + sp * (ca * r.y + sa * q.y),
+            cp * t.z + sp * (ca * r.z + sa * q.z) };
 }
 
 namespace {

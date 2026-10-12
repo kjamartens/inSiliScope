@@ -28,6 +28,11 @@ const PARAM_SETS = {
   nucwild: { nucIrregMin: 0.3, nucIrregMax: 0.3, nucBendMin: 1, nucBendMax: 1, nucSmooth: 0, nucThickIrreg: 0.4,
              nucAsym: -0.9, nucWidestMin: 1, nucWidestMax: 1, nucHeightMin: 0.4, nucHeightMax: 0.4, mtDensity: 0.1,
              mtDirKappa: 0 },
+  // Nuclear pores (issue 15): no caps and no spacing (every candidate kept), and a jammed envelope (fewer pores than
+  // density x area: the 50 x N candidates run out).
+  npcvar: { nucAsym: 0, npcDensity: 25, npcMinDistNm: 0, npcRadiusNm: 60, npcRingSepNm: 40, npcCornerSpreadNm: 20,
+            mtDensity: 0.1 },
+  npcjam: { npcDensity: 30, npcMinDistNm: 250, mtDensity: 0.1 },
 };
 for (const [name, kv] of Object.entries(PARAM_SETS))
   out.push(['params', name, ...Object.entries(kv).map(([k, v]) => `${k}=${v}`)].join(' '));
@@ -72,6 +77,15 @@ out.push('case r00 31337 rough -6 -6 7 7');
 
 // DNA-origami nanorulers (specimen 1, ABI 12): the molecules of a window (origami.js / origami.cpp), their bent
 // outline and every designed strand. origami <id> <seed> <x0> <y0> <x1> <y1> [origami param=value ...]
+// Nuclear pores (structure 1, ABI 13): the pores of the first present cells (npcs.cpp / the prototype's
+// buildNpcsForCell) and the dyes of their first 40 pores under the pores' built-in linkage and a flexible one.
+// npcs <id> <seed> <params> <cx0> <cy0> <cx1> <cy1> <maxCells>: builtin = shaped with a bottom cap, nucplain = the
+// plain ellipsoid, nucwild = a top cap.
+out.push('npcs p00 1249 builtin -2 -2 1 1 2');
+out.push('npcs p01 2024 nucplain -2 -2 2 2 2');
+out.push('npcs p02 9001 nucwild -2 -2 2 2 2');
+out.push('npcs p03 77 npcvar -3 -3 3 3 2');
+out.push('npcs p04 4711 npcjam -3 -3 3 3 1');
 out.push('origami o00 1249 0 0 6 6');
 out.push('origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3');
 out.push('origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2');

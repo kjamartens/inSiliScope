@@ -142,6 +142,8 @@
     <ClCompile Include="..\..\core\src\jsmath.cpp" />
     <ClCompile Include="..\..\core\src\jsmath_fdlibm.cpp" />
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
+    <ClCompile Include="..\..\core\src\npcs.cpp" />
+    <ClCompile Include="..\..\core\src\origami.cpp" />
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />

@@ -59,6 +59,14 @@ struct Params {
    double mtMinTurnRadius = 0.15;
    double mtMinSeparation = 0.05;
    double mtMaxZSlope = 5;
+   // Nuclear pores (issue 15, npcs.h; ABI 13): per um^2 of envelope (the user's choice 2026-10-12, above the measured
+   // 5-8.6 of maeshima2006 and dultz2010), minimum centre distance (the NPC diameter, maeshima2006), the Nup96 ring
+   // radius (webSMLM; thevathasan2019: 53.7), the two rings' separation along the pore axis and the corners' arc spread.
+   double npcDensity = 12;
+   double npcMinDistNm = 120;
+   double npcRadiusNm = 53.5;
+   double npcRingSepNm = 50;
+   double npcCornerSpreadNm = 12;
    // The labels (density, fluorescent fraction, mode, kinetics) are not
    // params since issue 16 (ABI 10): World::SetLabel, isc_world_set_label.
 
@@ -86,7 +94,7 @@ void NormalizeParams(Params& p);
 bool SetParam(Params& p, const char* name, double value);
 
 // A 64-bit hash of the fields a cell's packed pose depends on: everything
-// but the microtubule (mt*) parameters (and the labels, not params), which only
+// but the microtubule (mt*) and nuclear pore (npc*) parameters (and the labels, not params), which only
 // shape what hangs off a packed cell (the viewer's pack key makes the same
 // cut), and the specimen's (specimen, origami*), which the cell field never
 // reads. Keys the packed-block store (blockstore.h).

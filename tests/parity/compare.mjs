@@ -36,6 +36,8 @@ function parse(path) {
       case 'mtp': case 'mtl': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
       // DNA-origami molecules (ABI 12): their first value (count / x) must match like the cells'
       case 'ori': case 'oro': case 'ors': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
+      // nuclear pores (ABI 13): attachment points, pores per cell, dyes per linkage; first value = a count
+      case 'npa': case 'npc': case 'npd': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
     }
   }
   return r;

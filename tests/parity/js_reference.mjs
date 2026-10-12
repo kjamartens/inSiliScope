@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { loadPrototype } from './load_prototype.mjs';
 import { OrigamiField, shapeOutline, moleculeSites } from '../../web/prototype/scope/origami.js';
+import { npcDyesInBlock, normLinkage, LEGACY_LINKAGE } from '../../web/prototype/scope/dyes.js';
 
 const [protoPath, casesPath, outPath] = process.argv.slice(2);
 // V8 < 13 computes Math.pow with its own fdlibm port; 13+ calls std::pow
@@ -32,7 +33,7 @@ const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMa
   'cytoMidDistanceMax', 'cytoMaxSlope', 'cytoDomeSlope', 'cytoRelaxUm', 'cytoRings', 'cytoTheta',
   'enablePacking', 'allowPackRotation', 'packFrac', 'relaxIters', 'relaxDamping',
   'mtDensity', 'mtStartDecayPct', 'mtEndDecayPct', 'mtDirKappa', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
-  'mtMinSeparation', 'mtMaxZSlope'];
+  'mtMinSeparation', 'mtMaxZSlope', 'npcDensity', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm'];
 const defaults = {};
 for (const k of PARAM_KEYS) if (k in proto.defaults) defaults[k] = proto.defaults[k];
 const missing = PARAM_KEYS.filter(k => !(k in defaults));
@@ -153,6 +154,53 @@ for (const line of fs.readFileSync(casesPath, 'utf8').split('\n')) {
     out.push(`case ${id} ncand ${ncand} removed ${removed} ms ${ms.toFixed(3)}`);
     out.push(...raw);
     for (const c of map.values()) out.push(`pk ${c.cx} ${c.cy} ${c.x} ${c.y} ${c.packRot}`);
+  } else if (kind === 'npcs') {
+    // The attachment points; per present cell the pore count, the surface area and caps, sums over every pore and
+    // every 23rd pore; the dyes of the first 40 pores (density 0.7, fluorescent 0.9) under the pores' built-in
+    // linkage and a flexible one, with every 7th dye's linkage parts.
+    const [id, seedS, pname, ...rest] = t.slice(1);
+    const [cx0, cy0, cx1, cy1, maxCells] = rest.map(Number);
+    const p = paramSets[pname], seed = +seedS;
+    const f = x => String(x);
+    const sites = g.npcAttachmentPoints(p);
+    out.push([`npa ${id} 0 0 0 ${sites.length}`, ...sites].map(f).join(' '));
+    const LINKS = [LEGACY_LINKAGE.npcs, { binderNm: 10, binderFlexNm: 4, linkerMinNm: 1, linkerMaxNm: 6 }];
+    let done = 0;
+    for (let cx = cx0; cx <= cx1 && done < maxCells; cx++) {
+      for (let cy = cy0; cy <= cy1 && done < maxCells; cy++) {
+        const c = g.rawCandidate(seed, cx, cy, p);
+        if (!c.present) continue;
+        done++;
+        const M = g.nucSurfaceMesh(c);
+        const pores = g.buildNpcsForCell(seed, cx, cy, c, p);
+        const s = new Array(9).fill(0);
+        for (const q of pores) {
+          s[0] += q.x; s[1] += q.y; s[2] += q.z;
+          s[3] += q.n[0]; s[4] += q.n[1]; s[5] += q.n[2];
+          s[6] += q.e1[0]; s[7] += q.e1[1]; s[8] += q.e1[2];
+        }
+        const l = [`npc ${id} ${cx} ${cy} 0 ${pores.length}`, M.area, M.fBot, M.fTop, ...s];
+        for (let i = 0; i < pores.length; i += 23) {
+          const q = pores[i];
+          l.push(q.cand, q.piece, q.x, q.y, q.z, ...q.n, ...q.e1, ...q.e2);
+        }
+        out.push(l.map(f).join(' '));
+        const ids = pores.slice(0, 40).map((_, i) => i);
+        LINKS.forEach((lk, v) => {
+          const dyes = [];
+          npcDyesInBlock(seed >>> 0, cx, cy, pores, ids, sites, 0.7, 0.9, dyes, normLinkage(lk), true);
+          let sx = 0, sy = 0, sz = 0;
+          for (const e of dyes) { sx += e.pos.x; sy += e.pos.y; sz += e.pos.z; }
+          const d = [`npd ${id} ${cx} ${cy} ${v} ${dyes.length}`, sx, sy, sz];
+          for (let i = 0; i < dyes.length; i += 7) {
+            const e = dyes[i], P = e.parts;
+            d.push(e.pore, e.k, e.n, e.id, e.pos.x, e.pos.y, e.pos.z, P.site.x, P.site.y, P.site.z,
+              P.rigid.x, P.rigid.y, P.rigid.z, P.tip.x, P.tip.y, P.tip.z);
+          }
+          out.push(d.map(f).join(' '));
+        });
+      }
+    }
   } else if (kind === 'origami') {
     // The molecules of the window, their outline (sum and every 8th point) and every designed strand.
     const [id, seedS, ...rest] = t.slice(1);

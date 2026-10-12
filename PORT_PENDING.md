@@ -61,7 +61,8 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
   centre) > rb, cell: centreDist > reachXY + rb, rb = sqrt(3)/2 + hypot(R + spread/2, sep/2)/1000 + 0.005.
 - Block key {cx, cy, structure, element, block} (element = mtIndex, 0 for pores); dye rows: mtIndex -1 and element 0
   for pores. `npcsOfCell(cx, cy)` = the new export `isc_cell_npcs` (stride 9: centre, n, e1; cell-local).
-- ABI 12: `ISC_STRUCT_NPC 1`, `ISC_STRUCT_COUNT 2` (kinetics rows 1 + 6 x 2), `isc_cell_npcs`.
+- ABI 13 (after the nanorulers' 12): `ISC_STRUCT_NPC 1`, `ISC_STRUCT_ORIGAMI_SITES 2`, `ISC_STRUCT_COUNT 3` (kinetics
+  rows 1 + 6 x 3), `isc_cell_npcs`. **Ported** (core, world_checks.npcs, golden `npcs` cases, label_parity, wasm_abi_smoke).
 
 ### 4. Imaging (`scope/scope_movie.js`, `fluorescence.js`, `dye_library.js` -> `Simulation/ScopeMovie.*`, `DyeLibrary.*`)
 
@@ -90,7 +91,7 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
   the model. A label without a linkage gets its structure's; `normLinkage` clamps (>= 0, max >= min). A linkage change
   redraws the dyes (like density). Cull reach: `mtDyeReach` = (12.5 + binder + flex + linkerMax) 1e-3 (same operation
   order as the old constant), `npcDyeReach` + (binder + flex + linkerMax) 1e-3.
-- Core ABI 12: `ISC_LABEL_BINDER_NM` 16, `ISC_LABEL_BINDER_FLEX_NM` 17, `ISC_LABEL_LINKER_MIN_NM` 18,
+- Core ABI 13: `ISC_LABEL_BINDER_NM` 16, `ISC_LABEL_BINDER_FLEX_NM` 17, `ISC_LABEL_LINKER_MIN_NM` 18,
   `ISC_LABEL_LINKER_MAX_NM` 19, `ISC_LABEL_COUNT` 20; a vector shorter than 20 (or NaN there) = the structure's legacy.
 - Data: `library.json` `linkagePresets`, each with binder, flexibility and linker and its sources (notes): Legacy =
   structure default; antibodies from Fruh et al. 2021 Table 1 (binder = shell radius - 12.5 nm, flexibility = FWHM /
@@ -99,8 +100,9 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
   `gen_dye_library.mjs` emits them to the JS only; the port adds `kLinkagePresets` (+ its struct in `DyeLibrary.h`).
 - Options per target: `<prefix>-binder` (preset, names), `-binder-nm`, `-binder-flex-nm`, `-linker-min-nm`,
   `-linker-max-nm` (-1 = the preset's; `scopeLinkage`). MM: `<Target>_Binder` (Advanced), the four numbers (Expert).
-- Defaults stay Legacy (output unchanged). Switching the microtubules' default to a cited preset changes every default
-  image: **ask the user first** (asked 2026-10-12, open).
+- Defaults (user, 2026-10-12): microtubules IgG2-PAINT, pores SNAP-Halo (`linkagePresets.defaults`); a label without a
+  linkage (the core's default label, the ABI's NaN) keeps the structure's built-in numbers (Legacy). The port changes
+  the default images: new cli reference TIFFs and `adapter_pixel_hash`.
 - Visualisation: `web/lab/linkage.html` (binder / flexibility / linker / dye in their own colours: cross-sections, a
   pore corner close-up, histograms). The port: the viewer's `linkage` layer (the same parts at close zoom), a physics
   figure (`structures.md`), `--dyes-json` with each dye's binding site and binder end.
@@ -110,12 +112,12 @@ yet --, `dye_library_data.js`, `web/dye_library.js`, `docs/references.md`), `tes
 
 ## The port's to-do (Phase B, the plan)
 
-Core (npcs.cpp, params, world, dyes, capi, ABI 12) and tests (world_checks.Npcs, golden npc lines with Node 24,
-label_parity with two labels, wasm_abi_smoke 12, scope_parity two-target cases); engine (ScopeMovie per-target options,
+~~Core (npcs.cpp, params, world, dyes, capi, ABI 13) and tests (world_checks.npcs, golden npcs lines with Node 24,
+label_parity with three structures, wasm_abi_smoke 13)~~ (done); scope_parity two-target cases; engine (ScopeMovie per-target options,
 None, off targets, auto preset; `SimplePlan` and the D3D11 splat for up to 4 blink groups, `HostSplatsBlinks(gi, f)`,
 every group's kernel preloaded); cli probes and `--geometry-json` pores; viewer (`web/index.html` label group per
 target, NPC density, the 8-fold ring layer in `web/scene/core.js`, pack-key regex) and `embed_web_module.mjs`; block
-(two labels, structure column, abiVersion 12); adapter (per-target rows from `TargetCount()`, `_Mode` Basic,
+(three labels, structure column, abiVersion 13); adapter (per-target rows from `TargetCount()`, `_Mode` Basic,
 `Fluorophores.Mode` removed, NPC geometry rows, configs, property reference, `adapter_pixel_hash`, `bench_live.py`);
 docs/spec (ALGORITHM, PORT new section, BRIGHTFIELD: no NPC contrast, MM_DEVICES section 4, physics pages + figures,
 gallery, CLAUDE.md -- also its "Wanninger et al. 2023 CIR4MICS" is Theiss et al. 2023), PLAN.md; then delete this file.

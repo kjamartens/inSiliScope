@@ -9,6 +9,7 @@
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
+#include "npcs.h"
 #include "origami.h"
 #include "parallel.h"
 #include "params.h"
@@ -24,6 +25,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -41,6 +43,21 @@ void Check(bool ok, const char* what)
 }
 
 const double INF = std::numeric_limits<double>::infinity();
+
+// The checks written before the nuclear pores (issue 15) run without them (npcDensity 0: the microtubules alone, as
+// they were); the Npcs section checks the pores.
+Params NoPores()
+{
+   Params p;
+   p.npcDensity = 0;
+   return p;
+}
+IscParams* NoPoresAbi()
+{
+   IscParams* p = isc_params_new();
+   isc_params_set(p, "npcDensity", 0);
+   return p;
+}
 
 // World::SetKineticsHistory with one kinetics per segment, used for every structure (it takes
 // STRUCTURE_COUNT per segment, kin[i * STRUCTURE_COUNT + s]).
@@ -106,7 +123,7 @@ void BruteBlinks(uint32_t seed, const WorldDye& d, const Label& l, double t0, do
 
 void Determinism()
 {
-   Params p;
+   Params p = NoPores();
    const uint32_t seed = 1249;
    const Label l10 = MakeLabel(LabelMode::PALM, 0.1);
    World a = LabelledWorld(seed, p, l10);
@@ -213,7 +230,7 @@ void Determinism()
 
 void PackingOff()
 {
-   Params p;
+   Params p = NoPores();
    p.enablePacking = false;
    World a(7, p), b(7, p);
    std::vector<Cell> ca, cb;
@@ -231,7 +248,7 @@ void PackingOff()
    }
    Check(raw, "packing off: positions are the raw jittered ones");
 
-   Params q;
+   Params q = NoPores();
    World pk(7, q);
    std::vector<Cell> packed;
    pk.CellsInRect(-100, -100, 100, 100, packed);
@@ -321,7 +338,7 @@ void DyeStatistics()
 
 void CApi()
 {
-   IscParams* p = isc_params_new();
+   IscParams* p = NoPoresAbi();
    Check(isc_params_set(p, "labelEfficiency", 0.05) == -1, "C ABI: labelEfficiency is not a param any more (ABI 10)");
    IscWorld* w = isc_world_new(1249, p);
    double lab[ISC_LABEL_COUNT];
@@ -341,7 +358,8 @@ void CApi()
    Check(isc_sites_in_window(w, 1, 0, 0, 1, -INF, INF, nullptr, 0) == -1, "C ABI: empty rect rejected");
 
    // Labels: accepted, rejected, refused as not implemented.
-   double v[ISC_LABEL_COUNT] = { 0.05, 1, ISC_MODE_PALM, 0.5, 0.05, 0.5, 0.3, 0.4, 0, 0, ISC_ORIENT_FREE, 90, 0, 0, 0, 0 };
+   double v[ISC_LABEL_COUNT] = { 0.05, 1, ISC_MODE_PALM, 0.5, 0.05, 0.5, 0.3, 0.4, 0, 0, ISC_ORIENT_FREE, 90, 0, 0, 0, 0,
+                                 NAN, NAN, NAN, NAN };   // NaN linkage: the structure's own
    Check(isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, v, ISC_LABEL_COUNT) == 0, "C ABI: label accepted");
    double bad[ISC_LABEL_COUNT];
    auto tryBad = [&](int idx, double val) {
@@ -405,7 +423,7 @@ void CApi()
 // ABI 5/10: the z-resolved density query by structure (WideField).
 void Density3d()
 {
-   IscParams* p = isc_params_new();
+   IscParams* p = NoPoresAbi();
    IscWorld* w = isc_world_new(1249, p);
    double lab[2] = { 0.5, 1 };
    isc_world_set_label(w, ISC_STRUCT_MICROTUBULE, lab, 2);
@@ -537,7 +555,7 @@ bool SameEvents(std::vector<WorldEvent> a, std::vector<WorldEvent> b)
 void CacheUnderLoad(LabelMode mode, const char* name)
 {
    std::printf("    %s\n", name);
-   Params p;
+   Params p = NoPores();
    const uint32_t seed = 1249;
    Kinetics k;
    k.activationRatePerSec = 0.2; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
@@ -639,7 +657,7 @@ void CacheUnderLoad(LabelMode mode, const char* name)
 void EventQuery(const Label& lab, const char* name)
 {
    std::printf("    %s\n", name);
-   Params p;
+   Params p = NoPores();
    const uint32_t seed = 1249;
    World w = LabelledWorld(seed, p, lab);
    std::vector<Cell> near;
@@ -777,7 +795,7 @@ void PersistentSites()
 // continuous windows of each mode, orientation statistics, refusals.
 void LabelModel()
 {
-   Params p;
+   Params p = NoPores();
    const uint32_t seed = 1249;
    Kinetics kin;
    kin.activationRatePerSec = 0.05; kin.onSec = 0.05; kin.offSec = 1.0; kin.bleachProb = 0.5; kin.photonCV = 0.5;
@@ -952,7 +970,7 @@ bool IdenticalEvents(const std::vector<WorldEvent>& a, const std::vector<WorldEv
 // parked schedule slots) answer as fresh worlds.
 void KineticsHistoryChecks()
 {
-   Params p;
+   Params p = NoPores();
    const uint32_t seed = 1249;
    Kinetics kin;
    kin.activationRatePerSec = 0.05; kin.onSec = 0.05; kin.offSec = 1.0; kin.bleachProb = 0.5; kin.photonCV = 0.5;
@@ -1106,7 +1124,7 @@ void KineticsHistoryChecks()
 void Threads(LabelMode mode, double density, const char* name)
 {
    std::printf("    %s\n", name);
-   Params p;
+   Params p = NoPores();
    Kinetics k;
    k.activationRatePerSec = 0.01; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5; k.photonCV = 0.2;
    const Label lab = MakeLabel(mode, density, k);
@@ -1144,7 +1162,7 @@ void Threads(LabelMode mode, double density, const char* name)
 // nucleus volume against the ellipsoid, bad arguments.
 void OpticalVolume()
 {
-   Params p;
+   Params p = NoPores();
    // Cells are ~50 um across: a 140 um window holds several whole ones.
    const double x0 = -70, y0 = -66, x1 = 70, y1 = 74, zLo = -0.5, zHi = 9.5;
    const int nx = 140, ny = 140, nz = 20, sub = 2;
@@ -1225,7 +1243,7 @@ void OpticalVolume()
    for (size_t i = 0; i < plane; i++) gotAll += fine[plane + i] * vox;
    Check(want > 0 && std::fabs(got / want - 1) < 0.02, "optical volume: nucleus volume = its column integral (2%)");
    std::printf("      nucleus volume %.2f um^3 vs column integrals %.2f (window %.2f)\n", got, want, gotAll);
-   IscParams* ip = isc_params_new();
+   IscParams* ip = NoPoresAbi();
    IscWorld* w = isc_world_new(31, ip);
    std::vector<float> o(3 * 16 * 16 * 2);
    Check(isc_optical_volume_in_window(w, x0, y0, x1, y1, 0, 8, 16, 16, 2, 1, o.data()) >= 0 &&
@@ -1258,7 +1276,7 @@ void EdgeAndHeight()
       meanTail = tail / n;
       return sum / n;
    };
-   Params p;
+   Params p = NoPores();
    double t0 = 0, tb = 0;
    p.cellRough = 0;
    const double dOff = eqDiam(p, t0);
@@ -1285,7 +1303,7 @@ void EdgeAndHeight()
    // The tail's power spectrum: |c_k|^2 ~ k^-(2H+1) = k^-(5-2D) over its band
    // (a self-affine r(theta) of Hurst H has box-counting dimension D = 2 - H).
    for (double D : { 1.35, 1.7 }) {
-      Params q;
+      Params q = NoPores();
       q.cellFractalDim = D;
       q.cellRough = 0.05;   // small: the soft clamp stays linear
       std::vector<double> power(65, 0.0);
@@ -1315,7 +1333,7 @@ void EdgeAndHeight()
    }
 
    // Height grid: nucleus covered, and the relaxation removes the kinks.
-   Params q;
+   Params q = NoPores();
    World w(1249, q);
    std::vector<Cell> cs;
    w.CellsInRect(-60, -60, 60, 60, cs);
@@ -1364,7 +1382,7 @@ void EdgeAndHeight()
 // for them, and rejects rows that are not its own cells.
 void BlockInjection()
 {
-   Params p;
+   Params p = NoPores();
    World a(1249, p), b(1249, p), c(1249, p), other(7, p);
    const double x0 = -30, y0 = -30, x1 = 30, y1 = 30;
    std::vector<Cell> ca, cb;
@@ -1445,7 +1463,7 @@ void BlockInjection()
          "block injection: after dropping the caches the taker packs the same cells itself");
 
    // Through the C ABI.
-   IscParams* ip = isc_params_new();
+   IscParams* ip = NoPoresAbi();
    IscWorld* wa = isc_world_new(1249, ip);
    IscWorld* wb = isc_world_new(1249, ip);
    bool abiOk = true;
@@ -1478,7 +1496,7 @@ void BlockStoreTest()
    const fs::path dir = fs::temp_directory_path(ec) /
       ("isc_blockstore_" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count()));
    const std::string d = dir.u8string();
-   Params p;
+   Params p = NoPores();
 #if defined(__EMSCRIPTEN__)
    // No file system in the viewer's WASM: never a store (the page keeps its own in local storage).
    World w0(1249, p);
@@ -1791,8 +1809,8 @@ void Origami()
          kin[1 + s * ISC_KIN_COUNT + ISC_KIN_ON_SEC] = 0.3;
          kin[1 + s * ISC_KIN_COUNT + ISC_KIN_BLEACH_PROB] = 1;
       }
-      Check(ISC_KIN_ROW == 13 && isc_world_set_kinetics_history(w, kin, 1) == 0,
-            "C ABI: a kinetics row per structure (two structures)");
+      Check(ISC_KIN_ROW == 1 + 6 * ISC_STRUCT_COUNT && isc_world_set_kinetics_history(w, kin, 1) == 0,
+            "C ABI: a kinetics row per structure (every structure)");
       isc_world_free(w);
       isc_world_free(cw);
       isc_params_free(ip);
@@ -1803,6 +1821,225 @@ void Origami()
 // One entry per ctest test (tests/parity/CMakeLists.txt keeps the same list):
 // `isc_world_tests <section>` runs one, no argument runs all. Each prints its
 // time, so a slow one shows.
+// Nuclear pores (issue 15, npcs.h): placement (count, spacing, on the membrane with an outward normal, orthonormal
+// frames, history independence), the pore dyes (tiling, 8 threads = 1, the structure mask, the label linkage through
+// the C ABI), isc_cell_npcs and the packing fingerprint. The JS twin's numbers: label_parity, golden (npc lines).
+bool InsideNucleus(const Cell& c, const Pt3& q)
+{
+   if (!c.nucShaped) {
+      const double ncr = jsm::cos(-c.nucRot), nsr = jsm::sin(-c.nucRot);
+      const double na = c.nucLong / 2, nb = c.nucShort / 2, nh = c.nucHeight / 2;
+      const double ex = q.x - c.nucOffX, ey = q.y - c.nucOffY;
+      const double ux = (ex * ncr - ey * nsr) / na, uy = (ex * nsr + ey * ncr) / nb, uz = (q.z - c.nucZ) / nh;
+      return ux * ux + uy * uy + uz * uz < 1;
+   }
+   const NucBall B = NucBallLocal(c, q.x, q.y);
+   const double zeta = (q.z - c.nucZ) / ((c.nucHeight / 2) * B.H * (q.z < c.nucZ ? c.nucKDown : c.nucKUp));
+   return std::fabs(zeta) < 1 && B.s < NucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop);
+}
+
+void Npcs()
+{
+   const uint32_t seed = 1249;
+   Params p;   // the defaults: 12 pores per um^2 of envelope, 120 nm apart
+   World w(seed, p);
+   std::vector<Cell> cells;
+   w.CellsInRect(-60, -60, 60, 60, cells);
+   Check(cells.size() >= 4, "pores: cells near the origin");
+   if (cells.empty()) return;
+   // Placement statistics over the cells.
+   long pores = 0, want = 0, flips = 0, tooClose = 0, badFrame = 0, notOrdered = 0;
+   double worstGap = INF;
+   for (const Cell& c : cells) {
+      std::vector<Npc> v;
+      if (!w.CellNpcs(c.cx, c.cy, v)) { Check(false, "pores: CellNpcs finds the cell"); return; }
+      const NucSurfaceMesh M = BuildNucSurfaceMesh(c);
+      want += (long)std::floor(p.npcDensity * M.area + 0.5);
+      pores += (long)v.size();
+      for (size_t i = 0; i < v.size(); i++) {
+         const Npc& q = v[i];
+         if (i > 0 && !(q.cand > v[i - 1].cand)) notOrdered++;
+         const Pt3 out = { q.c.x + q.n.x * 1e-3, q.c.y + q.n.y * 1e-3, q.c.z + q.n.z * 1e-3 };
+         const Pt3 in = { q.c.x - q.n.x * 1e-3, q.c.y - q.n.y * 1e-3, q.c.z - q.n.z * 1e-3 };
+         if (InsideNucleus(c, in) && !InsideNucleus(c, out)) flips++;
+         auto dot = [](const Pt3& a, const Pt3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+         if (std::fabs(dot(q.n, q.n) - 1) > 1e-12 || std::fabs(dot(q.e1, q.e1) - 1) > 1e-12 ||
+             std::fabs(dot(q.e2, q.e2) - 1) > 1e-12 || std::fabs(dot(q.n, q.e1)) > 1e-12 ||
+             std::fabs(dot(q.n, q.e2)) > 1e-12 || std::fabs(dot(q.e1, q.e2)) > 1e-12)
+            badFrame++;
+         for (size_t j = 0; j < i; j++) {
+            const double dx = q.c.x - v[j].c.x, dy = q.c.y - v[j].c.y, dz = q.c.z - v[j].c.z;
+            const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            worstGap = std::min(worstGap, d);
+            if (d < p.npcMinDistNm * 1e-3) tooClose++;
+         }
+      }
+   }
+   char msg[256];
+   std::snprintf(msg, sizeof msg, "pores: count = round(density x area) per cell (%ld of %ld over %zu cells)", pores, want,
+                 cells.size());
+   Check(pores == want && pores > 1000, msg);
+   std::snprintf(msg, sizeof msg, "pores: none closer than npcMinDistNm (closest %.1f nm)", worstGap * 1000);
+   Check(tooClose == 0, msg);
+   std::snprintf(msg, sizeof msg, "pores: on the membrane, normal outward (+-1 nm along n flips inside/outside: %ld of %ld)",
+                 flips, pores);
+   Check(flips == pores, msg);
+   Check(badFrame == 0 && notOrdered == 0, "pores: orthonormal frames (n, e1, e2), candidate order");
+   // The same pores from a fresh world after other queries.
+   {
+      World w2(seed, p);
+      std::vector<WorldDye> junk;
+      w2.SitesInWindow(200, 200, 210, 210, -INF, INF, junk);
+      std::vector<Npc> a, b;
+      w.CellNpcs(cells[0].cx, cells[0].cy, a);
+      w2.CellNpcs(cells[0].cx, cells[0].cy, b);
+      bool same = a.size() == b.size() && !a.empty();
+      for (size_t i = 0; same && i < a.size(); i++)
+         same = a[i].c.x == b[i].c.x && a[i].c.y == b[i].c.y && a[i].c.z == b[i].c.z && a[i].e1.x == b[i].e1.x &&
+                a[i].cand == b[i].cand;
+      Check(same, "pores: independent of the query history");
+   }
+   // The npc* params move no cell; density 0 = no pores.
+   {
+      Params q = p;
+      q.npcDensity = 0;
+      Check(PackingFingerprint(q) == PackingFingerprint(p), "pores: npc* params leave the packing fingerprint");
+      World w0(seed, q);
+      std::vector<Npc> none;
+      Check(w0.CellNpcs(cells[0].cx, cells[0].cy, none) && none.empty(), "pores: npcDensity 0 = no pores");
+   }
+   // Pore dyes: only structure 1 under the mask, tiling, 8 threads = 1.
+   const Cell& c0 = cells[0];
+   double nx, ny;
+   LocalToWorld(c0, c0.nucOffX, c0.nucOffY, nx, ny);
+   const double X0 = nx - 4, Y0 = ny - 4, X1 = nx + 4, Y1 = ny + 4;
+   {
+      World a(seed, p);
+      a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::DnaPaint, 0));
+      a.SetLabel(STRUCTURE_NPC, MakeLabel(LabelMode::dSTORM, 0.6));
+      std::vector<WorldDye> all, tiles;
+      a.SitesInWindow(X0, Y0, X1, Y1, -INF, INF, all);
+      bool only = !all.empty();
+      for (const WorldDye& d : all) only = only && d.structure == STRUCTURE_NPC && d.mtIndex == -1 && d.k >= 0 && d.k < 64;
+      std::snprintf(msg, sizeof msg, "pore dyes: structure 1, sites 0-63 (%zu dyes in 8 x 8 um over a nucleus)", all.size());
+      Check(only && all.size() > 2000, msg);
+      World b(seed, p);
+      b.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::DnaPaint, 0));
+      b.SetLabel(STRUCTURE_NPC, MakeLabel(LabelMode::dSTORM, 0.6));
+      for (int i = 0; i < 2; i++)
+         for (int j = 0; j < 2; j++) b.SitesInWindow(X0 + 4 * i, Y0 + 4 * j, X0 + 4 * (i + 1), Y0 + 4 * (j + 1), -INF, INF, tiles);
+      Check(SameDyes(Sorted(all), Sorted(tiles)), "pore dyes: 2 x 2 tiles = the whole window");
+      std::vector<float> g(8 * 8);
+      World m(seed, p);
+      m.SetLabel(STRUCTURE_NPC, MakeLabel(LabelMode::dSTORM, 0.6));
+      const long n1 = m.Density3dInWindow(X0, Y0, X1, Y1, -INF, INF, 8, 8, 1, 1u << STRUCTURE_NPC, g.data());
+      Check(n1 == (long)all.size(), "pore dyes: density3d bit 1 counts the pore dyes alone");
+      // 8 threads = 1 (events, DNA-PAINT and dSTORM on the pores, microtubules on too).
+      for (LabelMode mode : { LabelMode::DnaPaint, LabelMode::dSTORM }) {
+         Kinetics k;
+         k.activationRatePerSec = 0.05; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5;
+         World t1(seed, p), t8(seed, p);
+         for (World* t : { &t1, &t8 }) {
+            t->SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::dSTORM, 0.02, k));
+            t->SetLabel(STRUCTURE_NPC, MakeLabel(mode, 0.6, k));
+         }
+         std::vector<WorldEvent> e1, e8;
+         SetWorldThreads(1);
+         t1.EventsInWindow(X0, Y0, X1, Y1, -INF, INF, 20, 25, e1);
+         SetWorldThreads(8);
+         t8.EventsInWindow(X0, Y0, X1, Y1, -INF, INF, 20, 25, e8);
+         SetWorldThreads(0);
+         bool npc = false;
+         for (const WorldEvent& e : e1) npc = npc || e.structure == STRUCTURE_NPC;
+         Check(npc && IdenticalEvents(e1, e8), mode == LabelMode::DnaPaint ? "pore dyes: 8 threads = 1 (DNA-PAINT)"
+                                                                           : "pore dyes: 8 threads = 1 (dSTORM)");
+      }
+   }
+   // The label linkage through the C ABI: NaN = the structure's legacy numbers = those numbers given; another linkage
+   // moves the same dyes (the same ids), farther out.
+   {
+      auto sites = [&](const double* lk) {
+         IscParams* ip = isc_params_new();
+         IscWorld* cw = isc_world_new(seed, ip);
+         isc_params_free(ip);
+         double off[ISC_LABEL_COUNT] = { 0 };
+         isc_world_set_label(cw, ISC_STRUCT_MICROTUBULE, off, 1);
+         double v[ISC_LABEL_COUNT] = { 0.6, 1, ISC_MODE_DNA_PAINT, 0.01, 0.05, 1, 1, 0.5, 0, 0, ISC_ORIENT_FREE, 90, 0, 0, 0, 0,
+                                       lk[0], lk[1], lk[2], lk[3] };
+         std::vector<double> out;
+         if (isc_world_set_label(cw, ISC_STRUCT_NPC, v, ISC_LABEL_COUNT) == 0) {
+            const int32_t n = isc_sites_in_window(cw, X0, Y0, X1, Y1, -INF, INF, nullptr, 0);
+            out.resize((size_t)std::max(0, n) * ISC_SITE_STRIDE);
+            isc_sites_in_window(cw, X0, Y0, X1, Y1, -INF, INF, out.data(), n);
+         }
+         isc_world_free(cw);
+         return out;
+      };
+      const double nanLk[4] = { NAN, NAN, NAN, NAN }, legacy[4] = { 0, 0, 2, 5 }, snap[4] = { 2.5, 2, 0.5, 1 },
+                   igg[4] = { 19.3, 15.3, 0.5, 0.5 };
+      const std::vector<double> a = sites(nanLk), b = sites(legacy), s = sites(snap), g = sites(igg);
+      Check(!a.empty() && a == b, "linkage: NaN = the pores' built-in numbers (0, 0, 2, 5) given explicitly");
+      std::vector<double> ia, ig;
+      for (size_t i = 0; i < a.size(); i += ISC_SITE_STRIDE) ia.push_back(a[i + 3]);
+      for (size_t i = 0; i < g.size(); i += ISC_SITE_STRIDE) ig.push_back(g[i + 3]);
+      std::sort(ia.begin(), ia.end());
+      std::sort(ig.begin(), ig.end());
+      // The window edge lets a few dyes in or out; most ids are shared.
+      std::vector<double> both;
+      std::set_intersection(ia.begin(), ia.end(), ig.begin(), ig.end(), std::back_inserter(both));
+      Check(!s.empty() && s != a && both.size() > ia.size() * 9 / 10, "linkage: another linkage moves the same dyes");
+      double neg[ISC_LABEL_COUNT] = { 0.6, 1, ISC_MODE_DNA_PAINT, 0.01, 0.05, 1, 1, 0.5, 0, 0, 0, 90, 0, 0, 0, 0, INFINITY, 0, 0, 0 };
+      IscParams* ip = isc_params_new();
+      IscWorld* cw = isc_world_new(seed, ip);
+      isc_params_free(ip);
+      Check(isc_world_set_label(cw, ISC_STRUCT_NPC, neg, ISC_LABEL_COUNT) == -1, "linkage: an infinite length rejected");
+      isc_world_free(cw);
+   }
+   // isc_cell_npcs: the cap convention and the rows.
+   {
+      IscParams* ip = isc_params_new();
+      IscWorld* cw = isc_world_new(seed, ip);
+      isc_params_free(ip);
+      const int32_t n = isc_cell_npcs(cw, c0.cx, c0.cy, nullptr, 0);
+      std::vector<double> rows((size_t)std::max(0, n) * ISC_NPC_STRIDE);
+      const int32_t n2 = isc_cell_npcs(cw, c0.cx, c0.cy, rows.data(), n);
+      std::vector<Npc> v;
+      w.CellNpcs(c0.cx, c0.cy, v);
+      bool same = n > 0 && n2 == n && (size_t)n == v.size();
+      for (int32_t i = 0; same && i < n; i++) {
+         const double* r = &rows[(size_t)i * ISC_NPC_STRIDE];
+         same = r[0] == v[i].c.x && r[1] == v[i].c.y && r[2] == v[i].c.z && r[3] == v[i].n.x && r[8] == v[i].e1.z;
+      }
+      Check(same && isc_cell_npcs(cw, 999999, 999999, nullptr, 0) == -1 && isc_cell_npcs(cw, c0.cx, c0.cy, nullptr, 5) == -1,
+            "C ABI: isc_cell_npcs rows = the pores, cap convention, -1 without a cell");
+      isc_world_free(cw);
+   }
+   // Orientation: Fixed about the pore axis (polar angle from n).
+   {
+      World a(seed, p);
+      Label l = MakeLabel(LabelMode::DnaPaint, 0.3);
+      l.orientation.mode = OrientationMode::Fixed;
+      l.orientation.polarDeg = 30;
+      a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::DnaPaint, 0));
+      a.SetLabel(STRUCTURE_NPC, l);
+      std::vector<WorldDye> ds;
+      a.SitesInWindow(X0, Y0, X1, Y1, -INF, INF, ds);
+      std::vector<Npc> v;
+      a.CellNpcs(c0.cx, c0.cy, v);
+      long ok = 0, tried = 0;
+      for (size_t i = 0; i < ds.size() && tried < 200; i++) {
+         if (ds[i].cx != c0.cx || ds[i].cy != c0.cy) continue;
+         Pt3 dir;
+         tried++;
+         if (!a.DyeOrientationOf(ds[i], dir)) continue;
+         const Npc* q = nullptr;
+         for (const Npc& x : v) if (x.cand == ds[i].n) q = &x;
+         if (q && std::fabs(dir.x * q->n.x + dir.y * q->n.y + dir.z * q->n.z - jsm::cos(30 * jsm::PI / 180)) < 1e-12) ok++;
+      }
+      Check(tried > 50 && ok == tried, "pore dyes: Fixed orientation at the polar angle from the pore axis");
+   }
+}
+
 struct Section {
    const char* name;
    std::function<void()> run;
@@ -1835,6 +2072,7 @@ static const std::vector<Section>& Sections()
       { "cache_palm", [] { CacheUnderLoad(LabelMode::PALM, "caches under load: PALM"); } },
       { "cache_dnapaint", [] { CacheUnderLoad(LabelMode::DnaPaint, "caches under load: DNA-PAINT"); } },
       { "label_model", LabelModel },
+      { "npcs", Npcs },
       { "threads_palm", [] { Threads(LabelMode::PALM, 0.3, "threads: PALM 30 %"); } },
       { "threads_dnapaint", [] { Threads(LabelMode::DnaPaint, 0.3, "threads: DNA-PAINT 30 %"); } },
       { "c_api", CApi },

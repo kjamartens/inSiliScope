@@ -125,6 +125,12 @@
     <ClCompile Include="..\..\core\src\microtubules.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\npcs.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\core\src\origami.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\packing.cpp">
       <Filter>Core</Filter>
     </ClCompile>

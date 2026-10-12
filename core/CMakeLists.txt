@@ -12,6 +12,7 @@ add_library(insiliscope_core STATIC
   src/cells.cpp
   src/cytomesh.cpp
   src/dyes.cpp
+  src/npcs.cpp
   src/jsmath.cpp
   ${ISC_MATH_SRC}
   src/microtubules.cpp
@@ -48,7 +49,7 @@ endif()
 if(EMSCRIPTEN)
   add_executable(insiliscope_wasm src/wasm_entry.cpp)
   target_link_libraries(insiliscope_wasm PRIVATE insiliscope_core)
-  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_label,_isc_world_set_kinetics_history,_isc_events_in_window,_isc_continuous_in_window,_isc_world_pack_block,_isc_world_set_block,_isc_world_set_cache_dir,_isc_world_flush_cache,_isc_world_version,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_isc_cell_nucleus_rings,_isc_origami_in_window,_isc_origami_outline,_isc_origami_sites,_isc_origami_design_count,_isc_origami_design_id,_isc_origami_heights,_malloc,_free")
+  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_label,_isc_world_set_kinetics_history,_isc_events_in_window,_isc_continuous_in_window,_isc_world_pack_block,_isc_world_set_block,_isc_world_set_cache_dir,_isc_world_flush_cache,_isc_world_version,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_isc_cell_nucleus_rings,_isc_cell_npcs,_isc_origami_in_window,_isc_origami_outline,_isc_origami_sites,_isc_origami_design_count,_isc_origami_design_id,_isc_origami_heights,_malloc,_free")
   set(ISC_EXPORTS "${ISC_EXPORTS}" PARENT_SCOPE)   # cli/ links the viewer module with the same list
   target_link_options(insiliscope_wasm PRIVATE
     -O3
