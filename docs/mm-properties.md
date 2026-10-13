@@ -134,12 +134,14 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `Laser640KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
-| `IlluminationProfile` | Basic | Flat | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's profile over the field of view. |
-| `IlluminationFwhmPct` | Basic | 60 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
-| `IlluminationGeometry` | Basic | Epi | `Epi` | How the lasers reach the sample (Epi; TIRF and HILO when the engine has them). |
+| `IlluminationProfile` | Basic | FlatTop | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
+| `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
+| `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). |
+| `IlluminationRegime` | Advanced (read-only) | HILO |  | Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only). |
+| `IlluminationDepthNm` | Advanced (read-only) | 14973.57262 |  | TIRF: the evanescent field's 1/e intensity depth at the first label's main line; HILO: the sheet's thickness on the axis; -1 in epi (nm, read-only). |
 | `CustomLineNm` | Advanced | 0 | 0 .. 1000 | Wavelength of an extra laser line (nm). |
 | `CustomLineKWcm2` | Advanced | 0 | 0 .. 10 | Intensity of the extra line, kW/cm^2. |
-| `ChamberHeightUm` | Advanced | 5 | 0 .. 1000 | Height of the imaging chamber (um): the free-imager background of DNA-PAINT. |
+| `ChamberHeightUm` | Advanced | 100 | 0 .. 1000 | Depth of the imager solution over the coverslip (um): the DNA-PAINT free-imager background is its column of light (epi: all of it; HILO: about the sheet; TIRF: about the penetration depth). |
 
 ## TransmittedLamp
 
@@ -160,6 +162,7 @@ The mounted specimen; drift and background of the sample.
 |---|---|---|---|---|
 | `DriftPreset` | Basic | Off | `Off`, `Low`, `Medium`, `High`, `Extreme`, `Custom` | How much the sample drifts: sets the xy and z drift speeds (0, 2, 5, 25, 250 nm/s) and random walks (0, 0.4, 1, 5, 50 nm/sqrt s). Custom = as set. |
 | `TimeWhileIdle` | Basic | Running | `Running`, `Paused` | Between acquisitions: Running = the sample drifts on and an opened lasers' shutter keeps lighting it (bleaching, activating); Paused = nothing changes until the next frame is acquired. |
+| `MediumIndex` | Advanced | 1.337 | 1 .. 2 | Refractive index of the medium over the coverslip (BrightField; the critical angle of Lasers.BfpPosition). |
 | `DriftXySpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in xy, mean speed (nm/s). |
 | `DriftZSpeedNmPerSec` | Advanced | 0 | 0 .. 1000 | Directed sample drift in z, mean speed (nm/s); its direction: DriftZDirection. |
 | `DriftXyNmPerSqrtSec` | Advanced | 0 | 0 .. 200 | Random-walk drift in x and y: RMS displacement after 1 s (nm), per axis. |
@@ -200,7 +203,6 @@ Specimen: a field of cells with their labelled structures.
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
 | `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
-| `IndexMedium` | Advanced | 1.337 | 1 .. 2 | Refractive index of the medium (BrightField). |
 | `IndexCytoplasm` | Advanced | 1.35 | 1 .. 2 | Refractive index of the cytoplasm (BrightField). |
 | `IndexNucleus` | Advanced | 1.35 | 1 .. 2 | Refractive index of the nucleus (BrightField). |
 | `IndexMicrotubule` | Advanced | 1.48 | 1 .. 2 | Refractive index of a microtubule (BrightField). |

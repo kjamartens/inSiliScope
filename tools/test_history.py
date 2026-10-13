@@ -11,6 +11,8 @@ dark frames' mean.
 - PALM (mEos3.2): the 405 line off -> the activated dyes blink on (the first frames after keep > 50% of the signal)
   and then die out (no new activations).
 - Stop/start: a second sequence continues where the first stopped.
+- Height (the history's z bands, 2026-10-13): bleached 2 s in TIRF (Lasers.BfpPosition 1.03), the first epi frame is
+  far brighter than after 2 s in epi (the dyes above the evanescent layer were never lit).
 - SampleHolder.TimeWhileIdle: Paused -> 2 s idle with the lasers open changes nothing; Running -> they bleach the
   sample meanwhile; lasers at 0 kW/cm^2 bleach nothing even then.
 - Drift: Paused -> 2 s idle moves the sample by at most a frame's step; Running -> by ~speed x 2 s (directed drift,
@@ -110,6 +112,20 @@ def main():
     cont = s2[0] / s1[-1]
     print(f"Stop/start: the next sequence's first frame is {cont:.2f}x the last one (expected ~0.97)")
     assert 0.85 < cont < 1.1, f"stop/start: the sample should continue, got {cont:.2f}"
+
+    # ---- Height: TIRF, then epi ----
+    def epi_after(bfp):
+        fresh_place()
+        core.setProperty("Lasers", "BfpPosition", str(bfp))
+        lit = sig(sequence(core, 40))
+        core.setProperty("Lasers", "BfpPosition", "0")
+        return lit, sig(sequence(core, 3))[0]
+    tirf, after_tirf = epi_after(1.03)
+    epi, after_epi = epi_after(0)
+    print(f"Height: after 2 s in TIRF the first epi frame is {after_tirf:.2f} ADU, after 2 s in epi {after_epi:.2f} "
+          f"(TIRF frames {tirf[0]:.2f} -> {tirf[-1]:.2f}, epi {epi[0]:.2f} -> {epi[-1]:.2f})")
+    assert core.getProperty("Lasers", "IlluminationRegime") == "Epi"
+    assert after_tirf > 1.5 * after_epi, f"TIRF should leave the dyes higher in the cell fresh ({after_tirf:.2f} vs {after_epi:.2f})"
 
     # ---- TimeWhileIdle: idle light ----
     fresh_place()

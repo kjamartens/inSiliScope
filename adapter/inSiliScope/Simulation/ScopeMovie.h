@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -132,6 +133,7 @@ struct ScopeLightPresetValues
 {
    std::string id, excitationFilter, dichroic, emissionFilter;
    std::vector<double> lasers;
+   double bfpPosition = 0;   // the illumination geometry it sets (ScopePresetBfpPosition)
 };
 // The auto light preset of a spec (JS autoLightPreset; light-preset 0): the presets of the labelled targets' dyes in
 // their modes combined, whatever the spec's light-preset option says.
@@ -233,10 +235,18 @@ double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
 // The BFP position a spec asks for (JS scopeBfpPosition): illum-bfp, else the light preset's bfpPosition (DNA-PAINT:
 // HILO) with the mounted specimen's in its place when it has one (the nanorulers: TIRF); 0 (epi) otherwise.
 double ScopeBfpPosition(const ScopeSpec& spec);
+// The BFP position a light preset sets: its bfpPosition (NaN: none, epi 0) with the mounted specimen's in its place when
+// the preset has one (a host applying a preset by name: Lasers.Preset).
+double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp);
 // The excitation geometry of a spec (JS scopeExcitation; Excitation.h): the beam profile over the FOV, the BFP
 // position, the objective and the medium; the HILO sheet pivots at the focal plane (focus-um + z).
 struct ExcitationSpec;
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
+// A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
+// shares of the first mounted label's main state (empty when no label emits). False (err) when the spec is bad.
+class Excitation;
+struct ExcitationLine;
+bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err);
 
 // A host's per-region clock (the adapter's illumination history): the
 // seconds of illumination each world position (um) has had before frame 0. A
@@ -252,9 +262,13 @@ struct ClockSegment
    double tStart = 0;
    const KineticEnv* env = nullptr;
 };
+// A clock may also depend on the height (2026-10-13: the history's z bands under TIRF / HILO light): KeyAtZ at a world
+// z (um above the coverslip), regions then with a z range; At / KeyAt are the coverslip's (band 0). BandEdges: the
+// heights between bands (ascending), empty when the clock is the same at every height.
 struct ClockRegion
 {
    double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
+   double z0Um = -std::numeric_limits<double>::infinity(), z1Um = std::numeric_limits<double>::infinity();
    uint32_t history = 0;
 };
 class DyeClock
@@ -267,6 +281,17 @@ public:
       tSec = At(xUm, yUm);
       history = 0;
    }
+   virtual void KeyAtZ(double xUm, double yUm, double /*zUm*/, double& tSec, uint32_t& history) const
+   {
+      KeyAt(xUm, yUm, tSec, history);
+   }
+   virtual const std::vector<double>& BandEdges() const
+   {
+      static const std::vector<double> none;
+      return none;
+   }
+   // The keys are constant over squares of this side (um) anchored at 0 (floor(x / tile)); 0: not known.
+   virtual double TileUm() const { return 0.0; }
    virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };
@@ -294,6 +319,9 @@ struct FluorescenceSimplePlan
    bool ok = false;
    std::vector<FluorescenceSimpleGroup> groups;
    double backgroundPhotons = 0;
+   // The excitation's background per pixel (a shaped beam, the imager's column; photons per frame before the fade),
+   // nullptr: backgroundPhotons everywhere. Borrowed from the movie.
+   const std::vector<float>* backgroundMap = nullptr;
    bool populations = false;
 };
 

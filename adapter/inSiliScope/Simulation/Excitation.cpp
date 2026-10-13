@@ -200,4 +200,57 @@ double HatWeight(const std::vector<double>& nodes, size_t k, double a)
    return 0.0;
 }
 
+const std::vector<double>& HistoryBandEdges()
+{
+   static const std::vector<double> e = { 0.1, 0.2, 0.4, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.5 };
+   return e;
+}
+
+void HistoryBandRange(int band, double& z0Um, double& z1Um)
+{
+   const std::vector<double>& e = HistoryBandEdges();
+   z0Um = band <= 0 ? 0.0 : e[static_cast<size_t>(band - 1)];
+   z1Um = band >= kHistoryBands - 1 ? 8.0 : e[static_cast<size_t>(band)];
+}
+
+HistoryLightField::HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& sharesIn)
+   : ex_(ex), amp_(kHistoryBands), zMid_(kHistoryBands),
+     sheet_(ex.Regime() == REGIME_HILO)   // the footprint moves with the height
+{
+   const ExcitationShares shares = sharesIn.empty() ? ExcitationShares{ { 640.0, 1.0 } } : sharesIn;
+   // Per band: F x its mean depth factor in 1/16 steps (0 when clipped), and the height the footprint is read at.
+   for (int b = 0; b < kHistoryBands; ++b)
+   {
+      double z0, z1;
+      HistoryBandRange(b, z0, z1);
+      amp_[static_cast<size_t>(b)] = ex.Clipped() ? 0.0 : std::round(16.0 * ex.F() * ex.DepthMean(z0, z1, shares)) / 16.0;
+      zMid_[static_cast<size_t>(b)] = (z0 + z1) / 2;
+   }
+}
+
+double HistoryLightField::Band(double dxUm, double dyUm, int b) const
+{
+   const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
+   return ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0) >= 0.5 ? amp_[k] : 0.0;
+}
+
+void HistoryLightField::Fill(double dxUm, double dyUm, float* w) const
+{
+   const bool lit0 = !sheet_ && ex_.Lateral(dxUm, dyUm, 0.0) >= 0.5;
+   for (int b = 0; b < kHistoryBands; ++b)
+      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : lit0 ? amp_[static_cast<size_t>(b)] : 0.0);
+}
+
+int HistoryLightField::BandOf(double zUm)
+{
+   const std::vector<double>& e = HistoryBandEdges();
+   return static_cast<int>(std::upper_bound(e.begin(), e.end(), zUm) - e.begin());
+}
+
+double HistoryLightField::TileCentre(double vUm)
+{
+   const double T = kHistoryTileUm;
+   return (std::floor(vUm / T) + 0.5) * T;
+}
+
 } // namespace sim

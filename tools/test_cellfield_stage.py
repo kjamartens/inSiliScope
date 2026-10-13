@@ -414,7 +414,12 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     def mean_at_z(zpos):
         core.setPosition(z, zpos)
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
+    # In epi: the DNA-PAINT preset's HILO sheet pivots at the focus, so far below it would cross the chamber beside
+    # the FOV and take the imager background with it.
+    bfp = core.getProperty("Lasers", "BfpPosition")
+    core.setProperty("Lasers", "BfpPosition", "0")
     up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
+    core.setProperty("Lasers", "BfpPosition", bfp)
     core.setPosition(z, 1.5)
     assert up > empty + 1.0 and abs(down - empty) < 0.5, \
         f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
@@ -537,7 +542,7 @@ def _widefield_checks(core, cam, xy, x0, y0):
         core.snapImage()
         return core.getImage().astype(np.float64).mean() - offset
 
-    def bleach_here(n=60):
+    def bleach_here(n=120):   # (the FlatTop beam's soft edge lights the FOV's border at about half)
         first = np.mean([live_mean() for _ in range(3)])
         for _ in range(n):
             live_mean()
@@ -582,7 +587,7 @@ def _brightfield_checks(core, cam, z):
     the frame, defocus changing the cells' contrast, live = precomputed."""
     for d, p, v in (("Renderer", "BrightFieldQuality", 3.0), ("TransmittedLamp", "CondenserNA", 0.4),
                     ("TransmittedLamp", "WavelengthNm", 550.0), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec", 80000.0),
-                    ("Renderer", "BrightFieldSliceUm", -1.0), ("CellField", "IndexMedium", 1.337),
+                    ("Renderer", "BrightFieldSliceUm", -1.0), ("SampleHolder", "MediumIndex", 1.337),
                     ("CellField", "IndexCytoplasm", 1.35), ("CellField", "IndexNucleus", 1.35),
                     ("CellField", "IndexMicrotubule", 1.48), ("CellField", "AbsorptionPerUm", 0.0)):
         got = float(core.getProperty(d, p))

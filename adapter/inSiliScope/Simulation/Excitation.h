@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -94,5 +95,35 @@ constexpr double kDoseStep = 0.5, kDoseCut = 8.0;
 constexpr int kDoseLevels = 16;
 std::vector<double> DoseNodes(double aMax, double dMax);
 double HatWeight(const std::vector<double>& nodes, size_t k, double a);
+
+// The MM adapter's illumination history (IlluminationHistory.h): its tiles and z bands.
+constexpr double kHistoryTileUm = 0.25;
+// The world z bands of the history (um above the coverslip): band b is [edge b - 1, edge b), the first from -inf, the
+// last to +inf. Fine near the coverslip (TIRF's decay, ~0.1-0.2 um), <= 1.5 um above (the HILO sheet moves tan
+// theta_s um sideways per um of height).
+constexpr int kHistoryBands = 12;
+const std::vector<double>& HistoryBandEdges();   // the kHistoryBands - 1 inner edges
+// The heights a band's light is evaluated over: band 0 from the coverslip (0), the last up to 8 um (the cells' tops).
+void HistoryBandRange(int band, double& z0Um, double& z1Um);
+
+// The light the history counts under an excitation (ScopeExcitation: the geometry and the first label's line shares):
+// per band F x the band's mean depth factor in 1/16 steps where the beam's footprint (at the band's middle height:
+// the HILO sheet moves with it) is at least half its peak, else 0. The footprint is lit or not, not its soft edge:
+// with its 1/16 levels a FlatTop's edge made hundreds of clock regions (each a core query; live frames took
+// seconds), lit / unlit makes a few. The photons keep the smooth footprint (Excitation::At); the kinetics read
+// this (FluorescenceMovie's dose events), so a frame reads the dose the history gives it.
+class HistoryLightField {
+public:
+   HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& shares);
+   // The light of band b at dx, dy um from the optical axis (a tile centre).
+   double Band(double dxUm, double dyUm, int b) const;
+   void Fill(double dxUm, double dyUm, float* w) const;   // every band
+   static int BandOf(double zUm);                         // the band a world height is in
+   static double TileCentre(double vUm);                  // the centre of the history tile holding vUm (world)
+private:
+   Excitation ex_;
+   std::vector<double> amp_, zMid_;
+   bool sheet_ = false;
+};
 
 } // namespace sim

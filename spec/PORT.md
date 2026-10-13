@@ -1047,5 +1047,31 @@ change, golden unchanged).
   uniform-F movies per mode = 100 % identical ADU, clipped = no light, nanorulers TIRF vs epi background; 3 s);
   `scope_parity` 9 Excitation cases (C++ = JS: SR 100 %, mean-field >= 99.9 %; now sharded over 4 processes, 3.5 min);
   `drift` and `cli_probes`' history check pin `illum-profile=Flat` (sample-anchored factor; a uniform host clock).
-- Adapter (Phase 3 of the plan): until then `BuildScopeSpec` pins `illum-profile=Flat illum-bfp=0` (the adapter keeps
-  its own 2D illumination field), so its outputs are unchanged.
+- Adapter (2026-10-13): `Lasers.IlluminationProfile` / `IlluminationFwhmPct` are engine options now (the adapter's own
+  2D field, `BuildShapingFields`' `illum`, is gone; `RenderExtras::illumField` stays for `sr_render_check`),
+  `Lasers.BfpPosition` (Basic, 0-1.2) replaced `IlluminationGeometry`, read-only `IlluminationRegime` /
+  `IlluminationDepthNm` (Advanced), `CellField.IndexMedium` moved to `SampleHolder.MediumIndex` (engine `bf-n-medium`,
+  the critical angle for every specimen), `ApplyLightPreset` sets `illum-bfp`. The engine's background map reaches the
+  GPU (`FluorescenceSimplePlan::backgroundMap`). Config groups `Illumination` (Epi 0, HILO 0.95, TIRF 1.03, read from
+  the light presets and specimens) and `BfpPosition` (`tools/gen_mm_configs.py`).
+- The history under a shaped beam (`IlluminationHistory.*`): the clock of a tile is its *dose*, kept in 12 world-z
+  bands (inner edges 0.1, 0.2, 0.4, 0.7, 1, 1.5, 2, 3, 4, 5, 6.5 um); a band's weight (`HistoryLightField`,
+  Excitation.h) = F x the depth mean over it in 1/16 steps where the footprint (HILO: at the band's midpoint) is at least
+  half its peak, else 0 (lit / unlit: spec/ALGORITHM.md says why). `HistoryLight` / `HistoryLightFor` (memoised per
+  tile), `ClockSnapshot::Advance(..., light)` (so render-ahead stays on), a snapshot whose bands are equal is one band
+  (epi: the old arithmetic). `ClockRegion` has a z range (narrowing the core's z cull), `DyeClock::KeyAtZ` /
+  `BandEdges` / `TileUm`; a key filling less than half its bounding box is bisected (was: 2 um blocks). Under a host
+  clock and a shaped beam the movie reads dSTORM / PALM events at the history's dose (`doseEvents`: a region queried
+  over kMax x the span, times / a_h at the dye's tile and band; photons x the smooth factor). The weighted mean field
+  is banded (`WidefieldScene::SetWeightBands`) and its bleach basis grouped per clock key (`SetWeightGroups`, so a lit
+  disc and unlit corners stay fast frames; the basis check indexes each cell's channel).
+- Live speed (bench_live Basic 256 px, 4 s per case, 10 ms exposure; main in brackets): dSTORM 72 (61), DNA-PAINT
+  72 (100), WideField 82 (100), PALM 58 (100), BrightField 100 (100) fps; at 50 ms every channel 20 / 20. The first
+  version (1/16 lateral levels) gave 0-8 fps: regions (788 epi, 2586 HILO), the HILO background map per frame (now
+  memoised, rows on threads), the basis fallback per frame, 12 x the history's work per tile (chunk lookups per tile
+  run, `Snapshot` tile-major).
+- Checks: `adapter_pixel_hash` with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+  Lasers.ChamberHeightUm=5` = main's hashes except `illum-bg` (the engine's profile now, 9a01e6ab...);
+  `test_insiliscope.py` (defaults, regime / depth readouts, preset -> BFP, clipped = no dyes, TIRF imager background
+  < 0.1 x epi), `test_history.py` ("TIRF, then epi": the upper dyes stay fresh), `test_mm_configs.py` (the
+  Illumination presets read back their regime).

@@ -841,7 +841,10 @@ static bool AutoLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPres
       for (size_t k = 1; k < qs.size(); ++k)
       {
          r.id += "+" + std::string(qs[k]->id);
-         r.bfpPosition = std::numeric_limits<double>::quiet_NaN();   // a merged preset sets none (JS autoLightPreset)
+         // The BFP position where all agree (NaN = none; JS autoLightPreset), else none (epi).
+         const double b = qs[k]->bfpPosition;
+         if (!(b == r.bfpPosition || (std::isnan(b) && std::isnan(r.bfpPosition))))
+            r.bfpPosition = std::numeric_limits<double>::quiet_NaN();
          for (size_t l = 0; l < r.lasers.size(); ++l)
             r.lasers[l] = std::max(r.lasers[l], qs[k]->lasers[l]);
       }
@@ -867,6 +870,7 @@ bool ScopeAutoLightPreset(const ScopeSpec& spec, ScopeLightPresetValues& out, st
    out.dichroic = r[0].dichroic;
    out.emissionFilter = r[0].emissionFilter;
    out.lasers = r[0].lasers;
+   out.bfpPosition = ScopePresetBfpPosition(spec, r[0].bfpPosition);
    return true;
 }
 
@@ -947,12 +951,19 @@ double ScopeBfpPosition(const ScopeSpec& spec)
       return std::max(0.0, it->second);
    std::vector<ResolvedLightPreset> q;
    std::string err;
-   if (!ScopeLightPreset(spec, q, err) || q.empty() || std::isnan(q[0].bfpPosition))
+   if (!ScopeLightPreset(spec, q, err) || q.empty())
+      return 0.0;
+   return ScopePresetBfpPosition(spec, q[0].bfpPosition);
+}
+
+double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp)
+{
+   if (std::isnan(presetBfp))
       return 0.0;
    const int sp = ScopeSpecimen(spec);
    const double own = sp >= 0 && sp < static_cast<int>(SpecimenIds().size()) ? SpecimenAt(sp).bfpPosition
                                                                              : std::numeric_limits<double>::quiet_NaN();
-   return std::max(0.0, !std::isnan(own) ? own : q[0].bfpPosition);
+   return std::max(0.0, !std::isnan(own) ? own : presetBfp);
 }
 
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
@@ -1299,6 +1310,23 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
       if (S.q.zHalfRangeUm > 0.0)
          S.q.zHalfRangeUm += std::max(-b.zLo, b.zHi) / 1000.0;
    }
+   return true;
+}
+
+bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err)
+{
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   out = S.excite;
+   shares.clear();
+   for (size_t s = 0; s < S.labels.size(); ++s)
+      if (S.Mounted(static_cast<int>(s)) && S.labels[s].main.emits)
+      {
+         for (const StatePhysics::LineShare& l : S.labels[s].main.lineShares)
+            shares.push_back({ l.nm, l.share });
+         break;
+      }
    return true;
 }
 
@@ -2151,6 +2179,50 @@ void FluorescenceMovie::CarryRunningImages(bool on)
 }
 FluorescenceMovie::~FluorescenceMovie() = default;
 
+namespace {
+// A clock's keys at a grid's cell centres, looked up once per clock tile: a
+// cell row whose tiles are the previous row's is a copy of it (SameRow), and
+// along a row a tile's key is reused (the same number: one key per tile).
+struct TileKeys
+{
+   const DyeClock& clock;
+   const WidefieldGridSpec& gr;
+   const double T;
+   long prevTy = LONG_MIN, lastTx = LONG_MIN;
+   double lastZ = 0, lastT = 0;
+   uint32_t lastH = 0;
+   TileKeys(const DyeClock& c, const WidefieldGridSpec& g) : clock(c), gr(g), T(c.TileUm()) {}
+   double X(unsigned i) const { return gr.x0Um + (i + 0.5) * gr.pitchUm; }
+   double Y(unsigned jy) const { return gr.y0Um + (jy + 0.5) * gr.pitchUm; }
+   // True when row jy lies in the same tile row as row jy - 1 (call once per row, in order; row 0 starts a band).
+   bool SameRow(unsigned jy)
+   {
+      lastTx = LONG_MIN;
+      if (!(T > 0))
+         return false;
+      const long ty = static_cast<long>(std::floor(Y(jy) / T));
+      const bool same = jy > 0 && ty == prevTy;
+      prevTy = ty;
+      return same;
+   }
+   void Key(unsigned i, unsigned jy, double z, double& t, uint32_t& h)
+   {
+      const long tx = T > 0 ? static_cast<long>(std::floor(X(i) / T)) : LONG_MIN;
+      if (T > 0 && tx == lastTx && z == lastZ)
+      {
+         t = lastT;
+         h = lastH;
+         return;
+      }
+      clock.KeyAtZ(X(i), Y(jy), z, t, h);
+      lastTx = tx;
+      lastZ = z;
+      lastT = t;
+      lastH = h;
+   }
+};
+} // namespace
+
 // The mean-field image of the population's structure (JS meanFieldImage):
 // every fluorescent dye with weight 1 on the world-anchored grid, convolved
 // with the group's PSF, binned: photons per (photon per dye). Uniform
@@ -2271,37 +2343,56 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    {
       auto tW = TimingClock::now();
       // Frame 0's mean photons per dye at each grid column's clock (neighbouring
-      // columns mostly share a clock: its value is reused, the same number).
+      // columns mostly share a clock: its value is reused, the same number);
+      // per height band when the clock has bands (the scene's banded weights).
       const WidefieldGridSpec& gr = slot.scene.Grid();
-      p.wb0.assign(static_cast<size_t>(gr.nx) * gr.ny, 0.0f);
+      const std::vector<double>& edges = clock->BandEdges();
+      const unsigned nb = static_cast<unsigned>(edges.size()) + 1;
+      const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
+      slot.scene.SetWeightBands(edges);
+      // A height in band b (its lower edge; band 0: below the coverslip).
+      auto bandZ = [&](unsigned b) { return b == 0 ? -1.0 : edges[b - 1]; };
+      p.wb0.assign(nc * nb, 0.0f);
       if (p.state == ISC_STATE_BLINK)
       {
          // Each grid cell's key (clock, history); frame f's weights are the
          // expected photons per dye at each key (BlinkWeights).
-         p.cellKey.assign(static_cast<size_t>(gr.nx) * gr.ny, 0);
+         p.cellKey.assign(nc * nb, 0);
          p.keyClock.clear();
          p.keySegs.clear();
          std::map<std::pair<double, uint32_t>, uint32_t> index;
-         for (unsigned j = 0; j < gr.ny; ++j)
-            for (unsigned i = 0; i < gr.nx; ++i)
+         TileKeys tk(*clock, gr);
+         for (unsigned b = 0; b < nb; ++b)
+            for (unsigned jy = 0; jy < gr.ny; ++jy)
             {
-               double t = 0;
-               uint32_t hid = 0;
-               clock->KeyAt(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm, t, hid);
-               auto it = index.find({ t, hid });
-               if (it == index.end())
+               uint32_t* row = &p.cellKey[static_cast<size_t>(gr.nx) * jy + nc * b];
+               if (tk.SameRow(jy))
                {
-                  std::vector<BlinkKineticsSegment> segs;
-                  if (!BlinkSegments(hid, p.structure, segs, err))
-                     return false;
-                  it = index.emplace(std::make_pair(t, hid), static_cast<uint32_t>(p.keyClock.size())).first;
-                  p.keyClock.push_back(t);
-                  p.keySegs.push_back(std::move(segs));
+                  std::copy(row - gr.nx, row, row);   // (the row above: the same tiles)
+                  continue;
                }
-               p.cellKey[i + static_cast<size_t>(gr.nx) * j] = it->second;
+               for (unsigned i = 0; i < gr.nx; ++i)
+               {
+                  double t = 0;
+                  uint32_t hid = 0;
+                  tk.Key(i, jy, bandZ(b), t, hid);
+                  auto it = index.find({ t, hid });
+                  if (it == index.end())
+                  {
+                     std::vector<BlinkKineticsSegment> segs;
+                     if (!BlinkSegments(hid, p.structure, segs, err))
+                        return false;
+                     it = index.emplace(std::make_pair(t, hid), static_cast<uint32_t>(p.keyClock.size())).first;
+                     p.keyClock.push_back(t);
+                     p.keySegs.push_back(std::move(segs));
+                  }
+                  row[i] = it->second;
+               }
             }
          BlinkWeights(p, 0, p.wb0);
          p.sceneZ = zStage;
+         // Under a shaped beam the keys' clocks advance apart: the scene's basis per key (fast frames).
+         slot.scene.SetWeightGroups(shaped ? p.cellKey : std::vector<uint32_t>());
          TimingLog("fl.mean-field-weights", TimingSince(tW));
          tW = TimingClock::now();
          WeightedImage(p, nd.image);
@@ -2312,30 +2403,54 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       double lastT = std::numeric_limits<double>::quiet_NaN();
       uint32_t lastH = 0;
       float lastW = 0.0f;
-      for (unsigned j = 0; j < gr.ny; ++j)
-         for (unsigned i = 0; i < gr.nx; ++i)
+      std::vector<uint32_t> keyOfCell;
+      std::map<std::pair<double, uint32_t>, uint32_t> keyIndex;
+      if (shaped)
+         keyOfCell.assign(nc * nb, 0);
+      TileKeys tk(*clock, gr);
+      for (unsigned b = 0; b < nb; ++b)
+         for (unsigned jy = 0; jy < gr.ny; ++jy)
          {
-            double t = 0;
-            uint32_t hid = 0;
-            clock->KeyAt(gr.x0Um + (i + 0.5) * gr.pitchUm, gr.y0Um + (j + 0.5) * gr.pitchUm, t, hid);
-            if (!(t == lastT && hid == lastH))
+            const size_t r0 = static_cast<size_t>(gr.nx) * jy + nc * b;
+            if (tk.SameRow(jy))
             {
-               lastT = t;
-               lastH = hid;
-               const HistInfo* hi = HistOf(hid, err);
-               if (!hi)
-                  return false;
-               if (!hi->multi)
-                  lastW = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
-               else
-               {
-                  const double sv = HistSurvival(*hi, p.structure, p.state, t);
-                  lastW = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
-                                                          : p.rate * sv * S.expSec);
-               }
+               // The row above: the same tiles, so the same keys and weights.
+               std::copy(p.wb0.begin() + static_cast<std::ptrdiff_t>(r0 - gr.nx),
+                         p.wb0.begin() + static_cast<std::ptrdiff_t>(r0), p.wb0.begin() + static_cast<std::ptrdiff_t>(r0));
+               if (shaped)
+                  std::copy(keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0 - gr.nx),
+                            keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0),
+                            keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0));
+               continue;
             }
-            p.wb0[i + static_cast<size_t>(gr.nx) * j] = lastW;
+            for (unsigned i = 0; i < gr.nx; ++i)
+            {
+               double t = 0;
+               uint32_t hid = 0;
+               tk.Key(i, jy, bandZ(b), t, hid);
+               if (!(t == lastT && hid == lastH))
+               {
+                  lastT = t;
+                  lastH = hid;
+                  const HistInfo* hi = HistOf(hid, err);
+                  if (!hi)
+                     return false;
+                  if (!hi->multi)
+                     lastW = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+                  else
+                  {
+                     const double sv = HistSurvival(*hi, p.structure, p.state, t);
+                     lastW = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
+                                                             : p.rate * sv * S.expSec);
+                  }
+               }
+               p.wb0[i + static_cast<size_t>(gr.nx) * jy + nc * b] = lastW;
+               if (shaped)
+                  keyOfCell[i + static_cast<size_t>(gr.nx) * jy + nc * b] =
+                     keyIndex.emplace(std::make_pair(t, hid), static_cast<uint32_t>(keyIndex.size())).first->second;
+            }
          }
+      slot.scene.SetWeightGroups(keyOfCell);   // (see the blink branch)
       TimingLog("fl.mean-field-weights", TimingSince(tW));
       tW = TimingClock::now();
       WeightedImage(p, nd.image);
@@ -2687,6 +2802,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          return source.SetKineticsHistory(hi->rows.data(), static_cast<int>(hi->tStart.size()));
       return source.SetKineticsHistory(nullptr, 0);
    };
+   // A region with a z range (the history's bands) narrows the query's z cull to it (inclusive: the key decides).
    auto regionQuery = [&](const ClockRegion& r) {
       SampleQuery q = S.q;
       q.tSec = r.tSec;
@@ -2694,21 +2810,34 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       q.y0Um = std::max(S.q.y0Um, r.y0Um);
       q.x1Um = std::min(S.q.x1Um, r.x1Um);
       q.y1Um = std::min(S.q.y1Um, r.y1Um);
+      if (std::isfinite(r.z0Um) || std::isfinite(r.z1Um))
+      {
+         const bool cull = S.q.zHalfRangeUm > 0.0;
+         double lo = cull ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -1e3, hi = cull ? S.q.zCullCentreUm + S.q.zHalfRangeUm : 1e3;
+         lo = std::max(lo, std::isfinite(r.z0Um) ? r.z0Um : -1e3);
+         hi = std::min(hi, std::isfinite(r.z1Um) ? r.z1Um : 1e3);
+         q.zCullCentreUm = (lo + hi) / 2;
+         q.zHalfRangeUm = hi > lo ? (hi - lo) / 2 : 0.0;   // empty: no dyes (regionEvents skips it)
+      }
       return q;
    };
    auto inRegion = [&](const BlinkEvent& e, const ClockRegion& r) {
       if (!clock)
          return true;
+      const double x = e.xUm + S.q.originXUm, y = e.yUm + S.q.originYUm;
+      if (!(x >= r.x0Um && x < r.x1Um && y >= r.y0Um && y < r.y1Um))
+         return false;   // (a region split in blocks: each dye in one)
       double t = 0;
       uint32_t h = 0;
-      clock->KeyAt(e.xUm + S.q.originXUm, e.yUm + S.q.originYUm, t, h);
+      clock->KeyAtZ(x, y, e.zNm / 1000.0 + S.q.zRefUm, t, h);
       return t == r.tSec && h == r.history;
    };
    auto regionEvents = [&](bool continuous, std::vector<BlinkEvent>& out, std::vector<const ClockRegion*>* regionOf) {
       for (const ClockRegion& r : regions)
       {
          const SampleQuery q = regionQuery(r);
-         if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um))
+         const bool zEmpty = (std::isfinite(r.z0Um) || std::isfinite(r.z1Um)) && !(q.zHalfRangeUm > 0.0);
+         if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um) || zEmpty)
             continue;
          std::vector<BlinkEvent> got;
          if (!useHistory(r) || !(continuous ? source.Continuous(q, got) : source.Events(q, got)))
@@ -2764,7 +2893,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The excitation geometry (Excitation.h; JS fluorescence.js): a dye
    // state's factor at its site in the FOV frame (the axis at the FOV centre),
    // none when it is 1 everywhere. Without a host clock the light-driven
-   // rates follow it too (local kinetics):
+   // rates follow it too (local kinetics; with a host clock the clock is the
+   // dose: doseEvents):
    //   dSTORM: its kinetic clock runs at a x real time (the 405 nm return
    //     taken to fall off as the main line);
    //   PALM: its activation at spont + lin a + quad a^2 (its first activation
@@ -2780,7 +2910,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                       es.pivotUm, m.axisX, m.axisY, S.q.zRefUm };
    }
-   const double T0 = S.t0Sec, tEndSec = S.t0Sec + S.N * S.expSec;
+   const double T0 = S.t0Sec, tMovieEndSec = S.t0Sec + S.N * S.expSec;
    const double infT = std::numeric_limits<double>::infinity();
    // The raw-time query of the shaped kinetics: seconds from t = 0 as frames
    // of 1 s from frame 0 (EventRows: tStart = 0 + (tOn - 0) / 1 = tOn).
@@ -2825,8 +2955,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          }
          uint32_t hid = 0;
          g.refClock = S.t0Sec;
-         if (clock)
-            clock->KeyAt(S.q.originXUm + (S.W - 1) * um / 2, S.q.originYUm + (S.H - 1) * um / 2, g.refClock, hid);
+         if (clock)   // at the FOV centre and the focal plane (the slab the switch counts)
+            clock->KeyAtZ(S.q.originXUm + (S.W - 1) * um / 2, S.q.originYUm + (S.H - 1) * um / 2, focus, g.refClock, hid);
          if (!m.BlinkSegments(hid, g.structure, g.refSegs, err))
             return false;
          g.mfFrame.assign(static_cast<size_t>(S.N), 0);
@@ -2898,7 +3028,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          kMax = std::max(kMax, L.mode == MODE_DSTORM ? S.excite.F() : L.ActivationScale(S.excite.F()));
       }
       std::vector<BlinkEvent> got;
-      if (!source.SetKineticsHistory(nullptr, 0) || !source.Events(rawQuery(kMax * tEndSec), got))
+      if (!source.SetKineticsHistory(nullptr, 0) || !source.Events(rawQuery(kMax * tMovieEndSec), got))
          return false;
       std::map<std::tuple<int, double, double, double>, double> first;   // a dye (structure, position): its first blink
       for (const BlinkEvent& e : got)
@@ -2938,7 +3068,69 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       }
       return true;
    };
-   auto queryEvents = [&]() { return m.local ? localEvents() : regionEvents(false, all, nullptr); };
+   // The blinks under a host clock and a shaped beam: the clock is the dose (the history advances a place by a x the
+   // exposure per frame), so a dSTORM or PALM dye at factor a shows the clock interval [t, t + a x span] of its region
+   // in the movie's [0, span] (each region queried over kMax x span, its events' times / a); DNA-PAINT binding needs no
+   // light (photons x a only). With a = 1 everywhere this is regionEvents.
+   auto doseEvents = [&]() -> bool {
+      auto mainShares = [&](int st) -> const ExcitationShares& { return m.groups[static_cast<size_t>(groupOf(st, false))].shares; };
+      // The kinetics' light: the history's (lit / unlit footprint, per z band, 1/16 steps) at the dye's tile and band,
+      // so a frame reads the dose the history gives it; the photons keep the smooth factor.
+      Excitation hx;
+      std::vector<ExcitationLine> hShares;
+      std::string hErr;
+      if (!ScopeExcitation(spec, hx, hShares, hErr))
+      {
+         err = hErr;
+         return false;
+      }
+      const HistoryLightField light(hx, hShares);
+      const double axisWX = S.q.originXUm + m.axisX, axisWY = S.q.originYUm + m.axisY;
+      double kMax = 1.0;
+      for (const Group& g : m.groups)
+      {
+         const int mode = S.labels[static_cast<size_t>(g.structure)].mode;
+         if (!g.pre && (mode == MODE_DSTORM || mode == MODE_PALM))
+            kMax = std::max(kMax, S.excite.F() + 1.0 / 16);   // (1/16 steps: at most 1/32 above F)
+      }
+      for (const ClockRegion& r : regions)
+      {
+         SampleQuery q = regionQuery(r);
+         const bool zEmpty = (std::isfinite(r.z0Um) || std::isfinite(r.z1Um)) && !(q.zHalfRangeUm > 0.0);
+         if (!(q.x1Um > q.x0Um && q.y1Um > q.y0Um) || zEmpty)
+            continue;
+         q.spanSec = kMax * S.N * S.expSec;
+         std::vector<BlinkEvent> got;
+         if (!useHistory(r) || !source.Events(q, got))
+            return false;
+         for (const BlinkEvent& e : got)
+         {
+            if (!inRegion(e, r) || groupOf(e.structure, false) < 0)
+               continue;
+            const int mode = S.labels[static_cast<size_t>(e.structure)].mode;
+            BlinkEvent o = e;
+            o.excite = m.ExciteAt(mainShares(e.structure), e.xUm, e.yUm, e.zNm);
+            if (mode == MODE_DSTORM || mode == MODE_PALM)
+            {
+               const double a = light.Band(HistoryLightField::TileCentre(e.xUm + S.q.originXUm) - axisWX,
+                                           HistoryLightField::TileCentre(e.yUm + S.q.originYUm) - axisWY,
+                                           HistoryLightField::BandOf(e.zNm / 1000.0 + S.q.zRefUm));
+               if (!(a > 0))
+                  continue;
+               o.tStart = e.tStart / a;
+               o.tEnd = e.tEnd / a;
+            }
+            if (!(o.tEnd > 0.0) || !(o.tStart < S.N))
+               continue;
+            all.push_back(o);
+         }
+      }
+      source.SetKineticsHistory(nullptr, 0);
+      return true;
+   };
+   auto queryEvents = [&]() {
+      return m.local ? localEvents() : (m.shaped && clock) ? doseEvents() : regionEvents(false, all, nullptr);
+   };
    tPhase = TimingClock::now();
 #if defined(__EMSCRIPTEN__)
    kernels();
@@ -3075,7 +3267,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             else
                p.lambdaAt = [kAct, bl, Lp](double a) { return kAct * Lp->ActivationScale(a) + bl * a; };
             const double F = S.excite.F();
-            p.nodes = DoseNodes(F, p.lambdaAt(F) * tEndSec);
+            p.nodes = DoseNodes(F, p.lambdaAt(F) * tMovieEndSec);
             p.hZ.assign(kDoseBins, 0.0);
             p.hS.assign(kDoseBins, 0.0);
             const Group& g = m.groups[static_cast<size_t>(gi)];
@@ -3280,19 +3472,64 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             sh.push_back({ l.nm, l.share });
          imagerShares.push_back(sh);
       }
-      double sum = 0.0;
-      for (unsigned y = 0; y < S.H; y++)
-         for (unsigned x = 0; x < S.W; x++)
+      // The map is a function of these numbers only: the last one is kept
+      // (live frames at one pose and setting reuse it; HILO's columns cost
+      // ~0.2 s at 256 px).
+      std::vector<double> key = m.exciteKey;
+      for (double v : { static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec, S.p.backgroundPhotons })
+         key.push_back(v);
+      for (size_t i = 0; i < imagers.size(); ++i)
+      {
+         key.push_back(imagers[i]->ImagerPerPxPerUmPerSec(um));
+         for (const ExcitationLine& l : imagerShares[i])
          {
-            const double dx = x * um - m.axisX, dy = y * um - m.axisY;
-            double im = 0.0;
-            for (size_t i = 0; i < imagers.size(); ++i)
-               im += imagers[i]->ImagerPerPxPerUmPerSec(um) * S.excite.Column(dx, dy, H0, imagerShares[i]);
-            im *= S.expSec;
-            sum += im;
-            m.bgMap[static_cast<size_t>(y) * S.W + x] = static_cast<float>(S.p.backgroundPhotons * S.excite.Lateral(dx, dy, 0.0) + im);
+            key.push_back(l.nm);
+            key.push_back(l.share);
          }
-      m.imagerMean = sum / (S.W * S.H);
+      }
+      static std::mutex memoMutex;
+      static std::vector<double> memoKey;
+      static std::vector<float> memoMap;
+      static double memoMean = 0.0;
+      bool hit = false;
+      {
+         std::lock_guard<std::mutex> lock(memoMutex);
+         if (key == memoKey)
+         {
+            m.bgMap = memoMap;
+            m.imagerMean = memoMean;
+            hit = true;
+         }
+      }
+      if (!hit)
+      {
+         // Rows on threads (each pixel a pure function of its place, its own
+         // slot), the mean summed in the serial order.
+         const auto tMap = TimingClock::now();
+         std::vector<double> imPx(static_cast<size_t>(S.W) * S.H);
+         ParallelFor(S.H, [&](unsigned y) {
+            for (unsigned x = 0; x < S.W; x++)
+            {
+               const double dx = x * um - m.axisX, dy = y * um - m.axisY;
+               double im = 0.0;
+               for (size_t i = 0; i < imagers.size(); ++i)
+                  im += imagers[i]->ImagerPerPxPerUmPerSec(um) * S.excite.Column(dx, dy, H0, imagerShares[i]);
+               im *= S.expSec;
+               const size_t k = static_cast<size_t>(y) * S.W + x;
+               imPx[k] = im;
+               m.bgMap[k] = static_cast<float>(S.p.backgroundPhotons * S.excite.Lateral(dx, dy, 0.0) + im);
+            }
+         });
+         double sum = 0.0;
+         for (double im : imPx)
+            sum += im;
+         m.imagerMean = sum / (S.W * S.H);
+         TimingLog("fl.bg-map", TimingSince(tMap));
+         std::lock_guard<std::mutex> lock(memoMutex);
+         memoKey = key;
+         memoMap = m.bgMap;
+         memoMean = m.imagerMean;
+      }
    }
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    TimingLog("fl.setup", m.setupSec);
@@ -3370,10 +3607,11 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
       blinks += m.byGroup[gi].size();
       sp.groups.push_back(std::move(sg));
    }
-   if (sp.groups.empty() || blinks != m.events.size() || !m.bgMap.empty())
-      return FluorescenceSimplePlan();   // no blinks, blinks of another group (none should be), a background map
+   if (sp.groups.empty() || blinks != m.events.size())
+      return FluorescenceSimplePlan();   // no blinks, blinks of another group (none should be)
    sp.ok = true;
    sp.backgroundPhotons = m.bg;
+   sp.backgroundMap = m.bgMap.empty() ? nullptr : &m.bgMap;
    return sp;
 }
 

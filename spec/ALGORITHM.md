@@ -867,8 +867,18 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   photon budget bleaches at aux x budget / (emission x a). Mean-field populations, whose photons are nonlinear in a,
   are split over **dose nodes** (0.5 e-fold steps, cut at 8 e-folds, at most 16 levels, one image per node, each dye
   shared between its two neighbouring nodes by linear interpolation); the mean-field switch counts the survivors over
-  a 256-bin histogram of the dyes' factors. With a host clock (MM's illumination history) the clock carries the light
-  and the factor scales photons only. The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per
+  a 256-bin histogram of the dyes' factors. With a host clock (MM's illumination history) the clock is the **dose**:
+  a tile's clock advances by a_h x the exposure, per tile and per one of 12 world-z bands (so after TIRF the dyes higher
+  in a cell are fresh; equal bands collapse to one), and a frame reads its dSTORM / PALM events in the same dose (a
+  region is queried over a_max x the frame's span, the times divided by a_h; DNA-PAINT: photons only): the kinetics
+  within a frame and across frames agree. a_h (`HistoryLightField`, Excitation.h) = F x the band's mean depth factor
+  in 1/16 steps where the footprint (HILO: at the band's middle height) is >= half its peak, else 0: the kinetics see
+  the beam as **lit or unlit**, the photons keep its smooth profile. Why: each distinct clock is a region, each region
+  a core query scanning every dye block it meets; a FlatTop's soft edge in 1/16 levels made ~800 regions in epi and
+  ~2600 in HILO, and live frames took seconds (bench_live 0 fps at 10 ms); lit / unlit makes a handful (its unlit
+  corners bisected, `ClockSnapshot::Regions`). The cost: dyes beyond the half-maximum emit (photons x the edge's
+  factor) but do not switch -- a dSTORM / PALM beam acts hard-edged at its FWHM. Bands, not a continuous z: a clock
+  per dye height would make every dye its own region. The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per
   mode (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
 - **Known approximations.** The factor is read at the sample's undrifted place (drift is small against the beam);
   supercritical-angle emission (TIRF's collection gain near the interface) and the beam's angular spread in the BFP

@@ -370,7 +370,8 @@ export function scopeLightPreset(spec) {
 }
 // The auto light preset (AutoLightPreset): the presets of the labelled targets' dyes in their modes, in target order.
 // One distinct preset: it. Several: each laser line at its highest power over them; their excitation filter, dichroic
-// and emission filter where all agree, else no clean-up filter and the multi-band set (light_path.json multiTarget).
+// and emission filter where all agree, else no clean-up filter and the multi-band set (light_path.json multiTarget);
+// their bfpPosition where all agree (two DNA-PAINT labels: HILO), else none (epi).
 // No labelled target: the first mounted target's preset (a dark sample, the light as if it were labelled).
 export function autoLightPreset(spec) {
   const ids = [];
@@ -387,7 +388,8 @@ export function autoLightPreset(spec) {
   const same = k => qs.every(q => (q[k] ?? 'None') === (qs[0][k] ?? 'None'));
   const M = DYE_DATA.lightPathMultiTarget;
   const filtersAgree = same('dichroic') && same('emissionFilter');
-  return { id: ids.join('+'), lasers, excitationFilter: filtersAgree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
+  const bfp = qs.every(q => q.bfpPosition === qs[0].bfpPosition) ? qs[0].bfpPosition : undefined;
+  return { id: ids.join('+'), lasers, ...(bfp !== undefined ? { bfpPosition: bfp } : {}), excitationFilter: filtersAgree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
     dichroic: filtersAgree ? qs[0].dichroic : M.dichroic, emissionFilter: filtersAgree ? qs[0].emissionFilter : M.emissionFilter };
 }
 // The light path of a spec (LightPath): the light preset's values for the options the spec does not give.

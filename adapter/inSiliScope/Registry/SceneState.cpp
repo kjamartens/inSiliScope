@@ -91,7 +91,10 @@ SceneState::SceneState()
    ScopeLightPresetValues q;
    std::string err;
    if (ScopeAutoLightPreset(BuildScopeSpec(*this, 0, 0, 0, 0, 1), q, err))
+   {
       SetLight("Auto", q.lasers, q.excitationFilter, q.dichroic, q.emissionFilter);
+      options_["illum-bfp"] = q.bfpPosition;   // the geometry too (DNA-PAINT: HILO)
+   }
 }
 
 int SceneState::MountedSpecimen() const

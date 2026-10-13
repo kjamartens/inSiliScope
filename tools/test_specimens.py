@@ -141,6 +141,8 @@ def main():
 
     core.setProperty("SampleHolder", "State", "0")
     focus(core, z0)
+    # A mount keeps the lasers as set (the Nanorulers' DNA-PAINT preset set TIRF): back to the CellField's Auto light.
+    core.setProperty("Lasers", "Preset", "Auto")
     again = stack(core)
     assert all(np.array_equal(a, b) for a, b in zip(again, cells)), \
         "CellField again should be the first stack (a new world: the illumination history starts afresh)"

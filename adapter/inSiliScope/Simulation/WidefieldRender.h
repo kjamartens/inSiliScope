@@ -407,6 +407,14 @@ public:
    // The plane factor of a 3D excitation (nullptr: 1 everywhere, the default). A factor with another key drops the
    // plane spectra; takes effect at the next Update.
    void SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> f);
+   // Bleaching weights per height band (a host clock that differs in height: the illumination history's z bands):
+   // wb then holds nBands x the grid cells, band b (edges: world um, ascending) for the dye planes whose centre lies in
+   // it. Empty (the default): one band, wb per cell.
+   void SetWeightBands(const std::vector<double>& edgesUm);
+   // The cells whose weights move together (a host clock's keys: one clock and history per group), one id per wb
+   // entry: the bleach basis is grouped by (dose, group), so frames whose groups' clocks advance differently (a lit
+   // disc and unlit corners) stay a combination of it. Empty (the default): grouped by dose only.
+   void SetWeightGroups(const std::vector<uint32_t>& groups);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
    const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
@@ -563,6 +571,12 @@ private:
    std::shared_ptr<WidefieldDyeTiles> tiles_;
    std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
    bool planeFactorChanged_ = false;
+   std::vector<double> weightBands_;   // SetWeightBands
+   std::vector<uint32_t> weightGroups_;   // SetWeightGroups
+   // A dose-group basis (not cheb_): each weight's channel (-1: none; the
+   // channels' supports are disjoint) and each channel's largest weight.
+   std::vector<int32_t> cellChannel_;
+   std::vector<size_t> channelMax_;
    WidefieldSceneSpec spec_;
    bool haveSpec_ = false;
    WidefieldGridSpec rect_;

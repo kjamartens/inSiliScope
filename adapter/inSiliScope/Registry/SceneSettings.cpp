@@ -116,13 +116,14 @@ sim::PsfGeneratorRequest BuildPsfGeneratorRequest(const SceneState& s)
 
 sim::StackShapingFields BuildShapingFields(const SceneState& s, unsigned w, unsigned h, double* meanFactor)
 {
-   sim::StackShapingFields out;
-   double mean = 1.0;
-   out.illum = sim::BuildIlluminationField(w, h, static_cast<sim::IllumProfile>(s.illumProfile.load()),
-                                           s.illumFwhmPct.load(), &mean);
+   // The excitation is the engine's (illum-profile, illum-fwhm, illum-bfp: Simulation/Excitation.h); the fields
+   // left are the background's (none).
+   (void)s;
+   (void)w;
+   (void)h;
    if (meanFactor)
-      *meanFactor = mean;
-   return out;
+      *meanFactor = 1.0;
+   return sim::StackShapingFields();
 }
 
 sim::SampleSettings BuildSampleSettings(const SceneState& s)
@@ -281,10 +282,10 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
       s[kv.first] = kv.second;
    for (const auto& kv : st.DyeEdits())
       s[kv.first] = kv.second;
-   // The excitation: the adapter's own 2D field (BuildShapingFields) until the engine's excitation geometry
-   // replaces it (plan Phase 3); the engine's stays uniform.
-   s["illum-profile"] = 0;
-   s["illum-bfp"] = 0;
+   // The excitation geometry: the engine's (the Lasers rows; illum-bfp always given, so a light preset in the
+   // engine never picks it: Lasers.Preset sets it), with the medium's index (the critical angle).
+   s["illum-bfp"] = st.Option("illum-bfp");
+   s["bf-n-medium"] = st.brightField[BF_INDEX_MEDIUM].load();
    // The light path and camera are the properties' (no preset of the engine's own).
    s["light-preset"] = -1;
    s["camera-preset"] = st.cameraPreset.load();

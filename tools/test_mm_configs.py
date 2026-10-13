@@ -51,6 +51,15 @@ def check(tier):
             assert cur == preset, f"{tier}: {g} = {preset!r} applied, MM reports {cur!r}"
     n_presets = sum(len(core.getAvailableConfigs(g)) for g in groups)
 
+    # The Illumination group: each preset puts the laser spot where its name says (the regime readout, Advanced and up).
+    assert list(core.getAvailableConfigs("Illumination")) == ["Epi", "HILO", "TIRF"], f"{tier}: Illumination presets"
+    for preset in ("Epi", "HILO", "TIRF"):
+        core.setConfig("Illumination", preset)
+        if tier != "Basic":
+            got = core.getProperty("Lasers", "IlluminationRegime")
+            assert got == preset, f"{tier}: Illumination {preset} gives the regime {got!r}"
+    assert "BfpPosition" in groups, f"{tier}: no BfpPosition group"
+
     # The laser power groups: one preset of one property (Studio shows the property itself, editable); a power typed
     # there is the laser's.
     for nm in LASER_GROUP_NM:

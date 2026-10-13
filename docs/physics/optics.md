@@ -161,7 +161,7 @@ GPU), self-checks against the CPU at startup and falls back to the CPU on any fa
 
 Transmitted light through the cells (the `TransmittedLamp` shutter in Micro-Manager, `modality=1` in the cli and viewer; CellField only). Only simulated
 structures make contrast: the core's optical volume gives, per voxel, the volume fractions of cytoplasm, nucleus and
-microtubule, and the renderer turns them into refractive-index slices (`CellField.IndexMedium` 1.337,
+microtubule, and the renderer turns them into refractive-index slices (`SampleHolder.MediumIndex` 1.337,
 `...Cytoplasm` 1.35, `...Nucleus` 1.35, `...Microtubule` 1.48, all *estimates*; optional absorption
 `CellField.AbsorptionPerUm`). Measured at 540 nm, whole cells are 1.357-1.378 and isolated nuclei 1.343-1.353, the
 nucleus below the cytoplasm, and PBS 1.335 [[steelman2017](../references.md#steelman2017)]: the defaults put both

@@ -4,6 +4,11 @@ Used to prove a refactor did not change the image output: run it against the
 DLL built before and after, and compare the printed hashes.
 
     python tools/adapter_pixel_hash.py <dir containing mmgr_dal_inSiliScope.dll> [--frames N]
+                                       [--set Device.Property=value ...]
+
+--set applies to every config, after its own settings, where the DLL has the row (an older DLL without it is left
+as it is): e.g. a newer DLL at an older one's defaults (the excitation geometry, 2026-10-13: Lasers.IlluminationProfile=Flat
+Lasers.BfpPosition=0 Lasers.ChamberHeightUm=5 reproduces the hashes from before it, but for illum-bg).
 
 The DLL is loaded from that directory (MMCore's adapter search path lists it
 first); the active pymmcore-plus Micro-Manager install (or MM_DIR) provides
@@ -190,7 +195,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("adapter_dir")
     ap.add_argument("--frames", type=int, default=5)
+    ap.add_argument("--set", nargs="*", default=[], metavar="Device.Property=value",
+                    help="settings for every config, after its own (skipped where the DLL has no such row)")
     args = ap.parse_args()
+    overrides = []
+    for item in args.set:
+        key, _, value = item.partition("=")
+        device, _, prop = key.partition(".")
+        overrides.append((device, prop, value))
 
     total = hashlib.sha256()
     for k, (name, seed, props) in enumerate(CONFIGS + PORE_CONFIGS):
@@ -205,6 +217,9 @@ def main():
             core.unloadAllDevices()
             continue
         apply(core, hub_layout, props)
+        for device, prop, value in overrides:
+            if hub_layout and core.hasProperty(device, prop):
+                set_checked(core, device, prop, value)
         set_checked(core, cam, acq, "Precomputed")
         t0 = time.time()
         core.setProperty(cam, gen, "1")

@@ -118,6 +118,33 @@ would on a real scope). **None open** gives dark frames: offset, read noise and 
 
 <!-- fig:light-shutters -->
 
+## Illumination geometry
+
+One number moves the laser spot across the objective's back focal plane (`illum-bfp`, MM `Lasers.BfpPosition`, the
+shipped configs' `Illumination` group: Epi / HILO / TIRF): 0 is the centre (**epi**: the beam goes straight up), 1 the
+critical angle, between them **HILO** (a highly inclined sheet, [[tokunaga2008](../references.md#tokunaga2008)]) and
+above it **TIRF** (an evanescent layer over the coverslip,
+[[axelrod1981](../references.md#axelrod1981)], [[axelrod2001](../references.md#axelrod2001)]), up to the pupil edge
+NA / n of the medium (1.047 for the 1.40 objective in water, n = `bf-n-medium`, MM `SampleHolder.MediumIndex`, 1.337);
+beyond it no light reaches the sample (MM `Lasers.IlluminationRegime` reads `Clipped`). The position is linear in the
+BFP radius, so 0.5 is half-way to the critical angle.
+
+The beam's cross-section is `illum-profile` (Flat, Gaussian, or FlatTop: a disc with a soft edge, the default) with
+`illum-fwhm` (% of the FOV width, default 100). Each dye is excited by the laser power times a factor at its place:
+
+- epi: the profile, the same at every height;
+- HILO: the profile tilted into a sheet through the focal plane, about W / (tan θ cos θ) thick on the axis (a few µm
+  at 0.95; MM `Lasers.IlluminationDepthNm`), dyes above or below it unlit;
+- TIRF: the profile at the coverslip times \(e^{-z/d}\), \(d = \lambda / (4\pi n \sqrt{u^2-1})\) (about 150 nm
+  at 1.03 and 640 nm), with the interface's field enhancement (up to ~4x near the critical angle).
+
+The factor changes the photons, and through the local light the kinetics: dSTORM switching, PALM activation and
+bleaching run at the local excitation, so a TIRF field bleaches its bottom layer and leaves the dyes higher up fresh.
+The DNA-PAINT light presets set HILO (0.95), the nanorulers TIRF (1.03), the other presets epi (all *estimates*); with
+several labelled targets (`light-preset` auto) the position their presets agree on, else epi.
+Supercritical-angle emission and the beam's angular spread in the BFP are not modelled. The physics in full:
+`spec/ALGORITHM.md`, "Excitation geometry".
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of

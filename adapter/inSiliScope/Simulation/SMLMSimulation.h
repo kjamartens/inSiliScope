@@ -126,7 +126,6 @@ struct RenderExtras
 // empty when its feature is off.
 struct StackShapingFields
 {
-   std::vector<float> illum;
    std::vector<float> background;
 
    // Extras for a frame at elapsed time tSec with fade constant decaySec
@@ -135,7 +134,6 @@ struct StackShapingFields
    RenderExtras Extras(double tSec, double decaySec) const
    {
       RenderExtras e;
-      e.illumField = illum.empty() ? nullptr : &illum;
       e.backgroundMap = background.empty() ? nullptr : &background;
       e.backgroundScale = BackgroundFadeScale(tSec, decaySec);
       return e;

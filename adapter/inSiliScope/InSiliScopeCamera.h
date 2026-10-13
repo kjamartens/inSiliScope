@@ -35,6 +35,7 @@
 #include "Simulation/SampleSource.h"
 #include "Simulation/Drift.h"
 #include "Simulation/GpuSimD3D11.h"
+#include "Simulation/Excitation.h"
 #include "Simulation/IlluminationHistory.h"
 #include "Simulation/ScopeMovie.h"
 #include "Simulation/SMLMSimulation.h"
@@ -143,11 +144,11 @@ private:
    // The rect a fluorescence frame lights at stage (x, y): the FOV, its
    // 2 um margin (what the movie renders) and 0.5 um of slack, world um.
    void LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1, double& y1) const;
-   // The illumination profile at a world position as a dose weight (peak 1,
-   // in 1/16 steps so the clocks of a profile form few regions; the margin
-   // takes the nearest FOV pixel); empty for the flat profile.
-   std::function<double(double, double)> HistoryWeight(const sim::StackShapingFields& shaping, double stageXUm,
-                                                       double stageYUm) const;
+   // The light a frame of spec gives the history (IlluminationHistory.h
+   // HistoryLight: the engine's excitation per tile and z band, 1/16 steps),
+   // the optical axis at the FOV centre (axisX/YUm, world), the HILO sheet
+   // pivoting at the focus of stage z zStageUm; empty under a uniform beam.
+   sim::HistoryLight HistoryLightAt(const sim::ScopeSpec& spec, double axisXUm, double axisYUm, double zStageUm) const;
    // Clears the history (and the sample's drift) when the world (seed, cells,
    // packing) changed.
    void SyncHistoryWorld();
@@ -168,7 +169,7 @@ private:
    // any D3D11 failure (logged once, and reported by GpuStatus).
    bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const std::vector<const sim::PsfKernelCache*>& kernels,
                    unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
-                   const sim::PixelReadNoiseMap& readNoiseMap, const sim::StackShapingFields& shaping,
+                   const sim::PixelReadNoiseMap& readNoiseMap, const std::vector<float>* backgroundMap,
                    const sim::SimulationParams& params);
    void SetGpuStatus(const std::string& s) { St().SetGpuStatus(s); }
    // A setting changed (the hub's listener): what it invalidates.
@@ -218,6 +219,7 @@ private:
    {
       long id = 0;
       sim::ScopeSpec spec;          // frames = the batch's length
+      sim::HistoryLight light;      // the light its frames give the history
       sim::ClockSnapshot clock;     // the dye clocks at its first frame
       sim::SimulationParams params;
       unsigned w = 0, h = 0;
@@ -276,6 +278,7 @@ private:
       std::unique_ptr<sim::GpuSimulator> splat;
       std::vector<uint64_t> kernelSerials;   // the kernels loaded, one per blink group (empty: none)
       double background = -1.0;    // and its background
+      std::vector<float> backgroundMap;   // (the excitation's per pixel, empty: flat)
       long statics = -1;           // the config version of the camera maps loaded
       long failedAt = -1;          // the config version the splat failed at
       std::unique_ptr<sim::WidefieldGpuD3D11> wf;
@@ -384,7 +387,7 @@ private:
    {
       bool valid = false, counted = false;
       double x0 = 0, y0 = 0, x1 = 0, y1 = 0, dtSec = 0;
-      std::function<double(double, double)> weight;
+      sim::HistoryLight weight;
       uint32_t epoch = 0;
       double driftNm[3] = { 0, 0, 0 };
    };

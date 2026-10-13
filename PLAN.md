@@ -48,7 +48,7 @@ Upcoming ideas:
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
   nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field by dose nodes),
-  [x] C++ port (engine, cli, viewer module; ctest `excitation`), [ ] MM (`Lasers.BfpPosition`, the history in z bands,
+  [x] C++ port (engine, cli, viewer module; ctest `excitation`), [x] MM (`Lasers.BfpPosition`, the history in z bands,
   render-ahead, config group `Illumination` Epi / HILO / TIRF), [ ] viewer slider, docs, figures, gallery.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.

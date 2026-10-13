@@ -115,8 +115,17 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 
 A light source is a Shutter device; its open state is part of every frame (`SetLight` on the hub). Today: `Lasers`
 (epi: fluorescence) and `TransmittedLamp` (BrightField). A frame with both open sums them (from the shutter commit
-on), with none open is dark. A new source (an epi LED, a second laser bank, a TIRF illuminator) is a new Shutter
-device and an engine option `light-<name>`; never a modality switch.
+on), with none open is dark. A new source (an epi LED, a second laser bank) is a new Shutter device and an engine
+option `light-<name>`; never a modality switch.
+
+The lasers' geometry is a property of `Lasers`, not a source (2026-10-13, spec/PORT.md 22): `BfpPosition` (Basic, engine
+`illum-bfp`) is the spot's place in the back focal plane, 0 = epi, 1 = the critical angle (between: HILO, above: TIRF,
+beyond NA / `SampleHolder.MediumIndex`: clipped, no light), with the beam's `IlluminationProfile` / `IlluminationFwhmPct`
+(engine options too) and the read-only `IlluminationRegime` / `IlluminationDepthNm` (Advanced). `Lasers.Preset` sets
+`BfpPosition` (DNA-PAINT HILO, the nanorulers TIRF, else epi). The shipped configs' group `Illumination` (Epi / HILO /
+TIRF) is its dropdown and `BfpPosition` its field; neither is in the Startup group (the startup channel's preset sets it).
+The illumination history keeps each tile's clocks in 12 z bands under a shaped beam (`IlluminationHistory.h`), so light
+that reached only the bottom of a cell leaves the dyes above it fresh.
 
 ## 6. Tiers
 

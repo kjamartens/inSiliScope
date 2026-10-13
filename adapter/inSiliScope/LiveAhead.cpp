@@ -124,14 +124,18 @@ bool CInSiliScopeCamera::PrepareLiveGpu(const sim::FluorescenceSimplePlan& plan,
       kernels.push_back(sg.kernel);
       serials.push_back(sg.kernel->SplatSerial());
    }
-   if (serials != g.kernelSerials || plan.backgroundPhotons != g.background || st.version != g.statics)
+   const std::vector<float> noMap;
+   const std::vector<float>& bgMap = plan.backgroundMap ? *plan.backgroundMap : noMap;
+   if (serials != g.kernelSerials || plan.backgroundPhotons != g.background || st.version != g.statics ||
+       bgMap != g.backgroundMap)
    {
       sim::SimulationParams gp = params;
       gp.backgroundPhotons = plan.backgroundPhotons;
       g.kernelSerials.clear();
-      if (PrepareGpu(g.splat, kernels, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, st.shaping, gp))
+      if (PrepareGpu(g.splat, kernels, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, plan.backgroundMap, gp))
          g.kernelSerials = serials;
       g.background = plan.backgroundPhotons;
+      g.backgroundMap = bgMap;
       g.statics = st.version;
       if (g.kernelSerials.empty())
          g.failedAt = st.version;

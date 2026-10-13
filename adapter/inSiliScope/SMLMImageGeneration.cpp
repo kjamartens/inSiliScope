@@ -42,16 +42,7 @@
 
 sim::StackShapingFields CInSiliScopeCamera::ShapingFields(unsigned w, unsigned h) const
 {
-   double meanFactor = 1.0;
-   sim::StackShapingFields out = isc::BuildShapingFields(St(), w, h, &meanFactor);
-   if (!out.illum.empty())
-   {
-      std::ostringstream msg;
-      msg << "Illumination profile: peak-normalized, keeps " << std::fixed << std::setprecision(1)
-          << 100.0 * meanFactor << "% of the flat-field photon budget on average.";
-      LogMessage(msg.str());
-   }
-   return out;
+   return isc::BuildShapingFields(St(), w, h, nullptr);
 }
 
 namespace {
@@ -228,7 +219,7 @@ bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu,
                                  const std::vector<const sim::PsfKernelCache*>& kernels, unsigned w, unsigned h,
                                  const sim::PixelOffsetMap& offsetMap,
                                  const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
-                                 const sim::StackShapingFields& shaping, const sim::SimulationParams& params)
+                                 const std::vector<float>* backgroundMap, const sim::SimulationParams& params)
 {
    if (!St().useGpu.load())
    {
@@ -267,22 +258,12 @@ bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu,
       SetGpuStatus("GPU: " + info);
       LogMessage("GPU simulation on " + info);
    }
-   // Per-pixel background before the per-frame fade: the structured map (or
-   // the flat value) times the illumination field -- what RenderPhotonImage
-   // computes per pixel.
+   // Per-pixel background before the per-frame fade: the excitation's map
+   // (FluorescenceSimplePlan::backgroundMap: a shaped beam, the free imager's
+   // column), else the flat value.
    std::vector<float> bg;
-   if (!shaping.background.empty() || !shaping.illum.empty())
-   {
-      const size_t n = static_cast<size_t>(w) * h;
-      bg.resize(n);
-      for (size_t i = 0; i < n; ++i)
-      {
-         double v = shaping.background.size() == n ? shaping.background[i] : params.backgroundPhotons;
-         if (shaping.illum.size() == n)
-            v *= shaping.illum[i];
-         bg[i] = static_cast<float>(v);
-      }
-   }
+   if (backgroundMap && backgroundMap->size() == static_cast<size_t>(w) * h)
+      bg = *backgroundMap;
    std::string err;
    if (!gpu->SetKernels(kernels, err) ||
        !gpu->SetStatic(w, h, offsetMap.offset, gainMap.gainPhotonsPerAdu, readNoiseMap.readNoiseElectrons, bg,
@@ -368,20 +349,20 @@ void CInSiliScopeCamera::LitRect(double stageXUm, double stageYUm, double& x0, d
    y1 = stageYUm + H / 2.0 + m;
 }
 
-std::function<double(double, double)> CInSiliScopeCamera::HistoryWeight(const sim::StackShapingFields& shaping,
-                                                                        double stageXUm, double stageYUm) const
+sim::HistoryLight CInSiliScopeCamera::HistoryLightAt(const sim::ScopeSpec& spec, double axisXUm, double axisYUm,
+                                                    double zStageUm) const
 {
-   const unsigned w = FullWidth(), h = FullHeight();
-   if (shaping.illum.size() != static_cast<size_t>(w) * h)
+   sim::ScopeSpec s = spec;
+   s["z"] = zStageUm;
+   sim::Excitation ex;
+   std::vector<sim::ExcitationLine> shares;
+   std::string err;
+   if (!sim::ScopeExcitation(s, ex, shares, err))
       return {};
+   // The engine's optical axis is the FOV centre pixel's centre ((W - 1) / 2 px from the corner): half a pixel less
+   // than the stage position.
    const double um = St().PixelSizeNm() / 1000.0;
-   const double ox = stageXUm - w * um / 2.0, oy = stageYUm - h * um / 2.0;
-   const std::vector<float> illum = shaping.illum;
-   return [illum, w, h, um, ox, oy](double x, double y) {
-      const long px = std::min(static_cast<long>(w) - 1, std::max(0L, static_cast<long>(std::floor((x - ox) / um))));
-      const long py = std::min(static_cast<long>(h) - 1, std::max(0L, static_cast<long>(std::floor((y - oy) / um))));
-      return std::round(16.0 * illum[static_cast<size_t>(px) + static_cast<size_t>(w) * py]) / 16.0;
-   };
+   return sim::HistoryLightFor(ex, shares, axisXUm - um / 2.0, axisYUm - um / 2.0);
 }
 
 void CInSiliScopeCamera::SyncHistoryWorld()
@@ -589,7 +570,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                kernels.push_back(sg.kernel);
                blinks += sg.events->size();
             }
-            gpuOk = PrepareGpu(gpu, kernels, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap, shaping, gp);
+            gpuOk = PrepareGpu(gpu, kernels, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap,
+                               plan.backgroundMap, gp);
          }
          else if (St().useGpu.load() && !fm.HasPopulations())
             SetGpuStatus("CPU (no blinking label for the GPU splat)");
@@ -674,8 +656,6 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                sim::FluorescenceFrameOptions opt;
                opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
                opt.populationsOnly = true;
-               if (!shaping.illum.empty())
-                  opt.illumField = &shaping.illum;   // the binned blinks
                long fBase = 0;
                opt.onPhotons = [&](long f, const std::vector<float>& photons) {
                   std::vector<float>& x = extraImg[static_cast<size_t>(f - fBase)];
@@ -715,8 +695,6 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          {
             sim::FluorescenceFrameOptions opt;
             opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
-            if (!shaping.illum.empty())
-               opt.illumField = &shaping.illum;
             if (decaySec > 0)
                opt.backgroundScale = [&](long f) {
                   return sim::BackgroundFadeScale(fadeT0 + f * params.frameDurationSec, decaySec);
@@ -748,20 +726,22 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       if (lit)
       {
          // The stack's light, along its drift path: consecutive frames that
-         // light the same tiles (and, with a shaped profile, the same pixel
-         // offset) go in as one exposure.
+         // light the same tiles (and, under a shaped beam, at the same pixel
+         // offset and focus) go in as one exposure.
          const double T = sim::IlluminationHistory::kTileUm, um = params.pixelSizeNm / 1000.0;
+         const bool shapedLight = static_cast<bool>(HistoryLightAt(spec, stageXUm, stageYUm, zOf(0)));
          auto keyOf = [&](long f) {
             const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
             const double ox = d.x / 1000.0, oy = d.y / 1000.0;
-            std::array<long, 6> k = { static_cast<long>(std::ceil((lx0 - ox) / T - 0.5)),
+            std::array<long, 7> k = { static_cast<long>(std::ceil((lx0 - ox) / T - 0.5)),
                                       static_cast<long>(std::ceil((lx1 - ox) / T - 0.5)),
                                       static_cast<long>(std::ceil((ly0 - oy) / T - 0.5)),
-                                      static_cast<long>(std::ceil((ly1 - oy) / T - 0.5)), 0, 0 };
-            if (!shaping.illum.empty())
+                                      static_cast<long>(std::ceil((ly1 - oy) / T - 0.5)), 0, 0, 0 };
+            if (shapedLight)
             {
                k[4] = std::lround(ox / um);
                k[5] = std::lround(oy / um);
+               k[6] = std::lround((zOf(f) - d.z / 1000.0) * 100.0);   // the focus, 10 nm
             }
             return k;
          };
@@ -774,7 +754,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             const sim::DriftNm& d = stackDrift[static_cast<size_t>(f0)];
             const double ox = d.x / 1000.0, oy = d.y / 1000.0;
             illumHistory_.Advance(lx0 - ox, ly0 - oy, lx1 - ox, ly1 - oy, (f1 - f0) * params.frameDurationSec,
-                                  HistoryWeight(shaping, stageXUm - ox, stageYUm - oy), epoch);
+                                  shapedLight ? HistoryLightAt(spec, stageXUm - ox, stageYUm - oy, zOf(f0) - d.z / 1000.0)
+                                              : sim::HistoryLight(), epoch);
             f0 = f1;
          }
       }
@@ -897,6 +878,22 @@ void CInSiliScopeCamera::LiveProducerLoop()
    sim::SampleSource cellField;
    bool cellFieldOk = false;
    bool bfActive = false, bfErrLogged = false, flErrLogged = false;
+   // The light a live frame gives the history (HistoryLightAt), kept while the
+   // settings, the pose and the focus stay.
+   sim::HistoryLight liveLight;
+   long liveLightVersion = -1;
+   double liveLightPose[3] = { 0.0, 0.0, 0.0 };
+   auto liveLightAt = [&](long version, double x, double y, double z) -> const sim::HistoryLight& {
+      if (version != liveLightVersion || x != liveLightPose[0] || y != liveLightPose[1] || z != liveLightPose[2])
+      {
+         liveLight = HistoryLightAt(isc::BuildScopeSpec(St(), x, y, z, 0.0, 1), x, y, z);
+         liveLightVersion = version;
+         liveLightPose[0] = x;
+         liveLightPose[1] = y;
+         liveLightPose[2] = z;
+      }
+      return liveLight;
+   };
    long cellFieldVersion = -1;   // the config version the cell field was configured at
    sim::BrightfieldScene bfScene;   // with drift (BrightfieldDriftFrames)
    std::vector<float> bfImage;
@@ -1285,7 +1282,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const AheadStamp stamp{ currentConfigVersion, frameLight, frameEpoch, seqStartTicks, sx, sy, zOffsetUm,
                               exposureNowMs, w, h };
       const bool aheadEligible = renderAhead && !aheadOff && lightOn && epiOn && !bfActive && liveSeqCapture_.load() &&
-                                 !liveSeqSkipStale_.load() && !params.drift.On() && shaping.illum.empty() &&
+                                 !liveSeqSkipStale_.load() && !params.drift.On() &&
                                  !liveWakeNow_.load() && aheadStatics;
       const bool stable = aheadEligible && haveLastStamp && stamp == lastStamp;
       lastStamp = stamp;
@@ -1390,7 +1387,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                lit.x1 = lx1;
                lit.y1 = ly1;
                lit.dtSec = params.frameDurationSec;
-               lit.weight = HistoryWeight(shaping, posX, posY);
+               lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDrift.z / 1000.0);
                lit.epoch = configEpoch;
                sim::TimingLog("live.ahead-frame", 0.0);
             }
@@ -1460,8 +1457,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
                   const auto tPops = sim::TimingClock::now();
                   sim::FluorescenceFrameOptions opt;
                   opt.populationsOnly = true;
-                  if (!shaping.illum.empty())
-                     opt.illumField = &shaping.illum;   // the binned blinks
                   opt.onPhotons = [&](long, const std::vector<float>& photons) {
                      extraImg = photons;
                      return true;
@@ -1512,8 +1507,6 @@ void CInSiliScopeCamera::LiveProducerLoop()
             if (!rendered)
             {
                sim::FluorescenceFrameOptions opt;
-               if (!shaping.illum.empty())
-                  opt.illumField = &shaping.illum;
                const double bgScale = extras.backgroundScale;
                if (bgScale != 1.0)
                   opt.backgroundScale = [bgScale](long) { return bgScale; };
@@ -1566,7 +1559,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             lit.x1 = lx1;
             lit.y1 = ly1;
             lit.dtSec = params.frameDurationSec;
-            lit.weight = HistoryWeight(shaping, posX, posY);
+            lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDrift.z / 1000.0);
             lit.epoch = configEpoch;
          }
       }
@@ -1633,9 +1626,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
             job->clock = illumHistory_.Snapshot(ax0, ay0, ax1, ay1, configEpoch);
          }
          // The queued frames before its first slot light the sample when they
-         // are published (a sequence acquisition's frames): flat illumination.
+         // are published (a sequence acquisition's frames), with the beam's light.
+         job->light = liveLightAt(currentConfigVersion, sx, sy, zOffsetUm);
          for (long k = 0; k < ahead; ++k)
-            job->clock.Advance(ax0, ay0, ax1, ay1, params.frameDurationSec);
+            job->clock.Advance(ax0, ay0, ax1, ay1, params.frameDurationSec, job->light);
          // Frame f's background fade: the lit clock at the FOV centre then.
          const double fade0 = job->clock.At(sx, sy);
          for (long f = 0; f < aheadK; ++f)

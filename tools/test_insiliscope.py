@@ -73,7 +73,8 @@ basic = own_props([d for d in ALL_DEVICES if d not in WHEELS])
 assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub should not offer the Advanced filter wheels"
 assert basic < expert, "Basic should show a subset of Expert"
 assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
-for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("CellField", "Microtubules_Label"),
+for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("Lasers", "BfpPosition"),
+             ("CellField", "Microtubules_Label"),
              ("CellField", "Microtubules_Mode"), ("CellField", "NuclearPores_Label"), ("CellField", "NuclearPores_Mode"),
              ("EmissionPath", "EmissionMagnification"),
              ("Renderer", "Quality"), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec")):
@@ -128,7 +129,12 @@ print("Live mode OK:", len(live_frames), "frames captured, frames vary over time
 assert not core.hasProperty("Fluorophores", "Mode"), "no experiment-wide mode since issue 15"
 fresh(pores=True)
 for (dev, name), expected in {
-    ("Lasers", "IlluminationProfile"): "Flat",
+    ("Lasers", "IlluminationProfile"): "FlatTop",
+    ("Lasers", "IlluminationFwhmPct"): "100",
+    ("Lasers", "BfpPosition"): "0.95",   # the DNA-PAINT light presets: HILO
+    ("Lasers", "IlluminationRegime"): "HILO",
+    ("Lasers", "ChamberHeightUm"): "100",
+    ("SampleHolder", "MediumIndex"): "1.337",
     ("CellField", "Microtubules_Label"): "Typical",
     ("Fluorophores", "Microtubules_EffectiveDye"): "ATTO655 (DNA-PAINT)",
     ("CellField", "Microtubules_Mode"): "DNA-PAINT",
@@ -388,13 +394,38 @@ assert not np.array_equal(plain, spread_on), "sCMOS spreads should apply"
 print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit clip holds; the sCMOS spreads apply to "
       "sCMOS only")
 
-# --- illumination profile and background fade ------------------------------------
+# --- illumination profile, geometry (epi / HILO / TIRF) and background fade --------------------------
 flat_bg = GAUSS + NO_DYES + [("SampleHolder", "BackgroundPhotonsPerSec", "400")]
-illum = stack_frames(flat_bg + [("Lasers", "IlluminationProfile", "Gaussian")], n=5).mean(axis=0) - 100
+illum = stack_frames(flat_bg + [("Lasers", "IlluminationProfile", "Gaussian"), ("Lasers", "BfpPosition", "0")],
+                     n=5).mean(axis=0) - 100
 assert illum[:10, :10].mean() < 0.5 * illum[54:74, 54:74].mean(), "Gaussian illumination must dim the corners"
 decay = stack_frames(flat_bg + [("SampleHolder", "BackgroundDecaySec", "0.5")], n=40)
 assert decay[-1].mean() < decay[0].mean(), "background fade must lower the background over time"
-print("Background OK: illumination dims corners, fade decays")
+# The regime and depth readouts follow the BFP position (the 1.40 objective's pupil edge: 1.40 / 1.337 = 1.047).
+fresh()
+for bfp, regime in (("0", "Epi"), ("0.95", "HILO"), ("1.03", "TIRF"), ("1.1", "Clipped")):
+    core.setProperty("Lasers", "BfpPosition", bfp)
+    assert core.getProperty("Lasers", "IlluminationRegime") == regime, f"BfpPosition {bfp} should be {regime}"
+    depth = float(core.getProperty("Lasers", "IlluminationDepthNm"))
+    if regime == "TIRF":
+        assert 120 < depth < 200, f"TIRF at 1.03 and 640 nm: d ~ 155 nm, got {depth:.0f}"
+    if regime == "Epi":
+        assert depth == -1, f"epi has no depth, got {depth}"
+core.setProperty("Lasers", "Preset", "dSTORM-640")
+assert float(core.getProperty("Lasers", "BfpPosition")) == 0, "a preset without a geometry sets epi"
+core.setProperty("Lasers", "Preset", "Auto")
+assert float(core.getProperty("Lasers", "BfpPosition")) == 0.95, "the DNA-PAINT Auto preset sets HILO"
+# A clipped spot lights no dye and no imager (the autofluorescence background stays); TIRF cuts the imager background.
+clipped = stack_frames(GAUSS + [("Lasers", "BfpPosition", "1.1")], n=3)
+no_dyes = stack_frames(GAUSS + NO_DYES + [("Lasers", "BfpPosition", "1.1")], n=3)
+assert np.array_equal(clipped, no_dyes), "a clipped spot (beyond the pupil edge) must light nothing"
+# (Labelling 0 % is no label, and no imager: a trace of sites instead.)
+PAINT_BG = GAUSS + [("CellField", "Microtubules_LabelingPct", "0.001"), ("CellField", "Microtubules_ImagerNanoMol", "5")]
+bg_epi = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "0")], n=3).mean() - 100
+bg_tirf = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "1.03")], n=3).mean() - 100
+assert bg_tirf < 0.1 * bg_epi, f"TIRF should cut the free-imager background (epi {bg_epi:.1f}, TIRF {bg_tirf:.1f} ADU)"
+print(f"Background OK: illumination dims corners, fade decays; regimes Epi/HILO/TIRF/Clipped read back, clipped is "
+      f"dark, the imager background epi {bg_epi:.1f} -> TIRF {bg_tirf:.1f} ADU")
 
 # --- GPU vs CPU: the same frames up to float32 rounding (skipped without a usable GPU) ---
 KERNEL = [("Objective", "PsfKernelHalfWidthNm", "3000")]
