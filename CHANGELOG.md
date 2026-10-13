@@ -5,12 +5,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 ## Unreleased (0.1.0, first public release)
 
 - **seed** Nuclear pore complexes, a second cell-field target (issue 15, 2026-10-12): Nup96 pores (64 sites in two
-  8-fold rings) over the whole nuclear envelope, 12 per um^2 by default, labelled and imaged together with the
+  8-fold rings) over the whole nuclear envelope, 8 per um^2 and at least 180 nm apart by default, labelled and imaged together with the
   microtubules: by default pores in DNA-PAINT with Cy3B at 561 nm, microtubules in ATTO 655 DNA-PAINT at 640 nm, through
   a multi-band filter set (`light-preset` auto, MM `Lasers.Preset` `Auto`: the labelled targets' presets combined).
   Each target has its own label mode (MM `<Target>_Mode`, Basic; `Fluorophores.Mode` is gone) and a None label
   (`npc-dye None` images the microtubules alone, as before); their DNA-PAINT binding kinetics (`data/specimens.json`
-  `paint`) are the microtubules' (1e6 /M/s, 0.05 s, 1 nM; estimates). A label linkage model for every target (binder,
+  `paint`) are the microtubules' (1e6 /M/s, 0.05 s; estimates) with a 2.5 nM Cy3B imager (the microtubules' is 1 nM). A label linkage model for every target (binder,
   flexibility, linker; presets from measured antibody / nanobody / SNAP shells): the microtubules' default is now
   primary + secondary antibodies with a docking strand (IgG2-PAINT, dyes on a ~32 nm shell), so every default image
   changed; `mt-binder Legacy` (MM `Microtubules_Binder`) keeps the old dye positions. Core ABI 13 (`isc_cell_npcs`,

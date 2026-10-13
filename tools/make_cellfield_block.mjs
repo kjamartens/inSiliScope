@@ -63,8 +63,8 @@ function cellFieldFactory(SRC) {
   // explicitly so a change of the core's own defaults cannot move webSMLM's field. Every lattice
   // site carries a dye (the microtubules' label at density 1, fluorescent fraction 1; core ABI 10), as
   // in the JS it replaces: webSMLM applies its own labelling efficiency to the returned sites. No nuclear pores
-  // (npcDensity 0; insiliscope's cell field has 12 per um^2 of envelope since issue 15): webSMLM's field stays the
-  // microtubules; opts.params { npcDensity: 12, ... } adds them (sites with structure 1).
+  // (npcDensity 0; insiliscope's cell field has 8 per um^2 of envelope since issue 15): webSMLM's field stays the
+  // microtubules; opts.params { npcDensity: 8, ... } adds them (sites with structure 1).
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
     cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
@@ -78,7 +78,7 @@ function cellFieldFactory(SRC) {
     enablePacking: 1, allowPackRotation: 1, packFrac: 1.0, relaxIters: 80, relaxDamping: 0.55,
     mtDensity: 0.9, mtStartDecayPct: 1.6, mtEndDecayPct: 20, mtDirKappa: 1.5, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
-    npcDensity: 0, npcMinDistNm: 120, npcRadiusNm: 53.5, npcRingSepNm: 50, npcCornerSpreadNm: 12,
+    npcDensity: 0, npcMinDistNm: 180, npcRadiusNm: 53.5, npcRingSepNm: 50, npcCornerSpreadNm: 12,
   };
   // The labelled site fraction (before ABI 10 the params labelEfficiency + labelNonBleaching; still accepted
   // in opts.params and mapped onto the label's density).

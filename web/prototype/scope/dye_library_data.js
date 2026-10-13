@@ -1635,14 +1635,14 @@ export const DYE_DATA = {
      "paint": {
       "konPerMPerSec": 1000000,
       "onSec": 0.05,
-      "imagerNm": 1,
+      "imagerNm": 2.5,
       "refs": [
        "jungmann2010",
        "schnitzbauer2017",
        "jungmann2014",
        "schlichthaerle2019"
       ],
-      "notes": "As the microtubules' (estimate: k_on of 9-10 nt imagers, onSec 0.05 s, 1 nM), so the default two-target movie keeps its look; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)."
+      "notes": "k_on and onSec as the microtubules' (estimate: 9-10 nt imagers, 0.05 s). imagerNm 2.5 nM (estimate, chosen 2026-10-13; was 1 nM): 2.5x the binding of 1 nM, about 2-3 pore blinks per frame over the bottom of a nucleus; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)."
      }
     }
    ]

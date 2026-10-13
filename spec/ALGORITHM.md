@@ -786,9 +786,10 @@ together with the microtubules, each with its own label. `core/src/npcs.*`, JS t
   normal (central differences, delta 1e-5; the face normal where they vanish), the ring orientation a Duff et al. 2017
   frame turned by a uniform angle. Candidate i is `pcg4d(seed ^ 0x4E504331, cx, cy, i)`: address-based, no stream.
 - **Count and spacing.** N = round(density x area), not Poisson: a lower density keeps a subset of the same pores.
-  A candidate closer than `npcMinDistNm` (120 nm, the pore diameter: maeshima2006) to an accepted centre is rejected
+  A candidate closer than `npcMinDistNm` (180 nm; a pore is ~120 nm across: maeshima2006) to an accepted centre is rejected
   and the next one drawn, up to 50 N candidates; above the jamming density (~17 /um^2 at 200 nm) fewer pores result.
-  Default 12 /um^2 (the user's choice; measured interphase densities are 5-8.6 /um^2, maeshima2006, dultz2010).
+  Default 8 /um^2 (the user's choice, 2026-10-13; was 12; measured interphase densities are 5-8.6 /um^2, maeshima2006,
+  dultz2010).
 - **Dyes.** Per cell `H1 = pcg4d(seed ^ 0x4E504344, cx, cy, 0).a`, site (k = attachment point, n = candidate index):
   the microtubules' `DYE_CH` channels, so labelling, schedules and orientation work unchanged and the pores' dyes are
   independent of the microtubules'. Dye blocks are the pores whose centre lies in one cell-local 1 um cube, walked

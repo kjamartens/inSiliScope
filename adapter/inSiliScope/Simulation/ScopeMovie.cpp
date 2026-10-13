@@ -174,7 +174,7 @@ const OptionTable& Options()
          v.push_back({ keep(P + "-label-pct"), -1,
                        keep(D + "_LabelingPct: " + T.sites + " (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: " + pcts + ")") });
          // The target's default imager concentration and DNA-PAINT binding kinetics (data/specimens.json paint:
-         // microtubules and pores 1 nM, docking strands 20 nM; estimates).
+         // microtubules 1 nM, pores 2.5 nM, docking strands 20 nM; estimates).
          v.push_back({ keep(P + "-imager-nm"), tg.paintImagerNm,
                        keep(D + "_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)") });
          v.push_back({ keep(P + "-paint-kon"), tg.paintKonPerMPerSec,
@@ -235,7 +235,7 @@ const OptionTable& Options()
          { "cell-diam-min-um", 25, "CellField.CellDiameterMinUm" },
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
          { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)" },
-         { "npc-density", 12, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (12: chosen by the user 2026-10-12, above the measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
+         { "npc-density", 8, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
          { "origami-density", kOrigamiDensity, "Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them" },

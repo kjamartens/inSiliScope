@@ -6,7 +6,7 @@
                 "sr": { "frames": 60 }, "wf": { "npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "frames": 20 } },
   "entries": [
     { "id": "sr-default", "group": "Super-resolution (blinking)", "title": "Default SMLM movie",
-      "text": "The default CellField, two targets at once: the microtubules in DNA-PAINT with an ATTO 655 imager (1 nM, 640 nm) on 70% of their binding sites through primary + secondary antibodies (IgG2-PAINT), and the nuclear pores (12 per um^2 of envelope, Nup96-SNAP) in DNA-PAINT with a Cy3B imager (561 nm) on 60% of their sites, both lasers through a multi-band filter set (light-preset auto); the free imagers' flat background, the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
+      "text": "The default CellField, two targets at once: the microtubules in DNA-PAINT with an ATTO 655 imager (1 nM, 640 nm) on 70% of their binding sites through primary + secondary antibodies (IgG2-PAINT), and the nuclear pores (12 per um^2 of envelope, Nup96-SNAP) in DNA-PAINT with a Cy3B imager (2.5 nM, 561 nm) on 60% of their sites, both lasers through a multi-band filter set (light-preset auto); the free imagers' flat background, the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
       "options": {} },
     { "id": "sr-dense", "group": "Super-resolution (blinking)", "title": "Dense activation",
       "text": "The microtubules' imager at 14.3 nM (the default is 1 nM): ~14 times the binding rate, overlapping emitters and a ~14 times brighter free-imager background.",
@@ -54,7 +54,7 @@
       "text": "Nup96-mEGFP (npc-mode WideField, every dye emitting at once), the microtubules unlabelled, focus on the bottom of the nuclei: the envelope as a dense field of diffraction-limited pores, 12 per um^2.",
       "options": { "mt-dye": "None", "npc-mode": "WideField", "npc-dye": "mEGFP", "light-preset": "auto", "z": 0.7, "frames": 20 } },
     { "id": "npc-sparse", "group": "Nuclear pores", "title": "Fewer pores",
-      "text": "npc-density 3 (the default is 12 per um^2; interphase cells have 5-9, Maeshima et al. 2006, Dultz and Ellenberg 2010): a subset of the same pores, in the default two-target DNA-PAINT movie.",
+      "text": "npc-density 3 (the default is 8 per um^2; interphase cells have 5-9, Maeshima et al. 2006, Dultz and Ellenberg 2010): a subset of the same pores, in the default two-target DNA-PAINT movie.",
       "options": { "npc-density": 3, "z": 0.7 } },
     { "id": "mt-linkage-legacy", "group": "Nuclear pores", "title": "Microtubule label linkage: Legacy",
       "text": "mt-binder Legacy: the microtubule dyes 12 nm + a 2-5 nm linker beyond the 12.5 nm attachment radius, the model before the binder presets (the default is IgG2-PAINT: primary + secondary antibodies with a docking strand, a ~32 nm shell). At this pixel size the difference is below the PSF.",

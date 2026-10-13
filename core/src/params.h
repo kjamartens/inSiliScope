@@ -62,8 +62,8 @@ struct Params {
    // Nuclear pores (issue 15, npcs.h; ABI 13): per um^2 of envelope (the user's choice 2026-10-12, above the measured
    // 5-8.6 of maeshima2006 and dultz2010), minimum centre distance (the NPC diameter, maeshima2006), the Nup96 ring
    // radius (webSMLM; thevathasan2019: 53.7), the two rings' separation along the pore axis and the corners' arc spread.
-   double npcDensity = 12;
-   double npcMinDistNm = 120;
+   double npcDensity = 8;            // per um^2 of envelope (user 2026-10-13; was 12; measured 5-8.6)
+   double npcMinDistNm = 180;        // nm between pore centres (user 2026-10-13; was 120 = a pore diameter)
    double npcRadiusNm = 53.5;
    double npcRingSepNm = 50;
    double npcCornerSpreadNm = 12;

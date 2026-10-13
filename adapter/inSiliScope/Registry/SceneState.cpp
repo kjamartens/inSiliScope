@@ -47,11 +47,11 @@ SceneState::SceneState()
    // around the focal plane (0 = every dye), no focus offset (ZStage = 0 puts
    // the coverslip in focus), then the nucleus shape and microtubule start/end
    // at the core's defaults (core/src/params.h).
-   // The nuclear pores at the core's defaults (core/src/params.h: 12 per um^2 of envelope, 120 nm apart, Nup96 rings of
+   // The nuclear pores at the core's defaults (core/src/params.h: 8 per um^2 of envelope, 180 nm apart, Nup96 rings of
    // 53.5 nm radius 50 nm apart, 12 nm corner arcs).
    const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 7.0,
       0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5,
-      12.0, 120.0, 53.5, 50.0, 12.0 };
+      8.0, 180.0, 53.5, 50.0, 12.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField[i] = cellFieldDefaults[i];
    // Mean-field grid: 1 cell/pixel, 25 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm).

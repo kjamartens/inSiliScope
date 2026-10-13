@@ -365,8 +365,8 @@ envelope (generic obstacle interface). Core ABI 9 `isc_cell_nucleus_rings` (view
 **Nuclear pores, a second cell-field target (2026-10-12, issue 15, spec/ALGORITHM.md, spec/PORT.md 21):** core
 `core/src/npcs.*` (JS twin in `web/prototype/index.html`): webSMLM's Nup96 pore (2 rings x 8 corners x 4 arc points, R
 53.5, sep 50, spread 12 nm) placed uniformly by area over the whole envelope (a fixed parametric surface mesh + CDF,
-centre exactly on the membrane, axis = outward normal, Duff frame), N = round(`npcDensity` (12 /um^2) x area), rejection
-below `npcMinDistNm` (120); pore dye blocks after the microtubule blocks, `BlockKey` {cx, cy, structure, element,
+centre exactly on the membrane, axis = outward normal, Duff frame), N = round(`npcDensity` (8 /um^2) x area), rejection
+below `npcMinDistNm` (180); pore dye blocks after the microtubule blocks, `BlockKey` {cx, cy, structure, element,
 block}; `PackingFingerprint` skips `npc*` (no cell moves). ABI 13: `ISC_STRUCT_NPC` 1 (nanoruler docking strands 2,
 `ISC_STRUCT_COUNT` 3), `isc_cell_npcs`, label linkage at `ISC_LABEL_BINDER_NM`.. (20 doubles; NaN = the structure's
 built-in "Legacy" numbers). Label linkage for every target (binder rigid end + flexibility ball + linker shell;
@@ -441,7 +441,7 @@ strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: 
 `Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
 `world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. Their DNA-PAINT imager defaults
 to 20 nM (`paint.imagerNm`; the microtubules 1 nM): a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
-the mean bound time live in `data/specimens.json` `paint` (microtubules and nuclear pores 1e6 /M/s, 0.05 s, 1 nM; docking strands 1e6, 0.2885 s
+the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s, 1 nM; nuclear pores the same at 2.5 nM; docking strands 1e6, 0.2885 s
 = 200 ms half-time), options `<prefix>-paint-kon` / `<prefix>-paint-on-sec` (light keys of the rate history: a change
 acts from now on), MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec` (Advanced); the dyes' DNA-PAINT modes keep only
 `photonCV` (the generator rejects kon/onSec there; the dye field `kon` and `Fluorophores.Dye<N>_Kon` are gone).

@@ -852,9 +852,9 @@ std::vector<PropDef> BuildTable()
          "Microtubule starts: decay length, % of the cell radius.",
          "Microtubule ends: decay length, % of the cell radius.",
          "Microtubule direction concentration (von Mises kappa).",
-         "Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (12; measured 5-8.6 in HeLa and "
+         "Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and "
          "U2OS nuclei; 0 = no pores, the target is off).",
-         "Smallest centre distance of two pores, nm (120: about a pore's diameter).",
+         "Smallest centre distance of two pores, nm (180; a pore is about 120 across).",
          "Radius of a pore's Nup96 rings, nm.",
          "Distance between a pore's cytoplasmic and nucleoplasmic ring, nm.",
          "Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm.",

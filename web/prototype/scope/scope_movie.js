@@ -134,7 +134,7 @@ export const SCOPE_OPTIONS = [
   ['cell-diam-min-um', 25, 'CellField.CellDiameterMinUm'],
   ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
   ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)'],
-  ['npc-density', 12, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (12: chosen by the user 2026-10-12, above the measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
+  ['npc-density', 8, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
   // ---- the nanorulers (Micro-Manager: Nanorulers; core params origami*, origami.js) ----
   ['origami-design', ORIGAMI_DEFAULTS.origamiDesign, 'Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)'],

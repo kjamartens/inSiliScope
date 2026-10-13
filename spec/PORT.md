@@ -987,7 +987,7 @@ complexes" and "Label linkage".
   100 %, thevathasan2019 / schlichthaerle2019); `data/dyes/light_path.json` `multiTarget` (the multi-band set);
   `linkagePresets` (with `defaults` per target) -> `kLinkagePresets`.
 - Core (`core/src/npcs.{h,cpp}` = the prototype's `nucSurfaceMesh` / `buildNpcsForCell` / `npcAttachmentPoints`; dyes,
-  world): params `npcDensity` (12 /um^2), `npcMinDistNm` (120), `npcRadiusNm` (53.5), `npcRingSepNm` (50),
+  world): params `npcDensity` (8 /um^2; 12 until 2026-10-13), `npcMinDistNm` (180; was 120), `npcRadiusNm` (53.5), `npcRingSepNm` (50),
   `npcCornerSpreadNm` (12), skipped by `PackingFingerprint`; pores built lazily per cell, dye blocks per cell-local 1 um
   cube after the microtubule blocks; `BlockKey` {cx, cy, structure, element, block}. The label linkage at label indices
   16-19. **ABI 13:** `ISC_STRUCT_NPC` 1, `ISC_STRUCT_ORIGAMI_SITES` 2, `ISC_STRUCT_COUNT` 3 (kinetics rows 1 + 6 x 3),

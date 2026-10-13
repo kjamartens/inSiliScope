@@ -9,8 +9,8 @@
           "paint": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "imagerNm": 1.0, "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014"],
                      "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s (half-time 35 ms) keeps the pre-issue-16 default look (estimate); 9 nt docking strands bind for ~0.3-1 s. imagerNm 1 nM: about the emitters per frame of the dSTORM and PALM typical labels (estimate, 2026-10-07)." } },
         { "id": "npcs", "name": "Nuclear pores", "prefix": "npc", "structure": 1,
-          "paint": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "imagerNm": 1.0, "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014", "schlichthaerle2019"],
-                     "notes": "As the microtubules' (estimate: k_on of 9-10 nt imagers, onSec 0.05 s, 1 nM), so the default two-target movie keeps its look; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)." } }
+          "paint": { "konPerMPerSec": 1.0e6, "onSec": 0.05, "imagerNm": 2.5, "refs": ["jungmann2010", "schnitzbauer2017", "jungmann2014", "schlichthaerle2019"],
+                     "notes": "k_on and onSec as the microtubules' (estimate: 9-10 nt imagers, 0.05 s). imagerNm 2.5 nM (estimate, chosen 2026-10-13; was 1 nM): 2.5x the binding of 1 nM, about 2-3 pore blinks per frame over the bottom of a nucleus; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)." } }
       ]
     },
     {

@@ -191,7 +191,7 @@ Specimen: a field of cells with their labelled structures.
 | `Microtubules_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `Microtubules_Binder` | Advanced | IgG2-PAINT | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the microtubules' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
 | `NuclearPores_LabelingPct` | Advanced | 60 | 0 .. 100 | Labelled fraction of the nuclear pores' sites, % (a mode change sets its suggestion). |
-| `NuclearPores_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `NuclearPores_ImagerNanoMol` | Advanced | 2.5 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `NuclearPores_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `NuclearPores_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `NuclearPores_Binder` | Advanced | SNAP-Halo | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear pores' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
@@ -199,7 +199,7 @@ Specimen: a field of cells with their labelled structures.
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
-| `NuclearPoreDensityPerUm2` | Advanced | 12 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (12; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
+| `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
 | `IndexMedium` | Advanced | 1.337 | 1 .. 2 | Refractive index of the medium (BrightField). |
 | `IndexCytoplasm` | Advanced | 1.35 | 1 .. 2 | Refractive index of the cytoplasm (BrightField). |
 | `IndexNucleus` | Advanced | 1.35 | 1 .. 2 | Refractive index of the nucleus (BrightField). |
@@ -229,7 +229,7 @@ Specimen: a field of cells with their labelled structures.
 | `MicrotubuleStartDecayPct` | Expert | 1.6 | 0.05 .. 10 | Microtubule starts: decay length, % of the cell radius. |
 | `MicrotubuleEndDecayPct` | Expert | 20 | 0.5 .. 50 | Microtubule ends: decay length, % of the cell radius. |
 | `MicrotubuleDirKappa` | Expert | 1.5 | 0 .. 10 | Microtubule direction concentration (von Mises kappa). |
-| `NuclearPoreMinDistNm` | Expert | 120 | 0 .. 500 | Smallest centre distance of two pores, nm (120: about a pore's diameter). |
+| `NuclearPoreMinDistNm` | Expert | 180 | 0 .. 500 | Smallest centre distance of two pores, nm (180; a pore is about 120 across). |
 | `NuclearPoreRadiusNm` | Expert | 53.5 | 20 .. 150 | Radius of a pore's Nup96 rings, nm. |
 | `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
 | `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |

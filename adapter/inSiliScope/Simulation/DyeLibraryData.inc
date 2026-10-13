@@ -298,7 +298,7 @@ static const DyeData kDyes[] = {
 // kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
 static const TargetData kTargets[] = {
    { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 1000000.0, 0.05, 1.0, 3 },
-   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 }, 1000000.0, 0.05, 1.0, 7 },
+   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 }, 1000000.0, 0.05, 2.5, 7 },
    { "docking", "Docking strands", "ruler", "Nanorulers", 2, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, 1000000.0, 0.28853900817779266, 20.0, -1 },
 };
 // The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is

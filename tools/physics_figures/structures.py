@@ -453,7 +453,7 @@ def pore_dyes(ctx, tag, pore, pores, opts, half=0.12):
 
 
 def pores_of(ctx):
-    cell, rg = cell_with_nucleus(ctx, "geo", {"npc-density": 12}, size=2)[0]
+    cell, rg = cell_with_nucleus(ctx, "geo", {}, size=2)[0]
     pores = cell["npcs"]
     P = np.asarray(pores, float)
     return cell, rg, pores, P, pores[int(np.argmin(P[:, 5]))]   # the most downward-facing pore: seen from below
@@ -502,7 +502,7 @@ def struct_npc(ctx):
     body = ctx.plot("", draw, h=3.0, alt="Nuclear pores on a nucleus and the dyes of one pore")
     return figure(body,
                   "Nuclear pores from the core (`--geometry-json` with detail, `--dyes-json`). Left: one cell's pores "
-                  "(12 per µm² of envelope, the default) over its nucleus, uniform by area over the whole envelope; "
+                  "(8 per µm² of envelope and at least 180 nm apart, the defaults) over its nucleus, uniform by area over the whole envelope; "
                   "the lower envelope is the one near the coverslip. Middle and right: the dyes of its most "
                   "downward-facing pore with every site labelled, in the pore's frame: 8 corners of 2 x 4 sites per "
                   "ring at 53.5 nm (Nup96 [[thevathasan2019](../references.md#thevathasan2019)]), the cytoplasmic "
