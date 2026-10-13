@@ -409,6 +409,8 @@ export const DYE_DATA = {
   },
   {
    "id": "PAINT-640",
+   "bfpPosition": 0.95,
+   "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
    "name": "DNA-PAINT, red (640 nm 1 kW/cm², 676/37)",
    "lasers": {
     "640": 1
@@ -420,6 +422,8 @@ export const DYE_DATA = {
   },
   {
    "id": "PAINT-561",
+   "bfpPosition": 0.95,
+   "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
    "name": "DNA-PAINT, orange (561 nm 1 kW/cm², 600/37)",
    "lasers": {
     "561": 1
@@ -431,6 +435,8 @@ export const DYE_DATA = {
   },
   {
    "id": "PAINT-488",
+   "bfpPosition": 0.95,
+   "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
    "name": "DNA-PAINT, green (488 nm 1 kW/cm², 525/45)",
    "lasers": {
     "488": 1
@@ -1667,7 +1673,11 @@ export const DYE_DATA = {
       "notes": "k_on as the microtubules' (estimate). onSec = 0.2 s / ln 2: a bound half-time of 200 ms (estimate, chosen 2026-10-12), in the order of 9 nt docking strands (~0.3-1 s mean). imagerNm 20 nM (estimate, chosen 2026-10-12): a rod with 12 strands binds every ~4 s."
      }
     }
-   ]
+   ],
+   "illumination": {
+    "bfpPosition": 1.03,
+    "notes": "TIRF in place of a DNA-PAINT light preset's HILO: the rods lie on the coverslip; 1.03 is under the 1.40 objective's pupil edge (1.047 with water, 1.337) and gives d ~ 150 nm at 640 nm (axelrod1981); estimate (no source for the exact position)."
+   }
   }
  ],
  "specimenDefault": "CellField",

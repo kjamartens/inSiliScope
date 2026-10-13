@@ -513,6 +513,41 @@
       "doi": "10.1021/nl203503s",
       "use": "bending rigidities of four- and six-helix origami bundles by magnetic tweezers, greatly increased over duplex DNA (abstract); one of the measurements chhabra2020 summarises",
       "checked": "citation and abstract via PubMed; the numbers are taken from chhabra2020's summary, not read from this paper"
+    },
+    "axelrod1981": {
+      "authors": "Axelrod D",
+      "year": 1981,
+      "title": "Cell-substrate contacts illuminated by total internal reflection fluorescence",
+      "journal": "Journal of Cell Biology", "volume": "89", "pages": "141-145",
+      "doi": "10.1083/jcb.89.1.141", "pmcid": "PMC2111781",
+      "use": "the evanescent wave I = I0 exp(-z/d) and its decay depth d = lambda / (4 pi n2) (sin^2 theta / sin^2 theta_c - 1)^(-1/2) (eq. 1, 2), i.e. lambda / (4 pi n_s sqrt(u^2 - 1)) with the BFP position u; d diverges at the critical angle; the check value theta = 72.5 deg, n1 = 1.44, theta_c = 67.5 deg, 514.5 nm: d = 120 nm (Fig. 2, Methods)",
+      "checked": "equations, the check value and the statements read from the Europe PMC full text (PMC2111781)"
+    },
+    "axelrod2001": {
+      "authors": "Axelrod D",
+      "year": 2001,
+      "title": "Total internal reflection fluorescence microscopy in cell biology",
+      "journal": "Traffic", "volume": "2", "pages": "764-774",
+      "doi": "10.1034/j.1600-0854.2001.21104.x",
+      "use": "objective-type TIRF through a high-NA objective; the evanescent intensities at the interface for s and p polarisation, I_s(0) = 4 cos^2 theta / (1 - n^2), I_p(0) = 4 cos^2 theta (2 sin^2 theta - n^2) / (n^4 cos^2 theta + sin^2 theta - n^2), n = n2 / n1 (relative to the incident intensity): 4 and 4 / n^2 at the critical angle",
+      "checked": "citation and abstract via PubMed (not open access); the intensity formulas are the standard Fresnel results, checked for continuity with the transmitted Fresnel coefficients at the critical angle, not read from this paper's full text"
+    },
+    "tokunaga2008": {
+      "authors": "Tokunaga M, Imamoto N, Sakata-Sogawa K",
+      "year": 2008,
+      "title": "Highly inclined thin illumination enables clear single-molecule imaging in cells",
+      "journal": "Nature Methods", "volume": "5", "pages": "159-161",
+      "doi": "10.1038/nmeth1171",
+      "use": "HILO: a highly inclined, thin beam (refracted at the coverslip) lights a sheet through the sample; about eightfold the signal-to-background of epi illumination (abstract). The sheet geometry here (thickness = beam FWHM / (tan theta_s cos theta_i) on the axis) is derived, not taken from the paper",
+      "checked": "citation and abstract via PubMed (not open access)"
+    },
+    "bornwolf1999": {
+      "authors": "Born M, Wolf E",
+      "year": 1999,
+      "title": "Principles of Optics, 7th edition",
+      "journal": "Cambridge University Press", "volume": "", "pages": "",
+      "use": "Fresnel amplitude transmission coefficients t_s = 2 n1 cos theta_i / (n1 cos theta_i + n2 cos theta_t), t_p = 2 n1 cos theta_i / (n2 cos theta_i + n1 cos theta_t) (section 1.5.2); Snell's law; the sine condition (the BFP radius ~ n sin theta)",
+      "checked": "standard textbook results, written from the formulas (not checked against the book itself)"
     }
   }
 }

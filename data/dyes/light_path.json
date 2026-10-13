@@ -443,6 +443,8 @@
     },
     {
       "id": "PAINT-640",
+      "bfpPosition": 0.95,
+      "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
       "name": "DNA-PAINT, red (640 nm 1 kW/cm², 676/37)",
       "lasers": {
         "640": 1.0
@@ -453,6 +455,8 @@
     },
     {
       "id": "PAINT-561",
+      "bfpPosition": 0.95,
+      "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
       "name": "DNA-PAINT, orange (561 nm 1 kW/cm², 600/37)",
       "lasers": {
         "561": 1.0
@@ -463,6 +467,8 @@
     },
     {
       "id": "PAINT-488",
+      "bfpPosition": 0.95,
+      "bfpNotes": "HILO (illum-bfp 0.95: the spot at 95 % of the critical radius), the usual way to image DNA-PAINT in cells (tokunaga2008): it cuts the free-imager background to about a sheet's worth; estimate (no source for the exact position).",
       "name": "DNA-PAINT, green (488 nm 1 kW/cm², 525/45)",
       "lasers": {
         "488": 1.0

@@ -21,6 +21,7 @@ import { DYE_DATA, DYE_IDS, DYE_CHOICES, DYE_NONE, DYE_FIELDS, MODES, EXCITATION
 import { ORIENTATION_MODES, MOTION_MODES, makeLabel, LEGACY_LINKAGE } from './dyes.js';
 import { ORIGAMI_DESIGNS, ORIGAMI_DEFAULTS, ORIGAMI_PARAM_NAMES, SPECIMEN_NANORULERS, normalizeOrigamiParams } from './origami.js';
 import { sampleAt } from './spectra.js';
+import { makeExcitation, ILLUM_PROFILES } from './excitation.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
 export const LINKAGE_PRESET_IDS = DYE_DATA.linkagePresets.map(q => q.id);
@@ -119,8 +120,11 @@ export const SCOPE_OPTIONS = [
   ['laser-custom-nm', 0, 'wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)'],
   ['laser-custom', 0, 'its intensity, kW/cm^2'],
   ['light-preset', 0, 'Lasers.Preset: auto (0, the default) = the light presets of the labelled targets\' dyes in their modes combined: each laser line at its highest power over them, the filters of the one preset, or the multi-band set (light_path.json multiTarget) when the presets\' filters differ; -1 = none (the laser/dichroic/filter options as given); or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give.'],
-  ['illum-geometry', 0, 'Lasers.IlluminationGeometry: 0 Epi (TIRF/HILO: future)'],
-  ['chamber-height-um', 5, 'Lasers.ChamberHeightUm: imager solution depth that adds to the DNA-PAINT background (Epi: the whole chamber; small by default, standing in for HILO/TIRF)'],
+  ['illum-profile', 2, 'Lasers.IlluminationProfile: the cross-section of the beam, 0 Flat, 1 Gaussian, 2 FlatTop (a soft-edged disc; names accepted)'],
+  ['illum-fwhm', 100, 'Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the width of the field of view'],
+  ['illum-bfp', 0, 'Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)'],
+  ['illum-geometry', 0, 'deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)'],
+  ['chamber-height-um', 100, 'Lasers.ChamberHeightUm: depth of the imager solution over the coverslip (estimate: a tape/flow chamber), um; the DNA-PAINT free-imager background is its column integral of the excitation (epi: all of it; HILO: the sheet; TIRF: ~ the penetration depth)'],
   ['ex-filter', idx(EXCITATION_FILTER_IDS, DYE_DATA.lightPathDefaults.excitationFilter), 'ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)'],
   ['ex-lo-nm', 635, 'ExcitationFilter Custom band pass, low edge'],
   ['ex-hi-nm', 645, 'ExcitationFilter Custom band pass, high edge'],
@@ -188,7 +192,7 @@ export const SCOPE_OPTIONS = [
   ['bf-wavelength-nm', 550, 'TransmittedLamp.WavelengthNm: illumination wavelength (the camera QE is read there)'],
   ['bf-photons-per-px-per-sec', 80000, 'TransmittedLamp.IntensityPhotonsPerPxPerSec: empty-field photons per pixel per second'],
   ['bf-aberrations', 1, 'TransmittedLamp.UseObjectiveAberrations: 1 = the PSF\'s Zernike aberrations in the detection pupil, 0 = none'],
-  ['bf-n-medium', 1.337, 'CellField.IndexMedium: refractive index of the medium'],
+  ['bf-n-medium', 1.337, 'CellField.IndexMedium: refractive index of the medium (BrightField; the critical angle of illum-bfp)'],
   ['bf-n-cytoplasm', 1.35, 'CellField.IndexCytoplasm'],
   ['bf-n-nucleus', 1.35, 'CellField.IndexNucleus'],
   ['bf-n-microtubule', 1.48, 'CellField.IndexMicrotubule (12.5 nm tubes)'],
@@ -223,7 +227,7 @@ const NAMES = {
   'origami-design': ORIGAMI_DESIGNS.map(d => d.id), 'origami-roll': ['Uniform', 'Fixed'],
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
-  'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'],
+  'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'], 'illum-profile': ILLUM_PROFILES,
 };
 const DYE_OVERRIDE = /^(?:([a-z]+)-dye|dye([1-3]))\.([a-z0-9-]+)$/;
 
@@ -405,6 +409,25 @@ export function scopeLightPath(spec, camera = scopeCamera(spec)) {
     qeFlat: camera.qeFlat, na: O('na'), immersionIndex: O('immersion-index'), chamberHeightUm: Math.max(0, O('chamber-height-um')) });
 }
 
+// The BFP position a spec asks for (ScopeBfpPosition): illum-bfp, else the light preset's bfpPosition (DNA-PAINT:
+// HILO) with the mounted specimen's illumination.bfpPosition in its place when it has one (the nanorulers: TIRF); 0
+// (epi) without a preset or when the preset has none.
+export function scopeBfpPosition(spec) {
+  if ('illum-bfp' in spec) return Math.max(0, spec['illum-bfp']);
+  const q = scopeLightPreset(spec);
+  if (!q || q.bfpPosition === undefined) return 0;
+  const sp = DYE_DATA.specimens[Math.trunc(getter(spec)('specimen'))];
+  return Math.max(0, sp && sp.illumination && sp.illumination.bfpPosition !== undefined ? sp.illumination.bfpPosition : q.bfpPosition);
+}
+// The excitation geometry of a spec (MakeScopeExcitation, excitation.js): the beam profile over the FOV, the BFP
+// position, the objective and the medium; the HILO sheet pivots at the focal plane (focus-um + z).
+export function scopeExcitation(spec) {
+  const O = getter(spec), { width: W } = scopeDims(spec);
+  return makeExcitation({ profile: Math.trunc(O('illum-profile')), fwhmPct: Math.min(300, Math.max(10, O('illum-fwhm'))),
+    fovWidthUm: W * O('pixel-nm') / 1000.0, bfp: scopeBfpPosition(spec), na: O('na'), nImm: O('immersion-index'),
+    nMed: O('bf-n-medium'), pivotUm: O('focus-um') + O('z') });
+}
+
 // Dye overrides of a spec: { slots: [{source, overrides}] x 3, structure prefix -> overrides }.
 function dyeOverrides(spec) {
   const O = getter(spec);
@@ -421,7 +444,8 @@ function dyeOverrides(spec) {
 // An off target (scopeTargetOn false): no dyes (density 0), no states (no PSF group, no population), no imager.
 function offLabel(eff) {
   return { label: makeLabel({ density: 0, mode: eff.mode }), mode: eff.mode, dye: null, off: true, states: {}, kActPerSec: 0,
-    excitationScale: 1, onSecNow: 0, photonBudget: 0, prePhotonBudget: 0, imagerBackgroundPerPxPerSec: () => 0, notes: null };
+    excitationScale: 1, onSecNow: 0, photonBudget: 0, prePhotonBudget: 0, imagerBackgroundPerPxPerSec: () => 0,
+    imagerPerPxPerUmPerSec: () => 0, notes: null };
 }
 // A target's label linkage (dyes.js linkedDye): its <prefix>-binder preset (Legacy: the structure's built-in numbers),
 // then each of -binder-nm, -binder-flex-nm, -linker-min-nm, -linker-max-nm that is >= 0; null for a target with no
@@ -469,6 +493,7 @@ export function scopeSetup(P, spec) {
   const lights = scopeLights(spec);
   const brightField = lights.trans && !lights.epi;   // both: the fluorescence chain at QE 1, the lamp's photons x its QE
   const labels = scopeLabels(spec, lp);
+  const excite = scopeExcitation(spec);
   // Fluorescence: the photon image is already in detected photons (QE(lambda) in each dye's detected fraction), so
   // the noise chain runs at QE 1; the flat background takes the QE at the emission filter's centre. BrightField:
   // the QE at its lamp wavelength.
@@ -521,7 +546,7 @@ export function scopeSetup(P, spec) {
     q.y0Um -= b.yHi / 1000.0; q.y1Um -= b.yLo / 1000.0;
     if (q.zHalfRangeUm > 0.0) q.zHalfRangeUm += Math.max(-b.zLo, b.zHi) / 1000.0;
   }
-  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, mounted, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
+  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, excite, mounted, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
       maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
     blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),

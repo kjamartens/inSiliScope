@@ -129,13 +129,19 @@ export function statePhotophysics(st, lp) {
   const sp = stateSpectra(st);
   if (!sp.ex || !sp.em) throw new Error('state without spectra');
   let kExc = 0;
-  for (const l of lp.lasers)
-    kExc += crossSectionUm2(st.extCoeff, sp.ex, l.nm) * photonFluxPerUm2(l.kWPerCm2 * (1 - sampleAt(lp.dichroic.T, l.nm)), l.nm);
+  const perLine = [];
+  for (const l of lp.lasers) {
+    const k = crossSectionUm2(st.extCoeff, sp.ex, l.nm) * photonFluxPerUm2(l.kWPerCm2 * (1 - sampleAt(lp.dichroic.T, l.nm)), l.nm);
+    kExc += k;
+    perLine.push({ nm: l.nm, k });
+  }
   const kEm = st.qy * kExc;
+  // Each line's share of the excitation (excitation.js: TIRF's depth depends on the wavelength).
+  const lineShares = kExc > 0 ? perLine.filter(l => l.k > 0).map(l => ({ nm: l.nm, share: l.k / kExc })) : [];
   const det = detection(sp.em, [lp.dichroic.T, lp.emissionFilter.T, lp.qe]);
   const lambdaNm = Number.isFinite(det.lambdaNm) ? det.lambdaNm : st.emMaxNm;
   return { excitationPerSec: kExc, emissionPerSec: kEm, detectedFraction: det.fraction, lambdaNm,
-    detectedPerSec: kEm * lp.eta * det.fraction, color: st.emHex };
+    detectedPerSec: kEm * lp.eta * det.fraction, color: st.emHex, lineShares };
 }
 
 // The world label (dyes.js makeLabel) and the per-state photophysics of a structure's dye in its mode.
@@ -177,8 +183,11 @@ export function labelPhotophysics(eff, lp, o) {
   return {
     label, mode, dye, states, kActPerSec: kAct, excitationScale, onSecNow: kin.onSec,
     photonBudget: m.photonBudget ?? (mode === 'WideField' ? 100000 : 0), prePhotonBudget: m.prePhotonBudget ?? 0,
-    // Free imager in solution: uniform, c x N_A x chamber height x pixel area x its detected rate (no depletion, no
-    // exclusion from cells; schnitzbauer2017).
+    // Free imager in solution: uniform, c x N_A x pixel area x its detected rate per um of lit column (no depletion,
+    // no exclusion from cells; schnitzbauer2017); x the chamber height for epi (imagerBackgroundPerPxPerSec), x the
+    // column integral of the excitation (excitation.js column) otherwise.
+    imagerPerPxPerUmPerSec: pixelUm => mode === 'DNA-PAINT' && main
+      ? Math.max(0, o.imagerNm) * AVOGADRO_PER_NM_UM3 * pixelUm * pixelUm * main.detectedPerSec : 0,
     imagerBackgroundPerPxPerSec: pixelUm => mode === 'DNA-PAINT' && main
       ? Math.max(0, o.imagerNm) * AVOGADRO_PER_NM_UM3 * lp.chamberHeightUm * pixelUm * pixelUm * main.detectedPerSec : 0,
     notes: m.notes ?? null,

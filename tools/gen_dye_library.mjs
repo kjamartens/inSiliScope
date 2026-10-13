@@ -191,7 +191,7 @@ const data = {
   dstormReference: library.dstormReference,
   dyes,
   dyeDefault: library.default,
-  specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets })),
+  specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets, ...(sp.illumination ? { illumination: sp.illumination } : {}) })),
   specimenDefault: specimens.default,
   typicalLabels,
   linkagePresets,

@@ -1,0 +1,102 @@
+// The excitation geometry's checks (Node, seconds; web/prototype/scope/excitation.js): the BFP slider's physics and
+// its effect on movies. Part of web/lab/check.mjs.
+//   node web/lab/excitation_check.mjs
+// Checks: epi = the in-plane profile; the field factor continuous at the critical angle; the decay depth against
+// Axelrod 1981's example (120 nm); the plane means and column integrals against quadrature; HILO's sheet; a clipped
+// spot is dark; in movies, TIRF keeps the coverslip's dyes and loses the cell's, and cuts DNA-PAINT's imager background.
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { makeExcitation } from '../prototype/scope/excitation.js';
+import { renderScopeMovie } from '../prototype/scope/scope_movie.js';
+import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+let fail = 0;
+const bad = m => { console.log('FAIL ' + m); fail++; };
+const near = (a, b, tol, what) => { if (!(Math.abs(a - b) <= tol * Math.max(1, Math.abs(b)))) bad(`${what}: ${a} vs ${b}`); };
+const t0 = performance.now();
+const base = { profile: 2, fwhmPct: 100, fovWidthUm: 12.8, na: 1.49, nImm: 1.518, nMed: 1.337, pivotUm: 0 };
+const red = [{ nm: 640, share: 1 }];
+
+// Epi: F = 1, no depth dependence, the footprint is the profile.
+{
+  const e = makeExcitation({ ...base, bfp: 0 });
+  if (e.regime !== 'Epi') bad(`bfp 0: regime ${e.regime}`);
+  near(e.F, 1, 1e-15, 'epi field factor');
+  near(e.at(3, 1, 2.5, red), e.profileAt(3, 1), 1e-15, 'epi = the profile');
+  near(e.at(0, 0, 0, red), 1, 1e-12, 'epi peak');
+  near(e.profileAt(6.4, 0), 0.5, 2e-3, 'FlatTop half maximum at FWHM / 2 (peak-normalised)');
+  if (!makeExcitation({ ...base, profile: 0, bfp: 0 }).uniform) bad('Flat epi is not uniform');
+}
+// Continuity at the critical angle (U_GAP either side) and the TIRF maximum about 4x.
+{
+  const lo = makeExcitation({ ...base, bfp: 0.999 }), hi = makeExcitation({ ...base, bfp: 1.001 });
+  if (lo.regime !== 'HILO' || hi.regime !== 'TIRF') bad(`regimes ${lo.regime} / ${hi.regime}`);
+  // The transmitted side approaches the common limit like sqrt(1 - u) (cos theta_s), the evanescent side linearly:
+  // both move towards it as the gap closes, and the limit is the mean of 4 (s) and 4 / n^2 (p) over t(0)^2.
+  const n = base.nMed / base.nImm, t0 = 2 * base.nImm / (base.nImm + base.nMed), lim = (4 + 4 / (n * n)) / 2 / (t0 * t0);
+  const far = makeExcitation({ ...base, bfp: 0.99 }), farHi = makeExcitation({ ...base, bfp: 1.01 });
+  if (!(far.F < lo.F && lo.F < lim && farHi.F < hi.F && Math.abs(hi.F - lim) < 0.02 * lim))
+    bad(`field factor near the critical angle: ${far.F} ${lo.F} | limit ${lim} | ${hi.F} ${farHi.F}`);
+}
+// Axelrod 1981 (Fig. 2, Methods): theta 72.5 deg in n1 = 1.44, theta_c 67.5 deg, 514.5 nm: d = 120 nm.
+{
+  const n1 = 1.44, n2 = n1 * Math.sin(67.5 * Math.PI / 180), u = n1 * Math.sin(72.5 * Math.PI / 180) / n2;
+  const e = makeExcitation({ ...base, nImm: n1, nMed: n2, bfp: u });
+  near(e.depthNm(514.5), 120, 0.01, 'Axelrod 1981 decay depth');
+}
+// Plane means and column integrals against quadrature (TIRF, two lines; HILO).
+{
+  const two = [{ nm: 640, share: 0.7 }, { nm: 405, share: 0.3 }];
+  const e = makeExcitation({ ...base, bfp: 1.05 });
+  let q = 0;
+  const n = 20000, z0 = 0.05, z1 = 0.075;
+  for (let i = 0; i < n; i++) q += e.depth(z0 + (i + 0.5) * (z1 - z0) / n, two) / n;
+  near(e.depthMean(z0, z1, two), q, 1e-9, 'TIRF plane mean');
+  let c = 0;
+  for (let i = 0; i < n; i++) c += e.at(1, 2, (i + 0.5) * 5 / n, two) * 5 / n;
+  near(e.column(1, 2, 5, two), c, 1e-6, 'TIRF column integral');
+  const h = makeExcitation({ ...base, bfp: 0.9, pivotUm: 2 });
+  let ch = 0;
+  for (let i = 0; i < 200000; i++) ch += h.at(1, 2, (i + 0.5) * 100 / 200000, red) * 100 / 200000;
+  near(h.column(1, 2, 100, red), ch, 1e-3, 'HILO column integral');
+  // The sheet: on the axis, lit around the pivot, dark a sheet thickness above it.
+  const t = h.depthNm() / 1000;
+  if (!(h.at(0, 0, 2, red) > 0.9 * h.F) || !(h.at(0, 0, 2 + t, red) < 0.01 * h.F)) bad(`HILO sheet: thickness ${t} um`);
+  const ep = makeExcitation({ ...base, bfp: 0 });
+  if (!(h.column(0, 0, 100, red) < 0.2 * ep.column(0, 0, 100, red))) bad('HILO column not well below epi');
+}
+// A spot beyond the pupil edge: no light.
+{
+  const e = makeExcitation({ ...base, na: 1.4, bfp: 1.1 });
+  if (e.regime !== 'Clipped' || e.at(0, 0, 0, red) !== 0 || e.column(0, 0, 10, red) !== 0) bad('clipped spot is not dark');
+}
+const unitMs = performance.now() - t0;
+
+// Movies: TIRF vs epi on the cells (microtubules in WideField mode: every dye shows), DNA-PAINT background.
+const P = loadPrototype(fs.readFileSync(path.join(ROOT, 'web/prototype/index.html'), 'utf8'),
+  fs.readFileSync(path.join(ROOT, 'web/prototype/microtubules.js'), 'utf8'));
+const sum = spec => {
+  let s = 0, info = null;
+  info = renderScopeMovie(P, spec, (f, adu, photons) => { for (let i = 0; i < photons.length; i++) s += photons[i]; });
+  return { s, info };
+};
+const t1 = performance.now();
+const K = 'psf-kernel-half-width-nm=1500 size=32 frames=1 npc-dye=None';
+const wf = `${K} mt-dye=ATTO655 mt-mode=WideField z=0.1`;
+const epi = sum(`${wf} illum-bfp=0`), tirf = sum(`${wf} illum-bfp=1.03`), hilo = sum(`${wf} illum-bfp=0.95`);
+console.log(`WideField microtubules, photons: epi ${epi.s.toExponential(3)}, HILO ${hilo.s.toExponential(3)}, TIRF ${tirf.s.toExponential(3)} (d ${tirf.info.excitation.depthNm.toFixed(0)} nm)`);
+// Per unit of the interface's intensity (the field factor), TIRF keeps only the dyes near the coverslip.
+if (!(tirf.s / tirf.info.excitation.fieldFactor < 0.5 * epi.s)) bad('TIRF does not dim the cell (microtubules above the evanescent layer)');
+const pt = 'specimen=Nanorulers psf-kernel-half-width-nm=1500 size=32 frames=2 ruler-label-pct=100';
+const pe = sum(`${pt} illum-bfp=0`), ptirf = sum(`${pt} illum-bfp=1.03`), pdef = sum(pt);
+const bgE = pe.info.imagerBackgroundPerPxPerFrame, bgT = ptirf.info.imagerBackgroundPerPxPerFrame;
+console.log(`Nanorulers DNA-PAINT: imager background per px per frame epi ${bgE.toFixed(1)}, TIRF ${bgT.toFixed(2)}; default ${pdef.info.excitation.regime} (bfp ${pdef.info.excitation.bfp})`);
+if (!(bgT < 0.01 * bgE)) bad('TIRF does not cut the free-imager background a hundredfold');
+if (pdef.info.excitation.regime !== 'TIRF') bad(`nanorulers' default illumination ${pdef.info.excitation.regime}`);
+const clipped = sum(`${pt} na=1.4 illum-bfp=1.1 background-per-sec=0`);
+console.log(`clipped (NA 1.40, bfp 1.1): photons ${clipped.s.toExponential(3)}`);
+if (clipped.s !== 0) bad('a clipped spot lights the sample');
+console.log(`excitation check: units ${unitMs.toFixed(0)} ms, movies ${(performance.now() - t1).toFixed(0)} ms: ${fail ? fail + ' failure(s)' : 'PASS'}`);
+process.exit(fail ? 1 : 0);

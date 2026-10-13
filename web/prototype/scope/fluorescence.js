@@ -28,9 +28,10 @@ const MIN_DETECTED_FRACTION = 1e-4;   // a (structure, state) detected less than
 
 const gaussianSigmaPx = (lambdaNm, na, pixelNm) => Math.min(Math.max(0.21 * lambdaNm / Math.max(0.01, na) / pixelNm, 0.3), 20.0);
 
-// One unit-photon emitter (sign +1 or -1) into img at its plane: the running image's add/remove (dxPx, dyPx: the
-// sample drift).
+// One unit-photon emitter (sign +1 or -1, x its excitation factor g.excite) into img at its plane: the running image's
+// add/remove (dxPx, dyPx: the sample drift).
 function splatUnit(img, W, H, e, g, zStage, pixelNm, sign, dxPx = 0.0, dyPx = 0.0) {
+  if (g.excite) { sign *= g.excite(e.xUm, e.yUm, e.zNm); if (sign === 0) return; }
   const xPx = e.xUm * 1000.0 / pixelNm + dxPx, yPx = e.yUm * 1000.0 / pixelNm + dyPx;
   if (!g.kernel) { renderGaussian(img, W, H, xPx, yPx, g.sigmaPx, sign); return; }
   const plan = planSplat(g.kernel, nearestZIndex(g.kernel, e.zNm / 1000.0 - zStage), xPx, yPx, 1.0, g.kernel.interpMode);
@@ -45,6 +46,10 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const t0 = performance.now();
   const W = S.W, H = S.H, N = S.N, pixelNm = S.p.pixelSizeNm, um = pixelNm / 1000, zStage = S.O('z');
   const world = scopeWorld(P, S);
+  // The excitation factor of a dye state at (xUm, yUm, zNm) in the FOV frame (excitation.js; the axis at the FOV
+  // centre, z = height above the coverslip); null when it is 1 everywhere (a Flat beam at the BFP centre).
+  const EX = S.excite, axisX = (W - 1) / 2 * um, axisY = (H - 1) / 2 * um, zRef = S.q.zRefUm;
+  const exciteFor = shares => EX.uniform ? null : (x, y, zNm) => EX.at(x - axisX, y - axisY, zNm / 1000.0 + zRef, shares);
   // Drift: the sample moved by d, the focal plane dz lower in it (zAt); mean-field images on the drift's focus grid,
   // the lit square and grid grown by the xy drift (DriftMarginUm).
   const drift = S.driftOn;
@@ -70,6 +75,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     const kernel = scopeKernel(spec, lambdaNm, opts.onProgress && ((k, nz) => opts.onProgress('psf', (k + 1) / nz)), wanted.length + 1);
     // blinkKernel: with the halo cut (psf-halo-cut), for the blinks; the continuous populations keep kernel.
     const g = { structure: w.s, role: w.role, lambdaNm, kernel, blinkKernel: kernel && withHaloCut(kernel, S.O('psf-halo-cut')), sigmaPx: gaussianSigmaPx(lambdaNm, S.p.na, pixelNm),
+      shares: w.st.lineShares, excite: exciteFor(w.st.lineShares),
       detectedFraction: w.st.detectedFraction, detectedPerSec: w.st.detectedPerSec, perFrame: w.st.detectedPerSec * S.expSec };
     groups.push(g);
     groupOf.set(`${w.s},${w.role}`, g);
@@ -207,11 +213,29 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const maps = noiseMaps(S.seed, W, H, S.cam);
   const imagerPerFrame = S.labels.reduce((sum, L, s) => sum + (S.mounted.includes(s) ? L.imagerBackgroundPerPxPerSec(um) : 0), 0) * S.expSec;
   const bg = S.p.backgroundPhotons + imagerPerFrame;
+  // A shaped excitation (not uniform): the background per pixel -- the flat background x the beam's footprint on the
+  // coverslip (no field factor; it includes stray light), plus each DNA-PAINT label's free imager x the excitation's
+  // column integral over the chamber (epi: its height; HILO: the sheet; TIRF: ~ the decay depth).
+  let bgMap = null, imagerMean = imagerPerFrame;
+  if (!EX.uniform) {
+    bgMap = new Float32Array(W * H);
+    const H0 = S.lp.chamberHeightUm, imagers = S.labels.filter((L, s) => S.mounted.includes(s) && L.imagerPerPxPerUmPerSec(um) > 0);
+    let sum = 0.0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const dx = x * um - axisX, dy = y * um - axisY;
+      let im = 0.0;
+      for (const L of imagers) im += L.imagerPerPxPerUmPerSec(um) * EX.column(dx, dy, H0, L.states.main.lineShares);
+      im *= S.expSec;
+      sum += im;
+      bgMap[y * W + x] = S.p.backgroundPhotons * EX.lateral(dx, dy, 0.0) + im;
+    }
+    imagerMean = sum / (W * H);
+  }
   let blinks = 0;
   const POP_NAME = { [EVENT_STATE.ALWAYS_ON]: 'WideField dyes', [EVENT_STATE.INITIAL_ON]: 'initial ON', [EVENT_STATE.PRE]: 'pre state' };
   for (let f = 0; f < N; f++) {
     const frameBlinks0 = blinks, paths = [];
-    const img = new Float32Array(W * H).fill(bg);
+    const img = bgMap ? bgMap.slice() : new Float32Array(W * H).fill(bg);
     const zf = zAt(f), [dx, dy] = dPx(f);
     let binned = false, mfBlinks = false;
     groups.forEach((g, gi) => {
@@ -219,7 +243,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       if (g.mfFrame && g.mfFrame[f]) { mfBlinks = true; return; }
       const evs = buckets[gi][f].map(i => byGroup[gi][i]);
       blinks += evs.length;
-      const o = { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx };
+      const o = { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx, excite: g.excite };
       if (binnedFrame(g, evs, f)) {
         g.binned.render(frameEmitters(evs, f, o, g.blinkKernel, zf, dx, dy), img);
         binned = true;
@@ -232,7 +256,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       const tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
       if (p.blink) {
         if (!p.g.mfFrame[f]) continue;   // drawn from its events (splat or binned)
-        if (!p.mf) { p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm); p.image = p.mf.image; }
+        if (!p.mf) { p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm, p.g.shares); p.image = p.mf.image; }
         let image = p.image;
         if (drift) {
           const d = S.drift[f], [k, w] = driftGridWeights(driftGrid, d.z);
@@ -249,7 +273,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       }
       if (isMeanField(p, f)) {
         if (!p.mf) {
-          p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm);
+          p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm, p.g.shares);
           p.image = p.mf.image;
         }
         let image = p.image;
@@ -271,7 +295,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         for (let i = 0; i < img.length; i++) if (p.acc[i] !== 0) img[i] += Math.fround(perFrame * p.acc[i]);
         // Windows that start or end inside this frame: their overlap.
         const partial = p.wins.filter(e => e.tStart < f + 1 && e.tEnd > f && !(e.tStart <= f && e.tEnd >= f + 1));
-        renderPhotonImage(W, H, partial, f, { pixelSizeNm: pixelNm, photonsPerBlink: perFrame, psfSigmaPx: p.g.sigmaPx }, p.g.kernel, zf, img, dx, dy);
+        renderPhotonImage(W, H, partial, f, { pixelSizeNm: pixelNm, photonsPerBlink: perFrame, psfSigmaPx: p.g.sigmaPx, excite: p.g.excite }, p.g.kernel, zf, img, dx, dy);
         p.perDyeFrames++;
         paths.push(`${POP_NAME[p.state]}: per dye (${p.wins.length} windows)`);
       }
@@ -286,7 +310,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   return {
     width: W, height: H, frames: N, blinks: events.length, renderedBlinks: blinks, binnedFrames, psfSec: (tPsf - t0) / 1000, querySec,
     totalSec: (performance.now() - t0) / 1000, psf: groups.some(g => g.kernel) ? 'GibsonLanniZernike' : 'Gaussian',
-    imagerBackgroundPerPxPerFrame: imagerPerFrame, driftNm: driftInfo(S),
+    imagerBackgroundPerPxPerFrame: imagerMean, driftNm: driftInfo(S),
+    excitation: { regime: EX.regime, bfp: EX.u, uMax: EX.uMax, fieldFactor: EX.F,
+      depthNm: EX.depthNm(groups.length && groups[0].shares.length ? groups[0].shares[0].nm : 640) },
     labels: S.labels.flatMap((L, s) => !S.mounted.includes(s) ? [] : [{ structure: STRUCTURES[s].id, dye: L.dye ? L.dye.id : "None", mode: L.mode, kActPerSec: L.kActPerSec,
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
         detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) }]),
