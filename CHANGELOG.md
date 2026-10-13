@@ -4,6 +4,15 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Laser intensities (MM `Lasers.Laser<nm>KWcm2`, `CustomLineKWcm2`; the viewer's laser fields) go up to 10 kW/cm^2
+  (was 100 in MM, unbounded in the viewer).
+
+- Origami site spacing and a first 2D origami (2026-10-13): `Nanorulers.SpacingNm` / `--origami-spacing-nm` / the
+  viewer's Site spacing (640, 320, 160, 80, 40, 20, 10, 5 nm; default 80 = the output as before) sets the distance
+  between neighbouring spots, and the origami grows with it (the rod keeps 20 nm ends). New design `TUDelftLogo`: a
+  rigid flat sheet lying face up with one docking strand on each of 37 hexagons of the TU Delft logo, editable as a
+  hex-map cell list in `data/origami/designs.json`. The design `Nanoruler80` is now `Nanoruler`: MM configurations
+  that name it must be re-made.
 - **seed** Nuclear pore complexes, a second cell-field target (issue 15, 2026-10-12): Nup96 pores (64 sites in two
   8-fold rings) over the whole nuclear envelope, 8 per um^2 and at least 180 nm apart by default, labelled and imaged together with the
   microtubules: by default pores in DNA-PAINT with Cy3B at 561 nm, microtubules in ATTO 655 DNA-PAINT at 640 nm, through

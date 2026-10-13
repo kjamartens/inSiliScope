@@ -55,12 +55,22 @@ nanorulers (`core/src/origami.*`) are the worked example.
 
 ## Recipe: a new DNA-origami design
 
-A design is data: add it to `data/origami/designs.json` (body, deformation, landing, spots with a ring; schema in its
-`about`), run `node tools/gen_origami_designs.mjs` (validates it and writes the core's, the JS reference's and the
+A design is data: add it to `data/origami/designs.json` (schema in its `about`), run `node tools/gen_origami_designs.mjs` (validates it and writes the core's, the JS reference's and the
 viewer's tables; `--check` in CI) and re-freeze the golden vectors if a golden case uses it. Its index is the
 `origamiDesign` param; the viewer, Micro-Manager (`Nanorulers.Design`) and the CLI list it by itself. A body, deformation
 or landing model the code does not implement yet (cuboid, 3D bending, stiffness patches, ...) is validated as "not
 implemented": add it to `origami.js` and `origami.cpp` together.
+
+Positions are in lattice steps of the site spacing (`origamiSpacingNm`, one value for all designs), so a design scales
+with it. Two kinds exist:
+
+- **A rod** (`"body": {"shape": "cylinder", "diameterNm", "endNm"}`): `spots` at `"at"` = 0, 1, 2, ... steps along the
+  axis, each a `ring` of strand positions around it; the rod reaches `endNm` beyond the outer spots.
+- **A 2D origami** (`"body": {"shape": "plate", "thicknessNm", "marginNm"}`, deformation `rigid`, landing roll `flat`): a
+  `lattice` of flat-topped hexagons (`"type": "hex"`, `cols`, `rows`, odd columns half a row down) and the `cells`
+  carrying a strand, each named `CCRR` (column, row from the top-left, both two digits), the labels a hex-map editor
+  prints. Drawing a new pattern in such an editor and pasting the labels of its filled cells is a new design; the
+  plate covers the whole map. Rows run down the image and down the screen, so the pattern reads unmirrored.
 
 ## Recipe: a new photophysics preset
 

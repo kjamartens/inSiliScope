@@ -193,8 +193,8 @@ function cellFieldFactory(SRC) {
   // microtubule's dye, 1 a nuclear pore's (only with opts.params.npcDensity > 0), 2 a nanoruler's docking strand.
   // Optional opts.params: overrides of DEFAULTS (core parameter names).
   // Optional opts.specimen: 'CellField' (default) or 'Nanorulers' (or 0 / 1): DNA-origami rods lying on the
-  // coverslip, three spots of docking strands 80 nm apart; their params (origamiDensity, origamiLpNm,
-  // origamiStrandsPerSpot, ...) in opts.params. A nanoruler window has nCells = nMt = 0 and nRulers = the molecules
+  // coverslip, three spots of docking strands 80 nm apart (origamiSpacingNm), or 2D origami (origamiDesign 1, the TU
+  // Delft logo); their params (origamiDensity, origamiLpNm, origamiStrandsPerSpot, ...) in opts.params. A nanoruler window has nCells = nMt = 0 and nRulers = the molecules
   // whose dyes can reach it; its sites are the docking strands' dyes (z ~ 13.5 nm above the coverslip).
   function buildWindow(w, h, o) {
     mod();

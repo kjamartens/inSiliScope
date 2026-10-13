@@ -238,11 +238,12 @@ const OptionTable& Options()
          { "npc-density", 8, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
+         { "origami-spacing-nm", 80, "Nanorulers.SpacingNm: lattice step between neighbouring spots, nm; the body grows with it (a rod keeps 20 nm ends; the UIs offer 640-5)" },
          { "origami-density", kOrigamiDensity, "Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them" },
          { "origami-min-spacing-nm", kOrigamiMinSpacingNm, "Nanorulers.MinSpacingNm: no two molecule centres closer than this, nm (0 = no thinning)" },
          { "origami-bend", 1, "Nanorulers.Bending: 1 = the design's in-plane worm-like-chain bending, 0 = rigid" },
          { "origami-lp-nm", kOrigamiLpNm, "Nanorulers.PersistenceLengthNm: bending persistence length, nm (estimate; measured helix bundles 0.74-8.2 um)" },
-         { "origami-strands-per-spot", kOrigamiStrandsPerSpot, "Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the design has 5)" },
+         { "origami-strands-per-spot", kOrigamiStrandsPerSpot, "Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the nanoruler has 5, a 2D origami 1)" },
          { "origami-attach-nm", kOrigamiAttachNm, "Nanorulers.AttachHeightNm: the rod's bottom above the glass, nm" },
          { "origami-linker-nm", kOrigamiLinkerNm, "Nanorulers.LinkerNm: the dye lies within this distance of its strand's anchor, outward, nm" },
          { "origami-roll", 0, "Nanorulers.Roll: 0 Uniform (each rod landed at a random roll about its axis), 1 Fixed (origami-roll-deg; names accepted)" },
@@ -481,7 +482,8 @@ std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec&
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    std::vector<std::pair<std::string, double>> v = {
-      { "specimen", O("specimen") }, { "origamiDesign", O("origami-design") }, { "origamiDensity", O("origami-density") },
+      { "specimen", O("specimen") }, { "origamiDesign", O("origami-design") }, { "origamiSpacingNm", O("origami-spacing-nm") },
+      { "origamiDensity", O("origami-density") },
       { "origamiMinSpacingNm", O("origami-min-spacing-nm") }, { "origamiBend", O("origami-bend") },
       { "origamiLpNm", O("origami-lp-nm") }, { "origamiStrandsPerSpot", O("origami-strands-per-spot") },
       { "origamiAttachNm", O("origami-attach-nm") }, { "origamiLinkerNm", O("origami-linker-nm") },

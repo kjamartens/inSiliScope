@@ -74,6 +74,7 @@ struct Params {
    // DNA-origami nanorulers (origami.h; JS origami.js ORIGAMI_DEFAULTS).
    double specimen = 0;
    double origamiDesign = 0;            // index into data/origami/designs.json
+   double origamiSpacingNm = 80;        // lattice step between neighbouring spots, nm
    double origamiDensity = 1.2;         // molecules per um^2 before thinning (estimate)
    double origamiMinSpacingNm = 0;      // Matern-II hard core between molecule centres (0 = none; 250 until 2026-10-12)
    double origamiBend = 1;              // 1 = the design's deformation, 0 = rigid

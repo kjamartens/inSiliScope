@@ -1,23 +1,41 @@
 {
   "about": [
-    "DNA-origami designs of the Nanorulers specimen (BSD-3-Clause). tools/gen_origami_designs.mjs validates them and builds the JS reference's table (web/prototype/scope/origami_designs_data.js) and the core's (core/src/origami_designs.inc); never edit those by hand. A design's index here is the core param origamiDesign.",
-    "A design is the molecule at rest: a body in its own straight frame (x along the length from -L/2 to L/2, y across it in the coverslip plane, h the height relative to the body's axis), the spots of docking strands on it (a ring of n strand positions around the body, or a strand list), how it deforms (wlc2d: the centreline is a 2D surface-equilibrated worm-like chain of persistence length Lp, cross-sections stay straight and normal to it; rigid: none) and how it lands (roll about its own axis: uniform or fixed; the height of the body's bottom above the glass).",
-    "Per molecule: rest sites -> incorporation (the label's labelling %) -> deformation -> landing (roll, heights) -> placement (position, yaw) -> emitters; every step a pure function of (seed, address). 'deformation' and 'landing' values are the suggested defaults of the origami* params (the params win).",
-    "Implemented (v1): body 'cylinder', deformation 'wlc2d' and 'rigid', roll 'uniform' and 'fixed', spots with a ring. Reserved, validated as not implemented: bodies 'cuboid', 'mesh'; deformation 'wlc3d', 'plate'; stiffnessVariation and curvaturePerUm != 0; explicit strand lists ('strands')."
+    "DNA-origami designs of the Nanorulers specimen (BSD-3-Clause). tools/gen_origami_designs.mjs validates them and builds the JS reference's table (web/prototype/scope/origami_designs_data.js), the core's (core/src/origami_designs.inc) and the viewer's (web/origami_designs.js); never edit those by hand. A design's index here is the core param origamiDesign.",
+    "A design is the molecule at rest: a body in its own straight frame (x along the length, y across it in the coverslip plane, h the height relative to the body's mid-plane), the spots of docking strands on it, how it deforms (wlc2d: the centreline is a 2D surface-equilibrated worm-like chain of persistence length Lp, cross-sections stay straight and normal to it; rigid: none) and how it lands (roll about its own axis: uniform or fixed; flat: a plate lies face up; the height of the body's bottom above the glass).",
+    "Spots sit on a lattice whose step is the param origamiSpacingNm (one value for every design; 80 nm by default), and the body grows with it. A rod ('cylinder') has its spots at 'at' = 0, 1, 2, ... lattice steps along its axis and endNm of rod beyond the first and last spot: length = (last - first) x spacing + 2 endNm. A plate ('plate') carries a lattice: 'hex' = flat-topped hexagons, neighbour centres one spacing apart, columns spacing x sqrt(3)/2 apart, odd columns half a step down ('odd-q-down'), cells named 'CCRR' (column, row from the top-left, as a hex-map editor labels them); the plate is the bounding box of all cols x rows hexagons (+ marginNm), and each listed cell holds one docking strand at its centre on the top face.",
+    "Per molecule: rest sites -> incorporation (the label's labelling %) -> deformation -> landing (roll, heights) -> placement (position, yaw) -> emitters; every step a pure function of (seed, address). 'deformation' and 'landing' values are the suggested defaults of the origami* params (the params win; a plate ignores the roll params).",
+    "Implemented: bodies 'cylinder' and 'plate', deformation 'wlc2d' (cylinders) and 'rigid', roll 'uniform' and 'fixed' (cylinders) and 'flat' (plates), cylinder spots with a ring, plate lattice 'hex'. Reserved, validated as not implemented: bodies 'cuboid', 'mesh'; deformation 'wlc3d', 'plate'; stiffnessVariation and curvaturePerUm != 0; explicit strand lists ('strands')."
   ],
   "designs": [
     {
-      "id": "Nanoruler80", "name": "80 nm nanoruler",
-      "notes": "The typical nanoruler body, a 12-helix bundle about 200 nm long and 13 nm in diameter (scheckenbach2020), as a cylinder, with three spots of docking strands 80 nm apart at 20, 100 and 180 nm from one end; five strand positions per spot, 72 deg apart on the surface (a modelling choice, not a product's specification). Persistence length 1500 nm: an estimate, softer than the 3-8.2 um measured for eight-helix bundles (chhabra2020). Geometry and bending: tools/origami_reference/origami_bend.py.",
-      "body": { "shape": "cylinder", "lengthNm": 200, "diameterNm": 13 },
+      "id": "Nanoruler", "name": "1D origami: nanoruler (3 spots)",
+      "notes": "The typical nanoruler body, a 12-helix bundle 13 nm in diameter (scheckenbach2020), as a cylinder, with three spots of docking strands one lattice spacing apart and 20 nm of rod beyond the outer ones: at the default 80 nm spacing a 200 nm rod with spots at 20, 100 and 180 nm from one end; five strand positions per spot, 72 deg apart on the surface (a modelling choice, not a product's specification). Persistence length 1500 nm: an estimate, softer than the 3-8.2 um measured for eight-helix bundles (chhabra2020). Geometry and bending: tools/origami_reference/origami_bend.py.",
+      "body": { "shape": "cylinder", "diameterNm": 13, "endNm": 20 },
       "deformation": { "model": "wlc2d", "persistenceLengthNm": 1500, "segmentNm": 6.5, "stiffnessVariation": 0, "curvaturePerUm": 0 },
       "landing": { "roll": "uniform", "rollDeg": 0, "attachNm": 7 },
       "spots": [
-        { "id": "A", "atNm": 20, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } },
-        { "id": "B", "atNm": 100, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } },
-        { "id": "C", "atNm": 180, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } }
+        { "id": "A", "at": 0, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } },
+        { "id": "B", "at": 1, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } },
+        { "id": "C", "at": 2, "ring": { "n": 5, "radiusNm": 6.5, "phaseDeg": 0 } }
       ],
       "refs": ["scheckenbach2020", "chhabra2020"]
+    },
+    {
+      "id": "TUDelftLogo", "name": "2D origami: TU Delft logo",
+      "notes": "The TU Delft logo (flame, T, U, D as an o) drawn as 37 cells of a 17 x 11 hex map, one docking strand at the centre of each, neighbouring centres one lattice spacing apart. A single-layer sheet, rigid and lying face up (never mirrored); 2 nm thick (about one helix diameter: an estimate). The sheet covers the whole hex map.",
+      "body": { "shape": "plate", "thicknessNm": 2, "marginNm": 0 },
+      "deformation": { "model": "rigid" },
+      "landing": { "roll": "flat", "attachNm": 7 },
+      "lattice": {
+        "type": "hex", "orientation": "flat-top", "offset": "odd-q-down", "cols": 17, "rows": 11,
+        "cells": [
+          "0601", "0501", "0402", "0302", "0502", "0303", "0503",
+          "0105", "0205", "0305", "0405", "0505", "0306", "0307", "0308",
+          "0605", "0606", "0607", "0608", "0708", "0809", "0908", "1008", "1007", "1006", "1005",
+          "1205", "1206", "1207", "1208", "1304", "1308", "1405", "1408", "1505", "1506", "1507"
+        ]
+      },
+      "refs": []
     }
   ]
 }

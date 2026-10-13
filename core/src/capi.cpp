@@ -485,8 +485,8 @@ int32_t isc_origami_heights(const IscParams* ip, double out[2])
    isc::Params p = ip->p;
    isc::NormalizeOrigamiParams(p);
    const isc::OrigamiDesign& d = isc::OrigamiDesignAt((int)p.origamiDesign);
-   out[0] = (p.origamiAttachNm + d.diameterNm / 2) / 1000.0;
-   out[1] = (p.origamiAttachNm + d.diameterNm + p.origamiLinkerNm) / 1000.0;
+   out[0] = (p.origamiAttachNm + d.heightNm / 2) / 1000.0;
+   out[1] = (p.origamiAttachNm + d.heightNm + p.origamiLinkerNm) / 1000.0;
    return 0;
 }
 
@@ -504,7 +504,7 @@ int32_t isc_origami_in_window(IscWorld* w, double x0, double y0, double x1, doub
          const isc::OrigamiShape S = f->Shape(m);
          double* o = out + j * ISC_ORIGAMI_STRIDE;
          o[0] = m.tx; o[1] = m.ty; o[2] = m.i; o[3] = f->P().origamiDesign; o[4] = m.x; o[5] = m.y; o[6] = m.yaw;
-         o[7] = isc::OrigamiMoleculeRoll(f->P(), m.h1); o[8] = S.endAngle; o[9] = S.fold ? 1 : 0;
+         o[7] = isc::OrigamiMoleculeRoll(f->Design(), f->P(), m.h1); o[8] = S.endAngle; o[9] = S.fold ? 1 : 0;
       }
       return (int32_t)mols.size();
    } catch (...) {

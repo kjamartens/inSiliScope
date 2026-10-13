@@ -128,17 +128,17 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Laser405KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Laser488KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Laser561KWcm2` | Basic | 1 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Laser640KWcm2` | Basic | 1 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Laser730KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser405KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser488KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser561KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser640KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
 | `IlluminationProfile` | Basic | Flat | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's profile over the field of view. |
 | `IlluminationFwhmPct` | Basic | 60 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `IlluminationGeometry` | Basic | Epi | `Epi` | How the lasers reach the sample (Epi; TIRF and HILO when the engine has them). |
 | `CustomLineNm` | Advanced | 0 | 0 .. 1000 | Wavelength of an extra laser line (nm). |
-| `CustomLineKWcm2` | Advanced | 0 | 0 .. 100 | Intensity of the extra line, kW/cm^2. |
+| `CustomLineKWcm2` | Advanced | 0 | 0 .. 10 | Intensity of the extra line, kW/cm^2. |
 | `ChamberHeightUm` | Advanced | 5 | 0 .. 1000 | Height of the imaging chamber (um): the free-imager background of DNA-PAINT. |
 
 ## TransmittedLamp
@@ -254,9 +254,10 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 |---|---|---|---|---|
 | `Docking_Mode` | Basic | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | How the docking strands' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it. |
 | `Docking_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3`, `None` | The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the Lasers Auto preset. |
-| `Design` | Basic | Nanoruler80 | `Nanoruler80` | The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands 80 nm apart on a 200 x 13 nm rod. |
+| `Design` | Basic | Nanoruler | `Nanoruler`, `TUDelftLogo` | The DNA-origami design (data/origami/designs.json): Nanoruler = a 13 nm rod with three spots of docking strands SpacingNm apart and 20 nm ends; TUDelftLogo = a 2D origami, a rigid plate with one strand on each of 37 hexagons of the TU Delft logo, neighbours SpacingNm apart. |
+| `SpacingNm` | Basic | 80 | `640`, `320`, `160`, `80`, `40`, `20`, `10`, `5` | Distance between neighbouring spots of docking strands, nm; the origami grows or shrinks with it (the nanoruler keeps its 20 nm ends: 80 nm = a 200 nm rod). |
 | `DensityPerUm2` | Basic | 1.2 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
-| `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
+| `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the nanoruler's 5 carry one (a 2D origami has 1). |
 | `Docking_LabelingPct` | Advanced | 80 | 0 .. 100 | Labelled fraction of the docking strands' sites, % (a mode change sets its suggestion). |
 | `Docking_ImagerNanoMol` | Advanced | 20 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `Docking_BoundTimeSec` | Advanced | 0.2885390082 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |

@@ -1,6 +1,7 @@
-// DNA-origami nanorulers (specimen 1, data/specimens.json): rods lying on a coverslip, each a design of
-// data/origami/designs.json (the 80 nm nanoruler: a 200 x 13 nm 12-helix bundle with three spots of docking strands),
-// bent in-plane as a 2D surface-equilibrated worm-like chain. The JS reference of core/src/origami.cpp (the port);
+// DNA-origami nanorulers (specimen 1, data/specimens.json): molecules lying on a coverslip, each a design of
+// data/origami/designs.json -- a rod (the nanoruler: a 13 nm 12-helix bundle with three spots of docking strands one
+// lattice spacing apart, bent in-plane as a 2D surface-equilibrated worm-like chain) or a rigid plate (a 2D origami: a
+// hex map of strands, lying face up). Spot positions and the body's size scale with origamiSpacingNm. The JS reference of core/src/origami.cpp (the port);
 // the model is tools/origami_reference/origami_bend.py (BentShape, binding_sites) with its sequential numpy stream
 // replaced by address-based pcg4d draws. BSD-3-Clause.
 //
@@ -32,10 +33,11 @@ export const ORIGAMI_K_LAND = 0x80000001;
 export const ORIGAMI_MIN_SEGMENTS = 8;
 
 // The core params of the specimen (core/src/params.cpp kFields; the engine's origami-* options and p.<name>).
-// Defaults: the 80 nm nanoruler's suggestions (designs.json) and estimates (docs/samples/nanorulers).
+// Defaults: the nanoruler's suggestions (designs.json) and estimates (docs/samples/nanorulers).
 export const ORIGAMI_DEFAULTS = {
   specimen: 0,                  // 0 CellField, 1 Nanorulers
   origamiDesign: 0,             // index into data/origami/designs.json
+  origamiSpacingNm: 80,         // lattice step between neighbouring spots, nm (every design; the UIs offer 5-640)
   origamiDensity: 1.2,          // molecules per um^2 before thinning (estimate, 2026-10-12; was 0.3)
   origamiMinSpacingNm: 0,       // Matern-II hard core between molecule centres (0 = none; 250 until 2026-10-12)
   origamiBend: 1,               // 1 = the design's deformation, 0 = rigid
@@ -56,6 +58,7 @@ export function normalizeOrigamiParams(p) {
   q.specimen = Math.trunc(clamp(+q.specimen, 0, 1));
   q.origamiDesign = Math.trunc(clamp(+q.origamiDesign, 0, ORIGAMI_DESIGNS.length - 1));
   const d = ORIGAMI_DESIGNS[q.origamiDesign];
+  q.origamiSpacingNm = clamp(+q.origamiSpacingNm, 1, 10000);
   q.origamiDensity = clamp(+q.origamiDensity, 0, 50);
   q.origamiMinSpacingNm = clamp(+q.origamiMinSpacingNm, 0, ORIGAMI_TILE_UM * 1000);
   q.origamiBend = +q.origamiBend !== 0 ? 1 : 0;
@@ -66,6 +69,12 @@ export function normalizeOrigamiParams(p) {
   q.origamiRoll = +q.origamiRoll !== 0 ? 1 : 0;
   q.origamiHeights = +q.origamiHeights !== 0 ? 1 : 0;
   return q;
+}
+
+// The body at spacing s = P.origamiSpacingNm: length L (along x), in-plane width W, height H (nm).
+export function origamiGeometry(d, P) {
+  const s = P.origamiSpacingNm;
+  return { s, L: d.lengthUnits * s + 2 * d.endNm, W: d.widthUnits * s + d.widthNm, H: d.heightNm };
 }
 
 // ---- molecule shape (origami_bend.py BentShape, frame "aligned") ----
@@ -90,8 +99,9 @@ export function bendNormal(h1, i) {
 // "aligned" frame (end-to-end chord along +x, chord midpoint at the origin; a straight shape maps to itself).
 // normals: optional array of n standard normals (the reference cross-check feeds origami_bend.py's).
 export function bentShape(d, P, h1, normals = null) {
-  const L = d.lengthNm, W = d.diameterNm;
-  const n = Math.max(ORIGAMI_MIN_SEGMENTS, Math.ceil(L / d.segmentNm));
+  const G = origamiGeometry(d, P), L = G.L, W = G.W;
+  // A rigid design (a plate) is straight: the fewest segments.
+  const n = d.deformation === 'rigid' ? ORIGAMI_MIN_SEGMENTS : Math.max(ORIGAMI_MIN_SEGMENTS, Math.ceil(L / d.segmentNm));
   const ds = L / n;
   const bend = P.origamiBend !== 0 && d.deformation === 'wlc2d';
   const sd = bend ? Math.sqrt(ds / P.origamiLpNm) : 0.0;
@@ -146,8 +156,9 @@ export function shapeOutline(S, nPerSide = 64) {
 
 export const moleculeH1 = (seed, tx, ty, i) => pcgA((seed ^ ORIGAMI_DYE_SALT) >>> 0, tx >>> 0, ty >>> 0, i >>> 0);
 
-// The roll of a molecule about its own axis, radians (landing: uniform per molecule, or fixed).
+// The roll of a molecule about its own axis, radians (landing: uniform per molecule, or fixed; a plate lies flat, 0).
 export function moleculeRoll(d, P, h1) {
+  if (d.roll === 'flat') return 0.0;
   if (P.origamiRoll !== 0) return P.origamiRollDeg * Math.PI / 180.0;
   return 2.0 * Math.PI * unit(pcgA(h1 >>> 0, ORIGAMI_K_LAND, 0, 0));
 }
@@ -161,7 +172,8 @@ export function moleculeSites(d, P, m, S, density, fluorescentFraction, out = []
   if (!withAll && (!(labelledBelow > 0) || !(ff > 0))) return out;
   const h1 = m.h1, roll = moleculeRoll(d, P, h1), Lk = P.origamiLinkerNm;
   const cy = Math.cos(m.yaw), sy = Math.sin(m.yaw);
-  const zAxisNm = P.origamiAttachNm + d.diameterNm / 2;
+  const G = origamiGeometry(d, P), step = G.s, plate = d.shape === 'plate';
+  const zAxisNm = P.origamiAttachNm + G.H / 2;
   for (let k = 0; k < d.spots.length; k++) {
     const sp = d.spots[k];
     const nOn = Math.min(sp.ringN, P.origamiStrandsPerSpot);
@@ -171,8 +183,12 @@ export function moleculeSites(d, P, m, S, density, fluorescentFraction, out = []
         if (unit(label) >= labelledBelow) continue;
         if (ff < 1.0 && unit(pcgA(h1, k, n, DYE_CH.FLUOR)) >= ff) continue;
       }
-      const a = roll + sp.phaseDeg * Math.PI / 180.0 + 2.0 * Math.PI * n / sp.ringN;
-      const ca = Math.cos(a), sa = Math.sin(a);
+      // The strand's surface point: on a rod's ring (angle a about the axis), or on a plate's top face (a = 90 deg).
+      let ca = 0.0, sa = 1.0, r = G.H / 2;
+      if (!plate) {
+        const a = roll + sp.phaseDeg * Math.PI / 180.0 + 2.0 * Math.PI * n / sp.ringN;
+        ca = Math.cos(a); sa = Math.sin(a); r = sp.radiusNm;
+      }
       // Linker: the dye uniform in the outward half-ball of radius Lk on the surface point (cos of the angle to the
       // surface normal uniform in [0, 1), azimuth uniform, radius Lk cbrt(u)).
       const cu = unit(pcgA(h1, k, n, DYE_CH.LINK_U));
@@ -181,9 +197,9 @@ export function moleculeSites(d, P, m, S, density, fluorescentFraction, out = []
       const sn = Math.sqrt(1.0 - cu * cu);
       const dn = rr * cu, d1 = rr * sn * Math.cos(ph), d2 = rr * sn * Math.sin(ph);
       // Frame at the surface point: normal (0, ca, sa), along the axis (1, 0, 0), around it (0, -sa, ca).
-      const x = sp.atNm - d.lengthNm / 2 + d1;
-      const y = sp.radiusNm * ca + dn * ca - d2 * sa;
-      const h = sp.radiusNm * sa + dn * sa + d2 * ca;
+      const x = sp.u * step + d1;
+      const y = sp.v * step + (r * ca + dn * ca - d2 * sa);
+      const h = r * sa + dn * sa + d2 * ca;
       const [X, Y] = transform(S, x, y);
       const zNm = P.origamiHeights !== 0 ? zAxisNm + h : zAxisNm;
       out.push({ k, n, id: label, rest: [x, y, h], bent: [X, Y],
@@ -260,9 +276,9 @@ export class OrigamiField {
     return mols;
   }
   // How far a molecule's sites reach from its centre (the chord midpoint), um: no point of a curve of length L lies
-  // farther than L/2 from its chord's midpoint, plus the cross-section and the linker.
-  reachUm() { return (this.d.lengthNm / 2 + this.d.diameterNm / 2 + this.P.origamiLinkerNm) / 1000.0; }
-  maxHeightUm() { return (this.P.origamiAttachNm + this.d.diameterNm + this.P.origamiLinkerNm) / 1000.0; }
+  // farther than L/2 from its chord's midpoint, plus the half-width and the linker (a plate: >= its half-diagonal).
+  reachUm() { const G = origamiGeometry(this.d, this.P); return (G.L / 2 + G.W / 2 + this.P.origamiLinkerNm) / 1000.0; }
+  maxHeightUm() { return (this.P.origamiAttachNm + origamiGeometry(this.d, this.P).H + this.P.origamiLinkerNm) / 1000.0; }
   // Molecules whose reach meets [x0,x1) x [y0,y1), tile by tile (tx outer, ty inner), in molecule order.
   moleculesInRect(x0, y0, x1, y1, extraUm = 0.0) {
     const reach = this.reachUm() + extraUm, T = ORIGAMI_TILE_UM;

@@ -192,6 +192,26 @@ PropDef OptNames(const char* device, const std::string& name, Tier tier, const s
    return d;
 }
 
+// One of a list of numbers that is an engine scope option (a dropdown; value = the number).
+PropDef OptValues(const char* device, const std::string& name, Tier tier, const std::string& option,
+                  const std::vector<double>& values, const char* help)
+{
+   std::vector<std::string> names;
+   for (double v : values) names.push_back(FormatNumber(v));
+   PropDef d = Row(device, name, tier, option, help);
+   d.kind = PropKind::Text;
+   d.getText = [option](H& h) { return FormatNumber(h.State().Option(option)); };
+   d.setText = [option, names, values](H& h, const std::string& s) {
+      const int i = sim::IndexOf(names, s);
+      if (i < 0)
+         return false;
+      h.State().SetOption(option, values[static_cast<size_t>(i)]);
+      return true;
+   };
+   d.choices = [names](H&) { return names; };
+   return d;
+}
+
 // An On/Off switch that is an engine scope option (1 / 0).
 PropDef OnOffOpt(const char* device, const std::string& name, Tier tier, const std::string& option, const char* help)
 {
@@ -668,7 +688,7 @@ std::vector<PropDef> BuildTable()
       const char* L = "Lasers";
       for (int nm : LaserLines())
       {
-         PropDef d = Opt(L, "Laser" + std::to_string(nm) + "KWcm2", Tier::Basic, "laser-" + std::to_string(nm), 0, 100,
+         PropDef d = Opt(L, "Laser" + std::to_string(nm) + "KWcm2", Tier::Basic, "laser-" + std::to_string(nm), 0, 10,
                          "Intensity of this laser line at the sample, kW/cm^2 (0 = off).");
          ThenNumber(d, [](H& h) { h.ClearLightPreset(); });
          add(d);
@@ -703,7 +723,7 @@ std::vector<PropDef> BuildTable()
       d = Opt(L, "CustomLineNm", Tier::Advanced, "laser-custom-nm", 0, 1000, "Wavelength of an extra laser line (nm).");
       ThenNumber(d, [](H& h) { h.ClearLightPreset(); });
       add(d);
-      d = Opt(L, "CustomLineKWcm2", Tier::Advanced, "laser-custom", 0, 100, "Intensity of the extra line, kW/cm^2.");
+      d = Opt(L, "CustomLineKWcm2", Tier::Advanced, "laser-custom", 0, 10, "Intensity of the extra line, kW/cm^2.");
       ThenNumber(d, [](H& h) { h.ClearLightPreset(); });
       add(d);
       add(Opt(L, "ChamberHeightUm", Tier::Advanced, "chamber-height-um", 0, 1000,
@@ -904,12 +924,16 @@ std::vector<PropDef> BuildTable()
          if (!std::strcmp(TargetAt(s).specimen, N))
             AddTargetLabelRows(t, N, s);
       add(OptNames(N, "Design", Tier::Basic, "origami-design", ScopeOrigamiDesignIds(), 0,
-                   "The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands "
-                   "80 nm apart on a 200 x 13 nm rod."));
+                   "The DNA-origami design (data/origami/designs.json): Nanoruler = a 13 nm rod with three spots of "
+                   "docking strands SpacingNm apart and 20 nm ends; TUDelftLogo = a 2D origami, a rigid plate with one "
+                   "strand on each of 37 hexagons of the TU Delft logo, neighbours SpacingNm apart."));
+      add(OptValues(N, "SpacingNm", Tier::Basic, "origami-spacing-nm", { 640, 320, 160, 80, 40, 20, 10, 5 },
+                    "Distance between neighbouring spots of docking strands, nm; the origami grows or shrinks with it "
+                    "(the nanoruler keeps its 20 nm ends: 80 nm = a 200 nm rod)."));
       add(Opt(N, "DensityPerUm2", Tier::Basic, "origami-density", 0, 50,
               "Molecules per um^2 of coverslip, before the minimum spacing thins them."));
       PropDef d = Opt(N, "StrandsPerSpot", Tier::Basic, "origami-strands-per-spot", 1, 5,
-                      "Docking strands per spot: ring positions 1..N of the design's 5 carry one.");
+                      "Docking strands per spot: ring positions 1..N of the nanoruler's 5 carry one (a 2D origami has 1).");
       d.kind = PropKind::Integer;
       add(d);
       add(OnOffOpt(N, "Bending", Tier::Advanced, "origami-bend",

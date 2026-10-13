@@ -230,7 +230,7 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the nuclear pores (2026-10-12): TOTAL eaaf21c0...; its "TOTAL before pores" (the 12
+`adapter_pixel_hash` reference since the pore defaults (816101d, 2026-10-13; measured on the origami-spacing merge, which leaves the cell field alone): TOTAL 2af5ef51... (eaaf21c0... before them); its "TOTAL before pores" (the 12
 older configs with `NuclearPores_Label` None and `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
@@ -436,7 +436,9 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 2 since the nuclear pores took 1). `core/src/origami.*`
 (JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
 tiles, Matern-II field (`origamiDensity` 1.2 /um^2, `origamiMinSpacingNm` 0 = no thinning), designs `data/origami/designs.json`
-(3D-ready schema; v1 `Nanoruler80`: 200 x 13 nm cylinder, spots at 20/100/180 nm, a 5-strand ring each,
+(3D-ready schema; spots in lattice steps of `origamiSpacingNm` (80; MM `Nanorulers.SpacingNm` 640..5, 2026-10-13), the body
+follows; `Nanoruler` (was `Nanoruler80`): 13 nm cylinder with 20 nm ends, at 80 nm 200 nm long with spots at 20/100/180 nm, a 5-strand ring each;
+`TUDelftLogo`: a 2D origami, rigid plate over a 17 x 11 flat-top hex map (cells `CCRR`), one strand per cell, face up,
 `origamiStrandsPerSpot` keeps ring positions 0..N-1), in-plane 2D worm-like-chain bending (`origamiLpNm` 1500, Advanced;
 the explorer's 273.1 is not used), random roll, every strand at 13.5 nm (`origamiHeights` 1 = ring heights, untested).
 The `World` branches on `specimen` (one dye block per molecule; no cells, empty optical volume, so BrightField is
