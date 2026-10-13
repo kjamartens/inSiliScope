@@ -8,8 +8,11 @@ hide:
 
 The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field (or the DNA-origami
 nanorulers: the **Specimen** select), tilt and turn it for a 3D view,
-then render a short SMLM, widefield or brightfield movie of the dyes under the view centre and save it as a 16-bit TIFF (identical
-to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
+and look through a live microscope at the view centre (SMLM, widefield or brightfield, the sample bleaching and
+blinking out where you have shone light on it, as in the Micro-Manager adapter's live mode), set it up with the same
+configuration presets as the adapter's Micro-Manager configurations, record a short movie and save it as a 16-bit TIFF
+(identical to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as
+MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
 
 <div class="isc-viewer">
   <div class="isc-viewer-loading">Loading the viewer (about 1 MB of WebAssembly)…</div>
@@ -19,7 +22,31 @@ to the `insiliscope_cli` output with the same settings), or make an animation of
 
 Notes:
 
-- The options are grouped the way a microscope is set up: display, sample (the specimen; for the cell field its cell
+- **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
+  options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
+  microscope is on the right: the live camera image with Live / Snap / Rec, the focus and the configuration beside it,
+  and below them every sample and microscope setting, with a search box that filters the rows. The divider between the
+  two halves drags (the microscope takes a third to a half of the window; remembered in your browser). On a narrow
+  screen the parts stack.
+- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the info line
+  shows the frame rate, the render time per frame, the image size, the focus height, the sample's time and how long
+  this place has been lit). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
+  takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
+  convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
+  and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
+  to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **Rec** records a
+  movie of the set number of frames (the player, as before). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
+  mouse wheel over the image step it by the step size. **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
+  range. Live pauses while the page is hidden. The world view outlines the camera's field.
+- **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
+  (`inSiliScope_Basic.cfg` at the Default level, `_Advanced.cfg` at Advanced): Channel (the dye modes, BrightField, and
+  in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as
+  sliders. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
+  the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
+  (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
+  the preset the settings are at, or "—" once a setting differs.
+- The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
@@ -105,7 +132,7 @@ Notes:
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Simulated data** (Settings > View, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
+- **Simulated data** (View ▾, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
   view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
   height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
   included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
@@ -136,7 +163,7 @@ Notes:
   through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
   label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
   emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
-- While the Acquisition group is open, a dashed yellow square on the map shows what the next movie covers. A finished
+- While live is on or the Acquisition group is open, a dashed yellow square on the map shows what the camera covers. A finished
   movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
   view) and its title bar drags it anywhere over the view.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).

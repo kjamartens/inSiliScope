@@ -10,8 +10,9 @@ single-molecule localisation (SMLM) movie or as a widefield image, with a physic
 cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
 any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, render SMLM/widefield/brightfield movies,
-  save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
+- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, look through a live microscope (the
+  adapter's live mode with the sample's illumination history, set up with its Micro-Manager config presets), render
+  SMLM/widefield/brightfield movies, save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
   cell (orbits, layers building up, slices sweeping through) and export them as MP4, WebM or GIF.
 - **Micro-Manager adapter**: a hub with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample, labels, renderer) at three levels of detail, and ready-made configurations; live acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.

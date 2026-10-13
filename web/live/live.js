@@ -179,9 +179,9 @@ function showInfo() {
   const el = $('lv_info');
   if (L.err) { el.textContent = 'live failed: ' + L.err; return; }
   if (!L.frames) { el.textContent = L.on ? 'starting…' : ''; return; }
-  const bf = $('mv_modality').value === '1';
+  const bf = $('mv_modality').value === '1', both = self.ISC_MM_EXTRA && self.ISC_MM_EXTRA['light-trans'] === 1 && !bf;
   const lines = [(L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + Math.round(L.ms) + ' ms/frame',
-    `${L.w}×${L.h} px · ${bf ? 'BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
+    `${L.w}×${L.h} px · ${bf ? 'BrightField' : both ? 'fluorescence + BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
     `t ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : '') + ` · ${L.lo}–${L.hi} ADU`];
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
   if (L.engine === 'movie') lines.push('(no sample history in this engine)');
