@@ -110,6 +110,7 @@ function onResult(d) {
   L.ms = performance.now() - job.t0;
   L.t = d.t !== undefined ? d.t : L.t + exposureSec();
   L.clock = d.clock;
+  L.drift = d.drift;
   L.engine = d.engine;
   const due = L.lastShown + exposureSec() * 1000, now = performance.now();
   const show = () => {
@@ -182,6 +183,7 @@ function showInfo() {
   const lines = [(L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + Math.round(L.ms) + ' ms/frame',
     `${L.w}×${L.h} px · ${bf ? 'BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
     `t ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : '') + ` · ${L.lo}–${L.hi} ADU`];
+  if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
   if (L.engine === 'movie') lines.push('(no sample history in this engine)');
   el.textContent = lines.join('\n');
 }
@@ -211,6 +213,7 @@ function setLive(on) {
   if (on) { L.lastShown = 0; L.fps = 0; request(); }
 }
 $('lv_live').addEventListener('click', () => setLive(!L.on));
+$('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
 $('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); L.lastShown = 0; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });
 window.liveRedraw = () => { paint(); drawScale(); };

@@ -250,6 +250,7 @@
           <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
           <button id="lv_snap" title="Snap: one frame">Snap</button>
           <button id="lv_rec" title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
+          <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
         </div></div>
         <div class="lc"><h5>Focus (Z stage)</h5>
           <div class="zrow"><input type="number" id="lv_z" step="0.1"><span class="u">µm</span>
@@ -2735,6 +2736,22 @@ function iscEngine(M) {
   // A live frame (web/live/live.js): one frame of the sample at d.t. Without the module's live session: a one-frame
   // movie at start-sec = d.t (no sample history), then t advances by the exposure.
   function liveFrame(d, post) {
+    if (M._isc_live_frame) {
+      if (d.reset) M._isc_live_reset();
+      const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
+      M.stringToUTF8(d.spec, s, n);
+      const px = M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
+      let res;
+      if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
+      else {
+        const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
+        res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
+          t: v[2] + (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), clock: v[3], lit: !!v[4],
+          epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live' };
+      }
+      for (const ptr of [s, info, err]) M._free(ptr);
+      return [res, res.frames ? [res.frames.buffer] : []];
+    }
     const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
     const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )start-sec=\S+/, '') + ' start-sec=' + d.t, noGpu: true });
     const [m, tr] = r;

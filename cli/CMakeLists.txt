@@ -17,6 +17,8 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
+  ${ISC_SIM}/IlluminationHistory.cpp
+  ${ISC_SIM}/LiveScope.cpp
   ${ISC_SIM}/WidefieldRender.cpp
   ${ISC_SIM}/GpuSimD3D11.cpp
   ${ISC_SIM}/PsfGeneratorBridge.cpp
@@ -58,7 +60,7 @@ if(EMSCRIPTEN)
     # copying the heap) from 16 MB in several steps.
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_image,_isc_live_reset]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")
@@ -110,6 +112,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(blink_regimes_check blink_regimes_check.cpp)
   target_link_libraries(blink_regimes_check PRIVATE insiliscope_sim)
   add_test(NAME blink_regimes COMMAND blink_regimes_check)
+
+  # The live session (Simulation/LiveScope.h, the viewer's isc_live_*): the sample's history, its resets, determinism.
+  add_executable(live_scope_check live_scope_check.cpp)
+  target_link_libraries(live_scope_check PRIVATE insiliscope_sim)
+  add_test(NAME live_scope COMMAND live_scope_check)
 
   # The cli's diagnostic outputs (scope_probes.h: the docs' physics figures) show what a movie renders.
   add_executable(probes_check probes_check.cpp scope_probes.cpp)

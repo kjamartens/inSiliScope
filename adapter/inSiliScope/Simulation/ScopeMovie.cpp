@@ -4035,7 +4035,7 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
 }
 
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err, const DyeClock* clock)
+                        std::string& err, const DyeClock* clock, bool carryRunningImages)
 {
    const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
    bool epi = false, trans = false;
@@ -4062,6 +4062,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
    {
       // RenderCombinedMovie up to its noise chain.
       FluorescenceMovie fm;
+      fm.CarryRunningImages(carryRunningImages);
       ScopeSetup S;
       BrightfieldSpec bs;
       if (!fm.Begin(spec, false, err, nullptr, clock) || !MakeScopeSetup(spec, S, err) ||
@@ -4115,6 +4116,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       return true;
    }
    FluorescenceMovie fm;
+   fm.CarryRunningImages(carryRunningImages);
    FluorescenceFrameOptions opt;
    opt.onPhotons = onPhotons;
    return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, nullptr, &opt);
