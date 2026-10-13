@@ -98,5 +98,32 @@ if (pdef.info.excitation.regime !== 'TIRF') bad(`nanorulers' default illuminatio
 const clipped = sum(`${pt} na=1.4 illum-bfp=1.1 background-per-sec=0`);
 console.log(`clipped (NA 1.40, bfp 1.1): photons ${clipped.s.toExponential(3)}`);
 if (clipped.s !== 0) bad('a clipped spot lights the sample');
+// The kinetics at the local light: a Flat beam in HILO has the same factor F everywhere, so its movie equals epi with
+// every laser line x F (dSTORM's clock at F x time = its rates at F x the light; PALM's activation; WideField's
+// bleaching; DNA-PAINT's photons and imager background).
+{
+  const F = makeExcitation({ ...base, profile: 0, na: 1.4, bfp: 0.6 }).F;
+  const B = 'world-seed=1249 x=63 y=3 size=32 psf-model=0 npc-dye=None illum-profile=Flat';
+  for (const [name, spec, lasers] of [
+    ['dSTORM AF647 at 60 s', 'frames=8 mt-dye=AF647 light-preset=auto', { 640: 2.0 }],
+    ['dSTORM AF647 from 0 (initial ON)', 'frames=6 mt-dye=AF647 light-preset=auto start-sec=0', { 640: 2.0 }],
+    ['PALM mEos3.2 + 405 nm, pre state', 'frames=6 mt-dye=mEos3.2 light-preset=auto laser-405=0.05', { 561: 1, 405: 0.05 }],
+    ['WideField mEGFP, mean field', 'frames=3 mt-dye=mEGFP light-preset=auto', { 488: 0.01 }],
+    ['WideField mEGFP, per dye', 'frames=4 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 mt-dye.photon-budget=2000', { 488: 0.01 }],
+    ['DNA-PAINT ATTO 655 + imager', 'frames=6 chamber-height-um=5', { 640: 1.0 }],
+  ]) {
+    const t = performance.now();
+    // The preset's power of each line (data/dyes/light_path.json), x F.
+    const scaled = Object.entries(lasers).map(([nm, kw]) => `laser-${nm}=${kw * F}`).join(' ');
+    const a = [], b = [];
+    renderScopeMovie(P, `${B} ${spec} illum-bfp=0.6 na=1.4`, (f, adu) => a.push(...adu));
+    renderScopeMovie(P, `${B} ${spec} illum-bfp=0 na=1.4 ${scaled}`, (f, adu) => b.push(...adu));
+    let same = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] === b[i]) same++;
+    const frac = a.length ? same / a.length : 0;
+    console.log(`uniform F = ${F.toFixed(3)} vs lasers x F, ${name}: ${(100 * frac).toFixed(2)}% identical ADU (${(performance.now() - t).toFixed(0)} ms)`);
+    if (!(frac >= 0.995)) bad(`${name}: local kinetics at a uniform factor differ from the lasers x F`);
+  }
+}
 console.log(`excitation check: units ${unitMs.toFixed(0)} ms, movies ${(performance.now() - t1).toFixed(0)} ms: ${fail ? fail + ' failure(s)' : 'PASS'}`);
 process.exit(fail ? 1 : 0);

@@ -22,6 +22,9 @@ import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
 import { meanFieldImage, renderShiftedImages } from './widefield.js';
 import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 import { EVENT_STATE } from './dyes.js';
+import { doseNodes, DOSE_LEVELS } from './excitation.js';
+
+const DOSE_BINS = 256;   // the mean-field switch's histogram of the dyes' excitation factors (shaped excitation)
 import { STRUCTURES } from './world.js';
 
 const MIN_DETECTED_FRACTION = 1e-4;   // a (structure, state) detected less than this is skipped (no kernel)
@@ -82,6 +85,62 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   }
   const tPsf = performance.now();
 
+  // ---- the kinetics at the local light (a shaped excitation, excitation.js) ----
+  // A dye's light-driven rates follow its excitation factor a (its state's photon factor, g.excite):
+  //   dSTORM (on- and off-switching, the initial ON and the 405 nm return all linear in the excitation): its kinetic
+  //     clock runs at a x real time (photons per switching cycle stay as measured; the 405 nm line taken to fall off
+  //     as the main one);
+  //   PALM: its activation at spont + lin a + quad a^2 (activationParts; its first activation moves from T to T / b,
+  //     b = that / kAct), its blinks keep their times;
+  //   DNA-PAINT: binding needs no light; bleaching by a photon budget (WideField, the PALM pre state): at a x the rate.
+  // Uniform excitation: the rates of the label (outputs as before).
+  const shaped = !EX.uniform, T0 = S.t0Sec, tEndSec = S.t0Sec + N * S.expSec;
+  const actScale = (L, a) => {
+    const q = L.activationParts;
+    return q && L.kActPerSec > 0 ? (q.spont + q.lin * a + q.quad * a * a) / L.kActPerSec : 1.0;
+  };
+  const zWin = S.q.zHalfRangeUm > 0 ? [S.q.zCullCentreUm - S.q.zHalfRangeUm, S.q.zCullCentreUm + S.q.zHalfRangeUm] : [-Infinity, Infinity];
+  const fovOf = e => [e.x - S.q.originXUm, e.y - S.q.originYUm, (e.z - S.q.zRefUm) * 1000.0];
+  // The blinks under a shaped excitation: the dSTORM and PALM labels' queried from t = 0 to the latest time a dye's
+  // own clock reaches (kMax x the movie's end), mapped to real time; the others' as usual.
+  function localEvents() {
+    const kinetic = [], plain = [];
+    for (const g of groups)
+      if (g.role === 'main' && g.mode) (g.mode === 'dSTORM' || g.mode === 'PALM' ? kinetic : plain).push(g.structure);
+    const out = [];
+    if (plain.length)
+      for (const e of cellFieldEvents(world, S.q)) if (plain.includes(e.structure)) out.push(e);
+    if (!kinetic.length) return out;
+    let kMax = 1.0;
+    for (const s of kinetic) {
+      const L = S.labels[s];
+      kMax = Math.max(kMax, L.mode === 'dSTORM' ? EX.F : actScale(L, EX.F));
+    }
+    const first = new Map();
+    for (const e of world.eventsInWindow(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zWin[0], zWin[1], 0.0, kMax * tEndSec)) {
+      if (!kinetic.includes(e.structure)) continue;
+      const g = groupOf.get(`${e.structure},main`), L = S.labels[e.structure];
+      const [xUm, yUm, zNm] = fovOf(e), a = g.excite(xUm, yUm, zNm);
+      if (!(a > 0)) continue;
+      let tOn = e.tOn, tOff = e.tOff;
+      if (L.mode === 'dSTORM') { tOn = e.tOn / a; tOff = e.tOff / a; }
+      else {
+        // The dye's first blink (its events come in time order from t = 0) is its activation.
+        const key = `${e.structure}:${e.x}:${e.y}:${e.z}`;   // a dye: its structure and position
+        let T = first.get(key);
+        if (T === undefined) { T = e.tOn; first.set(key, T); }
+        const b = actScale(L, a);
+        if (!(b > 0)) continue;
+        const shift = T / b - T;
+        tOn = e.tOn + shift; tOff = e.tOff + shift;
+      }
+      const tStart = (tOn - T0) / S.expSec, tEnd = (tOff - T0) / S.expSec;
+      if (!(tEnd > 0.0) || !(tStart < N)) continue;
+      out.push({ xUm, yUm, zNm, tStart, tEnd, brightness: e.brightness, structure: e.structure, state: e.state, aux: e.aux });
+    }
+    return out;
+  }
+
   // ---- blink mean-field frames (BlinkExpectation.cpp), decided before the query from the expected ON emitters at
   // start-sec: such a frame draws no events, a movie mean-field throughout queries none ----
   const anyBlinks = S.labels.some((L, s) => S.mounted.includes(s) && L.mode !== 'WideField');
@@ -117,7 +176,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   }
 
   // ---- blinks (none to query when every label is WideField or every frame is mean-field) ----
-  const events = queryBlinks ? cellFieldEvents(world, S.q).filter(e => groupOf.has(`${e.structure},main`)) : [];
+  const events = !queryBlinks ? [] : shaped ? localEvents() : cellFieldEvents(world, S.q).filter(e => groupOf.has(`${e.structure},main`));
   if (opts.onEvents) opts.onEvents(events, S);
   const byGroup = groups.map(g => events.filter(e => e.structure === g.structure && g.role === 'main'));
   const buckets = byGroup.map(ev => bucketEventsByFrame(ev, N));
@@ -150,21 +209,69 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       if (state === EVENT_STATE.ALWAYS_ON) { budget = L.photonBudget; lambda = budget > 0 ? st.emissionPerSec / budget : 0; }
       else if (state === EVENT_STATE.INITIAL_ON) lambda = 1 / L.label.kinetics.initialOnSec;
       else { budget = L.prePhotonBudget; lambda = L.kActPerSec + (budget > 0 ? st.emissionPerSec / budget : 0); }
-      pops.push({ structure: s, state, g, lambda, budget, emissionPerSec: st.emissionPerSec, rate: st.detectedPerSec,
-        nZ, nSlab, wins: null, image: null, mf: null, acc: null, accFrame: -1, accZ: 0, accDx: 0, accDy: 0, meanFieldFrames: 0, perDyeFrames: 0 });
+      const p = { structure: s, state, g, lambda, budget, emissionPerSec: st.emissionPerSec, rate: st.detectedPerSec,
+        nZ, nSlab, wins: null, image: null, mf: null, acc: null, accFrame: -1, accZ: 0, accDx: 0, accDy: 0, meanFieldFrames: 0, perDyeFrames: 0,
+        nodes: null, lambdaAt: null, hZ: null, hS: null };
+      if (shaped) {
+        // The decay rate at factor a (the budget's bleaching at a x; the initial ON at a x; the pre state's activation
+        // as the blinks'), the dose nodes of its mean-field images and the dyes' factors (DOSE_BINS bins over
+        // [0, F]: the mean-field switch counts the surviving dyes).
+        const bl = budget > 0 ? st.emissionPerSec / budget : 0;
+        p.lambdaAt = state === EVENT_STATE.ALWAYS_ON ? a => bl * a
+          : state === EVENT_STATE.INITIAL_ON ? a => a / L.label.kinetics.initialOnSec
+          : a => L.kActPerSec * actScale(L, a) + bl * a;
+        p.nodes = doseNodes(EX.F, p.lambdaAt(EX.F) * tEndSec);
+        p.hZ = new Float64Array(DOSE_BINS); p.hS = new Float64Array(DOSE_BINS);
+        world.forEachDye(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, (b, i) => {
+          if (b.structure !== s) return;
+          const xUm = b.x[i] - ox, yUm = b.y[i] - oy, a = g.excite(xUm, yUm, (b.z[i] - S.q.zRefUm) * 1000.0);
+          const k = EX.F > 0 ? Math.min(DOSE_BINS - 1, Math.max(0, Math.floor(a / EX.F * DOSE_BINS))) : 0;
+          p.hZ[k]++;
+          if (xUm >= 0 && xUm < W * um && yUm >= 0 && yUm < H * um && Math.abs(b.z[i] - focus) < slabHalf) p.hS[k]++;
+        });
+      }
+      pops.push(p);
     }
   });
   const isMeanField = (p, f) => {
-    const tMid = S.t0Sec + (f + 0.5) * S.expSec, P = Math.exp(-p.lambda * tMid);
+    const tMid = S.t0Sec + (f + 0.5) * S.expSec;
+    if (p.hZ) {
+      let nz = 0.0, ns = 0.0;
+      for (let k = 0; k < DOSE_BINS; k++) {
+        if (!p.hZ[k]) continue;
+        const P = Math.exp(-p.lambdaAt((k + 0.5) / DOSE_BINS * EX.F) * tMid);
+        nz += p.hZ[k] * P; ns += p.hS[k] * P;
+      }
+      return ns / fovArea > S.meanField.densityPerUm2 || nz > S.meanField.maxEmitters;
+    }
+    const P = Math.exp(-p.lambda * tMid);
     return p.nSlab * P / fovArea > S.meanField.densityPerUm2 || p.nZ * P > S.meanField.maxEmitters;
   };
   // The per-dye windows in frames (fetched once, for every population that needs them): a dye with a photon budget
-  // bleaches at aux x budget / emission rate.
+  // bleaches at aux x budget / emission rate (x its factor a under a shaped excitation, where the windows are
+  // fetched from t = 0 and mapped to real time: the dSTORM initial ON ends at tOff / a, the PALM pre state at
+  // tOff / b).
   let allWindows = null;
   for (const p of pops) {
     if (isMeanField(p, N - 1)) continue;   // mean-field to the end: no windows needed
-    if (!allWindows) allWindows = cellFieldContinuous(world, S.q);
     p.wins = [];
+    if (shaped) {
+      if (!allWindows) allWindows = world.continuousInWindow(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zWin[0], zWin[1], -Infinity);
+      const L = S.labels[p.structure];
+      for (const e of allWindows) {
+        if (e.structure !== p.structure || e.state !== p.state) continue;
+        const [xUm, yUm, zNm] = fovOf(e), a = p.g.excite(xUm, yUm, zNm);
+        if (!(a > 0)) continue;
+        let tEnd = Infinity;
+        if (p.state === EVENT_STATE.INITIAL_ON) tEnd = e.tOff / a;
+        else if (p.state === EVENT_STATE.PRE) { const b = actScale(L, a); tEnd = b > 0 ? e.tOff / b : Infinity; }
+        if (p.budget > 0) tEnd = Math.min(tEnd, e.aux * p.budget / (p.emissionPerSec * a));
+        const bF = (tEnd - T0) / S.expSec;
+        if (bF > 0) p.wins.push({ xUm, yUm, zNm, tStart: (0 - T0) / S.expSec, tEnd: bF, brightness: 1, structure: e.structure, state: e.state, aux: e.aux });
+      }
+      continue;
+    }
+    if (!allWindows) allWindows = cellFieldContinuous(world, S.q);
     for (const e of allWindows) {
       if (e.structure !== p.structure || e.state !== p.state) continue;
       let tEndSec = (e.tEnd - S.q.frameIndex) * S.expSec + S.q.tSec;   // back to seconds (toFov mapped it)
@@ -178,7 +285,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   for (const g of groups)
     if (g.anyMf)
       pops.push({ structure: g.structure, state: EVENT_STATE.BLINK, blink: true, g, rate: g.detectedPerSec, nZ: g.nZ, nSlab: g.nSlab,
-        mode: g.mode, segs: g.segs, image: null, mf: null, meanFieldFrames: 0, perDyeFrames: 0 });
+        mode: g.mode, segs: g.segs, image: null, mf: null, meanFieldFrames: 0, perDyeFrames: 0,
+        // Shaped: dSTORM's ON time is nonlinear in a (DOSE_LEVELS nodes up to F), the others' linear (one node).
+        nodes: !shaped ? null : !(EX.F > 0) ? [] : g.mode === 'dSTORM' ? Array.from({ length: DOSE_LEVELS }, (_, k) => EX.F * (k + 1) / DOSE_LEVELS) : [EX.F] });
   const querySec = (performance.now() - t0) / 1000;
   // Running image of the windows that cover frame f fully (unit photons each).
   const advanceAcc = (p, f, z, dx, dy) => {
@@ -231,6 +340,25 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     }
     imagerMean = sum / (W * H);
   }
+  // A population's mean-field frame into img: per dose node k (one node, a = 1, for a uniform excitation) its image --
+  // drifted: the images at the two grid foci around dz, interpolated and shifted by the xy drift (DriftMeanField) --
+  // x the photons of a dye at a_k in frame f.
+  const addMeanField = (img, p, f, photonsAt) => {
+    if (p.nodes && !p.nodes.length) return;   // a clipped spot: no light
+    if (!p.mf) p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm, p.g.shares, p.nodes);
+    p.mf.levels.forEach((lv, k) => {
+      let image = lv.image;
+      if (drift) {
+        const d = S.drift[f], [kk0, w] = driftGridWeights(driftGrid, d.z);
+        const at = kk => lv.imagesAt(S.q.zRefUm + zStage - driftGridDzNm(driftGrid, kk) / 1000.0);
+        const i0 = at(kk0), i1 = w !== 0 && kk0 + 1 < driftGrid.n ? at(kk0 + 1) : null, pitchNm = p.mf.pitchUm * 1000.0;
+        image = new Float32Array(W * H);
+        renderShiftedImages(i0, i1, i1 ? w : 0.0, d.x / pitchNm, d.y / pitchNm, image);
+      }
+      const m = Math.fround(photonsAt(p.nodes ? p.nodes[k] : 1.0));
+      for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * image[i]);
+    });
+  };
   let blinks = 0;
   const POP_NAME = { [EVENT_STATE.ALWAYS_ON]: 'WideField dyes', [EVENT_STATE.INITIAL_ON]: 'initial ON', [EVENT_STATE.PRE]: 'pre state' };
   for (let f = 0; f < N; f++) {
@@ -256,37 +384,17 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       const tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
       if (p.blink) {
         if (!p.g.mfFrame[f]) continue;   // drawn from its events (splat or binned)
-        if (!p.mf) { p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm, p.g.shares); p.image = p.mf.image; }
-        let image = p.image;
-        if (drift) {
-          const d = S.drift[f], [k, w] = driftGridWeights(driftGrid, d.z);
-          const at = kk => p.mf.imagesAt(S.q.zRefUm + zStage - driftGridDzNm(driftGrid, kk) / 1000.0);
-          const i0 = at(k), i1 = w !== 0 && k + 1 < driftGrid.n ? at(k + 1) : null, pitchNm = p.mf.pitchUm * 1000.0;
-          image = new Float32Array(W * H);
-          renderShiftedImages(i0, i1, i1 ? w : 0.0, d.x / pitchNm, d.y / pitchNm, image);
-        }
-        const m = Math.fround(p.rate * expectedBlinkOnSeconds(p.mode, p.segs, tf0, tf1));
-        for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * image[i]);
+        // Photons per dye: rate x expected ON time; dSTORM at factor a: its clock at a x (rate x a x ON / a).
+        addMeanField(img, p, f, !shaped ? () => p.rate * expectedBlinkOnSeconds(p.mode, p.segs, tf0, tf1)
+          : p.mode === 'dSTORM' ? a => p.rate * expectedBlinkOnSeconds(p.mode, p.segs, a * tf0, a * tf1)
+          : a => p.rate * a * expectedBlinkOnSeconds(p.mode, p.segs, tf0, tf1));
         p.meanFieldFrames++;
         paths.push('blinks: mean-field (FFT)');
         continue;
       }
       if (isMeanField(p, f)) {
-        if (!p.mf) {
-          p.mf = meanFieldImage(world, S, 1 << p.structure, p.g.kernel, p.g.lambdaNm, driftMarginUm, p.g.shares);
-          p.image = p.mf.image;
-        }
-        let image = p.image;
-        if (drift) {
-          // DriftMeanField: the images at the two grid foci around dz, interpolated and shifted by the xy drift.
-          const d = S.drift[f], [k, w] = driftGridWeights(driftGrid, d.z);
-          const at = kk => p.mf.imagesAt(S.q.zRefUm + zStage - driftGridDzNm(driftGrid, kk) / 1000.0);
-          const i0 = at(k), i1 = w !== 0 && k + 1 < driftGrid.n ? at(k + 1) : null, pitchNm = p.mf.pitchUm * 1000.0;
-          image = new Float32Array(W * H);
-          renderShiftedImages(i0, i1, i1 ? w : 0.0, d.x / pitchNm, d.y / pitchNm, image);
-        }
-        const m = Math.fround(meanPhotons(p.rate, p.lambda, tf0, tf1));
-        for (let i = 0; i < img.length; i++) img[i] += Math.fround(m * image[i]);
+        addMeanField(img, p, f, !shaped ? () => meanPhotons(p.rate, p.lambda, tf0, tf1)
+          : a => meanPhotons(p.rate * a, p.lambdaAt(a), tf0, tf1));
         p.meanFieldFrames++;
         paths.push(`${POP_NAME[p.state]}: mean-field (FFT)`);
       } else {

@@ -31,8 +31,16 @@ Iteration mode (CLAUDE.md): the JS reference has it, the C++ does not yet. Plan:
      `info.imagerBackgroundPerPxPerFrame` is the map's mean; `info.excitation` {regime, bfp, uMax, fieldFactor,
      depthNm}.
    - The host's `illumField` (the adapter's 2D field) goes: the adapter uses the engine's excitation.
-5. Rates stay at the peak (as the in-plane profile always did): the factor scales photons only, also for WideField
-   bleaching and the dSTORM initial ON / PALM pre-state decay (follow-up: dose groups for the bleach rate).
+5. The kinetics follow the local light (a dye at factor a): dSTORM's clock runs at a x real time (its events queried
+   over [0, a_max t_end], t = tau / a); PALM's activation at b = (spont + lin a + quad a^2) / kAct (each dye's first
+   blink T moves to T / b, its later events by T / b - T; dyes keyed by structure + position); DNA-PAINT unchanged (the
+   photons x a); the per-dye windows: the initial ON ends at tOff / a, the pre state at tOff / b, budget bleaching at
+   aux x budget / (emission x a) (windows fetched from t = -inf). Mean field: dose nodes (`doseNodes`, `hatWeight`:
+   DOSE_STEP 0.5 e-folds, DOSE_CUT 8, DOSE_LEVELS 16), one image per node with per-plane, per-cell hat weights (planes
+   below the coverslip at z = 0's factor), frame photons = sum_k fround(g(a_k)) image_k; the mean-field switch counts
+   survivors over a 256-bin histogram of the dyes' factors; the blink mean field: dSTORM 16 nodes at
+   rate x expectedOn(a tf0, a tf1), the others one node at rate x a x expectedOn. Uniform (Flat, bfp 0): the old paths.
+   `excitation_check.mjs` checks it: a Flat HILO beam (one factor F everywhere) = epi with every line x F, per mode.
 6. Checks: `scope_parity.mjs` cases for Gaussian/FlatTop, HILO, TIRF, Clipped, DNA-PAINT nanorulers (default TIRF);
    a ctest `excitation` (the JS check's unit part in C++); re-baseline the cli references and the gallery (FlatTop is
    the default now; default DNA-PAINT is HILO, the nanorulers TIRF).

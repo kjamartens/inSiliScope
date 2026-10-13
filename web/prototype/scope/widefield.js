@@ -8,6 +8,8 @@
 // per frame by the population's exact mean photons per dye.
 // Not mirrored (speed only in the C++): spectra caches, focus bands (gated off for diffraction PSFs),
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
+import { hatWeight } from './excitation.js';
+
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
 const TILE = 64;
 // TODO(human) in the C++ too: the Gaussian WideField PSF ignores defocus (in-focus sigma, 0.21 lambda / NA).
@@ -351,10 +353,10 @@ function binnedImage(im, W, H) {
 // in-focus Gaussian), binned to the camera: W x H photons per (photon per dye). A frame of a continuous population
 // adds (mean detected photons per dye in that frame) x this image. The grid spans the FOV and its margin (as the
 // per-dye path's emitters); each dye counts with the excitation at its cell and plane (S.excite, excitation.js: the
-// beam's footprint at the plane centre x the plane's mean depth factor for the state's laser lines, shares), or 1
-// when the excitation is uniform.
+// beam's footprint at the plane centre x the plane's mean depth factor for the state's laser lines, shares), split
+// over the dose nodes (excitation.js doseNodes: one image per node; levels), or 1 when the excitation is uniform.
 // marginExtraUm: the drift margin (a drifting sample's frames are this image shifted; imagesAt gives them).
-export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0, shares = []) {
+export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0, shares = [], nodes = null) {
   const O = S.O, um = S.p.pixelSizeNm / 1000.0;
   const ws = {
     originXUm: S.q.originXUm, originYUm: S.q.originYUm, width: S.W, height: S.H, pixelUm: um,
@@ -370,48 +372,56 @@ export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, ma
   const g = gridSpecFor(ws, sq);
   const dyes = dyePlanes(world, g, structureMask);
   const ones = new Float32Array(g.nx * g.ny).fill(1);
-  const EX = S.excite;
-  // Per dye plane k of grid gg: the excitation per cell, cached (null: the plane is unlit).
-  const weightFor = gg => {
-    if (!EX || EX.uniform) return ones;
+  const EX = S.excite, shaped = EX && !EX.uniform;
+  const levels = shaped ? nodes : [1.0];
+  // Per dye plane k of grid gg: node j's share of each cell's dyes (hatWeight of the excitation factor a there: the
+  // footprint at the plane centre x the plane's mean depth factor), cached per plane (null: no share in the plane).
+  const weightFor = (gg, j) => {
+    if (!shaped) return ones;
     const cache = new Map(), dz = gg.zPlaneUm;
     return k => {
       if (cache.has(k)) return cache.get(k);
       const z0 = k * dz, z1 = (k + 1) * dz;
-      let a = null;
-      if (z1 > 0.0 && !EX.clipped) {
+      let w = null;
+      if (!EX.clipped) {   // a plane below the coverslip (dyes of a label offset) at z = 0's factor, as a dye's
         const dm = EX.depthMean(z0, z1, shares), zc = Math.max(0.0, (z0 + z1) / 2);
-        a = new Float32Array(gg.nx * gg.ny);
+        w = new Float32Array(gg.nx * gg.ny);
         let any = false;
         for (let iy = 0; iy < gg.ny; iy++) {
           const y = (gg.iy0 + iy + 0.5) * gg.pitchUm - gg.axisY;
           for (let ix = 0; ix < gg.nx; ix++) {
-            const v = EX.F * EX.lateral((gg.ix0 + ix + 0.5) * gg.pitchUm - gg.axisX, y, zc) * dm;
-            a[iy * gg.nx + ix] = v;
+            const a = Math.min(EX.F, EX.F * EX.lateral((gg.ix0 + ix + 0.5) * gg.pitchUm - gg.axisX, y, zc) * dm);
+            const v = hatWeight(levels, j, a);
+            w[iy * gg.nx + ix] = v;
             any = any || v > 0;
           }
         }
-        if (!any) a = null;
+        if (!any) w = null;
       }
-      cache.set(k, a);
-      return a;
+      cache.set(k, w);
+      return w;
     };
   };
-  const images = sceneImages(ws, g, dyes, psf, weightFor(g), { keep: marginExtraUm > 0 });
-  // The scene at other foci (a z-drifting sample, DriftMeanField): the slab follows the focus, the radius is kept
-  // unless it grows (WidefieldScene::Update / SetupFft); images with spectra, cached per focus.
-  let R = images.R;
-  const cache = new Map();
-  const imagesAt = focus => {
-    let im = cache.get(focus);
-    if (im) return im;
-    const slab = ws.slabHalfUm > 0.0, wsk = { ...ws, focusWorldUm: focus, slabCentreUm: focus };
-    const gk = gridSpecFor(wsk, sq);
-    im = sceneImages(wsk, gk, dyes, psf, weightFor(gk), slab ? { keep: true, prevR: R } : { keep: true, fixedR: R });
-    R = im.R;
-    cache.set(focus, im);
-    return im;
-  };
-  return { imagesAt, pitchUm: g.pitchUm, image: binnedImage(images, S.W, S.H), dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
+  // One image per node; the scene at other foci (a z-drifting sample, DriftMeanField): the slab follows the focus, the
+  // radius is kept unless it grows (WidefieldScene::Update / SetupFft); images with spectra, cached per focus.
+  const out = levels.map((_, j) => {
+    const images = sceneImages(ws, g, dyes, psf, weightFor(g, j), { keep: marginExtraUm > 0 });
+    let R = images.R;
+    const cache = new Map();
+    const imagesAt = focus => {
+      let im = cache.get(focus);
+      if (im) return im;
+      const slab = ws.slabHalfUm > 0.0, wsk = { ...ws, focusWorldUm: focus, slabCentreUm: focus };
+      const gk = gridSpecFor(wsk, sq);
+      im = sceneImages(wsk, gk, dyes, psf, weightFor(gk, j), slab ? { keep: true, prevR: R } : { keep: true, fixedR: R });
+      R = im.R;
+      cache.set(focus, im);
+      return im;
+    };
+    return { images, image: binnedImage(images, S.W, S.H), imagesAt };
+  });
+  const images = out.length ? out[0].images : { clamped: 0, nx: 0, ny: 0, R: 0 };
+  return { levels: out.map(l => ({ image: l.image, imagesAt: l.imagesAt })), pitchUm: g.pitchUm, image: out.length ? out[0].image : null,
+    imagesAt: out.length ? out[0].imagesAt : null, dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
     kernelRadius: images.R, grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY } };
 }

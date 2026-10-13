@@ -116,3 +116,33 @@ export function makeExcitation(o) {
     uniform: profile === 0 && u === 0.0,
     profileAt: P, lateral, depth, depthMean, at, column, depthNm, decayUm: tirf ? decayUm : null };
 }
+
+// Dose levels of a population whose photons per dye are nonlinear in its excitation factor a (bleaching at a x the
+// rate; the mean-field images, fluorescence.js): nodes 0 < a_1 < ... <= aMax, a dye split between its two
+// neighbouring nodes by linear interpolation (hatWeight), each node one image whose frame photons are those of a
+// dye at exactly a_k. dMax: the largest dose (rate x a x time, in e-folds) of the movie. One node (aMax: photons
+// linear in a, exact) while dMax <= DOSE_STEP; else nodes DOSE_STEP apart in dose up to DOSE_CUT e-folds (at most
+// DOSE_LEVELS; interpolation error ~ DOSE_STEP^2 / 8 of a dye's photons), and aMax beyond (the dyes there are
+// bleached: e^-8).
+export const DOSE_STEP = 0.5, DOSE_CUT = 8.0, DOSE_LEVELS = 16;
+export function doseNodes(aMax, dMax) {
+  if (!(aMax > 0)) return [];
+  if (!(dMax > DOSE_STEP)) return [aMax];
+  const K = Math.min(DOSE_LEVELS, Math.ceil(Math.min(dMax, DOSE_CUT) / DOSE_STEP));
+  const aCut = dMax > DOSE_CUT ? aMax * DOSE_CUT / dMax : aMax;
+  const out = [];
+  for (let k = 1; k <= K; k++) out.push(aCut * k / K);
+  if (aCut < aMax) out.push(aMax);
+  return out;
+}
+// The share of node k for a dye at factor a (the hat function over nodes [0, ...nodes]; the shares of a sum to 1
+// for 0 < a <= aMax, the node at 0 has no image: its dyes are dark).
+export function hatWeight(nodes, k, a) {
+  const hi = nodes[k], lo = k > 0 ? nodes[k - 1] : 0.0;
+  if (a >= lo && a <= hi) return hi > lo ? (a - lo) / (hi - lo) : 1.0;
+  if (k + 1 < nodes.length) {
+    const nx = nodes[k + 1];
+    if (a > hi && a < nx) return (nx - a) / (nx - hi);
+  }
+  return 0.0;
+}
