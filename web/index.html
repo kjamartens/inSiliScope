@@ -13,13 +13,53 @@
   body[data-ui-style=light]{--panel:#f5f6f8;--border:#d9dde3;--text:#1f2329;--muted:#5d6672;--accent:#4051b5;
     --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
-  #wrap{display:grid;grid-template-columns:var(--side-w) 1fr;height:100vh}
-  #side{display:flex;flex-direction:column;min-height:0;background:var(--panel);border-right:1px solid var(--border);box-sizing:border-box;font-size:var(--fs)}
-  #sideTop{position:relative;padding:10px 12px 6px;border-bottom:1px solid var(--border)}
+  /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
+     its controls beside it, then every setting). --live-w: the right panel's width (33-50 % of the window, dragged). */
+  #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,40vw);height:100vh}
+  #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0}
+  #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
+  #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
+  #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
+  #viewBar a.back:hover{text-decoration:underline}
+  #viewBar .sp{flex:1}
+  #viewBar button{padding:3px 8px}
+  #viewBar button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
+  #viewPanel{position:absolute;top:6px;left:6px;z-index:6;width:min(380px,calc(100% - 12px));max-height:calc(100% - 12px);overflow-y:auto;box-sizing:border-box;
+    padding:2px 10px 8px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:var(--fs);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #viewPanel[hidden]{display:none}
+  #splitter{cursor:col-resize;background:var(--border);opacity:.6}
+  #splitter:hover,#splitter.drag{background:var(--accent);opacity:1}
+  #side{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);box-sizing:border-box;font-size:var(--fs)}
+  #sideTop{position:relative;padding:6px 12px;border-bottom:1px solid var(--border)}
   #sideTop .bar{display:flex;align-items:center;gap:8px}
-  #sideTop h1{font-size:15px;margin:0;flex:1}
-  #side a.back{display:block;font-size:11px;color:var(--link);text-decoration:none;margin:0 0 6px}
-  #side a.back:hover{text-decoration:underline}
+  #sideTop input[type=search]{flex:1;min-width:0;background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:var(--fs);font-family:inherit}
+  .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
+  details.grp.nomatch-grp{display:none!important}
+  /* the live camera (lv_*) and its controls beside it; the controls wrap under the image in a narrow panel */
+  #liveTop{display:flex;flex-wrap:wrap;gap:8px;padding:8px;border-bottom:1px solid var(--border)}
+  #liveView{position:relative;flex:1 1 64%;min-width:220px;aspect-ratio:1;background:#000;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+  #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:#000}
+  #lv_info,#lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
+  #lv_info{top:4px;left:6px;white-space:pre;line-height:1.35}
+  #lv_scale{bottom:6px;right:8px;text-align:center}
+  #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
+  #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
+  #liveCtl{flex:1 1 170px;max-width:260px;min-width:150px;display:flex;flex-direction:column;gap:6px}
+  #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px}
+  #liveCtl .lc h5{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  #liveCtl .btns{display:flex;gap:4px}
+  #liveCtl .btns button{flex:1;padding:4px 4px;white-space:nowrap}
+  #liveCtl button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
+  #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0}
+  #liveCtl .zrow input[type=number]{width:62px}
+  #liveCtl .crow input[type=number]{width:58px}
+  #liveCtl .zrow button{padding:2px 7px}
+  #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
+  #liveCtl .cfg{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 6px;align-items:center}
+  #liveCtl .cfg select{width:100%}
+  #liveCtl .cfg input[type=range]{width:100%}
+  #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
+  #liveCtl .note{font-size:10.5px;color:var(--muted)}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
   #side p.sub{font-size:11px;color:var(--muted);margin:6px 0;line-height:1.4}
   #side p.sub a{color:var(--link)}
@@ -125,10 +165,13 @@
   .dual input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
   .dual input::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
   @media (max-width:700px){
-    #wrap{grid-template-columns:1fr;grid-template-rows:45vh 1fr}
-    #side{border-right:none;border-bottom:1px solid var(--border)}
+    html,body{overflow:auto}
+    #wrap{grid-template-columns:1fr;grid-template-rows:55vh auto;height:auto}
+    #splitter{display:none}
+    #side{border-top:1px solid var(--border)}
+    #panel{overflow:visible}
   }
-  #canvasHost{position:relative;min-height:0}
+  #canvasHost{position:relative;min-height:0;flex:1}
   canvas{display:block;cursor:grab}
   canvas.dragging{cursor:grabbing}
   /* Three stacked layers, all the same pixel size: #cvBase (grid + microtubules, 2D), #cvGl (cell bodies, WebGL2),
@@ -161,22 +204,15 @@
 </head>
 <body>
 <div id="wrap">
-  <div id="side">
-    <div id="sideTop">
-      <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; inSiliScope docs</a>
-      <div class="bar">
-        <h1>inSiliScope viewer</h1>
-        <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
-      </div>
-      <div id="menu" role="menu"></div>
-      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
-    </div>
-    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
-    <div id="panel"></div>
-    <div id="animPanel" hidden></div>
+  <div id="worldCol">
+  <div id="viewBar">
+    <h1>inSiliScope</h1>
+    <button id="viewBtn" title="What the world view draws: camera angle, layers, z clip, simulated data of the centre cell" aria-expanded="false">View ▾</button>
+    <span class="sp"></span>
+    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; docs</a>
   </div>
-
   <div id="canvasHost">
+    <div id="viewPanel" hidden></div>
     <canvas id="cvBase"></canvas>
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
@@ -195,6 +231,51 @@
       <span class="sw" id="dyeSwatch" style="background:#ff4d4d;margin-left:10px"></span>dye
       <span class="cfOnly"><span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid</span>
     </div>
+  </div>
+  </div>
+
+  <div id="splitter" title="Drag to resize the microscope panel"></div>
+
+  <div id="side">
+    <!-- The live microscope: the camera image at the stage position (= the world view's centre) and its controls. -->
+    <div id="liveTop">
+      <div id="liveView">
+        <canvas id="lv_cv" width="1" height="1"></canvas>
+        <div id="lv_idle">Live is off. Press <b>&nbsp;▶ Live&nbsp;</b> to image the sample under the world view's centre.</div>
+        <div id="lv_info"></div>
+        <div id="lv_scale"></div>
+      </div>
+      <div id="liveCtl">
+        <div class="lc"><div class="btns">
+          <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
+          <button id="lv_snap" title="Snap: one frame">Snap</button>
+          <button id="lv_rec" title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
+        </div></div>
+        <div class="lc"><h5>Focus (Z stage)</h5>
+          <div class="zrow"><input type="number" id="lv_z" step="0.1"><span class="u">µm</span>
+            <button id="lv_zUp" title="Focus up (into the sample)">▲</button><button id="lv_zDn" title="Focus down">▼</button></div>
+          <div class="zrow"><label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+        </div>
+        <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
+          <div class="cfg"><span class="lab">Exposure</span><span><input type="number" id="lv_exp" min="1" step="1" style="width:62px"> ms</span></div>
+        </div>
+        <div class="lc"><h5>Display</h5>
+          <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
+          <div class="note" id="lv_hist"></div>
+        </div>
+      </div>
+    </div>
+    <div id="sideTop">
+      <div class="bar">
+        <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
+        <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
+      </div>
+      <div id="menu" role="menu"></div>
+      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
+    </div>
+    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
+    <div id="panel"></div>
+    <div id="animPanel" hidden></div>
   </div>
 </div>
 
@@ -482,7 +563,8 @@ const ZERNIKE_PRESETS = ['None', 'AstigmatismWeak', 'AstigmatismModerate', 'Asti
   'ExtendedRangeStrong'].map((n, i) => [String(i), n]);
 
 const UI_GROUPS = [
-  { sect: 'Display', id: 'view', title: 'View', open: true, items: [
+  // Drawn in the world view's View panel (#viewPanel, the View button), not in the settings.
+  { id: 'view', title: 'View', open: true, host: 'viewPanel', items: [
     head('Camera'),
     range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression: 0 = straight down, 90 = from the side. Shift-drag on the view tilts and turns it. Display only.', 0, 90, 1, 0, { fmt: fx(0),
       side: { id: 'showXZ', label: 'x–z', tip: 'Side view of everything in view along the bottom of the canvas, seen along the view\'s depth (along y when not turned); horizontal and z at the same scale as the view. Display only.', value: true } }),
@@ -973,26 +1055,29 @@ function renderEntry(e, host, g, parent) {
 const panel = $('panel');
 const oneOpen = () => !!(UI_STYLES[document.body.dataset.uiStyle] || {}).oneOpen;
 // Open groups: one remembered group in a oneOpen style, each group's own remembered state otherwise.
+// A group with a host of its own (the View panel) stays open and out of the one-open rule.
 function applyOpen() {
+  const inPanel = groups.filter(G => !G.g.host);
   if (oneOpen()) {
-    const want = store.get('focusOpen', (groups.find(G => G.det.open) || groups[0]).g.id);
-    for (const G of groups) G.det.open = G.g.id === want;
-  } else for (const G of groups) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
+    const want = store.get('focusOpen', (inPanel.find(G => G.det.open) || inPanel[0]).g.id);
+    for (const G of inPanel) G.det.open = G.g.id === want;
+  } else for (const G of inPanel) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
 }
-let curSect = null;
+let curSect = { el: h('div'), groups: [] };   // groups before the first section header (none shown)
 for (const g of UI_GROUPS) {
-  if (g.sect !== undefined) { curSect = { el: h('div', { class: 'sect' }, g.sect), groups: [] }; panel.append(curSect.el); }
+  const into = g.host ? $(g.host) : panel;
+  if (g.sect !== undefined) { curSect = { el: h('div', { class: 'sect' }, g.sect), groups: [] }; into.append(curSect.el); }
   const det = h('details', { class: 'grp', 'data-group': g.id });
   det.append(h('summary', {}, g.title));
   const body = h('div', { class: 'body' });
   det.append(body);
   det.addEventListener('toggle', () => {
     if (!oneOpen()) store.set('open.' + g.id, det.open ? '1' : '0');
-    else if (det.open) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det) o.det.open = false; }
+    else if (det.open && !g.host) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
   });
-  panel.append(det);
-  const G = { g, det, sect: curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
-  groups.push(G); curSect.groups.push(G);
+  into.append(det);
+  const G = { g, det, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
+  groups.push(G); G.sect.groups.push(G);
 }
 
 // ---- values, presets, visibility ----
@@ -1078,7 +1163,7 @@ menu.addEventListener('change', ev => {
 });
 menu.addEventListener('click', ev => {
   const act = ev.target.dataset && ev.target.dataset.act;
-  if (act) for (const G of groups) G.det.open = act === 'expand';
+  if (act) for (const G of groups) if (!G.g.host) G.det.open = act === 'expand';
 });
 const openMenu = open => { menu.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', open); };
 menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openMenu(!menu.classList.contains('open')); });
@@ -1117,11 +1202,38 @@ function showTip(t) {
   tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
 }
 const hideTip = () => { tip.style.display = 'none'; };
-$('side').addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
-$('side').addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
-$('side').addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
-$('side').addEventListener('focusout', hideTip);
+for (const el of [$('side'), $('viewPanel')]) {
+  el.addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+  el.addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
+  el.addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+  el.addEventListener('focusout', hideTip);
+}
 panel.addEventListener('scroll', hideTip);
+$('viewPanel').addEventListener('scroll', hideTip);
+
+// ---- search: show only the rows whose label or help text has every typed word (their group opened) ----
+const search = $('setSearch');
+const rowText = r => ((r.label || '') + ' ' + (r.tip || '') + ' ' + (r.id || '') + ' ' + (r.group ? r.group.title : '')).replace(/<[^>]+>/g, ' ').toLowerCase();
+function applySearch() {
+  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = r => words.every(w => rowText(r).includes(w));
+  const keep = new Set();
+  if (words.length) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
+  for (const r of entries) {
+    if (!r.row || (r.group && r.group.host)) continue;
+    const off = words.length && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
+    r.row.classList.toggle('nomatch', !!off);
+    if (r.kidsEl) r.kidsEl.classList.toggle('nomatch', !!off && !(r.kidEntries || []).some(k => keep.has(k)));
+  }
+  for (const G of groups) {
+    if (G.g.host) continue;
+    const any = !words.length || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
+    G.det.classList.toggle('nomatch-grp', !any);
+    if (words.length && any) G.det.open = true;
+  }
+  if (!words.length) applyOpen();
+}
+search.addEventListener('input', applySearch);
 
 document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
 setStyle(store.get('style', 'focus'));
@@ -2620,10 +2732,18 @@ function iscEngine(M) {
     for (const ptr of [s, info, err, out, img]) if (ptr) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
   }
-  return {
-    // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
-    handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+  // A live frame (web/live/live.js): one frame of the sample at d.t. Without the module's live session: a one-frame
+  // movie at start-sec = d.t (no sample history), then t advances by the exposure.
+  function liveFrame(d, post) {
+    const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
+    const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )start-sec=\S+/, '') + ' start-sec=' + d.t, noGpu: true });
+    const [m, tr] = r;
+    return [{ ...m, type: 'live', t: d.t + exp, engine: 'movie' }, tr];
+  }
+  return { handle };
+  // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
+  function handle(d, post) {
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'psf') {
         // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
         const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
@@ -2802,6 +2922,7 @@ function iscEngine(M) {
         if (bfOpen.has(d.h)) { M._isc_bf_end(d.h); bfOpen.delete(d.h); }
         return [{ type: 'bf-end', id: d.id }, []];
       }
+      if (d.type === 'live') return liveFrame(d, post);
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
@@ -2829,8 +2950,7 @@ function iscEngine(M) {
         return [res, res.frames ? [res.frames.buffer] : []];
       }
       throw new Error('unknown job ' + d.type);
-    },
-  };
+  }
 }
 
 function genWorkerMain() {
@@ -4977,10 +5097,11 @@ function movieWorldRect(m) {
   const half = /(^| )modality=1( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
   return [x0 - half, y0 - half, x1 - half, y1 - half];
 }
-// While the Acquisition group is open: the square the next movie covers (centred on the view centre), dashed yellow.
+// The camera's field of view (centred on the view centre = the stage position), dashed yellow: while live imaging
+// runs or the Acquisition group is open (the square the next movie covers).
 function drawPlannedFov() {
-  const grp = document.querySelector('details[data-group="acq"]');
-  if (!grp || !grp.open || grp.style.display === 'none' || document.getElementById('panel').hidden) return;
+  const grp = document.querySelector('details[data-group="acq"]'), live = self.liveState && (self.liveState.on || self.liveState.frames);
+  if (!live && (!grp || !grp.open || grp.style.display === 'none' || document.getElementById('panel').hidden)) return;
   const n = +document.getElementById('mv_size').value, px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000, size = n * px;
   const half = document.getElementById('mv_modality').value === '1' ? 0 : px / 2;
   const x0 = view.cx - size / 2 - half, y0 = view.cy - size / 2 - half, x1 = x0 + size, y1 = y0 + size;
@@ -4992,7 +5113,7 @@ function drawPlannedFov() {
   const top = pts.reduce((a, q) => (q[1] < a[1] ? q : a));
   ctx.fillStyle = 'rgba(255,209,102,0.95)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`next movie: ${n} × ${n} px`, top[0], top[1] - 3 * devicePixelRatio);
+  ctx.fillText(live ? `camera ${n} × ${n} px` : `next movie: ${n} × ${n} px`, top[0], top[1] - 3 * devicePixelRatio);
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
@@ -5250,6 +5371,7 @@ else initGenWorkers();
 setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D fallback (for testing)
 resizeCanvas();
 </script>
+<script src="live/live.js"></script>
 <script src="anim/editor.js"></script>
 </body>
 </html>
