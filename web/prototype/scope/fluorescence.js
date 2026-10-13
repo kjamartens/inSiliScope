@@ -324,16 +324,18 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const bg = S.p.backgroundPhotons + imagerPerFrame;
   // A shaped excitation (not uniform): the background per pixel -- the flat background x the beam's footprint on the
   // coverslip (no field factor; it includes stray light), plus each DNA-PAINT label's free imager x the excitation's
-  // column integral over the chamber (epi: its height; HILO: the sheet; TIRF: ~ the decay depth).
+  // collected column over the chamber (excitation.js imagerMap: the lit imager at each height, defocused onto the
+  // pixel; epi: ~ the beam's radius, not the chamber's height; HILO: the sheet; TIRF: ~ the decay depth).
   let bgMap = null, imagerMean = imagerPerFrame;
   if (!EX.uniform) {
     bgMap = new Float32Array(W * H);
     const H0 = S.lp.chamberHeightUm, imagers = S.labels.filter((L, s) => S.mounted.includes(s) && L.imagerPerPxPerUmPerSec(um) > 0);
+    const imMap = EX.imagerMap(W, H, um, axisX, axisY, H0,
+      imagers.map(L => ({ rate: L.imagerPerPxPerUmPerSec(um), shares: L.states.main.lineShares })));
     let sum = 0.0;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const dx = x * um - axisX, dy = y * um - axisY;
-      let im = 0.0;
-      for (const L of imagers) im += L.imagerPerPxPerUmPerSec(um) * EX.column(dx, dy, H0, L.states.main.lineShares);
+      let im = imMap[y * W + x];
       im *= S.expSec;
       sum += im;
       bgMap[y * W + x] = S.p.backgroundPhotons * EX.lateral(dx, dy, 0.0) + im;

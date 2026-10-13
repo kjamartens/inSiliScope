@@ -111,10 +111,164 @@ export function makeExcitation(o) {
   // FWHM / (tan theta_s cos theta_i)); -1 for epi, a Flat beam's HILO and a clipped spot.
   const depthNm = (lambdaNm = 640) => tirf ? decayUm(lambdaNm) * 1000.0
     : (!clipped && tanS > 0.0 && profile !== 0 ? fwhmUm / (tanS * cosI) * 1000.0 : -1.0);
+  // The free imager's collected column (imagerColumnAt, imagerMap): the light of the dyes at height z reaches the
+  // camera pixel at (x, y) defocused, spread over a disc of radius |z - z_p| tan theta (theta: the emission angle in
+  // the medium), so a pixel collects the excitation within that reach of it, not the column above it alone. Rings:
+  // equal-weight quantiles of the collected emission angles (collectionTans); z: intervals growing away from the focal
+  // plane (epi, HILO) or COLLECT_TIRF_STEPS equal steps over the evanescent layer (TIRF), each weighted by its exact
+  // depth integral and evaluated at its middle.
+  const scaleUm = profile === 1 ? sig : edge;
+  const dirsOf = nd => {
+    const ds = [];
+    for (let k = 0; k < nd; k++) { const a = 2.0 * Math.PI * (k + 0.5) / nd; ds.push([Math.cos(a), Math.sin(a)]); }
+    return ds;
+  };
+  // The z intervals of the chamber [0, Hc]: {zm, w}, w = the sum over the imagers {rate, shares} of rate x the depth
+  // integral over the interval.
+  const intervals = (Hc, imagers, ratio, nTirf) => {
+    const out = [];
+    const add = (a, b) => {
+      if (!(b > a)) return;
+      let w = 0.0;
+      for (const L of imagers) w += L.rate * (depthMean(a, b, L.shares) * (b - a));
+      out.push({ zm: 0.5 * (a + b), w });
+    };
+    if (tirf) {
+      let dMax = 0.0;
+      for (const L of imagers) for (const l of L.shares) dMax = Math.max(dMax, decayUm(l.nm));
+      const top = Math.min(Hc, 30.0 * dMax);
+      for (let i = 0; i < nTirf; i++) add(top * i / nTirf, top * (i + 1) / nTirf);
+      return out;
+    }
+    const f = Math.min(Hc, Math.max(0.0, zp)), reach = Math.max(f, Hc - f);
+    let e0 = 0.0, e1 = COLLECT_DZ0;
+    while (e0 < reach) {
+      add(Math.max(0.0, f - e1), f - e0);
+      add(f + e0, Math.min(Hc, f + e1));
+      e0 = e1;
+      e1 *= ratio;
+    }
+    return out;
+  };
+  // The collected column at (x, y): the intervals' weights x the footprint's mean over the rings (a ring smaller than
+  // `small` um: its centre).
+  const collectedAt = (x, y, ivs, rings, ds, small) => {
+    let s = 0.0;
+    const tans = rings.tans, ws = rings.weights, nr = tans.length, nd = ds.length;
+    for (const iv of ivs) {
+      if (iv.w === 0.0) continue;
+      const dz = Math.abs(iv.zm - zp);
+      let b = 0.0;
+      for (let j = 0; j < nr; j++) {
+        const rho = dz * tans[j];
+        if (rho < small) { b += ws[j] * lateral(x, y, iv.zm); continue; }
+        let r = 0.0;
+        for (let k = 0; k < nd; k++) r += lateral(x + rho * ds[k][0], y + rho * ds[k][1], iv.zm);
+        b += ws[j] * (r / nd);
+      }
+      s += iv.w * b;
+    }
+    return F * s;
+  };
+  // One pixel at a chosen accuracy (the checks' dense reference): opts {rings (0: Gauss-Legendre), dirs, ratio,
+  // tirfSteps, fresnel}.
+  const imagerColumnAt = (x, y, Hc, imagers, opts = {}) => {
+    if (clipped || !(Hc > 0.0)) return 0.0;
+    const rings = collectionRings(nS, nI, o.na, opts.rings ?? 0, opts.fresnel ?? true);
+    return collectedAt(x, y, intervals(Hc, imagers, opts.ratio ?? COLLECT_RATIO, opts.tirfSteps ?? COLLECT_TIRF_STEPS),
+      rings, dirsOf(opts.dirs ?? COLLECT_DIRS), 0.0);
+  };
+  // The map over a W x Hpx camera (pixel (i, j) at (i um - axisX, j um - axisY)), per second: evaluated on a node grid
+  // (spacing a third of the profile's edge width or sigma, at least a pixel, at most COLLECT_NODES per side) and
+  // interpolated bilinearly (the defocused light is smooth; the grid resolves the footprint's edge). A Flat beam lights
+  // every plane evenly, so the spread changes nothing there: its column, exactly.
+  const imagerMap = (W, Hpx, um, axisX, axisY, Hc, imagers) => {
+    const out = new Float64Array(W * Hpx);
+    if (clipped || !(Hc > 0.0) || !imagers.length) return out;
+    if (profile === 0) {
+      for (let j = 0; j < Hpx; j++) for (let i = 0; i < W; i++) {
+        let v = 0.0;
+        for (const L of imagers) v += L.rate * column(i * um - axisX, j * um - axisY, Hc, L.shares);
+        out[j * W + i] = v;
+      }
+      return out;
+    }
+    const g = Math.max(um, scaleUm / 3.0);
+    const axis = n => n <= 1 ? 1 : Math.min(COLLECT_NODES, Math.max(2, Math.ceil((n - 1) * um / g) + 1));
+    const nx = axis(W), ny = axis(Hpx);
+    const nodeAt = (k, nn, n) => nn <= 1 ? 0.0 : (n - 1) * um * k / (nn - 1);
+    const ivs = intervals(Hc, imagers, COLLECT_RATIO, COLLECT_TIRF_STEPS), small = 0.125 * g;
+    const rings = collectionRings(nS, nI, o.na, 0, true), ds = dirsOf(COLLECT_DIRS);
+    const node = new Float64Array(nx * ny);
+    for (let b = 0; b < ny; b++) for (let a = 0; a < nx; a++)
+      node[b * nx + a] = collectedAt(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, Hpx) - axisY, ivs, rings, ds, small);
+    // Pixel p of n on nn nodes: the node below it and the fraction towards the next.
+    const cellOf = (p, n, nn) => {
+      if (nn <= 1) return [0, 0.0];
+      const f = p * (nn - 1) / (n - 1), k = Math.min(nn - 2, Math.floor(f));
+      return [k, f - k];
+    };
+    for (let j = 0; j < Hpx; j++) {
+      const [b, fy] = cellOf(j, Hpx, ny), b1 = ny > 1 ? b + 1 : b;
+      for (let i = 0; i < W; i++) {
+        const [a, fx] = cellOf(i, W, nx), a1 = nx > 1 ? a + 1 : a;
+        const v00 = node[b * nx + a], v10 = node[b * nx + a1], v01 = node[b1 * nx + a], v11 = node[b1 * nx + a1];
+        out[j * W + i] = (1.0 - fy) * ((1.0 - fx) * v00 + fx * v10) + fy * ((1.0 - fx) * v01 + fx * v11);
+      }
+    }
+    return out;
+  };
   return { regime, u, uMax, clipped, tirf, F, cosI, tanS, profile, fwhmUm,
     // Exactly 1 everywhere (a Flat beam at the BFP centre): the renderers skip the factor (outputs as before).
     uniform: profile === 0 && u === 0.0,
-    profileAt: P, lateral, depth, depthMean, at, column, depthNm, decayUm: tirf ? decayUm : null };
+    profileAt: P, lateral, depth, depthMean, at, column, imagerColumnAt, imagerMap, depthNm, decayUm: tirf ? decayUm : null };
+}
+
+// The collection of a defocused dye's light (the free imager's background; imagerMap). A freely rotating imager emits
+// isotropically; its light at emission angle theta in the medium (n_s) crosses the focal plane |z - z_p| tan theta
+// from the dye (geometric optics in one medium: the coverslip and immersion mismatch is left out) and enters the
+// glass (n_i) with the Fresnel power transmittance T = (n_i cos theta_i / n_s cos theta) (t_s^2 + t_p^2) / 2
+// (bornwolf1999, section 1.5.3; unpolarised: the mean of s and p). An aplanatic objective (the sine condition)
+// collects equal power per solid angle in object space -- its cos^(1/2) apodization only redistributes the pupil's
+// amplitude (richards1959) -- up to theta_max = asin(NA / n_s) (all of the medium's half space when NA >= n_s; the
+// supercritical near field is left out). So the collected light is distributed over cos theta as T on
+// [cos theta_max, 1]: the rings sit at quantiles q of it (as tan theta) -- 16-point Gauss-Legendre in q (n = 0; the
+// renderers: the tail of large rings is what an equal-weight midpoint rule gets wrong, 3 % at 16) or n equal-weight
+// midpoints (the checks' dense reference). The dye's detected fraction stays the label's (the weights sum to 1).
+// fresnel false: T = 1 (isotropic; the checks' closed form).
+export const COLLECT_DIRS = 24, COLLECT_RATIO = 1.15, COLLECT_DZ0 = 0.05, COLLECT_TIRF_STEPS = 64, COLLECT_NODES = 64;
+// Gauss-Legendre, 16 points on [-1, 1]: the positive nodes and their weights (numpy leggauss).
+const GL16_X = [0.09501250983763744, 0.2816035507792589, 0.45801677765722737, 0.6178762444026438, 0.755404408355003,
+  0.8656312023878318, 0.9445750230732326, 0.9894009349916499];
+const GL16_W = [0.18945061045506864, 0.18260341504492364, 0.16915651939500265, 0.1495959888165767, 0.12462897125553407,
+  0.0951585116824926, 0.062253523938647456, 0.027152459411754176];
+export function collectionRings(nS, nI, na, n, fresnel = true) {
+  const cMin = na >= nS ? 0.0 : Math.sqrt(1.0 - (na / nS) * (na / nS));
+  const STEPS = 4096, dc = (1.0 - cMin) / STEPS;
+  const T = c => {
+    if (!fresnel) return 1.0;
+    const s = Math.sqrt(1.0 - c * c), sg = nS * s / nI, cg = Math.sqrt(1.0 - sg * sg);
+    const ts = 2.0 * nS * c / (nS * c + nI * cg), tp = 2.0 * nS * c / (nI * c + nS * cg);
+    return (nI * cg) / (nS * c) * (ts * ts + tp * tp) / 2.0;
+  };
+  // The cumulative weight from cos theta = 1 down (theta growing), STEPS midpoints.
+  const cum = new Float64Array(STEPS + 1);
+  for (let k = 0; k < STEPS; k++) cum[k + 1] = cum[k] + T(1.0 - (k + 0.5) * dc) * dc;
+  // The quantiles in increasing order and their weights.
+  const qs = [], ws = [];
+  if (n === 0) {
+    for (let j = 7; j >= 0; j--) { qs.push(0.5 - 0.5 * GL16_X[j]); ws.push(0.5 * GL16_W[j]); }
+    for (let j = 0; j < 8; j++) { qs.push(0.5 + 0.5 * GL16_X[j]); ws.push(0.5 * GL16_W[j]); }
+  } else for (let j = 0; j < n; j++) { qs.push((j + 0.5) / n); ws.push(1.0 / n); }
+  const tans = [];
+  let k = 0;
+  for (const qq of qs) {
+    const q = qq * cum[STEPS];
+    while (k < STEPS - 1 && cum[k + 1] < q) k++;
+    const c = 1.0 - (k + (q - cum[k]) / (cum[k + 1] - cum[k])) * dc;
+    tans.push(Math.sqrt(1.0 - c * c) / c);
+  }
+  return { tans, weights: ws };
 }
 
 // Dose levels of a population whose photons per dye are nonlinear in its excitation factor a (bleaching at a x the

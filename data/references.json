@@ -258,8 +258,8 @@
       "title": "Electromagnetic diffraction in optical systems, II. Structure of the image field in an aplanatic system",
       "journal": "Proceedings of the Royal Society of London A", "volume": "253", "pages": "358-379",
       "doi": "10.1098/rspa.1959.0200",
-      "use": "the vectorial focus-field model behind PSFGenerator's Richards & Wolf PSF (Renderer.PsfModel = RichardsWolf)",
-      "checked": "bibliographic details from the Crossref DOI record; named as the source of the Richards & Wolf model on the PSFGenerator page (bigwww.epfl.ch/algorithms/psfgenerator); not re-read"
+      "use": "the vectorial focus-field model behind PSFGenerator's Richards & Wolf PSF (Renderer.PsfModel = RichardsWolf); the aplanatic system's (cos theta)^(1/2) apodization from energy conservation under the sine condition, i.e. equal power per object-space solid angle (the free imager's collected column, excitation.js collectionRings)",
+      "checked": "bibliographic details from the Crossref DOI record; named as the source of the Richards & Wolf model on the PSFGenerator page (bigwww.epfl.ch/algorithms/psfgenerator); the apodization is the standard result of its section 2, written from the formula (the paper is not open; not re-read)"
     },
     "kirshner2013": {
       "authors": "Kirshner H, Aguet F, Sage D, Unser M",
@@ -546,7 +546,7 @@
       "year": 1999,
       "title": "Principles of Optics, 7th edition",
       "journal": "Cambridge University Press", "volume": "", "pages": "",
-      "use": "Fresnel amplitude transmission coefficients t_s = 2 n1 cos theta_i / (n1 cos theta_i + n2 cos theta_t), t_p = 2 n1 cos theta_i / (n2 cos theta_i + n1 cos theta_t) (section 1.5.2); Snell's law; the sine condition (the BFP radius ~ n sin theta)",
+      "use": "Fresnel amplitude transmission coefficients t_s = 2 n1 cos theta_i / (n1 cos theta_i + n2 cos theta_t), t_p = 2 n1 cos theta_i / (n2 cos theta_i + n1 cos theta_t) (section 1.5.2); the power transmittance T = (n2 cos theta_t / n1 cos theta_i) |t|^2 (section 1.5.3: the free imager's collected light into the coverslip, excitation.js collectionRings); Snell's law; the sine condition (the BFP radius ~ n sin theta)",
       "checked": "standard textbook results, written from the formulas (not checked against the book itself)"
     }
   }

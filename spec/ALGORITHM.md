@@ -854,8 +854,19 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   splats, the per-dye windows). Mean-field populations: per WideField plane and grid cell F x lateral(cell, plane
   centre) x the plane's exact mean of the depth decay (a 25 nm plane at d = 100 nm would be biased by its centre value);
   planes below the coverslip take z = 0's factor. The DNA-PAINT free imager: the background per pixel is the imager rate
-  per um of lit column x the column integral of the factor over the chamber (`chamber-height-um`, now a real 100 um,
-  *estimate*: tape and flow chambers): epi sees the whole chamber, TIRF ~ F d, HILO about the sheet. That is why
+  per um of lit column x the **collected column** over the chamber (`chamber-height-um`, now a real 100 um,
+  *estimate*: tape and flow chambers): the factor at each height, convolved with the spread of a dye's light at that
+  defocus (|z - z_f| tan theta; emission isotropic, weighted by the Fresnel power transmittance into the glass,
+  bornwolf1999 1.5.3, collected at equal power per object-space solid angle up to the NA, richards1959). Fixed on
+  purpose: the plain column (the factor straight above the pixel) counted the whole 100 um of an epi chamber, ~8x too
+  much, because the light from far above the focus spreads over a disc much wider than the beam: epi's column is about
+  the beam's radius (isotropic, on the axis of a disc of radius a: int 1 - d / sqrt(a^2 + d^2) ~ a), TIRF ~ F d, HILO
+  about the sheet. Quadrature (excitation.js `imagerMap` = Excitation::ImagerMap): angles at 16-point Gauss-Legendre
+  quantiles of the collected distribution in cos theta (equal-weight midpoints were 3 % low: the tail of wide rings),
+  24 directions per ring, z intervals growing 1.15x from 50 nm around the focus (TIRF: 64 over 30 decay lengths, each
+  with its exact depth integral), on a node grid a third of the profile's edge (or sigma) apart, at least a pixel, at
+  most 64 per side, bilinear between; a Flat beam keeps the plain column (a laterally infinite beam: the spread changes
+  nothing). Left out: the medium / glass index mismatch, near-field emission, imager depletion. That is why
   DNA-PAINT is done in HILO or TIRF: the light presets of the DNA-PAINT modes set u = 0.95 (HILO), the nanorulers'
   specimen u = 1.03 (TIRF, under the 1.40 objective's pupil edge; both *estimates*); in epi the nanorulers' 20 nM
   imager over 100 um saturates the camera.

@@ -414,15 +414,26 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     def mean_at_z(zpos):
         core.setPosition(z, zpos)
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
+    # The dyes' signal at a focus: the frame mean less that of a sample whose targets keep only their free imager
+    # (0.001 % labelling: the imager background, which depends on the focus too -- its light is collected defocused).
+    pcts = {t: core.getProperty("CellField", f"{t}_LabelingPct") for t in ("Microtubules", "NuclearPores")}
+    def signal_at_z(zpos):
+        lit = mean_at_z(zpos)
+        for t in pcts:
+            core.setProperty("CellField", f"{t}_LabelingPct", "0.001")
+        bare = mean_at_z(zpos)
+        for t, v in pcts.items():
+            core.setProperty("CellField", f"{t}_LabelingPct", v)
+        return lit - bare
     # In epi: the DNA-PAINT preset's HILO sheet pivots at the focus, so far below it would cross the chamber beside
     # the FOV and take the imager background with it.
     bfp = core.getProperty("Lasers", "BfpPosition")
     core.setProperty("Lasers", "BfpPosition", "0")
-    up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
+    up, down = signal_at_z(4.0), signal_at_z(-4.0)
     core.setProperty("Lasers", "BfpPosition", bfp)
     core.setPosition(z, 1.5)
-    assert up > empty + 1.0 and abs(down - empty) < 0.5, \
-        f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+    assert up > 1.0 and abs(down) < 0.5, \
+        f"Z sign: dye signal {up:.2f} ADU at +4 um, {down:.2f} at -4 um (above the free imager's background)"
     # DNA-PAINT sites do not run out: over the first 300 frames of the stack
     # the signal stays flat (the bleaching side is the WideField check below;
     # a snap waits out its exposure, so few frames are read).
@@ -440,7 +451,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     assert p_early > 0.5 and 0.8 < p_late / p_early < 1.25, f"DNA-PAINT sites should not run out: {p_early:.2f} -> {p_late:.2f} ADU"
     print(f"DNA-PAINT OK: signal {p_early:.2f} -> {p_late:.2f} ADU over {300 * core.getExposure() / 1000:.0f} s")
 
-    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
+    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU of dye signal), -4 um below the coverslip does not ({down:.2f})")
 
     _widefield_checks(core, cam, xy, x0, y0)
     # The z sequences and BrightField at the FOV with the most structure (the

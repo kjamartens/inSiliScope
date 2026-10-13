@@ -40,6 +40,17 @@ enum IllumRegime { REGIME_EPI = 0, REGIME_HILO = 1, REGIME_TIRF = 2, REGIME_CLIP
 struct ExcitationLine { double nm, share; };
 using ExcitationShares = std::vector<ExcitationLine>;
 
+// A free imager (a DNA-PAINT label's): its background per pixel per um of lit height per second and its line shares.
+struct ImagerSource { double rate; ExcitationShares shares; };
+
+// The collection of a defocused dye's light (JS collectionRings; its comment has the model and references): the
+// emission angles' quantiles, as tan theta in the medium, and their weights (summing to 1). n = 0: 16-point
+// Gauss-Legendre in the quantile (the renderers); n > 0: n equal-weight midpoints. fresnel false: isotropic.
+struct CollectionRings { std::vector<double> tans, weights; };
+CollectionRings CollectionRingsFor(double nS, double nI, double na, int n, bool fresnel = true);
+constexpr int kCollectDirs = 24, kCollectTirfSteps = 64, kCollectNodes = 64;
+constexpr double kCollectRatio = 1.15, kCollectDz0 = 0.05;
+
 struct ExcitationSpec
 {
    int profile = ILLUM_FLATTOP;
@@ -77,14 +88,28 @@ public:
    double At(double x, double y, double z, const ExcitationShares& shares) const;
    // The column integral of At over the chamber [0, H] um at (x, y) (the free imager's excitation).
    double Column(double x, double y, double H, const ExcitationShares& shares) const;
+   // The free imagers' collected column at (x, y) (JS imagerColumnAt): every height's lit imager defocused onto the
+   // pixel, sum of rate x um; at a chosen accuracy (the checks' dense reference).
+   double ImagerColumnAt(double x, double y, double Hc, const std::vector<ImagerSource>& imagers, int rings = 0,
+                         int dirs = kCollectDirs, double ratio = kCollectRatio, int tirfSteps = kCollectTirfSteps,
+                         bool fresnel = true) const;
+   // Its map over a W x H camera (pixel (i, j) at (i um - axisX, j um - axisY); JS imagerMap): on a node grid,
+   // interpolated bilinearly; a Flat beam: the plain columns. Nodes on threads (each its own slot).
+   std::vector<double> ImagerMap(unsigned W, unsigned H, double um, double axisX, double axisY, double Hc,
+                                 const std::vector<ImagerSource>& imagers) const;
    // TIRF's 1/e depth at lambdaNm; HILO's sheet thickness on the axis; -1 otherwise (nm).
    double DepthNm(double lambdaNm = 640) const;
    // TIRF's decay length at lambdaNm, um.
    double DecayUm(double lambdaNm) const;
 
 private:
+   struct Interval { double zm, w; };
+   std::vector<Interval> Intervals(double Hc, const std::vector<ImagerSource>& imagers, double ratio, int nTirf) const;
+   double CollectedAt(double x, double y, const std::vector<Interval>& ivs, const CollectionRings& rings,
+                      const std::vector<double>& dirs, double small) const;
+
    int profile_ = ILLUM_FLATTOP, regime_ = REGIME_EPI;
-   double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, zp_ = 0;
+   double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, nI_ = 1.518, na_ = 1.4, zp_ = 0;
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
    bool clipped_ = false, tirf_ = false, uniform_ = false;
 };

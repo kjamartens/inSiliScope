@@ -3,7 +3,9 @@
 //   node web/lab/excitation_check.mjs
 // Checks: epi = the in-plane profile; the field factor continuous at the critical angle; the decay depth against
 // Axelrod 1981's example (120 nm); the plane means and column integrals against quadrature; HILO's sheet; a clipped
-// spot is dark; in movies, TIRF keeps the coverslip's dyes and loses the cell's, and cuts DNA-PAINT's imager background.
+// spot is dark; the free imager's collected column (isotropic: against an independent quadrature in the focal plane;
+// the renderers' map against a dense one; epi well below the chamber's height); in movies, TIRF keeps the coverslip's
+// dyes and loses the cell's, and cuts DNA-PAINT's imager background.
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -72,6 +74,43 @@ const red = [{ nm: 640, share: 1 }];
   const e = makeExcitation({ ...base, na: 1.4, bfp: 1.1 });
   if (e.regime !== 'Clipped' || e.at(0, 0, 0, red) !== 0 || e.column(0, 0, 10, red) !== 0) bad('clipped spot is not dark');
 }
+// The collected column of the free imager (excitation.js imagerMap).
+{
+  const cb = { ...base, fovWidthUm: 25.6, na: 1.4, pivotUm: 0.5 }, im = [{ rate: 1, shares: red }];
+  // Isotropic emission (T = 1), epi, on the axis: the focal-plane irradiance of a dye at defocus dz is
+  // dz / (2 pi (dz^2 + rho^2)^(3/2)), so the column is the integral over z of
+  // int_0^inf P(dz t) t / (1 + t^2)^(3/2) dt (t = rho / dz; P radial and 1 at the axis).
+  const e = makeExcitation({ ...cb, bfp: 0 });
+  let ref = 0;
+  const nz = 4000, Hc = 100;
+  for (let i = 0; i < nz; i++) {
+    const dz = Math.abs((i + 0.5) * Hc / nz - cb.pivotUm), sMax = Math.asinh(200 / Math.max(dz, 1e-3)), ns = 3000;
+    let inner = 0;
+    for (let k = 0; k < ns; k++) {
+      const sk = (k + 0.5) * sMax / ns, t = Math.sinh(sk);
+      inner += e.profileAt(dz * t, 0) * t / Math.pow(1 + t * t, 1.5) * Math.cosh(sk) * sMax / ns;
+    }
+    ref += inner * Hc / nz;
+  }
+  const iso = e.imagerColumnAt(0, 0, Hc, im, { fresnel: false });
+  near(iso, ref, 5e-3, 'isotropic collected column vs the focal-plane quadrature');
+  const fr = e.imagerColumnAt(0, 0, Hc, im);
+  console.log(`epi collected column on the axis (100 um chamber, 25.6 um FlatTop): isotropic ${iso.toFixed(2)} um, ` +
+    `Fresnel-weighted ${fr.toFixed(2)} um (the old column: ${e.column(0, 0, Hc, red).toFixed(0)} um)`);
+  if (!(fr > iso && fr < 0.2 * Hc)) bad('Fresnel-weighted collected column not between the isotropic one and a fifth of the chamber');
+  // The renderers' map (Gauss-Legendre rings, a node grid) against a dense reference, per regime.
+  const W = 64, um = 0.4, ax = 12.8;
+  for (const [bfp, tol] of [[0, 5e-3], [0.95, 3e-2], [1.03, 5e-3]]) {
+    const x = makeExcitation({ ...cb, bfp }), m = x.imagerMap(W, W, um, ax, ax, Hc, im);
+    for (const [i, j] of [[32, 32], [0, 32], [10, 50]]) {
+      const d = x.imagerColumnAt(i * um - ax, j * um - ax, Hc, im, { rings: 128, dirs: 64, ratio: 1.02, tirfSteps: 512 });
+      near(m[j * W + i], d, tol, `${x.regime} collected column at pixel (${i}, ${j})`);
+    }
+  }
+  // A Flat beam lights every plane alike: the map is the plain column.
+  const f = makeExcitation({ ...cb, profile: 0, bfp: 0.9 }), fm = f.imagerMap(8, 8, 1, 4, 4, Hc, im);
+  if (fm[3 * 8 + 5] !== f.column(1, -1, Hc, red)) bad('Flat beam: map != column');
+}
 const unitMs = performance.now() - t0;
 
 // Movies: TIRF vs epi on the cells (microtubules in WideField mode: every dye shows), DNA-PAINT background.
@@ -89,11 +128,11 @@ const epi = sum(`${wf} illum-bfp=0`), tirf = sum(`${wf} illum-bfp=1.03`), hilo =
 console.log(`WideField microtubules, photons: epi ${epi.s.toExponential(3)}, HILO ${hilo.s.toExponential(3)}, TIRF ${tirf.s.toExponential(3)} (d ${tirf.info.excitation.depthNm.toFixed(0)} nm)`);
 // Per unit of the interface's intensity (the field factor), TIRF keeps only the dyes near the coverslip.
 if (!(tirf.s / tirf.info.excitation.fieldFactor < 0.5 * epi.s)) bad('TIRF does not dim the cell (microtubules above the evanescent layer)');
-const pt = 'specimen=Nanorulers psf-kernel-half-width-nm=1500 size=32 frames=2 ruler-label-pct=100';
+const pt = 'specimen=Nanorulers psf-kernel-half-width-nm=1500 size=128 frames=1 ruler-label-pct=100';
 const pe = sum(`${pt} illum-bfp=0`), ptirf = sum(`${pt} illum-bfp=1.03`), pdef = sum(pt);
 const bgE = pe.info.imagerBackgroundPerPxPerFrame, bgT = ptirf.info.imagerBackgroundPerPxPerFrame;
 console.log(`Nanorulers DNA-PAINT: imager background per px per frame epi ${bgE.toFixed(1)}, TIRF ${bgT.toFixed(2)}; default ${pdef.info.excitation.regime} (bfp ${pdef.info.excitation.bfp})`);
-if (!(bgT < 0.01 * bgE)) bad('TIRF does not cut the free-imager background a hundredfold');
+if (!(bgT < 0.1 * bgE)) bad('TIRF does not cut the free-imager background tenfold');
 if (pdef.info.excitation.regime !== 'TIRF') bad(`nanorulers' default illumination ${pdef.info.excitation.regime}`);
 const clipped = sum(`${pt} na=1.4 illum-bfp=1.1 background-per-sec=0`);
 console.log(`clipped (NA 1.40, bfp 1.1): photons ${clipped.s.toExponential(3)}`);

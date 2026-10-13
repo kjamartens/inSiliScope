@@ -125,7 +125,8 @@ def light_imager(ctx):
     concs = [0.3, 1, 3, 10]
     tiles, model, measured = [], [], []
     for c in concs:
-        adu, ph, setup, _ = movie(ctx, {"mt-imager-nm": c}, "c%g" % c, frames=5)
+        adu, ph, setup, _ = movie(ctx, {"mt-imager-nm": c, "illum-profile": "Flat", "illum-bfp": 0,
+                                        "chamber-height-um": 5}, "c%g" % c, frames=5)
         lab = setup["labels"][0]
         model.append(lab["imager_background_per_px_per_s"] * setup["frame"]["exposure_s"])
         measured.append(float(np.median(ph)))
@@ -136,8 +137,10 @@ def light_imager(ctx):
                   ["Median, rendered (photons/px/frame)"] + [sig(v, 3) for v in measured]]) + \
         "\nThe DNA-PAINT imager concentration sets the binding rate (k<sub>on</sub>c: more blinks) and the free " \
         "imager's flat background c N<sub>A</sub> H A<sub>px</sub> k<sub>em</sub>&eta;F (model row, from the cli's " \
-        "setup output). The rendered row is the median of the photon images before the camera, which also holds " \
-        "the blinks' halos. Frames: one camera frame (ADU, each its own contrast). Default 1 nM; frames 50 ms.\n"
+        "setup output), here under a laterally infinite flat epi beam and a 5 um chamber (H), where the column is " \
+        "the chamber's height; under a shaped beam the collected column is about the beam's radius (above). The " \
+        "rendered row is the median of the photon images before the camera, which also holds the blinks' halos. " \
+        "Frames: one camera frame (ADU, each its own contrast). Default 1 nM; frames 50 ms.\n"
 
 
 @register("light-meanfield", "dyes-and-light-path", timed=True)

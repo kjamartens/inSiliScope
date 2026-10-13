@@ -149,16 +149,33 @@ Supercritical-angle emission and the beam's angular spread in the BFP are not mo
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of
 
-\[ c\,N_A\,A_{px}\;k_{em}\eta F \int_0^H e(x, y, z)\,dz, \]
+\[ c\,N_A\,A_{px}\;k_{em}\eta F \int_0^H \int K_{|z - z_f|}(\mathbf r)\, e(\mathbf x + \mathbf r, z)\,d^2r\,dz, \]
 
 with \(c\) the imager concentration, \(H\) the chamber height (`chamber-height-um`, default 100 µm, an *estimate*:
-tape and flow chambers), \(A_{px}\) the pixel area in the sample and \(e\) the excitation factor of the illumination
-geometry (`illum-bfp`): in epi the whole chamber is lit (the integral is \(H\) under a flat beam), in TIRF only the
-evanescent layer (about the field factor times the decay depth), in HILO about the inclined sheet. That is why
-DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
-(1.03), both *estimates*. **Imager
-depletion and its exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
-binds.
+tape and flow chambers), \(A_{px}\) the pixel area in the sample, \(e\) the excitation factor of the illumination
+geometry (`illum-bfp`) and \(K\) the spread of a dye's light at a distance \(|z - z_f|\) from the focal plane: the
+light of the imager high above the focus lands on the camera defocused, spread over a disc of radius
+\(|z - z_f| \tan\theta\), so a pixel collects the lit imager within that reach of it, not the column above it alone.
+\(K\) is geometric optics in one medium: an isotropic emitter (a freely rotating imager), its emission angles weighted by
+the Fresnel power transmittance into the coverslip (Born & Wolf 1999, section 1.5.3; s and p averaged), collected with
+equal power per solid angle by an aplanatic objective (Richards & Wolf 1959) up to its NA. Without the weighting the
+focal-plane irradiance of a dye at defocus \(\delta\) is \(\delta / 2\pi(\delta^2 + r^2)^{3/2}\), and on the axis of a
+lit disc of radius \(a\) the column is \(\int_0^H 1 - \delta/\sqrt{a^2 + \delta^2}\,d\delta \approx a\) for
+\(H \gg a\); the Fresnel weighting favours the steep rays, so the effective column is a little deeper.
+
+So in epi the background is set by the **beam's width**, not the chamber's height: about 14 µm on the axis of the
+default 25.6 µm FlatTop beam (100 µm before this model), and about half that at the beam's edge. In TIRF only the
+evanescent layer is lit (about the field factor times the decay depth, ~0.5 µm), in HILO about the inclined sheet. That
+is why DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
+(1.03), both *estimates*; TIRF cuts the nanorulers' imager background about 13-fold against epi. The renderers evaluate
+it on a node grid (a third of the beam's edge width apart) and interpolate: within 0.2 % of a dense quadrature in epi
+and TIRF, 2 % in HILO. A Flat beam (laterally infinite) lights every plane alike, so the spread changes nothing: there
+the column is the plain integral, \(H\) in epi.
+
+**Left out:** the index mismatch between the medium and the glass (the defocus is taken in one medium), the dye's
+emission dipole (a free imager rotates: isotropic), the near-field (supercritical-angle) emission of dyes within a
+wavelength of the coverslip, **imager depletion and its exclusion from the cells**: the background is the same over
+cells and medium and does not drop as imager binds.
 
 The background against the imager concentration, the model next to the rendered photons:
 

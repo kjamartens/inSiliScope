@@ -3473,8 +3473,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          imagerShares.push_back(sh);
       }
       // The map is a function of these numbers only: the last one is kept
-      // (live frames at one pose and setting reuse it; HILO's columns cost
-      // ~0.2 s at 256 px).
+      // (live frames at one pose and setting reuse it; the collected columns
+      // cost ~0.1 s at 256 px on 12 threads).
       std::vector<double> key = m.exciteKey;
       for (double v : { static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec, S.p.backgroundPhotons })
          key.push_back(v);
@@ -3507,13 +3507,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          // slot), the mean summed in the serial order.
          const auto tMap = TimingClock::now();
          std::vector<double> imPx(static_cast<size_t>(S.W) * S.H);
+         // The free imagers' collected columns (Excitation::ImagerMap: each height's lit imager defocused onto the
+         // pixel; JS imagerMap).
+         std::vector<ImagerSource> sources;
+         for (size_t i = 0; i < imagers.size(); ++i)
+            sources.push_back({ imagers[i]->ImagerPerPxPerUmPerSec(um), imagerShares[i] });
+         const std::vector<double> imMap = S.excite.ImagerMap(S.W, S.H, um, m.axisX, m.axisY, H0, sources);
          ParallelFor(S.H, [&](unsigned y) {
             for (unsigned x = 0; x < S.W; x++)
             {
                const double dx = x * um - m.axisX, dy = y * um - m.axisY;
-               double im = 0.0;
-               for (size_t i = 0; i < imagers.size(); ++i)
-                  im += imagers[i]->ImagerPerPxPerUmPerSec(um) * S.excite.Column(dx, dy, H0, imagerShares[i]);
+               double im = imMap[static_cast<size_t>(y) * S.W + x];
                im *= S.expSec;
                const size_t k = static_cast<size_t>(y) * S.W + x;
                imPx[k] = im;

@@ -230,8 +230,9 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the excitation geometry (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
-chamber, the lit / unlit history footprint): TOTAL 7eed01c0... (before pores 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+`adapter_pixel_hash` reference since the imager's collected column (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
+chamber, the lit / unlit history footprint, the free imager's light collected defocused): TOTAL b1af15bc... (before
+pores 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
 Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5ef51..., 816101d) but `illum-bg`
 (9a01e6ab..., the engine's profile); its "TOTAL before pores" (the 12 older configs with `NuclearPores_Label` None and
 `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
@@ -239,7 +240,8 @@ Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5
 **Excitation geometry (2026-10-13, spec/PORT.md 22, spec/ALGORITHM.md):** `illum-bfp` / MM `Lasers.BfpPosition`
 (Basic, 0-1.2) = the laser spot in the BFP (0 epi, 1 the critical angle, HILO between, TIRF above, clipped beyond
 NA / `bf-n-medium` = MM `SampleHolder.MediumIndex`); beam `illum-profile` (default FlatTop) / `illum-fwhm` (100 % of
-the FOV), engine options now (the adapter's own 2D field is gone); `chamber-height-um` 100. `Simulation/Excitation.*`
+the FOV), engine options now (the adapter's own 2D field is gone); `chamber-height-um` 100 (the free imager's light is
+collected defocused: `Excitation::ImagerMap`, epi's column ~ the beam's radius, not the chamber). `Simulation/Excitation.*`
 = `excitation.js`. The DNA-PAINT light presets set 0.95 (HILO), the nanorulers 1.03 (TIRF); an Auto preset of several
 targets keeps the position they agree on. The kinetics follow the local light (cli/viewer: dSTORM clock x a, PALM
 activation b(a), mean field by dose nodes); in MM the history clock is the dose, in 12 z bands under a shaped beam, the

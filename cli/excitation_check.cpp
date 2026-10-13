@@ -4,6 +4,8 @@
 //   - the field factor continuous at the critical angle (both sides approach (4 + 4 / n^2) / 2 / t(0)^2);
 //   - the decay depth against Axelrod 1981's example (120 nm; axelrod1981);
 //   - plane means and column integrals against quadrature (TIRF, two lines; HILO), the HILO sheet, a clipped spot dark;
+//   - the free imager's collected column: isotropic against an independent focal-plane quadrature, the renderers' map
+//     against a dense reference per regime, epi well below the chamber's height, a Flat beam's map = its columns;
 //   - the dose nodes and their hat weights (a partition of unity);
 //   - movies: a Flat HILO beam (one factor F everywhere) = epi with every laser line x F, per label mode (the
 //     kinetics follow the local light); a clipped spot = a sample without light; TIRF cuts the nanorulers'
@@ -115,6 +117,64 @@ void Units()
             "a spot beyond the pupil edge is dark");
    }
    {
+      // The collected column (JS excitation_check's): 25.6 um FlatTop, NA 1.40, focus 0.5 um, a 100 um chamber.
+      auto cb = [](double bfp) {
+         ExcitationSpec s = Base(bfp);
+         s.fovWidthUm = 25.6;
+         s.na = 1.4;
+         s.pivotUm = 0.5;
+         return s;
+      };
+      const std::vector<ImagerSource> im = { { 1.0, kRed } };
+      const double Hc = 100;
+      const Excitation e(cb(0));
+      // Isotropic, epi, on the axis: int dz int_0^inf P(dz t) t / (1 + t^2)^(3/2) dt (t = rho / dz, t = sinh s).
+      double ref = 0;
+      const int nz = 4000, ns = 3000;
+      for (int i = 0; i < nz; i++)
+      {
+         const double dz = std::fabs((i + 0.5) * Hc / nz - 0.5), sMax = std::asinh(200 / std::max(dz, 1e-3));
+         double inner = 0;
+         for (int k = 0; k < ns; k++)
+         {
+            const double sk = (k + 0.5) * sMax / ns, t = std::sinh(sk);
+            inner += e.ProfileAt(dz * t, 0) * t / std::pow(1 + t * t, 1.5) * std::cosh(sk) * sMax / ns;
+         }
+         ref += inner * Hc / nz;
+      }
+      const double iso = e.ImagerColumnAt(0, 0, Hc, im, 0, kCollectDirs, kCollectRatio, kCollectTirfSteps, false);
+      const double fr = e.ImagerColumnAt(0, 0, Hc, im);
+      std::snprintf(b, sizeof b, "isotropic collected column = the focal-plane quadrature (%.3f vs %.3f um)", iso, ref);
+      Check(Near(iso, ref, 5e-3), b);
+      std::snprintf(b, sizeof b, "epi collected column on the axis: Fresnel-weighted %.2f um, between isotropic %.2f and Hc / 5",
+                    fr, iso);
+      Check(fr > iso && fr < 0.2 * Hc, b);
+      const unsigned W = 64;
+      const double um = 0.4, ax = 12.8;
+      for (const auto& c : { std::make_pair(0.0, 5e-3), std::make_pair(0.95, 3e-2), std::make_pair(1.03, 5e-3) })
+      {
+         const Excitation x(cb(c.first));
+         const std::vector<double> m = x.ImagerMap(W, W, um, ax, ax, Hc, im);
+         bool ok = true;
+         double worst = 0;
+         for (const auto& px : { std::make_pair(32u, 32u), std::make_pair(0u, 32u), std::make_pair(10u, 50u) })
+         {
+            const double d = x.ImagerColumnAt(px.first * um - ax, px.second * um - ax, Hc, im, 128, 64, 1.02, 512);
+            const double v = m[static_cast<size_t>(px.second) * W + px.first];
+            worst = std::max(worst, std::fabs(v / d - 1));
+            ok = ok && Near(v, d, c.second);
+         }
+         std::snprintf(b, sizeof b, "%s collected-column map = the dense reference (worst %.2f %%)",
+                       IlluminationRegimeNames()[static_cast<size_t>(x.Regime())].c_str(), 100 * worst);
+         Check(ok, b);
+      }
+      ExcitationSpec fs = cb(0.9);
+      fs.profile = ILLUM_FLAT;
+      const Excitation f(fs);
+      const std::vector<double> fm = f.ImagerMap(8, 8, 1, 4, 4, Hc, im);
+      Check(fm[3 * 8 + 5] == f.Column(1, -1, Hc, kRed), "a Flat beam's collected-column map = its columns");
+   }
+   {
       bool ok = DoseNodes(2.0, 0.3).size() == 1 && DoseNodes(0.0, 5.0).empty();
       const std::vector<double> nodes = DoseNodes(1.6, 20.0);   // past the cut: 16 nodes + aMax
       ok = ok && nodes.size() == static_cast<size_t>(kDoseLevels) + 1 && nodes.back() == 1.6;
@@ -205,11 +265,11 @@ void Movies()
    }
    {
       bool ok1 = false, ok2 = false, ok3 = false;
-      const std::string R = "specimen=Nanorulers world-seed=1249 x=3 y=3 size=32 frames=2 psf-model=0 background-per-sec=0";
+      const std::string R = "specimen=Nanorulers world-seed=1249 x=3 y=3 size=128 frames=1 psf-model=0 background-per-sec=0";
       const double dark = Mean(Movie(R + " light-epi=0", ok3));
       const double epi = Mean(Movie(R + " illum-bfp=0", ok1)) - dark, tirf = Mean(Movie(R, ok2)) - dark;
       std::snprintf(b, sizeof b, "nanorulers DNA-PAINT, mean ADU over dark: epi %.1f, TIRF (the default) %.2f", epi, tirf);
-      Check(ok1 && ok2 && ok3 && tirf < 0.02 * epi, b);
+      Check(ok1 && ok2 && ok3 && tirf < 0.1 * epi, b);
    }
 }
 

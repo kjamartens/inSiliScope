@@ -1040,7 +1040,9 @@ change, golden unchanged).
 - `FluorescenceMovie`: `BlinkEvent::excite` (x photons in `CollectFrameEmitters`, so the CPU splat, the GPU emitters and
   the binned blinks get it), the local kinetics (dSTORM raw-time queries, PALM activation scale, the windows), the
   populations' mean field per dose node (`MeanFieldNode`; slot key structure x 4 + state + 1000 node), the background
-  map (background x lateral at z = 0 + the imagers' column integrals), `info` gains ` illum=<regime>:bfp=:F=:depth_nm=`.
+  map (background x lateral at z = 0 + the imagers' collected columns: `Excitation::ImagerMap`, JS `imagerMap`, the
+  defocused imager light convolved with the footprint per height, Fresnel-weighted; spec/ALGORITHM.md), `info` gains
+  ` illum=<regime>:bfp=:F=:depth_nm=`.
   `WidefieldScene::SetPlaneFactor` (`WidefieldPlaneFactor::At(k, z0, z1, x, y)`, per occupied cell; the WGSL/D3D11 job
   values are formed on the CPU, so no shader change).
 - Checks: ctest `excitation` (`cli/excitation_check.cpp`: the physics vs quadrature and axelrod1981, dose nodes, the
