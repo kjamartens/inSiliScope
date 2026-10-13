@@ -120,12 +120,16 @@ would on a real scope). **None open** gives dark frames: offset, read noise and 
 
 ## The DNA-PAINT imager background
 
-Unbound imager in the illuminated volume adds a flat offset per pixel and second of
+Unbound imager in the illuminated volume adds an offset per pixel and second of
 
-\[ c\,N_A\,H\,A_{px}\;k_{em}\eta F, \]
+\[ c\,N_A\,A_{px}\;k_{em}\eta F \int_0^H e(x, y, z)\,dz, \]
 
-with \(c\) the imager concentration, \(H\) the illuminated chamber height (`chamber-height-um`, default 5 µm, an
-*estimate*: the `Epi` geometry illuminates the whole chamber) and \(A_{px}\) the pixel area in the sample. **Imager
+with \(c\) the imager concentration, \(H\) the chamber height (`chamber-height-um`, default 100 µm, an *estimate*:
+tape and flow chambers), \(A_{px}\) the pixel area in the sample and \(e\) the excitation factor of the illumination
+geometry (`illum-bfp`): in epi the whole chamber is lit (the integral is \(H\) under a flat beam), in TIRF only the
+evanescent layer (about the field factor times the decay depth), in HILO about the inclined sheet. That is why
+DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
+(1.03), both *estimates*. **Imager
 depletion and its exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
 binds.
 

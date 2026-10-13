@@ -218,6 +218,27 @@ bool SampleSource::Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out
    }, out);
 }
 
+bool SampleSource::Sites(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                         std::vector<double>& out)
+{
+   if (!world_)
+      return false;
+   int32_t cap = static_cast<int32_t>(out.size() / ISC_SITE_STRIDE);
+   for (;;)
+   {
+      const int32_t n = isc_sites_in_window(world_, x0, y0, x1, y1, zMin, zMax, out.empty() ? nullptr : out.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+      {
+         out.resize(static_cast<size_t>(n) * ISC_SITE_STRIDE);
+         return true;
+      }
+      cap = n + n / 4;
+      out.resize(static_cast<size_t>(cap) * ISC_SITE_STRIDE);
+   }
+}
+
 bool SampleSource::SetKineticsHistory(const double* rows, int nSeg)
 {
    if (!world_)

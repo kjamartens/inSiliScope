@@ -44,6 +44,12 @@ Upcoming ideas:
   removed, `Lasers.Preset` Auto), [x] GPU splat with up to 4 blink groups, [x] docs, figures, gallery.
   Next: [ ] the viewer's 8-fold ring layer and per-structure dye colours (visualisation branch), [ ] `--dyes-json`
   with each dye's binding site and binder end (the viewer's linkage layer), [ ] pore variability (CIR4MICS).
+- Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
+  spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
+  HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
+  nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field by dose nodes),
+  [x] C++ port (engine, cli, viewer module; ctest `excitation`), [ ] MM (`Lasers.BfpPosition`, the history in z bands,
+  render-ahead, config group `Illumination` Epi / HILO / TIRF), [ ] viewer slider, docs, figures, gallery.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

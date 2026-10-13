@@ -388,10 +388,25 @@ public:
 //    Chebyshev expansion in dD (kChebTerms maps). Every frame is checked
 //    against the basis (1e-5 of the peak weight) and re-anchored when it
 //    does not fit, so the image is always that of wb.
+// A 3D excitation's factor per dye plane and grid cell (Excitation.h; JS widefield.js meanFieldImage weightFor): every
+// channel's dyes in world plane k ([k dz, (k + 1) dz) um) at the cell centre (xUm, yUm from the optical axis) count
+// with their weight x At(k, ...). Pure (called from worker threads); key identifies the values, so a scene keeps its
+// plane spectra while an equal factor is set again.
+class WidefieldPlaneFactor
+{
+public:
+   virtual ~WidefieldPlaneFactor() = default;
+   virtual float At(long k, double z0Um, double z1Um, double xUm, double yUm) const = 0;
+   std::vector<double> key;
+};
+
 class WidefieldScene
 {
 public:
    WidefieldScene();
+   // The plane factor of a 3D excitation (nullptr: 1 everywhere, the default). A factor with another key drops the
+   // plane spectra; takes effect at the next Update.
+   void SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> f);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
    const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
@@ -530,7 +545,10 @@ private:
    // Makes sure the plane spectra the plans need exist for the channels.
    void FillSpectra(const std::vector<const Channel*>& chans, const std::vector<const FocusPlan*>& plans);
    const std::vector<cfloat>* CachedSpectrum(const Channel& c, long k, int level) const;
-   void PlaneSpectrum(const Channel& c, const WidefieldSparsePlane& pl, int level, std::vector<cfloat>& out) const;
+   void PlaneSpectrum(const Channel& c, long k, const WidefieldSparsePlane& pl, int level,
+                      std::vector<cfloat>& out) const;
+   // The weight of a channel's dyes in cell `cell` of plane k (counts x weight x the plane factor).
+   float CellValue(const Channel& c, long k, uint32_t cell, float count) const;
    // Full-resolution spectrum of a channel at a plan, then its image; the
    // spectrum before the sub-cell shift into keep (if given; empty when the
    // channel has no light).
@@ -543,6 +561,8 @@ private:
    void BuildBleachChannels(const std::vector<float>& wb);
 
    std::shared_ptr<WidefieldDyeTiles> tiles_;
+   std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
+   bool planeFactorChanged_ = false;
    WidefieldSceneSpec spec_;
    bool haveSpec_ = false;
    WidefieldGridSpec rect_;

@@ -167,20 +167,20 @@ static const FilterData kEmissionFilters[] = {
    { "Custom", "Custom band pass (em-lo-nm .. em-hi-nm)", nullptr, { FilterType::BandPass, kNaN, kNaN, kNaN, 0, {  } } },
 };
 
-// Per laser line of kLaserLines (kW/cm^2; 0 = off).
+// Per laser line of kLaserLines (kW/cm^2; 0 = off); the BFP position it sets (illum-bfp; NaN = none: epi).
 static const LightPresetData kLightPresets[] = {
-   { "dSTORM-640", "dSTORM, red (640 nm 2 kW/cm\xC2\xB2, ET700/75)", { 0.0, 0.0, 0.0, 2.0, 0.0 }, "None", "LP650", "ChromaET700-75m" },
-   { "dSTORM-561", "dSTORM, orange (561 nm 2.2 kW/cm\xC2\xB2, 617/73)", { 0.0, 0.0, 2.2, 0.0, 0.0 }, "None", "LP570", "BP617-73" },
-   { "dSTORM-488", "dSTORM, green (488 nm 1.2 kW/cm\xC2\xB2, 535/50)", { 0.0, 1.2, 0.0, 0.0, 0.0 }, "None", "LP505", "BP535-50" },
-   { "PAINT-640", "DNA-PAINT, red (640 nm 1 kW/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 1.0, 0.0 }, "None", "LP650", "BP676-37" },
-   { "PAINT-561", "DNA-PAINT, orange (561 nm 1 kW/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 1.0, 0.0, 0.0 }, "None", "LP570", "BP600-37" },
-   { "PAINT-488", "DNA-PAINT, green (488 nm 1 kW/cm\xC2\xB2, 525/45)", { 0.0, 1.0, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45" },
-   { "PALM-561", "PALM, orange (561 nm 1 kW/cm\xC2\xB2 + 405 nm 2 W/cm\xC2\xB2, quad)", { 0.002, 0.0, 1.0, 0.0, 0.0 }, "None", "ChromaZT405-488-561-640rpc", "SemrockFF01-600-37" },
-   { "PALM-primed", "PALM, primed conversion (488 nm 10 W/cm\xC2\xB2 + 730 nm 1 kW/cm\xC2\xB2 + 561 nm 1 kW/cm\xC2\xB2)", { 0.0, 0.01, 1.0, 0.0, 1.0 }, "None", "Penta", "SemrockFF01-600-37" },
-   { "WF-405", "Widefield, blue (405 nm 10 W/cm\xC2\xB2, 447/60)", { 0.01, 0.0, 0.0, 0.0, 0.0 }, "None", "LP425", "BP447-60" },
-   { "WF-488", "Widefield, green (488 nm 10 W/cm\xC2\xB2, 525/45)", { 0.0, 0.01, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45" },
-   { "WF-561", "Widefield, orange (561 nm 10 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.01, 0.0, 0.0 }, "None", "LP570", "BP600-37" },
-   { "WF-640", "Widefield, red (640 nm 10 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.01, 0.0 }, "None", "LP650", "BP676-37" },
+   { "dSTORM-640", "dSTORM, red (640 nm 2 kW/cm\xC2\xB2, ET700/75)", { 0.0, 0.0, 0.0, 2.0, 0.0 }, "None", "LP650", "ChromaET700-75m", kNaN },
+   { "dSTORM-561", "dSTORM, orange (561 nm 2.2 kW/cm\xC2\xB2, 617/73)", { 0.0, 0.0, 2.2, 0.0, 0.0 }, "None", "LP570", "BP617-73", kNaN },
+   { "dSTORM-488", "dSTORM, green (488 nm 1.2 kW/cm\xC2\xB2, 535/50)", { 0.0, 1.2, 0.0, 0.0, 0.0 }, "None", "LP505", "BP535-50", kNaN },
+   { "PAINT-640", "DNA-PAINT, red (640 nm 1 kW/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 1.0, 0.0 }, "None", "LP650", "BP676-37", 0.95 },
+   { "PAINT-561", "DNA-PAINT, orange (561 nm 1 kW/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 1.0, 0.0, 0.0 }, "None", "LP570", "BP600-37", 0.95 },
+   { "PAINT-488", "DNA-PAINT, green (488 nm 1 kW/cm\xC2\xB2, 525/45)", { 0.0, 1.0, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45", 0.95 },
+   { "PALM-561", "PALM, orange (561 nm 1 kW/cm\xC2\xB2 + 405 nm 2 W/cm\xC2\xB2, quad)", { 0.002, 0.0, 1.0, 0.0, 0.0 }, "None", "ChromaZT405-488-561-640rpc", "SemrockFF01-600-37", kNaN },
+   { "PALM-primed", "PALM, primed conversion (488 nm 10 W/cm\xC2\xB2 + 730 nm 1 kW/cm\xC2\xB2 + 561 nm 1 kW/cm\xC2\xB2)", { 0.0, 0.01, 1.0, 0.0, 1.0 }, "None", "Penta", "SemrockFF01-600-37", kNaN },
+   { "WF-405", "Widefield, blue (405 nm 10 W/cm\xC2\xB2, 447/60)", { 0.01, 0.0, 0.0, 0.0, 0.0 }, "None", "LP425", "BP447-60", kNaN },
+   { "WF-488", "Widefield, green (488 nm 10 W/cm\xC2\xB2, 525/45)", { 0.0, 0.01, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45", kNaN },
+   { "WF-561", "Widefield, orange (561 nm 10 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.01, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
+   { "WF-640", "Widefield, red (640 nm 10 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.01, 0.0 }, "None", "LP650", "BP676-37", kNaN },
 };
 
 // quantumEfficiency, readNoiseElectrons, gainElectronsPerAdu, preampElectronsPerAdu, cicElectrons, offsetAdu, offsetStdAdu, darkCurrentElectronsPerSec, gainStdPct, readNoiseStdPct, bitDepth, gainElectronsPerAduWideField, physicalPixelUm
@@ -317,9 +317,10 @@ static const LinkagePresetData kLinkagePresets[] = {
 // The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
 static const char* const kMultiTargetDichroic = "ChromaZT405-488-561-640rpc";
 static const char* const kMultiTargetEmissionFilter = "ChromaZET405-488-561-640m";
+// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none).
 static const SpecimenData kSpecimens[] = {
-   { "CellField", "Cell field", 0, 2 },
-   { "Nanorulers", "DNA-origami nanorulers", 2, 1 },
+   { "CellField", "Cell field", 0, 2, kNaN },
+   { "Nanorulers", "DNA-origami nanorulers", 2, 1, 1.03 },
 };
 static const char* const kDefaultExcitationFilter = "None";
 static const char* const kDefaultDichroic = "LP650";

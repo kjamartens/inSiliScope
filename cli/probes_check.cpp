@@ -204,8 +204,10 @@ int main()
             std::printf("FAIL  history movie: %s\n", err.c_str());
          return sum;
       };
-      // The microtubules alone (npc-dye=None: the pores' DNA-PAINT blinks do not follow the 488 nm power).
-      const std::string wf = base + " frames=1 start-sec=30 mt-mode=WideField mt-dye=-1 npc-dye=None light-preset=auto";
+      // The microtubules alone (npc-dye=None: the pores' DNA-PAINT blinks do not follow the 488 nm power), under a
+      // uniform beam (a host clock is the same everywhere; without one a shaped beam's dyes run at their local light).
+      const std::string wf = base + " frames=1 start-sec=30 mt-mode=WideField mt-dye=-1 npc-dye=None light-preset=auto "
+                                    "illum-profile=Flat";
       const ScopeSpec p1 = Spec((wf + " laser-488=0.01").c_str()), p4 = Spec((wf + " laser-488=0.04").c_str());
       const double unchanged = total(p1, nullptr), same = total(p1, &p1), stepped = total(p4, &p1),
                    reread = total(p4, nullptr);

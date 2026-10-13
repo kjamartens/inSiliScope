@@ -94,6 +94,9 @@ struct BlinkEvent
    int structure = 0;
    int state = 0;
    double aux = 0.0;
+   // The excitation factor at the dye's (undrifted) site (Excitation.h; 1 = uniform): multiplies its photons after
+   // the brightness (CollectFrameEmitters; JS frameEmitters' o.excite).
+   double excite = 1.0;
 };
 
 // Optional per-frame inputs to RenderPhotonImage beyond the flat background
@@ -146,8 +149,8 @@ void RenderGaussianPSF(std::vector<float>& img, unsigned width, unsigned height,
                         double xPx, double yPx, double sigmaPx, double totalPhotons);
 
 // One emitter of a frame as RenderPhotonImage places it: camera-pixel position
-// (drift included), photons (overlap x brightness x illumination at the
-// undrifted site), the overlap with the frame, and the kernel z plane
+// (drift included), photons (overlap x brightness x the event's excitation
+// factor x illumination at the undrifted site), the overlap with the frame, and the kernel z plane
 // (NearestZIndex of zNm/1000 - globalZOffsetUm; 0 without a kernel).
 struct FrameEmitter
 {

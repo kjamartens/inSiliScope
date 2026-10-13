@@ -824,6 +824,56 @@ One model of the dye-to-structure distance for every structure (`LinkageOffset`,
   keeps them. Defaults (the user's, 2026-10-12): microtubules IgG2-PAINT, pores SNAP-Halo. This moved every default
   microtubule dye (new reference images, `adapter_pixel_hash`).
 
+## Excitation geometry: epi, HILO, TIRF (2026-10-13)
+
+One slider moves the laser spot across the objective's back focal plane (option `illum-bfp`, u): 0 = the centre
+(epi), 1 = the critical angle, > 1 = TIRF up to the pupil edge u_max = NA / n_s; beyond it the spot is clipped and no
+light reaches the sample (dyes and imager dark; the autofluorescence background, a camera-side term, stays). JS
+`web/prototype/scope/excitation.js` (the header has the formulas), C++ twin `Simulation/Excitation.*`.
+
+- **Why u = r / r_crit.** The sine condition makes the BFP radius proportional to n_i sin(theta_i), so moving the spot
+  linearly is linear in u = n_i sin(theta_i) / n_s, and the critical angle sits at u = 1 for every objective and
+  medium (n_s = `bf-n-medium`, 1.337). The 1.40 objective's edge is 1.047, the 1.49's 1.114, a water objective's < 1.
+- **The beam.** The in-plane profile P (Flat, Gaussian, FlatTop: the logistic-edged disc of the SMLM Challenge
+  simulator, sage2019), FWHM as % of the FOV width (default FlatTop 100 %), centred on the optical axis. On a plane at
+  height z it lands as P((x - (z - z_p) tan theta_s) cos theta_i, y): stretched along x by 1 / cos theta_i, and below
+  the critical angle moving with z, so an inclined beam is an inclined **sheet** (HILO, tokunaga2008) crossing the axis
+  at the focal plane z_p (the movie's focus). Its thickness on the axis is W / (tan theta_s cos theta_i).
+- **The field factor F** = |E|^2 in the sample over its epi value, so the lasers' kW/cm^2 "at the sample" keep their
+  meaning at u = 0: below the critical angle the Fresnel transmissions (bornwolf1999 1.5.2), above it Axelrod's
+  evanescent intensities I_s, I_p (axelrod2001 eqs. 2-3) decaying as exp(-z / d), d = lambda / (4 pi n_s sqrt(u^2 -
+  1)) (axelrod2001 eq. 1; ctest `excitation` reproduces axelrod1981's 120 nm example). The mean of s and p (*estimate*:
+  unpolarised or circular light). F is continuous at u = 1 and peaks there at ~4 (the interface enhancement is a gain,
+  not an artefact); the plane-wave limits diverge at u = 1 (a grazing sheet, an infinite depth), and a real spot has a
+  width in the BFP, so u keeps 1e-3 away from 1.
+- **Several lines.** d depends on lambda: each dye state's factor mixes its lines' factors by its excitation share per
+  line (`lineShares`).
+- **Uniform = the old paths.** Flat at u = 0 is exactly 1 everywhere and every renderer skips the factor: outputs are
+  bit for bit the old ones. The default (FlatTop 100 %) is not uniform: it moved every default image.
+- **Where it acts.** Blinks: photons x the factor at the emitter (`CollectFrameEmitters`, the running images' unit
+  splats, the per-dye windows). Mean-field populations: per WideField plane and grid cell F x lateral(cell, plane
+  centre) x the plane's exact mean of the depth decay (a 25 nm plane at d = 100 nm would be biased by its centre value);
+  planes below the coverslip take z = 0's factor. The DNA-PAINT free imager: the background per pixel is the imager rate
+  per um of lit column x the column integral of the factor over the chamber (`chamber-height-um`, now a real 100 um,
+  *estimate*: tape and flow chambers): epi sees the whole chamber, TIRF ~ F d, HILO about the sheet. That is why
+  DNA-PAINT is done in HILO or TIRF: the light presets of the DNA-PAINT modes set u = 0.95 (HILO), the nanorulers'
+  specimen u = 1.03 (TIRF, under the 1.40 objective's pupil edge; both *estimates*); in epi the nanorulers' 20 nM
+  imager over 100 um saturates the camera.
+- **The kinetics follow the local light** (no host clock: the cli, the viewer). A dye at factor a: dSTORM's clock runs
+  at a x real time (its events are queried over [0, a_max t_end] and mapped back, t = tau / a: the switching rates
+  scale with the excitation, the stochastic path is the dye's own); PALM's activation at b(a) = (spont + lin a + quad
+  a^2) / kAct (the first blink moves from T to T / b, later events by the same shift); DNA-PAINT binding does not
+  depend on the light (photons x a only); the windows: the initial ON ends at tOff / a, the pre state at tOff / b, the
+  photon budget bleaches at aux x budget / (emission x a). Mean-field populations, whose photons are nonlinear in a,
+  are split over **dose nodes** (0.5 e-fold steps, cut at 8 e-folds, at most 16 levels, one image per node, each dye
+  shared between its two neighbouring nodes by linear interpolation); the mean-field switch counts the survivors over
+  a 256-bin histogram of the dyes' factors. With a host clock (MM's illumination history) the clock carries the light
+  and the factor scales photons only. The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per
+  mode (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
+- **Known approximations.** The factor is read at the sample's undrifted place (drift is small against the beam);
+  supercritical-angle emission (TIRF's collection gain near the interface) and the beam's angular spread in the BFP
+  are not modelled; the incidence plane is the camera x axis.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

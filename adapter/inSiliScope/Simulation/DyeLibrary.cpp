@@ -362,10 +362,19 @@ bool StatePhotophysics(const StateData& st, const LightPath& lp, StatePhysics& o
    if (!StateSpectra(st, ex, em, err))
       return false;
    double kExc = 0;
+   std::vector<StatePhysics::LineShare> perLine;
    for (const LaserLine& l : lp.lasers)
-      kExc += CrossSectionUm2(st.extCoeff, ex, l.nm) *
-              PhotonFluxPerUm2(l.kWPerCm2 * (1 - SampleAt(lp.dichroicT, l.nm)), l.nm);
+   {
+      const double k = CrossSectionUm2(st.extCoeff, ex, l.nm) *
+                       PhotonFluxPerUm2(l.kWPerCm2 * (1 - SampleAt(lp.dichroicT, l.nm)), l.nm);
+      kExc += k;
+      perLine.push_back({ l.nm, k });
+   }
    const double kEm = st.qy * kExc;
+   if (kExc > 0)
+      for (const StatePhysics::LineShare& l : perLine)
+         if (l.share > 0)
+            out.lineShares.push_back({ l.nm, l.share / kExc });
    const Detection det = Detect(em, { &lp.dichroicT, &lp.emissionT, &lp.qe });
    out.emits = true;
    out.excitationPerSec = kExc;
@@ -375,6 +384,13 @@ bool StatePhotophysics(const StateData& st, const LightPath& lp, StatePhysics& o
    out.detectedPerSec = kEm * lp.eta * det.fraction;
    out.color = st.emHex;
    return true;
+}
+
+double LabelPhysics::ImagerPerPxPerUmPerSec(double pixelUm) const
+{
+   if (mode != MODE_DNA_PAINT || !main.emits)
+      return 0;
+   return std::max(0.0, imagerNm) * kAvogadroPerNmUm3 * pixelUm * pixelUm * main.detectedPerSec;
 }
 
 double LabelPhysics::ImagerBackgroundPerPxPerSec(double pixelUm) const
@@ -423,6 +439,13 @@ bool MakeLabelPhysics(const EffectiveDye& eff, const LightPath& lp, const LabelP
       if (m.primed.present)
          kAct += m.primed.perKWcm2SqPerSec * LaserIntensityIn(lp, m.primed.primeLoNm, m.primed.primeHiNm) *
                  LaserIntensityIn(lp, m.primed.convertLoNm, m.primed.convertHiNm);
+      out.hasActivationParts = true;
+      out.actSpont = Or(m.spontaneousActivationPerSec, 0);
+      out.actLin = Or(m.activation405PerKWcm2PerSec, 0) * LaserIntensityAt(lp, 405);
+      out.actQuad = m.primed.present ? m.primed.perKWcm2SqPerSec *
+                                          LaserIntensityIn(lp, m.primed.primeLoNm, m.primed.primeHiNm) *
+                                          LaserIntensityIn(lp, m.primed.convertLoNm, m.primed.convertHiNm)
+                                     : 0.0;
       act = kAct;
       offSec = Or(m.offSecBetweenBlinks, 0.5);
       bleachProb = Or(m.bleachProb, 1);

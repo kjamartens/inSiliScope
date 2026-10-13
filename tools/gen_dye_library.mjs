@@ -311,9 +311,9 @@ static const FilterData kEmissionFilters[] = {
 ${data.emissionFilters.map(cFilter).join('\n')}
 };
 
-// Per laser line of kLaserLines (kW/cm^2; 0 = off).
+// Per laser line of kLaserLines (kW/cm^2; 0 = off); the BFP position it sets (illum-bfp; NaN = none: epi).
 static const LightPresetData kLightPresets[] = {
-${data.lightPresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, { ${data.lasers.map(nm => num(q.lasers[nm] ?? 0)).join(', ')} }, ${str(q.excitationFilter)}, ${str(q.dichroic)}, ${str(q.emissionFilter)} },`).join('\n')}
+${data.lightPresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, { ${data.lasers.map(nm => num(q.lasers[nm] ?? 0)).join(', ')} }, ${str(q.excitationFilter)}, ${str(q.dichroic)}, ${str(q.emissionFilter)}, ${num(q.bfpPosition)} },`).join('\n')}
 };
 
 // ${CAMERA_FIELDS.join(', ')}
@@ -341,8 +341,9 @@ ${linkagePresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, ${q.structureDefau
 // The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
 static const char* const kMultiTargetDichroic = ${str(data.lightPathMultiTarget.dichroic)};
 static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiTarget.emissionFilter)};
+// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none).
 static const SpecimenData kSpecimens[] = {
-${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}
+${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length}, ${num(sp.illumination && sp.illumination.bfpPosition)} },`).join('\n')}
 };
 static const char* const kDefaultExcitationFilter = ${str(data.lightPathDefaults.excitationFilter)};
 static const char* const kDefaultDichroic = ${str(data.lightPathDefaults.dichroic)};

@@ -94,10 +94,11 @@ std::vector<uint16_t> Movie(const std::string& text, ScopeMovieInfo& info)
 
 // SR: frame f of the drifting movie against a still movie posed at x - dx(f), y - dy(f), z - dz(f) (every dye:
 // z-range-um=0, so the cull windows cannot differ; a kernel inside the 2 um query margin, so the query rects
-// cannot either).
+// cannot either). A uniform beam: a shaped one is read at the sample's undrifted place (the factor is
+// sample-anchored, a drift-sized approximation), so the posed movie, whose beam axis moved, sees other light.
 void SuperRes()
 {
-   const std::string base = "world-seed=1249 size=48 psf-kernel-half-width-nm=1500 z-range-um=0 ";
+   const std::string base = "world-seed=1249 size=48 psf-kernel-half-width-nm=1500 z-range-um=0 illum-profile=Flat ";
    const double x = 63, y = 3, z = 0.5;
    char drifting[256];
    std::snprintf(drifting, sizeof drifting, "%sx=%g y=%g z=%g frames=30 drift-xy-nm-per-sqrt-sec=200 drift-z-nm-per-sqrt-sec=300",

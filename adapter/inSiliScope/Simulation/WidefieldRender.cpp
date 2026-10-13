@@ -678,6 +678,25 @@ WidefieldGridSpec WidefieldScene::GridSpecFor(const IlluminationPattern& pattern
    return g;
 }
 
+void WidefieldScene::SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> f)
+{
+   const bool same = (!f && !planeFactor_) || (f && planeFactor_ && f->key == planeFactor_->key);
+   planeFactor_ = std::move(f);
+   planeFactorChanged_ = planeFactorChanged_ || !same;
+}
+
+float WidefieldScene::CellValue(const Channel& c, long k, uint32_t cell, float count) const
+{
+   const float v = count * c.weight[cell];
+   if (!planeFactor_ || v == 0.0f)
+      return v;
+   const WidefieldGridSpec& g = rect_;
+   const double dz = g.zPlaneUm;
+   const double x = (g.ix0 + static_cast<long>(cell % g.nx) + 0.5) * g.pitchUm - axisX_;
+   const double y = (g.iy0 + static_cast<long>(cell / g.nx) + 0.5) * g.pitchUm - axisY_;
+   return v * planeFactor_->At(k, k * dz, (k + 1) * dz, x, y);
+}
+
 bool WidefieldScene::Update(SampleSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                             const WidefieldPsf& psf, std::string& err)
 {
@@ -778,7 +797,8 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
       if (fftChanged || rectChanged)
          geometry_ = NextSerial();
    }
-   const bool weightsChanged = fftChanged || rectChanged || wp != wp_ || dD != dD_;
+   const bool weightsChanged = fftChanged || rectChanged || wp != wp_ || dD != dD_ || planeFactorChanged_;
+   planeFactorChanged_ = false;
    illum_.swap(ill);
    const bool doseChanged = dD != dD_;
    dD_.swap(dD);
@@ -1031,15 +1051,20 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
    return plan;
 }
 
-void WidefieldScene::PlaneSpectrum(const Channel& c, const WidefieldSparsePlane& pl, int level,
+void WidefieldScene::PlaneSpectrum(const Channel& c, long k, const WidefieldSparsePlane& pl, int level,
                                    std::vector<cfloat>& out) const
 {
    const WidefieldGridSpec& g = rect_;
    const std::vector<uint32_t>& cells = pl.cell[c.pop];
    const std::vector<float>& counts = pl.count[c.pop];
+   // Each cell's value (the plane factor's, once per cell).
+   std::vector<float> vals(cells.size());
    bool any = false;
-   for (size_t i = 0; i < cells.size() && !any; ++i)
-      any = counts[i] * c.weight[cells[i]] != 0.0f;
+   for (size_t i = 0; i < cells.size(); ++i)
+   {
+      vals[i] = CellValue(c, k, cells[i], counts[i]);
+      any = any || vals[i] != 0.0f;
+   }
    if (!any)
    {
       out.clear(); // nothing to add
@@ -1051,7 +1076,7 @@ void WidefieldScene::PlaneSpectrum(const Channel& c, const WidefieldSparsePlane&
    {
       std::vector<float> buf(static_cast<size_t>(g.nx) * g.ny, 0.0f);
       for (size_t i = 0; i < cells.size(); ++i)
-         buf[cells[i]] = counts[i] * c.weight[cells[i]];
+         buf[cells[i]] = vals[i];
       fft.Forward(buf.data(), g.nx, g.ny, g.nx, out.data());
       return;
    }
@@ -1062,7 +1087,7 @@ void WidefieldScene::PlaneSpectrum(const Channel& c, const WidefieldSparsePlane&
    std::vector<float> buf(static_cast<size_t>(ncx) * ncy, 0.0f);
    for (size_t i = 0; i < cells.size(); ++i)
    {
-      const float v = counts[i] * c.weight[cells[i]];
+      const float v = vals[i];
       if (v == 0.0f)
          continue;
       const double ux = (static_cast<double>(cells[i] % g.nx) - delta) / f;
@@ -1116,7 +1141,7 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
       return;
    std::vector<std::vector<cfloat>> made(jobs.size());
    ParallelFor(static_cast<unsigned>(jobs.size()), [&](unsigned i) {
-      PlaneSpectrum(*jobs[i].c, dyes_.planes.at(jobs[i].k), jobs[i].level, made[i]);
+      PlaneSpectrum(*jobs[i].c, jobs[i].k, dyes_.planes.at(jobs[i].k), jobs[i].level, made[i]);
    });
    for (size_t i = 0; i < jobs.size(); ++i)
    {
@@ -1343,7 +1368,7 @@ bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Chann
                const std::vector<float>& counts = pl.count[c->pop];
                for (size_t i = 0; i < cells.size(); ++i)
                {
-                  const float v = counts[i] * c->weight[cells[i]];
+                  const float v = CellValue(*c, d.k, cells[i], counts[i]);
                   if (v == 0.0f)
                      continue;
                   jp.cells.push_back(cells[i]);

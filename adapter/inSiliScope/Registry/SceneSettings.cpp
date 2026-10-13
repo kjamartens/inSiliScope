@@ -281,6 +281,10 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
       s[kv.first] = kv.second;
    for (const auto& kv : st.DyeEdits())
       s[kv.first] = kv.second;
+   // The excitation: the adapter's own 2D field (BuildShapingFields) until the engine's excitation geometry
+   // replaces it (plan Phase 3); the engine's stays uniform.
+   s["illum-profile"] = 0;
+   s["illum-bfp"] = 0;
    // The light path and camera are the properties' (no preset of the engine's own).
    s["light-preset"] = -1;
    s["camera-preset"] = st.cameraPreset.load();

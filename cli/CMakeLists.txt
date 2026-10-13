@@ -12,6 +12,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Drift.cpp
   ${ISC_SIM}/DyeLibrary.cpp
   ${ISC_SIM}/LightPath.cpp
+  ${ISC_SIM}/Excitation.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
@@ -101,6 +102,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(widefield_check widefield_check.cpp)
   target_link_libraries(widefield_check PRIVATE insiliscope_sim)
   add_test(NAME widefield COMMAND widefield_check)
+
+  # The excitation geometry (epi / HILO / TIRF): the physics against quadrature and Axelrod 1981, the local kinetics.
+  add_executable(excitation_check excitation_check.cpp)
+  target_link_libraries(excitation_check PRIVATE insiliscope_sim)
+  add_test(NAME excitation COMMAND excitation_check)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)

@@ -1021,3 +1021,31 @@ complexes" and "Label linkage".
   (three structures), `scope_parity` two-target cases, `engine_check` (pores, linkage, two-colour movie), the block
   check's pores window, `test_insiliscope.py` (defaults, couplings, GPU = CPU with two labels), `adapter_pixel_hash`
   (TOTAL before pores = the old reference with pores None and MT linkage Legacy; configs `pores`, `pores-dstorm`).
+
+## 22. Excitation geometry: epi, HILO, TIRF (2026-10-13)
+
+Iteration mode (JS first, `PORT_PENDING.md`, commits 02c7378, ff43bbf), then the port on the same branch
+`claude/illum-geometry`. The model and its reasons: spec/ALGORITHM.md "Excitation geometry". Core untouched (no ABI
+change, golden unchanged).
+
+- `Simulation/Excitation.{h,cpp}` = `excitation.js` (`ExcitationSpec` -> `Excitation`: `F`, `Regime`, `Lateral`, `Depth`,
+  `DepthMean`, `At`, `Column` (HILO: 256 midpoints over the crossed heights), `DepthNm`, `Uniform`; `DoseNodes`,
+  `HatWeight`). The render engine uses `std::exp` (not bit-exact with V8; the parity tolerances below absorb it).
+- Options: `illum-profile` (Flat / Gaussian / FlatTop, default FlatTop), `illum-fwhm` (100 % of the FOV width),
+  `illum-bfp` (default 0; the light preset's `bfpPosition` and the specimen's `illumination.bfpPosition` replace it
+  when the preset applies: DNA-PAINT 0.95, nanorulers 1.03), `chamber-height-um` 5 -> 100. `illum-geometry` is
+  accepted and ignored until the viewer's select goes. Not kinetic keys. `ScopeBfpPosition`, `ScopeExcitationSpec`.
+- `DyeLibrary`: `StatePhysics::lineShares`, `LabelPhysics::ImagerPerPxPerUmPerSec` and `ActivationScale` (PALM's
+  spont / lin / quad parts); `LightPresetData` / `SpecimenData` `bfpPosition` (generated, NaN = none).
+- `FluorescenceMovie`: `BlinkEvent::excite` (x photons in `CollectFrameEmitters`, so the CPU splat, the GPU emitters and
+  the binned blinks get it), the local kinetics (dSTORM raw-time queries, PALM activation scale, the windows), the
+  populations' mean field per dose node (`MeanFieldNode`; slot key structure x 4 + state + 1000 node), the background
+  map (background x lateral at z = 0 + the imagers' column integrals), `info` gains ` illum=<regime>:bfp=:F=:depth_nm=`.
+  `WidefieldScene::SetPlaneFactor` (`WidefieldPlaneFactor::At(k, z0, z1, x, y)`, per occupied cell; the WGSL/D3D11 job
+  values are formed on the CPU, so no shader change).
+- Checks: ctest `excitation` (`cli/excitation_check.cpp`: the physics vs quadrature and axelrod1981, dose nodes, the
+  uniform-F movies per mode = 100 % identical ADU, clipped = no light, nanorulers TIRF vs epi background; 3 s);
+  `scope_parity` 9 Excitation cases (C++ = JS: SR 100 %, mean-field >= 99.9 %; now sharded over 4 processes, 3.5 min);
+  `drift` and `cli_probes`' history check pin `illum-profile=Flat` (sample-anchored factor; a uniform host clock).
+- Adapter (Phase 3 of the plan): until then `BuildScopeSpec` pins `illum-profile=Flat illum-bfp=0` (the adapter keeps
+  its own 2D illumination field), so its outputs are unchanged.

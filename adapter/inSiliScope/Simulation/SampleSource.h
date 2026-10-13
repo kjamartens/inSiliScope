@@ -119,6 +119,9 @@ public:
    // states, dSTORM initial ON, WideField dyes) open after q.tSec, mapped as
    // Events maps blinks (an always-on window ends at +infinity).
    bool Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out);
+   // The fluorescent dyes in the window (isc_sites_in_window): ISC_SITE_STRIDE doubles each (world x, y, z, id,
+   // structure), replacing out. False on a core failure.
+   bool Sites(double x0, double y0, double x1, double y1, double zMin, double zMax, std::vector<double>& out);
 
    // Pre-loads what q would need if the stage moved up to marginUm in x/y or
    // to any focus (the whole z column), nearest ring first, for at most about

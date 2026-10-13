@@ -230,6 +230,14 @@ KineticEnv ScopeKineticEnv(const ScopeSpec& spec);
 // spec): it lights nothing.
 double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
 
+// The BFP position a spec asks for (JS scopeBfpPosition): illum-bfp, else the light preset's bfpPosition (DNA-PAINT:
+// HILO) with the mounted specimen's in its place when it has one (the nanorulers: TIRF); 0 (epi) otherwise.
+double ScopeBfpPosition(const ScopeSpec& spec);
+// The excitation geometry of a spec (JS scopeExcitation; Excitation.h): the beam profile over the FOV, the BFP
+// position, the objective and the medium; the HILO sheet pivots at the focal plane (focus-um + z).
+struct ExcitationSpec;
+ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
+
 // A host's per-region clock (the adapter's illumination history): the
 // seconds of illumination each world position (um) has had before frame 0. A
 // dye's schedule is read at its position's clock instead of start-sec; frame
