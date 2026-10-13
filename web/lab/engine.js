@@ -10,7 +10,7 @@
 //
 // Loaded as a module worker it answers postMessage(job) like the viewer's Blob workers (genWorkerMain).
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
-import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION } from '../prototype/scope/world.js';
+import { World, PACK_BLOCK_CHUNKS, WORLD_VERSION, STRUCTURES } from '../prototype/scope/world.js';
 import { makeLabel } from '../prototype/scope/dyes.js';
 import { renderScopeMovie, parseSpec, scopeDims, scopePsfPreview } from '../prototype/scope/scope_movie.js';
 
@@ -49,7 +49,7 @@ export async function createEngine(src = {}) {
       // a sites job's {density, fluorescentFraction} (the rest the default), or an events job's whole label; a
       // structure past the job's list keeps its label (iscEngine sets only the labels it is given)
       const want = w.labels.map((cur, i) => !labels[i] ? cur
-        : makeLabel(labels[i].mode ? labels[i] : { density: labels[i].density, fluorescentFraction: labels[i].fluorescentFraction }));
+        : makeLabel(labels[i].mode ? labels[i] : { density: labels[i].density, fluorescentFraction: labels[i].fluorescentFraction, linkage: labels[i].linkage }));
       if (want.some((l, i) => JSON.stringify(l) !== JSON.stringify(w.labels[i]))) w.setLabels(want);
     }
     return w;

@@ -350,9 +350,10 @@ def struct_lattice(ctx):
     shares = [(100, ""), (70, "DNA-PAINT"), (25, "PALM"), (3, "dSTORM")]
     labelled = {}
     for pct, _ in shares:
-        r = ctx.cli(dict(SPOT, **{"mt-label-pct": pct, "dyes-rect": [lo[0], lo[1], hi[0], hi[1]],
+        r = ctx.cli(dict(SPOT, **{"mt-label-pct": pct, "mt-binder": "Legacy", "dyes-rect": [lo[0], lo[1], hi[0], hi[1]],
                                   "dyes-z": [lo[2], hi[2]], "dyes-t": [60, 60.05]}), tag="pct%d" % pct, dyes_json=True)
-        sites = rows(load(r["dyes_json"])["sites"], 5)[:, :3]
+        sites = rows(load(r["dyes_json"])["sites"], 5)
+        sites = sites[sites[:, 4] == 0, :3]   # the microtubules' (structure 0)
         s, rv, th = local_frame(sites, piece)
         keep = (np.linalg.norm(rv, axis=1) < 0.04) & (s > 0.05) & (s < length - 0.05)
         labelled[pct] = (s[keep], rv[keep], th[keep])
@@ -403,8 +404,158 @@ def struct_lattice(ctx):
                   "Dye positions on a %.1f µm piece of one microtubule, from the core's site query (each site's "
                   "offset from the centreline). End-on, the dyes form a ring: the 12.5 nm lattice radius "
                   "[[mikhaylova2015](../references.md#mikhaylova2015)] (inner dashed circle) plus the 12 nm binder "
-                  "(outer; *estimate*), spread by the 2-5 nm linker (*estimate*); measured radius %s &plusmn; %s nm. "
+                  "(outer; *estimate*), spread by the 2-5 nm linker (*estimate*): the `Legacy` linkage "
+                  "(`mt-binder Legacy`; the default IgG2-PAINT puts the dyes on a wider, softer shell, below); "
+                  "measured radius %s &plusmn; %s nm. "
                   "Around the axis: 13 peaks, one per protofilament [[tilney1973](../references.md#tilney1973)], "
                   "widened by the linker. Bottom: the same piece end-on at each mode's typical labelled share (the "
                   "sites that carry a dye)."
                   % (length, sig(radius.mean(), 3), sig(radius.std(), 2)))
+
+
+# ---- nuclear pores and the label linkage (issue 15) ------------------------------------------------------------------
+
+def npc_sites(R=53.5, sep=50.0, spread=12.0):
+    """The 64 attachment points of one pore in its frame (a, b, c) nm: k = ring x 32 + corner x 4 + arc, ring 0 the
+    nucleoplasmic one at c = -sep/2 (the core's npcAttachmentPoints)."""
+    out = []
+    for ring in range(2):
+        for corner in range(8):
+            th = corner * np.pi / 4
+            ct, st = np.cos(th), np.sin(th)
+            for phi in np.radians([-67.5, -22.5, 22.5, 67.5]):
+                u, v = np.cos(phi) * spread / 2, np.sin(phi) * spread / 2
+                out.append((R * ct + (u * ct - v * st), R * st + (u * st + v * ct), (ring - 0.5) * sep))
+    return np.asarray(out)
+
+
+def pore_frame(q):
+    """Centre, normal, e1, e2 of a geometry-json pore row."""
+    c, n, e1 = np.asarray(q[:3]), np.asarray(q[3:6]), np.asarray(q[6:9])
+    return c, n, e1, np.cross(n, e1)
+
+
+def pore_dyes(ctx, tag, pore, pores, opts, half=0.12):
+    """The dyes (every site labelled) of one pore in its frame (a, b, c) nm: the pore sites in a box around it that
+    are nearer to it than to any other pore of the cell."""
+    c, n, e1, e2 = pore_frame(pore)
+    o = {"mt-dye": "None", "npc-label-pct": 100, "dyes-rect": [c[0] - half, c[1] - half, c[0] + half, c[1] + half],
+         "dyes-z": [c[2] - half, c[2] + half], "dyes-t": [60, 60.05]}
+    o.update(opts)
+    r = ctx.cli(dict(SPOT, **o), tag=tag, dyes_json=True)
+    s = rows(load(r["dyes_json"])["sites"], 5)
+    s = s[s[:, 4] == 1, :3]
+    cs = np.asarray([p[:3] for p in pores])
+    nearest = np.argmin(np.linalg.norm(s[:, None, :] - cs[None, :, :], axis=2), axis=1)
+    own = int(np.argmin(np.linalg.norm(cs - c, axis=1)))
+    d = s[nearest == own] - c
+    return np.c_[d @ e1, d @ e2, d @ n] * 1000
+
+
+def pores_of(ctx):
+    cell, rg = cell_with_nucleus(ctx, "geo", {}, size=2)[0]
+    pores = cell["npcs"]
+    P = np.asarray(pores, float)
+    return cell, rg, pores, P, pores[int(np.argmin(P[:, 5]))]   # the most downward-facing pore: seen from below
+
+
+@register("struct-npc", "structures")
+def struct_npc(ctx):
+    cell, rg, pores, P, pore = pores_of(ctx)
+    dyes = pore_dyes(ctx, "pore", pore, pores, {})
+    sites = npc_sites()
+    out = widest(rg)
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(1, 3, width_ratios=[1.5, 1, 1])
+        a = fig.add_subplot(gs[0, 0])
+        a.plot(out[:, 0], out[:, 1], color=st["muted"], lw=0.8)
+        up = P[:, 5] >= 0
+        a.scatter(P[~up, 0], P[~up, 1], s=0.6, color=COLORS[3], lw=0, label="lower envelope")
+        a.scatter(P[up, 0], P[up, 1], s=0.6, color=COLORS[4], lw=0, label="upper envelope")
+        a.set_aspect("equal")
+        a.set_xlabel("µm")
+        a.set_ylabel("µm")
+        a.legend(loc="lower left", markerscale=6)
+        a.set_title("%d pores on one nucleus" % len(P), fontsize=7.5)
+        b = fig.add_subplot(gs[0, 1])
+        b.scatter(dyes[:, 0], dyes[:, 1], s=2, color=COLORS[1], lw=0)
+        b.scatter(sites[:, 0], sites[:, 1], s=3, color=st["fg"], lw=0.6, marker="x")
+        b.set_aspect("equal")
+        b.set_xlim(-80, 80)
+        b.set_ylim(-80, 80)
+        b.set_xlabel("nm")
+        b.set_ylabel("nm")
+        b.set_title("One pore along its axis\n(%d dyes; x: the 64 sites)" % len(dyes), fontsize=7.5)
+        c = fig.add_subplot(gs[0, 2])
+        c.scatter(dyes[:, 0], dyes[:, 2], s=2, color=COLORS[1], lw=0)
+        c.scatter(sites[:, 0], sites[:, 2], s=3, color=st["fg"], lw=0.6, marker="x")
+        c.axhline(0, color=st["muted"], lw=0.6, ls="--")
+        c.set_aspect("equal")
+        c.set_xlim(-80, 80)
+        c.set_ylim(-60, 60)
+        c.set_xlabel("nm")
+        c.set_ylabel("nm (outward)")
+        c.set_title("Side view: two rings\n(the envelope dashed)", fontsize=7.5)
+
+    rad = np.hypot(dyes[:, 0], dyes[:, 1])
+    body = ctx.plot("", draw, h=3.0, alt="Nuclear pores on a nucleus and the dyes of one pore")
+    return figure(body,
+                  "Nuclear pores from the core (`--geometry-json` with detail, `--dyes-json`). Left: one cell's pores "
+                  "(8 per µm² of envelope and at least 180 nm apart, the defaults) over its nucleus, uniform by area over the whole envelope; "
+                  "the lower envelope is the one near the coverslip. Middle and right: the dyes of its most "
+                  "downward-facing pore with every site labelled, in the pore's frame: 8 corners of 2 x 4 sites per "
+                  "ring at 53.5 nm (Nup96 [[thevathasan2019](../references.md#thevathasan2019)]), the cytoplasmic "
+                  "ring 25 nm outside the envelope, the nucleoplasmic one 25 nm inside; the default SNAP-Halo "
+                  "linkage spreads them by a few nm (dye radius %s &plusmn; %s nm)." % (sig(rad.mean(), 3),
+                                                                                      sig(rad.std(), 2)))
+
+
+@register("struct-linkage", "structures")
+def struct_linkage(ctx):
+    cell, rg, pores, P, pore = pores_of(ctx)
+    piece = straight_piece(cell, 1.0)
+    length = float(np.linalg.norm(np.diff(piece, axis=0), axis=1).sum())
+    lo, hi = piece.min(0) - 0.1, piece.max(0) + 0.1
+    presets = ["Legacy", "Nanobody", "IgG1-STORM", "IgG2-STORM", "IgG2-PAINT"]
+    mt = {}
+    for p in presets:
+        r = ctx.cli(dict(SPOT, **{"mt-label-pct": 100, "mt-binder": p, "dyes-rect": [lo[0], lo[1], hi[0], hi[1]],
+                                  "dyes-z": [lo[2], hi[2]], "dyes-t": [60, 60.05]}), tag="mt-" + p, dyes_json=True)
+        s = rows(load(r["dyes_json"])["sites"], 5)
+        s = s[s[:, 4] == 0, :3]
+        a, rv, _ = local_frame(s, piece)
+        keep = (np.linalg.norm(rv, axis=1) < 0.08) & (a > 0.05) & (a < length - 0.05)
+        mt[p] = np.linalg.norm(rv[keep], axis=1) * 1000
+    pp = {p: pore_dyes(ctx, "npc-" + p, pore, pores, {"npc-binder": p}) for p in ("Legacy", "SNAP-Halo", "IgG2-STORM")}
+
+    def draw(fig, st):
+        a = fig.add_subplot(1, 2, 1)
+        bins = np.linspace(0, 80, 161)
+        for k, p in enumerate(presets):
+            a.hist(mt[p], bins=bins, histtype="step", color=COLORS[k], label="%s (%.1f nm)" % (p, mt[p].mean()))
+        a.axvline(12.5, color=st["muted"], lw=0.6, ls="--")
+        a.set_xlabel("Dye distance from the microtubule axis (nm)")
+        a.set_ylabel("Dyes")
+        a.legend()
+        a.set_title("Microtubules (the lattice at 12.5 nm, dashed)", fontsize=7.5)
+        b = fig.add_subplot(1, 2, 2)
+        bins = np.linspace(20, 110, 181)
+        for k, p in enumerate(pp):
+            r = np.hypot(pp[p][:, 0], pp[p][:, 1])
+            b.hist(r, bins=bins, histtype="step", color=COLORS[k + 5], label="%s (%.1f nm)" % (p, r.mean()))
+        b.axvline(53.5, color=st["muted"], lw=0.6, ls="--")
+        b.set_xlabel("Dye distance from the pore axis (nm)")
+        b.legend()
+        b.set_title("Nuclear pores (the Nup96 sites at 53.5 nm, dashed)", fontsize=7.5)
+
+    body = ctx.plot("", draw, h=3.0, alt="Dye distances under the linkage presets")
+    return figure(body,
+                  "Where the dyes sit under the label linkage presets (`mt-binder`, `npc-binder`; MM "
+                  "`<Target>_Binder`), every site labelled, from the core's site query. Antibody shells after "
+                  "[[fruh2021](../references.md#fruh2021)] Table 1 (the IgG2-PAINT shell, 31.8 nm, is wider than "
+                  "with a dye: partly unfolded DNA-antibody conjugates, the authors suspect), the nanobody after "
+                  "[[mikhaylova2015](../references.md#mikhaylova2015)], SNAP/Halo after "
+                  "[[nieves2019](../references.md#nieves2019)]; Legacy = the numbers before the presets. Defaults: "
+                  "microtubules IgG2-PAINT, pores SNAP-Halo. On a pore, antibodies widen the ring as measured "
+                  "(64.3 vs 53.7 nm with SNAP [[thevathasan2019](../references.md#thevathasan2019)]).")

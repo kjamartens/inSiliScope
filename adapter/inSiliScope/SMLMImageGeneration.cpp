@@ -224,8 +224,9 @@ void CInSiliScopeCamera::RenderBrightfieldStack(std::vector<std::vector<uint16_t
       LogMessage("BrightField: " + err, false);
 }
 
-bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache,
-                                 unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap,
+bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu,
+                                 const std::vector<const sim::PsfKernelCache*>& kernels, unsigned w, unsigned h,
+                                 const sim::PixelOffsetMap& offsetMap,
                                  const sim::PixelGainMap& gainMap, const sim::PixelReadNoiseMap& readNoiseMap,
                                  const sim::StackShapingFields& shaping, const sim::SimulationParams& params)
 {
@@ -234,14 +235,23 @@ bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, con
       SetGpuStatus("CPU (Renderer UseGpu is Off)");
       return false;
    }
-   if (!cache.valid)
+   for (const sim::PsfKernelCache* cache : kernels)
    {
-      SetGpuStatus("CPU (the Gaussian PSF renders on the CPU; the GPU path is for diffraction PSF models)");
-      return false;
+      if (!cache || !cache->valid)
+      {
+         SetGpuStatus("CPU (the Gaussian PSF renders on the CPU; the GPU path is for diffraction PSF models)");
+         return false;
+      }
+      if (cache->interpMode == sim::PsfInterpMode::Fft)
+      {
+         SetGpuStatus("CPU (PsfInterp=Fft has no GPU path)");
+         return false;
+      }
    }
-   if (cache.interpMode == sim::PsfInterpMode::Fft)
+   if (kernels.empty() || kernels.size() > sim::GpuSimulator::kMaxKernels)
    {
-      SetGpuStatus("CPU (PsfInterp=Fft has no GPU path)");
+      SetGpuStatus("CPU (the GPU splat takes 1 to " + std::to_string(sim::GpuSimulator::kMaxKernels) +
+                   " blinking labels, here " + std::to_string(kernels.size()) + ")");
       return false;
    }
    std::string info;
@@ -274,7 +284,7 @@ bool CInSiliScopeCamera::PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, con
       }
    }
    std::string err;
-   if (!gpu->SetKernel(cache, err) ||
+   if (!gpu->SetKernels(kernels, err) ||
        !gpu->SetStatic(w, h, offsetMap.offset, gainMap.gainPhotonsPerAdu, readNoiseMap.readNoiseElectrons, bg,
                        params.backgroundPhotons, params.Camera(), err))
    {
@@ -563,25 +573,29 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          LogMessage("Fluorescence: nothing rendered (" + err + ")", false);
       else
       {
-         // One blink group: the GPU splats it and adds the noise; the
-         // continuous populations and the lamp come from the CPU as one extra
-         // photon image per frame.
+         // The blink groups (one per blinking label): the GPU splats them and
+         // adds the noise; the continuous populations and the lamp come from
+         // the CPU as one extra photon image per frame.
          const sim::FluorescenceSimplePlan plan = fm.SimplePlan();
          std::unique_ptr<sim::GpuSimulator> gpu;
          sim::SimulationParams gp = params;
+         size_t blinks = 0;
          if (plan.ok)
          {
-            gp.photonsPerBlink = plan.photonsPerBlink;
             gp.backgroundPhotons = plan.backgroundPhotons;
-            gp.psfSigmaPx = plan.sigmaPx;
-            gpuOk = plan.kernel && PrepareGpu(gpu, *plan.kernel, fullW, fullH, localOffsetMap, localGainMap,
-                                              localReadNoiseMap, shaping, gp);
+            std::vector<const sim::PsfKernelCache*> kernels;
+            for (const sim::FluorescenceSimpleGroup& sg : plan.groups)
+            {
+               kernels.push_back(sg.kernel);
+               blinks += sg.events->size();
+            }
+            gpuOk = PrepareGpu(gpu, kernels, fullW, fullH, localOffsetMap, localGainMap, localReadNoiseMap, shaping, gp);
          }
          else if (St().useGpu.load() && !fm.HasPopulations())
-            SetGpuStatus("CPU (the GPU splat is for the blinks of one label)");
+            SetGpuStatus("CPU (no blinking label for the GPU splat)");
          {
             std::ostringstream msg;
-            msg << "Fluorescence: " << (plan.ok ? std::to_string(plan.events->size()) + " blinks" : std::string("stack"))
+            msg << "Fluorescence: " << (plan.ok ? std::to_string(blinks) + " blinks" : std::string("stack"))
                 << " for " << stackLength << " frames at stage (" << stageXUm << ", " << stageYUm
                 << ") um, the dyes at their places' illumination clocks (" << clock.At(stageXUm, stageYUm)
                 << " s at the FOV centre)";
@@ -589,7 +603,9 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          }
          if (gpuOk)
          {
-            const std::vector<std::vector<uint32_t>> frameEvents = sim::BucketEventsByFrame(*plan.events, stackLength);
+            std::vector<std::vector<std::vector<uint32_t>>> frameEvents;   // per group
+            for (const sim::FluorescenceSimpleGroup& sg : plan.groups)
+               frameEvents.push_back(sim::BucketEventsByFrame(*sg.events, stackLength));
             const long batch = static_cast<long>(gpu->MaxBatchFrames());
             std::vector<sim::BlinkEvent> evs;
             long zc = 0, zt = 0;
@@ -605,16 +621,20 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                std::vector<const std::vector<float>*> extraPtrs;
                for (long f = f0; f < f1; ++f)
                {
-                  evs.clear();
-                  if (fm.HostSplatsBlinks(f))   // else binned or mean-field: in the extra image
-                     for (uint32_t idx : frameEvents[static_cast<size_t>(f)])
-                        evs.push_back((*plan.events)[idx]);
                   const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
                   const double dx = d.x / params.pixelSizeNm, dy = d.y / params.pixelSizeNm;
                   sim::RenderExtras extras = shaping.Extras(fadeT0 + f * params.frameDurationSec, decaySec);
-                  sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, gp.photonsPerBlink, dx, dy,
-                                          *plan.kernel, zOf(f) - d.z / 1000.0, &extras,
-                                          ems[static_cast<size_t>(f - f0)], &zc, &zt);
+                  for (size_t gi = 0; gi < plan.groups.size(); ++gi)
+                  {
+                     const sim::FluorescenceSimpleGroup& sg = plan.groups[gi];
+                     evs.clear();
+                     if (sg.splatFrame[static_cast<size_t>(f)])   // else binned or mean-field: in the extra image
+                        for (uint32_t idx : frameEvents[gi][static_cast<size_t>(f)])
+                           evs.push_back((*sg.events)[idx]);
+                     sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, sg.photonsPerBlink, dx, dy,
+                                             *sg.kernel, zOf(f) - d.z / 1000.0, &extras,
+                                             ems[static_cast<size_t>(f - f0)], &zc, &zt, static_cast<int>(gi));
+                  }
                   frameIds.push_back(static_cast<uint32_t>(f));
                   bgScales.push_back(extras.backgroundScale);
                   outs.push_back(&newStack[static_cast<size_t>(f)]);
@@ -1465,10 +1485,14 @@ void CInSiliScopeCamera::LiveProducerLoop()
                const auto tGpu = sim::TimingClock::now();
                // At the spec's focus: the stage z less the z drift (as the CPU path).
                // Binned or mean-field blinks are in extraImg.
-               static const std::vector<sim::BlinkEvent> noEvents;
-               sim::CollectGpuEmitters(fm.HostSplatsBlinks(0) ? *plan.events : noEvents, 0, w, h, params.pixelSizeNm, plan.photonsPerBlink, dx, dy,
-                                       *plan.kernel, sim::ScopeSpecGet(spec, "z"), &extras, ems,
-                                       &zClampedSinceRebuild, &zTotalSinceRebuild);
+               for (size_t gi = 0; gi < plan.groups.size(); ++gi)
+               {
+                  const sim::FluorescenceSimpleGroup& sg = plan.groups[gi];
+                  if (!sg.splatFrame.empty() && sg.splatFrame[0])
+                     sim::CollectGpuEmitters(*sg.events, 0, w, h, params.pixelSizeNm, sg.photonsPerBlink, dx, dy,
+                                             *sg.kernel, sim::ScopeSpecGet(spec, "z"), &extras, ems,
+                                             &zClampedSinceRebuild, &zTotalSinceRebuild, static_cast<int>(gi));
+               }
                sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
                const auto tGpuRender = sim::TimingClock::now();
                if (extraOk)
@@ -1484,7 +1508,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                }
             }
             else if (!plan.ok && useGpu && liveGpu_.failedAt != currentConfigVersion && !fm.HasPopulations())
-               SetGpuStatus("CPU (the GPU splat is for the blinks of one label)");
+               SetGpuStatus("CPU (no blinking label for the GPU splat)");
             if (!rendered)
             {
                sim::FluorescenceFrameOptions opt;

@@ -1,7 +1,8 @@
 // Smoke test of the WASM C ABI as a JS consumer would use it: packs a few
 // parity cases through isc_pack_window and checks them against the JS
 // reference output (build/parity/ref_js.txt from run.mjs), then drives the
-// world queries (cells / sites / density / events in a window; labels, ABI 10; kinetics history, ABI 11).
+// world queries (cells / sites / density / events in a window; labels, ABI 10; kinetics history, ABI 11; nuclear pores
+// and the label linkage, ABI 13).
 //   node tests/parity/wasm_abi_smoke.mjs
 import fs from 'fs';
 import path from 'path';
@@ -64,7 +65,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
 
 // ---- world queries ----
 {
-  const p = makeParams([]);
+  const p = makeParams([['npcDensity', 0]]);   // the microtubules alone (the pores: below)
   const w = M._isc_world_new(1249, p);
   // ABI 10: the microtubules' label, PALM at 5 % (density, fluorescent fraction, mode).
   const lab = M._malloc(16 * 8);
@@ -103,7 +104,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 12 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 13 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
@@ -121,11 +122,11 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   console.log(`events: ${ne} blinks overlapping [1.0, 1.1) s in ${(performance.now() - te).toFixed(0)} ms -> ${eok ? 'ok' : 'MISMATCH'}`);
   if (!eok) bad++;
   // ABI 11: a one-segment kinetics history equal to the label = no history; a bad one is refused. ABI 12: a row is
-  // tStart + 6 kinetics per structure (two).
+  // tStart + 6 kinetics per structure (three since ABI 13).
   {
-    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 0], row = 1 + 2 * k.length;
+    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 0], row = 1 + 3 * k.length;
     const hb = M._malloc(row * 8 * 2);
-    M.HEAPF64.set([0, ...k, ...k, 1, ...k, ...k], hb / 8);
+    M.HEAPF64.set([0, ...k, ...k, ...k, 1, ...k, ...k, ...k], hb / 8);
     const hok0 = M._isc_world_set_kinetics_history(w, hb, 1) === 0;
     const nh = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, 0, 0);
     const hbad = M._isc_world_set_kinetics_history(w, hb + 8 * row, 1) === -1;   // tStart 1: not 0
@@ -144,5 +145,48 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   if (!cok) bad++;
   M._free(lab);
   M._free(buf); M._free(g); M._isc_world_free(w); M._isc_params_free(p);
+}
+// ---- ABI 13: nuclear pores (structure 1) and the label linkage ----
+{
+  const p = makeParams([]);
+  const w = M._isc_world_new(1249, p);
+  const cb = M._malloc(14 * 8);
+  const nc = M._isc_cells_in_window(w, -4, -7, 0, -3, cb, 1);
+  const cx = M.HEAPF64[cb / 8], cy = M.HEAPF64[cb / 8 + 1];
+  M._free(cb);
+  const np = M._isc_cell_npcs(w, cx, cy, 0, 0);
+  const pb = M._malloc(Math.max(1, np) * 9 * 8);
+  const np2 = M._isc_cell_npcs(w, cx, cy, pb, np);
+  let pok = nc > 0 && np > 100 && np2 === np && M._isc_cell_npcs(w, cx, cy, pb, 3) === np;
+  for (let i = 0; i < np2; i++) {
+    const o = pb / 8 + 9 * i, h = M.HEAPF64.subarray(o, o + 9);
+    const nn = Math.hypot(h[3], h[4], h[5]), ee = Math.hypot(h[6], h[7], h[8]), dot = h[3] * h[6] + h[4] * h[7] + h[5] * h[8];
+    pok &&= h.every(Number.isFinite) && Math.abs(nn - 1) < 1e-12 && Math.abs(ee - 1) < 1e-12 && Math.abs(dot) < 1e-12;
+  }
+  M._free(pb);
+  // The pores' dyes in a window over the cell, structure 1 only; a label with a linkage (indices 16-19); an infinite
+  // linkage value is refused, NaN = the built-in linkage.
+  const lab = M._malloc(20 * 8);
+  M.HEAPF64.set([0, 1, 2], lab / 8);
+  M._isc_world_set_label(w, 0, lab, 3);   // microtubules off
+  M.HEAPF64.set([0.7, 1, 2, 0.05, 0.05, 0.5, 0.3, 0.4, 0, 0, 0, 90, 0, 0, 0, 0, 10, 4, 1, 6], lab / 8);
+  const lok = M._isc_world_set_label(w, 1, lab, 20) === 0;
+  const win = [cx * 26 - 20, cy * 26 - 20, cx * 26 + 20, cy * 26 + 20, -Infinity, Infinity];
+  const nd = M._isc_sites_in_window(w, ...win, 0, 0);
+  const db = M._malloc(Math.max(1, nd) * 5 * 8);
+  const nd2 = M._isc_sites_in_window(w, ...win, db, nd);
+  let dok = nd > 0 && nd2 === nd;
+  for (let i = 0; i < nd2; i++) dok &&= M.HEAPF64[db / 8 + 5 * i + 4] === 1;
+  M._free(db);
+  M.HEAPF64[lab / 8 + 17] = Infinity;
+  const iok = M._isc_world_set_label(w, 1, lab, 20) === -1;
+  M.HEAPF64[lab / 8 + 17] = NaN;
+  const nok = M._isc_world_set_label(w, 1, lab, 20) === 0;
+  M._free(lab);
+  const ok = pok && lok && dok && iok && nok;
+  console.log(`pores: ${np} on cell (${cx}, ${cy}), unit frames; ${nd} pore dyes (structure 1) with a linkage; ` +
+    `inf refused, NaN = built-in -> ${ok ? 'ok' : 'MISMATCH'}`);
+  if (!ok) bad++;
+  M._isc_world_free(w); M._isc_params_free(p);
 }
 process.exit(bad ? 1 : 0);

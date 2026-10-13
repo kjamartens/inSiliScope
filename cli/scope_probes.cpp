@@ -179,20 +179,13 @@ const char* InterpName(sim::PsfInterpMode m)
    }
 }
 
-// The emitting state a movie's PSF uses (as MakeScopePsfPreview: the main
-// state, else the PALM pre state): its PSF wavelength rounded to a kernel's.
+// The emitting state a movie's PSF uses (ScopePreviewState, as MakeScopePsfPreview: the first labelled target's main
+// state, else its PALM pre state): its PSF wavelength rounded to a kernel's.
 bool KernelLambda(const sim::ScopeSpec& spec, double& lambdaNm, std::string& err)
 {
    sim::ScopeStateReadout st;
-   if (!sim::ScopeLabelState(spec, 0, false, st, err))
+   if (!sim::ScopePreviewState(spec, st, err))
       return false;
-   if (!st.emits)
-   {
-      sim::ScopeStateReadout pre;
-      if (sim::ScopeLabelState(spec, 0, true, pre, err) && pre.emits)
-         st = pre;
-      err.clear();
-   }
    lambdaNm = sim::KernelWavelengthNm(st.emits ? st.lambdaNm : 670.0);
    return true;
 }

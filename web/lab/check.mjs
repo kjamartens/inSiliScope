@@ -11,6 +11,7 @@ import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { makeField } from './field.js';
 import { formatSummary } from './metrics.js';
 import { renderScopeMovie } from '../prototype/scope/scope_movie.js';
+import { npcCheck } from './npc_check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -65,6 +66,9 @@ for (const [cx, cy] of [...addrs].reverse()) {
   if (!!a !== !!b || (a && sig(a) !== sig(b))) bad(`cell ${cx},${cy} depends on query history`);
 }
 
+// Nuclear pores (issue 15): placement statistics (web/lab/npc_check.mjs).
+fail += npcCheck({ seed, nCells: 4, overrides, log: m => console.log(m) });
+
 const sw = W.metrics(workCells);
 let sb = null;
 if (B) {
@@ -90,6 +94,8 @@ for (const spec of [`size=32 frames=4 ${K}`,
   `size=32 frames=3 ${K} mt-dye=mEos3.2 mt-label-pct=5 laser-561=1 laser-405=0.02 laser-488=0.05 dichroic=Quad em-filter=BP600-37`,
   `size=32 frames=2 ${K} mt-dye=mEGFP laser-488=0.01 laser-640=0 dichroic=LP505 em-filter=BP525-45`,
   `size=32 frames=3 psf-model=0 mt-dye=Dye1 mt-label-pct=3 laser-640=2 start-sec=20`,
+  `size=32 frames=3 ${K} mt-dye=None npc-dye=AF647 laser-405=0.005`,
+  `size=32 frames=3 ${K} mt-dye=AF647 mt-mode=dSTORM npc-dye=mEos3.2 npc-mode=PALM laser-405=0.02`,
   'size=32 frames=2 modality=BrightField bf-quality=1',
   // The nanorulers (specimen 1): DNA-PAINT (dense, so a few frames bind), WideField.
   `specimen=Nanorulers size=32 frames=3 ${K} origami-density=2 ruler-label-pct=100 ruler-imager-nm=50`,
@@ -105,6 +111,18 @@ for (const spec of [`size=32 frames=4 ${K}`,
     else if (!(hi > lo)) bad(`imaging ${spec}: flat movie`);
     else console.log(`imaging ${spec}: ADU ${lo}..${hi}, ${info.blinks ?? info.dyes ?? info.sources} ${info.blinks != null ? 'blinks' : info.dyes != null ? 'dyes' : 'sources'}, ${(performance.now() - t).toFixed(0)} ms`);
   } catch (e) { bad(`imaging ${spec}: ${e.message}`); }
+}
+// The regression anchor of the two targets: with the pores off, the auto light preset is the microtubules' own
+// (PAINT-640), i.e. the light path of the options' defaults (light-preset -1).
+{
+  const c = workCells[0], frames = [];
+  for (const lp of ['', ' light-preset=-1']) {
+    const a = [];
+    renderScopeMovie(imagingP, `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} size=24 frames=2 ${K} npc-dye=None${lp}`, (f, adu) => a.push(Array.from(adu)));
+    frames.push(JSON.stringify(a));
+  }
+  if (frames[0] !== frames[1]) bad('pores off: the auto light preset differs from the default light path');
+  else console.log('pores off: auto light preset == the default light path (identical ADU)');
 }
 try {
   console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/origami_check.mjs')], { encoding: 'utf8' }).trim().split('\n').pop());

@@ -360,6 +360,10 @@ export const DYE_DATA = {
   "emissionFilter": "BP676-37",
   "preset": "PAINT-640"
  },
+ "lightPathMultiTarget": {
+  "dichroic": "ChromaZT405-488-561-640rpc",
+  "emissionFilter": "ChromaZET405-488-561-640m"
+ },
  "lightPresets": [
   {
    "id": "dSTORM-640",
@@ -1622,6 +1626,24 @@ export const DYE_DATA = {
       ],
       "notes": "k_on: order of magnitude of 9-10 nt imagers (estimate; faster with optimized sequences, schueder2019). onSec 0.05 s (half-time 35 ms) keeps the pre-issue-16 default look (estimate); 9 nt docking strands bind for ~0.3-1 s. imagerNm 1 nM: about the emitters per frame of the dSTORM and PALM typical labels (estimate, 2026-10-07)."
      }
+    },
+    {
+     "id": "npcs",
+     "name": "Nuclear pores",
+     "prefix": "npc",
+     "structure": 1,
+     "paint": {
+      "konPerMPerSec": 1000000,
+      "onSec": 0.05,
+      "imagerNm": 2.5,
+      "refs": [
+       "jungmann2010",
+       "schnitzbauer2017",
+       "jungmann2014",
+       "schlichthaerle2019"
+      ],
+      "notes": "k_on and onSec as the microtubules' (estimate: 9-10 nt imagers, 0.05 s). imagerNm 2.5 nM (estimate, chosen 2026-10-13; was 1 nM): 2.5x the binding of 1 nM, about 2-3 pore blinks per frame over the bottom of a nucleus; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)."
+     }
     }
    ]
   },
@@ -1633,7 +1655,7 @@ export const DYE_DATA = {
      "id": "docking",
      "name": "Docking strands",
      "prefix": "ruler",
-     "structure": 1,
+     "structure": 2,
      "paint": {
       "konPerMPerSec": 1000000,
       "onSec": 0.28853900817779266,
@@ -1668,6 +1690,24 @@ export const DYE_DATA = {
     "labelingPct": 70
    }
   },
+  "npcs": {
+   "dSTORM": {
+    "dye": "AF647",
+    "labelingPct": 58
+   },
+   "PALM": {
+    "dye": "mEos3.2",
+    "labelingPct": 58
+   },
+   "DNA-PAINT": {
+    "dye": "Cy3B",
+    "labelingPct": 60
+   },
+   "WideField": {
+    "dye": "mEGFP",
+    "labelingPct": 100
+   }
+  },
   "docking": {
    "dSTORM": {
     "dye": "AF647",
@@ -1686,6 +1726,81 @@ export const DYE_DATA = {
     "labelingPct": 80
    }
   }
+ },
+ "linkagePresets": [
+  {
+   "id": "Legacy",
+   "name": "Built-in (before the linkage model)",
+   "structureDefault": true
+  },
+  {
+   "id": "IgG2-STORM",
+   "name": "Primary + secondary antibody (dye)",
+   "binderNm": 10,
+   "binderFlexNm": 12,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "IgG1-STORM",
+   "name": "Labelled primary antibody (dye)",
+   "binderNm": 7.7,
+   "binderFlexNm": 7.1,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "IgG2-PAINT",
+   "name": "Primary + secondary antibody (DNA-PAINT docking strand)",
+   "binderNm": 19.3,
+   "binderFlexNm": 15.3,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "IgG1-PAINT",
+   "name": "Labelled primary antibody (DNA-PAINT docking strand)",
+   "binderNm": 11,
+   "binderFlexNm": 11.8,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "Nanobody",
+   "name": "Nanobody (dye)",
+   "binderNm": 1.5,
+   "binderFlexNm": 1,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 0.5
+  },
+  {
+   "id": "Nanobody-PAINT",
+   "name": "Nanobody with a DNA-PAINT docking strand",
+   "binderNm": 1.5,
+   "binderFlexNm": 1,
+   "linkerMinNm": 1,
+   "linkerMaxNm": 4
+  },
+  {
+   "id": "SNAP-Halo",
+   "name": "SNAP / Halo tag (dye or docking strand)",
+   "binderNm": 2.5,
+   "binderFlexNm": 2,
+   "linkerMinNm": 0.5,
+   "linkerMaxNm": 1
+  },
+  {
+   "id": "FP",
+   "name": "Fluorescent protein fusion",
+   "binderNm": 2,
+   "binderFlexNm": 2,
+   "linkerMinNm": 0,
+   "linkerMaxNm": 0
+  }
+ ],
+ "linkageDefaults": {
+  "microtubules": "IgG2-PAINT",
+  "npcs": "SNAP-Halo"
  },
  "spectra": {
   "fp:119": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.0123,0.0125,0.0127,0.0129,0.013,0.0132,0.0134,0.0135,0.0136,0.0138,0.0139,0.014,0.014,0.0141,0.0142,0.0143,0.0144,0.0144,0.0145,0.0145,0.0146,0.0147,0.0147,0.0148,0.0149,0.0149,0.015,0.0151,0.0152,0.0153,0.0154,0.0155,0.0156,0.0158,0.0159,0.0161,0.0163,0.0164,0.0167,0.0169,0.0171,0.0174,0.0177,0.018,0.0183,0.0186,0.019,0.0194,0.0198,0.0203,0.0208,0.0213,0.0218,0.0224,0.023,0.0237,0.0244,0.0251,0.0259,0.0267,0.0275,0.0284,0.0294,0.0304,0.0314,0.0325,0.0336,0.0348,0.036,0.0373,0.0386,0.04,0.0415,0.043,0.0446,0.0463,0.048,0.0498,0.0516,0.0536,0.0556,0.0577,0.0598,0.062,0.0643,0.0667,0.0692,0.0718,0.0744,0.0772,0.0801,0.0832,0.0864,0.09,0.0937,0.0979,0.1023,0.1072,0.1124,0.118,0.1239,0.13,0.1363,0.1426,0.149,0.1551,0.1609,0.1664,0.1714,0.1758,0.1799,0.1834,0.1866,0.1894,0.1921,0.1948,0.1976,0.2006,0.204,0.2079,0.2121,0.2169,0.2219,0.2274,0.2331,0.2392,0.2456,0.2525,0.26,0.2682,0.2772,0.2871,0.2981,0.31,0.3229,0.3366,0.3509,0.3656,0.3805,0.3954,0.4098,0.4234,0.4361,0.4478,0.4583,0.4675,0.4753,0.4815,0.4864,0.4899,0.4925,0.4943,0.4955,0.4963,0.4968,0.4973,0.4982,0.5,0.5028,0.5067,0.5116,0.5173,0.5239,0.5318,0.5414,0.553,0.567,0.5835,0.6022,0.6225,0.6441,0.6666,0.69,0.7146,0.7403,0.7662,0.7914,0.8175,0.8447,0.8726,0.9006,0.9277,0.9519,0.9721,0.9871,0.9965,1,0.9971,0.9869,0.9689,0.9439,0.915,0.8843,0.8503,0.8111,0.7673,0.721,0.6738,0.6266,0.5797,0.5332,0.487,0.4415,0.3976,0.3567,0.3204,0.2889,0.2591,0.2299,0.2031,0.1795,0.1588,0.1404,0.1242,0.1097,0.0965,0.0847,0.0742,0.0652,0.0577,0.0516,0.0466,0.0422,0.0382,0.0344,0.0309,0.0277,0.0249,0.0223,0.0202,0.0182,0.0166,0.0151,0.0138,0.0126,0.0116,0.0107,0.0098,0.009,0.0083,0.0077,0.0071,0.0067,0.0063,0.0061,0.0059,0.0059,0.0059,0.0059,0.006,0.0061,0.0062,0.0062,0.0062,0.0061,0.0058,0.0055,0.0052,0.0047,0.0042,0.0036,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],

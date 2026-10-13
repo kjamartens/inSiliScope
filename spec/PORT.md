@@ -975,3 +975,41 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   redirect stubs at the old URLs, Nanorulers), figures `tools/physics_figures/nanorulers.py` (`ruler-shapes`,
   `ruler-wlc`, `ruler-field`; `build_physics_figures.py` now injects into every page of `docs/` and rebases the
   figures' links per page), gallery group Nanorulers.
+
+## 21. Nuclear pore complexes, a second cell-field target (2026-10-12, issue 15)
+
+Iteration mode (JS first, `PORT_PENDING.md`, commits e3d6176, 86faf09, 639f9ae, be91f66), then the port on the same
+branch `claude/npc-target` (merged with `claude/nanorulers`). The model and its reasons: spec/ALGORITHM.md "Nuclear pore
+complexes" and "Label linkage".
+
+- Registry: `data/specimens.json` CellField target `npcs` (row `NuclearPores`, prefix `npc`, structure 1; the nanorulers'
+  `docking` moved to 2); `typicalLabels.npcs` (DNA-PAINT Cy3B 60 %, dSTORM AF647 58 %, PALM mEos3.2 58 %, WideField mEGFP
+  100 %, thevathasan2019 / schlichthaerle2019); `data/dyes/light_path.json` `multiTarget` (the multi-band set);
+  `linkagePresets` (with `defaults` per target) -> `kLinkagePresets`.
+- Core (`core/src/npcs.{h,cpp}` = the prototype's `nucSurfaceMesh` / `buildNpcsForCell` / `npcAttachmentPoints`; dyes,
+  world): params `npcDensity` (8 /um^2; 12 until 2026-10-13), `npcMinDistNm` (180; was 120), `npcRadiusNm` (53.5), `npcRingSepNm` (50),
+  `npcCornerSpreadNm` (12), skipped by `PackingFingerprint`; pores built lazily per cell, dye blocks per cell-local 1 um
+  cube after the microtubule blocks; `BlockKey` {cx, cy, structure, element, block}. The label linkage at label indices
+  16-19. **ABI 13:** `ISC_STRUCT_NPC` 1, `ISC_STRUCT_ORIGAMI_SITES` 2, `ISC_STRUCT_COUNT` 3 (kinetics rows 1 + 6 x 3),
+  `ISC_LABEL_BINDER_NM` .. `ISC_LABEL_LINKER_MAX_NM`, `ISC_LABEL_COUNT` 20 (a shorter vector or NaN there = the
+  structure's built-in linkage), `isc_cell_npcs` (stride 9: centre, outward normal, e1; cell-local). `ISC_WORLD_VERSION`
+  unchanged (no cell moved).
+- Engine/cli: per-target label options from the registry for every target (`npc-dye`, `-mode`, `-label-pct`,
+  `-imager-nm`, `-orient*`, `-binder`, `-binder-nm`, `-binder-flex-nm`, `-linker-min-nm`, `-linker-max-nm`);
+  `npc-density`; the dye choice `None` (last; a target is off when its dye is None, its label-pct 0 or its density 0: no
+  dyes, no group, no imager background); `light-preset` default auto = the on targets' presets combined (lasers per line
+  max, filters where all agree, else the multi-band set); the PSF preview of the first emitting target.
+  `--geometry-json --geometry-detail 1` adds each cell's `npcs`. The GPU splat (`FluorescenceSimplePlan` groups,
+  `GpuSimulator::SetKernels`: up to 4 kernels, the kernel index in `GpuSplatEmitter::plane >> 16`) keeps the default
+  two-label scene on the GPU.
+- Viewer / block: a label group per target (None, Attachment select + Advanced overrides), a Nuclear pores group, the
+  combined auto light; a structure's data layers image it alone. Block: three labels, sites `[x, y, z, structure]`,
+  `npcDensity` 0 by default (webSMLM's field unchanged), `abiVersion` 13. The pores' ring layer in `web/scene/core.js`
+  and per-structure dye colours are left for a visualisation branch.
+- MM: `CellField` rows `NuclearPores_*` (the target rows, `_Mode` Basic per target), `NuclearPoreDensityPerUm2`
+  (Advanced) and the geometry (Expert), `<Target>_Binder` (Advanced) + overrides (Expert); `Fluorophores.Mode` removed;
+  `Lasers.Preset` `Auto` (spec/MM_DEVICES.md 4). `SampleSettings::SameLabels` compares bit for bit (NaN linkage slots).
+- Checks: `web/lab/npc_check.mjs` + `label_regression.mjs`, `world_checks.npcs`, golden `npcs` cases, `label_parity`
+  (three structures), `scope_parity` two-target cases, `engine_check` (pores, linkage, two-colour movie), the block
+  check's pores window, `test_insiliscope.py` (defaults, couplings, GPU = CPU with two labels), `adapter_pixel_hash`
+  (TOTAL before pores = the old reference with pores None and MT linkage Legacy; configs `pores`, `pores-dstorm`).

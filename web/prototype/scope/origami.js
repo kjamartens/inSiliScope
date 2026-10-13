@@ -15,7 +15,7 @@ export { ORIGAMI_DESIGNS };
 
 export const SPECIMEN_CELLFIELD = 0;
 export const SPECIMEN_NANORULERS = 1;
-export const STRUCTURE_ORIGAMI = 1;   // ISC_STRUCT_ORIGAMI_SITES: the docking strands' target (data/specimens.json)
+export const STRUCTURE_ORIGAMI = 2;   // ISC_STRUCT_ORIGAMI_SITES: the docking strands' target (data/specimens.json)
 // The field is tiled in ORIGAMI_TILE_UM squares; a tile holds Poisson(density x area) candidates (capped), thinned
 // against the 3x3 tiles around it (Matern type II): a candidate is dropped when one of higher priority lies closer
 // than origamiMinSpacingNm (capped at the tile size, so 3x3 tiles suffice).

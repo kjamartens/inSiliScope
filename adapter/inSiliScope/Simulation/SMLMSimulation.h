@@ -216,10 +216,12 @@ std::vector<std::vector<uint32_t>> BucketEventsByFrame(const std::vector<BlinkEv
 // emitters as GpuSplatEmitter records (same photons -- overlap x brightness
 // x illumination --, same per-emitter z plane, same SplatSetup), appended to
 // out. The background is applied on the GPU itself. Not for Fft placement.
+// kernel: the index of cache among the kernels the GpuSimulator holds
+// (SetKernels), kept in the record's plane.
 void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, unsigned width, unsigned height,
                         double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
                         const PsfKernelCache& cache, double globalZOffsetUm, const RenderExtras* extras,
                         std::vector<GpuSplatEmitter>& out, long* outZClampedCount = nullptr,
-                        long* outZTotalCount = nullptr);
+                        long* outZTotalCount = nullptr, int kernel = 0);
 
 } // namespace sim

@@ -5,27 +5,30 @@
 import { hashUnit } from './rng.js';
 import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
-  mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM, MT_BINDER_NM,
-  MT_LINKER_MAX_NM, PERSIST_BIN_SEC } from './dyes.js';
+  mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM,
+  PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, LEGACY_LINKAGE, normLinkage,
+  linkageReachNm } from './dyes.js';
 import { OrigamiField, SPECIMEN_NANORULERS, STRUCTURE_ORIGAMI } from './origami.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
-// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*): the microtubules (CellField) and
-// the docking strands (Nanorulers). A new structure (nucleus DNA, NPCs, ...) adds a target there and its site
-// generator here and in core/. A world holds one specimen (params.specimen; the core param 'specimen'): its geometry
-// (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels, schedules and the queries are
-// shared. A world never yields a structure of another specimen.
+// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*): the microtubules and the nuclear
+// pores (CellField, issue 15) and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target
+// there and its site generator here and in core/. A world holds one specimen (params.specimen; the core param
+// 'specimen'): its geometry (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels,
+// schedules and the queries are shared. A world never yields a structure of another specimen.
 export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name,
   paint: t.paint }));
 export const STRUCTURE_MT = 0;
+export const STRUCTURE_NPC = STRUCTURES.findIndex(s => s.id === 'npcs');   // = ISC_STRUCT_NPC
+// Nuclear pore dye blocks: the pores whose centre lies in one cell-local NPC_BLOCK_UM cube.
+export const NPC_BLOCK_UM = 1.0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
 // ALWAYS_ON; continuousInWindow).
 export const EVENTS_BLINKS = 1;
 // = ISC_WORLD_VERSION (core/include/insiliscope/insiliscope.h): the generator's version, the
 // date spec/golden was last re-frozen. Bump both when a cell moves (engine_check compares them).
 export const WORLD_VERSION = '2026-10-05';
-const DYE_REACH_UM = (MT_RADIUS_NM + MT_BINDER_NM + MT_LINKER_MAX_NM) * 1e-3;
 const floorDiv = (a, b) => Math.floor(a / b);
 
 function rectDist(px, py, x0, y0, x1, y1) {
@@ -78,13 +81,21 @@ export class World {
     });
   }
 
-  // A change of density or fluorescent fraction redraws the dyes (the cells and microtubules stay); any other label
-  // change only re-schedules them (isc_world_set_label).
+  // A change of density, fluorescent fraction or linkage redraws the dyes (the cells and microtubules stay); any other
+  // label change only re-schedules them (isc_world_set_label). A label without a linkage gets its structure's
+  // LEGACY_LINKAGE; a structure with no linkage model (the docking strands: origamiLinkerNm) keeps null.
   setLabels(labels) {
     if (labels.length !== STRUCTURES.length) throw new Error(`setLabels: ${STRUCTURES.length} labels expected`);
-    const next = labels.map(l => { const c = structuredClone(l); validateLabel(c); return c; });
+    const next = labels.map((l, i) => {
+      const c = structuredClone(l); validateLabel(c);
+      const lk = c.linkage ?? LEGACY_LINKAGE[STRUCTURES[i].id];
+      c.linkage = lk ? normLinkage(lk) : null;
+      return c;
+    });
+    const sameLk = (a, b) => (!a || !b) ? a === b : a.binderNm === b.binderNm && a.binderFlexNm === b.binderFlexNm && a.linkerMinNm === b.linkerMinNm &&
+      a.linkerMaxNm === b.linkerMaxNm;
     const dyesChange = next.some((l, i) => !this.labels[i] || l.density !== this.labels[i].density ||
-      l.fluorescentFraction !== this.labels[i].fluorescentFraction);
+      l.fluorescentFraction !== this.labels[i].fluorescentFraction || !sameLk(l.linkage, this.labels[i].linkage));
     this.labels = next;
     if (dyesChange) this.dyeBlocks.clear();
     else for (const b of this.dyeBlocks.values()) { b.scheduled = false; b.events = null; b.continuous = null; }
@@ -169,19 +180,55 @@ export class World {
 
   frames(a, i) { return a.frames[i] || (a.frames[i] = buildMtFrames(a.mts[i])); }
 
+  // The cell's pores (P.gen.buildNpcsForCell, cell-local, candidate order) and their dye blocks: the pores per
+  // NPC_BLOCK_UM cube, ordered by (iz, iy, ix), pores in candidate order within a block; each block's cube centre
+  // (cell-local) and, per cell, the farthest pore centre from the cell centre (xy). Built when first asked for.
+  npcs(a) {
+    if (a.npcs) return a.npcs;
+    const c = a.cell, pores = this.g.buildNpcsForCell(this.seed, c.cx, c.cy, c, this.p);
+    const cubes = new Map();
+    let reachXY = 0;
+    pores.forEach((q, i) => {
+      const ix = Math.floor(q.x / NPC_BLOCK_UM), iy = Math.floor(q.y / NPC_BLOCK_UM), iz = Math.floor(q.z / NPC_BLOCK_UM);
+      const key = ix + ',' + iy + ',' + iz;
+      let b = cubes.get(key);
+      if (!b) { b = { ix, iy, iz, ids: [] }; cubes.set(key, b); }
+      b.ids.push(i);
+      reachXY = Math.max(reachXY, Math.hypot(q.x, q.y));
+    });
+    const blocks = [...cubes.values()].sort((u, v) => u.iz - v.iz || u.iy - v.iy || u.ix - v.ix);
+    for (const b of blocks) { b.x = (b.ix + 0.5) * NPC_BLOCK_UM; b.y = (b.iy + 0.5) * NPC_BLOCK_UM; b.z = (b.iz + 0.5) * NPC_BLOCK_UM; }
+    a.npcs = { pores, blocks, reachXY, sites: this.g.npcAttachmentPoints(this.p) };
+    return a.npcs;
+  }
+
+  // The farthest a pore's dye can be from its centre (um): the attachment ring's outer edge and half the ring
+  // separation, plus the label's binder (with its flexibility) and longest linker.
+  npcDyeReach() {
+    const p = this.p;
+    return Math.hypot(p.npcRadiusNm + p.npcCornerSpreadNm / 2, p.npcRingSepNm / 2) * 1e-3 +
+      linkageReachNm(this.labels[STRUCTURE_NPC].linkage) * 1e-3;
+  }
+  // The farthest a microtubule dye can be from the axis (um): the lattice radius, the binder with its flexibility and
+  // the longest linker.
+  mtDyeReach() {
+    const lk = this.labels[STRUCTURE_MT].linkage;
+    return (MT_RADIUS_NM + lk.binderNm + lk.binderFlexNm + lk.linkerMaxNm) * 1e-3;
+  }
+
   // fn(block) for every 1 um dye block that can reach the rect/z range, in the C++ order.
   forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, fn) {
     if (this.origami) {   // one block per molecule
       for (const m of this.origami.moleculesInRect(x0, y0, x1, y1)) fn(this.origamiDyeBlock(m));
       return;
     }
-    const blockReach = DYE_BLOCK_UM / 2 + DYE_REACH_UM;
+    const mtReach = this.mtDyeReach(), blockReach = DYE_BLOCK_UM / 2 + mtReach;
     for (const c of this.cellsInRect(x0, y0, x1, y1)) {
       const A = this.cellAssets(c);
       const centreDist = rectDist(c.x, c.y, x0, y0, x1, y1);
       for (let i = 0; i < A.mts.length; i++) {
         const pts = A.mts[i];
-        if (pts.length < 2 || centreDist > A.mtReach[i] + DYE_REACH_UM) continue;
+        if (pts.length < 2 || centreDist > A.mtReach[i] + mtReach) continue;
         const fr = this.frames(A, i);
         const len = fr.length;
         const nBlocks = Math.ceil(len / DYE_BLOCK_UM);
@@ -193,6 +240,18 @@ export class World {
           fn(this.dyeBlock(c, A, i, b));
         }
       }
+      if (STRUCTURE_NPC < 0 || !(this.p.npcDensity > 0)) continue;
+      const nl = this.labels[STRUCTURE_NPC];
+      if (!(nl.density > 0) || !(nl.fluorescentFraction > 0)) continue;
+      const N = this.npcs(A), rb = Math.sqrt(3) / 2 * NPC_BLOCK_UM + this.npcDyeReach();
+      if (!N.blocks.length || centreDist > N.reachXY + rb) continue;
+      for (let b = 0; b < N.blocks.length; b++) {
+        const blk = N.blocks[b];
+        if (blk.z + rb < zMin || blk.z - rb >= zMax) continue;
+        const [wx, wy] = localToWorld(c, blk.x, blk.y);
+        if (rectDist(wx, wy, x0, y0, x1, y1) > rb) continue;
+        fn(this.npcDyeBlock(c, A, b));
+      }
     }
   }
 
@@ -200,21 +259,43 @@ export class World {
   // x/y/z (world um), id, protofilament k and dimer index n per dye; cell chunk, microtubule, its H1 and the
   // protofilaments' azimuths (theta) per block.
   dyeBlock(c, A, mtIndex, block) {
-    const key = c.cx + ',' + c.cy + ',' + mtIndex + ',' + block;
+    const key = c.cx + ',' + c.cy + ',' + STRUCTURE_MT + ',' + mtIndex + ',' + block;
     let blk = this.dyeBlocks.get(key);
     if (blk) return blk;
     const raw = [], label = this.labels[STRUCTURE_MT];
     dyesInBlock(this.seed, c.cx, c.cy, mtIndex, A.mts[mtIndex], this.frames(A, mtIndex), block,
-      label.density, label.fluorescentFraction, raw);
+      label.density, label.fluorescentFraction, raw, label.linkage);
     const n = raw.length;
     blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
       k: new Uint8Array(n), nIdx: new Int32Array(n), theta: new Float64Array(MT_N_PROTOFILAMENTS),
-      cx: c.cx, cy: c.cy, mtIndex, h1: dyeH1(this.seed, c.cx, c.cy, mtIndex), structure: STRUCTURE_MT,
+      cx: c.cx, cy: c.cy, mtIndex, element: mtIndex, h1: dyeH1(this.seed, c.cx, c.cy, mtIndex), structure: STRUCTURE_MT,
       zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
     raw.forEach((d, i) => {
       const [wx, wy] = localToWorld(c, d.pos.x, d.pos.y);
       blk.x[i] = wx; blk.y[i] = wy; blk.z[i] = d.pos.z; blk.id[i] = d.id; blk.k[i] = d.k; blk.nIdx[i] = d.n;
       blk.theta[d.k] = d.theta;
+      blk.zLo = Math.min(blk.zLo, d.pos.z);
+      blk.zHi = Math.max(blk.zHi, d.pos.z);
+    });
+    this.dyeBlocks.set(key, blk);
+    return blk;
+  }
+  // A block of nuclear pore dyes: the pores of cube `block` of the cell (npcs()); the same packed layout as a
+  // microtubule block (k = the attachment site, n = the pore's candidate index, element 0, no theta).
+  npcDyeBlock(c, A, block) {
+    const key = c.cx + ',' + c.cy + ',' + STRUCTURE_NPC + ',0,' + block;
+    let blk = this.dyeBlocks.get(key);
+    if (blk) return blk;
+    const N = this.npcs(A), raw = [], label = this.labels[STRUCTURE_NPC];
+    npcDyesInBlock(this.seed, c.cx, c.cy, N.pores, N.blocks[block].ids, N.sites, label.density, label.fluorescentFraction, raw, label.linkage);
+    const n = raw.length;
+    blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
+      k: new Uint8Array(n), nIdx: new Int32Array(n), theta: null,
+      cx: c.cx, cy: c.cy, mtIndex: -1, element: 0, h1: npcH1(this.seed, c.cx, c.cy), structure: STRUCTURE_NPC,
+      zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
+    raw.forEach((d, i) => {
+      const [wx, wy] = localToWorld(c, d.pos.x, d.pos.y);
+      blk.x[i] = wx; blk.y[i] = wy; blk.z[i] = d.pos.z; blk.id[i] = d.id; blk.k[i] = d.k; blk.nIdx[i] = d.n;
       blk.zLo = Math.min(blk.zLo, d.pos.z);
       blk.zHi = Math.max(blk.zHi, d.pos.z);
     });
@@ -232,7 +313,7 @@ export class World {
     const n = sites.length;
     blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
       k: new Uint8Array(n), nIdx: new Int32Array(n), theta: new Float64Array(this.origami.d.spots.length),
-      cx: m.tx, cy: m.ty, mtIndex: m.i, h1: m.h1, structure: STRUCTURE_ORIGAMI,
+      cx: m.tx, cy: m.ty, mtIndex: m.i, element: m.i, h1: m.h1, structure: STRUCTURE_ORIGAMI,
       zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
     sites.forEach((d, i) => {
       blk.x[i] = d.x; blk.y[i] = d.y; blk.z[i] = d.z; blk.id[i] = d.id; blk.k[i] = d.k; blk.nIdx[i] = d.n;
@@ -244,8 +325,8 @@ export class World {
   }
   // Dye i of a block as an object (sitesInWindow's rows).
   dyeAt(b, i) {
-    return { x: b.x[i], y: b.y[i], z: b.z[i], id: b.id[i], cx: b.cx, cy: b.cy, mtIndex: b.mtIndex, k: b.k[i], n: b.nIdx[i],
-      theta: b.theta[b.k[i]], structure: b.structure };
+    return { x: b.x[i], y: b.y[i], z: b.z[i], id: b.id[i], cx: b.cx, cy: b.cy, mtIndex: b.mtIndex, element: b.element, k: b.k[i],
+      n: b.nIdx[i], theta: b.theta ? b.theta[b.k[i]] : 0, structure: b.structure };
   }
   // fn(block, i) for every dye in [x0,x1) x [y0,y1) x [zMin,zMax), in the C++ order (no objects made).
   forEachDye(x0, y0, x1, y1, zMin, zMax, fn) {
@@ -288,8 +369,8 @@ export class World {
     b.tLo = tLo;
   }
 
-  // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um: [{x, y, z, id, cx, cy, mtIndex, k, n, theta,
-  // structure}].
+  // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um: [{x, y, z, id, cx, cy, mtIndex, element, k, n,
+  // theta, structure}] (nuclear pores: mtIndex -1, element 0, k = the attachment site, n = the pore's candidate index).
   sitesInWindow(x0, y0, x1, y1, zMin, zMax) {
     const out = [];
     this.forEachDye(x0, y0, x1, y1, zMin, zMax, (b, i) => out.push(this.dyeAt(b, i)));
@@ -353,6 +434,18 @@ export class World {
     if (d.structure === STRUCTURE_ORIGAMI) throw new Error('dye orientation on origami docking strands is not implemented (Free only)');
     const A = this.cellAssets(this.packedBlock(floorDiv(d.cx, PACK_BLOCK_CHUNKS), floorDiv(d.cy, PACK_BLOCK_CHUNKS))
       .find(c => c.cx === d.cx && c.cy === d.cy));
+    if (d.structure === STRUCTURE_NPC) {
+      // Fixed: from the pore axis (its outward normal), azimuth from the corner's direction in the ring plane.
+      const h1 = npcH1(this.seed, d.cx, d.cy), o = label.orientation;
+      if (o.mode === 'Random') return dyeOrientationRandom(h1, d.k, d.n, o);
+      const pores = this.npcs(A).pores;
+      let lo = 0, hi = pores.length - 1;
+      while (lo < hi) { const m = (lo + hi) >>> 1; if (pores[m].cand < d.n) lo = m + 1; else hi = m; }
+      const q = pores[lo], th = ((d.k & 31) >> 2) * Math.PI / 4, ct = Math.cos(th), st = Math.sin(th);
+      const t = { x: q.n[0], y: q.n[1], z: q.n[2] };
+      const r = { x: ct * q.e1[0] + st * q.e2[0], y: ct * q.e1[1] + st * q.e2[1], z: ct * q.e1[2] + st * q.e2[2] };
+      return dyeOrientationFixed(o, t, r);
+    }
     const fr = this.frames(A, d.mtIndex), S = (mtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
     return dyeOrientation(dyeH1(this.seed, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, mtSegmentAt(fr, S), d.theta);
   }
@@ -373,6 +466,13 @@ export class World {
       total++;
     });
     return { total, grid: out };
+  }
+
+  // The pores of the cell at chunk (cx, cy) (isc_cell_npcs): [{x, y, z, n, e1, e2, cand, piece}] cell-local, candidate
+  // order; [] if there is no cell there.
+  npcsOfCell(cx, cy) {
+    const c = this.packedBlock(floorDiv(cx, PACK_BLOCK_CHUNKS), floorDiv(cy, PACK_BLOCK_CHUNKS)).find(q => q.cx === cx && q.cy === cy);
+    return c ? this.npcs(this.cellAssets(c)).pores : [];
   }
 
   // Tallest cell (c.height) whose footprint meets the rect; 0 if none (SampleSource::MaxCellHeight).

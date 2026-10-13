@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace sim {
 
@@ -57,12 +58,14 @@ const std::vector<std::string>& DyeChoices()
 {
    static const std::vector<std::string> ids = [] {
       std::vector<std::string> v = DyeIds();
-      for (const char* s : { "Dye1", "Dye2", "Dye3" })
+      for (const char* s : { "Dye1", "Dye2", "Dye3", "None" })   // None appended: the indices before it stay
          v.push_back(s);
       return v;
    }();
    return ids;
 }
+
+int DyeNoneChoice() { return static_cast<int>(DyeChoices().size()) - 1; }
 
 const std::vector<std::string>& DyeModeNames()
 {
@@ -154,6 +157,38 @@ int DefaultDyeMode() { return IndexOf(DyeModeNames(), kDefaultDyeMode); }
 
 int TargetCount() { return static_cast<int>(sizeof(kTargets) / sizeof(kTargets[0])); }
 const TargetData& TargetAt(int i) { return kTargets[i]; }
+
+const std::vector<std::string>& LinkagePresetIds()
+{
+   static const std::vector<std::string> v = [] {
+      std::vector<std::string> out;
+      for (const LinkagePresetData& q : kLinkagePresets)
+         out.push_back(q.id);
+      return out;
+   }();
+   return v;
+}
+const LinkagePresetData& LinkagePresetAt(int i) { return kLinkagePresets[i]; }
+
+bool LegacyLinkageNm(const char* targetId, double out[4])
+{
+   // The numbers before the linkage model (core dyes.cpp LegacyLinkage, JS dyes.js LEGACY_LINKAGE): microtubules a
+   // 12 nm binder tip off the 12.5 nm lattice radius with a 2-5 nm linker shell; pores webSMLM's 2-5 nm linker.
+   static const struct { const char* id; double nm[4]; } kLegacy[] = {
+      { "microtubules", { 12, 0, 2, 5 } },
+      { "npcs", { 0, 0, 2, 5 } },
+   };
+   for (const auto& e : kLegacy)
+      if (!std::strcmp(e.id, targetId))
+      {
+         std::copy(e.nm, e.nm + 4, out);
+         return true;
+      }
+   return false;
+}
+
+const char* MultiTargetDichroic() { return kMultiTargetDichroic; }
+const char* MultiTargetEmissionFilter() { return kMultiTargetEmissionFilter; }
 
 const std::vector<std::string>& SpecimenIds()
 {
@@ -425,6 +460,8 @@ bool MakeLabelPhysics(const EffectiveDye& eff, const LightPath& lp, const LabelP
    out.label[ISC_LABEL_ORIENT_POLAR_DEG] = o.polarDeg;
    out.label[ISC_LABEL_ORIENT_AZIMUTH_DEG] = o.azimuthDeg;
    out.label[ISC_LABEL_WOBBLE_DEG] = o.wobbleDeg;
+   for (int i = 0; i < 4; ++i)
+      out.label[ISC_LABEL_BINDER_NM + i] = o.hasLinkage ? o.linkageNm[i] : std::numeric_limits<double>::quiet_NaN();
    out.kActPerSec = kAct;
    out.excitationScale = excitationScale;
    out.onSecNow = onSec;

@@ -6,9 +6,9 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ORIGAMI_DESIGNS, ORIGAMI_TILE_UM, OrigamiField, bentShape, centerline, transform, moleculeSites,
+import { STRUCTURE_ORIGAMI, ORIGAMI_DESIGNS, ORIGAMI_TILE_UM, OrigamiField, bentShape, centerline, transform, moleculeSites,
   normalizeOrigamiParams, bendNormal, moleculeH1 } from '../prototype/scope/origami.js';
-import { World } from '../prototype/scope/world.js';
+import { World, STRUCTURES } from '../prototype/scope/world.js';
 import { makeLabel } from '../prototype/scope/dyes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -138,19 +138,19 @@ stats(273.1);
 }
 {
   // A World of the Nanorulers specimen: sites the same from any query order, labels select subsets.
-  const params = { specimen: 1 }, lab = [makeLabel(), makeLabel({ density: 1 })];
+  const params = { specimen: 1 }, lab = STRUCTURES.map((s, i) => makeLabel(i === STRUCTURE_ORIGAMI ? { density: 1 } : {}));
   const W1 = new World({ gen: {} }, 77, params, lab), W2 = new World({ gen: {} }, 77, params, lab);
   W2.sitesInWindow(-30, -30, -20, -20, -1, 1);
   const s1 = JSON.stringify(W1.sitesInWindow(0, 0, 8, 8, -1, 1)), s2 = JSON.stringify(W2.sitesInWindow(0, 0, 8, 8, -1, 1));
   check('world sites independent of query history', s1 === s2 && s1.length > 2);
   const all = W1.sitesInWindow(0, 0, 30, 30, -1, 1);
-  check('world sites are structure 1 only', all.every(s => s.structure === 1) && all.length > 0, `(${all.length} sites)`);
+  check(`world sites are structure ${STRUCTURE_ORIGAMI} only`, all.every(s => s.structure === STRUCTURE_ORIGAMI) && all.length > 0, `(${all.length} sites)`);
   const W3 = new World({ gen: {} }, 77, { specimen: 1, origamiStrandsPerSpot: 3 }, lab);
   const sub = W3.sitesInWindow(0, 0, 30, 30, -1, 1);
   const k5 = new Set(all.map(s => `${s.cx},${s.cy},${s.mtIndex},${s.k},${s.n},${s.x},${s.y}`));
   check('strands per spot 3 = ring positions 0-2 of the same strands', sub.length > 0 && sub.every(s => s.n < 3 && k5.has(`${s.cx},${s.cy},${s.mtIndex},${s.k},${s.n},${s.x},${s.y}`)),
     `(${sub.length} of ${all.length})`);
-  const W4 = new World({ gen: {} }, 77, params, [makeLabel(), makeLabel({ density: 0.8 })]);
+  const W4 = new World({ gen: {} }, 77, params, STRUCTURES.map((s, i) => makeLabel(i === STRUCTURE_ORIGAMI ? { density: 0.8 } : {})));
   const inc = W4.sitesInWindow(0, 0, 30, 30, -1, 1);
   check('incorporation 80 % keeps a subset', inc.every(s => k5.has(`${s.cx},${s.cy},${s.mtIndex},${s.k},${s.n},${s.x},${s.y}`)) && Math.abs(inc.length / all.length - 0.8) < 0.03,
     `(${(100 * inc.length / all.length).toFixed(1)} %)`);

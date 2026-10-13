@@ -5,8 +5,8 @@
 The inSiliScope adapter is a hub (`inSiliScope`) with one device per part of the microscope. Every property has a
 **tier**: the hub's pre-init `Detail` (Basic, Advanced or Expert) decides which tiers a session shows; a property
 above it is not created and keeps its default. The shipped configurations `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg`
-load the devices with their config groups (Channel, Objective, Camera, Quality, Drift, Specimen) and pixel-size
-calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
+load the devices with their config groups (Channel, Objective, Camera, Quality, Drift, Specimen, the 561 and 640 nm
+laser powers) and pixel-size calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
 Micro-Manager's own properties (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...) are not listed.
 
 | Device | Type | Tier | What it is |
@@ -130,10 +130,10 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 |---|---|---|---|---|
 | `Laser405KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser488KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Laser561KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
+| `Laser561KWcm2` | Basic | 1 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser640KWcm2` | Basic | 1 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser730KWcm2` | Basic | 0 | 0 .. 100 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Preset` | Basic | PAINT-640 | `None`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path for a dye mode (lasers + filter cube); a dye pick applies its mode's. None = as set. |
+| `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
 | `IlluminationProfile` | Basic | Flat | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's profile over the field of view. |
 | `IlluminationFwhmPct` | Basic | 60 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `IlluminationGeometry` | Basic | Epi | `Epi` | How the lasers reach the sample (Epi; TIRF and HILO when the engine has them). |
@@ -181,20 +181,37 @@ Specimen: a field of cells with their labelled structures.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Microtubules_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
+| `Microtubules_Mode` | Basic | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | How the microtubules' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it. |
+| `Microtubules_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3`, `None` | The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the Lasers Auto preset. |
+| `NuclearPores_Mode` | Basic | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | How the nuclear pores' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it. |
+| `NuclearPores_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3`, `None` | The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the Lasers Auto preset. |
 | `Microtubules_LabelingPct` | Advanced | 70 | 0 .. 100 | Labelled fraction of the microtubules' sites, % (a mode change sets its suggestion). |
 | `Microtubules_ImagerNanoMol` | Advanced | 1 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `Microtubules_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `Microtubules_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
+| `Microtubules_Binder` | Advanced | IgG2-PAINT | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the microtubules' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
+| `NuclearPores_LabelingPct` | Advanced | 60 | 0 .. 100 | Labelled fraction of the nuclear pores' sites, % (a mode change sets its suggestion). |
+| `NuclearPores_ImagerNanoMol` | Advanced | 2.5 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `NuclearPores_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
+| `NuclearPores_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
+| `NuclearPores_Binder` | Advanced | SNAP-Halo | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear pores' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
 | `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
+| `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
 | `IndexMedium` | Advanced | 1.337 | 1 .. 2 | Refractive index of the medium (BrightField). |
 | `IndexCytoplasm` | Advanced | 1.35 | 1 .. 2 | Refractive index of the cytoplasm (BrightField). |
 | `IndexNucleus` | Advanced | 1.35 | 1 .. 2 | Refractive index of the nucleus (BrightField). |
 | `IndexMicrotubule` | Advanced | 1.48 | 1 .. 2 | Refractive index of a microtubule (BrightField). |
-| `Microtubules_Mode` | Expert | Global | `Global`, `DyeDefault`, `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | The microtubules' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default). |
+| `Microtubules_BinderNm` | Expert | -1 | -1 .. 1000 | The probe's length from the binding site, outward along the structure's axis, nm (-1 = the Binder preset's). |
+| `Microtubules_BinderFlexNm` | Expert | -1 | -1 .. 1000 | The probe's flexibility: its end lies in a ball of this radius, nm (-1 = the preset's). |
+| `Microtubules_LinkerMinNm` | Expert | -1 | -1 .. 1000 | Shortest chemical linker from the probe to the dye, nm (-1 = the preset's). |
+| `Microtubules_LinkerMaxNm` | Expert | -1 | -1 .. 1000 | Longest linker, nm (uniform in volume between the two; -1 = the preset's). |
+| `NuclearPores_BinderNm` | Expert | -1 | -1 .. 1000 | The probe's length from the binding site, outward along the structure's axis, nm (-1 = the Binder preset's). |
+| `NuclearPores_BinderFlexNm` | Expert | -1 | -1 .. 1000 | The probe's flexibility: its end lies in a ball of this radius, nm (-1 = the preset's). |
+| `NuclearPores_LinkerMinNm` | Expert | -1 | -1 .. 1000 | Shortest chemical linker from the probe to the dye, nm (-1 = the preset's). |
+| `NuclearPores_LinkerMaxNm` | Expert | -1 | -1 .. 1000 | Longest linker, nm (uniform in volume between the two; -1 = the preset's). |
 | `ChunkSizeUm` | Expert | 26 | 4 .. 200 | Size of a packing block, um. |
 | `FocusHeightUm` | Expert | 0 | -10 .. 10 | Extra focus offset above the coverslip, um. |
 | `ZRangeUm` | Expert | 7 | 0 .. 50 | Total z slab around the focal plane whose dyes are rendered, um (0 = all). |
@@ -212,6 +229,10 @@ Specimen: a field of cells with their labelled structures.
 | `MicrotubuleStartDecayPct` | Expert | 1.6 | 0.05 .. 10 | Microtubule starts: decay length, % of the cell radius. |
 | `MicrotubuleEndDecayPct` | Expert | 20 | 0.5 .. 50 | Microtubule ends: decay length, % of the cell radius. |
 | `MicrotubuleDirKappa` | Expert | 1.5 | 0 .. 10 | Microtubule direction concentration (von Mises kappa). |
+| `NuclearPoreMinDistNm` | Expert | 180 | 0 .. 500 | Smallest centre distance of two pores, nm (180; a pore is about 120 across). |
+| `NuclearPoreRadiusNm` | Expert | 53.5 | 20 .. 150 | Radius of a pore's Nup96 rings, nm. |
+| `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
+| `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |
 | `Packing` | Expert | On | `On`, `Off` | Relax the cells into a packed field (Off: their seeded positions). |
 | `AbsorptionPerUm` | Expert | 0 | 0 .. 100 | Absorption of the cell material, per um (0 = unstained). |
 | `Microtubules_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the microtubules' dyes. |
@@ -219,6 +240,11 @@ Specimen: a field of cells with their labelled structures.
 | `Microtubules_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
 | `Microtubules_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
 | `Microtubules_Motion` | Expert | Static | `Static` | The dyes' motion. |
+| `NuclearPores_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the nuclear pores' dyes. |
+| `NuclearPores_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
+| `NuclearPores_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
+| `NuclearPores_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
+| `NuclearPores_Motion` | Expert | Static | `Static` | The dyes' motion. |
 
 ## Nanorulers
 
@@ -226,7 +252,8 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Docking_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
+| `Docking_Mode` | Basic | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | How the docking strands' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it. |
+| `Docking_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3`, `None` | The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the Lasers Auto preset. |
 | `Design` | Basic | Nanoruler80 | `Nanoruler80` | The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands 80 nm apart on a 200 x 13 nm rod. |
 | `DensityPerUm2` | Basic | 1.2 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
 | `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
@@ -241,7 +268,6 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | `LinkerNm` | Advanced | 3 | 0 .. 50 | A dye lies within this distance of its strand's anchor, outward, nm. |
 | `Roll` | Advanced | Uniform | `Uniform`, `Fixed` | How each rod landed about its own axis: Uniform = a random roll each, Fixed = RollDeg. |
 | `RollDeg` | Advanced | 0 | -360 .. 360 | The fixed roll (Roll = Fixed), deg. |
-| `Docking_Mode` | Expert | Global | `Global`, `DyeDefault`, `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | The docking strands' own label mode (Global: the Fluorophores Mode; DyeDefault: the dye's default). |
 | `KeepHeights` | Expert | Off | `On`, `Off` | Off (2D): every strand at the rod axis height; On: the ring's own heights (3D, not validated yet). |
 | `Docking_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the docking strands' dyes. |
 | `Docking_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
@@ -255,15 +281,18 @@ The dyes: label mode, photophysics readouts, custom dyes.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Mode` | Basic | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | The label mode of the experiment (the buffer/imaging scheme): every target's label follows it. |
 | `Microtubules_EffectiveDye` | Advanced (read-only) | ATTO655 (DNA-PAINT) |  | The dye and mode the microtubules' label resolves to (Typical: the usual dye for the mode; read-only). |
-| `Microtubules_DetectedPct` | Advanced (read-only) | 41.65336656 |  | The microtubules' dye: % of its emission the light path detects (read-only). |
-| `Microtubules_EmissionNm` | Advanced (read-only) | 678.1817301 |  | The microtubules' dye: effective detected wavelength, nm (the PSF's; read-only). |
-| `Microtubules_PhotonsPerSecOn` | Advanced (read-only) | 39672.83001 |  | The microtubules' dye: detected photons per second while ON (read-only). |
+| `Microtubules_DetectedPct` | Advanced (read-only) | 70.20774444 |  | The microtubules' dye: % of its emission the light path detects (read-only). |
+| `Microtubules_EmissionNm` | Advanced (read-only) | 697.8311128 |  | The microtubules' dye: effective detected wavelength, nm (the PSF's; read-only). |
+| `Microtubules_PhotonsPerSecOn` | Advanced (read-only) | 74270.55856 |  | The microtubules' dye: detected photons per second while ON (read-only). |
+| `NuclearPores_EffectiveDye` | Advanced (read-only) | Cy3B (DNA-PAINT) |  | The dye and mode the nuclear pores' label resolves to (Typical: the usual dye for the mode; read-only). |
+| `NuclearPores_DetectedPct` | Advanced (read-only) | 49.42111786 |  | The nuclear pores' dye: % of its emission the light path detects (read-only). |
+| `NuclearPores_EmissionNm` | Advanced (read-only) | 607.3777953 |  | The nuclear pores' dye: effective detected wavelength, nm (the PSF's; read-only). |
+| `NuclearPores_PhotonsPerSecOn` | Advanced (read-only) | 136746.8708 |  | The nuclear pores' dye: detected photons per second while ON (read-only). |
 | `Docking_EffectiveDye` | Advanced (read-only) | ATTO655 (DNA-PAINT) |  | The dye and mode the docking strands' label resolves to (Typical: the usual dye for the mode; read-only). |
-| `Docking_DetectedPct` | Advanced (read-only) | 41.65336656 |  | The docking strands' dye: % of its emission the light path detects (read-only). |
-| `Docking_EmissionNm` | Advanced (read-only) | 678.1817301 |  | The docking strands' dye: effective detected wavelength, nm (the PSF's; read-only). |
-| `Docking_PhotonsPerSecOn` | Advanced (read-only) | 39672.83001 |  | The docking strands' dye: detected photons per second while ON (read-only). |
+| `Docking_DetectedPct` | Advanced (read-only) | 0 |  | The docking strands' dye: % of its emission the light path detects (read-only). |
+| `Docking_EmissionNm` | Advanced (read-only) | 0 |  | The docking strands' dye: effective detected wavelength, nm (the PSF's; read-only). |
+| `Docking_PhotonsPerSecOn` | Advanced (read-only) | 0 |  | The docking strands' dye: detected photons per second while ON (read-only). |
 | `Dye1_Source` | Expert | AF647 | `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The library dye this custom dye starts from. |
 | `Dye1_FluorescentPct` | Expert | 100 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_Qy` | Expert | 0.33 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |

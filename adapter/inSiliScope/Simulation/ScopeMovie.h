@@ -121,13 +121,31 @@ bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateR
 struct EffectiveDye;
 bool ScopeStructureDye(const ScopeSpec& spec, int s, EffectiveDye& eff, int& choice, std::string& err);
 double ScopeStructureLabelingPct(const ScopeSpec& spec, int s, int mode);
+// Whether target s is mounted, labelled and present (JS scopeTargetOn): its specimen is mounted, its dye is not None,
+// its labelled % is not 0 and its geometry exists (<prefix>-density > 0 where that option exists: mt-density,
+// npc-density). An off target has no dyes, no PSF group, no imager background; the auto light preset leaves it out.
+bool ScopeTargetOn(const ScopeSpec& spec, int s);
+// A target's Micro-Manager row prefix (<Device>.<Row>_*: Microtubules, NuclearPores, Docking).
+const char* ScopeTargetRow(int s);
+// A light preset's values: a library preset's, or the auto preset's combination (lasers per LaserLines(), kW/cm^2).
+struct ScopeLightPresetValues
+{
+   std::string id, excitationFilter, dichroic, emissionFilter;
+   std::vector<double> lasers;
+};
+// The auto light preset of a spec (JS autoLightPreset; light-preset 0): the presets of the labelled targets' dyes in
+// their modes combined, whatever the spec's light-preset option says.
+bool ScopeAutoLightPreset(const ScopeSpec& spec, ScopeLightPresetValues& out, std::string& err);
+// The state a movie's PSF preview uses (JS scopePsfPreview): the first labelled target's main state, else its PALM pre
+// state; emits = false (the caller takes 670 nm) when no target emits.
+bool ScopePreviewState(const ScopeSpec& spec, ScopeStateReadout& out, std::string& err);
 
 // A PSF wavelength rounded to 2 nm (< 0.3 % in PSF width), so small light-path
 // or dye changes reuse a kernel (JS kernelWavelengthNm).
 double KernelWavelengthNm(double lambdaNm);
 
 // The PSF a movie of the spec uses, for display (the viewer's Preview PSF): the
-// microtubules' emitting state's kernel (KernelWavelengthNm of its detected
+// first labelled target's emitting state's kernel (KernelWavelengthNm of its detected
 // wavelength; the pre state when the main one is dark) and, per z plane, the
 // camera image (camSize^2) of one emitter of 1 photon at the centre of the
 // middle pixel, splatted as a movie does (PlanSplat/SplatRows with the spec's
@@ -153,6 +171,8 @@ bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::strin
 // "yaw","roll","endAngle","fold","outline":[[x,y]...], with detail also
 // "sites":[[k,n,x,y,z,restX,restY,restH,bentX,bentY,fluorescent]...]}] (a
 // nanoruler world's molecules; none in a cell field, which has no cells then).
+// ABI 13: with detail each cell also has "npcs":[[x,y,z,nx,ny,nz,e1x,e1y,e1z]...]
+// (isc_cell_npcs in world um: centre, outward normal, ring direction e1).
 bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::string& json, std::string& err);
 
 // Frame size and count of a spec (no rendering).
@@ -195,7 +215,7 @@ struct FluorescenceFrameOptions
    // With onPhotons: the images hold the continuous populations only (no
    // background, no splatted blinks; the binned and mean-field frames' blinks
    // are in) -- a host that splats the blinks itself (the adapter's GPU,
-   // FluorescenceSimplePlan, HostSplatsBlinks) adds the rest.
+   // FluorescenceSimplePlan, FluorescenceSimpleGroup::splatFrame) adds the rest.
    bool populationsOnly = false;
 };
 
@@ -243,17 +263,29 @@ public:
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };
 
-// A movie whose blinks are one group (one structure's main state): what the
-// adapter's GPU splat + noise path needs. The background and the blinks are
-// splatted from this; the continuous populations (populations: there are
-// some) and the blinks of binned or mean-field frames (HostSplatsBlinks), if
-// any, come from Render with populationsOnly and are added before the noise.
+// One blink group of a FluorescenceSimplePlan (a blinking label's main state):
+// its kernel, photons per blink and events, and the frames whose blinks the
+// host splats itself (splatFrame[f]; 0: binned or mean-field, in the
+// populationsOnly image).
+struct FluorescenceSimpleGroup
+{
+   const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
+   double photonsPerBlink = 0, sigmaPx = 1;
+   const std::vector<BlinkEvent>* events = nullptr;
+   std::vector<char> splatFrame;
+};
+
+// What the adapter's GPU splat + noise path needs: the movie's blink groups
+// (one per blinking label, in render order: the microtubules and the nuclear
+// pores labelled at once are two) and the background. The background and the
+// blinks are splatted from this; the continuous populations (populations:
+// there are some) and the blinks of binned or mean-field frames, if any, come
+// from Render with populationsOnly and are added before the noise.
 struct FluorescenceSimplePlan
 {
    bool ok = false;
-   const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
-   double photonsPerBlink = 0, sigmaPx = 1, backgroundPhotons = 0;
-   const std::vector<BlinkEvent>* events = nullptr;
+   std::vector<FluorescenceSimpleGroup> groups;
+   double backgroundPhotons = 0;
    bool populations = false;
 };
 
@@ -282,10 +314,6 @@ public:
    FluorescenceSimplePlan SimplePlan() const;
    // Whether the movie has continuous populations (mean-field or per dye).
    bool HasPopulations() const;
-   // Whether a host that splats the blinks itself (SimplePlan) draws frame f's:
-   // false when they render binned or mean-field (Render with populationsOnly
-   // then adds them to that frame's image).
-   bool HostSplatsBlinks(long f) const;
    bool Render(const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame, ScopeMovieInfo& info,
                std::string& err, const ScopeProgress* progress = nullptr,
                const FluorescenceFrameOptions* options = nullptr);

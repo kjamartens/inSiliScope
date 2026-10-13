@@ -6,8 +6,8 @@ Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/sampl
 - SampleHolder: its positions are data/specimens.json's (CellField, Nanorulers), CellField mounted at start.
 - The Nanorulers device: its label (Docking_*), design and strands rows; Fluorophores resolves the docking strands'
   Typical label in DNA-PAINT to ATTO 655.
-- Nanorulers mounted, focus on the docking strands (0.02 um), Fluorophores Mode dSTORM (the docking strands' Typical
-  label follows: AF647, and its light preset): a stack shows bright spots (a fresh place: every dye in its initial ON
+- Nanorulers mounted, focus on the docking strands (0.02 um), Docking_Mode dSTORM (the docking strands' Typical
+  label follows: AF647, and the Lasers' Auto preset = its dSTORM-640): a stack shows bright spots (a fresh place: every dye in its initial ON
   phase); with no docking strands labelled (LabelingPct 0) only noise is left; 1 strand per spot instead of 5 is a new
   world (another stack). (DNA-PAINT at the default 1 nM imager gives a few blinks per hundred frames over this field.)
 - Live and BrightField frames of the nanorulers render (BrightField: no contrast, DNA this thin is invisible).
@@ -81,10 +81,11 @@ def main():
     core.setProperty("SampleHolder", "Label", "Nanorulers")
     assert core.getProperty("SampleHolder", "State") == "1"
     focus(core, 0.02)
-    core.setProperty("Fluorophores", "Mode", "dSTORM")
+    core.setProperty("Nanorulers", "Docking_Mode", "dSTORM")
     eff = core.getProperty("Fluorophores", "Docking_EffectiveDye")
     assert eff == "AF647 (dSTORM)", f"the docking strands' Typical label in dSTORM: {eff}"
-    assert core.getProperty("Lasers", "Preset") == "dSTORM-640", core.getProperty("Lasers", "Preset")
+    assert core.getProperty("Lasers", "Preset") == "Auto" and \
+        core.getProperty("FilterCube", "Label") == "LP650+ChromaET700-75m", core.getProperty("FilterCube", "Label")
     rulers = stack(core)
     core.setProperty("Nanorulers", "Docking_LabelingPct", "0")
     empty = stack(core)
@@ -98,8 +99,8 @@ def main():
     assert not all(np.array_equal(a, b) for a, b in zip(one, rulers)), "1 strand per spot should be another sample"
     assert spots(one) > 8, f"1 strand per spot: {spots(one):.1f} sigma"
     core.setProperty("Nanorulers", "StrandsPerSpot", "5")
-    core.setProperty("Fluorophores", "Mode", "DNA-PAINT")
-    assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
+    core.setProperty("Nanorulers", "Docking_Mode", "DNA-PAINT")
+    assert core.getProperty("FilterCube", "Label") == "LP650+BP676-37", core.getProperty("FilterCube", "Label")
     print(f"StrandsPerSpot OK: 1 strand per spot is another sample ({spots(one):.0f} sigma)")
 
     core.setProperty("Camera", "Test_AcqMode", "Live")

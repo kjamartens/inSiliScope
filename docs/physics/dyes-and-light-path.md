@@ -86,9 +86,14 @@ with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_
 `data/dyes/light_path.json` defines the lasers (405, 488, 561, 640, 730 nm and a custom line), dichroics, emission
 filters and presets: `dSTORM-640/561/488` (Dempsey's conditions [[dempsey2011](../references.md#dempsey2011)]),
 `PAINT-640/561/488`, `PALM-561`, `PALM-primed`, `WF-405/488/561/640`. Intensities without a source are *estimates*.
-Every dye mode names its preset; `light-preset=auto` (cli/viewer) or a dye/mode change (viewer, MM `Lasers.Preset`)
-applies it, setting every laser, the dichroic and the filter the spec does not give. The default is `PAINT-640` (640 nm
-at 1 kW/cm\(^2\), an *estimate*; LP650, 676/37) for the default ATTO 655 DNA-PAINT label. Camera presets
+Every dye mode names its preset. `light-preset=auto` (the default, cli/viewer; MM `Lasers.Preset` `Auto`) combines
+the presets of the labelled targets of the mounted sample: each laser at its largest power among them, the dichroic and
+filter where they all agree, else a multi-band set (Chroma ZT405/488/561/640rpc dichroic and ZET405/488/561/640m
+emission filter, FPbase curves [[lambert2019](../references.md#lambert2019)]), so one image shows every target with
+its real cross-talk. A dye or mode change re-applies it (viewer, MM). With one labelled target that is its own preset,
+e.g. `PAINT-640` (640 nm at 1 kW/cm\(^2\), an *estimate*; LP650, 676/37) for the microtubules' ATTO 655 DNA-PAINT
+label alone. The default cell field labels two targets: the microtubules (ATTO 655, `PAINT-640`) and the nuclear
+pores (Cy3B, `PAINT-561`), so 561 and 640 nm through the multi-band set. Camera presets
 (`cameras.json`: Kinetix22, iXon Ultra 897, ...) set the noise values and the QE curve.
 
 ## Excitation (laser clean-up) filters

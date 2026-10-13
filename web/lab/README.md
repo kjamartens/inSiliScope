@@ -81,6 +81,8 @@ and skips the C++/WASM/golden jobs, so the branch cannot merge):
 Files: `serve.mjs` (dev server: static + `/web/lab.html` + `/baseline/` + reload events), `engine.js` (lab.html's JS
 engine), `lab_html.js` (lab.html's badge and reload), `engine_check.mjs`, `lab.js`/`index.html` (page),
 `lab_worker.js` (one prototype instance per worker, or a ref's WASM for the C++ movie), `field.js` (packing window,
-world-space MTs), `metrics.js`, `check.mjs`. Imaging: `web/prototype/scope/`; C++ side for comparisons:
+world-space MTs), `metrics.js`, `check.mjs`, `npc_check.mjs` (nuclear pore placement statistics), `label_regression.mjs`
+(labels vs origin/main, the label linkage), `linkage.html` (`/web/lab/linkage.html`: where each label's dyes sit around
+a microtubule and a pore, per linkage preset). Imaging: `web/prototype/scope/`; C++ side for comparisons:
 `tests/parity/wasm_scope.mjs`. The prototype is loaded by `tests/parity/load_prototype.mjs`, the same
 loader the golden reference uses.

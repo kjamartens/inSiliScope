@@ -21,14 +21,45 @@
       "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 70 },
       "WideField": { "dye": "mEGFP", "labelingPct": 70 }
     },
+    "npcs": {
+      "dSTORM": { "dye": "AF647", "labelingPct": 58 },
+      "PALM": { "dye": "mEos3.2", "labelingPct": 58 },
+      "DNA-PAINT": { "dye": "Cy3B", "labelingPct": 60 },
+      "WideField": { "dye": "mEGFP", "labelingPct": 100 }
+    },
     "docking": {
       "dSTORM": { "dye": "AF647", "labelingPct": 80 },
       "PALM": { "dye": "mEos3.2", "labelingPct": 80 },
       "DNA-PAINT": { "dye": "ATTO655", "labelingPct": 80 },
       "WideField": { "dye": "ATTO655", "labelingPct": 80 }
     },
-    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites). Docking strands (the origami nanorulers): the % is the incorporation of each designed strand (estimate, 80 %); DNA-PAINT is what such rulers are made for, an ATTO 655 imager as for the microtubules; dSTORM stands for dye-labelled staples, WideField for a dye on every strand; PALM (a protein on a DNA strand) is listed only so every mode has a dye.",
-    "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017"]
+    "notes": "Per target (data/specimens.json) and mode: the dye a target gets when its label is 'Typical' (Micro-Manager, the viewer; the engine's <prefix>-dye = -1), and the % of its binding sites labelled when its mode changes or with <prefix>-label-pct = -1. Dyes: the common choices -- Alexa Fluor 647 the best-performing dSTORM dye of Dempsey et al. 2011, mEos3.2 a monomeric photoconvertible FP for PALM fusions (Zhang et al. 2012), an ATTO 655 imager for DNA-PAINT (Schnitzbauer et al. 2017), mEGFP for widefield; typical, not the only choices. Labelling %: estimates (microtubules: % of their 1625 sites/um; DNA-PAINT keeps the pre-issue-16 default; immunolabelling with dSTORM dyes and FP fusions for PALM label a few % of the sites). Nuclear pores (% of the 64 Nup96 sites per pore): the effective labelling efficiencies of Thevathasan et al. 2019 (Fig. 3i): Nup96-SNAP + BG-AF647 58 % (dSTORM), Nup96-mMaple 58 % (PALM; here on mEos3.2, the library's PALM protein); DNA-PAINT 60 %: anti-GFP nanobody docking strands on Nup96-mEGFP, 54.6-68.2 % (Soeller et al. 2025), with a Cy3B imager (the common orange DNA-PAINT imager, Schnitzbauer et al. 2017) so the pores image in a second colour next to the microtubules' ATTO 655; WideField: a homozygous Nup96-mEGFP knock-in tags every copy (100 %, estimate; the dye's fluorescent fraction applies on top). Docking strands (the origami nanorulers): the % is the incorporation of each designed strand (estimate, 80 %); DNA-PAINT is what such rulers are made for, an ATTO 655 imager as for the microtubules; dSTORM stands for dye-labelled staples, WideField for a dye on every strand; PALM (a protein on a DNA strand) is listed only so every mode has a dye.",
+    "refs": ["dempsey2011", "zhang2012", "schnitzbauer2017", "thevathasan2019", "soeller2025"]
+  },
+  "linkagePresets": {
+    "defaults": { "microtubules": "IgG2-PAINT", "npcs": "SNAP-Halo",
+      "notes": "each target's preset when its <prefix>-binder option (Micro-Manager CellField.<Target>_Binder) is not set; chosen by the user 2026-10-12 to match the default labels (DNA-PAINT on both targets: microtubules by antibodies with docking strands, pores by Nup96-SNAP with a docking strand). The world model's own default stays Legacy" },
+    "presets": [
+      { "id": "Legacy", "name": "Built-in (before the linkage model)", "structureDefault": true,
+        "notes": "each structure's numbers before the linkage model (scope/dyes.js LEGACY_LINKAGE, bit for bit): microtubules a rigid 12 nm binder radially from the 12.5 nm lattice plus a 2-5 nm linker (the scale of mikhaylova2015, weber1978; estimate); pores webSMLM's 2-5 nm linker on the Nup96 site, no binder (estimate)" },
+      { "id": "IgG2-STORM", "name": "Primary + secondary antibody (dye)", "binderNm": 10.0, "binderFlexNm": 12.0, "linkerMinNm": 0.5, "linkerMaxNm": 0.5,
+        "refs": ["fruh2021", "thevathasan2019"], "notes": "Fruh et al. 2021 Table 1, U2OS, AF647 on site-specifically labelled secondaries: dye shell radius 22.5 nm from the microtubule axis, FWHM 16.9 nm. Binder = 22.5 - 12.5 = 10.0 nm; flexibility: a uniform ball's radial profile (1 - x^2/F^2) has FWHM sqrt(2) F, so F = 16.9 / sqrt(2) = 12.0 nm; linker: the dye sits a C5-like linker, about 0.5 nm, from its attachment on the antibody (Results; it adds < 0.1 nm to the shell). Pores: Thevathasan et al. 2019 measured the Nup96 ring radius 64.3 nm with antibodies vs 53.7 nm with SNAP" },
+      { "id": "IgG1-STORM", "name": "Labelled primary antibody (dye)", "binderNm": 7.7, "binderFlexNm": 7.1, "linkerMinNm": 0.5, "linkerMaxNm": 0.5,
+        "refs": ["fruh2021"], "notes": "Fruh et al. 2021 Table 1, U2OS, AF647 on site-specifically labelled primaries: shell radius 20.2 nm (binder 7.7), FWHM 10.0 nm (flexibility 10.0 / sqrt(2) = 7.1); linker 0.5 nm as above" },
+      { "id": "IgG2-PAINT", "name": "Primary + secondary antibody (DNA-PAINT docking strand)", "binderNm": 19.3, "binderFlexNm": 15.3, "linkerMinNm": 0.5, "linkerMaxNm": 0.5,
+        "refs": ["fruh2021"], "notes": "Fruh et al. 2021 Table 1, U2OS, DNA on site-specifically labelled secondaries: shell radius 31.8 nm (binder 19.3), FWHM 21.6 nm (flexibility 15.3); the imager's dye at the antibody-proximal end of the docking strand, a C5 linker (about 0.5 nm) from the antibody (Results). Larger than with a dye: the authors suspect partly unfolded DNA-IgG conjugates" },
+      { "id": "IgG1-PAINT", "name": "Labelled primary antibody (DNA-PAINT docking strand)", "binderNm": 11.0, "binderFlexNm": 11.8, "linkerMinNm": 0.5, "linkerMaxNm": 0.5,
+        "refs": ["fruh2021"], "notes": "Fruh et al. 2021 Table 1, human platelets (no U2OS value), DNA on site-specifically labelled primaries: shell radius 23.5 nm (binder 11.0), FWHM 16.7 nm (flexibility 11.8); linker 0.5 nm as above" },
+      { "id": "Nanobody", "name": "Nanobody (dye)", "binderNm": 1.5, "binderFlexNm": 1.0, "linkerMinNm": 0.5, "linkerMaxNm": 0.5,
+        "refs": ["mikhaylova2015", "ries2012"], "notes": "Mikhaylova et al. 2015: a nanobody is ~15 kDa, ~4 nm; the dye of the anti-tubulin VHH#2 is < 2.5 nm from the lattice (from the microtubule FWHM). The split into binder 1.5 + flexibility 1.0 + linker 0.5 (mean displacement ~2 nm) is an estimate within that bound; Ries et al. 2012: anti-GFP nanobodies, minimal linkage error (no number)" },
+      { "id": "Nanobody-PAINT", "name": "Nanobody with a DNA-PAINT docking strand", "binderNm": 1.5, "binderFlexNm": 1.0, "linkerMinNm": 1.0, "linkerMaxNm": 4.0,
+        "refs": ["mikhaylova2015", "soeller2025"], "notes": "the nanobody as above; the linker is the docking strand with its bound imager: estimate 1-4 nm (a ~9-10 nt docking strand is ~3 nm as a duplex at 0.34 nm per base pair, the imager's dye at its proximal or distal end, plus spacers). Soeller et al. 2025 image Nup96-mEGFP with anti-GFP nanobody docking strands (no distance given)" },
+      { "id": "SNAP-Halo", "name": "SNAP / Halo tag (dye or docking strand)", "binderNm": 2.5, "binderFlexNm": 2.0, "linkerMinNm": 0.5, "linkerMaxNm": 1.0,
+        "refs": ["nieves2019"], "notes": "Nieves et al. 2019: SNAP and HaloTag are below 5 nm, one ligand per tag. Estimates within that: binder 2.5 nm (the tag's ligand site about half its size from the fusion point), flexibility 2.0 nm (the fusion linker), linker 0.5-1 nm (the ligand's linker to the dye)" },
+      { "id": "FP", "name": "Fluorescent protein fusion", "binderNm": 2.0, "binderFlexNm": 2.0, "linkerMinNm": 0, "linkerMaxNm": 0,
+        "refs": ["ormo1996", "yang1996"], "notes": "the chromophore forms from the central helix inside the beta-barrel (Ormo et al. 1996, Yang et al. 1996): no chemical linker (0 nm, it is part of the protein). Binder 2.0 nm (about half the barrel's length, *estimate*: the dimensions are in the papers' full texts, not checked), flexibility 2.0 nm (the fusion linker, *estimate*)" }
+    ],
+    "notes": "Where a label's dye sits relative to its binding site (issue 15; scope/dyes.js linkedDye), in three parts: the binder (the probe: binderNm from the site along the structure's axis -- a microtubule: radially out of the lattice; a pore: its corner's radial direction in the ring plane -- then its flexibility, a uniform ball of radius binderFlexNm), the chemical linker from the probe to the dye (length uniform in volume in [linkerMinNm, linkerMaxNm], direction uniform) and the dye at the end. The antibody presets put the shell centre and width of Fruh et al. 2021 Table 1 on this model (the paper fits a Gaussian ring; the model's radial profile has the same centre and FWHM). The ball can reach into the structure (no excluded volume)"
   },
   "dyes": [
     {

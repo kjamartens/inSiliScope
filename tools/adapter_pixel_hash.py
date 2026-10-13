@@ -32,13 +32,18 @@ GAUSS = [("Renderer", "PsfModel", "Gaussian")]
 
 
 def label(mode, dye):
-    """The microtubules' label: the experiment's mode, then the dye (Typical or a dye with data in that mode)."""
-    return [("Fluorophores", "Mode", mode), ("CellField", "Microtubules_Label", dye)]
+    """The microtubules' label: their mode, then the dye (Typical or a dye with data in that mode)."""
+    return [("CellField", "Microtubules_Mode", mode), ("CellField", "Microtubules_Label", dye)]
 
 
 # (name, pre-init seed, [(device, property, value)]). Each config regenerates
 # the precomputed stack and hashes its first frames. The defaults are DNA-PAINT
-# ATTO 655 with its imager background.
+# ATTO 655 with its imager background. Every config before "pores" images the
+# microtubules alone with their built-in dye linkage (NuclearPores_Label None,
+# Microtubules_Binder Legacy, set in apply(); a DLL from before the pores has
+# no such rows): their hashes and the TOTAL over them ("TOTAL before pores")
+# stay the pre-pores reference. The "pores" configs: today's defaults (the
+# microtubules' IgG2-PAINT linkage, the pores labelled).
 CONFIGS = [
     ("defaults", 1234, []),
     ("gaussian-psf", 1234, GAUSS),
@@ -61,12 +66,20 @@ CONFIGS = [
                               ("Objective", "NA", "1.2"), ("CellField", "Microtubules_LabelingPct", "30"),
                               ("CellField", "Microtubules_ImagerNanoMol", "5")]),
 ]
+# The nuclear pores (issue 15): the default two-target field (pores DNA-PAINT Cy3B at 561 nm with the microtubules'
+# ATTO 655 at 640, the Lasers' Auto preset), and the pores alone in dSTORM (AF647) with their linkage overridden.
+PORE_CONFIGS = [
+    ("pores", 1234, [("pores", "", "on")]),
+    ("pores-dstorm", 71, GAUSS + [("pores", "", "on"), ("CellField", "Microtubules_Label", "None"),
+                                  ("CellField", "NuclearPores_Mode", "dSTORM"), ("CellField", "NuclearPores_BinderNm", "10"),
+                                  ("CellField", "NuclearPoreDensityPerUm2", "8")]),
+]
 
 # The pre-hub layout: (device, property) -> the camera's old property name.
 OLD = {
     ("Renderer", "PsfModel"): "PSFParam_PsfModel",
     ("Renderer", "UseGpu"): "General_UseGpu",
-    ("Fluorophores", "Mode"): None,   # the old layout: the dye's default mode (each config's dye has the mode's)
+    ("CellField", "Microtubules_Mode"): None,   # the old layout: the dye's default mode (each config's dye has the mode's)
     ("CellField", "Microtubules_Label"): "SimType_CellFieldMicrotubuleDye",
     ("CellField", "Microtubules_LabelingPct"): "SimType_CellFieldMicrotubuleLabelingPct",
     ("CellField", "Microtubules_ImagerNanoMol"): "SimType_CellFieldMicrotubuleImagerNm",
@@ -151,7 +164,13 @@ def load_old_layout(core, seed):
 
 
 def apply(core, hub_layout, settings):
+    if hub_layout and core.hasProperty("CellField", "NuclearPores_Label") and ("pores", "", "on") not in settings:
+        # the pre-pores reference: the microtubules alone, their dyes where the built-in linkage puts them
+        set_checked(core, "CellField", "NuclearPores_Label", "None")
+        set_checked(core, "CellField", "Microtubules_Binder", "Legacy")
     for device, prop, value in settings:
+        if device == "pores":   # the nuclear pores keep their label
+            continue
         if device == "light":   # BrightField: the lamp alone
             if hub_layout:
                 core.setProperty("Lasers", "State", "0")
@@ -174,11 +193,17 @@ def main():
     args = ap.parse_args()
 
     total = hashlib.sha256()
-    for name, seed, props in CONFIGS:
+    for k, (name, seed, props) in enumerate(CONFIGS + PORE_CONFIGS):
+        if k == len(CONFIGS):
+            print(f"{'TOTAL before pores':14s} {total.hexdigest()}", flush=True)
         core = CMMCorePlus()
         core.setDeviceAdapterSearchPaths([os.path.abspath(args.adapter_dir), find_mm_dir()])
         hub_layout = "inSiliScope" in core.getAvailableDevices("inSiliScope")
         cam, acq, gen, status = (load_hub_layout if hub_layout else load_old_layout)(core, seed)
+        if k >= len(CONFIGS) and not (hub_layout and core.hasProperty("CellField", "NuclearPores_Label")):
+            print(f"{name:14s} (no nuclear pores in this DLL)", flush=True)
+            core.unloadAllDevices()
+            continue
         apply(core, hub_layout, props)
         set_checked(core, cam, acq, "Precomputed")
         t0 = time.time()

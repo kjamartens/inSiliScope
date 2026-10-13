@@ -214,7 +214,7 @@
       "journal": "Nature Communications", "volume": "6", "pages": "7933",
       "doi": "10.1038/ncomms8933", "pmcid": "PMC4918323",
       "use": "microtubules are hollow, 25 nm in diameter; most labels widen them by 20-40 nm, anti-tubulin nanobodies less (abstract): the 12.5 nm attachment radius and the scale of the binder stalk plus linker",
-      "checked": "citation and abstract via PubMed"
+      "checked": "citation and abstract via PubMed; Europe PMC full text PMC4918323 read 2026-10-12 (nanobody ~15 kDa, ~4 nm; the dye of a direct primary ~12.5 nm from the lattice, of a VHH <2.5 nm)"
     },
     "weber1978": {
       "authors": "Weber K, Rathke PC, Osborn M",
@@ -376,6 +376,105 @@
       "doi": "10.1038/s41592-019-0364-4", "pmcid": "PMC6684258",
       "use": "the SMLM Challenge (simulated 2D, astigmatic, biplane and double-helix datasets): the comparison of the PSF and noise models in docs/dev/vectorial-psf-step4-smlm-challenge-comparison.md",
       "checked": "citation and abstract via PubMed"
+    },
+    "thevathasan2019": {
+      "authors": "Thevathasan JV, Kahnwald M, Cieśliński K, Hoess P, Peneti SK, Reitberger M, Heid D, Kasuba KC, Hoerner SJ, Li Y, Wu YL, Mund M, Matti U, Pereira PM, Henriques R, Nijmeijer B, Kueblbeck M, Sabinina VJ, Ellenberg J, Ries J",
+      "year": 2019,
+      "title": "Nuclear pores as versatile reference standards for quantitative superresolution microscopy",
+      "journal": "Nature Methods", "volume": "16", "pages": "1045-1053",
+      "doi": "10.1038/s41592-019-0574-9", "pmcid": "PMC6768092",
+      "use": "Nup96 geometry: 32 copies per NPC in a cytoplasmic and a nucleoplasmic ring, 8 corners per ring with two Nup96 12 nm apart (Results, Fig. 1a-e); radius 53.7 +/- 2.1 nm with SNAP labels (Fig. 2a-c), 64.3 nm antibody-labelled; ring separation 49.3 +/- 5.2 nm (Fig. 2d-f); azimuthal shift between the rings 8.8 deg (Fig. 2g,h; not modelled). Effective labelling efficiencies (Fig. 3i): SNAP + BG-AF647 58 %, mMaple 58 %, anti-GFP nanobodies 62-74 %, indirect immunofluorescence 65 %, HaloTag 21-40 %. Labels: Nup96-SNAP (dSTORM), Nup96-mMaple (PALM), Nup96-mEGFP; no DNA-PAINT. The lower nuclear envelope of U2OS is flat and close to the coverslip (Fig. 1a)",
+      "checked": "Europe PMC full text (Results) and the PMC figure callouts; a Publisher Correction (Nat Methods 16:1332) not read"
+    },
+    "theiss2023": {
+      "authors": "Theiss M, Hériché JK, Russell C, Helekal D, Soppitt A, Ries J, Ellenberg J, Brazma A, Uhlmann V",
+      "year": 2023,
+      "title": "Simulating structurally variable nuclear pore complexes for microscopy",
+      "journal": "Bioinformatics", "volume": "39", "pages": "btad587",
+      "doi": "10.1093/bioinformatics/btad587", "pmcid": "PMC10570993",
+      "use": "CIR4MICS, the NPC simulator webSMLM cites for its parametrised Nup96 geometry (its variability models are not implemented here)",
+      "checked": "PubMed metadata and abstract (PMID 37756700); the OUP article page"
+    },
+    "maeshima2006": {
+      "authors": "Maeshima K, Yahata K, Sasaki Y, Nakatomi R, Tachibana T, Hashikawa T, Imamoto F, Imamoto N",
+      "year": 2006,
+      "title": "Cell-cycle-dependent dynamics of nuclear pores: pore-free islands and lamins",
+      "journal": "Journal of Cell Science", "volume": "119", "pages": "4442-4451",
+      "doi": "10.1242/jcs.03207",
+      "use": "NPC density on the nuclear surface: HeLa S3 about 5 per um^2 in G1 (with pore-free islands), 8.56 +/- 0.34 per um^2 in G2 (Results, after Fig. 3); IMR90 4.85 (early G1) to 6.62 (G2) per um^2 (Fig. 7A); NPC diameter 120 nm (Introduction, citing reviews)",
+      "checked": "journals.biologists.com full text (Introduction, Results); not in PMC"
+    },
+    "dultz2010": {
+      "authors": "Dultz E, Ellenberg J",
+      "year": 2010,
+      "title": "Live imaging of single nuclear pores reveals unique assembly kinetics and mechanism in interphase",
+      "journal": "Journal of Cell Biology", "volume": "191", "pages": "15-22",
+      "doi": "10.1083/jcb.201007076", "pmcid": "PMC2953446",
+      "use": "NPC density 6.9 +/- 0.7 (early G1) to 6.4 +/- 0.8 (late G2) per um^2 in NRK cells, the same on the top and bottom surfaces (Results, Fig. 1C); 1960-2830 NPCs per nucleus; new pores appear independently of the positions of existing ones",
+      "checked": "Europe PMC full text"
+    },
+    "schlichthaerle2019": {
+      "authors": "Schlichthaerle T, Strauss MT, Schueder F, Auer A, Nijmeijer B, Kueblbeck M, Jimenez Sabinina V, Thevathasan JV, Ries J, Ellenberg J, Jungmann R",
+      "year": 2019,
+      "title": "Direct visualization of single nuclear pore complex proteins using genetically-encoded probes for DNA-PAINT",
+      "journal": "Angewandte Chemie International Edition", "volume": "58", "pages": "13004-13008",
+      "doi": "10.1002/anie.201905685", "pmcid": "PMC6771475",
+      "use": "DNA-PAINT of Nup96-SNAP/-Halo in U2OS: labelling efficiency about 30 % (main text, Suppl. Table 5); the Nup96 pair 12 nm apart (Fig. 3c); ring separation about 61 nm in 3D DNA-PAINT (Fig. 3d)",
+      "checked": "Europe PMC full text; the SI (imager dye) not read"
+    },
+    "soeller2025": {
+      "authors": "Soeller C, Bokhobza AFE, Casares-Arias J, Clowsley AH",
+      "year": 2025,
+      "title": "Optimizing effective labeling efficiency in MINFLUX 3D DNA-PAINT microscopy by maximizing marker detection probability",
+      "journal": "ACS Photonics", "volume": "13", "pages": "14-27",
+      "doi": "10.1021/acsphotonics.5c01253", "pmcid": "PMC12784405",
+      "use": "DNA-PAINT effective labelling efficiency of U-2 OS Nup96-mEGFP with anti-GFP nanobody docking strands: 54.6-68.2 % (Results)",
+      "checked": "Europe PMC full text"
+    },
+    "fruh2021": {
+      "authors": "Früh SM, Matti U, Spycher PR, Rubini M, Lickert S, Schlichthaerle T, Jungmann R, Vogel V, Ries J, Schoen I",
+      "year": 2021,
+      "title": "Site-specifically-labeled antibodies for super-resolution microscopy reveal in situ linkage errors",
+      "journal": "ACS Nano", "volume": "15", "pages": "12161-12170",
+      "doi": "10.1021/acsnano.1c03677", "pmcid": "PMC8320235",
+      "use": "Antibody linkage error around microtubules (STORM, Table 1): primary + secondary label shell centred 10 nm outside the 12.5 nm outer radius, maximum about 19 nm; a directly labelled primary 7.7 nm mean, 12.7 nm maximum; DNA-PAINT indirect maximum about 27-30 nm",
+      "checked": "Europe PMC full text, Table 1 and Results"
+    },
+    "ries2012": {
+      "authors": "Ries J, Kaplan C, Platonova E, Eghlidi H, Ewers H",
+      "year": 2012,
+      "title": "A simple, versatile method for GFP-based super-resolution microscopy via nanobodies",
+      "journal": "Nature Methods", "volume": "9", "pages": "582-584",
+      "doi": "10.1038/nmeth.1991",
+      "use": "anti-GFP nanobody labelling with minimal linkage error (abstract; no number taken)",
+      "checked": "PubMed abstract only"
+    },
+    "ormo1996": {
+      "authors": "Ormö M, Cubitt AB, Kallio K, Gross LA, Tsien RY, Remington SJ",
+      "year": 1996,
+      "title": "Crystal structure of the Aequorea victoria green fluorescent protein",
+      "journal": "Science", "volume": "273", "pages": "1392-1395",
+      "doi": "10.1126/science.273.5280.1392",
+      "use": "GFP is an 11-stranded beta barrel with a coaxial helix; the chromophore forms from the central helix (abstract): a fluorescent protein's emitter sits inside the protein, no chemical linker",
+      "checked": "PubMed abstract (PMID 8703075)"
+    },
+    "yang1996": {
+      "authors": "Yang F, Moss LG, Phillips GN Jr",
+      "year": 1996,
+      "title": "The molecular structure of green fluorescent protein",
+      "journal": "Nature Biotechnology", "volume": "14", "pages": "1246-1251",
+      "doi": "10.1038/nbt1096-1246",
+      "use": "GFP is a cylinder of 11 beta strands with an alpha helix inside; the fluorophores are protected inside the cylinders (abstract)",
+      "checked": "PubMed abstract (PMID 9631087)"
+    },
+    "nieves2019": {
+      "authors": "Nieves DJ, Hilzenrat G, Tran J, Yang Z, MacRae HH, Baker MAB, Gooding JJ, Gaus K",
+      "year": 2019,
+      "title": "tagPAINT: covalent labelling of genetically encoded protein tags for DNA-PAINT imaging",
+      "journal": "Royal Society Open Science", "volume": "6", "pages": "191268",
+      "doi": "10.1098/rsos.191268", "pmcid": "PMC6936279",
+      "use": "SNAP-/HaloTag size below 5 nm, one ligand per tag (Introduction)",
+      "checked": "Europe PMC full text"
     },
     "scheckenbach2020": {
       "authors": "Scheckenbach M, Bauer J, Zähringer J, Selbach F, Tinnefeld P",

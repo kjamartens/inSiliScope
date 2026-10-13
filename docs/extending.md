@@ -25,6 +25,10 @@ C ABI. Keep that and a new feature works in the Micro-Manager adapter, the viewe
    sources, limits).
 7. Show it in the overview: add its geometry to `ScopeGeometryJson` (`Simulation/ScopeMovie.cpp`, `insiliscope_cli
    --geometry-json`) and one draw function to `STRUCTURE_LAYERS` in `tools/build_overview.py`.
+8. A labelled structure is a **target**: a core structure id (`ISC_STRUCT_*`, raising `ISC_STRUCT_COUNT`), a registry
+   entry (below) and its linkage axis in `LinkageOffset`. The nuclear pores (`core/src/npcs.*`, 2026-10-12) are the
+   worked example: per-target label options, MM rows, viewer label group and the combined light preset follow from the
+   registry by themselves.
 
 ## Recipe: a new sample
 

@@ -13,18 +13,81 @@ export const MT_LINKER_MIN_NM = 2;
 export const MT_LINKER_MAX_NM = 5;
 export const MT_CH_SEAM_PHASE = 8000000;
 export const DYE_SALT = 0x9E3779B9;
+// Nuclear pores (issue 15): one dye hash per cell (H1 = pcg4d(seed ^ NPC_DYE_SALT, cx, cy, 0)), site k = the pore's
+// attachment point (0-63), n = the pore's candidate index: the DYE_CH channels as on a microtubule.
+export const NPC_DYE_SALT = 0x4E504344;   // "NPCD"
+export const NPC_SITES = 64;
+export const NPC_LINKER_MIN_NM = 2;
+export const NPC_LINKER_MAX_NM = 5;
 export const DYE_BLOCK_UM = 1.0;
 // Per-site purpose channels (the 4th pcg4d word). Issue 16 added FLUOR (fluorescent fraction), INIT_ON (dSTORM
 // initial ON time), AUX (unit-exponential bleach draw of a continuously emitting dye), ORIENT_U/ORIENT_PHI (Random
-// orientation) and reserved MOTION (SPT) and OFFTARGET (off-target binding); 13-15 are free.
+// orientation), reserved MOTION (SPT) and OFFTARGET (off-target binding), BIND_U/BIND_PHI/BIND_R (the binder's
+// flexibility: linkedDye, drawn only when binderFlexNm > 0). All 16 are taken.
 export const DYE_CH = { LABEL: 0, LINK_U: 1, LINK_PHI: 2, LINK_R: 3, ACT: 4, PERSIST: 5, FLUOR: 6, INIT_ON: 7, AUX: 8,
-  ORIENT_U: 9, ORIENT_PHI: 10, MOTION: 11, OFFTARGET: 12, SCHED0: 16, SCHED_STRIDE: 8,
+  ORIENT_U: 9, ORIENT_PHI: 10, MOTION: 11, OFFTARGET: 12, BIND_U: 13, BIND_PHI: 14, BIND_R: 15, SCHED0: 16, SCHED_STRIDE: 8,
   ON: 0, BRIGHT1: 1, BRIGHT2: 2, BLEACH: 3, OFF: 4 };
 export const DYE_MAX_BLINKS = 1000;
 export const PERSIST_BIN_SEC = 1.0;
 export const PERSIST_ON_CAP = 20.0;
 const NM = 1e-3;
-const LINK_MIN_UM = MT_LINKER_MIN_NM * NM, LINK_MAX_UM = MT_LINKER_MAX_NM * NM;
+
+// ---- label linkage (issue 15): where a label's dye sits relative to its binding site ----
+// Three parts (data/dyes/library.json linkagePresets), { binderNm, binderFlexNm, linkerMinNm, linkerMaxNm }:
+//   binder  the probe (antibodies, a nanobody, a tag, a fluorescent protein): binderNm from the binding site along the
+//           structure's axis (a microtubule: radially out of the lattice; a pore: its corner's radial direction in the
+//           ring plane), then its flexibility: a uniform point in a ball of radius binderFlexNm about that;
+//   linker  the chemical linker from the probe to the dye: a uniform direction, length uniform in volume in
+//           [linkerMinNm, linkerMaxNm];
+//   dye     the end point (the emitter).
+// LEGACY_LINKAGE: each structure's numbers before the linkage model (a label without a linkage gets its structure's;
+// the dyes are the same bit for bit).
+export const LEGACY_LINKAGE = {
+  microtubules: { binderNm: MT_BINDER_NM, binderFlexNm: 0, linkerMinNm: MT_LINKER_MIN_NM, linkerMaxNm: MT_LINKER_MAX_NM },
+  npcs: { binderNm: 0, binderFlexNm: 0, linkerMinNm: NPC_LINKER_MIN_NM, linkerMaxNm: NPC_LINKER_MAX_NM },
+};
+// Clamped: lengths >= 0, linkerMaxNm >= linkerMinNm.
+export function normLinkage(lk) {
+  const nz = v => (v > 0 ? v : 0);
+  const linkerMinNm = nz(lk.linkerMinNm);
+  return { binderNm: nz(lk.binderNm), binderFlexNm: nz(lk.binderFlexNm), linkerMinNm,
+    linkerMaxNm: Math.max(linkerMinNm, nz(lk.linkerMaxNm)) };
+}
+// The farthest a dye can be from its binding site, nm.
+export const linkageReachNm = lk => lk.binderNm + lk.binderFlexNm + lk.linkerMaxNm;
+// Per block: the linker's cubed bounds (um^3; l*l*l, not pow) and the flexibility radius (um).
+export function linkageSetup(lk) {
+  const lMin = lk.linkerMinNm * NM, lMax = lk.linkerMaxNm * NM;
+  return { lk, minL3: lMin * lMin * lMin, maxL3: lMax * lMax * lMax, flexUm: lk.binderFlexNm * NM };
+}
+// The dye of one site: base point b (um), the unit axis a, the binding site's distance along a from b (attachNm: the
+// microtubule radius; 0 at a pore site, which is the base), the linkage (linkageSetup), the site's address (h1, k, n)
+// and its three linker draws. The binder's rigid end is b + a (attachNm + binderNm) (one product, as before the linkage
+// model); its flexibility adds a uniform point in a ball (BIND_U: cos of the polar angle, BIND_PHI: azimuth, BIND_R:
+// radius uniform in volume). parts (optional): filled with the binding site, the binder's rigid end and its end (um),
+// for drawing the three parts.
+export function linkedDye(b, a, attachNm, L, h1, k, n, r1, r2, r3, parts = null) {
+  const lk = L.lk;
+  const B = (attachNm + lk.binderNm) * NM;
+  let tx = b.x + a.x * B, ty = b.y + a.y * B, tz = b.z + a.z * B;
+  if (parts) {
+    const A = attachNm * NM;
+    parts.site = { x: b.x + a.x * A, y: b.y + a.y * A, z: b.z + a.z * A };
+    parts.rigid = { x: tx, y: ty, z: tz };
+  }
+  if (lk.binderFlexNm > 0) {
+    const fu = unit(pcgA(h1, k, n, DYE_CH.BIND_U)) * 2 - 1;
+    const fphi = unit(pcgA(h1, k, n, DYE_CH.BIND_PHI)) * 2 * Math.PI;
+    const fr = L.flexUm * Math.cbrt(unit(pcgA(h1, k, n, DYE_CH.BIND_R)));
+    const fs = Math.sqrt(1 - fu * fu);
+    tx += fr * fs * Math.cos(fphi); ty += fr * fs * Math.sin(fphi); tz += fr * fu;
+  }
+  if (parts) parts.tip = { x: tx, y: ty, z: tz };
+  // The linker: uniform direction, radius uniform in volume (mtDisplaceByLinker, webSMLM's displaceByLinker).
+  const lu = r1 * 2 - 1, phi = r2 * 2 * Math.PI, sn = Math.sqrt(1 - lu * lu);
+  const r = Math.cbrt(L.minL3 + (L.maxL3 - L.minL3) * r3);
+  return { x: tx + r * sn * Math.cos(phi), y: ty + r * sn * Math.sin(phi), z: tz + r * lu };
+}
 
 export const DEFAULT_KINETICS = { activationRatePerSec: 0.01, onSec: 0.05, offSec: 1.0, bleachProb: 1.0, photonCV: 0.5 };
 
@@ -39,6 +102,8 @@ export const DEFAULT_KINETICS = { activationRatePerSec: 0.01, onSec: 0.05, offSe
 //   orientation          { mode: 'Free' | 'Fixed' | 'Random', polarDeg, azimuthDeg, wobbleDeg } (dyeOrientation)
 //   motion               'Static' (SPT: future; the MOTION channel is reserved)
 //   offTarget            [] (future: [{ structure, fraction }] of the dye stuck elsewhere; OFFTARGET reserved)
+//   linkage              { binderNm, binderFlexNm, linkerMinNm, linkerMaxNm } (linkedDye), or null = the structure's
+//                        LEGACY_LINKAGE (the world fills it in)
 export const LABEL_MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 export const ORIENTATION_MODES = ['Free', 'Fixed', 'Random'];
 export const MOTION_MODES = ['Static'];
@@ -51,7 +116,7 @@ export function makeLabel(o = {}) {
     density: o.density ?? 0.7, fluorescentFraction: o.fluorescentFraction ?? 1.0, mode: o.mode ?? 'DNA-PAINT',
     kinetics: { ...DEFAULT_KINETICS, initialOnSec: 0, ...(o.kinetics || {}) }, preState: !!o.preState,
     orientation: { mode: 'Free', polarDeg: 90, azimuthDeg: 0, wobbleDeg: 0, ...(o.orientation || {}) },
-    motion: o.motion ?? 'Static', offTarget: o.offTarget ?? [],
+    motion: o.motion ?? 'Static', offTarget: o.offTarget ?? [], linkage: o.linkage ? normLinkage(o.linkage) : null,
   };
   validateLabel(l);
   return l;
@@ -114,25 +179,25 @@ export const mtProtofilamentTheta = (phase, k) => phase + k * 2 * Math.PI / MT_N
 export const mtProtofilamentOffsetNm = k => (k * MT_LATTICE_START * MT_DIMER_NM / MT_N_PROTOFILAMENTS) % MT_DIMER_NM;
 export const mtSeamPhase = (seed, cx, cy, mtIndex) => 2 * Math.PI * hashUnit(seed, cx, cy, MT_CH_SEAM_PHASE + mtIndex);
 export const dyeH1 = (seed, cx, cy, mtIndex) => pcgA((seed ^ DYE_SALT) >>> 0, cx >>> 0, cy >>> 0, mtIndex >>> 0);
+export const npcH1 = (seed, cx, cy) => pcgA((seed ^ NPC_DYE_SALT) >>> 0, cx >>> 0, cy >>> 0, 0);
 
-function siteDye(pts, fr, seg, S, ct, st, minL3, maxL3, r1, r2, r3) {
+// A microtubule site: the axis point at arc S, the radial direction of protofilament (ct, st) in the segment's frame.
+function siteDye(pts, fr, seg, S, ct, st, L, h1, k, n, r1, r2, r3, parts) {
   const t = fr.T[seg], u = fr.U[seg], v = fr.V[seg];
   const f = S - fr.cum[seg];
-  const cx = pts[seg].x + t.x * f, cy = pts[seg].y + t.y * f, cz = pts[seg].z + t.z * f;
-  const rx = ct * u.x + st * v.x, ry = ct * u.y + st * v.y, rz = ct * u.z + st * v.z;
-  const B = (MT_RADIUS_NM + MT_BINDER_NM) * NM;
-  const tx = cx + rx * B, ty = cy + ry * B, tz = cz + rz * B;
-  // mtDisplaceByLinker: uniform direction, radius uniform in volume.
-  const lu = r1 * 2 - 1, phi = r2 * 2 * Math.PI, sn = Math.sqrt(1 - lu * lu);
-  const r = Math.cbrt(minL3 + (maxL3 - minL3) * r3);
-  return { x: tx + r * sn * Math.cos(phi), y: ty + r * sn * Math.sin(phi), z: tz + r * lu };
+  const c = { x: pts[seg].x + t.x * f, y: pts[seg].y + t.y * f, z: pts[seg].z + t.z * f };
+  const a = { x: ct * u.x + st * v.x, y: ct * u.y + st * v.y, z: ct * u.z + st * v.z };
+  return linkedDye(c, a, MT_RADIUS_NM, L, h1, k, n, r1, r2, r3, parts);
 }
 
 // Fluorescent dyes of block `blockIndex` (arc [b, b+1) um) of one microtubule; appends
 // {pos (cell-local), mtIndex, k, n, id, theta}. A site is labelled when its LABEL draw u < density, and its dye is
 // fluorescent when (fluorescentFraction >= 1 or) its FLUOR draw < fluorescentFraction: both nested, so a lower
 // density or fraction keeps a subset of the same dyes. theta: the protofilament's azimuth (the dye's local frame).
-export function dyesInBlock(seed, cx, cy, mtIndex, pts, fr, blockIndex, density, fluorescentFraction, out) {
+// linkage: the label's (normLinkage; default the microtubules' LEGACY_LINKAGE); withParts: each row also gets parts
+// (linkedDye: binding site, binder ends; for drawing).
+export function dyesInBlock(seed, cx, cy, mtIndex, pts, fr, blockIndex, density, fluorescentFraction, out,
+  linkage = LEGACY_LINKAGE.microtubules, withParts = false) {
   if (pts.length < 2 || blockIndex < 0) return;
   const total = fr.length;
   const blockNm0 = blockIndex * DYE_BLOCK_UM * 1000;
@@ -141,7 +206,7 @@ export function dyesInBlock(seed, cx, cy, mtIndex, pts, fr, blockIndex, density,
   if (blockNm0 * NM >= total || !(labelledBelow > 0) || !(ff > 0)) return;
   const h1 = dyeH1(seed, cx, cy, mtIndex);
   const phase = mtSeamPhase(seed, cx, cy, mtIndex);
-  const minL3 = Math.pow(LINK_MIN_UM, 3), maxL3 = Math.pow(LINK_MAX_UM, 3);
+  const L = linkageSetup(linkage);
   for (let k = 0; k < MT_N_PROTOFILAMENTS; k++) {
     const off = mtProtofilamentOffsetNm(k);
     const theta = mtProtofilamentTheta(phase, k);
@@ -160,8 +225,46 @@ export function dyesInBlock(seed, cx, cy, mtIndex, pts, fr, blockIndex, density,
       const r1 = unit(pcgA(h1, k, n, DYE_CH.LINK_U));
       const r2 = unit(pcgA(h1, k, n, DYE_CH.LINK_PHI));
       const r3 = unit(pcgA(h1, k, n, DYE_CH.LINK_R));
-      const pos = siteDye(pts, fr, mtSegmentAt(fr, S), S, ct, st, minL3, maxL3, r1, r2, r3);
-      out.push({ pos, mtIndex, k, n, id: label, theta });
+      const parts = withParts ? {} : null;
+      const pos = siteDye(pts, fr, mtSegmentAt(fr, S), S, ct, st, L, h1, k, n, r1, r2, r3, parts);
+      out.push(withParts ? { pos, mtIndex, k, n, id: label, theta, parts } : { pos, mtIndex, k, n, id: label, theta });
+    }
+  }
+}
+
+// Fluorescent dyes of the pores pores[ids[0..]] of a cell (buildNpcsForCell: centre, outward normal n, ring frame e1/e2,
+// candidate index; cell-local um); sites: npcAttachmentPoints (64 x 3, nm, in the pore frame). Appends {pos (cell-local),
+// pore (index into pores), k, n (= the pore's candidate index), id}. Labelled / fluorescent / linker draws as on a
+// microtubule (dyesInBlock): nested in density and fluorescent fraction. linkage (default the pores' LEGACY_LINKAGE:
+// webSMLM's displaceByLinker, 2-5 nm): the binder along the corner's radial direction in the ring plane. withParts as
+// in dyesInBlock.
+export function npcDyesInBlock(seed, cx, cy, pores, ids, sites, density, fluorescentFraction, out, linkage = LEGACY_LINKAGE.npcs,
+  withParts = false) {
+  const labelledBelow = Math.min(1.0, Math.max(0.0, density));
+  const ff = Math.min(1.0, Math.max(0.0, fluorescentFraction));
+  if (!(labelledBelow > 0) || !(ff > 0)) return;
+  const h1 = npcH1(seed, cx, cy);
+  const L = linkageSetup(linkage);
+  const corner = [];
+  for (let c = 0; c < 8; c++) corner.push([Math.cos(c * Math.PI / 4), Math.sin(c * Math.PI / 4)]);
+  for (const pi of ids) {
+    const q = pores[pi], n = q.cand;
+    for (let k = 0; k < NPC_SITES; k++) {
+      const label = pcgA(h1, k, n, DYE_CH.LABEL);
+      if (unit(label) >= labelledBelow) continue;
+      if (ff < 1.0 && unit(pcgA(h1, k, n, DYE_CH.FLUOR)) >= ff) continue;
+      const r1 = unit(pcgA(h1, k, n, DYE_CH.LINK_U));
+      const r2 = unit(pcgA(h1, k, n, DYE_CH.LINK_PHI));
+      const r3 = unit(pcgA(h1, k, n, DYE_CH.LINK_R));
+      const sa = sites[3 * k] * NM, sb = sites[3 * k + 1] * NM, sc = sites[3 * k + 2] * NM;
+      const ax = q.x + sa * q.e1[0] + sb * q.e2[0] + sc * q.n[0];
+      const ay = q.y + sa * q.e1[1] + sb * q.e2[1] + sc * q.n[1];
+      const az = q.z + sa * q.e1[2] + sb * q.e2[2] + sc * q.n[2];
+      const [ct, st] = corner[(k & 31) >> 2];
+      const a = { x: ct * q.e1[0] + st * q.e2[0], y: ct * q.e1[1] + st * q.e2[1], z: ct * q.e1[2] + st * q.e2[2] };
+      const parts = withParts ? {} : null;
+      const pos = linkedDye({ x: ax, y: ay, z: az }, a, 0, L, h1, k, n, r1, r2, r3, parts);
+      out.push(withParts ? { pos, pore: pi, k, n, id: label, parts } : { pos, pore: pi, k, n, id: label });
     }
   }
 }
@@ -433,11 +536,27 @@ export function dyeOrientation(h1, k, n, label, fr, seg, theta) {
   const t = fr.T[seg], u = fr.U[seg], v = fr.V[seg];
   const ct = Math.cos(theta), st = Math.sin(theta);
   const r = { x: ct * u.x + st * v.x, y: ct * u.y + st * v.y, z: ct * u.z + st * v.z };   // radial
+  return dyeOrientationFixed(o, t, r);
+}
+
+// Fixed orientation about a structure axis t and a radial direction r (unit, r perpendicular to t): polar angle from
+// t, azimuth about it from r. Microtubule: t = the axis, r = the protofilament's; pore: t = the pore axis (outward
+// normal), r = the corner's direction in the ring plane.
+export function dyeOrientationFixed(o, t, r) {
   const q = { x: t.y * r.z - t.z * r.y, y: t.z * r.x - t.x * r.z, z: t.x * r.y - t.y * r.x };  // T x r
   const pol = o.polarDeg * Math.PI / 180, az = o.azimuthDeg * Math.PI / 180;
   const sp = Math.sin(pol), cp = Math.cos(pol), ca = Math.cos(az), sa = Math.sin(az);
   return { x: cp * t.x + sp * (ca * r.x + sa * q.x), y: cp * t.y + sp * (ca * r.y + sa * q.y),
     z: cp * t.z + sp * (ca * r.z + sa * q.z), wobbleDeg: o.wobbleDeg };
+}
+
+// Random orientation of dye (k, n) (Free: null), else null for Fixed (the caller's frame): the first half of
+// dyeOrientation, shared by every structure.
+export function dyeOrientationRandom(h1, k, n, o) {
+  if (o.mode !== 'Random') return null;
+  const cz = 2 * unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.ORIENT_U)) - 1;
+  const phi = 2 * Math.PI * unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.ORIENT_PHI)), sz = Math.sqrt(1 - cz * cz);
+  return { x: sz * Math.cos(phi), y: sz * Math.sin(phi), z: cz, wobbleDeg: o.wobbleDeg };
 }
 
 export { pcg4d };

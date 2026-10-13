@@ -143,6 +143,25 @@ const typicalLabels = Object.fromEntries(targets.map(t => {
     return [m, { dye: e.dye, labelingPct: e.labelingPct }];
   }))];
 }));
+// The label linkage presets (library.json linkagePresets): Legacy = each structure's built-in numbers.
+const linkagePresets = library.linkagePresets.presets.map((q, i) => {
+  checkRefs(q.id, q.refs);
+  if (i === 0 !== !!q.structureDefault) throw new Error('linkagePresets: the first (and only the first) preset is the structure default');
+  if (!q.structureDefault && !(q.binderNm >= 0 && q.binderFlexNm >= 0 && q.linkerMinNm >= 0 && q.linkerMaxNm >= q.linkerMinNm))
+    throw new Error(`linkage preset ${q.id}: binderNm, binderFlexNm >= 0, 0 <= linkerMinNm <= linkerMaxNm`);
+  return q.structureDefault ? { id: q.id, name: q.name, structureDefault: true }
+    : { id: q.id, name: q.name, binderNm: q.binderNm, binderFlexNm: q.binderFlexNm, linkerMinNm: q.linkerMinNm, linkerMaxNm: q.linkerMaxNm };
+});
+// Only the targets listed in linkagePresets.defaults take the linkage model (the nanorulers' docking strands have
+// their own geometry: origamiLinkerNm).
+const linkageDefaults = Object.fromEntries(targets.filter(t => t.id in library.linkagePresets.defaults).map(t => {
+  const id = library.linkagePresets.defaults[t.id];
+  const i = linkagePresets.findIndex(q => q.id === id);
+  if (i < 0) throw new Error(`linkagePresets.defaults: target ${t.id} has an unknown preset '${id}'`);
+  return [t.id, id];
+}));
+for (const k of Object.keys(library.linkagePresets.defaults))
+  if (k !== 'notes' && !targets.some(t => t.id === k)) throw new Error(`linkagePresets.defaults: unknown target ${k}`);
 const data = {
   grid: fp.grid,
   fetched: fp.fetched,
@@ -151,6 +170,13 @@ const data = {
   dichroics: lightPath.dichroics.map(filterEntry),
   emissionFilters: lightPath.emissionFilters.map(filterEntry),
   lightPathDefaults: lightPath.defaults,
+  // The filters of the 'auto' light preset when the targets' presets differ (light_path.json multiTarget).
+  lightPathMultiTarget: (() => {
+    const m = lightPath.multiTarget;
+    if (!lightPath.dichroics.some(f => f.id === m.dichroic)) throw new Error(`multiTarget: unknown dichroic '${m.dichroic}'`);
+    if (!lightPath.emissionFilters.some(f => f.id === m.emissionFilter)) throw new Error(`multiTarget: unknown emission filter '${m.emissionFilter}'`);
+    return { dichroic: m.dichroic, emissionFilter: m.emissionFilter };
+  })(),
   lightPresets: lightPath.presets.map(q0 => {
     const q = { ...q0, excitationFilter: q0.excitationFilter ?? 'None' };   // no clean-up filter unless the preset names one
     checkRefs(q.id, q.refs);
@@ -168,6 +194,8 @@ const data = {
   specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets })),
   specimenDefault: specimens.default,
   typicalLabels,
+  linkagePresets,
+  linkageDefaults,
   spectra: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values])),
   spectrumInfo: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => {
     const s = fp.spectra[id];
@@ -300,10 +328,19 @@ ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, 
 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
 // typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}; the DNA-PAINT binding kinetics
-// (paint: k_on /M/s, mean bound time s, default imager concentration nM).
+// (paint: k_on /M/s, mean bound time s, default imager concentration nM); the default linkage preset (index into
+// kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
 static const TargetData kTargets[] = {
-${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)}, ${num(t.paint.imagerNm)} },`).join('\n')}
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)}, ${num(t.paint.imagerNm)}, ${t.id in linkageDefaults ? linkagePresets.findIndex(q => q.id === linkageDefaults[t.id]) : -1} },`).join('\n')}
 };
+// The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is
+// each structure's built-in numbers (structureDefault).
+static const LinkagePresetData kLinkagePresets[] = {
+${linkagePresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, ${q.structureDefault ? 'true' : 'false'}, { ${['binderNm', 'binderFlexNm', 'linkerMinNm', 'linkerMaxNm'].map(k => num(q[k])).join(', ')} } },`).join('\n')}
+};
+// The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
+static const char* const kMultiTargetDichroic = ${str(data.lightPathMultiTarget.dichroic)};
+static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiTarget.emissionFilter)};
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length} },`).join('\n')}
 };

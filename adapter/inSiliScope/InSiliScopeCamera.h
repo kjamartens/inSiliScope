@@ -166,8 +166,8 @@ private:
    // rendered on the GPU at all (diffraction kernel, not Fft placement).
    // Returns false -- the caller then renders on the CPU -- otherwise, or on
    // any D3D11 failure (logged once, and reported by GpuStatus).
-   bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const sim::PsfKernelCache& cache, unsigned w,
-                   unsigned h, const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
+   bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const std::vector<const sim::PsfKernelCache*>& kernels,
+                   unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
                    const sim::PixelReadNoiseMap& readNoiseMap, const sim::StackShapingFields& shaping,
                    const sim::SimulationParams& params);
    void SetGpuStatus(const std::string& s) { St().SetGpuStatus(s); }
@@ -274,7 +274,7 @@ private:
    {
       std::mutex m;
       std::unique_ptr<sim::GpuSimulator> splat;
-      uint64_t kernelSerial = 0;   // the kernel loaded (0: none)
+      std::vector<uint64_t> kernelSerials;   // the kernels loaded, one per blink group (empty: none)
       double background = -1.0;    // and its background
       long statics = -1;           // the config version of the camera maps loaded
       long failedAt = -1;          // the config version the splat failed at

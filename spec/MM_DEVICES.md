@@ -77,30 +77,37 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 ## 4. Specimens and targets
 
 - One **specimen** device per kind of sample (`CellField`, `Nanorulers` (DNA-origami rods, 2026-10-12); a bead
-  slide, NPCs on a coverslip later). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
+  slide later). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
   option `specimen`); optional **overlays** (fiducial beads, autofluorescence) add on top. Specimens do not overlap in
   space: one is mounted at a time. Mounting another is a new world (`BuildSampleSettings` carries the specimen and,
   while it is mounted, its params): the illumination history and the drift start afresh; the ZStage stays where it is
   (the nanorulers' dyes sit ~0.02 um above the coverslip, the cell field's start focus is 0.5 um). Every specimen's
   device and rows exist whichever is mounted; only the mounted one's labels render.
-- A specimen has **targets**: its labelled structures (CellField: `Microtubules`; Nanorulers: `Docking` (the docking
-  strands); later NPCs, DNA, actin). The
+- A specimen has **targets**: its labelled structures (CellField: `Microtubules`, `NuclearPores` (2026-10-12);
+  Nanorulers: `Docking` (the docking strands); later DNA, actin). The
   registry is `data/specimens.json` (specimens, their targets, each target's option prefix and core structure) plus
   `typicalLabels` in `data/dyes/library.json` (each target's usual dye and labelling % per mode, with references);
   `tools/gen_dye_library.mjs` builds both into the C++ (`TargetAt`, `SpecimenAt`) and the JS (`DYE_DATA.specimens`,
   `typicalLabels`) for the engine, the viewer and this adapter.
-- Each target gets the same label rows (`<Target>_Label`: Typical or a dye with data in the mode; Advanced
-  `_LabelingPct` and `_ImagerNanoMol`, the DNA-PAINT imager concentration in nanomolar; Expert: `_Mode` (default Global), `_Orientation`, ...), made by `AddTargetLabelRows()` /
+- Each target gets the same label rows (Basic `<Target>_Mode` and `<Target>_Label`: Typical, a dye with data in the
+  mode, or None (unlabelled); Advanced `_LabelingPct`, `_ImagerNanoMol` (the DNA-PAINT imager concentration in
+  nanomolar) and, for a target with a linkage model, `_Binder` (a linkage preset); Expert `_BinderNm`, `_BinderFlexNm`,
+  `_LinkerMinNm`, `_LinkerMaxNm` (-1 = the preset's), `_Orientation`, ...), made by `AddTargetLabelRows()` /
   `AddTargetOrientRows()` in the registry on the specimen's device, and its readouts on `Fluorophores`
   (`<Target>_EffectiveDye`, `_DetectedPct`, `_EmissionNm`, `_PhotonsPerSecOn`: `AddTargetReadoutRows()`), so a new
-  target is a registry entry, not new code. `<Target>` is the target's id, capitalised. A label change of a target
-  (`InSiliScopeHub::LoadTargetDye`) sets its labelling suggestion; the camera's mode gain and the light preset follow
-  only the mounted specimen's target. The photophysics is shared: every target's label goes through the same
+  target is a registry entry, not new code. `<Target>` is the target's row name (`ScopeTargetRow`: the id
+  capitalised, `NuclearPores` for `npcs`). A label change of a target (`InSiliScopeHub::LoadTargetDye`) sets its
+  labelling suggestion; the camera's mode gain follows the mounted specimen's first target, the light preset (`Auto`)
+  every labelled target of the mounted specimen. The photophysics is shared: every target's label goes through the same
   dye library and `ScopeStructureDye` / `MakeLabelPhysics`, whatever the specimen.
-- **The label model.** `Fluorophores.Mode` is the experiment's mode (engine option `mode`); a target follows it
-  (`<prefix>-mode = -2`, Global) unless its own `_Mode` says otherwise. `<Target>_Label` offers `Typical`
-  (`<prefix>-dye = -1`: the target's typical dye in that mode) and every dye with data in the mode; a mode change
-  rebuilds the list (`InSiliScopeHub::LabelModeChanged`) and turns a label the new mode lacks into Typical.
+- **The label model (2026-10-12).** Each target has its own mode (`<Target>_Mode`, engine `<prefix>-mode`); there is
+  no experiment-wide mode any more (`Fluorophores.Mode` is gone; the engine's `mode` is only the fallback for
+  `<prefix>-mode = -2`). `<Target>_Label` offers `Typical` (`<prefix>-dye = -1`: the target's typical dye in that
+  mode), every dye with data in the mode and `None` (the target unlabelled: no dyes, no imager background); a mode
+  change rebuilds the list (`InSiliScopeHub::TargetModeChanged`) and turns a label the new mode lacks into Typical.
+  `Lasers.Preset` `Auto` (the default) combines the light presets of the mounted specimen's labelled targets (each
+  laser at its largest power among them; where their filters differ, the multi-band cube
+  `ChromaZT405-488-561-640rpc+ChromaZET405-488-561-640m`), recomputed on every label or mode change.
 - The geometry of a new specimen or target lives in `core/` behind the C ABI, so the viewer, the cli and webSMLM get
   it too. The adapter never generates geometry of its own.
 

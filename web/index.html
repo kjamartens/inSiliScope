@@ -236,21 +236,23 @@ const curPrefix = () => mounted().targets[0].prefix;   // the mounted specimen's
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
 const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
-// The dye a structure's choice means: a library dye or a user dye's source dye.
-const choiceDye = v => (+v < ND ? DD.dyes[+v] : sourceOf(+v - ND + 1));
+// The dye a structure's choice means: a library dye or a user dye's source dye (None: the default dye, unused).
+const choiceDye = v => (+v < ND ? DD.dyes[+v] : isNone(v) ? DD.dyes[dyeIndex(DD.dyeDefault.dye)] : sourceOf(+v - ND + 1));
 // User dyes (Custom dyes group): the engine's dye slots dye1..dye3 (Fluorophores.DyeN_*), none until the user adds one.
 // Each has a name and a default mode (viewer only: the movie gets mt-mode = that mode when the structure's mode is
 // "the dye's default") and every dye field, whatever the mode; a structure picks one by name in its Dye select.
 const N_USER_DYES = 3;
+// None (the last choice, after the user dyes; the engine's <prefix>-dye = None): no label, the target is off (issue 15).
+const DYE_NONE_V = ND + N_USER_DYES, isNone = v => +v === DYE_NONE_V;
 const USER_DYES = {
   added: [false, false, false],
-  isUser: v => +v >= ND,
+  isUser: v => +v >= ND && +v < DYE_NONE_V,
   slot: v => +v - ND + 1,
   name: n => ($('ud' + n + '-name') ? $('ud' + n + '-name').value.trim() : '') || 'Dye ' + n,
   modeIndex: n => +$('ud' + n + '-mode').value,
 };
 // A target's dye choice and mode (P: its prefix, data/specimens.json).
-const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(dyeIndex(DD.dyeDefault.dye)));
+const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(firstDyeFor(TARGETS.find(t => t.prefix === P), DD.dyeDefault.mode)));
 const modeOf = P => {
   const m = $('mv_' + P + '-mode') ? +$('mv_' + P + '-mode').value : -1, v = choiceOf(P);
   if (m >= 0) return MODE_NAMES[m];
@@ -279,7 +281,7 @@ function refreshUserDyes() {
       o.textContent = USER_DYES.name(n) + ' (custom)';
     }
     if (USER_DYES.isUser(sel.value) && !USER_DYES.added[USER_DYES.slot(sel.value) - 1]) {
-      sel.value = String(dyeIndex(DD.dyeDefault.dye));
+      sel.value = String(firstDyeFor(t, modeOf(t.prefix)));
       sel.dispatchEvent(new Event('input', { bubbles: true }));
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -333,15 +335,48 @@ const lightPresetValues = q => {
   o['mv_em-filter'] = DD.emissionFilters.findIndex(f => f.id === q.emissionFilter);
   return o;
 };
-// A dye pick or a mode change loads that dye mode's light preset.
+// Several light presets as one (scope_movie.js autoLightPreset): each laser line at its highest power over them; their
+// filters where all agree, else no clean-up filter and the multi-band set (light_path.json multiTarget).
+const combineLightPresets = ids => {
+  const qs = [...new Set(ids)].map(id => DD.lightPresets.find(q => q.id === id));
+  if (qs.length === 1) return qs[0];
+  const lasers = {};
+  for (const q of qs) for (const [nm, kw] of Object.entries(q.lasers)) lasers[nm] = Math.max(lasers[nm] ?? 0, kw);
+  const same = k => qs.every(q => (q[k] ?? 'None') === (qs[0][k] ?? 'None')), M = DD.lightPathMultiTarget;
+  const agree = same('dichroic') && same('emissionFilter');
+  return { lasers, excitationFilter: agree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
+    dichroic: agree ? qs[0].dichroic : M.dichroic, emissionFilter: agree ? qs[0].emissionFilter : M.emissionFilter };
+};
+// The engine's auto light preset (light-preset 0) as the panel has it, with vals (a pick in progress) in place of the
+// panel's values: the presets of the mounted specimen's labelled targets' dyes in their modes, combined (a target is
+// off with dye None, 0 % labelled or density 0); none labelled: the first target's.
+const autoLightPreset = (vals = {}) => {
+  const get = k => (k in vals ? vals[k] : $(k) ? $(k).value : undefined);
+  const presetOf = t => {
+    const P = t.prefix, v = get('mv_' + P + '-dye') ?? choiceOf(P), m = get('mv_' + P + '-mode');
+    const mode = m !== undefined && +m >= 0 ? MODE_NAMES[+m] : modeOf(P);
+    return choiceDye(v).modes[mode].lightPreset;
+  };
+  const on = t => {
+    const P = t.prefix, v = get('mv_' + P + '-dye'), pct = get('mv_' + P + '-label-pct');
+    const dens = get('mv_' + P + '-density') ?? get(P + 'Density');
+    return !(v !== undefined && isNone(v)) && !(pct !== undefined && +pct === 0) && !(dens !== undefined && !(+dens > 0));
+  };
+  const ts = mounted().targets, ids = ts.filter(on).map(presetOf);
+  return combineLightPresets(ids.length ? ids : [presetOf(ts[0])]);
+};
+// A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
-const withLightPreset = (vals, d, mode) => BF() ? vals : Object.assign(vals, lightPresetValues(DD.lightPresets.find(q => q.id === d.modes[mode].lightPreset)));
+const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
+// The panel's first light: the cell field's default labels' presets combined (as the engine's auto).
+const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.map(t =>
+  DD.dyes[firstDyeFor(t, DD.dyeDefault.mode)].modes[DD.dyeDefault.mode].lightPreset)));
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
-const dyeRows = (P, extra) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) => {
+const dyeRows = (P, extra, dye = dyeIndex(DD.dyeDefault.dye)) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) => {
   const prefix = 'mv_' + P + '-dye.';
-  return num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dyeIndex(DD.dyeDefault.dye)], DD.dyeDefault.mode)[prefix + k],
-    { adv, show: () => !USER_DYES.isUser(choiceOf(P)) && (!modes || modes.includes(modeOf(P))), ...extra });
+  return num(prefix + k, label, unit, tip, 0, null, 'any', dyeFieldValues(prefix, DD.dyes[dye], DD.dyeDefault.mode)[prefix + k],
+    { adv, show: () => !USER_DYES.isUser(choiceOf(P)) && !isNone(choiceOf(P)) && (!modes || modes.includes(modeOf(P))), ...extra });
 });
 // A target's label group (Sample preparation): labelled sites, mode, dye (+ its fields), imager, orientation; ids
 // mv_<prefix>-*, the engine's per-target options. Shown while the target's specimen is mounted.
@@ -349,26 +384,42 @@ const LABEL_TEXT = {
   microtubules: { dev: 'CellField', row: 'Microtubules', what: 'the microtubules\' label', axis: 'the microtubule axis', pct: 'Labelled sites',
     sites: 'Share of the binding sites (13 protofilaments x 8 nm: 1625 per µm of microtubule) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 3 %, PALM 25 %, WideField 70 %; estimates).',
     cells: 'no exclusion from cells' },
+  npcs: { dev: 'CellField', row: 'NuclearPores', what: 'the nuclear pores\' label', axis: 'the pore axis', pct: 'Labelled sites',
+    sites: 'Share of the 64 Nup96 sites per pore (2 rings x 8 corners x 4) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 60 %, dSTORM 58 %, PALM 58 %, WideField 100 %; data/dyes/library.json typicalLabels).',
+    cells: 'no exclusion from the nucleus' },
   docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\' label', axis: 'the rod axis', pct: 'Labelled strands',
     sites: 'Share of the designed docking strands (Strands per spot, Nanorulers) that are incorporated and labelled: each strand independently (80 % in every mode; estimate).',
     cells: 'the imager reaches every strand' },
 };
+// A target's label linkage (data/dyes/library.json linkagePresets; engine <prefix>-binder*): only the targets with a
+// linkage model (linkagePresets.defaults: microtubules, nuclear pores).
+const LINKAGE_ROWS = [['binder-nm', 'Binder length', 'The probe (binder) reaches this far from the binding site, outward along the structure\'s axis.', 'BinderNm'],
+  ['binder-flex-nm', 'Binder flexibility', 'The probe\'s end lies uniformly in a ball of this radius about that point.', 'BinderFlexNm'],
+  ['linker-min-nm', 'Linker from', 'Shortest chemical linker from the probe to the dye (uniform in volume between the two, in a uniform direction).', 'LinkerMinNm'],
+  ['linker-max-nm', 'Linker to', 'Longest linker.', 'LinkerMaxNm']];
+const linkageItems = (t, id, code) => !(t.id in DD.linkageDefaults) ? [] : [
+  select(id('binder'), 'Attachment', 'How the dye is attached to the structure: the probe\'s length and flexibility and the linker (data/dyes/library.json linkagePresets, with their references; Built-in = the numbers before the linkage model). The rows below (-1 = the preset\'s) override one number each. ' + code('Binder'),
+    DD.linkagePresets.map((q, j) => [String(j), q.structureDefault ? 'Built-in (before the linkage model)' : q.name + (q.binderNm !== null ? ' (' + q.binderNm + ' nm)' : '')]),
+    String(DD.linkagePresets.findIndex(q => q.id === DD.linkageDefaults[t.id])), { adv, kids: LINKAGE_ROWS.map(([k, label, tip, row]) =>
+      num(id(k), label, 'nm', tip + ' -1 = the preset\'s. ' + code(row), -1, 1000, 'any', -1, { adv })) }),
+];
 const labelGroup = (t, i) => {
   const P = t.prefix, T = LABEL_TEXT[t.id], id = k => 'mv_' + P + '-' + k, code = k => '<code>' + T.dev + '.' + T.row + '_' + k + '</code>';
+  const dyeDef = firstDyeFor(t, DD.dyeDefault.mode);
   return Object.assign(i === 0 ? { sect: 'Sample preparation' } : {}, { id: P + 'label', title: t.name + ' label', open: true,
     show: () => mounted().id === t.specimen, items: [
-    range(id('label-pct'), T.pct, '%', T.sites + ' ' + code('LabelingPct'), 0, 100, 0.5, DD.typicalLabels[t.id][DD.dyeDefault.mode].labelingPct, { fmt: fx(1) }),
-    select(id('mode'), 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. <code>Fluorophores.Mode</code>',
+    range(id('label-pct'), T.pct, '%', T.sites + ' 0 = the target is off. ' + code('LabelingPct'), 0, 100, 0.5, DD.typicalLabels[t.id][DD.dyeDefault.mode].labelingPct, { fmt: fx(1) }),
+    select(id('mode'), 'Mode', 'How the dye emits. dSTORM: on at first, pumped dark, then blinks until it bleaches. PALM: converts (405 nm, primed 488 + 730 nm), then blinks; a convertible FP shines in its pre state until then. DNA-PAINT: imagers bind and unbind for ever; the free imager adds a background. WideField: always on until its photon budget is spent. Each target has its own. ' + code('Mode'),
       MODE_NAMES.map((m, j) => [String(j), m]), String(MODE_NAMES.indexOf(DD.dyeDefault.mode)), { init: () => filterDyes(P), apply: () => {
         // A mode the dye has no data for moves the target to that mode's dye (whose pick loads its values and preset).
         const v = $(id('dye')).value, m = modeOf(P);
         filterDyes(P);
-        if (!USER_DYES.isUser(v) && !dyeHasMode(+v, m)) return { [id('dye')]: firstDyeFor(t, m) };
-        return withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), m)), choiceDye(v), m);
+        if (!USER_DYES.isUser(v) && !isNone(v) && !dyeHasMode(+v, m)) return { [id('dye')]: firstDyeFor(t, m) };
+        return withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), m)));
       } }),
-    select(id('dye'), 'Dye', 'Dye of ' + T.what + ': a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. ' + code('Label'),
-      [...DD.dyes.map((d, j) => [String(j), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)'])],
-      String(dyeIndex(DD.dyeDefault.dye)), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P))), choiceDye(v), modeOf(P)), kids: dyeRows(P) }),
+    select(id('dye'), 'Dye', 'Dye of ' + T.what + ': a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye), or None (no label: the target is off). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. A pick also loads the light preset of the labelled targets\' dyes together. ' + code('Label'),
+      [...DD.dyes.map((d, j) => [String(j), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)']), [String(DYE_NONE_V), 'None (no label)']],
+      String(dyeDef), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P)))), kids: dyeRows(P, {}, dyeDef) }),
     num(id('imager-nm'), 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and ' + T.cells + '. ' + code('ImagerNanoMol'), 0, null, 0.1, t.paint.imagerNm, { show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-on-sec'), 'Bound time', 's', 'DNA-PAINT: mean time an imager stays bound to a docking site (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye (data/specimens.json paint). ' + code('BoundTimeSec'), 0.001, null, 0.01, t.paint.onSec, { adv, show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-kon'), 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration (the target\'s docking sequence; data/specimens.json paint). ' + code('KonPerMolarPerSec'), 0, null, 1e5, t.paint.konPerMPerSec, { adv, show: inMode(P, 'DNA-PAINT') }),
@@ -378,6 +429,7 @@ const labelGroup = (t, i) => {
         num(id('orient-azimuth-deg'), 'Azimuth', '°', 'Not implemented yet (no effect on the image). Fixed: angle about the axis, from the radial direction. ' + code('OrientAzimuthDeg'), -180, 180, 1, 0, { adv, show: () => $(id('orient')).value === '1' }),
         num(id('wobble-deg'), 'Wobble cone', '°', 'Not implemented yet (no effect on the image). Half-angle of the cone the dipole wobbles in (fast compared with the fluorescence lifetime). ' + code('WobbleConeDeg'), 0, 90, 1, 0, { adv, show: () => $(id('orient')).value !== '0' }),
       ] }),
+    ...linkageItems(t, id, code),
   ] });
 };
 const DESIGNS = self.ISC_ORIGAMI_DESIGNS || [{ name: '80 nm nanoruler' }];   // web/origami_designs.js
@@ -593,6 +645,14 @@ const UI_GROUPS = [
     range('mtMaxZSlope', 'Max z slope', '× xy', 'Largest height change per unit of lateral path.', 1, 20, 0.5, 5, { adv, fmt: fx(1) }),
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
+  // The nuclear pore complexes (issue 15; core params npc*, web/prototype/scope npcs): Nup96 rings on the envelope.
+  { id: 'npc', title: 'Nuclear pores', show: CF, items: [
+    range('mv_npc-density', 'Density', '/µm²', 'Nuclear pore complexes per µm² of nuclear envelope, over the whole envelope (8; measured 5-8.6 /µm² in HeLa and U2OS interphase nuclei: Maeshima et al. 2006, Dultz & Ellenberg 2010). Placed uniformly by area, each along the envelope\'s normal (cytoplasmic ring outside, nucleoplasmic inside), no two closer than Min distance; above the jamming limit fewer fit. 0 = no pores, the target is off. <code>CellField.NuclearPoreDensityPerUm2</code>', 0, 30, 0.1, 8, { fmt: fx(1) }),
+    num('npcMinDistNm', 'Min distance', 'nm', 'Smallest centre distance of two pores (180 nm; a pore is about 120 nm across, Maeshima et al. 2006). <code>CellField.NuclearPoreMinDistNm</code>', 0, 500, 5, 180, { adv }),
+    num('npcRadiusNm', 'Ring radius', 'nm', 'Radius of the Nup96 rings (53.5 nm; Thevathasan et al. 2019, as webSMLM). <code>CellField.NuclearPoreRadiusNm</code>', 20, 150, 0.5, 53.5, { adv }),
+    num('npcRingSepNm', 'Ring separation', 'nm', 'Distance between the cytoplasmic and the nucleoplasmic ring (50 nm; Thevathasan et al. 2019). <code>CellField.NuclearPoreRingSepNm</code>', 0, 150, 1, 50, { adv }),
+    num('npcCornerSpreadNm', 'Corner spread', 'nm', 'Each of the 8 corners holds 4 Nup96 on an arc of this diameter (12 nm; webSMLM after Thevathasan et al. 2019). <code>CellField.NuclearPoreCornerSpreadNm</code>', 0, 30, 0.5, 12, { adv }),
+  ] },
 
   ...TARGETS.map(labelGroup),
   { id: 'slots', title: 'Custom dyes', adv, items: [
@@ -640,7 +700,7 @@ const UI_GROUPS = [
     preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Lasers.Preset</code> (BrightField: the <code>TransmittedLamp</code> shutter)',
       { ...Object.fromEntries(DD.lightPresets.map(q => [q.name, { ...lightPresetValues(q), 'mv_modality': 0 }])),
         'BrightField (lasers off)': { ...Object.fromEntries(DD.lasers.map(nm => ['mv_laser-' + nm, 0])), 'mv_modality': 1 } }, []),
-    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, null, 'any', nm === 640 ? 1 : 0, { show: FL })),
+    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, null, 'any', DEFAULT_LIGHT['mv_laser-' + nm], { show: FL })),
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, null, 'any', 0, { adv, show: FL }),
     ] }),
@@ -648,16 +708,16 @@ const UI_GROUPS = [
       num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Lasers.ChamberHeightUm</code>', 0, null, 0.5, 5, { adv, show: FL }),
     ] }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
-      DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DD.excitationFilters.findIndex(f => f.id === DD.lightPathDefaults.excitationFilter)), { adv, show: FL, kids: [
+      DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
         num('mv_ex-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>ExcitationFilter-CustomHiNm</code>', 300, 900, 0.5, 645, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
       ] }),
     select('mv_dichroic', 'Dichroic', 'Reflects the lasers to the sample (R = 1 − T) and transmits the emission (T). Ideal edges or real curves (FPbase). <code>Dichroic</code>',
-      DD.dichroics.map((f, i) => [String(i), f.name]), String(DD.dichroics.findIndex(f => f.id === DD.lightPathDefaults.dichroic)), { adv, show: FL, kids: [
+      DD.dichroics.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_dichroic']), { adv, show: FL, kids: [
         num('mv_dichroic-edge-nm', 'Edge', 'nm', 'Long-pass edge of the Custom dichroic. <code>Dichroic.CustomEdgeNm</code>', 300, 900, 1, 650, { adv, show: () => DD.dichroics[+$('mv_dichroic').value].id === 'Custom' }),
       ] }),
     select('mv_em-filter', 'Emission filter', 'Band of the emission that reaches the camera. Ideal bands or real curves (FPbase). <code>EmissionFilter</code>',
-      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DD.emissionFilters.findIndex(f => f.id === DD.lightPathDefaults.emissionFilter)), { adv, show: FL, kids: [
+      DD.emissionFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_em-filter']), { adv, show: FL, kids: [
         num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>EmissionFilter.CustomLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
         num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>EmissionFilter.CustomHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
       ] }),
@@ -763,9 +823,10 @@ const UI_GROUPS = [
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
+const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
 const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
-  structure: () => mounted().targets[0].structure,
-  dyeName: () => USER_DYES.isUser(mtChoice()) ? USER_DYES.name(USER_DYES.slot(mtChoice())) : choiceDye(mtChoice()).name };
+  structure: () => mounted().targets[0].structure, specimen: () => mounted().id, isNone, noneValue: DYE_NONE_V, dyeNameOf,
+  dyeName: () => dyeNameOf(curPrefix()) };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
 </script>
@@ -1158,6 +1219,7 @@ const els = {};
  'mtMinTurnRadius', 'mtMinTurnRadiusVal',
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
+ 'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
  'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
@@ -1229,6 +1291,12 @@ function params() {
     mtMinTurnRadius: Math.max(0, +els.mtMinTurnRadius.value),
     mtMinSeparation: +els.mtMinSeparation.value,
     mtMaxZSlope: Math.max(1, +els.mtMaxZSlope.value),
+    // The nuclear pores (issue 15): the density is the engine's npc-density option (mv_npc-density; 0 = off).
+    npcDensity: Math.max(0, +els['mv_npc-density'].value),
+    npcMinDistNm: Math.max(0, +els.npcMinDistNm.value),
+    npcRadiusNm: Math.max(0, +els.npcRadiusNm.value),
+    npcRingSepNm: Math.max(0, +els.npcRingSepNm.value),
+    npcCornerSpreadNm: Math.max(0, +els.npcCornerSpreadNm.value),
     // The DNA-origami nanorulers (the Sample select at 1 = data/specimens.json's Nanorulers = core param specimen 1):
     // their core params, only then, so a cell field's params (and every cache keyed on them) stay as they were.
     ...(+els.mv_specimen.value === 1 ? {
@@ -1248,16 +1316,37 @@ function params() {
   };
 }
 // The structures' labels as the world needs them for its dyes (issue 16): one per structure (data/specimens.json's
-// targets in structure order: microtubules, docking strands), the labelled site fraction and the fluorescent fraction
-// of the dye in use (World.setLabels / isc_world_set_label).
+// targets in structure order: microtubules, nuclear pores, docking strands), the labelled site fraction, the
+// fluorescent fraction of the dye in use and the label linkage (World.setLabels / isc_world_set_label). Dye None: no
+// dyes (density 0).
+// The structures' built-in linkage numbers (dyes.js LEGACY_LINKAGE), for a Built-in attachment with a number overridden;
+// until the module is in, such a label takes the built-in numbers whole.
+let legacyLinkage = null;
+import('./prototype/scope/dyes.js').then(D => { legacyLinkage = D.LEGACY_LINKAGE; requestDraw(); }, e => console.warn('dyes.js:', e));
+const LINKAGE_KEYS = [['binder-nm', 'binderNm'], ['binder-flex-nm', 'binderFlexNm'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']];
+// A target's linkage as the panel has it (scope_movie.js scopeLinkage, dyes.js normLinkage); null = the structure's
+// built-in numbers (or no linkage model).
+function panelLinkage(t) {
+  const P = t.prefix, sel = document.getElementById('mv_' + P + '-binder');
+  if (!sel) return null;
+  const q = ISC_DYE_DATA.linkagePresets[+sel.value], ov = LINKAGE_KEYS.map(([k]) => +document.getElementById('mv_' + P + '-' + k).value);
+  if (q.structureDefault && ov.every(v => !(v >= 0))) return null;
+  const base = q.structureDefault ? legacyLinkage && legacyLinkage[t.id] : q;
+  if (!base) return null;
+  const lk = Object.fromEntries(LINKAGE_KEYS.map(([, f], i) => [f, ov[i] >= 0 ? ov[i] : base[f]])), nz = v => (v > 0 ? v : 0);
+  return { binderNm: nz(lk.binderNm), binderFlexNm: nz(lk.binderFlexNm), linkerMinNm: nz(lk.linkerMinNm),
+    linkerMaxNm: Math.max(nz(lk.linkerMinNm), nz(lk.linkerMaxNm)) };
+}
 function labelsForDyes() {
   const out = [], nd = ISC_DYE_DATA.dyes.length;
   for (const t of DYE_UI.targets) {
     const P = t.prefix, v = +document.getElementById('mv_' + P + '-dye').value;
+    if (DYE_UI.isNone(v)) { out[t.structure] = { density: 0, fluorescentFraction: 1, color: '#ff4d4d', linkage: null }; continue; }
     const ffEl = document.getElementById(v < nd ? 'mv_' + P + '-dye.fluorescent-pct' : 'mv_dye' + (v - nd + 1) + '.fluorescent-pct');
     const base = v < nd ? ISC_DYE_DATA.dyes[v] : ISC_DYE_DATA.dyes[+document.getElementById('mv_dye' + (v - nd + 1) + '.source').value];
     out[t.structure] = { density: Math.min(1, Math.max(0, +document.getElementById('mv_' + P + '-label-pct').value / 100)),
-      fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d' };
+      fluorescentFraction: Math.min(1, Math.max(0, ffEl ? +ffEl.value / 100 : base.fluorescentFraction)), color: base.states.main.emHex || '#ff4d4d',
+      linkage: panelLinkage(t) };
   }
   return out;
 }
@@ -2368,7 +2457,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 12) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 12');
+  if (M._isc_abi_version() !== 13) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 13');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -2395,22 +2484,26 @@ function iscEngine(M) {
     labelKey = '';
     return world;
   }
-  // The labels a job carries on the world (isc_world_set_label, ABI 10): a sites job's {density, fluorescentFraction}
-  // per structure (which dyes there are; the rest stays the default), or an events job's whole label (dyes.js
-  // makeLabel: mode, kinetics, pre state, orientation; scope_movie.js scopeLabels, as the movie has it).
+  // The labels a job carries on the world (isc_world_set_label, ABI 13): a sites job's {density, fluorescentFraction,
+  // linkage} per structure (which dyes there are and where; the rest the default label: dyes.js makeLabel), or an events
+  // job's whole label (dyes.js makeLabel: mode, kinetics, pre state, orientation, linkage; scope_movie.js scopeLabels,
+  // as the movie has it). Linkage null: NaN, the structure's built-in numbers.
   let labelKey = '';
   const LABEL_MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'], ORIENT_MODES = ['Free', 'Fixed', 'Random'];
+  const linkageVector = lk => lk ? [lk.binderNm, lk.binderFlexNm, lk.linkerMinNm, lk.linkerMaxNm] : [NaN, NaN, NaN, NaN];
   function labelVector(l) {
-    if (!l.mode) return [l.density, l.fluorescentFraction];
+    if (!l.mode) return l.linkage ? [l.density, l.fluorescentFraction, 2, 0.01, 0.05, 1, 1, 0.5, 0, 0, 0, 90, 0, 0, 0, 0, ...linkageVector(l.linkage)]
+      : [l.density, l.fluorescentFraction];
     const k = l.kinetics, o = l.orientation;
     return [l.density, l.fluorescentFraction, LABEL_MODES.indexOf(l.mode), k.activationRatePerSec, k.onSec, k.offSec, k.bleachProb,
-      k.photonCV, k.initialOnSec || 0, l.preState ? 1 : 0, ORIENT_MODES.indexOf(o.mode), o.polarDeg, o.azimuthDeg, o.wobbleDeg, 0, 0];
+      k.photonCV, k.initialOnSec || 0, l.preState ? 1 : 0, ORIENT_MODES.indexOf(o.mode), o.polarDeg, o.azimuthDeg, o.wobbleDeg, 0, 0,
+      ...linkageVector(l.linkage)];
   }
   function useLabels(w, labels) {
     if (!labels) return;
     const vs = labels.map(labelVector), key = vs.map(v => v.join(',')).join('|');
     if (key === labelKey) return;
-    const v = M._malloc(8 * 16);
+    const v = M._malloc(8 * 20);
     vs.forEach((x, s) => {
       M.HEAPF64.set(x, v / 8);
       if (M._isc_world_set_label(w, s, v, x.length) !== 0) console.warn('isc_world_set_label rejected', labels[s]);
@@ -2939,7 +3032,7 @@ function blocksOfRect(p, [x0, y0, x1, y1]) {
   for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
   return out;
 }
-const PACK_KEY_SKIP = /^(mt|showCytoContours$|cytoContourStep$)/;
+const PACK_KEY_SKIP = /^(mt|npc|showCytoContours$|cytoContourStep$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -3777,7 +3870,7 @@ let dyeCache = null;    // {key, rect, sites, id}
 let dyePending = null;  // {id, key, rect}
 let dyeId = 0;
 let dyeSel = null;      // {key, ox, oy, pts: Float32Array (x - ox, y - oy, z, 0 per dye), n}
-function dyeKey(seed, p) { return assetSig(seed, p) + '|' + labelsForDyes().map(l => l.density + ',' + l.fluorescentFraction).join('|'); }
+function dyeKey(seed, p) { return assetSig(seed, p) + '|' + labelsForDyes().map(l => l.density + ',' + l.fluorescentFraction + ',' + JSON.stringify(l.linkage)).join('|'); }
 function onDyeResult(e) {
   const d = e.data;
   if (!dyePending || d.id !== dyePending.id) return;
@@ -3998,17 +4091,18 @@ function movieSpec(ov) {
   const p = params(), o = [], has = k => ov && ov[k] !== undefined;
   // A custom dye (USER_DYES): its own fields are the dye, so the target's per-field rows are not sent; a slot the
   // user has not added is not sent at all; the target's "dye's default" mode is the custom dye's default mode.
-  const userSlot = {};
+  const userSlot = {}, none = {};
   for (const t of DYE_UI.targets) {
     const v = +document.getElementById('mv_' + t.prefix + '-dye').value;
     userSlot[t.prefix] = USER_DYES.isUser(v) ? USER_DYES.slot(v) : 0;
+    none[t.prefix] = DYE_UI.isNone(v);
   }
   for (const k of MOVIE_KEYS) {
     let v = has(k) ? ov[k] : document.getElementById('mv_' + k).value;
     if (v === '' || !Number.isFinite(+v)) continue;   // a dye field that does not apply to the dye's mode
     const slot = /^dye(\d)\./.exec(k), tp = /^([a-z]+)-(dye\.|mode$)/.exec(k), us = tp && userSlot[tp[1]];
     if (slot && !USER_DYES.added[+slot[1] - 1]) continue;
-    if (us && tp[2] === 'dye.') continue;
+    if ((us || (tp && none[tp[1]])) && tp[2] === 'dye.') continue;
     if (us && tp[2] === 'mode' && +v < 0) v = USER_DYES.modeIndex(us);
     o.push(k + '=' + (+v));
   }
@@ -4283,7 +4377,9 @@ function dataMode(kind) {
 function dataModeOv(kind) {
   const mode = dataMode(kind);
   if (!mode) return { modality: 1 };
+  // a structure's data layer images that structure alone: the other targets' dyes None (issue 15)
   const ov = { modality: 0 };
+  for (const t of DYE_UI.targets) if (t.prefix !== DYE_UI.prefix()) ov[t.prefix + '-dye'] = DYE_UI.noneValue;
   if (mode !== DYE_UI.mtMode()) {
     ov[DYE_UI.prefix() + '-mode'] = BLINK_MODES.concat('WideField').indexOf(mode);   // MODE_NAMES order: dSTORM, PALM, DNA-PAINT, WideField
     const q = ISC_DYE_DATA.lightPresets.find(q => q.id === DYE_UI.dye().modes[mode].lightPreset);
@@ -4306,8 +4402,8 @@ import('./prototype/scope/scope_movie.js').then(SM => { dataScopeSM = SM; reques
 function dataLabelInfo(ov) {
   if (!dataScopeSM) return null;
   const SM = dataScopeSM, spec = SM.parseSpec(movieSpec(ov)), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-  const L = SM.scopeLabels(spec, lp);
-  return { labels: L.map(l => l.label), detectedPerSec: L[0].states.main ? L[0].states.main.detectedPerSec : 0, mode: L[0].mode, dye: L[0].dye.name };
+  const L = SM.scopeLabels(spec, lp), l = L[DYE_UI.structure()];
+  return { labels: L.map(x => x.label), detectedPerSec: l.states.main ? l.states.main.detectedPerSec : 0, mode: l.mode, dye: l.dye ? l.dye.name : 'None' };
 }
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
@@ -5036,7 +5132,8 @@ async function drawSpecPlot() {
     specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
     const [SM, DL] = await specMods;
     const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-    const L = SM.scopeLabels(spec, lp)[DYE_UI.structure()];
+    const AL = SM.scopeLabels(spec, lp);
+    const shown = DYE_UI.targets.filter(t => t.specimen === DYE_UI.specimen() && !AL[t.structure].off).map(t => [t, AL[t.structure]]);
     const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8, bot = H - 16;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
     const light = document.body.dataset.uiStyle === 'light';
@@ -5053,13 +5150,15 @@ async function drawSpecPlot() {
     curve(lp.dichroic.T, light ? '#888' : '#999', [2, 2]);
     if (lp.excitationFilter.T.some(v => v !== 1)) curve(lp.excitationFilter.T, light ? '#777' : '#bbb', [6, 2, 1, 2]);
     curve(lp.qe, light ? '#bbb' : '#666', [1, 3]);
-    const col = (L.dye.states.main.emHex || '#ff4d4d');
-    for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
-      const st = L.dye.states[role];
-      if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
-      const sp = DL.stateSpectra(st), c = role === 'main' ? col : (st.emHex || '#4f4');
-      if (sp.ex) curve(sp.ex, c, [3, 3]);
-      if (sp.em) curve(sp.em, c, dash);
+    for (const [, L] of shown) {
+      const col = (L.dye.states.main.emHex || '#ff4d4d');
+      for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
+        const st = L.dye.states[role];
+        if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
+        const sp = DL.stateSpectra(st), c = role === 'main' ? col : (st.emHex || '#4f4');
+        if (sp.ex) curve(sp.ex, c, [3, 3]);
+        if (sp.em) curve(sp.em, c, dash);
+      }
     }
     for (const l of lp.lasers) {
       if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
@@ -5067,15 +5166,18 @@ async function drawSpecPlot() {
       g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
     }
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
-    const mtv = +document.getElementById('mv_' + DYE_UI.prefix() + '-dye').value;
-    const dyeName = USER_DYES.isUser(mtv) ? USER_DYES.name(USER_DYES.slot(mtv)) : L.dye.name;
-    const parts = [`<b>${dyeName}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`];
-    if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
-    if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
-    if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
-    const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
-    if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
-    if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
+    const parts = [];
+    if (!shown.length) parts.push('no labelled target (every dye None, 0 % labelled or no structure)');
+    for (const [t, L] of shown) {
+      const who = shown.length > 1 ? t.name + ': ' : '';
+      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
+      if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
+      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
+      if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
+      const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
+      if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
+      if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
+    }
     out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; clean-up filter dash-dot, dichroic dotted, filter shaded, QE dotted grey</span>';
   } catch (e) {
     specMods = null;   // try the import again next time
