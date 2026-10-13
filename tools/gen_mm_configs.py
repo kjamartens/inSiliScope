@@ -8,10 +8,16 @@ labels of data/dyes/library.json, the pixel sizes from the cameras' sensor pixel
   ADAPTER_DIR=<dll dir> python tools/gen_mm_configs.py --check  # fail if they are out of date
 
 tools/test_mm_configs.py loads each file and checks its groups, pixel sizes and snaps.
+
+The same run writes the viewer's copy, web/live/mm_config.js (the live panel's Configuration): each new file loaded in
+the adapter, every preset of every group applied in turn (from the Startup preset) and the engine options it leaves set
+(the engine spec the adapter renders with, Renderer.WriteScopeSpecTo), so the viewer's presets do what Micro-Manager's do, couplings
+included (camera and drift presets, Quality, Typical labels, the light the shutters let through). --check covers it.
 """
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +27,7 @@ from isc_mm import ALL_DEVICES, HUB, search_paths  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "adapter" / "inSiliScope" / "config"
+VIEWER_OUT = ROOT / "web" / "live" / "mm_config.js"
 TIERS = ("Basic", "Advanced", "Expert")
 WHEELS = ("ExcitationFilter", "Dichroic", "EmissionFilter")   # Advanced devices
 MULTI = "Multi Shutter"   # Utilities: both light sources at once (Advanced, Expert)
@@ -224,6 +231,113 @@ def load_sensors():
             SENSOR_UM[p["id"]] = float(p["physicalPixelUm"])
 
 
+LIGHT = {"Lasers": "epi", "TransmittedLamp": "trans", MULTI: "both"}
+
+
+# Engine options that are the stage pose, the acquisition or the shutters' state, not a configuration's.
+NOT_CONFIG = {"x", "y", "z", "seed", "frames", "exposure-ms", "start-sec", "light-epi", "light-trans", "modality",
+              "light-preset", "pixel-nm"}
+# The pixel size is derived (the camera's sensor pixel / (objective x emission magnification)): the presets carry these
+# rows' values (registry keys -> names in the viewer), the viewer works the pixel size out of the current ones.
+OPTICS = {"objective-mag": "objectiveMag", "sensor-pixel-um": "sensorUm", "emission-mag": "emissionMag"}
+
+
+def viewer_presets(cfg_paths):
+    """Per tier: the config groups of its file with, per preset, the engine options it sets (the engine spec the adapter
+    renders from, Renderer.WriteScopeSpecTo, after the Startup preset and then this one: the options that differ
+    between the group's presets or from a fresh hub's) and the light (the Core-Shutter it picks); a group of one
+    numeric property with one preset is a slider with the registry row's limits. A preset that changes the pixel size
+    carries its optics (OPTICS); "optics" per tier = the Startup's."""
+    import tempfile
+    from pymmcore_plus import CMMCorePlus
+
+    os.environ["ISC_TEST"] = "1"   # the registry dump is a Test row; the configurations above never see Test rows
+    out = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        def spec(core):
+            f = os.path.join(tmp, "spec.txt")
+            core.setProperty("Renderer", "WriteScopeSpecTo", f)
+            kv = (line.split("=", 1) for line in Path(f).read_text(encoding="utf-8").splitlines() if "=" in line)
+            return {k: float(v) for k, v in kv if k not in NOT_CONFIG}
+
+        def registry(core):
+            f = os.path.join(tmp, "registry.json")
+            core.setProperty("Renderer", "Test_WriteRegistryTo", f)
+            return {(r["device"], r["name"]): r for r in json.loads(Path(f).read_text(encoding="utf-8"))}
+
+        def load(text):
+            f = Path(tmp) / "config.cfg"
+            f.write_text(text, encoding="utf-8", newline="\n")
+            core = CMMCorePlus()
+            core.setDeviceAdapterSearchPaths(search_paths())
+            core.loadSystemConfiguration(str(f))
+            return core
+
+        for tier, path in cfg_paths.items():
+            # at Detail Expert (the spec row is Expert; rows above a tier keep their defaults, so nothing else moves)
+            text = re.sub(r"(?m)^Property,Hub,Detail,\w+$", "Property,Hub,Detail,Expert", path.read_text(encoding="utf-8"))
+            # a fresh hub: the file without its Startup settings (the Core's own kept)
+            bare = load("".join(l for l in text.splitlines(True)
+                                if not l.startswith("ConfigGroup,System,Startup,") or
+                                l.startswith("ConfigGroup,System,Startup,Core,")))
+            fresh = spec(bare)
+            bare.unloadAllDevices()
+            core = load(text)
+            rows = registry(core)
+
+            def optics(rs):
+                return {name: float(r["value"]) for r in rs.values() for key, name in OPTICS.items()
+                        if r.get("key") == key}
+            start_optics = optics(rows)
+            groups = []
+            for g in core.getAvailableConfigGroups():
+                if g == "System":
+                    continue
+                names = list(core.getAvailableConfigs(g))
+                settings = {n: [tuple(x)[:3] for x in core.getConfigData(g, n)] for n in names}
+                props = {(d, p) for n in names for d, p, _ in settings[n]}
+                only = rows.get(next(iter(props))) if len(props) == 1 else None
+                if len(names) == 1 and only and only.get("lo") is not None:
+                    groups.append({"name": g, "slider": {"key": only["key"], "lo": float(only["lo"]),
+                                                         "hi": float(only["hi"]), "value": float(only["value"])}})
+                    continue
+                states, opt = {}, {}
+                for n in names:   # each on a fresh hub at Startup (a preset can leave a value it does not set behind)
+                    one = load(text)
+                    one.setConfig(g, n)
+                    one.waitForSystem()
+                    states[n] = spec(one)
+                    opt[n] = optics(registry(one))
+                    one.unloadAllDevices()
+                # the options of the rows the presets set (a label's dye: -1 = Typical whatever the mode) and those
+                # that differ between the presets or from a fresh hub's
+                own = {rows[p]["key"] for p in props if p in rows and rows[p]["key"] in fresh}
+                keys = sorted(own | {k for n in names for k, v in states[n].items()
+                                     if v != fresh.get(k) or v != states[names[0]].get(k)})
+                presets = []
+                for n in names:
+                    # an option the spec leaves out is at the engine's default (null; the specimen when it is 0)
+                    pr = {"name": n, "set": {k: states[n].get(k, fresh.get(k)) for k in keys}}
+                    shutter = [v for d, p, v in settings[n] if d == "Core" and p == "Shutter"]
+                    if shutter:
+                        pr["light"] = LIGHT.get(shutter[0], "epi")
+                    moved = {k for m in names for k, v in opt[m].items() if v != start_optics[k] or v != opt[names[0]][k]}
+                    if moved:
+                        pr["optics"] = {k: opt[n][k] for k in sorted(moved)}
+                    presets.append(pr)
+                groups.append({"name": g, "presets": presets})
+            core.setConfig("System", "Startup")
+            core.waitForSystem()
+            startup = {g: core.getCurrentConfig(g) for g in core.getAvailableConfigGroups() if g != "System"}
+            out[tier] = {"groups": groups, "startup": startup, "optics": start_optics}
+            core.unloadAllDevices()
+    os.environ["ISC_TEST"] = "0"
+    return ("// The Micro-Manager configurations' groups for the viewer's live panel (web/live/mm_config_ui.js): generated\n"
+            "// by tools/gen_mm_configs.py with adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg, from the\n"
+            "// engine spec the adapter renders each preset with -- do not edit.\n"
+            "self.ISC_MM_CONFIG = " + json.dumps(out, indent=1) + ";\n")
+
+
 def main():
     check = "--check" in sys.argv
     lib = json.loads((ROOT / "data" / "dyes" / "library.json").read_text(encoding="utf-8"))
@@ -236,15 +350,28 @@ def main():
         sys.exit(f"gen_mm_configs: no relay magnification for camera preset(s) {sorted(missing)} (CAMERA_RELAY)")
     stale = []
     OUT.mkdir(parents=True, exist_ok=True)
+    import tempfile
+    tmpdir = tempfile.TemporaryDirectory()
+    cfg_paths = {}
     for tier in TIERS:
         text = build(tier, info, typical, cameras)
         path = OUT / f"inSiliScope_{tier}.cfg"
+        cfg_paths[tier] = Path(tmpdir.name) / path.name   # the viewer's copy is made from the new text
+        cfg_paths[tier].write_text(text, encoding="utf-8", newline="\n")
         if check:
             if not path.exists() or path.read_text(encoding="utf-8") != text:
                 stale.append(path.name)
         else:
             path.write_text(text, encoding="utf-8", newline="\n")
             print(f"wrote {path.relative_to(ROOT)}")
+    viewer = viewer_presets(cfg_paths)
+    tmpdir.cleanup()
+    if check:
+        if not VIEWER_OUT.exists() or VIEWER_OUT.read_text(encoding="utf-8") != viewer:
+            stale.append(VIEWER_OUT.name)
+    else:
+        VIEWER_OUT.write_text(viewer, encoding="utf-8", newline="\n")
+        print(f"wrote {VIEWER_OUT.relative_to(ROOT)}")
     if stale:
         sys.exit(f"out of date (run tools/gen_mm_configs.py): {', '.join(stale)}")
     if check:

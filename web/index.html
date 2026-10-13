@@ -2760,7 +2760,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'psf') {
         // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
         const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
@@ -2940,6 +2940,14 @@ function iscEngine(M) {
         return [{ type: 'bf-end', id: d.id }, []];
       }
       if (d.type === 'live') return liveFrame(d, post);
+      if (d.type === 'options') {
+        // the movie options the module knows (isc_scope_options: name \t default \t help per line)
+        const n = M._isc_scope_options(0, 0) + 1, b = M._malloc(n);
+        M._isc_scope_options(b, n);
+        const lines = M.UTF8ToString(b).split('\n').filter(Boolean).map(l => l.split('\t'));
+        M._free(b);
+        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]) }, []];
+      }
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
@@ -3043,9 +3051,11 @@ function initGenWorkers() {
       else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t === 'origami') onOrigamiResult(e.data);
+      else if (t === 'options') { if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults); }
       else if (t !== 'bf-end') onDyeResult(e);
     };
     genWorkers.ok = true;
+    if (!engineUrl()) genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
@@ -4249,6 +4259,9 @@ function movieSpec(ov) {
   if (ov) for (const k in ov) if (k !== 'x' && k !== 'y' && !MOVIE_KEYS.includes(k)) o.push(k + '=' + (+ov[k]));
   // The flat QE checkbox (Camera): the Custom camera's flat curve at mv_qe; unticked, the preset's curve (qe-curve -1).
   if (document.getElementById('qeFlat').checked) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
+  // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
+  const mmExtra = self.ISC_MM_EXTRA || {};
+  for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
   o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
@@ -5389,6 +5402,8 @@ setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D 
 resizeCanvas();
 </script>
 <script src="live/live.js"></script>
+<script src="live/mm_config.js"></script>
+<script src="live/mm_config_ui.js"></script>
 <script src="anim/editor.js"></script>
 </body>
 </html>
