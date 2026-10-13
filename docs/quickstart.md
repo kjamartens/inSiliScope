@@ -20,6 +20,9 @@ Open the [viewer](try-viewer.md). Nothing to install.
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
       `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`
       (`CellField` / `Nanorulers`, the `SampleHolder` position);
+    - `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)`: the two lines' powers at the sample as editable fields in
+      the main window (one property each, `Lasers.Laser561KWcm2` / `Laser640KWcm2`; 0 = off), e.g. 561 alone for the
+      nuclear pores, 640 alone for the microtubules;
       **Quality also sets how much of each blink's PSF halo is drawn**: Fast and Realistic leave out pixels below 1e-5
       and 3e-6 of the emitter's photons, Exhaustive draws the whole kernel ([the halo cut](physics/optics.md));
     - and the pixel-size calibration of every objective and camera.

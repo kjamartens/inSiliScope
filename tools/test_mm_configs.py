@@ -1,7 +1,8 @@
 """Loads the shipped Micro-Manager configurations (adapter/inSiliScope/config/, tools/gen_mm_configs.py) and checks them:
 the startup state, every preset of every group (applies, and MM recognises it as the current one), MM's pixel size =
 the engine's for every objective x camera, a snap per Channel preset that is not blank, and a dSTORM snap of the
-mounted nanorulers (Specimen) that is not blank either.
+mounted nanorulers (Specimen) that is not blank either; the laser power groups are one property and one preset (Studio's
+editable field) and move the laser's power.
 
   ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py      (< 2 min)
 """
@@ -14,7 +15,7 @@ from pathlib import Path
 os.environ["ISC_TEST"] = "0"   # what a user loads: no Test rows
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
-from gen_mm_configs import OUT, SENSOR_UM, TIERS, load_sensors  # noqa: E402
+from gen_mm_configs import LASER_GROUP_NM, OUT, SENSOR_UM, TIERS, laser_group, laser_prop, load_sensors  # noqa: E402
 from isc_mm import search_paths  # noqa: E402
 
 
@@ -49,6 +50,21 @@ def check(tier):
             cur = core.getCurrentConfig(g)
             assert cur == preset, f"{tier}: {g} = {preset!r} applied, MM reports {cur!r}"
     n_presets = sum(len(core.getAvailableConfigs(g)) for g in groups)
+
+    # The laser power groups: one preset of one property (Studio shows the property itself, editable); a power typed
+    # there is the laser's.
+    for nm in LASER_GROUP_NM:
+        g = laser_group(nm)
+        assert g in groups, f"{tier}: no group {g!r}"
+        presets = list(core.getAvailableConfigs(g))
+        cfg = core.getConfigData(g, presets[0])
+        assert len(presets) == 1 and cfg.size() == 1, f"{tier}: {g}: {len(presets)} presets, {cfg.size()} properties"
+        s = cfg.getSetting(0)
+        assert (s.getDeviceLabel(), s.getPropertyName()) == ("Lasers", laser_prop(nm)), f"{tier}: {g}: {s.getKeyValue()}"
+        lo, hi = core.getPropertyLowerLimit("Lasers", laser_prop(nm)), core.getPropertyUpperLimit("Lasers", laser_prop(nm))
+        assert core.hasPropertyLimits("Lasers", laser_prop(nm)) and lo == 0 < hi, f"{tier}: {g}: limits {lo} .. {hi}"
+        core.setProperty("Lasers", laser_prop(nm), 0.25)
+        assert abs(float(core.getProperty("Lasers", laser_prop(nm))) - 0.25) < 1e-9
 
     # MM's pixel size (config / EmissionPath) = the engine's, for every objective x camera.
     n_px = 0

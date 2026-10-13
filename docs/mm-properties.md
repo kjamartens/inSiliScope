@@ -5,8 +5,8 @@
 The inSiliScope adapter is a hub (`inSiliScope`) with one device per part of the microscope. Every property has a
 **tier**: the hub's pre-init `Detail` (Basic, Advanced or Expert) decides which tiers a session shows; a property
 above it is not created and keeps its default. The shipped configurations `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg`
-load the devices with their config groups (Channel, Objective, Camera, Quality, Drift, Specimen) and pixel-size
-calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
+load the devices with their config groups (Channel, Objective, Camera, Quality, Drift, Specimen, the 561 and 640 nm
+laser powers) and pixel-size calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
 Micro-Manager's own properties (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...) are not listed.
 
 | Device | Type | Tier | What it is |

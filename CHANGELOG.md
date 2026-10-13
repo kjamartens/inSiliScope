@@ -15,6 +15,8 @@ Versions follow semver; while 0.x, any release may change output for a given see
   primary + secondary antibodies with a docking strand (IgG2-PAINT, dyes on a ~32 nm shell), so every default image
   changed; `mt-binder Legacy` (MM `Microtubules_Binder`) keeps the old dye positions. Core ABI 13 (`isc_cell_npcs`,
   structure ids: nanoruler docking strands now 2). The adapter's GPU splat takes up to four blinking labels.
+- Shipped MM configurations: config groups `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)` (one property each, so
+  Studio shows the power as an editable field in its main window), in Basic, Advanced and Expert.
 
 - DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
   Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
