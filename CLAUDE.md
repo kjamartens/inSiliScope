@@ -89,6 +89,11 @@ that finishes them.
 ## Build and test
 
 - Core native: `cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8`
+- Quick builds (2026-10-13), no tests: `cmake --build --preset msvc-cli` (only `insiliscope_cli`, ~30 s after a core +
+  engine change; the full `msvc` build ~95 s) and `cmake --build --preset wasm-viewer` (only the viewer module and the
+  webSMLM block, ~30 s after a core change; the full `wasm` build ~70 s: seven ThinLTO + wasm-opt links of ~25 s each
+  compete). The render engine (`ISC_SIM_SRC`) is one static library, `insiliscope_sim`, that the cli and every check
+  link (it was compiled per executable: 254 s for an engine change).
 - Lab (JS iteration loop, `web/lab/README.md`): `cmake --build --preset lab` (or `node web/lab/serve.mjs --open`)
   starts the dev server and opens http://localhost:8123/web/lab.html (the viewer on the JS); Ctrl+C stops it.
   `node web/lab/engine_check.mjs`: lab.html's engine == the viewer's WASM engine (part of `tools/port_check.sh`).
