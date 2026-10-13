@@ -50,9 +50,12 @@ void ExpectationCase(const char* name, int mode, const std::vector<Kin>& kin, co
 {
    const auto tq = std::chrono::steady_clock::now();
    IscParams* params = isc_params_new();
+   isc_params_set(params, "npcDensity", 0);   // the microtubules alone
    IscWorld* w = isc_world_new(1249, params);
    isc_params_free(params);
    std::vector<double> label(ISC_LABEL_COUNT, 0.0);
+   for (int i = ISC_LABEL_BINDER_NM; i <= ISC_LABEL_LINKER_MAX_NM; ++i)
+      label[static_cast<size_t>(i)] = std::nan("");   // the built-in linkage
    label[ISC_LABEL_DENSITY] = 0.7;
    label[ISC_LABEL_FLUORESCENT_FRACTION] = 1.0;
    label[ISC_LABEL_MODE] = mode;

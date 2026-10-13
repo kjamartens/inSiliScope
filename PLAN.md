@@ -37,6 +37,13 @@ Upcoming ideas:
   plate, face up; 2026-10-13, branch `claude/origami-spacing-2d`).
   Next: [ ] 3D designs (cuboid, 3D bending, ring heights validated), [ ] face-down 2D origami (mirrored), [ ] DNA-PAINT
   kinetics per imager sequence.
+- Nuclear pore complexes, a second cell-field target (issue 15, 2026-10-12, branch `claude/npc-target`, spec/PORT.md
+  21): [x] JS model in iteration mode (Nup96 rings, area-uniform over the envelope, min spacing), [x] label linkage
+  (binder / flexibility / linker presets, defaults MT IgG2-PAINT, pores SNAP-Halo), [x] core ABI 13, [x] engine/cli
+  (per-target options, None, combined auto light), [x] viewer + block, [x] MM (per-target `_Mode`, `Fluorophores.Mode`
+  removed, `Lasers.Preset` Auto), [x] GPU splat with up to 4 blink groups, [x] docs, figures, gallery.
+  Next: [ ] the viewer's 8-fold ring layer and per-structure dye colours (visualisation branch), [ ] `--dyes-json`
+  with each dye's binding site and binder end (the viewer's linkage layer), [ ] pore variability (CIR4MICS).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

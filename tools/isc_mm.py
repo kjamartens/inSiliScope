@@ -36,10 +36,12 @@ def search_paths(require_mm=True):
     return [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR") or find_mm_dir()) if d]
 
 
-def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICES, epi=True, trans=False):
+def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICES, epi=True, trans=False, pores=False):
     """The hub and its devices (labels = device names), initialized; camera, stages and shutter roles set. The light:
     the lasers open (fluorescence) unless epi is False, the lamp open if trans; autoshutter off; the sample's time
-    paused between acquisitions (SampleHolder.TimeWhileIdle)."""
+    paused between acquisitions (SampleHolder.TimeWhileIdle). The cell field's nuclear pores (on by default since
+    issue 15) are unlabelled (NuclearPores_Label None: the microtubules alone, as the checks were written; the Lasers'
+    Auto preset is then the microtubules' PAINT-640) unless pores."""
     core.loadDevice(HUB, "inSiliScope", "inSiliScope")
     core.setProperty(HUB, "Detail", detail)
     core.setProperty(HUB, "RandomSeed", str(seed))
@@ -60,6 +62,8 @@ def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICE
     # (no drift, no light from the opened lasers while nothing acquires).
     if "SampleHolder" in devices:
         core.setProperty("SampleHolder", "TimeWhileIdle", "Paused")
+    if "CellField" in devices and not pores:
+        core.setProperty("CellField", "NuclearPores_Label", "None")
     set_light(core, epi, trans)
 
 
@@ -95,10 +99,11 @@ def precomputed(core, on=True):
     core.setProperty("Camera", "Test_AcqMode", "Precomputed" if on else "Live")
 
 
-def label(core, mode, dye="Typical"):
-    """The microtubules' label: the experiment's mode (Fluorophores), then their dye (Typical, or one with data in it)."""
-    core.setProperty("Fluorophores", "Mode", mode)
-    core.setProperty("CellField", "Microtubules_Label", dye)
+def label(core, mode, dye="Typical", target="Microtubules", device="CellField"):
+    """A target's label (the microtubules by default): its own mode, then its dye (Typical, one with data in it, or
+    None)."""
+    core.setProperty(device, target + "_Mode", mode)
+    core.setProperty(device, target + "_Label", dye)
 
 
 def custom_microtubule_dye(core, **fields):

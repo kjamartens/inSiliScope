@@ -9,10 +9,12 @@
 #include "dyes.h"
 #include "jsmath.h"
 #include "microtubules.h"
+#include "npcs.h"
 #include "origami.h"
 #include "packing.h"
 #include "params.h"
 #include "rng.h"
+#include "world.h"
 
 #include <chrono>
 #include <cinttypes>
@@ -31,7 +33,8 @@ uint32_t ToU32(long long v) { return (uint32_t)(int64_t)v; }   // JS `|0` then r
 
 uint64_t Bits(double d) { uint64_t u; std::memcpy(&u, &d, 8); return u; }
 
-void PrintD(FILE* f, double d) { std::fprintf(f, " %.17g", d); }
+// JS String() prints -0 as "0", so the sign of a zero is not compared.
+void PrintD(FILE* f, double d) { std::fprintf(f, " %.17g", d == 0 ? 0.0 : d); }
 
 void MathCheck(FILE* f, int n)
 {
@@ -113,6 +116,63 @@ void CellsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p,
             if (!pts.empty()) { PrintD(f, pts.back().x); PrintD(f, pts.back().y); PrintD(f, pts.back().z); }
             std::fprintf(f, "\n");
             if (i % 16 == 0 && pts.size() >= 2) MtlLine(f, id, cx, cy, i, pts);
+         }
+      }
+   }
+}
+
+// Nuclear pores of the first `maxCells` present candidates (js_reference.mjs 'npcs').
+void NpcsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, int cx0, int cy0, int cx1, int cy1,
+              int maxCells)
+{
+   double sites[NPC_SITES * 3];
+   NpcAttachmentPoints(p, sites);
+   std::fprintf(f, "npa %s 0 0 0 %d", id.c_str(), NPC_SITES * 3);
+   for (double v : sites) PrintD(f, v);
+   std::fprintf(f, "\n");
+   Linkage flex;
+   flex.binderNm = 10; flex.binderFlexNm = 4; flex.linkerMinNm = 1; flex.linkerMaxNm = 6;
+   const Linkage links[2] = { NormLinkage(LegacyLinkage(STRUCTURE_NPC)), NormLinkage(flex) };
+   int done = 0;
+   for (int cx = cx0; cx <= cx1 && done < maxCells; cx++) {
+      for (int cy = cy0; cy <= cy1 && done < maxCells; cy++) {
+         const Cell c = RawCandidate(seed, cx, cy, p);
+         if (!c.present) continue;
+         done++;
+         const NucSurfaceMesh M = BuildNucSurfaceMesh(c);
+         const std::vector<Npc> pores = BuildNpcsForCell(seed, cx, cy, c, p);
+         double s[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+         for (const Npc& q : pores) {
+            s[0] += q.c.x; s[1] += q.c.y; s[2] += q.c.z;
+            s[3] += q.n.x; s[4] += q.n.y; s[5] += q.n.z;
+            s[6] += q.e1.x; s[7] += q.e1.y; s[8] += q.e1.z;
+         }
+         std::fprintf(f, "npc %s %d %d 0 %zu", id.c_str(), cx, cy, pores.size());
+         PrintD(f, M.area); PrintD(f, M.fBot); PrintD(f, M.fTop);
+         for (double v : s) PrintD(f, v);
+         for (size_t i = 0; i < pores.size(); i += 23) {
+            const Npc& q = pores[i];
+            std::fprintf(f, " %d %d", q.cand, q.piece);
+            for (const Pt3* v : { &q.c, &q.n, &q.e1, &q.e2 }) { PrintD(f, v->x); PrintD(f, v->y); PrintD(f, v->z); }
+         }
+         std::fprintf(f, "\n");
+         std::vector<int32_t> ids;
+         for (int32_t i = 0; i < (int32_t)pores.size() && i < 40; i++) ids.push_back(i);
+         for (int v = 0; v < 2; v++) {
+            std::vector<NpcDye> dyes;
+            std::vector<LinkageParts> parts;
+            NpcDyesInBlock(seed, cx, cy, pores, ids, sites, 0.7, 0.9, dyes, links[v], &parts);
+            double sx = 0, sy = 0, sz = 0;
+            for (const NpcDye& e : dyes) { sx += e.pos.x; sy += e.pos.y; sz += e.pos.z; }
+            std::fprintf(f, "npd %s %d %d %d %zu", id.c_str(), cx, cy, v, dyes.size());
+            PrintD(f, sx); PrintD(f, sy); PrintD(f, sz);
+            for (size_t i = 0; i < dyes.size(); i += 7) {
+               const NpcDye& e = dyes[i];
+               const LinkageParts& P = parts[i];
+               std::fprintf(f, " %d %d %d %u", e.pore, e.k, e.n, e.id);
+               for (const Pt3* q : { &e.pos, &P.site, &P.rigid, &P.tip }) { PrintD(f, q->x); PrintD(f, q->y); PrintD(f, q->z); }
+            }
+            std::fprintf(f, "\n");
          }
       }
    }
@@ -201,6 +261,10 @@ int main(int argc, char** argv)
          std::string id, pname; long long seed; int cx0, cy0, cx1, cy1, maxCells;
          ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1 >> maxCells;
          CellsCase(f, id, ToU32(seed), paramSets.at(pname), cx0, cy0, cx1, cy1, maxCells);
+      } else if (kind == "npcs") {
+         std::string id, pname; long long seed; int cx0, cy0, cx1, cy1, maxCells;
+         ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1 >> maxCells;
+         NpcsCase(f, id, ToU32(seed), paramSets.at(pname), cx0, cy0, cx1, cy1, maxCells);
       } else if (kind == "origami") {
          std::string id, kv; long long seed; double x0, y0, x1, y1;
          ss >> id >> seed >> x0 >> y0 >> x1 >> y1;

@@ -45,11 +45,13 @@ namespace sim {
 
 // One emitter of one frame, as the GPU reads it: SplatSetup() output plus
 // its total photons for the frame (overlap, brightness and illumination
-// already folded in) and its z plane. 64 bytes, matching the HLSL struct.
+// already folded in), its z plane and kernel. 64 bytes, matching the HLSL
+// struct.
 struct GpuSplatEmitter
 {
    int32_t x0, y0, bx, by;
-   int32_t plane, nTaps;
+   int32_t plane;   // the z plane | the kernel's index (SetKernels) << 16
+   int32_t nTaps;
    float photons;
    int32_t cutRadius2;   // the halo cut's largest dx^2 + dy^2 at this plane (PsfHaloSpans::radius2); no cut: INT32_MAX
    float wx[4];
@@ -64,9 +66,13 @@ public:
    static std::unique_ptr<GpuSimulator> Create(std::string& outInfo);
    ~GpuSimulator();
 
-   // Uploads cache.blockSums (all planes). Must be called again after the
-   // cache changes.
-   bool SetKernel(const PsfKernelCache& cache, std::string& outError);
+   // At most this many kernels (blink groups) at once.
+   static constexpr size_t kMaxKernels = 4;
+   // Uploads each kernel's blockSums (all planes) and halo-cut spans; an
+   // emitter names its kernel by index (GpuSplatEmitter::plane). A kernel
+   // given twice (the same planes) is held once. Must be called again after
+   // a kernel changes.
+   bool SetKernels(const std::vector<const PsfKernelCache*>& kernels, std::string& outError);
 
    // Per-pixel static inputs for a width x height frame: offset (ADU), gain
    // (photons/ADU), read noise (e-) -- each either width*height long or

@@ -137,7 +137,18 @@ def layer_nucleus(cv, cells):
         cv.draw.line(pts + pts[:1], fill=(240, 120, 230, 230), width=2 * SS)
 
 
-STRUCTURE_LAYERS = [layer_cytoplasm, layer_microtubules, layer_nucleus, layer_outline]
+def layer_pores(cv, cells):
+    """The nuclear pores (geometry detail "npcs": centre, outward normal, e1): a dot per pore, light on the upper
+    half of the envelope (normal up), dark on the lower half, as the viewer's bordeaux."""
+    r = max(1, SS // 2)
+    for c in cells:
+        for q in c.get("npcs", []):
+            x, y = cv.p(q[0], q[1])
+            col = (230, 120, 150, 200) if q[5] >= 0 else (150, 30, 70, 200)
+            cv.draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
+
+
+STRUCTURE_LAYERS = [layer_cytoplasm, layer_microtubules, layer_nucleus, layer_pores, layer_outline]
 
 
 def draw_map(geo, fov, path):

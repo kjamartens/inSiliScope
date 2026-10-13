@@ -48,13 +48,12 @@ void InSiliScopeHub::LoadTargetDye(int s, bool modeMayChange)
       Notify(prefix + "-label-pct");
    }
    st.lastTargetMode[s] = eff.mode;
-   // The camera gain and the light path follow the mounted specimen's label only.
+   // The camera gain follows the mounted specimen's first label, the light path its labelled targets together.
    if (SpecimenIds()[static_cast<size_t>(st.MountedSpecimen())] == TargetAt(s).specimen)
    {
       if (modeChanged)
          ApplyModeGain();
-      if (eff.dye.modes[eff.mode].lightPreset)
-         ApplyLightPreset(eff.dye.modes[eff.mode].lightPreset);
+      ApplyLightPreset("Auto");
    }
    for (int i = 0; i < 3; ++i)
       Notify(prefix + "-readout-" + std::to_string(i));
@@ -87,50 +86,52 @@ std::vector<std::string> InSiliScopeHub::LabelChoices(int s)
       if (DyeHasModeData(i, eff.mode))
          v.push_back(DyeIds()[static_cast<size_t>(i)]);
    if (Shows(isc::Tier::Expert))
-      for (size_t i = static_cast<size_t>(nLib); i < DyeChoices().size(); ++i)
+      for (size_t i = static_cast<size_t>(nLib); i < static_cast<size_t>(DyeNoneChoice()); ++i)
          v.push_back(DyeChoices()[i]);
+   v.push_back("None");
    return v;
 }
 
-void InSiliScopeHub::LabelModeChanged()
+void InSiliScopeHub::TargetModeChanged(int s)
 {
-   // Every target (the Fluorophores Mode is the experiment's; a target's own mode changes it alone, the others reload
-   // unchanged): the mounted specimen's last, so its light preset is the one that stays.
-   const int first = sim::SpecimenAt(state_.MountedSpecimen()).firstTarget;
-   std::vector<int> order;
-   for (int t = 0; t < sim::TargetCount(); ++t)
-      if (t != first)
-         order.push_back(t);
-   order.push_back(first);
-   for (int t : order)
+   if (s < 0 || s >= sim::TargetCount())
+      return;
+   const std::string key = std::string(sim::TargetAt(s).prefix) + "-dye";
+   // A label the new mode has no data for becomes Typical (the mode's usual dye); None stays.
+   const int v = static_cast<int>(state_.Option(key));
+   if (v >= 0)
    {
-      const std::string key = std::string(sim::TargetAt(t).prefix) + "-dye";
-      // A label the new mode has no data for becomes Typical (the mode's usual dye).
-      const int v = static_cast<int>(state_.Option(key));
-      if (v >= 0)
-      {
-         const std::vector<std::string> allowed = LabelChoices(t);
-         if (std::find(allowed.begin(), allowed.end(), sim::DyeChoices()[static_cast<size_t>(v)]) == allowed.end())
-            state_.SetOption(key, -1);
-      }
-      RefreshChoices(key);
-      Notify(key);
-      LoadTargetDye(t, true);
+      const std::vector<std::string> allowed = LabelChoices(s);
+      if (std::find(allowed.begin(), allowed.end(), sim::DyeChoices()[static_cast<size_t>(v)]) == allowed.end())
+         state_.SetOption(key, -1);
    }
+   RefreshChoices(key);
+   Notify(key);
+   LoadTargetDye(s, true);
 }
 
 void InSiliScopeHub::ApplyLightPreset(const std::string& id)
 {
-   const sim::LightPresetData* q = sim::FindLightPreset(id);
-   if (!q)
-      return;
    const std::vector<int>& lines = sim::LaserLines();
-   for (size_t l = 0; l < lines.size(); ++l)
-      state_.SetOption("laser-" + std::to_string(lines[l]), q->lasers[l]);
-   state_.SetOption("ex-filter", sim::IndexOf(sim::ExcitationFilterIds(), q->excitationFilter));
-   state_.SetOption("dichroic", sim::IndexOf(sim::DichroicIds(), q->dichroic));
-   state_.SetOption("em-filter", sim::IndexOf(sim::EmissionFilterIds(), q->emissionFilter));
-   state_.SetLightPreset(id);
+   if (id == "Auto")
+   {
+      sim::ScopeLightPresetValues q;
+      std::string err;
+      if (!sim::ScopeAutoLightPreset(isc::BuildScopeSpec(state_, 0, 0, 0, 0, 1), q, err))
+      {
+         Log("Lasers.Preset Auto: " + err, false);
+         return;
+      }
+      state_.SetLight(id, q.lasers, q.excitationFilter, q.dichroic, q.emissionFilter);
+   }
+   else
+   {
+      const sim::LightPresetData* q = sim::FindLightPreset(id);
+      if (!q)
+         return;
+      state_.SetLight(id, std::vector<double>(q->lasers, q->lasers + lines.size()),
+                      q->excitationFilter ? q->excitationFilter : "None", q->dichroic, q->emissionFilter);
+   }
    for (size_t l = 0; l < lines.size(); ++l)
       Notify("laser-" + std::to_string(lines[l]));
    Notify("ex-filter");

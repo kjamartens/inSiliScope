@@ -26,7 +26,11 @@
  * the param 'specimen' picks the world's geometry (0 the cell field, 1 the
  * DNA-origami nanorulers), structure ISC_STRUCT_ORIGAMI_SITES (so
  * ISC_STRUCT_COUNT 2 and a wider ISC_KIN_ROW), isc_origami_in_window /
- * isc_origami_outline / isc_origami_sites.
+ * isc_origami_outline / isc_origami_sites. ABI 13 (issue 15): nuclear pores
+ * on the cell field's nuclei (structure ISC_STRUCT_NPC 1, so the docking
+ * strands move to 2 and ISC_STRUCT_COUNT is 3; params npc*), the label
+ * linkage (ISC_LABEL_BINDER_NM .. ISC_LABEL_LINKER_MAX_NM: where a dye sits
+ * relative to its binding site), isc_cell_npcs.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -47,7 +51,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 12
+#define ISC_ABI_VERSION 13
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -154,8 +158,9 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
 /* ---- Labels (ABI 10, issue 16; spec/PORT.md 16) ----
  * The structures that carry dyes, one label each: */
 #define ISC_STRUCT_MICROTUBULE 0
-#define ISC_STRUCT_ORIGAMI_SITES 1   /* ABI 12: the docking strands of a nanoruler world */
-#define ISC_STRUCT_COUNT 2
+#define ISC_STRUCT_NPC 1             /* ABI 13: the nuclear pores of a cell field (64 Nup96 sites each) */
+#define ISC_STRUCT_ORIGAMI_SITES 2   /* ABI 12 (2 since ABI 13): the docking strands of a nanoruler world */
+#define ISC_STRUCT_COUNT 3
 /* A label is ISC_LABEL_COUNT doubles at these indices:
  *   DENSITY              fraction of the structure's binding sites labelled (0..1)
  *   FLUORESCENT_FRACTION fraction of those whose dye is fluorescent (0..1; 1 = all)
@@ -169,6 +174,19 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  *                        ORIENT_AZIMUTH_DEG (Fixed), WOBBLE_DEG (cone half-angle)
  *   MOTION               0 = Static (SPT: not implemented yet)
  *   OFFTARGET_COUNT      0 (off-target binding: not implemented yet)
+ *   BINDER_NM, BINDER_FLEX_NM, LINKER_MIN_NM, LINKER_MAX_NM (ABI 13): the
+ *                        label linkage -- the probe reaches BINDER_NM from the
+ *                        binding site along the structure's axis (microtubule:
+ *                        radially out of the lattice; pore: its corner's
+ *                        direction in the ring plane), its end lies uniformly in
+ *                        a ball of BINDER_FLEX_NM about that, and the dye at the
+ *                        end of a linker of length uniform in volume in
+ *                        [LINKER_MIN_NM, LINKER_MAX_NM], direction uniform.
+ *                        Negative values count as 0 (LINKER_MAX at least
+ *                        LINKER_MIN). Not given (n <= 16) or any of the four NaN:
+ *                        the structure's built-in numbers (microtubules 12, 0,
+ *                        2, 5; pores 0, 0, 2, 5). The docking strands ignore it
+ *                        (their own origamiLinkerNm).
  * Schedules: dSTORM = initial ON, then blinks (first after Exp(1/rate), ON
  * Exp(onSec), bleach with BLEACH_PROB or dark Exp(offSec), at most 1000
  * blinks); PALM = the same blinks (with a pre state: a PRE window until the
@@ -191,7 +209,11 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
 #define ISC_LABEL_WOBBLE_DEG 13
 #define ISC_LABEL_MOTION 14
 #define ISC_LABEL_OFFTARGET_COUNT 15
-#define ISC_LABEL_COUNT 16
+#define ISC_LABEL_BINDER_NM 16
+#define ISC_LABEL_BINDER_FLEX_NM 17
+#define ISC_LABEL_LINKER_MIN_NM 18
+#define ISC_LABEL_LINKER_MAX_NM 19
+#define ISC_LABEL_COUNT 20
 #define ISC_MODE_DSTORM 0
 #define ISC_MODE_PALM 1
 #define ISC_MODE_DNA_PAINT 2
@@ -202,8 +224,9 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
 /* Sets structure's label from v[0..n) (n <= ISC_LABEL_COUNT; the indices not
  * given keep the defaults: density 0.7, fraction 1, DNA-PAINT, rate 0.01,
  * ON 0.05, dark 1, bleach 1, CV 0.5, no initial ON, no pre state, Free, 90,
- * 0, 0, Static, 0). A change of density or fraction redraws the dyes (the
- * geometry stays cached), any other change only re-schedules them. Returns 0;
+ * 0, 0, Static, 0, the structure's linkage). A change of density, fraction
+ * or linkage redraws the dyes (the geometry stays cached), any other change
+ * only re-schedules them. Returns 0;
  * -1 on bad arguments (unknown structure or mode, a pre state without PALM,
  * ON <= 0, negative rates); -2 for what is not implemented yet (a motion
  * other than Static, off-target entries). Nothing changes on an error. */
@@ -281,6 +304,13 @@ ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, doubl
  * bottom to top (zeta = -cos(pi i / (slices - 1)): both poles included), as
  * x, y, z triples, index k*pts + i (up to capPts points). Returns
  * slices*pts. */
+/* Nuclear pores (ABI 13): the pores of the cell of chunk (cx, cy) in candidate
+ * order, ISC_NPC_STRIDE doubles each, cell-local: centre x, y, z (on the
+ * membrane), the outward unit normal (the pore axis) and e1 (the ring plane's
+ * direction of corner 0; e2 = n x e1). Up to cap pores; returns the pore
+ * count (0 with npcDensity 0), or -1 if the chunk holds no cell. */
+#define ISC_NPC_STRIDE 9
+ISC_API int32_t isc_cell_npcs(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap);
 ISC_API int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
                                        double* out, int32_t capPts);
 

@@ -22,6 +22,7 @@ const Field kFields[] = {
    FLAG(enablePacking), FLAG(allowPackRotation), NUM(packFrac), NUM(relaxIters), NUM(relaxDamping),
    NUM(mtDensity), NUM(mtStartDecayPct), NUM(mtEndDecayPct), NUM(mtDirKappa), NUM(mtWobbleTurn), NUM(mtWobbleFactor),
    NUM(mtStepLen), NUM(mtSmoothLen), NUM(mtMinTurnRadius), NUM(mtMinSeparation), NUM(mtMaxZSlope),
+   NUM(npcDensity), NUM(npcMinDistNm), NUM(npcRadiusNm), NUM(npcRingSepNm), NUM(npcCornerSpreadNm),
    NUM(specimen), NUM(origamiDesign), NUM(origamiSpacingNm), NUM(origamiDensity), NUM(origamiMinSpacingNm), NUM(origamiBend), NUM(origamiLpNm),
    NUM(origamiStrandsPerSpot), NUM(origamiAttachNm), NUM(origamiLinkerNm), NUM(origamiRoll), NUM(origamiRollDeg),
    NUM(origamiHeights),
@@ -41,7 +42,7 @@ uint64_t PackingFingerprint(const Params& p)
       }
    };
    for (const Field& f : kFields) {
-      if (std::strncmp(f.name, "mt", 2) == 0 || std::strncmp(f.name, "label", 5) == 0 ||
+      if (std::strncmp(f.name, "mt", 2) == 0 || std::strncmp(f.name, "npc", 3) == 0 || std::strncmp(f.name, "label", 5) == 0 ||
           std::strncmp(f.name, "origami", 7) == 0 || std::strcmp(f.name, "specimen") == 0)
          continue;
       const double v = f.num ? p.*(f.num) : (p.*(f.flag) ? 1.0 : 0.0);

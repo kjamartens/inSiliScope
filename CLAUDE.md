@@ -89,6 +89,11 @@ that finishes them.
 ## Build and test
 
 - Core native: `cmake --preset msvc && cmake --build --preset msvc && ctest --test-dir build/msvc -C Release -j 8`
+- Quick builds (2026-10-13), no tests: `cmake --build --preset msvc-cli` (only `insiliscope_cli`, ~30 s after a core +
+  engine change; the full `msvc` build ~95 s) and `cmake --build --preset wasm-viewer` (only the viewer module and the
+  webSMLM block, ~30 s after a core change; the full `wasm` build ~70 s: seven ThinLTO + wasm-opt links of ~25 s each
+  compete). The render engine (`ISC_SIM_SRC`) is one static library, `insiliscope_sim`, that the cli and every check
+  link (it was compiled per executable: 254 s for an engine change).
 - Lab (JS iteration loop, `web/lab/README.md`): `cmake --build --preset lab` (or `node web/lab/serve.mjs --open`)
   starts the dev server and opens http://localhost:8123/web/lab.html (the viewer on the JS); Ctrl+C stops it.
   `node web/lab/engine_check.mjs`: lab.html's engine == the viewer's WASM engine (part of `tools/port_check.sh`).
@@ -195,9 +200,10 @@ shutters (`Lasers` = fluorescence, `TransmittedLamp` = BrightField, both = summe
 frames; engine options `light-epi`/`light-trans`, `modality` stays the cli/viewer shorthand). Pixel size = the camera's
 `SensorPixelUm` / (objective x `EmissionPath.EmissionMagnification`, default 0.667: 97.45 nm with the Kinetix22 at 100x;
 the cli/viewer `pixel-nm` stays 100). Excitation (laser clean-up) filters: engine `ex-filter`/`ex-lo-nm`/`ex-hi-nm`,
-a line's power x the filter's T at it. The EMCCD ignores the sCMOS per-pixel spreads. Labels: `Fluorophores.Mode`
-(experiment-wide) and `CellField.Microtubules_Label` (`Typical` = `data/dyes/library.json` `typicalLabels`, or a dye
-with data for the mode). Shipped configs `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg` (release
+a line's power x the filter's T at it. The EMCCD ignores the sCMOS per-pixel spreads. Labels (2026-10-12): per target
+`<Target>_Mode` (Basic; no experiment-wide mode) and `<Target>_Label` (`Typical` = `data/dyes/library.json`
+`typicalLabels`, a dye with data for the mode, or `None`), `_Binder` (linkage preset); `Lasers.Preset` `Auto` combines
+the labelled targets' presets. Shipped configs `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg` (release
 assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
 `tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
 (precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
@@ -224,7 +230,8 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the blink halo cut (2026-10-07, Realistic 3e-6; `defaults` and `zernike` moved): TOTAL eff940e4...
+`adapter_pixel_hash` reference since the pore defaults (816101d, 2026-10-13; measured on the origami-spacing merge, which leaves the cell field alone): TOTAL 2af5ef51... (eaaf21c0... before them); its "TOTAL before pores" (the 12
+older configs with `NuclearPores_Label` None and `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -360,6 +367,24 @@ rejection sampling (`mtStartDecayPct`, `mtEndDecayPct`, `mtDirKappa`) and ride o
 envelope (generic obstacle interface). Core ABI 9 `isc_cell_nucleus_rings` (viewer drawing); `ISC_WORLD_VERSION`
 2026-10-05. MM: `SimType_CellFieldNuc*` and `SimType_CellFieldMicrotubule{Start,End}DecayPct`/`DirKappa` (core defaults).
 
+**Nuclear pores, a second cell-field target (2026-10-12, issue 15, spec/ALGORITHM.md, spec/PORT.md 21):** core
+`core/src/npcs.*` (JS twin in `web/prototype/index.html`): webSMLM's Nup96 pore (2 rings x 8 corners x 4 arc points, R
+53.5, sep 50, spread 12 nm) placed uniformly by area over the whole envelope (a fixed parametric surface mesh + CDF,
+centre exactly on the membrane, axis = outward normal, Duff frame), N = round(`npcDensity` (8 /um^2) x area), rejection
+below `npcMinDistNm` (180); pore dye blocks after the microtubule blocks, `BlockKey` {cx, cy, structure, element,
+block}; `PackingFingerprint` skips `npc*` (no cell moves). ABI 13: `ISC_STRUCT_NPC` 1 (nanoruler docking strands 2,
+`ISC_STRUCT_COUNT` 3), `isc_cell_npcs`, label linkage at `ISC_LABEL_BINDER_NM`.. (20 doubles; NaN = the structure's
+built-in "Legacy" numbers). Label linkage for every target (binder rigid end + flexibility ball + linker shell;
+`library.json` `linkagePresets`, defaults MT IgG2-PAINT, pores SNAP-Halo). Engine: per-target options for every target
+(`npc-dye/-mode/-label-pct/-imager-nm/-binder*/...`), `npc-density`, the dye choice `None` (an off target has no dyes,
+group or imager background), `light-preset` auto = the on targets' presets combined (multi-band set where filters
+differ). Default scene: pores Cy3B DNA-PAINT (561) + microtubules ATTO 655 DNA-PAINT (640); `npc-dye None` = the old
+microtubules-only scene (but the MT linkage default moved: `mt-binder Legacy` for the old dye positions). MM: CellField
+`NuclearPores_*`, `NuclearPoreDensityPerUm2` (Advanced), geometry (Expert). The adapter's GPU splat holds up to 4 kernels
+(`GpuSimulator::SetKernels`, `FluorescenceSimplePlan` groups with per-frame `splatFrame`). Viewer: a label group per
+target; the pores' ring layer and per-structure dye colours are for a visualisation branch. Physics figures default to
+`npc-dye None` (`tools/physics_figures/common.py`) unless a figure sets an `npc-` option.
+
 **PSF in the cli/viewer (2026-10-01):** `ScopeMovie` uses the adapter's default `GibsonLanniZernike` (C++,
 `Simulation/ZernikePsf.*`, same kernel cache and render calls as the adapter) for SR and WideField; options
 mirror the `PSFParam_` properties and defaults: `psf-model` (0 Gaussian / 3), `psf-zernike-preset`, `zern.<j>`,
@@ -408,7 +433,7 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
 **DNA-origami nanorulers (2026-10-12, spec/PORT.md 20, spec/ALGORITHM.md, docs/samples/nanorulers/):** a second
-specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 1). `core/src/origami.*`
+specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 2 since the nuclear pores took 1). `core/src/origami.*`
 (JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
 tiles, Matern-II field (`origamiDensity` 1.2 /um^2, `origamiMinSpacingNm` 0 = no thinning), designs `data/origami/designs.json`
 (3D-ready schema; spots in lattice steps of `origamiSpacingNm` (80; MM `Nanorulers.SpacingNm` 640..5, 2026-10-13), the body
@@ -423,7 +448,7 @@ strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: 
 `Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
 `world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. Their DNA-PAINT imager defaults
 to 20 nM (`paint.imagerNm`; the microtubules 1 nM): a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
-the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s; docking strands 1e6, 0.2885 s
+the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s, 1 nM; nuclear pores the same at 2.5 nM; docking strands 1e6, 0.2885 s
 = 200 ms half-time), options `<prefix>-paint-kon` / `<prefix>-paint-on-sec` (light keys of the rate history: a change
 acts from now on), MM `<Target>_KonPerMolarPerSec` / `_BoundTimeSec` (Advanced); the dyes' DNA-PAINT modes keep only
 `photonCV` (the generator rejects kon/onSec there; the dye field `kon` and `Fluorophores.Dye<N>_Kon` are gone).
@@ -920,7 +945,7 @@ site to persist across the whole movie -- see that file's header comment
 for why this is a deliberate, documented exception to `SMLMPatterns.h`'s
 otherwise strictly-continuous-sampling design) and builders for
 `TiltedPlane`/`Uniform3D`/`Shell`/`NUP` (Thevathasan et al. 2019 Nup96 NPC
-geometry, parametrized per Wanninger et al. 2023 "CIR4MICS": 2 rings x 8
+geometry, parametrized per Theiss et al. 2023 "CIR4MICS": 2 rings x 8
 corners x 4 arc points, uniform-in-volume linker displacement, rejection-
 sampled center spacing, mean-subtracted bowl curvature, TopDown/Sideways
 membrane orientation). `ZSpreadPattern` decorator gives the 9 existing

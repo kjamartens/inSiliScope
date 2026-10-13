@@ -779,6 +779,51 @@ once: users saw the background move and not the blinks). Now a bin with a segmen
   (expectation vs the core across straddled bins, -0.2 sigma). In MM a 1 -> 10 nM step shows in the next frames; only
   the imagers bound at the change finish their ON time (~50 ms).
 
+## Nuclear pore complexes, a second cell-field target (2026-10-12, issue 15)
+
+The cell field's second labelled structure (`ISC_STRUCT_NPC` 1; the nanorulers' docking strands moved to 2), imaged
+together with the microtubules, each with its own label. `core/src/npcs.*`, JS twin in `web/prototype/index.html`
+(`nucSurfaceMesh`, `buildNpcsForCell`), bit-exact (golden `npcs` lines, `label_parity`).
+
+- **One pore = webSMLM's Nup96 model**: 2 rings at -+ sep/2 along the pore axis x 8 corners x 4 arc points (phi =
+  -+22.5 / -+67.5 deg on an arc of radius spread/2 around the corner at R), 64 attachment points, ring 0 the
+  nucleoplasmic one (inside). R 53.5 nm (webSMLM; thevathasan2019 measured 53.7), sep 50 nm, spread 12 nm. webSMLM's
+  TopDown/Sideways orientation and bowl curvature are dropped: the real envelope gives every orientation.
+- **Placement: uniform by area over the whole envelope.** A fixed parametric surface mesh (128 angles x 64 side bands
+  in alpha, 16 rings per widened cap) with flat triangle areas and a running CDF, not rejection sampling: the side's
+  area element is unbounded at zeta = -1 when the base is widened (`nucFBot` > 0, the default). A candidate is a
+  triangle by area, a uniform barycentric point mapped back to surface parameters and evaluated exactly, so the centre
+  lies on the membrane (apex triangles use the polar rule: no bunching at the poles). The pore axis is the outward
+  normal (central differences, delta 1e-5; the face normal where they vanish), the ring orientation a Duff et al. 2017
+  frame turned by a uniform angle. Candidate i is `pcg4d(seed ^ 0x4E504331, cx, cy, i)`: address-based, no stream.
+- **Count and spacing.** N = round(density x area), not Poisson: a lower density keeps a subset of the same pores.
+  A candidate closer than `npcMinDistNm` (180 nm; a pore is ~120 nm across: maeshima2006) to an accepted centre is rejected
+  and the next one drawn, up to 50 N candidates; above the jamming density (~17 /um^2 at 200 nm) fewer pores result.
+  Default 8 /um^2 (the user's choice, 2026-10-13; was 12; measured interphase densities are 5-8.6 /um^2, maeshima2006,
+  dultz2010).
+- **Dyes.** Per cell `H1 = pcg4d(seed ^ 0x4E504344, cx, cy, 0).a`, site (k = attachment point, n = candidate index):
+  the microtubules' `DYE_CH` channels, so labelling, schedules and orientation work unchanged and the pores' dyes are
+  independent of the microtubules'. Dye blocks are the pores whose centre lies in one cell-local 1 um cube, walked
+  after the cell's microtubule blocks (`BlockKey` {cx, cy, structure, element, block}).
+- **No cell moves**: `PackingFingerprint` and the pack keys skip `npc*`, `ISC_WORLD_VERSION` stays, the block caches stay
+  valid. Pores add no BrightField contrast (BRIGHTFIELD.md).
+
+## Label linkage: binder, linker, dye (2026-10-12)
+
+One model of the dye-to-structure distance for every structure (`LinkageOffset`, `core/src/dyes.*`, JS `linkedDye`):
+
+- **Binder** (the probe: antibodies, a nanobody, SNAP/Halo, a fusion FP, a docking strand): its rigid end is the binding
+  site + a (attachNm + binderNm) along the structure's axis a (microtubules: the protofilament's radial direction,
+  attachNm 12.5; pores: the corner's direction, attachNm 0), as **one product**, so the old numbers are bit-identical.
+  Its **flexibility** (binderFlexNm > 0 only) adds a point uniform in a ball (`DYE_CH` BIND_U / BIND_PHI / BIND_R).
+- **Linker** (chemical, probe to dye): uniform direction, length uniform in volume in [min, max] (cubes as `l*l*l`).
+- **Presets** (`library.json` `linkagePresets`, with sources): antibody shells from fruh2021 Table 1 (binder = shell
+  radius - 12.5 nm, flexibility = FWHM / sqrt 2, linker 0.5 nm), nanobody, nanobody + docking strand, SNAP/Halo
+  (nieves2019), FP; the splits within the measured bounds are estimates. `Legacy` = the numbers before the model
+  (microtubules binder 12, linker 2-5; pores 0, 2-5); a label without a linkage (the core's default, NaN in the ABI)
+  keeps them. Defaults (the user's, 2026-10-12): microtubules IgG2-PAINT, pores SNAP-Halo. This moved every default
+  microtubule dye (new reference images, `adapter_pixel_hash`).
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

@@ -45,7 +45,7 @@ void Usage()
                "geometry instead of a movie (same world, no rendering):\n"
                "  --geometry-json <file> write the cells around x, y as JSON (ScopeGeometryJson)\n"
                "  --geometry-um <um>     side of that square (160)\n"
-               "  --geometry-detail 0|1  also cytoplasm meshes and microtubules (0)\n"
+               "  --geometry-detail 0|1  also cytoplasm meshes, microtubules and nuclear pores (0)\n"
                "\n"
                "diagnostic outputs (the docs' physics figures; read-only, no effect on the movie;\n"
                "without --out, only these are written):\n"

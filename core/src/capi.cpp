@@ -13,6 +13,7 @@
 #include <vector>
 
 static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE == isc::STRUCTURE_MT &&
+                 ISC_STRUCT_NPC == isc::STRUCTURE_NPC && ISC_NPC_STRIDE == 9 &&
                  ISC_STRUCT_ORIGAMI_SITES == isc::STRUCTURE_ORIGAMI, "structures");
 static_assert(ISC_SPECIMEN_CELLFIELD == isc::SPECIMEN_CELLFIELD && ISC_SPECIMEN_NANORULERS == isc::SPECIMEN_NANORULERS,
               "specimens");
@@ -245,8 +246,17 @@ int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int
    x[ISC_LABEL_WOBBLE_DEG] = def.orientation.wobbleDeg;
    x[ISC_LABEL_MOTION] = def.motion;
    x[ISC_LABEL_OFFTARGET_COUNT] = def.offTargetCount;
+   for (int32_t i = ISC_LABEL_BINDER_NM; i <= ISC_LABEL_LINKER_MAX_NM; i++) x[i] = NAN;   // the structure's linkage
    for (int32_t i = 0; i < n; i++) x[i] = v[i];
-   for (double d : x) if (!std::isfinite(d)) return -1;
+   bool linkage = true;
+   for (int32_t i = 0; i < ISC_LABEL_COUNT; i++) {
+      if (i >= ISC_LABEL_BINDER_NM && i <= ISC_LABEL_LINKER_MAX_NM) {
+         if (std::isnan(x[i])) linkage = false;
+         else if (!std::isfinite(x[i])) return -1;
+      } else if (!std::isfinite(x[i])) {
+         return -1;
+      }
+   }
    auto isInt = [](double d, int lo, int hi) { return d == std::floor(d) && d >= lo && d <= hi; };
    if (!isInt(x[ISC_LABEL_MODE], 0, 3) || !isInt(x[ISC_LABEL_ORIENT_MODE], 0, 2) || !(x[ISC_LABEL_DENSITY] >= 0) ||
        !(x[ISC_LABEL_FLUORESCENT_FRACTION] >= 0) || !(x[ISC_LABEL_ACTIVATION_RATE] >= 0) || !(x[ISC_LABEL_ON_SEC] > 0) ||
@@ -271,6 +281,13 @@ int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double* v, int
    // Anything non-zero is "not Static" / "some off-target entries".
    l.motion = x[ISC_LABEL_MOTION] != 0 ? 1 : 0;
    l.offTargetCount = x[ISC_LABEL_OFFTARGET_COUNT] != 0 ? 1 : 0;
+   l.hasLinkage = linkage;
+   if (linkage) {
+      l.linkage.binderNm = x[ISC_LABEL_BINDER_NM];
+      l.linkage.binderFlexNm = x[ISC_LABEL_BINDER_FLEX_NM];
+      l.linkage.linkerMinNm = x[ISC_LABEL_LINKER_MIN_NM];
+      l.linkage.linkerMaxNm = x[ISC_LABEL_LINKER_MAX_NM];
+   }
    if (isc::LabelNotImplemented(l)) return -2;
    if (isc::ValidateLabel(l)) return -1;
    try {
@@ -348,6 +365,25 @@ int32_t isc_cell_mesh(IscWorld* w, int32_t cx, int32_t cy, int32_t dims[2], doub
          out[3 * v] = m.x[v]; out[3 * v + 1] = m.y[v]; out[3 * v + 2] = m.h[v];
       }
       return (int32_t)nv;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_cell_npcs(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap)
+{
+   if (!w || cap < 0 || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::Npc> pores;
+      if (!w->w.CellNpcs(cx, cy, pores)) return -1;
+      for (size_t i = 0; i < pores.size() && (int32_t)i < cap; i++) {
+         const isc::Npc& q = pores[i];
+         double* o = out + ISC_NPC_STRIDE * i;
+         o[0] = q.c.x; o[1] = q.c.y; o[2] = q.c.z;
+         o[3] = q.n.x; o[4] = q.n.y; o[5] = q.n.z;
+         o[6] = q.e1.x; o[7] = q.e1.y; o[8] = q.e1.z;
+      }
+      return (int32_t)pores.size();
    } catch (...) {
       return -1;
    }

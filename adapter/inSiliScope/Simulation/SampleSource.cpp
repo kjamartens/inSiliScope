@@ -42,6 +42,8 @@ std::vector<double> MakeLabelVector(int mode, double density, double fluorescent
    v[ISC_LABEL_PRE_STATE] = preState ? 1.0 : 0.0;
    v[ISC_LABEL_ORIENT_MODE] = ISC_ORIENT_FREE;
    v[ISC_LABEL_ORIENT_POLAR_DEG] = 90;
+   for (int i = ISC_LABEL_BINDER_NM; i <= ISC_LABEL_LINKER_MAX_NM; ++i)
+      v[static_cast<size_t>(i)] = std::numeric_limits<double>::quiet_NaN();   // the structure's built-in linkage
    return v;
 }
 

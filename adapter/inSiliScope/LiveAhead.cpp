@@ -113,21 +113,30 @@ bool CInSiliScopeCamera::PrepareLiveGpu(const sim::FluorescenceSimplePlan& plan,
                                         const LiveStatics& st, const sim::SimulationParams& params)
 {
    LiveGpu& g = liveGpu_;
-   if (!plan.ok || !plan.kernel || g.failedAt == st.version)
+   if (!plan.ok || g.failedAt == st.version)
       return false;
-   if (plan.kernel->SplatSerial() != g.kernelSerial || plan.backgroundPhotons != g.background || st.version != g.statics)
+   std::vector<const sim::PsfKernelCache*> kernels;
+   std::vector<uint64_t> serials;
+   for (const sim::FluorescenceSimpleGroup& sg : plan.groups)
+   {
+      if (!sg.kernel)
+         return false;   // the Gaussian PSF: the CPU
+      kernels.push_back(sg.kernel);
+      serials.push_back(sg.kernel->SplatSerial());
+   }
+   if (serials != g.kernelSerials || plan.backgroundPhotons != g.background || st.version != g.statics)
    {
       sim::SimulationParams gp = params;
-      gp.photonsPerBlink = plan.photonsPerBlink;
       gp.backgroundPhotons = plan.backgroundPhotons;
-      g.kernelSerial = PrepareGpu(g.splat, *plan.kernel, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, st.shaping,
-                                  gp) ? plan.kernel->SplatSerial() : 0;
+      g.kernelSerials.clear();
+      if (PrepareGpu(g.splat, kernels, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, st.shaping, gp))
+         g.kernelSerials = serials;
       g.background = plan.backgroundPhotons;
       g.statics = st.version;
-      if (!g.kernelSerial)
+      if (g.kernelSerials.empty())
          g.failedAt = st.version;
    }
-   return g.kernelSerial != 0;
+   return !g.kernelSerials.empty();
 }
 
 void CInSiliScopeCamera::LiveAheadLoop()
@@ -182,7 +191,9 @@ void CInSiliScopeCamera::LiveAheadLoop()
       if (gpuReady)
       {
          const auto tGpu = sim::TimingClock::now();
-         const std::vector<std::vector<uint32_t>> byFrame = sim::BucketEventsByFrame(*plan.events, K);
+         std::vector<std::vector<std::vector<uint32_t>>> byFrame;   // per group
+         for (const sim::FluorescenceSimpleGroup& sg : plan.groups)
+            byFrame.push_back(sim::BucketEventsByFrame(*sg.events, K));
          std::vector<std::vector<sim::GpuSplatEmitter>> ems(static_cast<size_t>(K));
          std::vector<uint32_t> ids;
          std::vector<double> bgScales;
@@ -191,14 +202,18 @@ void CInSiliScopeCamera::LiveAheadLoop()
          std::vector<sim::BlinkEvent> evs;
          for (long f = 0; f < K; ++f)
          {
-            evs.clear();
-            if (fm.HostSplatsBlinks(f))   // else binned or mean-field: in popImg
-               for (uint32_t idx : byFrame[static_cast<size_t>(f)])
-                  evs.push_back((*plan.events)[idx]);
             const sim::RenderExtras extras = st.shaping.Extras(job.fadeSec[static_cast<size_t>(f)], job.decaySec);
-            sim::CollectGpuEmitters(evs, f, job.w, job.h, job.params.pixelSizeNm, plan.photonsPerBlink, 0.0, 0.0,
-                                    *plan.kernel, job.zOffsetUm, &extras, ems[static_cast<size_t>(f)], &out.zClamped,
-                                    &out.zTotal);
+            for (size_t gi = 0; gi < plan.groups.size(); ++gi)
+            {
+               const sim::FluorescenceSimpleGroup& sg = plan.groups[gi];
+               evs.clear();
+               if (sg.splatFrame[static_cast<size_t>(f)])   // else binned or mean-field: in popImg
+                  for (uint32_t idx : byFrame[gi][static_cast<size_t>(f)])
+                     evs.push_back((*sg.events)[idx]);
+               sim::CollectGpuEmitters(evs, f, job.w, job.h, job.params.pixelSizeNm, sg.photonsPerBlink, 0.0, 0.0,
+                                       *sg.kernel, job.zOffsetUm, &extras, ems[static_cast<size_t>(f)], &out.zClamped,
+                                       &out.zTotal, static_cast<int>(gi));
+            }
             ids.push_back(job.noiseBase + static_cast<uint32_t>(f));
             bgScales.push_back(extras.backgroundScale);
             outs.push_back(&out.frames[static_cast<size_t>(f)]);

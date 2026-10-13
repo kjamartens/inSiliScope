@@ -4,12 +4,29 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Laser intensities (MM `Lasers.Laser<nm>KWcm2`, `CustomLineKWcm2`; the viewer's laser fields) go up to 10 kW/cm^2
+  (was 100 in MM, unbounded in the viewer).
+
 - Origami site spacing and a first 2D origami (2026-10-13): `Nanorulers.SpacingNm` / `--origami-spacing-nm` / the
   viewer's Site spacing (640, 320, 160, 80, 40, 20, 10, 5 nm; default 80 = the output as before) sets the distance
   between neighbouring spots, and the origami grows with it (the rod keeps 20 nm ends). New design `TUDelftLogo`: a
   rigid flat sheet lying face up with one docking strand on each of 37 hexagons of the TU Delft logo, editable as a
   hex-map cell list in `data/origami/designs.json`. The design `Nanoruler80` is now `Nanoruler`: MM configurations
   that name it must be re-made.
+- **seed** Nuclear pore complexes, a second cell-field target (issue 15, 2026-10-12): Nup96 pores (64 sites in two
+  8-fold rings) over the whole nuclear envelope, 8 per um^2 and at least 180 nm apart by default, labelled and imaged together with the
+  microtubules: by default pores in DNA-PAINT with Cy3B at 561 nm, microtubules in ATTO 655 DNA-PAINT at 640 nm, through
+  a multi-band filter set (`light-preset` auto, MM `Lasers.Preset` `Auto`: the labelled targets' presets combined).
+  Each target has its own label mode (MM `<Target>_Mode`, Basic; `Fluorophores.Mode` is gone) and a None label
+  (`npc-dye None` images the microtubules alone, as before); their DNA-PAINT binding kinetics (`data/specimens.json`
+  `paint`) are the microtubules' (1e6 /M/s, 0.05 s; estimates) with a 2.5 nM Cy3B imager (the microtubules' is 1 nM). A label linkage model for every target (binder,
+  flexibility, linker; presets from measured antibody / nanobody / SNAP shells): the microtubules' default is now
+  primary + secondary antibodies with a docking strand (IgG2-PAINT, dyes on a ~32 nm shell), so every default image
+  changed; `mt-binder Legacy` (MM `Microtubules_Binder`) keeps the old dye positions. Core ABI 13 (`isc_cell_npcs`,
+  structure ids: nanoruler docking strands now 2). The adapter's GPU splat takes up to four blinking labels.
+- Shipped MM configurations: config groups `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)` (one property each, so
+  Studio shows the power as an editable field in its main window), in Basic, Advanced and Expert.
+
 - DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
   Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
   strands, in-plane worm-like-chain bending, Lp 1500 nm); MM device `Nanorulers`, core ABI 12. Cell-field output

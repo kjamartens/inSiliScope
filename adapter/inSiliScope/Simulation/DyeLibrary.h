@@ -99,7 +99,8 @@ struct DyeData
 
 // ---- the library ----
 const std::vector<std::string>& DyeIds();           // the library dyes
-const std::vector<std::string>& DyeChoices();       // DyeIds() + Dye1, Dye2, Dye3 (a structure's dye)
+const std::vector<std::string>& DyeChoices();       // DyeIds() + Dye1, Dye2, Dye3 + None (a structure's dye)
+int DyeNoneChoice();                                // None: no label, the target is off (issue 15; the last choice)
 const std::vector<std::string>& DyeModeNames();     // dSTORM, PALM, DNA-PAINT, WideField
 const std::vector<std::string>& ExcitationFilterIds();   // laser clean-up filters
 const std::vector<std::string>& DichroicIds();
@@ -140,7 +141,26 @@ struct TargetData
    double typicalPct[MODE_COUNT];
    double paintKonPerMPerSec, paintOnSec;   // DNA-PAINT binding kinetics (data/specimens.json paint)
    double paintImagerNm;                     // the default imager concentration, nM
+   int linkageDefault;   // its default linkage preset (index into LinkagePresetIds()); -1 = no linkage model
 };
+// A label linkage preset (library.json linkagePresets; JS dyes.js linkedDye): the probe's rigid length from the
+// binding site, its flexibility (ball radius), the chemical linker's length range, nm. structureDefault (the first,
+// Legacy): each structure's built-in numbers (LegacyLinkageNm), no values of its own.
+struct LinkagePresetData
+{
+   const char* id;
+   const char* name;
+   bool structureDefault;
+   double nm[4];   // binderNm, binderFlexNm, linkerMinNm, linkerMaxNm (NaN for structureDefault)
+};
+const std::vector<std::string>& LinkagePresetIds();
+const LinkagePresetData& LinkagePresetAt(int i);
+// The structure's built-in linkage (core dyes.cpp LegacyLinkage, JS dyes.js LEGACY_LINKAGE), nm; false for a target
+// without one.
+bool LegacyLinkageNm(const char* targetId, double out[4]);
+// The auto light preset's filters when the targets' presets differ (light_path.json multiTarget).
+const char* MultiTargetDichroic();
+const char* MultiTargetEmissionFilter();
 struct SpecimenData
 {
    const char* id;
@@ -193,6 +213,10 @@ struct LabelPhysicsOptions
    int orientationMode = 0;  // ISC_ORIENT_*
    double polarDeg = 90, azimuthDeg = 0, wobbleDeg = 0;
    int motion = 0;           // 0 = Static
+   // The label linkage (ISC_LABEL_BINDER_NM .. LINKER_MAX_NM: binder, flexibility, linker min, max, nm); none = the
+   // structure's built-in numbers (NaN in the label).
+   bool hasLinkage = false;
+   double linkageNm[4] = { 0, 0, 0, 0 };
 };
 // A structure's dye in its mode: the world label (isc_world_set_label
 // layout) and per-state photophysics.
@@ -207,6 +231,7 @@ struct LabelPhysics
    double imagerNm = 0, chamberHeightUm = 0;
    double initialOnSec = 0;     // the label's (scaled) dSTORM initial ON time
    bool preState = false;
+   bool off = false;            // an off target (ScopeTargetOn false): density 0, no emitting state, no imager
    // The free imager's detected photons per pixel per second (DNA-PAINT):
    // c x N_A x chamber height x pixel area x its detected rate (no
    // depletion, no exclusion from cells; schnitzbauer2017).

@@ -27,6 +27,7 @@
 #include "SMLMSimulation.h"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,7 +50,18 @@ struct SampleSettings
    // SameWorld: switching it keeps the world.
    std::string cacheDir;
    bool SameWorld(const SampleSettings& o) const { return seed == o.seed && params == o.params; }
-   bool SameLabels(const SampleSettings& o) const { return labels == o.labels; }
+   // Bit for bit: a label's linkage slots may be NaN (the structure's built-in
+   // linkage), and NaN == NaN is false (every live frame would reset the labels).
+   bool SameLabels(const SampleSettings& o) const
+   {
+      if (labels.size() != o.labels.size())
+         return false;
+      for (size_t i = 0; i < labels.size(); ++i)
+         if (labels[i].size() != o.labels[i].size() ||
+             (!labels[i].empty() && std::memcmp(labels[i].data(), o.labels[i].data(), labels[i].size() * sizeof(double)) != 0))
+            return false;
+      return true;
+   }
    // The label mode of structure s (ISC_MODE_*; the core default DNA-PAINT
    // when not given).
    int LabelMode(int s) const;
