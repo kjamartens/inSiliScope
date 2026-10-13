@@ -965,6 +965,14 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
   nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
   `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
+- Site spacing and 2D origami (2026-10-13; spec/ALGORITHM.md): param `origamiSpacingNm` (80; clamp 1-10000), option
+  `origami-spacing-nm` after `origami-design`, MM `Nanorulers.SpacingNm` (Basic, `OptValues` dropdown 640..5), viewer
+  select. Designs schema v2: rod spots `at` in lattice steps + `endNm`; plate `lattice` hex `cells` CCRR. `OrigamiDesign`
+  now carries shape, lengthUnits/endNm/widthUnits/widthNm/heightNm and spots (u, v); `OrigamiGeometryOf` (JS
+  `origamiGeometry`); `OrigamiMoleculeRoll(d, p, h1)` (flat = 0); `isc_origami_heights` uses heightNm. Design ids
+  `Nanoruler` (renamed from `Nanoruler80`; saved MM configs naming it must be re-made) and `TUDelftLogo`. No ABI
+  change; golden +3 origami cases (40 nm rod, logo at 20 and 160 nm), existing lines unchanged; `label_parity` and
+  `scope_parity` logo rows; `world_checks.Origami` and `origami_check.mjs` spacing/logo checks.
 - DNA-PAINT binding kinetics are the target's (2026-10-12): `data/specimens.json` `paint` (k_on, mean bound time;
   `TargetData::paintKonPerMPerSec` / `paintOnSec`), options `<prefix>-paint-kon`, `<prefix>-paint-on-sec` right after
   `<prefix>-imager-nm` (rate-history light keys), `LabelPhysicsOptions::paint*` / `labelPhotophysics` `o.paint*`; the

@@ -3,7 +3,8 @@
 DNA-origami nanorulers are reference samples for super-resolution microscopy: a stiff DNA rod with marks placed on it
 to nanometre accuracy, so that a microscope's image can be checked against a known distance
 [[scheckenbach2020](../../references.md#scheckenbach2020)]. inSiliScope's nanoruler sample is a field of such rods
-lying flat on the coverslip, each carrying three spots of DNA-PAINT docking strands 80 nm apart. Mount it with the
+lying flat on the coverslip, each carrying three spots of DNA-PAINT docking strands 80 nm apart (the spacing is
+adjustable), or of flat 2D origami carrying a pattern of strands (the TU Delft logo). Mount it with the
 viewer's **Specimen** select, Micro-Manager's `SampleHolder` (or the `Specimen` config group) or the CLI's
 `--specimen Nanorulers` ([Samples](../index.md)). The dyes, the light path, the PSF and the camera are the
 same as for the cell field ([Physics](../../physics/dyes-and-light-path.md)).
@@ -12,32 +13,61 @@ Each molecule goes through: the design at rest → which strands carry a dye (th
 height) → placement (position, direction). Every step is a pure function of the seed and the molecule's address, so
 any window of the field can be made alone, in any order, with the same result.
 
-## The design
+## The designs
 
-The 80 nm nanoruler (`Nanoruler80`, `data/origami/designs.json`):
+The designs live in `data/origami/designs.json` (`Design`). Their spots sit on a lattice whose step is the **site
+spacing** (`SpacingNm`: 640, 320, 160, **80**, 40, 20, 10 or 5 nm in the viewer and Micro-Manager, any value on the
+CLI), and the molecule grows or shrinks with it.
 
-- **Body:** a cylinder 200 nm long and 13 nm in diameter, the size of the typical nanoruler, a 12-helix bundle
-  [[scheckenbach2020](../../references.md#scheckenbach2020)] (p. 110902-3).
-- **Spots:** A, B and C at 20, 100 and 180 nm along it: 80 nm from A to B and from B to C, 160 nm from A to C.
+### 1D origami: the nanoruler
+
+`Nanoruler`:
+
+- **Body:** a cylinder 13 nm in diameter, the typical nanoruler, a 12-helix bundle
+  [[scheckenbach2020](../../references.md#scheckenbach2020)] (p. 110902-3), reaching 20 nm beyond the outer spots:
+  2 × spacing + 40 nm long. At the default 80 nm that is the typical 200 nm rod.
+- **Spots:** A, B and C one spacing apart, 20 nm from the ends: at 80 nm spacing at 20, 100 and 180 nm along the rod
+  (80 nm from A to B and from B to C, 160 nm from A to C); at 40 nm at 20, 60 and 100 nm of a 120 nm rod. A longer rod
+  bends more (below).
 - **Strands:** each spot is a ring of 5 docking-strand positions, 72° apart around the rod (radius 6.5 nm). This is a
   modelling choice, not a product's specification; no published strand count per spot was found. `StrandsPerSpot`
   (1-5) keeps positions 1..N of each ring, the same subset on every rod.
 
+### 2D origami: the TU Delft logo
+
+`TUDelftLogo`: a flat single-layer sheet carrying the TU Delft logo (flame, T, U and D) as 37 cells of a 17 × 11 map
+of flat-topped hexagons, one docking strand at the centre of each, neighbouring centres one spacing apart (columns
+spacing × √3/2 apart, odd columns half a step down).
+
+- **Body:** a rigid plate covering the whole hex map, about 15 × 11.5 spacings (1.2 × 0.92 µm at 80 nm, 300 × 230 nm
+  at 20 nm), 2 nm thick (about one DNA helix: *estimate*). It does not bend (`Bending` and `PersistenceLengthNm` do
+  not apply).
+- **Landing:** always face up, so the logo is never mirrored; only its direction in the plane is random. `Roll` does
+  not apply.
+- **Strands:** one per cell, on the top face (`StrandsPerSpot` is 1).
+
+A new 2D design is a list of cell labels: the schema (`lattice` with `cols`, `rows` and `cells` as `CCRR`, column then
+row from the top-left, as a hex-map editor numbers them) is described at the top of `designs.json` and in
+[Extending](../../extending.md).
+
+The spacing scales the rod and the logo alike:
+
+<!-- fig:ruler-spacing -->
 ## The field
 
-The coverslip is cut into 2 µm tiles. Each tile holds a Poisson number of candidate rods (mean = the density × 4
+The coverslip is cut into 2 µm tiles. Each tile holds a Poisson number of candidate molecules (rods or plates; "rods" below) (mean = the density × 4
 µm²; `DensityPerUm2`, default 1.2 µm⁻², *estimate*), each at a uniform position in the tile and a uniform direction.
 By default the rods are placed independently (a Poisson field: they may touch or cross). A minimum spacing
 (`MinSpacingNm`, default 0 = none) removes a candidate when a candidate of higher priority (a random number per
 candidate) lies within it, looking across the neighbouring tiles too (Matérn type II thinning): the rods left are then
 never closer than that, centre to centre, and the density after thinning is below the set one. The draws for the field are separate from those for the bending, so changing the
-persistence length never moves or turns a rod.
+persistence length, the spacing or the design never moves or turns a rod.
 
 ## Bending
 
 A rod lying on the glass bends within the plane. Its centreline is a two-dimensional worm-like chain: a chain that
 has equilibrated on the surface, as DNA can on a suitable one [[rivetti1996](../../references.md#rivetti1996)]. The
-rod is cut into \(n = \max\left(8, \lceil L / (D/2) \rceil\right) = 31\) segments of length \(\Delta s = L / n\). Segment j turns the direction by a normal
+rod (L = 200 nm at the default spacing) is cut into \(n = \max\left(8, \lceil L / (D/2) \rceil\right) = 31\) segments of length \(\Delta s = L / n\). Segment j turns the direction by a normal
 angle step:
 
 $$ \Delta\theta_j = z_j \sqrt{\Delta s / L_p}, \qquad z_j \sim \mathcal{N}(0, 1) $$
@@ -110,7 +140,8 @@ They take a label like the cell field's microtubules: a dye of the library in a 
 | Viewer | Micro-Manager | CLI | Default | Source |
 |---|---|---|---|---|
 | Specimen | `SampleHolder` | `--specimen` | CellField | |
-| Design | `Nanorulers.Design` | `--origami-design` | Nanoruler80 | [[scheckenbach2020](../../references.md#scheckenbach2020)] (body) |
+| Design | `Nanorulers.Design` | `--origami-design` | Nanoruler | [[scheckenbach2020](../../references.md#scheckenbach2020)] (body) |
+| Site spacing | `Nanorulers.SpacingNm` | `--origami-spacing-nm` | 80 nm | |
 | Density | `Nanorulers.DensityPerUm2` | `--origami-density` | 1.2 µm⁻² | *estimate* |
 | Strands per spot | `Nanorulers.StrandsPerSpot` | `--origami-strands-per-spot` | 5 | modelling choice |
 | Bending | `Nanorulers.Bending` | `--origami-bend` | On | |
@@ -130,10 +161,12 @@ molecule's frame, labelled or not); the figures on this page are made from it.
 
 ## Limits
 
-- Two-dimensional: the rods lie flat, the strands at one height; no 3D designs yet.
+- Two-dimensional: the molecules lie flat, the strands at one height; no 3D designs yet. 2D origami land face up only
+  (a sheet that lands face down would show its pattern mirrored, with the strands under it).
 - Every rod is whole: no broken rods, missing spots or misfolded molecules beyond the labelled %.
 - Uniform stiffness, no built-in curvature; rods may touch or cross (a minimum spacing thins them by their centres
   only).
-- Only the cylinder body with in-plane bending (or none) and a uniform or fixed roll is implemented.
+- Bodies: a cylinder with in-plane bending (or none) and a uniform or fixed roll, and a rigid plate with a hex map of
+  strands.
 - No BrightField contrast (see [Samples](../index.md)).
 - The viewer draws the rods in its map; its animation exports do not include them yet.

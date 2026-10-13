@@ -329,3 +329,6 @@ origami o00 1249 0 0 6 6
 origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3
 origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2
 origami o03 5 12345678 -9876543 12345681 -9876540 origamiDensity=8 origamiMinSpacingNm=0 origamiLpNm=50 origamiAttachNm=20
+origami o04 31 -2 -2 4 4 origamiSpacingNm=40 origamiLpNm=600 origamiDensity=2
+origami o05 77 -1 -1 5 5 origamiDesign=1 origamiSpacingNm=20 origamiHeights=1 origamiDensity=2
+origami o06 78 0 0 9 9 origamiDesign=1 origamiSpacingNm=160 origamiRoll=1 origamiRollDeg=40

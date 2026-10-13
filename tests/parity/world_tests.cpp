@@ -1578,8 +1578,6 @@ void NoContraction()
 // structure 1 only, the strand subset and incorporation, no cells, 8 threads = 1 thread, and the C ABI rows.
 void Origami()
 {
-   const OrigamiDesign& d = OrigamiDesignAt(0);
-   const double L = d.lengthNm, D = d.diameterNm, R = D / 2;
    auto P = [](std::initializer_list<std::pair<const char*, double>> kv) {
       Params p;
       p.specimen = SPECIMEN_NANORULERS;
@@ -1587,6 +1585,10 @@ void Origami()
       NormalizeOrigamiParams(p);
       return p;
    };
+   const OrigamiDesign& d = OrigamiDesignAt(0);
+   const OrigamiGeometry G0 = OrigamiGeometryOf(d, P({}));
+   const double L = G0.L, D = G0.H, R = D / 2;
+   auto spotX = [&](int k) { return d.spots[k].u * G0.s; };   // straight frame, from the centre
    auto mol = [](uint32_t h1) { OrigamiMolecule m{}; m.h1 = h1; return m; };
    // Geometry: rigid = identity, sites on the surface, rings centred, 2D height.
    {
@@ -1619,7 +1621,7 @@ void Origami()
          for (const OrigamiSite& s : sites)
             if (s.k == k) { sx += s.bent[0]; sy += s.bent[1]; n++; }
          double ax, ay, th;
-         OrigamiCenterline(S, d.spots[k].atNm - L / 2, ax, ay, th);
+         OrigamiCenterline(S, spotX(k), ax, ay, th);
          centre = std::max(centre, jsm::hypot(sx / n - ax, sy / n - ay));
       }
       std::printf("      sites %.9f-%.9f nm from the axis, ring centres %.1e nm off it\n", lo, hi, centre);
@@ -1631,6 +1633,40 @@ void Origami()
       bool flat = !sites.empty();
       for (const OrigamiSite& s : sites) flat = flat && s.z == (q.origamiAttachNm + R) / 1000;
       Check(flat, "origami: 2D, every strand at attach + D/2");
+   }
+   // The site spacing (origamiSpacingNm): a rod keeps its 20 nm ends; the 2D logo is a rigid face-up hex map.
+   {
+      Check(L == 200 && D == 13 && spotX(0) == -80 && spotX(2) == 80, "origami: 80 nm spacing = the 200 nm rod, spots at 20/100/180 nm");
+      bool ok = true;
+      for (double sp : { 640.0, 40.0, 5.0 }) {
+         const Params p = P({ { "origamiSpacingNm", sp }, { "origamiBend", 0 }, { "origamiLinkerNm", 0 } });
+         std::vector<OrigamiSite> sites;
+         OrigamiMoleculeSites(d, p, mol(5), OrigamiBentShape(d, p, 5), 1, 1, sites, true);
+         ok = ok && OrigamiGeometryOf(d, p).L == 2 * sp + 40;
+         for (const OrigamiSite& s : sites) ok = ok && std::fabs(s.rest[0] - (s.k - 1) * sp) < 1e-9;
+      }
+      Check(ok, "origami: spots one spacing apart, 20 nm ends (640, 40, 5 nm)");
+      int dl = -1;
+      for (int i = 0; i < OrigamiDesignCount(); i++)
+         if (!std::strcmp(OrigamiDesignAt(i).id, "TUDelftLogo")) dl = i;
+      Check(dl > 0, "origami: the TU Delft logo design exists");
+      if (dl > 0) {
+         const OrigamiDesign& dd = OrigamiDesignAt(dl);
+         const Params p = P({ { "origamiDesign", (double)dl }, { "origamiSpacingNm", 20 }, { "origamiLinkerNm", 0 } });
+         std::vector<OrigamiSite> sites;
+         OrigamiMoleculeSites(dd, p, mol(77), OrigamiBentShape(dd, p, 77), 1, 1, sites, true);
+         double nn = INF;
+         bool flat = true;
+         for (size_t a = 0; a < sites.size(); a++) {
+            flat = flat && sites[a].rest[2] == dd.heightNm / 2 && std::fabs(sites[a].bent[0] - sites[a].rest[0]) < 1e-9 &&
+                   std::fabs(sites[a].bent[1] - sites[a].rest[1]) < 1e-9;
+            for (size_t b = a + 1; b < sites.size(); b++)
+               nn = std::min(nn, jsm::hypot(sites[a].rest[0] - sites[b].rest[0], sites[a].rest[1] - sites[b].rest[1]));
+         }
+         std::printf("      logo at 20 nm: %zu strands, nearest neighbours %.9f nm\n", sites.size(), nn);
+         Check(sites.size() == 37 && std::fabs(nn - 20) < 1e-9 && flat && p.origamiStrandsPerSpot == 1,
+               "origami: logo = 37 strands 20 nm apart, rigid, on the top face");
+      }
    }
    // Statistics at the default Lp (1500 nm): end angle, tangent correlation, spot distances vs the 2D WLC.
    {
@@ -1669,7 +1705,7 @@ void Origami()
       Check(dev < 0.02, "origami: tangent correlation = exp(-s/2Lp) within 0.02");
       bool ok = true;
       for (int q = 0; q < 3; q++) {
-         const double s = d.spots[pb[q]].atNm - d.spots[pa[q]].atNm;
+         const double s = spotX(pb[q]) - spotX(pa[q]);
          const double th = std::sqrt(4 * Lp * s * (1 - (2 * Lp / s) * (1 - std::exp(-s / (2 * Lp)))));
          const double rms = std::sqrt(d2[q] / M);
          std::printf("      spots %d-%d: RMS distance %.3f nm, 2D WLC %.3f nm\n", pa[q], pb[q], rms, th);

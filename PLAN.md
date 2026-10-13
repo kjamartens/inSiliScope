@@ -33,7 +33,10 @@ Upcoming ideas:
 - DNA-origami nanorulers, a second specimen (2026-10-12, branch `claude/nanorulers`, spec/PORT.md 20): [x] JS model in
   iteration mode (2D WLC bending, Lp 1500 nm, 5-strand rings, Matern-II field), [x] core ABI 12, [x] engine/cli, [x]
   viewer + block, [x] MM (`SampleHolder`, `Nanorulers` device), [x] docs (Samples section), figures, gallery.
-  Next: [ ] 3D designs (cuboid, 3D bending, ring heights validated), [ ] DNA-PAINT kinetics per imager sequence.
+  [x] Site spacing (`origamiSpacingNm`, 640-5 nm, the body follows) and a first 2D origami (`TUDelftLogo`: rigid hex-map
+  plate, face up; 2026-10-13, branch `claude/origami-spacing-2d`).
+  Next: [ ] 3D designs (cuboid, 3D bending, ring heights validated), [ ] face-down 2D origami (mirrored), [ ] DNA-PAINT
+  kinetics per imager sequence.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

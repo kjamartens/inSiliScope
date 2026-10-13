@@ -4,7 +4,7 @@ import numpy as np
 
 from .common import COLORS, figure, load, register, sig
 
-L_NM = 200.0                     # Nanoruler80's body length (data/origami/designs.json), for the theory lines
+L_NM = 200.0                     # the Nanoruler body length at the default 80 nm spacing (data/origami/designs.json), for the theory lines
 SPOT_GAP_NM = 160.0              # its outer spots (A at 20 nm, C at 180 nm)
 CENTRE = {"x": 0.0, "y": 0.0}
 
@@ -156,3 +156,54 @@ def ruler_field(ctx):
                   "than a pixel: the camera sees each rod as one blur, and only localising the single binding events "
                   "(the viewer's Localisations layer, or any SMLM software) separates them." %
                   (px, px, len(geo["origami"])))
+
+
+@register("ruler-spacing", "nanorulers")
+def ruler_spacing(ctx):
+    spacings = [160, 80, 40, 20]
+    rods = [(s, geometry(ctx, 4.0, "rod%d" % s, **{"origami-spacing-nm": s, "origami-bend": 0})["origami"][0])
+            for s in spacings]
+    logo = geometry(ctx, 4.0, "logo20", **{"origami-design": "TUDelftLogo", "origami-spacing-nm": 20})["origami"][0]
+
+    def draw(fig, st):
+        axs = fig.subplots(1, 2, gridspec_kw={"width_ratios": [1.1, 1]})
+        ax = axs[0]
+        for j, (s, m) in enumerate(rods):
+            dy = j * 40.0
+            o = molecule_frame(m, m["outline"] + m["outline"][:1])
+            ax.fill(o[:, 0], o[:, 1] + dy, color=COLORS[1], alpha=0.35, lw=0)
+            ax.plot(o[:, 0], o[:, 1] + dy, color=COLORS[1], lw=0.6)
+            d = molecule_frame(m, np.asarray(m["sites"], dtype=np.float64)[:, 2:4])
+            k = np.asarray(m["sites"], dtype=np.float64)[:, 0].astype(int)
+            for q in range(3):
+                ax.plot(d[k == q, 0], d[k == q, 1] + dy, "o", ms=2.2, color=COLORS[[0, 2, 3][q]], lw=0)
+            ax.text(o[:, 0].max() + 8, dy, "%d nm" % s, va="center", fontsize=8, color=st["muted"])
+        ax.set_xlim(-200, 240)
+        ax.set_ylim(len(rods) * 40 - 15, -25)
+        ax.set_aspect("equal")
+        ax.set_yticks([])
+        ax.set_xlabel("Along the rod (nm)")
+        ax.set_title("Nanoruler at four spacings")
+        ax = axs[1]
+        o = molecule_frame(logo, logo["outline"] + logo["outline"][:1])
+        ax.fill(o[:, 0], o[:, 1], color=COLORS[1], alpha=0.2, lw=0)
+        ax.plot(o[:, 0], o[:, 1], color=COLORS[1], lw=0.6)
+        s = np.asarray(logo["sites"], dtype=np.float64)
+        d = molecule_frame(logo, s[:, 2:4])
+        on = s[:, 10] > 0
+        ax.plot(d[on, 0], d[on, 1], "o", ms=3.2, color=COLORS[0], lw=0)
+        ax.plot(d[~on, 0], d[~on, 1], "o", ms=3.2, mfc="none", mew=0.5, color=st["muted"])
+        ax.set_xlim(o[:, 0].min() - 10, o[:, 0].max() + 10)
+        ax.set_ylim(o[:, 1].max() + 10, o[:, 1].min() - 10)
+        ax.set_aspect("equal")
+        ax.set_xlabel("x (nm)")
+        ax.set_ylabel("y (nm)")
+        ax.set_title("TU Delft logo, 20 nm")
+
+    body = ctx.plot("", draw, w=4.6, h=2.6, alt="Nanorulers at several site spacings and the TU Delft logo 2D origami")
+    return figure(body,
+                  "The site spacing (SpacingNm). Left: a rigid nanoruler at 160, 80, 40 and 20 nm spacing, each in its "
+                  "own frame: the spots (A, B, C) stay one spacing apart and the rod keeps 20 nm beyond the outer "
+                  "ones, so it is 2 x spacing + 40 nm long. Right: the TU Delft logo 2D origami at 20 nm, a rigid "
+                  "plate covering its 17 x 11 hex map, one docking strand on each of the 37 logo hexagons (hollow "
+                  "grey: a strand left without a dye, 80 % incorporation), lying face up.")

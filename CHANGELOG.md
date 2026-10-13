@@ -4,6 +4,12 @@ Versions follow semver; while 0.x, any release may change output for a given see
 
 ## Unreleased (0.1.0, first public release)
 
+- Origami site spacing and a first 2D origami (2026-10-13): `Nanorulers.SpacingNm` / `--origami-spacing-nm` / the
+  viewer's Site spacing (640, 320, 160, 80, 40, 20, 10, 5 nm; default 80 = the output as before) sets the distance
+  between neighbouring spots, and the origami grows with it (the rod keeps 20 nm ends). New design `TUDelftLogo`: a
+  rigid flat sheet lying face up with one docking strand on each of 37 hexagons of the TU Delft logo, editable as a
+  hex-map cell list in `data/origami/designs.json`. The design `Nanoruler80` is now `Nanoruler`: MM configurations
+  that name it must be re-made.
 - DNA-origami nanorulers, a second sample (2026-10-12, `docs/samples/`): `SampleHolder` / `--specimen` / the viewer's
   Sample select mount the cell field or a field of 80 nm nanorulers (200 x 13 nm rods, three spots of five docking
   strands, in-plane worm-like-chain bending, Lp 1500 nm); MM device `Nanorulers`, core ABI 12. Cell-field output

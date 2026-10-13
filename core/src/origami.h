@@ -1,7 +1,9 @@
-// DNA-origami nanorulers (specimen 1, data/specimens.json): rods lying on a
-// coverslip, each a design of data/origami/designs.json (the 80 nm nanoruler:
-// a 200 x 13 nm 12-helix bundle with three spots of docking strands), bent
-// in-plane as a 2D surface-equilibrated worm-like chain. The port of the JS
+// DNA-origami nanorulers (specimen 1, data/specimens.json): molecules lying
+// on a coverslip, each a design of data/origami/designs.json -- a rod (the
+// nanoruler: a 13 nm 12-helix bundle with three spots of docking strands one
+// lattice spacing apart, bent in-plane as a 2D surface-equilibrated worm-like
+// chain) or a rigid plate (a 2D origami: a hex map of strands, face up). Spot
+// positions and the body's size scale with origamiSpacingNm. The port of the JS
 // reference web/prototype/scope/origami.js, line for line (bit-exact: jsm::
 // math, JS operand order); the model is tools/origami_reference/
 // origami_bend.py with its sequential stream replaced by address-based pcg4d
@@ -42,21 +44,27 @@ constexpr uint32_t ORIGAMI_CH_COUNT = 0, ORIGAMI_CH_CAND0 = 16;
 constexpr uint32_t ORIGAMI_K_BEND = 0x80000000u, ORIGAMI_K_LAND = 0x80000001u;
 constexpr int ORIGAMI_MIN_SEGMENTS = 8;
 
+enum OrigamiShapeKind { ORIGAMI_CYLINDER = 0, ORIGAMI_PLATE = 1 };
 enum OrigamiDeformation { ORIGAMI_RIGID = 0, ORIGAMI_WLC2D = 1 };
-enum OrigamiRollMode { ORIGAMI_ROLL_UNIFORM = 0, ORIGAMI_ROLL_FIXED = 1 };
+enum OrigamiRollMode { ORIGAMI_ROLL_UNIFORM = 0, ORIGAMI_ROLL_FIXED = 1, ORIGAMI_ROLL_FLAT = 2 };
 
-// A spot: a ring of ringN docking-strand positions around the body at atNm
-// along it (tools/gen_origami_designs.mjs -> origami_designs.inc).
+// A spot at (u, v) lattice units from the body's centre (positions = units x
+// origamiSpacingNm): a ring of ringN docking-strand positions around a rod, or
+// one strand on a plate's top face (tools/gen_origami_designs.mjs ->
+// origami_designs.inc).
 struct OrigamiSpot {
    const char* id;
-   double atNm;
+   double u, v;
    int ringN;
    double radiusNm, phaseDeg;
 };
+// The body at spacing s: length lengthUnits s + 2 endNm, in-plane width
+// widthUnits s + widthNm, height heightNm (OrigamiGeometryOf).
 struct OrigamiDesign {
    const char* id;
    const char* name;
-   double lengthNm, diameterNm;
+   int shape;                        // OrigamiShapeKind
+   double lengthUnits, endNm, widthUnits, widthNm, heightNm;
    int deformation;                  // OrigamiDeformation
    double persistenceLengthNm, segmentNm;
    int roll;                         // OrigamiRollMode (the design's suggestion)
@@ -70,6 +78,10 @@ const OrigamiDesign& OrigamiDesignAt(int i);   // clamped
 
 // normalizeOrigamiParams: specimen, origami* clamped, integers truncated.
 void NormalizeOrigamiParams(Params& p);
+
+// The body at spacing s = p.origamiSpacingNm: length L, in-plane width W, height H (nm).
+struct OrigamiGeometry { double s, L, W, H; };
+OrigamiGeometry OrigamiGeometryOf(const OrigamiDesign& d, const Params& p);
 
 // One bent realisation: the centreline as n circular arcs of length ds, in
 // the "aligned" frame (chord along +x, chord midpoint at the origin).
@@ -93,7 +105,7 @@ void OrigamiTransform(const OrigamiShape& S, double x, double y, double& X, doub
 std::vector<double> OrigamiShapeOutline(const OrigamiShape& S, int nPerSide = 64);
 
 uint32_t OrigamiMoleculeH1(uint32_t seed, int32_t tx, int32_t ty, int32_t i);
-double OrigamiMoleculeRoll(const Params& p, uint32_t h1);
+double OrigamiMoleculeRoll(const OrigamiDesign& d, const Params& p, uint32_t h1);
 
 struct OrigamiMolecule {
    int32_t tx, ty, i;
@@ -105,7 +117,7 @@ struct OrigamiMolecule {
 struct OrigamiSite {
    int32_t k, n;       // spot, ring position
    uint32_t id;        // the LABEL draw (the dye's id)
-   double rest[3];     // straight frame x, y, h (nm; h from the axis)
+   double rest[3];     // straight frame x, y, h (nm; h from the axis / mid-plane)
    double bent[2];     // molecule frame X, Y (nm)
    double x, y, z;     // world um
 };

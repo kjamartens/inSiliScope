@@ -744,8 +744,19 @@ description is `docs/samples/nanorulers/index.md`.
   is that height (`isc_origami_heights`).
 - **BrightField.** The optical volume of an origami world is empty (13 nm of DNA gives no contrast at these NAs; the
   BRIGHTFIELD.md rule), so BrightField frames hold lamp and noise only.
+- **Site spacing and 2D origami (2026-10-13).** Spots are stored in lattice units (u along the body, v across, from its
+  centre; the generator expands them) and placed at units x `origamiSpacingNm` (default 80, one value for all designs).
+  The body follows: length = lengthUnits s + 2 endNm, in-plane width = widthUnits s + widthNm, height fixed. The rod
+  (`Nanoruler`; was `Nanoruler80`) has spots at u = -1, 0, 1 and 20 nm ends: at s = 80 these are the old doubles
+  exactly (x = -80, 0, 80, L = 200), so every 80 nm output is unchanged; another s is another L, hence another segment
+  count and other bend draws (a different molecule, placement unchanged). A plate (`TUDelftLogo`) is a flat-topped hex
+  map (odd-q-down, neighbour distance s; generator constants sqrt(3)/2 printed shortest-round-trip so C++ = JS), the
+  bounding box of all cols x rows hexagons, rigid (`ORIGAMI_MIN_SEGMENTS` straight segments: transform = identity,
+  outline = the rectangle), landing `flat` (roll 0, never mirrored: image rows = +y as on the camera and screen), one
+  strand per cell on the top face (surface point (u s, v s, H/2), linker half-ball about +z: the rod formula at a =
+  90 deg written out, so no cos(pi/2) rounding).
 - **Not implemented** (schema slots, validated as "not implemented"): cuboid / mesh bodies, 3D bending, stiffness
-  patches, built-in curvature, explicit strand lists; broken or misfolded rulers.
+  patches, built-in curvature, explicit strand lists, face-down plates; broken or misfolded rulers.
 
 ## DNA-PAINT rate changes act at once (2026-10-12)
 

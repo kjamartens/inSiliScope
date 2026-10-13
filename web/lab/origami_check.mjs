@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ORIGAMI_DESIGNS, ORIGAMI_TILE_UM, OrigamiField, bentShape, centerline, transform, moleculeSites,
-  normalizeOrigamiParams, bendNormal, moleculeH1 } from '../prototype/scope/origami.js';
+  normalizeOrigamiParams, bendNormal, moleculeH1, origamiGeometry, shapeOutline } from '../prototype/scope/origami.js';
 import { World } from '../prototype/scope/world.js';
 import { makeLabel } from '../prototype/scope/dyes.js';
 
@@ -18,9 +18,9 @@ const M = +opt('--rulers', 4000);
 const t0 = performance.now();
 let ok = true;
 const check = (name, cond, detail = '') => { ok = ok && !!cond; console.log(`[${cond ? 'PASS' : 'FAIL'}] ${name} ${detail}`); };
-const d = ORIGAMI_DESIGNS[0], L = d.lengthNm, D = d.diameterNm, R = D / 2;
-const POS = d.spots.map(s => s.atNm);
 const P0 = normalizeOrigamiParams({ specimen: 1 });
+const d = ORIGAMI_DESIGNS[0], G0 = origamiGeometry(d, P0), L = G0.L, D = G0.H, R = D / 2;
+const POS = d.spots.map(s => s.u * G0.s + L / 2);
 const Pw = o => normalizeOrigamiParams({ specimen: 1, ...o });
 const mol = (h1, extra = {}) => ({ tx: 0, ty: 0, i: 0, x: 0, y: 0, yaw: 0, h1, ...extra });
 const maxAbs = (a, b) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
@@ -70,6 +70,58 @@ check('different molecule -> different shape', maxAbs(flat(bentShape(d, P0, 7)),
   const P = Pw({}), S = bentShape(d, P, 5);
   const zs = moleculeSites(d, P, mol(5), S, 1, 1, [], true).map(s => s.z);
   check('2D: every strand at attach + D/2', zs.every(z => z === (P.origamiAttachNm + R) / 1000));
+}
+
+// ---- the site spacing ----
+{
+  check('80 nm spacing: the 200 nm rod with spots at 20, 100, 180 nm', L === 200 && D === 13 && POS.join() === '20,100,180');
+  const rest = sp => moleculeSites(d, Pw({ origamiSpacingNm: sp, origamiBend: 0, origamiLinkerNm: 0 }), mol(5),
+    bentShape(d, Pw({ origamiSpacingNm: sp, origamiBend: 0 }), 5), 1, 1, [], true);
+  for (const sp of [640, 40, 5]) {
+    const G = origamiGeometry(d, Pw({ origamiSpacingNm: sp })), xs = [0, 1, 2].map(k => rest(sp).find(s => s.k === k).rest[0]);
+    check(`${sp} nm spacing: spots ${sp} nm apart, 20 nm ends`, G.L === 2 * sp + 40 &&
+      xs.every((x, k) => Math.abs(x - (k - 1) * sp) < 1e-9), `(length ${G.L} nm, spots at ${xs.map(x => (x + G.L / 2).toFixed(1)).join(', ')})`);
+  }
+  // A different spacing never moves a molecule (placement draws do not depend on it).
+  const key = m => `${m.tx},${m.ty},${m.i},${m.x},${m.y},${m.yaw}`;
+  const tiles = F => [0, 1, 2].flatMap(t => F.tileMolecules(t, -t)).map(key).join(';');
+  const A = tiles(new OrigamiField(9, Pw({}))), B = tiles(new OrigamiField(9, Pw({ origamiSpacingNm: 20 })));
+  check('spacing leaves placement alone', A === B && A.length > 0);
+}
+
+// ---- the 2D origami (the TU Delft logo: a rigid hex-map plate, face up) ----
+{
+  const dl = ORIGAMI_DESIGNS.findIndex(x => x.id === 'TUDelftLogo'), D2 = ORIGAMI_DESIGNS[dl];
+  check('the logo design exists', dl > 0 && D2.shape === 'plate' && D2.spots.length === 37 && D2.maxRingN === 1);
+  for (const sp of [80, 20, 5]) {
+    const P = Pw({ origamiDesign: dl, origamiSpacingNm: sp, origamiLinkerNm: 0 });
+    check(`logo: strands per spot clamps to 1`, P.origamiStrandsPerSpot === 1);
+    const G = origamiGeometry(D2, P), S = bentShape(D2, P, 77);
+    const sites = moleculeSites(D2, P, mol(77, { yaw: 0.7 }), S, 1, 1, [], true);
+    // Nearest-neighbour centre distance = the spacing; every strand on the plate's top face, inside it.
+    let nn = Infinity, inside = true;
+    for (let a = 0; a < sites.length; a++) {
+      const [x, y] = sites[a].rest;
+      inside = inside && Math.abs(x) < G.L / 2 && Math.abs(y) < G.W / 2;
+      for (let b = a + 1; b < sites.length; b++) nn = Math.min(nn, Math.hypot(x - sites[b].rest[0], y - sites[b].rest[1]));
+    }
+    check(`logo at ${sp} nm: 37 strands, neighbours ${sp} nm apart, inside the plate`, sites.length === 37 &&
+      Math.abs(nn - sp) < 1e-9 * sp && inside, `(nearest ${nn.toFixed(6)} nm, plate ${G.L.toFixed(1)} x ${G.W.toFixed(1)} nm)`);
+    check(`logo at ${sp} nm: rigid and on the top face`, sites.every(s => Math.abs(s.bent[0] - s.rest[0]) < 1e-9 &&
+      Math.abs(s.bent[1] - s.rest[1]) < 1e-9 && s.rest[2] === G.H / 2));
+  }
+  // Face up, never mirrored: the flame (cell 0601, column 6 row 1) lies up-left of the o (1506) in the molecule frame
+  // (+y = down, as on the screen), whatever the roll params say.
+  const P = Pw({ origamiDesign: dl, origamiRoll: 1, origamiRollDeg: 180 });
+  const sites = moleculeSites(D2, P, mol(3), bentShape(D2, P, 3), 1, 1, [], true);
+  const at = id => sites[D2.spots.findIndex(s => s.id === id)].rest;
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  check('logo lies face up (unmirrored, roll ignored)', at('0601')[0] < at('1506')[0] && at('0601')[1] < at('1506')[1] &&
+    Math.sign(cross(at('0601'), at('1506'), at('0809'))) === Math.sign(cross([6, 1.0], [15, 6.5], [8, 9.0])));
+  const o = shapeOutline(bentShape(D2, P, 3));
+  const G = origamiGeometry(D2, P);
+  check('logo outline = the plate rectangle', o.every((v, j) => Math.abs(Math.abs(v) - (j % 2 ? G.W : G.L) / 2) < 1e-9 ||
+    Math.abs(v) < (j % 2 ? G.W : G.L) / 2 + 1e-9));
 }
 
 // ---- the normals ----

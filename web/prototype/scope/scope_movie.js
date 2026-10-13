@@ -116,11 +116,12 @@ export const SCOPE_OPTIONS = [
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
   // ---- the nanorulers (Micro-Manager: Nanorulers; core params origami*, origami.js) ----
   ['origami-design', ORIGAMI_DEFAULTS.origamiDesign, 'Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)'],
+  ['origami-spacing-nm', ORIGAMI_DEFAULTS.origamiSpacingNm, 'Nanorulers.SpacingNm: lattice step between neighbouring spots, nm; the body grows with it (a rod keeps 20 nm ends; the UIs offer 640-5)'],
   ['origami-density', ORIGAMI_DEFAULTS.origamiDensity, 'Nanorulers.DensityPerUm2: molecules per um^2 before the minimum spacing thins them'],
   ['origami-min-spacing-nm', ORIGAMI_DEFAULTS.origamiMinSpacingNm, 'Nanorulers.MinSpacingNm: no two molecule centres closer than this, nm (0 = no thinning)'],
   ['origami-bend', ORIGAMI_DEFAULTS.origamiBend, 'Nanorulers.Bending: 1 = the design\'s in-plane worm-like-chain bending, 0 = rigid'],
   ['origami-lp-nm', ORIGAMI_DEFAULTS.origamiLpNm, 'Nanorulers.PersistenceLengthNm: bending persistence length, nm (estimate; measured helix bundles 0.74-8.2 um)'],
-  ['origami-strands-per-spot', ORIGAMI_DEFAULTS.origamiStrandsPerSpot, 'Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the design has 5)'],
+  ['origami-strands-per-spot', ORIGAMI_DEFAULTS.origamiStrandsPerSpot, 'Nanorulers.StrandsPerSpot: ring positions 0..N-1 of every spot carry a docking strand (the nanoruler has 5, a 2D origami 1)'],
   ['origami-attach-nm', ORIGAMI_DEFAULTS.origamiAttachNm, 'Nanorulers.AttachHeightNm: the rod\'s bottom above the glass, nm'],
   ['origami-linker-nm', ORIGAMI_DEFAULTS.origamiLinkerNm, 'Nanorulers.LinkerNm: the dye lies within this distance of its strand\'s anchor, outward, nm'],
   ['origami-roll', ORIGAMI_DEFAULTS.origamiRoll, 'Nanorulers.Roll: 0 Uniform (each rod landed at a random roll about its axis), 1 Fixed (origami-roll-deg; names accepted)'],
@@ -271,7 +272,7 @@ export const mountedStructures = spec => DYE_DATA.specimens[scopeSpecimen(spec)]
 // The world's specimen params (core params specimen + origami*): the origami-* options, then p.<name> on top.
 export function scopeSpecimenParams(spec) {
   const O = getter(spec);
-  const v = { specimen: scopeSpecimen(spec), origamiDesign: O('origami-design'), origamiDensity: O('origami-density'),
+  const v = { specimen: scopeSpecimen(spec), origamiDesign: O('origami-design'), origamiSpacingNm: O('origami-spacing-nm'), origamiDensity: O('origami-density'),
     origamiMinSpacingNm: O('origami-min-spacing-nm'), origamiBend: O('origami-bend'), origamiLpNm: O('origami-lp-nm'),
     origamiStrandsPerSpot: O('origami-strands-per-spot'), origamiAttachNm: O('origami-attach-nm'),
     origamiLinkerNm: O('origami-linker-nm'), origamiRoll: O('origami-roll'), origamiRollDeg: O('origami-roll-deg'),
@@ -284,7 +285,7 @@ export function scopeSpecimenParams(spec) {
 export function scopeDefaultZ(spec) {
   const q = scopeSpecimenParams(spec);
   if (q.specimen !== SPECIMEN_NANORULERS) return DEFAULTS.z;
-  return (q.origamiAttachNm + ORIGAMI_DESIGNS[q.origamiDesign].diameterNm / 2) / 1000.0;
+  return (q.origamiAttachNm + ORIGAMI_DESIGNS[q.origamiDesign].heightNm / 2) / 1000.0;
 }
 
 // A structure's dye choice and mode as the spec gives them, resolved (ScopeStructureDye): <prefix>-mode -2 = the global

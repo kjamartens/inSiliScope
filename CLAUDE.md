@@ -411,7 +411,9 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 1). `core/src/origami.*`
 (JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
 tiles, Matern-II field (`origamiDensity` 1.2 /um^2, `origamiMinSpacingNm` 0 = no thinning), designs `data/origami/designs.json`
-(3D-ready schema; v1 `Nanoruler80`: 200 x 13 nm cylinder, spots at 20/100/180 nm, a 5-strand ring each,
+(3D-ready schema; spots in lattice steps of `origamiSpacingNm` (80; MM `Nanorulers.SpacingNm` 640..5, 2026-10-13), the body
+follows; `Nanoruler` (was `Nanoruler80`): 13 nm cylinder with 20 nm ends, at 80 nm 200 nm long with spots at 20/100/180 nm, a 5-strand ring each;
+`TUDelftLogo`: a 2D origami, rigid plate over a 17 x 11 flat-top hex map (cells `CCRR`), one strand per cell, face up,
 `origamiStrandsPerSpot` keeps ring positions 0..N-1), in-plane 2D worm-like-chain bending (`origamiLpNm` 1500, Advanced;
 the explorer's 273.1 is not used), random roll, every strand at 13.5 nm (`origamiHeights` 1 = ring heights, untested).
 The `World` branches on `specimen` (one dye block per molecule; no cells, empty optical volume, so BrightField is

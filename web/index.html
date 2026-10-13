@@ -380,7 +380,7 @@ const labelGroup = (t, i) => {
       ] }),
   ] });
 };
-const DESIGNS = self.ISC_ORIGAMI_DESIGNS || [{ name: '80 nm nanoruler' }];   // web/origami_designs.js
+const DESIGNS = self.ISC_ORIGAMI_DESIGNS || [{ name: '1D origami: nanoruler (3 spots)' }];   // web/origami_designs.js
 // A user dye's fields: every dye field (any mode) plus the pre state's and, for a parametric source (Custom), the
 // spectra. Values from the source in its default mode; a field that mode lacks comes from the first mode that has it.
 // A field the source cannot take (no pre state, measured spectra) is NaN: hidden and not sent.
@@ -506,10 +506,12 @@ const UI_GROUPS = [
   ] },
   // The DNA-origami nanorulers (core params origami*, web/prototype/scope/origami.js; Micro-Manager: Nanorulers).
   { id: 'origami', title: 'Nanorulers', open: true, show: NR, items: [
-    select('origamiDesign', 'Design', 'The DNA-origami design (data/origami/designs.json): the 80 nm nanoruler is a 200 × 13 nm rod with three spots of docking strands at 20, 100 and 180 nm along it. <code>Nanorulers.Design</code>',
+    select('origamiDesign', 'Design', 'The DNA-origami design (data/origami/designs.json): the 1D nanoruler is a 13 nm rod with three spots of docking strands one site spacing apart and 20 nm beyond the outer ones (at 80 nm: a 200 nm rod, spots at 20, 100 and 180 nm); the 2D origami is a rigid plate lying face up with one strand on each of the 37 hexagons of the TU Delft logo. <code>Nanorulers.Design</code>',
       DESIGNS.map((d, i) => [String(i), d.name]), '0'),
+    select('origamiSpacingNm', 'Site spacing', 'Distance between neighbouring spots of docking strands (the spots along the rod, the centres of the logo hexagons); the origami grows or shrinks with it. <code>Nanorulers.SpacingNm</code>',
+      [640, 320, 160, 80, 40, 20, 10, 5].map(v => [String(v), v + ' nm']), '80'),
     num('origamiDensity', 'Density', '/µm²', 'Molecules per µm² of coverslip before the minimum spacing thins them (estimate). <code>Nanorulers.DensityPerUm2</code>', 0, 50, 0.05, 1.2),
-    range('origamiStrandsPerSpot', 'Strands per spot', 'of 5', 'Each spot is a ring of 5 docking strands around the rod, seen from above as one spot; positions 1..N of the ring carry a strand. <code>Nanorulers.StrandsPerSpot</code>', 1, 5, 1, 5, { fmt: fx(0) }),
+    range('origamiStrandsPerSpot', 'Strands per spot', 'of 5', 'Each spot is a ring of 5 docking strands around the rod, seen from above as one spot; positions 1..N of the ring carry a strand (a 2D origami has one per hexagon). <code>Nanorulers.StrandsPerSpot</code>', 1, 5, 1, 5, { fmt: fx(0), show: () => ((DESIGNS[+$('origamiDesign').value] || {}).maxRingN || 5) > 1 }),
     check('origamiBend', 'Bending', 'In-plane worm-like-chain bending of each rod as it lies on the glass (exact arcs per segment); off = straight rods. <code>Nanorulers.Bending</code>', true, { adv, kids: [
       num('origamiLpNm', 'Persistence length', 'nm', 'Bending persistence length of the rod: 1500 nm by default (an estimate inside the measured range of DNA-origami helix bundles, 0.74-8.2 µm; Chhabra et al. 2020). RMS end-to-end angle sqrt(L / Lp). <code>Nanorulers.PersistenceLengthNm</code>', 1, 100000, 10, 1500, { adv, show: () => $('origamiBend').checked }),
     ] }),
@@ -1162,7 +1164,7 @@ const els = {};
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
- 'mv_specimen', 'showRulers', 'origamiDesign', 'origamiDensity', 'origamiMinSpacingNm', 'origamiStrandsPerSpot', 'origamiStrandsPerSpotVal',
+ 'mv_specimen', 'showRulers', 'origamiDesign', 'origamiSpacingNm', 'origamiDensity', 'origamiMinSpacingNm', 'origamiStrandsPerSpot', 'origamiStrandsPerSpotVal',
  'origamiBend', 'origamiLpNm', 'origamiAttachNm', 'origamiLinkerNm', 'origamiRoll', 'origamiRollDeg', 'origamiHeights']
   .forEach(id => { els[id] = document.getElementById(id); });
 
@@ -1234,6 +1236,7 @@ function params() {
     ...(+els.mv_specimen.value === 1 ? {
       specimen: 1,
       origamiDesign: +els.origamiDesign.value,
+      origamiSpacingNm: +els.origamiSpacingNm.value,
       origamiDensity: Math.max(0, +els.origamiDensity.value),
       origamiMinSpacingNm: Math.max(0, +els.origamiMinSpacingNm.value),
       origamiStrandsPerSpot: Math.round(+els.origamiStrandsPerSpot.value),
@@ -3953,7 +3956,7 @@ function updateOrigami(seed, p, F) {
 function drawOrigami(F, g) {
   const c = oriCache, cam = F.cam, st = F.st;
   if (!c || c.key !== assetSig((+els.seed.value) | 0, params())) return 0;
-  const d = (self.ISC_ORIGAMI_DESIGNS || [])[+els.origamiDesign.value], z = (+els.origamiAttachNm.value + (d ? d.diameterNm : 13) / 2) / 1000;
+  const d = (self.ISC_ORIGAMI_DESIGNS || [])[+els.origamiDesign.value], z = (+els.origamiAttachNm.value + (d ? d.heightNm : 13) / 2) / 1000;
   if (z < F.zc[0] || z > F.zc[1]) return 0;
   const s = IscScene.resolveStyle(st.theme, 'ruler.outline', st.layers['ruler.outline'].style), col = s.color || [90, 169, 230];
   const [x0, y0, x1, y1] = cam.visibleRect(), m = 0.15, path = new Path2D(), npt = c.npt;

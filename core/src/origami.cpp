@@ -53,6 +53,7 @@ void NormalizeOrigamiParams(Params& p)
    p.specimen = std::trunc(Clamp(p.specimen, 0, SPECIMEN_COUNT - 1));
    p.origamiDesign = std::trunc(Clamp(p.origamiDesign, 0, kDesignCount - 1));
    const OrigamiDesign& d = kOrigamiDesigns[(int)p.origamiDesign];
+   p.origamiSpacingNm = Clamp(p.origamiSpacingNm, 1, 10000);
    p.origamiDensity = Clamp(p.origamiDensity, 0, 50);
    p.origamiMinSpacingNm = Clamp(p.origamiMinSpacingNm, 0, ORIGAMI_TILE_UM * 1000);
    p.origamiBend = p.origamiBend != 0 ? 1 : 0;
@@ -62,6 +63,12 @@ void NormalizeOrigamiParams(Params& p)
    p.origamiLinkerNm = Clamp(p.origamiLinkerNm, 0, 100);
    p.origamiRoll = p.origamiRoll != 0 ? 1 : 0;
    p.origamiHeights = p.origamiHeights != 0 ? 1 : 0;
+}
+
+OrigamiGeometry OrigamiGeometryOf(const OrigamiDesign& d, const Params& p)
+{
+   const double s = p.origamiSpacingNm;
+   return { s, d.lengthUnits * s + 2 * d.endNm, d.widthUnits * s + d.widthNm, d.heightNm };
 }
 
 // ---- molecule shape (origami_bend.py BentShape, frame "aligned") ----
@@ -77,8 +84,11 @@ double OrigamiBendNormal(uint32_t h1, int i)
 OrigamiShape OrigamiBentShape(const OrigamiDesign& d, const Params& p, uint32_t h1, const double* normals)
 {
    OrigamiShape S;
-   const double L = d.lengthNm, W = d.diameterNm;
-   const int n = std::max(ORIGAMI_MIN_SEGMENTS, (int)std::ceil(L / d.segmentNm));
+   const OrigamiGeometry G = OrigamiGeometryOf(d, p);
+   const double L = G.L, W = G.W;
+   // A rigid design (a plate) is straight: the fewest segments.
+   const int n = d.deformation == ORIGAMI_RIGID ? ORIGAMI_MIN_SEGMENTS
+                                                : std::max(ORIGAMI_MIN_SEGMENTS, (int)std::ceil(L / d.segmentNm));
    const double ds = L / n;
    const bool bend = p.origamiBend != 0 && d.deformation == ORIGAMI_WLC2D;
    const double sd = bend ? jsm::sqrt(ds / p.origamiLpNm) : 0.0;
@@ -160,8 +170,9 @@ uint32_t OrigamiMoleculeH1(uint32_t seed, int32_t tx, int32_t ty, int32_t i)
    return PcgA(seed ^ ORIGAMI_DYE_SALT, (uint32_t)tx, (uint32_t)ty, (uint32_t)i);
 }
 
-double OrigamiMoleculeRoll(const Params& p, uint32_t h1)
+double OrigamiMoleculeRoll(const OrigamiDesign& d, const Params& p, uint32_t h1)
 {
+   if (d.roll == ORIGAMI_ROLL_FLAT) return 0.0;   // a plate lies face up
    if (p.origamiRoll != 0) return p.origamiRollDeg * jsm::PI / 180.0;
    return 2.0 * jsm::PI * Unit(PcgA(h1, ORIGAMI_K_LAND, 0, 0));
 }
@@ -173,9 +184,12 @@ void OrigamiMoleculeSites(const OrigamiDesign& d, const Params& p, const Origami
    const double ff = std::min(1.0, std::max(0.0, fluorescentFraction));
    if (!withAll && (!(labelledBelow > 0) || !(ff > 0))) return;
    const uint32_t h1 = m.h1;
-   const double roll = OrigamiMoleculeRoll(p, h1), Lk = p.origamiLinkerNm;
+   const double roll = OrigamiMoleculeRoll(d, p, h1), Lk = p.origamiLinkerNm;
    const double cy = jsm::cos(m.yaw), sy = jsm::sin(m.yaw);
-   const double zAxisNm = p.origamiAttachNm + d.diameterNm / 2;
+   const OrigamiGeometry G = OrigamiGeometryOf(d, p);
+   const double step = G.s;
+   const bool plate = d.shape == ORIGAMI_PLATE;
+   const double zAxisNm = p.origamiAttachNm + G.H / 2;
    for (int k = 0; k < d.nSpots; k++) {
       const OrigamiSpot& sp = d.spots[k];
       const int nOn = (int)std::min((double)sp.ringN, p.origamiStrandsPerSpot);
@@ -185,8 +199,14 @@ void OrigamiMoleculeSites(const OrigamiDesign& d, const Params& p, const Origami
             if (Unit(label) >= labelledBelow) continue;
             if (ff < 1.0 && Unit(PcgA(h1, (uint32_t)k, (uint32_t)n, DYE_CH::FLUOR)) >= ff) continue;
          }
-         const double a = roll + sp.phaseDeg * jsm::PI / 180.0 + 2.0 * jsm::PI * n / sp.ringN;
-         const double ca = jsm::cos(a), sa = jsm::sin(a);
+         // The strand's surface point: on a rod's ring (angle a about the axis), or on a plate's top face (90 deg).
+         double ca = 0.0, sa = 1.0, r = G.H / 2;
+         if (!plate) {
+            const double a = roll + sp.phaseDeg * jsm::PI / 180.0 + 2.0 * jsm::PI * n / sp.ringN;
+            ca = jsm::cos(a);
+            sa = jsm::sin(a);
+            r = sp.radiusNm;
+         }
          // Linker: the dye uniform in the outward half-ball of radius Lk on the surface point.
          const double cu = Unit(PcgA(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U));
          const double ph = 2.0 * jsm::PI * Unit(PcgA(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI));
@@ -194,9 +214,9 @@ void OrigamiMoleculeSites(const OrigamiDesign& d, const Params& p, const Origami
          const double sn = jsm::sqrt(1.0 - cu * cu);
          const double dn = rr * cu, d1 = rr * sn * jsm::cos(ph), d2 = rr * sn * jsm::sin(ph);
          // Frame at the surface point: normal (0, ca, sa), along the axis (1, 0, 0), around it (0, -sa, ca).
-         const double x = sp.atNm - d.lengthNm / 2 + d1;
-         const double y = sp.radiusNm * ca + dn * ca - d2 * sa;
-         const double h = sp.radiusNm * sa + dn * sa + d2 * ca;
+         const double x = sp.u * step + d1;
+         const double y = sp.v * step + (r * ca + dn * ca - d2 * sa);
+         const double h = r * sa + dn * sa + d2 * ca;
          double X, Y;
          OrigamiTransform(S, x, y, X, Y);
          const double zNm = p.origamiHeights != 0 ? zAxisNm + h : zAxisNm;
@@ -222,8 +242,15 @@ OrigamiField::OrigamiField(uint32_t seed, const Params& p) : seed_(seed), p_(p)
    d_ = &kOrigamiDesigns[(int)p_.origamiDesign];
 }
 
-double OrigamiField::ReachUm() const { return (d_->lengthNm / 2 + d_->diameterNm / 2 + p_.origamiLinkerNm) / 1000.0; }
-double OrigamiField::MaxHeightUm() const { return (p_.origamiAttachNm + d_->diameterNm + p_.origamiLinkerNm) / 1000.0; }
+double OrigamiField::ReachUm() const
+{
+   const OrigamiGeometry G = OrigamiGeometryOf(*d_, p_);
+   return (G.L / 2 + G.W / 2 + p_.origamiLinkerNm) / 1000.0;
+}
+double OrigamiField::MaxHeightUm() const
+{
+   return (p_.origamiAttachNm + OrigamiGeometryOf(*d_, p_).H + p_.origamiLinkerNm) / 1000.0;
+}
 
 const std::vector<OrigamiField::Candidate>& OrigamiField::Candidates(int32_t tx, int32_t ty)
 {

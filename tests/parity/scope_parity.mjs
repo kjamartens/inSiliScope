@@ -111,6 +111,8 @@ const CASES = [
   ['Nanorulers DNA-PAINT, GibsonLanniZernike', `${N} size=48 frames=20 psf-kernel-half-width-nm=2500 ruler-imager-nm=10`, 1],
   ['Nanorulers dSTORM AF647, Lp 273.1 nm, 3 strands, 3D heights, drift', `${N} size=40 frames=10 psf-model=0 ruler-dye=AF647 light-preset=auto origami-lp-nm=273.1 origami-strands-per-spot=3 origami-heights=1 drift-xy-nm-per-sqrt-sec=20`, 0.999],
   ['Nanorulers WideField mEGFP, mean field', `${N} size=40 frames=3 psf-kernel-half-width-nm=2500 ruler-mode=WideField ruler-dye=mEGFP light-preset=auto`, 0.999],
+  ['2D origami TU Delft logo, 20 nm spacing, DNA-PAINT', `${N} size=40 frames=20 psf-model=0 origami-design=TUDelftLogo origami-spacing-nm=20 ruler-imager-nm=10`, 1],
+  ['Nanorulers 40 nm spacing, DNA-PAINT', `${N} size=40 frames=20 psf-model=0 origami-spacing-nm=40 ruler-imager-nm=10`, 1],
   ['Nanorulers BrightField (no contrast: noise only)', `${N} size=32 frames=2 modality=BrightField bf-quality=1`, 0.995],
 ];
 for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {

@@ -66,7 +66,7 @@ def main():
     labels = list(core.getStateLabels("SampleHolder"))
     assert labels == ["CellField", "Nanorulers"], f"SampleHolder positions: {labels}"
     assert core.getProperty("SampleHolder", "Label") == "CellField", "the cell field should be mounted at start"
-    for p, v in (("Docking_Label", "Typical"), ("Design", "Nanoruler80"), ("StrandsPerSpot", 5),
+    for p, v in (("Docking_Label", "Typical"), ("Design", "Nanoruler"), ("SpacingNm", "80"), ("StrandsPerSpot", 5),
                  ("PersistenceLengthNm", 1500), ("Bending", "On")):
         got = core.getProperty("Nanorulers", p)
         assert (float(got) == v) if isinstance(v, int) else got == v, f"Nanorulers.{p} = {got}, not {v}"
@@ -101,6 +101,26 @@ def main():
     core.setProperty("Fluorophores", "Mode", "DNA-PAINT")
     assert core.getProperty("Lasers", "Preset") == "PAINT-640", core.getProperty("Lasers", "Preset")
     print(f"StrandsPerSpot OK: 1 strand per spot is another sample ({spots(one):.0f} sigma)")
+
+    # The site spacing and the 2D origami: each is another sample, and the spots are still there.
+    core.setProperty("Fluorophores", "Mode", "dSTORM")
+    allowed = list(core.getAllowedPropertyValues("Nanorulers", "SpacingNm"))
+    assert sorted(map(int, allowed)) == [5, 10, 20, 40, 80, 160, 320, 640], f"SpacingNm values: {allowed}"
+    core.setProperty("Nanorulers", "SpacingNm", "320")
+    wide = stack(core)
+    assert not all(np.array_equal(a, b) for a, b in zip(wide, rulers)), "320 nm spacing should be another sample"
+    assert spots(wide) > 8, f"320 nm spacing: {spots(wide):.1f} sigma"
+    core.setProperty("Nanorulers", "Design", "TUDelftLogo")
+    core.setProperty("Nanorulers", "SpacingNm", "40")
+    core.setProperty("Nanorulers", "DensityPerUm2", "0.2")   # sparse logos: spots() wants sparse spots
+    logo = stack(core)
+    core.setProperty("Nanorulers", "DensityPerUm2", "1.2")
+    assert not all(np.array_equal(a, b) for a, b in zip(logo, wide)), "the 2D origami should be another sample"
+    assert spots(logo) > 8, f"2D origami: {spots(logo):.1f} sigma"
+    core.setProperty("Nanorulers", "Design", "Nanoruler")
+    core.setProperty("Nanorulers", "SpacingNm", "80")
+    core.setProperty("Fluorophores", "Mode", "DNA-PAINT")
+    print(f"SpacingNm and Design OK: 320 nm rods ({spots(wide):.0f} sigma), TU Delft logos ({spots(logo):.0f} sigma)")
 
     core.setProperty("Camera", "Test_AcqMode", "Live")
     core.snapImage()

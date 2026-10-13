@@ -142,6 +142,9 @@
       "options": { "specimen": "Nanorulers", "ruler-dye": "AF647", "light-preset": "auto" } },
     { "id": "nr-widefield", "group": "Nanorulers", "title": "Widefield nanorulers",
       "text": "Every docking strand's ATTO 655 emitting at once (ruler-mode WideField): diffraction-limited spots, one per rod.",
-      "options": { "specimen": "Nanorulers", "ruler-mode": "WideField", "light-preset": "auto", "frames": 20 } }
+      "options": { "specimen": "Nanorulers", "ruler-mode": "WideField", "light-preset": "auto", "frames": 20 } },
+    { "id": "nr-logo-widefield", "group": "Nanorulers", "title": "2D origami: TU Delft logos, 320 nm spacing",
+      "text": "origami-design TUDelftLogo: flat DNA origami lying face up at random angles, each with one docking strand on each of 37 hexagons of the TU Delft logo. At origami-spacing-nm 320 the strands sit 320 nm apart, wider than the PSF, so in WideField (every strand's ATTO 655 at once, from the first second: start-sec 0, before they bleach) the logo is readable without super-resolution; at the default 80 nm it is one blur.",
+      "options": { "specimen": "Nanorulers", "origami-design": "TUDelftLogo", "origami-spacing-nm": 320, "origami-density": 0.02, "ruler-mode": "WideField", "light-preset": "auto", "start-sec": 0, "frames": 20 } }
   ]
 }

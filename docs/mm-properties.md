@@ -227,9 +227,10 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
 | `Docking_Label` | Basic | Typical | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3` | The label: Typical (the usual dye for the Fluorophores Mode), or any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert). |
-| `Design` | Basic | Nanoruler80 | `Nanoruler80` | The DNA-origami design (data/origami/designs.json): Nanoruler80 = three spots of docking strands 80 nm apart on a 200 x 13 nm rod. |
+| `Design` | Basic | Nanoruler | `Nanoruler`, `TUDelftLogo` | The DNA-origami design (data/origami/designs.json): Nanoruler = a 13 nm rod with three spots of docking strands SpacingNm apart and 20 nm ends; TUDelftLogo = a 2D origami, a rigid plate with one strand on each of 37 hexagons of the TU Delft logo, neighbours SpacingNm apart. |
+| `SpacingNm` | Basic | 80 | `640`, `320`, `160`, `80`, `40`, `20`, `10`, `5` | Distance between neighbouring spots of docking strands, nm; the origami grows or shrinks with it (the nanoruler keeps its 20 nm ends: 80 nm = a 200 nm rod). |
 | `DensityPerUm2` | Basic | 1.2 | 0 .. 50 | Molecules per um^2 of coverslip, before the minimum spacing thins them. |
-| `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the design's 5 carry one. |
+| `StrandsPerSpot` | Basic | 5 | 1 .. 5 | Docking strands per spot: ring positions 1..N of the nanoruler's 5 carry one (a 2D origami has 1). |
 | `Docking_LabelingPct` | Advanced | 80 | 0 .. 100 | Labelled fraction of the docking strands' sites, % (a mode change sets its suggestion). |
 | `Docking_ImagerNanoMol` | Advanced | 20 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
 | `Docking_BoundTimeSec` | Advanced | 0.2885390082 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |

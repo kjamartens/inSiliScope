@@ -128,7 +128,7 @@ void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, doubl
    for (const OrigamiMolecule& m : mols) {
       const OrigamiShape S = F.Shape(m);
       std::fprintf(f, "ori %s %d %d %d %d", id.c_str(), m.tx, m.ty, m.i, S.fold ? 1 : 0);
-      PrintD(f, m.x); PrintD(f, m.y); PrintD(f, m.yaw); PrintD(f, OrigamiMoleculeRoll(F.P(), m.h1));
+      PrintD(f, m.x); PrintD(f, m.y); PrintD(f, m.yaw); PrintD(f, OrigamiMoleculeRoll(F.Design(), F.P(), m.h1));
       PrintD(f, S.endAngle);
       std::fprintf(f, "\n");
       const std::vector<double> o = OrigamiShapeOutline(S, 16);

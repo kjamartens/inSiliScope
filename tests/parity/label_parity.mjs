@@ -85,6 +85,7 @@ const SPECIMENS = [
   { name: 'nanorulers ', specimen: 1, s: 1, extra: {} },
   { name: 'nanorulers (Lp 273.1, 3 strands, 3D) ', specimen: 1, s: 1,
     extra: { origamiLpNm: 273.1, origamiStrandsPerSpot: 3, origamiHeights: 1, origamiDensity: 2 } },
+  { name: '2D origami (logo, 20 nm) ', specimen: 1, s: 1, extra: { origamiDesign: 1, origamiSpacingNm: 20, origamiDensity: 2 } },
 ];
 for (const sp of SPECIMENS) for (const [cname, opts] of CASES) {
   const name = sp.name + cname, label = D.makeLabel(opts);
