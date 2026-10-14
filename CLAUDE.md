@@ -37,7 +37,10 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  **● Record** (2026-10-14): the next N frames unpaced, the sample going on, in chunks of ~2 M pixels, each one
+  **● Record** (2026-10-14): a box under the button asks for N; by default a fresh sample (one `movie` job of N frames on
+  the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
+  replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,
+  unlike MM) the next N frames unpaced, the sample going on, in chunks of ~2 M pixels, each one
   `LiveScope::Frames` call (`isc_live_frames`: one movie of n frames on the history's clock, as the adapter's
   render-ahead; frame by frame with drift or frames that light nothing; = n `Frame` calls within one electron in a few
   pixels, ctest `live_scope`), saved as one ImageJ TIFF (`writeTiff16(..., pxUm)`: XResolution, finterval, the spec in

@@ -48,15 +48,18 @@ Notes:
   phases (setup, the core's blink events, splatting, camera noise, ...), the trip to and from the worker, the display,
   and the wait that paces frames to the exposure. Every row that can take time is always listed, in the same order;
   one the frame did not have shows "—".
-- **● Record** takes the next N frames (the number beside it) at the stage position and saves them as one 16-bit
-  TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`. The live sample goes on through them (its illumination history,
-  drift, camera noise), as in a Micro-Manager sequence acquisition, but they are rendered as fast as the engine goes,
-  not paced to the exposure: in batches of frames, each one movie on the sample's clock, so the slow parts of a frame
-  (above all the blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256
-  px). The last frame of each batch is shown. The file opens in ImageJ/Fiji as a time series with the pixel size and
-  frame interval set, and its header holds every setting (the engine spec; `insiliscope_cli --spec` reads it, but
-  renders a fresh sample, without this sample's history). Clicking the button again stops early and saves the frames
-  so far. Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
+- **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
+  position with the current settings and saves them as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`,
+  rendered as fast as the engine goes, not paced to the exposure. A recording is a fresh sample: a movie starting at
+  the Start time, the same one "Make movie here" makes and `insiliscope_cli --spec` renders from the spec in the
+  file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
+  and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
+  Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
+  With **continue the live sample** (in the box, Advanced level) the frames go on from the live sample instead: its
+  illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
+  are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
+  blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
+  frame of each batch is shown, and clicking ● Record again stops early and saves the frames so far.
 - **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
   in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as

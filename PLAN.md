@@ -54,7 +54,8 @@ Upcoming ideas:
   lab.html (the JS reference has no illumination history yet), [ ] a camera-size/ROI control beside the live image.
   2026-10-14: [x] settings levels Basic/Advanced/Expert from the MM tiers (`ISC_MM_TIERS`), [x] the render path per label
   in the info, [x] a live histogram with draggable display range; [x] ● Record: N frames unpaced into one ImageJ TIFF
-  stack (`LiveScope::Frames`, `isc_live_frames`), [ ] the Acquisition group (hidden), [ ] streaming to webSMLM (tried
+  stack (a fresh-sample movie by default; continuing the live sample with `LiveScope::Frames`, `isc_live_frames`, as an
+  Advanced option), [ ] the Acquisition group (hidden), [ ] streaming to webSMLM (tried
   2026-10-14 and dropped: needs a server or a webSMLM change, to be decided), [x] per-frame performance breakdown (fixed
   rows), [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
   [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).

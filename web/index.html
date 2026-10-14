@@ -62,8 +62,13 @@
   #liveCtl button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0}
   #liveCtl .zrow input[type=number]{width:62px}
-  #liveCtl .recrow{display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:var(--muted)}
-  #liveCtl .recrow input[type=number]{width:66px}
+  #liveCtl .lc.rec{position:relative}
+  #lv_recPop{position:absolute;z-index:20;left:6px;right:6px;top:34px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
+    border:1px solid var(--border);border-radius:var(--radius);background:var(--panel,var(--in-bg));box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  #lv_recPop[hidden]{display:none}
+  #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+  #lv_recPop .recrow input[type=number]{width:72px}
+  #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .crow input[type=number]{width:58px}
   #liveCtl .zrow button{padding:2px 7px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
@@ -262,12 +267,15 @@
         <div id="lv_scale"></div>
       </div>
       <div id="liveCtl">
-        <div class="lc"><div class="btns">
+        <div class="lc rec"><div class="btns">
           <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
           <button id="lv_snap" title="Snap: one frame">Snap</button>
-          <button id="lv_rec" title="Record: the next N frames at the stage position, continuing the sample (its bleaching, conversion, drift), rendered as fast as the engine goes (not paced to the exposure), saved as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header). Click again to stop early and save what is recorded.">● Record</button>
+          <button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), saved as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the Start time (insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
           <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-        </div><div class="recrow"><label for="lv_recN">Record</label><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100"><span class="u">frames</span></div>
+        </div><div id="lv_recPop" hidden role="dialog" aria-label="Record">
+          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the Start time, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+        </div>
         <div id="lv_info"></div>
         <div id="lv_more"><label title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display"><input type="checkbox" id="lv_perf"> performance</label></div>
         <div id="lv_perfOut"></div></div>

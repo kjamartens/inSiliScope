@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The live panel in headless Chromium: the performance breakdown has a fixed set of rows (no row comes and goes from
 // frame to frame) with one decimal per time; ● Record saves N frames as one 16-bit ImageJ TIFF stack (the pixel size
-// as XResolution, the frame interval and every setting in the header), and the live sample's time runs on by N frames.
+// as XResolution, the frame interval and every setting in the header): by default a fresh sample (a movie; the live
+// sample's time stays), with "continue the live sample" the live sample's time runs on by N frames.
 //   node tests/web/viewer_live_record.mjs [--channel=chrome]
 import http from 'node:http';
 import fs from 'node:fs';
@@ -81,28 +82,53 @@ try {
     const t = setInterval(() => { if (liveState.frames > f && !liveState.pending) { clearInterval(t); r(liveState.perf.workerMs); } }, 5);
   })));
   const liveMs128 = snapMs.slice(2).sort((a, b) => a - b)[1];   // the lower median of four
-  const tBefore = await page.evaluate(() => new Promise(r => setTimeout(() => r(liveState.t), 300)));
+  // one recording of 40 frames: [download, its TIFF pages, the buffer, the page's state after it]
+  const record = async () => {
+    const tRec = Date.now();
+    // ● Record opens the box, its Start records
+    const shown = await page.evaluate(() => { document.getElementById('lv_rec').click(); return !document.getElementById('lv_recPop').hidden; });
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 240000 }), page.evaluate(() => document.getElementById('lv_recGo').click())]);
+    const hiddenAfter = await page.evaluate(() => document.getElementById('lv_recPop').hidden);
+    const recSec = (Date.now() - tRec) / 1000;
+    const buf = fs.readFileSync(await dl.path()), pages = readTiff(buf);
+    const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, btn: document.getElementById('lv_rec').textContent,
+      px: +document.getElementById('mv_pixel-nm').value, exp: +document.getElementById('mv_exposure-ms').value }));
+    check(shown && hiddenAfter, 'Record opens the frames box, Start closes it and records');
+    return { dl, pages, buf, info, recSec };
+  };
+  const frameOf = (r, k) => new Uint16Array(r.buf.buffer.slice(r.buf.byteOffset + r.pages[k].data, r.buf.byteOffset + r.pages[k].data + 128 * 128 * 2));
+  const fileChecks = (r, kind) => {
+    const d0 = r.pages[0] || {};
+    check(r.dl.suggestedFilename() === 'insiliscope_live_128x128x40.tif' && r.pages.length === 40 && r.pages.every(p => p.w === 128 && p.h === 128 && p.bits === 16),
+      `${kind}: ${r.dl.suggestedFilename()}: ${r.pages.length} pages of ${d0.w}×${d0.h}, 16 bit (${(r.buf.length / 1e6).toFixed(2)} MB)`);
+    check(/^ImageJ=1\.11a\nimages=40\nframes=40\nunit=micron\nfinterval=0\.05\n/.test(d0.desc || '') && /\ninsiliscope\.spec=\S/.test(d0.desc) &&
+      / exposure-ms=50( |$)/.test((/insiliscope\.spec=(.*)/.exec(d0.desc) || [])[1] || ''),
+      `${kind}: the header: ImageJ frames, unit, frame interval and the full engine spec`);
+    check(Math.abs(d0.xres - 1000 / r.info.px) < 1e-4, `${kind}: the pixel size: ${(1000 / d0.xres).toFixed(2)} nm (viewer ${r.info.px.toFixed(2)} nm)`);
+    check(frameOf(r, 0).some((v, i) => v !== frameOf(r, 39)[i]), `${kind}: the frames differ (blinks, noise)`);
+    check(r.info.btn === '● Record' && /saved insiliscope_live_128x128x40\.tif/.test(r.info.text), `${kind}: the button is back, the info line names the file`);
+    return d0;
+  };
   await page.evaluate(() => { const n = document.getElementById('lv_recN'); n.value = 40; n.dispatchEvent(new Event('change')); });
-  const tRec = Date.now();
-  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 240000 }), page.evaluate(() => document.getElementById('lv_rec').click())]);
-  const recSec = (Date.now() - tRec) / 1000;
-  const file = await dl.path(), buf = fs.readFileSync(file);
-  const pages = readTiff(buf), d0 = pages[0] || {};
-  const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, btn: document.getElementById('lv_rec').textContent,
-    px: +document.getElementById('mv_pixel-nm').value, exp: +document.getElementById('mv_exposure-ms').value }));
-  check(dl.suggestedFilename() === 'insiliscope_live_128x128x40.tif' && pages.length === 40 && pages.every(p => p.w === 128 && p.h === 128 && p.bits === 16),
-    `${dl.suggestedFilename()}: ${pages.length} pages of ${d0.w}×${d0.h}, 16 bit (${(buf.length / 1e6).toFixed(2)} MB)`);
-  check(/^ImageJ=1\.11a\nimages=40\nframes=40\nunit=micron\nfinterval=0\.05\n/.test(d0.desc || '') && /\ninsiliscope\.spec=\S/.test(d0.desc) &&
-    / exposure-ms=50( |$)/.test((/insiliscope\.spec=(.*)/.exec(d0.desc) || [])[1] || ''),
-    'the header: ImageJ frames, unit, frame interval and the full engine spec');
-  check(Math.abs(d0.xres - 1000 / info.px) < 1e-4, `the pixel size: ${(1000 / d0.xres).toFixed(2)} nm (viewer ${info.px.toFixed(2)} nm)`);
-  const frame = k => new Uint16Array(buf.buffer.slice(buf.byteOffset + pages[k].data, buf.byteOffset + pages[k].data + 128 * 128 * 2));
-  const f0 = frame(0), f39 = frame(39);
-  check(f0.some((v, i) => v !== f39[i]), 'the frames differ (blinks, noise)');
-  check(Math.abs(info.t - (tBefore + 40 * info.exp / 1000)) < 1e-6, `the sample's time runs on by 40 frames: ${tBefore.toFixed(2)} -> ${info.t.toFixed(2)} s`);
+
+  // the default: a fresh sample (a movie from the Start time); the live sample is left as it was
+  const tBefore = await page.evaluate(() => new Promise(r => setTimeout(() => r(liveState.t), 300)));
+  const fresh = await record();
+  const df = fileChecks(fresh, 'fresh');
+  check(/\ninsiliscope=recording\n/.test(df.desc || '') && / frames=40( |$)/.test((/insiliscope\.spec=(.*)/.exec(df.desc) || [])[1] || ''),
+    'fresh: the header says a fresh recording, its spec is the 40-frame movie');
+  check(fresh.info.t === tBefore, `fresh: the live sample's time stays: ${tBefore.toFixed(2)} -> ${fresh.info.t.toFixed(2)} s`);
+  console.log(`      fresh record ${fresh.recSec.toFixed(1)} s for 40 frames (wall)`);
+
+  // "continue the live sample": the frames go on from the live sample
+  await page.evaluate(() => { const c = document.getElementById('lv_recLive'); c.checked = true; c.dispatchEvent(new Event('change')); });
+  const t2 = await page.evaluate(() => liveState.t);
+  const cont = await record();
+  const dc = fileChecks(cont, 'continue');
+  check(/\ninsiliscope=live recording\n/.test(dc.desc || ''), 'continue: the header says a live recording');
+  check(Math.abs(cont.info.t - (t2 + 40 * cont.info.exp / 1000)) < 1e-6, `continue: the sample's time runs on by 40 frames: ${t2.toFixed(2)} -> ${cont.info.t.toFixed(2)} s`);
   const recMs = await page.evaluate(() => liveState.rec.engineMs / 40);
-  console.log(`      record ${recSec.toFixed(1)} s for 40 frames (wall); engine ${recMs.toFixed(1)} ms/frame, a snap's ${liveMs128.toFixed(1)} ms; info: ${info.text.split('\n').pop()}`);
-  check(info.btn === '● Record' && /saved insiliscope_live_128x128x40\.tif/.test(info.text), 'the button is back, the info line names the file');
+  console.log(`      continue record ${cont.recSec.toFixed(1)} s for 40 frames (wall); engine ${recMs.toFixed(1)} ms/frame, a snap's ${liveMs128.toFixed(1)} ms; info: ${cont.info.text.split('\n').pop()}`);
   // Not a check: a frame's cost depends on the light the place has had (the core's blink-event query), so a snap and a
   // recording at different moments are not comparable; LiveScope::Frames' speed is measured in ctest live_scope.
   check(!errors.length, 'no page errors' + (errors.length ? ': ' + errors.join('; ') : ''));

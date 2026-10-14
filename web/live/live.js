@@ -106,8 +106,10 @@ function request(n) {
 function onResult(d) {
   const job = L.pending;
   if (!job || d.id !== job.id) return;
+  if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
   L.pending = null;
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
+  if (job.fresh) { onRecMovie(d, job); return; }
   if (job.rec) { onRecChunk(d, job); return; }
   L.err = '';
   L.ms = performance.now() - job.t0;
@@ -347,25 +349,58 @@ window.addEventListener('resize', drawScale);
 
 // ---- Record: the next N frames at the stage position, as fast as the engine goes ----
 // The live sample goes on (its illumination history, drift, noise counter), the frames are not paced to the exposure:
-// chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to back on the
-// live worker; the last frame of each chunk is shown. The stack is saved as one 16-bit TIFF: ImageJ's header (frames,
-// frame interval, pixel size) and every setting (the engine spec, which the cli reads too, though the cli renders a
-// fresh sample). Clicking Record again stops early and saves the frames so far. At most 1 GB of frames.
-const REC = L.rec = { on: false, stop: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0, litStart: 0, t0: 0,
-  engineMs: 0, msg: '' };
+// Record: N frames rendered as fast as the engine goes, saved as one 16-bit TIFF: ImageJ's header (frames, frame
+// interval, pixel size) and every setting (the engine spec). By default a fresh sample: one movie job of N frames on
+// the live worker (= "Make movie here", = insiliscope_cli --spec with the header's spec), the live sample untouched;
+// Record again cancels it (the worker is replaced, so the live sample starts afresh). With "continue the live sample"
+// (Advanced): chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to
+// back, the last frame of each chunk shown; Record again stops early and saves the frames so far. At most 1 GB.
+const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0,
+  litStart: 0, t0: 0, engineMs: 0, msg: '' };
+$('lv_recLive').checked = store.get('recLive', '0') === '1';
+$('lv_recLive').addEventListener('change', () => store.set('recLive', $('lv_recLive').checked ? '1' : '0'));
 $('lv_recN').value = store.get('recN', '100');
 $('lv_recN').addEventListener('change', () => store.set('recN', $('lv_recN').value));
 function startRec() {
+  if (REC.on && !REC.live) {   // cancel the movie: replace the worker (its live sample goes with it)
+    if (L.worker) L.worker.terminate();
+    L.worker = null; L.pending = null; L.worldKey = null;
+    Object.assign(REC, { on: false, buf: null, msg: 'recording cancelled' });
+    syncButtons(); showInfo();
+    return;
+  }
   if (REC.on) { REC.stop = true; return; }
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
   const max = Math.floor(1e9 / (2 * side * side));
-  Object.assign(REC, { on: true, stop: false, n: Math.min(n, max), got: 0, buf: null, t0: performance.now(), engineMs: 0,
-    msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
+    t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
 }
+function recMovie() {
+  const w = worker();
+  if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n }), fresh: true, t0: performance.now() };
+  L.pending = job;
+  w.postMessage(job);
+}
+function onRecProgress(d) {
+  REC.got = Math.min(REC.n, Math.floor((d.frac || 0) * REC.n));
+  syncButtons(); showInfo();
+}
+function onRecMovie(d, job) {
+  if (!REC.on) return;
+  const px = d.w * d.h, n = Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px)));
+  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0 });
+  L.err = '';
+  L.ms = n ? (performance.now() - REC.t0) / n : 0;
+  L.frames++;
+  draw({ ...d, frames: d.frames.slice((n - 1) * px, n * px) });
+  finishRec();
+}
 function recNext() {
+  if (!REC.live) { if (!REC.buf) recMovie(); return; }
   if (REC.stop || REC.got >= REC.n) { finishRec(); return; }
   const side = Math.max(1, +$('mv_size').value || 128);
   request(Math.max(1, Math.min(REC.n - REC.got, Math.floor(2e6 / (side * side)), 500)));
@@ -398,9 +433,11 @@ function finishRec() {
   if (n && REC.buf) {
     const exp = exposureSec(), pxUm = (+$('mv_pixel-nm').value || 100) / 1000;
     const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
-      `insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
-      `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
-      'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample'].join('\n') + '\n';
+      ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
+        `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
+        'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample']
+        : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.recorded=${new Date().toISOString()}`,
+          'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
     const blob = writeTiff16(REC.buf.subarray(0, n * REC.w * REC.h), REC.w, REC.h, n, desc, pxUm);
     const a = document.createElement('a'), name = `insiliscope_live_${REC.w}x${REC.h}x${n}.tif`;
     a.href = URL.createObjectURL(blob);
@@ -413,7 +450,21 @@ function finishRec() {
   REC.buf = null;
   syncButtons();
 }
-$('lv_rec').addEventListener('click', startRec);
+// ● Record opens a small box under the buttons for the number of frames (and, Advanced, "continue the live sample");
+// its Start (or Enter) records. While recording, ● Record stops.
+const recPop = (open) => {
+  $('lv_recPop').hidden = !open;
+  if (open) { $('lv_recN').focus(); $('lv_recN').select(); }
+};
+$('lv_rec').addEventListener('click', () => { if (REC.on) startRec(); else recPop($('lv_recPop').hidden); });
+$('lv_recGo').addEventListener('click', () => { recPop(false); startRec(); });
+$('lv_recPop').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { ev.preventDefault(); $('lv_recN').dispatchEvent(new Event('change')); recPop(false); startRec(); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); recPop(false); $('lv_rec').focus(); }
+});
+document.addEventListener('pointerdown', ev => {
+  if (!$('lv_recPop').hidden && !$('lv_recPop').contains(ev.target) && ev.target !== $('lv_rec')) recPop(false);
+});
 
 // ---- buttons ----
 function syncButtons() {
