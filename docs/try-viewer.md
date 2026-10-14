@@ -39,7 +39,7 @@ Notes:
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
   parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below;
-  the Acquisition group is hidden for now). **Focus**: the arrows of the Z field, Page Up / Page Down or the
+  the Acquisition group is hidden for now). **Focus**: the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
@@ -67,7 +67,8 @@ Notes:
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
 - **Illumination & light path** (in the controls column, under Configuration): the light preset, each laser line as a
-  slider with its power (kW/cm², three decimals), the background, geometry, filters and dichroic, and the spectra plot
+  slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
+  modes, with 405, 488 and 561 nm for PALM, and any line that is on), the background, geometry, filters and dichroic, and the spectra plot
   (dye excitation and emission, laser lines, filters, camera QE); click the plot for a larger copy with what reaches
   the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).

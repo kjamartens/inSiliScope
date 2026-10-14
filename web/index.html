@@ -108,6 +108,7 @@
   #liveCtl .cfg{display:grid;grid-template-columns:52px minmax(0,1fr);gap:3px 6px;align-items:center}
   #liveCtl .cfg select{width:100%}
   #liveCtl .cfg input[type=range]{width:100%}
+  #cfgPanel+.cfg{margin-top:3px}
   #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
   #liveCtl .note{font-size:10.5px;color:var(--muted)}
   #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
@@ -115,7 +116,11 @@
   #side p.sub{font-size:11px;color:var(--muted);margin:6px 0;line-height:1.4}
   #side p.sub a{color:var(--link)}
   input[type=number],input[type=text],select{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:var(--fs);font-family:inherit;box-sizing:border-box}
-  input[type=number]{width:64px}
+  input[type=number]{width:64px;-moz-appearance:textfield;appearance:textfield}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  /* the focus keeps its arrows (they step by the step size) */
+  #lv_z{-moz-appearance:auto;appearance:auto}
+  #lv_z::-webkit-inner-spin-button{-webkit-appearance:inner-spin-button}
   input[type=range],input[type=checkbox]{accent-color:var(--accent)}
   button{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:var(--fs);cursor:pointer;font-family:inherit}
   button:hover{border-color:var(--accent)}
@@ -515,6 +520,14 @@ const autoLightPreset = (vals = {}) => {
   const ts = mounted().targets, ids = ts.filter(on).map(presetOf);
   return combineLightPresets(ids.length ? ids : [presetOf(ts[0])]);
 };
+// The laser lines shown at the Basic level: those the labelled targets' dyes use in their modes (the auto light
+// preset's lines), with 405 + 488 + 561 for PALM (activation, the pre state, the converted state); a line that is on
+// shows at every level, so no hidden laser lights the sample.
+const basicLaserShown = nm => {
+  if (document.body.dataset.level !== 'basic' || +$('mv_laser-' + nm).value > 0) return true;
+  if (Object.entries(autoLightPreset().lasers).some(([l, kw]) => +l === +nm && kw > 0)) return true;
+  return [405, 488, 561].includes(+nm) && mounted().targets.some(t => !isNone(choiceOf(t.prefix)) && modeOf(t.prefix) === 'PALM');
+};
 // A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
 const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
@@ -853,7 +866,7 @@ const UI_GROUPS = [
     preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Lasers.Preset</code> (BrightField: the <code>TransmittedLamp</code> shutter)',
       { ...Object.fromEntries(DD.lightPresets.map(q => [q.name, { ...lightPresetValues(q), 'mv_modality': 0 }])),
         'BrightField (lasers off)': { ...Object.fromEntries(DD.lasers.map(nm => ['mv_laser-' + nm, 0])), 'mv_modality': 1 } }, []),
-    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, 10, 'any', DEFAULT_LIGHT['mv_laser-' + nm], { show: FL })),
+    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' At the Basic level only the lines the labelled dyes use show (any line that is on shows too). <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, 10, 'any', DEFAULT_LIGHT['mv_laser-' + nm], { show: () => FL() && basicLaserShown(nm) })),
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
