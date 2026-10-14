@@ -147,7 +147,7 @@
   body[data-ui-style=focus] details.grp[open]>summary{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-bottom-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
   body[data-ui-style=focus] details.grp[open]>summary::before{color:var(--accent)}
   body[data-ui-style=focus] #menu [data-act=expand]{display:none}
-  /* one option = one line: label (i) | control | value + unit */
+  /* one option = one line: label (help on hover) | control | value + unit */
   .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
   .opt .lab{display:flex;align-items:center;gap:4px;min-width:0}
   .opt .lab label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -170,8 +170,8 @@
   .opt.hasSide{grid-template-columns:var(--lab-w) minmax(0,1fr) minmax(34px,auto) auto}
   .opt label.side{display:flex;align-items:center;gap:2px;justify-self:end;color:var(--muted);white-space:nowrap;cursor:pointer}
   .opt label.side input{margin:0}
-  .info{display:inline-flex;align-items:center;justify-content:center;flex:none;width:13px;height:13px;border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:9px;font-style:italic;font-family:Georgia,serif;cursor:help;user-select:none}
-  .info:hover,.info:focus{color:var(--accent);border-color:var(--accent);outline:none}
+  label[data-tip],.subhead [data-tip]{cursor:help}
+  label[data-tip]:hover,.subhead [data-tip]:hover{color:var(--accent)}
   #tip{position:fixed;z-index:50;display:none;max-width:280px;background:var(--tip-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:11.5px;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none}
   #tip code{font-size:10.5px;color:var(--muted)}
   /* preset children: indented under their preset with a guide line */
@@ -368,7 +368,7 @@
 // ---- option panel: schema + renderer ------------------------------------------------------------------------------
 // Every option of the side panel is one entry of UI_GROUPS. This script builds #panel from it before the main script
 // runs, with the element ids the main script reads (els, params(), movieSpec(), MOVIE_KEYS), so the generator path
-// does not know the panel changed. One option = one line: label (i) | control | value + unit. A row shows from its
+// does not know the panel changed. One option = one line: label (its help on hover) | control | value + unit. A row shows from its
 // level on (Basic / Advanced / Expert: the Micro-Manager property's tier, tierOf in the uiPanel script; adv = the
 // viewer's own Advanced for a setting MM does not have); show() hides rows that do not apply (e.g. WideField rows unless that modality is
 // chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
@@ -1043,8 +1043,10 @@ const groups = [];    // { g, det, sect }
 
 function labelCell(e, forId) {
   const lab = h('div', { class: 'lab' });
-  lab.append(h('label', forId ? { for: forId } : {}, e.label));
-  if (e.tip) lab.append(h('span', { class: 'info', tabindex: 0, role: 'note', 'aria-label': e.label + ' info', 'data-tip': e.tip }, 'i'));
+  // the help text shows over the name on hover (no (i) mark); screen readers get it as the label's description
+  const a = forId ? { for: forId } : {};
+  if (e.tip) Object.assign(a, { 'data-tip': e.tip, 'aria-description': e.tip.replace(/<[^>]+>/g, '') });
+  lab.append(h('label', a, e.label));
   return lab;
 }
 function inputAttrs(e, id, value) {
@@ -1057,8 +1059,7 @@ function renderEntry(e, host, g, parent) {
     row = h('div', {}, e.html);
   } else if (e.kind === 'head') {
     row = h('div', { class: 'subhead' });
-    row.append(h('span', {}, e.label));
-    if (e.tip) row.append(h('span', { class: 'info', tabindex: 0, role: 'note', 'aria-label': e.label + ' info', 'data-tip': e.tip }, 'i'));
+    row.append(h('span', e.tip ? { 'data-tip': e.tip, 'aria-description': e.tip.replace(/<[^>]+>/g, '') } : {}, e.label));
   } else if (e.kind === 'buttons') {
     row = h('div', { class: 'opt btnrow' });
     for (const [id, label, tip] of e.buttons) row.append(h('button', { id, title: tip }, label));
@@ -1311,7 +1312,7 @@ document.addEventListener('wheel', ev => {
   if (el.value !== before) el.dispatchEvent(new Event('input', { bubbles: true }));
 }, { passive: false });
 
-// ---- (i) tooltips: one floating box, on hover and keyboard focus ----
+// ---- tooltips: one floating box, on hover over a setting's name ----
 const tip = h('div', { id: 'tip', role: 'tooltip' });
 document.body.append(tip);
 function showTip(t) {
@@ -1324,9 +1325,9 @@ function showTip(t) {
 }
 const hideTip = () => { tip.style.display = 'none'; };
 for (const el of [$('side'), $('viewPanel')]) {
-  el.addEventListener('mouseover', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
-  el.addEventListener('mouseout', ev => { if (ev.target.classList.contains('info')) hideTip(); });
-  el.addEventListener('focusin', ev => { if (ev.target.classList.contains('info')) showTip(ev.target); });
+  const tipOf = ev => ev.target instanceof Element ? ev.target.closest('label[data-tip],.subhead [data-tip]') : null;
+  el.addEventListener('mouseover', ev => { const t = tipOf(ev); if (t) showTip(t); });
+  el.addEventListener('mouseout', ev => { if (tipOf(ev)) hideTip(); });
   el.addEventListener('focusout', hideTip);
 }
 panel.addEventListener('scroll', hideTip);

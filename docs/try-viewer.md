@@ -84,7 +84,7 @@ Notes:
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
-  has a unit and an (i) that explains it (hover or Tab to it).
+  has a unit and a help text that shows when the pointer rests on its name.
 - **Basic / Advanced / Expert** beside the search box choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
