@@ -212,7 +212,7 @@ void CInSiliScopeCamera::LiveAheadLoop()
                      evs.push_back((*sg.events)[idx]);
                sim::CollectGpuEmitters(evs, f, job.w, job.h, job.params.pixelSizeNm, sg.photonsPerBlink, 0.0, 0.0,
                                        *sg.kernel, job.zOffsetUm, &extras, ems[static_cast<size_t>(f)], &out.zClamped,
-                                       &out.zTotal, static_cast<int>(gi));
+                                       &out.zTotal, static_cast<int>(gi), sg.minPhotons);
             }
             ids.push_back(job.noiseBase + static_cast<uint32_t>(f));
             bgScales.push_back(extras.backgroundScale);

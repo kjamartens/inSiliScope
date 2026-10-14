@@ -218,10 +218,11 @@ int main()
    {
       auto def = [](const char* n) { return ScopeSpecGet(ScopeSpec(), n); };
       const QualityPreset& r = kQualityPresets[1];
-      std::snprintf(msg, sizeof msg, "Quality %s = defaults: bf-quality %g, psf-oversampling %g, wf-upscale %g, psf-halo-cut %g",
-                    r.name, def("bf-quality"), def("psf-oversampling"), def("wf-upscale"), def("psf-halo-cut"));
+      std::snprintf(msg, sizeof msg, "Quality %s = defaults: bf-quality %g, psf-oversampling %g, wf-upscale %g, psf-halo-cut %g, "
+                    "blink-min-photons %g", r.name, def("bf-quality"), def("psf-oversampling"), def("wf-upscale"),
+                    def("psf-halo-cut"), def("blink-min-photons"));
       Check(!std::strcmp(r.name, "Realistic") && def("bf-quality") == r.bf && def("psf-oversampling") == r.os &&
-            def("wf-upscale") == r.wf && def("psf-halo-cut") == r.halo, msg);
+            def("wf-upscale") == r.wf && def("psf-halo-cut") == r.halo && def("blink-min-photons") == r.minPhotons, msg);
    }
    std::printf(g_failures ? "%d check(s) FAILED\n" : "all checks passed\n", g_failures);
    return g_failures ? 1 : 0;

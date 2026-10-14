@@ -105,6 +105,17 @@ kernel computation.
     When it matters: summing very many frames of blinks to study the PSF's far wings (localization background models,
     out-of-focus haze), or comparing with webSMLM pixel for pixel. Use `Exhaustive` (or `PsfHaloCut` 0) for that.
 
+!!! danger "Dim blinks are not drawn in a frame (Renderer.Quality)"
+    **Since 2026-10-14 a blink that gives a frame fewer detected photons than a minimum is left out of that frame
+    altogether** (`Renderer.BlinkMinPhotons`, cli/viewer `blink-min-photons`), set by `Renderer.Quality`: Fast 100,
+    **Realistic 50** (the default), Exhaustive 0 (every blink). The photons are the emitter's in that frame: its
+    brightness x the share of the frame it is ON, so the frames a blink only just starts or ends in lose it first. They
+    are known before the splat, so a left-out blink costs nothing. The light is missing, not moved. Such a blink would
+    not be localized (a few tens of photons over the background); the thresholds are an *estimate*, not a measured
+    localization limit. It applies to the splatted blinks (the CPU splat and the adapter's GPU splat); binned and
+    mean-field frames and every continuous population (WideField labels, pre states, the dSTORM initial ON) keep every
+    dye. Use `Exhaustive` (or `BlinkMinPhotons` 0) to draw every blink.
+
 The halo cut measured on one blink and on a movie:
 
 <!-- fig:psf-halo -->
@@ -208,6 +219,6 @@ BrightField through focus:
 
 ## Renderer.Quality: one knob for speed against precision
 
-Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets four of the knobs above together: the blink halo cut, the PSF oversampling, the WideField grid and the BrightField quality. The three levels side by side on the three kinds of image:
+Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets five of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling, the WideField grid and the BrightField quality. The three levels side by side on the three kinds of image:
 
 <!-- fig:quality-bundle -->

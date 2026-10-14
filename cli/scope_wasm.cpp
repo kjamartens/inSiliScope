@@ -507,9 +507,11 @@ ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
 // info[0..12] = width, height, t (s), lit seconds at the FOV centre before the frame, lit (0/1), epi, trans, blinks,
 // dyes, drift x, y, z (nm), render ms. countLight 0: the frame's light does not go into the history.
 // isc_live_paths(): how the last frame's fluorescence was drawn (LiveFrameInfo::paths, a JSON array of strings).
+// isc_live_profile(1): collect the engine's timing phases (Timing.h) per frame; isc_live_profile_json() = the last
+// frame's (TimingProfileTake: {"seconds", "phases": {name: {count, totalMs, meanMs, maxMs}}}).
 static sim::LiveScope g_live;
 static std::vector<uint16_t> g_liveImage;
-static std::string g_livePaths = "[]";
+static std::string g_livePaths = "[]", g_liveProfile = "{}";
 ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* info, char* errOut, int32_t errCap)
 {
    std::string err;
@@ -534,11 +536,20 @@ ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* inf
       std::memcpy(info, v, sizeof v);
    }
    g_livePaths = li.paths;
+   if (sim::TimingCollect().load())
+      g_liveProfile = sim::TimingProfileTake();
    return static_cast<int32_t>(g_liveImage.size());
 }
 ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
 ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
 ISC_API void isc_live_reset() { g_live.Reset(); }
+ISC_API void isc_live_profile(int32_t on)
+{
+   sim::TimingCollect() = on != 0;
+   sim::TimingProfileTake();   // starts afresh
+   g_liveProfile = "{}";
+}
+ISC_API const char* isc_live_profile_json() { return g_liveProfile.c_str(); }
 
 ISC_API void isc_wf_end(int32_t h)
 {

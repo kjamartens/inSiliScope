@@ -116,6 +116,9 @@ struct RenderExtras
    // Add the emitters to img as it is (no background, no resize): several
    // dye groups, each with its own PSF, into one frame (issue 16).
    bool accumulate = false;
+   // Emitters with fewer photons than this in the frame are not splatted
+   // (blink-min-photons; 0 = every one). Set for blinks only.
+   double minPhotons = 0.0;
 };
 
 // The fixed (per stack / per live config) spatial fields behind a
@@ -222,6 +225,6 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
                         double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
                         const PsfKernelCache& cache, double globalZOffsetUm, const RenderExtras* extras,
                         std::vector<GpuSplatEmitter>& out, long* outZClampedCount = nullptr,
-                        long* outZTotalCount = nullptr, int kernel = 0);
+                        long* outZTotalCount = nullptr, int kernel = 0, double minPhotons = 0.0);
 
 } // namespace sim

@@ -10,6 +10,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
        "cic": 0.002,
@@ -30,6 +31,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
        "cic": 0.005,
@@ -55,6 +57,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
        "laser-405": 0.0,
@@ -75,6 +78,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -95,6 +99,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -115,6 +120,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
        "laser-405": 0.0,
@@ -135,6 +141,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
        "laser-405": 0.002,
@@ -160,6 +167,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
@@ -169,6 +177,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
@@ -178,6 +187,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
@@ -187,6 +197,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
@@ -196,6 +207,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
@@ -228,6 +240,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.4
       },
@@ -238,6 +251,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.49
       },
@@ -248,6 +262,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.333,
        "na": 1.2
       },
@@ -258,6 +273,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.42
       },
@@ -273,6 +289,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Exhaustive",
       "set": {
+       "blink-min-photons": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
        "wf-upscale": 2.0
@@ -281,6 +298,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Fast",
       "set": {
+       "blink-min-photons": 100.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
        "wf-upscale": 1.0
@@ -289,6 +307,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Realistic",
       "set": {
+       "blink-min-photons": 50.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
        "wf-upscale": 1.0
@@ -302,12 +321,14 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": null
       }
      },
      {
       "name": "Nanorulers",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": 1.0
       }
      }
@@ -338,6 +359,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
        "cic": 0.002,
@@ -358,6 +380,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
        "cic": 0.005,
@@ -383,6 +406,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
        "laser-405": 0.0,
@@ -403,6 +427,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -423,6 +448,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -443,6 +469,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
        "laser-405": 0.0,
@@ -463,6 +490,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField + BrightField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
        "laser-405": 0.0,
@@ -483,6 +511,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
        "laser-405": 0.002,
@@ -508,6 +537,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
@@ -517,6 +547,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
@@ -526,6 +557,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
@@ -535,6 +567,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
@@ -544,6 +577,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
@@ -576,6 +610,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.4
       },
@@ -586,6 +621,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.49
       },
@@ -596,6 +632,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.333,
        "na": 1.2
       },
@@ -606,6 +643,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.42
       },
@@ -621,6 +659,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Exhaustive",
       "set": {
+       "blink-min-photons": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
        "wf-upscale": 2.0
@@ -629,6 +668,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Fast",
       "set": {
+       "blink-min-photons": 100.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
        "wf-upscale": 1.0
@@ -637,6 +677,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Realistic",
       "set": {
+       "blink-min-photons": 50.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
        "wf-upscale": 1.0
@@ -650,12 +691,14 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": null
       }
      },
      {
       "name": "Nanorulers",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": 1.0
       }
      }
@@ -686,6 +729,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
        "cic": 0.002,
@@ -706,6 +750,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
        "cic": 0.005,
@@ -731,6 +776,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
        "laser-405": 0.0,
@@ -751,6 +797,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -771,6 +818,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
        "laser-405": 0.0,
@@ -791,6 +839,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
        "laser-405": 0.0,
@@ -811,6 +860,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField + BrightField",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
        "laser-405": 0.0,
@@ -831,6 +881,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
        "laser-405": 0.002,
@@ -856,6 +907,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
@@ -865,6 +917,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
@@ -874,6 +927,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
@@ -883,6 +937,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
@@ -892,6 +947,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
@@ -924,6 +980,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.4
       },
@@ -934,6 +991,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.49
       },
@@ -944,6 +1002,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.333,
        "na": 1.2
       },
@@ -954,6 +1013,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "blink-min-photons": 50.0,
        "immersion-index": 1.518,
        "na": 1.42
       },
@@ -969,6 +1029,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Exhaustive",
       "set": {
+       "blink-min-photons": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
        "wf-upscale": 2.0
@@ -977,6 +1038,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Fast",
       "set": {
+       "blink-min-photons": 100.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
        "wf-upscale": 1.0
@@ -985,6 +1047,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Realistic",
       "set": {
+       "blink-min-photons": 50.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
        "wf-upscale": 1.0
@@ -998,12 +1061,14 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": null
       }
      },
      {
       "name": "Nanorulers",
       "set": {
+       "blink-min-photons": 50.0,
        "specimen": 1.0
       }
      }
@@ -1059,6 +1124,10 @@ self.ISC_MM_TIERS = {
 "blink-mean-field-max-emitters": {
 "tier": "Expert",
 "prop": "Renderer.BlinkMeanFieldMaxEmitters"
+},
+"blink-min-photons": {
+"tier": "Expert",
+"prop": "Renderer.BlinkMinPhotons"
 },
 "camera-preset": {
 "tier": "Basic",
@@ -1831,6 +1900,7 @@ self.ISC_MM_TIERS = {
 "Renderer.BlinkBinnedUpscale": "Expert",
 "Renderer.BlinkMeanFieldDensityPerUm2": "Expert",
 "Renderer.BlinkMeanFieldMaxEmitters": "Expert",
+"Renderer.BlinkMinPhotons": "Expert",
 "Renderer.BrightFieldGeometrySamples": "Expert",
 "Renderer.BrightFieldQuality": "Expert",
 "Renderer.BrightFieldSliceUm": "Expert",
