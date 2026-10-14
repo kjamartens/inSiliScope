@@ -626,7 +626,7 @@ std::vector<PropDef> BuildTable()
          NotifyPixel(h);
       });
       add(d);
-      d = Row(O, "ZernikePreset", Tier::Advanced, "zernike-preset",
+      d = Row(O, "ZernikePreset", Tier::Basic, "zernike-preset",
               "The objective's aberrations: a named Zernike set (sets ZernikeCoefficients).");
       d.kind = PropKind::Text;
       d.getText = [](H& h) { return h.State().ZernikePreset(); };

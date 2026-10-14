@@ -5,8 +5,8 @@
 The inSiliScope adapter is a hub (`inSiliScope`) with one device per part of the microscope. Every property has a
 **tier**: the hub's pre-init `Detail` (Basic, Advanced or Expert) decides which tiers a session shows; a property
 above it is not created and keeps its default. The shipped configurations `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg`
-load the devices with their config groups (Channel, Objective, Camera, Quality, Drift, Specimen, the 561 and 640 nm
-laser powers) and pixel-size calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
+load the devices with their config groups (Channel, Objective, Aberrations, Camera, Quality, Drift, Specimen,
+Illumination, BfpPosition (Advanced and up), the 561 and 640 nm laser powers) and pixel-size calibrations. Where a new property belongs, and the rules behind the tiers: `spec/MM_DEVICES.md` in the repository.
 Micro-Manager's own properties (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...) are not listed.
 
 | Device | Type | Tier | What it is |
@@ -78,10 +78,10 @@ Objective turret: NA, immersion, magnification, aberrations.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
+| `ZernikePreset` | Basic | MixedRealisticObjective | `None`, `AstigmatismWeak`, `AstigmatismModerate`, `AstigmatismStrong`, `ComaWeak`, `ComaStrong`, `SphericalWeak`, `SphericalStrong`, `TrefoilModerate`, `MixedRealisticObjective`, `SaddlePoint`, `ExtendedRange`, `ExtendedRangeStrong` | The objective's aberrations: a named Zernike set (sets ZernikeCoefficients). |
 | `NA` | Advanced | 1.4 | 0.1 .. 1.7 | Numerical aperture (setting it by hand makes the turret position Custom). |
 | `ImmersionIndex` | Advanced | 1.518 | 1 .. 2 | Refractive index of the immersion medium. |
 | `Magnification` | Advanced | 100 | 1 .. 250 | The objective's magnification (the pixel size follows). |
-| `ZernikePreset` | Advanced | MixedRealisticObjective | `None`, `AstigmatismWeak`, `AstigmatismModerate`, `AstigmatismStrong`, `ComaWeak`, `ComaStrong`, `SphericalWeak`, `SphericalStrong`, `TrefoilModerate`, `MixedRealisticObjective`, `SaddlePoint`, `ExtendedRange`, `ExtendedRangeStrong` | The objective's aberrations: a named Zernike set (sets ZernikeCoefficients). |
 | `PsfKernelHalfWidthNm` | Advanced | 7000 | 100 .. 20000 | Half-width of the rendered PSF window (nm; a minimum, grown to cover the first Airy ring). |
 | `PsfZRangeUm` | Advanced | 7 | 0.1 .. 20 | The z span of the PSF kernel (um): dyes further from focus use its end plane. |
 | `PsfZStepUm` | Advanced | 0.1 | 0.01 .. 1 | The z step of the PSF kernel's planes (um). |

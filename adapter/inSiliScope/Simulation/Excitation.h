@@ -74,6 +74,8 @@ public:
    double UMax() const { return uMax_; }
    bool Clipped() const { return clipped_; }
    bool Tirf() const { return tirf_; }
+   // The beam crosses the sample at an angle (HILO): its footprint moves with the height, about the pivot.
+   bool Tilted() const { return !tirf_ && tanS_ != 0.0; }
    double F() const { return F_; }
    // Exactly 1 everywhere (a Flat beam at the BFP centre): the renderers skip the factor (outputs as before).
    bool Uniform() const { return uniform_; }

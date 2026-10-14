@@ -58,7 +58,7 @@ def check(tier):
         if tier != "Basic":
             got = core.getProperty("Lasers", "IlluminationRegime")
             assert got == preset, f"{tier}: Illumination {preset} gives the regime {got!r}"
-    assert "BfpPosition" in groups, f"{tier}: no BfpPosition group"
+    assert ("BfpPosition" in groups) == (tier != "Basic"), f"{tier}: the BfpPosition group is Advanced and up"
 
     # The laser power groups: one preset of one property (Studio shows the property itself, editable); a power typed
     # there is the laser's.

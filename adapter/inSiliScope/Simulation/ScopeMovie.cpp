@@ -1510,42 +1510,55 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
-   // Dye counts (Density3d, one bin) by (box, structure mask) at dyeVersion:
-   // a count is a pure function of the world, the labels and the box, so a
-   // live movie per frame at an unchanged pose counts once (the most recent
-   // kDyeCountEntries boxes).
-   struct DyeCount
+   // Dye counts (the mean-field switch's nZ, nSlab, nZLit) from a column's dye heights, sorted per structure (one
+   // sites query per column rect and dyeVersion): z in [zLo, zHi) and the rect as the core's ForEachDye filters, so a
+   // count = Density3d's with one bin. The boxes' heights follow the focus, so a count per box (as until 2026-10-14)
+   // missed at every focus step: 37-65 ms of each z step of a live WideField scrub. -1 on a core failure.
+   struct SlabColumn
    {
-      double box[6];
-      int mask;
-      long n;
+      double rect[4];
+      uint64_t version = 0;
+      std::vector<std::vector<double>> z;   // per structure, sorted
    };
-   std::vector<DyeCount> dyeCounts;
-   uint64_t dyeCountVersion = 0;
-   static constexpr size_t kDyeCountEntries = 16;
-   long CountDyes(double x0, double y0, double x1, double y1, double zMin, double zMax, int mask)
+   std::vector<SlabColumn> slabColumns;
+   static constexpr size_t kSlabColumns = 4;
+   long CountSlab(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask)
    {
-      if (dyeCountVersion != dyeVersion)
+      const double rect[4] = { x0, y0, x1, y1 };
+      SlabColumn* col = nullptr;
+      for (SlabColumn& c : slabColumns)
+         if (c.version == dyeVersion && std::equal(rect, rect + 4, c.rect))
+            col = &c;
+      if (!col)
       {
-         dyeCounts.clear();
-         dyeCountVersion = dyeVersion;
+         const double inf = std::numeric_limits<double>::infinity();
+         std::vector<double> rows;
+         if (!source.Sites(x0, y0, x1, y1, -inf, inf, rows))
+            return -1;
+         SlabColumn c;
+         std::copy(rect, rect + 4, c.rect);
+         c.version = dyeVersion;
+         for (size_t i = 0; i + ISC_SITE_STRIDE <= rows.size(); i += ISC_SITE_STRIDE)
+         {
+            const size_t s = static_cast<size_t>(rows[i + 4]);
+            if (s >= c.z.size())
+               c.z.resize(s + 1);
+            c.z[s].push_back(rows[i + 2]);
+         }
+         for (std::vector<double>& v : c.z)
+            std::sort(v.begin(), v.end());
+         if (slabColumns.size() >= kSlabColumns)
+            slabColumns.erase(slabColumns.begin());
+         slabColumns.push_back(std::move(c));
+         col = &slabColumns.back();
       }
-      const double box[6] = { x0, y0, x1, y1, zMin, zMax };
-      for (const DyeCount& c : dyeCounts)
-         if (c.mask == mask && std::equal(box, box + 6, c.box))
-            return c.n;
-      float one = 0;
-      const long n = source.Density3d(x0, y0, x1, y1, zMin, zMax, 1, 1, 1, mask, &one);
-      if (n >= 0)
-      {
-         if (dyeCounts.size() >= kDyeCountEntries)
-            dyeCounts.erase(dyeCounts.begin());
-         DyeCount c;
-         std::copy(box, box + 6, c.box);
-         c.mask = mask;
-         c.n = n;
-         dyeCounts.push_back(c);
-      }
+      long n = 0;
+      for (size_t s = 0; s < col->z.size(); ++s)
+         if ((mask >> s) & 1)
+         {
+            const std::vector<double>& v = col->z[s];
+            n += static_cast<long>(std::lower_bound(v.begin(), v.end(), zHi) - std::lower_bound(v.begin(), v.end(), zLo));
+         }
       return n;
    }
    // Live: the per-dye populations' running images by population (structure x
@@ -2389,6 +2402,8 @@ constexpr uint32_t kDarkHistory = 0xFFFFFFFFu;
 // A clock region whose expected dyes still in a windowed population (initial ON, pre state, unbleached) are fewer
 // is not queried for windows (Begin): about one frame in 10^4 at most would miss one such dye.
 constexpr double kWindowAliveMin = 1e-4;
+// The pivot's index in Impl::exciteKey (the plane factor's key zeroes it for a beam that is not tilted).
+constexpr size_t kExciteKeyPivot = 7;
 
 static std::shared_ptr<const std::vector<uint32_t>> GridCellKeys(const DyeClock& clock, const WidefieldGridSpec& gr,
                                           const std::vector<double>& edges, MeanFieldSlot& slot,
@@ -2680,7 +2695,12 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          pf->offX = std::round((slot.anchorX - S.q.originXUm) / 0.25) * 0.25;
          pf->offY = std::round((slot.anchorY - S.q.originYUm) / 0.25) * 0.25;
       }
-      pf->key = exciteKey;
+      // Not the focus (exciteKey's last entry: the factor reads world heights), nor the pivot (it follows the focus)
+      // unless the beam is tilted: with them every focus step re-made the scene's weights and its bleach basis, 170 ms
+      // per z step of a live WideField scrub (2026-10-14). A HILO sheet does move with the focus.
+      pf->key.assign(exciteKey.begin(), exciteKey.end() - 1);
+      if (!S.excite.Tilted())
+         pf->key[kExciteKeyPivot] = 0.0;
       pf->key.push_back(pf->offX);
       pf->key.push_back(pf->offY);
       for (const ExcitationLine& l : g.shares)
@@ -3486,6 +3506,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    m.axisY = (S.H - 1) / 2.0 * um;
    {
       const ExcitationSpec es = ScopeExcitationSpec(spec);
+      // (The pivot at kExciteKeyPivot, the focus last: the plane factor's key leaves the focus out.)
       m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                       es.pivotUm, m.axisX, m.axisY, S.q.zRefUm };
    }
@@ -3562,8 +3583,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
          const double ox = S.q.originXUm, oy = S.q.originYUm;
          const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-         g.nZ = m.cache.CountDyes(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << g.structure);
-         g.nSlab = sHi > sLo ? m.cache.CountDyes(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << g.structure) : 0;
+         g.nZ = m.cache.CountSlab(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << g.structure);
+         g.nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << g.structure) : 0;
          if (g.nZ < 0 || g.nSlab < 0)
          {
             err = "cell-field dye count failed";
@@ -3824,9 +3845,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       if (states.empty())
          continue;
       const double ox = S.q.originXUm, oy = S.q.originYUm;
-      const long nZ = m.cache.CountDyes(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << s);
+      const long nZ = m.cache.CountSlab(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << s);
       const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-      const long nSlab = sHi > sLo ? m.cache.CountDyes(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << s) : 0;
+      const long nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << s) : 0;
       // The dyes that can shine: outside the dark regions (the never-lit margin holds most of a HILO query's dyes;
       // with them counted a population in its initial ON stayed mean-field for good).
       long nZLit = nZ;
@@ -3845,7 +3866,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          by0 = std::max(by0, S.q.y0Um);
          bx1 = std::min(bx1, S.q.x1Um);
          by1 = std::min(by1, S.q.y1Um);
-         nZLit = bx1 > bx0 && by1 > by0 ? m.cache.CountDyes(bx0, by0, bx1, by1, zMin, zMax, 1 << s) : 0;
+         nZLit = bx1 > bx0 && by1 > by0 ? m.cache.CountSlab(bx0, by0, bx1, by1, zMin, zMax, 1 << s) : 0;
       }
       if (nZ < 0 || nSlab < 0 || nZLit < 0)
       {

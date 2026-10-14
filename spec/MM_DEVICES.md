@@ -123,7 +123,7 @@ The lasers' geometry is a property of `Lasers`, not a source (2026-10-13, spec/P
 beyond NA / `SampleHolder.MediumIndex`: clipped, no light), with the beam's `IlluminationProfile` / `IlluminationFwhmPct`
 (engine options too) and the read-only `IlluminationRegime` / `IlluminationDepthNm` (Advanced). `Lasers.Preset` sets
 `BfpPosition` (DNA-PAINT HILO, the nanorulers TIRF, else epi). The shipped configs' group `Illumination` (Epi / HILO /
-TIRF) is its dropdown and `BfpPosition` its field; neither is in the Startup group (the startup channel's preset sets it).
+TIRF) is its dropdown and `BfpPosition` its field (Advanced and Expert configs only); neither is in the Startup group (the startup channel's preset sets it).
 The illumination history keeps each tile's clocks in 12 z bands under a shaped beam (`IlluminationHistory.h`), so light
 that reached only the bottom of a cell leaves the dyes above it fresh.
 
@@ -134,7 +134,7 @@ rows exist in a session; a row above it is never created and its setting keeps i
 
 | Tier | Rule | Examples |
 |---|---|---|
-| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 30 Basic properties over all devices** (`tools/test_insiliscope.py` checks it): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset and its relay (`EmissionPath.EmissionMagnification`: a Camera config preset sets both), laser powers, light preset, beam profile, objective, filter cube, label, quality |
+| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 30 Basic properties over all devices** (`tools/test_insiliscope.py` checks it): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset and its relay (`EmissionPath.EmissionMagnification`: a Camera config preset sets both), laser powers, light preset, beam profile, objective and its aberrations (`Objective.ZernikePreset`), filter cube, label, quality |
 | **Advanced** | Physical parameters a user knows the meaning of and may tune to match their own setup. Read-only readouts. | noise values, NA, refractive indices, labelling density, drift, background, filter wheels, stage speed, GPU switch, disk cache |
 | **Expert** | Numerics, caches, debugging, model-shape parameters, overrides of library data, custom dyes. | PSF model and oversampling, BrightField sampling, mean-field limits, nucleus shape, Zernike coefficients, Dye1-3 |
 | **Test** | Only what automated checks need (deterministic stacks, hooks). Never shown in MM: created only when the process has `ISC_TEST=1`, whatever `Detail` says; named `Test_*`. Never something a user needs to reproduce a result. | `Test_AcqMode`, `Test_GenerateStack`, `Test_StackLength`, `Renderer.Test_WriteRegistryTo` |
@@ -201,5 +201,5 @@ per-target rows are `<Target>_<Name>`; sensor-specific rows are `sCMOS_` / `EMCC
 | `InSiliScopeCamera.*`, `SMLMImageGeneration.cpp` | the camera: acquisition, live loop, precomputed stack (Test) |
 | `InSiliScopeXYStage.*`, `InSiliScopeZStage.*` | the stages |
 | `tools/isc_mm.py` | loading the devices in pymmcore-plus (the test scripts) |
-| `config/inSiliScope_{Basic,Advanced,Expert}.cfg` | the shipped configurations (release assets): devices, roles, the Channel / Objective / Camera / Quality / Drift / Specimen groups, startup, pixel sizes per objective x camera; written by `tools/gen_mm_configs.py` (never by hand; `--check`), loaded and checked by `tools/test_mm_configs.py` |
+| `config/inSiliScope_{Basic,Advanced,Expert}.cfg` | the shipped configurations (release assets): devices, roles, the Channel / Objective / Aberrations / Camera / Quality / Drift / Specimen / Illumination groups (+ `BfpPosition`, Advanced and up), startup, pixel sizes per objective x camera; written by `tools/gen_mm_configs.py` (never by hand; `--check`), loaded and checked by `tools/test_mm_configs.py` |
 | `docs/mm-properties.md` | every device and property with tier, default, values and help; written by `tools/gen_property_reference.py` from the registry (the Test row `Renderer.Test_WriteRegistryTo` exports it) |
