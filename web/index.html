@@ -51,7 +51,7 @@
   #lv_perfOut .sub{padding-left:8px}
   #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   #lv_streamRow{margin-top:4px;font-size:10.5px;color:var(--muted)}
-  #lv_streamRow input{width:100%;box-sizing:border-box;font-size:10.5px}
+  #lv_streamRow a{color:var(--accent)}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
@@ -267,9 +267,9 @@
           <button id="lv_snap" title="Snap: one frame">Snap</button>
           <button id="lv_rec" hidden title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
           <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-          <button id="lv_stream" title="Stream the live frames to webSMLM (its Live streaming panel, Connect to ws://localhost:8765), through the relay: node tools/websmlm_relay.mjs. A browser page cannot be the WebSocket server webSMLM connects to; the relay is, as the Micro-Manager plugin webSMLM_Streaming is.">⇢ webSMLM</button>
+          <button id="lv_stream" title="Stream the live frames to webSMLM open in another tab of this site (websmlm/webSMLM.html: the line under the buttons links it), which localizes them as they come">⇢ webSMLM</button>
         </div><div id="lv_info"></div>
-        <div id="lv_streamRow" hidden><input id="lv_streamUrl" spellcheck="false" title="The relay's address for a sender (tools/websmlm_relay.mjs; webSMLM connects to the same port without /source)"><div id="lv_streamStatus"></div></div>
+        <div id="lv_streamRow" hidden><div id="lv_streamStatus"></div></div>
         <div id="lv_more"><label title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display"><input type="checkbox" id="lv_perf"> performance</label></div>
         <div id="lv_perfOut"></div></div>
         <div class="lc"><h5>Focus (Z stage)</h5>

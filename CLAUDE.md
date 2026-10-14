@@ -37,9 +37,12 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  **⇢ webSMLM** streams each frame as a 16-bit ImageJ TIFF over a WebSocket to `tools/websmlm_relay.mjs` (no deps;
-  senders on `/source`, webSMLM's Live streaming connects to the bare port 8765, as to the MM plugin
-  webSMLM_Streaming: a page cannot be the server; `tests/web/websmlm_relay_check.mjs`, `viewer_live_stream.mjs`); Rec
+  **⇢ webSMLM** streams the frames to webSMLM open in another tab of the same site: the site serves a copy
+  (`web/websmlm/webSMLM.html`, gitignored, `tools/fetch_websmlm.mjs` from webSMLM main, run by `pages.yml`, which adds
+  `<script src="../live/websmlm_bridge.js">`); the bridge listens on the BroadcastChannel `insiliscope-websmlm` and
+  feeds ImageJ TIFF chunks to webSMLM's `window.webSMLM.liveStream.pushChunk` (camera set at session start; frames
+  waiting while it is busy go in one chunk); unrelated tabs of different origins have no channel, so webSMLM's own site
+  cannot be reached (a 2026-10-14 WebSocket relay was dropped: it needed a local process); `viewer_live_stream.mjs`); Rec
   and the Acquisition settings group are hidden for now (`self.ISC_SHOW_ACQ` shows the group)), `mm_config_ui.js` (the
   Configuration: the MM config groups as selects/sliders; a preset sets the `mv_<option>` controls, options without a
   control go into every spec via `self.ISC_MM_EXTRA`; camera-type/em-gain/qe-curve follow the camera preset; the pixel
@@ -65,8 +68,8 @@ that finishes them.
   the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders), `mm_config_check.mjs` (every Configuration preset maps onto a viewer control or module option; CI
-  job `viewer-js` runs these five and `websmlm_relay_check.mjs`), `viewer_live_stream.mjs` (browser: the live stream
-  to webSMLM through the relay, the performance breakdown), `viewer_anim_export.mjs` (browser: export,
+  job `viewer-js` runs these five), `viewer_live_stream.mjs` (browser: viewer + webSMLM tabs, the live stream localized
+  there, the performance breakdown; fetches webSMLM when missing), `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`

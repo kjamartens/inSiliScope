@@ -47,12 +47,16 @@ Notes:
 - **performance** (under the info): where each frame's time goes: the engine's phases (setup, the core's blink
   events, splatting, camera noise, ...), the trip to and from the worker, the display, and the wait that paces frames to
   the exposure.
-- **⇢ webSMLM** streams the live frames to [webSMLM](https://github.com/HohlbeinLab/webSMLM)'s Live streaming panel,
-  which localizes them as they come (one 16-bit ImageJ TIFF per frame, as the Micro-Manager plugin webSMLM_Streaming
-  sends them). webSMLM connects to a WebSocket server and a web page cannot be one, so the frames go through a small
-  relay you run next to it: `node tools/websmlm_relay.mjs` (no dependencies; port 8765), then in webSMLM: Live
-  streaming → Connect to `ws://localhost:8765`. The button is highlighted while it streams; the line under it shows
-  the frames sent and those webSMLM has taken. Frames are dropped, not queued, while the connection is backed up.
+- **⇢ webSMLM** streams the live frames to [webSMLM](https://github.com/HohlbeinLab/webSMLM), which localizes them
+  as they come. Open webSMLM in another tab **from this site** (the line under the button links it once streaming is
+  on: `viewer/websmlm/webSMLM.html`, a copy of webSMLM's current version); the viewer finds that tab by itself, nothing
+  to install or connect. The frames go as 16-bit ImageJ TIFF chunks into webSMLM's live-stream session, which takes
+  the viewer's pixel size, gain, offset and sensor (EMCCD: excess noise 2) when it starts; a new image size or camera
+  starts a new session there, stopping ends it. Frames shown while webSMLM is still busy go together in its next chunk.
+  The button is highlighted while it streams; the line under it shows the frames sent, those localized and the
+  localizations. Keep the viewer's tab in view (live pauses while it is hidden); webSMLM may sit in the background.
+  webSMLM's own site (hohlbeinlab.github.io) cannot be reached: a browser has no channel between tabs of different
+  sites without a server.
 - **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
   in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as

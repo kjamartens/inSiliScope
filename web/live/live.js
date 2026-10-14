@@ -2,7 +2,7 @@
 // The viewer's live microscope (the right panel): the camera image at the stage position (= the world view's
 // centre), rendered frame after frame by a worker of its own; Snap, Record (the movie player), the focus (Z stage),
 // exposure and display range with a histogram; the performance breakdown per frame; streaming the frames to webSMLM
-// (through tools/websmlm_relay.mjs); the splitter between the world view and the panel; the View pop-over.
+// open in another tab of this site (live/websmlm_bridge.js); the splitter between the world view and the panel; the View pop-over.
 //
 // Loaded after the viewer's main script (web/index.html) and uses its globals: movieSpec, spawnGenWorker,
 // genWorkers, view, requestDraw, resizeCanvas, makeMovie, uiKit. A live frame is a `live` job (cli/scope_wasm.cpp
@@ -320,61 +320,98 @@ $('lv_perf').checked = store.get('livePerf', '0') === '1';
 $('lv_perf').addEventListener('change', () => { store.set('livePerf', $('lv_perf').checked ? '1' : '0'); showPerf(); if (!L.on && L.frame && $('lv_perf').checked) request(); });
 
 // ---- streaming to webSMLM ----
-// webSMLM's Live streaming panel connects out to a WebSocket server (the Micro-Manager plugin webSMLM_Streaming is one)
-// and takes each binary message as one chunk: an ImageJ TIFF of the frames. A page cannot be a server, so the frames go
-// to a relay (tools/websmlm_relay.mjs: senders on /source, webSMLM on the bare port), one 16-bit TIFF per frame shown;
-// stopping sends {"cmd":"stop"}. Frames are dropped, not queued, while the socket is backed up.
-const ST = { on: false, ws: null, sent: 0, dropped: 0, acked: null, retry: 0 };
-$('lv_streamUrl').value = store.get('streamUrl', 'ws://localhost:8765/source');
-$('lv_streamUrl').addEventListener('change', () => { store.set('streamUrl', $('lv_streamUrl').value.trim()); if (ST.on) { closeStream(false); openStream(); } });
-const streamStatus = msg => { $('lv_streamStatus').textContent = msg; };
-function openStream() {
-  clearTimeout(ST.retry);
-  let ws;
-  try { ws = new WebSocket($('lv_streamUrl').value.trim()); } catch (e) { streamStatus('bad address: ' + e.message); return; }
-  ws.binaryType = 'arraybuffer';
-  ST.ws = ws;
-  streamStatus('connecting…');
-  ws.onopen = () => { if (ST.ws === ws) streamStatus('relay connected: in webSMLM, Live streaming → Connect to ' + $('lv_streamUrl').value.trim().replace(/\/source$/, '')); };
-  ws.onmessage = e => {
-    if (typeof e.data !== 'string') return;
-    try { const m = JSON.parse(e.data); if (m.cmd === 'ack' || m.cmd === 'stopAck') { ST.acked = m.framesReceived; showStream(); } } catch (_) { /* not ours */ }
+// The site serves a copy of webSMLM (websmlm/webSMLM.html, tools/fetch_websmlm.mjs) with a small listener
+// (live/websmlm_bridge.js). Open it in another tab of this site; "⇢ webSMLM" finds it over a BroadcastChannel and sends
+// the frames shown as ImageJ TIFF chunks, which it localizes with its own live-stream API. Frames shown while webSMLM is
+// still on the previous chunk go together in the next one (at most 64 wait; the oldest are dropped beyond that). The
+// camera (pixel size, gain, offset, EMCCD) is set in webSMLM when a session starts; a new frame size or camera starts a
+// new session there. A tab of webSMLM's own site cannot be reached: unrelated tabs of different sites share no channel.
+const WEBSMLM_URL = new URL('websmlm/webSMLM.html', location.href).href;
+const ST = { on: false, ch: null, to: null, tabs: new Map(), busy: null, queue: [], key: '', camera: null,
+  sent: 0, dropped: 0, inWs: 0, locs: 0, id: 0, err: '' };
+const streamStatus = html => { $('lv_streamStatus').innerHTML = html; };
+function streamChannel() {
+  if (ST.ch || typeof BroadcastChannel === 'undefined') return ST.ch;
+  const ch = ST.ch = new BroadcastChannel('insiliscope-websmlm');
+  ch.onmessage = ev => {
+    const m = ev.data || {};
+    if (m.type === 'here') {
+      ST.tabs.set(m.from, m);
+      if (ST.on && !ST.to) { ST.to = m.from; ST.key = ''; showStream(); pump(); }
+    } else if (m.type === 'gone') {
+      ST.tabs.delete(m.from);
+      if (m.from !== ST.to) return;
+      ST.to = null; ST.busy = null; ST.key = '';
+      ch.postMessage('hello');   // another webSMLM tab of this site, if there is one
+      showStream();
+    } else if (m.type === 'ack' && m.from === ST.to && ST.busy && m.id === ST.busy.id) {
+      ST.busy = null;
+      if (m.ok) { ST.inWs = m.totalFrames ?? ST.inWs; ST.locs = m.totalLocs ?? ST.locs; ST.err = ''; } else ST.err = m.error || 'failed';
+      showStream();
+      pump();
+    }
   };
-  ws.onclose = () => {
-    if (ST.ws !== ws) return;
-    ST.ws = null;
-    if (!ST.on) return;
-    streamStatus('no relay at ' + $('lv_streamUrl').value.trim() + ' — run: node tools/websmlm_relay.mjs (retrying)');
-    ST.retry = setTimeout(() => { if (ST.on && !ST.ws) openStream(); }, 2000);
-  };
-}
-function closeStream(sendStop) {
-  clearTimeout(ST.retry);
-  const ws = ST.ws;
-  ST.ws = null;
-  if (!ws) return;
-  if (sendStop && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: 'stop' }));
-  ws.close();
+  return ch;
 }
 function showStream() {
-  if (!ST.on || !ST.ws || ST.ws.readyState !== WebSocket.OPEN) return;
-  streamStatus(`streaming: ${ST.sent} frames sent` + (ST.acked !== null ? `, ${ST.acked} in webSMLM` : '') + (ST.dropped ? `, ${ST.dropped} dropped (busy)` : ''));
+  if (!ST.on) return;
+  if (!ST.ch) { streamStatus('this browser has no BroadcastChannel'); return; }
+  if (!ST.to) {
+    streamStatus(`waiting for webSMLM in another tab of this site: <a href="${WEBSMLM_URL}" target="_blank">open webSMLM</a>`);
+    return;
+  }
+  const t = ST.tabs.get(ST.to) || {}, esc = x => String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  streamStatus(`to webSMLM ${esc(t.version || '')}: ${ST.sent} frames sent, ${ST.inWs} localized there, ` +
+    `${(+ST.locs || 0).toLocaleString()} localizations` + (ST.dropped ? `, ${ST.dropped} dropped (webSMLM busy)` : '') +
+    (ST.err ? ` — <span class="err">${esc(ST.err)}</span>` : ''));
 }
 function setStream(on) {
   ST.on = on;
   $('lv_stream').classList.toggle('on', on);
   $('lv_streamRow').hidden = !on;
-  if (on) { ST.sent = 0; ST.dropped = 0; ST.acked = null; openStream(); } else closeStream(true);
+  const ch = streamChannel();
+  if (on) {
+    Object.assign(ST, { to: null, busy: null, queue: [], key: '', sent: 0, dropped: 0, inWs: 0, locs: 0, err: '' });
+    ST.tabs.clear();
+    if (ch) ch.postMessage('hello');
+    showStream();
+  } else {
+    if (ch && ST.to) ch.postMessage({ type: 'stop', to: ST.to });
+    Object.assign(ST, { to: null, busy: null, queue: [], key: '' });
+  }
 }
 $('lv_stream').addEventListener('click', () => setStream(!ST.on));
 function streamFrame(d) {
-  const ws = ST.ws;
-  if (!ST.on || !ws || ws.readyState !== WebSocket.OPEN || !d.frames) { if (L.perf) delete L.perf.streamMs; return; }
+  if (!ST.on || !d.frames) { if (L.perf) delete L.perf.streamMs; return; }
   const t0 = performance.now();
-  if (ws.bufferedAmount > 16 * d.frames.length * 2) ST.dropped++;
-  else { ws.send(writeTiff16(d.frames, d.w, d.h, 1, 'ImageJ=1.11a\nimages=1\nslices=1\n')); ST.sent++; }
+  const camera = { w: d.w, h: d.h, pixelNm: +$('mv_pixel-nm').value, frameSec: exposureSec(), electronsPerAdu: +$('mv_gain').value,
+    offsetAdu: +$('mv_offset').value, emccd: typeof emccdChosen === 'function' && !!emccdChosen() };
+  const key = [camera.w, camera.h, camera.pixelNm, camera.electronsPerAdu, camera.offsetAdu, camera.emccd].join('|');
+  if (key !== ST.key) {   // a new frame size or camera: a new session in webSMLM (its frames share one size and camera)
+    if (ST.to && ST.key) ST.ch.postMessage({ type: 'stop', to: ST.to });
+    ST.queue = []; ST.key = key;
+  }
+  ST.camera = camera;
+  ST.queue.push(d.frames);
+  if (ST.queue.length > 64) { ST.queue.shift(); ST.dropped++; }
+  pump();
   if (L.perf) L.perf.streamMs = performance.now() - t0;
   showStream();
+}
+function pump() {
+  if (ST.busy && performance.now() - ST.busy.t > 60000) ST.busy = null;   // a tab that went away without a word
+  if (!ST.on || !ST.to || ST.busy || !ST.queue.length || !ST.camera) return;
+  const frames = ST.queue, cam = ST.camera, n = frames.length, px = cam.w * cam.h, all = new Uint16Array(n * px);
+  ST.queue = [];
+  frames.forEach((f, i) => all.set(f, i * px));
+  const id = ++ST.id;
+  ST.busy = { id, t: performance.now() };
+  writeTiff16(all, cam.w, cam.h, n, `ImageJ=1.11a\nimages=${n}\nframes=${n}\n`).arrayBuffer().then(tiff => {
+    if (!ST.on || !ST.busy || ST.busy.id !== id) return;
+    ST.ch.postMessage({ type: 'chunk', to: ST.to, id, n, tiff, camera: cam });
+    ST.sent += n;
+    showStream();
+  });
 }
 
 // Scale bar: a 1-2-5 length near a quarter of the displayed image.

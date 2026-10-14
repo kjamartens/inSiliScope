@@ -46,7 +46,8 @@ rm -f .mkdocs_site.yml
 
 mkdir -p "$OUT/viewer"
 cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js "$OUT/viewer/"
-for d in scene anim encode live; do if [ -d web/$d ]; then cp -r web/$d "$OUT/viewer/$d"; fi; done
+# websmlm: the copy of webSMLM the live panel streams to (tools/fetch_websmlm.mjs; not committed, the Pages build fetches it)
+for d in scene anim encode live websmlm; do if [ -d web/$d ]; then cp -r web/$d "$OUT/viewer/$d"; fi; done
 [ -d web/prototype ] && cp -r web/prototype "$OUT/viewer/prototype"
 touch "$OUT/.nojekyll"
 rm -rf .site_docs
