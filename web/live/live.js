@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer's live microscope (the right panel): the camera image at the stage position (= the world view's
 // centre), rendered frame after frame by a worker of its own; Snap, Record (the movie player), the focus (Z stage),
-// exposure and display range with a histogram; the performance breakdown per frame; streaming the frames to webSMLM
-// open in another tab of this site (live/websmlm_bridge.js); the splitter between the world view and the panel; the View pop-over.
+// exposure and display range with a histogram; the performance breakdown per frame; the splitter between the world view
+// and the panel; the View pop-over.
 //
 // Loaded after the viewer's main script (web/index.html) and uses its globals: movieSpec, spawnGenWorker,
 // genWorkers, view, requestDraw, resizeCanvas, makeMovie, uiKit. A live frame is a `live` job (cli/scope_wasm.cpp
@@ -71,7 +71,6 @@ document.addEventListener('keydown', ev => {
   if (ev.key === 'PageUp' || ev.key === 'PageDown') { ev.preventDefault(); stepZ(ev.key === 'PageUp' ? 1 : -1); }
 });
 $('liveView').addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.deltaY < 0 ? 1 : -1); }, { passive: false });
-$('lv_rec').addEventListener('click', () => makeMovie());
 
 // ---- the live worker ----
 // A worker of its own (the same engine as the others), so a live frame never waits behind the data layers, the dye
@@ -90,7 +89,8 @@ function worker() {
 // The live session follows the sample: a new world (seed, cell or specimen parameters) is a fresh sample, as the
 // adapter resets its history on a world change.
 function worldKey(spec) { return spec.split(' ').filter(t => /^(world-seed|specimen|p\.)/.test(t)).join(' '); }
-function request() {
+// n > 1: a recording chunk (n frames at once, LiveScope::Frames).
+function request(n) {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; showInfo(); return; }
   if (L.pending) return;
@@ -98,7 +98,8 @@ function request() {
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; }
-  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: $('lv_perf').checked };
+  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && $('lv_perf').checked };
+  if (n) { job.n = n; job.rec = true; }
   L.pending = job;
   w.postMessage(job);
 }
@@ -106,7 +107,8 @@ function onResult(d) {
   const job = L.pending;
   if (!job || d.id !== job.id) return;
   L.pending = null;
-  if (d.error) { L.err = d.error; L.on = false; syncButtons(); showInfo(); return; }
+  if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
+  if (job.rec) { onRecChunk(d, job); return; }
   L.err = '';
   L.ms = performance.now() - job.t0;
   L.t = d.t !== undefined ? d.t : L.t + exposureSec();
@@ -123,9 +125,9 @@ function onResult(d) {
     L.lastShown = t;
     L.frames++;
     draw(d);
-    streamFrame(d);
     showPerf();
-    if (L.on && !document.hidden) request();
+    if (REC.on) recNext();
+    else if (L.on && !document.hidden) request();
   };
   if (L.on && now < due) setTimeout(show, due - now); else show();
 }
@@ -251,15 +253,16 @@ const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 function showInfo() {
   const el = $('lv_info');
   if (L.err) { el.textContent = 'live failed: ' + L.err; return; }
-  if (!L.frames) { el.textContent = L.on ? 'starting…' : ''; return; }
+  if (!L.frames) { el.textContent = L.on ? 'starting…' : REC.on ? 'recording…' : ''; return; }
   const bf = $('mv_modality').value === '1', both = self.ISC_MM_EXTRA && self.ISC_MM_EXTRA['light-trans'] === 1 && !bf;
-  const lines = [(L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + Math.round(L.ms) + ' ms/frame',
+  const lines = [(REC.on ? `● recording ${REC.got}/${REC.n}` : L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame',
     `${L.w}×${L.h} px · ${bf ? 'BrightField' : both ? 'fluorescence + BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
     `t ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : '') + ` · ${L.lo}–${L.hi} ADU`];
   const how = renderPaths(bf, both);
   if (how) lines.push('render: ' + how);
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
   if (L.engine === 'movie') lines.push('(no sample history in this engine)');
+  if (REC.msg && !REC.on) lines.push(REC.msg);
   el.textContent = lines.join('\n');
 }
 // How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by
@@ -280,139 +283,54 @@ function renderPaths(bf, both) {
 }
 // ---- performance: where a frame's time goes ----
 // The engine's phases (Simulation/Timing.h, collected per frame by the module: isc_live_profile), the rest of the
-// worker's call, the message to and from it, the display; and the wait that paces frames to the exposure.
-const PHASES = {
-  'fl.total': 'fluorescence, total', 'fl.setup': 'setup', 'fl.make-setup': 'resolve the spec', 'fl.configure': 'labels, light path',
-  'fl.history': 'illumination history', 'fl.clock-regions': 'clock regions', 'fl.events-query': 'blink events (core)',
-  'fl.events-sort': 'sort events', 'fl.windows': 'per-dye windows', 'fl.dye-counts': 'dye counts', 'fl.psf-kernels': 'PSF kernels',
-  'fl.mean-field-scene': 'mean-field scene', 'fl.mean-field-weights': 'mean-field weights', 'fl.mean-field-render': 'mean-field image',
-  'fl.frame.blinks (batches)': 'blinks (splat / binned)', 'fl.frame.continuous': 'continuous dyes', 'fl.frame.noise (batches)': 'camera noise',
-  'fl.frame.onFrame': 'hand-over', 'bf.total': 'BrightField, total', 'bf.scene': 'BrightField scene', 'bf.scene-update': 'BrightField scene update',
-  'bf.image': 'BrightField image', 'bf.frame.noise': 'BrightField noise', 'bf.frame.onFrame': 'BrightField hand-over',
-  'psf.compute': 'PSF kernel (compute)', 'psf.zernike-planes': 'PSF planes', 'psf.memo-hit': 'PSF kernel (memo)',
-};
-const TOTALS = new Set(['fl.total', 'bf.total']);
+// worker's call, the message to and from it, the display; and the wait that paces frames to the exposure. Every row is
+// always there, in a fixed order ("—" when the frame did not have it), so nothing jumps; a phase run more than once in
+// the frame shows its count in the row's tooltip. Phases not in the list add up in "other engine phases".
+const PHASES = [
+  ['fl.total', 'fluorescence, total', 1], ['fl.setup', 'setup', 2], ['fl.make-setup', 'resolve the spec', 2],
+  ['fl.configure', 'labels, light path', 2], ['fl.history', 'illumination history', 2], ['fl.clock-regions', 'clock regions', 2],
+  ['fl.events-query', 'blink events (core)', 2], ['fl.events-sort', 'sort events', 2], ['fl.windows', 'per-dye windows', 2],
+  ['fl.dye-counts', 'dye counts', 2], ['fl.psf-kernels', 'PSF kernels', 2], ['fl.mean-field-scene', 'mean-field scene', 2],
+  ['fl.mean-field-weights', 'mean-field weights', 2], ['fl.mean-field-render', 'mean-field image', 2],
+  ['fl.frame.blinks (batches)', 'blinks (splat / binned)', 2], ['fl.frame.continuous', 'continuous dyes', 2],
+  ['fl.frame.noise (batches)', 'camera noise', 2], ['fl.frame.onFrame', 'hand-over', 2],
+  ['bf.total', 'BrightField, total', 1], ['bf.scene', 'BrightField scene', 2], ['bf.scene-update', 'BrightField scene update', 2],
+  ['bf.image', 'BrightField image', 2], ['bf.frame.noise', 'BrightField noise', 2], ['bf.frame.onFrame', 'BrightField hand-over', 2],
+  ['bf.focus-cached', 'BrightField focus (cached)', 2], ['bf.prefetch-image', 'BrightField prefetch', 2],
+  ['psf.compute', 'PSF kernel (compute)', 1], ['psf.zernike-planes', 'PSF planes', 2],
+  ['psf.normalize+block-sums', 'PSF normalize, block sums', 2], ['psf.memo-hit', 'PSF kernel (memo)', 1],
+  ['psf.disk-hit', 'PSF kernel (disk)', 1],
+];
+const KNOWN = new Set(PHASES.map(r => r[0]));
 function showPerf() {
   const out = $('lv_perfOut');
-  if (!$('lv_perf').checked || !L.perf) { out.innerHTML = ''; return; }
-  const P = L.perf, rows = [], ms = v => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' ms';
-  const row = (name, v, cls) => rows.push(`<span class="${cls || ''}">${name}</span><span class="${cls || ''}">${ms(v)}</span>`);
-  row('frame: request → result', P.roundMs, 'tot');
-  if (P.workerMs !== undefined) {
-    row('engine (worker)', P.workerMs, 'sub');
-    const ph = P.profile && P.profile.phases ? Object.entries(P.profile.phases) : [];
-    let inner = 0;
-    for (const [k, v] of ph.sort((a, b) => b[1].totalMs - a[1].totalMs)) {
-      if (v.totalMs < 0.05) continue;
-      const nm = (PHASES[k] || k) + (v.count > 1 ? ` ×${v.count}` : '');
-      row(nm, v.totalMs, TOTALS.has(k) ? 'sub' : 'sub" style="padding-left:16px');
-      if (TOTALS.has(k)) inner += v.totalMs;
-    }
-    if (inner) row('rest of the engine call', Math.max(0, P.workerMs - inner), 'sub" style="padding-left:16px');
-    row('to and from the worker', Math.max(0, P.roundMs - P.workerMs), 'sub');
+  if (!$('lv_perf').checked) { out.innerHTML = ''; return; }
+  const P = L.perf || {}, rows = [];
+  const ms = v => (v === undefined || v === null || !isFinite(v) ? '—' : v.toFixed(1) + ' ms');
+  const pad = ['', 'padding-left:8px', 'padding-left:16px', 'padding-left:24px'];
+  const row = (name, v, level, cls, tip) => {
+    const a = `class="${cls || ''}" style="${pad[level] || ''}"` + (tip ? ` title="${tip}"` : '');
+    rows.push(`<span ${a}>${name}</span><span class="${cls || ''}">${ms(v)}</span>`);
+  };
+  const ph = (P.profile && P.profile.phases) || {};
+  row('frame: request → result', P.roundMs, 0, 'tot');
+  row('engine (worker)', P.workerMs, 1);
+  let tops = 0, other = 0, anyOther = false;
+  for (const [k, name, level] of PHASES) {
+    const v = ph[k];
+    row(name, v ? v.totalMs : undefined, level + 1, '', v && v.count > 1 ? `${v.count} times in this frame` : '');
+    if (v && (k === 'fl.total' || k === 'bf.total')) tops += v.totalMs;   // the PSF runs inside them
   }
-  if (P.paintMs !== undefined) row('display (image, histogram)', P.paintMs + (P.histMs || 0), 'tot');
-  if (P.streamMs !== undefined) row('stream (TIFF, send)', P.streamMs, 'tot');
-  if (L.on) row('wait (paced to the exposure)', P.waitMs || 0, 'tot');
+  for (const [k, v] of Object.entries(ph)) if (!KNOWN.has(k)) { other += v.totalMs; anyOther = true; }
+  row('other engine phases', anyOther ? other : P.profile ? 0 : undefined, 2);
+  row('rest of the engine call', P.workerMs !== undefined && P.profile ? Math.max(0, P.workerMs - tops) : undefined, 2);
+  row('to and from the worker', P.workerMs !== undefined ? Math.max(0, P.roundMs - P.workerMs) : undefined, 1);
+  row('display (image, histogram)', P.paintMs !== undefined ? P.paintMs + (P.histMs || 0) : undefined, 0, 'tot');
+  row('wait (paced to the exposure)', L.on ? P.waitMs || 0 : undefined, 0, 'tot');
   out.innerHTML = rows.join('');
 }
 $('lv_perf').checked = store.get('livePerf', '0') === '1';
 $('lv_perf').addEventListener('change', () => { store.set('livePerf', $('lv_perf').checked ? '1' : '0'); showPerf(); if (!L.on && L.frame && $('lv_perf').checked) request(); });
-
-// ---- streaming to webSMLM ----
-// The site serves a copy of webSMLM (websmlm/webSMLM.html, tools/fetch_websmlm.mjs) with a small listener
-// (live/websmlm_bridge.js). Open it in another tab of this site; "⇢ webSMLM" finds it over a BroadcastChannel and sends
-// the frames shown as ImageJ TIFF chunks, which it localizes with its own live-stream API. Frames shown while webSMLM is
-// still on the previous chunk go together in the next one (at most 64 wait; the oldest are dropped beyond that). The
-// camera (pixel size, gain, offset, EMCCD) is set in webSMLM when a session starts; a new frame size or camera starts a
-// new session there. A tab of webSMLM's own site cannot be reached: unrelated tabs of different sites share no channel.
-const WEBSMLM_URL = new URL('websmlm/webSMLM.html', location.href).href;
-const ST = { on: false, ch: null, to: null, tabs: new Map(), busy: null, queue: [], key: '', camera: null,
-  sent: 0, dropped: 0, inWs: 0, locs: 0, id: 0, err: '' };
-const streamStatus = html => { $('lv_streamStatus').innerHTML = html; };
-function streamChannel() {
-  if (ST.ch || typeof BroadcastChannel === 'undefined') return ST.ch;
-  const ch = ST.ch = new BroadcastChannel('insiliscope-websmlm');
-  ch.onmessage = ev => {
-    const m = ev.data || {};
-    if (m.type === 'here') {
-      ST.tabs.set(m.from, m);
-      if (ST.on && !ST.to) { ST.to = m.from; ST.key = ''; showStream(); pump(); }
-    } else if (m.type === 'gone') {
-      ST.tabs.delete(m.from);
-      if (m.from !== ST.to) return;
-      ST.to = null; ST.busy = null; ST.key = '';
-      ch.postMessage('hello');   // another webSMLM tab of this site, if there is one
-      showStream();
-    } else if (m.type === 'ack' && m.from === ST.to && ST.busy && m.id === ST.busy.id) {
-      ST.busy = null;
-      if (m.ok) { ST.inWs = m.totalFrames ?? ST.inWs; ST.locs = m.totalLocs ?? ST.locs; ST.err = ''; } else ST.err = m.error || 'failed';
-      showStream();
-      pump();
-    }
-  };
-  return ch;
-}
-function showStream() {
-  if (!ST.on) return;
-  if (!ST.ch) { streamStatus('this browser has no BroadcastChannel'); return; }
-  if (!ST.to) {
-    streamStatus(`waiting for webSMLM in another tab of this site: <a href="${WEBSMLM_URL}" target="_blank">open webSMLM</a>`);
-    return;
-  }
-  const t = ST.tabs.get(ST.to) || {}, esc = x => String(x).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  streamStatus(`to webSMLM ${esc(t.version || '')}: ${ST.sent} frames sent, ${ST.inWs} localized there, ` +
-    `${(+ST.locs || 0).toLocaleString()} localizations` + (ST.dropped ? `, ${ST.dropped} dropped (webSMLM busy)` : '') +
-    (ST.err ? ` — <span class="err">${esc(ST.err)}</span>` : ''));
-}
-function setStream(on) {
-  ST.on = on;
-  $('lv_stream').classList.toggle('on', on);
-  $('lv_streamRow').hidden = !on;
-  const ch = streamChannel();
-  if (on) {
-    Object.assign(ST, { to: null, busy: null, queue: [], key: '', sent: 0, dropped: 0, inWs: 0, locs: 0, err: '' });
-    ST.tabs.clear();
-    if (ch) ch.postMessage('hello');
-    showStream();
-  } else {
-    if (ch && ST.to) ch.postMessage({ type: 'stop', to: ST.to });
-    Object.assign(ST, { to: null, busy: null, queue: [], key: '' });
-  }
-}
-$('lv_stream').addEventListener('click', () => setStream(!ST.on));
-function streamFrame(d) {
-  if (!ST.on || !d.frames) { if (L.perf) delete L.perf.streamMs; return; }
-  const t0 = performance.now();
-  const camera = { w: d.w, h: d.h, pixelNm: +$('mv_pixel-nm').value, frameSec: exposureSec(), electronsPerAdu: +$('mv_gain').value,
-    offsetAdu: +$('mv_offset').value, emccd: typeof emccdChosen === 'function' && !!emccdChosen() };
-  const key = [camera.w, camera.h, camera.pixelNm, camera.electronsPerAdu, camera.offsetAdu, camera.emccd].join('|');
-  if (key !== ST.key) {   // a new frame size or camera: a new session in webSMLM (its frames share one size and camera)
-    if (ST.to && ST.key) ST.ch.postMessage({ type: 'stop', to: ST.to });
-    ST.queue = []; ST.key = key;
-  }
-  ST.camera = camera;
-  ST.queue.push(d.frames);
-  if (ST.queue.length > 64) { ST.queue.shift(); ST.dropped++; }
-  pump();
-  if (L.perf) L.perf.streamMs = performance.now() - t0;
-  showStream();
-}
-function pump() {
-  if (ST.busy && performance.now() - ST.busy.t > 60000) ST.busy = null;   // a tab that went away without a word
-  if (!ST.on || !ST.to || ST.busy || !ST.queue.length || !ST.camera) return;
-  const frames = ST.queue, cam = ST.camera, n = frames.length, px = cam.w * cam.h, all = new Uint16Array(n * px);
-  ST.queue = [];
-  frames.forEach((f, i) => all.set(f, i * px));
-  const id = ++ST.id;
-  ST.busy = { id, t: performance.now() };
-  writeTiff16(all, cam.w, cam.h, n, `ImageJ=1.11a\nimages=${n}\nframes=${n}\n`).arrayBuffer().then(tiff => {
-    if (!ST.on || !ST.busy || ST.busy.id !== id) return;
-    ST.ch.postMessage({ type: 'chunk', to: ST.to, id, n, tiff, camera: cam });
-    ST.sent += n;
-    showStream();
-  });
-}
 
 // Scale bar: a 1-2-5 length near a quarter of the displayed image.
 function drawScale() {
@@ -427,21 +345,94 @@ function drawScale() {
 }
 window.addEventListener('resize', drawScale);
 
+// ---- Record: the next N frames at the stage position, as fast as the engine goes ----
+// The live sample goes on (its illumination history, drift, noise counter), the frames are not paced to the exposure:
+// chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to back on the
+// live worker; the last frame of each chunk is shown. The stack is saved as one 16-bit TIFF: ImageJ's header (frames,
+// frame interval, pixel size) and every setting (the engine spec, which the cli reads too, though the cli renders a
+// fresh sample). Clicking Record again stops early and saves the frames so far. At most 1 GB of frames.
+const REC = L.rec = { on: false, stop: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0, litStart: 0, t0: 0,
+  engineMs: 0, msg: '' };
+$('lv_recN').value = store.get('recN', '100');
+$('lv_recN').addEventListener('change', () => store.set('recN', $('lv_recN').value));
+function startRec() {
+  if (REC.on) { REC.stop = true; return; }
+  const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
+  const max = Math.floor(1e9 / (2 * side * side));
+  Object.assign(REC, { on: true, stop: false, n: Math.min(n, max), got: 0, buf: null, t0: performance.now(), engineMs: 0,
+    msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+  if (L.on) L.on = false;
+  syncButtons();
+  if (!L.pending) recNext();   // else after the frame in flight
+}
+function recNext() {
+  if (REC.stop || REC.got >= REC.n) { finishRec(); return; }
+  const side = Math.max(1, +$('mv_size').value || 128);
+  request(Math.max(1, Math.min(REC.n - REC.got, Math.floor(2e6 / (side * side)), 500)));
+}
+function onRecChunk(d, job) {
+  const px = d.w * d.h, n = d.n || 1;
+  if (!REC.buf) {
+    Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, tStart: d.tStart !== undefined ? d.tStart : job.t, litStart: d.clock });
+    REC.buf = new Uint16Array(REC.n * px);
+  }
+  if (d.w !== REC.w || d.h !== REC.h) { REC.msg = 'the image size changed: stopped'; REC.stop = true; }
+  else {
+    const k = Math.min(n, REC.n - REC.got);
+    REC.buf.set(d.frames.subarray(0, k * px), REC.got * px);
+    REC.got += k;
+    REC.engineMs += d.workerMs || 0;
+  }
+  L.err = '';
+  L.t = d.t; L.clock = d.clock; L.drift = d.drift; L.engine = d.engine; L.paths = d.paths || null;
+  const s = (performance.now() - REC.t0) / 1000;
+  L.ms = REC.got ? s * 1000 / REC.got : 0;
+  L.frames++;
+  draw({ ...d, frames: d.frames.slice((n - 1) * px, n * px) });
+  syncButtons();
+  if (REC.stop || REC.got >= REC.n) finishRec(); else recNext();
+}
+function finishRec() {
+  const n = REC.got, s = (performance.now() - REC.t0) / 1000;
+  REC.on = false;
+  if (n && REC.buf) {
+    const exp = exposureSec(), pxUm = (+$('mv_pixel-nm').value || 100) / 1000;
+    const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
+      `insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
+      `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
+      'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample'].join('\n') + '\n';
+    const blob = writeTiff16(REC.buf.subarray(0, n * REC.w * REC.h), REC.w, REC.h, n, desc, pxUm);
+    const a = document.createElement('a'), name = `insiliscope_live_${REC.w}x${REC.h}x${n}.tif`;
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    REC.msg = `saved ${name} (${(blob.size / 1e6).toFixed(1)} MB): ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
+      (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
+  }
+  REC.buf = null;
+  syncButtons();
+}
+$('lv_rec').addEventListener('click', startRec);
+
 // ---- buttons ----
 function syncButtons() {
   $('lv_live').classList.toggle('on', L.on);
   $('lv_live').textContent = L.on ? '❚❚ Stop' : '▶ Live';
+  $('lv_rec').classList.toggle('on', REC.on);
+  $('lv_rec').textContent = REC.on ? `■ ${REC.got}/${REC.n}` : '● Record';
+  for (const id of ['lv_live', 'lv_snap', 'lv_fresh']) $(id).disabled = REC.on;
   showInfo();
   requestDraw();
 }
 function setLive(on) {
   L.on = on;
   syncButtons();
-  if (on) { L.lastShown = 0; L.fps = 0; request(); }
+  if (on) { L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
 }
 $('lv_live').addEventListener('click', () => setLive(!L.on));
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
-$('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); L.lastShown = 0; request(); });
+$('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); L.lastShown = 0; REC.msg = ''; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });
 window.liveRedraw = () => { paint(); drawScale(); };
 })();

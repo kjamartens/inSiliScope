@@ -61,9 +61,6 @@ jobs:
           cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native --target insiliscope_cli
           python tools/build_physics_figures.py --cli build/native/cli/insiliscope_cli --out physics_figures
-      # webSMLM (MIT) on the site's own origin, so the viewer's live panel can stream to it in another tab.
-      - name: webSMLM for the live stream
-        run: node tools/fetch_websmlm.mjs || echo "::warning::webSMLM not fetched: the live panel cannot stream to it on this deploy"
       - name: Build the site
         run: bash tools/build_site.sh site
       - uses: actions/upload-pages-artifact@v3

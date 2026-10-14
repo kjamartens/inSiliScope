@@ -50,6 +50,3 @@ gallery.zip
 # Physics figures (tools/build_physics_figures.py; built by pages.yml, not committed)
 /physics_figures/
 claude_notes/
-
-# webSMLM copy served by the viewer (tools/fetch_websmlm.mjs; the Pages build fetches it)
-web/websmlm/

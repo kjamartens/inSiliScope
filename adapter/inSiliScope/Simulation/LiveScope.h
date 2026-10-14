@@ -59,6 +59,12 @@ public:
    // every frame passes true). A spec of another world (seed, cell or specimen parameters) starts a fresh sample.
    bool Frame(const ScopeSpec& spec, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
               std::string& err);
+   // The next n frames at once (a recording: no pacing), adu = n frames one after another. Without drift and with
+   // frames that light the sample, one movie of n frames on the history's clock (one setup and one events query, as
+   // the adapter's render-ahead); else n Frame calls. info: the first frame's tSec and litSec, the last one's drift,
+   // blinks and dyes summed, the whole call's renderMs.
+   bool Frames(const ScopeSpec& spec, long n, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
+               std::string& err);
    // A fresh sample: no light so far, no drift, time 0.
    void Reset();
    double TimeSec() const { return tSec_; }

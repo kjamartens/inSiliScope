@@ -11,6 +11,7 @@
 
 #include "ScopeResolved.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <random>
@@ -36,10 +37,17 @@ void LiveScope::Reset()
    noiseCounter_ = 0;
 }
 
-bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
+bool LiveScope::Frame(const ScopeSpec& spec, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
                       std::string& err)
 {
+   return Frames(spec, 1, countLight, adu, info, err);
+}
+
+bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::vector<uint16_t>& adu,
+                       LiveFrameInfo& info, std::string& err)
+{
    const auto t0 = std::chrono::steady_clock::now();
+   n = std::max(1L, n);
    info = LiveFrameInfo();
    ScopeSpec spec = specIn;
    spec["frames"] = 1;
@@ -56,6 +64,36 @@ bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint
       drift_ = DriftWalker(R.seed, p.drift, 0);
    }
    drift_.SetSettings(p.drift);
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   const bool lightsSample = epi && ScopeSampleIntensityKwCm2(spec) > 0;
+   // One movie of n frames only where the frames are alike: the pose fixed (no drift) and every frame lighting the
+   // sample (the movie's dyes run on from the clock frame by frame). Otherwise frame by frame.
+   if (n > 1 && (p.drift.On() || !(countLight && lightsSample)))
+   {
+      adu.clear();
+      std::vector<uint16_t> one;
+      LiveFrameInfo fi;
+      for (long f = 0; f < n; ++f)
+      {
+         if (!Frames(specIn, 1, countLight, one, fi, err))
+            return false;
+         adu.insert(adu.end(), one.begin(), one.end());
+         if (f == 0)
+         {
+            info = fi;
+            info.blinks = 0;
+            info.dyes = 0;
+         }
+         info.blinks += fi.blinks;
+         info.dyes += fi.dyes;
+         info.drift = fi.drift;
+         info.paths = fi.paths;
+      }
+      info.renderMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+      return true;
+   }
+   spec["frames"] = static_cast<double>(n);
    const DriftNm d = drift_.Position();
    // The FOV over the moved sample, the focal plane dz lower in it (the adapter's live pose); the movie's own drift
    // is off (its frame 0 is undrifted anyway).
@@ -67,16 +105,15 @@ bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint
    for (const char* k : { "drift-xy-nm-per-sqrt-sec", "drift-z-nm-per-sqrt-sec", "drift-xy-speed-nm-per-sec",
                           "drift-z-speed-nm-per-sec" })
       spec[k] = 0;
-   ScopeLights(spec, info.epi, info.trans);
+   info.epi = epi;
+   info.trans = trans;
    const uint32_t epoch = history_.RegisterEpoch(ScopeKineticEnv(spec));
-   const bool lightsSample = info.epi && ScopeSampleIntensityKwCm2(spec) > 0;
    const double um = p.pixelSizeNm / 1000.0;
    double lx0, ly0, lx1, ly1;
    LitRect(posX, posY, R.W * um, R.H * um, lx0, ly0, lx1, ly1);
    const ClockSnapshot clock = history_.Snapshot(lx0, ly0, lx1, ly1, epoch);
    info.litSec = history_.ClockAt(posX, posY);
 
-   std::vector<float> photons;
    ScopeMovieInfo mi;
    info.paths = "[]";
    const ScopeProgress paths = [&](const char* stage, double, const std::string& detail) {
@@ -85,17 +122,6 @@ bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint
       if (!std::strcmp(stage, "frames") && at != std::string::npos && detail.size() > at + 12)
          info.paths = detail.substr(at + 11, detail.size() - at - 12);
    };
-   const bool ok = RenderScopePhotons(spec, [&](long, const std::vector<float>& ph) {
-      photons = ph;
-      return true;
-   }, mi, err, &clock, true, &paths);
-   if (!ok)
-      return false;
-   if (photons.size() != static_cast<size_t>(R.W) * R.H)
-   {
-      err = "no frame rendered";
-      return false;
-   }
    // The camera's fixed pattern from the seed (the stack's NoiseSetup order), its live noise on a seed of its own
    // with a frame counter (the adapter's liveNoiseSeed).
    const std::vector<double> key = { static_cast<double>(R.W), static_cast<double>(R.H), static_cast<double>(R.seed),
@@ -110,18 +136,41 @@ bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint
       readNoiseMap_.Generate(R.W, R.H, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng);
    }
    const uint32_t liveNoiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(R.seed) ^ 0x4C4E4F49ULL);
-   ApplyNoiseChain(photons, adu, R.W, R.H, p.Camera(), offsetMap_, gainMap_, readNoiseMap_, liveNoiseSeed,
-                   noiseCounter_++, true);
+   const size_t px = static_cast<size_t>(R.W) * R.H;
+   adu.assign(px * static_cast<size_t>(n), 0);
+   std::vector<uint16_t> one;
+   long done = 0;
+   const bool ok = RenderScopePhotons(spec, [&](long f, const std::vector<float>& photons) {
+      if (f < 0 || f >= n || photons.size() != px)
+         return false;
+      ApplyNoiseChain(photons, one, R.W, R.H, p.Camera(), offsetMap_, gainMap_, readNoiseMap_, liveNoiseSeed,
+                      noiseCounter_ + static_cast<uint32_t>(f), true);
+      std::copy(one.begin(), one.end(), adu.begin() + static_cast<std::ptrdiff_t>(px * static_cast<size_t>(f)));
+      ++done;
+      return true;
+   }, mi, err, &clock, true, &paths);
+   if (!ok)
+      return false;
+   if (done != n)
+   {
+      err = "no frame rendered";
+      return false;
+   }
+   noiseCounter_ += static_cast<uint32_t>(n);
 
-   // The frame's light goes into the history (the next frame sees it); the sample's time and drift move on.
+   // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it;
+   // the sample's time and drift move on.
    info.lit = countLight && lightsSample;
-   if (info.lit)
-      history_.Advance(lx0, ly0, lx1, ly1, R.expSec, {}, epoch);
    info.tSec = tSec_;
    info.drift = d;
-   tSec_ += R.expSec;
-   if (p.drift.On())
-      drift_.Step(R.expSec);
+   for (long f = 0; f < n; ++f)
+   {
+      if (info.lit)
+         history_.Advance(lx0, ly0, lx1, ly1, R.expSec, {}, epoch);
+      tSec_ += R.expSec;
+      if (p.drift.On())
+         drift_.Step(R.expSec);
+   }
    info.width = R.W;
    info.height = R.H;
    info.blinks = mi.blinks;

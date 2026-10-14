@@ -116,9 +116,10 @@ export async function createEngine(src = {}) {
       if (d.type === 'live') {
         // The viewer's live frames: the JS reference has no illumination history (the WASM's isc_live_*, sim::LiveScope),
         // so a frame is a one-frame movie at the sample's time, as the viewer's fallback for a module without them.
-        const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
-        const [m, tr] = movie({ ...d, type: 'movie', spec: d.spec.replace(/(^| )start-sec=\S+/, '') + ' start-sec=' + d.t }, null);
-        return [{ ...m, type: 'live', t: d.t + exp, engine: 'movie' }, tr];
+        // A recording chunk (d.n frames) is a movie of d.n frames.
+        const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000, nF = Math.max(1, d.n | 0);
+        const [m, tr] = movie({ ...d, type: 'movie', spec: d.spec.replace(/(^| )(start-sec|frames)=\S+/g, '') + ' frames=' + nF + ' start-sec=' + d.t }, null);
+        return [{ ...m, type: 'live', n: nF, tStart: d.t, t: d.t + nF * exp, engine: 'movie' }, tr];
       }
       if (d.type === 'psf') {   // the viewer's Preview PSF (the WASM engine: isc_scope_psf_preview)
         try {

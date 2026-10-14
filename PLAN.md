@@ -53,9 +53,10 @@ Upcoming ideas:
   render-ahead, BrightField prefetch, illumination profile and background fade: output must stay identical), [ ] live in
   lab.html (the JS reference has no illumination history yet), [ ] a camera-size/ROI control beside the live image.
   2026-10-14: [x] settings levels Basic/Advanced/Expert from the MM tiers (`ISC_MM_TIERS`), [x] the render path per label
-  in the info, [x] a live histogram with draggable display range; [ ] Rec (recording live frames; hidden until then,
-  with the Acquisition group). [x] Streaming to webSMLM in another tab of the site (`web/live/websmlm_bridge.js`, `tools/fetch_websmlm.mjs`), [x] per-frame performance
-  breakdown, [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
+  in the info, [x] a live histogram with draggable display range; [x] ● Record: N frames unpaced into one ImageJ TIFF
+  stack (`LiveScope::Frames`, `isc_live_frames`), [ ] the Acquisition group (hidden), [ ] streaming to webSMLM (tried
+  2026-10-14 and dropped: needs a server or a webSMLM change, to be decided), [x] per-frame performance breakdown (fixed
+  rows), [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
   [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.

@@ -24,7 +24,7 @@ Notes:
 
 - **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
   options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
-  microscope is on the right: the live camera image with Live / Snap / ↺ / ⇢ webSMLM, the focus and the configuration beside it,
+  microscope is on the right: the live camera image with Live / Snap / ● Record / ↺, the focus and the configuration beside it,
   and below them every sample and microscope setting, with a search box that filters the rows. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
@@ -37,26 +37,26 @@ Notes:
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame (recording is to
-  come: Rec and the Acquisition group are hidden for now). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below;
+  the Acquisition group is hidden for now). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
   mouse wheel over the image step it by the step size. **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
   range). Live pauses while the page is hidden. The world view outlines the camera's field ("camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
-- **performance** (under the info): where each frame's time goes: the engine's phases (setup, the core's blink
-  events, splatting, camera noise, ...), the trip to and from the worker, the display, and the wait that paces frames to
-  the exposure.
-- **⇢ webSMLM** streams the live frames to [webSMLM](https://github.com/HohlbeinLab/webSMLM), which localizes them
-  as they come. Open webSMLM in another tab **from this site** (the line under the button links it once streaming is
-  on: `viewer/websmlm/webSMLM.html`, a copy of webSMLM's current version); the viewer finds that tab by itself, nothing
-  to install or connect. The frames go as 16-bit ImageJ TIFF chunks into webSMLM's live-stream session, which takes
-  the viewer's pixel size, gain, offset and sensor (EMCCD: excess noise 2) when it starts; a new image size or camera
-  starts a new session there, stopping ends it. Frames shown while webSMLM is still busy go together in its next chunk.
-  The button is highlighted while it streams; the line under it shows the frames sent, those localized and the
-  localizations. Keep the viewer's tab in view (live pauses while it is hidden); webSMLM may sit in the background.
-  webSMLM's own site (hohlbeinlab.github.io) cannot be reached: a browser has no channel between tabs of different
-  sites without a server.
+- **performance** (under the info): where each frame's time goes, in milliseconds with one decimal: the engine's
+  phases (setup, the core's blink events, splatting, camera noise, ...), the trip to and from the worker, the display,
+  and the wait that paces frames to the exposure. Every row that can take time is always listed, in the same order;
+  one the frame did not have shows "—".
+- **● Record** takes the next N frames (the number beside it) at the stage position and saves them as one 16-bit
+  TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`. The live sample goes on through them (its illumination history,
+  drift, camera noise), as in a Micro-Manager sequence acquisition, but they are rendered as fast as the engine goes,
+  not paced to the exposure: in batches of frames, each one movie on the sample's clock, so the slow parts of a frame
+  (above all the blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256
+  px). The last frame of each batch is shown. The file opens in ImageJ/Fiji as a time series with the pixel size and
+  frame interval set, and its header holds every setting (the engine spec; `insiliscope_cli --spec` reads it, but
+  renders a fresh sample, without this sample's history). Clicking the button again stops early and saves the frames
+  so far. Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
 - **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
   in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as

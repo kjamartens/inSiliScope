@@ -51,13 +51,6 @@ inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-
   and in the webSMLM block.
 - **naga** (MIT/Apache-2.0), used offline by `tools/gen_wf_gpu.mjs` to translate WGSL to HLSL.
 
-## Served with the viewer
-
-- **webSMLM** (MIT, the notice above): the Pages site serves an unmodified copy of `webSMLM.html` from
-  [HohlbeinLab/webSMLM](https://github.com/HohlbeinLab/webSMLM) at `viewer/websmlm/webSMLM.html`
-  (`tools/fetch_websmlm.mjs`, which adds one `<script>` tag for `web/live/websmlm_bridge.js`), so the live panel can
-  stream frames to it in another tab. Its notices (and those of the libraries it vendors) stay in the file.
-
 ## Data under CC BY-SA 4.0
 
 - **FPbase** (https://www.fpbase.org; Lambert TJ, "FPbase: a community-editable fluorescent protein database",

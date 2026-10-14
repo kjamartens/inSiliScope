@@ -45,13 +45,11 @@
   #lv_info b{color:var(--text);font-weight:600}
   #lv_more{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--muted)}
   #lv_more label{display:flex;gap:3px;align-items:center;cursor:pointer}
-  #lv_perfOut{margin-top:3px;font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
+  #lv_perfOut{margin-top:3px;font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;max-height:220px;overflow-y:auto;padding-right:2px}
   #lv_perfOut:empty{display:none}
   #lv_perfOut .tot{color:var(--text);font-weight:600}
   #lv_perfOut .sub{padding-left:8px}
   #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
-  #lv_streamRow{margin-top:4px;font-size:10.5px;color:var(--muted)}
-  #lv_streamRow a{color:var(--accent)}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
@@ -64,6 +62,8 @@
   #liveCtl button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0}
   #liveCtl .zrow input[type=number]{width:62px}
+  #liveCtl .recrow{display:flex;align-items:center;gap:4px;margin-top:4px;font-size:11px;color:var(--muted)}
+  #liveCtl .recrow input[type=number]{width:66px}
   #liveCtl .crow input[type=number]{width:58px}
   #liveCtl .zrow button{padding:2px 7px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
@@ -265,11 +265,10 @@
         <div class="lc"><div class="btns">
           <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
           <button id="lv_snap" title="Snap: one frame">Snap</button>
-          <button id="lv_rec" hidden title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
+          <button id="lv_rec" title="Record: the next N frames at the stage position, continuing the sample (its bleaching, conversion, drift), rendered as fast as the engine goes (not paced to the exposure), saved as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header). Click again to stop early and save what is recorded.">● Record</button>
           <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-          <button id="lv_stream" title="Stream the live frames to webSMLM open in another tab of this site (websmlm/webSMLM.html: the line under the buttons links it), which localizes them as they come">⇢ webSMLM</button>
-        </div><div id="lv_info"></div>
-        <div id="lv_streamRow" hidden><div id="lv_streamStatus"></div></div>
+        </div><div class="recrow"><label for="lv_recN">Record</label><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100"><span class="u">frames</span></div>
+        <div id="lv_info"></div>
         <div id="lv_more"><label title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display"><input type="checkbox" id="lv_perf"> performance</label></div>
         <div id="lv_perfOut"></div></div>
         <div class="lc"><h5>Focus (Z stage)</h5>
@@ -2811,22 +2810,24 @@ function iscEngine(M) {
     for (const ptr of [s, info, err, out, img]) if (ptr) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
   }
-  // A live frame (web/live/live.js): one frame of the sample at d.t. Without the module's live session: a one-frame
-  // movie at start-sec = d.t (no sample history), then t advances by the exposure.
+  // A live frame (web/live/live.js): one frame of the sample at d.t, or d.n frames at once (a recording chunk:
+  // isc_live_frames, one movie on the sample's clock). Without the module's live session: a movie of d.n frames at
+  // start-sec = d.t (no sample history), then t advances by the exposure per frame.
   function liveFrame(d, post) {
-    if (M._isc_live_frame) {
+    const nF = Math.max(1, d.n | 0);
+    if (M._isc_live_frame && (nF === 1 || M._isc_live_frames)) {
       if (d.reset) M._isc_live_reset();
       if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
       const tw = performance.now();
       const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
       M.stringToUTF8(d.spec, s, n);
-      const px = M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
+      const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
       let res;
       if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
       else {
         const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
         res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
-          t: v[2] + (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), clock: v[3], lit: !!v[4],
+          n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
           epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
           paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
         if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
@@ -2835,9 +2836,9 @@ function iscEngine(M) {
       return [res, res.frames ? [res.frames.buffer] : []];
     }
     const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
-    const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )start-sec=\S+/, '') + ' start-sec=' + d.t, noGpu: true });
+    const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )(start-sec|frames)=\S+/g, '') + ' frames=' + nF + ' start-sec=' + d.t, noGpu: true });
     const [m, tr] = r;
-    return [{ ...m, type: 'live', t: d.t + exp, engine: 'movie' }, tr];
+    return [{ ...m, type: 'live', n: nF, tStart: d.t, t: d.t + nF * exp, engine: 'movie' }, tr];
   }
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
@@ -4561,9 +4562,12 @@ function toggleMoviePlay() {
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
 // the spec in the first page's ImageDescription (the cli writes the same layout).
-function writeTiff16(frames, w, h, n, desc) {
-  const enc = new TextEncoder().encode(desc + '\0'), px = w * h;
-  const entries = p => (p === 0 ? 10 : 9), ifdBytes = p => 2 + 12 * entries(p) + 4;
+// pxUm (optional): the pixel size, as ImageJ writes it (XResolution/YResolution = pixels per unit, ResolutionUnit
+// none, "unit=micron" in the description), on every page.
+function writeTiff16(frames, w, h, n, desc, pxUm) {
+  const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
+  const entries = p => (p === 0 ? 10 : 9) + (res ? 3 : 0), ifdBytes = p => 2 + 12 * entries(p) + 4 + (res ? 16 : 0);
+  const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
   let size = 8;
   for (let p = 0; p < n; p++) size += px * 2 + (p === 0 ? enc.length + (enc.length & 1) : 0) + ifdBytes(p);
   const buf = new ArrayBuffer(size), dv = new DataView(buf), u8 = new Uint8Array(buf);
@@ -4575,10 +4579,13 @@ function writeTiff16(frames, w, h, n, desc) {
     pos += px * 2;
     let descOff = 0;
     if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
+    let resOff = 0;
+    if (res) { resOff = pos; for (let k = 0; k < 2; k++) { dv.setUint32(pos, ppu, true); dv.setUint32(pos + 4, 1000000, true); pos += 8; } }
     dv.setUint32(link, pos, true);
     const E = [[256, 4, 1, w], [257, 4, 1, h], [258, 3, 1, 16], [259, 3, 1, 1], [262, 3, 1, 1]];
     if (p === 0) E.push([270, 2, enc.length, descOff]);
     E.push([273, 4, 1, data], [277, 3, 1, 1], [278, 4, 1, h], [279, 4, 1, px * 2]);
+    if (res) E.push([282, 5, 1, resOff], [283, 5, 1, resOff + 8], [296, 3, 1, 1]);
     dv.setUint16(pos, E.length, true); pos += 2;
     for (const [tag, type, count, value] of E) {
       dv.setUint16(pos, tag, true); dv.setUint16(pos + 2, type, true); dv.setUint32(pos + 4, count, true);
