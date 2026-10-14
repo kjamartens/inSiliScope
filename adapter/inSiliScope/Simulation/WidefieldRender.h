@@ -413,8 +413,9 @@ public:
    void SetWeightBands(const std::vector<double>& edgesUm);
    // The cells whose weights move together (a host clock's keys: one clock and history per group), one id per wb
    // entry: the bleach basis is grouped by (dose, group), so frames whose groups' clocks advance differently (a lit
-   // disc and unlit corners) stay a combination of it. Empty (the default): grouped by dose only.
-   void SetWeightGroups(const std::vector<uint32_t>& groups);
+   // disc and unlit corners) stay a combination of it. Null or empty (the default): grouped by dose only. Shared (a
+   // live host passes the same groups every frame: compared by pointer first, then by value).
+   void SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>> groups);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
    const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
@@ -572,7 +573,7 @@ private:
    std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
    bool planeFactorChanged_ = false;
    std::vector<double> weightBands_;   // SetWeightBands
-   std::vector<uint32_t> weightGroups_;   // SetWeightGroups
+   std::shared_ptr<const std::vector<uint32_t>> weightGroups_;   // SetWeightGroups
    // A dose-group basis (not cheb_): each weight's channel (-1: none; the
    // channels' supports are disjoint) and each channel's largest weight.
    std::vector<int32_t> cellChannel_;

@@ -1489,6 +1489,10 @@ struct MeanFieldSlot
    // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
    bool anchored = false;
    double anchorX = 0, anchorY = 0;
+   // GridCellKeys: the last movie's grid (geometry), its tiles' keys and its cells' keys.
+   std::vector<double> keyGeom;
+   std::vector<uint32_t> tileKeys;
+   std::shared_ptr<const std::vector<uint32_t>> cellKeys;
 };
 
 struct MovieCache
@@ -1809,7 +1813,7 @@ struct Population
    // weighted scene is at.
    int mode = 0;
    std::vector<BlinkKineticsSegment> blinkSegs;
-   std::vector<uint32_t> cellKey;
+   std::shared_ptr<const std::vector<uint32_t>> cellKey;   // (shared with the scene slot: GridCellKeys)
    std::vector<double> keyClock;
    std::vector<std::vector<BlinkKineticsSegment>> keySegs;
    double sceneZ = 0;
@@ -2147,9 +2151,10 @@ struct FluorescenceMovie::Impl
          const double t = p.keyClock[k] + f * S.expSec;
          val[k] = static_cast<float>(p.rate * ExpectedBlinkOnSeconds(p.mode, p.keySegs[k], t, t + S.expSec));
       }
-      wb.resize(p.cellKey.size());
+      const std::vector<uint32_t>& key = *p.cellKey;
+      wb.resize(key.size());
       for (size_t i = 0; i < wb.size(); ++i)
-         wb[i] = val[p.cellKey[i]];
+         wb[i] = val[key[i]];
    }
    // ... and its frame f at stage z into img (+=): the scene refocused if z
    // moved, rendered with the frame's weights.
@@ -2249,6 +2254,96 @@ struct TileKeys
    }
 };
 } // namespace
+
+// Each grid cell's key (an index into keys: the distinct (clock, history) in first-seen order) per height band of the
+// clock: the keys per (band, tile) of the tiles the grid meets (the cells' raster order visits the tiles in theirs, so
+// the indices are those of a per-cell walk), each cell its tile's. When the tiles' keys are the last movie's (a live
+// frame: the clocks advance, their partition stays), the cells' keys are the slot's: 4M per-cell lookups per frame
+// were 2 x 18 ms of a dSTORM HILO frame under drift. A clock without tiles: per cell.
+static std::shared_ptr<const std::vector<uint32_t>> GridCellKeys(const DyeClock& clock, const WidefieldGridSpec& gr,
+                                          const std::vector<double>& edges, MeanFieldSlot& slot,
+                                          std::vector<std::pair<double, uint32_t>>& keys)
+{
+   const unsigned nb = static_cast<unsigned>(edges.size()) + 1;
+   const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
+   const double T = clock.TileUm();
+   auto X = [&](unsigned i) { return gr.x0Um + (i + 0.5) * gr.pitchUm; };
+   auto Y = [&](unsigned jy) { return gr.y0Um + (jy + 0.5) * gr.pitchUm; };
+   auto bandZ = [&](unsigned b) { return b == 0 ? -1.0 : edges[b - 1]; };   // (as the weights loop: the lower edge)
+   keys.clear();
+   std::map<std::pair<double, uint32_t>, uint32_t> index;
+   double lastT = std::numeric_limits<double>::quiet_NaN();
+   uint32_t lastH = 0, lastK = 0;
+   auto keyOf = [&](double t, uint32_t h) {
+      if (!(t == lastT && h == lastH))
+      {
+         auto it = index.emplace(std::make_pair(t, h), static_cast<uint32_t>(keys.size())).first;
+         if (it->second == keys.size())
+            keys.push_back({ t, h });
+         lastT = t;
+         lastH = h;
+         lastK = it->second;
+      }
+      return lastK;
+   };
+   if (!(T > 0) || gr.nx == 0 || gr.ny == 0)
+   {
+      slot.keyGeom.clear();
+      slot.tileKeys.clear();
+      auto cells = std::make_shared<std::vector<uint32_t>>(nc * nb, 0u);
+      for (unsigned b = 0; b < nb; ++b)
+         for (unsigned jy = 0; jy < gr.ny; ++jy)
+            for (unsigned i = 0; i < gr.nx; ++i)
+            {
+               double t = 0;
+               uint32_t h = 0;
+               clock.KeyAtZ(X(i), Y(jy), bandZ(b), t, h);
+               (*cells)[i + static_cast<size_t>(gr.nx) * jy + nc * b] = keyOf(t, h);
+            }
+      slot.cellKeys = cells;
+      return slot.cellKeys;
+   }
+   const long tx0 = static_cast<long>(std::floor(X(0) / T)), tx1 = static_cast<long>(std::floor(X(gr.nx - 1) / T));
+   const long ty0 = static_cast<long>(std::floor(Y(0) / T)), ty1 = static_cast<long>(std::floor(Y(gr.ny - 1) / T));
+   const size_t ntx = static_cast<size_t>(tx1 - tx0 + 1), nty = static_cast<size_t>(ty1 - ty0 + 1);
+   std::vector<uint32_t> tileKey(ntx * nty * nb);
+   for (unsigned b = 0; b < nb; ++b)
+      for (size_t ty = 0; ty < nty; ++ty)
+         for (size_t tx = 0; tx < ntx; ++tx)
+         {
+            double t = 0;
+            uint32_t h = 0;
+            clock.KeyAtZ((static_cast<double>(tx0 + static_cast<long>(tx)) + 0.5) * T,
+                         (static_cast<double>(ty0 + static_cast<long>(ty)) + 0.5) * T, bandZ(b), t, h);
+            tileKey[(b * nty + ty) * ntx + tx] = keyOf(t, h);
+         }
+   std::vector<double> geom = { gr.x0Um, gr.y0Um, gr.pitchUm, static_cast<double>(gr.nx), static_cast<double>(gr.ny),
+                                static_cast<double>(nb), T, static_cast<double>(tx0), static_cast<double>(ty0) };
+   geom.insert(geom.end(), edges.begin(), edges.end());
+   if (geom == slot.keyGeom && tileKey == slot.tileKeys && slot.cellKeys && slot.cellKeys->size() == nc * nb)
+   {
+      TimingLog("fl.mean-field-keys-reused", 0.0);
+      return slot.cellKeys;
+   }
+   std::vector<uint32_t> txOf(gr.nx), tyOf(gr.ny);
+   for (unsigned i = 0; i < gr.nx; ++i)
+      txOf[i] = static_cast<uint32_t>(static_cast<long>(std::floor(X(i) / T)) - tx0);
+   for (unsigned jy = 0; jy < gr.ny; ++jy)
+      tyOf[jy] = static_cast<uint32_t>(static_cast<long>(std::floor(Y(jy) / T)) - ty0);
+   auto cells = std::make_shared<std::vector<uint32_t>>(nc * nb, 0u);
+   for (unsigned b = 0; b < nb; ++b)
+      for (unsigned jy = 0; jy < gr.ny; ++jy)
+      {
+         const uint32_t* tk = &tileKey[(b * nty + tyOf[jy]) * ntx];
+         uint32_t* row = &(*cells)[static_cast<size_t>(gr.nx) * jy + nc * b];
+         for (unsigned i = 0; i < gr.nx; ++i)
+            row[i] = tk[txOf[i]];
+      }
+   slot.keyGeom.swap(geom);
+   slot.tileKeys.swap(tileKey);
+   slot.cellKeys = cells;
+   return slot.cellKeys;
+}
 
 // The mean-field image of the population's structure (JS meanFieldImage):
 // every fluorescent dye with weight 1 on the world-anchored grid, convolved
@@ -2408,107 +2503,55 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       const unsigned nb = static_cast<unsigned>(edges.size()) + 1;
       const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
       slot.scene.SetWeightBands(edges);
-      // A height in band b (its lower edge; band 0: below the coverslip).
-      auto bandZ = [&](unsigned b) { return b == 0 ? -1.0 : edges[b - 1]; };
       p.wb0.assign(nc * nb, 0.0f);
+      std::vector<std::pair<double, uint32_t>> keys;
+      const std::shared_ptr<const std::vector<uint32_t>> cellKeyPtr = GridCellKeys(*clock, gr, edges, slot, keys);
+      const std::vector<uint32_t>& cellKey = *cellKeyPtr;
       if (p.state == ISC_STATE_BLINK)
       {
          // Each grid cell's key (clock, history); frame f's weights are the
          // expected photons per dye at each key (BlinkWeights).
-         p.cellKey.assign(nc * nb, 0);
+         p.cellKey = cellKeyPtr;
          p.keyClock.clear();
          p.keySegs.clear();
-         std::map<std::pair<double, uint32_t>, uint32_t> index;
-         TileKeys tk(*clock, gr);
-         for (unsigned b = 0; b < nb; ++b)
-            for (unsigned jy = 0; jy < gr.ny; ++jy)
-            {
-               uint32_t* row = &p.cellKey[static_cast<size_t>(gr.nx) * jy + nc * b];
-               if (tk.SameRow(jy))
-               {
-                  std::copy(row - gr.nx, row, row);   // (the row above: the same tiles)
-                  continue;
-               }
-               for (unsigned i = 0; i < gr.nx; ++i)
-               {
-                  double t = 0;
-                  uint32_t hid = 0;
-                  tk.Key(i, jy, bandZ(b), t, hid);
-                  auto it = index.find({ t, hid });
-                  if (it == index.end())
-                  {
-                     std::vector<BlinkKineticsSegment> segs;
-                     if (!BlinkSegments(hid, p.structure, segs, err))
-                        return false;
-                     it = index.emplace(std::make_pair(t, hid), static_cast<uint32_t>(p.keyClock.size())).first;
-                     p.keyClock.push_back(t);
-                     p.keySegs.push_back(std::move(segs));
-                  }
-                  row[i] = it->second;
-               }
-            }
+         for (const auto& k : keys)
+         {
+            std::vector<BlinkKineticsSegment> segs;
+            if (!BlinkSegments(k.second, p.structure, segs, err))
+               return false;
+            p.keyClock.push_back(k.first);
+            p.keySegs.push_back(std::move(segs));
+         }
          BlinkWeights(p, 0, p.wb0);
          p.sceneZ = zStage;
          // Under a shaped beam the keys' clocks advance apart: the scene's basis per key (fast frames).
-         slot.scene.SetWeightGroups(shaped ? p.cellKey : std::vector<uint32_t>());
+         slot.scene.SetWeightGroups(shaped ? p.cellKey : nullptr);
          TimingLog("fl.mean-field-weights", TimingSince(tW));
          tW = TimingClock::now();
          WeightedImage(p, nd.image);
          TimingLog("fl.mean-field-render", TimingSince(tW));
          continue;
       }
-      // With a rate history: rate x survival to t x the frame's fraction.
-      double lastT = std::numeric_limits<double>::quiet_NaN();
-      uint32_t lastH = 0;
-      float lastW = 0.0f;
-      std::vector<uint32_t> keyOfCell;
-      std::map<std::pair<double, uint32_t>, uint32_t> keyIndex;
-      if (shaped)
-         keyOfCell.assign(nc * nb, 0);
-      TileKeys tk(*clock, gr);
-      for (unsigned b = 0; b < nb; ++b)
-         for (unsigned jy = 0; jy < gr.ny; ++jy)
+      // With a rate history: rate x survival to t x the frame's fraction, per key.
+      std::vector<float> val(keys.size());
+      for (size_t k = 0; k < keys.size(); ++k)
+      {
+         const double t = keys[k].first;
+         const HistInfo* hi = HistOf(keys[k].second, err);
+         if (!hi)
+            return false;
+         if (!hi->multi)
+            val[k] = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+         else
          {
-            const size_t r0 = static_cast<size_t>(gr.nx) * jy + nc * b;
-            if (tk.SameRow(jy))
-            {
-               // The row above: the same tiles, so the same keys and weights.
-               std::copy(p.wb0.begin() + static_cast<std::ptrdiff_t>(r0 - gr.nx),
-                         p.wb0.begin() + static_cast<std::ptrdiff_t>(r0), p.wb0.begin() + static_cast<std::ptrdiff_t>(r0));
-               if (shaped)
-                  std::copy(keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0 - gr.nx),
-                            keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0),
-                            keyOfCell.begin() + static_cast<std::ptrdiff_t>(r0));
-               continue;
-            }
-            for (unsigned i = 0; i < gr.nx; ++i)
-            {
-               double t = 0;
-               uint32_t hid = 0;
-               tk.Key(i, jy, bandZ(b), t, hid);
-               if (!(t == lastT && hid == lastH))
-               {
-                  lastT = t;
-                  lastH = hid;
-                  const HistInfo* hi = HistOf(hid, err);
-                  if (!hi)
-                     return false;
-                  if (!hi->multi)
-                     lastW = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
-                  else
-                  {
-                     const double sv = HistSurvival(*hi, p.structure, p.state, t);
-                     lastW = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
-                                                             : p.rate * sv * S.expSec);
-                  }
-               }
-               p.wb0[i + static_cast<size_t>(gr.nx) * jy + nc * b] = lastW;
-               if (shaped)
-                  keyOfCell[i + static_cast<size_t>(gr.nx) * jy + nc * b] =
-                     keyIndex.emplace(std::make_pair(t, hid), static_cast<uint32_t>(keyIndex.size())).first->second;
-            }
+            const double sv = HistSurvival(*hi, p.structure, p.state, t);
+            val[k] = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
+                                                     : p.rate * sv * S.expSec);
          }
-      slot.scene.SetWeightGroups(keyOfCell);   // (see the blink branch)
+      }
+      for (size_t i = 0; i < p.wb0.size(); ++i)
+         p.wb0[i] = val[cellKey[i]];
+      slot.scene.SetWeightGroups(shaped ? cellKeyPtr : nullptr);   // (see the blink branch)
       TimingLog("fl.mean-field-weights", TimingSince(tW));
       tW = TimingClock::now();
       WeightedImage(p, nd.image);

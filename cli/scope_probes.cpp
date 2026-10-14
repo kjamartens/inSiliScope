@@ -6,6 +6,7 @@
 #include "ScopeResolved.h"
 
 #include "BrightfieldRender.h"
+#include "Excitation.h"
 #include "PsfGeneratorBridge.h"
 #include "RenderPresets.h"
 #include "SMLMZernike.h"
@@ -329,6 +330,57 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
    j.KNum("chamber_height_um", lp.chamberHeightUm);
    j.KNum("background_qe", sim::BackgroundQe(lp));
    j.Close('}');
+
+   // The excitation geometry (Excitation.h): the regime, the field factor F, how deep the light reaches, and the factor
+   // of the first emitting label's main state (its line shares; none: 640 nm) on an x-z section through the axis
+   // (y = 0, x over 1.5 x the FOV's width, z 0..8 um above the coverslip; x fastest).
+   {
+      sim::Excitation ex;
+      std::vector<sim::ExcitationLine> sh;
+      std::string ee;
+      if (sim::ScopeExcitation(spec, ex, sh, ee))
+      {
+         const sim::ExcitationShares shares = sh.empty() ? sim::ExcitationShares{ { 640.0, 1.0 } } : sh;
+         const double fovUm = R.W * R.p.pixelSizeNm / 1000.0;
+         j.Key("excitation");
+         j.Open('{');
+         j.KStr("regime", sim::IlluminationRegimeNames()[static_cast<size_t>(ex.Regime())]);
+         j.KNum("u", ex.U());
+         j.KNum("u_max", ex.UMax());
+         j.KNum("field_factor", ex.F());
+         j.KNum("lambda_nm", shares[0].nm);
+         j.KNum("depth_nm", ex.DepthNm(shares[0].nm));
+         j.KNum("pivot_um", ex.Spec().pivotUm);
+         const int nx = 121, nz = 81;
+         const double x0 = -0.75 * fovUm, dx = 1.5 * fovUm / (nx - 1), dz = 8.0 / (nz - 1);
+         std::vector<double> xs(nx), zs(nz), v(static_cast<size_t>(nx) * nz);
+         for (int i = 0; i < nx; ++i)
+            xs[static_cast<size_t>(i)] = x0 + i * dx;
+         for (int k = 0; k < nz; ++k)
+            zs[static_cast<size_t>(k)] = k * dz;
+         for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i)
+               v[static_cast<size_t>(k) * nx + i] = ex.At(xs[static_cast<size_t>(i)], 0.0, zs[static_cast<size_t>(k)], shares);
+         j.Key("section_x_um");
+         j.Array(xs.data(), xs.size());
+         j.Key("section_z_um");
+         j.Array(zs.data(), zs.size());
+         j.Key("section");
+         j.Array(v.data(), v.size());
+         // On the axis, finely near the coverslip (TIRF's layer): z 0..2 um in 201 steps.
+         std::vector<double> za(201), va(201);
+         for (int k = 0; k < 201; ++k)
+         {
+            za[static_cast<size_t>(k)] = k * 0.01;
+            va[static_cast<size_t>(k)] = ex.At(0.0, 0.0, za[static_cast<size_t>(k)], shares);
+         }
+         j.Key("axis_z_um");
+         j.Array(za.data(), za.size());
+         j.Key("axis");
+         j.Array(va.data(), va.size());
+         j.Close('}');
+      }
+   }
 
    j.Key("labels");
    j.Open('[');

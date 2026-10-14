@@ -254,8 +254,13 @@ regions, live 0 fps), read on the history's grids (`HistoryAxisUm` tile grid, `H
 fragmented the clocks, live HILO under drift 90 -> 20 fps), uniform when every mounted label is DNA-PAINT (binding needs
 no light), and a frame reads dSTORM / PALM events at that dose (`doseEvents`); a history chunk lit only alike in height
 keeps one band. Live under drift: the drift's z enters the focus on a 10 nm grid and the mean-field scenes stay at an
-anchor within 1 um, their images phase-ramp shifted (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
-`BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set.
+anchor within 1 um, their images phase-ramp shifted (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps);
+the grid cells' clock keys come from the tiles' and are reused while the tiles' keys stay (`GridCellKeys`, shared with
+the scene by pointer). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
+`BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set. Viewer: the **BFP position** slider with a
+regime / depth readout (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
+the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
+`light-geometry`, `light-geometry-images`.
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for

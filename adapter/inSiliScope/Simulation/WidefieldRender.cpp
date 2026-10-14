@@ -685,12 +685,16 @@ void WidefieldScene::SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> 
    planeFactorChanged_ = planeFactorChanged_ || !same;
 }
 
-void WidefieldScene::SetWeightGroups(const std::vector<uint32_t>& groups)
+void WidefieldScene::SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>> groups)
 {
+   if (groups && groups->empty())
+      groups.reset();
    if (groups == weightGroups_)
       return;
-   weightGroups_ = groups;
-   bleachValid_ = false;
+   const bool same = groups && weightGroups_ && *groups == *weightGroups_;
+   weightGroups_ = std::move(groups);
+   if (!same)
+      bleachValid_ = false;
 }
 
 void WidefieldScene::SetWeightBands(const std::vector<double>& edgesUm)
@@ -1551,8 +1555,8 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb)
       return;
    const size_t n = wb.size();
    // A group: a dose and, with SetWeightGroups, a weight group.
-   const bool grouped = weightGroups_.size() == n;
-   auto groupOf = [&](size_t i) { return std::make_pair(dD_[i % dD_.size()], grouped ? weightGroups_[i] : 0u); };
+   const bool grouped = weightGroups_ && weightGroups_->size() == n;
+   auto groupOf = [&](size_t i) { return std::make_pair(dD_[i % dD_.size()], grouped ? (*weightGroups_)[i] : 0u); };
    std::vector<std::pair<float, uint32_t>> groups;
    for (size_t i = 0; i < n; ++i)
    {

@@ -133,8 +133,9 @@ The beam's cross-section is `illum-profile` (Flat, Gaussian, or FlatTop: a disc 
 `illum-fwhm` (% of the FOV width, default 100). Each dye is excited by the laser power times a factor at its place:
 
 - epi: the profile, the same at every height;
-- HILO: the profile tilted into a sheet through the focal plane, about W / (tan θ cos θ) thick on the axis (a few µm
-  at 0.95; MM `Lasers.IlluminationDepthNm`), dyes above or below it unlit;
+- HILO: the profile tilted into a sheet through the focal plane, about W / (tan θ<sub>s</sub> cos θ<sub>i</sub>)
+  thick on the axis (W the beam's FWHM; at 0.95 about 0.6 W: 15 µm for the default beam over a 25.6 µm field, so
+  narrow the beam, `illum-fwhm`, for a thin sheet; MM `Lasers.IlluminationDepthNm`), dyes above or below it unlit;
 - TIRF: the profile at the coverslip times \(e^{-z/d}\), \(d = \lambda / (4\pi n \sqrt{u^2-1})\) (about 150 nm
   at 1.03 and 640 nm), with the interface's field enhancement (up to ~4x near the critical angle).
 
@@ -144,6 +145,14 @@ The DNA-PAINT light presets set HILO (0.95), the nanorulers TIRF (1.03), the oth
 several labelled targets (`light-preset` auto) the position their presets agree on, else epi.
 Supercritical-angle emission and the beam's angular spread in the BFP are not modelled. The physics in full:
 `spec/ALGORITHM.md`, "Excitation geometry".
+
+The excitation factor a movie applies, in a section through the axis and on the axis:
+
+<!-- fig:light-geometry -->
+
+What it does to a frame, with the free DNA-PAINT imager's background:
+
+<!-- fig:light-geometry-images -->
 
 ## The DNA-PAINT imager background
 

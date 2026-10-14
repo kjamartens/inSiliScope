@@ -49,7 +49,9 @@ Upcoming ideas:
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
   nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field by dose nodes),
   [x] C++ port (engine, cli, viewer module; ctest `excitation`), [x] MM (`Lasers.BfpPosition`, the history in z bands,
-  render-ahead, config group `Illumination` Epi / HILO / TIRF), [ ] viewer slider, docs, figures, gallery.
+  render-ahead, config group `Illumination` Epi / HILO / TIRF), [x] viewer slider (with the regime readout), docs,
+  figures (`light-geometry`, `light-geometry-images`), gallery (`light-epi`, `light-tirf`, `light-flat`,
+  `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

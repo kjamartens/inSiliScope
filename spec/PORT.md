@@ -1034,7 +1034,7 @@ change, golden unchanged).
 - Options: `illum-profile` (Flat / Gaussian / FlatTop, default FlatTop), `illum-fwhm` (100 % of the FOV width),
   `illum-bfp` (default 0; the light preset's `bfpPosition` and the specimen's `illumination.bfpPosition` replace it
   when the preset applies: DNA-PAINT 0.95, nanorulers 1.03), `chamber-height-um` 5 -> 100. `illum-geometry` is
-  accepted and ignored until the viewer's select goes. Not kinetic keys. `ScopeBfpPosition`, `ScopeExcitationSpec`.
+  accepted and ignored (old specs; the viewer's select gave way to the BFP slider). Not kinetic keys. `ScopeBfpPosition`, `ScopeExcitationSpec`.
 - `DyeLibrary`: `StatePhysics::lineShares`, `LabelPhysics::ImagerPerPxPerUmPerSec` and `ActivationScale` (PALM's
   spont / lin / quad parts); `LightPresetData` / `SpecimenData` `bfpPosition` (generated, NaN = none).
 - `FluorescenceMovie`: `BlinkEvent::excite` (x photons in `CollectFrameEmitters`, so the CPU splat, the GPU emitters and
@@ -1071,7 +1071,11 @@ change, golden unchanged).
   clock and a shaped beam the movie reads dSTORM / PALM events at the history's dose (`doseEvents`: a region queried
   over kMax x the span, times / a_h at the dye's tile and band; photons x the smooth factor). The weighted mean field
   is banded (`WidefieldScene::SetWeightBands`) and its bleach basis grouped per clock key (`SetWeightGroups`, so a lit
-  disc and unlit corners stay fast frames; the basis check indexes each cell's channel).
+  disc and unlit corners stay fast frames; the basis check indexes each cell's channel). The cells' keys come from the
+  tiles' (`GridCellKeys`: per (band, tile) in first-seen order, each cell its tile's) and are reused from the scene slot
+  while the grid and the tiles' keys are the last movie's (a live frame: the clocks advance, the partition stays;
+  `fl.mean-field-keys-reused`), shared with the scene by pointer (`SetWeightGroups(shared_ptr)`: an unchanged pointer
+  keeps the basis without comparing 4M keys).
 - Live speed (bench_live Basic 256 px, 4 s per case, 10 ms exposure; main in brackets): dSTORM 72 (61), DNA-PAINT
   72 (100), WideField 82 (100), PALM 58 (100), BrightField 100 (100) fps; at 50 ms every channel 20 / 20. The first
   version (1/16 lateral levels) gave 0-8 fps: regions (788 epi, 2586 HILO), the HILO background map per frame (now
@@ -1082,3 +1086,15 @@ change, golden unchanged).
   `test_insiliscope.py` (defaults, regime / depth readouts, preset -> BFP, clipped = no dyes, TIRF imager background
   < 0.1 x epi), `test_history.py` ("TIRF, then epi": the upper dyes stay fresh), `test_mm_configs.py` (the
   Illumination presets read back their regime).
+- Live speed under drift (2026-10-14, 10 ms exposure, 6 x 200 frames, fps; `perf_drift.py`): DNA-PAINT main 84-99 still
+  and under drift, the branch's HILO 89-99 still (was 50-70) and 79-100 under drift (was 18-21): the history's light on
+  its grids, the uniform PAINT history, the anchor. dSTORM under drift: main 2-40 (its mean field warms up), epi ~26,
+  HILO ~10-12 (the anchor, then the shared cell keys; the rest is spread over weights, render, dye counts and events,
+  and an unlit initial-ON population stays).
+- Viewer and docs (2026-10-14): the Illumination group's **BFP position** slider (0-1.2) with the regime readout
+  (`scopeExcitation` of the JS reference: regime, TIRF depth and F, HILO angle and thickness, Clipped), the beam profile,
+  width and chamber height (Advanced); a preset sets the BFP (the specimen's override first), a specimen switch
+  re-applies it. The cli's `--setup-json` gains `excitation` (regime, u, u_max, F, a section x-z and the axis profile
+  of the factor at the line; `cli/scope_probes.cpp`), drawn by the physics figures `light-geometry` and
+  `light-geometry-images` (docs/physics/dyes-and-light-path.md). Gallery `light-epi`, `light-tirf`, `light-flat`,
+  `nr-paint-epi`.

@@ -325,11 +325,14 @@ const modeSuggestion = (t, vals) => {
   lastMode[P] = m;
   return vals;
 };
-// A light preset as panel values: every laser (those it does not name off), the excitation filter, the dichroic and the
-// emission filter.
-const lightPresetValues = q => {
+// A light preset as panel values: every laser (those it does not name off), the excitation filter, the dichroic, the
+// emission filter and the BFP position (scope_movie.js scopeBfpPosition: the preset's, the specimen's in its place when
+// it has one -- DNA-PAINT: HILO, the nanorulers: TIRF; none: epi).
+const lightPresetValues = (q, sp = mounted()) => {
   const o = {};
   for (const nm of DD.lasers) o['mv_laser-' + nm] = q.lasers[nm] || 0;
+  o['mv_illum-bfp'] = q.bfpPosition === undefined ? 0
+    : (sp && sp.illumination && sp.illumination.bfpPosition !== undefined ? sp.illumination.bfpPosition : q.bfpPosition);
   o['mv_ex-filter'] = DD.excitationFilters.findIndex(f => f.id === (q.excitationFilter || 'None'));
   o['mv_dichroic'] = DD.dichroics.findIndex(f => f.id === q.dichroic);
   o['mv_em-filter'] = DD.emissionFilters.findIndex(f => f.id === q.emissionFilter);
@@ -344,7 +347,9 @@ const combineLightPresets = ids => {
   for (const q of qs) for (const [nm, kw] of Object.entries(q.lasers)) lasers[nm] = Math.max(lasers[nm] ?? 0, kw);
   const same = k => qs.every(q => (q[k] ?? 'None') === (qs[0][k] ?? 'None')), M = DD.lightPathMultiTarget;
   const agree = same('dichroic') && same('emissionFilter');
-  return { lasers, excitationFilter: agree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
+  const bfp = qs.every(q => q.bfpPosition === qs[0].bfpPosition) ? qs[0].bfpPosition : undefined;   // (where all agree)
+  return { lasers, ...(bfp !== undefined ? { bfpPosition: bfp } : {}),
+    excitationFilter: agree && same('excitationFilter') ? (qs[0].excitationFilter ?? 'None') : 'None',
     dichroic: agree ? qs[0].dichroic : M.dichroic, emissionFilter: agree ? qs[0].emissionFilter : M.emissionFilter };
 };
 // The engine's auto light preset (light-preset 0) as the panel has it, with vals (a pick in progress) in place of the
@@ -370,7 +375,7 @@ const autoLightPreset = (vals = {}) => {
 const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
 // The panel's first light: the cell field's default labels' presets combined (as the engine's auto).
 const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.map(t =>
-  DD.dyes[firstDyeFor(t, DD.dyeDefault.mode)].modes[DD.dyeDefault.mode].lightPreset)));
+  DD.dyes[firstDyeFor(t, DD.dyeDefault.mode)].modes[DD.dyeDefault.mode].lightPreset)), DD.specimens[SPECIMEN_DEFAULT]);
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
 const dyeRows = (P, extra, dye = dyeIndex(DD.dyeDefault.dye)) => DYE_FIELD_ROWS.map(([k, label, unit, tip, get, modes]) => {
@@ -706,9 +711,12 @@ const UI_GROUPS = [
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
-    select('mv_illum-geometry', 'Geometry', 'Illumination geometry: Epi only for now (TIRF/HILO: future). <code>Lasers.IlluminationGeometry</code>', [['0', 'Epi']], '0', { adv, show: FL, kids: [
-      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of imager solution under Epi illumination; sets the DNA-PAINT free-imager background. Small by default (it stands in for HILO/TIRF until those exist). <code>Lasers.ChamberHeightUm</code>', 0, null, 0.5, 5, { adv, show: FL }),
+    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL, kids: [
+      select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '2', { adv, show: FL }),
+      num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
+      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
     ] }),
+    { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -826,7 +834,7 @@ const UI_GROUPS = [
 const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
-const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
+const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
   structure: () => mounted().targets[0].structure, specimen: () => mounted().id, isNone, noneValue: DYE_NONE_V, dyeNameOf,
   dyeName: () => dyeNameOf(curPrefix()) };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
@@ -5047,6 +5055,11 @@ function syncSpecimen() {
 }
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
+  if (!DYE_UI.brightField()) {
+    const b = document.getElementById('mv_illum-bfp');
+    b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
+    b.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   view.scale = nr ? Math.max(view.scale, 150) : Math.min(view.scale, 9);
   if (nr && !els.showDyes.checked) { els.showDyes.checked = true; els.showDyes.dispatchEvent(new Event('input', { bubbles: true })); }
   syncSpecimen();
@@ -5127,6 +5140,28 @@ document.getElementById('psfPreview').addEventListener('click', previewPsf);
 // excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
 // and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
 let specMods = null, specTimer = 0;
+
+// ---- the BFP position's readout: regime and depth (the JS reference's excitation, as a movie uses it) ----
+let bfpTimer = 0;
+function scheduleBfpReadout() { clearTimeout(bfpTimer); bfpTimer = setTimeout(drawBfpReadout, 120); }
+async function drawBfpReadout() {
+  const out = document.getElementById('bfpReadout');
+  if (!out) return;
+  try {
+    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
+    const [SM] = await specMods;
+    const spec = SM.parseSpec(movieSpec()), ex = SM.scopeExcitation(spec);
+    const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
+    const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depthNm(nm);
+    out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.F.toFixed(2)}`
+      : ex.regime === 'HILO' ? `: sheet ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` + (d > 0 ? `, ${(d / 1000).toFixed(1)} µm thick` : '')
+      : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.uMax.toFixed(3)}), no light` : ': the beam straight up');
+  } catch (e) { out.textContent = ''; }
+}
+for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+  document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);
+scheduleBfpReadout();
+
 function scheduleSpecPlot() { clearTimeout(specTimer); specTimer = setTimeout(drawSpecPlot, 120); }
 async function drawSpecPlot() {
   const cv2 = document.getElementById('specPlot'), out = document.getElementById('specReadout');

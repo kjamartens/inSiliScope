@@ -60,6 +60,7 @@ DESCRIBE = {
     "fl.windows": "per-dye emission windows",
     "fl.mean-field-scene": "mean-field scene update",
     "fl.mean-field-weights": "per-column dye clocks -> photons",
+    "fl.mean-field-keys-reused": "grid cells' clock keys reused from the last frame (count only)",
     "fl.mean-field-render": "weighted mean-field image",
     "fl.frame.blinks (batches)": "splat the blinks, or bin them (binned FFT) in dense frames (CPU)",
     "fl.frame.continuous": "add the continuous populations",
