@@ -157,21 +157,28 @@ inline double HistoryFocusUm(double zUm) { return std::round(zUm / kHistoryFocus
 // for good (a mean-field population every frame: live HILO 11 vs 40 fps). The kinetics read this (FluorescenceMovie's
 // dose events), so a frame reads the dose the history gives it; a place still at clock 0 that it does not reach is
 // dark (FluorescenceMovie: no photons).
+// Next to it the exact light (2026-10-14): F x the band's mean depth factor x the footprint, unquantised. The history
+// keeps its dose as the clock plus an excess (IlluminationHistory), and the mean field's bleaching reads that dose, so
+// a WideField population bleaches with the smooth light: with the levels alone the bleached fraction jumped at the
+// half-peak contour, where the clock's rate falls 4x.
 class HistoryLightField {
 public:
    HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& shares);
    // The light of band b at dx, dy um from the optical axis (a tile centre).
    double Band(double dxUm, double dyUm, int b) const;
+   // ... and the exact light there.
+   double BandExact(double dxUm, double dyUm, int b) const;
    // Whether any tile centre in [dx0, dx1] x [dy0, dy1] (um from the axis) gets light in a band of b0..b1.
    bool AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const;
    // The footprint's level: 1 at half its peak or more, 1/4 at 1/8 or more, else 0.
    static double HistoryLevel(double footprint) { return footprint >= 0.5 ? 1.0 : footprint >= 0.125 ? 0.25 : 0.0; }
-   void Fill(double dxUm, double dyUm, float* w) const;   // every band
+   // Every band's light into w and, if given, its exact light into exact.
+   void Fill(double dxUm, double dyUm, float* w, float* exact = nullptr) const;
    static int BandOf(double zUm);                         // the band a world height is in
    static double TileCentre(double vUm);                  // the centre of the history tile holding vUm (world)
 private:
    Excitation ex_;
-   std::vector<double> amp_, zMid_;
+   std::vector<double> amp_, ampExact_, zMid_;
    bool sheet_ = false;
 };
 

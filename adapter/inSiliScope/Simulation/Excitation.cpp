@@ -445,17 +445,20 @@ Excitation AtHistoryFocus(const Excitation& ex)
 } // namespace
 
 HistoryLightField::HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& sharesIn)
-   : ex_(AtHistoryFocus(ex)), amp_(kHistoryBands), zMid_(kHistoryBands),
+   : ex_(AtHistoryFocus(ex)), amp_(kHistoryBands), ampExact_(kHistoryBands), zMid_(kHistoryBands),
      sheet_(ex.Regime() == REGIME_HILO)   // the footprint moves with the height
 {
    const ExcitationShares shares = sharesIn.empty() ? ExcitationShares{ { 640.0, 1.0 } } : sharesIn;
-   // Per band: F x its mean depth factor in 1/16 steps (0 when clipped), and the height the footprint is read at.
+   // Per band: F x its mean depth factor (0 when clipped), in 1/16 steps for the clock, and the height the footprint
+   // is read at.
    for (int b = 0; b < kHistoryBands; ++b)
    {
       double z0, z1;
       HistoryBandRange(b, z0, z1);
-      amp_[static_cast<size_t>(b)] = ex.Clipped() ? 0.0 : std::round(16.0 * ex.F() * ex.DepthMean(z0, z1, shares)) / 16.0;
-      zMid_[static_cast<size_t>(b)] = (z0 + z1) / 2;
+      const size_t k = static_cast<size_t>(b);
+      ampExact_[k] = ex.Clipped() ? 0.0 : ex.F() * ex.DepthMean(z0, z1, shares);
+      amp_[k] = std::round(16.0 * ampExact_[k]) / 16.0;
+      zMid_[k] = (z0 + z1) / 2;
    }
 }
 
@@ -463,6 +466,12 @@ double HistoryLightField::Band(double dxUm, double dyUm, int b) const
 {
    const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
    return amp_[k] * HistoryLevel(ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0));
+}
+
+double HistoryLightField::BandExact(double dxUm, double dyUm, int b) const
+{
+   const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
+   return ampExact_[k] > 0 ? ampExact_[k] * ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0) : 0.0;
 }
 
 bool HistoryLightField::AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const
@@ -483,11 +492,16 @@ bool HistoryLightField::AnyLit(double dx0, double dx1, double dy0, double dy1, i
    return false;
 }
 
-void HistoryLightField::Fill(double dxUm, double dyUm, float* w) const
+void HistoryLightField::Fill(double dxUm, double dyUm, float* w, float* exact) const
 {
-   const double lv0 = sheet_ ? 0.0 : HistoryLevel(ex_.Lateral(dxUm, dyUm, 0.0));
+   const double fp0 = sheet_ ? 0.0 : ex_.Lateral(dxUm, dyUm, 0.0), lv0 = HistoryLevel(fp0);
    for (int b = 0; b < kHistoryBands; ++b)
-      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : amp_[static_cast<size_t>(b)] * lv0);
+   {
+      const size_t k = static_cast<size_t>(b);
+      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : amp_[k] * lv0);
+      if (exact)
+         exact[b] = static_cast<float>(sheet_ ? BandExact(dxUm, dyUm, b) : ampExact_[k] * fp0);
+   }
 }
 
 int HistoryLightField::BandOf(double zUm)

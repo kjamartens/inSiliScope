@@ -387,7 +387,9 @@ public:
 //    value, <= kMaxGroups; a square illumination has one), otherwise a
 //    Chebyshev expansion in dD (kChebTerms maps). Every frame is checked
 //    against the basis (1e-5 of the peak weight) and re-anchored when it
-//    does not fit, so the image is always that of wb.
+//    does not fit, so the image is always that of wb. A host clock gives
+//    its own rates (SetWeightRates: the light now) and weights per tile
+//    (SetWeightMap).
 // A 3D excitation's factor per dye plane and grid cell (Excitation.h; JS widefield.js meanFieldImage weightFor): every
 // channel's dyes in world plane k ([k dz, (k + 1) dz) um) at the cell centre (xUm, yUm from the optical axis) count
 // with their weight x At(k, ...). Pure (called from worker threads); key identifies the values, so a scene keeps its
@@ -416,6 +418,15 @@ public:
    // disc and unlit corners) stay a combination of it. Null or empty (the default): grouped by dose only. Shared (a
    // live host passes the same groups every frame: compared by pointer first, then by value).
    void SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>> groups);
+   // Bleaching weights per tile (2026-10-14; a host clock's tiles, which hold one value each): map[cell] < count is the
+   // weight of each grid cell, and wb holds count entries (per band). Null (the default): one weight per cell. Shared
+   // (compared by pointer first, then by value; the grid's rect must be the one it was made for).
+   void SetWeightMap(std::shared_ptr<const std::vector<uint32_t>> map, size_t count);
+   // The bleach rate of each wb entry (2026-10-14; a host clock under a shaped beam: the light now, relative): with the
+   // pose fixed, a frame's weights are wb_anchor exp(-tau rate), so the basis groups by rate (<= kMaxGroups values) or
+   // expands in it (Chebyshev in rate / its largest), with as many terms as it takes to hold to tauPerRate x the
+   // largest rate before it is rebuilt (kChebTerms at most). Replaces SetWeightGroups' groups. Null: by dose.
+   void SetWeightRates(std::shared_ptr<const std::vector<float>> rates, double tauPerRate);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
    const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
@@ -461,8 +472,9 @@ public:
    void BleachWeightsFromDose(const std::vector<float>& d0, std::vector<float>& wb) const;
 
    // Anchors the bleaching basis at wb (spectra and images of every basis
-   // map for the current focus).
-   void SetBleachWeights(const std::vector<float>& wb);
+   // map for the current focus). single: one map, wb itself (it holds that
+   // frame only).
+   void SetBleachWeights(const std::vector<float>& wb, bool single = false);
    // True (and a) if wb is in the anchored basis: wb = sum_j a_j phi_j.
    bool BleachCoefficients(const std::vector<float>& wb, std::vector<double>& a) const;
    // The coefficients of the anchor weights themselves.
@@ -475,7 +487,11 @@ public:
    // Adds the frame with bleach coefficients a to cam (width x height).
    void RenderCoefficients(const std::vector<double>& a, std::vector<float>& cam) const { images_.Render(a, cam); }
    // One frame: the basis coefficients when wb fits, else SetBleachWeights
-   // first. Adds to cam.
+   // first. Adds to cam. With host rates a new basis (the rates, map, groups or
+   // bands changed: a new pose) starts single (one image: a stage move or a
+   // drag renders one frame per pose), and the full basis follows when a
+   // further frame does not fit it (2026-10-14: a Chebyshev basis is 5-9
+   // images).
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
    // The same with the sample moved by (dxCells, dyCells) grid cells
    // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
@@ -535,8 +551,9 @@ private:
    struct Channel
    {
       int pop = 1;                // 0 bleaching, 1 persistent
-      std::vector<float> weight;  // per grid cell
+      std::vector<float> weight;  // per grid cell (mapped: per weight map entry)
       unsigned long long version = 0;
+      bool mapped = false;
    };
    struct FocusPlan
    {
@@ -567,13 +584,17 @@ private:
    std::vector<const Channel*> ActiveChannels() const;
    void Refocus(const WidefieldPsf& psf);
    void DropChannel(const Channel& c);
-   void BuildBleachChannels(const std::vector<float>& wb);
+   void BuildBleachChannels(const std::vector<float>& wb, bool single);
 
    std::shared_ptr<WidefieldDyeTiles> tiles_;
    std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
    bool planeFactorChanged_ = false;
    std::vector<double> weightBands_;   // SetWeightBands
    std::shared_ptr<const std::vector<uint32_t>> weightGroups_;   // SetWeightGroups
+   std::shared_ptr<const std::vector<uint32_t>> weightMap_;      // SetWeightMap
+   size_t weightMapCount_ = 0;
+   std::shared_ptr<const std::vector<float>> weightRates_;       // SetWeightRates
+   double rateTau_ = 0.0;
    // A dose-group basis (not cheb_): each weight's channel (-1: none; the
    // channels' supports are disjoint) and each channel's largest weight.
    std::vector<int32_t> cellChannel_;
@@ -605,11 +626,14 @@ private:
    // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
    Channel persistent_;
    std::vector<Channel> bleach_;
-   // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD.
+   // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD (with SetWeightRates: in the rate).
    bool bleachValid_ = false, cheb_ = false;
    std::vector<float> groupDose_;
-   float doseMax_ = 0.0f;
+   float doseMax_ = 0.0f;   // the largest dose (rate) of a weight
    std::vector<float> wbRef_;
+   // The basis's rates: SetWeightRates' at the build (else empty: dD).
+   std::shared_ptr<const std::vector<float>> basisRates_;
+   float RateOf(size_t i) const { return basisRates_ ? (*basisRates_)[i] : dD_[i % dD_.size()]; }
    // Plane spectra cache: (channel version, plane k, level) -> spectrum.
    struct CacheEntry
    {

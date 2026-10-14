@@ -1493,10 +1493,12 @@ struct MeanFieldSlot
    std::vector<double> keyGeom;
    std::vector<uint32_t> tileKeys;
    std::shared_ptr<const std::vector<uint32_t>> cellKeys;
-   // GridRateGroups: the same for the cells' light now.
-   std::vector<double> rateGeom;
-   std::vector<uint32_t> tileRates;
-   std::shared_ptr<const std::vector<uint32_t>> cellRates;
+   // GridTiles: the grid (geometry) its map was made for, each cell's tile (the scene's weight map) and, keyed by the
+   // history's light, its exact light per (band, tile) (the basis's rates).
+   std::vector<double> tileGeom;
+   std::shared_ptr<const std::vector<uint32_t>> cellTile;
+   std::vector<double> rateKey;
+   std::shared_ptr<const std::vector<float>> tileRates;
 };
 
 struct MovieCache
@@ -1866,10 +1868,13 @@ struct Population
    double meanSurvival = 1.0;
    std::vector<double> regionAlive;
    // A host clock (DyeClock): the mean-field image is frame 0's photons with
-   // each grid column at its own clock (wb0: mean photons per dye per column);
-   // frame f is it x exp(-lambda f exposure).
+   // each grid column at its own clock (wb0: mean photons per dye per column;
+   // a rate population on the clock's tiles: per tile, GridTiles); frame f is it
+   // x exp(-lambda f exposure), each tile's at its light now (rates: the history's
+   // exact light per wb0 entry, under a shaped beam).
    bool weighted = false;
    std::vector<float> wb0;
+   std::shared_ptr<const std::vector<float>> rates;
    std::vector<BlinkEvent> wins;
    // Its mean-field images (meanFieldAt0): one, or one per dose node under a
    // shaped excitation (local kinetics); none for a clipped spot.
@@ -2133,6 +2138,10 @@ struct FluorescenceMovie::Impl
    // stretched along x, reaches beyond it): a place there at clock 0 is dark too.
    std::unique_ptr<HistoryLightField> histLight;
    double histAxisX = 0, histAxisY = 0;
+   // The history counts this light (not every label DNA-PAINT: else a uniform one), and what identifies it (its
+   // excitation's spec and line shares: GridTiles' rates).
+   bool histKinetics = false;
+   std::vector<double> histKey;
    double extX0 = 0, extY0 = 0, extX1 = 0, extY1 = 0;   // the clock's extent (world um)
    std::vector<char> regionDark;      // per clock region
    std::vector<char> regionNoWindows; // per clock region: no window query (Begin)
@@ -2321,6 +2330,46 @@ struct FluorescenceMovie::Impl
       for (size_t i = 0; i < img.size(); ++i)
          img[i] += frame[i];
    }
+   // A weighted rate population with rates (a shaped beam): its frame f at stage z into img (+=), each tile f
+   // exposures later at its own light (wb0 exp(-lambda f exposure rate); was exp(-lambda f exposure) everywhere, the
+   // peak's bleach in the dim rim too), from the scene's basis (refocused if z moved).
+   void RateWeightedFrame(Population& p, long f, double z, std::vector<float>& img)
+   {
+      if (p.mf.empty() || !p.rates || p.rates->size() != p.wb0.size())
+         return;
+      MeanFieldNode& nd = p.mf[0];
+      if (f == 0 && z == p.sceneZ)
+      {
+         for (size_t i = 0; i < img.size(); ++i)
+            img[i] += nd.image[i];
+         return;
+      }
+      const auto tR = TimingClock::now();
+      if (z != p.sceneZ)
+      {
+         WidefieldSceneSpec ws = nd.ws;
+         ws.focusWorldUm = ws.slabCentreUm = S.q.zRefUm + z;
+         const double um = S.p.pixelSizeNm / 1000.0;
+         const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
+         std::string err;
+         nd.slot->scene.SetDeferImages(false);
+         if (!nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
+            return;
+         p.sceneZ = z;
+      }
+      const std::vector<float>& rate = *p.rates;
+      const double k = p.lambda * f * S.expSec;
+      std::vector<float> wb(p.wb0.size()), frame(static_cast<size_t>(S.W) * S.H, 0.0f);
+      for (size_t i = 0; i < wb.size(); ++i)
+         wb[i] = p.wb0[i] == 0.0f || k == 0.0 ? p.wb0[i] : static_cast<float>(p.wb0[i] * std::exp(-k * rate[i]));
+      if (nd.shifted)
+         nd.slot->scene.RenderFrameShifted(wb, nd.shiftX, nd.shiftY, frame);
+      else
+         nd.slot->scene.RenderFrame(wb, frame);
+      for (size_t i = 0; i < img.size(); ++i)
+         img[i] += frame[i];
+      TimingLog("fl.mean-field-rate-frame", TimingSince(tR));
+   }
    void TakeImage(Population& p, size_t j);
    // Weighted (clock) mean-field: frame 0's photons of the scene's grid.
    void WeightedImage(Population& p, std::vector<float>& img);
@@ -2402,6 +2451,9 @@ constexpr uint32_t kDarkHistory = 0xFFFFFFFFu;
 // A clock region whose expected dyes still in a windowed population (initial ON, pre state, unbleached) are fewer
 // is not queried for windows (Begin): about one frame in 10^4 at most would miss one such dye.
 constexpr double kWindowAliveMin = 1e-4;
+// A rate population's bleach basis holds this long at its brightest place before it is rebuilt (its Chebyshev terms,
+// WidefieldScene::SetWeightRates: few under a slow bleach; every term is an image to make at each refocus).
+constexpr double kBasisSpanSec = 4.0;
 // The pivot's index in Impl::exciteKey (the plane factor's key zeroes it for a beam that is not tilted).
 constexpr size_t kExciteKeyPivot = 7;
 
@@ -2504,69 +2556,133 @@ static std::shared_ptr<const std::vector<uint32_t>> GridCellKeys(const DyeClock&
    return slot.cellKeys;
 }
 
-// Each grid cell's group by the light its history tile gets now (one id per distinct value of the history's light,
-// per band; every band's when the clock has none): the bleach basis's weight groups of a bleaching population. Its
-// weights are rate x survival, and survivals whose clocks advance alike keep their ratios from frame to frame, so
-// cells of one light share a channel whatever their keys (2026-10-14: grouped per key, the rim levels of a few
-// overlapping poses made 32 groups, past the basis's 8, and a Chebyshev basis rebuilt every frame: 0.5 s each).
-// BleachCoefficients checks each frame's weights against the basis, so a cell that does not follow costs a
-// rebuild, never a wrong image. Null for a clock without tiles.
-static std::shared_ptr<const std::vector<uint32_t>> GridRateGroups(const DyeClock& clock, const WidefieldGridSpec& gr,
-                                            const std::vector<double>& edges, MeanFieldSlot& slot,
-                                            const HistoryLightField& light, double axisX, double axisY)
+// A rate population's weights on the clock's tiles (2026-10-14): a grid cell's weight is its tile's, so the scene
+// keeps one weight per (band, tile) (WidefieldScene::SetWeightMap): a frame's weights, the basis's check and the
+// excess dose are per tile, ~25x fewer than per cell. Per (band, tile) of the grid: its key (an index into keys, the
+// distinct (clock, history) in first-seen order) and its excess dose (DyeClock::ExcessAtZ); and, with the history's
+// light (rateLight), its exact light now (the basis's rates: frame to frame a tile's weight falls as exp(-lambda x
+// that x the exposure); cached per grid and light). With darkens a tile is dark (kDarkHistory: no photons) outside
+// the clock's extent, or never lit (clock and excess 0) where the exact light does not reach now (the levels' 1/8
+// cut no longer applies: the dose follows the smooth light, and a dim rim at clock 0 bleaches with it). False for a
+// clock without tiles.
+struct GridTileFrame
+{
+   size_t ntx = 0, nty = 0;
+   unsigned nb = 1;
+   std::vector<uint32_t> key;   // per (band, tile), (b x nty + ty) x ntx + tx
+   std::vector<float> excess;   // ... (empty: none)
+};
+static bool GridTiles(const DyeClock& clock, const WidefieldGridSpec& gr, const std::vector<double>& edges,
+                      MeanFieldSlot& slot, std::vector<std::pair<double, uint32_t>>& keys, GridTileFrame& out,
+                      const HistoryLightField* rateLight, const std::vector<double>& lightKey, bool darkens,
+                      double axisX, double axisY)
 {
    const unsigned nb = static_cast<unsigned>(edges.size()) + 1;
-   const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
    const double T = clock.TileUm();
    auto X = [&](unsigned i) { return gr.x0Um + (i + 0.5) * gr.pitchUm; };
    auto Y = [&](unsigned jy) { return gr.y0Um + (jy + 0.5) * gr.pitchUm; };
+   auto bandZ = [&](unsigned b) { return b == 0 ? -1.0 : edges[b - 1]; };   // (as the weights loop: the lower edge)
    if (!(T > 0) || gr.nx == 0 || gr.ny == 0)
-      return nullptr;
+      return false;
    const long tx0 = static_cast<long>(std::floor(X(0) / T)), tx1 = static_cast<long>(std::floor(X(gr.nx - 1) / T));
    const long ty0 = static_cast<long>(std::floor(Y(0) / T)), ty1 = static_cast<long>(std::floor(Y(gr.ny - 1) / T));
-   const size_t ntx = static_cast<size_t>(tx1 - tx0 + 1), nty = static_cast<size_t>(ty1 - ty0 + 1);
-   std::map<std::vector<float>, uint32_t> index;
-   std::vector<uint32_t> tileRate(ntx * nty * nb);
-   std::vector<float> w(kHistoryBands);
+   const size_t ntx = static_cast<size_t>(tx1 - tx0 + 1), nty = static_cast<size_t>(ty1 - ty0 + 1), nt = ntx * nty;
+   auto tileX = [&](size_t tx) { return (static_cast<double>(tx0 + static_cast<long>(tx)) + 0.5) * T; };
+   auto tileY = [&](size_t ty) { return (static_cast<double>(ty0 + static_cast<long>(ty)) + 0.5) * T; };
+   // The cells' tiles, per grid.
+   std::vector<double> geom = { gr.x0Um, gr.y0Um, gr.pitchUm, static_cast<double>(gr.nx), static_cast<double>(gr.ny),
+                                T, static_cast<double>(tx0), static_cast<double>(ty0) };
+   if (geom != slot.tileGeom || !slot.cellTile)
+   {
+      std::vector<uint32_t> txOf(gr.nx), tyOf(gr.ny);
+      for (unsigned i = 0; i < gr.nx; ++i)
+         txOf[i] = static_cast<uint32_t>(static_cast<long>(std::floor(X(i) / T)) - tx0);
+      for (unsigned jy = 0; jy < gr.ny; ++jy)
+         tyOf[jy] = static_cast<uint32_t>(static_cast<long>(std::floor(Y(jy) / T)) - ty0);
+      auto cells = std::make_shared<std::vector<uint32_t>>(static_cast<size_t>(gr.nx) * gr.ny);
+      for (unsigned jy = 0; jy < gr.ny; ++jy)
+         for (unsigned i = 0; i < gr.nx; ++i)
+            (*cells)[static_cast<size_t>(gr.nx) * jy + i] = static_cast<uint32_t>(tyOf[jy] * ntx + txOf[i]);
+      slot.cellTile = cells;
+      slot.tileGeom = geom;
+      slot.rateKey.clear();
+   }
+   // The exact light now per (band, tile) (one band: band 0's), per grid and light.
+   if (rateLight)
+   {
+      std::vector<double> rk = geom;
+      rk.push_back(nb);
+      rk.insert(rk.end(), lightKey.begin(), lightKey.end());
+      rk.push_back(axisX);
+      rk.push_back(axisY);
+      if (rk != slot.rateKey || !slot.tileRates)
+      {
+         auto r = std::make_shared<std::vector<float>>(nt * nb);
+         for (unsigned b = 0; b < nb; ++b)
+            for (size_t ty = 0; ty < nty; ++ty)
+               for (size_t tx = 0; tx < ntx; ++tx)
+                  (*r)[(b * nty + ty) * ntx + tx] = static_cast<float>(
+                     rateLight->BandExact(tileX(tx) - axisX, tileY(ty) - axisY, static_cast<int>(b)));
+         slot.tileRates = r;
+         slot.rateKey.swap(rk);
+      }
+   }
+   keys.clear();
+   std::map<std::pair<double, uint32_t>, uint32_t> index;
+   double lastT = std::numeric_limits<double>::quiet_NaN();
+   uint32_t lastH = 0, lastK = 0;
+   auto keyOf = [&](double t, uint32_t h) {
+      if (!(t == lastT && h == lastH))
+      {
+         auto it = index.emplace(std::make_pair(t, h), static_cast<uint32_t>(keys.size())).first;
+         if (it->second == keys.size())
+            keys.push_back({ t, h });
+         lastT = t;
+         lastH = h;
+         lastK = it->second;
+      }
+      return lastK;
+   };
+   const bool hasExcess = clock.HasExcess();
+   out.ntx = ntx;
+   out.nty = nty;
+   out.nb = nb;
+   out.key.assign(nt * nb, 0u);
+   out.excess.assign(hasExcess ? nt * nb : 0, 0.0f);
+   double ex0, ey0, ex1, ey1;
+   clock.Extent(ex0, ey0, ex1, ey1);
    for (unsigned b = 0; b < nb; ++b)
       for (size_t ty = 0; ty < nty; ++ty)
          for (size_t tx = 0; tx < ntx; ++tx)
          {
-            const double cx = (static_cast<double>(tx0 + static_cast<long>(tx)) + 0.5) * T;
-            const double cy = (static_cast<double>(ty0 + static_cast<long>(ty)) + 0.5) * T;
-            std::vector<float> v;
-            if (nb > 1)
-               v.assign(1, static_cast<float>(light.Band(cx - axisX, cy - axisY, static_cast<int>(b))));
-            else
+            const size_t i = (b * nty + ty) * ntx + tx;
+            const double cx = tileX(tx), cy = tileY(ty);
+            double t = 0;
+            uint32_t h = 0;
+            clock.KeyAtZ(cx, cy, bandZ(b), t, h);
+            const double e = hasExcess ? clock.ExcessAtZ(cx, cy, bandZ(b)) : 0.0;
+            if (darkens && t == 0.0 && e == 0.0)
             {
-               light.Fill(cx - axisX, cy - axisY, w.data());
-               v = w;
+               bool lit = cx >= ex0 && cx < ex1 && cy >= ey0 && cy < ey1;
+               if (lit && rateLight)
+               {
+                  // (One band: dark in every band of the light.)
+                  const int bb0 = nb > 1 ? static_cast<int>(b) : 0, bb1 = nb > 1 ? static_cast<int>(b) : kHistoryBands - 1;
+                  lit = false;
+                  for (int bb = bb0; bb <= bb1 && !lit; ++bb)
+                     lit = rateLight->BandExact(cx - axisX, cy - axisY, bb) > 0;
+               }
+               if (!lit)
+               {
+                  t = -1.0;
+                  h = kDarkHistory;
+               }
             }
-            tileRate[(b * nty + ty) * ntx + tx] =
-               index.emplace(std::move(v), static_cast<uint32_t>(index.size())).first->second;
+            out.key[i] = keyOf(t, h);
+            if (hasExcess)
+               out.excess[i] = static_cast<float>(e);
          }
-   std::vector<double> geom = { gr.x0Um, gr.y0Um, gr.pitchUm, static_cast<double>(gr.nx), static_cast<double>(gr.ny),
-                                static_cast<double>(nb), T, static_cast<double>(tx0), static_cast<double>(ty0) };
-   if (geom == slot.rateGeom && tileRate == slot.tileRates && slot.cellRates && slot.cellRates->size() == nc * nb)
-      return slot.cellRates;
-   std::vector<uint32_t> txOf(gr.nx), tyOf(gr.ny);
-   for (unsigned i = 0; i < gr.nx; ++i)
-      txOf[i] = static_cast<uint32_t>(static_cast<long>(std::floor(X(i) / T)) - tx0);
-   for (unsigned jy = 0; jy < gr.ny; ++jy)
-      tyOf[jy] = static_cast<uint32_t>(static_cast<long>(std::floor(Y(jy) / T)) - ty0);
-   auto cells = std::make_shared<std::vector<uint32_t>>(nc * nb, 0u);
-   for (unsigned b = 0; b < nb; ++b)
-      for (unsigned jy = 0; jy < gr.ny; ++jy)
-      {
-         const uint32_t* tr = &tileRate[(b * nty + tyOf[jy]) * ntx];
-         uint32_t* row = &(*cells)[static_cast<size_t>(gr.nx) * jy + nc * b];
-         for (unsigned i = 0; i < gr.nx; ++i)
-            row[i] = tr[txOf[i]];
-      }
-   slot.rateGeom.swap(geom);
-   slot.tileRates.swap(tileRate);
-   slot.cellRates = cells;
-   return slot.cellRates;
+   return true;
 }
 
 // The mean-field image of the population's structure (JS meanFieldImage):
@@ -2732,17 +2848,15 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       const unsigned nb = static_cast<unsigned>(edges.size()) + 1;
       const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
       slot.scene.SetWeightBands(edges);
-      p.wb0.assign(nc * nb, 0.0f);
       std::vector<std::pair<double, uint32_t>> keys;
       const bool darkens = histLight && S.labels[static_cast<size_t>(p.structure)].mode != MODE_DNA_PAINT;
-      const std::shared_ptr<const std::vector<uint32_t>> cellKeyPtr =
-         GridCellKeys(*clock, gr, edges, slot, keys, darkens ? histLight.get() : nullptr, histAxisX, histAxisY);
-      const std::vector<uint32_t>& cellKey = *cellKeyPtr;
       if (p.state == ISC_STATE_BLINK)
       {
          // Each grid cell's key (clock, history); frame f's weights are the
          // expected photons per dye at each key (BlinkWeights).
-         p.cellKey = cellKeyPtr;
+         p.wb0.assign(nc * nb, 0.0f);
+         p.cellKey =
+            GridCellKeys(*clock, gr, edges, slot, keys, darkens ? histLight.get() : nullptr, histAxisX, histAxisY);
          p.keyClock.clear();
          p.keySegs.clear();
          p.keyDark.clear();
@@ -2759,6 +2873,8 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          BlinkWeights(p, 0, p.wb0);
          p.sceneZ = zStage;
          // Under a shaped beam the keys' clocks advance apart: the scene's basis per key (fast frames).
+         slot.scene.SetWeightMap(nullptr, 0);
+         slot.scene.SetWeightRates(nullptr, 0.0);
          slot.scene.SetWeightGroups(shaped ? p.cellKey : nullptr);
          TimingLog("fl.mean-field-weights", TimingSince(tW));
          tW = TimingClock::now();
@@ -2766,8 +2882,19 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          TimingLog("fl.mean-field-render", TimingSince(tW));
          continue;
       }
-      // With a rate history: rate x survival to t x the frame's fraction, per key.
+      // With a rate history: rate x survival to t x the frame's fraction, per key, on the clock's tiles (GridTiles;
+      // a clock without tiles: per cell). The history's exact light (its light is the shaped one unless every label
+      // is DNA-PAINT) gives each tile's rate.
+      const HistoryLightField* rateLight = shaped && histLight && histKinetics ? histLight.get() : nullptr;
+      GridTileFrame tiles;
+      std::shared_ptr<const std::vector<uint32_t>> cellKeyPtr;
+      const bool tiled = GridTiles(*clock, gr, edges, slot, keys, tiles, rateLight, histKey, darkens, histAxisX,
+                                   histAxisY);
+      if (!tiled)
+         cellKeyPtr =
+            GridCellKeys(*clock, gr, edges, slot, keys, darkens ? histLight.get() : nullptr, histAxisX, histAxisY);
       std::vector<float> val(keys.size());
+      std::vector<double> logSurvival(keys.size(), 0.0);   // (at the key's clock: the excess's factor)
       for (size_t k = 0; k < keys.size(); ++k)
       {
          if (keys[k].second == kDarkHistory)
@@ -2777,21 +2904,57 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          if (!hi)
             return false;
          if (!hi->multi)
+         {
             val[k] = static_cast<float>(MeanPhotons(p.rate, p.lambda, t, t + S.expSec));
+            logSurvival[k] = -p.lambda * t;
+         }
          else
          {
             const double sv = HistSurvival(*hi, p.structure, p.state, t);
             val[k] = static_cast<float>(p.lambda > 0 ? p.rate * sv * (1 - std::exp(-p.lambda * S.expSec)) / p.lambda
                                                      : p.rate * sv * S.expSec);
+            logSurvival[k] = sv > 0 ? std::log(sv) : 0.0;
          }
       }
-      for (size_t i = 0; i < p.wb0.size(); ++i)
-         p.wb0[i] = val[cellKey[i]];
-      // (see the blink branch; grouped by the light now where the history's light is known: GridRateGroups)
-      std::shared_ptr<const std::vector<uint32_t>> rateGroups;
-      if (shaped && histLight)
-         rateGroups = GridRateGroups(*clock, gr, edges, slot, *histLight, histAxisX, histAxisY);
-      slot.scene.SetWeightGroups(shaped ? (rateGroups ? rateGroups : cellKeyPtr) : nullptr);
+      p.sceneZ = zStage;
+      if (tiled)
+      {
+         // The dose is clock + excess. Under a fixed beam a tile's excess grows with its clock (its exact light over
+         // its level), so over a past of several epochs the survival to the dose is the clock's raised to
+         // (clock + excess) / clock: each epoch's dose at its own rates (a power step is continuous: the x-power
+         // check of test_history.py; the present rates for every epoch made a 15x jump). A tile still at clock 0
+         // (the never-lit rim: no level reaches it) reads its excess at the present rates.
+         p.wb0.assign(tiles.key.size(), 0.0f);
+         for (size_t i = 0; i < p.wb0.size(); ++i)
+         {
+            const uint32_t key = tiles.key[i];
+            double v = val[key];
+            const double e = tiles.excess.empty() ? 0.0 : tiles.excess[i];
+            if (v != 0.0 && e != 0.0)
+            {
+               const double t = keys[key].first;
+               v *= std::exp(t > 0 ? logSurvival[key] * (e / t) : -p.lambda * e);
+            }
+            p.wb0[i] = static_cast<float>(v);
+         }
+         p.rates = rateLight ? slot.tileRates : nullptr;
+         slot.scene.SetWeightMap(slot.cellTile, tiles.ntx * tiles.nty);
+         slot.scene.SetWeightRates(p.rates, p.lambda * kBasisSpanSec);
+         // (A shaped beam with a uniform history, DNA-PAINT labels only: the tiles' clocks advance alike, per key.)
+         slot.scene.SetWeightGroups(shaped && !p.rates ? std::make_shared<const std::vector<uint32_t>>(tiles.key)
+                                                      : nullptr);
+      }
+      else
+      {
+         p.wb0.assign(nc * nb, 0.0f);
+         const std::vector<uint32_t>& cellKey = *cellKeyPtr;
+         for (size_t i = 0; i < p.wb0.size(); ++i)
+            p.wb0[i] = val[cellKey[i]];
+         p.rates = nullptr;
+         slot.scene.SetWeightMap(nullptr, 0);
+         slot.scene.SetWeightRates(nullptr, 0.0);
+         slot.scene.SetWeightGroups(shaped ? cellKeyPtr : nullptr);
+      }
       TimingLog("fl.mean-field-weights", TimingSince(tW));
       tW = TimingClock::now();
       WeightedImage(p, nd.image);
@@ -3525,6 +3688,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          return false;
       }
       m.histLight.reset(new HistoryLightField(hx, hShares));
+      m.histKinetics = lightKinetics;
+      {
+         const ExcitationSpec& hs = hx.Spec();
+         m.histKey = { static_cast<double>(hs.profile), hs.fwhmPct, hs.fovWidthUm, hs.bfp, hs.na, hs.nImm, hs.nMed,
+                       hs.pivotUm };
+         for (const ExcitationLine& l : hShares)
+         {
+            m.histKey.push_back(l.nm);
+            m.histKey.push_back(l.share);
+         }
+      }
       m.histAxisX = HistoryAxisUm(S.q.originXUm + m.axisX);
       m.histAxisY = HistoryAxisUm(S.q.originYUm + m.axisY);
       clock->Extent(m.extX0, m.extY0, m.extX1, m.extY1);
@@ -4549,7 +4723,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   // decay), but keep the frame valid.
                   continue;
                }
-               for (size_t j = 0; j < p.mf.size(); ++j)
+               // (A weighted population with rates: each tile at its light, RateWeightedFrame.)
+               const bool rated = p.weighted && p.rates && !drift;
+               if (rated)
+                  m.RateWeightedFrame(p, f, zf, img);
+               for (size_t j = 0; !rated && j < p.mf.size(); ++j)
                {
                   std::vector<float> driftImage;
                   if (drift)

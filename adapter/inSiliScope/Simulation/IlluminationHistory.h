@@ -25,6 +25,13 @@
 //                at every height (epi) the bands stay equal and a snapshot
 //                keeps one (outputs as before).
 //
+//                And its exact dose (2026-10-14): the clock counts the light
+//                in levels (HistoryLightField: few distinct clocks, few core
+//                queries); each tile and band also keeps the excess, the
+//                exact light's dose minus the clock, and the mean field's
+//                bleaching reads clock + excess (DyeClock::ExcessAtZ), so a
+//                WideField population bleaches with the smooth light.
+//
 //                FluorescenceMovie reads each dye at its tile's clock
 //                (ScopeMovie.h DyeClock); the live loop and stacks advance the
 //                lit rect (the FOV and its 2 um margin, what a movie renders)
@@ -50,8 +57,9 @@ namespace sim {
 
 
 // A frame's light per tile and band: w[b] (b < kHistoryBands) at the tile centre (world um), the excitation relative to
-// the lasers' power at the sample, quantised by the caller. Empty: 1 everywhere.
-using HistoryLight = std::function<void(double xUm, double yUm, float* w)>;
+// the lasers' power at the sample, quantised by the caller (the clock's), and exact[b] unquantised (the dose's). Empty:
+// 1 everywhere.
+using HistoryLight = std::function<void(double xUm, double yUm, float* w, float* exact)>;
 // HistoryLightField's (Excitation.h) light with the optical axis at world (axisXUm, axisYUm), snapped to the tile grid
 // (HistoryAxisUm). Empty when the excitation is uniform.
 HistoryLight HistoryLightFor(const Excitation& ex, const std::vector<ExcitationLine>& shares, double axisXUm,
@@ -66,6 +74,8 @@ public:
    double At(double xUm, double yUm) const override;
    void KeyAt(double xUm, double yUm, double& tSec, uint32_t& history) const override;
    void KeyAtZ(double xUm, double yUm, double zUm, double& tSec, uint32_t& history) const override;
+   double ExcessAtZ(double xUm, double yUm, double zUm) const override;
+   bool HasExcess() const override { return anyExcess; }
    const std::vector<double>& BandEdges() const override { return edges; }
    double TileUm() const override { return tileUm; }
    void Extent(double& x0Um, double& y0Um, double& x1Um, double& y1Um) const override
@@ -87,6 +97,8 @@ public:
    double tileUm = 0.25;
    std::vector<double> edges;   // the band edges when nb > 1, else empty
    std::vector<float> t;        // nx x ny x nb, x fastest, then y, then the band
+   std::vector<float> ex;       // ... their excess dose (s)
+   bool anyExcess = false;      // an excess other than 0
    std::vector<uint32_t> node;  // the tiles' histories (trie nodes), with the snapshot's epoch last
    uint32_t freshNode = 0;      // outside the snapshot
    // The segments of each history in the snapshot (the envs kept alive here).
@@ -130,6 +142,7 @@ private:
    struct Chunk
    {
       std::vector<float> t;        // kChunk x kChunk x kHistoryBands seconds, x fastest, the band last
+      std::vector<float> ex;       // ... their excess dose: the exact light's dose minus t (s)
       std::vector<uint32_t> node;  // ... their histories (0: never lit)
       // False: every band equals band 0 (a light alike in height has lit it, or none), and only band 0 is kept: a
       // frame then advances one value per tile, not kHistoryBands (live frames: 1.5 -> 0.5 ms).

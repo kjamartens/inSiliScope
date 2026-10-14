@@ -145,7 +145,8 @@ private:
    // 2 um margin (what the movie renders) and 0.5 um of slack, world um.
    void LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1, double& y1) const;
    // The light a frame of spec gives the history (IlluminationHistory.h
-   // HistoryLight: the engine's excitation per tile and z band, 1/16 steps),
+   // HistoryLight: the engine's excitation per tile and z band, in levels for
+   // the clock and exact for the dose),
    // the optical axis at the FOV centre (axisX/YUm, world), the HILO sheet
    // pivoting at the focus of stage z zStageUm (on the history's grids: HistoryAxisUm, HistoryFocusUm); empty under a
    // uniform beam or when every mounted label is DNA-PAINT (binding needs no light).

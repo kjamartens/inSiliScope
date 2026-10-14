@@ -45,13 +45,13 @@ HistoryLight HistoryLightFor(const Excitation& ex, const std::vector<ExcitationL
    {
       HistoryLightField field;
       std::mutex m;
-      std::unordered_map<uint64_t, std::array<float, kHistoryBands>> w;
+      std::unordered_map<uint64_t, std::array<float, 2 * kHistoryBands>> w;   // the light, then the exact light
       Memo(const Excitation& e, const std::vector<ExcitationLine>& sh) : field(e, sh) {}
    };
    const auto memo = std::make_shared<Memo>(ex, sharesIn);
    axisXUm = HistoryAxisUm(axisXUm);
    axisYUm = HistoryAxisUm(axisYUm);
-   return [memo, axisXUm, axisYUm](double x, double y, float* w) {
+   return [memo, axisXUm, axisYUm](double x, double y, float* w, float* exact) {
       const double T = IlluminationHistory::kTileUm;
       const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int32_t>(std::floor(x / T)))) << 32) |
                            static_cast<uint32_t>(static_cast<int32_t>(std::floor(y / T)));
@@ -60,14 +60,16 @@ HistoryLight HistoryLightFor(const Excitation& ex, const std::vector<ExcitationL
          auto it = memo->w.find(key);
          if (it != memo->w.end())
          {
-            std::copy(it->second.begin(), it->second.end(), w);
+            std::copy(it->second.begin(), it->second.begin() + kHistoryBands, w);
+            std::copy(it->second.begin() + kHistoryBands, it->second.end(), exact);
             return;
          }
       }
       // (A tile's centre: the same x, y each time, so the same values.)
-      std::array<float, kHistoryBands> v;
-      memo->field.Fill(x - axisXUm, y - axisYUm, v.data());
-      std::copy(v.begin(), v.end(), w);
+      std::array<float, 2 * kHistoryBands> v;
+      memo->field.Fill(x - axisXUm, y - axisYUm, v.data(), v.data() + kHistoryBands);
+      std::copy(v.begin(), v.begin() + kHistoryBands, w);
+      std::copy(v.begin() + kHistoryBands, v.end(), exact);
       std::lock_guard<std::mutex> lock(memo->m);
       memo->w.emplace(key, v);
    };
@@ -117,6 +119,19 @@ void ClockSnapshot::KeyAtZ(double xUm, double yUm, double zUm, double& tSec, uin
    const size_t i = Index(ix, iy, b);
    tSec = t[i];
    history = node[i];
+}
+
+double ClockSnapshot::ExcessAtZ(double xUm, double yUm, double zUm) const
+{
+   if (!anyExcess)
+      return 0.0;
+   const long ix = static_cast<long>(std::floor(xUm / tileUm)) - ix0;
+   const long iy = static_cast<long>(std::floor(yUm / tileUm)) - iy0;
+   if (ix < 0 || iy < 0 || ix >= static_cast<long>(nx) || iy >= static_cast<long>(ny))
+      return 0.0;
+   const unsigned b =
+      nb <= 1 ? 0u : static_cast<unsigned>(std::upper_bound(edges.begin(), edges.end(), zUm) - edges.begin());
+   return ex[Index(ix, iy, b)];
 }
 
 void ClockSnapshot::Segments(uint32_t history, std::vector<ClockSegment>& out) const
@@ -292,14 +307,18 @@ void ClockSnapshot::Expand()
    if (nb > 1)
       return;
    const size_t n = static_cast<size_t>(nx) * ny;
-   std::vector<float> t2(n * kHistoryBands);
+   if (ex.size() != t.size())
+      ex.assign(t.size(), 0.0f);
+   std::vector<float> t2(n * kHistoryBands), e2(n * kHistoryBands);
    std::vector<uint32_t> n2(n * kHistoryBands);
    for (unsigned b = 0; b < static_cast<unsigned>(kHistoryBands); ++b)
    {
       std::copy(t.begin(), t.begin() + static_cast<std::ptrdiff_t>(n), t2.begin() + static_cast<std::ptrdiff_t>(n * b));
+      std::copy(ex.begin(), ex.begin() + static_cast<std::ptrdiff_t>(n), e2.begin() + static_cast<std::ptrdiff_t>(n * b));
       std::copy(node.begin(), node.begin() + static_cast<std::ptrdiff_t>(n), n2.begin() + static_cast<std::ptrdiff_t>(n * b));
    }
    t.swap(t2);
+   ex.swap(e2);
    node.swap(n2);
    nb = kHistoryBands;
    edges = HistoryBandEdges();
@@ -312,25 +331,33 @@ void ClockSnapshot::Advance(double x0Um, double y0Um, double x1Um, double y1Um, 
    const double T = tileUm;
    const long ixLo = static_cast<long>(std::ceil(x0Um / T - 0.5)), ixHi = static_cast<long>(std::ceil(x1Um / T - 0.5));
    const long iyLo = static_cast<long>(std::ceil(y0Um / T - 0.5)), iyHi = static_cast<long>(std::ceil(y1Um / T - 0.5));
-   float w[kHistoryBands];
+   float w[kHistoryBands], wx[kHistoryBands];
    std::fill(w, w + kHistoryBands, 1.0f);
+   std::fill(wx, wx + kHistoryBands, 1.0f);
+   if (ex.size() != t.size())
+      ex.assign(t.size(), 0.0f);
    for (long iy = std::max(iyLo, iy0); iy < std::min(iyHi, iy0 + static_cast<long>(ny)); ++iy)
       for (long ix = std::max(ixLo, ix0); ix < std::min(ixHi, ix0 + static_cast<long>(nx)); ++ix)
       {
          if (light)
-            light((ix + 0.5) * T, (iy + 0.5) * T, w);
+            light((ix + 0.5) * T, (iy + 0.5) * T, w, wx);
          if (nb <= 1)
          {
             bool alike = true;
             for (int b = 1; b < kHistoryBands && alike; ++b)
-               alike = w[b] == w[0];
+               alike = w[b] == w[0] && wx[b] == wx[0];
             if (!alike)
                Expand();   // the light differs in height: every band from now on
          }
          for (unsigned b = 0; b < nb; ++b)
          {
-            float& v = t[Index(ix - ix0, iy - iy0, b)];
-            v = static_cast<float>(v + dtSec * w[b]);
+            const size_t i = Index(ix - ix0, iy - iy0, b);
+            t[i] = static_cast<float>(t[i] + dtSec * w[b]);
+            if (wx[b] != w[b])
+            {
+               ex[i] = static_cast<float>(ex[i] + dtSec * (static_cast<double>(wx[b]) - w[b]));
+               anyExcess = anyExcess || ex[i] != 0.0f;
+            }
          }
       }
 }
@@ -340,10 +367,12 @@ void IlluminationHistory::Chunk::Expand()
    if (banded)
       return;
    t.resize(kChunkTiles * kHistoryBands);
+   ex.resize(kChunkTiles * kHistoryBands);
    node.resize(kChunkTiles * kHistoryBands);
    for (size_t b = 1; b < static_cast<size_t>(kHistoryBands); ++b)
    {
       std::copy(t.begin(), t.begin() + kChunkTiles, t.begin() + static_cast<std::ptrdiff_t>(kChunkTiles * b));
+      std::copy(ex.begin(), ex.begin() + kChunkTiles, ex.begin() + static_cast<std::ptrdiff_t>(kChunkTiles * b));
       std::copy(node.begin(), node.begin() + kChunkTiles, node.begin() + static_cast<std::ptrdiff_t>(kChunkTiles * b));
    }
    banded = true;
@@ -417,8 +446,9 @@ void IlluminationHistory::Advance(double x0Um, double y0Um, double x1Um, double 
    // Tiles whose centre (i + 0.5) T lies in [x0, x1).
    const long ixLo = static_cast<long>(std::ceil(x0Um / T - 0.5)), ixHi = static_cast<long>(std::ceil(x1Um / T - 0.5));
    const long iyLo = static_cast<long>(std::ceil(y0Um / T - 0.5)), iyHi = static_cast<long>(std::ceil(y1Um / T - 0.5));
-   float w[kHistoryBands];
+   float w[kHistoryBands], wx[kHistoryBands];
    std::fill(w, w + kHistoryBands, 1.0f);
+   std::fill(wx, wx + kHistoryBands, 1.0f);
    std::lock_guard<std::mutex> g(mutex_);
    Chunk* chunk = nullptr;
    long lastCx = LONG_MIN, lastCy = LONG_MIN;
@@ -436,16 +466,17 @@ void IlluminationHistory::Advance(double x0Um, double y0Um, double x1Um, double 
          if (c.t.empty())
          {
             c.t.assign(kChunkTiles, 0.0f);
+            c.ex.assign(kChunkTiles, 0.0f);
             c.node.assign(kChunkTiles, 0u);
          }
          if (light)
          {
-            light((ix + 0.5) * T, (iy + 0.5) * T, w);
+            light((ix + 0.5) * T, (iy + 0.5) * T, w, wx);
             if (!c.banded)
             {
                bool alike = true;
                for (int b = 1; b < kHistoryBands && alike; ++b)
-                  alike = w[b] == w[0];
+                  alike = w[b] == w[0] && wx[b] == wx[0];
                if (!alike)
                   c.Expand();   // the light differs in height here: every band from now on
             }
@@ -458,6 +489,8 @@ void IlluminationHistory::Advance(double x0Um, double y0Um, double x1Um, double 
             float& v = c.t[k];
             c.node[k] = Continue(c.node[k], v, epoch);
             v = static_cast<float>(v + dtSec * w[b]);
+            if (wx[b] != w[b])
+               c.ex[k] = static_cast<float>(c.ex[k] + dtSec * (static_cast<double>(wx[b]) - w[b]));
          }
       }
 }
@@ -484,6 +517,7 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
    const unsigned nbRead = anyBanded ? static_cast<unsigned>(kHistoryBands) : 1u;
    s.nb = nbRead;
    s.t.assign(n * nbRead, 0.0f);
+   s.ex.assign(n * nbRead, 0.0f);
    s.node.assign(n * nbRead, 0u);
    s.freshNode = Continue(0, 0.0f, epoch);
    uint32_t lastIn = UINT32_MAX, lastOut = 0;
@@ -516,6 +550,8 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
                const float v = chunk->t[ci];
                const uint32_t nd = chunk->node[ci];
                s.t[k] = v;
+               s.ex[k] = chunk->ex[ci];
+               s.anyExcess = s.anyExcess || s.ex[k] != 0.0f;
                // Neighbouring tiles mostly share a past: reuse the last answer.
                if (!(nd == lastIn && v == lastT))
                {
@@ -526,7 +562,7 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
                s.node[k] = lastOut;
             }
             if (b > 0 && !banded)
-               banded = s.t[k] != s.t[k - n * b] || s.node[k] != s.node[k - n * b];
+               banded = s.t[k] != s.t[k - n * b] || s.node[k] != s.node[k - n * b] || s.ex[k] != s.ex[k - n * b];
          }
       }
    if (banded)
@@ -536,6 +572,7 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
       // Every band alike (epi): one, the old layout.
       s.nb = 1;
       s.t.resize(n);
+      s.ex.resize(n);
       s.node.resize(n);
    }
    // The segments of every history present (and the fresh one).

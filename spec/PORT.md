@@ -1081,10 +1081,19 @@ change, golden unchanged).
   `fl.mean-field-keys-reused`), shared with the scene by pointer (`SetWeightGroups(shared_ptr)`: an unchanged pointer
   keeps the basis without comparing 4M keys).
   A rate-history population (WideField bleaching, pre states, initial ON) groups by the history's light now instead
-  (`GridRateGroups`, per (band, tile)): survivals whose clocks advance alike keep their ratios, so one channel holds
-  cells of every key with that light (2026-10-14: per key, the rim level of a few overlapping poses made 32 groups,
-  past the basis's 8, and a Chebyshev basis rebuilt per frame, 0.5 s each; the stage test's live check 83 -> 17 s).
-  The blink branch keeps the keys (its weights follow the blink kinetics, not one exponential).
+  (2026-10-14: per key, the rim level of a few overlapping poses made 32 groups, past the basis's 8, and a Chebyshev
+  basis rebuilt per frame, 0.5 s each; the stage test's live check 83 -> 17 s), and since the exact dose (2026-10-14,
+  spec/ALGORITHM.md) by its exact light: `GridTiles` gives per (band, tile) the key, the excess
+  (`DyeClock::ExcessAtZ` / `HasExcess`; `IlluminationHistory` keeps `ex` next to `t`, `HistoryLight` fills the light
+  and the exact light, `HistoryLightField::Fill(..., exact)` / `BandExact`) and the exact light now (cached per grid
+  and history light, `Impl::histKey`); the weights are per tile (`WidefieldScene::SetWeightMap`, a channel built
+  under it is `mapped`), wb0 = val[key] x S^(e/t) (S the key's survival at clock t, kept as its log next to `val`;
+  exp(-lambda e) at t = 0), the basis by rate (`SetWeightRates`; Chebyshev terms
+  `ChebTermsFor(lambda x kBasisSpanSec x the largest rate)`; a mapped basis without rates takes its cells' dose), a
+  new pose's first basis single (`SetBleachWeights(wb, true)`, `wf.basis-single`), later frames of a movie per tile
+  (`RateWeightedFrame`, `fl.mean-field-rate-frame`; not under drift). Its dark rule reads the exact light. A clock
+  without tiles (the cli's `--history-before`) keeps the per-cell keys. The blink branch keeps the keys (its weights
+  follow the blink kinetics, not one exponential) and the levels.
 - Live speed (bench_live Basic 256 px, 4 s per case, 10 ms exposure; main in brackets): dSTORM 72 (61), DNA-PAINT
   72 (100), WideField 82 (100), PALM 58 (100), BrightField 100 (100) fps; at 50 ms every channel 20 / 20. The first
   version (1/16 lateral levels) gave 0-8 fps: regions (788 epi, 2586 HILO), the HILO background map per frame (now

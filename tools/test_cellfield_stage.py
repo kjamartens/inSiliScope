@@ -526,10 +526,16 @@ def _widefield_checks(core, cam, xy, x0, y0):
     assert abs(t_half / T_HALF - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
     core.setProperty("Camera", "Test_GenerateStack", "1")
     _wait_for_stack(core, cam)
-    sig = []
+    # Measured where the FlatTop beam is flat (within 0.2 FOV widths of the centre: >= 98 % of the peak); its soft
+    # edge bleaches more slowly, by the dose there.
+    sig, roi = [], None
     for _ in range(130):
         core.snapImage()
-        sig.append(core.getImage().astype(np.float64).mean() - offset)
+        img = core.getImage().astype(np.float64)
+        if roi is None:
+            yy, xx = np.mgrid[:img.shape[0], :img.shape[1]]
+            roi = np.hypot(xx - (img.shape[1] - 1) / 2, yy - (img.shape[0] - 1) / 2) < 0.2 * img.shape[1]
+        sig.append(img[roi].mean() - offset)
     b = np.array(sig)
     status = core.getProperty("Renderer", "GpuStatus")
     w0, w1 = np.arange(0, 10), np.arange(115, 125)
@@ -537,9 +543,10 @@ def _widefield_checks(core, cam, xy, x0, y0):
     decay = lambda w: np.mean(2.0 ** (-((w + 0.5) * 0.05) / t_half))
     expect = decay(w1) / decay(w0)
     assert b[w0].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
-        f"WideField bleaching: frames 115-124 / 0-9 = {ratio:.3f}, expected {expect:.3f} (signal {b[w0].mean():.2f} ADU)"
-    print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 6 s (expected {expect:.3f}, t1/2 "
-          f"{t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
+        f"WideField bleaching (FOV centre): frames 115-124 / 0-9 = {ratio:.3f}, expected {expect:.3f} " \
+        f"(signal {b[w0].mean():.2f} ADU)"
+    print(f"WideField-mode mEGFP OK ({status}): the FOV centre decays to {ratio:.3f} at 6 s (expected {expect:.3f}, "
+          f"t1/2 {t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
 
     # Live: the illumination history. A small budget (t1/2 ~0.4 s at the
     # preset): bleach the FOV, move 30 um away (fresh, bright, then bleaches

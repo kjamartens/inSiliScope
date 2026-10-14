@@ -51,7 +51,9 @@ Upcoming ideas:
   [x] C++ port (engine, cli, viewer module; ctest `excitation`), [x] MM (`Lasers.BfpPosition`, the history in z bands,
   render-ahead, config group `Illumination` Epi / HILO / TIRF), [x] viewer slider (with the regime readout), docs,
   figures (`light-geometry`, `light-geometry-images`), gallery (`light-epi`, `light-tirf`, `light-flat`,
-  `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`).
+  `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`), [x] the MM mean field bleaches by the
+  exact dose (no edge at the history levels' half contour; 2026-10-15), [ ] blinks and per-dye windows by the exact
+  dose too (they still step at the levels).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

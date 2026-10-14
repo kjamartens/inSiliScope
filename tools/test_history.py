@@ -11,6 +11,8 @@ dark frames' mean.
 - PALM (mEos3.2): the 405 line off -> the activated dyes blink on (the first frames after keep > 50% of the signal)
   and then die out (no new activations).
 - Stop/start: a second sequence continues where the first stopped.
+- Edge: 0.6 s of WideField under the FlatTop beam; the fraction kept changes smoothly with the radius (the exact
+  dose, no step at the history levels' half contour).
 - Height (the history's z bands, 2026-10-13): bleached 2 s in TIRF (Lasers.BfpPosition 1.03), the first epi frame is
   far brighter than after 2 s in epi (the dyes above the evanescent layer were never lit).
 - SampleHolder.TimeWhileIdle: Paused -> 2 s idle with the lasers open changes nothing; Running -> they bleach the
@@ -100,7 +102,7 @@ def main():
     after = sig(sequence(core, 5))
     decay, ratio = before[-1] / before[0], after[0] / before[-1]
     print(f"WideField: 20 frames at {P:g} kW/cm^2 decay to {decay:.2f}; at x4 the first frame is {ratio:.2f}x the "
-          f"last (expected ~4)")
+          f"last (expected 3-4: x4, less the faster bleaching within the frame)")
     assert before[0] > 5, f"WideField: too little signal ({before[0]:.2f} ADU)"
     assert decay < 0.8, f"WideField: the sample should bleach visibly in 1 s (decay {decay:.2f})"
     assert 3.0 < ratio < 4.8, f"WideField: x4 power should give ~4x the last frame, got {ratio:.2f}"
@@ -112,6 +114,21 @@ def main():
     cont = s2[0] / s1[-1]
     print(f"Stop/start: the next sequence's first frame is {cont:.2f}x the last one (expected ~0.97)")
     assert 0.85 < cont < 1.1, f"stop/start: the sample should continue, got {cont:.2f}"
+
+    # ---- Edge: the bleached area has the beam's soft edge ----
+    fresh_place()
+    fr = sequence(core, 14)
+    first, last = (fr[0] + fr[1]) / 2 - dark, (fr[-2] + fr[-1]) / 2 - dark
+    yy, xx = np.mgrid[:first.shape[0], :first.shape[1]]
+    r = np.hypot(xx - (first.shape[1] - 1) / 2, yy - (first.shape[0] - 1) / 2) / first.shape[1]  # FOV widths
+    rings = [(r >= a) & (r < a + 0.03) for a in np.arange(0.0, 0.67, 0.03)]   # the beam's half contour at 0.5
+    kept = np.array([last[m].sum() / first[m].sum() for m in rings])
+    step = np.abs(np.diff(kept)).max()
+    print(f"Edge: kept after 0.6 s by radius (FOV widths, 0.03 rings) {' '.join(f'{k:.2f}' for k in kept)}; "
+          f"largest step {step:.2f}")
+    assert kept[:5].mean() < 0.6 and kept[-1] > kept[:5].mean() + 0.3, \
+        f"Edge: the centre should bleach and the rim less ({kept[:5].mean():.2f}, {kept[-1]:.2f})"
+    assert step < 0.15, f"Edge: the bleached fraction should follow the beam's soft edge, a step of {step:.2f}"
 
     # ---- Height: TIRF, then epi ----
     def epi_after(bfp):

@@ -898,7 +898,35 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   `DyeClock::Extent`, the recorded rect) gets no photons from its dSTORM / PALM / WideField dyes (`GridCellKeys`' dark
   key, `RegionDark` per region: its own tiles, as the never-lit ring around the FOV is one region whose box holds the
   lit middle; the windows and the switch skip it); DNA-PAINT keeps its dyes (uniform history). The cost: a never-lit
-  dye under < 1/8 of the peak is left out. **Mean-field switch under a host clock:** the survival averaged over the
+  dye under < 1/8 of the peak is left out (blinks and per-dye windows; the rate mean field reads the exact light,
+  below). **Exact dose** (2026-10-14): with the levels alone a WideField population's bleached fraction jumped at
+  the half-peak contour, where its clock's rate falls 4x while the light is smooth (6 s at 0.05 kW/cm^2: 0.39 of the
+  first frame inside, 0.75 just outside; finer levels only made more, smaller steps: powers of 2 two steps at the
+  same fps, sqrt 2 steps 3.5 instead of 20 fps). The history also keeps, per tile and band, the **excess**: the dose
+  of the exact light (`HistoryLightField::BandExact`: F x the band's mean depth factor x the footprint, unquantised)
+  minus the clock (`ClockSnapshot::ExcessAtZ`, float, next to the clock in every chunk and snapshot). A rate
+  population's mean field (WideField bleaching, pre states, initial ON) reads clock + excess: its weight is the
+  survival S at its key (clock t, through the rate history) to the power (t + e) / t, the excess as more of the same
+  past, so it bleaches with the smooth light (exact under a fixed beam, whatever the epochs: the excess of a tile at
+  level L under light a is (a - L) t / L; a tile at clock 0 takes exp(-lambda e) at the present rate). Weighting the
+  excess at the present rate instead made a x4 power step 15x brighter, not ~3x (`test_history.py`). Its weights live
+  on the history's tiles (`WidefieldScene::SetWeightMap`: each grid cell's weight is its tile's, ~25x fewer than per cell, `GridTiles`), each
+  tile's rate is its exact light now (`SetWeightRates`), and the bleach basis groups by rate (<= 8 values) or expands
+  in it: Chebyshev in rate / its largest, as many terms as exp(-tau x) needs to 1e-6 for tau = lambda x 4 s
+  (`kBasisSpanSec`) x the largest rate (`ChebTermsFor`: 3 for a slow bleach, 12 at most), so a live sequence at the
+  default powers builds it once (400 frames at 20 ms: one build). A new pose's first basis is that frame's weights
+  alone (one image, `wf.basis-single`; a stage drag renders one frame per pose), the full basis follows when a further
+  frame does not fit it. Within a movie (render-ahead batches, stacks) frame f is wb0 x exp(-lambda f exposure rate)
+  per tile (`RateWeightedFrame`; it was exp(-lambda f exposure) everywhere, the peak's bleach in the dim rim, which
+  then jumped back at the next batch). Its dark rule: outside the extent, or never lit (clock and excess 0) where the
+  exact light is 0 now; a FlatTop's or Gaussian's soft edge never reaches 0, so the never-lit rim emits at its fresh
+  value and bleaches with its light. Blinks and per-dye windows keep the levels (each distinct clock is a core
+  query), so the blinks (dSTORM, PALM) and a population drawn per dye (few dyes left) still step at the contour.
+  Measured (MM live, mEGFP WideField, 256 px, 20 ms, vs the levels' basis): sequences 47-48 fps (48-50) epi, 41-47
+  (39-49) TIRF; a stage move's snap on par; z scrub per step 36-43 ms (29-33) epi, 61 ms (195) TIRF, 437 ms (390)
+  HILO. The `Edge` check of `test_history.py` bleaches 0.6 s at 128 px: the fraction kept by radius goes 0.27 ... 0.88
+  smoothly (largest step 0.08 per 0.03 FOV widths; the levels: 0.27 to 0.50 at the half contour, a step of 0.63 at
+  the dark rule's 1/8). **Mean-field switch under a host clock:** the survival averaged over the
   lit regions by their area (`Population::meanSurvival`) x the lit dyes (`nZLit`, outside the dark regions), not the
   largest survival: under drift a thin fresh strip kept the largest one near 1 with every dye counted. **Windows**:
   a region whose expected dyes still in a windowed state are < 1e-4 is not queried (`kWindowAliveMin`), and the core's

@@ -298,6 +298,12 @@ public:
    {
       KeyAt(xUm, yUm, tSec, history);
    }
+   // The excess dose at a place and height (2026-10-14; s of light at weight 1): the exact light's dose there minus
+   // its clock (a host's history counts its clock in levels of the light, IlluminationHistory). A bleaching mean-field
+   // population reads clock + excess; blinks and per-dye windows read the clock. 0 by default; HasExcess false: 0
+   // everywhere.
+   virtual double ExcessAtZ(double /*xUm*/, double /*yUm*/, double /*zUm*/) const { return 0.0; }
+   virtual bool HasExcess() const { return false; }
    virtual const std::vector<double>& BandEdges() const
    {
       static const std::vector<double> none;

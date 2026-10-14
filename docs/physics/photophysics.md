@@ -108,10 +108,13 @@ its seconds of illumination (weighted by the excitation there, in 1/16 steps; un
 bands up to 8 µm, so after TIRF the dyes higher in a cell are still fresh, with the beam counted in two levels: full
 where it is at least half its peak, a quarter on its dim rim (1/8 to 1/2 of the peak), none below: dSTORM and PALM
 switch by these levels, while the photons keep the soft edge, and a place never lit that the beam reaches with less
-than 1/8 of its peak stays dark: its dSTORM, PALM and WideField dyes emit nothing until it has been lit; the beam is placed on the tiles' grid and the focus on a 0.25 µm grid, so a drift smaller than that lights the
-same tiles alike; when every mounted target is in DNA-PAINT, whose binding needs no light, every lit tile counts the
-time alike, whatever the beam) and its **rate history**: the lit
-time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
+than 1/8 of its peak stays dark: its dSTORM and PALM dyes emit nothing until it has been lit; next to the clock each
+tile keeps the dose of the soft light itself, and a WideField population drawn as a mean field (the usual case;
+also the dSTORM dyes' initial ON and PALM's pre state) bleaches by that dose, so its bleached area has the beam's soft
+edge and its never-lit rim glows dimly until the beam bleaches it; drawn per dye, when few dyes are left, it follows
+the levels; the beam is placed on the tiles' grid and the focus on a 0.25 µm grid, so a drift smaller than that lights
+the same tiles alike; when every mounted target is in DNA-PAINT, whose binding needs no light, every lit tile counts
+the time alike, whatever the beam) and its **rate history**: the lit time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
 dichroic, imager concentration, the dye's kinetic overrides). Every dye's schedule is read at its tile's clock through
 that history, with the same random draws whatever the history, so a change acts **from now on**: the past stays as it
 was and the future follows the new rates.
@@ -121,7 +124,8 @@ was and the future follows the new rates.
 - PALM, 405 nm off: the proteins converted so far blink on until they bleach, no new ones follow; 405 nm up: the
   density of blinking dyes rises over the activation time instead of jumping.
 - More (or less) laser power in dSTORM or WideField: the field continues from its present state at the new rates
-  (WideField x4 power: the next frame is ~4x as bright, the dyes bleached so far stay bleached).
+  (WideField x4 power: the next frame is up to 4x as bright, a little less as the dyes bleach 4x faster within it;
+  the dyes bleached so far stay bleached).
 - DNA-PAINT: a change of imager concentration acts at once (the binding events are drawn per second; a second with
   a change takes each part at its own rate); the bindings before the change never change.
 - Another dye or mode for a structure: the past light is re-read for the new dye (the new dye as it would be under the
