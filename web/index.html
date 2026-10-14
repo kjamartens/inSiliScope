@@ -108,7 +108,10 @@
   #liveCtl .cfg{display:grid;grid-template-columns:52px minmax(0,1fr);gap:3px 6px;align-items:center}
   #liveCtl .cfg select{width:100%}
   #liveCtl .cfg input[type=range]{width:100%}
-  #cfgPanel+.cfg{margin-top:3px}
+  /* every Configuration row the same height, so the Exposure row (moved into the grid by mm_config_ui.js) lines up */
+  #liveCtl .cfg select,#liveCtl .cfg input[type=number]{height:24px;box-sizing:border-box}
+  #liveCtl .cfg .expv{display:flex;align-items:center;gap:4px}
+  #lv_exp{width:62px}
   #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
   #liveCtl .note{font-size:10.5px;color:var(--muted)}
   #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
@@ -337,7 +340,7 @@
             <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
         </div>
         <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
-          <div class="cfg"><span class="lab">Exposure</span><span><input type="number" id="lv_exp" min="1" step="1" style="width:62px"> ms</span></div>
+          <div class="cfg" id="lv_expRow"><span class="lab">Exposure</span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
         </div>
         <div class="lc" id="lv_illumHost"></div>
         <div class="lc"><h5>Display</h5>

@@ -126,6 +126,10 @@ function markCurrent() {
     r.sel.value = hit ? hit.name : '';
   }
 }
+// The Exposure row of web/index.html (label, field; live.js mirrors the field) moves into this grid, kept by reference
+// (a re-render empties the grid).
+const expCells = $('lv_expRow') ? [...$('lv_expRow').children] : [];
+if ($('lv_expRow')) $('lv_expRow').remove();
 function render() {
   const tier = { advanced: 'Advanced', expert: 'Expert' }[document.body.dataset.level] || 'Basic';
   const T = CFG[tier] || CFG.Basic;
@@ -168,6 +172,7 @@ function render() {
     host.append(sel);
     rows.push({ group: g, sel });
   }
+  host.append(...expCells);   // the Exposure row last, in the same grid as the others
   markCurrent();
 }
 render();
