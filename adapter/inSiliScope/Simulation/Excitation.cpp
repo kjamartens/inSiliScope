@@ -37,6 +37,7 @@ const std::vector<std::string>& IlluminationRegimeNames()
 
 void Excitation::Make(const ExcitationSpec& s)
 {
+   spec_ = s;
    profile_ = s.profile;
    fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovWidthUm);
    const double nI = s.nImm, nS = s.nMed;
@@ -428,8 +429,17 @@ void HistoryBandRange(int band, double& z0Um, double& z1Um)
    z1Um = band >= kHistoryBands - 1 ? 8.0 : e[static_cast<size_t>(band)];
 }
 
+namespace {
+Excitation AtHistoryFocus(const Excitation& ex)
+{
+   ExcitationSpec s = ex.Spec();
+   s.pivotUm = std::round(s.pivotUm / kHistoryFocusStepUm) * kHistoryFocusStepUm;
+   return Excitation(s);
+}
+} // namespace
+
 HistoryLightField::HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& sharesIn)
-   : ex_(ex), amp_(kHistoryBands), zMid_(kHistoryBands),
+   : ex_(AtHistoryFocus(ex)), amp_(kHistoryBands), zMid_(kHistoryBands),
      sheet_(ex.Regime() == REGIME_HILO)   // the footprint moves with the height
 {
    const ExcitationShares shares = sharesIn.empty() ? ExcitationShares{ { 640.0, 1.0 } } : sharesIn;

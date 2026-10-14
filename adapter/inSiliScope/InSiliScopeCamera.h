@@ -147,7 +147,8 @@ private:
    // The light a frame of spec gives the history (IlluminationHistory.h
    // HistoryLight: the engine's excitation per tile and z band, 1/16 steps),
    // the optical axis at the FOV centre (axisX/YUm, world), the HILO sheet
-   // pivoting at the focus of stage z zStageUm; empty under a uniform beam.
+   // pivoting at the focus of stage z zStageUm (on the history's grids: HistoryAxisUm, HistoryFocusUm); empty under a
+   // uniform beam or when every mounted label is DNA-PAINT (binding needs no light).
    sim::HistoryLight HistoryLightAt(const sim::ScopeSpec& spec, double axisXUm, double axisYUm, double zStageUm) const;
    // Clears the history (and the sample's drift) when the world (seed, cells,
    // packing) changed.

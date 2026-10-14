@@ -1316,12 +1316,19 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    return true;
 }
 
-bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err)
+bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err,
+                     bool* lightKinetics)
 {
    ScopeSetup S;
    if (!MakeScopeSetup(spec, S, err))
       return false;
    out = S.excite;
+   if (lightKinetics)
+   {
+      *lightKinetics = false;
+      for (size_t s = 0; s < S.labels.size(); ++s)
+         *lightKinetics = *lightKinetics || (S.Mounted(static_cast<int>(s)) && S.labels[s].mode != MODE_DNA_PAINT);
+   }
    shares.clear();
    for (size_t s = 0; s < S.labels.size(); ++s)
       if (S.Mounted(static_cast<int>(s)) && S.labels[s].main.emits)
@@ -1479,6 +1486,9 @@ struct MeanFieldSlot
    double gauss[4] = { 0, 0, 0, 0 };
    bool gpuMode = false, has = false;
    long psfVersion = 0;
+   // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
+   bool anchored = false;
+   double anchorX = 0, anchorY = 0;
 };
 
 struct MovieCache
@@ -1754,6 +1764,9 @@ struct MeanFieldNode
    // world focus, and the bleach-basis coefficients of the weighted scene.
    std::map<double, WidefieldImages> driftImages;
    std::vector<double> driftCoef;
+   // AnchorMeanField: the scene's images go to the FOV shifted by these (grid cells).
+   bool shifted = false;
+   double shiftX = 0, shiftY = 0;
 };
 
 // A continuous population (WideField dyes, a PALM pre state, the dSTORM
@@ -1981,10 +1994,13 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
    ExcitationShares shares;
    std::vector<double> nodes;
    int j = -1;
+   double offX = 0, offY = 0;   // the beam's axis from the scene's (AnchorMeanField), um
    float At(long, double z0, double z1, double x, double y) const override
    {
       if (ex.Clipped())
          return 0.0f;
+      x += offX;
+      y += offY;
       const double dm = ex.DepthMean(z0, z1, shares), zc = std::max(0.0, (z0 + z1) / 2);
       const double a = std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm);
       return static_cast<float>(j < 0 ? a : HatWeight(nodes, static_cast<size_t>(j), a));
@@ -2025,6 +2041,7 @@ struct FluorescenceMovie::Impl
    WidefieldAccelerator* accel = nullptr;
    const DyeClock* clock = nullptr;   // per-region dye clocks (Begin only)
    bool carry = false;                // CarryRunningImages
+   bool anchor = false;               // AnchorMeanField
    double tMin = 0;                   // the smallest clock in the query (the mean-field switch)
    // The rate histories of the clock (Begin only): by history id, and the
    // physics of each env met.
@@ -2155,7 +2172,10 @@ struct FluorescenceMovie::Impl
       }
       std::vector<float> wb, frame(static_cast<size_t>(S.W) * S.H, 0.0f);
       BlinkWeights(p, f, wb);
-      nd.slot->scene.RenderFrame(wb, frame);
+      if (nd.shifted)
+         nd.slot->scene.RenderFrameShifted(wb, nd.shiftX, nd.shiftY, frame);
+      else
+         nd.slot->scene.RenderFrame(wb, frame);
       for (size_t i = 0; i < img.size(); ++i)
          img[i] += frame[i];
    }
@@ -2179,6 +2199,10 @@ FluorescenceMovie::FluorescenceMovie() : impl_(new Impl) {}
 void FluorescenceMovie::CarryRunningImages(bool on)
 {
    impl_->carry = on;
+}
+void FluorescenceMovie::AnchorMeanField(bool on)
+{
+   impl_->anchor = on;
 }
 FluorescenceMovie::~FluorescenceMovie() = default;
 
@@ -2307,11 +2331,33 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       slot.scene.SetGpuMode(sceneGpu);
       slot.gpuMode = sceneGpu;
       slot.has = true;
+      slot.anchored = false;
    }
-   // Drift keeps the spectra (focus work on the CPU: the accelerator returns images only).
-   slot.scene.SetKeepSpectra(S.driftOn);
-   slot.scene.SetAccelerator(S.driftOn ? nullptr : accel);
-   slot.scene.SetDeferImages(gpuMode && !p.weighted && !S.driftOn);
+   // AnchorMeanField: the scene at its anchor while the FOV is within kMeanFieldAnchorUm of it (else a new anchor
+   // here), the images shifted by anchor - origin (the FOV over a sample moved by d: the image moves by d).
+   nd.shifted = false;
+   if (anchor)
+   {
+      const double ox = S.q.originXUm, oy = S.q.originYUm;
+      if (!(slot.anchored && std::fabs(ox - slot.anchorX) <= kMeanFieldAnchorUm &&
+            std::fabs(oy - slot.anchorY) <= kMeanFieldAnchorUm))
+      {
+         slot.anchored = true;
+         slot.anchorX = ox;
+         slot.anchorY = oy;
+      }
+      ws.originXUm = slot.anchorX;
+      ws.originYUm = slot.anchorY;
+      const double pitchUm = um / ws.grid.upscale;
+      nd.shiftX = (slot.anchorX - ox) / pitchUm;
+      nd.shiftY = (slot.anchorY - oy) / pitchUm;
+      nd.shifted = nd.shiftX != 0.0 || nd.shiftY != 0.0;
+   }
+   // Drift (and the anchor) keep the spectra (focus work on the CPU: the accelerator returns images only).
+   const bool shifts = S.driftOn || anchor;
+   slot.scene.SetKeepSpectra(shifts);
+   slot.scene.SetAccelerator(shifts ? nullptr : accel);
+   slot.scene.SetDeferImages(gpuMode && !p.weighted && !shifts);
    if (j > 0)
       slot.scene.SetTiles(p.mf[0].slot->scene.Tiles());   // the nodes share the dyes
    // A shaped excitation: each dye plane's factor per cell.
@@ -2323,7 +2369,16 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       pf->j = nodal ? static_cast<int>(j) : -1;
       if (nodal)
          pf->nodes = p.nodes;
+      if (anchor)
+      {
+         // The beam stays with the FOV: its axis is the scene's + (anchor - origin), in 0.25 um steps (a step re-weights
+         // the scene; exact, every frame would refocus it every frame).
+         pf->offX = std::round((slot.anchorX - S.q.originXUm) / 0.25) * 0.25;
+         pf->offY = std::round((slot.anchorY - S.q.originYUm) / 0.25) * 0.25;
+      }
       pf->key = exciteKey;
+      pf->key.push_back(pf->offX);
+      pf->key.push_back(pf->offY);
       for (const ExcitationLine& l : g.shares)
       {
          pf->key.push_back(l.nm);
@@ -2459,7 +2514,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       WeightedImage(p, nd.image);
       TimingLog("fl.mean-field-render", TimingSince(tW));
    }
-   else if (!gpuMode)
+   else if (!gpuMode || anchor)
       TakeImage(p, j);
    }
    return true;
@@ -2468,7 +2523,11 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
 void FluorescenceMovie::Impl::WeightedImage(Population& p, std::vector<float>& img)
 {
    img.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
-   p.mf[0].slot->scene.RenderFrame(p.wb0, img);
+   const MeanFieldNode& nd = p.mf[0];
+   if (nd.shifted)
+      nd.slot->scene.RenderFrameShifted(p.wb0, nd.shiftX, nd.shiftY, img);
+   else
+      nd.slot->scene.RenderFrame(p.wb0, img);
 }
 
 double FluorescenceMovie::Impl::NodePhotons(const Population& p, size_t j, double tf0, double tf1) const
@@ -2506,6 +2565,8 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, size_t
    {
       if (p.weighted)
          WeightedImage(p, img);
+      else if (nd.shifted && nd.slot->scene.Images().HasSpectra())
+         RenderShiftedImages(nd.slot->scene.Images(), nullptr, 0.0, {}, nd.shiftX, nd.shiftY, img);
       else
          nd.slot->scene.Images().Render({}, img);
    }
@@ -2560,7 +2621,12 @@ void FluorescenceMovie::Impl::TakeImage(Population& p, size_t j)
 {
    MeanFieldNode& nd = p.mf[j];
    nd.image.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
-   nd.slot->scene.Images().Render({}, nd.image);
+   if (nd.shifted && !nd.slot->scene.Images().HasSpectra())
+      nd.slot->scene.ComputeCpuImages();   // (images made without spectra: again, with them)
+   if (nd.shifted && nd.slot->scene.Images().HasSpectra())
+      RenderShiftedImages(nd.slot->scene.Images(), nullptr, 0.0, {}, nd.shiftX, nd.shiftY, nd.image);
+   else
+      nd.slot->scene.Images().Render({}, nd.image);
 }
 
 // A dye's identity in a running image (its position and aux draw; the query
@@ -3293,16 +3359,19 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       auto mainShares = [&](int st) -> const ExcitationShares& { return m.groups[static_cast<size_t>(groupOf(st, false))].shares; };
       // The kinetics' light: the history's (lit / unlit footprint, per z band, 1/16 steps) at the dye's tile and band,
       // so a frame reads the dose the history gives it; the photons keep the smooth factor.
+      // (The host's grids: HistoryAxisUm, HistoryFocusUm.)
       Excitation hx;
       std::vector<ExcitationLine> hShares;
       std::string hErr;
-      if (!ScopeExcitation(spec, hx, hShares, hErr))
+      ScopeSpec hSpec = spec;
+      hSpec["z"] = HistoryFocusUm(ScopeSpecGet(spec, "z"));
+      if (!ScopeExcitation(hSpec, hx, hShares, hErr))
       {
          err = hErr;
          return false;
       }
       const HistoryLightField light(hx, hShares);
-      const double axisWX = S.q.originXUm + m.axisX, axisWY = S.q.originYUm + m.axisY;
+      const double axisWX = HistoryAxisUm(S.q.originXUm + m.axisX), axisWY = HistoryAxisUm(S.q.originYUm + m.axisY);
       double kMax = 1.0;
       for (const Group& g : m.groups)
       {

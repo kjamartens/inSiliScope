@@ -107,7 +107,9 @@ The adapter remembers how long each place has been lit and under which settings.
 its seconds of illumination (weighted by the excitation there, in 1/16 steps; under a shaped beam per height band, 12
 bands up to 8 µm, so after TIRF the dyes higher in a cell are still fresh, with the beam counted as lit inside its
 half-maximum and unlit outside: dSTORM and PALM switch as under a hard-edged beam, while the photons keep the soft
-edge) and its **rate history**: the lit
+edge; the beam is placed on the tiles' grid and the focus on a 0.25 µm grid, so a drift smaller than that lights the
+same tiles alike; when every mounted target is in DNA-PAINT, whose binding needs no light, every lit tile counts the
+time alike, whatever the beam) and its **rate history**: the lit
 time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
 dichroic, imager concentration, the dye's kinetic overrides). Every dye's schedule is read at its tile's clock through
 that history, with the same random draws whatever the history, so a change acts **from now on**: the past stays as it

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
@@ -66,6 +67,7 @@ public:
    Excitation() { Make(ExcitationSpec()); }
    explicit Excitation(const ExcitationSpec& s) { Make(s); }
    void Make(const ExcitationSpec& s);
+   const ExcitationSpec& Spec() const { return spec_; }
 
    int Regime() const { return regime_; }
    double U() const { return u_; }
@@ -108,6 +110,7 @@ private:
    double CollectedAt(double x, double y, const std::vector<Interval>& ivs, const CollectionRings& rings,
                       const std::vector<double>& dirs, double small) const;
 
+   ExcitationSpec spec_;
    int profile_ = ILLUM_FLATTOP, regime_ = REGIME_EPI;
    double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, nI_ = 1.518, na_ = 1.4, zp_ = 0;
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
@@ -131,6 +134,15 @@ const std::vector<double>& HistoryBandEdges();   // the kHistoryBands - 1 inner 
 // The heights a band's light is evaluated over: band 0 from the coverslip (0), the last up to 8 um (the cells' tops).
 void HistoryBandRange(int band, double& z0Um, double& z1Um);
 
+// The grids of the history's light (um), fixed on purpose: the light is read with the optical axis on the tile grid
+// (HistoryAxisUm) and the focus on a 0.25 um grid (HistoryFocusUm, and the pivot again in HistoryLightField), so a
+// sample that drifts by less (drift moves the pose and the focus every frame) lights the same tiles alike. Read exact,
+// the lit / unlit edges (HILO's sheet in every band) moved a fraction of a tile every frame, the tiles they crossed
+// each got a clock of their own and every distinct clock is a region (a core query): live HILO under drift fell from
+// 17 to 3 fps within a few hundred frames. The host (the history's light) and the engine (doseEvents) both snap.
+constexpr double kHistoryFocusStepUm = 0.25;
+inline double HistoryAxisUm(double vUm) { return std::round(vUm / kHistoryTileUm) * kHistoryTileUm; }
+inline double HistoryFocusUm(double zUm) { return std::round(zUm / kHistoryFocusStepUm) * kHistoryFocusStepUm; }
 // The light the history counts under an excitation (ScopeExcitation: the geometry and the first label's line shares):
 // per band F x the band's mean depth factor in 1/16 steps where the beam's footprint (at the band's middle height:
 // the HILO sheet moves with it) is at least half its peak, else 0. The footprint is lit or not, not its soft edge:

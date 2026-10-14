@@ -49,6 +49,8 @@ HistoryLight HistoryLightFor(const Excitation& ex, const std::vector<ExcitationL
       Memo(const Excitation& e, const std::vector<ExcitationLine>& sh) : field(e, sh) {}
    };
    const auto memo = std::make_shared<Memo>(ex, sharesIn);
+   axisXUm = HistoryAxisUm(axisXUm);
+   axisYUm = HistoryAxisUm(axisYUm);
    return [memo, axisXUm, axisYUm](double x, double y, float* w) {
       const double T = IlluminationHistory::kTileUm;
       const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(static_cast<int32_t>(std::floor(x / T)))) << 32) |
@@ -333,6 +335,20 @@ void ClockSnapshot::Advance(double x0Um, double y0Um, double x1Um, double y1Um, 
       }
 }
 
+void IlluminationHistory::Chunk::Expand()
+{
+   if (banded)
+      return;
+   t.resize(kChunkTiles * kHistoryBands);
+   node.resize(kChunkTiles * kHistoryBands);
+   for (size_t b = 1; b < static_cast<size_t>(kHistoryBands); ++b)
+   {
+      std::copy(t.begin(), t.begin() + kChunkTiles, t.begin() + static_cast<std::ptrdiff_t>(kChunkTiles * b));
+      std::copy(node.begin(), node.begin() + kChunkTiles, node.begin() + static_cast<std::ptrdiff_t>(kChunkTiles * b));
+   }
+   banded = true;
+}
+
 uint32_t IlluminationHistory::RegisterEpoch(const KineticEnv& env)
 {
    std::lock_guard<std::mutex> g(mutex_);
@@ -419,13 +435,24 @@ void IlluminationHistory::Advance(double x0Um, double y0Um, double x1Um, double 
          Chunk& c = *chunk;
          if (c.t.empty())
          {
-            c.t.assign(kChunkTiles * kHistoryBands, 0.0f);
-            c.node.assign(kChunkTiles * kHistoryBands, 0u);
+            c.t.assign(kChunkTiles, 0.0f);
+            c.node.assign(kChunkTiles, 0u);
          }
          if (light)
+         {
             light((ix + 0.5) * T, (iy + 0.5) * T, w);
+            if (!c.banded)
+            {
+               bool alike = true;
+               for (int b = 1; b < kHistoryBands && alike; ++b)
+                  alike = w[b] == w[0];
+               if (!alike)
+                  c.Expand();   // the light differs in height here: every band from now on
+            }
+         }
          const size_t i = static_cast<size_t>(ix - cx * kChunk) + static_cast<size_t>(kChunk) * (iy - cy * kChunk);
-         for (int b = 0; b < kHistoryBands; ++b)
+         const int nb = c.banded ? kHistoryBands : 1;
+         for (int b = 0; b < nb; ++b)
          {
             const size_t k = i + kChunkTiles * static_cast<size_t>(b);
             float& v = c.t[k];
@@ -445,10 +472,19 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
    s.nx = static_cast<unsigned>(std::max(0L, ix1 - s.ix0 + 1));
    s.ny = static_cast<unsigned>(std::max(0L, iy1 - s.iy0 + 1));
    const size_t n = static_cast<size_t>(s.nx) * s.ny;
-   s.nb = kHistoryBands;
-   s.t.assign(n * kHistoryBands, 0.0f);
-   s.node.assign(n * kHistoryBands, 0u);
    std::lock_guard<std::mutex> g(mutex_);
+   // Every band alike unless a chunk the rect meets keeps bands (then compared per tile below).
+   bool anyBanded = false;
+   for (long cy = FloorDiv(s.iy0, kChunk); cy <= FloorDiv(iy1, kChunk) && !anyBanded; ++cy)
+      for (long cx = FloorDiv(s.ix0, kChunk); cx <= FloorDiv(ix1, kChunk) && !anyBanded; ++cx)
+      {
+         auto it = chunks_.find(Key(cx, cy));
+         anyBanded = it != chunks_.end() && it->second.banded;
+      }
+   const unsigned nbRead = anyBanded ? static_cast<unsigned>(kHistoryBands) : 1u;
+   s.nb = nbRead;
+   s.t.assign(n * nbRead, 0.0f);
+   s.node.assign(n * nbRead, 0u);
    s.freshNode = Continue(0, 0.0f, epoch);
    uint32_t lastIn = UINT32_MAX, lastOut = 0;
    float lastT = 0;
@@ -469,14 +505,14 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
          }
          const size_t k0 = i + static_cast<size_t>(s.nx) * j;
          const size_t c0 = static_cast<size_t>(ix - cx * kChunk) + static_cast<size_t>(kChunk) * (iy - cy * kChunk);
-         for (unsigned b = 0; b < static_cast<unsigned>(kHistoryBands); ++b)
+         for (unsigned b = 0; b < nbRead; ++b)
          {
             const size_t k = k0 + n * b;
             if (!chunk)
                s.node[k] = s.freshNode;
             else
             {
-               const size_t ci = c0 + kChunkTiles * b;
+               const size_t ci = c0 + kChunkTiles * (chunk->banded ? b : 0);
                const float v = chunk->t[ci];
                const uint32_t nd = chunk->node[ci];
                s.t[k] = v;
@@ -495,7 +531,7 @@ ClockSnapshot IlluminationHistory::Snapshot(double x0Um, double y0Um, double x1U
       }
    if (banded)
       s.edges = HistoryBandEdges();
-   else
+   else if (s.nb > 1)
    {
       // Every band alike (epi): one, the old layout.
       s.nb = 1;

@@ -1062,7 +1062,11 @@ change, golden unchanged).
   Excitation.h) = F x the depth mean over it in 1/16 steps where the footprint (HILO: at the band's midpoint) is at least
   half its peak, else 0 (lit / unlit: spec/ALGORITHM.md says why). `HistoryLight` / `HistoryLightFor` (memoised per
   tile), `ClockSnapshot::Advance(..., light)` (so render-ahead stays on), a snapshot whose bands are equal is one band
-  (epi: the old arithmetic). `ClockRegion` has a z range (narrowing the core's z cull), `DyeClock::KeyAtZ` /
+  (epi: the old arithmetic). The light is read on the history's grids (`HistoryAxisUm`: the axis on the tile grid,
+  `HistoryFocusUm`: the focus on 0.25 um) by the host and `doseEvents` alike, and is uniform when every mounted label is
+  DNA-PAINT (`ScopeExcitation(..., &lightKinetics)`); a chunk lit only alike in height keeps one band. Live under
+  drift: the drift's z on a 10 nm grid and `FluorescenceMovie::AnchorMeanField` (scenes kept at an anchor within
+  `kMeanFieldAnchorUm`, images phase-ramp shifted; off in the cli and the viewer, no JS twin needed). `ClockRegion` has a z range (narrowing the core's z cull), `DyeClock::KeyAtZ` /
   `BandEdges` / `TileUm`; a key filling less than half its bounding box is bisected (was: 2 um blocks). Under a host
   clock and a shaped beam the movie reads dSTORM / PALM events at the history's dose (`doseEvents`: a region queried
   over kMax x the span, times / a_h at the dye's tile and band; photons x the smooth factor). The weighted mean field

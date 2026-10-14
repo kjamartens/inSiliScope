@@ -353,11 +353,16 @@ sim::HistoryLight CInSiliScopeCamera::HistoryLightAt(const sim::ScopeSpec& spec,
                                                     double zStageUm) const
 {
    sim::ScopeSpec s = spec;
-   s["z"] = zStageUm;
+   s["z"] = sim::HistoryFocusUm(zStageUm);
    sim::Excitation ex;
    std::vector<sim::ExcitationLine> shares;
    std::string err;
-   if (!sim::ScopeExcitation(s, ex, shares, err))
+   bool lightKinetics = true;
+   if (!sim::ScopeExcitation(s, ex, shares, err, &lightKinetics))
+      return {};
+   // Only DNA-PAINT labels: their binding needs no light (as in the engine's movies), so every lit tile counts the
+   // time alike (one clock: no regions from the beam's shape, and a dim tile does not hold a binding for many frames).
+   if (!lightKinetics)
       return {};
    // The engine's optical axis is the FOV centre pixel's centre ((W - 1) / 2 px from the corner): half a pixel less
    // than the stage position.
@@ -884,15 +889,19 @@ void CInSiliScopeCamera::LiveProducerLoop()
    long liveLightVersion = -1;
    double liveLightPose[3] = { 0.0, 0.0, 0.0 };
    auto liveLightAt = [&](long version, double x, double y, double z) -> const sim::HistoryLight& {
-      if (version != liveLightVersion || x != liveLightPose[0] || y != liveLightPose[1] || z != liveLightPose[2])
+      // The light depends on the pose and focus only through the history's grids (HistoryLightAt): a drifting sample
+      // keeps it, and its per-tile memo, until it crosses a step.
+      const double pxUm = St().PixelSizeNm() / 1000.0;
+      const double key[3] = { sim::HistoryAxisUm(x - pxUm / 2.0), sim::HistoryAxisUm(y - pxUm / 2.0),
+                              sim::HistoryFocusUm(z) };
+      if (version != liveLightVersion || key[0] != liveLightPose[0] || key[1] != liveLightPose[1] ||
+          key[2] != liveLightPose[2])
       {
          const auto tLight = sim::TimingClock::now();
          liveLight = HistoryLightAt(isc::BuildScopeSpec(St(), x, y, z, 0.0, 1), x, y, z);
          sim::TimingLog("live.history-light", sim::TimingSince(tLight));
          liveLightVersion = version;
-         liveLightPose[0] = x;
-         liveLightPose[1] = y;
-         liveLightPose[2] = z;
+         std::copy(key, key + 3, liveLightPose);
       }
       return liveLight;
    };
@@ -1128,6 +1137,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
       }
       driftWalker_.SetSettings(params.drift);
       const sim::DriftNm liveDrift = driftWalker_.Position();
+      // The drift's focus part on a 10 nm grid (fixed on purpose): a frame's focus that moves every frame refocused
+      // every mean-field scene (and its bleach basis) every frame, ~0.3-0.6 s each (dSTORM's initial-ON dyes, or
+      // HILO's never-lit ones that stay there); 10 nm of drift is far below the PSF's 100 nm planes. The stage's own z
+      // stays exact.
+      const double liveDriftZUm = std::floor(liveDrift.z / 10.0 + 0.5) * 0.01;
       if (params.drift.On() && timeRuns)
       {
          double dt = params.frameDurationSec;
@@ -1389,7 +1403,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
                lit.x1 = lx1;
                lit.y1 = ly1;
                lit.dtSec = params.frameDurationSec;
-               lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDrift.z / 1000.0);
+               lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
                lit.epoch = configEpoch;
                sim::TimingLog("live.ahead-frame", 0.0);
             }
@@ -1419,12 +1433,13 @@ void CInSiliScopeCamera::LiveProducerLoop()
       {
          // Fluorescence: this frame of the engine's movie at the current pose,
          // focus and time (one stage pose per frame; motion blur is ignored).
-         spec = isc::BuildScopeSpec(St(), posX, posY, zOffsetUm - liveDrift.z / 1000.0, 0.0, 1);
+         spec = isc::BuildScopeSpec(St(), posX, posY, zOffsetUm - liveDriftZUm, 0.0, 1);
          LitRect(posX, posY, lx0, ly0, lx1, ly1);
          clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1, configEpoch);
          lap("live.spec+clock");
          sim::FluorescenceMovie fm;
          fm.CarryRunningImages(true);
+         fm.AnchorMeanField(params.drift.On());   // (a pose that moves every frame)
          std::string err;
          bool rendered = false;
          const auto tOnDemand = sim::TimingClock::now();
@@ -1561,7 +1576,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
             lit.x1 = lx1;
             lit.y1 = ly1;
             lit.dtSec = params.frameDurationSec;
-            lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDrift.z / 1000.0);
+            lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
             lit.epoch = configEpoch;
          }
       }

@@ -892,7 +892,22 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   a core query scanning every dye block it meets; a FlatTop's soft edge in 1/16 levels made ~800 regions in epi and
   ~2600 in HILO, and live frames took seconds (bench_live 0 fps at 10 ms); lit / unlit makes a handful (its unlit
   corners bisected, `ClockSnapshot::Regions`). The cost: dyes beyond the half-maximum emit (photons x the edge's
-  factor) but do not switch -- a dSTORM / PALM beam acts hard-edged at its FWHM. Bands, not a continuous z: a clock
+  factor) but do not switch -- a dSTORM / PALM beam acts hard-edged at its FWHM. **Grids** (fixed on purpose, the host
+  and `doseEvents` alike): a_h is read with the optical axis on the tile grid (`HistoryAxisUm`) and the focus on a
+  0.25 um grid (`HistoryFocusUm`, the pivot again in `HistoryLightField`). Read exact, sample drift moved the lit /
+  unlit edges (HILO's sheet in every band) a fraction of a tile every frame, each tile they crossed got a clock of its
+  own, and live HILO under drift fell from ~90 to ~20 fps at 10 ms (DNA-PAINT) as the regions grew. **DNA-PAINT
+  only:** when every mounted label is DNA-PAINT the history light is uniform (a_h = 1 in the lit rect): its binding
+  needs no light (as in the cli's movies), so the beam's shape would only cut the field into regions -- and a dim
+  tile's clock, running at a_h x real time, held a binding for 1 / a_h frames. Mixed scenes keep a_h (the PAINT
+  label reads the dose clock; *known approximation*). A history chunk that only a light alike in height has lit keeps
+  one band (`IlluminationHistory::Chunk::banded`): a live frame advances one value per tile, not 12. **Live under
+  drift** (MM, fixed on purpose): the drift's z part enters a frame's focus on a 10 nm grid (the stage's own z stays
+  exact), and the mean-field scenes stay posed at an anchor within 1 um of the FOV, their images shifted to it by a
+  phase ramp (`FluorescenceMovie::AnchorMeanField`, the drift movies' `RenderShiftedImages`; the beam's axis offset in
+  the plane factor in 0.25 um steps). Before, each frame's new pose and focus refocused every mean-field scene and
+  rebuilt its bleach basis, ~0.6 s per frame: dSTORM's initial-ON dyes, which under HILO stay ON where the sheet does
+  not reach (1.5 -> 12 fps at 10 ms). Bands, not a continuous z: a clock
   per dye height would make every dye its own region. The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per
   mode (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
 - **Known approximations.** The factor is read at the sample's undrifted place (drift is small against the beam);

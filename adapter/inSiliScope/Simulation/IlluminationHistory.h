@@ -52,7 +52,8 @@ namespace sim {
 // A frame's light per tile and band: w[b] (b < kHistoryBands) at the tile centre (world um), the excitation relative to
 // the lasers' power at the sample, quantised by the caller. Empty: 1 everywhere.
 using HistoryLight = std::function<void(double xUm, double yUm, float* w)>;
-// HistoryLightField's (Excitation.h) light with the optical axis at world (axisXUm, axisYUm). Empty when the excitation is uniform.
+// HistoryLightField's (Excitation.h) light with the optical axis at world (axisXUm, axisYUm), snapped to the tile grid
+// (HistoryAxisUm). Empty when the excitation is uniform.
 HistoryLight HistoryLightFor(const Excitation& ex, const std::vector<ExcitationLine>& shares, double axisXUm,
                              double axisYUm);
 
@@ -123,6 +124,10 @@ private:
    {
       std::vector<float> t;        // kChunk x kChunk x kHistoryBands seconds, x fastest, the band last
       std::vector<uint32_t> node;  // ... their histories (0: never lit)
+      // False: every band equals band 0 (a light alike in height has lit it, or none), and only band 0 is kept: a
+      // frame then advances one value per tile, not kHistoryBands (live frames: 1.5 -> 0.5 ms).
+      bool banded = false;
+      void Expand();
    };
    // A trie node: its parent's segments, then epoch from clock tStart on.
    // Node 0 is the root (no segments).

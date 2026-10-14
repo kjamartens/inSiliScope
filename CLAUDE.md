@@ -231,8 +231,9 @@ a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci 
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
 `adapter_pixel_hash` reference since the imager's collected column (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
-chamber, the lit / unlit history footprint, the free imager's light collected defocused): TOTAL b1af15bc... (before
-pores 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+chamber, the lit / unlit history footprint, the free imager's light collected defocused; 2026-10-14 the history light on
+the tile / 0.25 um focus grids, which moved `dstorm`, `palm`): TOTAL a5b388b0... (before pores 09832cd5...; before the
+grids b1af15bc... / 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
 Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5ef51..., 816101d) but `illum-bg`
 (9a01e6ab..., the engine's profile); its "TOTAL before pores" (the 12 older configs with `NuclearPores_Label` None and
 `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
@@ -249,7 +250,11 @@ profile phases `fl.bg-map`, `fl.bg-map-prefetch`, `gpu.prepare`, `gpu.prepare-ba
 targets keeps the position they agree on. The kinetics follow the local light (cli/viewer: dSTORM clock x a, PALM
 activation b(a), mean field by dose nodes); in MM the history clock is the dose, in 12 z bands under a shaped beam, the
 footprint lit / unlit at its half maximum (`HistoryLightField`: a soft edge in 1/16 levels made thousands of clock
-regions, live 0 fps), and a frame reads dSTORM / PALM events at that dose (`doseEvents`). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
+regions, live 0 fps), read on the history's grids (`HistoryAxisUm` tile grid, `HistoryFocusUm` 0.25 um: sub-tile drift
+fragmented the clocks, live HILO under drift 90 -> 20 fps), uniform when every mounted label is DNA-PAINT (binding needs
+no light), and a frame reads dSTORM / PALM events at that dose (`doseEvents`); a history chunk lit only alike in height
+keeps one band. Live under drift: the drift's z enters the focus on a 10 nm grid and the mean-field scenes stay at an
+anchor within 1 um, their images phase-ramp shifted (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
 `BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set.
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's

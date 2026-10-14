@@ -243,15 +243,21 @@ double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp);
 struct ExcitationSpec;
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
 // A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
-// shares of the first mounted label's main state (empty when no label emits). False (err) when the spec is bad.
+// shares of the first mounted label's main state (empty when no label emits); lightKinetics (optional): whether a
+// mounted label's kinetics follow the light (any mode but DNA-PAINT, whose binding needs none). False (err) when the
+// spec is bad.
 class Excitation;
 struct ExcitationLine;
-bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err);
+bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err,
+                     bool* lightKinetics = nullptr);
 // The shaped background maps (FluorescenceMovie::Begin): made at foci on a kBackgroundFocusStepUm grid and blended
 // between the two around the focus, the grid's maps kept in a small cache. A host that moves the focus a lot (the MM
 // adapter's live mode) turns the prefetch on: a worker thread then also makes the grid's neighbouring maps (native
 // builds; the WASM viewer has no threads). Hosts that unload call BackgroundMapPrefetchShutdown (it joins the worker).
 constexpr double kBackgroundFocusStepUm = 0.25;
+// FluorescenceMovie::AnchorMeanField: how far the FOV may move from a mean-field scene's anchor (um; the scene's
+// margin is 2 um).
+constexpr double kMeanFieldAnchorUm = 1.0;
 void SetBackgroundMapPrefetch(bool on);
 void BackgroundMapPrefetchShutdown();
 
@@ -349,6 +355,11 @@ public:
    // differ from a fresh build; off by default: stacks stay reproducible).
    // Call before Begin.
    void CarryRunningImages(bool on);
+   // Live under drift (a movie per frame, the pose moving a little each frame): the mean-field scenes stay posed at an
+   // anchor within kMeanFieldAnchorUm of the FOV (kept in this process across movies) and their images are shifted to
+   // the FOV by a phase ramp (exact, band-limited; the drift movies' RenderShiftedImages), instead of a new scene pose
+   // and a refocus of every dye plane per frame (~0.3 s). Off by default (= the cli and the JS). Call before Begin.
+   void AnchorMeanField(bool on);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.
