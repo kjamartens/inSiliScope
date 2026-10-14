@@ -103,6 +103,11 @@ int main()
    std::snprintf(msg, sizeof msg, "dSTORM initial ON fades under light: mean %.0f ADU at 0 s, %.0f after %.1f s; 33 um away fresh (clock %.1f s)",
                  Mean(first.adu), Mean(last.adu), last.info.litSec, fresh.info.litSec);
    Check(first.ok && last.ok && Mean(last.adu) < 0.5 * Mean(first.adu) && fresh.info.litSec == 0.0, msg);
+   // The frame's render paths (the viewer's info line): the blinks' path and the initial-ON population's.
+   std::printf("      paths at 0 s: %s; after %.1f s: %s\n", first.info.paths.c_str(), last.info.litSec,
+               last.info.paths.c_str());
+   Check(first.info.paths.size() > 2 && first.info.paths.front() == '[' && first.info.paths.back() == ']' &&
+         last.info.paths.find("SMLM:") != std::string::npos, "each frame names its render paths (SMLM: ... blinks)");
 
    // Another world: a fresh sample.
    const Shot other = Take(live, Spec("world-seed=7"));

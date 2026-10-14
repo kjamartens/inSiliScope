@@ -4035,7 +4035,8 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
 }
 
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err, const DyeClock* clock, bool carryRunningImages)
+                        std::string& err, const DyeClock* clock, bool carryRunningImages,
+                        const ScopeProgress* progress)
 {
    const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
    bool epi = false, trans = false;
@@ -4084,7 +4085,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
             sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
          return onPhotons(f, sum);
       };
-      return fm.Render(noFrames, info, err, nullptr, &opt);
+      return fm.Render(noFrames, info, err, progress, &opt);
    }
    if (trans)
    {
@@ -4119,7 +4120,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
    fm.CarryRunningImages(carryRunningImages);
    FluorescenceFrameOptions opt;
    opt.onPhotons = onPhotons;
-   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, nullptr, &opt);
+   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, progress, &opt);
 }
 
 } // namespace sim

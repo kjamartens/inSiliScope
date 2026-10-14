@@ -12,6 +12,7 @@
 #include "ScopeResolved.h"
 
 #include <chrono>
+#include <cstring>
 #include <random>
 
 namespace sim {
@@ -77,10 +78,17 @@ bool LiveScope::Frame(const ScopeSpec& specIn, bool countLight, std::vector<uint
 
    std::vector<float> photons;
    ScopeMovieInfo mi;
+   info.paths = "[]";
+   const ScopeProgress paths = [&](const char* stage, double, const std::string& detail) {
+      // {"frame":0,...,"backends":[...]}: keep the array
+      const size_t at = detail.find("\"backends\":");
+      if (!std::strcmp(stage, "frames") && at != std::string::npos && detail.size() > at + 12)
+         info.paths = detail.substr(at + 11, detail.size() - at - 12);
+   };
    const bool ok = RenderScopePhotons(spec, [&](long, const std::vector<float>& ph) {
       photons = ph;
       return true;
-   }, mi, err, &clock, true);
+   }, mi, err, &clock, true, &paths);
    if (!ok)
       return false;
    if (photons.size() != static_cast<size_t>(R.W) * R.H)

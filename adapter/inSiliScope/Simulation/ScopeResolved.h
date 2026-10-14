@@ -69,8 +69,10 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err);
 // clock (optional): the dyes' clocks and rate histories, as the adapter's
 // illumination history gives them to its movies (FluorescenceMovie::Begin).
 using ScopePhotonSink = std::function<bool(long f, const std::vector<float>& photons)>;
-// carryRunningImages: FluorescenceMovie::CarryRunningImages (live: one movie per frame).
+// carryRunningImages: FluorescenceMovie::CarryRunningImages (live: one movie per frame). progress (optional):
+// FluorescenceMovie::Render's progress, whose "frames" stage names each frame's render paths (fluorescence only).
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err, const DyeClock* clock = nullptr, bool carryRunningImages = false);
+                        std::string& err, const DyeClock* clock = nullptr, bool carryRunningImages = false,
+                        const ScopeProgress* progress = nullptr);
 
 } // namespace sim

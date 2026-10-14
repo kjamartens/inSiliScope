@@ -506,8 +506,10 @@ ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
 // returns its pixel count (-1: a failure, message in errOut); the frame is at isc_live_image() until the next call.
 // info[0..12] = width, height, t (s), lit seconds at the FOV centre before the frame, lit (0/1), epi, trans, blinks,
 // dyes, drift x, y, z (nm), render ms. countLight 0: the frame's light does not go into the history.
+// isc_live_paths(): how the last frame's fluorescence was drawn (LiveFrameInfo::paths, a JSON array of strings).
 static sim::LiveScope g_live;
 static std::vector<uint16_t> g_liveImage;
+static std::string g_livePaths = "[]";
 ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* info, char* errOut, int32_t errCap)
 {
    std::string err;
@@ -531,9 +533,11 @@ ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* inf
                              li.drift.z, li.renderMs };
       std::memcpy(info, v, sizeof v);
    }
+   g_livePaths = li.paths;
    return static_cast<int32_t>(g_liveImage.size());
 }
 ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
+ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
 ISC_API void isc_live_reset() { g_live.Reset(); }
 
 ISC_API void isc_wf_end(int32_t h)

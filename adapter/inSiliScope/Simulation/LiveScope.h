@@ -46,6 +46,9 @@ struct LiveFrameInfo
    long dyes = 0;
    DriftNm drift;            // the sample's drift at the frame (nm)
    double renderMs = 0;
+   // How the frame's fluorescence was drawn (FluorescenceMovie::Render's "frames" progress): a JSON array of
+   // strings, e.g. ["SMLM: 120 blinks (splat)", "initial ON: mean-field (FFT)"]; [] for a lamp-only or dark frame.
+   std::string paths = "[]";
 };
 
 class LiveScope
