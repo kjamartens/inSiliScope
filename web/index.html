@@ -14,8 +14,8 @@
     --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
-     its controls beside it, then every setting). --live-w: the right panel's width (33-50 % of the window, dragged). */
-  #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,40vw);height:100vh}
+     its controls beside it, then every setting). --live-w: the right panel's width (33-62 % of the window, dragged; 50 % by default). */
+  #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,50vw);height:100vh}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0}
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
@@ -39,8 +39,10 @@
   #liveTop{display:flex;flex-wrap:wrap;gap:8px;padding:8px;border-bottom:1px solid var(--border)}
   #liveView{position:relative;flex:1 1 64%;min-width:220px;aspect-ratio:1;background:#000;border:1px solid var(--border);border-radius:4px;overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:#000}
-  #lv_info,#lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
-  #lv_info{top:4px;left:6px;white-space:pre;line-height:1.35}
+  #lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
+  #lv_info{margin-top:5px;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+  #lv_info:empty{display:none}
+  #lv_info b{color:var(--text);font-weight:600}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
   #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
@@ -60,6 +62,7 @@
   #liveCtl .cfg input[type=range]{width:100%}
   #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
   #liveCtl .note{font-size:10.5px;color:var(--muted)}
+  #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
   #side p.sub{font-size:11px;color:var(--muted);margin:6px 0;line-height:1.4}
   #side p.sub a{color:var(--link)}
@@ -121,7 +124,11 @@
   /* preset children: indented under their preset with a guide line */
   .kids{margin-left:5px;padding-left:9px;border-left:2px solid var(--guide)}
   .kids .opt{--lab-w:calc(var(--lab-w-base) - 16px)}
-  body[data-level=default] .adv{display:none!important}
+  body[data-level=basic] .t-advanced,body[data-level=basic] .t-expert,body[data-level=advanced] .t-expert{display:none!important}
+  #levelSeg{display:flex;border:1px solid var(--in-border);border-radius:var(--radius);overflow:hidden;flex:none}
+  #levelSeg button{border:0;border-radius:0;padding:3px 8px;background:var(--in-bg);color:var(--muted);font-size:11px;cursor:pointer}
+  #levelSeg button+button{border-left:1px solid var(--in-border)}
+  #levelSeg button.on{background:color-mix(in srgb,var(--accent) 28%,var(--in-bg));color:var(--text)}
   /* sub-headings inside a group, button rows, checkbox grids, radio columns */
   .subhead{display:flex;align-items:center;gap:5px;margin:12px 0 4px;padding-bottom:2px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
   .body>.subhead:first-child{margin-top:4px}
@@ -242,16 +249,15 @@
       <div id="liveView">
         <canvas id="lv_cv" width="1" height="1"></canvas>
         <div id="lv_idle">Live is off. Press <b>&nbsp;▶ Live&nbsp;</b> to image the sample under the world view's centre.</div>
-        <div id="lv_info"></div>
         <div id="lv_scale"></div>
       </div>
       <div id="liveCtl">
         <div class="lc"><div class="btns">
           <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
           <button id="lv_snap" title="Snap: one frame">Snap</button>
-          <button id="lv_rec" title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
+          <button id="lv_rec" hidden title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
           <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-        </div></div>
+        </div><div id="lv_info"></div></div>
         <div class="lc"><h5>Focus (Z stage)</h5>
           <div class="zrow"><input type="number" id="lv_z" step="0.1"><span class="u">µm</span>
             <button id="lv_zUp" title="Focus up (into the sample)">▲</button><button id="lv_zDn" title="Focus down">▼</button></div>
@@ -262,13 +268,14 @@
         </div>
         <div class="lc"><h5>Display</h5>
           <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
-          <div class="note" id="lv_hist"></div>
+          <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
         </div>
       </div>
     </div>
     <div id="sideTop">
       <div class="bar">
         <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
+        <div id="levelSeg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
         <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       </div>
       <div id="menu" role="menu"></div>
@@ -281,6 +288,7 @@
 </div>
 
 <script src="dye_library.js"></script>
+<script src="live/mm_config.js"></script>
 <script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
 <script src="wf_gpu.js"></script>
@@ -296,8 +304,9 @@
 // ---- option panel: schema + renderer ------------------------------------------------------------------------------
 // Every option of the side panel is one entry of UI_GROUPS. This script builds #panel from it before the main script
 // runs, with the element ids the main script reads (els, params(), movieSpec(), MOVIE_KEYS), so the generator path
-// does not know the panel changed. One option = one line: label (i) | control | value + unit. Rows marked adv are
-// hidden in the Default level; show() hides rows that do not apply (e.g. WideField rows unless that modality is
+// does not know the panel changed. One option = one line: label (i) | control | value + unit. A row shows from its
+// level on (Basic / Advanced / Expert: the Micro-Manager property's tier, tierOf in the uiPanel script; adv = the
+// viewer's own Advanced for a setting MM does not have); show() hides rows that do not apply (e.g. WideField rows unless that modality is
 // chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
 // This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
@@ -668,7 +677,7 @@ const UI_GROUPS = [
       'Small, compact': { cellDiamMin: 12, cellDiamMax: 18, cellElongMin: 0.7, cellElongMax: 1, cellBlob: 0.75, cellRough: 0.1, cellFractalDim: 1.3 },
       'Irregular, rough': { cellDiamMin: 25, cellDiamMax: 40, cellElongMin: 0.4, cellElongMax: 1, cellBlob: 2.5, cellRough: 0.5, cellFractalDim: 1.6 },
     }, [
-      pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max.', 5, 80, 0.5, 25, 35),
+      pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max. <code>CellField.CellDiameterMinUm</code> / <code>CellDiameterMaxUm</code>', 5, 80, 0.5, 25, 35),
       pair('cellElong', 'Elongation', 'ratio', 'Short-to-long axis ratio of the footprint, per cell (1 = round).', 0.1, 1, 0.05, 0.5, 1),
       range('cellBlob', 'Blobbiness', 'a.u.', 'Amplitude of the large lobes of the outline (0 = smooth ellipse).', 0, 4, 0.05, 1.75, { fmt: fx(2) }),
       range('cellRough', 'Roughness', '× blob', 'Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.', 0, 1, 0.01, 0.15, { adv, fmt: fx(2) }),
@@ -717,7 +726,7 @@ const UI_GROUPS = [
     range('relaxDamping', 'Relaxation step', 'frac.', 'Fraction of the overlap resolved per relaxation step.', 0.1, 1, 0.05, 0.55, { fmt: fx(2) }),
   ] },
   { id: 'mt', title: 'Microtubules', show: CF, items: [
-    range('mtDensity', 'Density', '/µm²', 'Microtubules per µm² of cell footprint.', 0, 2, 0.005, 0.9, { fmt: fx(3) }),
+    range('mtDensity', 'Density', '/µm²', 'Microtubules per µm² of cell footprint. <code>CellField.MicrotubuleDensityPerUm2</code>', 0, 2, 0.005, 0.9, { fmt: fx(3) }),
     range('mtStartDecayPct', 'Start near nucleus', '% size', 'Starts lie in the cytoplasm, more likely near the nucleus: the start density falls off as exp(-distance to the nucleus / L), L = this % of the equivalent diameter of the cell (1.6 % = ~0.5 µm for a 30 µm cell).', 0.05, 10, 0.05, 1.6, { adv, fmt: fx(2) }),
     range('mtEndDecayPct', 'End near edge', '% size', 'Ends lie in the cytoplasm, more likely near the cell edge: the end density falls off as exp(-distance to the edge / L), L = this % of the equivalent diameter of the cell (20 % = ~6 µm for a 30 µm cell).', 0.5, 50, 0.5, 20, { adv, fmt: fx(1) }),
     range('mtDirKappa', 'Direction focus', 'κ', 'How strongly a microtubule heads away from the nucleus: the end is picked from candidates with weight exp(κ (cos angle - 1)), angle between start-to-end and outward. 0 = any direction, crossing over and under the nucleus.', 0, 10, 0.1, 1.5, { adv, fmt: fx(1) }),
@@ -920,6 +929,29 @@ return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 (function () {
 const $ = id => document.getElementById(id);
 
+// The level a setting shows at (basic / advanced / expert): the tier of the Micro-Manager property that sets it
+// (web/live/mm_config.js ISC_MM_TIERS, generated with the configurations: by engine option, else by the property its
+// help names in <code>Device.Property</code>); the custom dyes' fields are MM's Fluorophores.Dye<N>_* (Expert); the
+// standard MM settings (exposure, focus, camera size, specimen, shutters) are Basic; a setting MM does not have keeps
+// the viewer's own level (o.adv: advanced).
+const MM_STANDARD = { 'mv_exposure-ms': 'basic', 'mv_z': 'basic', 'mv_size': 'basic', 'mv_frames': 'basic',
+  'mv_specimen': 'basic', 'mv_modality': 'basic', 'mv_ex-filter': 'advanced' };
+function tierOf(e, g) {
+  const T = self.ISC_MM_TIERS, low = t => t && t.toLowerCase();
+  const own = (e.adv || (g && g.adv)) ? 'advanced' : 'basic';
+  if (!e.id || !T) return own;
+  if (MM_STANDARD[e.id]) return MM_STANDARD[e.id];
+  if (/^(mv_dye\d|mv_[a-z]+-dye)\.|^ud\d-/.test(e.id)) return 'expert';
+  const k = e.id.replace(/^mv_/, '');
+  const o = T.options[k] || T.options['p.' + k] || T.options['p.' + k + 'Min'];
+  if (o) return low(o.tier);
+  const m = /<code>([A-Za-z0-9]+)\.([A-Za-z0-9_]+)<\/code>/.exec(e.tip || '');
+  if (m && T.props[m[1] + '.' + m[2]]) return low(T.props[m[1] + '.' + m[2]]);
+  return own;
+}
+const LEVELS = ['basic', 'advanced', 'expert'];
+const atLevel = (t, level) => LEVELS.indexOf(t || 'basic') <= LEVELS.indexOf(level);
+
 // ---- persistence (per viewer; may be unavailable) ----
 const store = {
   get(k, d) { try { const v = localStorage.getItem('isc.ui.' + k); return v === null ? d : v; } catch (e) { return d; } },
@@ -1039,7 +1071,8 @@ function renderEntry(e, host, g, parent) {
       row.append(l);
     }
   }
-  if (e.adv || (g && g.adv)) row.classList.add('adv');
+  r.tier = tierOf(e, g);
+  if (r.tier !== 'basic') row.classList.add('t-' + r.tier);
   if (e.cls) row.classList.add(e.cls);
   r.row = row;
   host.append(row);
@@ -1117,15 +1150,24 @@ function sync() {
     if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
   }
+  // a heading shows when a row under it (up to the next heading) shows at this level
+  let head = null, headAny = false;
+  const endHead = () => { if (head && head.row) head.row.style.display = headAny && isShown(head) ? '' : 'none'; };
+  for (const r of entries) {
+    if (r.kind === 'head') { endHead(); head = r; headAny = false; continue; }
+    if (head && r.group !== head.group) { endHead(); head = null; }
+    if (head && r.kind !== 'html' && atLevel(r.tier, level) && isShown(r)) headAny = true;
+  }
+  endHead();
   for (const G of groups) {
-    const any = G.g.items.length && entries.some(r => r.group === G.g &&
-      (r.kind === 'html' || isShown(r) && (level === 'advanced' || !(r.adv || G.g.adv))));
-    G.det.style.display = any && (!G.g.show || G.g.show()) && (level === 'advanced' || !G.g.adv) ? '' : 'none';
+    const any = G.g.items.length && entries.some(r => r.group === G.g && r.kind !== 'head' &&
+      (r.kind === 'html' ? atLevel(r.tier, level) : isShown(r) && atLevel(r.tier, level)));
+    G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
   }
   for (const S of new Set(groups.map(G => G.sect))) S.el.style.display = S.el.textContent && S.groups.some(G => G.det.style.display !== 'none') ? '' : 'none';
-  const nDiff = entries.filter(r => (r.adv || (r.group && r.group.adv)) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
+  const nDiff = entries.filter(r => !atLevel(r.tier, level) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
   const note = $('advNote');
-  if (note) note.textContent = level === 'default' && nDiff ? `${nDiff} hidden advanced option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
+  if (note) note.textContent = nDiff ? `${nDiff} hidden option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
 }
 for (const r of entries) {
   if (r.kind === 'button' && r.onClick) $(r.id).addEventListener('click', () => { r.onClick(); sync(); });
@@ -1149,17 +1191,20 @@ for (const r of entries) if (r.init) r.init();
 
 // ---- hamburger menu: level, style, expand/collapse ----
 const menu = $('menu'), menuBtn = $('menuBtn');
-menu.innerHTML = '<h4>Options</h4>' +
-  '<label><input type="radio" name="uiLevel" value="default"> Default</label>' +
-  '<label><input type="radio" name="uiLevel" value="advanced"> Advanced</label>' +
-  '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
+menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
   '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (work in progress)"><input type="checkbox" id="showAnimPane"> Show animation pane (WIP)</label>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="note" id="advNote"></div>';
-function setLevel(v) { document.body.dataset.level = v; store.set('level', v); menu.querySelector(`[name=uiLevel][value=${v}]`).checked = true; sync(); }
+function setLevel(v) {
+  if (!LEVELS.includes(v)) v = 'basic';
+  document.body.dataset.level = v;
+  store.set('level', v);
+  for (const b of $('levelSeg').children) { b.classList.toggle('on', b.dataset.level === v); b.setAttribute('aria-checked', b.dataset.level === v); }
+  sync();
+}
+$('levelSeg').addEventListener('click', ev => { if (ev.target.dataset.level) setLevel(ev.target.dataset.level); });
 function setStyle(v) { if (!UI_STYLES[v]) v = 'focus'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
 menu.addEventListener('change', ev => {
-  if (ev.target.name === 'uiLevel') setLevel(ev.target.value);
   if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
 });
 menu.addEventListener('click', ev => {
@@ -1236,9 +1281,9 @@ function applySearch() {
 }
 search.addEventListener('input', applySearch);
 
-document.body.dataset.level = store.get('level', 'default') === 'advanced' ? 'advanced' : 'default';
+// (stored 'default' / 'advanced' before the three tiers: 'default' is Basic now)
 setStyle(store.get('style', 'focus'));
-setLevel(document.body.dataset.level);
+setLevel(store.get('level', 'basic') === 'default' ? 'basic' : store.get('level', 'basic'));
 window.uiSync = sync;
 window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the animation editor (web/anim/editor.js)
 })();
@@ -2747,7 +2792,8 @@ function iscEngine(M) {
         const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
         res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
           t: v[2] + (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), clock: v[3], lit: !!v[4],
-          epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live' };
+          epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
+          paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null };
       }
       for (const ptr of [s, info, err]) M._free(ptr);
       return [res, res.frames ? [res.frames.buffer] : []];
@@ -5140,10 +5186,11 @@ function drawPlannedFov() {
   ctx.strokeStyle = 'rgba(255,209,102,0.95)'; ctx.lineWidth = Math.max(1, devicePixelRatio);
   ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
   ctx.beginPath(); pts.forEach(([sx, sy], i) => (i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
-  const top = pts.reduce((a, q) => (q[1] < a[1] ? q : a));
+  // the label sits on the outline's top edge, starting at its left end
+  const byY = pts.slice().sort((a, b) => a[1] - b[1]), at = byY[0][0] <= byY[1][0] ? byY[0] : byY[1];
   ctx.fillStyle = 'rgba(255,209,102,0.95)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(live ? `camera ${n} × ${n} px` : `next movie: ${n} × ${n} px`, top[0], top[1] - 3 * devicePixelRatio);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText(live ? 'camera' : `next movie: ${n} × ${n} px`, at[0], Math.min(byY[0][1], byY[1][1]) - 3 * devicePixelRatio);
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
@@ -5402,7 +5449,6 @@ setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D 
 resizeCanvas();
 </script>
 <script src="live/live.js"></script>
-<script src="live/mm_config.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="anim/editor.js"></script>
 </body>

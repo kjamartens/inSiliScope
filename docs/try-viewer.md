@@ -24,35 +24,42 @@ Notes:
 
 - **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
   options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
-  microscope is on the right: the live camera image with Live / Snap / Rec, the focus and the configuration beside it,
+  microscope is on the right: the live camera image with Live / Snap, the focus and the configuration beside it,
   and below them every sample and microscope setting, with a search box that filters the rows. The divider between the
-  two halves drags (the microscope takes a third to a half of the window; remembered in your browser). On a narrow
-  screen the parts stack.
-- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the info line
-  shows the frame rate, the render time per frame, the image size, the focus height, the sample's time and how long
-  this place has been lit). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
+  two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
+  browser). On a narrow screen the parts stack.
+- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the info under
+  the buttons shows the frame rate, the render time per frame, the image size, the focus height, the sample's time,
+  how long this place has been lit, and how each label was drawn: SMLM splat (every blink placed with the PSF), binned
+  SMLM (the same blinks on a finer grid, one FFT convolution: many blinks at once), mean-field widefield (no single
+  blinks) or BrightField). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
   takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **Rec** records a
-  movie of the set number of frames (the player, as before). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame (recording a live
+  movie is to come; **Make movie here** still records one). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
   mouse wheel over the image step it by the step size. **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
-  range. Live pauses while the page is hidden. The world view outlines the camera's field.
+  range, over a live histogram of the frame (log counts from its darkest to its brightest pixel; drag in it to move
+  the nearer end of the display range). Live pauses while the page is hidden. The world view outlines the camera's
+  field ("camera").
 - **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
-  (`inSiliScope_Basic.cfg` at the Default level, `_Advanced.cfg` at Advanced): Channel (the dye modes, BrightField, and
+  (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
   in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as
   sliders. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
   (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
-  the preset the settings are at, or "—" once a setting differs.
+  the preset the settings are at, or "—" once a setting differs. Laser powers show three decimals.
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
   (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
   has a unit and an (i) that explains it (hover or Tab to it).
-- The ☰ menu switches between **Default** options (the common ones) and **Advanced** (all of them), and between three
-  looks: Compact, Focus (one group open at a time, highlighted; the default) and Light. The choices are remembered in your browser.
+- **Basic / Advanced / Expert** beside the search box choose which settings show, the same tiers as the Micro-Manager
+  adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
+  configurations are made; a setting Micro-Manager does not have keeps the viewer's own level). A note says how many
+  hidden settings differ from their defaults. The ☰ menu switches between three looks: Compact, Focus (one group open
+  at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on).

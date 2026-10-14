@@ -12,15 +12,15 @@
 const $ = id => document.getElementById(id);
 const store = uiKit.store;
 
-// ---- splitter: the right panel's width, 33-50 % of the window ----
+// ---- splitter: the right panel's width, 33-62 % of the window (50 % by default) ----
 const wrap = $('wrap'), splitter = $('splitter');
-const LIVE_MIN = 0.33, LIVE_MAX = 0.5;
+const LIVE_MIN = 0.33, LIVE_MAX = 0.62;
 function setLiveFrac(f, save) {
   f = Math.max(LIVE_MIN, Math.min(LIVE_MAX, f));
   wrap.style.setProperty('--live-w', (100 * f).toFixed(2) + 'vw');
-  if (save) store.set('liveFrac', f.toFixed(4));
+  if (save) store.set('liveWidth', f.toFixed(4));   // (was liveFrac, default 0.4: a new key so the new default shows)
 }
-setLiveFrac(+store.get('liveFrac', '0.4') || 0.4, false);
+setLiveFrac(+store.get('liveWidth', '0.5') || 0.5, false);
 splitter.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   e.preventDefault();
@@ -112,6 +112,7 @@ function onResult(d) {
   L.clock = d.clock;
   L.drift = d.drift;
   L.engine = d.engine;
+  L.paths = d.paths || null;
   const due = L.lastShown + exposureSec() * 1000, now = performance.now();
   const show = () => {
     const t = performance.now();
@@ -148,10 +149,65 @@ function draw(d) {
     $('lv_lo').value = L.lo; $('lv_hi').value = L.hi;
   } else { L.lo = +$('lv_lo').value || 0; L.hi = Math.max(L.lo + 1, +$('lv_hi').value || 1); }
   paint();
+  drawHist();
   showInfo();
   drawScale();
   requestDraw();
 }
+
+// ---- the live histogram: log counts from the frame's minimum to its maximum, the display range over it ----
+const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128;
+let hist = null, hMin = 0, hMax = 1;
+function drawHist() {
+  const fr = L.frame;
+  const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.round(56 * devicePixelRatio);
+  if (hc.width !== W || hc.height !== H) { hc.width = W; hc.height = H; }
+  hg.clearRect(0, 0, W, H);
+  if (!fr) return;
+  let mn = 65535, mx = 0;
+  for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+  hMin = mn; hMax = Math.max(mn + 1, mx);
+  hist = new Float64Array(NB);
+  const k = NB / (hMax - hMin + 1);
+  for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
+  let top = 0;
+  for (let b = 0; b < NB; b++) { hist[b] = Math.log10(1 + hist[b]); top = Math.max(top, hist[b]); }
+  const css = getComputedStyle(document.body), accent = css.getPropertyValue('--accent').trim() || '#4a90d9';
+  const muted = css.getPropertyValue('--muted').trim() || '#8b97a8', pad = 9 * devicePixelRatio, ph = H - pad;
+  const xOf = v => ((v - hMin) / (hMax - hMin)) * W;
+  // the display range (black .. white) as a shaded band, then the bars and the two markers
+  const xl = xOf(L.lo), xh = xOf(L.hi);
+  hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(Math.max(0, xl), 0, Math.max(1, Math.min(W, xh) - Math.max(0, xl)), ph);
+  hg.globalAlpha = 1; hg.fillStyle = muted;
+  const bw = W / NB;
+  for (let b = 0; b < NB; b++) {
+    const hh = top ? (hist[b] / top) * (ph - 2) : 0;
+    hg.fillRect(b * bw, ph - hh, Math.max(1, bw - 0.5), hh);
+  }
+  hg.strokeStyle = accent; hg.lineWidth = Math.max(1, devicePixelRatio);
+  for (const x of [xl, xh]) if (x >= -1 && x <= W + 1) { hg.beginPath(); hg.moveTo(x, 0); hg.lineTo(x, ph); hg.stroke(); }
+  hg.fillStyle = muted; hg.font = `${9 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`; hg.textBaseline = 'bottom';
+  hg.textAlign = 'left'; hg.fillText(String(hMin), 1, H);
+  hg.textAlign = 'right'; hg.fillText(String(hMax) + ' ADU', W - 1, H);
+}
+// Dragging in the histogram moves the nearer marker (the display range by hand: auto off).
+hc.addEventListener('pointerdown', ev => {
+  if (!L.frame) return;
+  ev.preventDefault();
+  hc.setPointerCapture(ev.pointerId);
+  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + ((e.clientX - r.left) / r.width) * (hMax - hMin));
+  const which = Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
+  const move = e => {
+    const v = valAt(e);
+    if (which === 'lo') L.lo = Math.min(v, L.hi - 1); else L.hi = Math.max(v, L.lo + 1);
+    $('lv_auto').checked = false;
+    $('lv_lo').value = L.lo; $('lv_hi').value = L.hi;
+    paint(); drawHist();
+  };
+  const up = () => { hc.removeEventListener('pointermove', move); hc.removeEventListener('pointerup', up); };
+  move(ev);
+  hc.addEventListener('pointermove', move); hc.addEventListener('pointerup', up);
+});
 function paint() {
   if (!L.frame) return;
   const w = L.w, h = L.h;
@@ -171,8 +227,8 @@ function paint() {
   for (let i = 0; i < n; i++) u32[i] = lut[fr[i]];
   g.putImageData(img, 0, 0);
 }
-for (const id of ['lv_lo', 'lv_hi']) $(id).addEventListener('input', () => { $('lv_auto').checked = false; L.lo = +$('lv_lo').value; L.hi = Math.max(L.lo + 1, +$('lv_hi').value); paint(); });
-$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); } });
+for (const id of ['lv_lo', 'lv_hi']) $(id).addEventListener('input', () => { $('lv_auto').checked = false; L.lo = +$('lv_lo').value; L.hi = Math.max(L.lo + 1, +$('lv_hi').value); paint(); drawHist(); });
+$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 function showInfo() {
@@ -183,9 +239,27 @@ function showInfo() {
   const lines = [(L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + Math.round(L.ms) + ' ms/frame',
     `${L.w}×${L.h} px · ${bf ? 'BrightField' : both ? 'fluorescence + BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
     `t ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : '') + ` · ${L.lo}–${L.hi} ADU`];
+  const how = renderPaths(bf, both);
+  if (how) lines.push('render: ' + how);
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
   if (L.engine === 'movie') lines.push('(no sample history in this engine)');
   el.textContent = lines.join('\n');
+}
+// How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by
+// one (SMLM), binned on a grid and FFT-convolved (the intermediate, approximate SMLM) or mean-field (the expected
+// image, widefield-like); continuous populations (WideField labels, dSTORM initial ON, PALM pre states) mean-field
+// or per dye. BrightField: the lamp's multislice image.
+function renderPaths(bf, both) {
+  const parts = [];
+  if (bf || both) parts.push('BrightField (multislice)');
+  if (!bf) for (const p of L.paths || []) {
+    let m;
+    if ((m = /^SMLM: (\d+) blinks \(splat\)$/.exec(p))) parts.push(`SMLM splat (${m[1]} blinks)`);
+    else if ((m = /^SMLM: (\d+) blinks \(binned FFT\)$/.exec(p))) parts.push(`binned SMLM (${m[1]} blinks)`);
+    else if ((m = /^(.*): mean-field \(FFT\)$/.exec(p))) parts.push(`${m[1]} mean-field (widefield)`);
+    else parts.push(p.replace(/: /, ' '));
+  }
+  return parts.join(' + ');
 }
 // Scale bar: a 1-2-5 length near a quarter of the displayed image.
 function drawScale() {

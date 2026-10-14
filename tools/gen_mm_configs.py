@@ -242,6 +242,53 @@ NOT_CONFIG = {"x", "y", "z", "seed", "frames", "exposure-ms", "start-sec", "ligh
 OPTICS = {"objective-mag": "objectiveMag", "sensor-pixel-um": "sensorUm", "emission-mag": "emissionMag"}
 
 
+TIER_ORDER = {"Basic": 0, "Advanced": 1, "Expert": 2}
+
+
+def option_tiers(core, spec_of):
+    """The tier of every engine option a property drives: each settable registry row (Basic..Expert) is set to
+    another value once (a choice, or a limit / the middle of its range), the options whose value moves in the engine
+    spec are the row's, and each option takes the tier of the most specific row that moves it (the fewest options:
+    CameraPreset moves a dozen, Camera.ReadNoiseElectrons one). -> {"options": {option: {"tier", "prop"}},
+    "props": {"Device.Name": tier}} (every row, for a viewer control whose help names the property)"""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        f = os.path.join(tmp, "registry.json")
+        core.setProperty("Renderer", "Test_WriteRegistryTo", f)
+        rows = json.loads(Path(f).read_text(encoding="utf-8"))
+    best = {}
+    for r in rows:
+        if r["tier"] not in TIER_ORDER or r.get("readOnly") or not core.hasProperty(r["device"], r["name"]):
+            continue
+        dev, name = r["device"], r["name"]
+        cur = core.getProperty(dev, name)
+        if r.get("choices"):
+            alts = [c for c in r["choices"] if c != cur]
+        elif r.get("lo") is not None and r["kind"] in ("float", "integer"):
+            lo, hi = float(r["lo"]), float(r["hi"])
+            alts = [v for v in (hi, lo, (lo + hi) / 2) if abs(v - float(cur)) > 1e-9 * max(1, abs(v))]
+            alts = [str(int(round(v))) if r["kind"] == "integer" else repr(v) for v in alts]
+        else:
+            continue
+        if not alts:
+            continue
+        try:
+            before = spec_of(core)
+            core.setProperty(dev, name, alts[0])
+            after = spec_of(core)
+            core.setProperty(dev, name, cur)
+        except RuntimeError:
+            continue
+        moved = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        for k in moved:
+            cand = (len(moved), TIER_ORDER[r["tier"]], dev + "." + name, r["tier"])
+            if k not in best or cand < best[k]:
+                best[k] = cand
+    return {"options": {k: {"tier": v[3], "prop": v[2]} for k, v in sorted(best.items())},
+            "props": {r["device"] + "." + r["name"]: r["tier"]
+                      for r in sorted(rows, key=lambda r: (r["device"], r["name"])) if r["tier"] in TIER_ORDER}}
+
+
 def viewer_presets(cfg_paths):
     """Per tier: the config groups of its file with, per preset, the engine options it sets (the engine spec the adapter
     renders from, Renderer.WriteScopeSpecTo, after the Startup preset and then this one: the options that differ
@@ -252,13 +299,17 @@ def viewer_presets(cfg_paths):
     from pymmcore_plus import CMMCorePlus
 
     os.environ["ISC_TEST"] = "1"   # the registry dump is a Test row; the configurations above never see Test rows
-    out = {}
+    # No block cache: hubs made and freed in quick succession, two at a time, have aborted the process in the cache
+    # (2026-10-14; the specs need no cells).
+    cache_env = os.environ.get("ISC_CACHE")
+    os.environ["ISC_CACHE"] = "0"
+    out, tiers = {}, {}
     with tempfile.TemporaryDirectory() as tmp:
-        def spec(core):
+        def spec(core, keep_all=False):
             f = os.path.join(tmp, "spec.txt")
             core.setProperty("Renderer", "WriteScopeSpecTo", f)
             kv = (line.split("=", 1) for line in Path(f).read_text(encoding="utf-8").splitlines() if "=" in line)
-            return {k: float(v) for k, v in kv if k not in NOT_CONFIG}
+            return {k: float(v) for k, v in kv if keep_all or k not in NOT_CONFIG}
 
         def registry(core):
             f = os.path.join(tmp, "registry.json")
@@ -330,12 +381,23 @@ def viewer_presets(cfg_paths):
             core.waitForSystem()
             startup = {g: core.getCurrentConfig(g) for g in core.getAvailableConfigGroups() if g != "System"}
             out[tier] = {"groups": groups, "startup": startup, "optics": start_optics}
+            if tier == "Expert":   # every row exists at Expert
+                tiers = option_tiers(core, lambda c: {k: v for k, v in spec(c, True).items()
+                                                      if k not in ("x", "y", "z", "seed", "frames")})
             core.unloadAllDevices()
     os.environ["ISC_TEST"] = "0"
+    if cache_env is None:
+        os.environ.pop("ISC_CACHE", None)
+    else:
+        os.environ["ISC_CACHE"] = cache_env
     return ("// The Micro-Manager configurations' groups for the viewer's live panel (web/live/mm_config_ui.js): generated\n"
             "// by tools/gen_mm_configs.py with adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg, from the\n"
             "// engine spec the adapter renders each preset with -- do not edit.\n"
-            "self.ISC_MM_CONFIG = " + json.dumps(out, indent=1) + ";\n")
+            "self.ISC_MM_CONFIG = " + json.dumps(out, indent=1) + ";\n"
+            "// Each engine option's Micro-Manager tier (Basic / Advanced / Expert) and the property that sets it, and\n"
+            "// each property's tier (a control whose help names the property): the viewer's settings levels follow them\n"
+            "// (a control with neither keeps the viewer's own level).\n"
+            "self.ISC_MM_TIERS = " + json.dumps(tiers, indent=0) + ";\n")
 
 
 def main():

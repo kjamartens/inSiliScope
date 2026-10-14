@@ -97,6 +97,14 @@ for (const [tier, T] of Object.entries(CFG)) {
   for (const [g, name] of Object.entries(T.startup))
     if (!T.groups.some(x => x.name === g && (x.slider || x.presets.some(p => p.name === name)))) fail(`${tier} startup ${g}=${name}`);
 }
+// The settings levels (index.html tierOf): every option's tier is one of MM's, and the label rows have theirs.
+const TI = self.ISC_MM_TIERS;
+if (!TI || !TI.options || !TI.props) fail('ISC_MM_TIERS missing');
+else {
+  for (const [k, v] of Object.entries(TI.options)) if (!['Basic', 'Advanced', 'Expert'].includes(v.tier) || !TI.props[v.prop]) fail(`tier of ${k}: ${JSON.stringify(v)}`);
+  for (const k of ['mt-dye', 'mt-mode', 'laser-640', 'camera-preset']) if (!TI.options[k] || TI.options[k].tier !== 'Basic') fail(`${k} not Basic: ${JSON.stringify(TI.options[k])}`);
+  checked += Object.keys(TI.options).length;
+}
 // The dye indices of the adapter's spec and the viewer's select are one list (library, Dye1..3, None).
 const dyeSel = controls.get('mv_mt-dye');
 if (!dyeSel || dyeSel.options.length !== DD.dyes.length + 4) fail('mv_mt-dye: not the library dyes + Dye1..3 + None');

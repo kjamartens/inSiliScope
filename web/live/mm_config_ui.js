@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The live panel's Configuration: the config groups of the shipped Micro-Manager configurations
-// (adapter/inSiliScope/config/inSiliScope_<tier>.cfg; Default level = Basic, Advanced = Advanced), from
+// (adapter/inSiliScope/config/inSiliScope_<tier>.cfg, the settings level's: Basic, Advanced, Expert), from
 // web/live/mm_config.js (self.ISC_MM_CONFIG, written by tools/gen_mm_configs.py with the files: per preset the engine
 // options the adapter renders with, as numbers, null = the engine's default). A preset sets the settings panel's
 // controls (mv_<option>); an option the panel has no control for (the objective's NA, ...) goes into every movie and
@@ -50,6 +50,7 @@ function controlValue(el, v) {
   if (el.tagName === 'SELECT') return [...el.options].some(o => o.value === String(v)) ? String(v) : null;
   return v;
 }
+const fmt3 = v => (+v).toFixed(3);
 const fire = el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
 // Options whose -1 is "the camera preset's" (the adapter writes them resolved; tests/web/mm_config_check.mjs checks that
 // they are the library camera's): a preset with a camera-preset leaves them following it, so a camera change in the
@@ -116,13 +117,13 @@ function matches(preset) {
 let rows = [];
 function markCurrent() {
   for (const r of rows) {
-    if (r.slider) { const el = $('mv_' + r.slider.key); if (el) { r.range.value = el.value; r.num.value = el.value; } continue; }
+    if (r.slider) { const el = $('mv_' + r.slider.key); if (el) { r.range.value = el.value; r.num.value = fmt3(el.value); } continue; }
     const hit = r.group.presets.find(matches);
     r.sel.value = hit ? hit.name : '';
   }
 }
 function render() {
-  const tier = document.body.dataset.level === 'advanced' ? 'Advanced' : 'Basic';
+  const tier = { advanced: 'Advanced', expert: 'Expert' }[document.body.dataset.level] || 'Basic';
   const T = CFG[tier] || CFG.Basic;
   if (!optics) optics = { ...T.optics };
   host.innerHTML = '';
@@ -138,13 +139,16 @@ function render() {
     if (g.slider) {
       const s = g.slider, el = $('mv_' + s.key), wrap = document.createElement('span');
       wrap.style.display = 'flex'; wrap.style.gap = '4px'; wrap.style.alignItems = 'center';
-      const range = Object.assign(document.createElement('input'), { type: 'range', min: s.lo, max: s.hi, step: 0.1 });
-      const num = Object.assign(document.createElement('input'), { type: 'number', min: s.lo, max: s.hi, step: 0.1 });
-      num.style.width = '48px';
-      range.value = num.value = el ? el.value : s.value;
-      const set = v => { if (!el) return; el.value = v; fire(el); range.value = num.value = v; };
+      // three decimals (a PALM 405 nm line runs at a few W/cm^2 = 0.00x kW/cm^2)
+      const range = Object.assign(document.createElement('input'), { type: 'range', min: s.lo, max: s.hi, step: 0.001 });
+      const num = Object.assign(document.createElement('input'), { type: 'number', min: s.lo, max: s.hi, step: 0.001 });
+      num.style.width = '62px';
+      range.value = el ? el.value : s.value;
+      num.value = fmt3(range.value);
+      const set = (v, fromNum) => { if (!el) return; el.value = v; fire(el); range.value = v; if (!fromNum) num.value = fmt3(v); };
       range.addEventListener('input', () => set(range.value));
-      num.addEventListener('input', () => set(num.value));
+      num.addEventListener('input', () => set(num.value, true));
+      num.addEventListener('change', () => { num.value = fmt3(num.value); });
       wrap.append(range, num);
       host.append(wrap);
       rows.push({ slider: s, range, num });

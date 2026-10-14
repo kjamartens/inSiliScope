@@ -52,6 +52,8 @@ Upcoming ideas:
   `tests/web/mm_config_check.mjs`), [x] docs. Next: [ ] the adapter's live producer on `LiveScope` (it keeps the GPU,
   render-ahead, BrightField prefetch, illumination profile and background fade: output must stay identical), [ ] live in
   lab.html (the JS reference has no illumination history yet), [ ] a camera-size/ROI control beside the live image.
+  2026-10-14: [x] settings levels Basic/Advanced/Expert from the MM tiers (`ISC_MM_TIERS`), [x] the render path per label
+  in the info, [x] a live histogram with draggable display range; [ ] Rec (recording live frames; hidden until then).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

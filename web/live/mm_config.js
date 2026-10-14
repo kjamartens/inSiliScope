@@ -1027,3 +1027,853 @@ self.ISC_MM_CONFIG = {
   }
  }
 };
+// Each engine option's Micro-Manager tier (Basic / Advanced / Expert) and the property that sets it, and
+// each property's tier (a control whose help names the property): the viewer's settings levels follow them
+// (a control with neither keeps the viewer's own level).
+self.ISC_MM_TIERS = {
+"options": {
+"background-per-sec": {
+"tier": "Advanced",
+"prop": "SampleHolder.BackgroundPhotonsPerSec"
+},
+"bit-depth": {
+"tier": "Expert",
+"prop": "Camera.BitDepth"
+},
+"blink-binned-density-per-um2": {
+"tier": "Expert",
+"prop": "Renderer.BlinkBinnedDensityPerUm2"
+},
+"blink-binned-max-emitters": {
+"tier": "Expert",
+"prop": "Renderer.BlinkBinnedMaxEmitters"
+},
+"blink-binned-upscale": {
+"tier": "Expert",
+"prop": "Renderer.BlinkBinnedUpscale"
+},
+"blink-mean-field-density-per-um2": {
+"tier": "Expert",
+"prop": "Renderer.BlinkMeanFieldDensityPerUm2"
+},
+"blink-mean-field-max-emitters": {
+"tier": "Expert",
+"prop": "Renderer.BlinkMeanFieldMaxEmitters"
+},
+"camera-preset": {
+"tier": "Basic",
+"prop": "Camera.CameraPreset"
+},
+"camera-type": {
+"tier": "Advanced",
+"prop": "Camera.CameraType"
+},
+"cell-diam-max-um": {
+"tier": "Advanced",
+"prop": "CellField.CellDiameterMaxUm"
+},
+"cell-diam-min-um": {
+"tier": "Advanced",
+"prop": "CellField.CellDiameterMinUm"
+},
+"chamber-height-um": {
+"tier": "Advanced",
+"prop": "Lasers.ChamberHeightUm"
+},
+"chunk-um": {
+"tier": "Expert",
+"prop": "CellField.ChunkSizeUm"
+},
+"cic": {
+"tier": "Expert",
+"prop": "Camera.EMCCD_CicElectrons"
+},
+"dark-per-sec": {
+"tier": "Advanced",
+"prop": "Camera.DarkCurrentElectronsPerSec"
+},
+"dichroic": {
+"tier": "Basic",
+"prop": "CellField.NuclearPores_Label"
+},
+"dichroic-edge-nm": {
+"tier": "Expert",
+"prop": "Dichroic.CustomEdgeNm"
+},
+"disk-cache": {
+"tier": "Advanced",
+"prop": "Renderer.DiskCache"
+},
+"drift-speed-wander-pct": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftSpeedWanderPct"
+},
+"drift-wander-time-sec": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftWanderTimeSec"
+},
+"drift-xy-angle-deg": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftXyAngleDeg"
+},
+"drift-xy-angle-wander-deg": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftXyAngleWanderDeg"
+},
+"drift-xy-nm-per-sqrt-sec": {
+"tier": "Advanced",
+"prop": "SampleHolder.DriftXyNmPerSqrtSec"
+},
+"drift-xy-speed-nm-per-sec": {
+"tier": "Advanced",
+"prop": "SampleHolder.DriftXySpeedNmPerSec"
+},
+"drift-z-angle-wander-deg": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftZAngleWanderDeg"
+},
+"drift-z-direction": {
+"tier": "Expert",
+"prop": "SampleHolder.DriftZDirection"
+},
+"drift-z-nm-per-sqrt-sec": {
+"tier": "Advanced",
+"prop": "SampleHolder.DriftZNmPerSqrtSec"
+},
+"drift-z-speed-nm-per-sec": {
+"tier": "Advanced",
+"prop": "SampleHolder.DriftZSpeedNmPerSec"
+},
+"dye1.source": {
+"tier": "Expert",
+"prop": "Fluorophores.Dye1_Source"
+},
+"dye2.source": {
+"tier": "Expert",
+"prop": "Fluorophores.Dye2_Source"
+},
+"dye3.source": {
+"tier": "Expert",
+"prop": "Fluorophores.Dye3_Source"
+},
+"em-filter": {
+"tier": "Basic",
+"prop": "CellField.NuclearPores_Label"
+},
+"em-gain": {
+"tier": "Advanced",
+"prop": "Camera.GainElectronsPerADU"
+},
+"em-hi-nm": {
+"tier": "Expert",
+"prop": "EmissionFilter.CustomHiNm"
+},
+"em-lo-nm": {
+"tier": "Expert",
+"prop": "EmissionFilter.CustomLoNm"
+},
+"ex-hi-nm": {
+"tier": "Expert",
+"prop": "ExcitationFilter.CustomHiNm"
+},
+"ex-lo-nm": {
+"tier": "Expert",
+"prop": "ExcitationFilter.CustomLoNm"
+},
+"focus-um": {
+"tier": "Expert",
+"prop": "CellField.FocusHeightUm"
+},
+"gain": {
+"tier": "Advanced",
+"prop": "Camera.GainElectronsPerADU"
+},
+"gain-std-pct": {
+"tier": "Expert",
+"prop": "Camera.sCMOS_GainStdPctPerPixel"
+},
+"immersion-index": {
+"tier": "Advanced",
+"prop": "Objective.ImmersionIndex"
+},
+"laser-405": {
+"tier": "Basic",
+"prop": "Lasers.Laser405KWcm2"
+},
+"laser-488": {
+"tier": "Basic",
+"prop": "Lasers.Laser488KWcm2"
+},
+"laser-561": {
+"tier": "Basic",
+"prop": "Lasers.Laser561KWcm2"
+},
+"laser-640": {
+"tier": "Basic",
+"prop": "Lasers.Laser640KWcm2"
+},
+"laser-730": {
+"tier": "Basic",
+"prop": "Lasers.Laser730KWcm2"
+},
+"laser-custom": {
+"tier": "Advanced",
+"prop": "Lasers.CustomLineKWcm2"
+},
+"laser-custom-nm": {
+"tier": "Advanced",
+"prop": "Lasers.CustomLineNm"
+},
+"mean-field-density-per-um2": {
+"tier": "Expert",
+"prop": "Renderer.MeanFieldDensityPerUm2"
+},
+"mean-field-max-emitters": {
+"tier": "Expert",
+"prop": "Renderer.MeanFieldMaxEmitters"
+},
+"mean-field-slab-nm": {
+"tier": "Expert",
+"prop": "Renderer.MeanFieldSlabNm"
+},
+"mt-binder": {
+"tier": "Advanced",
+"prop": "CellField.Microtubules_Binder"
+},
+"mt-binder-flex-nm": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_BinderFlexNm"
+},
+"mt-binder-nm": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_BinderNm"
+},
+"mt-density": {
+"tier": "Advanced",
+"prop": "CellField.MicrotubuleDensityPerUm2"
+},
+"mt-dye": {
+"tier": "Basic",
+"prop": "CellField.Microtubules_Label"
+},
+"mt-imager-nm": {
+"tier": "Advanced",
+"prop": "CellField.Microtubules_ImagerNanoMol"
+},
+"mt-label-pct": {
+"tier": "Advanced",
+"prop": "CellField.Microtubules_LabelingPct"
+},
+"mt-linker-max-nm": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_LinkerMaxNm"
+},
+"mt-linker-min-nm": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_LinkerMinNm"
+},
+"mt-mode": {
+"tier": "Basic",
+"prop": "CellField.Microtubules_Mode"
+},
+"mt-orient": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_Orientation"
+},
+"mt-orient-azimuth-deg": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_OrientAzimuthDeg"
+},
+"mt-orient-polar-deg": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_OrientPolarDeg"
+},
+"mt-paint-kon": {
+"tier": "Advanced",
+"prop": "CellField.Microtubules_KonPerMolarPerSec"
+},
+"mt-paint-on-sec": {
+"tier": "Advanced",
+"prop": "CellField.Microtubules_BoundTimeSec"
+},
+"mt-wobble-deg": {
+"tier": "Expert",
+"prop": "CellField.Microtubules_WobbleConeDeg"
+},
+"na": {
+"tier": "Advanced",
+"prop": "Objective.NA"
+},
+"npc-binder": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPores_Binder"
+},
+"npc-binder-flex-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_BinderFlexNm"
+},
+"npc-binder-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_BinderNm"
+},
+"npc-density": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPoreDensityPerUm2"
+},
+"npc-dye": {
+"tier": "Basic",
+"prop": "CellField.NuclearPores_Label"
+},
+"npc-imager-nm": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPores_ImagerNanoMol"
+},
+"npc-label-pct": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPores_LabelingPct"
+},
+"npc-linker-max-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_LinkerMaxNm"
+},
+"npc-linker-min-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_LinkerMinNm"
+},
+"npc-mode": {
+"tier": "Basic",
+"prop": "CellField.NuclearPores_Mode"
+},
+"npc-orient": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_Orientation"
+},
+"npc-orient-azimuth-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_OrientAzimuthDeg"
+},
+"npc-orient-polar-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_OrientPolarDeg"
+},
+"npc-paint-kon": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPores_KonPerMolarPerSec"
+},
+"npc-paint-on-sec": {
+"tier": "Advanced",
+"prop": "CellField.NuclearPores_BoundTimeSec"
+},
+"npc-wobble-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearPores_WobbleConeDeg"
+},
+"occupancy": {
+"tier": "Advanced",
+"prop": "CellField.Occupancy"
+},
+"offset": {
+"tier": "Advanced",
+"prop": "Camera.OffsetADU"
+},
+"offset-std": {
+"tier": "Advanced",
+"prop": "Camera.OffsetStdADU"
+},
+"origami-attach-nm": {
+"tier": "Advanced",
+"prop": "Nanorulers.AttachHeightNm"
+},
+"origami-bend": {
+"tier": "Advanced",
+"prop": "Nanorulers.Bending"
+},
+"origami-density": {
+"tier": "Basic",
+"prop": "Nanorulers.DensityPerUm2"
+},
+"origami-design": {
+"tier": "Basic",
+"prop": "Nanorulers.Design"
+},
+"origami-heights": {
+"tier": "Expert",
+"prop": "Nanorulers.KeepHeights"
+},
+"origami-linker-nm": {
+"tier": "Advanced",
+"prop": "Nanorulers.LinkerNm"
+},
+"origami-lp-nm": {
+"tier": "Advanced",
+"prop": "Nanorulers.PersistenceLengthNm"
+},
+"origami-min-spacing-nm": {
+"tier": "Advanced",
+"prop": "Nanorulers.MinSpacingNm"
+},
+"origami-roll": {
+"tier": "Advanced",
+"prop": "Nanorulers.Roll"
+},
+"origami-roll-deg": {
+"tier": "Advanced",
+"prop": "Nanorulers.RollDeg"
+},
+"origami-spacing-nm": {
+"tier": "Basic",
+"prop": "Nanorulers.SpacingNm"
+},
+"origami-strands-per-spot": {
+"tier": "Basic",
+"prop": "Nanorulers.StrandsPerSpot"
+},
+"p.mtDirKappa": {
+"tier": "Expert",
+"prop": "CellField.MicrotubuleDirKappa"
+},
+"p.mtEndDecayPct": {
+"tier": "Expert",
+"prop": "CellField.MicrotubuleEndDecayPct"
+},
+"p.mtStartDecayPct": {
+"tier": "Expert",
+"prop": "CellField.MicrotubuleStartDecayPct"
+},
+"p.npcCornerSpreadNm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPoreCornerSpreadNm"
+},
+"p.npcMinDistNm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPoreMinDistNm"
+},
+"p.npcRadiusNm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPoreRadiusNm"
+},
+"p.npcRingSepNm": {
+"tier": "Expert",
+"prop": "CellField.NuclearPoreRingSepNm"
+},
+"p.nucAsym": {
+"tier": "Expert",
+"prop": "CellField.NucAsym"
+},
+"p.nucBaseMax": {
+"tier": "Expert",
+"prop": "CellField.NucBaseMaxUm"
+},
+"p.nucBaseMin": {
+"tier": "Expert",
+"prop": "CellField.NucBaseMinUm"
+},
+"p.nucBendMax": {
+"tier": "Expert",
+"prop": "CellField.NucBendMax"
+},
+"p.nucBendMin": {
+"tier": "Expert",
+"prop": "CellField.NucBendMin"
+},
+"p.nucIrregMax": {
+"tier": "Expert",
+"prop": "CellField.NucIrregMax"
+},
+"p.nucIrregMin": {
+"tier": "Expert",
+"prop": "CellField.NucIrregMin"
+},
+"p.nucSmooth": {
+"tier": "Expert",
+"prop": "CellField.NucSmooth"
+},
+"p.nucThickIrreg": {
+"tier": "Expert",
+"prop": "CellField.NucThickIrreg"
+},
+"p.nucWidestMax": {
+"tier": "Expert",
+"prop": "CellField.NucWidestMax"
+},
+"p.nucWidestMin": {
+"tier": "Expert",
+"prop": "CellField.NucWidestMin"
+},
+"packing": {
+"tier": "Expert",
+"prop": "CellField.Packing"
+},
+"pixel-nm": {
+"tier": "Basic",
+"prop": "EmissionPath.EmissionMagnification"
+},
+"psf-halo-cut": {
+"tier": "Expert",
+"prop": "Renderer.PsfHaloCut"
+},
+"psf-interp": {
+"tier": "Expert",
+"prop": "Renderer.PsfInterp"
+},
+"psf-kernel-half-width-nm": {
+"tier": "Advanced",
+"prop": "Objective.PsfKernelHalfWidthNm"
+},
+"psf-model": {
+"tier": "Expert",
+"prop": "Renderer.PsfModel"
+},
+"psf-oversampling": {
+"tier": "Expert",
+"prop": "Renderer.PsfOversampling"
+},
+"psf-pupil-samples": {
+"tier": "Expert",
+"prop": "Renderer.PsfPupilSamples"
+},
+"psf-sample-depth-nm": {
+"tier": "Expert",
+"prop": "SampleHolder.PsfSampleDepthNm"
+},
+"psf-sample-index": {
+"tier": "Expert",
+"prop": "SampleHolder.PsfSampleIndex"
+},
+"psf-working-distance-um": {
+"tier": "Expert",
+"prop": "Objective.WorkingDistanceUm"
+},
+"psf-z-range-um": {
+"tier": "Advanced",
+"prop": "Objective.PsfZRangeUm"
+},
+"psf-z-step-um": {
+"tier": "Advanced",
+"prop": "Objective.PsfZStepUm"
+},
+"qe": {
+"tier": "Advanced",
+"prop": "Camera.QuantumEfficiency"
+},
+"qe-curve": {
+"tier": "Advanced",
+"prop": "Camera.QeCurve"
+},
+"read-noise": {
+"tier": "Advanced",
+"prop": "Camera.ReadNoiseElectrons"
+},
+"read-noise-std-pct": {
+"tier": "Expert",
+"prop": "Camera.sCMOS_ReadNoiseStdPctPerPixel"
+},
+"ruler-dye": {
+"tier": "Basic",
+"prop": "Nanorulers.Docking_Label"
+},
+"ruler-imager-nm": {
+"tier": "Advanced",
+"prop": "Nanorulers.Docking_ImagerNanoMol"
+},
+"ruler-label-pct": {
+"tier": "Advanced",
+"prop": "Nanorulers.Docking_LabelingPct"
+},
+"ruler-mode": {
+"tier": "Basic",
+"prop": "Nanorulers.Docking_Mode"
+},
+"ruler-orient": {
+"tier": "Expert",
+"prop": "Nanorulers.Docking_Orientation"
+},
+"ruler-orient-azimuth-deg": {
+"tier": "Expert",
+"prop": "Nanorulers.Docking_OrientAzimuthDeg"
+},
+"ruler-orient-polar-deg": {
+"tier": "Expert",
+"prop": "Nanorulers.Docking_OrientPolarDeg"
+},
+"ruler-paint-kon": {
+"tier": "Advanced",
+"prop": "Nanorulers.Docking_KonPerMolarPerSec"
+},
+"ruler-paint-on-sec": {
+"tier": "Advanced",
+"prop": "Nanorulers.Docking_BoundTimeSec"
+},
+"ruler-wobble-deg": {
+"tier": "Expert",
+"prop": "Nanorulers.Docking_WobbleConeDeg"
+},
+"wf-kernel-um": {
+"tier": "Advanced",
+"prop": "Objective.PsfKernelHalfWidthNm"
+},
+"wf-plane-nm": {
+"tier": "Expert",
+"prop": "Renderer.WideFieldZPlaneNm"
+},
+"wf-upscale": {
+"tier": "Expert",
+"prop": "Renderer.WideFieldUpscaling"
+},
+"z-range-um": {
+"tier": "Expert",
+"prop": "CellField.ZRangeUm"
+},
+"zern.12": {
+"tier": "Advanced",
+"prop": "Objective.ZernikePreset"
+},
+"zern.4": {
+"tier": "Advanced",
+"prop": "Objective.ZernikePreset"
+},
+"zern.5": {
+"tier": "Advanced",
+"prop": "Objective.ZernikePreset"
+},
+"zern.7": {
+"tier": "Advanced",
+"prop": "Objective.ZernikePreset"
+}
+},
+"props": {
+"Camera.BitDepth": "Expert",
+"Camera.CameraPreset": "Basic",
+"Camera.CameraType": "Advanced",
+"Camera.DarkCurrentElectronsPerSec": "Advanced",
+"Camera.EMCCD_CicElectrons": "Expert",
+"Camera.EMCCD_EmGain": "Expert",
+"Camera.GainElectronsPerADU": "Advanced",
+"Camera.OffsetADU": "Advanced",
+"Camera.OffsetStdADU": "Advanced",
+"Camera.PixelSizeNm": "Advanced",
+"Camera.QeCurve": "Advanced",
+"Camera.QuantumEfficiency": "Advanced",
+"Camera.ReadNoiseElectrons": "Advanced",
+"Camera.SensorPixelUm": "Advanced",
+"Camera.sCMOS_GainStdPctPerPixel": "Expert",
+"Camera.sCMOS_ReadNoiseStdPctPerPixel": "Expert",
+"CellField.AbsorptionPerUm": "Expert",
+"CellField.CellDiameterMaxUm": "Advanced",
+"CellField.CellDiameterMinUm": "Advanced",
+"CellField.ChunkSizeUm": "Expert",
+"CellField.FocusHeightUm": "Expert",
+"CellField.IndexCytoplasm": "Advanced",
+"CellField.IndexMedium": "Advanced",
+"CellField.IndexMicrotubule": "Advanced",
+"CellField.IndexNucleus": "Advanced",
+"CellField.MicrotubuleDensityPerUm2": "Advanced",
+"CellField.MicrotubuleDirKappa": "Expert",
+"CellField.MicrotubuleEndDecayPct": "Expert",
+"CellField.MicrotubuleStartDecayPct": "Expert",
+"CellField.Microtubules_Binder": "Advanced",
+"CellField.Microtubules_BinderFlexNm": "Expert",
+"CellField.Microtubules_BinderNm": "Expert",
+"CellField.Microtubules_BoundTimeSec": "Advanced",
+"CellField.Microtubules_ImagerNanoMol": "Advanced",
+"CellField.Microtubules_KonPerMolarPerSec": "Advanced",
+"CellField.Microtubules_Label": "Basic",
+"CellField.Microtubules_LabelingPct": "Advanced",
+"CellField.Microtubules_LinkerMaxNm": "Expert",
+"CellField.Microtubules_LinkerMinNm": "Expert",
+"CellField.Microtubules_Mode": "Basic",
+"CellField.Microtubules_Motion": "Expert",
+"CellField.Microtubules_OrientAzimuthDeg": "Expert",
+"CellField.Microtubules_OrientPolarDeg": "Expert",
+"CellField.Microtubules_Orientation": "Expert",
+"CellField.Microtubules_WobbleConeDeg": "Expert",
+"CellField.NucAsym": "Expert",
+"CellField.NucBaseMaxUm": "Expert",
+"CellField.NucBaseMinUm": "Expert",
+"CellField.NucBendMax": "Expert",
+"CellField.NucBendMin": "Expert",
+"CellField.NucIrregMax": "Expert",
+"CellField.NucIrregMin": "Expert",
+"CellField.NucSmooth": "Expert",
+"CellField.NucThickIrreg": "Expert",
+"CellField.NucWidestMax": "Expert",
+"CellField.NucWidestMin": "Expert",
+"CellField.NuclearPoreCornerSpreadNm": "Expert",
+"CellField.NuclearPoreDensityPerUm2": "Advanced",
+"CellField.NuclearPoreMinDistNm": "Expert",
+"CellField.NuclearPoreRadiusNm": "Expert",
+"CellField.NuclearPoreRingSepNm": "Expert",
+"CellField.NuclearPores_Binder": "Advanced",
+"CellField.NuclearPores_BinderFlexNm": "Expert",
+"CellField.NuclearPores_BinderNm": "Expert",
+"CellField.NuclearPores_BoundTimeSec": "Advanced",
+"CellField.NuclearPores_ImagerNanoMol": "Advanced",
+"CellField.NuclearPores_KonPerMolarPerSec": "Advanced",
+"CellField.NuclearPores_Label": "Basic",
+"CellField.NuclearPores_LabelingPct": "Advanced",
+"CellField.NuclearPores_LinkerMaxNm": "Expert",
+"CellField.NuclearPores_LinkerMinNm": "Expert",
+"CellField.NuclearPores_Mode": "Basic",
+"CellField.NuclearPores_Motion": "Expert",
+"CellField.NuclearPores_OrientAzimuthDeg": "Expert",
+"CellField.NuclearPores_OrientPolarDeg": "Expert",
+"CellField.NuclearPores_Orientation": "Expert",
+"CellField.NuclearPores_WobbleConeDeg": "Expert",
+"CellField.Occupancy": "Advanced",
+"CellField.Packing": "Expert",
+"CellField.ZRangeUm": "Expert",
+"Dichroic.CustomEdgeNm": "Expert",
+"EmissionFilter.CustomHiNm": "Expert",
+"EmissionFilter.CustomLoNm": "Expert",
+"EmissionPath.EmissionMagnification": "Basic",
+"ExcitationFilter.CustomHiNm": "Expert",
+"ExcitationFilter.CustomLoNm": "Expert",
+"Fluorophores.Docking_DetectedPct": "Advanced",
+"Fluorophores.Docking_EffectiveDye": "Advanced",
+"Fluorophores.Docking_EmissionNm": "Advanced",
+"Fluorophores.Docking_PhotonsPerSecOn": "Advanced",
+"Fluorophores.Dye1_Activation405": "Expert",
+"Fluorophores.Dye1_BleachProb": "Expert",
+"Fluorophores.Dye1_ExtCoeff": "Expert",
+"Fluorophores.Dye1_FluorescentPct": "Expert",
+"Fluorophores.Dye1_InitialOnSec": "Expert",
+"Fluorophores.Dye1_OffSec": "Expert",
+"Fluorophores.Dye1_OnSec": "Expert",
+"Fluorophores.Dye1_PhotonBudget": "Expert",
+"Fluorophores.Dye1_PhotonCv": "Expert",
+"Fluorophores.Dye1_PrePhotonBudget": "Expert",
+"Fluorophores.Dye1_Primed": "Expert",
+"Fluorophores.Dye1_Qy": "Expert",
+"Fluorophores.Dye1_Source": "Expert",
+"Fluorophores.Dye1_SpontActivation": "Expert",
+"Fluorophores.Dye2_Activation405": "Expert",
+"Fluorophores.Dye2_BleachProb": "Expert",
+"Fluorophores.Dye2_ExtCoeff": "Expert",
+"Fluorophores.Dye2_FluorescentPct": "Expert",
+"Fluorophores.Dye2_InitialOnSec": "Expert",
+"Fluorophores.Dye2_OffSec": "Expert",
+"Fluorophores.Dye2_OnSec": "Expert",
+"Fluorophores.Dye2_PhotonBudget": "Expert",
+"Fluorophores.Dye2_PhotonCv": "Expert",
+"Fluorophores.Dye2_PrePhotonBudget": "Expert",
+"Fluorophores.Dye2_Primed": "Expert",
+"Fluorophores.Dye2_Qy": "Expert",
+"Fluorophores.Dye2_Source": "Expert",
+"Fluorophores.Dye2_SpontActivation": "Expert",
+"Fluorophores.Dye3_Activation405": "Expert",
+"Fluorophores.Dye3_BleachProb": "Expert",
+"Fluorophores.Dye3_ExtCoeff": "Expert",
+"Fluorophores.Dye3_FluorescentPct": "Expert",
+"Fluorophores.Dye3_InitialOnSec": "Expert",
+"Fluorophores.Dye3_OffSec": "Expert",
+"Fluorophores.Dye3_OnSec": "Expert",
+"Fluorophores.Dye3_PhotonBudget": "Expert",
+"Fluorophores.Dye3_PhotonCv": "Expert",
+"Fluorophores.Dye3_PrePhotonBudget": "Expert",
+"Fluorophores.Dye3_Primed": "Expert",
+"Fluorophores.Dye3_Qy": "Expert",
+"Fluorophores.Dye3_Source": "Expert",
+"Fluorophores.Dye3_SpontActivation": "Expert",
+"Fluorophores.Microtubules_DetectedPct": "Advanced",
+"Fluorophores.Microtubules_EffectiveDye": "Advanced",
+"Fluorophores.Microtubules_EmissionNm": "Advanced",
+"Fluorophores.Microtubules_PhotonsPerSecOn": "Advanced",
+"Fluorophores.NuclearPores_DetectedPct": "Advanced",
+"Fluorophores.NuclearPores_EffectiveDye": "Advanced",
+"Fluorophores.NuclearPores_EmissionNm": "Advanced",
+"Fluorophores.NuclearPores_PhotonsPerSecOn": "Advanced",
+"Lasers.ChamberHeightUm": "Advanced",
+"Lasers.CustomLineKWcm2": "Advanced",
+"Lasers.CustomLineNm": "Advanced",
+"Lasers.IlluminationFwhmPct": "Basic",
+"Lasers.IlluminationGeometry": "Basic",
+"Lasers.IlluminationProfile": "Basic",
+"Lasers.Laser405KWcm2": "Basic",
+"Lasers.Laser488KWcm2": "Basic",
+"Lasers.Laser561KWcm2": "Basic",
+"Lasers.Laser640KWcm2": "Basic",
+"Lasers.Laser730KWcm2": "Basic",
+"Lasers.Preset": "Basic",
+"Nanorulers.AttachHeightNm": "Advanced",
+"Nanorulers.Bending": "Advanced",
+"Nanorulers.DensityPerUm2": "Basic",
+"Nanorulers.Design": "Basic",
+"Nanorulers.Docking_BoundTimeSec": "Advanced",
+"Nanorulers.Docking_ImagerNanoMol": "Advanced",
+"Nanorulers.Docking_KonPerMolarPerSec": "Advanced",
+"Nanorulers.Docking_Label": "Basic",
+"Nanorulers.Docking_LabelingPct": "Advanced",
+"Nanorulers.Docking_Mode": "Basic",
+"Nanorulers.Docking_Motion": "Expert",
+"Nanorulers.Docking_OrientAzimuthDeg": "Expert",
+"Nanorulers.Docking_OrientPolarDeg": "Expert",
+"Nanorulers.Docking_Orientation": "Expert",
+"Nanorulers.Docking_WobbleConeDeg": "Expert",
+"Nanorulers.KeepHeights": "Expert",
+"Nanorulers.LinkerNm": "Advanced",
+"Nanorulers.MinSpacingNm": "Advanced",
+"Nanorulers.PersistenceLengthNm": "Advanced",
+"Nanorulers.Roll": "Advanced",
+"Nanorulers.RollDeg": "Advanced",
+"Nanorulers.SpacingNm": "Basic",
+"Nanorulers.StrandsPerSpot": "Basic",
+"Objective.ImmersionIndex": "Advanced",
+"Objective.Magnification": "Advanced",
+"Objective.NA": "Advanced",
+"Objective.PsfKernelHalfWidthNm": "Advanced",
+"Objective.PsfZRangeUm": "Advanced",
+"Objective.PsfZStepUm": "Advanced",
+"Objective.WorkingDistanceUm": "Expert",
+"Objective.ZernikeCoefficients": "Expert",
+"Objective.ZernikePreset": "Advanced",
+"Renderer.BlinkBinnedDensityPerUm2": "Expert",
+"Renderer.BlinkBinnedMaxEmitters": "Expert",
+"Renderer.BlinkBinnedUpscale": "Expert",
+"Renderer.BlinkMeanFieldDensityPerUm2": "Expert",
+"Renderer.BlinkMeanFieldMaxEmitters": "Expert",
+"Renderer.BrightFieldGeometrySamples": "Expert",
+"Renderer.BrightFieldQuality": "Expert",
+"Renderer.BrightFieldSliceUm": "Expert",
+"Renderer.BrightFieldSources": "Expert",
+"Renderer.BrightFieldUpscaling": "Expert",
+"Renderer.DiskCache": "Advanced",
+"Renderer.GpuStatus": "Advanced",
+"Renderer.MeanFieldDensityPerUm2": "Expert",
+"Renderer.MeanFieldMaxEmitters": "Expert",
+"Renderer.MeanFieldSlabNm": "Expert",
+"Renderer.PsfGeneratorJavaHome": "Expert",
+"Renderer.PsfHaloCut": "Expert",
+"Renderer.PsfInterp": "Expert",
+"Renderer.PsfModel": "Expert",
+"Renderer.PsfOversampling": "Expert",
+"Renderer.PsfPupilSamples": "Expert",
+"Renderer.Quality": "Basic",
+"Renderer.UseGpu": "Advanced",
+"Renderer.WideFieldUpscaling": "Expert",
+"Renderer.WideFieldZPlaneNm": "Expert",
+"Renderer.WriteScopeSpecTo": "Expert",
+"SampleHolder.BackgroundDecaySec": "Advanced",
+"SampleHolder.BackgroundPhotonsPerSec": "Advanced",
+"SampleHolder.DriftPreset": "Basic",
+"SampleHolder.DriftSpeedWanderPct": "Expert",
+"SampleHolder.DriftWanderTimeSec": "Expert",
+"SampleHolder.DriftXyAngleDeg": "Expert",
+"SampleHolder.DriftXyAngleWanderDeg": "Expert",
+"SampleHolder.DriftXyNmPerSqrtSec": "Advanced",
+"SampleHolder.DriftXySpeedNmPerSec": "Advanced",
+"SampleHolder.DriftZAngleWanderDeg": "Expert",
+"SampleHolder.DriftZDirection": "Expert",
+"SampleHolder.DriftZNmPerSqrtSec": "Advanced",
+"SampleHolder.DriftZSpeedNmPerSec": "Advanced",
+"SampleHolder.PsfSampleDepthNm": "Expert",
+"SampleHolder.PsfSampleIndex": "Expert",
+"SampleHolder.TimeWhileIdle": "Basic",
+"TransmittedLamp.CondenserNA": "Advanced",
+"TransmittedLamp.IntensityPhotonsPerPxPerSec": "Basic",
+"TransmittedLamp.UseObjectiveAberrations": "Expert",
+"TransmittedLamp.WavelengthNm": "Advanced",
+"XYStage.StageLimitUm": "Advanced",
+"XYStage.StageSettleMs": "Advanced",
+"XYStage.StageSpeedUmPerSec": "Advanced"
+}
+};
