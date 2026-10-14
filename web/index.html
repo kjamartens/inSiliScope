@@ -34,6 +34,8 @@
   #sideTop .bar{display:flex;align-items:center;gap:8px}
   #sideTop input[type=search]{flex:1;min-width:0;background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:var(--fs);font-family:inherit}
   .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
+  /* a row the search matches: the whole line highlighted */
+  .opt.hit{background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px}
   details.grp.nomatch-grp{display:none!important}
   /* The right side: a bar (Live / Snap / Record / fresh, the one-line info) level with the world view's View bar; under
      it the camera image (square) with the settings below it at the same width, and beside both the microscope's
@@ -77,6 +79,7 @@
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
   #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
+  #liveCtl .lc[hidden]{display:none}
   #liveCtl .lc h5,#liveCtl details.grp>summary{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
   /* a settings group moved into the column (Illumination & light path): the column's look */
   #liveCtl details.grp{border:0;margin:0;background:none}
@@ -317,7 +320,7 @@
     <div id="sideMain">
       <div id="liveView">
         <canvas id="lv_cv" width="1" height="1"></canvas>
-        <div id="lv_idle">Live is off. Press <b>&nbsp;▶ Live&nbsp;</b> to image the sample under the world view's centre.</div>
+        <div id="lv_idle"><span>Live is off. Press <b>▶ Live</b> to image the sample under the world view's centre.</span></div>
         <div id="lv_scale"></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
@@ -343,6 +346,7 @@
           <div class="cfg" id="lv_expRow"><span class="lab">Exposure</span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
         </div>
         <div class="lc" id="lv_illumHost"></div>
+        <div class="lc" id="lv_objHost"></div>
         <div class="lc"><h5>Display</h5>
           <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
@@ -896,14 +900,14 @@ const UI_GROUPS = [
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
   ] },
-  { sect: 'Microscope', id: 'objective', title: 'Objective & PSF', items: [
+  { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
         select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
       ] }),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
-  { id: 'camera', title: 'Camera', items: [
+  { sect: 'Microscope', id: 'camera', title: 'Camera', items: [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × emission magnification, 0.667). Not a setting: pick the Camera and Objective (Configuration). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { adv, ro: true }),
     num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
@@ -1174,6 +1178,7 @@ function applyOpen() {
     for (const G of inPanel) G.det.open = G.g.id === want;
   } else for (const G of inPanel) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
 }
+let searching = false;   // a search opens every group with a match (the one-open rule waits)
 let curSect = { el: h('div'), groups: [] };   // groups before the first section header (none shown)
 for (const g of UI_GROUPS) {
   const into = g.host ? $(g.host) : panel;
@@ -1186,7 +1191,7 @@ for (const g of UI_GROUPS) {
   if (g.host) det.open = store.get('open.' + g.id, g.open ? '1' : '0') === '1';
   det.addEventListener('toggle', () => {
     if (!oneOpen() || g.host) store.set('open.' + g.id, det.open ? '1' : '0');
-    else if (det.open && !g.host) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
+    else if (det.open && !g.host && !searching) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
   });
   into.append(det);
   const G = { g, det, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
@@ -1339,11 +1344,16 @@ $('viewPanel').addEventListener('scroll', hideTip);
 // ---- search: show only the rows whose label or help text has every typed word (their group opened) ----
 const search = $('setSearch');
 const rowText = r => ((r.label || '') + ' ' + (r.tip || '') + ' ' + (r.id || '') + ' ' + (r.group ? r.group.title : '')).replace(/<[^>]+>/g, ' ').toLowerCase();
+// The matching rows are highlighted (in the settings and in the controls column, whose groups are not hidden).
 function applySearch() {
   const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
-  const hit = r => words.every(w => rowText(r).includes(w));
+  searching = words.length > 0;
+  // only rows the current level shows (and that apply: show()) count
+  const lv = document.body.dataset.level, offLevel = el => el.classList.contains('t-expert') ? lv !== 'expert' : el.classList.contains('t-advanced') && lv === 'basic';
+  const hit = r => !offLevel(r.row) && isShown(r) && words.every(w => rowText(r).includes(w));
   const keep = new Set();
   if (words.length) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
+  for (const r of entries) if (r.row) r.row.classList.toggle('hit', !!words.length && hit(r));
   for (const r of entries) {
     if (!r.row || (r.group && r.group.host)) continue;
     const off = words.length && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
@@ -1351,14 +1361,16 @@ function applySearch() {
     if (r.kidsEl) r.kidsEl.classList.toggle('nomatch', !!off && !(r.kidEntries || []).some(k => keep.has(k)));
   }
   for (const G of groups) {
-    if (G.g.host) continue;
     const any = !words.length || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
+    if (G.g.host) { if (words.length && any) G.det.open = true; continue; }
     G.det.classList.toggle('nomatch-grp', !any);
     if (words.length && any) G.det.open = true;
   }
   if (!words.length) applyOpen();
+  else { const first = document.querySelector('#panel .opt.hit'); if (first) first.scrollIntoView({ block: 'nearest' }); }
 }
 search.addEventListener('input', applySearch);
+new MutationObserver(() => { if (search.value.trim()) applySearch(); }).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 
 // (stored 'default' / 'advanced' before the three tiers: 'default' is Basic now)
 setStyle(store.get('style', 'focus'));

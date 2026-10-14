@@ -57,6 +57,20 @@ for (const num of document.querySelectorAll('#lv_illumHost input[type=number][id
   num.addEventListener('change', back);
 }
 
+// A settings group in the column (Illumination & light path, Objective & PSF) shows only when one of its rows does at
+// the current level (Objective & PSF has no Basic row).
+function syncHostBoxes() {
+  for (const id of ['lv_illumHost', 'lv_objHost']) {
+    const box = $(id);
+    if (box) box.hidden = ![...box.querySelectorAll('.opt')].some(e => getComputedStyle(e).display !== 'none');
+  }
+}
+let hostTimer = 0;
+const syncHostsSoon = () => { clearTimeout(hostTimer); hostTimer = setTimeout(syncHostBoxes, 30); };
+new MutationObserver(syncHostsSoon).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
+document.addEventListener('change', syncHostsSoon);
+syncHostBoxes();
+
 // ---- controls mirrored from the settings (one value, two places) ----
 function mirror(id, srcId) {
   const a = $(id), b = $(srcId);

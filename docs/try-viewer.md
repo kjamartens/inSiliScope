@@ -28,7 +28,9 @@ Notes:
   the frame rate, the time per frame and the image size; under it the live camera image, always square, with every
   sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
   bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
-  illumination and light path, the display range and, at the Expert level, the performance. The divider between the
+  illumination and light path, the objective and PSF (from the Advanced level: it has no Basic setting), the display
+  range and, at the Expert level, the performance. The search box highlights every line that matches (at the current
+  level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
 - **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the line beside
@@ -83,7 +85,7 @@ Notes:
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
-  (illumination, objective & PSF, camera, image formation) and acquisition. Groups fold open and closed; every option
+  (camera, image formation; illumination and the objective are in the controls column) and acquisition. Groups fold open and closed; every option
   has a unit and a help text that shows when the pointer rests on its name.
 - **Basic / Advanced / Expert** beside the search box choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the

@@ -39,8 +39,10 @@ that finishes them.
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
   layout (2026-10-14): a bar `#liveBar` level with the View bar (Live / Snap / Record / fresh, the one-line info: speed,
   size), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
-  column `#liveCtl` to the bottom (focus, configuration, the settings group Illumination & light path via `host:
-  'lv_illumHost'`, display, performance); render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
+  column `#liveCtl` to the bottom (focus, configuration, the settings groups Illumination & light path and Objective & PSF
+  via `host: 'lv_illumHost'` / `'lv_objHost'`, a box hidden when none of its rows shows at the level, display,
+  performance); the settings search highlights matching rows (`.opt.hit`, the column's too) and opens every group with
+  a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames on
   the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
