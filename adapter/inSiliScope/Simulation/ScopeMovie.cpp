@@ -43,6 +43,9 @@
 #include <deque>
 #include <cstring>
 #include <limits>
+#include <condition_variable>
+#include <list>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <stdexcept>
@@ -2725,6 +2728,220 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double
    p.accFrame = f;
 }
 
+namespace {
+// One grid focus's background map, in two parts (photons per pixel per frame): lat = the flat background x the beam's
+// footprint on the coverslip, im = the free imagers' collected columns.
+struct BgSlice
+{
+   std::vector<double> lat, im;
+};
+// What a slice is made from (the focus is the grid's: pivotUm = k x kBackgroundFocusStepUm).
+struct BgJob
+{
+   std::vector<double> key;   // everything but the focus, and then k
+   ExcitationSpec es;
+   unsigned W = 0, H = 0;
+   double um = 0, axisX = 0, axisY = 0, H0 = 0, expSec = 0, backgroundPhotons = 0;
+   std::vector<ImagerSource> sources;
+};
+
+BgSlice MakeBgSlice(const BgJob& j)
+{
+   const Excitation ex(j.es);
+   const std::vector<double> imMap = ex.ImagerMap(j.W, j.H, j.um, j.axisX, j.axisY, j.H0, j.sources);
+   BgSlice s;
+   const size_t n = static_cast<size_t>(j.W) * j.H;
+   s.lat.resize(n);
+   s.im.resize(n);
+   ParallelFor(j.H, [&](unsigned y) {
+      for (unsigned x = 0; x < j.W; x++)
+      {
+         const double dx = x * j.um - j.axisX, dy = y * j.um - j.axisY;
+         const size_t k = static_cast<size_t>(y) * j.W + x;
+         double im = imMap[k];
+         im *= j.expSec;
+         s.im[k] = im;
+         s.lat[k] = j.backgroundPhotons * ex.Lateral(dx, dy, 0.0);
+      }
+   });
+   return s;
+}
+
+// The grid's slices, most recently used last, at most kSlices and kBytes; the slices in the making (the prefetch
+// worker's or another movie's) are waited for, not made twice.
+class BgMapCache
+{
+public:
+   static BgMapCache& Get()
+   {
+      static BgMapCache c;
+      return c;
+   }
+   ~BgMapCache() { Shutdown(); }
+
+   std::shared_ptr<const BgSlice> Slice(const BgJob& j)
+   {
+      std::unique_lock<std::mutex> lk(m_);
+      for (;;)
+      {
+         for (auto it = slices_.begin(); it != slices_.end(); ++it)
+            if (it->first == j.key)
+            {
+               auto s = it->second;
+               slices_.splice(slices_.end(), slices_, it);
+               return s;
+            }
+         if (!InFlight(j.key))
+            break;
+         cv_.wait(lk);
+      }
+      // Not queued for the worker any more: this thread makes it.
+      for (auto it = queue_.begin(); it != queue_.end(); ++it)
+         if (it->key == j.key)
+         {
+            queue_.erase(it);
+            break;
+         }
+      making_.push_back(j.key);
+      lk.unlock();
+      const auto t = TimingClock::now();
+      auto s = std::make_shared<const BgSlice>(MakeBgSlice(j));
+      TimingLog("fl.bg-map", TimingSince(t));
+      lk.lock();
+      Done(j.key, s);
+      return s;
+   }
+
+   // Queue slices for the worker (the ones not made, queued or in the making); the queue keeps the latest few.
+   void Prefetch(std::vector<BgJob> jobs)
+   {
+#ifndef __EMSCRIPTEN__
+      std::lock_guard<std::mutex> lk(m_);
+      if (!prefetch_ || stop_)
+         return;
+      for (BgJob& j : jobs)
+      {
+         bool have = InFlight(j.key);
+         for (const auto& e : slices_)
+            have = have || e.first == j.key;
+         for (const BgJob& q : queue_)
+            have = have || q.key == j.key;
+         if (!have)
+            queue_.push_back(std::move(j));
+      }
+      while (queue_.size() > kQueue)
+         queue_.pop_front();
+      if (!worker_.joinable() && !queue_.empty())
+         worker_ = std::thread([this] { Work(); });
+      cv_.notify_all();
+#else
+      (void)jobs;
+#endif
+   }
+
+   void SetPrefetch(bool on)
+   {
+      {
+         std::lock_guard<std::mutex> lk(m_);
+         prefetch_ = on;
+         if (on)
+            stop_ = false;
+         else
+            queue_.clear();
+      }
+      cv_.notify_all();
+   }
+
+   void Shutdown()
+   {
+      {
+         std::lock_guard<std::mutex> lk(m_);
+         stop_ = true;
+         prefetch_ = false;
+         queue_.clear();
+      }
+      cv_.notify_all();
+#ifndef __EMSCRIPTEN__
+      if (worker_.joinable())
+         worker_.join();
+#endif
+   }
+
+private:
+   static constexpr size_t kSlices = 12, kQueue = 4;
+   static constexpr size_t kBytes = 192u << 20;
+
+   bool InFlight(const std::vector<double>& key) const
+   {
+      for (const auto& k : making_)
+         if (k == key)
+            return true;
+      return false;
+   }
+   // (under m_)
+   void Done(const std::vector<double>& key, const std::shared_ptr<const BgSlice>& s)
+   {
+      for (auto it = making_.begin(); it != making_.end(); ++it)
+         if (*it == key)
+         {
+            making_.erase(it);
+            break;
+         }
+      slices_.emplace_back(key, s);
+      size_t bytes = 0;
+      for (const auto& e : slices_)
+         bytes += (e.second->lat.size() + e.second->im.size()) * sizeof(double);
+      while (slices_.size() > 1 && (slices_.size() > kSlices || bytes > kBytes))
+      {
+         bytes -= (slices_.front().second->lat.size() + slices_.front().second->im.size()) * sizeof(double);
+         slices_.pop_front();
+      }
+      cv_.notify_all();
+   }
+#ifndef __EMSCRIPTEN__
+   void Work()
+   {
+      std::unique_lock<std::mutex> lk(m_);
+      for (;;)
+      {
+         cv_.wait(lk, [&] { return stop_ || !queue_.empty(); });
+         if (stop_)
+            return;
+         BgJob j = std::move(queue_.back());   // the latest request first
+         queue_.pop_back();
+         making_.push_back(j.key);
+         lk.unlock();
+         const auto t = TimingClock::now();
+         auto s = std::make_shared<const BgSlice>(MakeBgSlice(j));
+         TimingLog("fl.bg-map-prefetch", TimingSince(t));
+         lk.lock();
+         Done(j.key, s);
+      }
+   }
+#endif
+
+   std::mutex m_;
+   std::condition_variable cv_;
+   std::list<std::pair<std::vector<double>, std::shared_ptr<const BgSlice>>> slices_;
+   std::vector<std::vector<double>> making_;
+   std::deque<BgJob> queue_;
+#ifndef __EMSCRIPTEN__
+   std::thread worker_;   // the prefetch (the WASM viewer has no threads)
+#endif
+   bool prefetch_ = false, stop_ = false;
+};
+} // namespace
+
+void SetBackgroundMapPrefetch(bool on)
+{
+   BgMapCache::Get().SetPrefetch(on);
+}
+
+void BackgroundMapPrefetchShutdown()
+{
+   BgMapCache::Get().Shutdown();
+}
+
 bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel,
                               const DyeClock* clock)
 {
@@ -3472,68 +3689,56 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             sh.push_back({ l.nm, l.share });
          imagerShares.push_back(sh);
       }
-      // The map is a function of these numbers only: the last one is kept
-      // (live frames at one pose and setting reuse it; the collected columns
-      // cost ~0.1 s at 256 px on 12 threads).
-      std::vector<double> key = m.exciteKey;
-      for (double v : { static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec, S.p.backgroundPhotons })
-         key.push_back(v);
+      // The map at the grid's foci around this one (kBackgroundFocusStepUm apart; on a grid focus: that one alone),
+      // blended linearly: a focus move reuses the grid's maps (and the prefetched neighbours) instead of making a
+      // new map (~0.2 s at 256 px). The blend is exact on the grid; in between it is the linear interpolation of
+      // smooth maps (the defocused imager; HILO's sheet moving tan theta_s um per um of focus).
+      BgJob job;
+      job.es = ScopeExcitationSpec(spec);
+      job.W = S.W;
+      job.H = S.H;
+      job.um = um;
+      job.axisX = m.axisX;
+      job.axisY = m.axisY;
+      job.H0 = H0;
+      job.expSec = S.expSec;
+      job.backgroundPhotons = S.p.backgroundPhotons;
       for (size_t i = 0; i < imagers.size(); ++i)
+         job.sources.push_back({ imagers[i]->ImagerPerPxPerUmPerSec(um), imagerShares[i] });
+      const ExcitationSpec& es = job.es;
+      job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
+                  m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec,
+                  S.p.backgroundPhotons };
+      for (const ImagerSource& src : job.sources)
       {
-         key.push_back(imagers[i]->ImagerPerPxPerUmPerSec(um));
-         for (const ExcitationLine& l : imagerShares[i])
+         job.key.push_back(src.rate);
+         for (const ExcitationLine& l : src.shares)
          {
-            key.push_back(l.nm);
-            key.push_back(l.share);
+            job.key.push_back(l.nm);
+            job.key.push_back(l.share);
          }
       }
-      static std::mutex memoMutex;
-      static std::vector<double> memoKey;
-      static std::vector<float> memoMap;
-      static double memoMean = 0.0;
-      bool hit = false;
+      const double step = kBackgroundFocusStepUm, pivot = es.pivotUm;
+      const double k0 = std::floor(pivot / step), t = (pivot - k0 * step) / step;
+      auto at = [&](double k) {
+         BgJob jk = job;
+         jk.es.pivotUm = k * step;
+         jk.key.push_back(k);
+         return jk;
+      };
+      const std::shared_ptr<const BgSlice> A = BgMapCache::Get().Slice(at(k0));
+      const std::shared_ptr<const BgSlice> B = t > 0.0 ? BgMapCache::Get().Slice(at(k0 + 1)) : nullptr;
+      BgMapCache::Get().Prefetch({ at(k0 + 1), at(k0 - 1), at(k0 + 2) });
+      const size_t n = static_cast<size_t>(S.W) * S.H;
+      double sum = 0.0;
+      for (size_t k = 0; k < n; ++k)
       {
-         std::lock_guard<std::mutex> lock(memoMutex);
-         if (key == memoKey)
-         {
-            m.bgMap = memoMap;
-            m.imagerMean = memoMean;
-            hit = true;
-         }
+         const double im = B ? (1.0 - t) * A->im[k] + t * B->im[k] : A->im[k];
+         const double lat = B ? (1.0 - t) * A->lat[k] + t * B->lat[k] : A->lat[k];
+         sum += im;
+         m.bgMap[k] = static_cast<float>(lat + im);
       }
-      if (!hit)
-      {
-         // Rows on threads (each pixel a pure function of its place, its own
-         // slot), the mean summed in the serial order.
-         const auto tMap = TimingClock::now();
-         std::vector<double> imPx(static_cast<size_t>(S.W) * S.H);
-         // The free imagers' collected columns (Excitation::ImagerMap: each height's lit imager defocused onto the
-         // pixel; JS imagerMap).
-         std::vector<ImagerSource> sources;
-         for (size_t i = 0; i < imagers.size(); ++i)
-            sources.push_back({ imagers[i]->ImagerPerPxPerUmPerSec(um), imagerShares[i] });
-         const std::vector<double> imMap = S.excite.ImagerMap(S.W, S.H, um, m.axisX, m.axisY, H0, sources);
-         ParallelFor(S.H, [&](unsigned y) {
-            for (unsigned x = 0; x < S.W; x++)
-            {
-               const double dx = x * um - m.axisX, dy = y * um - m.axisY;
-               double im = imMap[static_cast<size_t>(y) * S.W + x];
-               im *= S.expSec;
-               const size_t k = static_cast<size_t>(y) * S.W + x;
-               imPx[k] = im;
-               m.bgMap[k] = static_cast<float>(S.p.backgroundPhotons * S.excite.Lateral(dx, dy, 0.0) + im);
-            }
-         });
-         double sum = 0.0;
-         for (double im : imPx)
-            sum += im;
-         m.imagerMean = sum / (S.W * S.H);
-         TimingLog("fl.bg-map", TimingSince(tMap));
-         std::lock_guard<std::mutex> lock(memoMutex);
-         memoKey = key;
-         memoMap = m.bgMap;
-         memoMean = m.imagerMean;
-      }
+      m.imagerMean = sum / (S.W * S.H);
    }
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    TimingLog("fl.setup", m.setupSec);

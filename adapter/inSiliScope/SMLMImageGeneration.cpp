@@ -886,7 +886,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
    auto liveLightAt = [&](long version, double x, double y, double z) -> const sim::HistoryLight& {
       if (version != liveLightVersion || x != liveLightPose[0] || y != liveLightPose[1] || z != liveLightPose[2])
       {
+         const auto tLight = sim::TimingClock::now();
          liveLight = HistoryLightAt(isc::BuildScopeSpec(St(), x, y, z, 0.0, 1), x, y, z);
+         sim::TimingLog("live.history-light", sim::TimingSince(tLight));
          liveLightVersion = version;
          liveLightPose[0] = x;
          liveLightPose[1] = y;

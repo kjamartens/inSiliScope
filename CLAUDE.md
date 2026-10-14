@@ -241,7 +241,10 @@ Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5
 (Basic, 0-1.2) = the laser spot in the BFP (0 epi, 1 the critical angle, HILO between, TIRF above, clipped beyond
 NA / `bf-n-medium` = MM `SampleHolder.MediumIndex`); beam `illum-profile` (default FlatTop) / `illum-fwhm` (100 % of
 the FOV), engine options now (the adapter's own 2D field is gone); `chamber-height-um` 100 (the free imager's light is
-collected defocused: `Excitation::ImagerMap`, epi's column ~ the beam's radius, not the chamber). `Simulation/Excitation.*`
+collected defocused: `Excitation::ImagerMap`, epi's column ~ the beam's radius, not the chamber; the map is made on a 0.25 um
+focus grid and blended, cached in `BgMapCache`, the neighbours prefetched in MM (`SetBackgroundMapPrefetch`; joined by
+`BackgroundMapPrefetchShutdown` in the camera's `Shutdown`); a focus move re-uploads only the GPU's per-pixel statics,
+profile phases `fl.bg-map`, `fl.bg-map-prefetch`, `gpu.prepare`, `gpu.prepare-background`). `Simulation/Excitation.*`
 = `excitation.js`. The DNA-PAINT light presets set 0.95 (HILO), the nanorulers 1.03 (TIRF); an Auto preset of several
 targets keeps the position they agree on. The kinetics follow the local light (cli/viewer: dSTORM clock x a, PALM
 activation b(a), mean field by dose nodes); in MM the history clock is the dose, in 12 z bands under a shaped beam, the

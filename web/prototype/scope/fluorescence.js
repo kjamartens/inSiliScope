@@ -22,7 +22,7 @@ import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
 import { meanFieldImage, renderShiftedImages } from './widefield.js';
 import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 import { EVENT_STATE } from './dyes.js';
-import { doseNodes, DOSE_LEVELS } from './excitation.js';
+import { doseNodes, DOSE_LEVELS, makeExcitation, BG_FOCUS_STEP_UM } from './excitation.js';
 
 const DOSE_BINS = 256;   // the mean-field switch's histogram of the dyes' excitation factors (shaped excitation)
 import { STRUCTURES } from './world.js';
@@ -330,15 +330,31 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   if (!EX.uniform) {
     bgMap = new Float32Array(W * H);
     const H0 = S.lp.chamberHeightUm, imagers = S.labels.filter((L, s) => S.mounted.includes(s) && L.imagerPerPxPerUmPerSec(um) > 0);
-    const imMap = EX.imagerMap(W, H, um, axisX, axisY, H0,
-      imagers.map(L => ({ rate: L.imagerPerPxPerUmPerSec(um), shares: L.states.main.lineShares })));
+    // Made at the grid's foci around this one (BG_FOCUS_STEP_UM apart; on a grid focus that one alone) and blended
+    // linearly (ScopeMovie.cpp BgMapCache: a host moving the focus reuses the grid's maps).
+    const sources = imagers.map(L => ({ rate: L.imagerPerPxPerUmPerSec(um), shares: L.states.main.lineShares }));
+    const slice = k => {
+      const ex = makeExcitation({ ...EX.spec, pivotUm: k * BG_FOCUS_STEP_UM });
+      const imMap = ex.imagerMap(W, H, um, axisX, axisY, H0, sources);
+      const lat = new Float64Array(W * H), imv = new Float64Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const dx = x * um - axisX, dy = y * um - axisY;
+        let im = imMap[y * W + x];
+        im *= S.expSec;
+        imv[y * W + x] = im;
+        lat[y * W + x] = S.p.backgroundPhotons * ex.lateral(dx, dy, 0.0);
+      }
+      return { lat, im: imv };
+    };
+    const pivot = EX.spec.pivotUm ?? 0.0, k0 = Math.floor(pivot / BG_FOCUS_STEP_UM);
+    const t = (pivot - k0 * BG_FOCUS_STEP_UM) / BG_FOCUS_STEP_UM;
+    const A = slice(k0), B = t > 0.0 ? slice(k0 + 1) : null;
     let sum = 0.0;
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const dx = x * um - axisX, dy = y * um - axisY;
-      let im = imMap[y * W + x];
-      im *= S.expSec;
+    for (let k = 0; k < W * H; k++) {
+      const im = B ? (1.0 - t) * A.im[k] + t * B.im[k] : A.im[k];
+      const lat = B ? (1.0 - t) * A.lat[k] + t * B.lat[k] : A.lat[k];
       sum += im;
-      bgMap[y * W + x] = S.p.backgroundPhotons * EX.lateral(dx, dy, 0.0) + im;
+      bgMap[k] = lat + im;
     }
     imagerMean = sum / (W * H);
   }

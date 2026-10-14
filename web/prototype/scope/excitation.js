@@ -29,6 +29,9 @@
 // excitation per laser line, [{nm, share}] summing to 1 (statePhotophysics lineShares): only TIRF's depth depends on
 // the wavelength.
 export const ILLUM_PROFILES = ['Flat', 'Gaussian', 'FlatTop'];
+// The shaped background maps are made at foci this far apart and blended between the two around the focus
+// (fluorescence.js; ScopeMovie.h kBackgroundFocusStepUm).
+export const BG_FOCUS_STEP_UM = 0.25;
 export const ILLUM_REGIMES = ['Epi', 'HILO', 'TIRF', 'Clipped'];
 const U_GAP = 1e-3;
 const FLATTOP_EDGE = 0.15;   // the logistic edge width, x the disc radius (SMLMBackground.cpp)
@@ -218,7 +221,7 @@ export function makeExcitation(o) {
     }
     return out;
   };
-  return { regime, u, uMax, clipped, tirf, F, cosI, tanS, profile, fwhmUm,
+  return { spec: o, regime, u, uMax, clipped, tirf, F, cosI, tanS, profile, fwhmUm,
     // Exactly 1 everywhere (a Flat beam at the BFP centre): the renderers skip the factor (outputs as before).
     uniform: profile === 0 && u === 0.0,
     profileAt: P, lateral, depth, depthMean, at, column, imagerColumnAt, imagerMap, depthNm, decayUm: tirf ? decayUm : null };

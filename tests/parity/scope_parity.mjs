@@ -142,6 +142,9 @@ const CASES = [
   ['Excitation TIRF 1.03, WideField mEGFP mean field (depth planes)', `${B} size=40 frames=3 psf-kernel-half-width-nm=2500 mt-dye=mEGFP light-preset=auto illum-bfp=1.03`, 0.999],
   ['Excitation TIRF 1.03, WideField mEGFP per dye, from t = 0', `${B} size=32 frames=4 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 mt-dye.photon-budget=2000 illum-bfp=1.03`, 0.999],
   ['Excitation TIRF 1.03, DNA-PAINT, blinks binned, drift', `${B} size=40 frames=8 psf-kernel-half-width-nm=2500 blink-binned-max-emitters=0 illum-bfp=1.03 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
+  // A focus between the background maps' grid foci (0.25 um apart): the map blended from the two around it.
+  ['Excitation HILO 0.95, DNA-PAINT, focus 0.6 um (the blended background map)', `${B} size=40 frames=4 psf-model=0 illum-bfp=0.95 z=0.6`, 0.999],
+  ['Excitation epi FlatTop, DNA-PAINT, focus 1.1 um (the blended background map)', `${B} size=40 frames=4 psf-model=0 illum-bfp=0 z=1.1`, 0.999],
   ['Excitation clipped (NA 1.40, bfp 1.1): no light', `${B} size=32 frames=3 psf-model=0 na=1.4 illum-bfp=1.1`, 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the

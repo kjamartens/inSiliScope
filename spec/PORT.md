@@ -1041,7 +1041,8 @@ change, golden unchanged).
   the binned blinks get it), the local kinetics (dSTORM raw-time queries, PALM activation scale, the windows), the
   populations' mean field per dose node (`MeanFieldNode`; slot key structure x 4 + state + 1000 node), the background
   map (background x lateral at z = 0 + the imagers' collected columns: `Excitation::ImagerMap`, JS `imagerMap`, the
-  defocused imager light convolved with the footprint per height, Fresnel-weighted; spec/ALGORITHM.md), `info` gains
+  defocused imager light convolved with the footprint per height, Fresnel-weighted; spec/ALGORITHM.md; made on a
+  0.25 um focus grid and blended, `kBackgroundFocusStepUm` = JS `BG_FOCUS_STEP_UM`), `info` gains
   ` illum=<regime>:bfp=:F=:depth_nm=`.
   `WidefieldScene::SetPlaneFactor` (`WidefieldPlaneFactor::At(k, z0, z1, x, y)`, per occupied cell; the WGSL/D3D11 job
   values are formed on the CPU, so no shader change).

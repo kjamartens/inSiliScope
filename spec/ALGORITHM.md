@@ -866,7 +866,11 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   24 directions per ring, z intervals growing 1.15x from 50 nm around the focus (TIRF: 64 over 30 decay lengths, each
   with its exact depth integral), on a node grid a third of the profile's edge (or sigma) apart, at least a pixel, at
   most 64 per side, bilinear between; a Flat beam keeps the plain column (a laterally infinite beam: the spread changes
-  nothing). Left out: the medium / glass index mismatch, near-field emission, imager depletion. That is why
+  nothing). **Focus grid:** the map (both parts: the flat background x the footprint, and the imager) is made at foci
+  k x 0.25 um and blended linearly between the two around the focus (exact on the grid, so the default 0.5 um is
+  unchanged); fixed on purpose: a map per focus cost ~0.2 s per z step in MM's live mode, plus a full GPU re-setup
+  (now: the per-pixel statics alone, `PrepareLiveGpu`). The adapter caches the grid's maps (`BgMapCache`, 12 slices /
+  192 MB) and makes the neighbours ahead on a worker (`SetBackgroundMapPrefetch`, native only). Left out: the medium / glass index mismatch, near-field emission, imager depletion. That is why
   DNA-PAINT is done in HILO or TIRF: the light presets of the DNA-PAINT modes set u = 0.95 (HILO), the nanorulers'
   specimen u = 1.03 (TIRF, under the 1.40 objective's pupil edge; both *estimates*); in epi the nanorulers' 20 nM
   imager over 100 um saturates the camera.

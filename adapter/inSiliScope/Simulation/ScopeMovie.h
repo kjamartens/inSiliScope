@@ -247,6 +247,13 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
 class Excitation;
 struct ExcitationLine;
 bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err);
+// The shaped background maps (FluorescenceMovie::Begin): made at foci on a kBackgroundFocusStepUm grid and blended
+// between the two around the focus, the grid's maps kept in a small cache. A host that moves the focus a lot (the MM
+// adapter's live mode) turns the prefetch on: a worker thread then also makes the grid's neighbouring maps (native
+// builds; the WASM viewer has no threads). Hosts that unload call BackgroundMapPrefetchShutdown (it joins the worker).
+constexpr double kBackgroundFocusStepUm = 0.25;
+void SetBackgroundMapPrefetch(bool on);
+void BackgroundMapPrefetchShutdown();
 
 // A host's per-region clock (the adapter's illumination history): the
 // seconds of illumination each world position (um) has had before frame 0. A

@@ -169,8 +169,10 @@ evanescent layer is lit (about the field factor times the decay depth, ~0.5 µm)
 is why DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
 (1.03), both *estimates*; TIRF cuts the nanorulers' imager background about 13-fold against epi. The renderers evaluate
 it on a node grid (a third of the beam's edge width apart) and interpolate: within 0.2 % of a dense quadrature in epi
-and TIRF, 2 % in HILO. A Flat beam (laterally infinite) lights every plane alike, so the spread changes nothing: there
-the column is the plain integral, \(H\) in epi.
+and TIRF, 2 % in HILO. The map depends on the focus (the defocus of each height; HILO's sheet pivots at the focus), so
+it is made at foci 0.25 µm apart and blended linearly between the two around the focus: a focus move reuses them, and
+Micro-Manager makes the neighbouring ones ahead on a worker thread. A Flat beam (laterally infinite) lights every plane
+alike, so the spread changes nothing: there the column is the plain integral, \(H\) in epi.
 
 **Left out:** the index mismatch between the medium and the glass (the defocus is taken in one medium), the dye's
 emission dipole (a free imager rotates: isotropic), the near-field (supercritical-angle) emission of dyes within a
