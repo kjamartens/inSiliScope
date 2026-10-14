@@ -75,8 +75,7 @@ function apply(preset) {
   if (preset.optics) {
     // the pixel size, as Micro-Manager works it out: the sensor pixel / (objective x emission magnification)
     if (preset.optics.objectiveMag) optics.objectiveMag = preset.optics.objectiveMag;
-    const o = { ...opticsNow(), ...preset.optics }, px = o.sensorUm * 1000 / (o.objectiveMag * o.emissionMag), el = $('mv_pixel-nm');
-    if (el && +el.value !== px) { el.value = px; fire(el); }
+    setPixelSize({ ...opticsNow(), ...preset.optics });
   }
   if (set['camera-preset'] !== undefined && $('qeFlat') && $('qeFlat').checked) { $('qeFlat').checked = false; fire($('qeFlat')); }
   if (preset.light) {
@@ -88,6 +87,11 @@ function apply(preset) {
   if (missing.length) console.info('Configuration ' + preset.name + ': not in the viewer: ' + missing.join(', '));
   if (window.uiSync) uiSync();
   markCurrent();
+}
+// The pixel size as Micro-Manager works it out: the sensor pixel / (objective x emission magnification).
+function setPixelSize(o) {
+  const px = o.sensorUm * 1000 / (o.objectiveMag * o.emissionMag), el = $('mv_pixel-nm');
+  if (el && Number.isFinite(px) && px > 0 && Math.abs(+el.value - px) > 1e-9) { el.value = px; fire(el); }
 }
 function pruneExtra() { if (engine) for (const k in extra) if (!engine.has(k) && !/^light-(epi|trans)$/.test(k)) delete extra[k]; }
 
@@ -165,9 +169,12 @@ function render() {
   markCurrent();
 }
 render();
+if (optics) setPixelSize(opticsNow());   // the pixel size is the camera's and the objective's from the start
 new MutationObserver(render).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 let markTimer = 0;
 $('panel').addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
 $('panel').addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
+// A camera picked in the settings changes the pixel size too (its sensor pixel, the objective as picked).
+if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () => { if (optics) setPixelSize(opticsNow()); });
 self.mmConfig = { apply, render, markCurrent, pruneExtra, matches, valueOf, extra, config: CFG };
 })();

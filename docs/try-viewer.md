@@ -24,7 +24,7 @@ Notes:
 
 - **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
   options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
-  microscope is on the right: the live camera image with Live / Snap, the focus and the configuration beside it,
+  microscope is on the right: the live camera image with Live / Snap / ↺ / ⇢ webSMLM, the focus and the configuration beside it,
   and below them every sample and microscope setting, with a search box that filters the rows. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
@@ -37,19 +37,30 @@ Notes:
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame (recording a live
-  movie is to come; **Make movie here** still records one). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame (recording is to
+  come: Rec and the Acquisition group are hidden for now). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
   mouse wheel over the image step it by the step size. **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
-  range, over a live histogram of the frame (log counts from its darkest to its brightest pixel; drag in it to move
-  the nearer end of the display range). Live pauses while the page is hidden. The world view outlines the camera's
-  field ("camera").
+  range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
+  tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
+  range). Live pauses while the page is hidden. The world view outlines the camera's field ("camera"), and the x-z
+  view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
+- **performance** (under the info): where each frame's time goes: the engine's phases (setup, the core's blink
+  events, splatting, camera noise, ...), the trip to and from the worker, the display, and the wait that paces frames to
+  the exposure.
+- **⇢ webSMLM** streams the live frames to [webSMLM](https://github.com/HohlbeinLab/webSMLM)'s Live streaming panel,
+  which localizes them as they come (one 16-bit ImageJ TIFF per frame, as the Micro-Manager plugin webSMLM_Streaming
+  sends them). webSMLM connects to a WebSocket server and a web page cannot be one, so the frames go through a small
+  relay you run next to it: `node tools/websmlm_relay.mjs` (no dependencies; port 8765), then in webSMLM: Live
+  streaming → Connect to `ws://localhost:8765`. The button is highlighted while it streams; the line under it shows
+  the frames sent and those webSMLM has taken. Frames are dropped, not queued, while the connection is backed up.
 - **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
   in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as
   sliders. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
   (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
-  the preset the settings are at, or "—" once a setting differs. Laser powers show three decimals.
+  the preset the settings are at, or "—" once a setting differs. Laser powers show three decimals. The pixel size is
+  not a setting: it follows the camera and the objective (shown read-only under Camera, Advanced).
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
@@ -57,16 +68,17 @@ Notes:
   has a unit and an (i) that explains it (hover or Tab to it).
 - **Basic / Advanced / Expert** beside the search box choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
-  configurations are made; a setting Micro-Manager does not have keeps the viewer's own level). A note says how many
+  configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
   hidden settings differ from their defaults. The ☰ menu switches between three looks: Compact, Focus (one group open
   at a time, highlighted; the default) and Light. The choices are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
-  groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on).
+  groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
+  zoomed further out, the dyes inside the camera's field are still all drawn, the others not).
   The nanorulers are drawn from above as their bent rods (the **Nanorulers** checkbox, View) with the docking strands' dyes;
   the **Nanorulers** group sets the design, the density, the docking strands per spot (1-5 of the ring's 5) and, in
   Advanced, the bending (persistence length, default 1500 nm), the minimum spacing, the landing (attach height, roll)
-  and the linker. A movie of the nanorulers wants the focus on the coverslip (**Focus height** 0-0.02 µm, Acquisition; it stays at 0.5 µm when you switch).
+  and the linker. A movie of the nanorulers wants the focus on the coverslip (Focus 0-0.02 µm, in the live panel; it stays at 0.5 µm when you switch).
 - **Microtubule label** and **Nuclear pore label** (the cell field's two targets, imaged together; the nanorulers' is
   the **Docking strands label**, the same rows): the labelled share of the sites, then the mode, then the dye (the Dye
   select lists the dyes with data for that mode, and None: the target unlabelled), then the attachment (the probe:
@@ -89,10 +101,10 @@ Notes:
   the focal plane.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer movie with the CLI. Blinks also take the default halo cut (pixels below 3e-6 of the emitter's
-  photons are left out; [Optics](physics/optics.md)).
+  photons are left out) and skip a frame they give fewer than 50 photons ([Optics](physics/optics.md)).
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
-- **Drift** (Acquisition) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250
+- **Drift** (Configuration) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250
   nm/s) and a random-walk jitter (0-50 nm/√s), the directions drawn per noise seed. Advanced shows those four values,
   the directions, how far direction and z speed swing (and how slowly) (see
   [Camera and background](physics/camera.md#drift)). Drifting mean-field images (WideField labels) render on the CPU, a
@@ -170,7 +182,7 @@ Notes:
   through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
   label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
   emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
-- While live is on or the Acquisition group is open, a dashed yellow square on the map shows what the camera covers. A finished
+- While live is on, a dashed yellow square on the map shows what the camera covers. A finished
   movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
   view) and its title bar drags it anywhere over the view.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).

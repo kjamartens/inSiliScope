@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer's live microscope (the right panel): the camera image at the stage position (= the world view's
 // centre), rendered frame after frame by a worker of its own; Snap, Record (the movie player), the focus (Z stage),
-// exposure and display range; the splitter between the world view and the panel; the View pop-over.
+// exposure and display range with a histogram; the performance breakdown per frame; streaming the frames to webSMLM
+// (through tools/websmlm_relay.mjs); the splitter between the world view and the panel; the View pop-over.
 //
 // Loaded after the viewer's main script (web/index.html) and uses its globals: movieSpec, spawnGenWorker,
 // genWorkers, view, requestDraw, resizeCanvas, makeMovie, uiKit. A live frame is a `live` job (cli/scope_wasm.cpp
@@ -97,7 +98,7 @@ function request() {
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; }
-  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now() };
+  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: $('lv_perf').checked };
   L.pending = job;
   w.postMessage(job);
 }
@@ -113,13 +114,17 @@ function onResult(d) {
   L.drift = d.drift;
   L.engine = d.engine;
   L.paths = d.paths || null;
+  L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null };
   const due = L.lastShown + exposureSec() * 1000, now = performance.now();
+  L.perf.waitMs = L.on ? Math.max(0, due - now) : 0;
   const show = () => {
     const t = performance.now();
     if (L.lastShown) L.fps = 0.8 * L.fps + 0.2 * (1000 / Math.max(1, t - L.lastShown));
     L.lastShown = t;
     L.frames++;
     draw(d);
+    streamFrame(d);
+    showPerf();
     if (L.on && !document.hidden) request();
   };
   if (L.on && now < due) setTimeout(show, due - now); else show();
@@ -148,30 +153,42 @@ function draw(d) {
     L.hiSet = true;
     $('lv_lo').value = L.lo; $('lv_hi').value = L.hi;
   } else { L.lo = +$('lv_lo').value || 0; L.hi = Math.max(L.lo + 1, +$('lv_hi').value || 1); }
+  const t0 = performance.now();
   paint();
-  drawHist();
+  const t1 = performance.now();
+  drawHist(true);
+  if (L.perf) { L.perf.paintMs = t1 - t0; L.perf.histMs = performance.now() - t1; }
   showInfo();
   drawScale();
   requestDraw();
 }
 
-// ---- the live histogram: log counts from the frame's minimum to its maximum, the display range over it ----
-const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128;
-let hist = null, hMin = 0, hMax = 1;
-function drawHist() {
+// ---- the live histogram: log counts, the display range over it ----
+// The axes move slowly: x spans the darkest to the brightest pixel of the frames of the last 10 s, y the tallest bar of
+// those frames, so a blink or a dim frame does not rescale it.
+const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000;
+let hist = null, hMin = 0, hMax = 1, hTop = 0;
+const hRecent = [];   // {t, mn, mx, top} per frame shown
+function drawHist(newFrame) {
   const fr = L.frame;
   const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.round(56 * devicePixelRatio);
   if (hc.width !== W || hc.height !== H) { hc.width = W; hc.height = H; }
   hg.clearRect(0, 0, W, H);
   if (!fr) return;
-  let mn = 65535, mx = 0;
-  for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
-  hMin = mn; hMax = Math.max(mn + 1, mx);
-  hist = new Float64Array(NB);
-  const k = NB / (hMax - hMin + 1);
-  for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
-  let top = 0;
-  for (let b = 0; b < NB; b++) { hist[b] = Math.log10(1 + hist[b]); top = Math.max(top, hist[b]); }
+  if (newFrame || !hist) {
+    let mn = 65535, mx = 0;
+    for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    const now = performance.now(), rec = { t: now, mn, mx, top: 0 };
+    hRecent.push(rec);
+    while (hRecent.length > 1 && now - hRecent[0].t > HIST_KEEP_MS) hRecent.shift();
+    hMin = Math.min(...hRecent.map(r => r.mn)); hMax = Math.max(hMin + 1, ...hRecent.map(r => r.mx));
+    hist = new Float64Array(NB);
+    const k = NB / (hMax - hMin + 1);
+    for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
+    for (let b = 0; b < NB; b++) { hist[b] = Math.log10(1 + hist[b]); rec.top = Math.max(rec.top, hist[b]); }
+    hTop = Math.max(...hRecent.map(r => r.top));
+  }
+  const top = hTop;
   const css = getComputedStyle(document.body), accent = css.getPropertyValue('--accent').trim() || '#4a90d9';
   const muted = css.getPropertyValue('--muted').trim() || '#8b97a8', pad = 9 * devicePixelRatio, ph = H - pad;
   const xOf = v => ((v - hMin) / (hMax - hMin)) * W;
@@ -261,6 +278,105 @@ function renderPaths(bf, both) {
   }
   return parts.join(' + ');
 }
+// ---- performance: where a frame's time goes ----
+// The engine's phases (Simulation/Timing.h, collected per frame by the module: isc_live_profile), the rest of the
+// worker's call, the message to and from it, the display; and the wait that paces frames to the exposure.
+const PHASES = {
+  'fl.total': 'fluorescence, total', 'fl.setup': 'setup', 'fl.make-setup': 'resolve the spec', 'fl.configure': 'labels, light path',
+  'fl.history': 'illumination history', 'fl.clock-regions': 'clock regions', 'fl.events-query': 'blink events (core)',
+  'fl.events-sort': 'sort events', 'fl.windows': 'per-dye windows', 'fl.dye-counts': 'dye counts', 'fl.psf-kernels': 'PSF kernels',
+  'fl.mean-field-scene': 'mean-field scene', 'fl.mean-field-weights': 'mean-field weights', 'fl.mean-field-render': 'mean-field image',
+  'fl.frame.blinks (batches)': 'blinks (splat / binned)', 'fl.frame.continuous': 'continuous dyes', 'fl.frame.noise (batches)': 'camera noise',
+  'fl.frame.onFrame': 'hand-over', 'bf.total': 'BrightField, total', 'bf.scene': 'BrightField scene', 'bf.scene-update': 'BrightField scene update',
+  'bf.image': 'BrightField image', 'bf.frame.noise': 'BrightField noise', 'bf.frame.onFrame': 'BrightField hand-over',
+  'psf.compute': 'PSF kernel (compute)', 'psf.zernike-planes': 'PSF planes', 'psf.memo-hit': 'PSF kernel (memo)',
+};
+const TOTALS = new Set(['fl.total', 'bf.total']);
+function showPerf() {
+  const out = $('lv_perfOut');
+  if (!$('lv_perf').checked || !L.perf) { out.innerHTML = ''; return; }
+  const P = L.perf, rows = [], ms = v => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' ms';
+  const row = (name, v, cls) => rows.push(`<span class="${cls || ''}">${name}</span><span class="${cls || ''}">${ms(v)}</span>`);
+  row('frame: request → result', P.roundMs, 'tot');
+  if (P.workerMs !== undefined) {
+    row('engine (worker)', P.workerMs, 'sub');
+    const ph = P.profile && P.profile.phases ? Object.entries(P.profile.phases) : [];
+    let inner = 0;
+    for (const [k, v] of ph.sort((a, b) => b[1].totalMs - a[1].totalMs)) {
+      if (v.totalMs < 0.05) continue;
+      const nm = (PHASES[k] || k) + (v.count > 1 ? ` ×${v.count}` : '');
+      row(nm, v.totalMs, TOTALS.has(k) ? 'sub' : 'sub" style="padding-left:16px');
+      if (TOTALS.has(k)) inner += v.totalMs;
+    }
+    if (inner) row('rest of the engine call', Math.max(0, P.workerMs - inner), 'sub" style="padding-left:16px');
+    row('to and from the worker', Math.max(0, P.roundMs - P.workerMs), 'sub');
+  }
+  if (P.paintMs !== undefined) row('display (image, histogram)', P.paintMs + (P.histMs || 0), 'tot');
+  if (P.streamMs !== undefined) row('stream (TIFF, send)', P.streamMs, 'tot');
+  if (L.on) row('wait (paced to the exposure)', P.waitMs || 0, 'tot');
+  out.innerHTML = rows.join('');
+}
+$('lv_perf').checked = store.get('livePerf', '0') === '1';
+$('lv_perf').addEventListener('change', () => { store.set('livePerf', $('lv_perf').checked ? '1' : '0'); showPerf(); if (!L.on && L.frame && $('lv_perf').checked) request(); });
+
+// ---- streaming to webSMLM ----
+// webSMLM's Live streaming panel connects out to a WebSocket server (the Micro-Manager plugin webSMLM_Streaming is one)
+// and takes each binary message as one chunk: an ImageJ TIFF of the frames. A page cannot be a server, so the frames go
+// to a relay (tools/websmlm_relay.mjs: senders on /source, webSMLM on the bare port), one 16-bit TIFF per frame shown;
+// stopping sends {"cmd":"stop"}. Frames are dropped, not queued, while the socket is backed up.
+const ST = { on: false, ws: null, sent: 0, dropped: 0, acked: null, retry: 0 };
+$('lv_streamUrl').value = store.get('streamUrl', 'ws://localhost:8765/source');
+$('lv_streamUrl').addEventListener('change', () => { store.set('streamUrl', $('lv_streamUrl').value.trim()); if (ST.on) { closeStream(false); openStream(); } });
+const streamStatus = msg => { $('lv_streamStatus').textContent = msg; };
+function openStream() {
+  clearTimeout(ST.retry);
+  let ws;
+  try { ws = new WebSocket($('lv_streamUrl').value.trim()); } catch (e) { streamStatus('bad address: ' + e.message); return; }
+  ws.binaryType = 'arraybuffer';
+  ST.ws = ws;
+  streamStatus('connecting…');
+  ws.onopen = () => { if (ST.ws === ws) streamStatus('relay connected: in webSMLM, Live streaming → Connect to ' + $('lv_streamUrl').value.trim().replace(/\/source$/, '')); };
+  ws.onmessage = e => {
+    if (typeof e.data !== 'string') return;
+    try { const m = JSON.parse(e.data); if (m.cmd === 'ack' || m.cmd === 'stopAck') { ST.acked = m.framesReceived; showStream(); } } catch (_) { /* not ours */ }
+  };
+  ws.onclose = () => {
+    if (ST.ws !== ws) return;
+    ST.ws = null;
+    if (!ST.on) return;
+    streamStatus('no relay at ' + $('lv_streamUrl').value.trim() + ' — run: node tools/websmlm_relay.mjs (retrying)');
+    ST.retry = setTimeout(() => { if (ST.on && !ST.ws) openStream(); }, 2000);
+  };
+}
+function closeStream(sendStop) {
+  clearTimeout(ST.retry);
+  const ws = ST.ws;
+  ST.ws = null;
+  if (!ws) return;
+  if (sendStop && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: 'stop' }));
+  ws.close();
+}
+function showStream() {
+  if (!ST.on || !ST.ws || ST.ws.readyState !== WebSocket.OPEN) return;
+  streamStatus(`streaming: ${ST.sent} frames sent` + (ST.acked !== null ? `, ${ST.acked} in webSMLM` : '') + (ST.dropped ? `, ${ST.dropped} dropped (busy)` : ''));
+}
+function setStream(on) {
+  ST.on = on;
+  $('lv_stream').classList.toggle('on', on);
+  $('lv_streamRow').hidden = !on;
+  if (on) { ST.sent = 0; ST.dropped = 0; ST.acked = null; openStream(); } else closeStream(true);
+}
+$('lv_stream').addEventListener('click', () => setStream(!ST.on));
+function streamFrame(d) {
+  const ws = ST.ws;
+  if (!ST.on || !ws || ws.readyState !== WebSocket.OPEN || !d.frames) { if (L.perf) delete L.perf.streamMs; return; }
+  const t0 = performance.now();
+  if (ws.bufferedAmount > 16 * d.frames.length * 2) ST.dropped++;
+  else { ws.send(writeTiff16(d.frames, d.w, d.h, 1, 'ImageJ=1.11a\nimages=1\nslices=1\n')); ST.sent++; }
+  if (L.perf) L.perf.streamMs = performance.now() - t0;
+  showStream();
+}
+
 // Scale bar: a 1-2-5 length near a quarter of the displayed image.
 function drawScale() {
   const el = $('lv_scale');

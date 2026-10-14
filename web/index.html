@@ -43,6 +43,16 @@
   #lv_info{margin-top:5px;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
   #lv_info:empty{display:none}
   #lv_info b{color:var(--text);font-weight:600}
+  #lv_more{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--muted)}
+  #lv_more label{display:flex;gap:3px;align-items:center;cursor:pointer}
+  #lv_perfOut{margin-top:3px;font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
+  #lv_perfOut:empty{display:none}
+  #lv_perfOut .tot{color:var(--text);font-weight:600}
+  #lv_perfOut .sub{padding-left:8px}
+  #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
+  #lv_streamRow{margin-top:4px;font-size:10.5px;color:var(--muted)}
+  #lv_streamRow input{width:100%;box-sizing:border-box;font-size:10.5px}
+  input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
   #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
@@ -257,7 +267,11 @@
           <button id="lv_snap" title="Snap: one frame">Snap</button>
           <button id="lv_rec" hidden title="Record a movie of Frames frames here (Acquisition), shown in the player">● Rec</button>
           <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-        </div><div id="lv_info"></div></div>
+          <button id="lv_stream" title="Stream the live frames to webSMLM (its Live streaming panel, Connect to ws://localhost:8765), through the relay: node tools/websmlm_relay.mjs. A browser page cannot be the WebSocket server webSMLM connects to; the relay is, as the Micro-Manager plugin webSMLM_Streaming is.">⇢ webSMLM</button>
+        </div><div id="lv_info"></div>
+        <div id="lv_streamRow" hidden><input id="lv_streamUrl" spellcheck="false" title="The relay's address for a sender (tools/websmlm_relay.mjs; webSMLM connects to the same port without /source)"><div id="lv_streamStatus"></div></div>
+        <div id="lv_more"><label title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display"><input type="checkbox" id="lv_perf"> performance</label></div>
+        <div id="lv_perfOut"></div></div>
         <div class="lc"><h5>Focus (Z stage)</h5>
           <div class="zrow"><input type="number" id="lv_z" step="0.1"><span class="u">µm</span>
             <button id="lv_zUp" title="Focus up (into the sample)">▲</button><button id="lv_zDn" title="Focus down">▼</button></div>
@@ -815,7 +829,7 @@ const UI_GROUPS = [
         num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>EmissionFilter.CustomLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
         num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>EmissionFilter.CustomHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
       ] }),
-    { kind: 'html', html: '<canvas id="specPlot" width="360" height="150" style="width:100%;height:auto;display:block"></canvas><div class="sub" id="specReadout"></div>', show: FL },
+    { kind: 'html', html: '<canvas id="specPlot" width="300" height="96" style="width:100%;max-width:300px;height:auto;display:block;margin:0 auto"></canvas><div class="sub" id="specReadout"></div>', show: FL },
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>TransmittedLamp.IntensityPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
@@ -830,7 +844,7 @@ const UI_GROUPS = [
   ] },
   { id: 'camera', title: 'Camera', items: [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
-    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane. <code>Camera.PixelSizeNm</code>', 10, null, 5, 100, { adv }),
+    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × emission magnification, 0.667). Not a setting: pick the Camera and Objective (Configuration). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { adv, ro: true }),
     num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
     select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve and the noise values below (edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
@@ -875,7 +889,8 @@ const UI_GROUPS = [
         ] }),
   ] },
 
-  { sect: 'Acquisition', id: 'acq', title: 'Acquisition', open: true, items: [
+  // Hidden for now (2026-10-14): the live panel has the focus and the exposure; recording comes back with Rec.
+  { sect: 'Acquisition', id: 'acq', title: 'Acquisition', open: true, show: () => !!self.ISC_SHOW_ACQ, items: [
     num('mv_frames', 'Frames', 'frames', 'Number of camera frames.', 1, 2000, 1, 10),
     num('mv_exposure-ms', 'Exposure', 'ms', 'Exposure time per frame (also the player\'s frame time).', 1, null, 1, 50),
     num('mv_z', 'Focus height', 'µm', 'Focal plane height above the coverslip (the ZStage position): 0 = coverslip in focus. While an image slice is shown (View), it moves with the slice height.', null, null, 0.1, 0.5),
@@ -975,7 +990,7 @@ function labelCell(e, forId) {
   return lab;
 }
 function inputAttrs(e, id, value) {
-  return { type: e.kind === 'range' ? 'range' : 'number', id, min: e.min, max: e.max, step: e.step, value: value };
+  return { type: e.kind === 'range' ? 'range' : 'number', id, min: e.min, max: e.max, step: e.step, value: value, readonly: !!e.ro };
 }
 function renderEntry(e, host, g, parent) {
   const r = { ...e, group: g, parent };
@@ -1198,7 +1213,7 @@ menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><inp
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
   document.body.dataset.level = v;
-  store.set('level', v);
+  store.set('settingsLevel', v);
   for (const b of $('levelSeg').children) { b.classList.toggle('on', b.dataset.level === v); b.setAttribute('aria-checked', b.dataset.level === v); }
   sync();
 }
@@ -1283,7 +1298,7 @@ search.addEventListener('input', applySearch);
 
 // (stored 'default' / 'advanced' before the three tiers: 'default' is Basic now)
 setStyle(store.get('style', 'focus'));
-setLevel(store.get('level', 'basic') === 'default' ? 'basic' : store.get('level', 'basic'));
+setLevel(store.get('settingsLevel', 'basic'));   // (a new key: the old 'level' was Default/Advanced; Basic by default)
 window.uiSync = sync;
 window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the animation editor (web/anim/editor.js)
 })();
@@ -2593,6 +2608,24 @@ function drawXZWith(vis, p, F, cam) {
     g.fillStyle = 'rgba(255,209,102,0.95)'; g.font = `${10 * dpr}px system-ui, Segoe UI, sans-serif`;
     g.textAlign = 'right'; g.textBaseline = 'bottom'; g.fillText(`slice ${sz.toFixed(2)} µm`, W - 6 * dpr, Y(sz) - 2 * dpr);
   }
+  // the focal plane: across the camera's field of view, at the focus height; in the sample's frame, so the drift moves
+  // it (the sample drifts by +d: the focus sits at z - dz in it, the field of view at -dx, -dy)
+  {
+    const Ls = self.liveState, dr = Ls && Ls.drift && (Ls.on || Ls.frames) ? Ls.drift : [0, 0, 0];
+    const zf = +document.getElementById('mv_z').value - dr[2] / 1000, cr = cameraRectUm();
+    const us = [[0, 1], [2, 1], [2, 3], [0, 3]].map(([a, b]) => cam.u(cr[a], cr[b]));
+    const xa = X(Math.min(...us)), xb = X(Math.max(...us));
+    if (Number.isFinite(zf) && Y(zf) > 0 && Y(zf) < H) {
+      g.strokeStyle = 'rgba(120,225,255,0.45)'; g.lineWidth = Math.max(1, dpr); g.setLineDash([6 * dpr, 4 * dpr]);
+      g.beginPath(); g.moveTo(0, Y(zf)); g.lineTo(W, Y(zf)); g.stroke(); g.setLineDash([]);
+      g.strokeStyle = 'rgba(120,225,255,0.95)'; g.lineWidth = 2 * dpr;
+      g.beginPath(); g.moveTo(Math.max(0, xa), Y(zf)); g.lineTo(Math.min(W, xb), Y(zf)); g.stroke();
+      g.fillStyle = 'rgba(120,225,255,0.95)'; g.font = `${10 * dpr}px system-ui, Segoe UI, sans-serif`;
+      g.textAlign = 'left'; g.textBaseline = 'bottom';
+      const dzTxt = Math.abs(dr[2]) >= 0.5 ? ` (drift ${dr[2] > 0 ? '+' : ''}${dr[2].toFixed(0)} nm)` : '';
+      g.fillText(`focal plane ${zf.toFixed(2)} µm${dzTxt}`, Math.max(2 * dpr, Math.min(W - 160 * dpr, xa)), Y(zf) - 3 * dpr);
+    }
+  }
   // coverslip, z labels, title
   g.strokeStyle = '#8b97a8'; g.lineWidth = Math.max(1, dpr);
   g.beginPath(); g.moveTo(0, z0); g.lineTo(W, z0); g.stroke();
@@ -2783,6 +2816,8 @@ function iscEngine(M) {
   function liveFrame(d, post) {
     if (M._isc_live_frame) {
       if (d.reset) M._isc_live_reset();
+      if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
+      const tw = performance.now();
       const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
       M.stringToUTF8(d.spec, s, n);
       const px = M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
@@ -2793,7 +2828,8 @@ function iscEngine(M) {
         res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
           t: v[2] + (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), clock: v[3], lit: !!v[4],
           epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
-          paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null };
+          paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
+        if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
       }
       for (const ptr of [s, info, err]) M._free(ptr);
       return [res, res.frames ? [res.frames.buffer] : []];
@@ -4095,8 +4131,9 @@ function footprintPolar(entry) {
   }
   return (entry.polar = tab);
 }
-// The cached sites inside the given cells' footprints (all of them for cells = null), relative to the window centre.
-function selectDyes(c, cells, key) {
+// The cached sites inside the given cells' footprints (all of them for cells = null; clip: only those in this rect),
+// relative to the window centre.
+function selectDyes(c, cells, key, clip) {
   const s = c.sites, ox = (c.rect[0] + c.rect[2]) / 2, oy = (c.rect[1] + c.rect[3]) / 2;
   const pts = new Float32Array(s.length);
   const polys = cells && cells.map(v => ({ c: v.cell, tab: footprintPolar(v.asset.entry), cr: Math.cos(-(v.cell.packRot || 0)),
@@ -4105,6 +4142,7 @@ function selectDyes(c, cells, key) {
   let n = 0;
   for (let i = 0; i < s.length; i += ISC_SITE_STRIDE) {
     const x = s[i], y = s[i + 1];
+    if (clip && (x < clip[0] || y < clip[1] || x > clip[2] || y > clip[3])) continue;
     if (polys) {
       let inside = false;
       for (const P of polys) {
@@ -4125,10 +4163,18 @@ function selectDyes(c, cells, key) {
 function updateDyes(seed, p, F, vis, nr) {
   const cam = F.cam, st = F.st, dyeColor = mountedLabel().color;
   document.getElementById('dyeSwatch').style.background = dyeColor;
-  if (st.ui && cam.S < DYE_MIN_PX_PER_UM) { dyeSel = null; return 'zoom in to show dyes'; }
+  // Nanorulers zoomed out: the dyes in the camera's field of view only (all of them; the rest wait for a zoom in).
+  const camOnly = nr && st.ui && cam.S < DYE_MIN_PX_PER_UM;
+  if (st.ui && cam.S < DYE_MIN_PX_PER_UM && !nr) { dyeSel = null; return 'zoom in to show dyes'; }
   const limit = !nr && ((st.scope || 'all') !== 'all' || (st.detailCells === undefined ? 5 : st.detailCells) > 0);
   const cells = limit ? vis.filter(v => v.detailed) : null;
-  let r = cam.visibleRect();
+  let r = cam.visibleRect(), clip = null;
+  if (camOnly) {
+    const c = cameraRectUm();
+    r = [Math.max(r[0], c[0]), Math.max(r[1], c[1]), Math.min(r[2], c[2]), Math.min(r[3], c[3])];
+    if (r[2] <= r[0] || r[3] <= r[1]) { dyeSel = null; return 'zoom in to show dyes'; }
+    clip = r;
+  }
   if (cells) {
     if (!cells.length) { dyeSel = null; return ''; }
     const b = [Infinity, Infinity, -Infinity, -Infinity];
@@ -4153,8 +4199,9 @@ function updateDyes(seed, p, F, vis, nr) {
   if (dyePending) note = 'loading dyes…';
   const c = dyeCache;
   if (!c || c.key !== key) { dyeSel = null; return note; }
-  const selKey = c.id + '|' + (cells ? cells.map(v => v.cx + ',' + v.cy).sort().join(';') : 'all');
-  if (!dyeSel || dyeSel.key !== selKey) dyeSel = selectDyes(c, cells, selKey);
+  const selKey = c.id + '|' + (cells ? cells.map(v => v.cx + ',' + v.cy).sort().join(';') : 'all') + (clip ? '|' + clip.map(v => v.toFixed(4)).join(',') : '');
+  if (!dyeSel || dyeSel.key !== selKey) dyeSel = selectDyes(c, cells, selKey, clip);
+  if (camOnly && !note) note = 'dyes in the camera only: zoom in for the rest';
   if (useGl && gl) {
     if (!dyeGl) {
       dyeGl = { vbo: gl.createBuffer(), vao: gl.createVertexArray(), count: 0, key: '', ox: 0, oy: 0 };
@@ -5175,6 +5222,13 @@ function movieWorldRect(m) {
 }
 // The camera's field of view (centred on the view centre = the stage position), dashed yellow: while live imaging
 // runs or the Acquisition group is open (the square the next movie covers).
+// The camera's field of view in sample coordinates, um: centred on the view centre, moved by the live sample drift.
+function cameraRectUm() {
+  const Ls = self.liveState, dr = Ls && Ls.drift && (Ls.on || Ls.frames) ? Ls.drift : [0, 0, 0];
+  const n = +document.getElementById('mv_size').value, px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000;
+  const cx = view.cx - dr[0] / 1000, cy = view.cy - dr[1] / 1000, hs = n * px / 2;
+  return [cx - hs, cy - hs, cx + hs, cy + hs];
+}
 function drawPlannedFov() {
   const grp = document.querySelector('details[data-group="acq"]'), live = self.liveState && (self.liveState.on || self.liveState.frames);
   if (!live && (!grp || !grp.open || grp.style.display === 'none' || document.getElementById('panel').hidden)) return;
@@ -5392,7 +5446,7 @@ document.getElementById('panel').addEventListener('change', scheduleSpecPlot);
 document.getElementById('panel').addEventListener('toggle', scheduleSpecPlot, true);
 // the planned movie square follows the Acquisition group's state and the camera size / pixel size
 document.getElementById('panel').addEventListener('toggle', e => { if (e.target.dataset && e.target.dataset.group === 'acq') requestDraw(); }, true);
-for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality']) document.getElementById(id).addEventListener('input', requestDraw);
+for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality', 'mv_z']) document.getElementById(id).addEventListener('input', requestDraw);
 scheduleSpecPlot();
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';

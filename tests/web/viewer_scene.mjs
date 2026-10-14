@@ -175,6 +175,19 @@ const nr = await page.evaluate(() => {
 check(nr.rod > 100 && nr.dyes > 0 && nr.scale >= 150 && nr.spec && nr.groups.includes('origami') && nr.groups.includes('rulerlabel') &&
   !nr.groups.includes('mtlabel') && !nr.groups.includes('shape'),
   `nanorulers: ${nr.hud}, ${nr.rod} rod px, ${nr.dyes} dyes, the movie spec has specimen=1 (groups ${nr.groups.join(' ')})`);
+// zoomed out (below the dyes' zoom), the dyes in the camera's field of view are still all drawn, and only those
+const nrOut = await page.evaluate(async () => {
+  const all = dyeSel.n;
+  view.scale = 20; requestDraw();
+  for (let i = 0; i < 300 && !(dyeSel && /\|[-0-9.]+,/.test(dyeSel.key)); i++) await new Promise(r => setTimeout(r, 100));
+  const c = cameraRectUm(), s = dyeSel;
+  let out = 0;
+  for (let i = 0; s && i < s.pts.length; i += 4) { const x = s.pts[i] + s.ox, y = s.pts[i + 1] + s.oy; if (x < c[0] - 1e-6 || y < c[1] - 1e-6 || x > c[2] + 1e-6 || y > c[3] + 1e-6) out++; }
+  const n = s ? s.n : 0;
+  view.scale = 150; requestDraw();
+  return { n, out, all };
+});
+check(nrOut.n > 0 && nrOut.out === 0, `nanorulers zoomed out: ${nrOut.n} dyes drawn, all in the camera (${nrOut.out} outside; ${nrOut.all} in the zoomed-in view)`);
 await set('mv_specimen', '0');
 await page.waitForFunction(() => /cells [1-9]/.test(document.getElementById('hud').textContent), null, { timeout: 120000 });
 check(true, 'nanorulers: back to the cell field, cells again');
