@@ -41,6 +41,8 @@ function showViewPanel(on) {
   store.set('viewPanel', on ? '1' : '0');
 }
 viewBtn.addEventListener('click', () => showViewPanel(viewPanel.hidden));
+// the idle image's ▶ Live = the bar's
+$('lv_idleLive').addEventListener('click', () => $('lv_live').click());
 showViewPanel(store.get('viewPanel', '0') === '1');
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !viewPanel.hidden && viewPanel.contains(document.activeElement)) showViewPanel(false); });
 
@@ -132,6 +134,7 @@ function request(n) {
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
   w.postMessage(job);
+  syncIdle();
 }
 function onResult(d) {
   const job = L.pending;
@@ -352,6 +355,7 @@ const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 // One line, always: the speed and the image size (or the recording, its saved file, an error); the full text in its
 // tooltip. How the frame was rendered, the drift and the sample time are in the performance box (Expert).
 function showInfo() {
+  syncIdle();
   // the image size and the pixel size in the sample (one decimal)
   const el = $('lv_info'), size = L.frames ? ` · ${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '';
   const text = L.err ? 'live failed: ' + L.err
@@ -583,9 +587,11 @@ function showPlayFrame(i) {
 function schedulePlay() {
   cancelAnimationFrame(PLAY.timer);
   const t0 = performance.now() - PLAY.i * PLAY.exp * 1000;
-  const tick = now => {
+  // the clock is performance.now(), not the rAF timestamp: that is the frame's start and can lag by a second when the
+  // page is busy (the index went negative or stood still)
+  const tick = () => {
     if (!PLAY.on || !PLAY.run) return;
-    const i = Math.floor((now - t0) / (PLAY.exp * 1000)) % PLAY.n;
+    const k = Math.floor((performance.now() - t0) / (PLAY.exp * 1000)), i = ((k % PLAY.n) + PLAY.n) % PLAY.n;
     if (i !== PLAY.i && !document.hidden) showPlayFrame(i);
     PLAY.timer = requestAnimationFrame(tick);
   };
@@ -629,7 +635,24 @@ document.addEventListener('pointerdown', ev => {
 });
 
 // ---- buttons ----
+// The idle image: "Press ▶ Live", or "Starting..." while live or a snap waits for its first frame.
+// "Working..." before the info while the engine works on a frame or a recording: shown once a job has been out 250 ms
+// and hidden 300 ms after the work stops, so a fast live loop never shows it and a slow one shows it steadily
+let busyT = 0, busyWant = false;
+function syncBusy() {
+  const busy = !!L.pending || REC.on;
+  if (busy === busyWant) return;
+  busyWant = busy;
+  clearTimeout(busyT);
+  busyT = setTimeout(() => { $('lv_busy').hidden = !busyWant; }, busy ? 250 : 300);
+}
+function syncIdle() {
+  syncBusy();
+  const starting = (L.on || !!L.pending) && !L.frames;
+  $('lv_idlePress').hidden = starting; $('lv_idleStart').hidden = !starting;
+}
 function syncButtons() {
+  syncIdle();
   $('lv_live').classList.toggle('on', L.on);
   $('lv_live').innerHTML = L.on ? '<span class="ico">■</span> Stop' : '<span class="ico">▶</span> Live';
   $('lv_rec').classList.toggle('on', REC.on);

@@ -92,9 +92,12 @@ try {
     const recSec = (Date.now() - tRec) / 1000;
     // no file yet: the recording plays in the live view, frame after frame
     const i0 = await page.evaluate(() => liveState.play.i);
-    await page.waitForFunction(i => liveState.play.i !== i, i0, { timeout: 10000 }).catch(() => {});
-    const play = await page.evaluate(() => ({ shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n }));
-    check(!early && play.shown && play.i !== i0 && play.n === 20, `the recording plays in the live view (no file saved by itself): frame ${play.i + 1}/${play.n}`);
+    // read in the same call that sees it move: at 20 frames x 50 ms the loop wraps every second, so a later read can be
+    // back at i0
+    const play = await page.waitForFunction(i => liveState.play.i !== i &&
+      { shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n }, i0, { timeout: 10000 })
+      .then(h => h.jsonValue()).catch(() => page.evaluate(() => ({ shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n })));
+    check(!early && play.shown && play.i !== i0 && play.n === 20, `the recording plays in the live view (no file saved by itself): frame ${i0 + 1} -> ${play.i + 1}/${play.n}`);
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => document.getElementById('lv_playSave').click())]);
     const buf = fs.readFileSync(await dl.path()), pages = readTiff(buf);
     const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, btn: document.getElementById('lv_rec').textContent,

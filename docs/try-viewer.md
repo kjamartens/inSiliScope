@@ -37,9 +37,10 @@ Notes:
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
-- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the line beside
-  the buttons shows the frame rate, the render time per frame, the image size and the pixel size; the button turns red while live
-  runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
+- **Live** (in the bar, or the **▶ Live** in the empty image, which shows "Starting..." until the first frame) renders
+  one camera frame after the other at the view centre, at most one per exposure time (the line beside
+  the buttons shows the frame rate, the render time per frame, the image size and the pixel size, led by "Working..." while a
+  slow frame, snap or recording is being rendered; the button turns red while live runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
   takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
@@ -77,7 +78,9 @@ Notes:
 - **Illumination & light path** (in the controls column, under Configuration): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the background, geometry, filters and dichroic, and the spectra plot
-  (dye excitation and emission, laser lines, filters, camera QE); click the plot for a larger copy with what reaches
+  (dye excitation and emission, laser lines, filters, camera QE). Each laser line has the colour of its wavelength, and
+  each dye's excitation (dashed) and emission (solid) the colour of its weighted emission wavelength; on the dark looks
+  the lines are brighter and thicker. Click the plot for a larger copy with a legend of every line and what reaches
   the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).
 - **Configuration** (in the controls column): the config groups of the adapter's Micro-Manager configurations

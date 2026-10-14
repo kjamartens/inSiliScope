@@ -54,6 +54,9 @@
   #lv_live.on .ico{color:#fff}
   #lv_recWrap{position:relative;display:inline-block}
   /* one line, always (reserved before the first frame too); the full text in its tooltip */
+  #lv_busy{flex:none;margin-left:4px;font-size:11px;line-height:1.4;color:var(--accent);white-space:nowrap}
+  #lv_busy[hidden]{display:none}
+  #lv_busy+#lv_info{margin-left:2px}
   #lv_info{flex:1 1 auto;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,274px)}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border)}
@@ -83,6 +86,12 @@
   #liveView.playing #lv_scale{bottom:40px}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
   #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
+  #lv_idleLive{pointer-events:auto;margin-left:4px;border:1px solid #e5484d;font-weight:600}
+  #lv_idleLive .ico{color:#e5484d}
+  #lv_idle [hidden]{display:none}
+  .dots{display:inline-block;width:1.2em;text-align:left;font-style:normal}
+  .dots::after{content:'.';animation:isc-dots 1.2s steps(1) infinite}
+  @keyframes isc-dots{0%{content:'.'}33%{content:'..'}67%{content:'...'}}
   #liveCtl{min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;padding:6px;
     --lab-w:78px;--lab-w-base:78px;--val-w:44px}
   #liveCtl .opt input[type=number]{width:50px}
@@ -117,6 +126,8 @@
   #specBig>div{position:relative;width:min(92vw,900px);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
   #specBig canvas{display:block;width:100%;height:auto}
   #specBig .sub{font-size:12px;color:var(--muted);line-height:1.45;margin-top:8px}
+  #specBig .specLegend{display:flex;flex-wrap:wrap;gap:3px 16px;margin-top:8px;font-size:12px;color:var(--text)}
+  #specBig .specLegend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
   #specBig button{position:absolute;top:6px;right:8px;padding:2px 8px}
   #lv_recPop{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:230px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
     border:1px solid var(--border);border-radius:var(--radius);background:var(--panel,var(--in-bg));box-shadow:0 4px 14px rgba(0,0,0,.35)}
@@ -126,6 +137,7 @@
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
   #liveCtl .zrow input[type=number]{width:46px}
+  #liveCtl .zrow #lv_z{width:70px}
   #liveCtl .zrow label{margin-left:4px}
   #liveCtl .crow input[type=number]{width:50px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
@@ -137,6 +149,7 @@
   #lv_exp{width:62px}
   #liveCtl .cfg .lab{display:flex;min-width:0}
   #liveCtl .cfg .lab label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #liveCtl .cfg .lab label[data-tip]:hover{color:var(--accent)}
   #liveCtl .note{font-size:10.5px;color:var(--muted)}
   #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
@@ -149,6 +162,13 @@
   #lv_z{-moz-appearance:auto;appearance:auto}
   #lv_z::-webkit-inner-spin-button{-webkit-appearance:inner-spin-button}
   input[type=range],input[type=checkbox]{accent-color:var(--accent)}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:14px;margin:0;background:none;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p,0%),var(--in-border) var(--p,0%))}
+  input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--in-border)}
+  input[type=range]::-moz-range-progress{height:4px;border-radius:2px;background:var(--accent)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
+  input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
+  input[type=range]:disabled{opacity:.5;cursor:default}
   button{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:var(--fs);cursor:pointer;font-family:inherit}
   button:hover{border-color:var(--accent)}
   /* hamburger menu */
@@ -181,6 +201,13 @@
   #panel details.grp:not([open])>summary{margin-bottom:0}
   #panel details.grp>summary::before{display:none}
   #panel details.grp>.body{padding:0}
+  /* the title sits in the box's top line (as a fieldset's legend): the line stops either side of it; the boxes keep room
+     above for it */
+  #liveCtl .lc>h5,#liveCtl .lc>details.grp>summary,#panel details.grp>summary{width:fit-content;max-width:calc(100% - 4px);box-sizing:border-box;
+    line-height:13px;margin-top:-12px!important;margin-left:-4px!important;padding:0 4px!important;background:var(--panel)!important}
+  #liveCtl{gap:12px;padding-top:12px}
+  #panel details.grp,body[data-ui-style=focus] #panel details.grp[open]{margin:12px 0 6px}
+  #liveCtl .lc.shut,#liveCtl .lc:has(>details.grp:not([open])),#panel details.grp:not([open]){padding-bottom:3px}
   #panel .sect{font-size:11px;color:var(--text);margin-top:14px}
   /* one option = one line: label (help on hover) | control | value + unit */
   .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
@@ -193,7 +220,11 @@
   .opt .val b{color:var(--text);font-weight:500}
   .opt.wide{grid-template-columns:1fr}
   .opt.wide button{width:100%}
+  #panel .opt.wide button,#liveCtl .opt.wide button{height:24px;padding-top:0;padding-bottom:0}
+  #reseed{height:22px;padding:0 8px;font-size:11px}
   .opt.check{grid-template-columns:minmax(0,1fr) auto}
+  /* rows without a value (select, preset, checkbox): no empty cell, which would wrap onto a second grid row */
+  .opt>.val:empty{display:none}
   .opt.select,.opt.preset{grid-template-columns:var(--lab-w) minmax(0,1fr)}
   .opt.number{grid-template-columns:var(--lab-w) auto minmax(0,1fr)}
   .opt.number .ctl{justify-content:flex-start}
@@ -257,10 +288,11 @@
   .dual .track{left:0;right:0;background:var(--in-border)}
   .dual .fill{background:var(--accent)}
   .dual input{position:absolute;left:0;top:0;width:100%!important;height:18px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
-  .dual input::-webkit-slider-runnable-track{background:none;height:18px}
-  .dual input::-moz-range-track{background:none}
-  .dual input::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
-  .dual input::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
+  .dual input[type=range]::-webkit-slider-runnable-track{background:none;height:18px}
+  .dual input[type=range]::-moz-range-track{background:none}
+  .dual input[type=range]::-moz-range-progress{background:none}
+  .dual input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
+  .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
   @media (max-width:700px){
     html,body{overflow:auto}
     #wrap{grid-template-columns:1fr;grid-template-rows:55vh auto;height:auto}
@@ -354,6 +386,7 @@
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the Start time, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
         </div></span>
       <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
+      <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>
       <div id="lv_info"></div>
       <div id="levelSeg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
       <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
@@ -363,7 +396,7 @@
     <div id="sideMain">
       <div id="liveView">
         <canvas id="lv_cv" width="1" height="1"></canvas>
-        <div id="lv_idle"><span>Live is off. Press <b>▶ Live</b> to image the sample under the world view's centre.</span></div>
+        <div id="lv_idle"><span id="lv_idlePress">Press <button id="lv_idleLive" title="Live: image the sample under the world view's centre"><span class="ico">▶</span> Live</button></span><span id="lv_idleStart" hidden>Starting<i class="dots"></i></span></div>
         <div id="lv_scale"></div>
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
@@ -945,9 +978,8 @@ const UI_GROUPS = [
   ] },
   { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
-      [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
-        select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
-      ] }),
+      [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
+    select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
   // the camera follows the Configuration at the Basic level (the pixel size from the objective, shown in the live bar)
@@ -1243,6 +1275,13 @@ for (const g of UI_GROUPS) {
   const G = { g, det, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
   groups.push(G); G.sect.groups.push(G);
 }
+// The Randomize button sits small in the World seed row (in place of its unit), not on a row of its own.
+{
+  const seedVal = $('seed').closest('.opt').querySelector('.val'), btn = $('reseed'), row = btn.closest('.opt');
+  btn.textContent = 'Random';
+  seedVal.replaceChildren(btn);
+  row.remove();
+}
 
 // ---- values, presets, visibility ----
 const byId = {};
@@ -1286,8 +1325,17 @@ function resetDefaults() {
   sync();
   window.dispatchEvent(new Event('isc-reset'));   // the column's own controls (live.js)
 }
+// A slider's fill (left of its knob) is the CSS variable --p.
+function rangeFill(el) {
+  if (el.closest('.dual')) return;   // a two-knob slider draws its own fill
+  const lo = +el.min || 0, hi = el.max === '' ? 100 : +el.max, v = +el.value;
+  el.style.setProperty('--p', (hi > lo ? Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo))) : 0).toFixed(2) + '%');
+}
+window.rangeFill = rangeFill;
+document.addEventListener('input', e => { if (e.target.type === 'range') rangeFill(e.target); }, true);
 function sync() {
   const level = document.body.dataset.level;
+  for (const el of document.querySelectorAll('input[type=range]')) rangeFill(el);
   for (const r of entries) {
     if (r.kind === 'range' && r.row) {
       const b = $(r.valId || r.id + 'Val'), v = $(r.id).value;
@@ -5536,6 +5584,22 @@ document.getElementById('psfPreview').addEventListener('click', previewPsf);
 // excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
 // and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
 let specMods = null, specTimer = 0;
+// The spectra plot's colour of a wavelength (violet 400 nm .. red 700 nm, beyond it red): bright on the dark looks,
+// darker on Light. The laser lines and the dye curves both use it, so every line has contrast (the library's emission
+// colours can be very dark, Cy3B's is black); a dye's excitation and emission take the colour of its weighted
+// emission wavelength (the emission spectrum's centroid).
+// The hue follows the spectrum piecewise (400 violet, 450 blue, 490 cyan, 520 green, 570 yellow, 590 orange, >= 625 red).
+const WAVE_HUE = [[400, 275], [450, 235], [490, 185], [520, 125], [570, 58], [590, 32], [625, 2]];
+function waveColour(nm, light) {
+  let hue = WAVE_HUE[WAVE_HUE.length - 1][1];
+  if (nm <= WAVE_HUE[0][0]) hue = WAVE_HUE[0][1];
+  else for (let i = 1; i < WAVE_HUE.length; i++) if (nm <= WAVE_HUE[i][0]) {
+    const [a, ha] = WAVE_HUE[i - 1], [b, hb] = WAVE_HUE[i];
+    hue = ha + (hb - ha) * (nm - a) / (b - a); break;
+  }
+  return light ? `hsl(${hue.toFixed(0)},85%,42%)` : `hsl(${hue.toFixed(0)},100%,${nm >= 625 ? 66 : 62}%)`;
+}
+const centroidNm = vals => { let s = 0, w = 0; for (let i = 0; i < vals.length; i++) { s += vals[i] * (300 + i); w += vals[i]; } return w > 0 ? s / w : 600; };
 function scheduleSpecPlot() {
   clearTimeout(specTimer);
   specTimer = setTimeout(() => { drawSpecPlot(false); if (!document.getElementById('specBig').hidden) drawSpecPlot(true); }, 120);
@@ -5554,8 +5618,15 @@ async function drawSpecPlot(big) {
     const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8 * k, bot = H - 16 * k;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
     const light = document.body.dataset.uiStyle === 'light';
+    // the palette: the dark looks get brighter, thicker lines (dye colours lifted to a readable lightness)
+    const P = light
+      ? { text: '#555', lw: 1.2, emFill: 'rgba(0,120,255,0.12)', emEdge: null, dich: '#888', exF: '#777', qe: '#bbb', laserW: 2, laserEdge: '#111',
+          laser: nm => waveColour(nm, true) }
+      : { text: '#cfd6df', lw: 1.7, emFill: 'rgba(110,180,255,0.26)', emEdge: 'rgba(150,205,255,0.9)', dich: '#f2f2f2', exF: '#ffcf70', qe: '#a3b1c4', laserW: 3, laserEdge: '#ffffff',
+          laser: nm => waveColour(nm, false) };
+    const legend = [];   // [label, style] for the enlarged plot's legend
     g.clearRect(0, 0, W, H);
-    g.font = (big ? 22 : 10) + 'px sans-serif'; g.fillStyle = light ? '#555' : '#aaa';
+    g.font = (big ? 22 : 10) + 'px sans-serif'; g.fillStyle = P.text;
     const step = big ? 50 : 100;
     for (let nm = 400; nm <= 800; nm += step) { g.fillText(String(nm), X(nm) - 9 * k, H - 3 * k); g.fillRect(X(nm), bot, k, 3 * k); }
     if (big) g.fillText('nm', X(x0) + 4 * k, H - 3 * k);
@@ -5563,27 +5634,38 @@ async function drawSpecPlot(big) {
       g.beginPath();
       for (let nm = x0; nm <= x1; nm++) { const v = vals[nm - 300] || 0; if (nm === x0) g.moveTo(X(nm), Y(v)); else g.lineTo(X(nm), Y(v)); }
       if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
-      g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = 1.2 * k; g.stroke(); g.setLineDash([]);
+      g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
     };
-    curve(lp.emissionFilter.T, null, null, light ? 'rgba(0,120,255,0.12)' : 'rgba(120,180,255,0.16)');
-    curve(lp.dichroic.T, light ? '#888' : '#999', [2, 2]);
-    if (lp.excitationFilter.T.some(v => v !== 1)) curve(lp.excitationFilter.T, light ? '#777' : '#bbb', [6, 2, 1, 2]);
-    curve(lp.qe, light ? '#bbb' : '#666', [1, 3]);
-    for (const [, L] of shown) {
-      const col = (L.dye.states.main.emHex || '#ff4d4d');
+    curve(lp.emissionFilter.T, null, null, P.emFill);
+    if (P.emEdge) curve(lp.emissionFilter.T, P.emEdge);
+    legend.push(['emission filter: ' + lp.emissionFilter.name, { fill: P.emFill, stroke: P.emEdge }]);
+    curve(lp.dichroic.T, P.dich, [2, 2]);
+    legend.push(['dichroic: ' + lp.dichroic.name, { stroke: P.dich, dash: [2, 2] }]);
+    if (lp.excitationFilter.T.some(v => v !== 1)) {
+      curve(lp.excitationFilter.T, P.exF, [6, 2, 1, 2]);
+      legend.push(['excitation filter: ' + lp.excitationFilter.name, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
+    }
+    curve(lp.qe, P.qe, [1, 3]);
+    legend.push(['camera QE' + (lp.qeName ? ': ' + lp.qeName : ''), { stroke: P.qe, dash: [1, 3] }]);
+    for (const [t, L] of shown) {
+      const name = DYE_UI.dyeNameOf(t.prefix);
       for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
         const st = L.dye.states[role];
         if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
-        const sp = DL.stateSpectra(st), c = role === 'main' ? col : (st.emHex || '#4f4');
-        if (sp.ex) curve(sp.ex, c, [3, 3]);
-        if (sp.em) curve(sp.em, c, dash);
+        const sp = DL.stateSpectra(st), who = name + (role === 'pre' ? ' (pre state)' : '');
+        const c = waveColour(sp.em ? centroidNm(sp.em) : sp.ex ? centroidNm(sp.ex) : 600, light);   // its weighted emission wavelength
+        if (sp.ex) { curve(sp.ex, c, [3, 3]); legend.push([who + ' excitation', { stroke: c, dash: [3, 3] }]); }
+        if (sp.em) { curve(sp.em, c, dash); legend.push([who + ' emission', { stroke: c, dash }]); }
       }
     }
     for (const l of lp.lasers) {
       if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
-      const hue = Math.max(0, Math.min(270, 270 - (l.nm - 400) * 270 / 300));
-      g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - k, top, 2 * k, bot - top);
-      if (big) g.fillText(l.nm + ' nm', X(l.nm) + 4, top + 22);
+      // a laser line: its colour with an edge on both sides (white on the dark looks), so it stands apart from a dye
+      // curve of the same hue
+      const c = P.laser(l.nm), x = X(l.nm), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
+      g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
+      g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
+      legend.push([`${l.nm} nm laser, ${+l.kWPerCm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
     }
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
     const parts = [];
@@ -5598,8 +5680,15 @@ async function drawSpecPlot(big) {
       if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
       if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
     }
-    // the readout (what reaches the camera per label) and the legend only under the enlarged plot
-    out.innerHTML = !big ? '' : parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; clean-up filter dash-dot, dichroic dotted, filter shaded, QE dotted grey</span>';
+    // the legend and the readout (what reaches the camera per label) only under the enlarged plot
+    if (big) {
+      const sw = s => `<svg width="30" height="12" aria-hidden="true">` + (s.fill
+        ? `<rect x="1" y="2" width="28" height="8" fill="${s.fill}"${s.stroke ? ` stroke="${s.stroke}"` : ''}/>`
+        : (s.edge ? `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.edge}" stroke-width="${(s.width || 2) + 3}"/>` : '') +
+          `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.stroke}" stroke-width="${s.width || P.lw + 0.3}"${s.dash ? ` stroke-dasharray="${s.dash.join(' ')}"` : ''}/>`) + '</svg>';
+      document.getElementById('specBigLegend').innerHTML = legend.map(([t, s]) => `<span>${sw(s)}${t}</span>`).join('');
+    }
+    out.innerHTML = !big ? '' : parts.join('<br>');
   } catch (e) {
     specMods = null;   // try the import again next time
     // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
@@ -5617,7 +5706,7 @@ for (const id of ['panel', 'liveCtl']) {
 (function () {
   const ov = document.createElement('div');
   ov.id = 'specBig'; ov.hidden = true;
-  ov.innerHTML = '<div role="dialog" aria-label="Spectra"><button title="Close (Esc)">✕</button><canvas id="specPlotBig" width="1720" height="560"></canvas><div class="sub" id="specBigReadout"></div></div>';
+  ov.innerHTML = '<div role="dialog" aria-label="Spectra"><button title="Close (Esc)">✕</button><canvas id="specPlotBig" width="1720" height="560"></canvas><div class="specLegend" id="specBigLegend"></div><div class="sub" id="specBigReadout"></div></div>';
   document.body.append(ov);
   const close = () => { ov.hidden = true; };
   ov.addEventListener('click', e => { if (e.target === ov || e.target.tagName === 'BUTTON') close(); });
