@@ -636,11 +636,11 @@ document.addEventListener('pointerdown', ev => {
 
 // ---- buttons ----
 // The idle image: "Press ▶ Live", or "Starting..." while live or a snap waits for its first frame.
-// "Working..." before the info while the engine works on a frame or a recording: shown once a job has been out 250 ms
-// and hidden 300 ms after the work stops, so a fast live loop never shows it and a slow one shows it steadily
+// "Working..." before the info while the engine works on a snap, a recording or live's first frame (not the frames
+// after it: live then runs, the info line says how fast): shown once the job has been out 250 ms, hidden 300 ms after
 let busyT = 0, busyWant = false;
 function syncBusy() {
-  const busy = !!L.pending || REC.on;
+  const busy = (!!L.pending && !(L.on && L.lastShown)) || REC.on;
   if (busy === busyWant) return;
   busyWant = busy;
   clearTimeout(busyT);
