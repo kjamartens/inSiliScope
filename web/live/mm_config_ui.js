@@ -141,10 +141,15 @@ function render() {
   for (const g of groups) {
     // the laser powers are set in Illumination & light path (sliders there), not here
     if (g.slider && /^laser-/.test(g.slider.key)) continue;
-    const lab = document.createElement('span');
+    // the viewer calls the Channel group "Mode" and leaves the dye names out of its presets (the dye is in the label
+    // settings); the presets and what they set are Micro-Manager's
+    const mode = g.name === 'Channel';
+    const lab = document.createElement('span'), name = document.createElement('label');
     lab.className = 'lab';
-    lab.textContent = g.slider ? g.name.replace(/\s*\(.*\)$/, '').replace(/^Laser /, '') : g.name;
-    lab.title = g.name + ' (Micro-Manager config group)';
+    name.textContent = g.slider ? g.name.replace(/\s*\(.*\)$/, '').replace(/^Laser /, '') : mode ? 'Mode' : g.name;
+    name.dataset.tip = mode ? 'The imaging mode: a preset of the Micro-Manager config group <code>Channel</code> (each one also picks its dye and light path)'
+      : `A preset of the Micro-Manager config group <code>${g.name}</code>`;
+    lab.append(name);
     host.append(lab);
     if (g.slider) {
       const s = g.slider, el = $('mv_' + s.key), wrap = document.createElement('span');
@@ -167,7 +172,8 @@ function render() {
     const sel = document.createElement('select');
     sel.title = g.name;
     sel.append(Object.assign(document.createElement('option'), { value: '', textContent: '—', disabled: true }));
-    for (const p of g.presets) sel.append(Object.assign(document.createElement('option'), { value: p.name, textContent: p.name }));
+    const shown = p => mode ? p.name.replace(/^\S+\s+(?=(dSTORM|DNA-PAINT|PALM|WideField)\b)/, '') : p.name;
+    for (const p of g.presets) sel.append(Object.assign(document.createElement('option'), { value: p.name, textContent: shown(p) }));
     sel.addEventListener('change', () => { const p = g.presets.find(q => q.name === sel.value); if (p) apply(p); });
     host.append(sel);
     rows.push({ group: g, sel });

@@ -37,8 +37,10 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  layout (2026-10-14): a bar `#liveBar` level with the View bar (Live / Snap / Record / fresh, the one-line info: speed,
-  size), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
+  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: speed,
+  size, pixel size; at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
+  reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
+  it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
   column `#liveCtl` to the bottom (focus, configuration, the settings groups Illumination & light path and Objective & PSF
   via `host: 'lv_illumHost'` / `'lv_objHost'`, a box hidden when none of its rows shows at the level, display,
   performance); the settings search highlights matching rows (`.opt.hit`, the column's too) and opens every group with
@@ -53,8 +55,10 @@ that finishes them.
   pixels, ctest `live_scope`), saved as one ImageJ TIFF (`writeTiff16(..., pxUm)`: XResolution, finterval, the spec in
   `insiliscope.spec=`); the performance rows are a fixed list (`PHASES`), one decimal; webSMLM streaming was tried and
   dropped (2026-10-14: a page cannot be a server, unrelated cross-site tabs share no channel); the Acquisition settings
-  group is hidden for now (`self.ISC_SHOW_ACQ` shows the group)), `mm_config_ui.js` (the
-  Configuration: the MM config groups as selects (the laser-power slider groups are skipped: the lasers are sliders in
+  group is hidden for now (`self.ISC_SHOW_ACQ` shows the group), and so are the View's Simulated data + Data acquisition
+  rows (`self.ISC_SHOW_DATA`)), `mm_config_ui.js` (the
+  Configuration: the MM config groups as selects (the Channel group shows as "Mode", its presets without the dye names,
+  viewer only; the laser-power slider groups are skipped: the lasers are sliders in
   the column's Illumination & light path, made in live.js beside each `mv_laser-*` number; the spectra plot there
   enlarges on click, `#specBig`); a preset sets the `mv_<option>` controls, options without a
   control go into every spec via `self.ISC_MM_EXTRA`; camera-type/em-gain/qe-curve follow the camera preset; the pixel

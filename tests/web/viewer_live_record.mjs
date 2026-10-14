@@ -64,7 +64,7 @@ try {
       [...document.querySelectorAll('#lv_perfOut span:nth-child(2n)')].map(e => e.textContent).join('|')));
   }
   const infoLine = await page.evaluate(() => { const e = document.getElementById('lv_info'); return { text: e.textContent, h: e.clientHeight, sh: e.scrollHeight, lh: parseFloat(getComputedStyle(e).lineHeight) }; });
-  check(/^● \d+\.\d fps · \d+\.\d ms\/frame · 64×64 px$/.test(infoLine.text) && infoLine.h <= infoLine.lh + 1 && infoLine.sh <= infoLine.lh + 1,
+  check(/^● \d+\.\d fps · \d+\.\d ms\/frame · 64×64 px · \d+\.\d nm\/px$/.test(infoLine.text) && infoLine.h <= infoLine.lh + 1 && infoLine.sh <= infoLine.lh + 1,
     `the info is one line: "${infoLine.text}" (${infoLine.h} px)`);
   const sq = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect(),
     p = document.getElementById('panel').getBoundingClientRect(), vb = document.getElementById('viewBar').getBoundingClientRect(), lb = document.getElementById('liveBar').getBoundingClientRect();

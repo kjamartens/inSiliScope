@@ -22,10 +22,14 @@ MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
 
 Notes:
 
-- **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
-  options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
-  microscope is on the right: its bar (level with the View bar) holds ▶ Live / Snap / ● Record / ↺ and one line with
-  the frame rate, the time per frame and the image size; under it the live camera image, always square, with every
+- **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms (a drag in the
+  live image moves the stage too: the sample follows the pointer). **Ctrl + wheel** over the live image zooms into it
+  (up to 32x, about the pointer; a touchpad pinch too): an inset at its top left shows the factor and the part shown,
+  a drag then pans within the image instead of moving the stage, and a click on the inset shows the whole image again. Its display
+  options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
+  one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
+  in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
+  ↺ and one line with the frame rate, the time per frame, the image size and the pixel size (nm, one decimal); under it the live camera image, always square, with every
   sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
   bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
   illumination and light path, the objective and PSF (from the Advanced level: it has no Basic setting), the display
@@ -34,7 +38,7 @@ Notes:
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
 - **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the line beside
-  the buttons shows the frame rate, the render time per frame and the image size; the button turns red while live
+  the buttons shows the frame rate, the render time per frame, the image size and the pixel size; the button turns red while live
   runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
   takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
@@ -45,7 +49,7 @@ Notes:
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
-  range). Live pauses while the page is hidden. The world view outlines the camera's field ("camera"), and the x-z
+  range). Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
 - **Performance** (its own box under Display, at the Expert level): how each label was drawn (SMLM splat: every
   blink placed with the PSF; binned SMLM: the same blinks on a finer grid, one FFT convolution, many blinks at once;
@@ -56,7 +60,9 @@ Notes:
   shows "—".
 - **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
   position with the current settings, rendered as fast as the engine goes, not paced to the exposure. The recording
-  then plays in the live view (play/pause, a frame slider, ✕ to close it; Live, Snap or a new recording close it too),
+  then plays in the live view in real time at the exposure it was taken with (100 frames of 1 ms play in 0.1 s; the
+  screen shows the frame current at each refresh), with play/pause, a frame slider and ✕ to close it (Live, Snap or a
+  new recording close it too),
   and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
   itself. A recording is a fresh sample: a movie starting at
   the Start time, the same one "Make movie here" makes and `insiliscope_cli --spec` renders from the spec in the
@@ -75,23 +81,29 @@ Notes:
   the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).
 - **Configuration** (in the controls column): the config groups of the adapter's Micro-Manager configurations
-  (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
-  in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift and Specimen (the configurations'
+  (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Mode (the
+  configurations' Channel group, its presets named by the mode alone, without the dye they also pick: dSTORM,
+  DNA-PAINT, PALM, WideField, BrightField, and in Advanced WideField + BrightField), Objective, Camera, Quality, Drift and Specimen (the configurations'
   laser-power groups are not shown here: the lasers are in Illumination & light path). A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
   (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
   the preset the settings are at, or "—" once a setting differs. The pixel size is
-  not a setting: it follows the camera and the objective (shown read-only under Camera, Advanced).
+  not a setting: it follows the camera and the objective (shown read-only under Camera, Advanced). The Camera group of
+  the settings shows from the Advanced level on (at Basic the camera is the Configuration's, the image 128 px).
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
-  (camera, image formation; illumination and the objective are in the controls column) and acquisition. Groups fold open and closed; every option
-  has a unit and a help text that shows when the pointer rests on its name.
-- **Basic / Advanced / Expert** beside the search box choose which settings show, the same tiers as the Micro-Manager
+  (camera, image formation; illumination and the objective are in the controls column) and acquisition. Every group,
+  here and in the controls column, is a box laid out like the Configuration (names in a column, the controls beside
+  them, a number's unit right after it), open in full when the page loads; a click on its title folds it. Every option
+  has a unit and a help text that shows when the pointer rests on its name. A setting that differs from its default
+  carries a thin bar at its left.
+- **Basic / Advanced / Expert** at the right end of the top bar (with the ☰ menu) choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
-  hidden settings differ from their defaults. The ☰ menu switches between three looks: Compact, Focus (one group open
-  at a time, highlighted; the default) and Light. The choices are remembered in your browser.
+  hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
+  and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. The level and the
+  look are remembered in your browser.
   Sliders also follow the mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
@@ -172,7 +184,8 @@ Notes:
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Simulated data** (View ▾, under the Show checkboxes; **Random cell** / **Previous cell** sit with Reset
+- **Simulated data** (hidden for now, with its Data acquisition settings; they are in View ▾, under the Show
+  checkboxes, when the page sets `self.ISC_SHOW_DATA`; **Random cell** / **Previous cell** sit with Reset
   view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
   height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
   included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
@@ -203,7 +216,7 @@ Notes:
   through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
   label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
   emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
-- While live is on, a dashed yellow square on the map shows what the camera covers. A finished
+- The dashed white square on the map shows what the camera covers. A finished
   movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
   view) and its title bar drags it anywhere over the view.
 - The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).

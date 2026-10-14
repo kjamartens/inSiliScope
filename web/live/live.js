@@ -65,6 +65,8 @@ function syncHostBoxes() {
     if (box) box.hidden = ![...box.querySelectorAll('.opt')].some(e => getComputedStyle(e).display !== 'none');
   }
 }
+// A click on a box's title folds it (Focus, Configuration, Display, Performance; the settings groups fold as details).
+for (const t of document.querySelectorAll('#liveCtl .lc > h5')) t.addEventListener('click', () => t.parentElement.classList.toggle('shut'));
 let hostTimer = 0;
 const syncHostsSoon = () => { clearTimeout(hostTimer); hostTimer = setTimeout(syncHostBoxes, 30); };
 new MutationObserver(syncHostsSoon).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
@@ -277,13 +279,81 @@ function paint() {
   g.putImageData(img, 0, 0);
 }
 for (const id of ['lv_lo', 'lv_hi']) $(id).addEventListener('input', () => { $('lv_auto').checked = false; L.lo = +$('lv_lo').value; L.hi = Math.max(L.lo + 1, +$('lv_hi').value); paint(); drawHist(); });
+// Zoom into the camera image (Ctrl + wheel, about the pointer; a pinch on a touchpad too): a display zoom of the frame,
+// 1-32x. L.zoom = { z, x, y }: the shown part's top-left corner as a fraction of the image. The inset at the top left
+// shows the factor and where the shown part sits; a click on it goes back to the whole image.
+const Z = L.zoom = { z: 1, x: 0, y: 0 };
+function applyZoom() {
+  Z.z = Math.min(32, Math.max(1, Z.z));
+  if (Z.z < 1.01) Object.assign(Z, { z: 1, x: 0, y: 0 });
+  const span = 1 / Z.z;
+  Z.x = Math.min(1 - span, Math.max(0, Z.x)); Z.y = Math.min(1 - span, Math.max(0, Z.y));
+  const S = $('liveView').clientWidth;
+  cv.style.transformOrigin = '0 0';
+  cv.style.transform = Z.z === 1 ? '' : `translate(${(-Z.x * Z.z * S).toFixed(2)}px,${(-Z.y * Z.z * S).toFixed(2)}px) scale(${Z.z})`;
+  const nav = $('lv_zoomNav');
+  nav.hidden = Z.z === 1;
+  nav.querySelector('i').style.cssText = `left:${(100 * Z.x).toFixed(2)}%;top:${(100 * Z.y).toFixed(2)}%;width:${(100 * span).toFixed(2)}%;height:${(100 * span).toFixed(2)}%`;
+  nav.querySelector('span').textContent = (Z.z < 10 ? Z.z.toFixed(1) : Math.round(Z.z)) + '×';
+  cv.style.cursor = 'grab';
+  drawScale();
+}
+$('liveView').addEventListener('wheel', ev => {
+  if (!ev.ctrlKey) return;   // the plain wheel steps the focus (above)
+  ev.preventDefault(); ev.stopImmediatePropagation();
+  const r = $('liveView').getBoundingClientRect(), S = r.width || 1;
+  const px = (ev.clientX - r.left) / S, py = (ev.clientY - r.top) / S;   // the pointer, as a fraction of the view
+  const u = Z.x + px / Z.z, v = Z.y + py / Z.z;                          // ... and of the image
+  Z.z *= Math.exp(-ev.deltaY * 0.0025);
+  Z.x = u - px / Math.min(32, Math.max(1, Z.z)); Z.y = v - py / Math.min(32, Math.max(1, Z.z));
+  applyZoom();
+}, { passive: false, capture: true });
+$('lv_zoomNav').addEventListener('click', () => { Object.assign(Z, { z: 1, x: 0, y: 0 }); applyZoom(); });
+window.addEventListener('resize', applyZoom);
+
+// A drag in the live image moves the stage (the world view's centre): the sample follows the pointer, at the image's
+// scale (the camera's field over the image's width on screen); not while a recording plays. Zoomed in, a drag moves
+// the shown part within the image instead (the stage stays).
+{
+  let drag = null;
+  cv.style.cursor = 'grab';
+  cv.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 || (PLAY.on && Z.z === 1)) return;
+    drag = { x: ev.clientX, y: ev.clientY };
+    cv.setPointerCapture(ev.pointerId); cv.style.cursor = 'grabbing';
+  });
+  cv.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y, S = $('liveView').clientWidth || 1;
+    drag = { x: ev.clientX, y: ev.clientY };
+    if (Z.z > 1) { Z.x -= dx / (S * Z.z); Z.y -= dy / (S * Z.z); applyZoom(); cv.style.cursor = 'grabbing'; return; }
+    const n = +$('mv_size').value || 128, px = (+$('mv_pixel-nm').value || 100) / 1000, um = n * px / S;
+    view.cx -= dx * um; view.cy -= dy * um;
+    noteInteraction(); requestDraw();
+  });
+  const end = () => { drag = null; cv.style.cursor = 'grab'; };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+}
+// The Configuration's Exposure carries its setting's "differs from the default" mark
+{
+  const row = $('mv_exposure-ms').closest('.opt'), lab = $('lv_exp').closest('.cfg') ? $('lv_exp').parentElement.previousElementSibling : null;
+  const syncMark = () => { if (lab) lab.classList.toggle('changed', row.classList.contains('changed')); };
+  new MutationObserver(syncMark).observe(row, { attributes: true, attributeFilter: ['class'] });
+  syncMark();
+}
+// Reset all to defaults (the settings menu): the column's own controls too (the mirrored ones follow their settings)
+window.addEventListener('isc-reset', () => {
+  $('lv_zStep').value = '0.1'; $('lv_zStep').dispatchEvent(new Event('input'));
+  $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
+});
 $('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 // One line, always: the speed and the image size (or the recording, its saved file, an error); the full text in its
 // tooltip. How the frame was rendered, the drift and the sample time are in the performance box (Expert).
 function showInfo() {
-  const el = $('lv_info'), size = L.frames ? ` · ${L.w}×${L.h} px` : '';
+  // the image size and the pixel size in the sample (one decimal)
+  const el = $('lv_info'), size = L.frames ? ` · ${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '';
   const text = L.err ? 'live failed: ' + L.err
     : REC.on ? `● recording ${REC.got}/${REC.n}` + size
     : REC.msg && !L.on ? REC.msg
@@ -378,9 +448,9 @@ new MutationObserver(() => { showPerf(); showPerfNote(); if (expert() && !L.on &
 function drawScale() {
   const el = $('lv_scale');
   if (!L.frame) { el.innerHTML = ''; return; }
-  const r = cv.getBoundingClientRect(), dispPx = Math.min(r.width / L.w, r.height / L.h);
+  const S = $('liveView').clientWidth, dispPx = S / Math.max(L.w, L.h) * ((L.zoom && L.zoom.z) || 1);   // with the zoom
   const pxUm = (+$('mv_pixel-nm').value || 100) / 1000, cssPerUm = dispPx / pxUm;
-  const want = r.width * 0.22 / cssPerUm;
+  const want = S * 0.22 / cssPerUm;
   const nice = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200];
   const len = nice.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
   el.innerHTML = `${len < 1 ? len * 1000 + ' nm' : len + ' µm'}<i style="width:${(len * cssPerUm).toFixed(1)}px"></i>`;
@@ -414,7 +484,7 @@ function startRec() {
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
   const max = Math.floor(1e9 / (2 * side * side));
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
-    t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
@@ -483,7 +553,7 @@ function finishRec() {
 // ---- a finished recording plays in the live view (looping at the frame interval); Save .tif saves it ----
 const PLAY = L.play = { on: false, frames: null, w: 0, h: 0, n: 0, desc: '', i: 0, run: false, timer: 0 };
 function openPlayer(n) {
-  const exp = exposureSec();
+  const exp = REC.exp || exposureSec();   // the exposure the frames were taken at
   const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
     ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
       `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
@@ -508,23 +578,28 @@ function showPlayFrame(i) {
   $('lv_playPos').value = i;
   $('lv_playN').textContent = `${i + 1}/${PLAY.n}`;
 }
+// Playback in real time at the recording's exposure: each display refresh shows the frame the clock is at (100 frames
+// of 1 ms play in 0.1 s; the screen shows the ones its refreshes land on), looping.
 function schedulePlay() {
-  clearTimeout(PLAY.timer);
-  PLAY.timer = setTimeout(() => {
+  cancelAnimationFrame(PLAY.timer);
+  const t0 = performance.now() - PLAY.i * PLAY.exp * 1000;
+  const tick = now => {
     if (!PLAY.on || !PLAY.run) return;
-    if (!document.hidden) showPlayFrame((PLAY.i + 1) % PLAY.n);
-    schedulePlay();
-  }, Math.max(16, PLAY.exp * 1000));
+    const i = Math.floor((now - t0) / (PLAY.exp * 1000)) % PLAY.n;
+    if (i !== PLAY.i && !document.hidden) showPlayFrame(i);
+    PLAY.timer = requestAnimationFrame(tick);
+  };
+  PLAY.timer = requestAnimationFrame(tick);
 }
 function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶'; }
 function closePlayer() {
-  clearTimeout(PLAY.timer);
+  cancelAnimationFrame(PLAY.timer);
   Object.assign(PLAY, { on: false, frames: null, run: false });
   $('lv_play').hidden = true;
   $('liveView').classList.remove('playing');
 }
 $('lv_playBtn').addEventListener('click', () => { PLAY.run = !PLAY.run && PLAY.n > 1; syncPlay(); if (PLAY.run) schedulePlay(); });
-$('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); clearTimeout(PLAY.timer); showPlayFrame(+$('lv_playPos').value); });
+$('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); cancelAnimationFrame(PLAY.timer); showPlayFrame(+$('lv_playPos').value); });
 $('lv_playClose').addEventListener('click', () => { closePlayer(); REC.msg = ''; showInfo(); });
 $('lv_playSave').addEventListener('click', () => {
   if (!PLAY.on) return;

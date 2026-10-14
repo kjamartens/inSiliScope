@@ -32,7 +32,7 @@ page.on('pageerror', e => errors.push(e.message));
 let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
 await page.goto(`http://localhost:${server.address().port}/index.html`);
-await page.waitForFunction(() => window.iscScene && /cells [1-9]/.test(document.getElementById('hud').textContent) && iscScene.packingIdle(), null, { timeout: 300000 });
+await page.waitForFunction(() => window.iscScene && +document.getElementById('hud').dataset.cells > 0 && iscScene.packingIdle(), null, { timeout: 300000 });
 
 // Runtime (< 5 min on SwiftShader): every check renders its own off-screen frame, but a readPixels also waits for
 // the page's own main-view redraws, so the main view is left nearly empty (its layers and the x-z view off); the data
@@ -103,7 +103,7 @@ check(same === 0, `determinism: a frame captured twice is identical (${same} val
 const det = await page.evaluate(async () => {
   els.detailCells.value = 3; els.detailCells.dispatchEvent(new Event('input', { bubbles: true }));
   view.scale = 3; draw(); await new Promise(r => setTimeout(r, 3000)); draw();
-  const t = document.getElementById('hud').textContent;
+  const d = document.getElementById('hud').dataset, t = `cells ${d.cells} (${d.onScreen} on screen, ${d.detailed} detailed)`;
   els.detailCells.value = 5; els.detailCells.dispatchEvent(new Event('input', { bubbles: true })); view.scale = 9; draw();
   return t;
 });
@@ -163,13 +163,13 @@ check(ahead.alone > 1000 && ahead.withSr >= 0.95 * ahead.alone, `data: the cytop
 const set = (id, v) => page.evaluate(([i, x]) => { const el = document.getElementById(i); el.value = x;
   el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
 await set('mv_specimen', '1');
-await page.waitForFunction(() => /nanorulers [1-9]/.test(document.getElementById('hud').textContent) && dyeSel && dyeSel.n > 0, null, { timeout: 120000 });
+await page.waitForFunction(() => +document.getElementById('hud').dataset.rulers > 0 && dyeSel && dyeSel.n > 0, null, { timeout: 120000 });
 const nr = await page.evaluate(() => {
   const d = cvBase.getContext('2d').getImageData(0, 0, cvBase.width, cvBase.height).data;
   let rod = 0;
   for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) rod++;
   const spec = movieSpec(), groups = [...document.querySelectorAll('details.grp')].filter(g => g.style.display !== 'none').map(g => g.dataset.group);
-  return { hud: /nanorulers \d+/.exec(document.getElementById('hud').textContent)[0], rod, dyes: dyeSel.n, scale: view.scale,
+  return { hud: 'nanorulers ' + document.getElementById('hud').dataset.rulers, rod, dyes: dyeSel.n, scale: view.scale,
     spec: /(^| )specimen=1( |$)/.test(spec) && /(^| )p\.origamiLpNm=1500( |$)/.test(spec) && /(^| )ruler-dye=/.test(spec), groups };
 });
 check(nr.rod > 100 && nr.dyes > 0 && nr.scale >= 150 && nr.spec && nr.groups.includes('origami') && nr.groups.includes('rulerlabel') &&
@@ -189,7 +189,7 @@ const nrOut = await page.evaluate(async () => {
 });
 check(nrOut.n > 0 && nrOut.out === 0, `nanorulers zoomed out: ${nrOut.n} dyes drawn, all in the camera (${nrOut.out} outside; ${nrOut.all} in the zoomed-in view)`);
 await set('mv_specimen', '0');
-await page.waitForFunction(() => /cells [1-9]/.test(document.getElementById('hud').textContent), null, { timeout: 120000 });
+await page.waitForFunction(() => +document.getElementById('hud').dataset.cells > 0, null, { timeout: 120000 });
 check(true, 'nanorulers: back to the cell field, cells again');
 
 await browser.close();

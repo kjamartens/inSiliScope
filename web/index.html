@@ -17,15 +17,15 @@
      its controls beside it, then every setting). --live-w: the right panel's width (33-62 % of the window, dragged; 50 % by default). */
   #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,50vw);height:100vh}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0}
-  #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
+  #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
   #viewBar a.back:hover{text-decoration:underline}
   #viewBar .sp{flex:1}
   #viewBar button{padding:3px 8px}
   #viewBar button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
-  #viewPanel{position:absolute;top:6px;left:6px;z-index:6;width:min(380px,calc(100% - 12px));max-height:calc(100% - 12px);overflow-y:auto;box-sizing:border-box;
-    padding:2px 10px 8px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:var(--fs);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #viewPanel{pointer-events:auto;flex:0 1 auto;min-height:0;width:340px;max-width:calc(100vw - 40px);overflow-y:auto;box-sizing:border-box;margin-top:4px;
+    padding:4px 0 0;border-top:1px solid #232a35;color:var(--text);font-size:var(--fs)}
   #viewPanel[hidden]{display:none}
   #splitter{cursor:col-resize;background:var(--border);opacity:.6}
   #splitter:hover,#splitter.drag{background:var(--accent);opacity:1}
@@ -34,13 +34,18 @@
   #sideTop .bar{display:flex;align-items:center;gap:8px}
   #sideTop input[type=search]{flex:1;min-width:0;background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:var(--fs);font-family:inherit}
   .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
+  /* a setting that differs from its default: a thin accent bar at the row's left and a faint tint */
+  #liveCtl .cfg .lab.changed{position:relative}
+  #liveCtl .cfg .lab.changed::before{content:'';position:absolute;left:-5px;top:3px;bottom:3px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--accent) 75%,transparent)}
+  .opt.changed{position:relative;background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:2px}
+  .opt.changed::before{content:'';position:absolute;left:-5px;top:2px;bottom:2px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--accent) 75%,transparent)}
   /* a row the search matches: the whole line highlighted */
   .opt.hit{background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px}
   details.grp.nomatch-grp{display:none!important}
   /* The right side: a bar (Live / Snap / Record / fresh, the one-line info) level with the world view's View bar; under
      it the camera image (square) with the settings below it at the same width, and beside both the microscope's
      controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
-  #liveBar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);min-width:0}
+  #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);min-width:0}
   #liveBar>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
   /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
   #lv_live{width:74px;border:1px solid #e5484d!important;font-weight:600}
@@ -50,7 +55,7 @@
   #lv_recWrap{position:relative;display:inline-block}
   /* one line, always (reserved before the first frame too); the full text in its tooltip */
   #lv_info{flex:1 1 auto;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,228px)}
+  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,274px)}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border)}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:#000}
@@ -63,6 +68,11 @@
   #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
+  /* the zoom inset: the image's outline, the part shown, the factor */
+  #lv_zoomNav{position:absolute;top:6px;left:6px;z-index:2;width:44px;height:44px;border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);cursor:pointer;border-radius:2px}
+  #lv_zoomNav[hidden]{display:none}
+  #lv_zoomNav i{position:absolute;border:1px solid #fff;box-sizing:border-box;min-width:2px;min-height:2px}
+  #lv_zoomNav span{position:absolute;left:calc(100% + 5px);top:50%;transform:translateY(-50%);color:#dfe6ee;font-size:11px;text-shadow:0 0 3px #000;white-space:nowrap}
   /* a finished recording plays in the live view: play/pause, position, Save, close */
   #lv_play{position:absolute;left:6px;right:6px;bottom:6px;z-index:3;display:flex;align-items:center;gap:5px;padding:4px 6px;
     background:rgba(10,14,20,.78);border:1px solid var(--border);border-radius:var(--radius);font-size:11px;color:#dfe6ee}
@@ -74,20 +84,31 @@
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
   #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
   #liveCtl{min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;padding:6px;
-    --lab-w:64px;--lab-w-base:64px;--val-w:40px}
-  #liveCtl .opt input[type=number]{width:40px}
+    --lab-w:78px;--lab-w-base:78px;--val-w:44px}
+  #liveCtl .opt input[type=number]{width:50px}
+  /* every box of the column laid out as the Configuration: a muted name column, controls 24 px high, rows 3 px apart */
+  #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
+  #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
+  #liveCtl .opt .ctl select{max-width:none;width:100%}
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
   #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
   #liveCtl .lc[hidden]{display:none}
   #liveCtl .lc h5,#liveCtl details.grp>summary{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  /* each box folds on a click on its title (open on every load); no arrow, no line under the title */
+  #liveCtl .lc h5{cursor:pointer;user-select:none}
+  #liveCtl .lc.shut>:not(h5){display:none}
+  #liveCtl .lc.shut>h5,#liveCtl details.grp:not([open])>summary{margin-bottom:0}
+  #liveCtl details.grp>summary::before{display:none}
+  #liveCtl details.grp[open]>summary,body[data-ui-style=focus] #liveCtl details.grp[open]>summary{border-bottom:0;border-radius:0;background:none;color:var(--muted)}
+  body[data-ui-style=focus] #liveCtl details.grp[open]{border:0;background:none}
   /* a settings group moved into the column (Illumination & light path): the column's look */
   #liveCtl details.grp{border:0;margin:0;background:none}
   #liveCtl details.grp>summary{padding:0;background:none;cursor:pointer}
   #liveCtl details.grp>.body{padding:0}
-  #liveCtl .opt{gap:3px}
   #liveCtl canvas#specPlot{max-width:100%!important}
   /* the laser rows of Illumination & light path: a slider beside the number, as the Configuration had */
+  #liveCtl .opt.number:has(>.ctl.lsl){grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w)}
   #liveCtl .ctl.lsl{display:flex;gap:4px;align-items:center}
   #liveCtl .ctl.lsl input[type=range]{flex:1 1 auto;min-width:0;width:0}
   /* the spectra plot enlarged (click it) */
@@ -108,14 +129,14 @@
   #liveCtl .zrow label{margin-left:4px}
   #liveCtl .crow input[type=number]{width:50px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
-  #liveCtl .cfg{display:grid;grid-template-columns:52px minmax(0,1fr);gap:3px 6px;align-items:center}
+  #liveCtl .cfg{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);gap:3px 6px;align-items:center}
   #liveCtl .cfg select{width:100%}
   #liveCtl .cfg input[type=range]{width:100%}
   /* every Configuration row the same height, so the Exposure row (moved into the grid by mm_config_ui.js) lines up */
-  #liveCtl .cfg select,#liveCtl .cfg input[type=number]{height:24px;box-sizing:border-box}
   #liveCtl .cfg .expv{display:flex;align-items:center;gap:4px}
   #lv_exp{width:62px}
-  #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
+  #liveCtl .cfg .lab{display:flex;min-width:0}
+  #liveCtl .cfg .lab label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #liveCtl .note{font-size:10.5px;color:var(--muted)}
   #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
@@ -132,7 +153,7 @@
   button:hover{border-color:var(--accent)}
   /* hamburger menu */
   #menuBtn{font-size:16px;line-height:1;padding:3px 8px}
-  #menu{display:none;position:absolute;right:12px;top:100%;z-index:20;margin-top:4px;min-width:210px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #menu{display:none;position:absolute;right:8px;top:100%;z-index:20;margin-top:4px;min-width:210px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
   #menu.open{display:block}
   #menu h4{margin:6px 0 4px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
   #menu label{display:block;margin:3px 0;cursor:pointer}
@@ -152,11 +173,19 @@
   body[data-ui-style=focus] details.grp[open]{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
   body[data-ui-style=focus] details.grp[open]>summary{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-bottom-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
   body[data-ui-style=focus] details.grp[open]>summary::before{color:var(--accent)}
-  body[data-ui-style=focus] #menu [data-act=expand]{display:none}
+  /* the settings under the image: boxes as in the controls column (a small muted title, no arrow, no line or
+     background under it); every group open on load, a click on the title folds it */
+  #panel details.grp,body[data-ui-style=focus] #panel details.grp[open]{border:1px solid var(--border);background:none;padding:5px 7px;margin:6px 0}
+  #panel details.grp>summary,body[data-ui-style=focus] #panel details.grp[open]>summary{padding:0;margin:0 0 4px;background:none;border:0;border-radius:0;
+    font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  #panel details.grp:not([open])>summary{margin-bottom:0}
+  #panel details.grp>summary::before{display:none}
+  #panel details.grp>.body{padding:0}
+  #panel .sect{font-size:11px;color:var(--text);margin-top:14px}
   /* one option = one line: label (help on hover) | control | value + unit */
   .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
   .opt .lab{display:flex;align-items:center;gap:4px;min-width:0}
-  .opt .lab label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .opt .lab label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .opt .ctl{display:flex;align-items:center;gap:4px;justify-content:flex-end}
   .opt .ctl input[type=range]{width:100%;min-width:0}
   .opt .ctl select{max-width:150px}
@@ -166,6 +195,8 @@
   .opt.wide button{width:100%}
   .opt.check{grid-template-columns:minmax(0,1fr) auto}
   .opt.select,.opt.preset{grid-template-columns:var(--lab-w) minmax(0,1fr)}
+  .opt.number{grid-template-columns:var(--lab-w) auto minmax(0,1fr)}
+  .opt.number .ctl{justify-content:flex-start}
   .opt.select select,.opt.preset select{width:100%;max-width:none}
   .opt .val .u{font-size:.9em}
   .opt.pair .ctl input[type=number]{width:52px;flex:none;padding:2px 3px}
@@ -256,7 +287,18 @@
   #movie a{color:#8bb8e8}
   #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
   #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:#000}
-  #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:8px 10px;line-height:1.5;pointer-events:none;white-space:pre}
+  /* the world view's info box, one column: the View button, where the view is, notes; the View options open in it */
+  #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.78);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5;pointer-events:none;
+    display:flex;flex-direction:column;align-items:flex-start;max-height:calc(100% - 16px);box-sizing:border-box}
+  #canvasHost.xz #hud{max-height:calc(100% - var(--xz-h) - 16px)}
+  #hudText{white-space:pre;margin-top:4px}
+  #hud:has(#viewPanel:not([hidden])){background:rgba(10,13,18,.94)}
+  /* the View group in the box: no box or title of its own */
+  #viewPanel details.grp,body[data-ui-style=focus] #viewPanel details.grp[open]{border:0;background:none;margin:0}
+  #viewPanel details.grp>summary{display:none}
+  #viewPanel details.grp>.body{padding:0}
+  #hud #viewBtn{pointer-events:auto;padding:2px 8px}
+  #hud #viewBtn.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
   #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
   .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   /* sidebar tabs: the settings panel and the animation editor (web/anim/editor.js styles its own panel) */
@@ -273,17 +315,15 @@
   <div id="worldCol">
   <div id="viewBar">
     <h1>inSiliScope</h1>
-    <button id="viewBtn" title="What the world view draws: camera angle, layers, z clip, simulated data of the centre cell" aria-expanded="false">View ▾</button>
     <span class="sp"></span>
     <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; docs</a>
   </div>
   <div id="canvasHost">
-    <div id="viewPanel" hidden></div>
     <canvas id="cvBase"></canvas>
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
     <canvas id="cvXZ"></canvas>
-    <div id="hud"></div>
+    <div id="hud"><button id="viewBtn" title="What the world view draws: camera angle, layers, z clip" aria-expanded="false">View ▾</button><div id="hudText"></div><div id="viewPanel" hidden></div></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
     <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
@@ -315,6 +355,9 @@
         </div></span>
       <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
       <div id="lv_info"></div>
+      <div id="levelSeg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
+      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div id="menu" role="menu"></div>
     </div>
     <div id="sideBody">
     <div id="sideMain">
@@ -322,15 +365,13 @@
         <canvas id="lv_cv" width="1" height="1"></canvas>
         <div id="lv_idle"><span>Live is off. Press <b>▶ Live</b> to image the sample under the world view's centre.</span></div>
         <div id="lv_scale"></div>
+        <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
     <div id="sideTop">
       <div class="bar">
         <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
-        <div id="levelSeg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
-        <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       </div>
-      <div id="menu" role="menu"></div>
       <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
     </div>
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
@@ -343,7 +384,7 @@
             <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
         </div>
         <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
-          <div class="cfg" id="lv_expRow"><span class="lab">Exposure</span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
+          <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
         </div>
         <div class="lc" id="lv_illumHost"></div>
         <div class="lc" id="lv_objHost"></div>
@@ -393,6 +434,7 @@ const DD = self.ISC_DYE_DATA;
 const SPECIMEN_DEFAULT = DD.specimens.findIndex(sp => sp.id === DD.specimenDefault);
 const mounted = () => DD.specimens[$('mv_specimen') ? +$('mv_specimen').value : SPECIMEN_DEFAULT];
 const CF = () => mounted().id === 'CellField', NR = () => mounted().id === 'Nanorulers';
+const DATA = () => CF() && !!self.ISC_SHOW_DATA;   // the View's simulated-data layers, hidden for now
 const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ specimen: sp.id }, t)));
 const curPrefix = () => mounted().targets[0].prefix;   // the mounted specimen's (first) target: the dye in use
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
@@ -683,9 +725,10 @@ const UI_GROUPS = [
     ]),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2), show: () => $('showCytoContours').checked }),
 
-    // Simulated data of the cell nearest the view centre: made in the background as soon as a layer needs them; the
+    // Simulated data of the cell nearest the view centre (hidden for now with its Data acquisition rows;
+    // self.ISC_SHOW_DATA shows them): made in the background as soon as a layer needs them; the
     // status list (#dataStatus, filled by the main script) says what is ready, being made or queued.
-    head('Simulated data (centre cell)', 'Simulated microscope data of the cell nearest the view centre, drawn in the scene. A layer\'s data (a z-stack or a localization run) is made in the background as soon as the layer is picked, with the movie settings (Microscope, Acquisition), and kept in this browser; the list below says what is ready and what is still being made.', { show: CF }),
+    head('Simulated data (centre cell)', 'Simulated microscope data of the cell nearest the view centre, drawn in the scene. A layer\'s data (a z-stack or a localization run) is made in the background as soon as the layer is picked, with the movie settings (Microscope, Acquisition), and kept in this browser; the list below says what is ready and what is still being made.', { show: DATA }),
     radio('dataSlice', 'Image slice', 'A simulated camera image of the cell, drawn as a horizontal slice at the slice height (= the focus of the image shown), from a z-stack made for the cell.', [
       ['none', 'Off'],
       ['wf', 'WideField', 'The WideField image with focus at the slice height (with the out-of-focus blur of the rest).'],
@@ -693,29 +736,29 @@ const UI_GROUPS = [
       ['sr', 'SMLM frames', 'SMLM camera frames at the slice height (the nearest focus position), blinking.'],
       ['srLoc', 'SMLM frames + localized emitters', 'The SMLM camera frames with a faint cross at the true position of every emitter localized in the frame shown (ON in it, within the capture range of its focus, at least 100 photons).'],
       ['bf', 'BrightField', 'The BrightField image of the cell (all structures) with focus at the slice height.'],
-    ], 'none', { show: CF, kids: [
+    ], 'none', { show: DATA, kids: [
       range('sliceZ', 'Slice height', 'µm', 'Height of the slice above the coverslip (= the focus of the image shown). The z-stacks run from 1 µm below the coverslip to 1 µm above the cell top; so does this slider. It moves the movie\'s focus height (Acquisition) with it.', -1, 20, 0.05, 1.5, { fmt: fx(2), show: sliceOn }),
       check('opaqueSlices', 'Opaque slice', 'Draw the WideField and BrightField slices opaque: black hides what lies behind. Off, the "Dark fluorescence" look adds the WideField slice as light (black is see-through). SMLM frames are always opaque.', false, { show: () => ['wf', 'wfSum', 'bf'].includes(sliceKind()) }),
     ] }),
-    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { show: CF, kids: [
+    check('showWfIso', 'WideField thresholded', 'The cell segmented from the WideField z-stack: the in-focus fine structure of each plane (the out-of-focus light of a thin cell is nearly the same in every plane) thresholded at Otsu\'s level x the level below, each column filled from the coverslip up to its highest in-focus point.', false, { show: DATA, kids: [
       range('isoLevel', 'Threshold', '× Otsu', 'Threshold of the in-focus structure relative to Otsu\'s: lower = a taller, larger cell.', 0.3, 3, 0.05, 1, { fmt: fx(2), show: () => $('showWfIso').checked }),
     ] }),
-    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false, { show: CF, kids: [
+    check('showLocs', 'SMLM localizations', 'The localizations of a simulated multi-plane SMLM acquisition of the cell: every blink of its dyes, per camera frame, within the capture range of a focus position, displaced by its precision. Coloured by height.', false, { show: DATA, kids: [
       num('locPrecXyNm', 'Precision xy', 'nm', 'Localization precision (1 sigma) in x and y of an in-focus blink ON for a whole frame; a shorter blink (fewer photons) or one out of focus is localized worse.', 0.5, 200, 0.5, 8, { show: locsOn }),
       num('locPrecZNm', 'Precision z', 'nm', 'Localization precision (1 sigma) in z of an in-focus blink ON for a whole frame; scales with the photons and defocus like the xy precision.', 0.5, 500, 0.5, 20, { show: locsOn }),
       check('locSpread', 'Precision spots', 'Draw each localization as a Gaussian spot of its precision (added up like light) instead of a point.', false, { adv, show: locsOn }),
       num('locFrames', 'Frames per plane', 'frames', 'Camera frames of the SMLM acquisition at each focus position (the SMLM step).', 10, 200000, 100, 5000, { adv, show: locsOn }),
     ] }),
-    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized (the SMLM localizations, and the crosses of "SMLM frames + localized emitters").', 50, 2000, 50, 400, { adv, show: CF }),
-    check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true, { show: CF }),
-    { kind: 'html', html: '<div id="dataStatus" class="dataStatus"></div>', show: CF },
-    head('Data acquisition', 'How the data layers\' z-stacks and localization runs are acquired. A change makes new data (the old stays cached).', { adv, show: CF }),
-    num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv, show: CF }),
-    num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv, show: CF }),
-    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack and of the localization run.', 0.1, 2, 0.1, 0.4, { adv, show: CF }),
-    num('srFramesShown', 'Frames shown', 'frames', 'Camera frames per focus position of the SMLM frame stack (they cycle in the view).', 1, 100, 1, 10, { adv, show: CF }),
+    num('captureNm', 'Capture range', '± nm', 'Blinks within this distance of the focus are localized (the SMLM localizations, and the crosses of "SMLM frames + localized emitters").', 50, 2000, 50, 400, { adv, show: DATA }),
+    check('cropData', 'Crop to the cell', 'Show the data only inside the cell\'s footprint (else the whole field around it, neighbours\' signal included).', true, { show: DATA }),
+    { kind: 'html', html: '<div id="dataStatus" class="dataStatus"></div>', show: DATA },
+    head('Data acquisition', 'How the data layers\' z-stacks and localization runs are acquired. A change makes new data (the old stays cached).', { adv, show: DATA }),
+    num('stackStepUm', 'Stack step', 'µm', 'Focus step of the WideField and BrightField z-stacks.', 0.05, 2, 0.05, 0.2, { adv, show: DATA }),
+    num('wfAverage', 'Averaging', 'frames', 'Each WideField and BrightField focus position is the mean of this many camera frames (less shot noise).', 1, 50, 1, 4, { adv, show: DATA }),
+    num('srStepUm', 'SMLM step', 'µm', 'Focus step of the SMLM frame stack and of the localization run.', 0.1, 2, 0.1, 0.4, { adv, show: DATA }),
+    num('srFramesShown', 'Frames shown', 'frames', 'Camera frames per focus position of the SMLM frame stack (they cycle in the view).', 1, 100, 1, 10, { adv, show: DATA }),
     select('planeTimes', 'SMLM planes', 'Fresh: every focus position starts with all dyes unbleached (as if each were a fresh field of the same cell; a blink near two planes shows in both). Sequential: one sample imaged plane after plane, so bleaching dyes run out in the later planes (DNA-PAINT-like labelling keeps a constant supply).',
-      [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv, show: CF }),
+      [['fresh', 'fresh dyes per plane'], ['sequential', 'sequential (bleaching carries over)']], 'fresh', { adv, show: DATA }),
   ] },
 
   { sect: 'Sample', id: 'field', title: 'Specimen', open: true, items: [
@@ -907,7 +950,8 @@ const UI_GROUPS = [
       ] }),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
-  { sect: 'Microscope', id: 'camera', title: 'Camera', items: [
+  // the camera follows the Configuration at the Basic level (the pixel size from the objective, shown in the live bar)
+  { sect: 'Microscope', id: 'camera', title: 'Camera', show: () => document.body.dataset.level !== 'basic', items: [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × emission magnification, 0.667). Not a setting: pick the Camera and Objective (Configuration). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { adv, ro: true }),
     num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
@@ -995,7 +1039,7 @@ const UI_GROUPS = [
 ];
 
 // Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
-const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus (one group open)', oneOpen: true }, light: { label: 'Light' } };
+const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus' }, light: { label: 'Light' } };
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
 const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
@@ -1169,14 +1213,14 @@ function renderEntry(e, host, g, parent) {
 
 const panel = $('panel');
 const oneOpen = () => !!(UI_STYLES[document.body.dataset.uiStyle] || {}).oneOpen;
-// Open groups: one remembered group in a oneOpen style, each group's own remembered state otherwise.
-// A group with a host of its own (the View panel) stays open and out of the one-open rule.
+// Open groups: every settings group opens fully on load (a click on its title folds it for the session); a style
+// with oneOpen keeps one remembered group open instead. A group with a host of its own (the View panel) is apart.
 function applyOpen() {
   const inPanel = groups.filter(G => !G.g.host);
   if (oneOpen()) {
     const want = store.get('focusOpen', (inPanel.find(G => G.det.open) || inPanel[0]).g.id);
     for (const G of inPanel) G.det.open = G.g.id === want;
-  } else for (const G of inPanel) G.det.open = store.get('open.' + G.g.id, G.g.open ? '1' : '0') === '1';
+  } else for (const G of inPanel) G.det.open = true;
 }
 let searching = false;   // a search opens every group with a match (the one-open rule waits)
 let curSect = { el: h('div'), groups: [] };   // groups before the first section header (none shown)
@@ -1188,9 +1232,11 @@ for (const g of UI_GROUPS) {
   const body = h('div', { class: 'body' });
   det.append(body);
   // a hosted group (the View panel, the controls column) keeps its own remembered state, open by default
-  if (g.host) det.open = store.get('open.' + g.id, g.open ? '1' : '0') === '1';
+  const inColumn = g.host && !!$(g.host).closest('#liveCtl');
+  if (g.host) det.open = inColumn || store.get('open.' + g.id, g.open ? '1' : '0') === '1';
   det.addEventListener('toggle', () => {
-    if (!oneOpen() || g.host) store.set('open.' + g.id, det.open ? '1' : '0');
+    if (inColumn || (!g.host && !oneOpen())) return;
+    if (g.host) store.set('open.' + g.id, det.open ? '1' : '0');
     else if (det.open && !g.host && !searching) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
   });
   into.append(det);
@@ -1217,8 +1263,29 @@ const isShown = r => (!r.show || r.show()) && (!r.parent || isShown(r.parent));
 const isDefault = r => r.kind === 'pair'
   ? +$(r.id + 'Min').value === r.vMin && +$(r.id + 'Max').value === r.vMax
   : r.kind === 'check' ? $(r.id).checked === !!r.value
-  : r.kind === 'select' || r.kind === 'radio' ? $(r.id).value === r.value
-  : +$(r.id).value === +r.value;
+  : r.kind === 'select' || r.kind === 'radio' || r.kind === 'text' ? $(r.id).value === String(r.value)
+  : Math.abs(+$(r.id).value - +r.value) <= 1e-9 * Math.max(1, Math.abs(+r.value));
+// A setting the reset and the "differs from the default" mark cover: a value of its own with a default (not a button,
+// a preset select (it follows its kids) or a read-only value (it follows others))
+// (a dye's own fields are left out: they hold the picked dye's library values, reloaded when its dye is reset)
+const resettable = r => !!r.id && !r.ro && !/(-dye|^mv_dye\d+)\./.test(r.id) && (r.kind === 'pair' ? r.vMin !== undefined
+  : ['range', 'number', 'check', 'select', 'radio', 'text'].includes(r.kind) && r.value !== undefined);
+// Every setting back to its default, its handlers fired (so what follows it, the column's mirrors too, follows);
+// a second pass catches values a handler moved again (a dye pick loading its light preset, ...).
+function resetDefaults() {
+  for (let pass = 0; pass < 3; pass++) {
+    const todo = entries.filter(r => resettable(r) && !isDefault(r));
+    if (!todo.length) break;
+    for (const r of todo) for (const [id, v] of r.kind === 'pair' ? [[r.id + 'Min', r.vMin], [r.id + 'Max', r.vMax]] : [[r.id, r.value]]) {
+      const el = $(id);
+      if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+  sync();
+  window.dispatchEvent(new Event('isc-reset'));   // the column's own controls (live.js)
+}
 function sync() {
   const level = document.body.dataset.level;
   for (const r of entries) {
@@ -1233,6 +1300,7 @@ function sync() {
     if (r.kind === 'preset') $(r.id).value = presetMatch(r);
     if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
+    if (r.row && resettable(r)) r.row.classList.toggle('changed', !isDefault(r));
   }
   // a heading shows when a row under it (up to the next heading) shows at this level
   let head = null, headAny = false;
@@ -1249,7 +1317,7 @@ function sync() {
     G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
   }
   for (const S of new Set(groups.map(G => G.sect))) S.el.style.display = S.el.textContent && S.groups.some(G => G.det.style.display !== 'none') ? '' : 'none';
-  const nDiff = entries.filter(r => !atLevel(r.tier, level) && r.id && r.kind !== 'button' && r.kind !== 'preset' && !isDefault(r)).length;
+  const nDiff = entries.filter(r => !atLevel(r.tier, level) && resettable(r) && !isDefault(r)).length;
   const note = $('advNote');
   if (note) note.textContent = nDiff ? `${nDiff} hidden option${nDiff > 1 ? 's differ' : ' differs'} from the default.` : '';
 }
@@ -1278,6 +1346,7 @@ const menu = $('menu'), menuBtn = $('menuBtn');
 menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
   '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (work in progress)"><input type="checkbox" id="showAnimPane"> Show animation pane (WIP)</label>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
+  '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
   '<div class="note" id="advNote"></div>';
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
@@ -1293,7 +1362,12 @@ menu.addEventListener('change', ev => {
 });
 menu.addEventListener('click', ev => {
   const act = ev.target.dataset && ev.target.dataset.act;
-  if (act) for (const G of groups) if (!G.g.host) G.det.open = act === 'expand';
+  if (act === 'reset') { resetDefaults(); openMenu(false); }
+  else if (act) {
+    const open = act === 'expand';
+    for (const G of groups) if (!G.g.host || $(G.g.host).closest('#liveCtl')) G.det.open = open;
+    for (const box of document.querySelectorAll('#liveCtl .lc')) if (box.querySelector(':scope > h5')) box.classList.toggle('shut', !open);
+  }
 });
 const openMenu = open => { menu.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', open); };
 menuBtn.addEventListener('click', ev => { ev.stopPropagation(); openMenu(!menu.classList.contains('open')); });
@@ -1448,7 +1522,7 @@ const ctxTop = cv.getContext('2d');
 const ctxBase = cvBase.getContext('2d');
 const cvXZ = document.getElementById('cvXZ'), ctxXZ = cvXZ.getContext('2d');
 let ctx = ctxTop; // the layer the shared helpers (drawScaleBar, drawMtLabels, ...) currently paint on
-const hud = document.getElementById('hud');
+const hud = document.getElementById('hud'), hudText = document.getElementById('hudText');
 const host = document.getElementById('canvasHost');
 
 // world center (um) = the pivot the view turns about, CSS px per um, tilt and rotation (radians), pivot height (um)
@@ -3647,8 +3721,10 @@ function renderFrame(st, target) {
     mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null,
     target: null, dataMissing: [], animate: false };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
-  const hudHead = `seed ${seed}   center (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) um   scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/um   ` +
-    `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `   rotation ${azDeg}°` : '') + `   ${useGl ? 'GPU' : '2D'}`;
+  // the info box: one item per line (the counts are in its data- attributes, for the tests)
+  const hudHead = [`seed ${seed}`, `centre (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) µm`, `scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/µm`,
+    `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `, rotation ${azDeg}°` : '')].join('\n');
+  hud.dataset.gpu = useGl ? '1' : '0';
 
   if (st.grid && coreCount <= RENDER_CAP) {
     ctx = bg;
@@ -3672,7 +3748,7 @@ function renderFrame(st, target) {
     if (st.xz) drawXZ([], p, F);
     if (st.ui) {
       drawScaleBar(pxPerUm);
-      hud.textContent = hudHead + '\n' + `${coreCount} chunks in view — zoom in to render (cap ${RENDER_CAP})`;
+      hudText.textContent = hudHead + '\nzoom in to render';
     }
     return { loading: 1, dyes: 0 };
   }
@@ -3752,15 +3828,12 @@ function renderFrame(st, target) {
     drawPlannedFov();
     drawScaleBar(pxPerUm);
     const nDet = vis.filter(v => v.detailed).length;
-    hud.textContent = hudHead + '\n' +
-      (nr ? `nanorulers ${nRulers} on screen` + (oriPending ? '   [loading nanorulers…]' : '')
-        : `chunks ${coreCount}   cells ${nCells} (${vis.length} on screen${scope === 'all' && N > 0 ? `, ${nDet} detailed` : ''})   microtubules ${nMt}`) +
-      (st.zClip ? `   z ${st.zClip[0]}–${st.zClip[1]} µm` : '') +
-      (!coreReady() ? '   [loading core…]' : '') +
-      (blockPending.size ? `   [packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…]` : '') + (nLoading ? `   [loading ${nLoading} cells…]` : '') +
-      (withinCap ? '' : '   [view too large: zoom in]') +
-      (labelNote ? '   [' + labelNote + ']' : '') +
-      (acqStatus.size ? '   [making data…]' : '');
+    Object.assign(hud.dataset, nr ? { rulers: nRulers, cells: '' } : { rulers: '', cells: nCells, onScreen: vis.length,
+      detailed: scope === 'all' && N > 0 ? nDet : '', microtubules: nMt, chunks: coreCount });
+    hudText.textContent = [hudHead, st.zClip ? `z clip ${st.zClip[0]}–${st.zClip[1]} µm` : '',
+      nr && oriPending ? 'loading nanorulers…' : '', !coreReady() ? 'loading core…' : '',
+      blockPending.size ? `packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…` : '', nLoading ? `loading ${nLoading} cells…` : '',
+      withinCap ? '' : 'view too large: zoom in', labelNote || '', acqStatus.size ? 'making data…' : ''].filter(Boolean).join('\n');
   }
   if (F.animate) setTimeout(requestDraw, 100);
   if (!off && st.ui && F.dataMissing.length && F.target) autoAcquire(F.target);
@@ -5304,8 +5377,8 @@ function movieWorldRect(m) {
   const half = /(^| )modality=1( |$)/.test(m.spec || '') ? 0 : px / 2, [x0, y0, x1, y1] = m.rect;
   return [x0 - half, y0 - half, x1 - half, y1 - half];
 }
-// The camera's field of view (centred on the view centre = the stage position), dashed yellow: while live imaging
-// runs or the Acquisition group is open (the square the next movie covers).
+// The camera's field of view (centred on the view centre = the stage position), dashed white, always (with the
+// Acquisition group open it is the square the next movie covers).
 // The camera's field of view in sample coordinates, um: centred on the view centre, moved by the live sample drift.
 function cameraRectUm() {
   const Ls = self.liveState, dr = Ls && Ls.drift && (Ls.on || Ls.frames) ? Ls.drift : [0, 0, 0];
@@ -5315,20 +5388,20 @@ function cameraRectUm() {
 }
 function drawPlannedFov() {
   const grp = document.querySelector('details[data-group="acq"]'), live = self.liveState && (self.liveState.on || self.liveState.frames);
-  if (!live && (!grp || !grp.open || grp.style.display === 'none' || document.getElementById('panel').hidden)) return;
+  const planning = !live && grp && grp.open && grp.style.display !== 'none' && !document.getElementById('panel').hidden;
   const n = +document.getElementById('mv_size').value, px = (+document.getElementById('mv_pixel-nm').value || 100) / 1000, size = n * px;
   const half = document.getElementById('mv_modality').value === '1' ? 0 : px / 2;
   const x0 = view.cx - size / 2 - half, y0 = view.cy - size / 2 - half, x1 = x0 + size, y1 = y0 + size;
   ctx = ctxTop;
   const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => project(x, y, 0));
-  ctx.strokeStyle = 'rgba(255,209,102,0.95)'; ctx.lineWidth = Math.max(1, devicePixelRatio);
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1, devicePixelRatio);
   ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
   ctx.beginPath(); pts.forEach(([sx, sy], i) => (i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
   // the label sits on the outline's top edge, starting at its left end
   const byY = pts.slice().sort((a, b) => a[1] - b[1]), at = byY[0][0] <= byY[1][0] ? byY[0] : byY[1];
-  ctx.fillStyle = 'rgba(255,209,102,0.95)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText(live ? 'camera' : `next movie: ${n} × ${n} px`, at[0], Math.min(byY[0][1], byY[1][1]) - 3 * devicePixelRatio);
+  ctx.fillText(planning ? `next movie: ${n} × ${n} px` : 'camera', at[0], Math.min(byY[0][1], byY[1][1]) - 3 * devicePixelRatio);
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
