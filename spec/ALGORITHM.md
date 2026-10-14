@@ -887,12 +887,25 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   in a cell are fresh; equal bands collapse to one), and a frame reads its dSTORM / PALM events in the same dose (a
   region is queried over a_max x the frame's span, the times divided by a_h; DNA-PAINT: photons only): the kinetics
   within a frame and across frames agree. a_h (`HistoryLightField`, Excitation.h) = F x the band's mean depth factor
-  in 1/16 steps where the footprint (HILO: at the band's middle height) is >= half its peak, else 0: the kinetics see
-  the beam as **lit or unlit**, the photons keep its smooth profile. Why: each distinct clock is a region, each region
-  a core query scanning every dye block it meets; a FlatTop's soft edge in 1/16 levels made ~800 regions in epi and
-  ~2600 in HILO, and live frames took seconds (bench_live 0 fps at 10 ms); lit / unlit makes a handful (its unlit
-  corners bisected, `ClockSnapshot::Regions`). The cost: dyes beyond the half-maximum emit (photons x the edge's
-  factor) but do not switch -- a dSTORM / PALM beam acts hard-edged at its FWHM. **Grids** (fixed on purpose, the host
+  in 1/16 steps x the footprint's **level** (HILO: at the band's middle height): 1 where it is >= half its peak, 1/4
+  down to 1/8 of it (the dim rim), else 0 (`HistoryLevel`); the photons keep its smooth profile. Why levels: each
+  distinct clock is a region, each region a core query scanning every dye block it meets; a FlatTop's soft edge in
+  1/16 levels made ~800 regions in epi and ~2600 in HILO, and live frames took seconds (bench_live 0 fps at 10 ms);
+  two levels make a handful (sparse keys bisected, `ClockSnapshot::Regions`). Why the rim level (2026-10-14): lit /
+  unlit at half left the rim (10-50 % of the peak at a FlatTop's edge, the FOV's margin) at clock 0 for good, so its
+  dSTORM dyes stayed in their initial ON and the population mean-field every frame (live HILO 11 vs ~40 fps). **Dark
+  rule** (2026-10-14): a place at clock 0 that the history's light does not reach now (level 0, or outside the clock's
+  `DyeClock::Extent`, the recorded rect) gets no photons from its dSTORM / PALM / WideField dyes (`GridCellKeys`' dark
+  key, `RegionDark` per region: its own tiles, as the never-lit ring around the FOV is one region whose box holds the
+  lit middle; the windows and the switch skip it); DNA-PAINT keeps its dyes (uniform history). The cost: a never-lit
+  dye under < 1/8 of the peak is left out. **Mean-field switch under a host clock:** the survival averaged over the
+  lit regions by their area (`Population::meanSurvival`) x the lit dyes (`nZLit`, outside the dark regions), not the
+  largest survival: under drift a thin fresh strip kept the largest one near 1 with every dye counted. **Windows**:
+  a region whose expected dyes still in a windowed state are < 1e-4 is not queried (`kWindowAliveMin`), and the core's
+  rows are cached across live frames (`MovieCache::Windows`: per dye version, history rows and z range over the box +
+  min(2 um, 10 %); a window is a pure function of its dye and history and never reopens, so the core's own filters on
+  the cached rows give the fresh answer, bit for bit -- the core makes every dye's window anew per call, ~100 ms for a
+  40 um HILO query). **Grids** (fixed on purpose, the host
   and `doseEvents` alike): a_h is read with the optical axis on the tile grid (`HistoryAxisUm`) and the focus on a
   0.25 um grid (`HistoryFocusUm`, the pivot again in `HistoryLightField`). Read exact, sample drift moved the lit /
   unlit edges (HILO's sheet in every band) a fraction of a tile every frame, each tile they crossed got a clock of its

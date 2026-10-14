@@ -305,6 +305,13 @@ public:
    }
    // The keys are constant over squares of this side (um) anchored at 0 (floor(x / tile)); 0: not known.
    virtual double TileUm() const { return 0.0; }
+   // The rect (world um) the clock knows; outside it every place reads clock 0 (a host's history records light only
+   // there: FluorescenceMovie's dark rule). Infinite by default.
+   virtual void Extent(double& x0Um, double& y0Um, double& x1Um, double& y1Um) const
+   {
+      x0Um = y0Um = -std::numeric_limits<double>::infinity();
+      x1Um = y1Um = std::numeric_limits<double>::infinity();
+   }
    virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
    virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
 };

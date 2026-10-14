@@ -1059,8 +1059,12 @@ change, golden unchanged).
   the light presets and specimens) and `BfpPosition` (`tools/gen_mm_configs.py`).
 - The history under a shaped beam (`IlluminationHistory.*`): the clock of a tile is its *dose*, kept in 12 world-z
   bands (inner edges 0.1, 0.2, 0.4, 0.7, 1, 1.5, 2, 3, 4, 5, 6.5 um); a band's weight (`HistoryLightField`,
-  Excitation.h) = F x the depth mean over it in 1/16 steps where the footprint (HILO: at the band's midpoint) is at least
-  half its peak, else 0 (lit / unlit: spec/ALGORITHM.md says why). `HistoryLight` / `HistoryLightFor` (memoised per
+  Excitation.h) = F x the depth mean over it in 1/16 steps x the footprint's level (HILO: at the band's midpoint): 1 at
+  half its peak or more, 1/4 down to 1/8, else 0 (`HistoryLevel`; spec/ALGORITHM.md says why). A clock-0 place the
+  history light does not reach (or outside `DyeClock::Extent`) is dark (`GridCellKeys`' dark key, `RegionDark`); the
+  mean-field switch takes the area-mean survival of the lit regions x `nZLit`; regions with < `kWindowAliveMin`
+  expected windowed dyes are not queried, the others' windows are cached (`MovieCache::Windows`,
+  `SampleSource::ContinuousRows` / `MapRow`). `HistoryLight` / `HistoryLightFor` (memoised per
   tile), `ClockSnapshot::Advance(..., light)` (so render-ahead stays on), a snapshot whose bands are equal is one band
   (epi: the old arithmetic). The light is read on the history's grids (`HistoryAxisUm`: the axis on the tile grid,
   `HistoryFocusUm`: the focus on 0.25 um) by the host and `doseEvents` alike, and is uniform when every mounted label is
@@ -1076,6 +1080,11 @@ change, golden unchanged).
   while the grid and the tiles' keys are the last movie's (a live frame: the clocks advance, the partition stays;
   `fl.mean-field-keys-reused`), shared with the scene by pointer (`SetWeightGroups(shared_ptr)`: an unchanged pointer
   keeps the basis without comparing 4M keys).
+  A rate-history population (WideField bleaching, pre states, initial ON) groups by the history's light now instead
+  (`GridRateGroups`, per (band, tile)): survivals whose clocks advance alike keep their ratios, so one channel holds
+  cells of every key with that light (2026-10-14: per key, the rim level of a few overlapping poses made 32 groups,
+  past the basis's 8, and a Chebyshev basis rebuilt per frame, 0.5 s each; the stage test's live check 83 -> 17 s).
+  The blink branch keeps the keys (its weights follow the blink kinetics, not one exponential).
 - Live speed (bench_live Basic 256 px, 4 s per case, 10 ms exposure; main in brackets): dSTORM 72 (61), DNA-PAINT
   72 (100), WideField 82 (100), PALM 58 (100), BrightField 100 (100) fps; at 50 ms every channel 20 / 20. The first
   version (1/16 lateral levels) gave 0-8 fps: regions (788 epi, 2586 HILO), the HILO background map per frame (now

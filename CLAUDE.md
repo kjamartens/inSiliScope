@@ -232,8 +232,11 @@ last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touchi
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
 `adapter_pixel_hash` reference since the imager's collected column (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
 chamber, the lit / unlit history footprint, the free imager's light collected defocused; 2026-10-14 the history light on
-the tile / 0.25 um focus grids, which moved `dstorm`, `palm`): TOTAL a5b388b0... (before pores 09832cd5...; before the
-grids b1af15bc... / 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+the tile / 0.25 um focus grids, which moved `dstorm`, `palm`; 2026-10-14 the rim level and the dark rule, which moved
+`dstorm`, `palm`, `mean-field`; then the bleach basis grouped by the light now, float rounding in `dstorm`, `mean-field`:
+0.14 % of pixels, <= 9 ADU): TOTAL 89cf2f70... (before pores cd29ac0c...; before that basis 6e11627f... / 6a534ef9...;
+before the rim level a5b388b0... /
+09832cd5...; before the grids b1af15bc... / 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
 Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5ef51..., 816101d) but `illum-bg`
 (9a01e6ab..., the engine's profile); its "TOTAL before pores" (the 12 older configs with `NuclearPores_Label` None and
 `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
@@ -249,8 +252,11 @@ profile phases `fl.bg-map`, `fl.bg-map-prefetch`, `gpu.prepare`, `gpu.prepare-ba
 = `excitation.js`. The DNA-PAINT light presets set 0.95 (HILO), the nanorulers 1.03 (TIRF); an Auto preset of several
 targets keeps the position they agree on. The kinetics follow the local light (cli/viewer: dSTORM clock x a, PALM
 activation b(a), mean field by dose nodes); in MM the history clock is the dose, in 12 z bands under a shaped beam, the
-footprint lit / unlit at its half maximum (`HistoryLightField`: a soft edge in 1/16 levels made thousands of clock
-regions, live 0 fps), read on the history's grids (`HistoryAxisUm` tile grid, `HistoryFocusUm` 0.25 um: sub-tile drift
+footprint in two levels, 1 at >= half its peak and 1/4 on the rim down to 1/8 (`HistoryLightField::HistoryLevel`: a
+soft edge in 1/16 levels made thousands of clock regions, live 0 fps; lit / unlit at half kept the rim's dSTORM dyes in
+their initial ON for good), a never-lit place below 1/8 dark (no photons, not drawn: `GridCellKeys`' dark key,
+`RegionDark`), the mean-field switch on the lit regions' area-mean survival, the continuous windows cached across live
+frames (`MovieCache::Windows`: the core makes them anew per call, ~100 ms per HILO query; bit-identical), read on the history's grids (`HistoryAxisUm` tile grid, `HistoryFocusUm` 0.25 um: sub-tile drift
 fragmented the clocks, live HILO under drift 90 -> 20 fps), uniform when every mounted label is DNA-PAINT (binding needs
 no light), and a frame reads dSTORM / PALM events at that dose (`doseEvents`); a history chunk lit only alike in height
 keeps one band. Live under drift: the drift's z enters the focus on a 10 nm grid and the mean-field scenes stay at an

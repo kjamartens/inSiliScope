@@ -105,9 +105,10 @@ In a cli or viewer movie the whole sample has been lit since \(t=0\).
 
 The adapter remembers how long each place has been lit and under which settings. Each 0.25 µm tile of the world keeps
 its seconds of illumination (weighted by the excitation there, in 1/16 steps; under a shaped beam per height band, 12
-bands up to 8 µm, so after TIRF the dyes higher in a cell are still fresh, with the beam counted as lit inside its
-half-maximum and unlit outside: dSTORM and PALM switch as under a hard-edged beam, while the photons keep the soft
-edge; the beam is placed on the tiles' grid and the focus on a 0.25 µm grid, so a drift smaller than that lights the
+bands up to 8 µm, so after TIRF the dyes higher in a cell are still fresh, with the beam counted in two levels: full
+where it is at least half its peak, a quarter on its dim rim (1/8 to 1/2 of the peak), none below: dSTORM and PALM
+switch by these levels, while the photons keep the soft edge, and a place never lit that the beam reaches with less
+than 1/8 of its peak stays dark: its dSTORM, PALM and WideField dyes emit nothing until it has been lit; the beam is placed on the tiles' grid and the focus on a 0.25 µm grid, so a drift smaller than that lights the
 same tiles alike; when every mounted target is in DNA-PAINT, whose binding needs no light, every lit tile counts the
 time alike, whatever the beam) and its **rate history**: the lit
 time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,

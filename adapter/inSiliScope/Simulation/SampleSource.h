@@ -119,6 +119,13 @@ public:
    // states, dSTORM initial ON, WideField dyes) open after q.tSec, mapped as
    // Events maps blinks (an always-on window ends at +infinity).
    bool Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out);
+   // The core's rows of isc_continuous_in_window over a box (ISC_EVENT_STRIDE doubles each: world x, y, z, clock
+   // seconds), replacing rows: a host's cache of windows (each a pure function of its dye and the kinetics history),
+   // mapped into a query's frame by MapRow.
+   bool ContinuousRows(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                       std::vector<double>& rows);
+   // One row (ISC_EVENT_STRIDE doubles) as a BlinkEvent in q's frame, as Events / Continuous map them.
+   static void MapRow(const SampleQuery& q, const double* row, BlinkEvent& out);
    // The fluorescent dyes in the window (isc_sites_in_window): ISC_SITE_STRIDE doubles each (world x, y, z, id,
    // structure), replacing out. False on a core failure.
    bool Sites(double x0, double y0, double x1, double y1, double zMin, double zMax, std::vector<double>& out);

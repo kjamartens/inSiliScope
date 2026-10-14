@@ -82,6 +82,9 @@ public:
    double ProfileAt(double xp, double y) const;
    // The footprint on the plane at height z (no field factor).
    double Lateral(double x, double y, double z) const;
+   // Its largest value over the rect [x0, x1] x [y0, y1] at height z: at the rect's point nearest the beam's axis there
+   // (every profile falls off with the distance from it, along x stretched by 1 / cos theta_i).
+   double LateralMaxIn(double x0, double x1, double y0, double y1, double z) const;
    // The depth factor (TIRF: the shares' exponentials; else 1); z < 0 counts as 0.
    double Depth(double z, const ExcitationShares& shares) const;
    // Its mean over [z0, z1] (a WideField plane), exact.
@@ -144,16 +147,23 @@ constexpr double kHistoryFocusStepUm = 0.25;
 inline double HistoryAxisUm(double vUm) { return std::round(vUm / kHistoryTileUm) * kHistoryTileUm; }
 inline double HistoryFocusUm(double zUm) { return std::round(zUm / kHistoryFocusStepUm) * kHistoryFocusStepUm; }
 // The light the history counts under an excitation (ScopeExcitation: the geometry and the first label's line shares):
-// per band F x the band's mean depth factor in 1/16 steps where the beam's footprint (at the band's middle height:
-// the HILO sheet moves with it) is at least half its peak, else 0. The footprint is lit or not, not its soft edge:
-// with its 1/16 levels a FlatTop's edge made hundreds of clock regions (each a core query; live frames took
-// seconds), lit / unlit makes a few. The photons keep the smooth footprint (Excitation::At); the kinetics read
-// this (FluorescenceMovie's dose events), so a frame reads the dose the history gives it.
+// per band F x the band's mean depth factor in 1/16 steps x the footprint's level (at the band's middle height: the
+// HILO sheet moves with it): 1 where it is at least half its peak, 1/4 down to 1/8 of it, else 0 (HistoryLevel). Two
+// levels, not the soft edge: with 1/16 levels a FlatTop's edge made hundreds of clock regions (each a core query; live
+// frames took seconds). The level below half (2026-10-14) is the beam's dim rim: lit / unlit at half left it at clock
+// 0 although the photons (the smooth footprint, Excitation::At) lit it, so its dSTORM dyes stayed in their initial ON
+// for good (a mean-field population every frame: live HILO 11 vs 40 fps). The kinetics read this (FluorescenceMovie's
+// dose events), so a frame reads the dose the history gives it; a place still at clock 0 that it does not reach is
+// dark (FluorescenceMovie: no photons).
 class HistoryLightField {
 public:
    HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& shares);
    // The light of band b at dx, dy um from the optical axis (a tile centre).
    double Band(double dxUm, double dyUm, int b) const;
+   // Whether any tile centre in [dx0, dx1] x [dy0, dy1] (um from the axis) gets light in a band of b0..b1.
+   bool AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const;
+   // The footprint's level: 1 at half its peak or more, 1/4 at 1/8 or more, else 0.
+   static double HistoryLevel(double footprint) { return footprint >= 0.5 ? 1.0 : footprint >= 0.125 ? 0.25 : 0.0; }
    void Fill(double dxUm, double dyUm, float* w) const;   // every band
    static int BandOf(double zUm);                         // the band a world height is in
    static double TileCentre(double vUm);                  // the centre of the history tile holding vUm (world)

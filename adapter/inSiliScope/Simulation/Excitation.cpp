@@ -106,6 +106,12 @@ double Excitation::Lateral(double x, double y, double z) const
    return ProfileAt((x - (tirf_ ? 0.0 : z - zp_) * tanS_) * cosI_, y);
 }
 
+double Excitation::LateralMaxIn(double x0, double x1, double y0, double y1, double z) const
+{
+   const double sx = (tirf_ ? 0.0 : z - zp_) * tanS_;
+   return Lateral(std::min(x1, std::max(x0, sx)), std::min(y1, std::max(y0, 0.0)), z);
+}
+
 double Excitation::Depth(double z, const ExcitationShares& shares) const
 {
    if (!tirf_)
@@ -456,14 +462,32 @@ HistoryLightField::HistoryLightField(const Excitation& ex, const std::vector<Exc
 double HistoryLightField::Band(double dxUm, double dyUm, int b) const
 {
    const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
-   return ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0) >= 0.5 ? amp_[k] : 0.0;
+   return amp_[k] * HistoryLevel(ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0));
+}
+
+bool HistoryLightField::AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const
+{
+   b0 = std::max(0, b0);
+   b1 = std::min(kHistoryBands - 1, b1);
+   double flat = -1.0;   // (not a sheet: one footprint for every band)
+   for (int b = b0; b <= b1; ++b)
+   {
+      const size_t k = static_cast<size_t>(b);
+      if (!(amp_[k] > 0))
+         continue;
+      if (!sheet_ && flat < 0)
+         flat = ex_.LateralMaxIn(dx0, dx1, dy0, dy1, 0.0);
+      if (HistoryLevel(sheet_ ? ex_.LateralMaxIn(dx0, dx1, dy0, dy1, zMid_[k]) : flat) > 0)
+         return true;
+   }
+   return false;
 }
 
 void HistoryLightField::Fill(double dxUm, double dyUm, float* w) const
 {
-   const bool lit0 = !sheet_ && ex_.Lateral(dxUm, dyUm, 0.0) >= 0.5;
+   const double lv0 = sheet_ ? 0.0 : HistoryLevel(ex_.Lateral(dxUm, dyUm, 0.0));
    for (int b = 0; b < kHistoryBands; ++b)
-      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : lit0 ? amp_[static_cast<size_t>(b)] : 0.0);
+      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : amp_[static_cast<size_t>(b)] * lv0);
 }
 
 int HistoryLightField::BandOf(double zUm)

@@ -176,22 +176,48 @@ bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std:
    out.reserve(out.size() + static_cast<size_t>(n));
    for (int32_t i = 0; i < n; ++i)
    {
-      const double* e = &buf[static_cast<size_t>(i) * ISC_EVENT_STRIDE];
       BlinkEvent b;
-      b.xUm = e[0] - q.originXUm;
-      b.yUm = e[1] - q.originYUm;
-      b.zNm = (e[2] - q.zRefUm) * 1000.0;
-      b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
-      b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
-      b.brightness = e[5];
-      b.structure = static_cast<int>(e[7]);
-      b.state = static_cast<int>(e[8]);
-      b.aux = e[9];
+      SampleSource::MapRow(q, &buf[static_cast<size_t>(i) * ISC_EVENT_STRIDE], b);
       out.push_back(b);
    }
    return true;
 }
 } // namespace
+
+void SampleSource::MapRow(const SampleQuery& q, const double* e, BlinkEvent& b)
+{
+   b.xUm = e[0] - q.originXUm;
+   b.yUm = e[1] - q.originYUm;
+   b.zNm = (e[2] - q.zRefUm) * 1000.0;
+   b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
+   b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
+   b.brightness = e[5];
+   b.structure = static_cast<int>(e[7]);
+   b.state = static_cast<int>(e[8]);
+   b.aux = e[9];
+}
+
+bool SampleSource::ContinuousRows(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                                  std::vector<double>& rows)
+{
+   if (!world_)
+      return false;
+   int32_t cap = static_cast<int32_t>(rows.size() / ISC_EVENT_STRIDE);
+   for (;;)
+   {
+      const int32_t n = isc_continuous_in_window(world_, x0, y0, x1, y1, zMin, zMax, tMin,
+                                                 rows.empty() ? nullptr : rows.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+      {
+         rows.resize(static_cast<size_t>(n) * ISC_EVENT_STRIDE);
+         return true;
+      }
+      cap = n + n / 4;
+      rows.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
+   }
+}
 
 bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)
 {

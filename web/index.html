@@ -229,7 +229,9 @@ const DD = self.ISC_DYE_DATA;
 // The specimens and their targets (data/specimens.json): the mounted one is the Sample select's (the engine's
 // specimen option); every target of every specimen has its label group (labelGroup), shown while its specimen is.
 const SPECIMEN_DEFAULT = DD.specimens.findIndex(sp => sp.id === DD.specimenDefault);
-const mounted = () => DD.specimens[$('mv_specimen') ? +$('mv_specimen').value : SPECIMEN_DEFAULT];
+// (Without a document -- the schema read in Node by the engine checks -- the default.)
+const mounted = () => DD.specimens[typeof document !== 'undefined' && $('mv_specimen') ? +$('mv_specimen').value
+                                                                                       : SPECIMEN_DEFAULT];
 const CF = () => mounted().id === 'CellField', NR = () => mounted().id === 'Nanorulers';
 const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ specimen: sp.id }, t)));
 const curPrefix = () => mounted().targets[0].prefix;   // the mounted specimen's (first) target: the dye in use

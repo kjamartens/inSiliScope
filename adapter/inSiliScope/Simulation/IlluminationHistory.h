@@ -68,6 +68,13 @@ public:
    void KeyAtZ(double xUm, double yUm, double zUm, double& tSec, uint32_t& history) const override;
    const std::vector<double>& BandEdges() const override { return edges; }
    double TileUm() const override { return tileUm; }
+   void Extent(double& x0Um, double& y0Um, double& x1Um, double& y1Um) const override
+   {
+      x0Um = ix0 * tileUm;
+      y0Um = iy0 * tileUm;
+      x1Um = (ix0 + static_cast<long>(nx)) * tileUm;
+      y1Um = (iy0 + static_cast<long>(ny)) * tileUm;
+   }
    void Segments(uint32_t history, std::vector<ClockSegment>& out) const override;
    void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const override;
    // Adds dtSec x light to the tiles of the snapshot whose centre lies in the
