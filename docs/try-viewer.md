@@ -24,33 +24,39 @@ Notes:
 
 - **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms. Its display
   options (layers, look, tilt and rotation, z clip, simulated data slices) are under **View ▾** in the bar above it. The
-  microscope is on the right: the live camera image with Live / Snap / ● Record / ↺, the focus and the configuration beside it,
-  and below them every sample and microscope setting, with a search box that filters the rows. The divider between the
+  microscope is on the right: its bar (level with the View bar) holds ▶ Live / Snap / ● Record / ↺ and one line with
+  the frame rate, the time per frame and the image size; under it the live camera image, always square, with every
+  sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
+  bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
+  illumination and light path, the display range and, at the Expert level, the performance. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser). On a narrow screen the parts stack.
-- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the info under
-  the buttons shows the frame rate, the render time per frame, the image size, the focus height, the sample's time,
-  how long this place has been lit, and how each label was drawn: SMLM splat (every blink placed with the PSF), binned
-  SMLM (the same blinks on a finer grid, one FFT convolution: many blinks at once), mean-field widefield (no single
-  blinks) or BrightField). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
+- **Live** renders one camera frame after the other at the view centre, at most one per exposure time (the line beside
+  the buttons shows the frame rate, the render time per frame and the image size; the button turns red while live
+  runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
   takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
   convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
   and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
   parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below;
-  the Acquisition group is hidden for now). **Focus**: the ▲ ▼ buttons, Page Up / Page Down or the
-  mouse wheel over the image step it by the step size. **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
+  the Acquisition group is hidden for now). **Focus**: the arrows of the Z field, Page Up / Page Down or the
+  mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
   range). Live pauses while the page is hidden. The world view outlines the camera's field ("camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
-- **performance** (under the info): where each frame's time goes, in milliseconds with one decimal: the engine's
-  phases (setup, the core's blink events, splatting, camera noise, ...), the trip to and from the worker, the display,
-  and the wait that paces frames to the exposure. Every row that can take time is always listed, in the same order;
-  one the frame did not have shows "—".
+- **Performance** (its own box under Display, at the Expert level): how each label was drawn (SMLM splat: every
+  blink placed with the PSF; binned SMLM: the same blinks on a finer grid, one FFT convolution, many blinks at once;
+  mean-field widefield: no single blinks; or BrightField), the sample's time, how long this place has been lit and the
+  drift; then where each frame's time goes, in milliseconds with one decimal: the engine's phases (setup, the core's
+  blink events, splatting, camera noise, ...), the trip to and from the worker, the display, and the wait that paces
+  frames to the exposure. Every row that can take time is always listed, in the same order; one the frame did not have
+  shows "—".
 - **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
-  position with the current settings and saves them as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`,
-  rendered as fast as the engine goes, not paced to the exposure. A recording is a fresh sample: a movie starting at
+  position with the current settings, rendered as fast as the engine goes, not paced to the exposure. The recording
+  then plays in the live view (play/pause, a frame slider, ✕ to close it; Live, Snap or a new recording close it too),
+  and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
+  itself. A recording is a fresh sample: a movie starting at
   the Start time, the same one "Make movie here" makes and `insiliscope_cli --spec` renders from the spec in the
   file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
@@ -59,14 +65,19 @@ Notes:
   illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
-  frame of each batch is shown, and clicking ● Record again stops early and saves the frames so far.
-- **Configuration** (beside the live image): the config groups of the adapter's Micro-Manager configurations
+  frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
+- **Illumination & light path** (in the controls column, under Configuration): the light preset, each laser line as a
+  slider with its power (kW/cm², three decimals), the background, geometry, filters and dichroic, and the spectra plot
+  (dye excitation and emission, laser lines, filters, camera QE); click the plot for a larger copy with what reaches
+  the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
+  Esc or a click beside it closes it).
+- **Configuration** (in the controls column): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Channel (the dye modes, BrightField, and
-  in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift, Specimen and the laser powers as
-  sliders. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
+  in Advanced widefield + brightfield together), Objective, Camera, Quality, Drift and Specimen (the configurations'
+  laser-power groups are not shown here: the lasers are in Illumination & light path). A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
   (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
-  the preset the settings are at, or "—" once a setting differs. Laser powers show three decimals. The pixel size is
+  the preset the settings are at, or "—" once a setting differs. The pixel size is
   not a setting: it follows the camera and the objective (shown read-only under Camera, Advanced).
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample

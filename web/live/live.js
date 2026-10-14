@@ -44,6 +44,19 @@ viewBtn.addEventListener('click', () => showViewPanel(viewPanel.hidden));
 showViewPanel(store.get('viewPanel', '0') === '1');
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !viewPanel.hidden && viewPanel.contains(document.activeElement)) showViewPanel(false); });
 
+// ---- the laser rows of Illumination & light path (in the controls column): a slider beside each number ----
+for (const num of document.querySelectorAll('#lv_illumHost input[type=number][id^="mv_laser-"]')) {
+  if (num.id === 'mv_laser-custom-nm') continue;
+  const r = Object.assign(document.createElement('input'), { type: 'range', min: num.min || 0, max: num.max || 10, step: 0.001, value: num.value });
+  r.setAttribute('aria-label', num.id.replace('mv_', ''));
+  num.parentElement.classList.add('lsl');
+  num.before(r);
+  r.addEventListener('input', () => { num.value = r.value; num.dispatchEvent(new Event('input', { bubbles: true })); num.dispatchEvent(new Event('change', { bubbles: true })); });
+  const back = () => { if (num.value !== '') r.value = num.value; };
+  num.addEventListener('input', back);
+  num.addEventListener('change', back);
+}
+
 // ---- controls mirrored from the settings (one value, two places) ----
 function mirror(id, srcId) {
   const a = $(id), b = $(srcId);
@@ -54,16 +67,17 @@ function mirror(id, srcId) {
 }
 mirror('lv_z', 'mv_z');
 mirror('lv_exp', 'mv_exposure-ms');
+// the Z field's own arrows step by the step size
+const syncZStep = () => { $('lv_z').step = String(Math.max(0.001, +$('lv_zStep').value || 0.1)); };
 const stepZ = dir => {
   const z = $('mv_z'), st = Math.max(0.001, +$('lv_zStep').value || 0.1);
   z.value = +(+z.value + dir * st).toFixed(4);
   z.dispatchEvent(new Event('input', { bubbles: true }));
   z.dispatchEvent(new Event('change', { bubbles: true }));
 };
-$('lv_zUp').addEventListener('click', () => stepZ(1));
-$('lv_zDn').addEventListener('click', () => stepZ(-1));
 $('lv_zStep').value = store.get('zStep', '0.1');
-$('lv_zStep').addEventListener('input', () => store.set('zStep', $('lv_zStep').value));
+syncZStep();
+$('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
 // Up/Down arrows over the live image (or PageUp/PageDown anywhere outside an input) step the focus.
 document.addEventListener('keydown', ev => {
   const t = ev.target, inField = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
@@ -98,7 +112,7 @@ function request(n) {
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; }
-  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && $('lv_perf').checked };
+  const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
   w.postMessage(job);
@@ -252,20 +266,31 @@ for (const id of ['lv_lo', 'lv_hi']) $(id).addEventListener('input', () => { $('
 $('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
+// One line, always: the speed and the image size (or the recording, its saved file, an error); the full text in its
+// tooltip. How the frame was rendered, the drift and the sample time are in the performance box (Expert).
 function showInfo() {
-  const el = $('lv_info');
-  if (L.err) { el.textContent = 'live failed: ' + L.err; return; }
-  if (!L.frames) { el.textContent = L.on ? 'starting…' : REC.on ? 'recording…' : ''; return; }
+  const el = $('lv_info'), size = L.frames ? ` · ${L.w}×${L.h} px` : '';
+  const text = L.err ? 'live failed: ' + L.err
+    : REC.on ? `● recording ${REC.got}/${REC.n}` + size
+    : REC.msg && !L.on ? REC.msg
+    : !L.frames ? (L.on ? 'starting…' : '')
+    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size;
+  el.textContent = text;
+  el.title = text;
+  showPerfNote();
+}
+function expert() { return document.body.dataset.level === 'expert'; }
+function showPerfNote() {
+  const el = $('lv_perfNote');
+  if (!expert() || !L.frames) { el.textContent = ''; return; }
   const bf = $('mv_modality').value === '1', both = self.ISC_MM_EXTRA && self.ISC_MM_EXTRA['light-trans'] === 1 && !bf;
-  const lines = [(REC.on ? `● recording ${REC.got}/${REC.n}` : L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame',
-    `${L.w}×${L.h} px · ${bf ? 'BrightField' : both ? 'fluorescence + BrightField' : 'fluorescence'} · z ${(+$('mv_z').value).toFixed(2)} µm`,
-    `t ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : '') + ` · ${L.lo}–${L.hi} ADU`];
+  const lines = [];
   const how = renderPaths(bf, both);
   if (how) lines.push('render: ' + how);
+  lines.push(`sample time ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : ''));
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
   if (L.engine === 'movie') lines.push('(no sample history in this engine)');
-  if (REC.msg && !REC.on) lines.push(REC.msg);
-  el.textContent = lines.join('\n');
+  el.innerHTML = lines.map(s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
 }
 // How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by
 // one (SMLM), binned on a grid and FFT-convolved (the intermediate, approximate SMLM) or mean-field (the expected
@@ -306,7 +331,7 @@ const PHASES = [
 const KNOWN = new Set(PHASES.map(r => r[0]));
 function showPerf() {
   const out = $('lv_perfOut');
-  if (!$('lv_perf').checked) { out.innerHTML = ''; return; }
+  if (!expert()) { out.innerHTML = ''; return; }
   const P = L.perf || {}, rows = [];
   const ms = v => (v === undefined || v === null || !isFinite(v) ? '—' : v.toFixed(1) + ' ms');
   const pad = ['', 'padding-left:8px', 'padding-left:16px', 'padding-left:24px'];
@@ -331,8 +356,9 @@ function showPerf() {
   row('wait (paced to the exposure)', L.on ? P.waitMs || 0 : undefined, 0, 'tot');
   out.innerHTML = rows.join('');
 }
-$('lv_perf').checked = store.get('livePerf', '0') === '1';
-$('lv_perf').addEventListener('change', () => { store.set('livePerf', $('lv_perf').checked ? '1' : '0'); showPerf(); if (!L.on && L.frame && $('lv_perf').checked) request(); });
+// the performance box shows at the Expert level (a frame taken there is profiled; a snap fills it)
+new MutationObserver(() => { showPerf(); showPerfNote(); if (expert() && !L.on && !REC.on && L.frame && !L.pending) request(); })
+  .observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 
 // Scale bar: a 1-2-5 length near a quarter of the displayed image.
 function drawScale() {
@@ -370,6 +396,7 @@ function startRec() {
     return;
   }
   if (REC.on) { REC.stop = true; return; }
+  closePlayer();
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
   const max = Math.floor(1e9 / (2 * side * side));
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
@@ -431,25 +458,71 @@ function finishRec() {
   const n = REC.got, s = (performance.now() - REC.t0) / 1000;
   REC.on = false;
   if (n && REC.buf) {
-    const exp = exposureSec(), pxUm = (+$('mv_pixel-nm').value || 100) / 1000;
-    const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
-      ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
-        `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
-        'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample']
-        : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.recorded=${new Date().toISOString()}`,
-          'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
-    const blob = writeTiff16(REC.buf.subarray(0, n * REC.w * REC.h), REC.w, REC.h, n, desc, pxUm);
-    const a = document.createElement('a'), name = `insiliscope_live_${REC.w}x${REC.h}x${n}.tif`;
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    REC.msg = `saved ${name} (${(blob.size / 1e6).toFixed(1)} MB): ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
+    REC.msg = `recorded ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
       (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
+    openPlayer(n);
   }
   REC.buf = null;
   syncButtons();
 }
+
+// ---- a finished recording plays in the live view (looping at the frame interval); Save .tif saves it ----
+const PLAY = L.play = { on: false, frames: null, w: 0, h: 0, n: 0, desc: '', i: 0, run: false, timer: 0 };
+function openPlayer(n) {
+  const exp = exposureSec();
+  const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
+    ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
+      `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
+      'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample']
+      : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.recorded=${new Date().toISOString()}`,
+        'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
+  closePlayer();
+  Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
+    exp, pxUm: (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1 });
+  $('lv_playPos').max = n - 1;
+  $('lv_play').hidden = false;
+  $('liveView').classList.add('playing');
+  L.hiSet = false;
+  showPlayFrame(0);
+  if (PLAY.run) schedulePlay();
+  syncPlay();
+}
+function showPlayFrame(i) {
+  const px = PLAY.w * PLAY.h;
+  PLAY.i = i;
+  draw({ w: PLAY.w, h: PLAY.h, spec: PLAY.spec, frames: PLAY.frames.subarray(i * px, (i + 1) * px) });
+  $('lv_playPos').value = i;
+  $('lv_playN').textContent = `${i + 1}/${PLAY.n}`;
+}
+function schedulePlay() {
+  clearTimeout(PLAY.timer);
+  PLAY.timer = setTimeout(() => {
+    if (!PLAY.on || !PLAY.run) return;
+    if (!document.hidden) showPlayFrame((PLAY.i + 1) % PLAY.n);
+    schedulePlay();
+  }, Math.max(16, PLAY.exp * 1000));
+}
+function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶'; }
+function closePlayer() {
+  clearTimeout(PLAY.timer);
+  Object.assign(PLAY, { on: false, frames: null, run: false });
+  $('lv_play').hidden = true;
+  $('liveView').classList.remove('playing');
+}
+$('lv_playBtn').addEventListener('click', () => { PLAY.run = !PLAY.run && PLAY.n > 1; syncPlay(); if (PLAY.run) schedulePlay(); });
+$('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); clearTimeout(PLAY.timer); showPlayFrame(+$('lv_playPos').value); });
+$('lv_playClose').addEventListener('click', () => { closePlayer(); REC.msg = ''; showInfo(); });
+$('lv_playSave').addEventListener('click', () => {
+  if (!PLAY.on) return;
+  const blob = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  const a = document.createElement('a'), name = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}.tif`;
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  REC.msg = `saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`;
+  showInfo();
+});
 // ● Record opens a small box under the buttons for the number of frames (and, Advanced, "continue the live sample");
 // its Start (or Enter) records. While recording, ● Record stops.
 const recPop = (open) => {
@@ -469,7 +542,7 @@ document.addEventListener('pointerdown', ev => {
 // ---- buttons ----
 function syncButtons() {
   $('lv_live').classList.toggle('on', L.on);
-  $('lv_live').textContent = L.on ? '❚❚ Stop' : '▶ Live';
+  $('lv_live').innerHTML = L.on ? '<span class="ico">■</span> Stop' : '<span class="ico">▶</span> Live';
   $('lv_rec').classList.toggle('on', REC.on);
   $('lv_rec').textContent = REC.on ? `■ ${REC.got}/${REC.n}` : '● Record';
   for (const id of ['lv_live', 'lv_snap', 'lv_fresh']) $(id).disabled = REC.on;
@@ -479,11 +552,11 @@ function syncButtons() {
 function setLive(on) {
   L.on = on;
   syncButtons();
-  if (on) { L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
+  if (on) { closePlayer(); L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
 }
 $('lv_live').addEventListener('click', () => setLive(!L.on));
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
-$('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); L.lastShown = 0; REC.msg = ''; request(); });
+$('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });
 window.liveRedraw = () => { paint(); drawScale(); };
 })();

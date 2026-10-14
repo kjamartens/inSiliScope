@@ -35,44 +35,77 @@
   #sideTop input[type=search]{flex:1;min-width:0;background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:var(--fs);font-family:inherit}
   .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
   details.grp.nomatch-grp{display:none!important}
-  /* the live camera (lv_*) and its controls beside it; the controls wrap under the image in a narrow panel */
-  #liveTop{display:flex;flex-wrap:wrap;gap:8px;padding:8px;border-bottom:1px solid var(--border)}
-  #liveView{position:relative;flex:1 1 64%;min-width:220px;aspect-ratio:1;background:#000;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+  /* The right side: a bar (Live / Snap / Record / fresh, the one-line info) level with the world view's View bar; under
+     it the camera image (square) with the settings below it at the same width, and beside both the microscope's
+     controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
+  #liveBar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);min-width:0}
+  #liveBar>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
+  #lv_live{width:74px;border:1px solid #e5484d!important;font-weight:600}
+  #lv_live .ico{color:#e5484d}
+  #lv_live.on,#lv_rec.on{border-color:#e5484d;background:#b3261e;color:#fff}
+  #lv_live.on .ico{color:#fff}
+  #lv_recWrap{position:relative;display:inline-block}
+  /* one line, always (reserved before the first frame too); the full text in its tooltip */
+  #lv_info{flex:1 1 auto;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,228px)}
+  #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border)}
+  #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:#000}
   #lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
-  #lv_info{margin-top:5px;font-size:10.5px;line-height:1.4;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
-  #lv_info:empty{display:none}
-  #lv_info b{color:var(--text);font-weight:600}
-  #lv_more{display:flex;gap:8px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--muted)}
-  #lv_more label{display:flex;gap:3px;align-items:center;cursor:pointer}
-  #lv_perfOut{margin-top:3px;font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;max-height:220px;overflow-y:auto;padding-right:2px}
-  #lv_perfOut:empty{display:none}
+  #lv_perfNote{font-size:10px;line-height:1.35;color:var(--muted);margin-bottom:3px;overflow-wrap:anywhere}
+  #lv_perfNote:empty{display:none}
+  #lv_perfOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
   #lv_perfOut .tot{color:var(--text);font-weight:600}
   #lv_perfOut .sub{padding-left:8px}
   #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
+  /* a finished recording plays in the live view: play/pause, position, Save, close */
+  #lv_play{position:absolute;left:6px;right:6px;bottom:6px;z-index:3;display:flex;align-items:center;gap:5px;padding:4px 6px;
+    background:rgba(10,14,20,.78);border:1px solid var(--border);border-radius:var(--radius);font-size:11px;color:#dfe6ee}
+  #lv_play[hidden]{display:none}
+  #lv_play input[type=range]{flex:1 1 auto;min-width:40px}
+  #lv_play button{padding:2px 7px;white-space:nowrap}
+  #lv_playN{font-variant-numeric:tabular-nums;white-space:nowrap}
+  #liveView.playing #lv_scale{bottom:40px}
   #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
   #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
-  #liveCtl{flex:1 1 170px;max-width:260px;min-width:150px;display:flex;flex-direction:column;gap:6px}
-  #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px}
-  #liveCtl .lc h5{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  #liveCtl .btns{display:flex;gap:4px}
-  #liveCtl .btns button{flex:1;padding:4px 4px;white-space:nowrap}
-  #liveCtl button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
-  #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0}
-  #liveCtl .zrow input[type=number]{width:62px}
-  #liveCtl .lc.rec{position:relative}
-  #lv_recPop{position:absolute;z-index:20;left:6px;right:6px;top:34px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
+  #liveCtl{min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;padding:6px;
+    --lab-w:64px;--lab-w-base:64px;--val-w:40px}
+  #liveCtl .opt input[type=number]{width:40px}
+  #liveCtl .sub{font-size:10px;line-height:1.35}
+  #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
+  #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
+  #liveCtl .lc h5,#liveCtl details.grp>summary{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  /* a settings group moved into the column (Illumination & light path): the column's look */
+  #liveCtl details.grp{border:0;margin:0;background:none}
+  #liveCtl details.grp>summary{padding:0;background:none;cursor:pointer}
+  #liveCtl details.grp>.body{padding:0}
+  #liveCtl .opt{gap:3px}
+  #liveCtl canvas#specPlot{max-width:100%!important}
+  /* the laser rows of Illumination & light path: a slider beside the number, as the Configuration had */
+  #liveCtl .ctl.lsl{display:flex;gap:4px;align-items:center}
+  #liveCtl .ctl.lsl input[type=range]{flex:1 1 auto;min-width:0;width:0}
+  /* the spectra plot enlarged (click it) */
+  #specBig{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+  #specBig[hidden]{display:none}
+  #specBig>div{position:relative;width:min(92vw,900px);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  #specBig canvas{display:block;width:100%;height:auto}
+  #specBig .sub{font-size:12px;color:var(--muted);line-height:1.45;margin-top:8px}
+  #specBig button{position:absolute;top:6px;right:8px;padding:2px 8px}
+  #lv_recPop{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:230px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
     border:1px solid var(--border);border-radius:var(--radius);background:var(--panel,var(--in-bg));box-shadow:0 4px 14px rgba(0,0,0,.35)}
   #lv_recPop[hidden]{display:none}
   #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
   #lv_recPop .recrow input[type=number]{width:72px}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
-  #liveCtl .crow input[type=number]{width:58px}
-  #liveCtl .zrow button{padding:2px 7px}
+  #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
+  #liveCtl .zrow input[type=number]{width:46px}
+  #liveCtl .zrow label{margin-left:4px}
+  #liveCtl .crow input[type=number]{width:50px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
-  #liveCtl .cfg{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 6px;align-items:center}
+  #liveCtl .cfg{display:grid;grid-template-columns:52px minmax(0,1fr);gap:3px 6px;align-items:center}
   #liveCtl .cfg select{width:100%}
   #liveCtl .cfg input[type=range]{width:100%}
   #liveCtl .cfg .lab{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px}
@@ -259,40 +292,27 @@
   <div id="splitter" title="Drag to resize the microscope panel"></div>
 
   <div id="side">
-    <!-- The live microscope: the camera image at the stage position (= the world view's centre) and its controls. -->
-    <div id="liveTop">
+    <!-- The live microscope: its bar (level with the View bar), the camera image at the stage position (= the world
+         view's centre) with the settings under it, and the controls column beside them. -->
+    <div id="liveBar">
+      <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button>
+      <button id="lv_snap" title="Snap: one frame">Snap</button>
+      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save .tif&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the Start time (insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
+        <div id="lv_recPop" hidden role="dialog" aria-label="Record">
+          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the Start time, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+        </div></span>
+      <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
+      <div id="lv_info"></div>
+    </div>
+    <div id="sideBody">
+    <div id="sideMain">
       <div id="liveView">
         <canvas id="lv_cv" width="1" height="1"></canvas>
         <div id="lv_idle">Live is off. Press <b>&nbsp;▶ Live&nbsp;</b> to image the sample under the world view's centre.</div>
         <div id="lv_scale"></div>
+        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-      <div id="liveCtl">
-        <div class="lc rec"><div class="btns">
-          <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode">▶ Live</button>
-          <button id="lv_snap" title="Snap: one frame">Snap</button>
-          <button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), saved as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the Start time (insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
-          <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-        </div><div id="lv_recPop" hidden role="dialog" aria-label="Record">
-          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
-          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the Start time, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
-        </div>
-        <div id="lv_info"></div>
-        <div id="lv_more"><label title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display"><input type="checkbox" id="lv_perf"> performance</label></div>
-        <div id="lv_perfOut"></div></div>
-        <div class="lc"><h5>Focus (Z stage)</h5>
-          <div class="zrow"><input type="number" id="lv_z" step="0.1"><span class="u">µm</span>
-            <button id="lv_zUp" title="Focus up (into the sample)">▲</button><button id="lv_zDn" title="Focus down">▼</button></div>
-          <div class="zrow"><label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
-        </div>
-        <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
-          <div class="cfg"><span class="lab">Exposure</span><span><input type="number" id="lv_exp" min="1" step="1" style="width:62px"> ms</span></div>
-        </div>
-        <div class="lc"><h5>Display</h5>
-          <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
-          <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
-        </div>
-      </div>
-    </div>
     <div id="sideTop">
       <div class="bar">
         <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
@@ -305,6 +325,24 @@
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
     <div id="panel"></div>
     <div id="animPanel" hidden></div>
+    </div>
+    <div id="liveCtl">
+        <div class="lc"><h5>Focus (Z stage)</h5>
+          <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
+            <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+        </div>
+        <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
+          <div class="cfg"><span class="lab">Exposure</span><span><input type="number" id="lv_exp" min="1" step="1" style="width:62px"> ms</span></div>
+        </div>
+        <div class="lc" id="lv_illumHost"></div>
+        <div class="lc"><h5>Display</h5>
+          <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
+          <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
+        </div>
+        <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
+          <div id="lv_perfNote"></div><div id="lv_perfOut"></div></div>
+    </div>
+    </div>
   </div>
 </div>
 
@@ -809,13 +847,13 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>CellField.AbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { sect: 'Microscope', id: 'illum', title: 'Illumination & light path', open: true, items: [
+  { id: 'illum', host: 'lv_illumHost', title: 'Illumination & light path', open: true, items: [
     select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Micro-Manager: the <code>Lasers</code> and <code>TransmittedLamp</code> shutters',
       [['0', 'Fluorescence'], ['1', 'BrightField']], '0', { show: () => false }),   // set by the Preset below (BrightField or a fluorescence preset)
     preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Lasers.Preset</code> (BrightField: the <code>TransmittedLamp</code> shutter)',
       { ...Object.fromEntries(DD.lightPresets.map(q => [q.name, { ...lightPresetValues(q), 'mv_modality': 0 }])),
         'BrightField (lasers off)': { ...Object.fromEntries(DD.lasers.map(nm => ['mv_laser-' + nm, 0])), 'mv_modality': 1 } }, []),
-    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm laser', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, 10, 'any', DEFAULT_LIGHT['mv_laser-' + nm], { show: FL })),
+    ...DD.lasers.map(nm => num('mv_laser-' + nm, nm + ' nm', 'kW/cm²', nm + ' nm laser intensity at the sample (with a perfect mirror; the dichroic\'s reflectance at the line scales it). 0 = off.' + (nm === 405 ? ' Drives activation (dSTORM, PALM).' : nm === 730 ? ' With 488 nm: primed conversion.' : '') + ' <code>Lasers.Laser' + nm + 'KWcm2</code>', 0, 10, 'any', DEFAULT_LIGHT['mv_laser-' + nm], { show: FL })),
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
@@ -836,13 +874,13 @@ const UI_GROUPS = [
         num('mv_em-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>EmissionFilter.CustomLoNm</code>', 300, 900, 0.5, 657.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
         num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>EmissionFilter.CustomHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
       ] }),
-    { kind: 'html', html: '<canvas id="specPlot" width="300" height="96" style="width:100%;max-width:300px;height:auto;display:block;margin:0 auto"></canvas><div class="sub" id="specReadout"></div>', show: FL },
+    num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>SampleHolder.BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
+    { kind: 'html', html: '<canvas id="specPlot" width="300" height="96" title="Click to enlarge (with what reaches the camera per label)" style="cursor:zoom-in;width:100%;max-width:300px;height:auto;display:block;margin:0 auto"></canvas><div class="sub" id="specReadout"></div>', show: FL },
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>TransmittedLamp.IntensityPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
-    num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>SampleHolder.BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
   ] },
-  { id: 'objective', title: 'Objective & PSF', items: [
+  { sect: 'Microscope', id: 'objective', title: 'Objective & PSF', items: [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3', { kids: [
         select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
@@ -1127,8 +1165,10 @@ for (const g of UI_GROUPS) {
   det.append(h('summary', {}, g.title));
   const body = h('div', { class: 'body' });
   det.append(body);
+  // a hosted group (the View panel, the controls column) keeps its own remembered state, open by default
+  if (g.host) det.open = store.get('open.' + g.id, g.open ? '1' : '0') === '1';
   det.addEventListener('toggle', () => {
-    if (!oneOpen()) store.set('open.' + g.id, det.open ? '1' : '0');
+    if (!oneOpen() || g.host) store.set('open.' + g.id, det.open ? '1' : '0');
     else if (det.open && !g.host) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
   });
   into.append(det);
@@ -5394,27 +5434,34 @@ document.getElementById('psfPreview').addEventListener('click', previewPsf);
 // excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
 // and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
 let specMods = null, specTimer = 0;
-function scheduleSpecPlot() { clearTimeout(specTimer); specTimer = setTimeout(drawSpecPlot, 120); }
-async function drawSpecPlot() {
-  const cv2 = document.getElementById('specPlot'), out = document.getElementById('specReadout');
+function scheduleSpecPlot() {
+  clearTimeout(specTimer);
+  specTimer = setTimeout(() => { drawSpecPlot(false); if (!document.getElementById('specBig').hidden) drawSpecPlot(true); }, 120);
+}
+// big: the enlarged plot (#specBig, click the small one), drawn at k = 2 (its canvas has twice the CSS pixels).
+async function drawSpecPlot(big) {
+  const cv2 = document.getElementById(big ? 'specPlotBig' : 'specPlot'), out = document.getElementById(big ? 'specBigReadout' : 'specReadout');
   if (!cv2 || !cv2.offsetParent) return;
+  const k = big ? 2 : 1;
   try {
     specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
     const [SM, DL] = await specMods;
     const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
     const AL = SM.scopeLabels(spec, lp);
     const shown = DYE_UI.targets.filter(t => t.specimen === DYE_UI.specimen() && !AL[t.structure].off).map(t => [t, AL[t.structure]]);
-    const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8, bot = H - 16;
+    const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8 * k, bot = H - 16 * k;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
     const light = document.body.dataset.uiStyle === 'light';
     g.clearRect(0, 0, W, H);
-    g.font = '10px sans-serif'; g.fillStyle = light ? '#555' : '#aaa';
-    for (let nm = 400; nm <= 800; nm += 100) { g.fillText(String(nm), X(nm) - 9, H - 3); g.fillRect(X(nm), bot, 1, 3); }
+    g.font = (big ? 22 : 10) + 'px sans-serif'; g.fillStyle = light ? '#555' : '#aaa';
+    const step = big ? 50 : 100;
+    for (let nm = 400; nm <= 800; nm += step) { g.fillText(String(nm), X(nm) - 9 * k, H - 3 * k); g.fillRect(X(nm), bot, k, 3 * k); }
+    if (big) g.fillText('nm', X(x0) + 4 * k, H - 3 * k);
     const curve = (vals, style, dash, fill) => {
       g.beginPath();
       for (let nm = x0; nm <= x1; nm++) { const v = vals[nm - 300] || 0; if (nm === x0) g.moveTo(X(nm), Y(v)); else g.lineTo(X(nm), Y(v)); }
       if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
-      g.setLineDash(dash || []); g.strokeStyle = style; g.lineWidth = 1.2; g.stroke(); g.setLineDash([]);
+      g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = 1.2 * k; g.stroke(); g.setLineDash([]);
     };
     curve(lp.emissionFilter.T, null, null, light ? 'rgba(0,120,255,0.12)' : 'rgba(120,180,255,0.16)');
     curve(lp.dichroic.T, light ? '#888' : '#999', [2, 2]);
@@ -5433,7 +5480,8 @@ async function drawSpecPlot() {
     for (const l of lp.lasers) {
       if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
       const hue = Math.max(0, Math.min(270, 270 - (l.nm - 400) * 270 / 300));
-      g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - 1, top, 2, bot - top);
+      g.fillStyle = l.nm >= 700 ? '#a33' : `hsl(${hue},90%,55%)`; g.fillRect(X(l.nm) - k, top, 2 * k, bot - top);
+      if (big) g.fillText(l.nm + ' nm', X(l.nm) + 4, top + 22);
     }
     const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
     const parts = [];
@@ -5448,7 +5496,8 @@ async function drawSpecPlot() {
       if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
       if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
     }
-    out.innerHTML = parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; clean-up filter dash-dot, dichroic dotted, filter shaded, QE dotted grey</span>';
+    // the readout (what reaches the camera per label) and the legend only under the enlarged plot
+    out.innerHTML = !big ? '' : parts.join('<br>') + '<br><span style="opacity:.7">ex dashed, em solid, pre state long-dashed; clean-up filter dash-dot, dichroic dotted, filter shaded, QE dotted grey</span>';
   } catch (e) {
     specMods = null;   // try the import again next time
     // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
@@ -5456,9 +5505,23 @@ async function drawSpecPlot() {
     else out.textContent = 'light path: ' + (e && e.message || e);
   }
 }
-document.getElementById('panel').addEventListener('input', scheduleSpecPlot);
-document.getElementById('panel').addEventListener('change', scheduleSpecPlot);
-document.getElementById('panel').addEventListener('toggle', scheduleSpecPlot, true);
+// the plot follows the settings and the controls column (where Illumination & light path is)
+for (const id of ['panel', 'liveCtl']) {
+  document.getElementById(id).addEventListener('input', scheduleSpecPlot);
+  document.getElementById(id).addEventListener('change', scheduleSpecPlot);
+  document.getElementById(id).addEventListener('toggle', scheduleSpecPlot, true);
+}
+// click the plot: a larger copy over the page (Esc, a click beside it or ✕ closes it)
+(function () {
+  const ov = document.createElement('div');
+  ov.id = 'specBig'; ov.hidden = true;
+  ov.innerHTML = '<div role="dialog" aria-label="Spectra"><button title="Close (Esc)">✕</button><canvas id="specPlotBig" width="1720" height="560"></canvas><div class="sub" id="specBigReadout"></div></div>';
+  document.body.append(ov);
+  const close = () => { ov.hidden = true; };
+  ov.addEventListener('click', e => { if (e.target === ov || e.target.tagName === 'BUTTON') close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ov.hidden) close(); });
+  document.getElementById('specPlot').addEventListener('click', () => { ov.hidden = false; drawSpecPlot(true); });
+})();
 // the planned movie square follows the Acquisition group's state and the camera size / pixel size
 document.getElementById('panel').addEventListener('toggle', e => { if (e.target.dataset && e.target.dataset.group === 'acq') requestDraw(); }, true);
 for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality', 'mv_z']) document.getElementById(id).addEventListener('input', requestDraw);

@@ -135,6 +135,8 @@ function render() {
   const first = ['Channel', 'Objective', 'Camera'];
   const groups = T.groups.slice().sort((a, b) => ((first.indexOf(a.name) + 1 || 99) - (first.indexOf(b.name) + 1 || 99)));
   for (const g of groups) {
+    // the laser powers are set in Illumination & light path (sliders there), not here
+    if (g.slider && /^laser-/.test(g.slider.key)) continue;
     const lab = document.createElement('span');
     lab.className = 'lab';
     lab.textContent = g.slider ? g.name.replace(/\s*\(.*\)$/, '').replace(/^Laser /, '') : g.name;
