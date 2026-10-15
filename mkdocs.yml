@@ -49,8 +49,9 @@ extra:
 exclude_docs: |
   dev/
 
-# The pages that moved (2026-10-12) redirect to their new place.
+# The pages that moved (2026-10-12) redirect to their new place; the viewer reference is linked from the Quickstart.
 not_in_nav: |
+  try-viewer.md
   physics/world-model.md
   physics/structures.md
 
@@ -58,7 +59,7 @@ nav:
   - Home: index.md
   - Viewer (live): https://kjamartens.github.io/inSiliScope/
   - Quickstart: quickstart.md
-  - Viewer (docs): try-viewer.md
+  - Gallery: gallery/index.md
   - Micro-Manager properties: mm-properties.md
   - Samples:
       - Overview: samples/index.md
@@ -75,7 +76,6 @@ nav:
       - Validation: physics/validation.md
       - References: references.md
   - Extending: extending.md
-  - Gallery: gallery/index.md
   - Benchmarks: benchmarks.md
   - Roadmap: roadmap.md
   - kjamartens.github.io: https://kjamartens.github.io

@@ -176,7 +176,7 @@ that finishes them.
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
 - Docs: `docs/` is the mkdocs-material site (samples pages `docs/samples/`, physics pages, quickstart (with the viewer
-  tour), `try-viewer.md` = "Viewer (docs)", the viewer reference, extending; `docs/dev/` is excluded history). Site
+  tour), `try-viewer.md` = the viewer reference (out of the nav, linked from the Quickstart), extending; `docs/dev/` is excluded history). Site
   layout (2026-10-15): the viewer is the landing page (site root), the docs live under `docs/`, the old URLs redirect
   (`tools/build_site.sh`); the nav's "Viewer (live)" opens the root in a new tab (`docs/javascripts/nav-external.js`);
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step

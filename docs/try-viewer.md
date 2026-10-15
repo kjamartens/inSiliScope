@@ -1,4 +1,4 @@
-# Viewer (docs)
+# Viewer reference
 
 Every part of the [viewer](../../){ target="_blank" } in detail. New to it? The [Quickstart](quickstart.md) walks
 through it step by step.

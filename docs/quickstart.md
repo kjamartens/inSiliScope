@@ -35,7 +35,7 @@ A first tour, about five minutes:
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
    or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
 
-Everything on the screen, setting by setting: [Viewer (docs)](try-viewer.md). What the simulation can show, with
+Everything on the screen, setting by setting: the [viewer reference](try-viewer.md). What the simulation can show, with
 side-by-side movies: the [Gallery](gallery/index.md).
 
 ## Micro-Manager
