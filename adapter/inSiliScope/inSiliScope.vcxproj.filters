@@ -68,6 +68,9 @@
     <ClCompile Include="Simulation\IlluminationHistory.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\LightHistory.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\ScopeMovie.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -204,6 +207,9 @@
     </ClInclude>
     <ClInclude Include="Simulation\Drift.h">
     <ClInclude Include="Simulation\IlluminationHistory.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\LightHistory.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\ScopeMovie.h">

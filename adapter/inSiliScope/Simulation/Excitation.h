@@ -77,6 +77,14 @@ public:
    // The beam crosses the sample at an angle (HILO): its footprint moves with the height, about the pivot.
    bool Tilted() const { return !tirf_ && tanS_ != 0.0; }
    double F() const { return F_; }
+   double CosI() const { return cosI_; }
+   double TanS() const { return tanS_; }
+   // How far from the axis the profile stays at or above frac of its peak (um; x' as ProfileAt's, so x reaches
+   // ReachUm / CosI); infinite for a Flat beam.
+   double ReachUm(double frac) const;
+   // The profile's largest second derivative, |d^2 P / dx'^2| (1/um^2, peak 1; 0 for a Flat beam): a footprint
+   // sampled every h um is within h^2 / 8 of this of the peak between samples (bilinear).
+   double MaxCurvature() const;
    // Exactly 1 everywhere (a Flat beam at the BFP centre): the renderers skip the factor (outputs as before).
    bool Uniform() const { return uniform_; }
 

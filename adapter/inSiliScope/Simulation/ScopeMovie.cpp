@@ -1147,6 +1147,31 @@ static ScopeSpec EnvSpec(const ScopeSpec& cur, const KineticEnv& env)
    return out;
 }
 
+bool ScopeSampleLines(const ScopeSpec& spec, std::vector<LaserLine>& lines, std::string& err)
+{
+   lines.clear();
+   ScopeCamera camera;
+   LightPath lp;
+   if (!MakeScopeCamera(spec, camera, err) || !MakeScopeLightPath(spec, camera, lp, err))
+      return false;
+   for (const LaserLine& l : lp.lasers)
+   {
+      const double I = l.kWPerCm2 * (1 - SampleAt(lp.dichroicT, l.nm));
+      if (I > 0)
+         lines.push_back({ l.nm, I });
+   }
+   return true;
+}
+
+bool ScopeEnvLabels(const ScopeSpec& cur, const KineticEnv& env, std::vector<LabelPhysics>& labels, std::string& err)
+{
+   const ScopeSpec es = EnvSpec(cur, env);
+   ScopeCamera camera;
+   LightPath lp;
+   return MakeScopeCamera(es, camera, err) && MakeScopeLightPath(es, camera, lp, err) &&
+          MakeScopeLabels(es, lp, labels, err);
+}
+
 struct ScopeSetup
 {
    SimulationParams p;

@@ -101,6 +101,25 @@ double Excitation::DecayUm(double nm) const
    return 1e-3 * nm / (4.0 * kPi * nS_ * std::sqrt(u_ * u_ - 1.0));
 }
 
+double Excitation::ReachUm(double frac) const
+{
+   if (profile_ == ILLUM_FLAT)
+      return std::numeric_limits<double>::infinity();
+   if (profile_ == ILLUM_GAUSSIAN)
+      return sig_ * std::sqrt(-2.0 * std::log(frac));
+   return r0_ + edge_ * std::log(1.0 / (frac * flatTop0_) - 1.0);
+}
+
+double Excitation::MaxCurvature() const
+{
+   if (profile_ == ILLUM_FLAT)
+      return 0.0;
+   if (profile_ == ILLUM_GAUSSIAN)
+      return 1.0 / (sig_ * sig_);   // at the axis
+   // The logistic's: max |s (1 - s) (1 - 2 s)| = 1 / (6 sqrt 3), at s = 1/2 -+ 1 / (2 sqrt 3).
+   return 1.0 / (6.0 * std::sqrt(3.0)) / (edge_ * edge_) / flatTop0_;
+}
+
 double Excitation::Lateral(double x, double y, double z) const
 {
    return ProfileAt((x - (tirf_ ? 0.0 : z - zp_) * tanS_) * cosI_, y);

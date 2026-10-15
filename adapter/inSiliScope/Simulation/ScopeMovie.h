@@ -231,6 +231,15 @@ KineticEnv ScopeKineticEnv(const ScopeSpec& spec);
 // through the excitation filter and the dichroic), kW/cm^2; 0 (or a bad
 // spec): it lights nothing.
 double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
+// The light history's inputs (LightHistory.h). The laser lines reaching the sample: each line's kW/cm^2 through the
+// excitation filter x the dichroic's reflectance at it, lines at 0 left out; false (err) on a bad spec.
+struct LaserLine;
+bool ScopeSampleLines(const ScopeSpec& spec, std::vector<LaserLine>& lines, std::string& err);
+// The labels a movie lit by a past env makes under the current spec (the env's light keys, and its dye keys while
+// every structure's dye and mode are the current ones; a dye or mode changed since: the current dye under the past
+// light): the rates that past ran at. env = ScopeKineticEnv(cur): the movie's own labels.
+struct LabelPhysics;
+bool ScopeEnvLabels(const ScopeSpec& cur, const KineticEnv& env, std::vector<LabelPhysics>& labels, std::string& err);
 
 // The BFP position a spec asks for (JS scopeBfpPosition): illum-bfp, else the light preset's bfpPosition (DNA-PAINT:
 // HILO) with the mounted specimen's in its place when it has one (the nanorulers: TIRF); 0 (epi) otherwise.

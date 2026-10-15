@@ -13,6 +13,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/DyeLibrary.cpp
   ${ISC_SIM}/LightPath.cpp
   ${ISC_SIM}/Excitation.cpp
+  ${ISC_SIM}/LightHistory.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
@@ -107,6 +108,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(excitation_check excitation_check.cpp)
   target_link_libraries(excitation_check PRIVATE insiliscope_sim)
   add_test(NAME excitation COMMAND excitation_check)
+
+  # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
+  add_executable(history_check history_check.cpp)
+  target_link_libraries(history_check PRIVATE insiliscope_sim)
+  add_test(NAME history_check COMMAND history_check)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)
