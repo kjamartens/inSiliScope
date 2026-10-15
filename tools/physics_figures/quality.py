@@ -17,7 +17,7 @@ MODALITIES = [
 def quality_bundle(ctx):
     pr = load(ctx.cli({}, tag="presets", presets_json=True)["presets_json"])["quality"]
     names = [q["name"] for q in pr]
-    knobs = {q["name"]: {k: q[k] for k in ("bf-quality", "psf-oversampling", "wf-upscale", "psf-halo-cut")} for q in pr}
+    knobs = {q["name"]: {k: q[k] for k in ("bf-quality", "psf-oversampling", "wf-upscale", "psf-halo-cut", "blink-min-photons") if k in q} for q in pr}
     body = []
     for mod, base, which in MODALITIES:
         tag = mod.split(":")[0]
@@ -41,9 +41,10 @@ def quality_bundle(ctx):
             rms = "-" if q == names[-1] else "%s %%" % sig(100 * float(np.sqrt(np.mean((a - ref) ** 2))) / (hi - lo), 2)
             cells.append("%s<br>%s" % (rms, secs((t[1] - t[0]) / base["frames"])))
         body.append(["rms difference (% of the range)<br>Render time per frame"] + cells)
-    head = ["`Renderer.Quality`"] + ["%s<br><small>bf %g, oversampling %g, wf %g, halo %s</small>" %
+    head = ["`Renderer.Quality`"] + ["%s<br><small>bf %g, oversampling %g, wf %g, halo %s, min %g ph</small>" %
                                      (q, knobs[q]["bf-quality"], knobs[q]["psf-oversampling"], knobs[q]["wf-upscale"],
-                                      sig(knobs[q]["psf-halo-cut"], 1) if knobs[q]["psf-halo-cut"] else "0")
+                                      sig(knobs[q]["psf-halo-cut"], 1) if knobs[q]["psf-halo-cut"] else "0",
+                                      knobs[q].get("blink-min-photons", 0))
                                      for q in names]
     return table(head, body) + \
         "\nThe one Micro-Manager knob for speed against precision, `Renderer.Quality`, sets four engine options " \

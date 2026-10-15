@@ -652,6 +652,23 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 - **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
   threshold (Nearest, Linear, Cubic, Fft). `scope_parity`/`engine_check` run the default (3e-6) on both sides.
 
+## Dim blinks (2026-10-14)
+
+- **What.** A blink whose photons in a frame (`CollectFrameEmitters`: photons per frame x its ON share of the frame x
+  brightness x the illumination) are below `blink-min-photons` is not splatted in that frame (MM
+  `Renderer.BlinkMinPhotons`, set by `Renderer.Quality`: Fast 100, Realistic 50, Exhaustive 0; cli/viewer default 50).
+  CPU: `RenderPhotonImage` drops it after collecting (`RenderExtras::minPhotons`, set for the blinks only); GPU:
+  `CollectGpuEmitters(..., minPhotons)` (`FluorescenceSimpleGroup::minPhotons`); JS: `renderPhotonImage`'s
+  `o.minPhotons`.
+- **Why.** Speed (asked for by the user, 2026-10-14): a frame's dimmest blinks are mostly those that only start or end
+  in it, each a whole kernel's splat for light that no localization would use. The count is known before the splat.
+  The thresholds are an *estimate* of a localizable blink, not a measurement.
+- **Not.** Binned frames (approximate SMLM: the same events, one FFT, no saving per event), blinks rendered mean-field,
+  and the continuous populations (WideField labels, pre states, the dSTORM initial ON, per dye or mean field) keep every
+  dye: dropping dim members of a dense population would darken it as a whole. Nothing is renormalized.
+- **Checks.** `scope_parity` (the JS and the C++ cut the same blinks: 100 % identical ADU), ctest `cli_probes`
+  (Realistic = the option defaults).
+
 ## Blink render regimes (2026-10-08)
 
 Blinks render per label (main group) and per frame in one of three regimes; the continuous populations keep their two

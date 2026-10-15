@@ -30,6 +30,9 @@ movies by `web/prototype/scope/`. `web/lab/engine.js` is the glue: the viewer's 
   control for. A new parameter: add it to the prototype's generator and `params()`, and a control for it to
   `web/index.html` (that UI is what ships); a key only the viewer sends still reaches the generator.
 - Slower than the WASM (no threads, no caches, no WebGPU): the first SR movie spends ~10 s on the PSF in JS.
+- Live (the live panel) has no sample history here: the JS reference has no illumination history (the WASM runs the
+  adapter's live mode, `sim::LiveScope`), so each live frame is a one-frame movie at the sample's time (`live` job), about
+  2 s per 128 px frame; the info line says so. The Configuration presets work as in the viewer.
 - `?nw` runs the JS engine on the main thread, as in the viewer.
 
 ### The A/B page (http://localhost:8123/web/lab/)

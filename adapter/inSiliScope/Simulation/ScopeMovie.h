@@ -271,6 +271,7 @@ struct FluorescenceSimpleGroup
 {
    const PsfKernelCache* kernel = nullptr;   // nullptr: the Gaussian of sigmaPx
    double photonsPerBlink = 0, sigmaPx = 1;
+   double minPhotons = 0;   // blink-min-photons: dimmer blinks in a frame are not splatted
    const std::vector<BlinkEvent>* events = nullptr;
    std::vector<char> splatFrame;
 };

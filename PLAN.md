@@ -44,6 +44,21 @@ Upcoming ideas:
   removed, `Lasers.Preset` Auto), [x] GPU splat with up to 4 blink groups, [x] docs, figures, gallery.
   Next: [ ] the viewer's 8-fold ring layer and per-structure dye colours (visualisation branch), [ ] `--dyes-json`
   with each dye's binding site and binder end (the viewer's linkage layer), [ ] pore variability (CIR4MICS).
+- Live microscope in the viewer (2026-10-13, branch `claude/live-viewer`): [x] layout A2 (world view + View bar left,
+  draggable live panel right: live image, Live/Snap/Rec, focus, configuration, settings with search), [x] the adapter's
+  live mode as an MM-free `sim::LiveScope` (illumination history, drift walker, running images, live noise counter;
+  ctest `live_scope`) and in the viewer module (`isc_live_*`), [x] the Configuration from the Micro-Manager configs
+  (`tools/gen_mm_configs.py` writes `web/live/mm_config.js` from the adapter's engine spec per preset;
+  `tests/web/mm_config_check.mjs`), [x] docs. Next: [ ] the adapter's live producer on `LiveScope` (it keeps the GPU,
+  render-ahead, BrightField prefetch, illumination profile and background fade: output must stay identical), [ ] live in
+  lab.html (the JS reference has no illumination history yet), [ ] a camera-size/ROI control beside the live image.
+  2026-10-14: [x] settings levels Basic/Advanced/Expert from the MM tiers (`ISC_MM_TIERS`), [x] the render path per label
+  in the info, [x] a live histogram with draggable display range; [x] ● Record: N frames unpaced into one ImageJ TIFF
+  stack (a fresh-sample movie by default; continuing the live sample with `LiveScope::Frames`, `isc_live_frames`, as an
+  Advanced option), [ ] the Acquisition group (hidden), [ ] streaming to webSMLM (tried
+  2026-10-14 and dropped: needs a server or a webSMLM change, to be decided), [x] per-frame performance breakdown (fixed
+  rows), [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
+  [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

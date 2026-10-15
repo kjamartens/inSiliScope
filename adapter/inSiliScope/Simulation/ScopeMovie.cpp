@@ -308,6 +308,7 @@ const OptionTable& Options()
          { "psf-pupil-samples", 0, "Renderer.PsfPupilSamples: pupil samples per axis of the PSF evaluation (0 = as the window needs; 64 = webSMLM)" },
          { "psf-halo-cut", 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)" },
          { "psf-interp", 2, "Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
+         { "blink-min-photons", 50, "Renderer.BlinkMinPhotons: a blink with fewer detected photons than this in a frame is not splatted in that frame (Quality Fast 100, Realistic 50, Exhaustive 0); binned and mean-field frames and continuous dyes keep every one" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
       return o;
@@ -1117,6 +1118,7 @@ struct ScopeSetup
    double blinkBinnedDensityPerUm2 = 12.5, blinkBinnedMaxEmitters = 1e9;
    double blinkMeanFieldDensityPerUm2 = 1e9, blinkMeanFieldMaxEmitters = 1e9;
    int blinkBinnedUpscale = 2;
+   double blinkMinPhotons = 50;
 };
 
 // JS scopeSetup: frame-equivalent parameters, world settings, the FOV query,
@@ -1238,6 +1240,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.blinkBinnedDensityPerUm2 = std::max(0.0, O("blink-binned-density-per-um2"));
    S.blinkBinnedMaxEmitters = std::max(0.0, O("blink-binned-max-emitters"));
    S.blinkBinnedUpscale = std::max(1, std::min(8, static_cast<int>(std::lround(O("blink-binned-upscale")))));
+   S.blinkMinPhotons = std::max(0.0, O("blink-min-photons"));
    S.blinkMeanFieldDensityPerUm2 = std::max(0.0, O("blink-mean-field-density-per-um2"));
    S.blinkMeanFieldMaxEmitters = std::max(0.0, O("blink-mean-field-max-emitters"));
    // Sample drift: the per-frame path, and the query rect grown so every
@@ -2916,6 +2919,7 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
       FluorescenceSimpleGroup sg;
       sg.kernel = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
       sg.photonsPerBlink = g.perFrame;
+      sg.minPhotons = m.S.blinkMinPhotons;
       sg.sigmaPx = g.sigmaPx;
       sg.events = &m.byGroup[gi];
       // Frames whose blinks are binned or mean-field come from Render too.
@@ -3052,6 +3056,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    // of rows on all cores (the same pixels as serial, RenderPhotonImage).
    into.parallel = true;
    RenderExtras blinkInto = into;   // the blinks also see the host's illumination field
+   blinkInto.minPhotons = m.S.blinkMinPhotons;   // and skip the dim ones (the continuous dyes keep every one)
    const bool shaped = opt.illumField && opt.illumField->size() == n;
    if (shaped)
       blinkInto.illumField = opt.illumField;
@@ -4035,7 +4040,8 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err)
 }
 
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err, const DyeClock* clock)
+                        std::string& err, const DyeClock* clock, bool carryRunningImages,
+                        const ScopeProgress* progress)
 {
    const auto noFrames = [](long, const std::vector<uint16_t>&) { return true; };
    bool epi = false, trans = false;
@@ -4062,6 +4068,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
    {
       // RenderCombinedMovie up to its noise chain.
       FluorescenceMovie fm;
+      fm.CarryRunningImages(carryRunningImages);
       ScopeSetup S;
       BrightfieldSpec bs;
       if (!fm.Begin(spec, false, err, nullptr, clock) || !MakeScopeSetup(spec, S, err) ||
@@ -4083,7 +4090,7 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
             sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
          return onPhotons(f, sum);
       };
-      return fm.Render(noFrames, info, err, nullptr, &opt);
+      return fm.Render(noFrames, info, err, progress, &opt);
    }
    if (trans)
    {
@@ -4115,9 +4122,10 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       return true;
    }
    FluorescenceMovie fm;
+   fm.CarryRunningImages(carryRunningImages);
    FluorescenceFrameOptions opt;
    opt.onPhotons = onPhotons;
-   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, nullptr, &opt);
+   return fm.Begin(spec, false, err, nullptr, clock) && fm.Render(noFrames, info, err, progress, &opt);
 }
 
 } // namespace sim

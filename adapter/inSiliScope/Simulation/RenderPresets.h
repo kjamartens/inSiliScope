@@ -17,8 +17,9 @@
 namespace sim {
 
 // Renderer.Quality: BrightField quality level (bf-quality), PSF oversampling
-// (psf-oversampling), mean-field upscaling (wf-upscale) and the blink halo cut
-// (psf-halo-cut) per level.
+// (psf-oversampling), mean-field upscaling (wf-upscale), the blink halo cut
+// (psf-halo-cut) and the dimmest blink splatted in a frame (blink-min-photons,
+// detected photons; an *estimate* of what a localization needs) per level.
 struct QualityPreset
 {
    const char* name;
@@ -26,11 +27,12 @@ struct QualityPreset
    int os;
    double wf;
    double halo;
+   double minPhotons;
 };
 constexpr QualityPreset kQualityPresets[] = {
-   { "Fast", 1, 4, 1, 1e-5 },
-   { "Realistic", 3, 6, 1, 3e-6 },
-   { "Exhaustive", 4, 8, 2, 0.0 },
+   { "Fast", 1, 4, 1, 1e-5, 100 },
+   { "Realistic", 3, 6, 1, 3e-6, 50 },
+   { "Exhaustive", 4, 8, 2, 0.0, 0 },
 };
 
 // SampleHolder.DriftPreset (Off .. Extreme): xy and z drift speed (nm/s) and
