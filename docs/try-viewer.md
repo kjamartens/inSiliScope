@@ -1,26 +1,12 @@
----
-hide:
-  - navigation
-  - toc
----
+# Viewer (docs)
 
-# Viewer
+Every part of the [viewer](../../){ target="_blank" } in detail. New to it? The [Quickstart](quickstart.md) walks
+through it step by step.
 
-The inSiliScope core as WebAssembly in your browser. Pan and zoom through the cell field (or the DNA-origami
-nanorulers: the **Specimen** select), tilt and turn it for a 3D view,
-and look through a live microscope at the view centre (SMLM, widefield or brightfield, the sample bleaching and
-blinking out where you have shone light on it, as in the Micro-Manager adapter's live mode), set it up with the same
-configuration presets as the adapter's Micro-Manager configurations, record a short movie and save it as a 16-bit TIFF
-(identical to the `insiliscope_cli` output with the same settings), or make an animation of a cell and export it as
-MP4, WebM or GIF. **[Open it full screen](../viewer/index.html)** for more room.
-
-<div class="isc-viewer">
-  <div class="isc-viewer-loading">Loading the viewer (about 1 MB of WebAssembly)…</div>
-  <iframe src="../viewer/index.html" title="inSiliScope cell field viewer" loading="eager"
-          onload="this.previousElementSibling.style.display='none'" allow="fullscreen"></iframe>
+<div class="isc-launch" markdown>
+[Open the viewer :material-open-in-new:](../../){ .md-button .md-button--primary target="_blank" }
 </div>
 
-Notes:
 
 - **Layout.** The sample (the world view) is on the left; dragging it moves the stage, the wheel zooms (a drag in the
   live image moves the stage too: the sample follows the pointer). **Ctrl + wheel** over the live image zooms into it
@@ -227,5 +213,5 @@ Notes:
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
-- The original JS prototype the core was ported from is at [`viewer/prototype/`](../viewer/prototype/index.html); it is
+- The original JS prototype the core was ported from is at [`prototype/`](../../prototype/index.html); it is
   the reference implementation that the golden vectors are frozen from.

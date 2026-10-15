@@ -6,6 +6,9 @@ Needs: numpy, pillow, tifffile (pip install numpy pillow tifffile).
 Outputs <out>/<id>.gif, <out>/<id>.tif (16-bit), <out>/gallery.json and <out>/gallery.md, and, when the manifest
 has an "overview" block, the 2x2 overview panels (tools/build_overview.py) at the top of the page.
 An entry with "z_sweep": [lo, hi, step] is a focus sweep: one frame per height (cli z) from lo to hi and back.
+The page follows the manifest's "sections": a story per section, then rows of side-by-side panels (an entry id or
+[id, label]) with a caption; a row with "shared": true shows its panels on one display range (<row key>-<id>.gif).
+Every entry must sit in some row (and every panel name an entry), so a new entry gets a place in the story.
 """
 import argparse, json, os, subprocess, sys, time
 import numpy as np
@@ -16,8 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_overview  # noqa: E402
 
 
-def to_gif(stack, path, fps=10, scale=2):
-    lo, hi = np.percentile(stack, 0.5), np.percentile(stack, 99.8)
+def display_range(stacks):
+    """The GIF display range: 0.5 and 99.8 percentiles over all the stacks (one row shared, or a single movie)."""
+    v = np.concatenate([np.asarray(s, np.float32).ravel() for s in stacks])
+    return np.percentile(v, 0.5), np.percentile(v, 99.8)
+
+
+def to_gif(stack, path, fps=10, scale=2, rng=None):
+    lo, hi = rng if rng else display_range([stack])
     if hi <= lo:
         hi = lo + 1
     frames = []
@@ -81,7 +90,15 @@ def main():
         t0 = time.time()
         overview = build_overview.build(a.cli, a.out, man["overview"], man.get("defaults", {}).get("seed", 42))
         print("%-18s %.1fs" % ("overview", time.time() - t0))
-    meta = []
+    sections = man.get("sections", [])
+    pid = lambda p: p if isinstance(p, str) else p[0]
+    shown = {pid(p) for sec in sections for r in sec["rows"] for p in r["panels"]}
+    ids = [e["id"] for e in man["entries"]]
+    if shown - set(ids) or set(ids) - shown:
+        print("manifest: panels without an entry: %s; entries in no row of 'sections': %s"
+              % (sorted(shown - set(ids)) or "none", sorted(set(ids) - shown) or "none"), file=sys.stderr)
+        sys.exit(1)
+    meta = {}
     for e in man["entries"]:
         if only and e["id"] not in only:
             continue
@@ -115,25 +132,50 @@ def main():
         if stack.ndim == 2:
             stack = stack[None]
         to_gif(stack, os.path.join(a.out, e["id"] + ".gif"), fps=6 if sweep else 10)
-        meta.append({**e, "resolved_options": opts, "frames_rendered": int(stack.shape[0]),
-                     "seconds": round(dt, 2), "cli": cli})
-        print("%-18s %3d frames  %.1fs" % (e["id"], stack.shape[0], dt))
-    json.dump(meta, open(os.path.join(a.out, "gallery.json"), "w"), indent=1)
+        meta[e["id"]] = {**e, "resolved_options": opts, "frames_rendered": int(stack.shape[0]),
+                         "seconds": round(dt, 2), "cli": cli, "fps": 6 if sweep else 10}
+        print("%-22s %3d frames  %.1fs" % (e["id"], stack.shape[0], dt))
+    json.dump(list(meta.values()), open(os.path.join(a.out, "gallery.json"), "w"), indent=1)
+
     lines = ["# Gallery", "",
-             "Every movie on this page is produced by `insiliscope_cli` from `gallery/manifest.json` on each "
-             "release. Frames use a square-root intensity scale. Seeds are fixed, so a re-run reproduces them.", ""]
+             "What the simulation can show, one topic at a time, mostly as side-by-side comparisons. Every movie is "
+             "made by `insiliscope_cli` from `gallery/manifest.json` on each release, with fixed seeds, so a re-run "
+             "reproduces it; frames use a square-root intensity scale. Open *How these movies were made* under a "
+             "section for each movie's settings and command line, or try any of it live in the "
+             "[viewer](../../){ target=\"_blank\" }.", ""]
     if overview:
         lines += ["## What inSiliScope is", "",
                   "One spot of the endless cell field, four ways: where it is, what is there, and how a widefield "
                   "and an SMLM camera see it.", "", build_overview.grid_html(""), "",
                   "`%s`  " % overview["wf_cli"], "`%s`" % overview["sr_cli"], ""]
-    group = None
-    for m in meta:
-        if m["group"] != group:
-            group = m["group"]
-            lines += ["## " + group, ""]
-        lines += ["### " + m["title"], "", m["text"], "",
-                  "![%s](%s.gif)" % (m["title"], m["id"]), "", "`%s`" % m["cli"], ""]
+    for si, sec in enumerate(sections):
+        lines += ["## " + sec["title"], "", sec["story"], ""]
+        used = []
+        for ri, row in enumerate(sec["rows"]):
+            panels = [(pid(p), p[1] if not isinstance(p, str) else None) for p in row["panels"]]
+            panels = [(i, lab or meta[i]["title"]) for i, lab in panels if i in meta]
+            if not panels:
+                continue
+            gifs = {i: i + ".gif" for i, _ in panels}
+            if row.get("shared") and len(panels) > 1:
+                rng = display_range([tifffile.imread(os.path.join(a.out, i + ".tif")) for i, _ in panels])
+                for i, _ in panels:
+                    gifs[i] = "s%dr%d-%s.gif" % (si + 1, ri + 1, i)
+                    to_gif(tifffile.imread(os.path.join(a.out, i + ".tif")), os.path.join(a.out, gifs[i]),
+                           fps=meta[i]["fps"], rng=rng)
+            figs = ['  <figure><img src="%s" alt="%s" loading="lazy"><figcaption>%s</figcaption></figure>'
+                    % (gifs[i], lab, lab) for i, lab in panels]
+            # at least three columns: a pair or a single movie stays at the size of a three-panel row
+            lines += ['<div class="isc-row" style="--isc-n: %d">' % max(3, len(panels))] + figs + ["</div>", ""]
+            if row.get("caption"):
+                cap = row["caption"] + (" *(One display range for the row.)*" if row.get("shared") and len(panels) > 1 else "")
+                lines += ['<p class="isc-row-cap" markdown>%s</p>' % cap, ""]
+            used += [i for i, _ in panels if i not in used]
+        if used:
+            lines += ['??? info "How these movies were made"', ""]
+            for i in used:
+                m = meta[i]
+                lines += ["    **%s.** %s  " % (m["title"], m["text"]), "    `%s`" % m["cli"], ""]
     open(os.path.join(a.out, "gallery.md"), "w", encoding="utf-8").write("\n".join(lines))
 
 

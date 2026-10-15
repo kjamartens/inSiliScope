@@ -1,8 +1,42 @@
 # Quickstart
 
-## In the browser
+## In the browser: the viewer
 
-Open the [viewer](try-viewer.md). Nothing to install.
+Nothing to install: the whole simulation runs in your browser as WebAssembly.
+
+<div class="isc-launch" markdown>
+[Open the viewer :material-open-in-new:](../../){ .md-button .md-button--primary target="_blank" }
+
+It opens in a new tab and loads about 1 MB; a desktop browser with a mouse works best.
+</div>
+
+A first tour, about five minutes:
+
+1. **Look at the sample.** The left half is the sample: an endless field of cells, each with its nucleus,
+   microtubules and nuclear pores. Drag to move the stage, scroll to zoom. **Shift-drag** tilts and turns the field
+   into 3D; the strip along the bottom is a side view (x-z). **View ▾** (top left) switches layers on and off. The
+   dashed square is what the camera sees.
+2. **Go live.** Press **▶ Live** on the right. Every frame is a simulated camera image of the dashed square: by default
+   DNA-PAINT, so single molecules flash on and off as imagers bind. The sample remembers the light it got, so dyes
+   bleach where you look: move away and back and the place you imaged is dimmer than its fresh neighbours.
+3. **Focus and look closer.** The **Z** field (or Page Up / Page Down, or the wheel over the live image) moves the
+   focus through the cells; the side view on the left shows the focal plane. **Ctrl + wheel** zooms into the live
+   image; **Display** sets the contrast over a live histogram.
+4. **Switch the microscope.** In **Configuration**, **Mode** changes the experiment: dSTORM, DNA-PAINT, PALM,
+   WideField or BrightField, each with its typical dye, lasers and filters. Try **WideField**, then **BrightField**:
+   the same cells, three very different pictures. **Drift** makes the sample wander, **Camera** swaps the sCMOS for an
+   EMCCD. Under **Illumination & light path** each laser is a slider; click the spectra plot for what reaches the
+   camera.
+5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
+   nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
+   **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass). **Basic / Advanced /
+   Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover.
+6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
+   writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
+   or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
+
+Everything on the screen, setting by setting: [Viewer (docs)](try-viewer.md). What the simulation can show, with
+side-by-side movies: the [Gallery](gallery/index.md).
 
 ## Micro-Manager
 

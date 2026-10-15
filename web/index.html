@@ -348,7 +348,7 @@
   <div id="viewBar">
     <h1>inSiliScope</h1>
     <span class="sp"></span>
-    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; docs</a>
+    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
   <div id="canvasHost">
     <canvas id="cvBase"></canvas>
@@ -1504,11 +1504,9 @@ window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the a
 <script id="mainScript">
 'use strict';
 
-// On the Pages site the viewer lives at <docs>/viewer/: link back relatively (forks, previews); opened from disk,
-// the absolute docs URL stays.
-if (/\/viewer\/(index\.html)?$/.test(location.pathname)) document.getElementById('docsLink').href = '../';
-// Embedded in the docs' Viewer page (an iframe): the docs are already around it.
-if (window.top !== window.self) document.getElementById('docsLink').style.display = 'none';
+// On the Pages site the viewer is the landing page and the docs live in docs/ beside it: link there relatively (forks,
+// previews); opened from disk or from the lab server (/web/), the absolute docs URL stays.
+if (/^https?:$/.test(location.protocol) && !/\/web\//.test(location.pathname)) document.getElementById('docsLink').href = 'docs/';
 
 // ---- drawing helpers (the generator itself is the WASM core) ----------------
 function lerp(a, b, t) { return a + (b - a) * t; }

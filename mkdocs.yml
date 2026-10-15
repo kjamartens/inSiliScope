@@ -1,5 +1,6 @@
 site_name: inSiliScope
 site_description: A deterministic in-silico microscope - a synthetic field of cells imaged as SMLM or widefield, in Micro-Manager, the browser and webSMLM.
+site_url: https://kjamartens.github.io/inSiliScope/docs/
 repo_url: https://github.com/kjamartens/inSiliScope
 docs_dir: docs
 
@@ -26,11 +27,15 @@ markdown_extensions:
   - pymdownx.details
   - attr_list
   - md_in_html
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 extra_javascript:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js
   - javascripts/katex-init.js
+  - javascripts/nav-external.js
 extra_css:
   - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
   - stylesheets/extra.css
@@ -51,8 +56,9 @@ not_in_nav: |
 
 nav:
   - Home: index.md
-  - Viewer (live): try-viewer.md
+  - Viewer (live): https://kjamartens.github.io/inSiliScope/
   - Quickstart: quickstart.md
+  - Viewer (docs): try-viewer.md
   - Micro-Manager properties: mm-properties.md
   - Samples:
       - Overview: samples/index.md
@@ -72,4 +78,4 @@ nav:
   - Gallery: gallery/index.md
   - Benchmarks: benchmarks.md
   - Roadmap: roadmap.md
-  - kjamartens.github.io ↗: https://kjamartens.github.io
+  - kjamartens.github.io: https://kjamartens.github.io
