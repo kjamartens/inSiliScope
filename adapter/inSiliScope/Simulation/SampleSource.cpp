@@ -272,6 +272,66 @@ bool SampleSource::SetKineticsHistory(const double* rows, int nSeg)
    return isc_world_set_kinetics_history(world_, nSeg > 0 ? rows : nullptr, static_cast<int32_t>(std::max(0, nSeg))) == 0;
 }
 
+bool SampleSource::SetClockMap(const std::vector<double>* buffer)
+{
+   const bool none = !buffer || buffer->empty();
+   if (!world_)
+      return none;
+   return isc_world_set_clock_map(world_, none ? nullptr : buffer->data(),
+                                  none ? 0 : static_cast<int32_t>(buffer->size())) == 0;
+}
+
+bool SampleSource::EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& out)
+{
+   if (!world_ || !(q.frameSec > 0))
+      return false;
+   const double inf = std::numeric_limits<double>::infinity();
+   const double zMin = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -inf;
+   const double zMax = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : inf;
+   const double t1 = q.tSec + q.spanSec;
+   return EventRows(q, buf_, [&](double* b, int32_t cap) {
+      return isc_events_in_map(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
+   }, out);
+}
+
+bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate)
+{
+   if (!world_ || !(q.frameSec > 0))
+      return false;
+   const double inf = std::numeric_limits<double>::infinity();
+   const double zMin = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -inf;
+   const double zMax = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : inf;
+   int32_t cap = static_cast<int32_t>(buf_.size() / ISC_MAP_WINDOW_STRIDE);
+   int32_t n;
+   for (;;)
+   {
+      n = isc_continuous_in_map(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec,
+                                buf_.empty() ? nullptr : buf_.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+         break;
+      cap = n + n / 4;
+      buf_.resize(static_cast<size_t>(cap) * ISC_MAP_WINDOW_STRIDE);
+   }
+   out.reserve(out.size() + static_cast<size_t>(n));
+   if (clockRate)
+      clockRate->reserve(clockRate->size() + 2 * static_cast<size_t>(n));
+   for (int32_t i = 0; i < n; ++i)
+   {
+      const double* row = &buf_[static_cast<size_t>(i) * ISC_MAP_WINDOW_STRIDE];
+      BlinkEvent b;
+      MapRow(q, row, b);
+      out.push_back(b);
+      if (clockRate)
+      {
+         clockRate->push_back(row[ISC_EVENT_STRIDE]);
+         clockRate->push_back(row[ISC_EVENT_STRIDE + 1]);
+      }
+   }
+   return true;
+}
+
 bool SampleSource::Prefetch(const SampleQuery& q, double marginUm, double budgetMs)
 {
    if (!world_ || !(budgetMs > 0))

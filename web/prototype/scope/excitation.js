@@ -74,6 +74,13 @@ export function makeExcitation(o) {
   };
   // Beyond this |x'| or radius the profile is below 1e-12 of its peak (the HILO integral's range).
   const reachUm = profile === 0 ? Infinity : (profile === 1 ? sig * 7.5 : r0 + 28.0 * edge);
+  // Where the profile falls to frac of its peak (Excitation.cpp ReachUm) and its largest curvature (MaxCurvature):
+  // the light history's footprints and lattice (light_history.js).
+  const reachAt = frac => profile === 0 ? Infinity
+    : profile === 1 ? sig * Math.sqrt(-2.0 * Math.log(frac)) : r0 + edge * Math.log(1.0 / (frac * flatTop0) - 1.0);
+  // (The logistic's: max |s (1 - s) (1 - 2 s)| = 1 / (6 sqrt 3), at s = 1/2 -+ 1 / (2 sqrt 3).)
+  const maxCurvature = () => profile === 0 ? 0.0 : profile === 1 ? 1.0 / (sig * sig)
+    : 1.0 / (6.0 * Math.sqrt(3.0)) / (edge * edge) / flatTop0;
   const decayUm = nm => 1e-3 * nm / (4.0 * Math.PI * nS * Math.sqrt(u * u - 1.0));
   const lateral = (x, y, z) => P((x - (tirf ? 0.0 : z - zp) * tanS) * cosI, y);
   const depth = (z, shares) => {
@@ -224,7 +231,8 @@ export function makeExcitation(o) {
   return { spec: o, regime, u, uMax, clipped, tirf, F, cosI, tanS, profile, fwhmUm,
     // Exactly 1 everywhere (a Flat beam at the BFP centre): the renderers skip the factor (outputs as before).
     uniform: profile === 0 && u === 0.0,
-    profileAt: P, lateral, depth, depthMean, at, column, imagerColumnAt, imagerMap, depthNm, decayUm: tirf ? decayUm : null };
+    profileAt: P, reachAt, maxCurvature, lateral, depth, depthMean, at, column, imagerColumnAt, imagerMap, depthNm,
+    decayUm: tirf ? decayUm : null };
 }
 
 // The collection of a defocused dye's light (the free imager's background; imagerMap). A freely rotating imager emits

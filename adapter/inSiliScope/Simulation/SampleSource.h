@@ -142,6 +142,17 @@ public:
    // one sets it before every query (the world is shared). False on bad rows.
    bool SetKineticsHistory(const double* rows, int nSeg);
 
+   // ABI 14, the clock map (isc_world_set_clock_map; LightHistory.h ClockMapView::buffer) of the following map
+   // queries; nullptr or empty removes it (they are then the ABI 11 ones). A host that sets one sets it before its
+   // queries and removes it after (the world is shared). False on a bad map (nothing changes then).
+   bool SetClockMap(const std::vector<double>* buffer);
+   // The blinks of q's window and [tSec, tSec + spanSec) of the sample's time T, each dye on its own clock
+   // (isc_events_in_map), mapped as Events maps them (q.tSec: T at frame q.frameIndex).
+   bool EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& out);
+   // The continuous windows open after q.tSec (isc_continuous_in_map), mapped as Continuous maps them, and per window
+   // its dye's clock and rate (two doubles each, appended to clockRate; nullptr: not wanted).
+   bool ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate);
+
    // Fluorescent-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
    // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], of the structures in
    // structureMask (bit s = ISC_STRUCT_s; isc_density3d_in_window). Returns

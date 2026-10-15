@@ -151,6 +151,8 @@ struct MapEpoch
    double kin[ISC_KIN_COUNT] = {};
    double xRef = 0;
    int chapter = -1;
+   // That light's label physics under the current spec (the host's, not encoded).
+   std::shared_ptr<const std::vector<LabelPhysics>> labels;
 };
 struct MapClock
 {
@@ -160,6 +162,11 @@ struct MapClock
    MapField total, rate;
    double totalC = 0, rateC = 0, tOpen = 0;
    std::vector<MapStep> steps;    // ACTIVATION
+   // The host's (not encoded): the photon-budget bleaching of the structure's continuous state that has a budget (a
+   // WideField dye, a PALM pre state) as a hazard -- each lit record's emission of that state at the dye over the
+   // budget, x its seconds -- by tOpen (bleachTotal) and per second after (bleachRate). A dye bleaches when it reaches
+   // the dye's unit-exponential draw (its window's aux). Empty: no budget.
+   MapField bleachTotal, bleachRate;
 };
 class ClockMapView
 {
@@ -178,6 +185,9 @@ public:
    double ClockAt(int st, double x, double y, double z, double t) const;
    // ACTIVATION: the hazard a dye at (x, y, z) has had by T = t (the steps, then the rate).
    double Hazard(int st, double x, double y, double z, double t) const;
+   // The T at which a dye at (x, y, z) with draw aux has used its photon budget: INFINITY when it never does (no
+   // budget, or no light reaches it now and it had not), -INFINITY when it had by tOpen and no light reaches it now.
+   double BleachEnd(int st, double x, double y, double z, double aux) const;
 };
 
 class LightHistory

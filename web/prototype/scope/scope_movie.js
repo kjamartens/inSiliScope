@@ -657,6 +657,23 @@ export function cellFieldContinuous(world, q) {
   const [zMin, zMax] = zWindow(q);
   return world.continuousInWindow(q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec).map(e => toFov(q, e));
 }
+// SampleSource::EventsInMap / ContinuousInMap (ABI 14): the same under a clock map (its buffer, set for the query and
+// removed after: the world is shared), q.tSec the sample's time T of frame q.frameIndex; the windows keep their dye's
+// clock and rate.
+function inMap(world, buffer, query) {
+  world.setClockMap(buffer);
+  try { return query(); } finally { world.setClockMap(null); }
+}
+export function cellFieldEventsInMap(world, q, buffer) {
+  const [zMin, zMax] = zWindow(q);
+  return inMap(world, buffer, () => world.eventsInMap(q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, q.tSec + q.spanSec))
+    .map(e => toFov(q, e));
+}
+export function cellFieldContinuousInMap(world, q, buffer) {
+  const [zMin, zMax] = zWindow(q);
+  return inMap(world, buffer, () => world.continuousInMap(q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec))
+    .map(e => ({ ...toFov(q, e), clock: e.clock, rate: e.rate }));
+}
 
 // RenderScopeMovie: onFrame(f, Uint16Array, photons) for every frame (return false to stop). Returns info.
 // P: loadPrototype() instance (the geometry truth). opts.onProgress(stage, frac) optional.

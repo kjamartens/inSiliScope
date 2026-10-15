@@ -20,6 +20,7 @@
 #include "DyeLibrary.h"
 #include "Excitation.h"
 #include "Illumination.h"
+#include "LightHistory.h"
 #include "LightPath.h"
 #include "Parallel.h"
 #include "Spectra.h"
@@ -2137,9 +2138,9 @@ struct FluorescenceMovie::Impl
    double imagerPerFrame = 0, bg = 0, fovArea = 0, zStage = 0;
    // A shaped excitation (not Uniform): the factor of a dye state at (xUm,
    // yUm, zNm) in the FOV frame, the per-pixel background (empty: m.bg) and
-   // its imager part's mean. local: its kinetics follow the local light (no
-   // host clock; with one the history carries the dose and the factor scales
-   // photons only).
+   // its imager part's mean. local: no host clock (its kinetics follow the
+   // local light: the own clock map, ownMap; with one the history carries the
+   // dose and the factor scales photons only).
    bool shaped = false, local = false;
    double axisX = 0, axisY = 0;
    std::vector<float> bgMap;
@@ -2154,6 +2155,9 @@ struct FluorescenceMovie::Impl
    bool gpuMode = false;
    WidefieldAccelerator* accel = nullptr;
    const DyeClock* clock = nullptr;   // per-region dye clocks (Begin only)
+   // A shaped beam without a host clock (local): the movie's own clock map (Begin only; LightHistory: the past
+   // start-sec under the movie's light, then the movie), its blinks and windows each on its own dye's clock.
+   std::shared_ptr<const ClockMapView> ownMap;
    // A host clock under a shaped beam whose light the history counts (not every label DNA-PAINT): the history's light
    // (HistoryLightField, on the host's grids: its axis on the tile grid, the focus on 0.25 um) and its axis (world).
    // A place still at clock 0 (never lit) that this light does not reach is dark: no photons, its regions are not
@@ -3679,15 +3683,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       m.anyBlinks = m.anyBlinks || S.labels[static_cast<size_t>(s)].mode != MODE_WIDEFIELD;
    // The excitation geometry (Excitation.h; JS fluorescence.js): a dye
    // state's factor at its site in the FOV frame (the axis at the FOV centre),
-   // none when it is 1 everywhere. Without a host clock the light-driven
-   // rates follow it too (local kinetics; with a host clock the clock is the
-   // dose: doseEvents):
-   //   dSTORM: its kinetic clock runs at a x real time (the 405 nm return
-   //     taken to fall off as the main line);
-   //   PALM: its activation at spont + lin a + quad a^2 (its first activation
-   //     moves from T to T / b, b = that / kAct), its blinks keep their times;
+   // none when it is 1 everywhere. The light-driven rates follow it too:
+   //   dSTORM: its kinetic clock is its dose (the 405 nm return taken to fall
+   //     off as the main line);
+   //   PALM: its activation at spont + lin a + quad a^2, its blinks after it on
+   //     the sample's time;
    //   DNA-PAINT: binding needs no light; bleaching by a photon budget
    //     (WideField, the PALM pre state): at a x the rate.
+   // Without a host clock (local) the blinks and per-dye windows read each
+   // dye's clock from the movie's own clock map (ownMap; the mean field takes
+   // a at each dye: dose nodes); with one the history carries the dose
+   // (doseEvents).
    m.shaped = !S.excite.Uniform();
    m.local = m.shaped && !clock;
    m.axisX = (S.W - 1) / 2.0 * um;
@@ -3746,18 +3752,33 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             m.tMin = tMinLit;   // (the mean-field switch: the dark places hold no dyes that shine)
       }
    }
-   const double T0 = S.t0Sec, tMovieEndSec = S.t0Sec + S.N * S.expSec;
-   const double infT = std::numeric_limits<double>::infinity();
-   // The raw-time query of the shaped kinetics: seconds from t = 0 as frames
-   // of 1 s from frame 0 (EventRows: tStart = 0 + (tOn - 0) / 1 = tOn).
-   auto rawQuery = [&](double spanSec) {
-      SampleQuery q = S.q;
-      q.tSec = 0.0;
-      q.spanSec = spanSec;
-      q.frameSec = 1.0;
-      q.frameIndex = 0;
-      return q;
-   };
+   const double tMovieEndSec = S.t0Sec + S.N * S.expSec;
+   // The movie's own clock map (local): the sample lit by the movie's light at its pose from T = 0 (the past start-sec,
+   // then the movie: one record), every dye's clock at its own place (spec/ALGORITHM.md "Exact light history").
+   m.ownMap.reset();
+   if (m.local)
+   {
+      tPhase = TimingClock::now();
+      LightState light;
+      if (!MakeLightState(spec, true, light, err))
+         return false;
+      // (A Flat beam's field stop: the FOV and its margin, grown to the query: no dye of the movie is beyond it.)
+      for (LightPose& p : light.poses)
+      {
+         p.x0 = std::min(p.x0, S.q.x0Um - 1.0);
+         p.y0 = std::min(p.y0, S.q.y0Um - 1.0);
+         p.x1 = std::max(p.x1, S.q.x1Um + 1.0);
+         p.y1 = std::max(p.y1, S.q.y1Um + 1.0);
+      }
+      LightHistory own;
+      own.Advance(S.t0Sec, light);
+      const double zLo = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -1e3;
+      const double zHi = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : 1e3;
+      m.ownMap = own.BuildMap(spec, light, S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zLo, zHi, err);
+      if (!m.ownMap)
+         return false;
+      TimingLog("fl.clock-map", TimingSince(tPhase), std::to_string(m.ownMap->buffer.size()).c_str());
+   }
 
    // ---- blink mean-field frames (spec/ALGORITHM.md "Blink render regimes") ----
    // Decided before the events query from the expected ON emitters at the
@@ -3828,79 +3849,21 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       psfSec = TimingSince(tk);
    };
    std::vector<BlinkEvent> all;
-   // The blinks under local kinetics (JS localEvents): the dSTORM and PALM
-   // labels' queried from t = 0 to the latest time a dye's own clock reaches
-   // (kMax x the movie's end) and mapped to real time; the others' as usual.
-   // Every event gets its factor.
-   auto localEvents = [&]() -> bool {
-      std::vector<int> kinetic, plain;
-      for (const Group& g : m.groups)
-      {
-         const int mode = S.labels[static_cast<size_t>(g.structure)].mode;
-         if (g.pre || mode == MODE_WIDEFIELD)
-            continue;
-         (mode == MODE_DSTORM || mode == MODE_PALM ? kinetic : plain).push_back(g.structure);
-      }
-      auto has = [](const std::vector<int>& v, int x) { return std::find(v.begin(), v.end(), x) != v.end(); };
-      auto mainShares = [&](int st) -> const ExcitationShares& { return m.groups[static_cast<size_t>(groupOf(st, false))].shares; };
-      if (!plain.empty())
-      {
-         std::vector<BlinkEvent> got;
-         if (!regionEvents(false, got, nullptr))
-            return false;
-         for (BlinkEvent& e : got)
-            if (has(plain, e.structure))
-            {
-               e.excite = m.ExciteAt(mainShares(e.structure), e.xUm, e.yUm, e.zNm);
-               all.push_back(e);
-            }
-      }
-      if (kinetic.empty())
-         return true;
-      double kMax = 1.0;
-      for (int st : kinetic)
-      {
-         const LabelPhysics& L = S.labels[static_cast<size_t>(st)];
-         kMax = std::max(kMax, L.mode == MODE_DSTORM ? S.excite.F() : L.ActivationScale(S.excite.F()));
-      }
+   // The blinks under the movie's own clock map (JS mapEvents): every dye on its own clock (isc_events_in_map; a dye
+   // the light does not reach emits nothing), each event's photons x its factor.
+   auto mapEvents = [&]() -> bool {
       std::vector<BlinkEvent> got;
-      if (!source.SetKineticsHistory(nullptr, 0) || !source.Events(rawQuery(kMax * tMovieEndSec), got))
+      const bool ok = source.SetClockMap(&m.ownMap->buffer) && source.EventsInMap(S.q, got);
+      source.SetClockMap(nullptr);
+      if (!ok)
          return false;
-      std::map<std::tuple<int, double, double, double>, double> first;   // a dye (structure, position): its first blink
-      for (const BlinkEvent& e : got)
+      for (BlinkEvent& e : got)
       {
-         if (!has(kinetic, e.structure))
+         const int gi = groupOf(e.structure, false);
+         if (gi < 0)
             continue;
-         const LabelPhysics& L = S.labels[static_cast<size_t>(e.structure)];
-         const double a = m.ExciteAt(mainShares(e.structure), e.xUm, e.yUm, e.zNm);
-         if (!(a > 0))
-            continue;
-         double tOn = e.tStart, tOff = e.tEnd;
-         if (L.mode == MODE_DSTORM)
-         {
-            tOn = e.tStart / a;
-            tOff = e.tEnd / a;
-         }
-         else
-         {
-            // The dye's first blink (its events come in time order from t = 0) is its activation.
-            auto it = first.emplace(std::make_tuple(e.structure, e.xUm, e.yUm, e.zNm), e.tStart).first;
-            const double T = it->second;
-            const double b = L.ActivationScale(a);
-            if (!(b > 0))
-               continue;
-            const double shift = T / b - T;
-            tOn = e.tStart + shift;
-            tOff = e.tEnd + shift;
-         }
-         const double tStart = (tOn - T0) / S.expSec, tEnd = (tOff - T0) / S.expSec;
-         if (!(tEnd > 0.0) || !(tStart < S.N))
-            continue;
-         BlinkEvent o = e;
-         o.tStart = tStart;
-         o.tEnd = tEnd;
-         o.excite = a;
-         all.push_back(o);
+         e.excite = m.ExciteAt(m.groups[static_cast<size_t>(gi)].shares, e.xUm, e.yUm, e.zNm);
+         all.push_back(e);
       }
       return true;
    };
@@ -3965,7 +3928,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return true;
    };
    auto queryEvents = [&]() {
-      return m.local ? localEvents() : (m.shaped && clock) ? doseEvents() : regionEvents(false, all, nullptr);
+      return m.local ? mapEvents() : (m.shaped && clock) ? doseEvents() : regionEvents(false, all, nullptr);
    };
    tPhase = TimingClock::now();
 #if defined(__EMSCRIPTEN__)
@@ -4180,6 +4143,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    TimingLog("fl.dye-counts", TimingSince(tPhase));
    tPhase = TimingClock::now();
    std::vector<BlinkEvent> windows;
+   std::vector<double> windowClock;                 // (local) each window's dye's clock and rate (the own map)
    std::vector<const ClockRegion*> windowRegion;   // each window's region (its dye's clock at frame 0, its history)
    bool haveWindows = false;
    // The regions whose dyes have all but surely left the populations that need windows (expected < 1e-4 still in
@@ -4202,42 +4166,42 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          continue;   // mean-field to the end: no windows needed
       if (m.local)
       {
-         // Local kinetics: the windows from t = 0 mapped to real time (the
-         // dSTORM initial ON ends at tOff / a, the PALM pre state at tOff / b;
-         // a photon budget at aux x budget / (emission x a)).
+         // The own clock map's windows in T (the initial ON ends on its dye's dose, the pre state at its activation; a
+         // dye the light does not reach is dark), a photon budget's end where the dye's bleach hazard reaches its draw
+         // (ClockMapView::BleachEnd).
          if (!haveWindows)
          {
-            if (!source.SetKineticsHistory(nullptr, 0) || !source.Continuous(rawQuery(0.0), windows))
+            const bool ok = source.SetClockMap(&m.ownMap->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
+            source.SetClockMap(nullptr);
+            if (!ok)
             {
                err = "cell-field window query failed";
                return false;
             }
             haveWindows = true;
          }
-         const LabelPhysics& L = S.labels[static_cast<size_t>(p.structure)];
          const Group& g = m.groups[p.group];
-         for (const BlinkEvent& e : windows)
+         const bool dose = m.ownMap->s[static_cast<size_t>(p.structure)].mode == ISC_CLOCK_DOSE;
+         for (size_t wi = 0; wi < windows.size(); ++wi)
          {
+            const BlinkEvent& e = windows[wi];
             if (e.structure != p.structure || e.state != p.state)
                continue;
+            if (dose && !(windowClock[2 * wi + 1] > 0))
+               continue;   // frozen: no light
             const double a = m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm);
             if (!(a > 0))
                continue;
-            double tEnd = infT;
-            if (p.state == ISC_STATE_INITIAL_ON)
-               tEnd = e.tEnd / a;
-            else if (p.state == ISC_STATE_PRE)
-            {
-               const double b = L.ActivationScale(a);
-               tEnd = b > 0 ? e.tEnd / b : infT;
-            }
+            double bF = e.tEnd;
             if (p.budget > 0)
-               tEnd = std::min(tEnd, e.aux * p.budget / (p.emissionPerSec * a));
-            const double bF = (tEnd - T0) / S.expSec;
+            {
+               const double tB = m.ownMap->BleachEnd(p.structure, e.xUm + S.q.originXUm, e.yUm + S.q.originYUm,
+                                                     e.zNm / 1000.0 + S.q.zRefUm, e.aux);
+               bF = std::min(bF, (tB - S.q.tSec) / S.expSec);
+            }
             if (bF > 0)
             {
                BlinkEvent w = e;
-               w.tStart = (0 - T0) / S.expSec;
                w.tEnd = bF;
                w.brightness = 1;
                w.excite = a;

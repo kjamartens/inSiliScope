@@ -282,6 +282,18 @@ double ClockMapView::Hazard(int st, double x, double y, double z, double t) cons
    return H;
 }
 
+double ClockMapView::BleachEnd(int st, double x, double y, double z, double aux) const
+{
+   const MapClock& c = s[static_cast<size_t>(st)];
+   const double inf = std::numeric_limits<double>::infinity();
+   if (c.bleachTotal.empty() && c.bleachRate.empty())
+      return inf;
+   const double B = Eval(c.bleachTotal, x, y, z), r = Eval(c.bleachRate, x, y, z);
+   if (r > 0)
+      return c.tOpen + (aux - B) / r;
+   return aux > B ? inf : -inf;
+}
+
 void ClockMapView::Encode()
 {
    std::vector<double>& b = buffer;
@@ -759,18 +771,19 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       gridOf[k] = idx;
       return idx;
    };
-   // TIRF's depth factor of a structure's main state in a chapter (and its square), on kLightDepthStepUm.
+   // TIRF's depth factor of a structure's main (or pre) state in a chapter (and its square), on kLightDepthStepUm.
    std::map<std::pair<std::pair<const void*, int>, int>, int32_t> depthOf;
-   auto depthFor = [&](const Chapter& c, int st, bool sq) -> int32_t {
+   auto depthFor = [&](const Chapter& c, int st, bool sq, bool pre = false) -> int32_t {
       if (!c.lit || !c.ex->Tirf())
          return -1;
-      const auto k = std::make_pair(std::make_pair(static_cast<const void*>(&c), st), sq ? 1 : 0);
+      const auto k = std::make_pair(std::make_pair(static_cast<const void*>(&c), st), (sq ? 1 : 0) + (pre ? 2 : 0));
       auto it = depthOf.find(k);
       if (it != depthOf.end())
          return it->second;
       ExcitationShares sh;
       double dMax = 0;
-      for (const StatePhysics::LineShare& l : (*c.labels)[static_cast<size_t>(st)].main.lineShares)
+      const LabelPhysics& C = (*c.labels)[static_cast<size_t>(st)];
+      for (const StatePhysics::LineShare& l : (pre ? C.pre : C.main).lineShares)
       {
          sh.push_back({ l.nm, l.share });
          dMax = std::max(dMax, c.ex->DecayUm(l.nm));
@@ -1008,6 +1021,62 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          const int32_t g1 = C.actLin != 0 ? recordGrid(*rate, false) : -1;
          const int32_t g2 = C.actQuad != 0 ? recordGrid(*rate, true) : -1;
          lightTerms(rate->chapter, g1, g2, rate->mag, mc.rate);
+      }
+   }
+   // Each epoch's labels, and the photon-budget bleach hazard of a WideField dye or a PALM pre state: per lit record
+   // F x the state's emission at its light over the budget x mag x dt over its footprint (x the state's own depth
+   // factor), the merged grids at mag dt already.
+   for (int st = 0; st < ISC_STRUCT_COUNT; ++st)
+   {
+      MapClock& mc = m.s[static_cast<size_t>(st)];
+      for (MapEpoch& e : mc.epochs)
+         if (e.chapter >= 0)
+            e.labels = chs[static_cast<size_t>(e.chapter)]->labels;
+      const LabelPhysics& L = curLabels[static_cast<size_t>(st)];
+      const bool on = !L.off && std::find(mounted.begin(), mounted.end(), st) != mounted.end();
+      const bool pre = L.mode == MODE_PALM;
+      if (!on || !(L.mode == MODE_WIDEFIELD || (pre && L.preState)))
+         continue;
+      auto lam = [&](size_t ci) {
+         const LabelPhysics& C = (*chs[ci]->labels)[static_cast<size_t>(st)];
+         const StatePhysics& sp = pre ? C.pre : C.main;
+         const double budget = pre ? C.prePhotonBudget : C.photonBudget;
+         return chs[ci]->lit && sp.emits && budget > 0 && sp.emissionPerSec > 0 ? sp.emissionPerSec / budget : 0.0;
+      };
+      auto term = [&](size_t ci, int32_t grid, double factor) {
+         const Chapter& c = *chs[ci];
+         MapTerm t;
+         t.grid = grid;
+         t.depth = depthFor(c, st, false, pre);
+         t.sx = c.sheared ? c.tanS : 0.0;
+         t.scale = c.F * lam(ci) * factor;
+         return t;
+      };
+      size_t ri = 0;
+      for (size_t ci = 0; ci < chs.size(); ++ci)
+      {
+         const bool counts = lam(ci) > 0;
+         if (counts)
+         {
+            const int32_t gi = chapterGrid(*chs[ci], false);
+            if (gi >= 0)
+               mc.bleachTotal.push_back(term(ci, gi, 1.0));
+         }
+         for (; ri < closed.size() && closed[ri]->chapter == ci; ++ri)
+         {
+            const Record& r = *closed[ri];
+            if (!counts || !r.lit || !r.fp)
+               continue;
+            const int32_t gi = recordGrid(r, false);
+            if (gi >= 0)
+               mc.bleachTotal.push_back(term(ci, gi, r.mag * (r.t1 - r.t0)));
+         }
+      }
+      if (rate && lam(rate->chapter) > 0)
+      {
+         const int32_t gi = recordGrid(*rate, false);
+         if (gi >= 0)
+            mc.bleachRate.push_back(term(rate->chapter, gi, rate->mag));
       }
    }
    m.Encode();
