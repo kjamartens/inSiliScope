@@ -348,7 +348,7 @@
   <div id="viewBar">
     <h1>inSiliScope</h1>
     <span class="sp"></span>
-    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/">&larr; docs</a>
+    <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
   <div id="canvasHost">
     <canvas id="cvBase"></canvas>
@@ -735,7 +735,7 @@ const UI_GROUPS = [
     range('azimuthDeg', 'Rotation', '°', 'Turns the view about the vertical axis through the view centre (Shift-drag sideways on the view). Display only.', -180, 180, 1, 0, { fmt: fx(0) }),
     num('pivotZ', 'Turn height', 'µm', 'Height of the point the view turns and tilts about (it stays at the centre of the canvas). Display only.', 0, 20, 0.5, 0, { adv }),
     buttons([
-      ['resetView', 'Reset view', 'Back to world position (0, 0) at the default zoom.'],
+      ['resetView', 'Reset view', 'Back to the start position (the gallery’s spot, x 14.8, y −6.0 µm) at the default zoom.'],
       ['randomCell', 'Random cell', 'Jump to a random cell of the field (within 2 mm of the origin) and centre it: the data layers and animations use the cell nearest the view centre (unless the animation has a picked cell).'],
       ['prevCell', 'Previous cell', 'Back to where the view was before the last "Random cell" (repeatable).'],
     ]),
@@ -797,7 +797,7 @@ const UI_GROUPS = [
   { sect: 'Sample', id: 'field', title: 'Specimen', open: true, items: [
     select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json; the Samples pages of the docs): the cell field (adherent cells with microtubules) or DNA-origami nanorulers on the coverslip. Switching zooms to a scale that suits it. <code>SampleHolder</code>',
       DD.specimens.map((sp, i) => [String(i), sp.name]), String(SPECIMEN_DEFAULT)),
-    num('seed', 'World seed', 'integer', 'Every cell, microtubule, ruler and dye is a pure function of (seed, position): the same seed always gives the same world.', null, null, 1, 1249),
+    num('seed', 'World seed', 'integer', 'Every cell, microtubule, ruler and dye is a pure function of (seed, position): the same seed always gives the same world. The default is the world of seed 42 in Micro-Manager and the cli (42 ^ 0x43454C4C), the gallery’s.', null, null, 1, 1128615014),
     button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
     range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, 0.33, { show: CF, fmt: v => (100 * v).toFixed(0) }),
     range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
@@ -1504,11 +1504,9 @@ window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the a
 <script id="mainScript">
 'use strict';
 
-// On the Pages site the viewer lives at <docs>/viewer/: link back relatively (forks, previews); opened from disk,
-// the absolute docs URL stays.
-if (/\/viewer\/(index\.html)?$/.test(location.pathname)) document.getElementById('docsLink').href = '../';
-// Embedded in the docs' Viewer page (an iframe): the docs are already around it.
-if (window.top !== window.self) document.getElementById('docsLink').style.display = 'none';
+// On the Pages site the viewer is the landing page and the docs live in docs/ beside it: link there relatively (forks,
+// previews); opened from disk or from the lab server (/web/), the absolute docs URL stays.
+if (/^https?:$/.test(location.protocol) && !/\/web\//.test(location.pathname)) document.getElementById('docsLink').href = 'docs/';
 
 // ---- drawing helpers (the generator itself is the WASM core) ----------------
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -1574,7 +1572,10 @@ const hud = document.getElementById('hud'), hudText = document.getElementById('h
 const host = document.getElementById('canvasHost');
 
 // world center (um) = the pivot the view turns about, CSS px per um, tilt and rotation (radians), pivot height (um)
-const view = { cx: 0, cy: 0, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
+// The start position: the gallery's spot (gallery/manifest.json defaults x, y; world seed 1128615014 = cli seed 42): a
+// nucleus in one corner of the camera's field, microtubules out to the cell edge, a strip of empty coverslip.
+const START = { cx: 14.8, cy: -6.0 };
+const view = { cx: START.cx, cy: START.cy, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
 
 const els = {};
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
@@ -4253,7 +4254,7 @@ els.dataStatus.addEventListener('click', ev => {
   statusLast = 0;
 });
 els.resetView.addEventListener('click', () => {
-  view.cx = 0; view.cy = 0; view.scale = DYE_UI.nanorulers() ? 150 : 9;
+  view.cx = START.cx; view.cy = START.cy; view.scale = DYE_UI.nanorulers() ? 150 : 9;
   requestDraw();
 });
 // Random cell: a random point within 2 mm of the origin, then (once its block is packed) centred on the nearest cell.

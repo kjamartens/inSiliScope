@@ -175,11 +175,14 @@ that finishes them.
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
-- Docs: `docs/` is the mkdocs-material site (samples pages `docs/samples/`, physics pages, quickstart, extending;
-  `docs/dev/` is excluded history);
+- Docs: `docs/` is the mkdocs-material site (samples pages `docs/samples/`, physics pages, quickstart (with the viewer
+  tour), `try-viewer.md` = the viewer reference (out of the nav, linked from the Quickstart), extending; `docs/dev/` is excluded history). Site
+  layout (2026-10-15): the viewer is the landing page (site root), the docs live under `docs/`, the old URLs redirect
+  (`tools/build_site.sh`); the nav's "Viewer (live)" opens the root in a new tab (`docs/javascripts/nav-external.js`);
   `pip install "mkdocs<2" mkdocs-material && bash tools/build_site.sh site` builds it locally. Keep `docs/physics/` in step
   with `spec/` when a model changes; add a gallery entry for every new CLI option that changes the image (caching and
-  preparation switches need none).
+  preparation switches need none) and place it in a row of the manifest's `sections` (a story per section, rows of
+  side-by-side panels, preferably against the default; `build_gallery.py` refuses an entry no row shows).
 - Physics figures: `python tools/build_physics_figures.py --cli build/msvc/cli/Release/insiliscope_cli.exe` (all,
   into `physics_figures/`, not committed; `--only <id>,...`, `--list`), then `bash tools/build_site.sh site` injects them
   (needs numpy, pillow, tifffile, matplotlib). A model change reaches the figures by itself; a new model, preset or
@@ -219,7 +222,7 @@ Create it when the session passes 200k tokens and keep it updated until the sess
 summary updates the same file). `claude_notes/` is gitignored: the notes stay local and are never committed; a session
 working in another worktree writes them into the main checkout's `claude_notes/` (`C:\GitHub\inSiliScope_2`).
 
-**Keep the online docs in step with the code.** The published site (https://kjamartens.github.io/inSiliScope/, built from
+**Keep the online docs in step with the code.** The published site (https://kjamartens.github.io/inSiliScope/ = the viewer, docs under /docs/, built from
 `docs/` + `mkdocs.yml`, plus `README.md`) is what users read. In the same commit as any change to behaviour, defaults,
 options/properties, models or performance, check `docs/index.md`, `docs/quickstart.md`, `docs/try-viewer.md`,
 `docs/samples/**/*.md`, `docs/physics/*.md`, `docs/extending.md`, `docs/roadmap.md`, `README.md` and `gallery/manifest.json` (entry texts and

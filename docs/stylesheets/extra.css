@@ -1,33 +1,3 @@
-/* The embedded viewer (try-viewer.md): full bleed across the page, below the header. */
-.isc-viewer {
-  position: relative;
-  width: calc(100vw - 2rem);
-  margin-left: calc(50% - 50vw + 1rem);
-  height: calc(100vh - 7rem);
-  min-height: 480px;
-  border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 4px;
-  overflow: hidden;
-  background: #05070a;
-}
-.isc-viewer iframe {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
-}
-.isc-viewer-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #8b97a8;
-  font-size: 0.8rem;
-}
-
 /* The 2x2 overview (Home, Gallery; tools/build_overview.py): two columns, one on phones. */
 .isc-overview {
   display: grid;
@@ -118,4 +88,67 @@
 }
 .md-typeset .isc-small img.isc-px {
   width: clamp(3rem, calc((100cqw - 6.5rem) / var(--isc-n, 4) - 0.8rem), 7rem);
+}
+
+/* Navigation links that leave the docs (javascripts/nav-external.js): an "open in new" icon after the title. */
+.md-nav__link.isc-ext::after {
+  content: "";
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-left: 0.3rem;
+  background-color: currentColor;
+  -webkit-mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg>') center / contain no-repeat;
+  mask: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"/></svg>') center / contain no-repeat;
+}
+
+/* The big "open the viewer" button (quickstart.md). */
+.md-typeset .isc-launch {
+  text-align: center;
+  margin: 1.6rem 0 2rem;
+}
+.md-typeset .isc-launch .md-button {
+  font-size: 1rem;
+  padding: 0.8em 2.2em;
+}
+.md-typeset .isc-launch p {
+  margin: 0.6rem 0 0;
+  font-size: 0.7rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Gallery rows (tools/build_gallery.py): the panels of one comparison side by side, two per line on phones. */
+.md-typeset .isc-row {
+  display: grid;
+  grid-template-columns: repeat(var(--isc-n, 3), minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 1rem 0 0.3rem;
+}
+.md-typeset .isc-row figure {
+  margin: 0;
+  width: 100%;
+}
+.md-typeset .isc-row img {
+  width: 100%;
+  max-width: 20rem;
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
+.md-typeset .isc-row figcaption {
+  max-width: none;
+  margin: 0.25rem 0 0;
+  font-size: 0.68rem;
+  font-style: normal;
+  color: var(--md-default-fg-color);
+}
+.md-typeset .isc-row-cap {
+  margin: 0.2rem 0 1.4rem;
+  font-size: 0.72rem;
+  color: var(--md-default-fg-color--light);
+}
+@media (max-width: 600px) {
+  .md-typeset .isc-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

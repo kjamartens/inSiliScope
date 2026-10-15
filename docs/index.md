@@ -6,6 +6,12 @@ camera noise model. Two [samples](samples/index.md) can be mounted: a field of c
 microtubules, nuclear pores, fluorophore sites; the microtubules and the pores labelled in two colours) and DNA-origami
 nanorulers (rods with three spots of docking strands 80 nm apart).
 
+<div class="isc-launch" markdown>
+[Open the viewer :material-open-in-new:](../){ .md-button .md-button--primary target="_blank" }
+
+The live microscope in your browser; the [Quickstart](quickstart.md) shows what to try.
+</div>
+
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
   <figure><img src="gallery/overview_map.png" alt="A field of synthetic cells; the box is the camera's view" loading="lazy"><figcaption>A field of synthetic cells; the box is the camera's view</figcaption></figure>
@@ -22,7 +28,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets), render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield); simulated data in 3D and cell animations exported as MP4/WebM/GIF | [Open the viewer](try-viewer.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets), render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield); simulated data in 3D and cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
 | **Micro-Manager adapter** | `Camera`, `XYStage` and `ZStage` devices (`mmgr_dal_inSiliScope.dll`): move the stage, change focus, run live or precomputed acquisitions against a sample that never changes | [Quickstart](quickstart.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/kjamartens/webSMLM) | [Quickstart](quickstart.md) |
 
@@ -57,7 +63,7 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 
 ## Reading guide
 
-- New here: [Gallery](gallery/index.md), then [Quickstart](quickstart.md).
+- New here: the [Quickstart](quickstart.md) (a tour of the viewer), then the [Gallery](gallery/index.md).
 - Want the models: [Samples](samples/index.md) (the cell field's world model and structures, the nanorulers) and
   [Physics](physics/dyes-and-light-path.md) (dyes and light path, photophysics, optics, camera, validation).
 - Want to add something: [Extending](extending.md) and the [Roadmap](roadmap.md).

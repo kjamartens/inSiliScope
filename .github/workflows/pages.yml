@@ -1,6 +1,6 @@
 name: Pages
 
-# Project site on GitHub Pages: docs (mkdocs-material), the viewer at /viewer/, and, when a release
+# Project site on GitHub Pages: the viewer at the root (the landing page), docs (mkdocs-material) at /docs/, and, when a release
 # exists, its gallery and benchmark history (downloaded from the latest release's assets).
 # The physics pages' figures are rendered here by the cli (tools/build_physics_figures.py), so they follow the code.
 # Runs on every push to main (docs/viewer/render-code changes) and is called by release.yml after a release.
