@@ -10,6 +10,7 @@ add_library(insiliscope_core STATIC
   src/blockstore.cpp
   src/capi.cpp
   src/cells.cpp
+  src/clockmap.cpp
   src/cytomesh.cpp
   src/dyes.cpp
   src/npcs.cpp

@@ -33,6 +33,23 @@ Pt3 PointAtArc(const std::vector<Pt3>& pts, const MtFrames& fr, double S)
    return { pts[seg].x + t.x * f, pts[seg].y + t.y * f, pts[seg].z + t.z * f };
 }
 
+// A dose clock's kinetics history for a dye at (x, y, z) (ABI 14): epoch e >= 1 from its dose bound[e - 1] there; an
+// epoch the dye had no dose in gives way to the next (the later kinetics from the same dose).
+void DoseHistory(const ClockMap& m, const StructClock& c, double x, double y, double z, KineticsHistory& out)
+{
+   out.tStart.assign(1, 0.0);
+   out.kin.assign(1, c.hist.kin[0]);
+   for (size_t e = 1; e < c.hist.Size(); e++) {
+      const double B = m.Eval(c.bound[e - 1], x, y, z);
+      if (B > out.tStart.back()) {
+         out.tStart.push_back(B);
+         out.kin.push_back(c.hist.kin[e]);
+      } else {
+         out.kin.back() = c.hist.kin[e];
+      }
+   }
+}
+
 // Upper bound on how far a cell's footprint reaches from its home chunk:
 // the worst-case rOuter (as InteractionChunks) twice over, plus a chunk for
 // the packing displacement.
@@ -540,10 +557,10 @@ bool World::PastDeadline()
    return stopped_;
 }
 
-World::PersistRange World::PersistFor(int s, double t0, double t1) const
+World::PersistRange World::PersistFor(int s, double t0, double t1, const ClockView& v) const
 {
    const Kinetics& kin = labels_[(size_t)s].kin;
-   const KineticsHistory* h = HistoryOf(s);
+   const KineticsHistory* h = v.hist;
    const double maxOn = PersistentMaxOn(kin, h);
    bool any = kin.activationRatePerSec > 0;
    if (h) {
@@ -679,9 +696,8 @@ void World::GenerateNpcDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, i
    blk.generated = true;
 }
 
-void World::UseHistorySlot(DyeBlock& b) const
+void World::UseHistorySlot(DyeBlock& b, uint64_t fp) const
 {
-   const uint64_t fp = histFp_[(size_t)b.structure];
    if (b.fp == fp) return;
    DyeBlock::Slot cur;
    cur.fp = b.fp;
@@ -762,9 +778,9 @@ bool World::SetKineticsHistory(const std::vector<double>& tStart, const std::vec
    return true;
 }
 
-bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
+bool World::Schedule(DyeBlock& b, double tLo, double tMax, const ClockView& v) const
 {
-   UseHistorySlot(b);
+   UseHistorySlot(b, v.fp);
    if (b.scheduled && b.horizon >= tMax && b.tLo <= tLo) return false;
    const double horizon = 2 * tMax;
    b.events.clear();
@@ -773,13 +789,23 @@ bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
    b.persistent = label.mode == LabelMode::DnaPaint;
    if (!b.persistent && label.mode != LabelMode::WideField) {
       std::vector<Blink> blinks;
-      for (const PackedDye& d : b.dyes) {
+      KineticsHistory own;   // a dose clock with epochs: each dye's history from its bounds (ABI 14)
+      for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
+         const PackedDye& d = b.dyes[i];
          blinks.clear();
-         LabelSchedule(b.h1, d.K(), d.N(), label, &blinks, nullptr, horizon, HistoryOf(b.structure));
-         for (const Blink& bl : blinks) {
+         const KineticsHistory* h = v.hist;
+         if (v.dose) {
+            DoseHistory(*map_, *v.dose, d.x, d.y, d.z, own);
+            h = &own;
+         }
+         LabelSchedule(b.h1, d.K(), d.N(), label, &blinks, nullptr, horizon, h);
+         for (uint32_t j = 0; j < (uint32_t)blinks.size(); j++) {
+            const Blink& bl = blinks[j];
             if (!(bl.tOff > tLo)) continue;
-            b.events.push_back({ d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, 0.0, d.id, (uint8_t)b.structure,
-                                 STATE_BLINK });
+            WorldEvent e = { d.x, d.y, d.z, bl.tOn, bl.tOff, bl.brightness, 0.0, d.id, (uint8_t)b.structure,
+                             STATE_BLINK };
+            e.key = (uint64_t)i << 32 | j;
+            b.events.push_back(e);
             b.maxOn = std::max(b.maxOn, bl.tOff - bl.tOn);
          }
       }
@@ -793,18 +819,18 @@ bool World::Schedule(DyeBlock& b, double tLo, double tMax) const
    return true;
 }
 
-bool World::CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const
+bool World::CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1, uint64_t fp) const
 {
-   if (b.fp != histFp_[(size_t)b.structure] || b0 < b.pBin0 || b0 >= b.pBin1) return true;
+   if (b.fp != fp || b0 < b.pBin0 || b0 >= b.pBin1) return true;
    const double frac = b.phase * (1.0 / 4294967296.0);
    return !(b1 < b.pBin1 && t1 < (b.pBin1 - 1 + frac) * PERSIST_BIN_SEC);
 }
 
-bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const
+bool World::PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst, const ClockView& v) const
 {
-   UseHistorySlot(b);
+   UseHistorySlot(b, v.fp);
    const Kinetics& kin = labels_[(size_t)b.structure].kin;
-   const KineticsHistory* hist = HistoryOf(b.structure);
+   const KineticsHistory* hist = v.hist;
    double rate = kin.activationRatePerSec;
    if (hist) {
       rate = 0;
@@ -886,6 +912,7 @@ bool World::SetLabel(int structure, const Label& l)
          if (e.second.fp != 0) continue;
       }
       e.second.scheduled = false;
+      e.second.map.reset();
       std::vector<WorldEvent>().swap(e.second.events);
       std::vector<PersistentEvent>().swap(e.second.pEvents);
       e.second.pBin0 = e.second.pBin1 = 0;
@@ -1212,6 +1239,590 @@ long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, do
    }
    assetPrebuilt_.clear();
    return (long)cells.size();
+}
+
+// ---- ABI 14: the clock map (clockmap.h; spec/ALGORITHM.md "Exact light history") ----
+
+// A block's map state: made on first use, touched only by its block's prep (in parallel over blocks).
+struct World::DyeBlock::MapState {
+   // The present (the structure clock's fpNow): DOSE: per dye its dose at tOpen and per second after (valid where
+   // mark == gen, made on demand); the bounds over the block of both (ACTIVATION: of the rate).
+   uint64_t fpNow = 0;
+   uint32_t gen = 0;
+   std::vector<uint32_t> mark;
+   std::vector<double> clock, rate;
+   bool bounded = false;
+   double cLo = 0, cHi = 0, rLo = 0, rHi = 0;
+   // ACTIVATION: per dye its draw E and its walk over the steps (from: the steps summed, H: the hazard after them;
+   // from = CROSSED: activated within them, at H), valid for the steps of fingerprint chain (the first chainLen; a
+   // longer list with that prefix continues the walks); each step's increment bound over the block (stepHi, for the
+   // steps up to fingerprint stepFp) and their suffix sums remHi. For the present (actFp = fpNow): tAct, the exact
+   // activation where known (NaN: not yet; CROSSED: H), the end of its last blink (endAt, NaN: not known), and a
+   // min-heap of the dyes not live (a lower bound of their activation, or it), popped as the queries reach it.
+   static constexpr uint32_t CROSSED = 0xFFFFFFFFu;
+   bool haveE = false;
+   std::vector<double> E, H;
+   std::vector<uint32_t> from;
+   uint64_t chain = 0;
+   size_t chainLen = 0;
+   uint64_t stepFp = 0;
+   std::vector<double> stepHi, remHi;
+   bool haveAct = false;
+   uint64_t actFp = 0;
+   std::vector<double> tAct, endAt;
+   std::vector<uint8_t> isLive;
+   std::vector<std::pair<double, uint32_t>> heap;
+   // The live dyes of EventsInMap: activated before the last query's end, each with its whole schedule in arena (the
+   // blinks before next ended by liveT0; the dye dropped once all have). Time going back makes them anew.
+   struct Live {
+      uint32_t dye, begin, count, next;
+   };
+   double liveT0 = -INFINITY;
+   std::vector<Live> live;
+   std::vector<Blink> arena;
+   // The continuous windows of a dose or global clock on the dye's own clock (made once per schedule fingerprint
+   // contFp), sorted by their end (ties: dye order), each with its place in dye order.
+   struct Cont {
+      double on, off, aux;
+      uint32_t dye, order;
+      uint8_t state;
+   };
+   bool haveCont = false;
+   uint64_t contFp = 0;
+   std::vector<Cont> cont;
+   // The query's answer for this block (made in the parallel prep, taken in block order), and its counts (schedules
+   // built, dye clocks read, activation walks), summed into the stats by the serial pass.
+   std::vector<WorldEvent> out;
+   std::vector<MapWindow> contOut;
+   long nSchedules = 0, nDyes = 0, nWalks = 0;
+};
+
+namespace {
+struct MapQuery {
+   double x0, y0, x1, y1, zMin, zMax, t0, t1;
+   bool In(double x, double y, double z) const { return z >= zMin && z < zMax && x >= x0 && x < x1 && y >= y0 && y < y1; }
+};
+} // namespace
+
+bool World::SetClockMap(ClockMap m, std::string* err)
+{
+   if (m.s.size() != (size_t)STRUCTURE_COUNT) {
+      if (err) *err = "the clock map needs one clock per structure";
+      return false;
+   }
+   if (const char* e = m.Finish()) {
+      if (err) *err = e;
+      return false;
+   }
+   map_ = std::make_shared<const ClockMap>(std::move(m));
+   mapVersion_++;
+   return true;
+}
+
+int World::MapMode(int s) const
+{
+   const StructClock& c = map_->s[(size_t)s];
+   const Label& label = labels_[(size_t)s];
+   if (label.mode == LabelMode::DnaPaint) return CLOCK_GLOBAL;
+   if (c.mode == CLOCK_ACTIVATION && label.mode != LabelMode::PALM) return CLOCK_GLOBAL;
+   return c.mode;
+}
+
+World::ClockView World::MapView(int s) const
+{
+   const StructClock& c = map_->s[(size_t)s];
+   const bool doseEpochs = MapMode(s) == CLOCK_DOSE && c.hist.Size() > 1;
+   // A clock read on T where the map gives a dose or activation clock (MapMode): its kinetics as a history in T.
+   if (MapMode(s) == CLOCK_GLOBAL && c.mode != CLOCK_GLOBAL) return { &c.hist, c.fpHistT, nullptr };
+   return { &c.hist, c.fpSchedule, doseEpochs ? &c : nullptr };
+}
+
+void World::BlockBox(DyeBlock& b) const
+{
+   if (b.box) return;
+   double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY;
+   for (const PackedDye& d : b.dyes) {
+      x0 = std::min(x0, d.x); x1 = std::max(x1, d.x);
+      y0 = std::min(y0, d.y); y1 = std::max(y1, d.y);
+   }
+   b.bx0 = x0; b.bx1 = x1; b.by0 = y0; b.by1 = y1;
+   b.box = true;
+}
+
+World::DyeBlock::MapState& World::MapStateOf(DyeBlock& b) const
+{
+   if (!b.map) b.map = std::make_shared<DyeBlock::MapState>();
+   DyeBlock::MapState& ms = *b.map;
+   const StructClock& c = map_->s[(size_t)b.structure];
+   if (ms.fpNow != c.fpNow || !ms.bounded) {
+      ms.fpNow = c.fpNow;
+      if (++ms.gen == 0) {
+         std::fill(ms.mark.begin(), ms.mark.end(), 0u);
+         ms.gen = 1;
+      }
+      BlockBox(b);
+      map_->Bounds(c.total, b.bx0, b.bx1, b.by0, b.by1, b.zLo, b.zHi, c.totalC, ms.cLo, ms.cHi);
+      map_->Bounds(c.rate, b.bx0, b.bx1, b.by0, b.by1, b.zLo, b.zHi, c.rateC, ms.rLo, ms.rHi);
+      ms.bounded = true;
+   }
+   return ms;
+}
+
+void World::DoseOf(DyeBlock& b, uint32_t i, double& clock, double& rate) const
+{
+   DyeBlock::MapState& ms = *b.map;
+   if (ms.mark.size() != b.dyes.size()) {   // made on the first dose read
+      ms.mark.assign(b.dyes.size(), 0u);
+      ms.clock.assign(b.dyes.size(), 0.0);
+      ms.rate.assign(b.dyes.size(), 0.0);
+   }
+   if (ms.mark[i] != ms.gen) {
+      const StructClock& c = map_->s[(size_t)b.structure];
+      const PackedDye& d = b.dyes[i];
+      ms.clock[i] = map_->Eval(c.total, d.x, d.y, d.z, c.totalC);
+      ms.rate[i] = map_->Eval(c.rate, d.x, d.y, d.z, c.rateC);
+      ms.mark[i] = ms.gen;
+      ms.nDyes++;
+   }
+   clock = ms.clock[i];
+   rate = ms.rate[i];
+}
+
+namespace {
+using HeapItem = std::pair<double, uint32_t>;
+// A min-heap on (time, dye).
+bool HeapAfter(const HeapItem& a, const HeapItem& e) { return a > e; }
+} // namespace
+
+void World::ActPrep(DyeBlock& b) const
+{
+   DyeBlock::MapState& ms = MapStateOf(b);
+   const StructClock& c = map_->s[(size_t)b.structure];
+   const size_t n = b.dyes.size();
+   const double nan = std::numeric_limits<double>::quiet_NaN();
+   if (!ms.haveE || ms.E.size() != n) {
+      ms.E.resize(n);
+      for (size_t i = 0; i < n; i++) ms.E[i] = ActivationDraw(b.h1, b.dyes[i].K(), b.dyes[i].N());
+      ms.haveE = true;
+      ms.from.clear();
+   }
+   if (ms.from.size() != n || ms.chainLen > c.steps.size() ||
+       (ms.chainLen > 0 && c.stepFp[ms.chainLen - 1] != ms.chain)) {
+      // Steps other than those walked: every walk from the start.
+      ms.from.assign(n, 0u);
+      ms.H.assign(n, 0.0);
+      ms.tAct.assign(n, nan);
+      ms.endAt.assign(n, nan);
+      ms.isLive.assign(n, 0);
+      ms.live.clear();
+      ms.arena.clear();
+      ms.chainLen = 0;
+      ms.chain = 0;
+      ms.haveAct = false;
+   }
+   const uint64_t sfp = c.steps.empty() ? 0 : c.stepFp.back();
+   if (ms.stepFp != sfp || ms.stepHi.size() != c.steps.size() || ms.remHi.size() != c.steps.size() + 1) {
+      // The bounds of the steps both lists share (the same prefix), then the new ones.
+      size_t keep = ms.stepHi.size();
+      if (!(keep <= c.steps.size() && (keep == 0 || c.stepFp[keep - 1] == ms.stepFp))) keep = 0;
+      BlockBox(b);
+      ms.stepHi.resize(keep);
+      for (size_t k = keep; k < c.steps.size(); k++) {
+         double lo, hi;
+         map_->Bounds(c.steps[k].field, b.bx0, b.bx1, b.by0, b.by1, b.zLo, b.zHi, c.steps[k].c, lo, hi);
+         ms.stepHi.push_back(std::max(0.0, hi));
+      }
+      ms.remHi.assign(c.steps.size() + 1, 0.0);
+      for (size_t k = c.steps.size(); k-- > 0;) ms.remHi[k] = ms.remHi[k + 1] + ms.stepHi[k];
+      ms.stepFp = sfp;
+   }
+   if (ms.haveAct && ms.actFp == c.fpNow) return;
+   // A new present: the activations after the steps are new (the live dyes activated in them stay).
+   for (size_t i = 0; i < n; i++) {
+      if (ms.from[i] == DyeBlock::MapState::CROSSED) {
+         ms.tAct[i] = ms.H[i];
+      } else {
+         ms.tAct[i] = nan;
+         ms.endAt[i] = nan;
+      }
+   }
+   size_t k = 0;
+   for (const DyeBlock::MapState::Live& L : ms.live) {
+      if (ms.from[L.dye] == DyeBlock::MapState::CROSSED) ms.live[k++] = L;
+      else ms.isLive[L.dye] = 0;
+   }
+   ms.live.resize(k);
+   ActHeap(b, ms.liveT0);
+   ms.haveAct = true;
+   ms.actFp = c.fpNow;
+}
+
+void World::ActHeap(DyeBlock& b, double tNow) const
+{
+   DyeBlock::MapState& ms = *b.map;
+   const StructClock& c = map_->s[(size_t)b.structure];
+   ms.heap.clear();
+   for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
+      if (ms.isLive[i] || ms.endAt[i] <= tNow) continue;   // live, or every blink ended by now
+      double key = ms.tAct[i];
+      if (std::isnan(key)) {
+         // A lower bound: the hazard still missing after every remaining step's most, at the block's highest rate.
+         const size_t f = ms.from[i];
+         const double g = ms.E[i] - ms.H[i] - ms.remHi[f];
+         if (g <= 0) key = f < c.steps.size() ? c.steps[f].t0 : c.tOpen;
+         else key = ms.rHi > 0 ? c.tOpen + g / ms.rHi : INFINITY;
+      }
+      if (key < INFINITY) ms.heap.push_back({ key, i });
+   }
+   std::make_heap(ms.heap.begin(), ms.heap.end(), HeapAfter);
+}
+
+double World::ExactAct(DyeBlock& b, uint32_t i) const
+{
+   DyeBlock::MapState& ms = *b.map;
+   if (!std::isnan(ms.tAct[i])) return ms.tAct[i];
+   const StructClock& c = map_->s[(size_t)b.structure];
+   const PackedDye& d = b.dyes[i];
+   size_t f = ms.from[i];
+   double H = ms.H[i];
+   if (f < c.steps.size()) {
+      const double t = ActivationInSteps(*map_, c, d.x, d.y, d.z, ms.E[i], f, H);
+      ms.nWalks++;
+      const size_t used = std::isnan(t) ? f : f + 1;
+      if (used > ms.chainLen) {
+         ms.chainLen = used;
+         ms.chain = c.stepFp[used - 1];
+      }
+      if (!std::isnan(t)) {
+         ms.from[i] = DyeBlock::MapState::CROSSED;
+         ms.H[i] = t;
+         return ms.tAct[i] = t;
+      }
+      ms.from[i] = (uint32_t)f;
+      ms.H[i] = H;
+   }
+   // After the steps: the open record's rate.
+   const double S = map_->Eval(c.rate, d.x, d.y, d.z, c.rateC);
+   ms.nDyes++;
+   return ms.tAct[i] = S > 0 ? c.tOpen + (ms.E[i] - H) / S : INFINITY;
+}
+
+bool World::MapNeeds(const DyeBlock& b, double, double) const
+{
+   return !b.dyes.empty();
+}
+
+bool World::MapPrep(DyeBlock& b, double t0, double t1, bool shortFirst) const
+{
+   if (b.dyes.empty()) return false;
+   const int s = b.structure;
+   const int mode = MapMode(s);
+   const StructClock& c = map_->s[(size_t)s];
+   bool built = false;
+   if (mode == CLOCK_GLOBAL) {
+      const ClockView v = MapView(s);
+      built = Schedule(b, t0, t1, v);
+      const PersistRange pr = PersistFor(s, t0, t1, v);
+      if (pr.persist && b.persistent && PersistentCover(b, pr.b0, pr.b1, t1, shortFirst, v)) built = true;
+      return built;
+   }
+   DyeBlock::MapState& ms = MapStateOf(b);
+   if (mode == CLOCK_DOSE) {
+      if (!(ms.rHi > 0)) return false;   // frozen everywhere: nothing to show
+      const double d0 = t0 - c.tOpen, d1 = t1 - c.tOpen;
+      const double lo = ms.cLo + (d0 >= 0 ? ms.rLo * d0 : ms.rHi * d0);
+      const double hi = ms.cHi + (d1 >= 0 ? ms.rHi * d1 : ms.rLo * d1);
+      // From a whole second of dose below (the bounds' rounding margin moves with them: a pose change that leaves a
+      // block's least dose alone must not rebuild its schedule).
+      return Schedule(b, std::max(0.0, std::floor(lo) - 1.0), hi, MapView(s));
+   }
+   // ACTIVATION: every dye's activation for the present (no schedule: the blinks are made per live dye).
+   ActPrep(b);
+   return false;
+}
+
+void World::EventsInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                        std::vector<WorldEvent>& out)
+{
+   if (!map_) {
+      EventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1, out);
+      return;
+   }
+   PoolScope scope(pool_);
+   const MapQuery q = { x0, y0, x1, y1, zMin, zMax, t0, t1 };
+   auto visible = [&](const DyeBlock& b) { return !b.dyes.empty() && !(b.zHi < zMin || b.zLo >= zMax); };
+   // Each block's answer is made in the parallel prep (it reads and builds only its own caches), then taken in order.
+   auto emit = [&](DyeBlock& b) {
+      const bool built = MapPrep(b, t0, t1, true);
+      MapStateOf(b).nSchedules += built;
+      std::vector<WorldEvent> res;
+      const int s = b.structure;
+      const int mode = MapMode(s);
+      const StructClock& c = map_->s[(size_t)s];
+      if (mode == CLOCK_GLOBAL) {
+         // As EventsInWindow, on T.
+         const ClockView v = MapView(s);
+         auto it = std::lower_bound(b.events.begin(), b.events.end(), t0 - b.maxOn,
+                                    [](const WorldEvent& e, double t) { return e.tOn < t; });
+         for (; it != b.events.end() && it->tOn < t1; ++it)
+            if (it->tOff > t0 && q.In(it->x, it->y, it->z)) res.push_back(*it);
+         const PersistRange pr = PersistFor(s, t0, t1, v);
+         if (b.persistent && pr.persist) {
+            std::vector<const PersistentEvent*> hit;
+            auto p = std::lower_bound(b.pEvents.begin(), b.pEvents.end(), pr.b0 * PERSIST_BIN_SEC,
+                                      [](const PersistentEvent& e, double t) { return e.tOn < t; });
+            for (; p != b.pEvents.end() && p->tOn < t1; ++p) {
+               if (p->bin < (uint32_t)pr.b0 || !(p->tOff > t0)) continue;
+               const PackedDye& d = b.dyes[p->dye];
+               if (q.In(d.x, d.y, d.z)) hit.push_back(&*p);
+            }
+            std::sort(hit.begin(), hit.end(), [](const PersistentEvent* a, const PersistentEvent* e) {
+               return a->dye != e->dye ? a->dye < e->dye : a->bin != e->bin ? a->bin < e->bin : a->j < e->j;
+            });
+            for (const PersistentEvent* e : hit) {
+               const PackedDye& d = b.dyes[e->dye];
+               res.push_back({ d.x, d.y, d.z, e->tOn, e->tOff, e->brightness, 0.0, d.id, (uint8_t)s, STATE_BLINK });
+            }
+         }
+      } else {
+         DyeBlock::MapState& ms = MapStateOf(b);
+         struct Cand { double tOn, own; uint64_t key; WorldEvent e; };
+         std::vector<Cand> cand;
+         if (mode == CLOCK_DOSE && ms.rHi > 0) {
+            // The block's events on the dose clock that some dye's window can reach, each against its own window,
+            // mapped to T at its dye's rate now.
+            const double d0 = t0 - c.tOpen, d1 = t1 - c.tOpen;
+            const double lo = ms.cLo + (d0 >= 0 ? ms.rLo * d0 : ms.rHi * d0);
+            const double hi = ms.cHi + (d1 >= 0 ? ms.rHi * d1 : ms.rLo * d1);
+            auto it = std::lower_bound(b.events.begin(), b.events.end(), lo - b.maxOn,
+                                       [](const WorldEvent& e, double t) { return e.tOn < t; });
+            for (; it != b.events.end() && it->tOn < hi; ++it) {
+               const WorldEvent& e = *it;
+               if (!(e.tOff > lo) || !q.In(e.x, e.y, e.z)) continue;
+               double tau, R;
+               DoseOf(b, (uint32_t)(e.key >> 32), tau, R);
+               if (!(R > 0)) continue;
+               const double a0 = tau + R * d0, a1 = tau + R * d1;
+               if (!(e.tOn < a1 && e.tOff > a0)) continue;
+               WorldEvent o = e;
+               o.tOn = c.tOpen + (e.tOn - tau) / R;
+               o.tOff = c.tOpen + (e.tOff - tau) / R;
+               cand.push_back({ o.tOn, e.tOn, e.key, o });
+            }
+         } else if (mode == CLOCK_ACTIVATION) {
+            // The live dyes: those activated before t1 whose blinks have not all ended by t0, taken from the heap.
+            using Live = DyeBlock::MapState::Live;
+            if (t0 < ms.liveT0) {   // time went back: anew from t0
+               for (const DyeBlock::MapState::Live& L : ms.live) ms.isLive[L.dye] = 0;
+               ms.live.clear();
+               ms.arena.clear();
+               ActHeap(b, t0);
+            }
+            ms.liveT0 = t0;
+            std::vector<Blink> bl;
+            const Label& label = labels_[(size_t)s];
+            while (!ms.heap.empty() && ms.heap.front().first < t1) {
+               std::pop_heap(ms.heap.begin(), ms.heap.end(), HeapAfter);
+               const uint32_t i = ms.heap.back().second;
+               ms.heap.pop_back();
+               const double tA = ExactAct(b, i);
+               if (!(tA < t1)) {   // later: back with its exact time
+                  if (tA < INFINITY) {
+                     ms.heap.push_back({ tA, i });
+                     std::push_heap(ms.heap.begin(), ms.heap.end(), HeapAfter);
+                  }
+                  continue;
+               }
+               if (ms.endAt[i] <= t0) continue;   // every blink ended before (NaN: not known yet)
+               const PackedDye& d = b.dyes[i];
+               bl.clear();
+               LabelScheduleActivated(b.h1, d.K(), d.N(), label, &c.hist, tA, &bl, nullptr);
+               ms.endAt[i] = bl.empty() ? tA : bl.back().tOff;
+               if (ms.endAt[i] <= t0) continue;
+               ms.isLive[i] = 1;
+               ms.live.push_back({ i, (uint32_t)ms.arena.size(), (uint32_t)bl.size(), 0u });
+               ms.arena.insert(ms.arena.end(), bl.begin(), bl.end());
+            }
+            size_t kept = 0;
+            for (size_t k = 0; k < ms.live.size();) {
+               Live& L = ms.live[k];
+               const Blink* a = ms.arena.data() + L.begin;
+               while (L.next < L.count && !(a[L.next].tOff > t0)) L.next++;
+               if (L.next == L.count) {   // all ended: never again (time goes on)
+                  ms.isLive[L.dye] = 0;
+                  ms.live[k] = ms.live.back();
+                  ms.live.pop_back();
+                  continue;
+               }
+               kept += L.count;
+               const PackedDye& d = b.dyes[L.dye];
+               if (q.In(d.x, d.y, d.z))
+                  for (uint32_t j = L.next; j < L.count && a[j].tOn < t1; j++) {
+                     WorldEvent e = { d.x, d.y, d.z, a[j].tOn, a[j].tOff, a[j].brightness, 0.0, d.id, (uint8_t)s,
+                                      STATE_BLINK };
+                     e.key = (uint64_t)L.dye << 32 | j;
+                     cand.push_back({ e.tOn, e.tOn, e.key, e });
+                  }
+               k++;
+            }
+            if (ms.arena.size() > 4096 && ms.arena.size() > 4 * kept) {   // drop the dead dyes' blinks
+               std::vector<Blink> a;
+               a.reserve(kept);
+               for (Live& L : ms.live) {
+                  const uint32_t at = (uint32_t)a.size();
+                  a.insert(a.end(), ms.arena.begin() + L.begin, ms.arena.begin() + L.begin + L.count);
+                  L.begin = at;
+               }
+               ms.arena.swap(a);
+            }
+         }
+         std::sort(cand.begin(), cand.end(), [](const Cand& a, const Cand& e) {
+            return a.tOn != e.tOn ? a.tOn < e.tOn : a.own != e.own ? a.own < e.own : a.key < e.key;
+         });
+         res.reserve(cand.size());
+         for (const Cand& k : cand) res.push_back(k.e);
+      }
+      MapStateOf(b).out.swap(res);
+   };
+   ForEachDyeBlock(
+      x0, y0, x1, y1, zMin, zMax, emit, [&](const DyeBlock& b) { return visible(b); },
+      [&](DyeBlock& b) {
+         if (!visible(b) || !b.map) return;
+         DyeBlock::MapState& ms = *b.map;
+         out.insert(out.end(), ms.out.begin(), ms.out.end());
+         ms.out.clear();
+         stats_.schedulesBuilt += ms.nSchedules;
+         stats_.mapDyes += ms.nDyes;
+         stats_.mapWalks += ms.nWalks;
+         ms.nSchedules = ms.nDyes = ms.nWalks = 0;
+      });
+}
+
+void World::ContinuousInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                            std::vector<MapWindow>& out)
+{
+   if (!map_) {
+      std::vector<WorldEvent> ev;
+      ContinuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin, ev);
+      for (const WorldEvent& e : ev) out.push_back({ e, 0.0, 1.0 });
+      return;
+   }
+   PoolScope scope(pool_);
+   auto visible = [&](const DyeBlock& b) {
+      return !b.dyes.empty() && !(b.zHi < zMin || b.zLo >= zMax) &&
+             labels_[(size_t)b.structure].mode != LabelMode::DnaPaint;
+   };
+   auto in = [&](const PackedDye& d) { return d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1; };
+   auto emit = [&](DyeBlock& b) {
+      const int s = b.structure;
+      const Label& label = labels_[(size_t)s];
+      const int mode = MapMode(s);
+      const StructClock& c = map_->s[(size_t)s];
+      DyeBlock::MapState& ms = MapStateOf(b);
+      std::vector<MapWindow>& res = ms.contOut;
+      res.clear();
+      std::vector<ContWindow> cont;
+      if (mode == CLOCK_ACTIVATION) {
+         // The pre windows end at each dye's activation (made per query from the walk's memo).
+         ActPrep(b);
+         for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
+            const PackedDye& d = b.dyes[i];
+            if (!in(d)) continue;
+            cont.clear();
+            const double tA = ExactAct(b, i);
+            LabelScheduleActivated(b.h1, d.K(), d.N(), label, &c.hist, tA, nullptr, &cont);
+            for (const ContWindow& w : cont)
+               if (w.tOff > tMin)
+                  res.push_back({ { d.x, d.y, d.z, w.tOn, w.tOff, 1.0, w.aux, d.id, (uint8_t)s, w.state }, tA, 1.0 });
+         }
+         return;
+      }
+      // Dose and global clocks: the windows on the dye's own clock, cached per schedule fingerprint.
+      const ClockView v = MapView(s);
+      if (!ms.haveCont || ms.contFp != v.fp) {
+         ms.cont.clear();
+         KineticsHistory own;
+         uint32_t order = 0;
+         for (uint32_t i = 0; i < (uint32_t)b.dyes.size(); i++) {
+            const PackedDye& d = b.dyes[i];
+            const KineticsHistory* h = v.hist;
+            if (v.dose) {
+               DoseHistory(*map_, *v.dose, d.x, d.y, d.z, own);
+               h = &own;
+            }
+            cont.clear();
+            LabelSchedule(b.h1, d.K(), d.N(), label, nullptr, &cont, INFINITY, h);
+            for (const ContWindow& w : cont) ms.cont.push_back({ w.tOn, w.tOff, w.aux, i, order++, w.state });
+         }
+         std::stable_sort(ms.cont.begin(), ms.cont.end(),
+                          [](const DyeBlock::MapState::Cont& a, const DyeBlock::MapState::Cont& e) { return a.off < e.off; });
+         ms.haveCont = true;
+         ms.contFp = v.fp;
+      }
+      // Only windows ending after the block's least clock at tMin can still be open.
+      double lo = tMin;
+      if (mode == CLOCK_DOSE) {
+         const double d0 = tMin - c.tOpen;
+         lo = ms.cLo + (d0 >= 0 ? ms.rLo * d0 : ms.rHi * d0);
+      }
+      auto it = std::upper_bound(ms.cont.begin(), ms.cont.end(), lo,
+                                 [](double t, const DyeBlock::MapState::Cont& w) { return t < w.off; });
+      std::vector<std::pair<uint32_t, MapWindow>> hit;
+      for (; it != ms.cont.end(); ++it) {
+         const PackedDye& d = b.dyes[it->dye];
+         if (!in(d)) continue;
+         double on = it->on, off = it->off, clock = c.tOpen, rate = 1.0;
+         if (mode == CLOCK_DOSE) {
+            DoseOf(b, it->dye, clock, rate);
+            if (rate > 0) {
+               on = c.tOpen + (it->on - clock) / rate;
+               off = c.tOpen + (it->off - clock) / rate;
+            } else {   // frozen: a window holding its dose lasts, the others never are
+               if (it->on > clock || !(it->off > clock)) continue;
+               on = -INFINITY;
+               off = INFINITY;
+            }
+         }
+         if (off > tMin)
+            hit.push_back({ it->order, { { d.x, d.y, d.z, on, off, 1.0, it->aux, d.id, (uint8_t)s, it->state }, clock, rate } });
+      }
+      std::sort(hit.begin(), hit.end(), [](const std::pair<uint32_t, MapWindow>& a, const std::pair<uint32_t, MapWindow>& e) {
+         return a.first < e.first;
+      });
+      res.reserve(hit.size());
+      for (const auto& h : hit) res.push_back(h.second);
+   };
+   ForEachDyeBlock(
+      x0, y0, x1, y1, zMin, zMax, emit, [&](const DyeBlock& b) { return visible(b); },
+      [&](DyeBlock& b) {
+         if (!visible(b) || !b.map) return;
+         DyeBlock::MapState& ms = *b.map;
+         out.insert(out.end(), ms.contOut.begin(), ms.contOut.end());
+         std::vector<MapWindow>().swap(ms.contOut);
+         stats_.mapDyes += ms.nDyes;
+         stats_.mapWalks += ms.nWalks;
+         ms.nDyes = ms.nWalks = 0;
+      });
+}
+
+bool World::PrefetchMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                        double budgetMs)
+{
+   if (!map_) return Prefetch(x0, y0, x1, y1, zMin, zMax, t0, t1, budgetMs);
+   PoolScope scope(pool_);
+   const auto deadline = std::chrono::steady_clock::now() +
+                         std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                            std::chrono::duration<double, std::milli>(std::max(0.0, budgetMs)));
+   deadline_ = &deadline;
+   stopped_ = false;
+   ForEachDyeBlock(
+      x0, y0, x1, y1, zMin, zMax, [&](DyeBlock& b) { MapPrep(b, t0, t1, false); },
+      [&](const DyeBlock& b) { return MapNeeds(b, t0, t1); }, [](DyeBlock&) {});
+   deadline_ = nullptr;
+   const bool complete = !stopped_;
+   stopped_ = false;
+   stats_.prefetches++;
+   return complete;
 }
 
 } // namespace isc

@@ -148,6 +148,7 @@
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
+    <ClCompile Include="..\..\core\src\clockmap.cpp" />
     <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />

@@ -212,6 +212,11 @@ void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::ve
 // DyeSchedule's (or this function's without that segment) bit for bit.
 void DyeScheduleHistory(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, std::vector<Blink>& out,
                         double tMax = INFINITY);
+// The two from a given first activation t (ABI 14, an activation clock: the blinks after it, the same arithmetic).
+void DyeScheduleFrom(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t, std::vector<Blink>& out,
+                     double tMax = INFINITY);
+void DyeScheduleHistoryFrom(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, double t,
+                            std::vector<Blink>& out, double tMax = INFINITY);
 
 // The emission of label dye (k, n) (JS labelSchedule): blinks of the main
 // state (dSTORM, PALM; DNA-PAINT blinks come from PersistentBlinks) and the
@@ -226,6 +231,13 @@ void DyeScheduleHistory(uint32_t h1, int32_t k, int32_t n, const KineticsHistory
 // window ends at the first activation of DyeScheduleHistory.
 void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::vector<Blink>* blinks,
                    std::vector<ContWindow>* cont, double tMax = INFINITY, const KineticsHistory* hist = nullptr);
+// A PALM dye under an activation clock (ABI 14): activated at tAct (infinity: not yet), its blinks from then on under
+// hist (as LabelSchedule's; nullptr: label.kin), a pre state [0, tAct). Nothing for other modes.
+void LabelScheduleActivated(uint32_t h1, int32_t k, int32_t n, const Label& label, const KineticsHistory* hist,
+                            double tAct, std::vector<Blink>* blinks, std::vector<ContWindow>* cont,
+                            double tMax = INFINITY);
+// The unit-exponential draw a dye's first activation spends (DYE_CH::ACT).
+double ActivationDraw(uint32_t h1, int32_t k, int32_t n);
 
 // Blinks of persistent site (k, n) overlapping [t0, t1) (t >= 0), a pure
 // function of (address, time bin). Appends, by bin. hist (ABI 11): a bin's

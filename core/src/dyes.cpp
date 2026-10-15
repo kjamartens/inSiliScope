@@ -257,11 +257,17 @@ long PoissonFromUniform(double m, double u, double u2)
 void DyeSchedule(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, std::vector<Blink>& out, double tMax)
 {
    if (!(kin.activationRatePerSec > 0)) return;
+   const double t = -jsm::log(Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ACT).a)) / kin.activationRatePerSec;
+   DyeScheduleFrom(h1, k, n, kin, t, out, tMax);
+}
+
+void DyeScheduleFrom(uint32_t h1, int32_t k, int32_t n, const Kinetics& kin, double t, std::vector<Blink>& out,
+                     double tMax)
+{
    auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
    const double pBleach = std::min(1.0, std::max(0.01, kin.bleachProb));
    const double cv = std::max(0.0, kin.photonCV);
    const LogNormalParams ln = LogNormalFor(cv);
-   double t = -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec;
    for (int j = 0; j < DYE_MAX_BLINKS; j++) {
       if (t >= tMax) break;
       const uint32_t base = DYE_CH::SCHED0 + (uint32_t)j * DYE_CH::SCHED_STRIDE;
@@ -339,9 +345,16 @@ double ScaleInitialOn(const Kinetics& q) { return q.initialOnSec; }
 void DyeScheduleHistory(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, std::vector<Blink>& out,
                         double tMax)
 {
+   const double t = HazardWalk(h, t0).AfterRate(0.0, -jsm::log(Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ACT).a)),
+                                                RateAct);
+   DyeScheduleHistoryFrom(h1, k, n, h, t0, t, out, tMax);
+}
+
+void DyeScheduleHistoryFrom(uint32_t h1, int32_t k, int32_t n, const KineticsHistory& h, double t0, double t,
+                            std::vector<Blink>& out, double tMax)
+{
    auto U = [&](uint32_t ch) { return Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, ch).a); };
    HazardWalk w(h, t0);
-   double t = w.AfterRate(0.0, -jsm::log(U(DYE_CH::ACT)), RateAct);
    double lnCv = -1;
    LogNormalParams ln = { 0, 0 };
    for (int j = 0; j < DYE_MAX_BLINKS; j++) {
@@ -426,6 +439,27 @@ void LabelSchedule(uint32_t h1, int32_t k, int32_t n, const Label& label, std::v
          tOff = kin.activationRatePerSec > 0 ? -jsm::log(U(DYE_CH::ACT)) / kin.activationRatePerSec : INFINITY;
       cont->push_back({ 0.0, tOff, STATE_PRE, -jsm::log(U(DYE_CH::AUX)) });
    }
+}
+
+void LabelScheduleActivated(uint32_t h1, int32_t k, int32_t n, const Label& label, const KineticsHistory* hist,
+                            double tAct, std::vector<Blink>* blinks, std::vector<ContWindow>* cont, double tMax)
+{
+   if (label.mode != LabelMode::PALM) return;
+   const KineticsHistory* multi = hist && hist->Size() >= 2 ? hist : nullptr;
+   const Kinetics& kin = hist && hist->Size() == 1 ? hist->kin[0] : label.kin;
+   if (blinks && std::isfinite(tAct)) {
+      if (multi)
+         DyeScheduleHistoryFrom(h1, k, n, *multi, 0.0, tAct, *blinks, tMax);
+      else
+         DyeScheduleFrom(h1, k, n, kin, tAct, *blinks, tMax);
+   }
+   if (cont && label.preState)
+      cont->push_back({ 0.0, tAct, STATE_PRE, -jsm::log(Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::AUX).a)) });
+}
+
+double ActivationDraw(uint32_t h1, int32_t k, int32_t n)
+{
+   return -jsm::log(Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::ACT).a));
 }
 
 bool DyeOrientation(uint32_t h1, int32_t k, int32_t n, const Label& label, const MtFrames& fr, size_t seg, double theta,

@@ -143,6 +143,9 @@
     <ClCompile Include="..\..\core\src\params.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\clockmap.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\world.cpp">
       <Filter>Core</Filter>
     </ClCompile>

@@ -16,6 +16,7 @@
 
 #include "blockstore.h"
 #include "cells.h"
+#include "clockmap.h"
 #include "dyes.h"
 #include "microtubules.h"
 #include "npcs.h"
@@ -94,6 +95,14 @@ struct WorldEvent {
    double aux;
    uint32_t id;
    uint8_t structure, state;
+   uint64_t key = 0;   // a scheduled blink in its block: dye index << 32 | blink index (the map queries' order)
+};
+
+// A continuous window of a map query (ABI 14): the window in the sample's time and the dye's clock -- DOSE: its dose
+// at tOpen and per second after; ACTIVATION: its activation time and 1; GLOBAL: tOpen and 1.
+struct MapWindow {
+   WorldEvent e;
+   double clock, rate;
 };
 
 // A persistent-site blink cached in its dye block: dye index in the block,
@@ -112,6 +121,8 @@ struct WorldStats {
    long schedulesBuilt = 0;     // blocks whose blink schedules were built
    long persistentBuilt = 0;    // persistent-blink bin ranges built
    long prefetches = 0;         // Prefetch passes that scanned
+   long mapDyes = 0;            // ABI 14: dyes whose clock a map query read (each once per present)
+   long mapWalks = 0;           // ... and activation walks over the steps
 };
 
 class World {
@@ -197,6 +208,24 @@ public:
       return hist_[(size_t)s].Size() ? &hist_[(size_t)s] : nullptr;
    }
 
+   // ABI 14 (clockmap.h): the clock map of the map queries below (the ABI 11 history stays for the others). False
+   // (nothing changes) on bad input, with why in err. A DNA-PAINT label is always on the sample's time (its clock's
+   // kinetics history; binding needs no light), and an activation clock applies to PALM only (others: on T).
+   bool SetClockMap(ClockMap m, std::string* err = nullptr);
+   void ClearClockMap() { map_.reset(); }
+   const ClockMap* GetClockMap() const { return map_.get(); }
+   // Blinks overlapping [t0, t1) of the sample's time T, each dye read on its own clock, times in T (state
+   // STATE_BLINK). A dye at a dose rate 0 now is frozen and emits nothing. Order: by block, then (tOn, the blink's time
+   // on its own clock, dye, blink) -- under a uniform map EventsInWindow's order and values.
+   void EventsInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                    std::vector<WorldEvent>& out);
+   // The continuous windows ending after tMin (T), dye order per block, times in T, with each dye's clock.
+   void ContinuousInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                        std::vector<MapWindow>& out);
+   // Prefetch for the map queries over [t0, t1) of T.
+   bool PrefetchMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
+                    double budgetMs);
+
    // Mean emission dipole of a dye from SitesInWindow (DyeOrientation; false
    // for Free), cell-local. A pore dye: Fixed about the pore axis and its
    // corner's direction.
@@ -252,6 +281,14 @@ public:
    const WorldStats& Stats() const { return stats_; }
 
 private:
+   // The kinetics a schedule reads: a history (nullptr: the label's kinetics) and its fingerprint (0: none); dose: a
+   // dose clock with epochs (each dye's history from its bounds; ABI 14).
+   struct ClockView {
+      const KineticsHistory* hist;
+      uint64_t fp;
+      const StructClock* dose;
+   };
+   ClockView ViewOf(int s) const { return { HistoryOf(s), histFp_[(size_t)s], nullptr }; }
    // A dye in its block (issue 16: millions of dyes in a dense FOV, so the
    // cell, microtubule and structure are the block's): world position, id,
    // and the lattice address kn = k << 24 | n.
@@ -292,6 +329,11 @@ private:
          long pBin0 = 0, pBin1 = 0;
       };
       std::vector<Slot> parked;
+      // ABI 14: the dyes' xy extent, and the clock map's state (MapState, made on first use).
+      bool box = false;
+      double bx0 = 0, bx1 = 0, by0 = 0, by1 = 0;
+      struct MapState;
+      std::shared_ptr<MapState> map;
    };
    // A shaped illumination's 1/16 dose steps make up to 16 histories in a FOV.
    static constexpr size_t kParkedSlots = 15;
@@ -315,9 +357,33 @@ private:
    // extends them ahead of time at a per-block point of their last bin
    // (shortFirst: a first build reaches only one bin ahead). True if it built
    // anything. Touches only b (runs in parallel).
-   bool PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const;
+   bool PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst) const
+   {
+      return PersistentCover(b, b0, b1, t1, shortFirst, ViewOf(b.structure));
+   }
+   bool PersistentCover(DyeBlock& b, long b0, long b1, double t1, bool shortFirst, const ClockView& v) const;
    // Whether PersistentCover(b, b0, b1, t1) would build (the same test).
-   bool CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const;
+   bool CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1) const
+   {
+      return CoverWouldBuild(b, b0, b1, t1, histFp_[(size_t)b.structure]);
+   }
+   bool CoverWouldBuild(const DyeBlock& b, long b0, long b1, double t1, uint64_t fp) const;
+   // ABI 14: the clock a map query reads for structure s (DNA-PAINT and a non-PALM activation clock: on T) and its
+   // ClockView, b's dye extent, and the map's per-dye state of b.
+   int MapMode(int s) const;
+   ClockView MapView(int s) const;
+   void BlockBox(DyeBlock& b) const;
+   DyeBlock::MapState& MapStateOf(DyeBlock& b) const;
+   // DOSE: dye i's dose at tOpen and per second (made once per present).
+   void DoseOf(DyeBlock& b, uint32_t i, double& clock, double& rate) const;
+   // ACTIVATION: the block's walks valid for the map's steps and, for a new present, its heap of dyes (ActHeap: those
+   // not live and not ended by tNow, keyed by a lower bound of their activation); ExactAct: dye i's activation.
+   void ActPrep(DyeBlock& b) const;
+   void ActHeap(DyeBlock& b, double tNow) const;
+   double ExactAct(DyeBlock& b, uint32_t i) const;
+   // The map-query prep of one block over [t0, t1) of T (in parallel over blocks; touches only b).
+   bool MapPrep(DyeBlock& b, double t0, double t1, bool shortFirst) const;
+   bool MapNeeds(const DyeBlock& b, double t0, double t1) const;
 
    std::vector<Cell> PackBlock(int32_t bx, int32_t by) const;
    // Builds the assets of those cells not cached yet, in parallel, for the
@@ -356,18 +422,24 @@ private:
    // 2 tMax. A dye's blinks there do not depend on the query (DyeSchedule is
    // sequential from t = 0 and stops at the horizon), so any query history
    // gives the same blinks. True if it built (touches only b).
-   bool Schedule(DyeBlock& b, double tLo, double tMax) const;
+   bool Schedule(DyeBlock& b, double tLo, double tMax) const { return Schedule(b, tLo, tMax, ViewOf(b.structure)); }
+   bool Schedule(DyeBlock& b, double tLo, double tMax, const ClockView& v) const;
    bool ScheduleCovers(const DyeBlock& b, double tLo, double tMax) const
    {
-      return b.fp == histFp_[(size_t)b.structure] && b.scheduled && b.horizon >= tMax && b.tLo <= tLo;
+      return ScheduleCovers(b, tLo, tMax, histFp_[(size_t)b.structure]);
    }
-   // Makes b's schedule fields those of the current history of its structure:
+   bool ScheduleCovers(const DyeBlock& b, double tLo, double tMax, uint64_t fp) const
+   {
+      return b.fp == fp && b.scheduled && b.horizon >= tMax && b.tLo <= tLo;
+   }
+   // Makes b's schedule fields those of the history of fingerprint fp:
    // a parked slot of that history, else empty ones (the old ones parked).
    // Touches only b.
-   void UseHistorySlot(DyeBlock& b) const;
+   void UseHistorySlot(DyeBlock& b, uint64_t fp) const;
    // The DNA-PAINT bin range of a query [t0, t1) for structure s.
    struct PersistRange { bool persist; long b0, b1; };
-   PersistRange PersistFor(int s, double t0, double t1) const;
+   PersistRange PersistFor(int s, double t0, double t1) const { return PersistFor(s, t0, t1, ViewOf(s)); }
+   PersistRange PersistFor(int s, double t0, double t1, const ClockView& v) const;
    // Calls fn(block, dye) for every dye in the rect/z range, in block order.
    template <class Fn>
    void ForEachDye(double x0, double y0, double x1, double y1, double zMin, double zMax, Fn fn);
@@ -410,6 +482,8 @@ private:
    std::array<KineticsHistory, STRUCTURE_COUNT> hist_;
    std::array<uint64_t, STRUCTURE_COUNT> histFp_ = {};
    uint64_t histVersion_ = 0;
+   std::shared_ptr<const ClockMap> map_;   // ABI 14 (SetClockMap)
+   uint64_t mapVersion_ = 0;
    std::vector<const PersistentEvent*> persistentScratch_;
    // Built ahead in parallel for the current walk (PackedBlock / Assets take
    // them from here instead of building).
