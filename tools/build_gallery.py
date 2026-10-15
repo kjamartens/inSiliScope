@@ -25,8 +25,10 @@ def display_range(stacks):
     return np.percentile(v, 0.5), np.percentile(v, 99.8)
 
 
-def to_gif(stack, path, fps=10, scale=2, rng=None):
+def to_gif(stack, path, fps=10, scale=None, rng=None):
     lo, hi = rng if rng else display_range([stack])
+    if scale is None:
+        scale = 2 if stack.shape[-1] < 512 else 1   # a 512 px movie (brightfield) is big enough as it is
     if hi <= lo:
         hi = lo + 1
     frames = []
