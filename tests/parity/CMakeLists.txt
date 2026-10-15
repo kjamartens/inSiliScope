@@ -43,7 +43,7 @@ endif()
 set(ISC_WORLD_SECTIONS basics determinism packing_off dye_statistics kinetics
   events_palm events_dnapaint events_dstorm cache_palm cache_dnapaint label_model
   threads_palm threads_dnapaint c_api block_injection density3d optical_volume edge_and_height
-  kinetics_history origami npcs)
+  kinetics_history clock_map origami npcs)
 foreach(sec IN LISTS ISC_WORLD_SECTIONS)
   if(EMSCRIPTEN)
     if(ISC_NODE)

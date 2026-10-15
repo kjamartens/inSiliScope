@@ -25,6 +25,102 @@ static_assert(ISC_MODE_DNA_PAINT == (int)isc::LabelMode::DnaPaint && ISC_MODE_WI
 struct IscParams { isc::Params p; };
 struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; std::vector<isc::WorldEvent> events; };
 
+namespace {
+// The clock map's flat buffer (isc_world_set_clock_map). No exceptions (the WASM builds abort on a throw): a short
+// buffer or a bad count sets bad, reads 0 (counts their least), and the read gives up.
+struct MapReader {
+   const double* v;
+   size_t n, i = 0;
+   bool bad = false;
+   double D()
+   {
+      if (i >= n) {
+         bad = true;
+         return 0.0;
+      }
+      return v[i++];
+   }
+   long Int(long lo, long hi)
+   {
+      const double d = D();
+      if (!(d == std::floor(d) && d >= (double)lo && d <= (double)hi)) {
+         bad = true;
+         return lo;
+      }
+      return (long)d;
+   }
+   long Count(long lo) { return Int(lo, (long)(n - i)); }   // at most one value per item left
+   isc::ClockField Field()
+   {
+      isc::ClockField f((size_t)Count(0));
+      for (isc::ClockTerm& t : f) {
+         t.grid = (int32_t)Int(-1, INT32_MAX);
+         t.depth = (int32_t)Int(-1, INT32_MAX);
+         t.ox = D(); t.oy = D(); t.zp = D(); t.sx = D(); t.sy = D(); t.scale = D();
+         if (bad) break;
+      }
+      return f;
+   }
+};
+
+bool ReadClockMap(const double* v, size_t n, isc::ClockMap& m)
+{
+   MapReader r{ v, n };
+   r.Int(ISC_CLOCK_MAP_FORMAT, ISC_CLOCK_MAP_FORMAT);
+   m.grids.resize((size_t)r.Count(0));
+   m.depths.resize((size_t)r.Count(0));
+   if (r.bad) return false;
+   for (isc::ClockGrid& g : m.grids) {
+      g.x0 = r.D(); g.y0 = r.D(); g.h = r.D();
+      g.nx = (int32_t)r.Count(1);
+      g.ny = (int32_t)r.Count(1);
+      if (r.bad || (double)g.nx * (double)g.ny > (double)(n - r.i)) return false;
+      g.v.assign(v + r.i, v + r.i + (size_t)g.nx * (size_t)g.ny);
+      r.i += g.v.size();
+   }
+   for (isc::ClockDepth& d : m.depths) {
+      d.z0 = r.D(); d.dz = r.D();
+      const long k = r.Count(0);
+      if (r.bad) return false;
+      d.v.assign(v + r.i, v + r.i + k);
+      r.i += (size_t)k;
+   }
+   m.s.resize(ISC_STRUCT_COUNT);
+   for (isc::StructClock& c : m.s) {
+      c.mode = (int)r.Int(ISC_CLOCK_GLOBAL, ISC_CLOCK_ACTIVATION);
+      const long ne = r.Count(1);
+      for (long e = 0; e < ne && !r.bad; e++) {
+         c.hist.tStart.push_back(r.D());
+         double k[ISC_KIN_COUNT];
+         for (double& x : k) x = r.D();
+         isc::Kinetics q;
+         q.activationRatePerSec = k[ISC_KIN_ACTIVATION_RATE];
+         q.onSec = k[ISC_KIN_ON_SEC];
+         q.offSec = k[ISC_KIN_OFF_SEC];
+         q.bleachProb = k[ISC_KIN_BLEACH_PROB];
+         q.photonCV = k[ISC_KIN_PHOTON_CV];
+         q.initialOnSec = k[ISC_KIN_INITIAL_ON_SEC];
+         c.hist.kin.push_back(q);
+      }
+      c.bound.resize((size_t)r.Count(0));
+      for (isc::ClockField& b : c.bound) b = r.Field();
+      c.total = r.Field();
+      c.totalC = r.D();
+      c.rate = r.Field();
+      c.rateC = r.D();
+      c.tOpen = r.D();
+      c.steps.resize((size_t)r.Count(0));
+      for (isc::ClockStep& st : c.steps) {
+         st.t0 = r.D(); st.t1 = r.D(); st.c = r.D();
+         st.field = r.Field();
+         if (r.bad) break;
+      }
+      if (r.bad) return false;
+   }
+   return !r.bad && r.i == n;   // (no trailing values)
+}
+} // namespace
+
 extern "C" {
 
 int32_t isc_abi_version(void) { return ISC_ABI_VERSION; }
@@ -332,6 +428,73 @@ int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, double x1, d
       if (e.size() > (size_t)INT32_MAX) return -1;
       for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
       return (int32_t)e.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+
+namespace {
+void WriteWindowRow(const isc::MapWindow& m, double* o)
+{
+   WriteEventRow(m.e, o);
+   o[10] = m.clock;
+   o[11] = m.rate;
+}
+} // namespace
+
+int32_t isc_world_set_clock_map(IscWorld* w, const double* v, int32_t n)
+{
+   if (!w || n < 0 || (n > 0 && !v)) return -1;
+   try {
+      if (n == 0) {
+         w->w.ClearClockMap();
+         return 0;
+      }
+      isc::ClockMap m;
+      return ReadClockMap(v, (size_t)n, m) && w->w.SetClockMap(m) ? 0 : -1;
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax, double t0,
+                          double t1, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || !(t1 >= t0) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::WorldEvent>& e = w->events;
+      e.clear();
+      w->w.EventsInMap(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
+      if (e.size() > (size_t)INT32_MAX) return -1;
+      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
+      return (int32_t)e.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_continuous_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
+                              double tMin, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || std::isnan(tMin) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::MapWindow> m;
+      w->w.ContinuousInMap(x0, y0, x1, y1, zMin, zMax, tMin, m);
+      if (m.size() > (size_t)INT32_MAX) return -1;
+      for (size_t i = 0; i < m.size() && (int32_t)i < cap; i++) WriteWindowRow(m[i], out + i * ISC_MAP_WINDOW_STRIDE);
+      return (int32_t)m.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_world_prefetch_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
+                               double t0, double t1, double budgetMs)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || !(t1 >= t0) || !(budgetMs >= 0)) return -1;
+   try {
+      return w->w.PrefetchMap(x0, y0, x1, y1, zMin, zMax, t0, t1, budgetMs) ? 1 : 0;
    } catch (...) {
       return -1;
    }

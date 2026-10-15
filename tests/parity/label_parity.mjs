@@ -4,7 +4,10 @@
 // history (late window first, then a long one, then early ones); then ABI 11 kinetics histories (rate steps per mode,
 // two histories alternating on one world); the same for a DNA-origami nanoruler world (ABI 12, specimen 1: the
 // docking strands, structure 2 since ABI 13), and for the cell field's nuclear pores (ABI 13, structure 1) and the
-// label linkage (ISC_LABEL_BINDER_NM ..; a label without one sends NaN = the structure's built-in numbers).
+// label linkage (ISC_LABEL_BINDER_NM ..; a label without one sends NaN = the structure's built-in numbers); then ABI 14
+// clock maps (isc_events_in_map / isc_continuous_in_map against world.js eventsInMap / continuousInMap): dose clocks
+// with shear, a depth table, an unlit band (frozen dyes) and epochs (one giving way), activation clocks with steps,
+// DNA-PAINT and dSTORM read on T, a uniform global clock; a moved present on the same worlds; the map removed.
 //   node tests/parity/label_parity.mjs [path to build/wasm/core/insiliscope.js]
 import fs from 'fs';
 import path from 'path';
@@ -21,7 +24,8 @@ const { World } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scop
 const D = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dyes.js')).href);
 const { STRUCTURES, STRUCTURE_NPC } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const { STRUCTURE_ORIGAMI } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/origami.js')).href);
-if (M._isc_abi_version() !== 13) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 13');
+const CM = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/clockmap.js')).href);
+if (M._isc_abi_version() !== 14) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 14');
 if (STRUCTURES.length !== 3 || STRUCTURE_NPC !== 1 || STRUCTURE_ORIGAMI !== 2) throw new Error('structure ids moved');
 
 const seed = 1249, geom = P.paramsFrom(P.defaults);
@@ -165,5 +169,89 @@ for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [cname, 
   }
   M._isc_world_free(w);
 }
+// ABI 14: clock maps. Two grids (one ending inside the window: the dyes past x = 68.75 are unlit), a depth table; per
+// case a clock for every structure, then the present moved on (tOpen + 10, the past rate folded into the total, the
+// beam 0.3 um over; an activation clock gets a step), then the map removed.
+const wavy = (nx, ny, f) => Array.from({ length: nx * ny }, (_, k) => f(k % nx, Math.floor(k / nx)));
+const GRIDS = [
+  { x0: 63, y0: 3, h: 0.25, nx: 23, ny: 30, v: wavy(23, 30, (i, j) => 0.6 + 0.4 * Math.sin(0.7 * i + 0.3 * j)) },
+  { x0: 60, y0: 0, h: 0.5, nx: 30, ny: 30, v: wavy(30, 30, (i, j) => 1 + 0.5 * Math.cos(0.4 * i - 0.5 * j)) },
+];
+const DEPTHS = [{ z0: 0, dz: 0.5, v: [1, 0.7, 0.4, 0.2] }];
+const hist = segs => ({ tStart: segs.map(x => x[0]), kin: segs.map(x => ({ initialOnSec: 0, ...x[1] })) });
+const RATE = [{ grid: 0, depth: 0, sx: 0.3, zp: 0.2, scale: 1 }];
+const dose = (segs, bound = []) => ({ mode: CM.CLOCK_DOSE, hist: hist(segs), bound, total: [{ grid: 1, scale: 50 }], totalC: 0,
+  rate: RATE, rateC: 0, tOpen: 50 });
+const activation = segs => ({ mode: CM.CLOCK_ACTIVATION, hist: hist(segs), total: [], rate: [{ grid: 0, depth: 0, scale: 0.02 }],
+  rateC: 0, tOpen: 30, steps: [{ t0: 0, t1: 10, c: 0, field: [{ grid: 1, scale: 0.05 }] }, { t0: 10, t1: 25, c: 0.01, field: [] },
+    { t0: 25, t1: 30, c: 0, field: [{ grid: 0, scale: 0.3 }] }] });
+const global = segs => ({ mode: CM.CLOCK_GLOBAL, hist: hist(segs), total: [], rate: [], tOpen: 50 });
+// The present 10 s on: a dose clock's last 10 s of rate folded into its total, the beam moved; an activation clock's
+// open rate becomes a step.
+function moved(c) {
+  const n = structuredClone(c);
+  if (c.mode === CM.CLOCK_DOSE) {
+    n.total = [...c.total, ...c.rate.map(t => ({ ...t, scale: t.scale * 10 }))];
+    n.totalC = c.totalC + 10 * c.rateC;
+    n.rate = c.rate.map(t => ({ ...t, ox: 0.3 }));
+  } else if (c.mode === CM.CLOCK_ACTIVATION) {
+    n.steps = [...c.steps, { t0: c.tOpen, t1: c.tOpen + 10, c: 10 * c.rateC, field: c.rate.map(t => ({ ...t, scale: t.scale * 10 })) }];
+    n.rate = c.rate.map(t => ({ ...t, ox: 0.3 }));
+  }
+  n.tOpen = c.tOpen + 10;
+  return n;
+}
+const palmKin = kin, paintKin = { ...kin, activationRatePerSec: 0.00143 };
+const MCASES = [
+  ['dSTORM initial ON 2 s, dose (shear, depth, unlit band)', { mode: 'dSTORM', density: 0.05, kinetics: { ...kin, initialOnSec: 2 } },
+    dose([[0, { ...kin, initialOnSec: 2 }]])],
+  ['dSTORM, dose with three epochs (one giving way)', { mode: 'dSTORM', density: 0.05, kinetics: { ...kin, initialOnSec: 2 } },
+    dose([[0, { ...kin, initialOnSec: 2 }], [20, { ...kin, activationRatePerSec: 0.5, initialOnSec: 2 }],
+      [40, { ...kin, activationRatePerSec: 0.01, onSec: 0.02, initialOnSec: 2 }]],
+    [[{ grid: 1, scale: 20 }], [{ grid: 0, scale: 45 }]])],
+  ['PALM pre state, activation steps then the open rate', { mode: 'PALM', density: 0.05, fluorescentFraction: 0.6, preState: true, kinetics: palmKin },
+    activation([[0, palmKin], [60, { ...palmKin, onSec: 0.1 }]])],
+  ['PALM pre state, dose', { mode: 'PALM', density: 0.05, fluorescentFraction: 0.6, preState: true, kinetics: palmKin },
+    dose([[0, palmKin]])],
+  ['WideField, dose (unlit band)', { mode: 'WideField', density: 0.1, kinetics: kin }, dose([[0, kin]])],
+  ['DNA-PAINT under a dose clock (on T, two epochs)', { mode: 'DNA-PAINT', density: 0.2, kinetics: paintKin },
+    dose([[0, paintKin], [60.4, { ...paintKin, activationRatePerSec: 0.0143, onSec: 0.2 }]], [[{ grid: 1, scale: 20 }]])],
+  ['dSTORM under an activation clock (on T)', { mode: 'dSTORM', density: 0.05, kinetics: kin },
+    { ...activation([[0, kin], [30, { ...kin, activationRatePerSec: 0.2 }]]) }],
+  ['dSTORM, global clock with two segments', { mode: 'dSTORM', density: 0.05, kinetics: kin },
+    global([[0, kin], [30, { ...kin, activationRatePerSec: 0.2 }]])],
+];
+function setMap(w, js, m) {
+  const v = m ? CM.encodeClockMap(m) : [];
+  js.setClockMap(v);
+  const buf = M._malloc(Math.max(1, v.length) * 8);
+  M.HEAPF64.set(v, buf / 8);
+  const r = M._isc_world_set_clock_map(w, buf, v.length);
+  M._free(buf);
+  if (r !== 0) throw new Error('isc_world_set_clock_map: ' + r);
+}
+const mapRow = e => [...evRow(e), e.clock, e.rate];
+const MFRAMES = [[50, 50.05], [52, 54], [120, 120.05], [0, 200], [30, 31], [3, 3.05], [60, 62], [61, 61.05]];
+const tm0 = performance.now();
+for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cname, opts, clock]] of MCASES.entries()) {
+  const name = sp.name + cname, label = D.makeLabel(opts);
+  const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));
+  const w = cWorld(label, sp.specimen, sp.s, sp.extra, sp.other);
+  // (the map removed: once per specimen)
+  for (const [mi, c] of [[0, clock], [1, moved(clock)], ...(ci === 0 ? [[2, null]] : [])]) {
+    setMap(w, js, c && { grids: GRIDS, depths: DEPTHS, s: STRUCTURES.map(() => c) });
+    const tag = ['map', 'moved map', 'no map'][mi];
+    for (const [t0, t1] of MFRAMES) {
+      same(`${name} (${tag}): blinks [${t0}, ${t1})`, rows((b, n) => M._isc_events_in_map(w, ...win, t0, t1, b, n), 10),
+        js.eventsInMap(...win, t0, t1).map(evRow));
+    }
+    for (const tMin of [-Infinity, 1.0, 55]) {
+      same(`${name} (${tag}): continuous windows ending after ${tMin}`,
+        rows((b, n) => M._isc_continuous_in_map(w, ...win, tMin, b, n), 12), js.continuousInMap(...win, tMin).map(mapRow));
+    }
+  }
+  M._isc_world_free(w);
+}
+console.log(`clock maps: ${((performance.now() - tm0) / 1000).toFixed(1)} s`);
 console.log(fails ? `label parity: ${fails} FAILED` : 'label parity: PASS (C++ core = JS reference)');
 process.exit(fails ? 1 : 0);

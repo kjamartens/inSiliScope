@@ -297,10 +297,16 @@ function poissonFromUniform(m, u, u2) {
 // only its own time span, not the lifetime of millions of dyes).
 export function dyeSchedule(h1, k, n, kin, out = [], tMax = Infinity) {
   if (!(kin.activationRatePerSec > 0)) return out;
+  return dyeScheduleFrom(h1, k, n, kin, -Math.log(unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.ACT))) / kin.activationRatePerSec,
+    out, tMax);
+}
+
+// dyeSchedule and dyeScheduleHistory from a given first activation t (ABI 14, an activation clock: the blinks after
+// it, the same arithmetic).
+export function dyeScheduleFrom(h1, k, n, kin, t, out = [], tMax = Infinity) {
   const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
   const pBleach = Math.min(1.0, Math.max(0.01, kin.bleachProb));
   const cv = Math.max(0.0, kin.photonCV);
-  let t = -Math.log(U(DYE_CH.ACT)) / kin.activationRatePerSec;
   for (let j = 0; j < DYE_MAX_BLINKS; j++) {
     if (t >= tMax) break;
     const base = DYE_CH.SCHED0 + j * DYE_CH.SCHED_STRIDE;
@@ -366,9 +372,13 @@ const scaleOn = q => q.onSec, scaleOff = q => q.offSec, scaleInitialOn = q => q.
 // segment it started in uses dyeSchedule's arithmetic, so the blinks before a later segment's start are unchanged by
 // it. Bleach with the probability of the segment the ON ended in; brightness CV of the segment it started in.
 export function dyeScheduleHistory(h1, k, n, h, t0, out = [], tMax = Infinity) {
+  const t = new HazardWalk(h, t0).afterRate(0.0, -Math.log(unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.ACT))), rateAct);
+  return dyeScheduleHistoryFrom(h1, k, n, h, t0, t, out, tMax);
+}
+
+export function dyeScheduleHistoryFrom(h1, k, n, h, t0, t, out = [], tMax = Infinity) {
   const U = ch => unit(pcgA(h1, k >>> 0, n >>> 0, ch));
   const w = new HazardWalk(h, t0);
-  let t = w.afterRate(0.0, -Math.log(U(DYE_CH.ACT)), rateAct);
   for (let j = 0; j < DYE_MAX_BLINKS; j++) {
     if (t >= tMax) break;
     const base = DYE_CH.SCHED0 + j * DYE_CH.SCHED_STRIDE;
@@ -518,6 +528,27 @@ export function labelSchedule(h1, k, n, label, blinks = [], continuous = [], tMa
     continuous.push({ tOn: 0, tOff, state: EVENT_STATE.PRE, aux: aux() });
   }
   return { blinks, continuous };
+}
+
+// A PALM dye under an activation clock (ABI 14, core LabelScheduleActivated): activated at tAct (Infinity: not yet),
+// its blinks from then on under hist (as labelSchedule's; null: label.kinetics), a pre window [0, tAct). Nothing for
+// other modes.
+export function labelScheduleActivated(h1, k, n, label, hist, tAct, blinks = [], continuous = [], tMax = Infinity) {
+  if (label.mode !== 'PALM') return { blinks, continuous };
+  const multi = hist && hist.tStart.length >= 2 ? hist : null;
+  const kin = hist && hist.tStart.length === 1 ? hist.kin[0] : label.kinetics;
+  if (blinks && Number.isFinite(tAct)) {
+    if (multi) dyeScheduleHistoryFrom(h1, k, n, multi, 0.0, tAct, blinks, tMax);
+    else dyeScheduleFrom(h1, k, n, kin, tAct, blinks, tMax);
+  }
+  if (continuous && label.preState)
+    continuous.push({ tOn: 0, tOff: tAct, state: EVENT_STATE.PRE, aux: -Math.log(unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.AUX))) });
+  return { blinks, continuous };
+}
+
+// The unit-exponential draw a dye's first activation spends (DYE_CH.ACT).
+export function activationDraw(h1, k, n) {
+  return -Math.log(unit(pcgA(h1, k >>> 0, n >>> 0, DYE_CH.ACT)));
 }
 
 // Mean emission dipole of dye (k, n): null for Free (isotropic, no draws). Fixed: polar angle from the microtubule

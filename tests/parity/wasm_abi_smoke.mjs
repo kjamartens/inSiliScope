@@ -104,7 +104,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 13 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 14 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
@@ -143,6 +143,41 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   const cok = nw === n;
   console.log(`continuous: ${nw} initial-ON windows for ${n} dyes -> ${cok ? 'ok' : 'MISMATCH'}`);
   if (!cok) bad++;
+  // ABI 14: a uniform dose map (rate 1, no terms) answers as the ABI 11 queries under the same kinetics, bit for bit;
+  // a bad buffer is refused; n = 0 removes the map.
+  {
+    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 2];
+    const hb = M._malloc((1 + 3 * k.length) * 8);
+    M.HEAPF64.set([0, ...k, ...k, ...k], hb / 8);
+    M._isc_world_set_kinetics_history(w, hb, 1);
+    M._free(hb);
+    const clock = [1, 1, 0, ...k, 0, 0, 0, 0, 1, 0, 0];   // DOSE, one epoch, no bounds, total 0, rate 1, tOpen 0, no steps
+    const v = [1, 0, 0, ...clock, ...clock, ...clock];
+    const mb = M._malloc(v.length * 8);
+    M.HEAPF64.set(v, mb / 8);
+    const mok = M._isc_world_set_clock_map(w, mb, v.length) === 0;
+    M.HEAPF64[mb / 8] = 2;   // an unknown format
+    const mbad = M._isc_world_set_clock_map(w, mb, v.length) === -1;
+    M._free(mb);
+    const q = (fn, stride, t) => {
+      const n = fn(0, 0, t), b = M._malloc(Math.max(1, n) * stride * 8);
+      const n2 = fn(b, n, t), out = [];
+      for (let i = 0; i < n2; i++) out.push(...M.HEAPF64.subarray(b / 8 + i * stride, b / 8 + i * stride + 10));
+      M._free(b);
+      return out;
+    };
+    const same = (a, b) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+    const ea = q((b, n) => M._isc_events_in_map(w, ...win, 1.0, 1.1, b, n), 10);
+    const eb2 = q((b, n) => M._isc_events_in_window(w, ...win, 1.0, 1.1, b, n), 10);
+    const ca = q((b, n) => M._isc_continuous_in_map(w, ...win, -Infinity, b, n), 12);
+    const cb2 = q((b, n) => M._isc_continuous_in_window(w, ...win, -Infinity, b, n), 10);
+    const pre = M._isc_world_prefetch_map(w, ...win, 1.1, 1.2, 50) >= 0;
+    const off = M._isc_world_set_clock_map(w, 0, 0) === 0;
+    const sok = mok && mbad && pre && off && ea.length > 0 && same(ea, eb2) && ca.length > 0 && same(ca, cb2);
+    console.log(`clock map: uniform -> ${ea.length / 10} blinks, ${ca.length / 10} windows = the ABI 11 queries -> ${sok ? 'ok' : 'MISMATCH'}`);
+    if (!sok) bad++;
+    M._isc_world_set_kinetics_history(w, 0, 0);
+  }
   M._free(lab);
   M._free(buf); M._free(g); M._isc_world_free(w); M._isc_params_free(p);
 }

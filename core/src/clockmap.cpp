@@ -213,7 +213,7 @@ const char* ClockMap::Finish()
          for (const ClockField& b : c.bound)
             if (const char* e = mixField(fs, b)) return e;
       } else {
-         if (c.mode == CLOCK_DOSE && !c.bound.empty()) return "a dose clock needs one bound per epoch after the first";
+         if (!c.bound.empty()) return "a dose clock needs one bound per epoch after the first (other clocks none)";
          if (c.mode == CLOCK_ACTIVATION) fs.Bits(0x41435456ull);   // "ACTV": blinks from the activation
          for (size_t i = 0; i < h.Size(); i++) {
             fs.D(c.mode == CLOCK_DOSE ? 0.0 : h.tStart[i]);
