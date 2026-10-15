@@ -186,26 +186,23 @@ int main()
       Check(probes::PresetsJson("probes_check_presets.json", err) &&
             ReadText("probes_check_presets.json").find("\"Realistic\"") != std::string::npos, "presets written");
    }
-   // --history-before (a two-epoch rate history, MakePastClock): a past equal to the movie's own settings changes
-   // nothing; WideField with 4x the 488 nm power from clock 30 s on is 4x as bright as the unchanged field at 30 s
-   // (the dyes bleached so far stay bleached), and brighter than 4x power read from clock 0 (more of them bleached).
+   // --history-before (a light history of two records, RenderScopePhotons' past): a past equal to the movie's own
+   // settings changes nothing; WideField with 4x the 488 nm power from 30 s on is 4x as bright as the unchanged field
+   // at 30 s (the dyes bleached so far stay bleached), and brighter than 4x power from 0 (more of them bleached).
    {
       auto total = [&](const ScopeSpec& s, const ScopeSpec* past) {
-         std::unique_ptr<DyeClock> clock;
-         if (past)
-            clock = probes::MakePastClock(*past, s);
          ScopeMovieInfo info;
          std::string err;
          double sum = 0;
          if (!RenderScopePhotons(s, [&](long, const std::vector<float>& p) {
                 for (float v : p) sum += v;
                 return true;
-             }, info, err, clock.get()))
+             }, info, err, past))
             std::printf("FAIL  history movie: %s\n", err.c_str());
          return sum;
       };
       // The microtubules alone (npc-dye=None: the pores' DNA-PAINT blinks do not follow the 488 nm power), under a
-      // uniform beam (a host clock is the same everywhere; without one a shaped beam's dyes run at their local light).
+      // Flat beam (the light the same at every dye).
       const std::string wf = base + " frames=1 start-sec=30 mt-mode=WideField mt-dye=-1 npc-dye=None light-preset=auto "
                                     "illum-profile=Flat";
       const ScopeSpec p1 = Spec((wf + " laser-488=0.01").c_str()), p4 = Spec((wf + " laser-488=0.04").c_str());

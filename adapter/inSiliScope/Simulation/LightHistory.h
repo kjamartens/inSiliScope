@@ -113,9 +113,14 @@ struct LightState
 // The light of a frame of spec (its pose: the FOV centre pixel's centre, the focal plane): lightOn false (no source
 // open): dark, with its env.
 bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::string& err);
+// The pose of a frame of spec (MakeLightState's), g its excitation (ScopeExcitationSpec(spec)): a host moves a light
+// state with it when only the stage moved (the excitation depends on the focus, not on the pose).
+LightPose LightPoseOf(const ScopeSpec& spec, const ExcitationSpec& g);
 // A drifting movie's light: its frames' states (one light, poses moving) as one state, the poses grouped as records
 // group them, each weighted by its frames' share.
 bool MergeLightStates(const std::vector<LightState>& frames, LightState& out, std::string& err);
+// The same from the frames' poses alone (in order), base the first frame's light (a long stack: no state per frame).
+bool MergeLightPoses(const LightState& base, const std::vector<LightPose>& poses, LightState& out, std::string& err);
 
 // The host's copy of a clock map (core clockmap.h, the same arithmetic in its operand order): its buffer for
 // isc_world_set_clock_map and what the engine reads from it.
@@ -174,7 +179,8 @@ public:
    std::vector<MapGrid> grids;
    std::vector<MapDepth> depths;
    std::vector<MapClock> s;       // ISC_STRUCT_COUNT
-   double T = 0;                  // the sample's time it was made at (a movie under it starts there)
+   double T = 0;                  // the sample's time it was made at (a movie under it starts there or later)
+   uint64_t serial = 0;           // unique per map made (the engine's memos)
    std::vector<double> buffer;    // isc_world_set_clock_map's (Encode)
    void Encode();
    double Term(const MapTerm& t, double x, double y, double z) const;
@@ -198,13 +204,22 @@ public:
    // The clock map of a movie that starts now (T) under light (lit false: dark), its dyes in [x0, x1] x [y0, y1]
    // (world um) at heights [z0, z1], with the labels of the spec cur. The light need not be the open record's: the map
    // then closes that at T and opens the light's, as Advance will once the movie's frames are counted (the same
-   // numbers). Memoized (the last map). nullptr (err) on a bad spec.
+   // numbers). While the open record extends under the same light, the map stays (its clocks run on from tOpen: a
+   // movie after T reads it as well). Memoized (the last two: a live frame's and the prefetch's). nullptr (err) on a
+   // bad spec.
    std::shared_ptr<const ClockMapView> BuildMap(const ScopeSpec& cur, const LightState& light, double x0, double y0,
                                                 double x1, double y1, double z0, double z1, std::string& err);
    double T() const;
+   // Whether light has reached the sample since the last Reset (the adapter starts the sample's time then: before it
+   // every dye is fresh and DNA-PAINT's binding stationary, so a fresh device's stack starts at 0 however long it
+   // ran idle).
+   bool Lit() const;
    // The dose at (x, y) on the coverslip, seconds of the first lit chapter's reference light (F x mag x footprint, to
-   // now): the background's fade.
-   double DoseAt(double xUm, double yUm) const;
+   // now): the background's fade; perSec (optional): the open record's per second (0 without light now).
+   double DoseAt(double xUm, double yUm, double* perSec = nullptr) const;
+   // The dose per second light gives at (x, y) on the coverslip, in DoseAt's units, were it on from now (a movie's
+   // background fade): 0 when it is dark.
+   double DoseRate(const LightState& light, double xUm, double yUm) const;
    void Reset();
    // For the checks and the logs: memory held (bytes), chapters, recent records (the open one too), chunks.
    size_t Bytes() const;
@@ -279,8 +294,7 @@ private:
    std::vector<Record> recent_;   // closed, not merged, in time order
    bool haveOpen_ = false;
    Record open_;
-   std::string memoKey_;
-   std::shared_ptr<const ClockMapView> memo_;
+   std::pair<std::string, std::shared_ptr<const ClockMapView>> memo_[2];   // most recent first
 };
 
 } // namespace sim

@@ -360,6 +360,8 @@ struct FluorescenceSimplePlan
    bool populations = false;
 };
 
+class LightHistory;
+struct LightState;
 class FluorescenceMovie
 {
 public:
@@ -367,10 +369,13 @@ public:
    ~FluorescenceMovie();
    // accel (optional): a synchronous GPU host for the mean-field scenes (the
    // adapter's Direct3D 11 one); their images are then made at once on it.
-   // clock (optional): per-region dye clocks instead of start-sec (read
-   // during Begin only).
+   // history and light (optional, LightHistory.h): a host's light history and
+   // this movie's light; every dye then reads its clock from the history's map
+   // (LightHistory::BuildMap, over the query; the spec's start-sec is the
+   // sample's time the movie starts at, the history's T or later) instead of
+   // start-sec. Read during Begin only.
    bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr,
-              const DyeClock* clock = nullptr);
+              LightHistory* history = nullptr, const LightState* light = nullptr);
    // Live (a movie per frame at a host clock): the per-dye populations' running
    // images carry over to the next movie in this process at the same geometry,
    // which then splats only the dyes whose windows changed (float rounding may
@@ -401,9 +406,10 @@ private:
 
 // Warms the shared world's caches around the spec's FOV (SampleSource::
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
-// clock (optional): the dyes' clock and rate history at the FOV centre
-// instead of start-sec.
-bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, const DyeClock* clock = nullptr);
+// history and light (optional): the dyes' clocks from the history's map with
+// that light (FluorescenceMovie::Begin's).
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, LightHistory* history = nullptr,
+                   const LightState* light = nullptr);
 
 // Which lights are on (JS scopeLights): light-epi (the lasers' shutter) and
 // light-trans (the lamp's), each 1 open / 0 closed / -1 from modality

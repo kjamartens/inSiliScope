@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -143,6 +144,12 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
       std::snprintf(b, sizeof b, ";%.17g:%.10g", l.nm, l.kWPerCm2 / out.total);
       out.lightKey += b;
    }
+   out.poses.push_back(LightPoseOf(spec, g));
+   return true;
+}
+
+LightPose LightPoseOf(const ScopeSpec& spec, const ExcitationSpec& g)
+{
    unsigned W = 0, H = 0;
    long N = 0;
    ScopeMovieDims(spec, W, H, N);
@@ -157,8 +164,7 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
    p.x1 = x + W * um / 2 + kLightLitMarginUm;
    p.y0 = y - H * um / 2 - kLightLitMarginUm;
    p.y1 = y + H * um / 2 + kLightLitMarginUm;
-   out.poses.push_back(p);
-   return true;
+   return p;
 }
 
 bool MergeLightStates(const std::vector<LightState>& frames, LightState& out, std::string& err)
@@ -169,7 +175,7 @@ bool MergeLightStates(const std::vector<LightState>& frames, LightState& out, st
       return false;
    }
    const LightState& f0 = frames[0];
-   std::vector<std::pair<LightPose, size_t>> groups;
+   std::vector<LightPose> poses;
    for (const LightState& f : frames)
    {
       if (f.lit != f0.lit || f.envKey != f0.envKey || f.lightKey != f0.lightKey || f.total != f0.total ||
@@ -178,17 +184,32 @@ bool MergeLightStates(const std::vector<LightState>& frames, LightState& out, st
          err = "a movie's frames under different lights";
          return false;
       }
-      if (!groups.empty() && SamePose(*f0.ex, groups.back().first, f.poses[0]))
+      poses.push_back(f.poses[0]);
+   }
+   return MergeLightPoses(f0, poses, out, err);
+}
+
+bool MergeLightPoses(const LightState& base, const std::vector<LightPose>& poses, LightState& out, std::string& err)
+{
+   if (poses.empty() || !base.ex)
+   {
+      err = "a movie's light needs its frames";
+      return false;
+   }
+   std::vector<std::pair<LightPose, size_t>> groups;
+   for (const LightPose& q : poses)
+   {
+      if (!groups.empty() && SamePose(*base.ex, groups.back().first, q))
          groups.back().second++;
       else
-         groups.push_back({ f.poses[0], 1 });
+         groups.push_back({ q, 1 });
    }
-   out = f0;
+   out = base;
    out.poses.clear();
    for (const auto& gr : groups)
    {
       LightPose p = gr.first;
-      p.w = static_cast<double>(gr.second) / static_cast<double>(frames.size());
+      p.w = static_cast<double>(gr.second) / static_cast<double>(poses.size());
       out.poses.push_back(p);
    }
    return true;
@@ -643,8 +664,9 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
    for (const LightPose& p : light.poses)
       key += "|" + Num(p.ax) + "," + Num(p.ay) + "," + Num(p.pivot) + "," + Num(p.x0) + "," + Num(p.y0) + "," +
              Num(p.x1) + "," + Num(p.y1) + "," + Num(p.w);
-   if (memo_ && key == memoKey_)
-      return memo_;
+   for (const auto& e : memo_)
+      if (e.second && e.first == key)
+         return e.second;
 
    // The labels: the current spec's, and each chapter's light's under it.
    std::vector<LabelPhysics> curLabels;
@@ -687,6 +709,8 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
 
    auto view = std::make_shared<ClockMapView>();
    ClockMapView& m = *view;
+   static std::atomic<uint64_t> serials{ 0 };
+   m.serial = ++serials;
    m.T = T_;
    m.s.assign(ISC_STRUCT_COUNT, MapClock());
 
@@ -1080,8 +1104,8 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       }
    }
    m.Encode();
-   memoKey_ = key;
-   memo_ = view;
+   memo_[1] = std::move(memo_[0]);
+   memo_[0] = { key, view };
    return view;
 }
 
@@ -1091,9 +1115,11 @@ double LightHistory::T() const
    return T_;
 }
 
-double LightHistory::DoseAt(double xUm, double yUm) const
+double LightHistory::DoseAt(double xUm, double yUm, double* perSec) const
 {
    std::lock_guard<std::mutex> g(mutex_);
+   if (perSec)
+      *perSec = 0.0;
    double ref = 0;
    for (const Chapter& c : chapters_)
       if (c.lit)
@@ -1114,10 +1140,52 @@ double LightHistory::DoseAt(double xUm, double yUm) const
          if (r.chapter == ci && r.lit && r.fp)
             v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fp, xUm, yUm, c.h);
       if (haveOpen_ && open_.chapter == ci && open_.lit && open_.fp)
-         v += open_.mag * (T_ - open_.t0) * FootprintAt(*open_.fp, xUm, yUm, c.h);
+      {
+         const double now = open_.mag * FootprintAt(*open_.fp, xUm, yUm, c.h);
+         v += (T_ - open_.t0) * now;
+         if (perSec)
+            *perSec = c.F * (c.refTotal / ref) * now;
+      }
       dose += c.F * (c.refTotal / ref) * v;
    }
    return dose;
+}
+
+bool LightHistory::Lit() const
+{
+   std::lock_guard<std::mutex> g(mutex_);
+   for (const Chapter& c : chapters_)
+      if (c.lit)
+         return true;
+   return false;
+}
+
+double LightHistory::DoseRate(const LightState& light, double xUm, double yUm) const
+{
+   if (!light.lit || !light.ex)
+      return 0.0;
+   std::lock_guard<std::mutex> g(mutex_);
+   // The chapter the light is in (Build's): the last one if it is lit with this light, else one it starts.
+   const bool last = !chapters_.empty() && SameChapter(chapters_.back(), light) && chapters_.back().lit;
+   Chapter virt;
+   if (!last)
+      SetReference(virt, light);
+   const Chapter& c = last ? chapters_.back() : virt;
+   double ref = c.refTotal;
+   for (const Chapter& ch : chapters_)
+      if (ch.lit)
+      {
+         ref = ch.refTotal;
+         break;
+      }
+   const double mag = light.total / c.refTotal;
+   std::shared_ptr<const Footprint> fp;
+   if (last && haveOpen_ && open_.chapter == chapters_.size() - 1 && open_.lit && open_.mag == mag &&
+       SamePoses(c, open_.poses, light.poses))
+      fp = open_.fp;   // the open record's light: its footprint
+   else
+      fp = MakeFootprint(c, light.poses);
+   return c.F * (c.refTotal / ref) * (mag * FootprintAt(*fp, xUm, yUm, c.h));
 }
 
 void LightHistory::Reset()
@@ -1129,8 +1197,8 @@ void LightHistory::Reset()
    recent_.clear();
    haveOpen_ = false;
    open_ = Record();
-   memoKey_.clear();
-   memo_.reset();
+   memo_[0] = {};
+   memo_[1] = {};
 }
 
 size_t LightHistory::Bytes() const
@@ -1143,8 +1211,9 @@ size_t LightHistory::Bytes() const
       b += sizeof(Record) + (r.fp ? r.fp->Bytes() : 0) + r.poses.size() * sizeof(LightPose);
    if (haveOpen_)
       b += sizeof(Record) + (open_.fp ? open_.fp->Bytes() : 0);
-   if (memo_)
-      b += memo_->buffer.capacity() * sizeof(double) * 2;   // the buffer and the grids it copies
+   for (const auto& e : memo_)
+      if (e.second)
+         b += e.second->buffer.capacity() * sizeof(double) * 2;   // the buffer and the grids it copies
    return b;
 }
 

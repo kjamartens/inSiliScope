@@ -86,9 +86,9 @@ double ClockMap::Term(const ClockTerm& t, double x, double y, double z) const
 
 double ClockMap::Eval(const ClockField& f, double x, double y, double z, double c) const
 {
-   double s = c;
-   for (const ClockTerm& t : f) s += Term(t, x, y, z);
-   return s;
+   double sum = c;
+   for (const ClockTerm& t : f) sum += Term(t, x, y, z);
+   return sum;
 }
 
 void ClockMap::Bounds(const ClockField& f, double x0, double x1, double y0, double y1, double z0, double z1, double c,

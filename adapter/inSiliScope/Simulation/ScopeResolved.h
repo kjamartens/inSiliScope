@@ -66,10 +66,11 @@ bool ScopeResolve(const ScopeSpec& spec, ScopeResolved& out, std::string& err);
 // (the lamp's photons at the camera, before its QE), both lights (fluorescence
 // + lamp x the QE at the lamp wavelength, as the one noise chain gets them) or
 // none (zeros). The same frames, in the same order, from the same objects.
-// clock (optional): the dyes' clocks and rate histories, as the adapter's
-// illumination history gives them to its movies (FluorescenceMovie::Begin).
+// past (optional): the sample lit by the past spec's light from 0 to the
+// movie's start-sec and by the movie's own from then (a light history of two
+// records, as the adapter's give its movies: FluorescenceMovie::Begin).
 using ScopePhotonSink = std::function<bool(long f, const std::vector<float>& photons)>;
 bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons, ScopeMovieInfo& info,
-                        std::string& err, const DyeClock* clock = nullptr);
+                        std::string& err, const ScopeSpec* past = nullptr);
 
 } // namespace sim

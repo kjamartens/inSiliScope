@@ -24,15 +24,12 @@ bool PresetsJson(const std::string& path, std::string& err);
 
 // Each frame's photon image before the camera (RenderScopePhotons) as a float32
 // TIFF, one page per frame. past (optional, --history-before): the sample has been
-// lit from clock 0 to start-sec under past's light and labels, and the movie's
-// frames continue from that state under the spec's (a rate history, as the
-// adapter's illumination history keeps it); without it the movie's settings hold
-// from clock 0.
+// lit from 0 to start-sec by past's light (its labels under it), and the movie's
+// frames continue from that state under the spec's (a light history of two
+// records, as the adapter's keeps it: RenderScopePhotons); without it the movie's
+// settings hold from 0.
 bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovieInfo& info, std::string& err,
              const sim::ScopeSpec* past = nullptr);
-// The dye clock Photons uses for past: every place lit since clock 0, in past's
-// kinetic env until now's start-sec and in now's from then on.
-std::unique_ptr<sim::DyeClock> MakePastClock(const sim::ScopeSpec& past, const sim::ScopeSpec& now);
 
 // The movie's PSF (MakeScopePsfPreview): <prefix>.planes.tif (oversampled
 // planes, sum 1 each), <prefix>.cams.tif (camera images of one 1-photon

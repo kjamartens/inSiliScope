@@ -332,7 +332,7 @@ bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>
    return true;
 }
 
-bool SampleSource::Prefetch(const SampleQuery& q, double marginUm, double budgetMs)
+bool SampleSource::Prefetch(const SampleQuery& q, double marginUm, double budgetMs, bool inMap)
 {
    if (!world_ || !(budgetMs > 0))
       return false;
@@ -345,8 +345,12 @@ bool SampleSource::Prefetch(const SampleQuery& q, double marginUm, double budget
       const double left = std::chrono::duration<double, std::milli>(end - Clock::now()).count();
       if (left <= 0)
          return false;
-      if (isc_world_prefetch(world_, q.x0Um - m, q.y0Um - m, q.x1Um + m, q.y1Um + m, -inf, inf, q.tSec,
-                             q.tSec + q.spanSec, left) != 1)
+      const int32_t done =
+         inMap ? isc_world_prefetch_map(world_, q.x0Um - m, q.y0Um - m, q.x1Um + m, q.y1Um + m, -inf, inf, q.tSec,
+                                        q.tSec + q.spanSec, left)
+               : isc_world_prefetch(world_, q.x0Um - m, q.y0Um - m, q.x1Um + m, q.y1Um + m, -inf, inf, q.tSec,
+                                    q.tSec + q.spanSec, left);
+      if (done != 1)
          return false;
    }
    return true;

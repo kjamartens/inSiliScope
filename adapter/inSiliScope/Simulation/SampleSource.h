@@ -133,8 +133,8 @@ public:
    // Pre-loads what q would need if the stage moved up to marginUm in x/y or
    // to any focus (the whole z column), nearest ring first, for at most about
    // budgetMs. Only fills caches: no event changes. True when all of it is
-   // cached.
-   bool Prefetch(const SampleQuery& q, double marginUm, double budgetMs);
+   // cached. inMap: for the map queries under the clock map set (isc_world_prefetch_map).
+   bool Prefetch(const SampleQuery& q, double marginUm, double budgetMs, bool inMap = false);
 
    // The kinetics history of the following Events / Continuous / Prefetch
    // (isc_world_set_kinetics_history, ABI 11: nSeg rows of ISC_KIN_ROW

@@ -334,40 +334,12 @@ void CInSiliScopeCamera::StartStackGeneration()
                                   isc::LightModeOf(St()));
 }
 
-void CInSiliScopeCamera::LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1,
-                                 double& y1) const
+sim::LightState CInSiliScopeCamera::LightStateOf(const sim::ScopeSpec& spec, bool lightOn, std::string& err)
 {
-   // The margin plus 0.5 um: the mean-field grid (world-anchored cells, a
-   // cell beyond the margin) and the history's 0.25 um tiles lie wholly in
-   // the lit rect, so a frame scales every column's weight alike (the
-   // scene's fast path) instead of re-convolving every frame.
-   const double um = St().PixelSizeNm() / 1000.0, W = FullWidth() * um, H = FullHeight() * um;
-   const double m = isc::kCellFieldMarginUm + 0.5;
-   x0 = stageXUm - W / 2.0 - m;
-   y0 = stageYUm - H / 2.0 - m;
-   x1 = stageXUm + W / 2.0 + m;
-   y1 = stageYUm + H / 2.0 + m;
-}
-
-sim::HistoryLight CInSiliScopeCamera::HistoryLightAt(const sim::ScopeSpec& spec, double axisXUm, double axisYUm,
-                                                    double zStageUm) const
-{
-   sim::ScopeSpec s = spec;
-   s["z"] = sim::HistoryFocusUm(zStageUm);
-   sim::Excitation ex;
-   std::vector<sim::ExcitationLine> shares;
-   std::string err;
-   bool lightKinetics = true;
-   if (!sim::ScopeExcitation(s, ex, shares, err, &lightKinetics))
-      return {};
-   // Only DNA-PAINT labels: their binding needs no light (as in the engine's movies), so every lit tile counts the
-   // time alike (one clock: no regions from the beam's shape, and a dim tile does not hold a binding for many frames).
-   if (!lightKinetics)
-      return {};
-   // The engine's optical axis is the FOV centre pixel's centre ((W - 1) / 2 px from the corner): half a pixel less
-   // than the stage position.
-   const double um = St().PixelSizeNm() / 1000.0;
-   return sim::HistoryLightFor(ex, shares, axisXUm - um / 2.0, axisYUm - um / 2.0);
+   sim::LightState light;
+   if (!sim::MakeLightState(spec, lightOn, light, err))
+      light.lit = false;   // (its env stays: the sample's time runs on under it)
+   return light;
 }
 
 void CInSiliScopeCamera::SyncHistoryWorld()
@@ -378,7 +350,7 @@ void CInSiliScopeCamera::SyncHistoryWorld()
    {
       if (historyHaveWorld_)
          LogMessage("Illumination history cleared (a new world: seed or cell parameters).");
-      illumHistory_.Reset();
+      lightHistory_.Reset();
       ++driftWorldResets_;   // the sample's drift starts afresh too (producer)
       historyWorld_ = world;
       historyHaveWorld_ = true;
@@ -446,6 +418,15 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
    auto startTime = std::chrono::steady_clock::now();
    bool gpuOk = false;
    std::string where = "the CPU";
+   // The stack's time in the sample's light history: in the dark unless its
+   // fluorescence renders (then under its light): the lamp or no source
+   // leaves the dyes as they are, but the sample's time runs (DNA-PAINT's
+   // imagers bind) once light has reached it (LightHistory::Lit).
+   sim::LightState stackTime;
+   {
+      std::string err;
+      stackTime = LightStateOf(isc::BuildScopeSpec(St(), stageXUm, stageYUm, stageZUm, 0.0, 1), false, err);
+   }
    if (light == isc::LIGHT_NONE)
    {
       // No light source open: dark frames (offset, read noise, dark current).
@@ -478,16 +459,42 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       sim::ScopeSpec spec = isc::BuildScopeSpec(St(), stageXUm, stageYUm, stageZUm, 0.0, stackLength);
       isc::AddDriftToSpec(spec, params.drift);
       SyncHistoryWorld();
-      // The dyes' clocks over every pose of the stack's drift path (frame f:
-      // the FOV over the sample moved by d(f)), in this stack's epoch (rates).
-      const uint32_t epoch = illumHistory_.RegisterEpoch(sim::ScopeKineticEnv(spec));
-      const sim::DriftBounds db = sim::DriftRange(stackDrift);
-      double lx0, ly0, lx1, ly1;
-      LitRect(stageXUm, stageYUm, lx0, ly0, lx1, ly1);
-      const sim::ClockSnapshot clock = illumHistory_.Snapshot(lx0 - db.xHi / 1000.0, ly0 - db.yHi / 1000.0,
-                                                              lx1 - db.xLo / 1000.0, ly1 - db.yLo / 1000.0, epoch);
-      // The background fades with the lit time at the FOV centre (0 on a fresh sample).
-      const double fadeT0 = clock.At(stageXUm, stageYUm);
+      // The stack's light: every frame's at its pose over the moved sample
+      // (frame f: the FOV over the sample moved by d(f), the HILO pivot at
+      // its focus), as one light (sim::MergeLightPoses). The stack starts at
+      // the sample's time, its dyes at their clocks in the history's map under
+      // that light.
+      sim::LightState stackLight;
+      {
+         std::string lightErr;
+         std::map<double, sim::ExcitationSpec> geoAt;   // per focus (the pose only moves the light)
+         std::vector<sim::LightPose> poses;
+         poses.reserve(static_cast<size_t>(std::max(stackLength, 0L)));
+         sim::ScopeSpec fs = spec;
+         sim::LightState base;
+         for (long f = 0; f < stackLength; ++f)
+         {
+            const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
+            fs["x"] = stageXUm - d.x / 1000.0;
+            fs["y"] = stageYUm - d.y / 1000.0;
+            fs["z"] = zOf(f) - d.z / 1000.0;
+            if (f == 0)
+               base = LightStateOf(fs, true, lightErr);
+            auto it = geoAt.find(fs["z"]);
+            if (it == geoAt.end())
+               it = geoAt.emplace(fs["z"], sim::ScopeExcitationSpec(fs)).first;
+            poses.push_back(sim::LightPoseOf(fs, it->second));
+         }
+         if (lightErr.empty() && !sim::MergeLightPoses(base, poses, stackLight, lightErr))
+            stackLight = base;
+         if (!lightErr.empty())
+            LogMessage("Light history: " + lightErr, false);
+      }
+      spec["start-sec"] = lightHistory_.T();
+      // The background fades with the dose at the FOV centre (0 on a fresh sample).
+      const double fadeT0 = lightHistory_.DoseAt(stageXUm, stageYUm);
+      const double fadeRate = lightHistory_.DoseRate(stackLight, stageXUm, stageYUm);
+      auto fadeAt = [&](long f) { return fadeT0 + f * params.frameDurationSec * fadeRate; };
       bool lit = false;
       // Both lights: the lamp's photons x its QE join each frame before the
       // noise (the BrightField stack's scene at each frame's focus; drifting:
@@ -555,7 +562,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
       std::unique_ptr<sim::WidefieldGpuD3D11> wfGpu;
       bool wfTried = false;
       // The mean-field scenes convolve on this thread's Direct3D 11 host.
-      if (!fm.Begin(spec, false, err, St().useGpu.load() ? WideFieldGpu(wfGpu, wfTried) : nullptr, &clock))
+      if (!fm.Begin(spec, false, err, St().useGpu.load() ? WideFieldGpu(wfGpu, wfTried) : nullptr, &lightHistory_,
+                    &stackLight))
          LogMessage("Fluorescence: nothing rendered (" + err + ")", false);
       else
       {
@@ -584,8 +592,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             std::ostringstream msg;
             msg << "Fluorescence: " << (plan.ok ? std::to_string(blinks) + " blinks" : std::string("stack"))
                 << " for " << stackLength << " frames at stage (" << stageXUm << ", " << stageYUm
-                << ") um, the dyes at their places' illumination clocks (" << clock.At(stageXUm, stageYUm)
-                << " s at the FOV centre)";
+                << ") um, from the sample's time " << sim::ScopeSpecGet(spec, "start-sec") << " s (dose "
+                << fadeT0 << " s at the FOV centre)";
             LogMessage(msg.str());
          }
          if (gpuOk)
@@ -610,7 +618,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                {
                   const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
                   const double dx = d.x / params.pixelSizeNm, dy = d.y / params.pixelSizeNm;
-                  sim::RenderExtras extras = shaping.Extras(fadeT0 + f * params.frameDurationSec, decaySec);
+                  sim::RenderExtras extras = shaping.Extras(fadeAt(f), decaySec);
                   for (size_t gi = 0; gi < plan.groups.size(); ++gi)
                   {
                      const sim::FluorescenceSimpleGroup& sg = plan.groups[gi];
@@ -702,7 +710,7 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
             opt.zStageUm = zOf;   // the movie subtracts the spec's z drift
             if (decaySec > 0)
                opt.backgroundScale = [&](long f) {
-                  return sim::BackgroundFadeScale(fadeT0 + f * params.frameDurationSec, decaySec);
+                  return sim::BackgroundFadeScale(fadeAt(f), decaySec);
                };
             std::vector<float> sum;
             opt.onPhotons = [&](long f, const std::vector<float>& photons) {
@@ -729,45 +737,14 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
          }
       }
       if (lit)
-      {
-         // The stack's light, along its drift path: consecutive frames that
-         // light the same tiles (and, under a shaped beam, at the same pixel
-         // offset and focus) go in as one exposure.
-         const double T = sim::IlluminationHistory::kTileUm, um = params.pixelSizeNm / 1000.0;
-         const bool shapedLight = static_cast<bool>(HistoryLightAt(spec, stageXUm, stageYUm, zOf(0)));
-         auto keyOf = [&](long f) {
-            const sim::DriftNm& d = stackDrift[static_cast<size_t>(f)];
-            const double ox = d.x / 1000.0, oy = d.y / 1000.0;
-            std::array<long, 7> k = { static_cast<long>(std::ceil((lx0 - ox) / T - 0.5)),
-                                      static_cast<long>(std::ceil((lx1 - ox) / T - 0.5)),
-                                      static_cast<long>(std::ceil((ly0 - oy) / T - 0.5)),
-                                      static_cast<long>(std::ceil((ly1 - oy) / T - 0.5)), 0, 0, 0 };
-            if (shapedLight)
-            {
-               k[4] = std::lround(ox / um);
-               k[5] = std::lround(oy / um);
-               k[6] = std::lround((zOf(f) - d.z / 1000.0) * 100.0);   // the focus, 10 nm
-            }
-            return k;
-         };
-         for (long f0 = 0; f0 < stackLength;)
-         {
-            long f1 = f0 + 1;
-            const auto k0 = keyOf(f0);
-            while (f1 < stackLength && keyOf(f1) == k0)
-               ++f1;
-            const sim::DriftNm& d = stackDrift[static_cast<size_t>(f0)];
-            const double ox = d.x / 1000.0, oy = d.y / 1000.0;
-            illumHistory_.Advance(lx0 - ox, ly0 - oy, lx1 - ox, ly1 - oy, (f1 - f0) * params.frameDurationSec,
-                                  shapedLight ? HistoryLightAt(spec, stageXUm - ox, stageYUm - oy, zOf(f0) - d.z / 1000.0)
-                                              : sim::HistoryLight(), epoch);
-            f0 = f1;
-         }
-      }
+         stackTime = stackLight;
       for (std::vector<uint16_t>& fr : newStack)
          if (fr.size() != static_cast<size_t>(fullW) * fullH)
             fr.assign(static_cast<size_t>(fullW) * fullH, static_cast<uint16_t>(std::min(65535.0, std::max(0.0, params.offsetAdu))));
    }
+   SyncHistoryWorld();
+   if (stackTime.lit || lightHistory_.Lit())
+      lightHistory_.Advance(stackLength * params.frameDurationSec, stackTime);
    {
       double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
       std::ostringstream msg;
@@ -856,10 +833,11 @@ void CInSiliScopeCamera::LiveProducerLoop()
    long appliedConfigVersion = -1;
    std::vector<double> noiseMapKey;
    long zClampedSinceRebuild = 0, zTotalSinceRebuild = 0;
-   // The rates of this config (the history's epoch) and whether its light
-   // reaches the sample at all (any laser line through the filters).
-   uint32_t configEpoch = 0;
+   // Whether this config's light reaches the sample at all (any laser line
+   // through the filters), and its dark light (no source open: the sample's
+   // time runs on under its env, DNA-PAINT's imagers).
    bool configLightsSample = false;
+   sim::LightState darkLight;
    // A snap woke the producer: the next frame is its (TimeWhileIdle Paused:
    // the sample's time runs for it).
    bool snapFrame = false;
@@ -883,26 +861,36 @@ void CInSiliScopeCamera::LiveProducerLoop()
    sim::SampleSource cellField;
    bool cellFieldOk = false;
    bool bfActive = false, bfErrLogged = false, flErrLogged = false;
-   // The light a live frame gives the history (HistoryLightAt), kept while the
-   // settings, the pose and the focus stay.
-   sim::HistoryLight liveLight;
+   // The light of a live frame (LightStateOf at the stage x, y and focus z),
+   // made again when the settings or the focus change, moved with the pose
+   // (sim::LightPoseOf: the excitation depends on the focus alone).
+   sim::LightState liveLight;
+   sim::ScopeSpec liveLightSpec;
    long liveLightVersion = -1;
    double liveLightPose[3] = { 0.0, 0.0, 0.0 };
-   auto liveLightAt = [&](long version, double x, double y, double z) -> const sim::HistoryLight& {
-      // The light depends on the pose and focus only through the history's grids (HistoryLightAt): a drifting sample
-      // keeps it, and its per-tile memo, until it crosses a step.
-      const double pxUm = St().PixelSizeNm() / 1000.0;
-      const double key[3] = { sim::HistoryAxisUm(x - pxUm / 2.0), sim::HistoryAxisUm(y - pxUm / 2.0),
-                              sim::HistoryFocusUm(z) };
-      if (version != liveLightVersion || key[0] != liveLightPose[0] || key[1] != liveLightPose[1] ||
-          key[2] != liveLightPose[2])
+   bool liveLightErrLogged = false;
+   auto liveLightAt = [&](long version, double x, double y, double z) -> const sim::LightState& {
+      if (version != liveLightVersion || z != liveLightPose[2])
       {
          const auto tLight = sim::TimingClock::now();
-         liveLight = HistoryLightAt(isc::BuildScopeSpec(St(), x, y, z, 0.0, 1), x, y, z);
+         liveLightSpec = isc::BuildScopeSpec(St(), x, y, z, 0.0, 1);
+         std::string err;
+         liveLight = LightStateOf(liveLightSpec, true, err);
+         if (!err.empty() && !liveLightErrLogged)
+            LogMessage("Light history: " + err, false);
+         liveLightErrLogged = !err.empty();
          sim::TimingLog("live.history-light", sim::TimingSince(tLight));
          liveLightVersion = version;
-         std::copy(key, key + 3, liveLightPose);
       }
+      else if ((x != liveLightPose[0] || y != liveLightPose[1]) && liveLight.poses.size() == 1)
+      {
+         liveLightSpec["x"] = x;
+         liveLightSpec["y"] = y;
+         liveLight.poses[0] = sim::LightPoseOf(liveLightSpec, liveLight.geo);
+      }
+      liveLightPose[0] = x;
+      liveLightPose[1] = y;
+      liveLightPose[2] = z;
       return liveLight;
    };
    long cellFieldVersion = -1;   // the config version the cell field was configured at
@@ -1060,7 +1048,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          shaping = ShapingFields(w, h);
          {
             const sim::ScopeSpec envSpec = isc::BuildScopeSpec(St(), 0.0, 0.0, 0.0, 0.0, 1);
-            configEpoch = illumHistory_.RegisterEpoch(sim::ScopeKineticEnv(envSpec));
+            std::string err;
+            darkLight = LightStateOf(envSpec, false, err);
             configLightsSample = sim::ScopeSampleIntensityKwCm2(envSpec) > 0;
          }
          if (zClampedSinceRebuild > 0)
@@ -1142,17 +1131,17 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // HILO's never-lit ones that stay there); 10 nm of drift is far below the PSF's 100 nm planes. The stage's own z
       // stays exact.
       const double liveDriftZUm = std::floor(liveDrift.z / 10.0 + 0.5) * 0.01;
+      // The sample's time step of this frame when its time runs (the drift's
+      // and the light history's).
+      const double timeStepSec =
+         acquiring ? params.frameDurationSec
+                   : std::min(10.0, std::max(params.frameDurationSec,
+                                             std::chrono::duration<double>(frameStart - lastFrameStart).count()));
       if (params.drift.On() && timeRuns)
-      {
-         double dt = params.frameDurationSec;
-         if (!acquiring)
-            dt = std::min(10.0, std::max(params.frameDurationSec,
-                                         std::chrono::duration<double>(frameStart - lastFrameStart).count()));
-         driftWalker_.Step(dt);
-      }
+         driftWalker_.Step(timeStepSec);
       lastFrameStart = frameStart;
-      // The FOV over the moved sample: the pose the spec, the lit rect and
-      // the clocks are read at.
+      // The FOV over the moved sample: the pose the spec, the light and the
+      // clocks are read at.
       const double posX = sx0 - liveDrift.x / 1000.0, posY = sy0 - liveDrift.y / 1000.0;
       // The fluorescence frame takes the drift as its pose: the FOV over the
       // moved sample (stage - d), the focal plane dz lower in it.
@@ -1163,9 +1152,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
       long frameEpoch = 0;
       double zOffsetUm = Stg().NextFrameZ(&frameEpoch);
       const double sx = sx0, sy = sy0;
-      // The background fades with the sample's lit time at the FOV centre.
+      // The background fades with the dose at the FOV centre.
       SyncHistoryWorld();
-      const double fadeSec = illumHistory_.ClockAt(posX, posY);
+      const double fadeSec = lightHistory_.DoseAt(posX, posY);
       sim::RenderExtras extras = shaping.Extras(fadeSec, St().bgDecaySec.load());
       // Counter-based noise: keyed by the live frame counter, on a seed of
       // its own (live mode was never meant to reproduce precomputed frames).
@@ -1173,9 +1162,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
       const uint32_t noiseFrame = noiseCounter++;
       std::vector<uint16_t> nextFrame;
       sim::ScopeSpec spec;
-      // The lit rect of this frame and its illumination clocks.
-      double lx0 = 0, ly0 = 0, lx1 = 0, ly1 = 0;
-      sim::ClockSnapshot clock;
+      // The light of this frame's fluorescence (its movie's clock map).
+      sim::LightState flLight;
       LitFrame lit;
       // The lamp's photons of this frame (x qe) into out. A new pose or setting
       // rebuilds the scene (seconds at high quality); a focus change re-images
@@ -1396,15 +1384,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
             fromQueue = nextFrame.size() == static_cast<size_t>(w) * h;
             if (fromQueue)
             {
-               LitRect(posX, posY, lx0, ly0, lx1, ly1);
                lit.valid = true;
-               lit.x0 = lx0;
-               lit.y0 = ly0;
-               lit.x1 = lx1;
-               lit.y1 = ly1;
                lit.dtSec = params.frameDurationSec;
-               lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
-               lit.epoch = configEpoch;
+               lit.light = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
                sim::TimingLog("live.ahead-frame", 0.0);
             }
          }
@@ -1433,9 +1415,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
       {
          // Fluorescence: this frame of the engine's movie at the current pose,
          // focus and time (one stage pose per frame; motion blur is ignored).
-         spec = isc::BuildScopeSpec(St(), posX, posY, zOffsetUm - liveDriftZUm, 0.0, 1);
-         LitRect(posX, posY, lx0, ly0, lx1, ly1);
-         clock = illumHistory_.Snapshot(lx0, ly0, lx1, ly1, configEpoch);
+         // At the sample's time, under this frame's light (its dyes' clocks:
+         // the history's map).
+         spec = isc::BuildScopeSpec(St(), posX, posY, zOffsetUm - liveDriftZUm, lightHistory_.T(), 1);
+         flLight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
          lap("live.spec+clock");
          sim::FluorescenceMovie fm;
          fm.CarryRunningImages(true);
@@ -1451,7 +1434,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          if (useGpu)
             gpuLock.lock();
          const bool begun = fm.Begin(spec, false, err, useGpu ? WideFieldGpu(liveGpu_.wf, liveGpu_.wfTried) : nullptr,
-                                     &clock);
+                                     &lightHistory_, &flLight);
          lap("live.begin");
          if (!begun)
          {
@@ -1571,13 +1554,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          if (rendered)
          {
             lit.valid = true;
-            lit.x0 = lx0;
-            lit.y0 = ly0;
-            lit.x1 = lx1;
-            lit.y1 = ly1;
             lit.dtSec = params.frameDurationSec;
-            lit.weight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
-            lit.epoch = configEpoch;
+            lit.light = flLight;
          }
       }
       cellFieldTimeSec += params.frameDurationSec;
@@ -1588,14 +1566,20 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // when it lights the sample: light reaches it, and the frame is an
       // acquisition's or the lasers' shutter was opened on purpose while the
       // sample's time runs idle. A snap's frame not counted here is counted
-      // when the snap takes it.
+      // when the snap takes it. Otherwise, while the sample's time runs, it
+      // runs on in the dark (once light has reached the sample: before, every
+      // dye is fresh, LightHistory::Lit).
       if (lit.valid && !configLightsSample)
          lit.valid = false;
-      if (lit.valid && (seqFrame || (timeRuns && St().epiExplicit.load())))
       {
          std::lock_guard<std::mutex> tg(liveTakeMutex_);
-         illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight, lit.epoch);
-         lit.counted = true;
+         if (lit.valid && (seqFrame || (timeRuns && St().epiExplicit.load())))
+         {
+            lightHistory_.Advance(lit.dtSec, lit.light);
+            lit.counted = true;
+         }
+         else if (timeRuns && !(lit.valid && acquiring) && lightHistory_.Lit())
+            lightHistory_.Advance(timeStepSec, darkLight);
       }
       publish(nextFrame, w, h, frameEpoch, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, frameLight,
               lit, queuedStarted, frameStart);
@@ -1604,9 +1588,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
       ++liveFrameCounter_;
       // The next batch (aheadK below), handed to the helper
       // when it is idle and fewer than that are queued, for the slots after
-      // the queued frames. Its dye clocks: the history plus the light of the
-      // frames before its first slot not yet taken (the front frame and the
-      // queue), exactly what taking them will add (flat illumination).
+      // the queued frames. It starts at the sample's time plus the frames
+      // before its first slot not yet counted (the queue), under their light:
+      // exactly what publishing them will add.
       static const long aheadKFixed = [] {
          const char* e = std::getenv("ISC_AHEAD_K");   // investigation knob: a fixed batch size
          return e ? std::max(0L, std::min(64L, std::atol(e))) : 0L;
@@ -1632,25 +1616,25 @@ void CInSiliScopeCamera::LiveProducerLoop()
          noiseCounter += static_cast<uint32_t>(aheadK);
          job->useGpu = St().useGpu.load();
          SyncHistoryWorld();
-         double ax0, ay0, ax1, ay1;
-         LitRect(sx, sy, ax0, ay0, ax1, ay1);   // no drift with render-ahead
          const long nextSlot = liveFrameCounter_.load(std::memory_order_relaxed);
          job->firstSlot = aheadQueue.empty() ? nextSlot : aheadQueue.back().slot + 1;
          const long ahead = std::max(0L, job->firstSlot - nextSlot);
-         job->epoch = configEpoch;
+         // The queued frames before its first slot light the sample when they
+         // are published (a sequence acquisition's frames), with the beam's
+         // light (no drift with render-ahead); its movie reads the history's
+         // map under that light.
+         job->light = liveLightAt(currentConfigVersion, sx, sy, zOffsetUm);
+         double t0 = 0.0, fade0 = 0.0;
          {
             std::lock_guard<std::mutex> tg(liveTakeMutex_);
-            job->clock = illumHistory_.Snapshot(ax0, ay0, ax1, ay1, configEpoch);
+            t0 = lightHistory_.T();
+            fade0 = lightHistory_.DoseAt(sx, sy);
          }
-         // The queued frames before its first slot light the sample when they
-         // are published (a sequence acquisition's frames), with the beam's light.
-         job->light = liveLightAt(currentConfigVersion, sx, sy, zOffsetUm);
-         for (long k = 0; k < ahead; ++k)
-            job->clock.Advance(ax0, ay0, ax1, ay1, params.frameDurationSec, job->light);
-         // Frame f's background fade: the lit clock at the FOV centre then.
-         const double fade0 = job->clock.At(sx, sy);
+         job->spec["start-sec"] = t0 + ahead * params.frameDurationSec;
+         // Frame f's background fade: the dose at the FOV centre then.
+         const double fadeRate = lightHistory_.DoseRate(job->light, sx, sy);
          for (long f = 0; f < aheadK; ++f)
-            job->fadeSec.push_back(fade0 + f * params.frameDurationSec);
+            job->fadeSec.push_back(fade0 + (ahead + f) * params.frameDurationSec * fadeRate);
          aheadJobId = job->id;
          aheadJobK = aheadK;
          aheadJobStarted = sim::SharedStageState::Clock::now();
@@ -1681,7 +1665,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
          // is checked against the budget only when it ends), stalling frames.
          if (!bfActive && !spec.empty())
          {
-            sim::PrefetchScope(spec, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs, &clock);
+            sim::PrefetchScope(spec, kCellFieldPrefetchMarginUm, sleepMs - kCellFieldPrefetchSlackMs, &lightHistory_,
+                               &flLight);
          }
          const double took =
             std::chrono::duration<double, std::milli>(sim::SharedStageState::Clock::now() - tPrefetch).count();
@@ -1804,11 +1789,11 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
       lastConsumedLiveFrameSeq_ = seq;
       const auto tTaken = sim::TimingClock::now();
       {
-         // The frame was taken: a snap's light goes into the illumination
-         // history now unless its publish counted it.
+         // The frame was taken: a snap's light goes into the light history
+         // now unless its publish counted it.
          std::lock_guard<std::mutex> tg(liveTakeMutex_);
          if (lit.valid && !lit.counted)
-            illumHistory_.Advance(lit.x0, lit.y0, lit.x1, lit.y1, lit.dtSec, lit.weight, lit.epoch);
+            lightHistory_.Advance(lit.dtSec, lit.light);
          liveTakenSeq_ = seq;
       }
       for (int k = 0; k < 3; ++k)
