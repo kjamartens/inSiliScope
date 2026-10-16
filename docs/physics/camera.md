@@ -71,8 +71,9 @@ A flat background (`SampleHolder.BackgroundPhotonsPerSec`) multiplies an illumin
 
 - **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`SampleHolder.BackgroundDecaySec`; the form and its constants are *estimates*);
   \(t\) is the movie's time, in
-  Micro-Manager the lit clock at the FOV centre ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter):
-  one value per frame, the fade does not vary across the FOV);
+  Micro-Manager the dose at the FOV centre, in seconds of the first light
+  ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter): one value per frame, the fade
+  does not vary across the FOV);
 - **illumination**: the excitation's lateral footprint at the coverslip (`illum-profile`, `illum-fwhm`; MM
   `Lasers.IlluminationProfile`, `Lasers.IlluminationFwhmPct`; default a FlatTop the width of the FOV) multiplies the
   background ([Dyes and light path](dyes-and-light-path.md#illumination-geometry)).

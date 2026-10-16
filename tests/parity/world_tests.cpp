@@ -2161,6 +2161,8 @@ std::vector<double> Encode(const ClockMap& m)
          v.insert(v.end(), { st.t0, st.t1, st.c });
          field(st.field);
       }
+      field(c.bleachTotal);
+      field(c.bleachRate);
    }
    return v;
 }
@@ -2246,6 +2248,11 @@ void BruteWindows(uint32_t seed, World& w, const ClockMap& m, const Label& l, co
             if (x.tOn > tau || !(x.tOff > tau)) continue;
             on = -INF;
             off = INF;
+         }
+         if (x.state == STATE_ALWAYS_ON || x.state == STATE_PRE) {   // the photon budget: its hazard reaches the draw
+            const double B = m.Eval(c.bleachTotal, d.x, d.y, d.z), r = m.Eval(c.bleachRate, d.x, d.y, d.z);
+            if (!c.bleachTotal.empty() || !c.bleachRate.empty())
+               off = std::min(off, r > 0 ? c.tOpen + (x.aux - B) / r : x.aux > B ? INF : -INF);
          }
          if (off > tMin)
             out.push_back({ { d.x, d.y, d.z, on, off, 1.0, x.aux, d.id, (uint8_t)STRUCTURE_MT, x.state }, tau, R });
@@ -2443,6 +2450,44 @@ void Run()
                   rv.first, n, same ? "= brute force" : "DIFFERENT", nc, sameC ? "= brute force (in order)" : "DIFFERENT");
       Check(same && sameC && (rv.first == 0 ? n == 0 : n > 0), "a shaped dose map = every dye on its own clock");
    }
+   // WideField with a photon budget: the windows end at the bleach (its hazard a field by tOpen, a shaped rate after,
+   // one rate 0), asked at ever later times on one map (the block's ends in T made once) and again after a map change.
+   for (const double rb : { 0.0, 0.04 }) {
+      ClockMap m = doseMap(1.0, true, 50.0);
+      StructClock& c = m.s[STRUCTURE_MT];
+      c.hist = Hist({ 0.0 }, { kin });
+      c.bound.clear();
+      c.bleachTotal = { Term(1, 0, 0.012 * 50, 0.7, -0.3, 1.0) };
+      if (rb > 0) c.bleachRate = { Term(2, -1, rb) };
+      World& w = use(B, wf);
+      Check(w.SetClockMap(m, &err), "SetClockMap takes a map with a bleach");
+      bool sameC = true;
+      size_t nc = 0, n52 = 0, n90 = 0;
+      for (double tMin : { -INF, 49.0, 52.0, 60.0, 90.0, 55.0 }) {
+         std::vector<MapWindow> cb;
+         BruteWindows(seed, w, m, wf, q, tMin, cb);
+         sameC = sameC && SameWindows(Windows(w, q, tMin), cb);
+         nc += cb.size();
+         if (tMin == 52.0) n52 = cb.size();
+         if (tMin == 90.0) n90 = cb.size();
+      }
+      ClockMap m2 = m;
+      m2.s[STRUCTURE_MT].bleachTotal.push_back(Term(0, -1, 0.3));
+      w.SetClockMap(m2);
+      std::vector<MapWindow> cb;
+      BruteWindows(seed, w, m2, wf, q, 55.0, cb);
+      sameC = sameC && SameWindows(Windows(w, q, 55.0), cb);
+      // (the bleach does end windows: fewer than without it, and with a rate fewer as time goes on)
+      ClockMap plain = m;
+      plain.s[STRUCTURE_MT].bleachTotal.clear();
+      plain.s[STRUCTURE_MT].bleachRate.clear();
+      std::vector<MapWindow> all;
+      BruteWindows(seed, w, plain, wf, q, 52.0, all);
+      std::printf("      WideField, dose map with a bleach (rate %.2f): %5zu windows %s (open at 52 s %zu of %zu, at 90 s "
+                  "%zu)\n", rb, nc, sameC ? "= brute force (in order)" : "DIFFERENT", n52, all.size(), n90);
+      Check(sameC && n52 > 0 && n52 < all.size() && (rb == 0 ? n90 == n52 : n90 < n52),
+            "a map's bleach ends the budgeted windows = every dye on its own");
+   }
    // PALM: three steps (sheared, a depth table, a constant), then a shaped rate.
    auto palmMap = [&](double rateScale) {
       StructClock c;
@@ -2609,7 +2654,7 @@ void Run()
       // Bad buffers: each refused, the map unchanged.
       std::vector<std::vector<double>> bad;
       auto bent = [&](size_t at, double val) { std::vector<double> b = v; b[at] = val; bad.push_back(b); };
-      bent(0, 2);                                  // format
+      bent(0, ISC_CLOCK_MAP_FORMAT + 1);           // format
       bent(1, 99);                                 // more grids than given
       bent(6, 0);                                  // a grid's nx 0
       bent(8, NAN);                                // a grid value
@@ -2625,10 +2670,13 @@ void Run()
          x.s[STRUCTURE_MT].hist.tStart[1] = 0;
          bad.push_back(Encode(x));
       }
-      {   // a term naming a grid that is not there
+      {   // a term naming a grid that is not there (in the total, in a bleach field)
          ClockMap x = m;
          x.s[STRUCTURE_MT].total[0].grid = 7;
          bad.push_back(Encode(x));
+         ClockMap y = m;
+         y.s[STRUCTURE_MT].bleachRate = { Term(9, -1, 1.0) };
+         bad.push_back(Encode(y));
       }
       {   // steps on a dose clock; gaps in an activation clock's steps; steps not ending at tOpen
          ClockMap x = m;

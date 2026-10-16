@@ -431,11 +431,6 @@ public:
    // wb then holds nBands x the grid cells, band b (edges: world um, ascending) for the dye planes whose centre lies in
    // it. Empty (the default): one band, wb per cell.
    void SetWeightBands(const std::vector<double>& edgesUm);
-   // The cells whose weights move together (a host clock's keys: one clock and history per group), one id per wb
-   // entry: the bleach basis is grouped by (dose, group), so frames whose groups' clocks advance differently (a lit
-   // disc and unlit corners) stay a combination of it. Null or empty (the default): grouped by dose only. Shared (a
-   // live host passes the same groups every frame: compared by pointer first, then by value).
-   void SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>> groups);
    // Bleaching weights per map entry (2026-10-15, WidefieldWeightMap: a host clock's entries, read per cell between
    // them): wb holds map.count entries (per band). Null (the default): one weight per cell. Shared (compared by pointer
    // first, then by value; the grid's rect must be the one it was made for).
@@ -443,7 +438,7 @@ public:
    // The bleach rate of each wb entry (2026-10-14; a host clock under a shaped beam: the light now, relative): with the
    // pose fixed, a frame's weights are wb_anchor exp(-tau rate), so the basis groups by rate (<= kMaxGroups values) or
    // expands in it (Chebyshev in rate / its largest), with as many terms as it takes to hold to tauPerRate x the
-   // largest rate before it is rebuilt (kChebTerms at most). Replaces SetWeightGroups' groups. Null: by dose.
+   // largest rate before it is rebuilt (kChebTerms at most). Null: by dose.
    void SetWeightRates(std::shared_ptr<const std::vector<float>> rates, double tauPerRate);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
@@ -634,7 +629,6 @@ private:
    std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
    bool planeFactorChanged_ = false;
    std::vector<double> weightBands_;   // SetWeightBands
-   std::shared_ptr<const std::vector<uint32_t>> weightGroups_;   // SetWeightGroups
    std::shared_ptr<const WidefieldWeightMap> weightMap_;         // SetWeightMap
    std::shared_ptr<const std::vector<float>> weightRates_;       // SetWeightRates
    double rateTau_ = 0.0;

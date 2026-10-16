@@ -124,8 +124,9 @@ beyond NA / `SampleHolder.MediumIndex`: clipped, no light), with the beam's `Ill
 (engine options too) and the read-only `IlluminationRegime` / `IlluminationDepthNm` (Advanced). `Lasers.Preset` sets
 `BfpPosition` (DNA-PAINT HILO, the nanorulers TIRF, else epi). The shipped configs' group `Illumination` (Epi / HILO /
 TIRF) is its dropdown and `BfpPosition` its field (Advanced and Expert configs only); neither is in the Startup group (the startup channel's preset sets it).
-The illumination history keeps each tile's clocks in 12 z bands under a shaped beam (`IlluminationHistory.h`), so light
-that reached only the bottom of a cell leaves the dyes above it fresh.
+The light history keeps the exact dose at every place and height (`LightHistory.h`, 2026-10-16, spec/PORT.md 23), so
+light that reached only the bottom of a cell leaves the dyes above it fresh, and the bleached area has the beam's soft
+edge.
 
 ## 6. Tiers
 

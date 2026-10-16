@@ -685,18 +685,6 @@ void WidefieldScene::SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> 
    planeFactorChanged_ = planeFactorChanged_ || !same;
 }
 
-void WidefieldScene::SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>> groups)
-{
-   if (groups && groups->empty())
-      groups.reset();
-   if (groups == weightGroups_)
-      return;
-   const bool same = groups && weightGroups_ && *groups == *weightGroups_;
-   weightGroups_ = std::move(groups);
-   if (!same)
-      bleachValid_ = false;
-}
-
 void WidefieldScene::SetWeightMap(std::shared_ptr<const WidefieldWeightMap> map)
 {
    if (map && (map->tile.empty() || map->count == 0))
@@ -1708,12 +1696,9 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
             (*d)[weightMap_->tile[c] + nw * b] = dD_[c];
       basisRates_ = d;
    }
-   // A group: a rate and, with SetWeightGroups (no host rates), a weight group; single: one for every weight.
-   const bool grouped = !hostRates && weightGroups_ && weightGroups_->size() == n;
-   auto groupOf = [&](size_t i) {
-      return single ? std::make_pair(0.0f, 0u) : std::make_pair(RateOf(i), grouped ? (*weightGroups_)[i] : 0u);
-   };
-   std::vector<std::pair<float, uint32_t>> groups;
+   // A group: a rate; single: one for every weight.
+   auto groupOf = [&](size_t i) { return single ? 0.0f : RateOf(i); };
+   std::vector<float> groups;
    for (size_t i = 0; i < n; ++i)
    {
       if (wb[i] == 0.0f)
@@ -1725,9 +1710,9 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
    if (groups.size() <= kMaxGroups)
    {
       std::sort(groups.begin(), groups.end());
-      for (const auto& g : groups)
-         groupDose_.push_back(g.first);   // (per channel)
-      for (const auto& g : groups)
+      for (float g : groups)
+         groupDose_.push_back(g);   // (per channel)
+      for (float g : groups)
       {
          Channel c;
          c.pop = 0;

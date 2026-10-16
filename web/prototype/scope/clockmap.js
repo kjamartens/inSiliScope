@@ -13,7 +13,7 @@
 //
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
-export const CLOCK_MAP_FORMAT = 1;
+export const CLOCK_MAP_FORMAT = 2;
 export const CLOCK_GLOBAL = 0, CLOCK_DOSE = 1, CLOCK_ACTIVATION = 2;
 export const CLOCK_TERM = 8;
 const KIN_KEYS = ['activationRatePerSec', 'onSec', 'offSec', 'bleachProb', 'photonCV', 'initialOnSec'];
@@ -84,6 +84,14 @@ export function activationTime(m, c, x, y, z, E) {
   return S > 0 ? c.tOpen + (E - r.H) / S : Infinity;
 }
 
+// BleachEnd: when a budgeted window of draw aux bleaches under clock c at (x, y, z), in T (Infinity without bleach
+// fields; at a rate <= 0 Infinity if aux > bleachTotal, else -Infinity).
+export function bleachEnd(m, c, x, y, z, aux) {
+  if (!c.bleachTotal.length && !c.bleachRate.length) return Infinity;
+  const B = evalField(m, c.bleachTotal, x, y, z), r = evalField(m, c.bleachRate, x, y, z);
+  if (r > 0) return c.tOpen + (aux - B) / r;
+  return aux > B ? Infinity : -Infinity;
+}
 // world.cpp DoseHistory: a dose clock's kinetics history at (x, y, z) -- epoch e >= 1 from its bound there; an epoch
 // the dye had no dose in gives way to the next.
 export function doseHistory(m, c, x, y, z) {
@@ -135,6 +143,8 @@ export function validateClockMap(m, nStructures) {
     c.bound.forEach(field);
     field(c.total);
     field(c.rate);
+    field(c.bleachTotal);
+    field(c.bleachRate);
     if (c.mode === CLOCK_ACTIVATION) {
       let t = 0;
       for (const st of c.steps) {
@@ -186,7 +196,7 @@ export function readClockMap(v, nStructures) {
   }
   for (let s = 0; s < nStructures; s++) {
     const c = { mode: Int(CLOCK_GLOBAL, CLOCK_ACTIVATION), hist: { tStart: [], kin: [] }, bound: [], total: [], totalC: 0,
-      rate: [], rateC: 0, tOpen: 0, steps: [] };
+      rate: [], rateC: 0, tOpen: 0, steps: [], bleachTotal: [], bleachRate: [] };
     for (let e = Int(1, v.length - i); e > 0; e--) {
       c.hist.tStart.push(D());
       const q = {};
@@ -203,6 +213,8 @@ export function readClockMap(v, nStructures) {
       const t0 = D(), t1 = D(), cc = D();
       c.steps.push({ t0, t1, c: cc, field: field() });
     }
+    c.bleachTotal = field();
+    c.bleachRate = field();
     m.s.push(c);
   }
   if (i !== v.length) throw new Error('clock map: trailing values');
@@ -235,6 +247,8 @@ export function encodeClockMap(m) {
       v.push(st.t0, st.t1, st.c ?? 0);
       field(st.field);
     }
+    field(c.bleachTotal);
+    field(c.bleachRate);
   }
   return v;
 }

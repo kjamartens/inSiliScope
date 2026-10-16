@@ -587,32 +587,21 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   (plus the primed term).
 - **Movies start at 60 s** (`start-sec`), past the dSTORM initial ON phase: the default movie shows the steady state
   without the user knowing about initial ON. The windowed schedules make the late start free.
-- **The adapter's illumination history is a per-place clock with a rate history, not a dose map per population**
-  (2026-10-08). Every mode's kinetics are functions of time under the light, so one map of lit seconds (0.25 um tiles)
-  serves bleaching, photoconversion and dSTORM depletion alike, and the dyes stay address-based. Each tile also keeps
-  its past as segments of lit time, each in an *epoch* (the light path's and labels' kinetic inputs then: lasers,
-  excitation filter, dichroic, imager concentration, dye overrides), interned in a trie of (parent, tStart, epoch) so
-  tiles with the same past share one node. The core (ABI 11, `isc_world_set_kinetics_history`) then walks each dye's
-  hazards piecewise: the *same* exponential draws, consumed segment by segment (activation `t + E/a_i` while it lands in
-  segment i, else `E -= a_i (s_{i+1} - t)`; ON/OFF/initial ON the same in scale form; the blink cycle keeps the old
-  `t += on + off` arithmetic when both end in one segment). Why: re-reading the whole past at the current rates (the old
-  per-place clock with today's label) made every change act backwards -- PALM with the 405 off emptied the field at
-  once (no dye had ever been activated at the new rate), a power step jumped to the look after T seconds at the new
-  power. With the walk, every event before a new boundary is bit-identical to the schedule without it (the past is
-  unchanged) and the future follows the new rates; one segment is today's code bit for bit, so fresh devices and the
-  cli/viewer are unchanged. DNA-PAINT changes per 1 s bin (the segment holding the bin's start), so bins already shown
-  never change. A dye block keeps up to 16 schedule slots keyed by the history's fingerprint, so two clock regions with
-  different pasts do not rebuild each other every frame; a label change of the kinetics alone keeps them. Lit time stays
-  the clock variable, so light-independent processes (DNA-PAINT binding, PALM spontaneous activation, dark times) run
-  only while lit (*estimate*-level simplification, documented). A change of dye or mode re-reads the past light for the
-  new dye (the epochs' light with the current dye), since the old dye's states mean nothing to the new one. Light counts
-  when a frame is *published* if it lights the sample (shutter open, power at the sample, and an acquisition takes it or
-  `SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter), so the next frame always sees it; a snap outside
-  those counts at its take. All lit columns advance by the same exposure, so a mean-field population's per-column
-  weights only scale from frame to frame (the scene's one-channel fast path); the lit rect follows the drifted pose and
-  is 0.5 um wider than the rendered margin so the world-anchored grid and the tiles lie wholly inside it (else edge
-  columns keep their clock and every frame re-convolves). Populations with a history: survival `exp(-sum lambda_i
-  Delta_i)`, the mean-field column weight `rate S (1 - exp(-lambda exp)) / lambda` at the current lambda.
+- **A change acts from now on: the past is kept as epochs, and the core walks each dye's hazards piecewise**
+  (2026-10-08, the rate history; since 2026-10-15 inside the clock map, "Exact light history" below). The past is
+  segments, each in an *epoch* (the light path's and labels' kinetic inputs then: lasers, excitation filter, dichroic,
+  imager concentration, dye overrides). The core walks a dye's hazards with the *same* exponential draws, consumed
+  segment by segment (activation `t + E/a_i` while it lands in segment i, else `E -= a_i (s_{i+1} - t)`; ON/OFF/initial
+  ON the same in scale form; the blink cycle keeps the old `t += on + off` arithmetic when both end in one segment).
+  Why: re-reading the whole past at the current rates made every change act backwards -- PALM with the 405 off emptied
+  the field at once (no dye had ever been activated at the new rate), a power step jumped to the look after T seconds
+  at the new power. With the walk, every event before a new boundary is bit-identical to the schedule without it and
+  the future follows the new rates; one segment is the old code bit for bit. DNA-PAINT changes per 1 s bin (a bin with
+  a change takes each part at its own rate, 2026-10-12), so bins already shown never change. A change of dye or mode
+  re-reads the past light for the new dye (the epochs' light with the current dye), since the old dye's states mean
+  nothing to the new one. Light counts when a frame is *published* if it lights the sample (shutter open, power at the
+  sample, and an acquisition takes it or `SampleHolder.TimeWhileIdle` = Running with a hand-opened shutter), so the
+  next frame always sees it; a snap outside those counts at its take.
 - **The imager background ignores depletion and exclusion from cells**: a flat offset from the concentration and the
   illuminated chamber height. Documented as such rather than modelled half-way.
 
@@ -874,86 +863,98 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   DNA-PAINT is done in HILO or TIRF: the light presets of the DNA-PAINT modes set u = 0.95 (HILO), the nanorulers'
   specimen u = 1.03 (TIRF, under the 1.40 objective's pupil edge; both *estimates*); in epi the nanorulers' 20 nM
   imager over 100 um saturates the camera.
-- **The kinetics follow the local light** (no host clock: the cli, the viewer). A dye at factor a: dSTORM's clock runs
-  at a x real time (its events are queried over [0, a_max t_end] and mapped back, t = tau / a: the switching rates
-  scale with the excitation, the stochastic path is the dye's own); PALM's activation at b(a) = (spont + lin a + quad
-  a^2) / kAct (the first blink moves from T to T / b, later events by the same shift); DNA-PAINT binding does not
-  depend on the light (photons x a only); the windows: the initial ON ends at tOff / a, the pre state at tOff / b, the
-  photon budget bleaches at aux x budget / (emission x a). Mean-field populations, whose photons are nonlinear in a,
-  are split over **dose nodes** (0.5 e-fold steps, cut at 8 e-folds, at most 16 levels, one image per node, each dye
-  shared between its two neighbouring nodes by linear interpolation); the mean-field switch counts the survivors over
-  a 256-bin histogram of the dyes' factors. With a host clock (MM's illumination history) the clock is the **dose**:
-  a tile's clock advances by a_h x the exposure, per tile and per one of 12 world-z bands (so after TIRF the dyes higher
-  in a cell are fresh; equal bands collapse to one), and a frame reads its dSTORM / PALM events in the same dose (a
-  region is queried over a_max x the frame's span, the times divided by a_h; DNA-PAINT: photons only): the kinetics
-  within a frame and across frames agree. a_h (`HistoryLightField`, Excitation.h) = F x the band's mean depth factor
-  in 1/16 steps x the footprint's **level** (HILO: at the band's middle height): 1 where it is >= half its peak, 1/4
-  down to 1/8 of it (the dim rim), else 0 (`HistoryLevel`); the photons keep its smooth profile. Why levels: each
-  distinct clock is a region, each region a core query scanning every dye block it meets; a FlatTop's soft edge in
-  1/16 levels made ~800 regions in epi and ~2600 in HILO, and live frames took seconds (bench_live 0 fps at 10 ms);
-  two levels make a handful (sparse keys bisected, `ClockSnapshot::Regions`). Why the rim level (2026-10-14): lit /
-  unlit at half left the rim (10-50 % of the peak at a FlatTop's edge, the FOV's margin) at clock 0 for good, so its
-  dSTORM dyes stayed in their initial ON and the population mean-field every frame (live HILO 11 vs ~40 fps). **Dark
-  rule** (2026-10-14): a place at clock 0 that the history's light does not reach now (level 0, or outside the clock's
-  `DyeClock::Extent`, the recorded rect) gets no photons from its dSTORM / PALM / WideField dyes (`GridCellKeys`' dark
-  key, `RegionDark` per region: its own tiles, as the never-lit ring around the FOV is one region whose box holds the
-  lit middle; the windows and the switch skip it); DNA-PAINT keeps its dyes (uniform history). The cost: a never-lit
-  dye under < 1/8 of the peak is left out (blinks and per-dye windows; the rate mean field reads the exact light,
-  below). **Exact dose** (2026-10-14): with the levels alone a WideField population's bleached fraction jumped at
-  the half-peak contour, where its clock's rate falls 4x while the light is smooth (6 s at 0.05 kW/cm^2: 0.39 of the
-  first frame inside, 0.75 just outside; finer levels only made more, smaller steps: powers of 2 two steps at the
-  same fps, sqrt 2 steps 3.5 instead of 20 fps). The history also keeps, per tile and band, the **excess**: the dose
-  of the exact light (`HistoryLightField::BandExact`: F x the band's mean depth factor x the footprint, unquantised)
-  minus the clock (`ClockSnapshot::ExcessAtZ`, float, next to the clock in every chunk and snapshot). A rate
-  population's mean field (WideField bleaching, pre states, initial ON) reads clock + excess: its weight is the
-  survival S at its key (clock t, through the rate history) to the power (t + e) / t, the excess as more of the same
-  past, so it bleaches with the smooth light (exact under a fixed beam, whatever the epochs: the excess of a tile at
-  level L under light a is (a - L) t / L; a tile at clock 0 takes exp(-lambda e) at the present rate). Weighting the
-  excess at the present rate instead made a x4 power step 15x brighter, not ~3x (`test_history.py`). Its weights live
-  on the history's tiles (`WidefieldScene::SetWeightMap`: each grid cell's weight is its tile's, ~25x fewer than per cell, `GridTiles`), each
-  tile's rate is its exact light now (`SetWeightRates`), and the bleach basis groups by rate (<= 8 values) or expands
-  in it: Chebyshev in rate / its largest, as many terms as exp(-tau x) needs to 1e-6 for tau = lambda x 4 s
-  (`kBasisSpanSec`) x the largest rate (`ChebTermsFor`: 3 for a slow bleach, 12 at most), so a live sequence at the
-  default powers builds it once (400 frames at 20 ms: one build). A new pose's first basis is that frame's weights
-  alone (one image, `wf.basis-single`; a stage drag renders one frame per pose), the full basis follows when a further
-  frame does not fit it. Within a movie (render-ahead batches, stacks) frame f is wb0 x exp(-lambda f exposure rate)
-  per tile (`RateWeightedFrame`; it was exp(-lambda f exposure) everywhere, the peak's bleach in the dim rim, which
-  then jumped back at the next batch). Its dark rule: outside the extent, or never lit (clock and excess 0) where the
-  exact light is 0 now; a FlatTop's or Gaussian's soft edge never reaches 0, so the never-lit rim emits at its fresh
-  value and bleaches with its light. Blinks and per-dye windows keep the levels (each distinct clock is a core
-  query), so the blinks (dSTORM, PALM) and a population drawn per dye (few dyes left) still step at the contour.
-  Measured (MM live, mEGFP WideField, 256 px, 20 ms, vs the levels' basis): sequences 47-48 fps (48-50) epi, 41-47
-  (39-49) TIRF; a stage move's snap on par; z scrub per step 36-43 ms (29-33) epi, 61 ms (195) TIRF, 437 ms (390)
-  HILO. The `Edge` check of `test_history.py` bleaches 0.6 s at 128 px: the fraction kept by radius goes 0.27 ... 0.88
-  smoothly (largest step 0.08 per 0.03 FOV widths; the levels: 0.27 to 0.50 at the half contour, a step of 0.63 at
-  the dark rule's 1/8). **Mean-field switch under a host clock:** the survival averaged over the
-  lit regions by their area (`Population::meanSurvival`) x the lit dyes (`nZLit`, outside the dark regions), not the
-  largest survival: under drift a thin fresh strip kept the largest one near 1 with every dye counted. **Windows**:
-  a region whose expected dyes still in a windowed state are < 1e-4 is not queried (`kWindowAliveMin`), and the core's
-  rows are cached across live frames (`MovieCache::Windows`: per dye version, history rows and z range over the box +
-  min(2 um, 10 %); a window is a pure function of its dye and history and never reopens, so the core's own filters on
-  the cached rows give the fresh answer, bit for bit -- the core makes every dye's window anew per call, ~100 ms for a
-  40 um HILO query). **Grids** (fixed on purpose, the host
-  and `doseEvents` alike): a_h is read with the optical axis on the tile grid (`HistoryAxisUm`) and the focus on a
-  0.25 um grid (`HistoryFocusUm`, the pivot again in `HistoryLightField`). Read exact, sample drift moved the lit /
-  unlit edges (HILO's sheet in every band) a fraction of a tile every frame, each tile they crossed got a clock of its
-  own, and live HILO under drift fell from ~90 to ~20 fps at 10 ms (DNA-PAINT) as the regions grew. **DNA-PAINT
-  only:** when every mounted label is DNA-PAINT the history light is uniform (a_h = 1 in the lit rect): its binding
-  needs no light (as in the cli's movies), so the beam's shape would only cut the field into regions -- and a dim
-  tile's clock, running at a_h x real time, held a binding for 1 / a_h frames. Mixed scenes keep a_h (the PAINT
-  label reads the dose clock; *known approximation*). A history chunk that only a light alike in height has lit keeps
-  one band (`IlluminationHistory::Chunk::banded`): a live frame advances one value per tile, not 12. **Live under
-  drift** (MM, fixed on purpose): the drift's z part enters a frame's focus on a 10 nm grid (the stage's own z stays
-  exact), and the mean-field scenes stay posed at an anchor within 1 um of the FOV, their images shifted to it by a
-  phase ramp (`FluorescenceMovie::AnchorMeanField`, the drift movies' `RenderShiftedImages`; the beam's axis offset in
-  the plane factor in 0.25 um steps). Before, each frame's new pose and focus refocused every mean-field scene and
-  rebuilt its bleach basis, ~0.6 s per frame: dSTORM's initial-ON dyes, which under HILO stay ON where the sheet does
-  not reach (1.5 -> 12 fps at 10 ms). Bands, not a continuous z: a clock
-  per dye height would make every dye its own region. The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per
-  mode (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
+- **The kinetics follow the local light**, every dye at the dose at its own (x, y, z), on every consumer (MM, cli,
+  viewer, the JS reference): the clock map, "Exact light history" below. DNA-PAINT binding does not depend on the light
+  (photons x the factor only). The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per mode
+  (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
+- **Live under drift** (MM, fixed on purpose): the drift's z part enters a frame's focus on a 10 nm grid (the stage's
+  own z stays exact), and the mean-field scenes stay posed at an anchor within 1 um of the FOV, their images shifted to
+  it by a phase ramp (`FluorescenceMovie::AnchorMeanField`, the drift movies' `RenderShiftedImages`; the beam's axis
+  offset in the plane factor). Before, each frame's new pose and focus refocused every mean-field scene and rebuilt its
+  bleach basis, ~0.6 s per frame (dSTORM's initial-ON dyes under HILO: 1.5 -> 12 fps at 10 ms).
 - **Known approximations.** The factor is read at the sample's undrifted place (drift is small against the beam);
   supercritical-angle emission (TIRF's collection gain near the interface) and the beam's angular spread in the BFP
   are not modelled; the incidence plane is the camera x axis.
+
+## Exact light history (2026-10-15/16)
+
+Every dye's kinetics run at the dose at its own (x, y, z): one core query per movie (core ABI 14, the **clock map**;
+`core/src/clockmap.*`, `World::EventsInMap` / `ContinuousInMap`; JS `web/prototype/scope/clockmap.js`, `world.js`),
+the map made by the host's light history (`Simulation/LightHistory.*`; JS `light_history.js`) or, for a cli/viewer
+movie, by the same builder from the movie's own past. No levels, z bands, clock regions or dark rule.
+
+- **Why (fixed on purpose).** The stepped history it replaced (`IlluminationHistory`, removed 2026-10-16) counted the
+  beam in levels -- 1 at >= half its peak, 1/4 down to 1/8, else 0 -- in 0.25 um tiles x 12 z bands, because each
+  distinct (clock, past) was a clock region and each region a core query scanning every dye block it met: the exact
+  light made ~800 regions in epi and ~2600 in HILO, seconds per live frame (`tests/parity/map_bench.cpp`: 2601 regions
+  578 ms per frame, the map 6 ms). With the levels the blinks and the per-dye populations stepped at the contours (the
+  fraction kept after 2 s of dSTORM 0.68 -> 0.85 across the half contour, after 0.7 s of WideField per dye 0.27 ->
+  0.48; the mean field had been patched with an "excess" dose), TIRF's first band made a 2.7x jump at 0.1 um and HILO's sheet was
+  read at the band's middle (up to ~2 um off).
+- **Clock classes (per structure, by mode).** GLOBAL (DNA-PAINT and the off targets): the sample's time T, the
+  kinetics history in T -- binding needs no light, so a mixed scene's DNA-PAINT label never reads a dose. DOSE
+  (dSTORM, WideField, the initial ON): a dye's clock is its dose tau(x) = total(x) by tOpen, then rate(x) per second.
+  Every dSTORM rate is linear in the excitation (the 405 return falls off like the main line, `DyeLibrary`), so the
+  kinetics per unit of dose are constant while the *kind* of light is (a chapter, below), and a power or pose change
+  moves only the dose: it rebuilds no schedule. Epochs (chapters with other rows) start at the dye's own dose
+  bound[e - 1](x). ACTIVATION (PALM): the activation hazard -- steps (the merged past, each recent record) from 0 to
+  tOpen, then rate(x) -- reaches the dye's draw; its blinks keep their times in T (the reference model scales only the
+  activation, spont + lin a + quad a^2). The pre state's bleach and the photon budget of a WideField dye are the map's
+  **bleach fields** (format 2, 2026-10-16): the core ends a budgeted window where the hazard bleachTotal(x) + bleachRate(x)
+  (t - tOpen) reaches its draw.
+- **Fields.** A field is a sum of terms scale x grid(x - ox - (z - zp) sx, y - oy - (z - zp) sy) x depth(z): bilinear on
+  the grid in lerp form (equal nodes give exactly that value, so a Flat beam in epi and a fresh session answer as the
+  ABI 11 queries, bit for bit and in order), the depth tables linear at 5 nm (TIRF's decay per line).
+- **The history.** T advances by the exposure whenever the sample's time runs (a counted frame; a dark step while
+  `TimeWhileIdle` = Running), and starts at the sample's first light (before it every dye is fresh and DNA-PAINT
+  stationary: fresh-device stacks stay deterministic). **Records**: maximal intervals of one light -- chapter, magnitude
+  (power at the sample over the chapter's reference), pose (the axis within 25 nm of the record's first frame, which it
+  keeps; a drifting stack's record holds its frames' poses weighted, so the history records the light the stack used);
+  a frame costs O(1) (the open record grows). **Chapters**: maximal intervals of one kind of light -- the geometry but
+  the HILO pivot, the kinetic env but the laser powers, the lines' power ratios at the sample. A chapter folds its
+  closed records into sparse world-anchored grids (G = sum mag x footprint x dt; G2 = sum mag^2 footprint^2 dt, the
+  primed PALM conversion's) on its lattice -- 0.25 um, halved while the profile's curvature would make the bilinear
+  reading err by more than 1e-3 of the peak (`LightLatticeUm`: a 64 px FOV's FlatTop takes 0.125 um; on a fixed
+  0.25 um lattice it read 2-3 % off between nodes) -- in its own sheared coordinates u = x - z tan theta_s (HILO: the
+  footprint at height z is the pivot plane's moved along x). The footprint is the profile at the nodes, out to 1e-4 of
+  its peak, evaluated at the record's exact pose. The 16 most recent records stay apart (PALM's steps; past 16 the
+  oldest 8 merge, or those over 30 s old), totals exact. A map is built only when a record, chapter or label changes
+  (256 px HILO: 4 ms; a 60 s stage drag: fold 0.6 ms per frame, 27 MB held; ctest `history_check`).
+- **cli and viewer movies** (no host history) get a map from the same builder: the past = `start-sec` at the movie's
+  light and pose, then the movie, over the query box +- 2 um. An MM frame reproduced with `insiliscope_cli --spec`
+  follows the MM path (defaults, dSTORM, PALM, mean field, drift: 100 % identical pixels). It replaced `localEvents`
+  (every dye queried raw from t = 0 to the brightest factor x the movie's end, its times divided by its factor; PALM by
+  a first-blink shift) and the mean field's dose nodes, whose spacing depended on the movie's length (the first 40
+  frames of a 1000-frame FlatTop dSTORM movie decayed x0.54 in the corners, a 40-frame movie's x0.78).
+- **Core caches.** Per dye block: the schedules on the dye's own clock, keyed by the schedule's fingerprint (a pose
+  change: 0 rebuilt); each dye's (tau, rate) per present (the clock's `fpNow`); PALM: each dye's resumable walk and a
+  lazy min-heap of activation lower bounds, the live dyes' schedules in an arena; the continuous windows per
+  fingerprint sorted by their end on the own clock; with a bleach, their ends in T per present, sorted, so a query costs
+  the windows still open. Fixed on purpose: the bleach was the host's (`ClockMapView::BleachEnd` per window), so a
+  sample bleached down to the per-dye regime (~3000 of 3.2M dyes left) still pulled every window through the query each
+  frame: 332 ms -> 0.9 ms per live frame. Order: by block, then (tOn in T, the own clock's time, dye, blink) -- the ABI 11
+  order under a uniform map. JS twin per query, no caches, the same numbers and order (`label_parity.mjs`).
+- **Mean field on the map.** Per structure the map's entries on its finest lattice x height bands (`MapEntries`; bands
+  merge the scene's dye planes while the photons per dye at Tq, Tq + span and Tq + 2 span stay within 1 % of the
+  largest, at most 64): per entry the hazard H at the movie's start and its rate h now; frame 0's weight rate e^-H
+  (1 - e^(-h exp)) / h, frame f wb0 e^(-h f exp) (`SetWeightRates`), the bleach basis by groups (<= 8 rates) or
+  Chebyshev in the rate, a rate population's frame from the basis by its decay alone (`AnchorDecay` /
+  `RenderDecayed`: 9 -> 0.45 ms per frame at 256 px HILO). Each grid cell reads its weight log-bilinearly between its
+  four nodes (`MappedWeight`), fixed on purpose: a weight constant per 0.25 um tile biased a bleached Gaussian centre by
+  +1.3 % (light and survival anti-correlated inside a tile). Blink populations (the blink mean field, off by default)
+  compute their Markov ON expectation only for the entries a dye cell reads (`UsedWeights`: 8.5 % in HILO; 2.6 s ->
+  ~0.08 s per frame at 40 px). The mean-field switch: the survival averaged over the lit entries x the lit dyes; no
+  windows query when fewer than 1e-4 dyes are expected in the state.
+- **Semantics (documented).** PALM's spontaneous activation and DNA-PAINT binding run on T, not only while lit (with
+  `TimeWhileIdle` Paused only counted frames advance T); a light-driven dye where no light reaches now is frozen and
+  emits nothing (the beam's dim rim is lit and bleaches at its own rate); PALM activation older than ~30 s is merged
+  (totals exact); dSTORM and WideField are exact at any age. Resolution: bilinear on the lattice (<= 1e-3 of the peak),
+  depth tables at 5 nm, the pose per record (25 nm).
+- **Measured** (`tools/test_history.py`, 128 px FlatTop, the fraction kept by radius in 0.03-FOV-width rings): WideField
+  mean field 0.27 ... 0.86, largest step 0.10; per dye (3 % labelling): dSTORM 0.06 (the levels: 0.17), WideField 0.08
+  (0.16). Live (Basic config, 256 px): where the levels made many regions it is faster (HILO / TIRF dSTORM and PALM,
+  0-11 fps with the levels, 6-46 with the map, `bench_bfp`), elsewhere on par (stage moves and z scrubs within ~10 %);
+  a WideField sample bleached into the per-dye regime 332 -> 0.9 ms per frame for its windows.
 
 ## Known limitations / not yet done
 

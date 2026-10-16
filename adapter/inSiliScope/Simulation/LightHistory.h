@@ -8,8 +8,8 @@
 //                has had, as the clock map of core ABI 14 reads it
 //                (insiliscope.h isc_world_set_clock_map): each dye's kinetics
 //                at the dose at its own (x, y, z), smooth in all three (no
-//                levels, regions or z bands: IlluminationHistory, the stepped
-//                history this replaces).
+//                levels, regions or z bands: it replaced IlluminationHistory,
+//                the stepped history, removed 2026-10-16).
 //
 //                Time. The sample's time T (s) advances by a frame's exposure
 //                whenever the sample's time runs (a lit frame, or a dark one
@@ -167,10 +167,10 @@ struct MapClock
    MapField total, rate;
    double totalC = 0, rateC = 0, tOpen = 0;
    std::vector<MapStep> steps;    // ACTIVATION
-   // The host's (not encoded): the photon-budget bleaching of the structure's continuous state that has a budget (a
-   // WideField dye, a PALM pre state) as a hazard -- each lit record's emission of that state at the dye over the
-   // budget, x its seconds -- by tOpen (bleachTotal) and per second after (bleachRate). A dye bleaches when it reaches
-   // the dye's unit-exponential draw (its window's aux). Empty: no budget.
+   // The photon-budget bleaching of the structure's continuous state that has a budget (a WideField dye, a PALM pre
+   // state) as a hazard -- each lit record's emission of that state at the dye over the budget, x its seconds -- by
+   // tOpen (bleachTotal) and per second after (bleachRate). A dye bleaches when it reaches the dye's unit-exponential
+   // draw (its window's aux): the core ends its windows there (clock map format 2). Empty: no budget.
    MapField bleachTotal, bleachRate;
 };
 class ClockMapView
@@ -191,9 +191,6 @@ public:
    double ClockAt(int st, double x, double y, double z, double t) const;
    // ACTIVATION: the hazard a dye at (x, y, z) has had by T = t (the steps, then the rate).
    double Hazard(int st, double x, double y, double z, double t) const;
-   // The T at which a dye at (x, y, z) with draw aux has used its photon budget: INFINITY when it never does (no
-   // budget, or no light reaches it now and it had not), -INFINITY when it had by tOpen and no light reaches it now.
-   double BleachEnd(int st, double x, double y, double z, double aux) const;
 };
 
 class LightHistory

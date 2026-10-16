@@ -64,9 +64,13 @@ struct StructClock {
    double totalC = 0, rateC = 0;
    std::vector<ClockStep> steps;    // ACTIVATION: the past, contiguous from 0 to tOpen
    double tOpen = 0;
+   // The photon-budget bleach of the structure's budgeted continuous state (a WideField dye's ALWAYS_ON window, a PALM
+   // pre state) as a hazard: bleachTotal(x) by tOpen, then bleachRate(x) per second; such a window ends where it
+   // reaches the window's aux (BleachEnd). Both empty: no bleach.
+   ClockField bleachTotal, bleachRate;
    // Fingerprints (ClockMap::Finish): the schedules (DOSE: kinetics + bounds; GLOBAL: kinetics), the kinetics as a
-   // history in T (= SetKineticsHistory's), the present (total, rate, tOpen, constants) and the steps as a chain
-   // (stepFp[i]: steps 0..i).
+   // history in T (= SetKineticsHistory's), the present (total, rate, tOpen, constants, the bleach) and the steps as a
+   // chain (stepFp[i]: steps 0..i).
    uint64_t fpSchedule = 0, fpHistT = 0, fpNow = 0;
    std::vector<uint64_t> stepFp;
 };
@@ -91,5 +95,10 @@ struct ClockMap {
 // crossing lies in the steps, else NaN with (from, H) advanced past them.
 double ActivationInSteps(const ClockMap& m, const StructClock& c, double x, double y, double z, double E, size_t& from,
                          double& H);
+
+// When a budgeted window of draw aux bleaches under clock c at (x, y, z), in T: tOpen + (aux - bleachTotal) /
+// bleachRate; at a rate <= 0 never (infinity) if aux > bleachTotal, else -infinity (by tOpen). Infinity without bleach.
+bool HasBleach(const StructClock& c);
+double BleachEnd(const ClockMap& m, const StructClock& c, double x, double y, double z, double aux);
 
 } // namespace isc

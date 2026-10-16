@@ -2888,7 +2888,6 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
       slot.scene.SetWeightBands(E.edges);
       slot.scene.SetWeightMap(slot.cellMap);
-      slot.scene.SetWeightGroups(nullptr);
       p.sceneZ = zStage;
       if (p.state == ISC_STATE_BLINK)
       {
@@ -3810,11 +3809,13 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       {
          // The map's windows in T (the initial ON ends on its dye's dose, the pre state at its activation; a DOSE dye
          // the light does not reach is frozen: dark), a photon budget's end where the dye's bleach hazard reaches its
-         // draw (ClockMapView::BleachEnd).
+         // draw (the core's, from the map's bleach fields).
          if (!haveWindows)
          {
+            const auto tq = TimingClock::now();
             const bool ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
             source.SetClockMap(nullptr);
+            TimingLog("fl.windows-query", TimingSince(tq), std::to_string(windows.size()).c_str());
             if (!ok)
             {
                err = "cell-field window query failed";
@@ -3834,17 +3835,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             const double a = m.shaped ? m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm) : 1.0;
             if (!(a > 0))
                continue;
-            double bF = e.tEnd;
-            if (p.budget > 0)
-            {
-               const double tB = m.map->BleachEnd(p.structure, e.xUm + S.q.originXUm, e.yUm + S.q.originYUm,
-                                                  e.zNm / 1000.0 + S.q.zRefUm, e.aux);
-               bF = std::min(bF, (tB - S.q.tSec) / S.expSec);
-            }
-            if (bF > 0)
+            if (e.tEnd > 0)
             {
                BlinkEvent w = e;
-               w.tEnd = bF;
                w.brightness = 1;
                w.excite = a;
                p.wins.push_back(w);

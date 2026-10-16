@@ -270,67 +270,6 @@ constexpr double kMeanFieldAnchorUm = 1.0;
 void SetBackgroundMapPrefetch(bool on);
 void BackgroundMapPrefetchShutdown();
 
-// A host's per-region clock (the adapter's illumination history): the
-// seconds of illumination each world position (um) has had before frame 0. A
-// dye's schedule is read at its position's clock instead of start-sec; frame
-// f adds f x exposure everywhere (the whole query rect is lit while the movie
-// runs). Regions: the distinct (clock, history) pairs in a rect, each with the
-// bounding box of the positions that have it. A history (an id) is the rate
-// past of a position: its segments, each an env from clock tStart on (the
-// first from 0; the last is the movie's own, the frames run in it). None
-// (Segments empty): the movie's env from 0.
-struct ClockSegment
-{
-   double tStart = 0;
-   const KineticEnv* env = nullptr;
-};
-// A clock may also depend on the height (2026-10-13: the history's z bands under TIRF / HILO light): KeyAtZ at a world
-// z (um above the coverslip), regions then with a z range; At / KeyAt are the coverslip's (band 0). BandEdges: the
-// heights between bands (ascending), empty when the clock is the same at every height.
-struct ClockRegion
-{
-   double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
-   double z0Um = -std::numeric_limits<double>::infinity(), z1Um = std::numeric_limits<double>::infinity();
-   uint32_t history = 0;
-};
-class DyeClock
-{
-public:
-   virtual ~DyeClock() = default;
-   virtual double At(double xUm, double yUm) const = 0;
-   virtual void KeyAt(double xUm, double yUm, double& tSec, uint32_t& history) const
-   {
-      tSec = At(xUm, yUm);
-      history = 0;
-   }
-   virtual void KeyAtZ(double xUm, double yUm, double /*zUm*/, double& tSec, uint32_t& history) const
-   {
-      KeyAt(xUm, yUm, tSec, history);
-   }
-   // The excess dose at a place and height (2026-10-14; s of light at weight 1): the exact light's dose there minus
-   // its clock (a host's history counts its clock in levels of the light, IlluminationHistory). A bleaching mean-field
-   // population reads clock + excess; blinks and per-dye windows read the clock. 0 by default; HasExcess false: 0
-   // everywhere.
-   virtual double ExcessAtZ(double /*xUm*/, double /*yUm*/, double /*zUm*/) const { return 0.0; }
-   virtual bool HasExcess() const { return false; }
-   virtual const std::vector<double>& BandEdges() const
-   {
-      static const std::vector<double> none;
-      return none;
-   }
-   // The keys are constant over squares of this side (um) anchored at 0 (floor(x / tile)); 0: not known.
-   virtual double TileUm() const { return 0.0; }
-   // The rect (world um) the clock knows; outside it every place reads clock 0 (a host's history records light only
-   // there: FluorescenceMovie's dark rule). Infinite by default.
-   virtual void Extent(double& x0Um, double& y0Um, double& x1Um, double& y1Um) const
-   {
-      x0Um = y0Um = -std::numeric_limits<double>::infinity();
-      x1Um = y1Um = std::numeric_limits<double>::infinity();
-   }
-   virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
-   virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
-};
-
 // One blink group of a FluorescenceSimplePlan (a blinking label's main state):
 // its kernel, photons per blink and events, and the frames whose blinks the
 // host splats itself (splatFrame[f]; 0: binned or mean-field, in the

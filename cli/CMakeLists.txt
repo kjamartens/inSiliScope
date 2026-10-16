@@ -113,6 +113,8 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(history_check history_check.cpp)
   target_link_libraries(history_check PRIVATE insiliscope_sim)
   add_test(NAME history_check COMMAND history_check)
+  # (its speed gates -- a fold <= 5 ms, a map <= 15 ms -- measure the host, not the other checks beside it)
+  set_tests_properties(history_check PROPERTIES RUN_SERIAL TRUE)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)

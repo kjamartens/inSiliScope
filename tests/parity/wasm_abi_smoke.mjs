@@ -151,12 +151,13 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
     M.HEAPF64.set([0, ...k, ...k, ...k], hb / 8);
     M._isc_world_set_kinetics_history(w, hb, 1);
     M._free(hb);
-    const clock = [1, 1, 0, ...k, 0, 0, 0, 0, 1, 0, 0];   // DOSE, one epoch, no bounds, total 0, rate 1, tOpen 0, no steps
-    const v = [1, 0, 0, ...clock, ...clock, ...clock];
+    // DOSE, one epoch, no bounds, total 0, rate 1, tOpen 0, no steps, no bleach
+    const clock = [1, 1, 0, ...k, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+    const v = [2, 0, 0, ...clock, ...clock, ...clock];
     const mb = M._malloc(v.length * 8);
     M.HEAPF64.set(v, mb / 8);
     const mok = M._isc_world_set_clock_map(w, mb, v.length) === 0;
-    M.HEAPF64[mb / 8] = 2;   // an unknown format
+    M.HEAPF64[mb / 8] = 3;   // an unknown format
     const mbad = M._isc_world_set_clock_map(w, mb, v.length) === -1;
     M._free(mb);
     const q = (fn, stride, t) => {

@@ -115,6 +115,8 @@ bool ReadClockMap(const double* v, size_t n, isc::ClockMap& m)
          st.field = r.Field();
          if (r.bad) break;
       }
+      c.bleachTotal = r.Field();
+      c.bleachRate = r.Field();
       if (r.bad) return false;
    }
    return !r.bad && r.i == n;   // (no trailing values)

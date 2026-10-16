@@ -317,7 +317,15 @@ ISC_API int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1,
  *              kinetics; nBounds (DOSE with epochs: nEpochs - 1, else 0) and
  *              the bound fields; the total field and totalC; the rate field
  *              and rateC; tOpen; nSteps (ACTIVATION only) and per step t0, t1,
- *              c and its field (contiguous from 0 to tOpen).
+ *              c and its field (contiguous from 0 to tOpen); the bleachTotal
+ *              and bleachRate fields (format 2): the photon-budget bleach of
+ *              the structure's budgeted continuous state (a WideField dye's
+ *              always-on window, a PALM pre state) as a hazard, bleachTotal(x)
+ *              by tOpen, then bleachRate(x) per second; such a window ends
+ *              where it reaches the window's aux (its unit-exponential draw),
+ *              at tOpen + (aux - bleachTotal) / bleachRate (at a rate <= 0:
+ *              never if aux > bleachTotal, else by tOpen). Both empty (0
+ *              terms): no bleach.
  * A field is nTerms, then ISC_CLOCK_TERM doubles per term: grid (-1: 1),
  * depth (-1: 1), ox, oy, zp, sx, sy, scale. Its value at (x, y, z) is its
  * constant (totalC, rateC, a step's c; 0 for a bound) plus, term by term in
@@ -327,7 +335,7 @@ ISC_API int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1,
  * then the ABI 11 ones). A uniform map answers as the ABI 11 queries, bit for
  * bit and in order: DOSE without terms, totalC 0, rateC 1, tOpen 0; ACTIVATION
  * without steps, rateC the activation rate, tOpen 0; GLOBAL with the history. */
-#define ISC_CLOCK_MAP_FORMAT 1
+#define ISC_CLOCK_MAP_FORMAT 2
 #define ISC_CLOCK_GLOBAL 0
 #define ISC_CLOCK_DOSE 1
 #define ISC_CLOCK_ACTIVATION 2
@@ -349,8 +357,10 @@ ISC_API int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, 
  * and rate (DOSE: its dose at tOpen and per second after; ACTIVATION: its
  * activation time and 1; GLOBAL: tOpen and 1). A frozen dye's window that
  * holds its dose lasts from -INFINITY to INFINITY; its other windows are
- * left out. Dye order per block. Cached per block on the dyes' own clocks.
- * Same cap/return convention. */
+ * left out. A budgeted window ends at its bleach when that is earlier (the
+ * map's bleach fields). Dye order per block. Cached per block on the dyes'
+ * own clocks, and with a bleach the windows' ends in T per map: a query then
+ * costs the windows still open. Same cap/return convention. */
 #define ISC_MAP_WINDOW_STRIDE 12
 ISC_API int32_t isc_continuous_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
                                       double zMax, double tMin, double* out, int32_t cap);

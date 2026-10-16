@@ -225,6 +225,8 @@ const char* ClockMap::Finish()
       fn.D(c.tOpen); fn.D(c.totalC); fn.D(c.rateC);
       if (const char* e = mixField(fn, c.total)) return e;
       if (const char* e = mixField(fn, c.rate)) return e;
+      if (const char* e = mixField(fn, c.bleachTotal)) return e;
+      if (const char* e = mixField(fn, c.bleachRate)) return e;
       c.stepFp.clear();
       if (c.mode == CLOCK_ACTIVATION) {
          uint64_t chain = 0x5354455053ull;   // "STEPS"
@@ -264,6 +266,16 @@ double ActivationInSteps(const ClockMap& m, const StructClock& c, double x, doub
       from = i + 1;
    }
    return std::numeric_limits<double>::quiet_NaN();
+}
+
+bool HasBleach(const StructClock& c) { return !c.bleachTotal.empty() || !c.bleachRate.empty(); }
+
+double BleachEnd(const ClockMap& m, const StructClock& c, double x, double y, double z, double aux)
+{
+   if (!HasBleach(c)) return std::numeric_limits<double>::infinity();
+   const double B = m.Eval(c.bleachTotal, x, y, z), r = m.Eval(c.bleachRate, x, y, z);
+   if (r > 0) return c.tOpen + (aux - B) / r;
+   return aux > B ? std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity();
 }
 
 } // namespace isc

@@ -140,7 +140,9 @@ The beam's cross-section is `illum-profile` (Flat, Gaussian, or FlatTop: a disc 
   at 1.03 and 640 nm), with the interface's field enhancement (up to ~4x near the critical angle).
 
 The factor changes the photons, and through the local light the kinetics: dSTORM switching, PALM activation and
-bleaching run at the local excitation, so a TIRF field bleaches its bottom layer and leaves the dyes higher up fresh.
+bleaching run at the local excitation, each dye at the dose its own place and height has had
+([Illumination history](photophysics.md#illumination-history-micro-manager-adapter); a cli or viewer movie's past is
+`start-sec` at its own light), so a TIRF field bleaches its bottom layer and leaves the dyes higher up fresh.
 The DNA-PAINT light presets set HILO (0.95), the nanorulers TIRF (1.03), the other presets epi (all *estimates*); with
 several labelled targets (`light-preset` auto) the position their presets agree on, else epi.
 Supercritical-angle emission and the beam's angular spread in the BFP are not modelled. The physics in full:
@@ -198,7 +200,8 @@ Pre states, the dSTORM initial ON and WideField-mode dyes emit continuously. Suc
 
 - **mean field**: the structure's dye density binned on world-anchored z planes (`wf-plane-nm`) on a grid
   (`wf-upscale` cells per pixel, spanning the FOV plus a 2 µm margin), convolved with the state's PSF, times the exact
-  mean photons per dye of the frame, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\); or
+  mean photons per dye of the frame, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\) (under a shaped beam with
+  each place's own dose and rate); or
 - **per dye**: each dye's window (its own address-based end: bleached at aux \(\times\) budget / \(k_{em}\), activated,
   or the initial ON's end) splatted as a unit image into a running image that changes only where windows start or end.
 

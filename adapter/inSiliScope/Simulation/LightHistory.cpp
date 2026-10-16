@@ -303,18 +303,6 @@ double ClockMapView::Hazard(int st, double x, double y, double z, double t) cons
    return H;
 }
 
-double ClockMapView::BleachEnd(int st, double x, double y, double z, double aux) const
-{
-   const MapClock& c = s[static_cast<size_t>(st)];
-   const double inf = std::numeric_limits<double>::infinity();
-   if (c.bleachTotal.empty() && c.bleachRate.empty())
-      return inf;
-   const double B = Eval(c.bleachTotal, x, y, z), r = Eval(c.bleachRate, x, y, z);
-   if (r > 0)
-      return c.tOpen + (aux - B) / r;
-   return aux > B ? inf : -inf;
-}
-
 void ClockMapView::Encode()
 {
    std::vector<double>& b = buffer;
@@ -372,6 +360,8 @@ void ClockMapView::Encode()
          b.push_back(p.c);
          field(p.field);
       }
+      field(c.bleachTotal);
+      field(c.bleachRate);
    }
 }
 

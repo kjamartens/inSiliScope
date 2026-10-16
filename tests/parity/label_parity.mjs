@@ -8,7 +8,8 @@
 // clock maps (isc_events_in_map / isc_continuous_in_map against world.js eventsInMap / continuousInMap): dose clocks
 // with shear, a depth table, an unlit band (frozen dyes) and epochs (one giving way), activation clocks with steps,
 // DNA-PAINT and dSTORM read on T, a uniform global clock; a moved present on the same worlds; the map removed.
-//   node tests/parity/label_parity.mjs [path to build/wasm/core/insiliscope.js]
+//   node tests/parity/label_parity.mjs [path to build/wasm/core/insiliscope.js] [--section=labels|histories|maps]
+// Without --section the three sections run in three processes side by side (each alone takes ~2 min).
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -16,8 +17,29 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import { loadPrototype } from './load_prototype.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const SECTIONS = ['labels', 'histories', 'maps'];
+const sectionArg = process.argv.find(a => a.startsWith('--section='));
+if (!sectionArg) {
+  const { spawn } = await import('child_process');
+  const t0 = performance.now();
+  const runs = await Promise.all(SECTIONS.map(sec => new Promise(done => {
+    const c = spawn(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2), '--section=' + sec]);
+    let out = '';
+    c.stdout.on('data', d => { out += d; });
+    c.stderr.on('data', d => { out += d; });
+    c.on('close', code => done({ sec, code, out }));
+  })));
+  for (const r of runs) process.stdout.write(r.out);
+  const bad = runs.filter(r => r.code !== 0).map(r => r.sec);
+  console.log(bad.length ? `label parity: FAILED (${bad.join(', ')})`
+    : `label parity: PASS (C++ core = JS reference; ${((performance.now() - t0) / 1000).toFixed(1)} s, 3 processes)`);
+  process.exit(bad.length ? 1 : 0);
+}
+const SECTION = sectionArg.slice('--section='.length);
+if (!SECTIONS.includes(SECTION)) throw new Error('--section: ' + SECTION);
 const require = createRequire(import.meta.url);
-const M = await require(process.argv[2] || path.join(ROOT, 'build/wasm/core/insiliscope.js'))();
+const modulePath = process.argv.slice(2).find(a => !a.startsWith('--'));
+const M = await require(modulePath || path.join(ROOT, 'build/wasm/core/insiliscope.js'))();
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const P = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const { World } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
@@ -109,7 +131,8 @@ const SPECIMENS = [
     extra: { origamiLpNm: 273.1, origamiStrandsPerSpot: 3, origamiHeights: 1, origamiDensity: 2 } },
   { name: '2D origami (logo, 20 nm) ', specimen: 1, s: STRUCTURE_ORIGAMI, extra: { origamiDesign: 1, origamiSpacingNm: 20, origamiDensity: 2 } },
 ];
-for (const sp of SPECIMENS) for (const [cname, opts] of CASES) {
+const tl0 = performance.now();
+if (SECTION === 'labels') for (const sp of SPECIMENS) for (const [cname, opts] of CASES) {
   const name = sp.name + cname, label = D.makeLabel({ ...opts, ...(sp.label || {}) });
   const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));
   const w = cWorld(label, sp.specimen, sp.s, sp.extra, sp.other);
@@ -153,7 +176,9 @@ const HCASES = [
   ['WideField, rates step', { mode: 'WideField', density: 0.3, kinetics: kin },
     [[[0, kin], [40, { ...kin, onSec: 0.5 }]], [[0, kin]]]],
 ];
-for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [cname, opts, hists] of HCASES) {
+if (SECTION === 'labels') console.log(`labels: ${((performance.now() - tl0) / 1000).toFixed(1)} s`);
+const th0 = performance.now();
+if (SECTION === 'histories') for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [cname, opts, hists] of HCASES) {
   const name = sp.name + cname, label = D.makeLabel(opts);
   const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));
   const w = cWorld(label, sp.specimen, sp.s, sp.extra, sp.other);
@@ -198,10 +223,14 @@ function moved(c) {
     n.steps = [...c.steps, { t0: c.tOpen, t1: c.tOpen + 10, c: 10 * c.rateC, field: c.rate.map(t => ({ ...t, scale: t.scale * 10 })) }];
     n.rate = c.rate.map(t => ({ ...t, ox: 0.3 }));
   }
+  if (c.bleachRate) n.bleachTotal = [...c.bleachTotal, ...c.bleachRate.map(t => ({ ...t, scale: t.scale * 10 }))];
   n.tOpen = c.tOpen + 10;
   return n;
 }
+// A photon-budget bleach (the hazard by tOpen, then per second): a budgeted window ends where it reaches its draw.
+const bleach = c => ({ ...c, bleachTotal: [{ grid: 1, scale: 0.6 }], bleachRate: [{ grid: 0, depth: 0, sx: 0.3, zp: 0.2, scale: 0.05 }] });
 const palmKin = kin, paintKin = { ...kin, activationRatePerSec: 0.00143 };
+if (SECTION === 'histories') console.log(`kinetics histories: ${((performance.now() - th0) / 1000).toFixed(1)} s`);
 const MCASES = [
   ['dSTORM initial ON 2 s, dose (shear, depth, unlit band)', { mode: 'dSTORM', density: 0.05, kinetics: { ...kin, initialOnSec: 2 } },
     dose([[0, { ...kin, initialOnSec: 2 }]])],
@@ -213,7 +242,10 @@ const MCASES = [
     activation([[0, palmKin], [60, { ...palmKin, onSec: 0.1 }]])],
   ['PALM pre state, dose', { mode: 'PALM', density: 0.05, fluorescentFraction: 0.6, preState: true, kinetics: palmKin },
     dose([[0, palmKin]])],
+  ['PALM pre state with a bleach, activation', { mode: 'PALM', density: 0.05, fluorescentFraction: 0.6, preState: true, kinetics: palmKin },
+    bleach(activation([[0, palmKin]]))],
   ['WideField, dose (unlit band)', { mode: 'WideField', density: 0.1, kinetics: kin }, dose([[0, kin]])],
+  ['WideField with a bleach, dose', { mode: 'WideField', density: 0.1, kinetics: kin }, bleach(dose([[0, kin]]))],
   ['DNA-PAINT under a dose clock (on T, two epochs)', { mode: 'DNA-PAINT', density: 0.2, kinetics: paintKin },
     dose([[0, paintKin], [60.4, { ...paintKin, activationRatePerSec: 0.0143, onSec: 0.2 }]], [[{ grid: 1, scale: 20 }]])],
   ['dSTORM under an activation clock (on T)', { mode: 'dSTORM', density: 0.05, kinetics: kin },
@@ -233,7 +265,8 @@ function setMap(w, js, m) {
 const mapRow = e => [...evRow(e), e.clock, e.rate];
 const MFRAMES = [[50, 50.05], [52, 54], [120, 120.05], [0, 200], [30, 31], [3, 3.05], [60, 62], [61, 61.05]];
 const tm0 = performance.now();
-for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cname, opts, clock]] of MCASES.entries()) {
+if (SECTION === 'maps') for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cname, opts, clock]] of MCASES.entries()) {
+  if (clock.bleachRate && sp !== SPECIMENS[0]) continue;   // (the bleach on the first specimen: the time budget)
   const name = sp.name + cname, label = D.makeLabel(opts);
   const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));
   const w = cWorld(label, sp.specimen, sp.s, sp.extra, sp.other);
@@ -241,7 +274,8 @@ for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cn
   for (const [mi, c] of [[0, clock], [1, moved(clock)], ...(ci === 0 ? [[2, null]] : [])]) {
     setMap(w, js, c && { grids: GRIDS, depths: DEPTHS, s: STRUCTURES.map(() => c) });
     const tag = ['map', 'moved map', 'no map'][mi];
-    for (const [t0, t1] of MFRAMES) {
+    // (a bleach changes the windows only; the whole 200 s, ~100x a frame's blinks, on the first specimen)
+    for (const [t0, t1] of clock.bleachRate ? [] : MFRAMES.filter(f => sp === SPECIMENS[0] || f[1] - f[0] < 100)) {
       same(`${name} (${tag}): blinks [${t0}, ${t1})`, rows((b, n) => M._isc_events_in_map(w, ...win, t0, t1, b, n), 10),
         js.eventsInMap(...win, t0, t1).map(evRow));
     }
@@ -252,6 +286,6 @@ for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cn
   }
   M._isc_world_free(w);
 }
-console.log(`clock maps: ${((performance.now() - tm0) / 1000).toFixed(1)} s`);
-console.log(fails ? `label parity: ${fails} FAILED` : 'label parity: PASS (C++ core = JS reference)');
+if (SECTION === 'maps') console.log(`clock maps: ${((performance.now() - tm0) / 1000).toFixed(1)} s`);
+console.log(fails ? `${SECTION}: ${fails} FAILED` : `${SECTION}: PASS`);
 process.exit(fails ? 1 : 0);

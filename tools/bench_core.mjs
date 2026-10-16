@@ -81,9 +81,9 @@ M._isc_world_set_label(w, 0, lab, 9);
   for (let j = 0; j < ny; j++)
     for (let i = 0; i < nx; i++) g.push(Math.exp(-2 * ((x0 + i * h - (x0 + x1) / 2) ** 2 + (y0 + j * h - (y0 + y1) / 2) ** 2) / (r * r)));
   const k = [0.01, 0.01, 0.5, 0.05, 0.5, 0];
-  // DOSE, one epoch, no bounds; total 60 x beam, rate 1 x beam, tOpen 60, no steps.
-  const clock = [1, 1, 0, ...k, 0, 1, 0, -1, 0, 0, 0, 0, 0, 60, 0, 1, 0, -1, 0, 0, 0, 0, 0, 1, 0, 60, 0];
-  const v = [1, 1, 0, x0, y0, h, nx, ny, ...g, ...clock, ...clock, ...clock];
+  // DOSE, one epoch, no bounds; total 60 x beam, rate 1 x beam, tOpen 60, no steps, no bleach.
+  const clock = [1, 1, 0, ...k, 0, 1, 0, -1, 0, 0, 0, 0, 0, 60, 0, 1, 0, -1, 0, 0, 0, 0, 0, 1, 0, 60, 0, 0, 0];
+  const v = [2, 1, 0, x0, y0, h, nx, ny, ...g, ...clock, ...clock, ...clock];
   const mb = M._malloc(v.length * 8);
   M.HEAPF64.set(v, mb / 8);
   if (M._isc_world_set_clock_map(w, mb, v.length) !== 0) throw new Error('isc_world_set_clock_map');

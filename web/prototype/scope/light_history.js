@@ -11,9 +11,9 @@
 //   GLOBAL      DNA-PAINT, the off targets: T, the label's rows;
 //   DOSE        dSTORM, WideField: tau = F x footprint x depth(z) x T (the open record from tOpen = 0);
 //   ACTIVATION  PALM: the hazard spont + lin F footprint depth + quad F^2 footprint^2 depth^2 per second;
-// and the host's bleach hazard of a WideField dye or a PALM pre state (bleachRate: F x the state's emission over its
-// photon budget x footprint x its depth; bleachEnd).
-import { CLOCK_GLOBAL, CLOCK_DOSE, CLOCK_ACTIVATION, encodeClockMap, evalField } from './clockmap.js';
+// and the bleach hazard of a WideField dye or a PALM pre state (bleachRate: F x the state's emission over its photon
+// budget x footprint x its depth; the core ends their windows where it reaches their draw, clockmap.js bleachEnd).
+import { CLOCK_GLOBAL, CLOCK_DOSE, CLOCK_ACTIVATION, encodeClockMap } from './clockmap.js';
 import { sampleAt } from './spectra.js';
 
 export const LIGHT_TILE_UM = 0.25, LIGHT_LATTICE_ERR = 1e-3, LIGHT_REACH = 1e-4, LIGHT_DEPTH_STEP_UM = 0.005;
@@ -160,14 +160,4 @@ export function movieClockMap(S) {
     }
   });
   return { m, buffer: encodeClockMap(m) };
-}
-
-// The T at which a dye at (x, y, z) (world um) with draw aux has used its photon budget (LightHistory.cpp
-// ClockMapView::BleachEnd): Infinity when it never does, -Infinity when it had by tOpen and no light reaches it now.
-export function bleachEnd(m, st, x, y, z, aux) {
-  const c = m.s[st];
-  if (!c.bleachTotal.length && !c.bleachRate.length) return Infinity;
-  const B = evalField(m, c.bleachTotal, x, y, z), r = evalField(m, c.bleachRate, x, y, z);
-  if (r > 0) return c.tOpen + (aux - B) / r;
-  return aux > B ? Infinity : -Infinity;
 }

@@ -56,8 +56,8 @@ Open the [viewer](try-viewer.md). Nothing to install.
 
 Every device and property, with its tier and default: [Micro-Manager properties](mm-properties.md). Snaps, live mode and
 sequences (also hardware z stacks: the `ZStage` is sequenceable) render live. `Renderer.WriteScopeSpecTo` (Expert)
-writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers how
-long each place of the sample has been lit (snaps, live acquisition and sequences add to it): imaging bleaches and uses
+writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers what
+light each place of the sample has had (snaps, live acquisition and sequences add to it): imaging bleaches and uses
 up dyes where you imaged, a place never lit starts fresh (dSTORM dyes first in their bright initial ON phase).
 
 The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not

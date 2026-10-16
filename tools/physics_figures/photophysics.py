@@ -271,7 +271,7 @@ def photo_history(ctx):
             ax.plot(reread[0], reread[1] / u, color=COLORS[1], lw=1.0, ls="--",
                     label="Changed, read from clock 0 (no history, as before 2026-10-08)")
             ax.set_title("%s %s: %s at %g s" % (dye, mode, change, t_sw), fontsize=8)
-            ax.set_xlabel("Lit time (s)")
+            ax.set_xlabel("Sample's time (s)")
             ax.set_ylabel("Detected photons/s in the FOV ($10^{%d}$)" % e)
             ax.set_xlim(0, before[0][-1] + (before[0][1] - before[0][0]) / 2)
         h, l = axs[0].get_legend_handles_labels()
@@ -281,7 +281,7 @@ def photo_history(ctx):
     (m0, d0, nm0, a0, b0, t0, *_), (m1, d1, nm1, a1, b1, t1, *_) = cases
     return figure(body,
                   "The rate history (Micro-Manager's illumination history), reproduced with the cli's "
-                  "`--history-before`: the sample has been lit since clock 0, the light changes at the grey line. "
+                  "`--history-before`: the sample has been lit since time 0, the light changes at the grey line. "
                   "Left: %s %s, 405 nm switched off at %g s (%s kW/cm<sup>2</sup> to 0): the proteins converted so far "
                   "blink out within seconds, no new ones follow. Right: %s %s, 488 nm from %s to %s kW/cm<sup>2</sup> "
                   "at %g s: the next frame is about 4x as bright and the field bleaches 4x as fast from what is left. "

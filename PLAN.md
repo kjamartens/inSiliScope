@@ -54,7 +54,7 @@ Upcoming ideas:
   `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`), [x] the MM mean field bleaches by the
   exact dose (no edge at the history levels' half contour; 2026-10-15), [x] blinks, per-dye windows and every mean
   field by the exact dose on every consumer (the clock map, core ABI 14; branch `claude/exact-dose`, 2026-10-15/16),
-  [ ] the history levels' code removed, docs and figures (P4), [ ] the viewer's live microscope on the map (P5).
+  [x] the history levels' code removed, docs and figures (P4, 2026-10-16), [ ] the viewer's live microscope on the map (P5).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

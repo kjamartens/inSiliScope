@@ -24,7 +24,7 @@ import { meanFieldImage, meanFieldScene, renderShiftedImages } from './widefield
 import { driftMaxXyNm, driftFocusGrid, driftGridDzNm, driftGridWeights } from './drift.js';
 import { EVENT_STATE } from './dyes.js';
 import { makeExcitation, BG_FOCUS_STEP_UM } from './excitation.js';
-import { movieClockMap, bleachEnd } from './light_history.js';
+import { movieClockMap } from './light_history.js';
 import { CLOCK_DOSE, CLOCK_GLOBAL } from './clockmap.js';
 import { MapMeanField, clockPairAt, blinkClockAt, blinkPhotons, epochLambdas, survey, WINDOW_ALIVE_MIN } from './mean_field_map.js';
 import { STRUCTURES } from './world.js';
@@ -204,7 +204,7 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   // The per-dye windows in frames (fetched once, for every population that needs them): a dye with a photon budget
   // bleaches at aux x budget / emission rate (under a shaped excitation: the own map's windows in T -- the initial ON
   // ends on its dye's dose, the pre state at its activation; a dye the light does not reach is dark -- and a budget's
-  // end where the dye's bleach hazard reaches its draw, bleachEnd).
+  // end where the dye's bleach hazard reaches its draw: the core's, from the map's bleach fields).
   let allWindows = null;
   for (const p of pops) {
     p.needWindows = !isMeanField(p, N - 1);
@@ -222,12 +222,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         if (dose && !(e.rate > 0)) continue;   // frozen: no light
         const a = p.g.excite(e.xUm, e.yUm, e.zNm);
         if (!(a > 0)) continue;
-        let bF = e.tEnd;
-        if (p.budget > 0)
-          bF = Math.min(bF, (bleachEnd(own.m, p.structure, e.xUm + S.q.originXUm, e.yUm + S.q.originYUm, e.zNm / 1000.0 + S.q.zRefUm, e.aux) - S.q.tSec) / S.expSec);
-        if (bF > 0) {
+        if (e.tEnd > 0) {
           const { clock, rate, ...w } = e;
-          p.wins.push({ ...w, tEnd: bF, brightness: 1 });
+          p.wins.push({ ...w, brightness: 1 });
         }
       }
       continue;

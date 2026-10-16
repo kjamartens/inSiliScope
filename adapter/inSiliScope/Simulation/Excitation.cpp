@@ -125,12 +125,6 @@ double Excitation::Lateral(double x, double y, double z) const
    return ProfileAt((x - (tirf_ ? 0.0 : z - zp_) * tanS_) * cosI_, y);
 }
 
-double Excitation::LateralMaxIn(double x0, double x1, double y0, double y1, double z) const
-{
-   const double sx = (tirf_ ? 0.0 : z - zp_) * tanS_;
-   return Lateral(std::min(x1, std::max(x0, sx)), std::min(y1, std::max(y0, 0.0)), z);
-}
-
 double Excitation::Depth(double z, const ExcitationShares& shares) const
 {
    if (!tirf_)
@@ -406,100 +400,6 @@ double Excitation::DepthNm(double lambdaNm) const
 {
    return tirf_ ? DecayUm(lambdaNm) * 1000.0
                 : (!clipped_ && tanS_ > 0.0 && profile_ != ILLUM_FLAT ? fwhmUm_ / (tanS_ * cosI_) * 1000.0 : -1.0);
-}
-
-const std::vector<double>& HistoryBandEdges()
-{
-   static const std::vector<double> e = { 0.1, 0.2, 0.4, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.5 };
-   return e;
-}
-
-void HistoryBandRange(int band, double& z0Um, double& z1Um)
-{
-   const std::vector<double>& e = HistoryBandEdges();
-   z0Um = band <= 0 ? 0.0 : e[static_cast<size_t>(band - 1)];
-   z1Um = band >= kHistoryBands - 1 ? 8.0 : e[static_cast<size_t>(band)];
-}
-
-namespace {
-Excitation AtHistoryFocus(const Excitation& ex)
-{
-   ExcitationSpec s = ex.Spec();
-   s.pivotUm = std::round(s.pivotUm / kHistoryFocusStepUm) * kHistoryFocusStepUm;
-   return Excitation(s);
-}
-} // namespace
-
-HistoryLightField::HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& sharesIn)
-   : ex_(AtHistoryFocus(ex)), amp_(kHistoryBands), ampExact_(kHistoryBands), zMid_(kHistoryBands),
-     sheet_(ex.Regime() == REGIME_HILO)   // the footprint moves with the height
-{
-   const ExcitationShares shares = sharesIn.empty() ? ExcitationShares{ { 640.0, 1.0 } } : sharesIn;
-   // Per band: F x its mean depth factor (0 when clipped), in 1/16 steps for the clock, and the height the footprint
-   // is read at.
-   for (int b = 0; b < kHistoryBands; ++b)
-   {
-      double z0, z1;
-      HistoryBandRange(b, z0, z1);
-      const size_t k = static_cast<size_t>(b);
-      ampExact_[k] = ex.Clipped() ? 0.0 : ex.F() * ex.DepthMean(z0, z1, shares);
-      amp_[k] = std::round(16.0 * ampExact_[k]) / 16.0;
-      zMid_[k] = (z0 + z1) / 2;
-   }
-}
-
-double HistoryLightField::Band(double dxUm, double dyUm, int b) const
-{
-   const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
-   return amp_[k] * HistoryLevel(ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0));
-}
-
-double HistoryLightField::BandExact(double dxUm, double dyUm, int b) const
-{
-   const size_t k = static_cast<size_t>(std::min(kHistoryBands - 1, std::max(0, b)));
-   return ampExact_[k] > 0 ? ampExact_[k] * ex_.Lateral(dxUm, dyUm, sheet_ ? zMid_[k] : 0.0) : 0.0;
-}
-
-bool HistoryLightField::AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const
-{
-   b0 = std::max(0, b0);
-   b1 = std::min(kHistoryBands - 1, b1);
-   double flat = -1.0;   // (not a sheet: one footprint for every band)
-   for (int b = b0; b <= b1; ++b)
-   {
-      const size_t k = static_cast<size_t>(b);
-      if (!(amp_[k] > 0))
-         continue;
-      if (!sheet_ && flat < 0)
-         flat = ex_.LateralMaxIn(dx0, dx1, dy0, dy1, 0.0);
-      if (HistoryLevel(sheet_ ? ex_.LateralMaxIn(dx0, dx1, dy0, dy1, zMid_[k]) : flat) > 0)
-         return true;
-   }
-   return false;
-}
-
-void HistoryLightField::Fill(double dxUm, double dyUm, float* w, float* exact) const
-{
-   const double fp0 = sheet_ ? 0.0 : ex_.Lateral(dxUm, dyUm, 0.0), lv0 = HistoryLevel(fp0);
-   for (int b = 0; b < kHistoryBands; ++b)
-   {
-      const size_t k = static_cast<size_t>(b);
-      w[b] = static_cast<float>(sheet_ ? Band(dxUm, dyUm, b) : amp_[k] * lv0);
-      if (exact)
-         exact[b] = static_cast<float>(sheet_ ? BandExact(dxUm, dyUm, b) : ampExact_[k] * fp0);
-   }
-}
-
-int HistoryLightField::BandOf(double zUm)
-{
-   const std::vector<double>& e = HistoryBandEdges();
-   return static_cast<int>(std::upper_bound(e.begin(), e.end(), zUm) - e.begin());
-}
-
-double HistoryLightField::TileCentre(double vUm)
-{
-   const double T = kHistoryTileUm;
-   return (std::floor(vUm / T) + 0.5) * T;
 }
 
 } // namespace sim

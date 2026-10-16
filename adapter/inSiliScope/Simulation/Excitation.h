@@ -92,9 +92,6 @@ public:
    double ProfileAt(double xp, double y) const;
    // The footprint on the plane at height z (no field factor).
    double Lateral(double x, double y, double z) const;
-   // Its largest value over the rect [x0, x1] x [y0, y1] at height z: at the rect's point nearest the beam's axis there
-   // (every profile falls off with the distance from it, along x stretched by 1 / cos theta_i).
-   double LateralMaxIn(double x0, double x1, double y0, double y1, double z) const;
    // The depth factor (TIRF: the shares' exponentials; else 1); z < 0 counts as 0.
    double Depth(double z, const ExcitationShares& shares) const;
    // Its mean over [z0, z1] (a WideField plane), exact.
@@ -128,59 +125,6 @@ private:
    double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, nI_ = 1.518, na_ = 1.4, zp_ = 0;
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
    bool clipped_ = false, tirf_ = false, uniform_ = false;
-};
-
-// The MM adapter's illumination history (IlluminationHistory.h): its tiles and z bands.
-constexpr double kHistoryTileUm = 0.25;
-// The world z bands of the history (um above the coverslip): band b is [edge b - 1, edge b), the first from -inf, the
-// last to +inf. Fine near the coverslip (TIRF's decay, ~0.1-0.2 um), <= 1.5 um above (the HILO sheet moves tan
-// theta_s um sideways per um of height).
-constexpr int kHistoryBands = 12;
-const std::vector<double>& HistoryBandEdges();   // the kHistoryBands - 1 inner edges
-// The heights a band's light is evaluated over: band 0 from the coverslip (0), the last up to 8 um (the cells' tops).
-void HistoryBandRange(int band, double& z0Um, double& z1Um);
-
-// The grids of the history's light (um), fixed on purpose: the light is read with the optical axis on the tile grid
-// (HistoryAxisUm) and the focus on a 0.25 um grid (HistoryFocusUm, and the pivot again in HistoryLightField), so a
-// sample that drifts by less (drift moves the pose and the focus every frame) lights the same tiles alike. Read exact,
-// the lit / unlit edges (HILO's sheet in every band) moved a fraction of a tile every frame, the tiles they crossed
-// each got a clock of their own and every distinct clock is a region (a core query): live HILO under drift fell from
-// 17 to 3 fps within a few hundred frames. The host (the history's light) and the engine (doseEvents) both snap.
-constexpr double kHistoryFocusStepUm = 0.25;
-inline double HistoryAxisUm(double vUm) { return std::round(vUm / kHistoryTileUm) * kHistoryTileUm; }
-inline double HistoryFocusUm(double zUm) { return std::round(zUm / kHistoryFocusStepUm) * kHistoryFocusStepUm; }
-// The light the history counts under an excitation (ScopeExcitation: the geometry and the first label's line shares):
-// per band F x the band's mean depth factor in 1/16 steps x the footprint's level (at the band's middle height: the
-// HILO sheet moves with it): 1 where it is at least half its peak, 1/4 down to 1/8 of it, else 0 (HistoryLevel). Two
-// levels, not the soft edge: with 1/16 levels a FlatTop's edge made hundreds of clock regions (each a core query; live
-// frames took seconds). The level below half (2026-10-14) is the beam's dim rim: lit / unlit at half left it at clock
-// 0 although the photons (the smooth footprint, Excitation::At) lit it, so its dSTORM dyes stayed in their initial ON
-// for good (a mean-field population every frame: live HILO 11 vs 40 fps). The kinetics read this (FluorescenceMovie's
-// dose events), so a frame reads the dose the history gives it; a place still at clock 0 that it does not reach is
-// dark (FluorescenceMovie: no photons).
-// Next to it the exact light (2026-10-14): F x the band's mean depth factor x the footprint, unquantised. The history
-// keeps its dose as the clock plus an excess (IlluminationHistory), and the mean field's bleaching reads that dose, so
-// a WideField population bleaches with the smooth light: with the levels alone the bleached fraction jumped at the
-// half-peak contour, where the clock's rate falls 4x.
-class HistoryLightField {
-public:
-   HistoryLightField(const Excitation& ex, const std::vector<ExcitationLine>& shares);
-   // The light of band b at dx, dy um from the optical axis (a tile centre).
-   double Band(double dxUm, double dyUm, int b) const;
-   // ... and the exact light there.
-   double BandExact(double dxUm, double dyUm, int b) const;
-   // Whether any tile centre in [dx0, dx1] x [dy0, dy1] (um from the axis) gets light in a band of b0..b1.
-   bool AnyLit(double dx0, double dx1, double dy0, double dy1, int b0, int b1) const;
-   // The footprint's level: 1 at half its peak or more, 1/4 at 1/8 or more, else 0.
-   static double HistoryLevel(double footprint) { return footprint >= 0.5 ? 1.0 : footprint >= 0.125 ? 0.25 : 0.0; }
-   // Every band's light into w and, if given, its exact light into exact.
-   void Fill(double dxUm, double dyUm, float* w, float* exact = nullptr) const;
-   static int BandOf(double zUm);                         // the band a world height is in
-   static double TileCentre(double vUm);                  // the centre of the history tile holding vUm (world)
-private:
-   Excitation ex_;
-   std::vector<double> amp_, ampExact_, zMid_;
-   bool sheet_ = false;
 };
 
 } // namespace sim

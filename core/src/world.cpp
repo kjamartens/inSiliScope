@@ -1290,6 +1290,16 @@ struct World::DyeBlock::MapState {
    bool haveCont = false;
    uint64_t contFp = 0;
    std::vector<Cont> cont;
+   // With a bleach (the clock's bleach fields): each window's answer in T (on, off -- its own end and its bleach's --,
+   // the dye's clock and rate; off -INFINITY: never), made once per present (endFp) and window cache, and the windows
+   // that are ever open by that end (byEnd).
+   struct End {
+      double on, off, clock, rate;
+   };
+   bool haveEnd = false;
+   uint64_t endFp = 0;
+   std::vector<End> end;
+   std::vector<uint32_t> byEnd;
    // The query's answer for this block (made in the parallel prep, taken in block order), and its counts (schedules
    // built, dye clocks read, activation walks), summed into the stats by the serial pass.
    std::vector<WorldEvent> out;
@@ -1722,6 +1732,12 @@ void World::ContinuousInMap(double x0, double y0, double x1, double y1, double z
       std::vector<MapWindow>& res = ms.contOut;
       res.clear();
       std::vector<ContWindow> cont;
+      // A budgeted window (a WideField dye's, a PALM pre state's) ends at its bleach when that is earlier.
+      const bool bleach = HasBleach(c);
+      auto bleached = [&](const PackedDye& d, uint8_t state, double aux, double off) {
+         return bleach && (state == STATE_ALWAYS_ON || state == STATE_PRE)
+                   ? std::min(off, BleachEnd(*map_, c, d.x, d.y, d.z, aux)) : off;
+      };
       if (mode == CLOCK_ACTIVATION) {
          // The pre windows end at each dye's activation (made per query from the walk's memo).
          ActPrep(b);
@@ -1731,9 +1747,11 @@ void World::ContinuousInMap(double x0, double y0, double x1, double y1, double z
             cont.clear();
             const double tA = ExactAct(b, i);
             LabelScheduleActivated(b.h1, d.K(), d.N(), label, &c.hist, tA, nullptr, &cont);
-            for (const ContWindow& w : cont)
-               if (w.tOff > tMin)
-                  res.push_back({ { d.x, d.y, d.z, w.tOn, w.tOff, 1.0, w.aux, d.id, (uint8_t)s, w.state }, tA, 1.0 });
+            for (const ContWindow& w : cont) {
+               const double off = bleached(d, w.state, w.aux, w.tOff);
+               if (off > tMin)
+                  res.push_back({ { d.x, d.y, d.z, w.tOn, off, 1.0, w.aux, d.id, (uint8_t)s, w.state }, tA, 1.0 });
+            }
          }
          return;
       }
@@ -1758,39 +1776,84 @@ void World::ContinuousInMap(double x0, double y0, double x1, double y1, double z
                           [](const DyeBlock::MapState::Cont& a, const DyeBlock::MapState::Cont& e) { return a.off < e.off; });
          ms.haveCont = true;
          ms.contFp = v.fp;
+         ms.haveEnd = false;
       }
-      // Only windows ending after the block's least clock at tMin can still be open.
-      double lo = tMin;
-      if (mode == CLOCK_DOSE) {
-         const double d0 = tMin - c.tOpen;
-         lo = ms.cLo + (d0 >= 0 ? ms.rLo * d0 : ms.rHi * d0);
-      }
-      auto it = std::upper_bound(ms.cont.begin(), ms.cont.end(), lo,
-                                 [](double t, const DyeBlock::MapState::Cont& w) { return t < w.off; });
-      std::vector<std::pair<uint32_t, MapWindow>> hit;
-      for (; it != ms.cont.end(); ++it) {
-         const PackedDye& d = b.dyes[it->dye];
-         if (!in(d)) continue;
-         double on = it->on, off = it->off, clock = c.tOpen, rate = 1.0;
+      // A window in T: its own times mapped at its dye's dose (DOSE; frozen: a window holding its dose lasts, the
+      // others never are: false), a budgeted one's end at its bleach.
+      using Cont = DyeBlock::MapState::Cont;
+      auto inT = [&](const Cont& w, double& on, double& off, double& clock, double& rate) {
+         on = w.on;
+         off = w.off;
+         clock = c.tOpen;
+         rate = 1.0;
          if (mode == CLOCK_DOSE) {
-            DoseOf(b, it->dye, clock, rate);
+            DoseOf(b, w.dye, clock, rate);
             if (rate > 0) {
-               on = c.tOpen + (it->on - clock) / rate;
-               off = c.tOpen + (it->off - clock) / rate;
-            } else {   // frozen: a window holding its dose lasts, the others never are
-               if (it->on > clock || !(it->off > clock)) continue;
+               on = c.tOpen + (w.on - clock) / rate;
+               off = c.tOpen + (w.off - clock) / rate;
+            } else {
+               if (w.on > clock || !(w.off > clock)) return false;
                on = -INFINITY;
                off = INFINITY;
             }
          }
-         if (off > tMin)
-            hit.push_back({ it->order, { { d.x, d.y, d.z, on, off, 1.0, it->aux, d.id, (uint8_t)s, it->state }, clock, rate } });
+         off = bleached(b.dyes[w.dye], w.state, w.aux, off);
+         return true;
+      };
+      std::vector<uint32_t> hit;   // the windows open after tMin (their places in cont)
+      if (bleach) {
+         // Every window's answer in T once per present, the windows by its end: a query takes those still open (a
+         // bleached sample costs its live dyes, not all of them, frame after frame).
+         if (!ms.haveEnd || ms.endFp != c.fpNow) {
+            ms.end.resize(ms.cont.size());
+            ms.byEnd.clear();
+            for (uint32_t k = 0; k < (uint32_t)ms.cont.size(); k++) {
+               DyeBlock::MapState::End& e = ms.end[k];
+               if (!inT(ms.cont[k], e.on, e.off, e.clock, e.rate)) e.off = -INFINITY;
+               if (e.off > -INFINITY) ms.byEnd.push_back(k);
+            }
+            std::sort(ms.byEnd.begin(), ms.byEnd.end(), [&](uint32_t a, uint32_t e) {
+               return ms.end[a].off != ms.end[e].off ? ms.end[a].off < ms.end[e].off : a < e;
+            });
+            ms.haveEnd = true;
+            ms.endFp = c.fpNow;
+         }
+         auto it = std::upper_bound(ms.byEnd.begin(), ms.byEnd.end(), tMin,
+                                    [&](double t, uint32_t k) { return t < ms.end[k].off; });
+         for (; it != ms.byEnd.end(); ++it)
+            if (in(b.dyes[ms.cont[*it].dye])) hit.push_back(*it);
+      } else {
+         // Only windows ending after the block's least clock at tMin can still be open.
+         double lo = tMin;
+         if (mode == CLOCK_DOSE) {
+            const double d0 = tMin - c.tOpen;
+            lo = ms.cLo + (d0 >= 0 ? ms.rLo * d0 : ms.rHi * d0);
+         }
+         auto it = std::upper_bound(ms.cont.begin(), ms.cont.end(), lo, [](double t, const Cont& w) { return t < w.off; });
+         for (; it != ms.cont.end(); ++it) {
+            if (!in(b.dyes[it->dye])) continue;
+            double on, off, clock, rate;
+            if (inT(*it, on, off, clock, rate) && off > tMin) hit.push_back((uint32_t)(it - ms.cont.begin()));
+         }
       }
-      std::sort(hit.begin(), hit.end(), [](const std::pair<uint32_t, MapWindow>& a, const std::pair<uint32_t, MapWindow>& e) {
-         return a.first < e.first;
-      });
+      // In dye order (each window's place in it), the rows made last (inT again: the same numbers).
+      std::sort(hit.begin(), hit.end(), [&](uint32_t a, uint32_t e) { return ms.cont[a].order < ms.cont[e].order; });
       res.reserve(hit.size());
-      for (const auto& h : hit) res.push_back(h.second);
+      for (uint32_t k : hit) {
+         const Cont& w = ms.cont[k];
+         const PackedDye& d = b.dyes[w.dye];
+         double on, off, clock, rate;
+         if (bleach) {
+            const DyeBlock::MapState::End& e = ms.end[k];
+            on = e.on;
+            off = e.off;
+            clock = e.clock;
+            rate = e.rate;
+         } else {
+            inT(w, on, off, clock, rate);
+         }
+         res.push_back({ { d.x, d.y, d.z, on, off, 1.0, w.aux, d.id, (uint8_t)s, w.state }, clock, rate });
+      }
    };
    ForEachDyeBlock(
       x0, y0, x1, y1, zMin, zMax, emit, [&](const DyeBlock& b) { return visible(b); },
