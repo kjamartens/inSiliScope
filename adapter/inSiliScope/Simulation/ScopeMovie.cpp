@@ -1516,10 +1516,10 @@ struct MeanFieldSlot
    // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
    bool anchored = false;
    double anchorX = 0, anchorY = 0;
-   // A host's map (MapEntriesFor): the grid (geometry) its tiles were made for, each grid cell's world tile (the
-   // scene's weight map), and the population's weight entries by (map, grid, population).
+   // A host's map (MapEntriesFor): the grid (geometry) and lattice its entries were made for, each grid cell's place
+   // between them (the scene's weight map), and the population's weight entries by (map, grid, population).
    std::vector<double> tileGeom;
-   std::shared_ptr<const std::vector<uint32_t>> cellTile;
+   std::shared_ptr<const WidefieldWeightMap> cellMap;
    std::vector<double> entKey;
    std::shared_ptr<const MapEntries> ent;
 };
@@ -1778,30 +1778,31 @@ struct Group
    bool anyMf = false, allMf = false;
 };
 
-// One mean-field image of a population (a dose node under a shaped
-// excitation, Excitation.h DoseNodes: the dyes' share at node a; else the
-// only one): its scene, the scene's spec at the spec's focus and its images.
+// The mean-field image of a population: its scene, the scene's spec at the spec's focus and its images.
 struct MeanFieldNode
 {
-   double a = 1.0;
    MeanFieldSlot* slot = nullptr;
    WidefieldSceneSpec ws;
    std::vector<float> image;                       // W x H photons per (photon per dye), at the spec's z
    std::map<double, std::vector<float>> imageAt;   // ... at other z (a host's z sequence)
-   // Drift: the mean-field images (with spectra) at the focus-grid foci, by
-   // world focus, and the bleach-basis coefficients of the weighted scene.
+   // Drift: the mean-field images (with spectra) at the focus-grid foci, by world focus; a weighted scene's basis at
+   // each anchored at driftAnchor (the weights of the frame that set it).
    std::map<double, WidefieldImages> driftImages;
-   std::vector<double> driftCoef;
+   std::vector<float> driftAnchor;
+   bool driftAnchored = false;
+   bool deferred = false;   // a weighted scene's images left to the GPU host (BuildMeanField)
    // AnchorMeanField: the scene's images go to the FOV shifted by these (grid cells).
    bool shifted = false;
    double shiftX = 0, shiftY = 0;
 };
 
-// A population's weight entries on its mean-field scene under a host's clock map (MapEntriesFor, 2026-10-15): the
-// scene's grid cells in world tiles of kLightTileUm (the slot's cellTile), per height band when the map changes with
-// height (edges: world um between the bands, SetWeightBands), each entry's clock pair (ClockPairAt) at its tile's centre
-// and its band's middle dye plane, band-major ((band x nty + ty) x ntx + tx). A rate population's decay per entry
-// (rates; null when it is the same everywhere: decay0) is fixed while the map is.
+// A population's weight entries on its mean-field scene under a host's clock map (MapEntriesFor, 2026-10-15): on the
+// lattice of the structure's map (its finest grid's nodes, ((tx + 1/2) h, (ty + 1/2) h), h <= kLightTileUm) over the
+// scene's grid and one node beyond (the slot's cellMap: each grid cell reads them log-bilinearly, as a dye reads the
+// map), per height band when the map changes with height (edges: world um between the bands, SetWeightBands), each
+// entry's clock pair (ClockPairAt) at its node and its band's middle dye plane, band-major ((band x nty + ty) x ntx +
+// tx). A rate population's decay per entry (rates; null when it is the same everywhere: decay0) is fixed while the map
+// is.
 struct MapEntries
 {
    size_t ntx = 0, nty = 0, nb = 1;
@@ -1829,37 +1830,38 @@ struct Population
    // averaged with the survival as its weight (the mean-field switch: meanSurvival exp(-surveyRate t)).
    bool surveyed = false;
    double meanSurvival = 1.0, surveyRate = 0.0;
-   // A host's map: the mean-field image is frame 0's photons with each weight entry at its own clock (ent; wb0: mean
-   // photons per dye); frame f is it x exp(-decay f exposure), or with rates each entry at its own (RateWeightedFrame).
-   // lam: each epoch's decay rate per clock second (PopulationLambda under the epoch's labels).
+   // A map: the mean-field image is frame 0's photons with each weight entry at its own clock (ent; wb0: mean photons
+   // per dye); frame f is it x exp(-decay f exposure), or with rates each entry at its own (RateWeightedFrame). lam:
+   // each epoch's decay rate per clock second (PopulationLambda under the epoch's labels).
    bool weighted = false;
    std::shared_ptr<const MapEntries> ent;
    std::vector<float> wb0;
    std::shared_ptr<const std::vector<float>> rates;
    double decay = 0;
+   // wb0 in its scene's Chebyshev basis (AnchorDecay): frames f > 0 render from the basis' decay (RenderDecayed).
+   WidefieldScene::DecayAnchor anchor;
+   bool anchored = false;
    std::vector<double> lam;
    std::vector<BlinkEvent> wins;
-   // Its mean-field images (meanFieldAt0): one, or one per dose node under a
-   // shaped excitation (local kinetics); none for a clipped spot.
+   // Its mean-field image (meanFieldAt0): one node.
    std::vector<MeanFieldNode> mf;
    bool mfBuilt = false;
-   // Shaped excitation, local kinetics (no host map): the decay rate at
-   // factor a, the dose nodes (empty: no light) and the dyes' factors in
-   // kDoseBins bins over [0, F] (in the query / in the FOV's focal slab).
-   std::function<double(double)> lambdaAt;
-   std::vector<double> nodes;
-   std::vector<double> hZ, hS;
    std::vector<double> acc;         // the running image of the per-dye path
    long accFrame = -1;
    double accZ = 0;                 // the z the running image was made at
    double accDx = 0, accDy = 0;     // ... and the sample drift (px)
    long meanFieldFrames = 0, perDyeFrames = 0;
    // A blink population (state ISC_STATE_BLINK, the blink mean-field regime):
-   // the label mode, its kinetics (no host map), and the focus the weighted
-   // scene is at.
+   // the label mode, its kinetics on its clock (unweighted: the clock at the
+   // FOV centre at frame 0 and its rate), and the focus the weighted scene is
+   // at.
    int mode = 0;
    std::vector<BlinkKineticsSegment> blinkSegs;
+   double blinkClock = 0, blinkRate = 1;
    double sceneZ = 0;
+   // A weighted blink population: the weight entries its scene's dye cells read (WidefieldScene::UsedWeights; the
+   // others stay 0: each costs a Markov chain per frame).
+   std::vector<uint8_t> used;
 };
 
 // A population's decay rate under a label's physics (per second): the
@@ -1974,19 +1976,20 @@ void PopulationAt(const MapClock& mc, const std::vector<double>& lam, double a, 
    h = S > 0 ? PopulationDecay(mc, lam, b) : 0.0;
 }
 
+// The mean of exp(-h t) over [0, w) times w (exact for any h >= 0: expm1, no cancellation at a small h w).
+double DecayWindow(double h, double w)
+{
+   return h > 0 ? -std::expm1(-h * w) / h : w;
+}
+
 // ... its mean photons per dye in [T, T + expSec) (rate: detected per second at the movie's light; the excitation's
-// factor is the scene's plane factor). One epoch: MeanPhotons on the clock (the arithmetic of the movies before the
-// map: bit for bit in a session of one record).
+// factor is the scene's plane factor): its survival at T x the window of its decay rate per second (a place the light
+// barely reaches has a clock rate near 0: no difference of exponentials, which there is rounding noise).
 double PopulationPhotons(const MapClock& mc, const std::vector<double>& lam, double rate, double a, double b,
                          const double* bounds, double T, double expSec)
 {
    if (mc.mode == ISC_CLOCK_ACTIVATION)
-   {
-      if (!(b > 0))
-         return rate * std::exp(-a) * expSec;
-      const double t = a / b + (T - mc.tOpen);
-      return MeanPhotons(rate, b, t, t + expSec);
-   }
+      return rate * std::exp(-(a + std::max(0.0, b) * (T - mc.tOpen))) * DecayWindow(std::max(0.0, b), expSec);
    const bool global = mc.mode == ISC_CLOCK_GLOBAL;
    if (!global && !(b > 0))
       return 0.0;   // frozen: no light
@@ -1995,13 +1998,13 @@ double PopulationPhotons(const MapClock& mc, const std::vector<double>& lam, dou
       if (!std::isfinite(lam[0]))
          return 0.0;
       const double r = global ? 1.0 : b, tau = global ? T : a + b * (T - mc.tOpen);
-      return MeanPhotons(rate, lam[0], tau, tau + r * expSec) / r;
+      return rate * std::exp(-lam[0] * tau) * DecayWindow(lam[0] * r, expSec);
    }
    double S = 0, h = 0;
    PopulationAt(mc, lam, a, b, bounds, T, S, h);
    if (!(S > 0))
       return 0.0;
-   return h > 0 ? rate * S * (1 - std::exp(-h * expSec)) / h : rate * S * expSec;
+   return rate * S * DecayWindow(h, expSec);
 }
 
 // A kinetics row (ISC_KIN_*) as a blink segment from t0 on.
@@ -2172,19 +2175,15 @@ std::string JsonEscape(const std::string& s)
 
 } // namespace
 
-constexpr int kDoseBins = 256;   // the mean-field switch's histogram of the dyes' excitation factors (shaped)
-
 // The mean-field scenes' plane factor of a shaped excitation (JS widefield.js
-// weightFor): the factor a at the cell centre = min(F, F x the footprint at the
-// plane centre (at least 0: a plane below the coverslip, dyes of a label
-// offset, at z = 0's) x the plane's mean depth factor); node j's share of it
-// (HatWeight), or a itself (j < 0: a host clock's photons-only weights).
+// planeFactor): the factor a at the cell centre = min(F, F x the footprint at
+// the plane centre (at least 0: a plane below the coverslip, dyes of a label
+// offset, at z = 0's) x the plane's mean depth factor); the weights carry the
+// clocks (photons per dye at a factor of 1).
 struct ExcitePlaneFactor : WidefieldPlaneFactor
 {
    Excitation ex;
    ExcitationShares shares;
-   std::vector<double> nodes;
-   int j = -1;
    double offX = 0, offY = 0;   // the beam's axis from the scene's (AnchorMeanField), um
    float At(long, double z0, double z1, double x, double y) const override
    {
@@ -2193,8 +2192,7 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
       x += offX;
       y += offY;
       const double dm = ex.DepthMean(z0, z1, shares), zc = std::max(0.0, (z0 + z1) / 2);
-      const double a = std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm);
-      return static_cast<float>(j < 0 ? a : HatWeight(nodes, static_cast<size_t>(j), a));
+      return static_cast<float>(std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm));
    }
 };
 
@@ -2214,10 +2212,8 @@ struct FluorescenceMovie::Impl
    double imagerPerFrame = 0, bg = 0, fovArea = 0, zStage = 0;
    // A shaped excitation (not Uniform): the factor of a dye state at (xUm,
    // yUm, zNm) in the FOV frame, the per-pixel background (empty: m.bg) and
-   // its imager part's mean. local: no host map (its kinetics follow the
-   // local light: the movie's own clock map; with one the host's map carries
-   // the dose).
-   bool shaped = false, local = false;
+   // its imager part's mean.
+   bool shaped = false;
    double axisX = 0, axisY = 0;
    std::vector<float> bgMap;
    double imagerMean = 0;
@@ -2230,12 +2226,14 @@ struct FluorescenceMovie::Impl
    double setupSec = 0;
    bool gpuMode = false;
    WidefieldAccelerator* accel = nullptr;
-   // The clock map (Begin): a host's (its light history and this movie's light: host) or, under a shaped beam without
-   // one (local), the movie's own (the past start-sec under the movie's light, then the movie); every blink and per-dye
-   // window on its own dye's clock (isc_events_in_map, isc_continuous_in_map), a host's mean-field populations per
-   // weight entry (MapEntries). None: start-sec everywhere.
+   // The clock map (Begin): a host's (its light history and this movie's light) or, under a shaped beam without one,
+   // the movie's own (the past start-sec under the movie's light, then the movie); every blink and per-dye window on
+   // its own dye's clock (isc_events_in_map, isc_continuous_in_map), the mean-field populations per weight entry
+   // (MapEntries; mapped). None: start-sec everywhere.
    std::shared_ptr<const ClockMapView> map;
-   bool host = false;
+   bool mapped = false;
+   // A structure whose clock is the same everywhere (no map, or the map's GLOBAL: DNA-PAINT, a target no light excites).
+   bool GlobalClock(int s) const { return !mapped || map->s[static_cast<size_t>(s)].mode == ISC_CLOCK_GLOBAL; }
    bool carry = false;                // CarryRunningImages
    bool anchor = false;               // AnchorMeanField
    // The mean-field nodes (population, node) whose scene images are pending (GPU mode).
@@ -2244,21 +2242,6 @@ struct FluorescenceMovie::Impl
 
    bool IsMeanField(const Population& p, long f) const
    {
-      if (!p.hZ.empty())
-      {
-         // Local kinetics: the surviving dyes over their factors' histogram.
-         const double tMid = S.t0Sec + (f + 0.5) * S.expSec, F = S.excite.F();
-         double nz = 0.0, ns = 0.0;
-         for (int k = 0; k < kDoseBins; k++)
-         {
-            if (!p.hZ[static_cast<size_t>(k)])
-               continue;
-            const double P = std::exp(-p.lambdaAt((k + 0.5) / kDoseBins * F) * tMid);
-            nz += p.hZ[static_cast<size_t>(k)] * P;
-            ns += p.hS[static_cast<size_t>(k)] * P;
-         }
-         return ns / fovArea > S.meanFieldDensityPerUm2 || nz > S.meanFieldMaxEmitters;
-      }
       const double P = p.surveyed ? p.meanSurvival * std::exp(-p.surveyRate * ((f + 0.5) * S.expSec))
                                   : std::exp(-p.lambda * (S.t0Sec + (f + 0.5) * S.expSec));
       return p.nSlab * P / fovArea > S.meanFieldDensityPerUm2 || p.nZLit * P > S.meanFieldMaxEmitters;
@@ -2296,30 +2279,38 @@ struct FluorescenceMovie::Impl
    }
    // A host's map over a population: the share of its dyes the light reaches, their survival and decay (Survey).
    void Survey(Population& p, double zMin, double zMax);
-   // A weighted blink population's photons per dye in frame f, per weight entry (consecutive entries with the same
-   // clock share the value: GLOBAL's are all one).
+   // A weighted blink population's photons per dye in frame f, per weight entry its dye cells read (p.used; the
+   // others 0), in chunks on the pool (consecutive entries with the same clock share the value).
    void BlinkWeights(const Population& p, long f, std::vector<float>& wb) const
    {
       const MapEntries& E = *p.ent;
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
       const size_t n = E.Count();
       wb.assign(n, 0.0f);
-      std::vector<BlinkKineticsSegment> segs;
-      double la = std::numeric_limits<double>::quiet_NaN(), lb = la;
-      float lv = 0.0f;
-      for (size_t i = 0; i < n; ++i)
-      {
-         const double* bd = E.Bounds(i);
-         if (!(E.a[i] == la && E.b[i] == lb && (!bd || std::equal(bd, bd + E.nBounds, E.Bounds(i - 1)))))
+      constexpr size_t kChunk = 2048;
+      const bool all = p.used.size() != n;
+      ParallelFor(static_cast<unsigned>((n + kChunk - 1) / kChunk), [&](unsigned c) {
+         std::vector<BlinkKineticsSegment> segs;
+         double la = std::numeric_limits<double>::quiet_NaN(), lb = la;
+         const double* lbd = nullptr;
+         float lv = 0.0f;
+         for (size_t i = c * kChunk, e = std::min(n, i + kChunk); i < e; ++i)
          {
-            double t = 0, r = 0;
-            BlinkClockAt(mc, E.a[i], E.b[i], bd, S.t0Sec, t, r, segs);
-            lv = static_cast<float>(BlinkPhotons(p.mode, p.rate, segs, t + r * (f * S.expSec), r, S.expSec));
-            la = E.a[i];
-            lb = E.b[i];
+            if (!all && !p.used[i])
+               continue;
+            const double* bd = E.Bounds(i);
+            if (!(E.a[i] == la && E.b[i] == lb && (!bd || std::equal(bd, bd + E.nBounds, lbd))))
+            {
+               double t = 0, r = 0;
+               BlinkClockAt(mc, E.a[i], E.b[i], bd, S.t0Sec, t, r, segs);
+               lv = static_cast<float>(BlinkPhotons(p.mode, p.rate, segs, t + r * (f * S.expSec), r, S.expSec));
+               la = E.a[i];
+               lb = E.b[i];
+               lbd = bd;
+            }
+            wb[i] = lv;
          }
-         wb[i] = lv;
-      }
+      });
    }
    // ... and its frame f at stage z into img (+=): the scene refocused if z
    // moved, rendered with the frame's weights.
@@ -2339,6 +2330,7 @@ struct FluorescenceMovie::Impl
          if (!nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
             return;
          p.sceneZ = z;
+         nd.slot->scene.UsedWeights(p.used);   // (the slab moved with the focus)
       }
       std::vector<float> wb, frame(static_cast<size_t>(S.W) * S.H, 0.0f);
       BlinkWeights(p, f, wb);
@@ -2378,13 +2370,18 @@ struct FluorescenceMovie::Impl
       }
       const std::vector<float>& rate = *p.rates;
       const double k = f * S.expSec;
-      std::vector<float> wb(p.wb0.size()), frame(static_cast<size_t>(S.W) * S.H, 0.0f);
-      for (size_t i = 0; i < wb.size(); ++i)
-         wb[i] = p.wb0[i] == 0.0f || k == 0.0 ? p.wb0[i] : static_cast<float>(p.wb0[i] * std::exp(-k * rate[i]));
-      if (nd.shifted)
-         nd.slot->scene.RenderFrameShifted(wb, nd.shiftX, nd.shiftY, frame);
-      else
-         nd.slot->scene.RenderFrame(wb, frame);
+      std::vector<float> frame(static_cast<size_t>(S.W) * S.H, 0.0f);
+      // (The basis' coefficients at the decay, without a pass over the weights; else the weights.)
+      if (!(p.anchored && nd.slot->scene.RenderDecayed(p.anchor, k, nd.shifted, nd.shiftX, nd.shiftY, frame)))
+      {
+         std::vector<float> wb(p.wb0.size());
+         for (size_t i = 0; i < wb.size(); ++i)
+            wb[i] = p.wb0[i] == 0.0f || k == 0.0 ? p.wb0[i] : static_cast<float>(p.wb0[i] * std::exp(-k * rate[i]));
+         if (nd.shifted)
+            nd.slot->scene.RenderFrameShifted(wb, nd.shiftX, nd.shiftY, frame);
+         else
+            nd.slot->scene.RenderFrame(wb, frame);
+      }
       for (size_t i = 0; i < img.size(); ++i)
          img[i] += frame[i];
       TimingLog("fl.mean-field-rate-frame", TimingSince(tR));
@@ -2392,16 +2389,17 @@ struct FluorescenceMovie::Impl
    void TakeImage(Population& p, size_t j);
    // Weighted (clock) mean-field: frame 0's photons of the scene's grid.
    void WeightedImage(Population& p, std::vector<float>& img);
-   // Node j's mean-field image at another stage z (refocused scene; cached).
+   // The mean-field image at another stage z (refocused scene; cached).
    const std::vector<float>& ImageAt(Population& p, size_t j, double z);
-   // Node j's photons per dye in frame f (tf0, tf1: its seconds; unshaped: the population's).
-   double NodePhotons(const Population& p, size_t j, double tf0, double tf1) const;
+   // An unweighted population's photons per dye in frame f (a blink population: on its clock at the FOV centre).
+   double FramePhotons(const Population& p, long f) const;
    void AdvanceAcc(Population& p, long f, double z, double dxPx = 0.0, double dyPx = 0.0);
    // Drift: the mean-field image of frame f (stage z, drift d) into img (+=):
    // the scene's images at the two focus-grid foci around z - dz, their
-   // spectra interpolated and shifted by d (frame 0's photons for a weighted
-   // population, else photons per (photon per dye)).
-   void DriftMeanField(Population& p, size_t j, double z, const DriftNm& d, std::vector<float>& img);
+   // spectra interpolated and shifted by d (photons per (photon per dye); a
+   // weighted population: frame 0's photons, with rates each entry decayed to
+   // frame f on the bleach basis -- every focus's images anchored alike).
+   void DriftMeanField(Population& p, size_t j, long f, double z, const DriftNm& d, std::vector<float>& img);
    DriftFocusGrid driftGrid;
 };
 
@@ -2427,69 +2425,119 @@ constexpr double kWindowAliveMin = 1e-4;
 constexpr double kBasisSpanSec = 4.0;
 // The pivot's index in Impl::exciteKey (the plane factor's key zeroes it for a beam that is not tilted).
 constexpr size_t kExciteKeyPivot = 7;
-// MapEntries' height bands: adjacent dye planes share a band while their clock pairs differ by at most kMapBandTol
-// (the clock relative to the larger of 1 and the band's first plane's, the rate relative to the largest), judged on
-// every kMapRasterTiles-th tile; at most kMapBands bands (the tolerance doubled until they fit).
-constexpr double kMapBandTol = 0.02;
+// MapEntries' height bands: adjacent dye planes share a band while their photons per dye (the weights) differ by at
+// most kMapBandTol of the largest, in the movie's first, middle and last frames of the span the bands hold for, judged
+// on a raster of about kMapRasterUm; at most kMapBands bands (the tolerance doubled until they fit).
+constexpr double kMapBandTol = 0.01;
 constexpr size_t kMapBands = 64;
-constexpr size_t kMapRasterTiles = 4;
+constexpr double kMapRasterUm = 1.0;
 // Survey: a raster of this pitch (um) over the query at this many heights.
 constexpr double kSurveyStepUm = 1.0;
 constexpr int kSurveyHeights = 4;
 
-// A movie's own light (no host): a Flat beam's field stop grown to the query and 1 um more (no dye of the movie is
-// beyond it).
-static void GrowFieldStop(LightState& light, const SampleQuery& q)
+// A movie's own light (no host): a Flat beam's field stop grown to its map's box and 1 um more (no dye or mean-field
+// tile of the movie is beyond it).
+static void GrowFieldStop(LightState& light, double x0, double y0, double x1, double y1)
 {
    for (LightPose& p : light.poses)
    {
-      p.x0 = std::min(p.x0, q.x0Um - 1.0);
-      p.y0 = std::min(p.y0, q.y0Um - 1.0);
-      p.x1 = std::max(p.x1, q.x1Um + 1.0);
-      p.y1 = std::max(p.y1, q.y1Um + 1.0);
+      p.x0 = std::min(p.x0, x0 - 1.0);
+      p.y0 = std::min(p.y0, y0 - 1.0);
+      p.x1 = std::max(p.x1, x1 + 1.0);
+      p.y1 = std::max(p.y1, y1 + 1.0);
    }
 }
 
-// A population's weight entries under map m on its scene's grid gr (MapEntries; memoized in the slot per map, grid and
-// population). The grid's cells in world tiles of kLightTileUm (slot.cellTile, per grid; the host's history tiles were
-// these) and, when the map changes with height, the dye planes' heights in bands.
-static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, const Population& p,
-                                                       const WidefieldGridSpec& gr, MeanFieldSlot& slot)
+// The node spacing of structure st's map: its finest grid's (kLightTileUm without grids).
+static double MapLatticeUm(const ClockMapView& m, int st)
 {
-   const double T = kLightTileUm;
+   const MapClock& mc = m.s[static_cast<size_t>(st)];
+   double h = kLightTileUm;
+   auto scan = [&](const MapField& f) {
+      for (const MapTerm& t : f)
+         if (t.grid >= 0)
+            h = std::min(h, m.grids[static_cast<size_t>(t.grid)].h);
+   };
+   scan(mc.total);
+   scan(mc.rate);
+   scan(mc.bleachTotal);
+   scan(mc.bleachRate);
+   for (const MapField& f : mc.bound)
+      scan(f);
+   for (const MapStep& q : mc.steps)
+      scan(q.field);
+   return h;
+}
+
+// A population's weight entries under map m on its scene's grid gr (MapEntries; memoized in the slot per map, grid and
+// population): on the structure's map lattice over the grid and one node beyond (slot.cellMap, per grid and lattice:
+// each grid cell's stencil between them) and, when the map changes with height, the dye planes' heights in bands.
+static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, const Population& p,
+                                                       const WidefieldGridSpec& gr, MeanFieldSlot& slot, double t0Sec,
+                                                       double spanSec, double expSec)
+{
+   const double T = MapLatticeUm(m, p.structure);
    auto X = [&](unsigned i) { return gr.x0Um + (i + 0.5) * gr.pitchUm; };
    auto Y = [&](unsigned jy) { return gr.y0Um + (jy + 0.5) * gr.pitchUm; };
    long tx0 = 0, ty0 = 0;
    size_t ntx = 0, nty = 0;
    if (gr.nx && gr.ny)
    {
-      tx0 = static_cast<long>(std::floor(X(0) / T));
-      ty0 = static_cast<long>(std::floor(Y(0) / T));
-      ntx = static_cast<size_t>(static_cast<long>(std::floor(X(gr.nx - 1) / T)) - tx0 + 1);
-      nty = static_cast<size_t>(static_cast<long>(std::floor(Y(gr.ny - 1) / T)) - ty0 + 1);
+      tx0 = static_cast<long>(std::floor(X(0) / T)) - 1;
+      ty0 = static_cast<long>(std::floor(Y(0) / T)) - 1;
+      ntx = static_cast<size_t>(static_cast<long>(std::floor(X(gr.nx - 1) / T)) - tx0 + 2);
+      nty = static_cast<size_t>(static_cast<long>(std::floor(Y(gr.ny - 1) / T)) - ty0 + 2);
    }
    const std::vector<double> geom = { gr.x0Um, gr.y0Um, gr.pitchUm, static_cast<double>(gr.nx),
                                       static_cast<double>(gr.ny), T, static_cast<double>(tx0), static_cast<double>(ty0) };
-   if (geom != slot.tileGeom || !slot.cellTile)
+   if (geom != slot.tileGeom || !slot.cellMap)
    {
-      std::vector<uint32_t> txOf(gr.nx), tyOf(gr.ny);
+      // A cell's tile (the one it lies in) and its stencil: the nodes below and left of it.
+      std::vector<uint32_t> txOf(gr.nx), tyOf(gr.ny), sxOf(gr.nx), syOf(gr.ny);
+      std::vector<float> fxOf(gr.nx), fyOf(gr.ny);
+      auto axis = [&](double v, long t0, uint32_t& tile, uint32_t& lo, float& f) {
+         tile = static_cast<uint32_t>(static_cast<long>(std::floor(v / T)) - t0);
+         const double u = v / T - 0.5 - static_cast<double>(t0);
+         const double fl = std::floor(u);
+         lo = static_cast<uint32_t>(static_cast<long>(fl));
+         f = static_cast<float>(u - fl);
+      };
       for (unsigned i = 0; i < gr.nx; ++i)
-         txOf[i] = static_cast<uint32_t>(static_cast<long>(std::floor(X(i) / T)) - tx0);
+         axis(X(i), tx0, txOf[i], sxOf[i], fxOf[i]);
       for (unsigned jy = 0; jy < gr.ny; ++jy)
-         tyOf[jy] = static_cast<uint32_t>(static_cast<long>(std::floor(Y(jy) / T)) - ty0);
-      auto cells = std::make_shared<std::vector<uint32_t>>(static_cast<size_t>(gr.nx) * gr.ny);
+         axis(Y(jy), ty0, tyOf[jy], syOf[jy], fyOf[jy]);
+      auto wm = std::make_shared<WidefieldWeightMap>();
+      const size_t nc = static_cast<size_t>(gr.nx) * gr.ny;
+      wm->count = ntx * nty;
+      wm->nx = ntx;
+      wm->tile.resize(nc);
+      wm->corner.resize(nc);
+      wm->fx.resize(nc);
+      wm->fy.resize(nc);
       for (unsigned jy = 0; jy < gr.ny; ++jy)
          for (unsigned i = 0; i < gr.nx; ++i)
-            (*cells)[static_cast<size_t>(gr.nx) * jy + i] = static_cast<uint32_t>(tyOf[jy] * ntx + txOf[i]);
-      slot.cellTile = cells;
+         {
+            const size_t c = static_cast<size_t>(gr.nx) * jy + i;
+            wm->tile[c] = static_cast<uint32_t>(tyOf[jy] * ntx + txOf[i]);
+            const bool in = sxOf[i] + 1 < ntx && syOf[jy] + 1 < nty;
+            wm->corner[c] = in ? static_cast<uint32_t>(syOf[jy] * ntx + sxOf[i]) : WidefieldWeightMap::kNone;
+            wm->fx[c] = fxOf[i];
+            wm->fy[c] = fyOf[jy];
+         }
+      slot.cellMap = wm;
       slot.tileGeom = geom;
       slot.ent.reset();
    }
    const int st = p.structure;
    const bool blink = p.state == ISC_STATE_BLINK;
+   const double dz = gr.zPlaneUm;
+   const bool zDep = MapZDependent(m, st) && dz > 0 && ntx && nty;
+   // The bands hold for [Tq, Tq + 2 span], Tq the movie's start on a grid of the span (a host's next movies share them
+   // while their start is below Tq + span).
+   const double Tq = zDep && spanSec > 0 ? std::floor(t0Sec / spanSec) * spanSec : 0.0;
    std::vector<double> key = geom;
    key.insert(key.end(), { static_cast<double>(m.serial), gr.zMinUm, gr.zMaxUm, gr.zPlaneUm, static_cast<double>(st),
-                           static_cast<double>(p.state) });
+                           static_cast<double>(p.state), Tq, zDep ? spanSec : 0.0, zDep ? expSec : 0.0 });
    key.insert(key.end(), p.lam.begin(), p.lam.end());
    if (slot.ent && key == slot.entKey)
    {
@@ -2506,26 +2554,45 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
    auto tileY = [&](size_t ty) { return (static_cast<double>(ty0 + static_cast<long>(ty)) + 0.5) * T; };
    // The bands: the grid's dye planes (centres (k + 1/2) dz, within the map's heights), merged.
    std::vector<double> bandZ;
-   const double dz = gr.zPlaneUm;
-   if (MapZDependent(m, st) && dz > 0 && ntx && nty)
+   if (zDep)
    {
       const long k0 = static_cast<long>(std::floor(std::max(gr.zMinUm, -2.0) / dz));
       const long k1 = static_cast<long>(std::floor(std::min(gr.zMaxUm, 20.0) / dz));
       std::vector<std::pair<double, double>> pts;
-      for (size_t ty = 0; ty < nty; ty += kMapRasterTiles)
-         for (size_t tx = 0; tx < ntx; tx += kMapRasterTiles)
+      const size_t step = std::max<size_t>(1, static_cast<size_t>(std::lround(kMapRasterUm / T)));
+      for (size_t ty = 0; ty < nty; ty += step)
+         for (size_t tx = 0; tx < ntx; tx += step)
             pts.push_back({ tileX(tx), tileY(ty) });
       const size_t np = pts.size(), nk = k1 >= k0 ? static_cast<size_t>(k1 - k0 + 1) : 0;
-      std::vector<double> A(nk * np), B(nk * np);
+      constexpr size_t kTimes = 3;
+      const double Ts[kTimes] = { Tq, Tq + spanSec, Tq + 2 * spanSec };
+      std::vector<double> V(nk * np * kTimes);
       ParallelFor(static_cast<unsigned>(nk), [&](unsigned kk) {
          std::vector<double> bd(mc.bound.size());
+         std::vector<BlinkKineticsSegment> segs;
          const double z = (static_cast<double>(k0 + static_cast<long>(kk)) + 0.5) * dz;
          for (size_t i = 0; i < np; ++i)
-            ClockPairAt(m, st, blink, pts[i].first, pts[i].second, z, A[kk * np + i], B[kk * np + i], bd.data());
+         {
+            double A = 0, B = 0;
+            ClockPairAt(m, st, blink, pts[i].first, pts[i].second, z, A, B, bd.data());
+            for (size_t t = 0; t < kTimes; ++t)
+            {
+               double v = 0;
+               if (blink)
+               {
+                  double tc = 0, r = 0;
+                  BlinkClockAt(mc, A, B, bd.data(), Ts[t], tc, r, segs);
+                  v = BlinkPhotons(p.mode, p.rate, segs, tc, r, expSec);
+               }
+               else
+                  v = PopulationPhotons(mc, p.lam, p.rate, A, B, bd.data(), Ts[t], expSec);
+               V[(kk * np + i) * kTimes + t] = v;
+            }
+         }
       });
-      double bMax = 0.0;
-      for (double v : B)
-         bMax = std::max(bMax, std::fabs(v));
+      double vMax = 0.0;
+      for (double v : V)
+         vMax = std::max(vMax, std::fabs(v));
       for (double tol = kMapBandTol; nk; tol *= 2)
       {
          std::vector<size_t> starts(1, 0);
@@ -2533,12 +2600,8 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
          for (size_t k = 1; k < nk; ++k)
          {
             bool fits = true;
-            for (size_t i = 0; i < np && fits; ++i)
-            {
-               const double as = A[s0 * np + i], bs = B[s0 * np + i];
-               fits = std::fabs(A[k * np + i] - as) <= tol * std::max(1.0, std::fabs(as)) &&
-                      std::fabs(B[k * np + i] - bs) <= tol * bMax;
-            }
+            for (size_t i = 0; i < np * kTimes && fits; ++i)
+               fits = std::fabs(V[k * np * kTimes + i] - V[s0 * np * kTimes + i]) <= tol * vMax;
             if (!fits)
             {
                starts.push_back(k);
@@ -2684,16 +2747,9 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    const Group& g = groups[p.group];
    const double um = S.p.pixelSizeNm / 1000.0;
    p.mfBuilt = true;
-   // The nodes: one (a = 1) unless the excitation is shaped with local
-   // kinetics (p.nodes; none for a clipped spot).
-   const bool nodal = shaped && local;
-   const size_t K = nodal ? p.nodes.size() : 1;
-   p.mf.assign(K, MeanFieldNode());
-   for (size_t j = 0; j < K; ++j)
-   {
-   MeanFieldNode& nd = p.mf[j];
-   nd.a = nodal ? p.nodes[j] : 1.0;
-   std::unique_ptr<MeanFieldSlot>& slotPtr = cache.meanField[p.structure * 4 + p.state + 1000 * static_cast<int>(j)];
+   p.mf.assign(1, MeanFieldNode());
+   MeanFieldNode& nd = p.mf[0];
+   std::unique_ptr<MeanFieldSlot>& slotPtr = cache.meanField[p.structure * 4 + p.state];
    if (!slotPtr)
       slotPtr.reset(new MeanFieldSlot());
    MeanFieldSlot& slot = *slotPtr;
@@ -2715,9 +2771,11 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    ws.eta = 1.0;
    ws.exposureSec = S.expSec;
    ws.unitDose = 1.0;
-   // With a host's map the dyes go to the scene's weighted (bleaching)
-   // channel, one weight per entry (MapEntries); else unit weights.
-   p.weighted = host;
+   // With a map the dyes go to the scene's weighted (bleaching) channel, one
+   // weight per entry (MapEntries); else unit weights. A blink population on a
+   // clock the same everywhere (GlobalClock) renders unweighted: the image x
+   // its photons per dye in the frame (FramePhotons; it follows a drift).
+   p.weighted = mapped && !(p.state == ISC_STATE_BLINK && GlobalClock(p.structure));
    ws.bleachingMask = p.weighted ? 1 << p.structure : 0;
    ws.persistentMask = p.weighted ? 0 : 1 << p.structure;
    ws.worldVersion = static_cast<long>(cache.dyeVersion);
@@ -2725,13 +2783,11 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       ws.grid.upscale = KernelWidefieldPsf::ValidUpscale(g.kernel.oversampling, ws.grid.upscale);
    // The WidefieldPsf (and with it the scene's kernel spectra) is kept across
    // movies while the kernel stack (its serial) and the grid pitch, or the
-   // Gaussian's parameters, are unchanged. Nodes after the first use the
-   // first's PSF.
-   MeanFieldSlot& psfSlot = j == 0 ? slot : *p.mf[0].slot;
+   // Gaussian's parameters, are unchanged.
    const double gauss[4] = { um / ws.grid.upscale, g.lambdaNm, O("na"), O("immersion-index") };
-   const bool samePsf = j > 0 || (slot.psf && slot.psfCache.valid == g.kernel.valid &&
+   const bool samePsf = slot.psf && slot.psfCache.valid == g.kernel.valid &&
                         (g.kernel.valid ? (slot.psfCache.Serial() == g.kernel.Serial() && slot.upscale == ws.grid.upscale)
-                                        : std::equal(gauss, gauss + 4, slot.gauss)));
+                                        : std::equal(gauss, gauss + 4, slot.gauss));
    if (!samePsf)
    {
       slot.psfCache = g.kernel;
@@ -2743,7 +2799,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          slot.psf.reset(new GaussianWidefieldPsf(gauss[0], gauss[1], gauss[2], gauss[3]));
       ++slot.psfVersion;
    }
-   ws.psfVersion = psfSlot.psfVersion;
+   ws.psfVersion = slot.psfVersion;
    // The scene's FFT sizes depend on the mode (GPU: powers of two): a mode
    // change starts from a fresh scene.
    const bool sceneGpu = gpuMode || accel != nullptr;
@@ -2779,18 +2835,16 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    const bool shifts = S.driftOn || anchor;
    slot.scene.SetKeepSpectra(shifts);
    slot.scene.SetAccelerator(shifts ? nullptr : accel);
-   slot.scene.SetDeferImages(gpuMode && !p.weighted && !shifts);
-   if (j > 0)
-      slot.scene.SetTiles(p.mf[0].slot->scene.Tiles());   // the nodes share the dyes
+   // GPU mode: the images wait for the GPU host (SetMeanFieldImages), a weighted scene's those of its basis (below; not
+   // a blink population's: its weights change every frame).
+   nd.deferred = gpuMode && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);
+   slot.scene.SetDeferImages(nd.deferred);
    // A shaped excitation: each dye plane's factor per cell.
    if (shaped)
    {
       auto pf = std::make_shared<ExcitePlaneFactor>();
       pf->ex = S.excite;
       pf->shares = g.shares;
-      pf->j = nodal ? static_cast<int>(j) : -1;
-      if (nodal)
-         pf->nodes = p.nodes;
       if (anchor)
       {
          // The beam stays with the FOV: its axis is the scene's + (anchor - origin), in 0.25 um steps (a step re-weights
@@ -2811,35 +2865,34 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          pf->key.push_back(l.nm);
          pf->key.push_back(l.share);
       }
-      pf->key.push_back(pf->j);
-      pf->key.insert(pf->key.end(), pf->nodes.begin(), pf->nodes.end());
       slot.scene.SetPlaneFactor(pf);
    }
    else
       slot.scene.SetPlaneFactor(nullptr);
    const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
    const auto tPhase = TimingClock::now();
-   if (!slot.scene.Update(cache.source, ill, ws, *psfSlot.psf, err))
+   if (!slot.scene.Update(cache.source, ill, ws, *slot.psf, err))
       return false;
    TimingLog("fl.mean-field-scene", TimingSince(tPhase));
    nd.slot = &slot;
    nd.ws = ws;
    if (p.weighted)
    {
-      // A host's map: each weight entry's clock (MapEntries: per world tile and height band), frame 0's mean photons
-      // per dye at it (wb0), a rate population's decay per entry (rates: frame f is wb0 exp(-rate f exposure),
+      // A map: each weight entry's clock (MapEntries: per world tile and height band), frame 0's mean photons per dye
+      // at it (wb0), a rate population's decay per entry (rates: frame f is wb0 exp(-rate f exposure),
       // RateWeightedFrame; the same everywhere: one decay).
       auto tW = TimingClock::now();
       const WidefieldGridSpec& gr = slot.scene.Grid();
-      p.ent = MapEntriesFor(*map, p, gr, slot);
+      p.ent = MapEntriesFor(*map, p, gr, slot, S.t0Sec, std::max(kBasisSpanSec, S.N * S.expSec), S.expSec);
       const MapEntries& E = *p.ent;
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
       slot.scene.SetWeightBands(E.edges);
-      slot.scene.SetWeightMap(slot.cellTile, E.ntx * E.nty);
+      slot.scene.SetWeightMap(slot.cellMap);
       slot.scene.SetWeightGroups(nullptr);
       p.sceneZ = zStage;
       if (p.state == ISC_STATE_BLINK)
       {
+         slot.scene.UsedWeights(p.used);
          BlinkWeights(p, 0, p.wb0);
          slot.scene.SetWeightRates(nullptr, 0.0);
       }
@@ -2847,7 +2900,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       {
          const size_t n = E.Count();
          p.wb0.assign(n, 0.0f);
-         double la = std::numeric_limits<double>::quiet_NaN(), lb = la, sw = 0.0, swh = 0.0;
+         double la = std::numeric_limits<double>::quiet_NaN(), lb = la;
          float lv = 0.0f;
          for (size_t i = 0; i < n; ++i)
          {
@@ -2859,25 +2912,36 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
                lb = E.b[i];
             }
             p.wb0[i] = lv;
-            if (E.rates)
+         }
+         p.rates = E.rates;
+         p.decay = E.decay0;
+         // The basis holds kBasisSpanSec, or the movie: its Chebyshev terms in the rates.
+         slot.scene.SetWeightRates(p.rates, std::max(kBasisSpanSec, S.N * S.expSec));
+         // Several frames (or the GPU's images): the whole basis at once, anchored at frame 0 -- a frame it holds
+         // renders from its images, one it does not anchors a new one --, unless the scene's holds frame 0 already (a
+         // host's next movie at the same pose).
+         p.anchored = false;
+         if (S.N > 1 || nd.deferred)
+         {
+            p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
+            std::vector<double> a;
+            if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a))
             {
-               sw += lv;
-               swh += lv * (*E.rates)[i];
+               slot.scene.SetBleachWeights(p.wb0, false);
+               p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
             }
          }
-         // (Under drift the frames scale frame 0: the decay averaged over the photons.)
-         p.rates = E.rates;
-         p.decay = !E.rates ? E.decay0 : sw > 0 ? swh / sw : 0.0;
-         slot.scene.SetWeightRates(p.rates, kBasisSpanSec);
       }
       TimingLog("fl.mean-field-weights", TimingSince(tW));
-      tW = TimingClock::now();
-      WeightedImage(p, nd.image);
-      TimingLog("fl.mean-field-render", TimingSince(tW));
+      if (!nd.deferred)
+      {
+         tW = TimingClock::now();
+         WeightedImage(p, nd.image);
+         TimingLog("fl.mean-field-render", TimingSince(tW));
+      }
    }
    else if (!gpuMode || anchor)
-      TakeImage(p, j);
-   }
+      TakeImage(p, 0);
    return true;
 }
 
@@ -2891,19 +2955,13 @@ void FluorescenceMovie::Impl::WeightedImage(Population& p, std::vector<float>& i
       nd.slot->scene.RenderFrame(p.wb0, img);
 }
 
-double FluorescenceMovie::Impl::NodePhotons(const Population& p, size_t j, double tf0, double tf1) const
+double FluorescenceMovie::Impl::FramePhotons(const Population& p, long f) const
 {
-   const bool nodal = shaped && local;
-   const double a = p.mf[j].a;
    if (p.state == ISC_STATE_BLINK)
-   {
-      // Photons per dye: rate x expected ON time; dSTORM at factor a: its clock at a x (rate x a x ON / a).
-      if (!nodal)
-         return p.rate * ExpectedBlinkOnSeconds(p.mode, p.blinkSegs, tf0, tf1);
-      return p.mode == MODE_DSTORM ? p.rate * ExpectedBlinkOnSeconds(p.mode, p.blinkSegs, a * tf0, a * tf1)
-                                   : p.rate * a * ExpectedBlinkOnSeconds(p.mode, p.blinkSegs, tf0, tf1);
-   }
-   return !nodal ? MeanPhotons(p.rate, p.lambda, tf0, tf1) : MeanPhotons(p.rate * a, p.lambdaAt(a), tf0, tf1);
+      return BlinkPhotons(p.mode, p.rate, p.blinkSegs, p.blinkClock + p.blinkRate * (f * S.expSec), p.blinkRate,
+                          S.expSec);
+   const double tf0 = S.t0Sec + f * S.expSec;
+   return MeanPhotons(p.rate, p.lambda, tf0, tf0 + S.expSec);
 }
 
 const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, size_t j, double z)
@@ -2922,7 +2980,7 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, size_t
    img.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
    std::string err;
    nd.slot->scene.SetDeferImages(false);
-   if (nd.slot->scene.Update(cache.source, ill, ws, *p.mf[0].slot->psf, err))
+   if (nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
    {
       if (p.weighted)
          WeightedImage(p, img);
@@ -2934,12 +2992,36 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, size_t
    return img;
 }
 
-void FluorescenceMovie::Impl::DriftMeanField(Population& p, size_t j, double z, const DriftNm& d,
+void FluorescenceMovie::Impl::DriftMeanField(Population& p, size_t j, long f, double z, const DriftNm& d,
                                              std::vector<float>& img)
 {
    MeanFieldNode& nd = p.mf[j];
    if (!nd.slot)
       return;
+   WidefieldScene& scene = nd.slot->scene;
+   // A weighted population's weights in frame f: frame 0's, with rates each entry f exposures on (without, the caller
+   // scales the image by the common decay); the foci's images hold the basis anchored at driftAnchor: a frame it does
+   // not hold anchors a new one (and new images).
+   std::vector<float> wb;
+   std::vector<double> coef;
+   if (p.weighted)
+   {
+      wb = p.wb0;
+      if (p.rates && p.rates->size() == wb.size() && f > 0)
+      {
+         const std::vector<float>& rate = *p.rates;
+         const double k = f * S.expSec;
+         for (size_t i = 0; i < wb.size(); ++i)
+            if (wb[i] != 0.0f)
+               wb[i] = static_cast<float>(p.wb0[i] * std::exp(-k * rate[i]));
+      }
+      if (!nd.driftAnchored || !scene.BleachCoefficients(wb, coef))
+      {
+         nd.driftAnchor = wb;
+         nd.driftAnchored = true;
+         nd.driftImages.clear();
+      }
+   }
    int k = 0;
    double w = 0.0;
    driftGrid.Weights(d.z, k, w);
@@ -2954,33 +3036,34 @@ void FluorescenceMovie::Impl::DriftMeanField(Population& p, size_t j, double z, 
       ws.focusWorldUm = ws.slabCentreUm = focus;
       const FlatIllumination ill(S.W * um + 2 * ws.marginUm, S.H * um + 2 * ws.marginUm);
       std::string err;
-      nd.slot->scene.SetDeferImages(false);
-      if (!nd.slot->scene.Update(cache.source, ill, ws, *p.mf[0].slot->psf, err))
+      scene.SetDeferImages(false);
+      if (!scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
          return nullptr;
       if (p.weighted)
-      {
-         // Anchor the bleach basis at frame 0's weights; its coefficients.
-         std::vector<float> scratch;
-         nd.slot->scene.RenderFrame(p.wb0, scratch);
-         if (!nd.slot->scene.BleachCoefficients(p.wb0, nd.driftCoef))
-            nd.driftCoef = nd.slot->scene.AnchorCoefficients();
-      }
-      else if (!nd.slot->scene.Images().HasSpectra())
-         nd.slot->scene.ComputeCpuImages();
-      return &(nd.driftImages[focus] = nd.slot->scene.Images());
+         scene.SetBleachWeights(nd.driftAnchor, !p.rates);   // (every focus's basis alike: the anchor's)
+      else if (!scene.Images().HasSpectra())
+         scene.ComputeCpuImages();
+      return &(nd.driftImages[focus] = scene.Images());
    };
    const WidefieldImages* i0 = imagesAt(k);
    const WidefieldImages* i1 = (w != 0.0 && k + 1 < driftGrid.n) ? imagesAt(k + 1) : nullptr;
    if (!i0)
       return;
-   const double pitchNm = nd.slot->scene.Grid().pitchUm * 1000.0;
-   RenderShiftedImages(*i0, i1, i1 ? w : 0.0, p.weighted ? nd.driftCoef : std::vector<double>(), d.x / pitchNm,
-                       d.y / pitchNm, img);
+   if (p.weighted && !scene.BleachCoefficients(wb, coef))
+      coef = scene.AnchorCoefficients();
+   const double pitchNm = scene.Grid().pitchUm * 1000.0;
+   RenderShiftedImages(*i0, i1, i1 ? w : 0.0, coef, d.x / pitchNm, d.y / pitchNm, img);
 }
 
 void FluorescenceMovie::Impl::TakeImage(Population& p, size_t j)
 {
    MeanFieldNode& nd = p.mf[j];
+   nd.slot->scene.SetDeferImages(false);   // (its images are in: what follows is the CPU's)
+   if (p.weighted)
+   {
+      WeightedImage(p, nd.image);
+      return;
+   }
    nd.image.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
    if (nd.shifted && !nd.slot->scene.Images().HasSpectra())
       nd.slot->scene.ComputeCpuImages();   // (images made without spectra: again, with them)
@@ -3447,13 +3530,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    //   DNA-PAINT: binding needs no light; bleaching by a photon budget
    //     (WideField, the PALM pre state): at a x the rate.
    // Every dye reads its clock from a clock map (spec/ALGORITHM.md "Exact light
-   // history"): a host's (its light history and this movie's light: host) or,
-   // under a shaped beam without one, the movie's own (local: the past
-   // start-sec under the movie's light, then the movie; its mean field takes a
-   // at each dye: dose nodes). Neither: start-sec everywhere.
+   // history"): a host's (its light history and this movie's light) or, under a
+   // shaped beam without one, the movie's own (the past start-sec under the
+   // movie's light, then the movie: one record); the mean field per weight
+   // entry of either (MapEntries). Neither: start-sec everywhere.
    m.shaped = !S.excite.Uniform();
-   m.host = history != nullptr && light != nullptr;
-   m.local = m.shaped && !m.host;
+   const bool hostMap = history != nullptr && light != nullptr;
    m.axisX = (S.W - 1) / 2.0 * um;
    m.axisY = (S.H - 1) / 2.0 * um;
    {
@@ -3462,49 +3544,47 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                       es.pivotUm, m.axisX, m.axisY, S.q.zRefUm };
    }
-   const double tMovieEndSec = S.t0Sec + S.N * S.expSec;
    m.map.reset();
-   if (m.host || m.local)
+   if (hostMap || m.shaped)
    {
       tPhase = TimingClock::now();
       const double zLo = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -1e3;
       const double zHi = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : 1e3;
-      if (m.host)
-      {
-         const double g = kMapMarginUm;
-         m.map = history->BuildMap(spec, *light, S.q.x0Um - g, S.q.y0Um - g, S.q.x1Um + g, S.q.y1Um + g, zLo, zHi, err);
-      }
+      const double g = kMapMarginUm, x0 = S.q.x0Um - g, y0 = S.q.y0Um - g, x1 = S.q.x1Um + g, y1 = S.q.y1Um + g;
+      if (hostMap)
+         m.map = history->BuildMap(spec, *light, x0, y0, x1, y1, zLo, zHi, err);
       else
       {
          LightState own;
          if (!MakeLightState(spec, true, own, err))
             return false;
-         GrowFieldStop(own, S.q);
+         GrowFieldStop(own, x0, y0, x1, y1);
          LightHistory past;
          past.Advance(S.t0Sec, own);
-         m.map = past.BuildMap(spec, own, S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zLo, zHi, err);
+         m.map = past.BuildMap(spec, own, x0, y0, x1, y1, zLo, zHi, err);
       }
       if (!m.map)
          return false;
       TimingLog("fl.clock-map", TimingSince(tPhase), std::to_string(m.map->buffer.size()).c_str());
    }
+   m.mapped = m.map != nullptr;
 
    // ---- blink mean-field frames (spec/ALGORITHM.md "Blink render regimes") ----
    // Decided before the events query from the expected ON emitters on the
    // reference clock: a frame that renders mean-field draws no events, and a
-   // movie mean-field throughout queries none. Not with a host's map and drift
-   // together (the weighted scene does not follow the drift).
+   // movie mean-field throughout queries none. Not for a map's light-driven
+   // clock under drift (its weighted scene does not follow the drift; a GLOBAL
+   // clock, the same everywhere, renders unweighted).
    m.fovArea = S.W * S.H * um * um;
    bool queryBlinks = false;
-   const bool blinkMfPossible =
-      (S.blinkMeanFieldDensityPerUm2 < 1e9 || S.blinkMeanFieldMaxEmitters < 1e9) && !(m.host && S.driftOn);
+   const bool blinkMfPossible = S.blinkMeanFieldDensityPerUm2 < 1e9 || S.blinkMeanFieldMaxEmitters < 1e9;
    for (Group& g : m.groups)
    {
       const LabelPhysics& L = S.labels[static_cast<size_t>(g.structure)];
       if (g.pre || L.mode == MODE_WIDEFIELD)
          continue;
       g.mode = L.mode;
-      if (blinkMfPossible)
+      if (blinkMfPossible && !(S.driftOn && !m.GlobalClock(g.structure)))
       {
          const double inf = std::numeric_limits<double>::infinity();
          const double focus = S.q.zCullCentreUm, slabHalf = S.meanFieldSlabNm / 2000;
@@ -3521,7 +3601,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          }
          g.refClock = S.t0Sec;
          g.refRate = 1.0;
-         if (m.host)
+         if (m.mapped)
          {
             // At the FOV centre and the focal plane (the slab the switch counts).
             const MapClock& mc = m.map->s[static_cast<size_t>(g.structure)];
@@ -3668,13 +3748,6 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          err = "cell-field dye count failed";
          return false;
       }
-      // Local kinetics: the structure's dyes (their factors' histogram, JS forEachDye).
-      std::vector<double> sites;
-      if (m.local && !source.Sites(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, sites))
-      {
-         err = "cell-field dye query failed";
-         return false;
-      }
       for (int state : states)
       {
          const bool pre = state == ISC_STATE_PRE;
@@ -3702,44 +3775,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          p.rate = st.detectedPerSec;
          p.nZ = nZ;
          p.nSlab = nSlab;
-         if (m.local)
-         {
-            // The decay rate at factor a (the budget's bleaching at a x; the
-            // initial ON at a x; the pre state's activation as the blinks'),
-            // the dose nodes of its mean-field images and the dyes' factors
-            // (kDoseBins bins over [0, F]: the mean-field switch counts the
-            // surviving dyes).
-            const double bl = p.budget > 0 ? st.emissionPerSec / p.budget : 0;
-            const double initialOnSec = L.initialOnSec, kAct = L.kActPerSec;
-            const LabelPhysics* Lp = &L;
-            if (state == ISC_STATE_ALWAYS_ON)
-               p.lambdaAt = [bl](double a) { return bl * a; };
-            else if (state == ISC_STATE_INITIAL_ON)
-               p.lambdaAt = [initialOnSec](double a) { return a / initialOnSec; };
-            else
-               p.lambdaAt = [kAct, bl, Lp](double a) { return kAct * Lp->ActivationScale(a) + bl * a; };
-            const double F = S.excite.F();
-            p.nodes = DoseNodes(F, p.lambdaAt(F) * tMovieEndSec);
-            p.hZ.assign(kDoseBins, 0.0);
-            p.hS.assign(kDoseBins, 0.0);
-            const Group& g = m.groups[static_cast<size_t>(gi)];
-            for (size_t i = 0; i + ISC_SITE_STRIDE <= sites.size(); i += ISC_SITE_STRIDE)
-            {
-               if (static_cast<int>(sites[i + 4]) != s)
-                  continue;
-               const double xUm = sites[i] - ox, yUm = sites[i + 1] - oy;
-               const double a = m.ExciteAt(g.shares, xUm, yUm, (sites[i + 2] - S.q.zRefUm) * 1000.0);
-               const int k = F > 0 ? static_cast<int>(std::min(static_cast<double>(kDoseBins - 1),
-                                                               std::max(0.0, std::floor(a / F * kDoseBins))))
-                                   : 0;
-               p.hZ[static_cast<size_t>(k)]++;
-               if (xUm >= 0 && xUm < S.W * um && yUm >= 0 && yUm < S.H * um && std::fabs(sites[i + 2] - focus) < slabHalf)
-                  p.hS[static_cast<size_t>(k)]++;
-            }
-         }
-         // A host's map: each epoch's decay rate, and the share of the dyes the light reaches, their survival.
+         // A map: each epoch's decay rate, and the share of the dyes the light reaches, their survival.
          p.nZLit = nZ;
-         if (m.host)
+         if (m.mapped)
          {
             p.lam = EpochLambdas(m.map->s[static_cast<size_t>(s)], S.labels, s, state);
             m.Survey(p, zMin, zMax);
@@ -3858,21 +3896,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       p.nSlab = g.nSlab;
       p.mode = g.mode;
       p.blinkSegs = g.refSegs;
+      p.blinkClock = g.refClock;
+      p.blinkRate = g.refRate;
       p.meanFieldAt0 = true;
-      // Local kinetics: dSTORM's ON time is nonlinear in a (kDoseLevels nodes
-      // up to F), the others' linear (one node).
-      if (m.local)
-      {
-         const double F = S.excite.F();
-         if (F > 0)
-         {
-            if (g.mode == MODE_DSTORM)
-               for (int k = 0; k < kDoseLevels; ++k)
-                  p.nodes.push_back(F * (k + 1) / kDoseLevels);
-            else
-               p.nodes.push_back(F);
-         }
-      }
       m.pops.push_back(std::move(p));
    }
    // The mean-field images of the populations that start mean-field.
@@ -3882,9 +3908,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       {
          if (!m.BuildMeanField(p, err))
             return false;
+         // (A weighted scene's images wait for the GPU only when its basis was made for it: deferred.)
          if (gpuMode)
             for (size_t j = 0; j < p.mf.size(); ++j)
-               m.sceneQueue.push_back({ &p, j });
+               if (!p.weighted || p.mf[j].deferred)
+                  m.sceneQueue.push_back({ &p, j });
       }
    m.imagerPerFrame = 0;
    for (size_t s = 0; s < S.labels.size(); ++s)
@@ -4271,27 +4299,29 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          for (Population& p : m.pops)
          {
             const Group& g = m.groups[p.group];
-            const double tf0 = S.t0Sec + f * S.expSec, tf1 = tf0 + S.expSec;
+            // The unweighted image (a drifting sample: its images at the frame's drift), or nullptr.
+            std::vector<float> driftImage;
+            auto unweighted = [&]() -> const std::vector<float>* {
+               if (p.mf.empty())
+                  return nullptr;
+               if (!drift)
+                  return &m.ImageAt(p, 0, zf);
+               driftImage.assign(n, 0.0f);
+               m.DriftMeanField(p, 0, f, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
+               return &driftImage;
+            };
             if (p.state == ISC_STATE_BLINK)
             {
                if (!g.mfFrame[static_cast<size_t>(f)])
                   continue;   // drawn from its events (splat or binned)
                if (p.weighted)
                   m.BlinkWeightedFrame(p, f, zf, img);
-               else
-                  for (size_t j = 0; j < p.mf.size(); ++j)
-                  {
-                     std::vector<float> driftImage;
-                     if (drift)
-                     {
-                        driftImage.assign(n, 0.0f);
-                        m.DriftMeanField(p, j, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
-                     }
-                     const std::vector<float>& image = drift ? driftImage : m.ImageAt(p, j, zf);
-                     const float mp = static_cast<float>(m.NodePhotons(p, j, tf0, tf1));
-                     for (size_t i = 0; i < n; ++i)
-                        img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
-                  }
+               else if (const std::vector<float>* image = unweighted())
+               {
+                  const float mp = static_cast<float>(m.FramePhotons(p, f));
+                  for (size_t i = 0; i < n; ++i)
+                     img[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
+               }
                p.meanFieldFrames++;
                paths[static_cast<size_t>(k)].push_back("blinks: mean-field (FFT)");
                continue;
@@ -4304,32 +4334,25 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   // decay), but keep the frame valid.
                   continue;
                }
-               // (A weighted population with rates: each tile at its light, RateWeightedFrame.)
-               const bool rated = p.weighted && p.rates && !drift;
-               if (rated)
+               // (A weighted population with rates: each tile at its light, RateWeightedFrame; under drift in the
+               // drift's weights.)
+               if (p.weighted && p.rates && !drift)
                   m.RateWeightedFrame(p, f, zf, img);
-               for (size_t j = 0; !rated && j < p.mf.size(); ++j)
+               else if (const std::vector<float>* image = unweighted())
                {
-                  std::vector<float> driftImage;
-                  if (drift)
-                  {
-                     driftImage.assign(n, 0.0f);
-                     m.DriftMeanField(p, j, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
-                  }
-                  const std::vector<float>& image = drift ? driftImage : m.ImageAt(p, j, zf);
                   if (p.weighted)
                   {
-                     // Frame 0 at each entry's clock, every one f exposures later (its decay the same everywhere,
-                     // or under drift averaged over the photons).
-                     const double sc = p.decay > 0 ? std::exp(-p.decay * f * S.expSec) : 1.0;
+                     // Frame 0 at each entry's clock, every one f exposures later (its decay the same everywhere;
+                     // with rates already in the image's weights).
+                     const double sc = !p.rates && p.decay > 0 ? std::exp(-p.decay * f * S.expSec) : 1.0;
                      for (size_t i = 0; i < n; ++i)
-                        img[i] += static_cast<float>(sc * image[i]);
+                        img[i] += static_cast<float>(sc * (*image)[i]);
                   }
                   else
                   {
-                     const float mp = static_cast<float>(m.NodePhotons(p, j, tf0, tf1));
+                     const float mp = static_cast<float>(m.FramePhotons(p, f));
                      for (size_t i = 0; i < n; ++i)
-                        img[i] += static_cast<float>(static_cast<double>(mp) * image[i]);
+                        img[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
                   }
                }
                p.meanFieldFrames++;
@@ -5173,8 +5196,9 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       if (!MakeScopeSetup(spec, S, err) || !MakeLightState(*past, true, before, err) ||
           !MakeLightState(spec, true, now, err))
          return false;
-      GrowFieldStop(before, S.q);
-      GrowFieldStop(now, S.q);
+      const double g = kMapMarginUm;   // (the box the movie's map spans)
+      GrowFieldStop(before, S.q.x0Um - g, S.q.y0Um - g, S.q.x1Um + g, S.q.y1Um + g);
+      GrowFieldStop(now, S.q.x0Um - g, S.q.y0Um - g, S.q.x1Um + g, S.q.y1Um + g);
       history.Advance(S.t0Sec, before);
    }
    LightHistory* const hist = past ? &history : nullptr;

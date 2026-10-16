@@ -697,15 +697,14 @@ void WidefieldScene::SetWeightGroups(std::shared_ptr<const std::vector<uint32_t>
       bleachValid_ = false;
 }
 
-void WidefieldScene::SetWeightMap(std::shared_ptr<const std::vector<uint32_t>> map, size_t count)
+void WidefieldScene::SetWeightMap(std::shared_ptr<const WidefieldWeightMap> map)
 {
-   if (map && map->empty())
+   if (map && (map->tile.empty() || map->count == 0))
       map.reset();
-   if (map == weightMap_ && count == weightMapCount_)
+   if (map == weightMap_)
       return;
-   const bool same = map && weightMap_ && count == weightMapCount_ && *map == *weightMap_;
+   const bool same = map && weightMap_ && *map == *weightMap_;
    weightMap_ = std::move(map);
-   weightMapCount_ = weightMap_ ? count : 0;
    if (!same)
       bleachValid_ = false;
 }
@@ -731,22 +730,113 @@ void WidefieldScene::SetWeightBands(const std::vector<double>& edgesUm)
    bleachValid_ = false;   // the anchored basis was per cell or per other bands
 }
 
+void WidefieldScene::UsedWeights(std::vector<uint8_t>& used) const
+{
+   used.clear();
+   if (!weightMap_)
+      return;
+   const WidefieldWeightMap& M = *weightMap_;
+   const size_t nc = M.count, n = nc * (weightBands_.size() + 1);
+   used.assign(n, 0);
+   const WidefieldGridSpec& g = rect_;
+   const double dz = g.zPlaneUm;
+   const long kLo = SnapFloor(g.zMinUm / dz), kHi = -SnapFloor(-g.zMaxUm / dz);
+   for (auto it = dyes_.planes.lower_bound(kLo); it != dyes_.planes.end() && it->first < kHi; ++it)
+   {
+      // (CellValue's band of the plane's centre.)
+      size_t band = 0;
+      if (n > nc && nc > 0)
+      {
+         const double zc = (it->first + 0.5) * dz;
+         band = nc * static_cast<size_t>(std::upper_bound(weightBands_.begin(), weightBands_.end(), zc) - weightBands_.begin());
+      }
+      for (uint32_t cell : it->second.cell[0])
+      {
+         used[band + M.tile[cell]] = 1;
+         const uint32_t c0 = M.corner[cell];
+         if (c0 != WidefieldWeightMap::kNone)
+         {
+            used[band + c0] = 1;
+            used[band + c0 + 1] = 1;
+            used[band + c0 + M.nx] = 1;
+            used[band + c0 + M.nx + 1] = 1;
+         }
+      }
+   }
+}
+
+float WidefieldScene::MappedWeight(const Channel& c, uint32_t cell, size_t band, float w) const
+{
+   const WidefieldWeightMap& m = *weightMap_;
+   const uint32_t c0 = m.corner[cell];
+   if (c0 == WidefieldWeightMap::kNone)
+      return w;
+   const size_t i0 = band + c0, idx[4] = { i0, i0 + 1, i0 + m.nx, i0 + m.nx + 1 };
+   const std::vector<float>& ref = c.cheb >= 0 ? wbRef_ : c.weight;
+   const std::vector<float>& lw = c.cheb >= 0 ? lwRef_ : c.logw;
+   if (ref[idx[0]] == ref[idx[1]] && ref[idx[0]] == ref[idx[2]] && ref[idx[0]] == ref[idx[3]] &&
+       (c.cheb < 0 || (RateOf(idx[0]) == RateOf(idx[1]) && RateOf(idx[0]) == RateOf(idx[2]) &&
+                       RateOf(idx[0]) == RateOf(idx[3]))))
+      return w;   // (one value: the tile's, exactly)
+   const double fx = m.fx[cell], fy = m.fy[cell];
+   const double b[4] = { (1.0 - fx) * (1.0 - fy), fx * (1.0 - fy), (1.0 - fx) * fy, fx * fy };
+   double l = 0.0, r = 0.0;
+   for (int q = 0; q < 4; ++q)
+   {
+      if (b[q] == 0.0)
+         continue;
+      const float v = lw[idx[q]];
+      if (!(v > -std::numeric_limits<float>::infinity()))
+         return w;   // a corner without weight (unlit, another group)
+      l += b[q] * v;
+      if (c.cheb >= 0)
+         r += b[q] * RateOf(idx[q]);
+   }
+   if (c.cheb < 0)
+      return static_cast<float>(std::exp(l));
+   // Chebyshev term j at the cell's rate (BuildBleachChannels' recurrence).
+   const double y = 2.0 * r / doseMax_ - 1.0;
+   double t0 = 1.0, t1 = y, v = 1.0;
+   for (int j = 0; j <= c.cheb; ++j)
+   {
+      v = j == 0 ? t0 : (j == 1 ? t1 : 0.0);
+      if (j >= 2)
+      {
+         v = 2.0 * y * t1 - t0;
+         t0 = t1;
+         t1 = v;
+      }
+   }
+   return static_cast<float>(std::exp(l) * v);
+}
+
+void WidefieldScene::LogWeights(Channel& c) const
+{
+   c.logw.resize(c.weight.size());
+   for (size_t i = 0; i < c.weight.size(); ++i)
+      c.logw[i] = c.weight[i] > 0.0f ? static_cast<float>(std::log(static_cast<double>(c.weight[i])))
+                                     : -std::numeric_limits<float>::infinity();
+}
+
 float WidefieldScene::CellValue(const Channel& c, long k, uint32_t cell, float count) const
 {
    size_t wi = cell;
    size_t nc = dD_.size();
    if (c.mapped)
    {
-      wi = (*weightMap_)[cell];
-      nc = weightMapCount_;
+      wi = weightMap_->tile[cell];
+      nc = weightMap_->count;
    }
+   size_t band = 0;
    if (c.weight.size() > nc && nc > 0)
    {
       // Banded weights: the band of plane k's centre.
       const double zc = (k + 0.5) * rect_.zPlaneUm;
-      wi += nc * static_cast<size_t>(std::upper_bound(weightBands_.begin(), weightBands_.end(), zc) - weightBands_.begin());
+      band = nc * static_cast<size_t>(std::upper_bound(weightBands_.begin(), weightBands_.end(), zc) - weightBands_.begin());
+      wi += band;
    }
-   const float v = count * c.weight[wi];
+   const float w = c.mapped ? MappedWeight(c, cell, band, c.weight[wi]) : c.weight[wi];
+   const float v = count * w;
    if (!planeFactor_ || v == 0.0f)
       return v;
    const WidefieldGridSpec& g = rect_;
@@ -1594,6 +1684,10 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
    channelMax_.clear();
    cheb_ = false;
    doseMax_ = 0.0f;
+   ++basisSerial_;
+   chebRef_ = 0;
+   wbRefMax_ = 0.0;
+   rateBinMax_.clear();
    wbRef_ = wb;
    const size_t n = wb.size();
    // The rates: SetWeightRates' (one per weight), else the frame dose (banded weights: per band, the same cells;
@@ -1602,13 +1696,16 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
    basisRates_ = hostRates ? weightRates_ : nullptr;
    if (dyes_.nBleaching == 0)
       return;
-   if (!basisRates_ && weightMap_ && weightMapCount_ > 0)
+   if (!basisRates_ && weightMap_)
    {
-      auto d = std::make_shared<std::vector<float>>(n, 0.0f);
-      const size_t nw = weightMapCount_;
-      for (size_t c = 0; c < dD_.size() && c < weightMap_->size(); ++c)
-         for (size_t b = 0; (*weightMap_)[c] + nw * b < n; ++b)
-            (*d)[(*weightMap_)[c] + nw * b] = dD_[c];
+      // (A uniform frame dose -- the mapped scenes' flat illumination -- for every entry, the lattice's nodes beyond the
+      // grid too: one group.)
+      const bool uniform = !dD_.empty() && std::all_of(dD_.begin(), dD_.end(), [&](float v) { return v == dD_[0]; });
+      auto d = std::make_shared<std::vector<float>>(n, uniform ? dD_[0] : 0.0f);
+      const size_t nw = weightMap_->count;
+      for (size_t c = 0; !uniform && c < dD_.size() && c < weightMap_->tile.size(); ++c)
+         for (size_t b = 0; weightMap_->tile[c] + nw * b < n; ++b)
+            (*d)[weightMap_->tile[c] + nw * b] = dD_[c];
       basisRates_ = d;
    }
    // A group: a rate and, with SetWeightGroups (no host rates), a weight group; single: one for every weight.
@@ -1639,6 +1736,8 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
          for (size_t i = 0; i < n; ++i)
             if (wb[i] != 0.0f && groupOf(i) == g)
                c.weight[i] = wb[i];
+         if (c.mapped)
+            LogWeights(c);
          c.version = NextSerial();
          bleach_.push_back(std::move(c));
       }
@@ -1666,9 +1765,37 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
       Channel c;
       c.pop = 0;
       c.mapped = weightMap_ != nullptr;
+      c.cheb = static_cast<int>(j);
       c.weight.assign(n, 0.0f);
       c.version = NextSerial();
       bleach_.push_back(std::move(c));
+   }
+   // The entry the coefficients read the decay from (BleachCoefficients): the largest weight x rate (the largest-rate
+   // entries may be all but bleached, their weights denormal floats); and for RenderDecayed the largest weight and each
+   // rate bin's.
+   chebRef_ = n;
+   double best = 0.0;
+   rateBinMax_.assign(kRateBins, 0.0);
+   for (size_t i = 0; i < n; ++i)
+   {
+      const double m = static_cast<double>(wb[i]) * RateOf(i);
+      if (m > best)
+      {
+         best = m;
+         chebRef_ = i;
+      }
+      const double w = std::fabs(static_cast<double>(wb[i]));
+      wbRefMax_ = std::max(wbRefMax_, w);
+      const double u = doseMax_ > 0.0f ? std::max(0.0, static_cast<double>(RateOf(i))) / doseMax_ : 0.0;
+      const size_t bin = std::min<size_t>(kRateBins - 1, static_cast<size_t>(u * kRateBins));
+      rateBinMax_[bin] = std::max(rateBinMax_[bin], w);
+   }
+   if (weightMap_)
+   {
+      lwRef_.resize(n);
+      for (size_t i = 0; i < n; ++i)
+         lwRef_[i] = wb[i] > 0.0f ? static_cast<float>(std::log(static_cast<double>(wb[i])))
+                                  : -std::numeric_limits<float>::infinity();
    }
    for (size_t i = 0; i < n; ++i)
    {
@@ -1750,17 +1877,15 @@ bool WidefieldScene::BleachCoefficients(const std::vector<float>& wb, std::vecto
    }
    else
    {
-      // exp(-tau x), x = dD (rate) / doseMax, tau from a column at x = 1.
-      size_t iRef = n;
-      for (size_t i = 0; i < n; ++i)
-         if (wbRef_[i] != 0.0f && RateOf(i) == doseMax_ && (iRef == n || wbRef_[i] > wbRef_[iRef]))
-            iRef = i;
-      if (iRef == n)
+      // exp(-tau x), x = dD (rate) / doseMax, tau from the entry whose weight moves the most (chebRef_), at its own
+      // rate.
+      const size_t iRef = chebRef_;
+      if (iRef >= n)
          return false;
       const double r = static_cast<double>(wb[iRef]) / wbRef_[iRef];
       if (!(r > 0.0))
          return false;
-      a = ChebExp(-std::log(r), static_cast<unsigned>(bleach_.size()));
+      a = ChebExp(-std::log(r) * doseMax_ / RateOf(iRef), static_cast<unsigned>(bleach_.size()));
    }
    float wMax = 0.0f;
    for (float v : wb)
@@ -1840,6 +1965,12 @@ void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxC
       TimingLog(single ? "wf.basis-single" : "wf.basis", TimingSince(t0),
                 (std::to_string(bleach_.size()) + (cheb_ ? " cheb" : " groups")).c_str());
    }
+   RenderBasisShifted(a, dxCells, dyCells, cam);
+}
+
+void WidefieldScene::RenderBasisShifted(const std::vector<double>& a, double dxCells, double dyCells,
+                                        std::vector<float>& cam)
+{
    // Images made before SetKeepSpectra (or adopted from a series made
    // without it) carry none: make them again, with spectra.
    if (keepSpectra_ && !images_.HasSpectra() && haveSpec_ && psf_ && !defer_)
@@ -1848,6 +1979,55 @@ void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxC
       RenderShiftedImages(images_, nullptr, 0.0, a, dxCells, dyCells, cam);
    else
       images_.Render(a, cam);
+}
+
+bool WidefieldScene::AnchorDecay(const std::vector<float>& wb0, DecayAnchor& an) const
+{
+   std::vector<double> a;
+   if (!cheb_ || bleach_.empty() || !BleachCoefficients(wb0, a))
+      return false;
+   const size_t iRef = chebRef_;
+   const double r = static_cast<double>(wb0[iRef]) / wbRef_[iRef];
+   an.serial = basisSerial_;
+   an.d0 = -std::log(r) / RateOf(iRef);
+   // wb0's largest deviation from the anchor decayed by d0 (the frames carry it, decayed).
+   double dev = 0.0;
+   for (size_t i = 0; i < wb0.size(); ++i)
+      if (wb0[i] != 0.0f || wbRef_[i] != 0.0f)
+         dev = std::max(dev, std::fabs(static_cast<double>(wb0[i]) -
+                                       static_cast<double>(wbRef_[i]) * std::exp(-an.d0 * RateOf(i))));
+   an.dev = dev;
+   return true;
+}
+
+bool WidefieldScene::RenderDecayed(const DecayAnchor& an, double k, bool shifted, double dxCells, double dyCells,
+                                   std::vector<float>& cam)
+{
+   if (!cheb_ || !bleachValid_ || bleach_.empty() || an.serial != basisSerial_ || !(doseMax_ > 0.0f))
+      return false;
+   // The frame's weights are the anchor's at decay d = d0 + k (+ the decayed deviation). The basis holds them when the
+   // dropped Chebyshev terms (their coefficients' sum, twice for an interpolant, bounds each weight's error relative to
+   // the anchor's) and the deviation stay within BleachCoefficients' tolerance, 1e-5 of the frame's largest weight --
+   // from below: each rate bin's largest anchor weight at the bin's top rate, less the deviation.
+   const double d = an.d0 + k, x = d * doseMax_;
+   const unsigned m = static_cast<unsigned>(bleach_.size());
+   const std::vector<double> c = ChebExp(x, 2 * kChebTerms);
+   double tail = 0.0;
+   for (size_t j = m; j < c.size(); ++j)
+      tail += std::fabs(c[j]);
+   double low = 0.0;
+   for (size_t b = 0; b < rateBinMax_.size(); ++b)
+      if (rateBinMax_[b] > 0.0)
+         low = std::max(low, rateBinMax_[b] * std::exp(-d * doseMax_ * (b + 1.0) / kRateBins));
+   if (!(an.dev + 2.0 * tail * wbRefMax_ <= 1e-5 * (low - an.dev)))
+      return false;
+   lastFast_ = true;
+   const std::vector<double> a = ChebExp(x, m);
+   if (shifted)
+      RenderBasisShifted(a, dxCells, dyCells, cam);
+   else
+      images_.Render(a, cam);
+   return true;
 }
 
 bool WidefieldScene::AdoptFocus(double focusWorldUm, const WidefieldImages& images, unsigned long long version)

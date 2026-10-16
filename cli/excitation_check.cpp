@@ -6,7 +6,6 @@
 //   - plane means and column integrals against quadrature (TIRF, two lines; HILO), the HILO sheet, a clipped spot dark;
 //   - the free imager's collected column: isotropic against an independent focal-plane quadrature, the renderers' map
 //     against a dense reference per regime, epi well below the chamber's height, a Flat beam's map = its columns;
-//   - the dose nodes and their hat weights (a partition of unity);
 //   - movies: a Flat HILO beam (one factor F everywhere) = epi with every laser line x F, per label mode (the
 //     kinetics follow the local light); a clipped spot = a sample without light; TIRF cuts the nanorulers'
 //     free-imager background.
@@ -173,20 +172,6 @@ void Units()
       const Excitation f(fs);
       const std::vector<double> fm = f.ImagerMap(8, 8, 1, 4, 4, Hc, im);
       Check(fm[3 * 8 + 5] == f.Column(1, -1, Hc, kRed), "a Flat beam's collected-column map = its columns");
-   }
-   {
-      bool ok = DoseNodes(2.0, 0.3).size() == 1 && DoseNodes(0.0, 5.0).empty();
-      const std::vector<double> nodes = DoseNodes(1.6, 20.0);   // past the cut: 16 nodes + aMax
-      ok = ok && nodes.size() == static_cast<size_t>(kDoseLevels) + 1 && nodes.back() == 1.6;
-      for (double a : { 0.01, 0.04, 0.3, 0.64, 0.65, 1.0, 1.6 })
-      {
-         double sum = 0;
-         for (size_t k = 0; k < nodes.size(); ++k)
-            sum += HatWeight(nodes, k, a);
-         // from the first node up a partition of unity; below it linear down to zero dose (no photons)
-         ok = ok && Near(sum, std::min(1.0, a / nodes[0]), 1e-12);
-      }
-      Check(ok, "dose nodes: one below a half e-fold, 16 + the top past the cut; hat weights a partition of unity");
    }
 }
 

@@ -130,13 +130,6 @@ private:
    bool clipped_ = false, tirf_ = false, uniform_ = false;
 };
 
-// Dose levels of a population whose photons per dye are nonlinear in its excitation factor a (JS doseNodes,
-// hatWeight): a dye at factor a is split over the two neighbouring nodes by linear interpolation; one image per node.
-constexpr double kDoseStep = 0.5, kDoseCut = 8.0;
-constexpr int kDoseLevels = 16;
-std::vector<double> DoseNodes(double aMax, double dMax);
-double HatWeight(const std::vector<double>& nodes, size_t k, double a);
-
 // The MM adapter's illumination history (IlluminationHistory.h): its tiles and z bands.
 constexpr double kHistoryTileUm = 0.25;
 // The world z bands of the history (um above the coverslip): band b is [edge b - 1, edge b), the first from -inf, the

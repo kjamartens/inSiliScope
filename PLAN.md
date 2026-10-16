@@ -47,13 +47,14 @@ Upcoming ideas:
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
-  nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field by dose nodes),
+  nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field on the map's weights),
   [x] C++ port (engine, cli, viewer module; ctest `excitation`), [x] MM (`Lasers.BfpPosition`, the history in z bands,
   render-ahead, config group `Illumination` Epi / HILO / TIRF), [x] viewer slider (with the regime readout), docs,
   figures (`light-geometry`, `light-geometry-images`), gallery (`light-epi`, `light-tirf`, `light-flat`,
   `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`), [x] the MM mean field bleaches by the
-  exact dose (no edge at the history levels' half contour; 2026-10-15), [ ] blinks and per-dye windows by the exact
-  dose too (they still step at the levels).
+  exact dose (no edge at the history levels' half contour; 2026-10-15), [x] blinks, per-dye windows and every mean
+  field by the exact dose on every consumer (the clock map, core ABI 14; branch `claude/exact-dose`, 2026-10-15/16),
+  [ ] the history levels' code removed, docs and figures (P4), [ ] the viewer's live microscope on the map (P5).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

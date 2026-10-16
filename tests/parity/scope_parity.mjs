@@ -137,7 +137,7 @@ const CASES = [
   ['Excitation Flat epi (uniform: the old paths)', `${B} size=40 frames=6 psf-model=0 illum-profile=Flat illum-bfp=0`, 1],
   ['Excitation Gaussian 60 %, epi, dSTORM AF647 at 60 s', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto illum-profile=Gaussian illum-fwhm=60`, 0.999],   // its initial ON: mean-field
   ['Excitation HILO 0.9, dSTORM AF647 from t = 0 (local clock, initial ON)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 illum-bfp=0.9`, 0.999],
-  ['Excitation HILO 0.9, dSTORM blinks mean-field (dose nodes)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 blink-mean-field-max-emitters=0 illum-bfp=0.9`, 0.999],
+  ['Excitation HILO 0.9, dSTORM blinks mean-field (map weights)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 blink-mean-field-max-emitters=0 illum-bfp=0.9`, 0.999],
   ['Excitation HILO 0.95, PALM mEos3.2 pre state, 405 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=mEos3.2 light-preset=auto laser-405=0.05 illum-bfp=0.95`, 0.999],
   ['Excitation TIRF 1.03, WideField mEGFP mean field (depth planes)', `${B} size=40 frames=3 psf-kernel-half-width-nm=2500 mt-dye=mEGFP light-preset=auto illum-bfp=1.03`, 0.999],
   ['Excitation TIRF 1.03, WideField mEGFP per dye, from t = 0', `${B} size=32 frames=4 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 mt-dye.photon-budget=2000 illum-bfp=1.03`, 0.999],

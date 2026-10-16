@@ -408,39 +408,6 @@ double Excitation::DepthNm(double lambdaNm) const
                 : (!clipped_ && tanS_ > 0.0 && profile_ != ILLUM_FLAT ? fwhmUm_ / (tanS_ * cosI_) * 1000.0 : -1.0);
 }
 
-std::vector<double> DoseNodes(double aMax, double dMax)
-{
-   std::vector<double> out;
-   if (!(aMax > 0))
-      return out;
-   if (!(dMax > kDoseStep))
-   {
-      out.push_back(aMax);
-      return out;
-   }
-   const int K = std::min(kDoseLevels, static_cast<int>(std::ceil(std::min(dMax, kDoseCut) / kDoseStep)));
-   const double aCut = dMax > kDoseCut ? aMax * kDoseCut / dMax : aMax;
-   for (int k = 1; k <= K; k++)
-      out.push_back(aCut * k / K);
-   if (aCut < aMax)
-      out.push_back(aMax);
-   return out;
-}
-
-double HatWeight(const std::vector<double>& nodes, size_t k, double a)
-{
-   const double hi = nodes[k], lo = k > 0 ? nodes[k - 1] : 0.0;
-   if (a >= lo && a <= hi)
-      return hi > lo ? (a - lo) / (hi - lo) : 1.0;
-   if (k + 1 < nodes.size())
-   {
-      const double nx = nodes[k + 1];
-      if (a > hi && a < nx)
-         return (nx - a) / (nx - hi);
-   }
-   return 0.0;
-}
-
 const std::vector<double>& HistoryBandEdges()
 {
    static const std::vector<double> e = { 0.1, 0.2, 0.4, 0.7, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.5 };

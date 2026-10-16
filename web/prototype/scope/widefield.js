@@ -5,11 +5,10 @@
 // camera's sub-cell position by a Fourier phase ramp, cropped, max(0, .) per cell, binned.
 // Issue 16: no WideField movie of its own any more -- fluorescence.js uses meanFieldImage for every continuous
 // population (WideField labels, PALM pre states, the dSTORM initial ON) above the mean-field density, and scales it
-// per frame by the population's exact mean photons per dye.
+// per frame by the population's exact mean photons per dye; under a clock map (a shaped beam) meanFieldScene, whose
+// images weight each dye at its own clock (mean_field_map.js).
 // Not mirrored (speed only in the C++): spectra caches, focus bands (gated off for diffraction PSFs),
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
-import { hatWeight } from './excitation.js';
-
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
 const TILE = 64;
 // TODO(human) in the C++ too: the Gaussian WideField PSF ignores defocus (in-focus sigma, 0.21 lambda / NA).
@@ -203,10 +202,13 @@ function dyePlanes(world, g, structureMask) {
 }
 
 // ---- the scene: the image of one population of dyes with per-cell weights ----
+// sceneSetup: a scene's FFT setup at its focus (SetupFft and the focus plan; kernel spectra cached), and channel(weight,
+// keep) the image of a weight -- per grid cell an array, or per dye plane k a function: an array, {w, pf} (a cell's
+// value fround(fround(count x w) x pf), CellValue; pf null: 1) or null (an unlit plane); keep: also the full spectrum
+// before the sub-cell shift (spec: {re, im}; a drifting sample).
 // opt.prevR: the radius of the scene's previous update (SetupFft keeps it if the new one would only shrink);
-// opt.fixedR: the radius as is (no SetupFft: the grid rect is unchanged); opt.keep: also the full spectrum before
-// the sub-cell shift (spec: {re, im}; a drifting sample).
-function sceneImages(ws, g, dyes, psf, weight, opt = {}) {
+// opt.fixedR: the radius as is (no SetupFft: the grid rect is unchanged).
+function sceneSetup(ws, g, dyes, psf, opt = {}) {
   const dz = g.zPlaneUm;
   // Kernel radius (SetupFft).
   const cap = Math.max(1, Math.ceil(ws.kernelCapUm / g.pitchUm - 1e-9));
@@ -253,9 +255,9 @@ function sceneImages(ws, g, dyes, psf, weight, opt = {}) {
     kernelSpec.set(p, s);
     return s;
   };
-  const channel = weight => {
+  const channel = (weight, keep) => {
     if (!dyes.nDyes) return null;
-    // weight: per grid cell (an array), or per dye plane k (a function: k -> array, null = unlit; a 3D excitation).
+    // weight: per grid cell (an array), or per dye plane k (a function: k -> array | {w, pf}, null = unlit).
     const wOf = typeof weight === 'function' ? weight : () => weight;
     // Spatial pre-sum per PSF plane: G_p = sum_k w(k, p) x dyes_k x weight (linear = the C++'s spectrum sum).
     const G = new Map();
@@ -264,12 +266,14 @@ function sceneImages(ws, g, dyes, psf, weight, opt = {}) {
       if (!cells.size) continue;
       const wk = wOf(d.k);
       if (!wk) continue;
+      const wc = wk.w !== undefined ? wk.w : wk, pf = wk.w !== undefined ? wk.pf : null;
       for (const [p, w] of [[d.p0, d.w0], [d.p0 + 1, d.w1]]) {
         if (!(w > 0)) continue;
         let a = G.get(p);
         if (!a) { a = new Float64Array(nx * ny); G.set(p, a); }
         for (const [cell, cnt] of cells) {
-          const v = Math.fround(cnt * wk[cell]);
+          let v = Math.fround(cnt * wc[cell]);
+          if (pf && v) v = Math.fround(v * pf[cell]);
           if (v) a[Math.floor(cell / g.nx) * nx + cell % g.nx] += w * v;
         }
       }
@@ -283,12 +287,38 @@ function sceneImages(ws, g, dyes, psf, weight, opt = {}) {
       for (let i = 0; i < Sr.length; i++) { Sr[i] += a[i] * K.re[i] - im[i] * K.im[i]; Si[i] += a[i] * K.im[i] + im[i] * K.re[i]; }
     }
     // Sub-cell shift (Nyquist bins: real factor), inverse, crop.
-    const spec = opt.keep ? { re: Sr.slice(), im: Si.slice() } : null;
+    const spec = keep ? { re: Sr.slice(), im: Si.slice() } : null;
     return { img: shiftedCrop(Sr, Si, nx, ny, g.fracX, g.fracY, g.fovX, g.fovY, cw, ch), spec };
   };
-  const c = channel(weight);
-  return { image: c && c.img, spec: c && c.spec, cw, ch, u, R, nx, ny, clamped, fovX: g.fovX, fovY: g.fovY,
-    fracX: g.fracX, fracY: g.fracY };
+  return { channel, cw, ch, u, R, nx, ny, clamped, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY };
+}
+
+// The weight entries a scene's dye cells read (WidefieldScene::UsedWeights): per dye plane of its slab, each cell's
+// tile and stencil corners (cellMap, mean_field_map.js mapEntriesFor) in its plane's band (edges, world um; n entries).
+export function usedWeights(sc, cellMap, edges, n) {
+  const g = sc.g, dz = g.zPlaneUm, nc = cellMap.count, used = new Uint8Array(n), NONE = 0xFFFFFFFF;
+  const kLo = snapFloor(g.zMinUm / dz), kHi = -snapFloor(-g.zMaxUm / dz);
+  for (const [k, cells] of sc.dyes.planes) {
+    if (k < kLo || k >= kHi) continue;
+    let band = 0;
+    if (n > nc && nc > 0) {
+      const zc = (k + 0.5) * dz;
+      let i = 0;
+      while (i < edges.length && edges[i] <= zc) i++;
+      band = nc * i;
+    }
+    for (const cell of cells.keys()) {
+      used[band + cellMap.tile[cell]] = 1;
+      const c0 = cellMap.corner[cell];
+      if (c0 !== NONE) {
+        used[band + c0] = 1;
+        used[band + c0 + 1] = 1;
+        used[band + c0 + cellMap.nx] = 1;
+        used[band + c0 + cellMap.nx + 1] = 1;
+      }
+    }
+  }
+  return used;
 }
 
 // ApplyShiftRamp (Drift.cpp) on a full complex spectrum, inverse, crop the FOV cells: image(j + frac).
@@ -316,16 +346,25 @@ export function shiftedCrop(Sr, Si, nx, ny, fracX, fracY, fovX, fovY, cw, ch) {
 }
 
 // RenderShiftedImages: images i0 and i1 (weight w of i1, two foci) with the sample moved by (dxCells, dyCells):
-// spectra summed, one phase ramp, crop, max(0, .), binned and added into cam.
-export function renderShiftedImages(i0, i1, w, dxCells, dyCells, cam) {
-  if (!i0.spec) return;
+// spectra summed, one phase ramp, crop, max(0, .), binned and added into cam. a: a basis' coefficients (each image's
+// specs, one per channel, x fround(fround(a_j) x the focus weight)); null: each image's spec.
+export function renderShiftedImages(i0, i1, w, dxCells, dyCells, cam, a = null) {
+  if (!(a ? i0.specs : i0.spec)) return;
   const { nx, ny } = i0, n = nx * ny, Sr = new Float64Array(n), Si = new Float64Array(n);
+  let any = false;
   const add = (spec, c) => {
     if (!spec || spec.re.length !== n || c === 0) return;
+    any = true;
     for (let i = 0; i < n; i++) { Sr[i] += c * spec.re[i]; Si[i] += c * spec.im[i]; }
   };
-  add(i0.spec, Math.fround(i1 ? 1.0 - w : 1.0));
-  if (i1 && w !== 0) add(i1.spec, Math.fround(w));
+  const addImages = (im, wi) => {
+    const cw = Math.fround(wi);
+    if (!a) add(im.spec, cw);
+    else for (let j = 0; j < im.specs.length && j < a.length; j++) if (a[j] !== 0) add(im.specs[j], Math.fround(Math.fround(a[j]) * cw));
+  };
+  addImages(i0, i1 ? 1.0 - w : 1.0);
+  if (i1 && w !== 0) addImages(i1, w);
+  if (!any) return;
   const img = shiftedCrop(Sr, Si, nx, ny, i0.fracX - dxCells, i0.fracY - dyCells, i0.fovX, i0.fovY, i0.cw, i0.ch);
   const { cw, u } = i0, W = cw / u, H = i0.ch / u;
   for (let Y = 0; Y < H; ++Y) for (let X = 0; X < W; ++X) {
@@ -348,15 +387,15 @@ function binnedImage(im, W, H) {
   return out;
 }
 
-// The mean-field image of a structure's dyes (issue 16, WidefieldMeanField): every fluorescent dye of the structures
-// in structureMask with weight 1 on the world-anchored grid, convolved with the PSF at wavelengthNm (the kernel, or the
-// in-focus Gaussian), binned to the camera: W x H photons per (photon per dye). A frame of a continuous population
-// adds (mean detected photons per dye in that frame) x this image. The grid spans the FOV and its margin (as the
-// per-dye path's emitters); each dye counts with the excitation at its cell and plane (S.excite, excitation.js: the
-// beam's footprint at the plane centre x the plane's mean depth factor for the state's laser lines, shares), split
-// over the dose nodes (excitation.js doseNodes: one image per node; levels), or 1 when the excitation is uniform.
-// marginExtraUm: the drift margin (a drifting sample's frames are this image shifted; imagesAt gives them).
-export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0, shares = [], nodes = null) {
+// The mean-field scene of a structure's dyes (issue 16, WidefieldScene): every fluorescent dye of the structures in
+// structureMask on the world-anchored grid, convolved with the PSF at wavelengthNm (the kernel, or the in-focus
+// Gaussian). The grid spans the FOV and its margin (as the per-dye path's emitters; marginExtraUm: the drift margin).
+// planeFactor (a shaped excitation, ExcitePlaneFactor; else null): per dye plane k the factor of each cell's dyes --
+// the beam's footprint at the plane centre x the plane's mean depth factor for the state's laser lines (shares),
+// capped at the field factor -- or null when the plane is unlit; cached per plane (every focus's grid has the same
+// cells). base: the FFT setup at the movie's focus; setupAt(focus): at another (a z-drifting sample: the slab follows the
+// focus, the radius is kept unless it grows; WidefieldScene::Update / SetupFft), cached.
+export function meanFieldScene(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0, shares = []) {
   const O = S.O, um = S.p.pixelSizeNm / 1000.0;
   const ws = {
     originXUm: S.q.originXUm, originYUm: S.q.originYUm, width: S.W, height: S.H, pixelUm: um,
@@ -371,57 +410,63 @@ export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, ma
   else psf = gaussianPsf(um / ws.upscale, wavelengthNm, O('na'));
   const g = gridSpecFor(ws, sq);
   const dyes = dyePlanes(world, g, structureMask);
-  const ones = new Float32Array(g.nx * g.ny).fill(1);
   const EX = S.excite, shaped = EX && !EX.uniform;
-  const levels = shaped ? nodes : [1.0];
-  // Per dye plane k of grid gg: node j's share of each cell's dyes (hatWeight of the excitation factor a there: the
-  // footprint at the plane centre x the plane's mean depth factor), cached per plane (null: no share in the plane).
-  const weightFor = (gg, j) => {
-    if (!shaped) return ones;
-    const cache = new Map(), dz = gg.zPlaneUm;
-    return k => {
-      if (cache.has(k)) return cache.get(k);
-      const z0 = k * dz, z1 = (k + 1) * dz;
-      let w = null;
-      if (!EX.clipped) {   // a plane below the coverslip (dyes of a label offset) at z = 0's factor, as a dye's
-        const dm = EX.depthMean(z0, z1, shares), zc = Math.max(0.0, (z0 + z1) / 2);
-        w = new Float32Array(gg.nx * gg.ny);
-        let any = false;
-        for (let iy = 0; iy < gg.ny; iy++) {
-          const y = (gg.iy0 + iy + 0.5) * gg.pitchUm - gg.axisY;
-          for (let ix = 0; ix < gg.nx; ix++) {
-            const a = Math.min(EX.F, EX.F * EX.lateral((gg.ix0 + ix + 0.5) * gg.pitchUm - gg.axisX, y, zc) * dm);
-            const v = hatWeight(levels, j, a);
-            w[iy * gg.nx + ix] = v;
-            any = any || v > 0;
-          }
+  const pfCache = new Map(), dz = g.zPlaneUm;
+  const planeFactor = !shaped ? null : k => {
+    if (pfCache.has(k)) return pfCache.get(k);
+    const z0 = k * dz, z1 = (k + 1) * dz;
+    let w = null;
+    if (!EX.clipped) {   // a plane below the coverslip (dyes of a label offset) at z = 0's factor, as a dye's
+      const dm = EX.depthMean(z0, z1, shares), zc = Math.max(0.0, (z0 + z1) / 2);
+      w = new Float32Array(g.nx * g.ny);
+      let any = false;
+      for (let iy = 0; iy < g.ny; iy++) {
+        const y = (g.iy0 + iy + 0.5) * g.pitchUm - g.axisY;
+        for (let ix = 0; ix < g.nx; ix++) {
+          const a = Math.min(EX.F, EX.F * EX.lateral((g.ix0 + ix + 0.5) * g.pitchUm - g.axisX, y, zc) * dm);
+          w[iy * g.nx + ix] = a;
+          any = any || a > 0;
         }
-        if (!any) w = null;
       }
-      cache.set(k, w);
-      return w;
-    };
+      if (!any) w = null;
+    }
+    pfCache.set(k, w);
+    return w;
   };
-  // One image per node; the scene at other foci (a z-drifting sample, DriftMeanField): the slab follows the focus, the
-  // radius is kept unless it grows (WidefieldScene::Update / SetupFft); images with spectra, cached per focus.
-  const out = levels.map((_, j) => {
-    const images = sceneImages(ws, g, dyes, psf, weightFor(g, j), { keep: marginExtraUm > 0 });
-    let R = images.R;
-    const cache = new Map();
-    const imagesAt = focus => {
-      let im = cache.get(focus);
-      if (im) return im;
-      const slab = ws.slabHalfUm > 0.0, wsk = { ...ws, focusWorldUm: focus, slabCentreUm: focus };
-      const gk = gridSpecFor(wsk, sq);
-      im = sceneImages(wsk, gk, dyes, psf, weightFor(gk, j), slab ? { keep: true, prevR: R } : { keep: true, fixedR: R });
-      R = im.R;
-      cache.set(focus, im);
-      return im;
-    };
-    return { images, image: binnedImage(images, S.W, S.H), imagesAt };
-  });
-  const images = out.length ? out[0].images : { clamped: 0, nx: 0, ny: 0, R: 0 };
-  return { levels: out.map(l => ({ image: l.image, imagesAt: l.imagesAt })), pitchUm: g.pitchUm, image: out.length ? out[0].image : null,
-    imagesAt: out.length ? out[0].imagesAt : null, dyes: dyes.nDyes, clamped: images.clamped, fft: [images.nx, images.ny],
-    kernelRadius: images.R, grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY } };
+  const base = sceneSetup(ws, g, dyes, psf);
+  let R = base.R;
+  const setups = new Map();
+  const setupAt = focus => {
+    let st = setups.get(focus);
+    if (st) return st;
+    const slab = ws.slabHalfUm > 0.0, wsk = { ...ws, focusWorldUm: focus, slabCentreUm: focus };
+    st = sceneSetup(wsk, gridSpecFor(wsk, sq), dyes, psf, slab ? { prevR: R } : { fixedR: R });
+    R = st.R;
+    setups.set(focus, st);
+    return st;
+  };
+  return { ws, g, dyes, planeFactor, base, setupAt, pitchUm: g.pitchUm };
+}
+
+// The mean-field image of a structure's dyes (WidefieldMeanField, unweighted): every dye with weight 1 (x the plane
+// factor of a shaped excitation), binned to the camera: W x H photons per (photon per dye). A frame of a continuous
+// population adds (mean detected photons per dye in that frame) x this image; imagesAt(focus) gives the images (with
+// spectra) a drifting sample's frames are shifted from.
+export function meanFieldImage(world, S, structureMask, kernel, wavelengthNm, marginExtraUm = 0.0, shares = []) {
+  const sc = meanFieldScene(world, S, structureMask, kernel, wavelengthNm, marginExtraUm, shares), g = sc.g;
+  const weight = sc.planeFactor || new Float32Array(g.nx * g.ny).fill(1);
+  const c0 = sc.base.channel(weight, marginExtraUm > 0);
+  const images = { ...sc.base, image: c0 && c0.img, spec: c0 && c0.spec };
+  const cache = new Map();
+  const imagesAt = focus => {
+    let im = cache.get(focus);
+    if (im) return im;
+    const st = sc.setupAt(focus), c = st.channel(weight, true);
+    im = { ...st, image: c && c.img, spec: c && c.spec };
+    cache.set(focus, im);
+    return im;
+  };
+  return { image: binnedImage(images, S.W, S.H), imagesAt, pitchUm: g.pitchUm, dyes: sc.dyes.nDyes, clamped: images.clamped,
+    fft: [images.nx, images.ny], kernelRadius: images.R,
+    grid: { nx: g.nx, ny: g.ny, fovX: g.fovX, fovY: g.fovY, fracX: g.fracX, fracY: g.fracY } };
 }

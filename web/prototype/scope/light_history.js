@@ -18,6 +18,9 @@ import { sampleAt } from './spectra.js';
 
 export const LIGHT_TILE_UM = 0.25, LIGHT_LATTICE_ERR = 1e-3, LIGHT_REACH = 1e-4, LIGHT_DEPTH_STEP_UM = 0.005;
 export const LIGHT_LIT_MARGIN_UM = 2.5;
+// The box a movie's map spans (ScopeMovie.cpp kMapMarginUm): the query and this margin (the mean field's lattice nodes
+// one beyond its grid).
+export const MAP_MARGIN_UM = 2.0;
 
 // A chapter's node spacing under a beam (LightHistory.cpp LightLatticeUm): LIGHT_TILE_UM, halved (to 1/16 of it) while
 // h^2 / 8 x the profile's largest curvature exceeds LIGHT_LATTICE_ERR.
@@ -33,10 +36,11 @@ const nodeAtOrAbove = (v, h) => Math.ceil(v / h - 0.5);
 const nodeAtOrBelow = (v, h) => Math.floor(v / h - 0.5);
 const KIN = L => ({ ...L.label.kinetics });
 
-// The map of a movie of setup S (scope_movie.js scopeSetup) over its query box: { m (clockmap.js's object, for the
-// host's reads), buffer (world.setClockMap's) }.
+// The map of a movie of setup S (scope_movie.js scopeSetup) over its query and MAP_MARGIN_UM: { m (clockmap.js's
+// object, for the host's reads), buffer (world.setClockMap's) }.
 export function movieClockMap(S) {
   const EX = S.excite, um = S.p.pixelSizeNm / 1000.0, W = S.W, H = S.H, x = S.O('x'), y = S.O('y'), q = S.q;
+  const g = MAP_MARGIN_UM, bx0 = q.x0Um - g, by0 = q.y0Um - g, bx1 = q.x1Um + g, by1 = q.y1Um + g;
   // The light at the sample (ScopeSampleLines) and whether it reaches it (MakeLightState).
   let total = 0.0;
   for (const l of S.lp.lasers) {
@@ -48,10 +52,10 @@ export function movieClockMap(S) {
   const h = flat ? LIGHT_TILE_UM : lightLatticeUm(EX), F = EX.F, tanS = EX.tanS, cosI = EX.cosI;
   const sx = sheared ? tanS : 0.0;
   // The pose (the FOV centre pixel's centre, the focal plane) and a Flat beam's stop (the FOV and its margin, grown to
-  // the query: no dye of the movie is beyond it).
+  // the map's box and 1 um more: no dye or mean-field node of the movie is beyond it; GrowFieldStop).
   const ax = x - W * um / 2 + (W - 1) / 2.0 * um, ay = y - H * um / 2 + (H - 1) / 2.0 * um, pivot = EX.spec.pivotUm ?? 0.0;
-  const stop = [Math.min(x - W * um / 2 - LIGHT_LIT_MARGIN_UM, q.x0Um - 1.0), Math.min(y - H * um / 2 - LIGHT_LIT_MARGIN_UM, q.y0Um - 1.0),
-    Math.max(x + W * um / 2 + LIGHT_LIT_MARGIN_UM, q.x1Um + 1.0), Math.max(y + H * um / 2 + LIGHT_LIT_MARGIN_UM, q.y1Um + 1.0)];
+  const stop = [Math.min(x - W * um / 2 - LIGHT_LIT_MARGIN_UM, bx0 - 1.0), Math.min(y - H * um / 2 - LIGHT_LIT_MARGIN_UM, by0 - 1.0),
+    Math.max(x + W * um / 2 + LIGHT_LIT_MARGIN_UM, bx1 + 1.0), Math.max(y + H * um / 2 + LIGHT_LIT_MARGIN_UM, by1 + 1.0)];
   let z0 = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -1e3, z1 = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : 1e3;
   z0 = Math.max(z0, -2.0);
   z1 = Math.min(z1, 20.0);
@@ -72,13 +76,13 @@ export function movieClockMap(S) {
       const R = EX.reachAt(LIGHT_REACH), Rx = R / cosI;
       r = [nodeAtOrAbove(au - Rx, h), nodeAtOrAbove(ay - R, h), nodeAtOrBelow(au + Rx, h), nodeAtOrBelow(ay + R, h)];
     }
-    let ua = q.x0Um, ub = q.x1Um;
+    let ua = bx0, ub = bx1;
     if (sheared) {
-      ua = Math.min(q.x0Um - z0 * tanS, q.x0Um - z1 * tanS);
-      ub = Math.max(q.x1Um - z0 * tanS, q.x1Um - z1 * tanS);
+      ua = Math.min(bx0 - z0 * tanS, bx0 - z1 * tanS);
+      ub = Math.max(bx1 - z0 * tanS, bx1 - z1 * tanS);
     }
     const ia = Math.max(nodeAtOrBelow(ua, h) - 1, r[0]), ib = Math.min(nodeAtOrAbove(ub, h) + 1, r[2]);
-    const ja = Math.max(nodeAtOrBelow(q.y0Um, h) - 1, r[1]), jb = Math.min(nodeAtOrAbove(q.y1Um, h) + 1, r[3]);
+    const ja = Math.max(nodeAtOrBelow(by0, h) - 1, r[1]), jb = Math.min(nodeAtOrAbove(by1, h) + 1, r[3]);
     let idx = -1;
     if (r[2] >= r[0] && r[3] >= r[1] && ib >= ia && jb >= ja) {
       const g = { x0: nodeAt(ia, h), y0: nodeAt(ja, h), h, nx: ib - ia + 1, ny: jb - ja + 1, v: [] };
