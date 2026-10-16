@@ -1,6 +1,7 @@
 // WASM exports of the scope movie (sim::RenderScopeMovie) for the viewer:
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
+#include "LiveScope.h"
 #include "ScopeMovie.h"
 #include "Timing.h"
 #include "WidefieldRender.h"
@@ -499,6 +500,63 @@ ISC_API int32_t isc_bf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
 }
 
 ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
+
+// ---- live imaging (sim::LiveScope: the camera's live mode, the sample's history) ----
+// One sample per module instance (the viewer's live worker). isc_live_frame renders the next frame of `spec` and
+// returns its pixel count (-1: a failure, message in errOut); the frame is at isc_live_image() until the next call.
+// info[0..12] = width, height, t (s), lit seconds at the FOV centre before the frame, lit (0/1), epi, trans, blinks,
+// dyes, drift x, y, z (nm), render ms. countLight 0: the frame's light does not go into the history.
+// isc_live_frames: the next n frames at once (a recording, LiveScope::Frames), one after another at isc_live_image();
+// returns n x the pixel count, info as above (the first frame's t and lit seconds, the last one's drift).
+// isc_live_paths(): how the last frame's fluorescence was drawn (LiveFrameInfo::paths, a JSON array of strings).
+// isc_live_profile(1): collect the engine's timing phases (Timing.h) per frame; isc_live_profile_json() = the last
+// frame's (TimingProfileTake: {"seconds", "phases": {name: {count, totalMs, meanMs, maxMs}}}).
+static sim::LiveScope g_live;
+static std::vector<uint16_t> g_liveImage;
+static std::string g_livePaths = "[]", g_liveProfile = "{}";
+ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight, double* info, char* errOut,
+                                int32_t errCap)
+{
+   std::string err;
+   sim::ScopeSpec s;
+   sim::LiveFrameInfo li;
+   if (!sim::ParseScopeSpec(spec ? spec : "", s, err) || !g_live.Frames(s, n, countLight != 0, g_liveImage, li, err))
+   {
+      if (errOut && errCap > 0)
+      {
+         const size_t n = std::min(err.size(), static_cast<size_t>(errCap - 1));
+         std::memcpy(errOut, err.data(), n);
+         errOut[n] = 0;
+      }
+      return -1;
+   }
+   if (info)
+   {
+      const double v[13] = { static_cast<double>(li.width), static_cast<double>(li.height), li.tSec, li.litSec,
+                             li.lit ? 1.0 : 0.0, li.epi ? 1.0 : 0.0, li.trans ? 1.0 : 0.0,
+                             static_cast<double>(li.blinks), static_cast<double>(li.dyes), li.drift.x, li.drift.y,
+                             li.drift.z, li.renderMs };
+      std::memcpy(info, v, sizeof v);
+   }
+   g_livePaths = li.paths;
+   if (sim::TimingCollect().load())
+      g_liveProfile = sim::TimingProfileTake();
+   return static_cast<int32_t>(g_liveImage.size());
+}
+ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* info, char* errOut, int32_t errCap)
+{
+   return isc_live_frames(spec, 1, countLight, info, errOut, errCap);
+}
+ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
+ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
+ISC_API void isc_live_reset() { g_live.Reset(); }
+ISC_API void isc_live_profile(int32_t on)
+{
+   sim::TimingCollect() = on != 0;
+   sim::TimingProfileTake();   // starts afresh
+   g_liveProfile = "{}";
+}
+ISC_API const char* isc_live_profile_json() { return g_liveProfile.c_str(); }
 
 ISC_API void isc_wf_end(int32_t h)
 {

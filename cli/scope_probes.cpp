@@ -441,6 +441,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("psf-oversampling", q.os);
       j.KNum("wf-upscale", q.wf);
       j.KNum("psf-halo-cut", q.halo);
+      j.KNum("blink-min-photons", q.minPhotons);
       j.Close('}');
    }
    j.Close(']');

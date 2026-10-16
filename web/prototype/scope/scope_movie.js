@@ -181,6 +181,7 @@ export const SCOPE_OPTIONS = [
   ['blink-binned-max-emitters', 1e9, 'Renderer.BlinkBinnedMaxEmitters: and binned above this many ON emitters in the frame'],
   ['blink-mean-field-density-per-um2', 1e9, 'Renderer.BlinkMeanFieldDensityPerUm2: a frame\'s blinks render mean-field (no events drawn: every dye\'s expected ON time in the frame from its kinetics x the dye density, convolved once; the blinking itself is lost, only shot noise stays) above this many expected ON emitters per um^2 of the focal slab (mean-field-slab-nm); 1e9 = never'],
   ['blink-mean-field-max-emitters', 1e9, 'Renderer.BlinkMeanFieldMaxEmitters: and mean-field above this many expected ON emitters in the z range; 1e9 = never'],
+  ['blink-min-photons', 50, 'Renderer.BlinkMinPhotons: a blink with fewer detected photons than this in a frame is not splatted in that frame (Quality Fast 100, Realistic 50, Exhaustive 0); binned and mean-field frames and continuous dyes keep every one'],
   ['blink-binned-upscale', 2, 'Renderer.BlinkBinnedUpscale: the cells of the binned grid per pixel, per axis (a divisor of the PSF oversampling; the position is snapped to +-half a cell)'],
   ['bf-quality', 3, 'Renderer.BrightFieldQuality: speed vs precision, 1 (fast) .. 4 (precise); sets the four below unless given'],
   ['bf-sources', 0, 'Renderer.BrightFieldSources: condenser source points (0 = from bf-quality: 6/12/24/48)'],
@@ -553,6 +554,7 @@ export function scopeSetup(P, spec) {
       maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
     blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),
       upscale: Math.max(1, Math.min(8, Math.round(O('blink-binned-upscale')))) },
+    blinkMinPhotons: Math.max(0, O('blink-min-photons')),
     blinkMeanField: { densityPerUm2: Math.max(0, O('blink-mean-field-density-per-um2')),
       maxEmitters: Math.max(0, O('blink-mean-field-max-emitters')) } };
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Build the project site into $1 (default: site): docs via mkdocs-material, the viewer under
-# viewer/, and, if release_assets/ holds them, the gallery and benchmark history; the physics
-# figures if physics_figures/ holds them.
+# Build the project site into $1 (default: site): the viewer at the root (the landing page), the docs via
+# mkdocs-material under docs/, and, if release_assets/ holds them, the gallery and benchmark history; the physics
+# figures if physics_figures/ holds them. The URLs of the old layout (docs at the root, the viewer under viewer/)
+# redirect to their new place.
 # Needs: pip install mkdocs-material; web/insiliscope_module.js up to date
 # (node tools/embed_web_module.mjs).
 set -euo pipefail
@@ -41,13 +42,27 @@ fi
 printf 'INHERIT: mkdocs.yml
 docs_dir: .site_docs
 ' > .mkdocs_site.yml
-mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT"
+mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT/docs"
 rm -f .mkdocs_site.yml
 
-mkdir -p "$OUT/viewer"
-cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js "$OUT/viewer/"
-for d in scene anim encode; do if [ -d web/$d ]; then cp -r web/$d "$OUT/viewer/$d"; fi; done
-[ -d web/prototype ] && cp -r web/prototype "$OUT/viewer/prototype"
+cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js "$OUT/"
+for d in scene anim encode live; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
+[ -d web/prototype ] && cp -r web/prototype "$OUT/prototype"
+
+# The old layout's URLs: every docs page at the root (/physics/optics/ -> /docs/physics/optics/) and the viewer at
+# /viewer/ get a small redirect page, unless the viewer's own files take that path.
+redirect() {   # redirect <file> <target URL relative to the file>
+  mkdir -p "$(dirname "$1")"
+  printf '<!doctype html><meta charset="utf-8"><title>Moved</title><meta http-equiv="refresh" content="0; url=%s"><link rel="canonical" href="%s"><script>location.replace("%s" + location.hash)</script><a href="%s">Moved here</a>\n' "$2" "$2" "$2" "$2" > "$1"
+}
+viewer_top=" $(cd "$OUT" && ls -A | grep -v '^docs$' | tr '\n' ' ') "
+(cd "$OUT/docs" && find . -name index.html -not -path ./index.html) | while read -r f; do
+  f="${f#./}"; d="$(dirname "$f")"
+  case "$viewer_top" in *" ${d%%/*} "*) continue ;; esac
+  up="$(printf '%s' "$d" | sed 's#[^/][^/]*#..#g')"
+  redirect "$OUT/$f" "$up/docs/$d/"
+done
+redirect "$OUT/viewer/index.html" "../"
 touch "$OUT/.nojekyll"
 rm -rf .site_docs
 echo "site built in $OUT"

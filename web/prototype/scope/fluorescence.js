@@ -359,7 +359,8 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       if (g.mfFrame && g.mfFrame[f]) { mfBlinks = true; return; }
       const evs = buckets[gi][f].map(i => byGroup[gi][i]);
       blinks += evs.length;
-      const o = { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx, excite: g.excite };
+      const o = { pixelSizeNm: pixelNm, photonsPerBlink: g.perFrame, psfSigmaPx: g.sigmaPx, excite: g.excite,
+        minPhotons: S.blinkMinPhotons };
       if (binnedFrame(g, evs, f)) {
         g.binned.render(frameEmitters(evs, f, o, g.blinkKernel, zf, dx, dy), img);
         binned = true;

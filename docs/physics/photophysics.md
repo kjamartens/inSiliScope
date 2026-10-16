@@ -19,8 +19,9 @@ What a few dyes of each mode emit over time, read from the core's schedules thro
 
 !!! danger "Each blink is drawn with a cut PSF"
     Blinks are splatted without the pixels that would get less than 3e-6 of the emitter's photons (`Renderer.Quality`
-    Realistic; Fast: 1e-5; Exhaustive: the whole kernel). Nothing is renormalized. Continuous populations keep the whole
-    kernel. Details: [Optics, the halo cut](optics.md).
+    Realistic; Fast: 1e-5; Exhaustive: the whole kernel), and a blink that gives a frame fewer than 50 detected photons
+    (Fast: 100; Exhaustive: 0) is not drawn in that frame. Nothing is renormalized. Continuous populations keep the whole
+    kernel and every dye. Details: [Optics, the halo cut](optics.md).
 
 
 1. First activation at \(t_{act} = -\ln U / k_{act}\), with \(k_{act}\) the activation rate per dark dye (from the

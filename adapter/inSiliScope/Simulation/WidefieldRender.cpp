@@ -888,8 +888,13 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    unsigned fx = 0, fy = 0;
    double frx = 0.0, fry = 0.0;
    GridSpecFor(pattern, spec, &fx, &fy, &frx, &fry);
+   const double oldAxisX = axisX_, oldAxisY = axisY_;
    axisX_ = spec.originXUm + (spec.width - 1) / 2.0 * spec.pixelUm;
    axisY_ = spec.originYUm + (spec.height - 1) / 2.0 * spec.pixelUm;
+   // The plane factor is read at each cell relative to the axis (CellValue): an axis moved over the world-anchored grid
+   // (a sub-cell drift of the FOV) changes every cell's weight though the factor's key (its own frame) stays.
+   if (planeFactor_ && haveSpec_ && (axisX_ != oldAxisX || axisY_ != oldAxisY))
+      planeFactorChanged_ = true;
 
    // Illumination and the frame dose per grid column.
    const size_t n2 = static_cast<size_t>(g.nx) * g.ny;

@@ -1158,6 +1158,17 @@ reads its kinetics at the dose at its own (x, y, z), one core query per movie.
   at its focus), counted at the producer as before (shutter, power at the sample, taken or `TimeWhileIdle`); a stack
   is one record over its drift path (`MergeLightPoses`); render-ahead's K-frame movie reads one map, its later
   frames on the open record's rate (no per-frame snapshots); the fade per frame `LightHistory::DoseAt`.
+- **Viewer live** (P5, with the merge of main): `LiveScope` keeps a `LightHistory` (a frame: `MakeLightState` at the
+  drifted pose, `start-sec` = `T()`, `RenderScopePhotons(..., past, carry, progress, history, light)`, then `Advance`
+  per frame once `Lit()`; `LiveFrameInfo::litSec` = `DoseAt` at the FOV centre); ctest `live_scope`. A sub-cell drift
+  of the FOV changes each cell's excitation factor (read relative to the scene's axis) without changing the factor's
+  key: `WidefieldScene::Finish` marks the plane factor changed when the axis moves (live frames under drift reused a
+  bleach basis made under the old placement, up to 2.5 % off; found by `live_scope`'s recording check).
+- **Dye counts** (the mean-field switch, `MovieCache::CountSlab`; found by `viewer_scene`'s data z stack, 2026-10-16):
+  the sorted column of dye heights (the live z scrub's speed-up) is built only for a rect asked for again at other
+  heights, by strips of 4 um keeping only the heights, sorted by buckets on all cores; a first count is the core's
+  `Density3d` again. A whole column's sites at once took > 2 GB of the viewer's WASM heap for a 48 um WideField field
+  (the worker aborted); now 592 MB (main's memory), the counts and frames unchanged.
 - **Removed**: `Simulation/IlluminationHistory.*`, `DyeClock`, `ClockSnapshot`, `ClockRegion`, `HistoryLevel` /
   `HistoryLightField`, `doseEvents`, `localEvents` / `rawQuery` (and the JS twins), `GridCellKeys`,
   `SetWeightGroups`, `SetWeightBands`, `MeanFieldNode`, `Excitation::DoseNodes` / `HatWeight`, the dark rule.

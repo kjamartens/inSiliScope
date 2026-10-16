@@ -10,19 +10,20 @@ single-molecule localisation (SMLM) movie or as a widefield image, with a physic
 cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
 any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, render SMLM/widefield/brightfield movies,
-  save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
+- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, look through a live microscope (the
+  adapter's live mode with the sample's illumination history, set up with its Micro-Manager config presets), render
+  SMLM/widefield/brightfield movies, save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
   cell (orbits, layers building up, slices sweeping through) and export them as MP4, WebM or GIF.
 - **Micro-Manager adapter**: a hub with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample, labels, renderer) at three levels of detail, and ready-made configurations; live acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.
 
-Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSiliScope/**
+The viewer (live in your browser): **https://kjamartens.github.io/inSiliScope/** -- docs, gallery and benchmarks: **https://kjamartens.github.io/inSiliScope/docs/**
 
 ## Get it
 
 | I want to... | Do this |
 |---|---|
-| try it | open the [viewer](https://kjamartens.github.io/inSiliScope/viewer/) |
+| try it | open the [viewer](https://kjamartens.github.io/inSiliScope/) ([a quick tour](https://kjamartens.github.io/inSiliScope/docs/quickstart/)) |
 | use it in Micro-Manager | download `mmgr_dal_inSiliScope.dll` from the [latest release](https://github.com/kjamartens/inSiliScope/releases), copy it to your Micro-Manager folder (Windows x64), add the module `inSiliScope` |
 | script it | build `insiliscope_cli` (below) and write TIFF movies headlessly |
 
@@ -30,7 +31,7 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
 
 - **Samples**: the cell field or DNA-origami nanorulers (200 x 13 nm rods with three spots of docking strands 80 nm
   apart, bent in the coverslip plane as a worm-like chain), switched in the viewer, Micro-Manager's `SampleHolder` or the
-  CLI's `--specimen` ([Samples](https://kjamartens.github.io/inSiliScope/samples/)).
+  CLI's `--specimen` ([Samples](https://kjamartens.github.io/inSiliScope/docs/samples/)).
 - **Cell field**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
   field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice, nuclear pore complexes
   (Nup96, 64 sites) over the whole nuclear envelope; each target labelled on its own (two colours at once by default)
@@ -39,7 +40,7 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
   (initial ON, blinking, intensity-scaled times), PALM (pre-converted state, 405 nm and primed activation), DNA-PAINT
   (imager binding, free-imager background) and WideField (all dyes at once, bleaching by photon budget); lasers,
   dichroics, emission filters and camera QE curves set excitation, detected fraction and each state's PSF wavelength
-  ([Dyes and light path](https://kjamartens.github.io/inSiliScope/physics/dyes-and-light-path/)).
+  ([Dyes and light path](https://kjamartens.github.io/inSiliScope/docs/physics/dyes-and-light-path/)).
 - **Fluorescence imaging**: blinks splatted with diffraction PSFs (scalar Gibson-Lanni with Zernike aberrations by
   default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), continuous populations mean-field (3D PSF
   convolution by FFT, GPU path: WebGPU / Direct3D 11) or per dye, sub-pixel placement, sCMOS/EMCCD noise, background,
@@ -48,8 +49,8 @@ Project site, docs, gallery and benchmarks: **https://kjamartens.github.io/inSil
   microtubules only -- nothing the world does not simulate), partially coherent Koehler illumination, multislice
   wave optics, one quality setting from fast to precise ([spec/BRIGHTFIELD.md](spec/BRIGHTFIELD.md)).
 
-Documentation of the models: [Samples](https://kjamartens.github.io/inSiliScope/samples/) and
-[Physics](https://kjamartens.github.io/inSiliScope/physics/dyes-and-light-path/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
+Documentation of the models: [Samples](https://kjamartens.github.io/inSiliScope/docs/samples/) and
+[Physics](https://kjamartens.github.io/inSiliScope/docs/physics/dyes-and-light-path/). The algorithm notes (the *why* of each design decision) are in [spec/ALGORITHM.md](spec/ALGORITHM.md).
 
 ## Build
 

@@ -57,11 +57,13 @@ export function frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx = 0.
 // One frame's photon image (background + every event overlapping [f, f+1)). kernel: PSF kernel cache or
 // null (Gaussian of psfSigmaPx). zStageUm: focal-plane height; an emitter's plane is zNm/1000 - zStageUm.
 // into: add to this image instead (no background; several dyes, each with its own PSF, issue 16).
-// dxPx, dyPx: the sample drift (added to every emitter's position).
+// dxPx, dyPx: the sample drift (added to every emitter's position). o.minPhotons: emitters with fewer photons in the
+// frame are not splatted (blink-min-photons; the blinks only).
 export function renderPhotonImage(width, height, events, frameIndex, o, kernel, zStageUm, into = null, dxPx = 0.0,
                                   dyPx = 0.0) {
   const img = into || new Float32Array(width * height).fill(o.backgroundPhotons);
   for (const em of frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx, dyPx)) {
+    if (o.minPhotons > 0 && em.photons < o.minPhotons) continue;
     if (!kernel) { renderGaussian(img, width, height, em.xPx, em.yPx, o.psfSigmaPx, em.photons); continue; }
     const plan = planSplat(kernel, em.zIndex, em.xPx, em.yPx, em.photons, kernel.interpMode);
     if (plan) splatRows(img, width, height, 0, height, kernel, plan, em.photons);

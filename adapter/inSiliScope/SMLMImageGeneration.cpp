@@ -628,7 +628,8 @@ void CInSiliScopeCamera::StackGenerationWorker(long stackLength, unsigned fullW,
                            evs.push_back((*sg.events)[idx]);
                      sim::CollectGpuEmitters(evs, f, fullW, fullH, params.pixelSizeNm, sg.photonsPerBlink, dx, dy,
                                              *sg.kernel, zOf(f) - d.z / 1000.0, &extras,
-                                             ems[static_cast<size_t>(f - f0)], &zc, &zt, static_cast<int>(gi));
+                                             ems[static_cast<size_t>(f - f0)], &zc, &zt, static_cast<int>(gi),
+                                             sg.minPhotons);
                   }
                   frameIds.push_back(static_cast<uint32_t>(f));
                   bgScales.push_back(extras.backgroundScale);
@@ -1486,7 +1487,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
                   if (!sg.splatFrame.empty() && sg.splatFrame[0])
                      sim::CollectGpuEmitters(*sg.events, 0, w, h, params.pixelSizeNm, sg.photonsPerBlink, dx, dy,
                                              *sg.kernel, sim::ScopeSpecGet(spec, "z"), &extras, ems,
-                                             &zClampedSinceRebuild, &zTotalSinceRebuild, static_cast<int>(gi));
+                                             &zClampedSinceRebuild, &zTotalSinceRebuild, static_cast<int>(gi),
+                                             sg.minPhotons);
                }
                sim::TimingLog("gpu.collect", sim::TimingSince(tGpu));
                const auto tGpuRender = sim::TimingClock::now();

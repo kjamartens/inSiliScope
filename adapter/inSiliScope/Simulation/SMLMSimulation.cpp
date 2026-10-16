@@ -145,6 +145,11 @@ void RenderPhotonImage(std::vector<float>& img, unsigned width, unsigned height,
    CollectFrameEmitters(events, frameIndex, width, height, pixelSizeNm, photonsPerBlink, driftOffsetXPx,
                         driftOffsetYPx, useKernel ? psfCache : nullptr, globalZOffsetUm, illum, ems,
                         outZClampedCount, outZTotalCount);
+   // Blinks too dim in this frame are not splatted (blink-min-photons): known before any splat.
+   if (extras && extras->minPhotons > 0.0)
+      ems.erase(std::remove_if(ems.begin(), ems.end(),
+                               [&](const FrameEmitter& em) { return em.photons < extras->minPhotons; }),
+                ems.end());
 
    if (!accumulate)
       img.resize(n);
@@ -214,7 +219,8 @@ std::vector<std::vector<uint32_t>> BucketEventsByFrame(const std::vector<BlinkEv
 void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, unsigned width, unsigned height,
                         double pixelSizeNm, double photonsPerBlink, double driftOffsetXPx, double driftOffsetYPx,
                         const PsfKernelCache& cache, double globalZOffsetUm, const RenderExtras* extras,
-                        std::vector<GpuSplatEmitter>& out, long* outZClampedCount, long* outZTotalCount, int kernel)
+                        std::vector<GpuSplatEmitter>& out, long* outZClampedCount, long* outZTotalCount, int kernel,
+                        double minPhotons)
 {
    const size_t n = static_cast<size_t>(width) * height;
    const std::vector<float>* illum =
@@ -226,8 +232,8 @@ void CollectGpuEmitters(const std::vector<BlinkEvent>& events, long frameIndex, 
    {
       const double photons = em.photons;
       const int zIndex = em.zIndex;
-      if (photons <= 0.0)
-         continue;
+      if (photons <= 0.0 || photons < minPhotons)
+         continue;   // (blink-min-photons: too dim to splat in this frame)
       SplatSetupResult st = SplatSetup(cache, em.xPx, em.yPx, cache.interpMode);
       GpuSplatEmitter g = {};
       g.x0 = st.x0;

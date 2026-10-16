@@ -94,7 +94,11 @@ to the optical volume, so brightfield never shows structures the world does not 
 
 ## Recipe: a gallery entry
 
-Add an entry to `gallery/manifest.json` (options are `insiliscope_cli` options without the leading `--`). The release
+Add an entry to `gallery/manifest.json` (options are `insiliscope_cli` options without the leading `--`) and give it a
+place on the page: a panel in a row of the manifest's `sections` (each section is a short story followed by rows of
+side-by-side panels; the panel's label says what changed, the row's caption what to look at; `"shared": true` puts a
+row on one display range, for comparisons of brightness). Prefer a comparison with the default, or a new row in an
+existing section, over a movie on its own. `build_gallery.py` refuses an entry no row shows. The release
 workflow renders it. The 2x2 overview at the top of the gallery and on the Home page comes from the manifest's
 `overview` block (`tools/build_overview.py`; `--suggest` proposes a spot); `build_gallery.py --only overview` renders
 just that.
