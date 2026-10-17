@@ -160,8 +160,6 @@ struct SceneState
    std::atomic<double> psfMaskWaist{1.0};
 
    // ---- excitation light ----
-   std::atomic<int> illumProfile{static_cast<int>(sim::IllumProfile::Flat)};
-   std::atomic<double> illumFwhmPct{60.0};
    // Light sources' shutters: a missing device keeps its default (the epi
    // light on, the lamp off). lightVersion counts changes (live frames rendered
    // with other light are skipped).

@@ -387,11 +387,59 @@ public:
 //    value, <= kMaxGroups; a square illumination has one), otherwise a
 //    Chebyshev expansion in dD (kChebTerms maps). Every frame is checked
 //    against the basis (1e-5 of the peak weight) and re-anchored when it
-//    does not fit, so the image is always that of wb.
+//    does not fit, so the image is always that of wb. A host clock gives
+//    its own rates (SetWeightRates: the light now) and weights per tile
+//    (SetWeightMap).
+// A 3D excitation's factor per dye plane and grid cell (Excitation.h; JS widefield.js meanFieldImage weightFor): every
+// channel's dyes in world plane k ([k dz, (k + 1) dz) um) at the cell centre (xUm, yUm from the optical axis) count
+// with their weight x At(k, ...). Pure (called from worker threads); key identifies the values, so a scene keeps its
+// plane spectra while an equal factor is set again.
+// Bleaching weights on a lattice of entries (2026-10-15; a host clock map's entries, at its nodes): wb holds count
+// entries per band, nx per lattice row. Grid cell c reads them log-bilinearly -- exp of the bilinear mix of the logs of
+// the entries corner[c], + 1, + nx, + nx + 1 at (fx[c], fy[c]); a Chebyshev term's rate linearly -- so a cell's weight
+// is that of its own place, as a dye's clock is (the clock is bilinear between the map's nodes); or, when its corner is
+// kNone or one of them holds no weight (none lit, another bleach group), its tile's entry tile[c]. Equal corners give
+// their weight exactly.
+struct WidefieldWeightMap
+{
+   static constexpr uint32_t kNone = 0xFFFFFFFFu;
+   size_t count = 0, nx = 0;
+   std::vector<uint32_t> tile, corner;
+   std::vector<float> fx, fy;
+   bool operator==(const WidefieldWeightMap& o) const
+   {
+      return count == o.count && nx == o.nx && tile == o.tile && corner == o.corner && fx == o.fx && fy == o.fy;
+   }
+};
+
+class WidefieldPlaneFactor
+{
+public:
+   virtual ~WidefieldPlaneFactor() = default;
+   virtual float At(long k, double z0Um, double z1Um, double xUm, double yUm) const = 0;
+   std::vector<double> key;
+};
+
 class WidefieldScene
 {
 public:
    WidefieldScene();
+   // The plane factor of a 3D excitation (nullptr: 1 everywhere, the default). A factor with another key drops the
+   // plane spectra; takes effect at the next Update.
+   void SetPlaneFactor(std::shared_ptr<const WidefieldPlaneFactor> f);
+   // Bleaching weights per height band (a host clock that differs in height: the illumination history's z bands):
+   // wb then holds nBands x the grid cells, band b (edges: world um, ascending) for the dye planes whose centre lies in
+   // it. Empty (the default): one band, wb per cell.
+   void SetWeightBands(const std::vector<double>& edgesUm);
+   // Bleaching weights per map entry (2026-10-15, WidefieldWeightMap: a host clock's entries, read per cell between
+   // them): wb holds map.count entries (per band). Null (the default): one weight per cell. Shared (compared by pointer
+   // first, then by value; the grid's rect must be the one it was made for).
+   void SetWeightMap(std::shared_ptr<const WidefieldWeightMap> map);
+   // The bleach rate of each wb entry (2026-10-14; a host clock under a shaped beam: the light now, relative): with the
+   // pose fixed, a frame's weights are wb_anchor exp(-tau rate), so the basis groups by rate (<= kMaxGroups values) or
+   // expands in it (Chebyshev in rate / its largest), with as many terms as it takes to hold to tauPerRate x the
+   // largest rate before it is rebuilt (kChebTerms at most). Null: by dose.
+   void SetWeightRates(std::shared_ptr<const std::vector<float>> rates, double tauPerRate);
    // Shares a dye tile cache (a prefetch scene and the live scene).
    void SetTiles(std::shared_ptr<WidefieldDyeTiles> tiles) { tiles_ = std::move(tiles); }
    const std::shared_ptr<WidefieldDyeTiles>& Tiles() const { return tiles_; }
@@ -437,10 +485,15 @@ public:
    void BleachWeightsFromDose(const std::vector<float>& d0, std::vector<float>& wb) const;
 
    // Anchors the bleaching basis at wb (spectra and images of every basis
-   // map for the current focus).
-   void SetBleachWeights(const std::vector<float>& wb);
+   // map for the current focus). single: one map, wb itself (it holds that
+   // frame only).
+   void SetBleachWeights(const std::vector<float>& wb, bool single = false);
    // True (and a) if wb is in the anchored basis: wb = sum_j a_j phi_j.
    bool BleachCoefficients(const std::vector<float>& wb, std::vector<double>& a) const;
+   // The weight entries (SetWeightMap's, per band) some dye cell of the slab reads: its tile and, interpolated, the four
+   // nodes around it, in its plane's band (a population whose weights cost per entry computes these alone; the others
+   // stay 0). Empty without a weight map.
+   void UsedWeights(std::vector<uint8_t>& used) const;
    // The coefficients of the anchor weights themselves.
    std::vector<double> AnchorCoefficients() const;
    // Kept for one-map bases (a uniform frame dose): wb = c x the anchor.
@@ -451,12 +504,30 @@ public:
    // Adds the frame with bleach coefficients a to cam (width x height).
    void RenderCoefficients(const std::vector<double>& a, std::vector<float>& cam) const { images_.Render(a, cam); }
    // One frame: the basis coefficients when wb fits, else SetBleachWeights
-   // first. Adds to cam.
+   // first. Adds to cam. With host rates a new basis (the rates, map, groups or
+   // bands changed: a new pose) starts single (one image: a stage move or a
+   // drag renders one frame per pose), and the full basis follows when a
+   // further frame does not fit it (2026-10-14: a Chebyshev basis is 5-9
+   // images).
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
    // The same with the sample moved by (dxCells, dyCells) grid cells
    // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
    void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);
    bool LastFrameFast() const { return lastFast_; }
+   // A rate population's frames without a pass over its weights (2026-10-15): frame k of weights wb0 is
+   // wb0 x exp(-rate k) (the scene's rates, SetWeightRates). AnchorDecay holds wb0 in a Chebyshev basis (as
+   // BleachCoefficients does) and gives its decay from the basis' anchor, its largest deviation from that and the
+   // basis; RenderDecayed renders frame k from the basis' images (as RenderFrame / RenderFrameShifted of its weights)
+   // while the basis is that one and its series holds the decay to BleachCoefficients' tolerance, else returns false
+   // (render the weights).
+   struct DecayAnchor
+   {
+      unsigned long long serial = 0;
+      double d0 = 0.0, dev = 0.0;
+   };
+   bool AnchorDecay(const std::vector<float>& wb0, DecayAnchor& an) const;
+   bool RenderDecayed(const DecayAnchor& an, double k, bool shifted, double dxCells, double dyCells,
+                      std::vector<float>& cam);
 
    // Images at other focus positions (world z of the focal plane) for the
    // same pose, weights and basis -- a z series. Computed in parallel over
@@ -511,8 +582,13 @@ private:
    struct Channel
    {
       int pop = 1;                // 0 bleaching, 1 persistent
-      std::vector<float> weight;  // per grid cell
+      std::vector<float> weight;  // per grid cell (mapped: per weight map entry)
       unsigned long long version = 0;
+      bool mapped = false;
+      // Mapped: a Chebyshev term's index (its cells read wbRef_ and the rates between the entries), else -1 and the
+      // log of each weight (-infinity: none) for the cells between the entries.
+      int cheb = -1;
+      std::vector<float> logw;
    };
    struct FocusPlan
    {
@@ -530,7 +606,13 @@ private:
    // Makes sure the plane spectra the plans need exist for the channels.
    void FillSpectra(const std::vector<const Channel*>& chans, const std::vector<const FocusPlan*>& plans);
    const std::vector<cfloat>* CachedSpectrum(const Channel& c, long k, int level) const;
-   void PlaneSpectrum(const Channel& c, const WidefieldSparsePlane& pl, int level, std::vector<cfloat>& out) const;
+   void PlaneSpectrum(const Channel& c, long k, const WidefieldSparsePlane& pl, int level,
+                      std::vector<cfloat>& out) const;
+   // The weight of a channel's dyes in cell `cell` of plane k (counts x weight x the plane factor).
+   float CellValue(const Channel& c, long k, uint32_t cell, float count) const;
+   // A mapped channel's weight at grid cell `cell` between its entries (band: the band's first entry; w: its tile's).
+   float MappedWeight(const Channel& c, uint32_t cell, size_t band, float w) const;
+   void LogWeights(Channel& c) const;
    // Full-resolution spectrum of a channel at a plan, then its image; the
    // spectrum before the sub-cell shift into keep (if given; empty when the
    // channel has no light).
@@ -540,9 +622,20 @@ private:
    std::vector<const Channel*> ActiveChannels() const;
    void Refocus(const WidefieldPsf& psf);
    void DropChannel(const Channel& c);
-   void BuildBleachChannels(const std::vector<float>& wb);
+   void BuildBleachChannels(const std::vector<float>& wb, bool single);
+   void RenderBasisShifted(const std::vector<double>& a, double dxCells, double dyCells, std::vector<float>& cam);
 
    std::shared_ptr<WidefieldDyeTiles> tiles_;
+   std::shared_ptr<const WidefieldPlaneFactor> planeFactor_;
+   bool planeFactorChanged_ = false;
+   std::vector<double> weightBands_;   // SetWeightBands
+   std::shared_ptr<const WidefieldWeightMap> weightMap_;         // SetWeightMap
+   std::shared_ptr<const std::vector<float>> weightRates_;       // SetWeightRates
+   double rateTau_ = 0.0;
+   // A dose-group basis (not cheb_): each weight's channel (-1: none; the
+   // channels' supports are disjoint) and each channel's largest weight.
+   std::vector<int32_t> cellChannel_;
+   std::vector<size_t> channelMax_;
    WidefieldSceneSpec spec_;
    bool haveSpec_ = false;
    WidefieldGridSpec rect_;
@@ -570,11 +663,21 @@ private:
    // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
    Channel persistent_;
    std::vector<Channel> bleach_;
-   // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD.
+   // Bleach basis: groups (distinct frame dose values) or Chebyshev in dD (with SetWeightRates: in the rate).
    bool bleachValid_ = false, cheb_ = false;
    std::vector<float> groupDose_;
-   float doseMax_ = 0.0f;
-   std::vector<float> wbRef_;
+   float doseMax_ = 0.0f;   // the largest dose (rate) of a weight
+   std::vector<float> wbRef_, lwRef_;   // lwRef_: log wbRef_ (-infinity: 0), a mapped Chebyshev basis's cells
+   // A Chebyshev basis: its serial, the entry its coefficients read the decay from, its largest weight and each rate
+   // bin's (RenderDecayed).
+   unsigned long long basisSerial_ = 0;
+   size_t chebRef_ = 0;
+   double wbRefMax_ = 0.0;
+   std::vector<double> rateBinMax_;
+   static constexpr size_t kRateBins = 64;
+   // The basis's rates: SetWeightRates' at the build (else empty: dD).
+   std::shared_ptr<const std::vector<float>> basisRates_;
+   float RateOf(size_t i) const { return basisRates_ ? (*basisRates_)[i] : dD_[i % dD_.size()]; }
    // Plane spectra cache: (channel version, plane k, level) -> spectrum.
    struct CacheEntry
    {

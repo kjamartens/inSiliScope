@@ -8,7 +8,7 @@ about the switching itself. The third modality, **BrightField**, images transmit
 Each dye's schedule is a pure function of its address, so the same dye is the same dye every time the stage returns,
 and a window query equals the union of its slices. Time is simulated time (frame \(\times\) exposure) since the
 illumination came on. cli and viewer movies start at **60 s** (`start-sec`), past the dSTORM initial ON phase; the
-Micro-Manager adapter reads each dye at its place's own clock (the illumination history, below). Only blinks in the window a movie asks for are scheduled (the window \([t_0, 2t_1)\)), so a late
+Micro-Manager adapter reads each dye at the light its own place has had (the illumination history, below). Only blinks in the window a movie asks for are scheduled (the window \([t_0, 2t_1)\)), so a late
 start costs nothing extra.
 
 What a few dyes of each mode emit over time, read from the core's schedules through the cli's dye output:
@@ -98,43 +98,54 @@ SMLM); a mean-field regime without blinking exists but is off by default
 ## Photons
 
 An ON dye emits its detected rate \(\times\) brightness photons per second, integrated over the part of the frame it
-is on (frame-overlap weighting); the adapter's illumination profile (`Lasers.IlluminationProfile`) multiplies it.
+is on (frame-overlap weighting), times the excitation factor at its place (the beam's profile and, in HILO and TIRF,
+its height: [Illumination geometry](dyes-and-light-path.md#illumination-geometry)).
 In a cli or viewer movie the whole sample has been lit since \(t=0\).
 
 ## Illumination history (Micro-Manager adapter)
 
-The adapter remembers how long each place has been lit and under which settings. Each 0.25 µm tile of the world keeps
-its seconds of illumination (weighted by the illumination profile, in 1/16 steps) and its **rate history**: the lit
-time cut into segments, each with the light path and label settings in force then (laser powers, excitation filter,
-dichroic, imager concentration, the dye's kinetic overrides). Every dye's schedule is read at its tile's clock through
-that history, with the same random draws whatever the history, so a change acts **from now on**: the past stays as it
-was and the future follows the new rates.
+The adapter remembers what light every place of the sample has had. The sample's time is cut into records of one
+light (its kind, its power, where the beam sat), and each record is added, at the beam's exact place, to maps of the
+dose per place. Every dye is read at the dose at its own place and height, smooth in all three directions: the bleached
+area has the beam's soft edge, after TIRF the dyes higher in a cell are still fresh, and a HILO sheet bleaches its own
+inclined slab. This holds for every mode and however the dyes are drawn (blinks, a mean field, dye by dye). It replaced
+(2026-10-16) a history that counted the beam in two levels per 0.25 µm tile and 12 height bands, with which blinking
+and sparse populations stepped at the beam's half contour. Each kind of light keeps the light path and label settings
+in force then (the laser lines' power ratios, excitation filter, dichroic, imager concentration, the dye's kinetic
+overrides), and every dye's schedule is read through that **rate history** with the same random draws whatever the
+history, so a change acts **from now on**: the past stays as it was and the future follows the new rates.
 
-- Bleach a region, move away and come back: it is still dim. A place never lit starts at clock 0 (dSTORM dyes in their
-  initial ON phase, PALM proteins unconverted, WideField dyes unbleached).
+- Bleach a region, move away and come back: it is still dim. A place never lit is fresh (dSTORM dyes in their initial
+  ON phase, PALM proteins unconverted, WideField dyes unbleached).
 - PALM, 405 nm off: the proteins converted so far blink on until they bleach, no new ones follow; 405 nm up: the
   density of blinking dyes rises over the activation time instead of jumping.
 - More (or less) laser power in dSTORM or WideField: the field continues from its present state at the new rates
-  (WideField x4 power: the next frame is ~4x as bright, the dyes bleached so far stay bleached).
+  (WideField x4 power: the next frame is up to 4x as bright, a little less as the dyes bleach 4x faster within it;
+  the dyes bleached so far stay bleached).
 - DNA-PAINT: a change of imager concentration acts at once (the binding events are drawn per second; a second with
   a change takes each part at its own rate); the bindings before the change never change.
 - Another dye or mode for a structure: the past light is re-read for the new dye (the new dye as it would be under the
   light the place has had).
 
-The clock is lit time, so processes that need no light (DNA-PAINT binding, PALM spontaneous activation, dark times)
-also advance only while the place is lit.
+What needs no light runs on the sample's time, lit or not: DNA-PAINT binding and PALM's spontaneous activation. What
+the light drives (dSTORM switching, WideField and pre-state bleaching, PALM's 405 nm activation) advances with the dose:
+a dye no light reaches now is frozen and emits nothing, and the beam's dim rim is lit and bleaches at its own, slower
+rate.
 
 Two of these changes, rendered by the cli with the same rate history (`--history-before`):
 
 <!-- fig:photo-history -->
 
-A frame lights the FOV and its 2 µm margin for one exposure when the lasers' shutter is open, the light path carries
-power to the sample, and the frame is acquired (a snap or a sequence acquisition) or, with
+A frame counts its light (the whole beam, out to where it falls below 10<sup>-4</sup> of its peak) for one exposure
+when the lasers' shutter is open, the light path carries power to the sample, and the frame is acquired (a snap or a sequence acquisition) or, with
 `SampleHolder.TimeWhileIdle` = `Running` (the default), the shutter was opened by hand (Live off with the shutter open
 still lights the sample, as on a real microscope; with autoshutter, the shutter is closed between acquisitions).
-`Paused` stops the sample's time between acquisitions: no light, no drift. A snap takes a frame started after it was
+`Paused` stops the sample's time between acquisitions: no light, no drift, no binding. The sample's time starts
+with its first light (before it nothing has happened to the sample). A snap takes a frame started after it was
 called, a sequence acquisition frames started after it began, so the first frame after a stage move shows the new
 place. The lit area follows the sample drift ([Camera](camera.md#drift)), and the background fade reads the
-clock at the FOV centre. A stack reads the history once at its first frame and adds its frames along its own seeded
-drift path (so a stack is reproducible only on a freshly loaded device). The history is cleared when the world changes
-(seed, cell parameters). Precision: tile 0.25 µm.
+dose at the FOV centre. A stack reads the history once at its first frame and adds its frames, as one record of the
+light along its own seeded drift path (so a stack is reproducible only on a freshly loaded device). The history is
+cleared when the world changes (seed, cell parameters). Precision: the dose is bilinear between nodes 0.25 µm apart
+(closer under a narrow beam, so it is within 0.1 % of the peak), its height dependence in 5 nm steps; a record keeps
+the beam's place to 25 nm.

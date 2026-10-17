@@ -6,6 +6,7 @@
 #include "ScopeResolved.h"
 
 #include "BrightfieldRender.h"
+#include "Excitation.h"
 #include "PsfGeneratorBridge.h"
 #include "RenderPresets.h"
 #include "SMLMZernike.h"
@@ -93,44 +94,6 @@ struct Json
    void KNum(const char* k, double v) { Key(k); Num(v); }
    void KStr(const char* k, const std::string& v) { Key(k); Str(v); }
    void KBool(const char* k, bool v) { Key(k); Bool(v); }
-};
-
-// --history-before: every place of the sample lit since clock 0, with the past spec's kinetic env (lasers, filters,
-// imager, dyes) until start-sec and the movie's own from then on (its frames), as one tile of Micro-Manager's
-// illumination history keeps it (IlluminationHistory: a rate history of two segments).
-class PastClock : public sim::DyeClock
-{
-public:
-   PastClock(const sim::ScopeSpec& past, const sim::ScopeSpec& now, double t0)
-      : past_(sim::ScopeKineticEnv(past)), now_(sim::ScopeKineticEnv(now)), t0_(t0) {}
-   double At(double, double) const override { return t0_; }
-   void KeyAt(double, double, double& tSec, uint32_t& history) const override
-   {
-      tSec = t0_;
-      history = 1;
-   }
-   void Segments(uint32_t, std::vector<sim::ClockSegment>& out) const override
-   {
-      out.assign(2, sim::ClockSegment());
-      out[0].env = &past_;
-      out[1].tStart = t0_;
-      out[1].env = &now_;
-   }
-   void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<sim::ClockRegion>& out) const override
-   {
-      sim::ClockRegion r;
-      r.tSec = t0_;
-      r.x0Um = x0Um;
-      r.y0Um = y0Um;
-      r.x1Um = x1Um;
-      r.y1Um = y1Um;
-      r.history = 1;
-      out.assign(1, r);
-   }
-
-private:
-   sim::KineticEnv past_, now_;
-   double t0_;
 };
 
 bool WriteText(const std::string& path, const std::string& text, std::string& err)
@@ -330,6 +293,57 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
    j.KNum("background_qe", sim::BackgroundQe(lp));
    j.Close('}');
 
+   // The excitation geometry (Excitation.h): the regime, the field factor F, how deep the light reaches, and the factor
+   // of the first emitting label's main state (its line shares; none: 640 nm) on an x-z section through the axis
+   // (y = 0, x over 1.5 x the FOV's width, z 0..8 um above the coverslip; x fastest).
+   {
+      sim::Excitation ex;
+      std::vector<sim::ExcitationLine> sh;
+      std::string ee;
+      if (sim::ScopeExcitation(spec, ex, sh, ee))
+      {
+         const sim::ExcitationShares shares = sh.empty() ? sim::ExcitationShares{ { 640.0, 1.0 } } : sh;
+         const double fovUm = R.W * R.p.pixelSizeNm / 1000.0;
+         j.Key("excitation");
+         j.Open('{');
+         j.KStr("regime", sim::IlluminationRegimeNames()[static_cast<size_t>(ex.Regime())]);
+         j.KNum("u", ex.U());
+         j.KNum("u_max", ex.UMax());
+         j.KNum("field_factor", ex.F());
+         j.KNum("lambda_nm", shares[0].nm);
+         j.KNum("depth_nm", ex.DepthNm(shares[0].nm));
+         j.KNum("pivot_um", ex.Spec().pivotUm);
+         const int nx = 121, nz = 81;
+         const double x0 = -0.75 * fovUm, dx = 1.5 * fovUm / (nx - 1), dz = 8.0 / (nz - 1);
+         std::vector<double> xs(nx), zs(nz), v(static_cast<size_t>(nx) * nz);
+         for (int i = 0; i < nx; ++i)
+            xs[static_cast<size_t>(i)] = x0 + i * dx;
+         for (int k = 0; k < nz; ++k)
+            zs[static_cast<size_t>(k)] = k * dz;
+         for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i)
+               v[static_cast<size_t>(k) * nx + i] = ex.At(xs[static_cast<size_t>(i)], 0.0, zs[static_cast<size_t>(k)], shares);
+         j.Key("section_x_um");
+         j.Array(xs.data(), xs.size());
+         j.Key("section_z_um");
+         j.Array(zs.data(), zs.size());
+         j.Key("section");
+         j.Array(v.data(), v.size());
+         // On the axis, finely near the coverslip (TIRF's layer): z 0..2 um in 201 steps.
+         std::vector<double> za(201), va(201);
+         for (int k = 0; k < 201; ++k)
+         {
+            za[static_cast<size_t>(k)] = k * 0.01;
+            va[static_cast<size_t>(k)] = ex.At(0.0, 0.0, za[static_cast<size_t>(k)], shares);
+         }
+         j.Key("axis_z_um");
+         j.Array(za.data(), za.size());
+         j.Key("axis");
+         j.Array(va.data(), va.size());
+         j.Close('}');
+      }
+   }
+
    j.Key("labels");
    j.Open('[');
    for (size_t s = 0; s < R.labels.size(); ++s)
@@ -460,17 +474,9 @@ bool PresetsJson(const std::string& path, std::string& err)
    return WriteText(path, j.s, err);
 }
 
-std::unique_ptr<sim::DyeClock> MakePastClock(const sim::ScopeSpec& past, const sim::ScopeSpec& now)
-{
-   return std::unique_ptr<sim::DyeClock>(new PastClock(past, now, std::max(0.0, sim::ScopeSpecGet(now, "start-sec"))));
-}
-
 bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovieInfo& info, std::string& err,
              const sim::ScopeSpec* past)
 {
-   std::unique_ptr<sim::DyeClock> clock;
-   if (past)
-      clock = MakePastClock(*past, spec);
    TiffWriter tif(path);
    if (!tif.ok())
    {
@@ -484,7 +490,7 @@ bool Photons(const sim::ScopeSpec& spec, const std::string& path, sim::ScopeMovi
    const bool ok = sim::RenderScopePhotons(spec, [&](long f, const std::vector<float>& photons) {
       writeOk = tif.Page(photons, W, H, f == 0 ? "insiliscope photons (before the camera)" : "");
       return writeOk;
-   }, info, err, clock.get());
+   }, info, err, past);
    if (ok && !writeOk)
       err = "write error " + path;
    return ok && writeOk;

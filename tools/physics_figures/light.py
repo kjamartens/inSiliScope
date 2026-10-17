@@ -125,7 +125,8 @@ def light_imager(ctx):
     concs = [0.3, 1, 3, 10]
     tiles, model, measured = [], [], []
     for c in concs:
-        adu, ph, setup, _ = movie(ctx, {"mt-imager-nm": c}, "c%g" % c, frames=5)
+        adu, ph, setup, _ = movie(ctx, {"mt-imager-nm": c, "illum-profile": "Flat", "illum-bfp": 0,
+                                        "chamber-height-um": 5}, "c%g" % c, frames=5)
         lab = setup["labels"][0]
         model.append(lab["imager_background_per_px_per_s"] * setup["frame"]["exposure_s"])
         measured.append(float(np.median(ph)))
@@ -136,8 +137,10 @@ def light_imager(ctx):
                   ["Median, rendered (photons/px/frame)"] + [sig(v, 3) for v in measured]]) + \
         "\nThe DNA-PAINT imager concentration sets the binding rate (k<sub>on</sub>c: more blinks) and the free " \
         "imager's flat background c N<sub>A</sub> H A<sub>px</sub> k<sub>em</sub>&eta;F (model row, from the cli's " \
-        "setup output). The rendered row is the median of the photon images before the camera, which also holds " \
-        "the blinks' halos. Frames: one camera frame (ADU, each its own contrast). Default 1 nM; frames 50 ms.\n"
+        "setup output), here under a laterally infinite flat epi beam and a 5 um chamber (H), where the column is " \
+        "the chamber's height; under a shaped beam the collected column is about the beam's radius (above). The " \
+        "rendered row is the median of the photon images before the camera, which also holds the blinks' halos. " \
+        "Frames: one camera frame (ADU, each its own contrast). Default 1 nM; frames 50 ms.\n"
 
 
 @register("light-meanfield", "dyes-and-light-path", timed=True)
@@ -240,3 +243,76 @@ def light_blink_regimes(ctx):
         "movie's total against the splat's; frame-to-frame std: of the photon images, per pixel, averaged (0 for " \
         "mean field, whose expected image stays put). Times on the build machine (%d threads), per frame.\n" % (
             size, frames, round(1000 * slab_um), BUILD_INFO.get("cores", 0))
+
+
+def excitation_of(ctx, u, size=256):
+    """The cli's excitation block (setup output) at BFP position u: regime, field factor, depth, the x-z section."""
+    r = ctx.cli(dict(SPOT, size=size, frames=1, **{"illum-bfp": u}), tag="bfp%g" % u, setup_json=True)
+    return load(r["setup_json"])["excitation"]
+
+
+@register("light-geometry", "dyes-and-light-path")
+def light_geometry(ctx):
+    shown = [0, 0.95, 1.03]
+    secs_ = [excitation_of(ctx, u) for u in shown]
+    lines = [0, 0.9, 0.99, 1.01, 1.03, 1.045]
+    axes_ = [excitation_of(ctx, u) for u in lines]
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 0.9])
+        vmax = max(max(e["section"]) for e in secs_)
+        for i, e in enumerate(secs_):
+            ax = fig.add_subplot(gs[0, i])
+            xs, zs = np.array(e["section_x_um"]), np.array(e["section_z_um"])
+            a = np.array(e["section"]).reshape(len(zs), len(xs))
+            im = ax.imshow(a, origin="lower", aspect="auto", cmap="magma", vmin=0, vmax=vmax,
+                           extent=[xs[0], xs[-1], zs[0], zs[-1]])
+            ax.axhline(e["pivot_um"], color=st["muted"], lw=0.6, ls=":")
+            depth = "" if e["depth_nm"] < 0 else (", %s thick" % ("%.1f µm" % (e["depth_nm"] / 1000))
+                                                  if e["regime"] == "HILO" else ", d = %.0f nm" % e["depth_nm"])
+            ax.set_title("%s (u = %g)%s" % (e["regime"], e["u"], depth), fontsize=8)
+            ax.set_xlabel("x (µm)")
+            if i == 0:
+                ax.set_ylabel("Height above the coverslip (µm)")
+        fig.colorbar(im, ax=fig.axes[:3], shrink=0.9, label="Excitation factor")
+        ax = fig.add_subplot(gs[1, :])
+        for e in axes_:
+            ax.plot(e["axis_z_um"], e["axis"], lw=1.1, label="u = %g (%s)" % (e["u"], e["regime"]))
+        ax.set_xlabel("Height above the coverslip on the axis (µm)")
+        ax.set_ylabel("Excitation factor")
+        ax.set_xlim(0, 2)
+        ax.legend(ncol=3, fontsize=7)
+
+    body = ctx.plot("", draw, h=5.4, alt="The excitation factor in epi, HILO and TIRF")
+    return figure(body,
+                  "The excitation factor a movie applies (laser power x this; the cli's setup output, %g nm, the "
+                  "default FlatTop beam over a 25.6 µm field, focus 0.5 µm: dotted). Top: a section through the axis "
+                  "along the incidence plane, one colour scale: epi lights every height alike, HILO an inclined sheet "
+                  "through the focus (dyes above and below it unlit), TIRF only a layer of about d over the coverslip, "
+                  "with the interface's field enhancement. Bottom: the factor on the axis against height for BFP "
+                  "positions around the critical angle (u = 1): the sheet's factor rises towards it, TIRF's depth "
+                  "falls past it; beyond the pupil edge (%.3f) no light reaches the sample.\n"
+                  % (secs_[0]["lambda_nm"], secs_[0]["u_max"]))
+
+
+@register("light-geometry-images", "dyes-and-light-path")
+def light_geometry_images(ctx):
+    cases = [("Epi", 0), ("HILO", 0.95), ("TIRF", 1.03)]
+    samples = [("Nanorulers", {"specimen": 1}), ("Cell field", {})]
+    body_rows = []
+    for name, opts in samples:
+        tiles, med = [], []
+        for reg, u in cases:
+            adu, ph, setup, _ = movie(ctx, dict(opts, **{"illum-bfp": u}), "%s-%s" % (name.split()[0], reg), frames=1)
+            tiles.append(gray(ctx, "%s-%s" % (name.split()[0], reg), adu[0]))
+            med.append(sig(float(np.median(ph[0])), 3))
+        body_rows.append([name] + [img(t) for t in tiles])
+        body_rows.append(["Median (photons/px)"] + med)
+    return table(["", "Epi (0)", "HILO (0.95)", "TIRF (1.03)"], body_rows) + \
+        "\nOne frame (50 ms, 9.6 µm field, t = 60 s, each its own contrast) of the DNA-origami nanorulers (strands " \
+        "13.5 nm over the coverslip, focus on them) and of the default cell field (focus 0.5 µm), both in DNA-PAINT, " \
+        "at three BFP positions. The median is the photon image before the camera, mostly the free imager: TIRF lights " \
+        "only the layer over the coverslip, so the nanorulers' background drops about ninefold. HILO's sheet is " \
+        "the beam's width over tan θ<sub>s</sub> cos θ<sub>i</sub> thick, here (a 9.6 µm beam) about 6 µm: about " \
+        "the column epi collects from a beam this narrow, so it changes little; its gain is against a wide epi " \
+        "beam. In the cell field TIRF leaves the microtubules above the evanescent layer dark.\n"

@@ -129,13 +129,19 @@ export function statePhotophysics(st, lp) {
   const sp = stateSpectra(st);
   if (!sp.ex || !sp.em) throw new Error('state without spectra');
   let kExc = 0;
-  for (const l of lp.lasers)
-    kExc += crossSectionUm2(st.extCoeff, sp.ex, l.nm) * photonFluxPerUm2(l.kWPerCm2 * (1 - sampleAt(lp.dichroic.T, l.nm)), l.nm);
+  const perLine = [];
+  for (const l of lp.lasers) {
+    const k = crossSectionUm2(st.extCoeff, sp.ex, l.nm) * photonFluxPerUm2(l.kWPerCm2 * (1 - sampleAt(lp.dichroic.T, l.nm)), l.nm);
+    kExc += k;
+    perLine.push({ nm: l.nm, k });
+  }
   const kEm = st.qy * kExc;
+  // Each line's share of the excitation (excitation.js: TIRF's depth depends on the wavelength).
+  const lineShares = kExc > 0 ? perLine.filter(l => l.k > 0).map(l => ({ nm: l.nm, share: l.k / kExc })) : [];
   const det = detection(sp.em, [lp.dichroic.T, lp.emissionFilter.T, lp.qe]);
   const lambdaNm = Number.isFinite(det.lambdaNm) ? det.lambdaNm : st.emMaxNm;
   return { excitationPerSec: kExc, emissionPerSec: kEm, detectedFraction: det.fraction, lambdaNm,
-    detectedPerSec: kEm * lp.eta * det.fraction, color: st.emHex };
+    detectedPerSec: kEm * lp.eta * det.fraction, color: st.emHex, lineShares };
 }
 
 // The world label (dyes.js makeLabel) and the per-state photophysics of a structure's dye in its mode.
@@ -150,6 +156,7 @@ export function labelPhotophysics(eff, lp, o) {
     photonCV: Math.max(0, m.photonCV ?? 0.5), initialOnSec: 0 };
   let kAct = 0;
   let excitationScale = 1;
+  let activationParts = null;
   if (mode === 'dSTORM') {
     // ON time, spontaneous dark time and initial ON time are given at the reference light path (Dempsey et al. 2011's
     // measurement intensity) and scale as 1 / (excitation rate / kExcRef): off- and on-switching are linear in the
@@ -163,6 +170,10 @@ export function labelPhotophysics(eff, lp, o) {
   } else if (mode === 'PALM') {
     kAct = (m.spontaneousActivationPerSec ?? 0) + (m.activation405PerKWcm2PerSec ?? 0) * intensityAt(lp, 405);
     if (m.primed) kAct += m.primed.perKWcm2SqPerSec * intensityIn(lp, m.primed.primeNm) * intensityIn(lp, m.primed.convertNm);
+    // At a local excitation factor a (excitation.js): spont + lin a + quad a^2 (the activation lines taken to fall
+    // off as the main state's; the dyes' activation follows the local light, their blinks keep their times).
+    activationParts = { spont: m.spontaneousActivationPerSec ?? 0, lin: (m.activation405PerKWcm2PerSec ?? 0) * intensityAt(lp, 405),
+      quad: m.primed ? m.primed.perKWcm2SqPerSec * intensityIn(lp, m.primed.primeNm) * intensityIn(lp, m.primed.convertNm) : 0 };
     Object.assign(kin, { activationRatePerSec: kAct, offSec: m.offSecBetweenBlinks ?? 0.5, bleachProb: m.bleachProb ?? 1 });
   } else if (mode === 'DNA-PAINT') {
     // The binding kinetics are the target's (o.paint*), not the dye's.
@@ -175,10 +186,13 @@ export function labelPhotophysics(eff, lp, o) {
   const states = { main };
   if (pre) states.pre = pre;
   return {
-    label, mode, dye, states, kActPerSec: kAct, excitationScale, onSecNow: kin.onSec,
+    label, mode, dye, states, kActPerSec: kAct, excitationScale, onSecNow: kin.onSec, activationParts,
     photonBudget: m.photonBudget ?? (mode === 'WideField' ? 100000 : 0), prePhotonBudget: m.prePhotonBudget ?? 0,
-    // Free imager in solution: uniform, c x N_A x chamber height x pixel area x its detected rate (no depletion, no
-    // exclusion from cells; schnitzbauer2017).
+    // Free imager in solution: uniform, c x N_A x pixel area x its detected rate per um of lit column (no depletion,
+    // no exclusion from cells; schnitzbauer2017); x the chamber height for epi (imagerBackgroundPerPxPerSec), x the
+    // column integral of the excitation (excitation.js column) otherwise.
+    imagerPerPxPerUmPerSec: pixelUm => mode === 'DNA-PAINT' && main
+      ? Math.max(0, o.imagerNm) * AVOGADRO_PER_NM_UM3 * pixelUm * pixelUm * main.detectedPerSec : 0,
     imagerBackgroundPerPxPerSec: pixelUm => mode === 'DNA-PAINT' && main
       ? Math.max(0, o.imagerNm) * AVOGADRO_PER_NM_UM3 * lp.chamberHeightUm * pixelUm * pixelUm * main.detectedPerSec : 0,
     notes: m.notes ?? null,

@@ -118,16 +118,77 @@ would on a real scope). **None open** gives dark frames: offset, read noise and 
 
 <!-- fig:light-shutters -->
 
+## Illumination geometry
+
+One number moves the laser spot across the objective's back focal plane (`illum-bfp`, MM `Lasers.BfpPosition`, the
+shipped configs' `Illumination` group: Epi / HILO / TIRF): 0 is the centre (**epi**: the beam goes straight up), 1 the
+critical angle, between them **HILO** (a highly inclined sheet, [[tokunaga2008](../references.md#tokunaga2008)]) and
+above it **TIRF** (an evanescent layer over the coverslip,
+[[axelrod1981](../references.md#axelrod1981)], [[axelrod2001](../references.md#axelrod2001)]), up to the pupil edge
+NA / n of the medium (1.047 for the 1.40 objective in water, n = `bf-n-medium`, MM `SampleHolder.MediumIndex`, 1.337);
+beyond it no light reaches the sample (MM `Lasers.IlluminationRegime` reads `Clipped`). The position is linear in the
+BFP radius, so 0.5 is half-way to the critical angle.
+
+The beam's cross-section is `illum-profile` (Flat, Gaussian, or FlatTop: a disc with a soft edge, the default) with
+`illum-fwhm` (% of the FOV width, default 100). Each dye is excited by the laser power times a factor at its place:
+
+- epi: the profile, the same at every height;
+- HILO: the profile tilted into a sheet through the focal plane, about W / (tan θ<sub>s</sub> cos θ<sub>i</sub>)
+  thick on the axis (W the beam's FWHM; at 0.95 about 0.6 W: 15 µm for the default beam over a 25.6 µm field, so
+  narrow the beam, `illum-fwhm`, for a thin sheet; MM `Lasers.IlluminationDepthNm`), dyes above or below it unlit;
+- TIRF: the profile at the coverslip times \(e^{-z/d}\), \(d = \lambda / (4\pi n \sqrt{u^2-1})\) (about 150 nm
+  at 1.03 and 640 nm), with the interface's field enhancement (up to ~4x near the critical angle).
+
+The factor changes the photons, and through the local light the kinetics: dSTORM switching, PALM activation and
+bleaching run at the local excitation, each dye at the dose its own place and height has had
+([Illumination history](photophysics.md#illumination-history-micro-manager-adapter); a cli or viewer movie's past is
+`start-sec` at its own light), so a TIRF field bleaches its bottom layer and leaves the dyes higher up fresh.
+The DNA-PAINT light presets set HILO (0.95), the nanorulers TIRF (1.03), the other presets epi (all *estimates*); with
+several labelled targets (`light-preset` auto) the position their presets agree on, else epi.
+Supercritical-angle emission and the beam's angular spread in the BFP are not modelled. The physics in full:
+`spec/ALGORITHM.md`, "Excitation geometry".
+
+The excitation factor a movie applies, in a section through the axis and on the axis:
+
+<!-- fig:light-geometry -->
+
+What it does to a frame, with the free DNA-PAINT imager's background:
+
+<!-- fig:light-geometry-images -->
+
 ## The DNA-PAINT imager background
 
-Unbound imager in the illuminated volume adds a flat offset per pixel and second of
+Unbound imager in the illuminated volume adds an offset per pixel and second of
 
-\[ c\,N_A\,H\,A_{px}\;k_{em}\eta F, \]
+\[ c\,N_A\,A_{px}\;k_{em}\eta F \int_0^H \int K_{|z - z_f|}(\mathbf r)\, e(\mathbf x + \mathbf r, z)\,d^2r\,dz, \]
 
-with \(c\) the imager concentration, \(H\) the illuminated chamber height (`chamber-height-um`, default 5 µm, an
-*estimate*: the `Epi` geometry illuminates the whole chamber) and \(A_{px}\) the pixel area in the sample. **Imager
-depletion and its exclusion from the cells are ignored**: the background is the same over cells and medium and does not drop as imager
-binds.
+with \(c\) the imager concentration, \(H\) the chamber height (`chamber-height-um`, default 100 µm, an *estimate*:
+tape and flow chambers), \(A_{px}\) the pixel area in the sample, \(e\) the excitation factor of the illumination
+geometry (`illum-bfp`) and \(K\) the spread of a dye's light at a distance \(|z - z_f|\) from the focal plane: the
+light of the imager high above the focus lands on the camera defocused, spread over a disc of radius
+\(|z - z_f| \tan\theta\), so a pixel collects the lit imager within that reach of it, not the column above it alone.
+\(K\) is geometric optics in one medium: an isotropic emitter (a freely rotating imager), its emission angles weighted by
+the Fresnel power transmittance into the coverslip (Born & Wolf 1999, section 1.5.3; s and p averaged), collected with
+equal power per solid angle by an aplanatic objective (Richards & Wolf 1959) up to its NA. Without the weighting the
+focal-plane irradiance of a dye at defocus \(\delta\) is \(\delta / 2\pi(\delta^2 + r^2)^{3/2}\), and on the axis of a
+lit disc of radius \(a\) the column is \(\int_0^H 1 - \delta/\sqrt{a^2 + \delta^2}\,d\delta \approx a\) for
+\(H \gg a\); the Fresnel weighting favours the steep rays, so the effective column is a little deeper.
+
+So in epi the background is set by the **beam's width**, not the chamber's height: about 14 µm on the axis of the
+default 25.6 µm FlatTop beam (100 µm before this model), and about half that at the beam's edge. In TIRF only the
+evanescent layer is lit (about the field factor times the decay depth, ~0.5 µm), in HILO about the inclined sheet. That
+is why DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
+(1.03), both *estimates*; TIRF cuts the nanorulers' imager background about 13-fold against epi. The renderers evaluate
+it on a node grid (a third of the beam's edge width apart) and interpolate: within 0.2 % of a dense quadrature in epi
+and TIRF, 2 % in HILO. The map depends on the focus (the defocus of each height; HILO's sheet pivots at the focus), so
+it is made at foci 0.25 µm apart and blended linearly between the two around the focus: a focus move reuses them, and
+Micro-Manager makes the neighbouring ones ahead on a worker thread. A Flat beam (laterally infinite) lights every plane
+alike, so the spread changes nothing: there the column is the plain integral, \(H\) in epi.
+
+**Left out:** the index mismatch between the medium and the glass (the defocus is taken in one medium), the dye's
+emission dipole (a free imager rotates: isotropic), the near-field (supercritical-angle) emission of dyes within a
+wavelength of the coverslip, **imager depletion and its exclusion from the cells**: the background is the same over
+cells and medium and does not drop as imager binds.
 
 The background against the imager concentration, the model next to the rendered photons:
 
@@ -139,7 +200,8 @@ Pre states, the dSTORM initial ON and WideField-mode dyes emit continuously. Suc
 
 - **mean field**: the structure's dye density binned on world-anchored z planes (`wf-plane-nm`) on a grid
   (`wf-upscale` cells per pixel, spanning the FOV plus a 2 µm margin), convolved with the state's PSF, times the exact
-  mean photons per dye of the frame, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\); or
+  mean photons per dye of the frame, \(r\,(e^{-\lambda t_0} - e^{-\lambda t_1})/\lambda\) (under a shaped beam with
+  each place's own dose and rate); or
 - **per dye**: each dye's window (its own address-based end: bleached at aux \(\times\) budget / \(k_{em}\), activated,
   or the initial ON's end) splatted as a unit image into a running image that changes only where windows start or end.
 

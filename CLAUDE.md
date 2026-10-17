@@ -50,7 +50,7 @@ that finishes them.
   the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
   replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,
   unlike MM) the next N frames unpaced, the sample going on, in chunks of ~2 M pixels, each one
-  `LiveScope::Frames` call (`isc_live_frames`: one movie of n frames on the history's clock, as the adapter's
+  `LiveScope::Frames` call (`isc_live_frames`: one movie of n frames on the light history's map, as the adapter's
   render-ahead; frame by frame with drift or frames that light nothing; = n `Frame` calls within one electron in a few
   pixels, ctest `live_scope`), saved as one ImageJ TIFF (`writeTiff16(..., pxUm)`: XResolution, finterval, the spec in
   `insiliscope.spec=`); the performance rows are a fixed list (`PHASES`), one decimal; webSMLM streaming was tried and
@@ -68,8 +68,10 @@ that finishes them.
   nudging every registry row once (a key takes the most specific row's tier), and each property's tier -- the settings
   levels Basic/Advanced/Expert follow them, `tierOf` in `web/index.html`; the generator runs with `ISC_CACHE=0`, as
   creating and freeing hubs quickly with the block cache on aborts the process). The frames come from `sim::LiveScope`
-  (`adapter/inSiliScope/Simulation/LiveScope.*`, MM-free: the adapter's live mode per frame -- illumination history,
-  drift walker, running images, live noise counter; a world change resets it) through the module's `isc_live_frame` /
+  (`adapter/inSiliScope/Simulation/LiveScope.*`, MM-free: the adapter's live mode per frame -- the light history
+  (`LightHistory`, 2026-10-16: the frame's `MakeLightState` at the drifted pose, `start-sec` = its T, `Advance` per
+  frame once light has come; `litSec` = `DoseAt` the FOV centre), drift walker, running images, live noise counter; a
+  world change resets it) through the module's `isc_live_frame` /
   `isc_live_image` / `isc_live_reset` (`cli/scope_wasm.cpp`; ctest `live_scope`, `cli/live_scope_check.cpp`). The
   adapter's own live producer is not on `LiveScope` yet (GPU, render-ahead, BF prefetch stay there). lab.html's JS
   engine renders live frames as one-frame movies (no history).
@@ -90,7 +92,7 @@ that finishes them.
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
-  (`--history-before`: a two-epoch rate history, a cli `DyeClock`), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
+  (`--history-before`: a past light, then the movie's: a two-record light history), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
   `--presets-json`, `--geometry-json` for the nanorulers; `cli/scope_probes.*`, ctest `cli_probes`) and only draws;
   `pages.yml` rebuilds them on every deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->`
   marker in any page of `docs/` (links in the figures are written as from `docs/physics/` and rebased per page).
@@ -268,18 +270,79 @@ the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for 
 thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
 Render-ahead (2026-10-07, `LiveAhead.cpp`, spec/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
 state a helper thread renders batches of the next frames (K = 300 ms / exposure, 2-16, ramped from 2 after any change;
-`ISC_AHEAD_K` fixes it; one K-frame `FluorescenceMovie`, slot-labelled, clocks =
-history snapshot + `ClockSnapshot::Advance` per untaken frame); any change flushes; not with the lamp, drift or a shaped
-illumination; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
+`ISC_AHEAD_K` fixes it; one K-frame `FluorescenceMovie`, slot-labelled, on the light history's map, its later frames on
+the open record's rate); any change flushes; not with the lamp or drift; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live
 starts) and the movie cache: never render a live frame with a CPU mean-field scene while the GPU is in use elsewhere
 (the shared scenes rebuild on a GPU/CPU mode switch). Profile phases `live.ahead-*`, `ahead.*`.
 Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` holds the scene, its recent focus images and
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the dim-blink cut (`Renderer.BlinkMinPhotons` 50, 2026-10-14): TOTAL 7eaf6581...,
-"TOTAL before pores" 16e67de3...; before it, since the pore defaults (816101d, 2026-10-13): TOTAL 2af5ef51... (eaaf21c0... before them); its "TOTAL before pores" (the 12
-older configs with `NuclearPores_Label` None and `Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
+`adapter_pixel_hash` reference since the merge of main into the exact light history (2026-10-16: main's dim-blink cut,
+`Renderer.BlinkMinPhotons` 50, moved `defaults`, `gaussian-psf`, `palm`, `emccd`, `drift`, `zernike`, `pores`; with
+`--set Renderer.BlinkMinPhotons=0` every config = the reference before the merge): TOTAL a84a7116... (before pores
+6ce549ae...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0` TOTAL 3e69b9b0... (before pores
+ce0f552d...). Hash on a quiet machine: under heavy load (a parallel test batch) a config's frames have differed from run
+to run (`defaults`, `dstorm`; open). Before the merge, the reference of the exact light history (`claude/exact-dose`;
+against 3bd884d below the DNA-PAINT configs, BrightField, `emccd`, `cells-na`, `dstorm-ixon`, `pores`, `pores-dstorm`
+are identical, `dstorm`, `palm`, `mean-field` and `illum-bg` (its fade follows the dose) moved): TOTAL fbbd909e...
+(before pores e0f60aca...); Flat / BFP 0 TOTAL 87aa4e13... (before pores ecd48caf...).
+Before it, the reference since the imager's collected column (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
+chamber, the lit / unlit history footprint, the free imager's light collected defocused; 2026-10-14 the history light on
+the tile / 0.25 um focus grids, which moved `dstorm`, `palm`; 2026-10-14 the rim level and the dark rule, which moved
+`dstorm`, `palm`, `mean-field`; then the bleach basis grouped by the light now, float rounding in `dstorm`, `mean-field`:
+0.14 % of pixels, <= 9 ADU; 2026-10-15 the exact dose, which moved `dstorm` (7 % of pixels: the never-lit corners in
+their initial ON emit), `palm` (0.02 %), `mean-field` (47 %, mean +0.3 %)): TOTAL 91030dbb...
+(before pores 4561e46d...; before the exact dose 89cf2f70... / cd29ac0c...; before that basis 6e11627f... / 6a534ef9...;
+before the rim level a5b388b0... /
+09832cd5...; before the grids b1af15bc... / 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5ef51..., 816101d) but `illum-bg`
+(9a01e6ab..., the engine's profile); its "TOTAL before pores" (the 12 older configs with `NuclearPores_Label` None and
+`Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
+
+**Excitation geometry (2026-10-13, spec/PORT.md 22, spec/ALGORITHM.md):** `illum-bfp` / MM `Lasers.BfpPosition`
+(Basic, 0-1.2) = the laser spot in the BFP (0 epi, 1 the critical angle, HILO between, TIRF above, clipped beyond
+NA / `bf-n-medium` = MM `SampleHolder.MediumIndex`); beam `illum-profile` (default FlatTop) / `illum-fwhm` (100 % of
+the FOV), engine options now (the adapter's own 2D field is gone); `chamber-height-um` 100 (the free imager's light is
+collected defocused: `Excitation::ImagerMap`, epi's column ~ the beam's radius, not the chamber; the map is made on a 0.25 um
+focus grid and blended, cached in `BgMapCache`, the neighbours prefetched in MM (`SetBackgroundMapPrefetch`; joined by
+`BackgroundMapPrefetchShutdown` in the camera's `Shutdown`); a focus move re-uploads only the GPU's per-pixel statics,
+profile phases `fl.bg-map`, `fl.bg-map-prefetch`, `gpu.prepare`, `gpu.prepare-background`). `Simulation/Excitation.*`
+= `excitation.js`. The DNA-PAINT light presets set 0.95 (HILO), the nanorulers 1.03 (TIRF); an Auto preset of several
+targets keeps the position they agree on. The kinetics follow the local light through the **exact light history** (below). Live under drift: the drift's z enters
+the focus on a 10 nm grid and the mean-field scenes stay at an anchor within 1 um, their images phase-ramp shifted
+(`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
+`BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set. Viewer: the **BFP position** slider with a
+regime / depth readout (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
+the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
+`light-geometry`, `light-geometry-images`.
+
+**Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
+`claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all
+three, one core query per movie. It replaced the stepped history (two lateral levels per 0.25 um tile, 12 z bands,
+clock regions, the dark rule, `IlluminationHistory.*`, `DyeClock`, `ClockSnapshot`, `doseEvents`, `localEvents`,
+`GridCellKeys`, `SetWeightGroups`, dose nodes: gone). Core: `isc_world_set_clock_map` (format 2; per structure
+`ISC_CLOCK_GLOBAL` (DNA-PAINT, the sample's time T) / `DOSE` (dSTORM, WideField, initial ON: the dose in seconds of a
+reference light, every rate linear in it) / `ACTIVATION` (PALM: the activation hazard, blinks in T); fields = sums of
+scale x bilinear grid in sheared coordinates x depth table; the bleach fields end a budgeted window in the core),
+`isc_events_in_map`, `isc_continuous_in_map` (per block the dyes' schedules keyed by `fpSchedule`, the windows' ends
+indexed per `fpNow`: a query costs the open windows), `isc_world_prefetch_map`; a uniform map = the ABI 11 queries bit
+for bit (they stay). Host `Simulation/LightHistory.*` (JS `light_history.js`): records (one light: chapter, magnitude,
+pose kept to 25 nm; the 16 recent apart for PALM), chapters (one kind of light: geometry, kinetic env, line ratios)
+folded into sparse grids (`LightLatticeUm`, 0.25 um or finer for a narrow beam), `BuildMap` -> `ClockMapView`, `DoseAt`
+(the fade), `T`, `Lit`. `FluorescenceMovie::Begin(..., LightHistory*, const LightState*)`; the cli/viewer movie under a
+shaped beam builds its own two-record map (the past = `start-sec` at its light); the mean field weights each cell on
+the map (`MappedWeight`, `AnchorDecay` / `RenderDecayed`). Semantics: DNA-PAINT binding and PALM's spontaneous
+activation run on T, lit or not (T follows `TimeWhileIdle`); a dye no light reaches now is frozen; a frame counts the
+whole beam to 1e-4 of its peak; a stack is one record over its drift path (`MergeLightPoses`). Checks: ctest
+`world_checks.clock_map`, `history_check` (`RUN_SERIAL`: speed gates), `label_parity` clock-map section,
+`test_history.py` Edge (no step at the half contour, mean field and dye by dye), ctest `live_scope`. P5 (2026-10-16,
+the merge of main): `LiveScope` (viewer live) on the light history too, so it gains the shaped beam's history as MM has;
+found on the way: a sub-cell drift of the FOV left the mean field's bleach basis under the old excitation per cell
+(`WidefieldScene::Finish`: an axis move with a plane factor now re-weights the scene), up to 2.5 % off in live frames
+under drift.
+On main before the exact light history: the reference since the dim-blink cut (2026-10-14) was TOTAL 7eaf6581...
+("TOTAL before pores" 16e67de3...).
 
 **Z convention (2026-09-25):** the `ZStage` position is the focal plane's height; each emitter's
 defocus is `zNm/1000 - Z`, so +Z moves focus up through the sample like a real focus drive, for
@@ -311,7 +374,8 @@ is `Fluorescence` | `BrightField`, WideField is a label mode. MM (`ScopeProperti
 `FluoParam_Microtubule_*` and slots `FluoParam_Dye{1,2,3}_*` (a dye pick or mode change reloads them from the library,
 sets the labelling to the mode's suggestion and applies the mode's light preset), `Optics_*` (lasers, geometry,
 chamber, dichroic, filter, `Optics_Preset`, the illumination profile), `CamParam_CameraPreset`/`QeCurve`; the dyes'
-clocks come from the **illumination history** (`Simulation/IlluminationHistory.*`, 2026-10-05): seconds of illumination
+clocks come from the **illumination history** (history: `Simulation/IlluminationHistory.*`, 2026-10-05, replaced by the
+exact light history above on 2026-10-16; the semantics below hold, the tiles and regions are gone): seconds of illumination
 per 0.25 um tile of the world, weighted by the illumination profile (1/16 steps); a place never lit is at clock 0
 (fresh: dSTORM in its initial ON, PALM unconverted, WideField unbleached). **Rate history (2026-10-08, core ABI 11,
 spec/PORT.md 16):** each tile keeps its lit time as segments in epochs (`KineticEnv` = the spec's light and dye keys,
@@ -324,10 +388,9 @@ power at the sample, and a sequence or snap takes it, or `SampleHolder.TimeWhile
 hand-opened shutter), over its lit rect (the drifted pose's FOV + 2 um margin + 0.5 um; a snap takes only a frame
 started after the call, a sequence only frames started after it began, `liveFrameStart_`); a stack reads the history and
 then adds its frames along its own drift path (stacks are reproducible only on a fresh device). The engine reads each
-dye at its tile's clock (`DyeClock`: blinks and per-dye windows queried per clock region, a mean-field population
-weighted per grid column in one convolution); live per-dye populations carry their running image from frame to frame
+dye at its own place's clock (then per tile, `DyeClock`; now the clock map); live per-dye populations carry their running image from frame to frame
 (`CarryRunningImages`; without it a population parked just under the mean-field limit cost seconds per frame). The
-background fade reads the lit clock at the FOV centre. Reset on a world change (seed, cell parameters). The camera's
+background fade reads the dose at the FOV centre (`LightHistory::DoseAt`). Reset on a world change (seed, cell parameters). The camera's
 fixed-pattern maps are a function of the seed and camera settings (the same in live mode and stacks).
 cli/viewer movies have no history: they start at `start-sec` (default 60). Live mode renders one `FluorescenceMovie`
 frame per tick at the stage pose. The GPU splat is used when a movie's blinks are one group (2026-10-07: also with

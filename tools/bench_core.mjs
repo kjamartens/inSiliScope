@@ -50,7 +50,7 @@ line('cell_outline (all cells)', tOut, `(${nc} cells)`);
 line('cell_mesh (assets build)', tMesh, `(${nVerts} vertices)`);
 line('cell_microtubules', tMt, `(${nMt} MTs, ${nPts} points)`);
 
-const sc = 1 << 22, sb = M._malloc(sc * 4 * 8);
+const sc = 1 << 21, sb = M._malloc(sc * 5 * 8);   // ISC_SITE_STRIDE 5
 t0 = now();
 const ns = M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, sb, sc);
 line('sites_in_window cold (dyes)', now() - t0, `(${ns} dyes)`);
@@ -58,15 +58,46 @@ t0 = now();
 M._isc_sites_in_window(w, x0, y0, x1, y1, -Infinity, Infinity, sb, sc);
 line('sites_in_window warm', now() - t0);
 
-M._isc_world_set_kinetics(w, 0.00143, 0.05, 1, 1, 0.5);
-const eb = M._malloc((1 << 20) * 7 * 8);
+// The microtubules DNA-PAINT (ISC_LABEL_*: density, fraction, mode, then the kinetics).
+const lab = M._malloc(9 * 8);
+M.HEAPF64.set([1, 1, 2, 0.00143, 0.05, 1, 1, 0.5, 0], lab / 8);
+M._isc_world_set_label(w, 0, lab, 9);
+const ecap = 1 << 19, eb = M._malloc(ecap * 10 * 8);   // ISC_EVENT_STRIDE 10
 t0 = now();
-const ne = M._isc_events_in_window(w, x0, y0, x1, y1, -3, 4, 0, 0.05, eb, 1 << 20);
+const ne = M._isc_events_in_window(w, x0, y0, x1, y1, -3, 4, 0, 0.05, eb, ecap);
 line('events_in_window first (schedules)', now() - t0, `(${ne} events)`);
 t0 = now();
 let nev = 0;
-for (let f = 1; f <= 100; f++) nev += M._isc_events_in_window(w, x0, y0, x1, y1, -3, 4, f * 0.05, (f + 1) * 0.05, eb, 1 << 20);
+for (let f = 1; f <= 100; f++) nev += M._isc_events_in_window(w, x0, y0, x1, y1, -3, 4, f * 0.05, (f + 1) * 0.05, eb, ecap);
 line('events_in_window steady / frame', (now() - t0) / 100, `(100 frames, ${nev} events)`);
+
+// ABI 14: dSTORM 3 % under a dose map -- a Gaussian beam (1/e^2 radius half the window) on a 0.25 um grid, 60 s of it
+// before the movie, then lit at its rate: every dye on its own clock.
+M.HEAPF64.set([0.03, 1, 0, 0.01, 0.01, 0.5, 0.05, 0.5, 0], lab / 8);
+M._isc_world_set_label(w, 0, lab, 9);
+{
+  const h = 0.25, nx = Math.ceil((x1 - x0) / h) + 1, ny = Math.ceil((y1 - y0) / h) + 1, r = (x1 - x0) / 2;
+  const g = [];
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) g.push(Math.exp(-2 * ((x0 + i * h - (x0 + x1) / 2) ** 2 + (y0 + j * h - (y0 + y1) / 2) ** 2) / (r * r)));
+  const k = [0.01, 0.01, 0.5, 0.05, 0.5, 0];
+  // DOSE, one epoch, no bounds; total 60 x beam, rate 1 x beam, tOpen 60, no steps, no bleach.
+  const clock = [1, 1, 0, ...k, 0, 1, 0, -1, 0, 0, 0, 0, 0, 60, 0, 1, 0, -1, 0, 0, 0, 0, 0, 1, 0, 60, 0, 0, 0];
+  const v = [2, 1, 0, x0, y0, h, nx, ny, ...g, ...clock, ...clock, ...clock];
+  const mb = M._malloc(v.length * 8);
+  M.HEAPF64.set(v, mb / 8);
+  if (M._isc_world_set_clock_map(w, mb, v.length) !== 0) throw new Error('isc_world_set_clock_map');
+  M._free(mb);
+}
+t0 = now();
+const nm = M._isc_events_in_map(w, x0, y0, x1, y1, -3, 4, 60, 60.05, eb, ecap);
+line('events_in_map first (dose map, schedules)', now() - t0, `(${nm} events)`);
+t0 = now();
+nev = 0;
+for (let f = 1; f <= 100; f++) nev += M._isc_events_in_map(w, x0, y0, x1, y1, -3, 4, 60 + f * 0.05, 60 + (f + 1) * 0.05, eb, ecap);
+line('events_in_map steady / frame', (now() - t0) / 100, `(100 frames, ${nev} events)`);
+M._isc_world_set_clock_map(w, 0, 0);
+M._free(lab);
 
 const db = M._malloc(size * size * 280 * 4);
 t0 = now();

@@ -5,6 +5,102 @@ self.ISC_MM_CONFIG = {
  "Basic": {
   "groups": [
    {
+    "name": "Aberrations",
+    "presets": [
+     {
+      "name": "AstigmatismModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 2.0
+      }
+     },
+     {
+      "name": "AstigmatismStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 3.0
+      }
+     },
+     {
+      "name": "AstigmatismWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 1.0
+      }
+     },
+     {
+      "name": "ComaStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 5.0
+      }
+     },
+     {
+      "name": "ComaWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 4.0
+      }
+     },
+     {
+      "name": "ExtendedRange",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 11.0
+      }
+     },
+     {
+      "name": "ExtendedRangeStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 12.0
+      }
+     },
+     {
+      "name": "MixedRealisticObjective",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 9.0
+      }
+     },
+     {
+      "name": "None",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 0.0
+      }
+     },
+     {
+      "name": "SaddlePoint",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 10.0
+      }
+     },
+     {
+      "name": "SphericalStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 7.0
+      }
+     },
+     {
+      "name": "SphericalWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 6.0
+      }
+     },
+     {
+      "name": "TrefoilModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 8.0
+      }
+     }
+    ]
+   },
+   {
     "name": "Camera",
     "presets": [
      {
@@ -60,6 +156,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 0.0,
@@ -81,6 +178,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -102,6 +200,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -123,6 +222,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.01,
        "laser-561": 0.0,
@@ -144,6 +244,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.002,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -212,6 +313,32 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0
+      }
+     }
+    ]
+   },
+   {
+    "name": "Illumination",
+    "presets": [
+     {
+      "name": "Epi",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.0
+      }
+     },
+     {
+      "name": "HILO",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.95
+      }
+     },
+     {
+      "name": "TIRF",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 1.03
       }
      }
     ]
@@ -336,9 +463,11 @@ self.ISC_MM_CONFIG = {
    }
   ],
   "startup": {
+   "Aberrations": "MixedRealisticObjective",
    "Camera": "Kinetix22",
    "Channel": "ATTO655 DNA-PAINT",
    "Drift": "Off",
+   "Illumination": "HILO",
    "Laser 561 nm (kW/cm2)": "NewPreset",
    "Laser 640 nm (kW/cm2)": "NewPreset",
    "Objective": "100x NA 1.40 Oil",
@@ -354,6 +483,111 @@ self.ISC_MM_CONFIG = {
  "Advanced": {
   "groups": [
    {
+    "name": "Aberrations",
+    "presets": [
+     {
+      "name": "AstigmatismModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 2.0
+      }
+     },
+     {
+      "name": "AstigmatismStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 3.0
+      }
+     },
+     {
+      "name": "AstigmatismWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 1.0
+      }
+     },
+     {
+      "name": "ComaStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 5.0
+      }
+     },
+     {
+      "name": "ComaWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 4.0
+      }
+     },
+     {
+      "name": "ExtendedRange",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 11.0
+      }
+     },
+     {
+      "name": "ExtendedRangeStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 12.0
+      }
+     },
+     {
+      "name": "MixedRealisticObjective",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 9.0
+      }
+     },
+     {
+      "name": "None",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 0.0
+      }
+     },
+     {
+      "name": "SaddlePoint",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 10.0
+      }
+     },
+     {
+      "name": "SphericalStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 7.0
+      }
+     },
+     {
+      "name": "SphericalWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 6.0
+      }
+     },
+     {
+      "name": "TrefoilModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 8.0
+      }
+     }
+    ]
+   },
+   {
+    "name": "BfpPosition",
+    "slider": {
+     "key": "illum-bfp",
+     "lo": 0.0,
+     "hi": 1.2,
+     "value": 0.95
+    }
+   },
+   {
     "name": "Camera",
     "presets": [
      {
@@ -409,6 +643,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 0.0,
@@ -430,6 +665,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -451,6 +687,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -472,6 +709,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.01,
        "laser-561": 0.0,
@@ -493,6 +731,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.01,
        "laser-561": 0.0,
@@ -514,6 +753,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.002,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -582,6 +822,32 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0
+      }
+     }
+    ]
+   },
+   {
+    "name": "Illumination",
+    "presets": [
+     {
+      "name": "Epi",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.0
+      }
+     },
+     {
+      "name": "HILO",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.95
+      }
+     },
+     {
+      "name": "TIRF",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 1.03
       }
      }
     ]
@@ -706,9 +972,12 @@ self.ISC_MM_CONFIG = {
    }
   ],
   "startup": {
+   "Aberrations": "MixedRealisticObjective",
+   "BfpPosition": "NewPreset",
    "Camera": "Kinetix22",
    "Channel": "ATTO655 DNA-PAINT",
    "Drift": "Off",
+   "Illumination": "HILO",
    "Laser 561 nm (kW/cm2)": "NewPreset",
    "Laser 640 nm (kW/cm2)": "NewPreset",
    "Objective": "100x NA 1.40 Oil",
@@ -724,6 +993,111 @@ self.ISC_MM_CONFIG = {
  "Expert": {
   "groups": [
    {
+    "name": "Aberrations",
+    "presets": [
+     {
+      "name": "AstigmatismModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 2.0
+      }
+     },
+     {
+      "name": "AstigmatismStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 3.0
+      }
+     },
+     {
+      "name": "AstigmatismWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 1.0
+      }
+     },
+     {
+      "name": "ComaStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 5.0
+      }
+     },
+     {
+      "name": "ComaWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 4.0
+      }
+     },
+     {
+      "name": "ExtendedRange",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 11.0
+      }
+     },
+     {
+      "name": "ExtendedRangeStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 12.0
+      }
+     },
+     {
+      "name": "MixedRealisticObjective",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 9.0
+      }
+     },
+     {
+      "name": "None",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 0.0
+      }
+     },
+     {
+      "name": "SaddlePoint",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 10.0
+      }
+     },
+     {
+      "name": "SphericalStrong",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 7.0
+      }
+     },
+     {
+      "name": "SphericalWeak",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 6.0
+      }
+     },
+     {
+      "name": "TrefoilModerate",
+      "set": {
+       "blink-min-photons": 50.0,
+       "psf-zernike-preset": 8.0
+      }
+     }
+    ]
+   },
+   {
+    "name": "BfpPosition",
+    "slider": {
+     "key": "illum-bfp",
+     "lo": 0.0,
+     "hi": 1.2,
+     "value": 0.95
+    }
+   },
+   {
     "name": "Camera",
     "presets": [
      {
@@ -779,6 +1153,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 0.0,
@@ -800,6 +1175,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -821,6 +1197,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
+       "illum-bfp": 0.95,
        "laser-405": 0.0,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -842,6 +1219,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.01,
        "laser-561": 0.0,
@@ -863,6 +1241,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.0,
        "laser-488": 0.01,
        "laser-561": 0.0,
@@ -884,6 +1263,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
+       "illum-bfp": 0.0,
        "laser-405": 0.002,
        "laser-488": 0.0,
        "laser-561": 1.0,
@@ -952,6 +1332,32 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0
+      }
+     }
+    ]
+   },
+   {
+    "name": "Illumination",
+    "presets": [
+     {
+      "name": "Epi",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.0
+      }
+     },
+     {
+      "name": "HILO",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 0.95
+      }
+     },
+     {
+      "name": "TIRF",
+      "set": {
+       "blink-min-photons": 50.0,
+       "illum-bfp": 1.03
       }
      }
     ]
@@ -1076,9 +1482,12 @@ self.ISC_MM_CONFIG = {
    }
   ],
   "startup": {
+   "Aberrations": "MixedRealisticObjective",
+   "BfpPosition": "NewPreset",
    "Camera": "Kinetix22",
    "Channel": "ATTO655 DNA-PAINT",
    "Drift": "Off",
+   "Illumination": "HILO",
    "Laser 561 nm (kW/cm2)": "NewPreset",
    "Laser 640 nm (kW/cm2)": "NewPreset",
    "Objective": "100x NA 1.40 Oil",
@@ -1100,6 +1509,10 @@ self.ISC_MM_TIERS = {
 "background-per-sec": {
 "tier": "Advanced",
 "prop": "SampleHolder.BackgroundPhotonsPerSec"
+},
+"bf-n-medium": {
+"tier": "Advanced",
+"prop": "SampleHolder.MediumIndex"
 },
 "bit-depth": {
 "tier": "Expert",
@@ -1260,6 +1673,18 @@ self.ISC_MM_TIERS = {
 "gain-std-pct": {
 "tier": "Expert",
 "prop": "Camera.sCMOS_GainStdPctPerPixel"
+},
+"illum-bfp": {
+"tier": "Basic",
+"prop": "Lasers.BfpPosition"
+},
+"illum-fwhm": {
+"tier": "Basic",
+"prop": "Lasers.IlluminationFwhmPct"
+},
+"illum-profile": {
+"tier": "Basic",
+"prop": "Lasers.IlluminationProfile"
 },
 "immersion-index": {
 "tier": "Advanced",
@@ -1694,19 +2119,19 @@ self.ISC_MM_TIERS = {
 "prop": "CellField.ZRangeUm"
 },
 "zern.12": {
-"tier": "Advanced",
+"tier": "Basic",
 "prop": "Objective.ZernikePreset"
 },
 "zern.4": {
-"tier": "Advanced",
+"tier": "Basic",
 "prop": "Objective.ZernikePreset"
 },
 "zern.5": {
-"tier": "Advanced",
+"tier": "Basic",
 "prop": "Objective.ZernikePreset"
 },
 "zern.7": {
-"tier": "Advanced",
+"tier": "Basic",
 "prop": "Objective.ZernikePreset"
 }
 },
@@ -1733,7 +2158,6 @@ self.ISC_MM_TIERS = {
 "CellField.ChunkSizeUm": "Expert",
 "CellField.FocusHeightUm": "Expert",
 "CellField.IndexCytoplasm": "Advanced",
-"CellField.IndexMedium": "Advanced",
 "CellField.IndexMicrotubule": "Advanced",
 "CellField.IndexNucleus": "Advanced",
 "CellField.MicrotubuleDensityPerUm2": "Advanced",
@@ -1851,12 +2275,14 @@ self.ISC_MM_TIERS = {
 "Fluorophores.NuclearPores_EffectiveDye": "Advanced",
 "Fluorophores.NuclearPores_EmissionNm": "Advanced",
 "Fluorophores.NuclearPores_PhotonsPerSecOn": "Advanced",
+"Lasers.BfpPosition": "Basic",
 "Lasers.ChamberHeightUm": "Advanced",
 "Lasers.CustomLineKWcm2": "Advanced",
 "Lasers.CustomLineNm": "Advanced",
+"Lasers.IlluminationDepthNm": "Advanced",
 "Lasers.IlluminationFwhmPct": "Basic",
-"Lasers.IlluminationGeometry": "Basic",
 "Lasers.IlluminationProfile": "Basic",
+"Lasers.IlluminationRegime": "Advanced",
 "Lasers.Laser405KWcm2": "Basic",
 "Lasers.Laser488KWcm2": "Basic",
 "Lasers.Laser561KWcm2": "Basic",
@@ -1894,7 +2320,7 @@ self.ISC_MM_TIERS = {
 "Objective.PsfZStepUm": "Advanced",
 "Objective.WorkingDistanceUm": "Expert",
 "Objective.ZernikeCoefficients": "Expert",
-"Objective.ZernikePreset": "Advanced",
+"Objective.ZernikePreset": "Basic",
 "Renderer.BlinkBinnedDensityPerUm2": "Expert",
 "Renderer.BlinkBinnedMaxEmitters": "Expert",
 "Renderer.BlinkBinnedUpscale": "Expert",
@@ -1935,6 +2361,7 @@ self.ISC_MM_TIERS = {
 "SampleHolder.DriftZDirection": "Expert",
 "SampleHolder.DriftZNmPerSqrtSec": "Advanced",
 "SampleHolder.DriftZSpeedNmPerSec": "Advanced",
+"SampleHolder.MediumIndex": "Advanced",
 "SampleHolder.PsfSampleDepthNm": "Expert",
 "SampleHolder.PsfSampleIndex": "Expert",
 "SampleHolder.TimeWhileIdle": "Basic",

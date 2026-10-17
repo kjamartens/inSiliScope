@@ -71,10 +71,12 @@ A flat background (`SampleHolder.BackgroundPhotonsPerSec`) multiplies an illumin
 
 - **fade**: \(0.3 + 0.7\,e^{-t/\tau}\) (`SampleHolder.BackgroundDecaySec`; the form and its constants are *estimates*);
   \(t\) is the movie's time, in
-  Micro-Manager the lit clock at the FOV centre ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter):
-  one value per frame, the fade does not vary across the FOV);
-- **illumination** (Micro-Manager adapter): a peak-normalised profile (`Lasers.IlluminationProfile`,
-  `Lasers.IlluminationFwhmPct`) multiplies background and blinks.
+  Micro-Manager the dose at the FOV centre, in seconds of the first light
+  ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter): one value per frame, the fade
+  does not vary across the FOV);
+- **illumination**: the excitation's lateral footprint at the coverslip (`illum-profile`, `illum-fwhm`; MM
+  `Lasers.IlluminationProfile`, `Lasers.IlluminationFwhmPct`; default a FlatTop the width of the FOV) multiplies the
+  background ([Dyes and light path](dyes-and-light-path.md#illumination-geometry)).
 
 For fluorescence the background is in detected photons: it is multiplied by the camera's QE at the emission filter's
 centre, and the noise chain runs at QE 1 because each dye's detected fraction already holds the QE curve
@@ -172,7 +174,8 @@ to 0. A stable setup (optical table, active isolation, constant temperature) dri
   illuminated square and the dye grid (mean field) or the grid margin (BrightField) grow by the xy drift. The z drift
   uses images at foci 10 nm apart, linearly interpolated (mean field: 2e-5 rms, BrightField: 2e-4 of the contrast
   against the exact focus). In Micro-Manager's live mode both shift the image of a scene anchored within 1 µm of
-  the drifted sample (rebuilt when it moves further).
+  the drifted sample (rebuilt when it moves further; under a shaped beam the beam's offset from that scene is taken in
+  0.25 µm steps), and the drift's z enters a live frame's focus on a 10 nm grid.
 - The flat background and the DNA-PAINT imager background are unaffected.
 - The cli writes the true drift per frame next to the movie (`<name>.drift.csv`: frame, dx, dy, dz in nm), ground
   truth for testing drift correction.

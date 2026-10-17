@@ -18,6 +18,7 @@
 #include "Simulation/SharedStageState.h"
 #include "Simulation/Timing.h"
 #include "Simulation/Parallel.h"
+#include "Simulation/ScopeMovie.h"
 
 #include "CameraImageMetadata.h"
 #include "ModuleInterface.h"
@@ -221,6 +222,8 @@ int CInSiliScopeCamera::Initialize()
       return true;
    });
    StartPsfPreload();
+   // Focus moves: the shaped background maps of the neighbouring grid foci are made ahead (ScopeMovie.h).
+   sim::SetBackgroundMapPrefetch(true);
    if (acqMode_ == SMLM_MODE_LIVE)
       StartLiveProducer();
 
@@ -288,6 +291,7 @@ int CInSiliScopeCamera::Shutdown()
       stackGenThread_.join();
    // The render threads are done: join the ParallelFor pool's workers (the
    // DLL may be unloaded next).
+   sim::BackgroundMapPrefetchShutdown();
    sim::ParallelPoolShutdown();
    sim::SetScopePsfRequestHook(nullptr);
    if (Hub())

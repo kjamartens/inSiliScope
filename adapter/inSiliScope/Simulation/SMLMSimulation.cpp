@@ -74,6 +74,8 @@ void CollectFrameEmitters(const std::vector<BlinkEvent>& events, long frameIndex
       double photons = photonsPerBlink * ov;
       if (e.brightness != 1.0)
          photons *= e.brightness;
+      if (e.excite != 1.0)
+         photons *= e.excite;
       // Illumination is read at the emitter's own (undrifted) site, as
       // webSMLM's illumAt does -- the beam is fixed to the sample, the
       // drift moves both.

@@ -18,16 +18,6 @@
 
 namespace sim {
 
-void LiveScope::LitRect(double xUm, double yUm, double wUm, double hUm, double& x0, double& y0, double& x1,
-                        double& y1)
-{
-   const double m = 2.0 + 0.5;   // the FOV query's margin (kCellFieldMarginUm) + 0.5 um
-   x0 = xUm - wUm / 2.0 - m;
-   y0 = yUm - hUm / 2.0 - m;
-   x1 = xUm + wUm / 2.0 + m;
-   y1 = yUm + hUm / 2.0 + m;
-}
-
 void LiveScope::Reset()
 {
    history_.Reset();
@@ -107,12 +97,14 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
       spec[k] = 0;
    info.epi = epi;
    info.trans = trans;
-   const uint32_t epoch = history_.RegisterEpoch(ScopeKineticEnv(spec));
-   const double um = p.pixelSizeNm / 1000.0;
-   double lx0, ly0, lx1, ly1;
-   LitRect(posX, posY, R.W * um, R.H * um, lx0, ly0, lx1, ly1);
-   const ClockSnapshot clock = history_.Snapshot(lx0, ly0, lx1, ly1, epoch);
-   info.litSec = history_.ClockAt(posX, posY);
+   // The frames' light (the adapter's MakeLightState at the drifted pose: the beam's place, the HILO pivot at the
+   // focus); they start at the sample's time now.
+   info.lit = countLight && lightsSample;
+   LightState light;
+   if (!MakeLightState(spec, info.lit, light, err))
+      return false;
+   spec["start-sec"] = history_.T();
+   info.litSec = history_.DoseAt(posX, posY);
 
    ScopeMovieInfo mi;
    info.paths = "[]";
@@ -148,7 +140,7 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
       std::copy(one.begin(), one.end(), adu.begin() + static_cast<std::ptrdiff_t>(px * static_cast<size_t>(f)));
       ++done;
       return true;
-   }, mi, err, &clock, true, &paths);
+   }, mi, err, nullptr, true, &paths, &history_, &light);
    if (!ok)
       return false;
    if (done != n)
@@ -158,15 +150,15 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
    }
    noiseCounter_ += static_cast<uint32_t>(n);
 
-   // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it;
-   // the sample's time and drift move on.
-   info.lit = countLight && lightsSample;
+   // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it; the
+   // sample's time runs from its first light on (the adapter's rule: before it every dye is fresh and DNA-PAINT's
+   // binding stationary), and the drift moves on.
    info.tSec = tSec_;
    info.drift = d;
    for (long f = 0; f < n; ++f)
    {
-      if (info.lit)
-         history_.Advance(lx0, ly0, lx1, ly1, R.expSec, {}, epoch);
+      if (info.lit || history_.Lit())
+         history_.Advance(R.expSec, light);
       tSec_ += R.expSec;
       if (p.drift.On())
          drift_.Step(R.expSec);

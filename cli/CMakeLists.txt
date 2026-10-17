@@ -12,12 +12,13 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Drift.cpp
   ${ISC_SIM}/DyeLibrary.cpp
   ${ISC_SIM}/LightPath.cpp
+  ${ISC_SIM}/Excitation.cpp
+  ${ISC_SIM}/LightHistory.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
-  ${ISC_SIM}/IlluminationHistory.cpp
   ${ISC_SIM}/LiveScope.cpp
   ${ISC_SIM}/WidefieldRender.cpp
   ${ISC_SIM}/GpuSimD3D11.cpp
@@ -103,6 +104,18 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(widefield_check widefield_check.cpp)
   target_link_libraries(widefield_check PRIVATE insiliscope_sim)
   add_test(NAME widefield COMMAND widefield_check)
+
+  # The excitation geometry (epi / HILO / TIRF): the physics against quadrature and Axelrod 1981, the local kinetics.
+  add_executable(excitation_check excitation_check.cpp)
+  target_link_libraries(excitation_check PRIVATE insiliscope_sim)
+  add_test(NAME excitation COMMAND excitation_check)
+
+  # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
+  add_executable(history_check history_check.cpp)
+  target_link_libraries(history_check PRIVATE insiliscope_sim)
+  add_test(NAME history_check COMMAND history_check)
+  # (its speed gates -- a fold <= 5 ms, a map <= 15 ms -- measure the host, not the other checks beside it)
+  set_tests_properties(history_check PROPERTIES RUN_SERIAL TRUE)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)

@@ -30,7 +30,10 @@
  * on the cell field's nuclei (structure ISC_STRUCT_NPC 1, so the docking
  * strands move to 2 and ISC_STRUCT_COUNT is 3; params npc*), the label
  * linkage (ISC_LABEL_BINDER_NM .. ISC_LABEL_LINKER_MAX_NM: where a dye sits
- * relative to its binding site), isc_cell_npcs.
+ * relative to its binding site), isc_cell_npcs. ABI 14: the clock map
+ * (isc_world_set_clock_map, isc_events_in_map, isc_continuous_in_map,
+ * isc_world_prefetch_map): each dye's clock read at its own place from fields
+ * the host gives (its light history), one query for every dye.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -51,7 +54,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 13
+#define ISC_ABI_VERSION 14
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -239,7 +242,8 @@ ISC_API int32_t isc_world_set_label(IscWorld* w, int32_t structure, const double
  * isc_world_prefetch calls schedule each dye with the rates of the segment
  * its clock is in (the same draws: everything before a segment start is what
  * the shorter history gives). One segment = those kinetics from t = 0; a
- * DNA-PAINT bin uses the segment holding its start. The rest of the label
+ * DNA-PAINT bin takes each part between segment starts at its own rates (its
+ * part before a change as without it). The rest of the label
  * (mode, pre state, density) is the label's. nSeg = 0: no history (each
  * label's own kinetics, the default). Returns 0; -1 on bad arguments
  * (nothing changes then). */
@@ -286,6 +290,84 @@ ISC_API int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, doub
  * out first, -1 on bad arguments. */
 ISC_API int32_t isc_world_prefetch(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
                                    double zMax, double t0, double t1, double budgetMs);
+
+/* ABI 14. The clock map (spec/ALGORITHM.md "Exact light history"): each dye's
+ * kinetic clock read at its own place, for the map queries below (the ABI 11
+ * history stays for isc_events_in_window and the others). The core knows no
+ * light: the host gives, per structure, how a dye's clock depends on where it
+ * is (mode ISC_CLOCK_*):
+ *   GLOBAL      every dye on the sample's time T, the kinetics history in T;
+ *   DOSE        a dye's clock is its dose (dSTORM, WideField, the initial ON:
+ *               every rate is linear in the excitation): total(x) at tOpen,
+ *               then rate(x) per second; epoch e >= 1 of the kinetics starts
+ *               at the dye's dose bound[e - 1](x);
+ *   ACTIVATION  PALM: a dye activates when its hazard (the steps' increments
+ *               from 0 to tOpen, then rate(x) per second) reaches its draw,
+ *               then blinks in T with the kinetics history in T (whose
+ *               activation rates are not used).
+ * A DNA-PAINT label reads its clock as GLOBAL (binding needs no light), as
+ * does any label but PALM under ACTIVATION. One flat buffer of n doubles:
+ *   ISC_CLOCK_MAP_FORMAT, nGrids, nDepths, then
+ *   per grid:  x0, y0, h, nx, ny, then nx * ny values (node (i, j) at
+ *              (x0 + i h, y0 + j h) is value j nx + i);
+ *   per depth: z0, dz, m, then m values (at z0 + k dz, um above the
+ *              coverslip; linear between, the end values beyond; m = 0: 1);
+ *   per structure s = 0 .. ISC_STRUCT_COUNT - 1: mode, nEpochs, then nEpochs
+ *              rows of tStart (T: 0, then increasing) and ISC_KIN_COUNT
+ *              kinetics; nBounds (DOSE with epochs: nEpochs - 1, else 0) and
+ *              the bound fields; the total field and totalC; the rate field
+ *              and rateC; tOpen; nSteps (ACTIVATION only) and per step t0, t1,
+ *              c and its field (contiguous from 0 to tOpen); the bleachTotal
+ *              and bleachRate fields (format 2): the photon-budget bleach of
+ *              the structure's budgeted continuous state (a WideField dye's
+ *              always-on window, a PALM pre state) as a hazard, bleachTotal(x)
+ *              by tOpen, then bleachRate(x) per second; such a window ends
+ *              where it reaches the window's aux (its unit-exponential draw),
+ *              at tOpen + (aux - bleachTotal) / bleachRate (at a rate <= 0:
+ *              never if aux > bleachTotal, else by tOpen). Both empty (0
+ *              terms): no bleach.
+ * A field is nTerms, then ISC_CLOCK_TERM doubles per term: grid (-1: 1),
+ * depth (-1: 1), ox, oy, zp, sx, sy, scale. Its value at (x, y, z) is its
+ * constant (totalC, rateC, a step's c; 0 for a bound) plus, term by term in
+ * order, scale x grid(x - ox - (z - zp) sx, y - oy - (z - zp) sy) x depth(z);
+ * a grid is bilinear between its nodes and 0 beyond them. Returns 0; -1 on bad
+ * input (nothing changes then). n = 0 removes the map (the map queries are
+ * then the ABI 11 ones). A uniform map answers as the ABI 11 queries, bit for
+ * bit and in order: DOSE without terms, totalC 0, rateC 1, tOpen 0; ACTIVATION
+ * without steps, rateC the activation rate, tOpen 0; GLOBAL with the history. */
+#define ISC_CLOCK_MAP_FORMAT 2
+#define ISC_CLOCK_GLOBAL 0
+#define ISC_CLOCK_DOSE 1
+#define ISC_CLOCK_ACTIVATION 2
+#define ISC_CLOCK_TERM 8
+ISC_API int32_t isc_world_set_clock_map(IscWorld* w, const double* v, int32_t n);
+
+/* ABI 14. Blinks overlapping [t0, t1) of the sample's time T of the dyes in
+ * the window, each dye on its own clock (the clock map), times in T; rows as
+ * isc_events_in_window. A dye at a dose rate 0 now is frozen and emits
+ * nothing. Order: by block, then (tOn, the blink's time on the dye's own
+ * clock, dye, blink) -- isc_events_in_window's order under a uniform map.
+ * Without a map: isc_events_in_window. Same cap/return convention. */
+ISC_API int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
+                                  double t0, double t1, double* out, int32_t cap);
+
+/* ABI 14. The continuous windows ending after tMin (T) of the dyes in the
+ * window, each on its own clock, times in T, ISC_MAP_WINDOW_STRIDE doubles
+ * each: the ISC_EVENT_STRIDE of isc_continuous_in_window, then the dye's clock
+ * and rate (DOSE: its dose at tOpen and per second after; ACTIVATION: its
+ * activation time and 1; GLOBAL: tOpen and 1). A frozen dye's window that
+ * holds its dose lasts from -INFINITY to INFINITY; its other windows are
+ * left out. A budgeted window ends at its bleach when that is earlier (the
+ * map's bleach fields). Dye order per block. Cached per block on the dyes'
+ * own clocks, and with a bleach the windows' ends in T per map: a query then
+ * costs the windows still open. Same cap/return convention. */
+#define ISC_MAP_WINDOW_STRIDE 12
+ISC_API int32_t isc_continuous_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                      double zMax, double tMin, double* out, int32_t cap);
+
+/* ABI 14. isc_world_prefetch for the map queries over [t0, t1) of T. */
+ISC_API int32_t isc_world_prefetch_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                       double zMax, double t0, double t1, double budgetMs);
 
 /* ---- Per-cell geometry (viewer), cell-local frame (before packRot) ----
  * The cell is addressed by its home chunk (cx, cy); all return -1 if that

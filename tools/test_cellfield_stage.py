@@ -414,10 +414,26 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     def mean_at_z(zpos):
         core.setPosition(z, zpos)
         return float(np.mean([f.astype(np.float64).mean() for f in stack_frames_at(x0, y0, n=20)]))
-    up, down, empty = mean_at_z(4.0), mean_at_z(-4.0), mean_at_z(-20.0)
+    # The dyes' signal at a focus: the frame mean less that of a sample whose targets keep only their free imager
+    # (0.001 % labelling: the imager background, which depends on the focus too -- its light is collected defocused).
+    pcts = {t: core.getProperty("CellField", f"{t}_LabelingPct") for t in ("Microtubules", "NuclearPores")}
+    def signal_at_z(zpos):
+        lit = mean_at_z(zpos)
+        for t in pcts:
+            core.setProperty("CellField", f"{t}_LabelingPct", "0.001")
+        bare = mean_at_z(zpos)
+        for t, v in pcts.items():
+            core.setProperty("CellField", f"{t}_LabelingPct", v)
+        return lit - bare
+    # In epi: the DNA-PAINT preset's HILO sheet pivots at the focus, so far below it would cross the chamber beside
+    # the FOV and take the imager background with it.
+    bfp = core.getProperty("Lasers", "BfpPosition")
+    core.setProperty("Lasers", "BfpPosition", "0")
+    up, down = signal_at_z(4.0), signal_at_z(-4.0)
+    core.setProperty("Lasers", "BfpPosition", bfp)
     core.setPosition(z, 1.5)
-    assert up > empty + 1.0 and abs(down - empty) < 0.5, \
-        f"Z sign: mean {up:.2f} at +4 um, {down:.2f} at -4 um, {empty:.2f} far below"
+    assert up > 1.0 and abs(down) < 0.5, \
+        f"Z sign: dye signal {up:.2f} ADU at +4 um, {down:.2f} at -4 um (above the free imager's background)"
     # DNA-PAINT sites do not run out: over the first 300 frames of the stack
     # the signal stays flat (the bleaching side is the WideField check below;
     # a snap waits out its exposure, so few frames are read).
@@ -435,7 +451,7 @@ def run_checks(core, cam="Camera", xy="XYStage", z="ZStage", drift_only=False):
     assert p_early > 0.5 and 0.8 < p_late / p_early < 1.25, f"DNA-PAINT sites should not run out: {p_early:.2f} -> {p_late:.2f} ADU"
     print(f"DNA-PAINT OK: signal {p_early:.2f} -> {p_late:.2f} ADU over {300 * core.getExposure() / 1000:.0f} s")
 
-    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU), -4 um below the coverslip does not ({down:.2f} ~ {empty:.2f})")
+    print(f"ZStage sign OK: +4 um sees the cells ({up:.2f} ADU of dye signal), -4 um below the coverslip does not ({down:.2f})")
 
     _widefield_checks(core, cam, xy, x0, y0)
     # The z sequences and BrightField at the FOV with the most structure (the
@@ -510,10 +526,16 @@ def _widefield_checks(core, cam, xy, x0, y0):
     assert abs(t_half / T_HALF - 1) < 1e-3, f"budget {budget:.6g} gives t1/2 {t_half:.3f} s"
     core.setProperty("Camera", "Test_GenerateStack", "1")
     _wait_for_stack(core, cam)
-    sig = []
+    # Measured where the FlatTop beam is flat (within 0.2 FOV widths of the centre: >= 98 % of the peak); its soft
+    # edge bleaches more slowly, by the dose there.
+    sig, roi = [], None
     for _ in range(130):
         core.snapImage()
-        sig.append(core.getImage().astype(np.float64).mean() - offset)
+        img = core.getImage().astype(np.float64)
+        if roi is None:
+            yy, xx = np.mgrid[:img.shape[0], :img.shape[1]]
+            roi = np.hypot(xx - (img.shape[1] - 1) / 2, yy - (img.shape[0] - 1) / 2) < 0.2 * img.shape[1]
+        sig.append(img[roi].mean() - offset)
     b = np.array(sig)
     status = core.getProperty("Renderer", "GpuStatus")
     w0, w1 = np.arange(0, 10), np.arange(115, 125)
@@ -521,9 +543,10 @@ def _widefield_checks(core, cam, xy, x0, y0):
     decay = lambda w: np.mean(2.0 ** (-((w + 0.5) * 0.05) / t_half))
     expect = decay(w1) / decay(w0)
     assert b[w0].mean() > 5 and abs(ratio / expect - 1) < 0.03, \
-        f"WideField bleaching: frames 115-124 / 0-9 = {ratio:.3f}, expected {expect:.3f} (signal {b[w0].mean():.2f} ADU)"
-    print(f"WideField-mode mEGFP OK ({status}): decays to {ratio:.3f} at 6 s (expected {expect:.3f}, t1/2 "
-          f"{t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
+        f"WideField bleaching (FOV centre): frames 115-124 / 0-9 = {ratio:.3f}, expected {expect:.3f} " \
+        f"(signal {b[w0].mean():.2f} ADU)"
+    print(f"WideField-mode mEGFP OK ({status}): the FOV centre decays to {ratio:.3f} at 6 s (expected {expect:.3f}, "
+          f"t1/2 {t_half:.1f} s from its fields; library t1/2 {t_lib:.1f} s)")
 
     # Live: the illumination history. A small budget (t1/2 ~0.4 s at the
     # preset): bleach the FOV, move 30 um away (fresh, bright, then bleaches
@@ -537,7 +560,7 @@ def _widefield_checks(core, cam, xy, x0, y0):
         core.snapImage()
         return core.getImage().astype(np.float64).mean() - offset
 
-    def bleach_here(n=60):
+    def bleach_here(n=120):   # (the FlatTop beam's soft edge lights the FOV's border at about half)
         first = np.mean([live_mean() for _ in range(3)])
         for _ in range(n):
             live_mean()
@@ -582,7 +605,7 @@ def _brightfield_checks(core, cam, z):
     the frame, defocus changing the cells' contrast, live = precomputed."""
     for d, p, v in (("Renderer", "BrightFieldQuality", 3.0), ("TransmittedLamp", "CondenserNA", 0.4),
                     ("TransmittedLamp", "WavelengthNm", 550.0), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec", 80000.0),
-                    ("Renderer", "BrightFieldSliceUm", -1.0), ("CellField", "IndexMedium", 1.337),
+                    ("Renderer", "BrightFieldSliceUm", -1.0), ("SampleHolder", "MediumIndex", 1.337),
                     ("CellField", "IndexCytoplasm", 1.35), ("CellField", "IndexNucleus", 1.35),
                     ("CellField", "IndexMicrotubule", 1.48), ("CellField", "AbsorptionPerUm", 0.0)):
         got = float(core.getProperty(d, p))

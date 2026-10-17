@@ -759,8 +759,8 @@ the filter centre + the imager offset, blinks per group, continuous populations 
 `FlatIllumination` over the FOV + 2 x 2 um, unit dose) or per dye (running image), noise at QE 1. Host hooks for the
 adapter: `FluorescenceFrameOptions` (z per frame, drift, illumination field, background fade, photons out instead of
 ADU), `SimplePlan` (one blink group: the GPU splat; its populations from `Render` with `populationsOnly`), a `WidefieldAccelerator` for the mean-field scenes
-(D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`, and `DyeClock`
-(Begin's optional per-region clock: the blinks and per-dye windows are queried per clock region over its bounding box,
+(D3D11), `SetScopePsfRequestHook` (the JVM models), `ScopeLabelState` (readouts), `PrefetchScope`, and (history,
+replaced by the light history's clock map in 2026-10-16, section 23) `DyeClock` (Begin's optional per-region clock: the blinks and per-dye windows are queried per clock region over its bounding box,
 keeping the dyes whose position has that clock; a mean-field population goes to the scene's weighted channel with each
 grid column's frame-0 mean photons, frame f = that x exp(-lambda f exposure); without a clock: one region at
 start-sec, the JS path bit for bit).
@@ -769,8 +769,9 @@ start-sec, the JS path bit for bit).
 mean-field path per scene, `movie-progress` from the WASM); webSMLM block abiVersion 10 (density-1 label, same
 `buildWindow`).
 
-**Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties): a `ScopeSpec` from the properties drives
-`FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
+**Adapter** (`ScopeProperties.cpp`; CLAUDE.md lists the properties). *History: the illumination history and its rate
+history below were replaced on 2026-10-16 by the exact light history (section 23); the ABI 11 calls stay.* A
+`ScopeSpec` from the properties drives `FluorescenceMovie` with the illumination history (`Simulation/IlluminationHistory.*`) as its `DyeClock`: seconds of
 light per 0.25 um tile, a place never lit at 0; a stack its duration after rendering; live renders one movie frame per
 tick; `General_ImagingModality` = Fluorescence | BrightField.
 
@@ -1021,3 +1022,162 @@ complexes" and "Label linkage".
   (three structures), `scope_parity` two-target cases, `engine_check` (pores, linkage, two-colour movie), the block
   check's pores window, `test_insiliscope.py` (defaults, couplings, GPU = CPU with two labels), `adapter_pixel_hash`
   (TOTAL before pores = the old reference with pores None and MT linkage Legacy; configs `pores`, `pores-dstorm`).
+
+## 22. Excitation geometry: epi, HILO, TIRF (2026-10-13)
+
+Iteration mode (JS first, `PORT_PENDING.md`, commits 02c7378, ff43bbf), then the port on the same branch
+`claude/illum-geometry`. The model and its reasons: spec/ALGORITHM.md "Excitation geometry". Core untouched (no ABI
+change, golden unchanged).
+
+- `Simulation/Excitation.{h,cpp}` = `excitation.js` (`ExcitationSpec` -> `Excitation`: `F`, `Regime`, `Lateral`, `Depth`,
+  `DepthMean`, `At`, `Column` (HILO: 256 midpoints over the crossed heights), `DepthNm`, `Uniform`; `DoseNodes` and
+  `HatWeight` went with the stepped history, section 23). The render engine uses `std::exp` (not bit-exact with V8; the parity tolerances below absorb it).
+- Options: `illum-profile` (Flat / Gaussian / FlatTop, default FlatTop), `illum-fwhm` (100 % of the FOV width),
+  `illum-bfp` (default 0; the light preset's `bfpPosition` and the specimen's `illumination.bfpPosition` replace it
+  when the preset applies: DNA-PAINT 0.95, nanorulers 1.03), `chamber-height-um` 5 -> 100. `illum-geometry` is
+  accepted and ignored (old specs; the viewer's select gave way to the BFP slider). Not kinetic keys. `ScopeBfpPosition`, `ScopeExcitationSpec`.
+- `DyeLibrary`: `StatePhysics::lineShares`, `LabelPhysics::ImagerPerPxPerUmPerSec` and `ActivationScale` (PALM's
+  spont / lin / quad parts); `LightPresetData` / `SpecimenData` `bfpPosition` (generated, NaN = none).
+- `FluorescenceMovie`: `BlinkEvent::excite` (x photons in `CollectFrameEmitters`, so the CPU splat, the GPU emitters and
+  the binned blinks get it), the local kinetics (at first dSTORM raw-time queries, PALM activation scale, the windows, and the
+  populations' mean field per dose node; since 2026-10-16 every dye's clock on the movie's own clock map, section 23),
+  the background
+  map (background x lateral at z = 0 + the imagers' collected columns: `Excitation::ImagerMap`, JS `imagerMap`, the
+  defocused imager light convolved with the footprint per height, Fresnel-weighted; spec/ALGORITHM.md; made on a
+  0.25 um focus grid and blended, `kBackgroundFocusStepUm` = JS `BG_FOCUS_STEP_UM`), `info` gains
+  ` illum=<regime>:bfp=:F=:depth_nm=`.
+  `WidefieldScene::SetPlaneFactor` (`WidefieldPlaneFactor::At(k, z0, z1, x, y)`, per occupied cell; the WGSL/D3D11 job
+  values are formed on the CPU, so no shader change).
+- Checks: ctest `excitation` (`cli/excitation_check.cpp`: the physics vs quadrature and axelrod1981, dose nodes, the
+  uniform-F movies per mode = 100 % identical ADU, clipped = no light, nanorulers TIRF vs epi background; 3 s);
+  `scope_parity` 9 Excitation cases (C++ = JS: SR 100 %, mean-field >= 99.9 %; now sharded over 4 processes, 3.5 min);
+  `drift` and `cli_probes`' history check pin `illum-profile=Flat` (sample-anchored factor; a uniform host clock).
+- Adapter (2026-10-13): `Lasers.IlluminationProfile` / `IlluminationFwhmPct` are engine options now (the adapter's own
+  2D field, `BuildShapingFields`' `illum`, is gone; `RenderExtras::illumField` stays for `sr_render_check`),
+  `Lasers.BfpPosition` (Basic, 0-1.2) replaced `IlluminationGeometry`, read-only `IlluminationRegime` /
+  `IlluminationDepthNm` (Advanced), `CellField.IndexMedium` moved to `SampleHolder.MediumIndex` (engine `bf-n-medium`,
+  the critical angle for every specimen), `ApplyLightPreset` sets `illum-bfp`. The engine's background map reaches the
+  GPU (`FluorescenceSimplePlan::backgroundMap`). Config groups `Illumination` (Epi 0, HILO 0.95, TIRF 1.03, read from
+  the light presets and specimens) and `BfpPosition` (`tools/gen_mm_configs.py`).
+- *History (2026-10-13/14; replaced on 2026-10-16 by the exact light history, section 23: the levels, bands, regions,
+  dark rule, `doseEvents`, `GridCellKeys`, `SetWeightGroups` and the excess are gone; the live drift anchor below stays).*
+  The history under a shaped beam (`IlluminationHistory.*`): the clock of a tile is its *dose*, kept in 12 world-z
+  bands (inner edges 0.1, 0.2, 0.4, 0.7, 1, 1.5, 2, 3, 4, 5, 6.5 um); a band's weight (`HistoryLightField`,
+  Excitation.h) = F x the depth mean over it in 1/16 steps x the footprint's level (HILO: at the band's midpoint): 1 at
+  half its peak or more, 1/4 down to 1/8, else 0 (`HistoryLevel`; spec/ALGORITHM.md says why). A clock-0 place the
+  history light does not reach (or outside `DyeClock::Extent`) is dark (`GridCellKeys`' dark key, `RegionDark`); the
+  mean-field switch takes the area-mean survival of the lit regions x `nZLit`; regions with < `kWindowAliveMin`
+  expected windowed dyes are not queried, the others' windows are cached (`MovieCache::Windows`,
+  `SampleSource::ContinuousRows` / `MapRow`). `HistoryLight` / `HistoryLightFor` (memoised per
+  tile), `ClockSnapshot::Advance(..., light)` (so render-ahead stays on), a snapshot whose bands are equal is one band
+  (epi: the old arithmetic). The light is read on the history's grids (`HistoryAxisUm`: the axis on the tile grid,
+  `HistoryFocusUm`: the focus on 0.25 um) by the host and `doseEvents` alike, and is uniform when every mounted label is
+  DNA-PAINT (`ScopeExcitation(..., &lightKinetics)`); a chunk lit only alike in height keeps one band. Live under
+  drift: the drift's z on a 10 nm grid and `FluorescenceMovie::AnchorMeanField` (scenes kept at an anchor within
+  `kMeanFieldAnchorUm`, images phase-ramp shifted; off in the cli and the viewer, no JS twin needed). `ClockRegion` has a z range (narrowing the core's z cull), `DyeClock::KeyAtZ` /
+  `BandEdges` / `TileUm`; a key filling less than half its bounding box is bisected (was: 2 um blocks). Under a host
+  clock and a shaped beam the movie reads dSTORM / PALM events at the history's dose (`doseEvents`: a region queried
+  over kMax x the span, times / a_h at the dye's tile and band; photons x the smooth factor). The weighted mean field
+  is banded (`WidefieldScene::SetWeightBands`) and its bleach basis grouped per clock key (`SetWeightGroups`, so a lit
+  disc and unlit corners stay fast frames; the basis check indexes each cell's channel). The cells' keys come from the
+  tiles' (`GridCellKeys`: per (band, tile) in first-seen order, each cell its tile's) and are reused from the scene slot
+  while the grid and the tiles' keys are the last movie's (a live frame: the clocks advance, the partition stays;
+  `fl.mean-field-keys-reused`), shared with the scene by pointer (`SetWeightGroups(shared_ptr)`: an unchanged pointer
+  keeps the basis without comparing 4M keys).
+  A rate-history population (WideField bleaching, pre states, initial ON) groups by the history's light now instead
+  (2026-10-14: per key, the rim level of a few overlapping poses made 32 groups, past the basis's 8, and a Chebyshev
+  basis rebuilt per frame, 0.5 s each; the stage test's live check 83 -> 17 s), and since the exact dose (2026-10-14,
+  spec/ALGORITHM.md) by its exact light: `GridTiles` gives per (band, tile) the key, the excess
+  (`DyeClock::ExcessAtZ` / `HasExcess`; `IlluminationHistory` keeps `ex` next to `t`, `HistoryLight` fills the light
+  and the exact light, `HistoryLightField::Fill(..., exact)` / `BandExact`) and the exact light now (cached per grid
+  and history light, `Impl::histKey`); the weights are per tile (`WidefieldScene::SetWeightMap`, a channel built
+  under it is `mapped`), wb0 = val[key] x S^(e/t) (S the key's survival at clock t, kept as its log next to `val`;
+  exp(-lambda e) at t = 0), the basis by rate (`SetWeightRates`; Chebyshev terms
+  `ChebTermsFor(lambda x kBasisSpanSec x the largest rate)`; a mapped basis without rates takes its cells' dose), a
+  new pose's first basis single (`SetBleachWeights(wb, true)`, `wf.basis-single`), later frames of a movie per tile
+  (`RateWeightedFrame`, `fl.mean-field-rate-frame`; not under drift). Its dark rule reads the exact light. A clock
+  without tiles (the cli's `--history-before`) keeps the per-cell keys. The blink branch keeps the keys (its weights
+  follow the blink kinetics, not one exponential) and the levels.
+- Live speed (bench_live Basic 256 px, 4 s per case, 10 ms exposure; main in brackets): dSTORM 72 (61), DNA-PAINT
+  72 (100), WideField 82 (100), PALM 58 (100), BrightField 100 (100) fps; at 50 ms every channel 20 / 20. The first
+  version (1/16 lateral levels) gave 0-8 fps: regions (788 epi, 2586 HILO), the HILO background map per frame (now
+  memoised, rows on threads), the basis fallback per frame, 12 x the history's work per tile (chunk lookups per tile
+  run, `Snapshot` tile-major).
+- Checks: `adapter_pixel_hash` with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
+  Lasers.ChamberHeightUm=5` = main's hashes except `illum-bg` (the engine's profile now, 9a01e6ab...);
+  `test_insiliscope.py` (defaults, regime / depth readouts, preset -> BFP, clipped = no dyes, TIRF imager background
+  < 0.1 x epi), `test_history.py` ("TIRF, then epi": the upper dyes stay fresh), `test_mm_configs.py` (the
+  Illumination presets read back their regime).
+- Live speed under drift (2026-10-14, 10 ms exposure, 6 x 200 frames, fps; `perf_drift.py`): DNA-PAINT main 84-99 still
+  and under drift, the branch's HILO 89-99 still (was 50-70) and 79-100 under drift (was 18-21): the history's light on
+  its grids, the uniform PAINT history, the anchor. dSTORM under drift: main 2-40 (its mean field warms up), epi ~26,
+  HILO ~10-12 (the anchor, then the shared cell keys; the rest is spread over weights, render, dye counts and events,
+  and an unlit initial-ON population stays).
+- Viewer and docs (2026-10-14): the Illumination group's **BFP position** slider (0-1.2) with the regime readout
+  (`scopeExcitation` of the JS reference: regime, TIRF depth and F, HILO angle and thickness, Clipped), the beam profile,
+  width and chamber height (Advanced); a preset sets the BFP (the specimen's override first), a specimen switch
+  re-applies it. The cli's `--setup-json` gains `excitation` (regime, u, u_max, F, a section x-z and the axis profile
+  of the factor at the line; `cli/scope_probes.cpp`), drawn by the physics figures `light-geometry` and
+  `light-geometry-images` (docs/physics/dyes-and-light-path.md). Gallery `light-epi`, `light-tirf`, `light-flat`,
+  `nr-paint-epi`.
+
+## 23. Exact light history: the clock map (2026-10-15/16)
+
+Branch `claude/exact-dose` (commits 1f52bd8 .. P4). The model and its reasons: spec/ALGORITHM.md "Exact light
+history". It replaced the stepped history of sections 16 and 22 (two lateral levels per 0.25 um tile, 12 z bands,
+clock regions queried one by one): every dye of every consumer -- the adapter, the cli, the viewer, the JS reference --
+reads its kinetics at the dose at its own (x, y, z), one core query per movie.
+
+- **Core ABI 14** (`ISC_ABI_VERSION` 14; insiliscope.h documents the buffer): `isc_world_set_clock_map(w, v, n)`
+  (format `ISC_CLOCK_MAP_FORMAT` 2: grids, depth tables, per structure a mode `ISC_CLOCK_GLOBAL` / `DOSE` /
+  `ACTIVATION`, epochs of `ISC_KIN` rows, the bound / total / rate fields, tOpen, the PALM steps, and since format 2
+  the bleach fields `bleachTotal` / `bleachRate`), `isc_events_in_map`, `isc_continuous_in_map` (stride
+  `ISC_MAP_WINDOW_STRIDE` 12: the event row + the dye's clock and rate), `isc_world_prefetch_map`. A field is a sum of
+  terms, scale x bilinear grid in sheared coordinates x depth table (`ISC_CLOCK_TERM` 8 doubles). A uniform map
+  answers as the ABI 11 queries bit for bit and in order (they remain, built on the same internals: the viewer's
+  localization view, the cli probes, `blink_regimes_check`). `core/src/clockmap.*` (`ClockMap`, `Eval`, `HasBleach`,
+  `BleachEnd`, the fingerprints `fpSchedule` / `fpNow`), `world.cpp` `EventsInMap` / `ContinuousInMap` (per block a
+  `MapState`: per-dye schedules on their own clocks keyed by `fpSchedule`, the windows' T-ends indexed per `fpNow`
+  when a bleach applies, so a query costs the open windows). JS twin `web/prototype/scope/clockmap.js` and `world.js`
+  `setClockMap` / `eventsInMap` / `continuousInMap`.
+- **Host** `Simulation/LightHistory.{h,cpp}` (JS twin `web/prototype/scope/light_history.js`): `LightState` (`lit`,
+  lines at the sample, the excitation, poses; `MakeLightState(spec, lightOn, ...)`, `LightPoseOf`, `MergeLightStates`,
+  `MergeLightPoses`), `LightHistory::Advance(dtSec, light)` (records, chapters, sparse grids G / G2 on
+  `LightLatticeUm`, a pose kept to `kLightPoseTolUm` 25 nm, the recent records `kLightRecent` 16 apart),
+  `BuildMap(cur, light, box, zLo, zHi, err)` -> an immutable `ClockMapView` (its `Encode`d buffer, `serial`, the
+  host's own `Clock` / `Rate` / `ClockAt` / `Hazard`), `T`, `Lit`, `DoseAt` (the background fade), `DoseRate`,
+  `Reset`, `Bytes` / `Chapters` / `Records`.
+- **Engine**: `FluorescenceMovie::Begin(spec, gpu, err, accel, LightHistory*, const LightState*)` builds the map over
+  the query + `kMapMarginUm` (`fl.clock-map`) and queries once (`fl.windows-query` for the windows); without a host
+  history a shaped beam gets the movie's own two-record map (the past = `start-sec` at the movie's light,
+  `GrowFieldStop`), `RenderScopePhotons(..., past)` the cli's `--history-before`. The windows' bleach is the core's
+  (format 2). Mean field on the map's entries: `WidefieldScene::MappedWeight` (log-bilinear per cell),
+  `AnchorDecay` / `RenderDecayed` (frames of a rate population from one Chebyshev basis), `UsedWeights` for the blink
+  populations. `PrefetchScope(..., history, light)`.
+- **Adapter**: `InSiliScopeCamera::lightHistory_`; a frame's light from `MakeLightState` at its pose (the HILO pivot
+  at its focus), counted at the producer as before (shutter, power at the sample, taken or `TimeWhileIdle`); a stack
+  is one record over its drift path (`MergeLightPoses`); render-ahead's K-frame movie reads one map, its later
+  frames on the open record's rate (no per-frame snapshots); the fade per frame `LightHistory::DoseAt`.
+- **Viewer live** (P5, with the merge of main): `LiveScope` keeps a `LightHistory` (a frame: `MakeLightState` at the
+  drifted pose, `start-sec` = `T()`, `RenderScopePhotons(..., past, carry, progress, history, light)`, then `Advance`
+  per frame once `Lit()`; `LiveFrameInfo::litSec` = `DoseAt` at the FOV centre); ctest `live_scope`. A sub-cell drift
+  of the FOV changes each cell's excitation factor (read relative to the scene's axis) without changing the factor's
+  key: `WidefieldScene::Finish` marks the plane factor changed when the axis moves (live frames under drift reused a
+  bleach basis made under the old placement, up to 2.5 % off; found by `live_scope`'s recording check).
+- **Dye counts** (the mean-field switch, `MovieCache::CountSlab`; found by `viewer_scene`'s data z stack, 2026-10-16):
+  the sorted column of dye heights (the live z scrub's speed-up) is built only for a rect asked for again at other
+  heights, by strips of 4 um keeping only the heights, sorted by buckets on all cores; a first count is the core's
+  `Density3d` again. A whole column's sites at once took > 2 GB of the viewer's WASM heap for a 48 um WideField field
+  (the worker aborted); now 592 MB (main's memory), the counts and frames unchanged.
+- **Removed**: `Simulation/IlluminationHistory.*`, `DyeClock`, `ClockSnapshot`, `ClockRegion`, `HistoryLevel` /
+  `HistoryLightField`, `doseEvents`, `localEvents` / `rawQuery` (and the JS twins), `GridCellKeys`,
+  `SetWeightGroups`, `SetWeightBands`, `MeanFieldNode`, `Excitation::DoseNodes` / `HatWeight`, the dark rule.
+- **Semantics** (spec/ALGORITHM.md): DNA-PAINT binding and PALM's spontaneous activation on the sample's time T (lit
+  or not; T follows `TimeWhileIdle`); a dye no light reaches now is frozen (no photons); the frame counts the whole
+  beam down to 1e-4 of its peak; PALM activation older than the recent records is merged (totals exact).
+- **Checks**: ctest `world_checks.clock_map` (uniform map = ABI 11 bit for bit for every mode, interpolated clocks =
+  per-dye ABI 11 queries, the order rule, cache independence, the bleach ends, threads, bad input), `history_check`
+  (folds and maps against brute-force sums, signature rules, an averaged stack record = a per-pose fold, speed gates;
+  `RUN_SERIAL`), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `wasm_abi_smoke`, `scope_parity`,
+  `engine_check`, `tools/test_history.py` ("Edge": no step at the beam's half contour, mean field and dye by dye),
+  `adapter_pixel_hash` (Flat / BFP 0: unchanged).

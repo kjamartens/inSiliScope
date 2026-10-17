@@ -21,6 +21,7 @@
 #include "../InSiliScopeHub.h"
 #include "../Simulation/CacheDir.h"
 #include "../Simulation/DyeLibrary.h"
+#include "../Simulation/Excitation.h"
 #include "../Simulation/RenderPresets.h"
 #include "../Simulation/ScopeMovie.h"
 #include "../Simulation/SMLMZernike.h"
@@ -625,7 +626,7 @@ std::vector<PropDef> BuildTable()
          NotifyPixel(h);
       });
       add(d);
-      d = Row(O, "ZernikePreset", Tier::Advanced, "zernike-preset",
+      d = Row(O, "ZernikePreset", Tier::Basic, "zernike-preset",
               "The objective's aberrations: a named Zernike set (sets ZernikeCoefficients).");
       d.kind = PropKind::Text;
       d.getText = [](H& h) { return h.State().ZernikePreset(); };
@@ -714,12 +715,50 @@ std::vector<PropDef> BuildTable()
          return v;
       };
       add(d);
-      add(Names(L, "IlluminationProfile", Tier::Basic, "illum-profile", &SceneState::illumProfile,
-                { "Flat", "Gaussian", "FlatTop" }, "The excitation beam's profile over the field of view."));
-      add(Num(L, "IlluminationFwhmPct", Tier::Basic, "illum-fwhm", &SceneState::illumFwhmPct, 10, 300,
+      add(OptNames(L, "IlluminationProfile", Tier::Basic, "illum-profile", sim::IlluminationProfileNames(), 0,
+                   "The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge)."));
+      add(Opt(L, "IlluminationFwhmPct", Tier::Basic, "illum-fwhm", 10, 300,
               "The beam's FWHM (Gaussian, FlatTop), % of the field of view's width."));
-      add(OptNames(L, "IlluminationGeometry", Tier::Basic, "illum-geometry", { "Epi" }, 0,
-                   "How the lasers reach the sample (Epi; TIRF and HILO when the engine has them)."));
+      // The illumination geometry: the laser spot's place in the objective's back focal plane (spec/ALGORITHM.md
+      // "Excitation geometry"). The config group Illumination sets it to Epi / HILO / TIRF.
+      add(Opt(L, "BfpPosition", Tier::Basic, "illum-bfp", 0, 1.2,
+              "Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical "
+              "angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge "
+              "NA / medium index (beyond it no light reaches the sample)."));
+      {
+         // The geometry's readouts (the engine's excitation for the current settings).
+         auto excitation = [](H& h, sim::Excitation& ex) {
+            std::vector<sim::ExcitationLine> shares;
+            std::string err;
+            return sim::ScopeExcitation(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), ex, shares, err);
+         };
+         PropDef r = Row(L, "IlluminationRegime", Tier::Advanced, "illum-regime",
+                         "Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only).");
+         r.kind = PropKind::Text;
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.getText = [excitation](H& h) {
+            sim::Excitation ex;
+            return excitation(h, ex) ? sim::IlluminationRegimeNames()[static_cast<size_t>(ex.Regime())] : std::string("Epi");
+         };
+         r.setText = [](H&, const std::string&) { return true; };
+         add(r);
+         r = Row(L, "IlluminationDepthNm", Tier::Advanced, "illum-depth-nm",
+                 "TIRF: the evanescent field's 1/e intensity depth at the first label's main line; HILO: the sheet's "
+                 "thickness on the axis; -1 in epi (nm, read-only).");
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.get = [excitation](H& h) {
+            sim::Excitation ex;
+            std::vector<sim::ExcitationLine> shares;
+            std::string err;
+            if (!sim::ScopeExcitation(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), ex, shares, err))
+               return -1.0;
+            return ex.DepthNm(shares.empty() ? 640.0 : shares[0].nm);
+         };
+         r.set = [](H&, double) {};
+         add(r);
+      }
       d = Opt(L, "CustomLineNm", Tier::Advanced, "laser-custom-nm", 0, 1000, "Wavelength of an extra laser line (nm).");
       ThenNumber(d, [](H& h) { h.ClearLightPreset(); });
       add(d);
@@ -727,7 +766,8 @@ std::vector<PropDef> BuildTable()
       ThenNumber(d, [](H& h) { h.ClearLightPreset(); });
       add(d);
       add(Opt(L, "ChamberHeightUm", Tier::Advanced, "chamber-height-um", 0, 1000,
-              "Height of the imaging chamber (um): the free-imager background of DNA-PAINT."));
+              "Depth of the imager solution over the coverslip (um): the DNA-PAINT free-imager background is its "
+              "column of light (epi: all of it; HILO: about the sheet; TIRF: about the penetration depth)."));
    }
 
    // =========================== TransmittedLamp ===========================
@@ -746,6 +786,9 @@ std::vector<PropDef> BuildTable()
    // =========================== SampleHolder ===========================
    {
       const char* S = "SampleHolder";
+      // The medium over the coverslip, for every specimen: BrightField's index and the critical angle of TIRF.
+      add(Arr(S, "MediumIndex", Tier::Advanced, "bf.IndexMedium", &SceneState::brightField, BF_INDEX_MEDIUM, 1.0, 2.0,
+              "Refractive index of the medium over the coverslip (BrightField; the critical angle of Lasers.BfpPosition)."));
       {
          PropDef d = Row(S, "DriftPreset", Tier::Basic, "drift-preset",
                          "How much the sample drifts: sets the xy and z drift speeds (0, 2, 5, 25, 250 nm/s) and random "
@@ -898,7 +941,7 @@ std::vector<PropDef> BuildTable()
                                   "Refractive index of the cytoplasm (BrightField).",
                                   "Refractive index of the nucleus (BrightField).",
                                   "Refractive index of a microtubule (BrightField)." };
-      for (int k = 0; k < 4; ++k)
+      for (int k = 1; k < 4; ++k)   // (the medium's: SampleHolder.MediumIndex)
          add(Arr(F, indexNames[k], Tier::Advanced, std::string("bf.") + indexNames[k], &SceneState::brightField,
                  BF_INDEX_MEDIUM + k, 1.0, 2.0, indexHelp[k]));
       for (int i = 0; i < CF_COUNT; ++i)

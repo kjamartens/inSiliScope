@@ -1,5 +1,6 @@
 // ctest live_scope: live imaging of one sample (Simulation/LiveScope.h, the viewer's isc_live_*):
-//   - the FOV centre's clock grows by the exposure per lit frame, and not with the lasers off (or countLight 0);
+//   - the FOV centre's dose (LightHistory::DoseAt) grows by the same step per lit frame -- the exposure x the beam
+//     there --, and not with the lasers off (or countLight 0);
 //   - another place is fresh (clock 0), coming back finds the light it had;
 //   - another world (world-seed) is a fresh sample: time and clocks back to 0;
 //   - two sessions with the same requests give the same frames, bit for bit; the noise differs frame to frame;
@@ -75,22 +76,28 @@ int main()
    std::vector<Shot> shots;
    for (int k = 0; k < 6; k++)
       shots.push_back(Take(live, here));
-   bool ok = true;
+   // The dose per lit frame at the FOV centre: the exposure x the beam there (the default FlatTop's centre, within
+   // 0.1 % of its peak).
+   const double step = shots[1].info.litSec;
+   bool ok = std::fabs(step - 0.1) < 1e-4;
    for (int k = 0; k < 6; k++)
-      ok = ok && shots[k].ok && shots[k].info.lit && std::fabs(shots[k].info.litSec - 0.1 * k) < 1e-6 &&
+      ok = ok && shots[k].ok && shots[k].info.lit && std::fabs(shots[k].info.litSec - step * k) < 1e-9 &&
            std::fabs(shots[k].info.tSec - 0.1 * k) < 1e-9;
-   Check(ok, "the FOV centre's clock and the time grow by the exposure per lit frame (0.0 .. 0.5 s)");
+   char msg[200];
+   std::snprintf(msg, sizeof msg, "the FOV centre's dose and the time grow by one step per lit frame (%.6f s per 0.1 s "
+                 "frame, 0 .. %.6f)", step, shots[5].info.litSec);
+   Check(ok, msg);
    const Shot d1 = Take(live, dark), d2 = Take(live, dark);
    Check(d1.adu != d2.adu, "the noise differs frame to frame (two dark frames)");
-   Check(d1.ok && d2.ok && !d1.info.lit && std::fabs(d1.info.litSec - 0.6) < 1e-6 && std::fabs(d2.info.litSec - 0.6) < 1e-6,
-         "lasers off: the frame lights nothing (the clock stays at 0.6 s)");
+   Check(d1.ok && d2.ok && !d1.info.lit && std::fabs(d1.info.litSec - 6 * step) < 1e-9 &&
+         std::fabs(d2.info.litSec - 6 * step) < 1e-9, "lasers off: the frame lights nothing (the dose stays at 6 steps)");
    const Shot uncounted = Take(live, here, false), after = Take(live, here);
-   Check(uncounted.ok && !uncounted.info.lit && std::fabs(after.info.litSec - 0.6) < 1e-6,
+   Check(uncounted.ok && !uncounted.info.lit && std::fabs(after.info.litSec - 6 * step) < 1e-9,
          "countLight 0: the frame's light is not added");
 
    const Shot a = Take(live, away), back = Take(live, here);
-   Check(a.ok && a.info.litSec == 0.0 && back.ok && std::fabs(back.info.litSec - 0.7) < 1e-6,
-         "40 um away is fresh (clock 0); back at the first place: 0.7 s");
+   Check(a.ok && a.info.litSec == 0.0 && back.ok && std::fabs(back.info.litSec - 7 * step) < 1e-9,
+         "40 um away is fresh (dose 0); back at the first place: 7 steps");
 
    // The initial ON (dSTORM): bright at a fresh place, fading under light.
    LiveScope fade;
@@ -100,8 +107,7 @@ int main()
    for (int k = 0; k < 80; k++)
       last = Take(fade, bright);
    const Shot fresh = Take(fade, Spec("x=-30 laser-640=5"));
-   char msg[200];
-   std::snprintf(msg, sizeof msg, "dSTORM initial ON fades under light: mean %.0f ADU at 0 s, %.0f after %.1f s; 33 um away fresh (clock %.1f s)",
+   std::snprintf(msg, sizeof msg, "dSTORM initial ON fades under light: mean %.0f ADU at 0 s, %.0f after %.1f s; 33 um away fresh (dose %.1f s)",
                  Mean(first.adu), Mean(last.adu), last.info.litSec, fresh.info.litSec);
    Check(first.ok && last.ok && Mean(last.adu) < 0.5 * Mean(first.adu) && fresh.info.litSec == 0.0, msg);
    // The frame's render paths (the viewer's info line): the blinks' path and the initial-ON population's.

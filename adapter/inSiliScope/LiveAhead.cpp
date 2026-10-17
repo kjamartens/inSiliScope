@@ -124,17 +124,42 @@ bool CInSiliScopeCamera::PrepareLiveGpu(const sim::FluorescenceSimplePlan& plan,
       kernels.push_back(sg.kernel);
       serials.push_back(sg.kernel->SplatSerial());
    }
-   if (serials != g.kernelSerials || plan.backgroundPhotons != g.background || st.version != g.statics)
+   const std::vector<float> noMap;
+   const std::vector<float>& bgMap = plan.backgroundMap ? *plan.backgroundMap : noMap;
+   if (g.splat && !g.kernelSerials.empty() && serials == g.kernelSerials && st.version == g.statics &&
+       (plan.backgroundPhotons != g.background || bgMap != g.backgroundMap))
    {
+      // Only the background moved (a shaped beam's map follows the focus): the per-pixel statics, not the kernels
+      // (~0.4 s for the default kernel). On a failure the full setup below runs.
+      const auto tBg = sim::TimingClock::now();
+      sim::SimulationParams gp = params;
+      gp.backgroundPhotons = plan.backgroundPhotons;
+      std::string err;
+      if (g.splat->SetStatic(w, h, st.offsetMap.offset, st.gainMap.gainPhotonsPerAdu, st.readNoiseMap.readNoiseElectrons,
+                             bgMap.size() == static_cast<size_t>(w) * h ? bgMap : noMap, gp.backgroundPhotons,
+                             gp.Camera(), err))
+      {
+         g.background = plan.backgroundPhotons;
+         g.backgroundMap = bgMap;
+         sim::TimingLog("gpu.prepare-background", sim::TimingSince(tBg));
+         return true;
+      }
+   }
+   if (serials != g.kernelSerials || plan.backgroundPhotons != g.background || st.version != g.statics ||
+       bgMap != g.backgroundMap)
+   {
+      const auto tPrep = sim::TimingClock::now();
       sim::SimulationParams gp = params;
       gp.backgroundPhotons = plan.backgroundPhotons;
       g.kernelSerials.clear();
-      if (PrepareGpu(g.splat, kernels, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, st.shaping, gp))
+      if (PrepareGpu(g.splat, kernels, w, h, st.offsetMap, st.gainMap, st.readNoiseMap, plan.backgroundMap, gp))
          g.kernelSerials = serials;
       g.background = plan.backgroundPhotons;
+      g.backgroundMap = bgMap;
       g.statics = st.version;
       if (g.kernelSerials.empty())
          g.failedAt = st.version;
+      sim::TimingLog("gpu.prepare", sim::TimingSince(tPrep));
    }
    return !g.kernelSerials.empty();
 }
@@ -157,7 +182,7 @@ void CInSiliScopeCamera::LiveAheadLoop()
       sim::FluorescenceMovie fm;
       fm.CarryRunningImages(true);
       if (!fm.Begin(job.spec, false, out.err, job.useGpu ? WideFieldGpu(liveGpu_.wf, liveGpu_.wfTried) : nullptr,
-                    &job.clock))
+                    &lightHistory_, &job.light))
          return;
       if (cancelled())
          return;

@@ -119,18 +119,39 @@ public:
    // states, dSTORM initial ON, WideField dyes) open after q.tSec, mapped as
    // Events maps blinks (an always-on window ends at +infinity).
    bool Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out);
+   // The core's rows of isc_continuous_in_window over a box (ISC_EVENT_STRIDE doubles each: world x, y, z, clock
+   // seconds), replacing rows: a host's cache of windows (each a pure function of its dye and the kinetics history),
+   // mapped into a query's frame by MapRow.
+   bool ContinuousRows(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
+                       std::vector<double>& rows);
+   // One row (ISC_EVENT_STRIDE doubles) as a BlinkEvent in q's frame, as Events / Continuous map them.
+   static void MapRow(const SampleQuery& q, const double* row, BlinkEvent& out);
+   // The fluorescent dyes in the window (isc_sites_in_window): ISC_SITE_STRIDE doubles each (world x, y, z, id,
+   // structure), replacing out. False on a core failure.
+   bool Sites(double x0, double y0, double x1, double y1, double zMin, double zMax, std::vector<double>& out);
 
    // Pre-loads what q would need if the stage moved up to marginUm in x/y or
    // to any focus (the whole z column), nearest ring first, for at most about
    // budgetMs. Only fills caches: no event changes. True when all of it is
-   // cached.
-   bool Prefetch(const SampleQuery& q, double marginUm, double budgetMs);
+   // cached. inMap: for the map queries under the clock map set (isc_world_prefetch_map).
+   bool Prefetch(const SampleQuery& q, double marginUm, double budgetMs, bool inMap = false);
 
    // The kinetics history of the following Events / Continuous / Prefetch
    // (isc_world_set_kinetics_history, ABI 11: nSeg rows of ISC_KIN_ROW
    // doubles; 0 = none, each label's kinetics from t = 0). A host that sets
    // one sets it before every query (the world is shared). False on bad rows.
    bool SetKineticsHistory(const double* rows, int nSeg);
+
+   // ABI 14, the clock map (isc_world_set_clock_map; LightHistory.h ClockMapView::buffer) of the following map
+   // queries; nullptr or empty removes it (they are then the ABI 11 ones). A host that sets one sets it before its
+   // queries and removes it after (the world is shared). False on a bad map (nothing changes then).
+   bool SetClockMap(const std::vector<double>* buffer);
+   // The blinks of q's window and [tSec, tSec + spanSec) of the sample's time T, each dye on its own clock
+   // (isc_events_in_map), mapped as Events maps them (q.tSec: T at frame q.frameIndex).
+   bool EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& out);
+   // The continuous windows open after q.tSec (isc_continuous_in_map), mapped as Continuous maps them, and per window
+   // its dye's clock and rate (two doubles each, appended to clockRate; nullptr: not wanted).
+   bool ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate);
 
    // Fluorescent-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
    // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], of the structures in

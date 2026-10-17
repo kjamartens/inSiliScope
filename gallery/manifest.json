@@ -8,7 +8,7 @@
   "_defaults": "Every movie looks at the same spot (x, y; chosen 2026-10-15: about 75% of a nucleus in the top-left corner, the microtubules spreading out to the cell edge, an empty strip in the bottom-right corner).",
   "entries": [
     { "id": "sr-default", "title": "Default SMLM movie",
-      "text": "The default CellField, two targets at once: the microtubules in DNA-PAINT with an ATTO 655 imager (1 nM, 640 nm) on 70% of their binding sites through primary + secondary antibodies (IgG2-PAINT), and the nuclear pores (12 per um^2 of envelope, Nup96-SNAP) in DNA-PAINT with a Cy3B imager (2.5 nM, 561 nm) on 60% of their sites, both lasers through a multi-band filter set (light-preset auto); the free imagers' flat background, the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
+      "text": "The default CellField, two targets at once: the microtubules in DNA-PAINT with an ATTO 655 imager (1 nM, 640 nm) on 70% of their binding sites through primary + secondary antibodies (IgG2-PAINT), and the nuclear pores (12 per um^2 of envelope, Nup96-SNAP) in DNA-PAINT with a Cy3B imager (2.5 nM, 561 nm) on 60% of their sites, both lasers through a multi-band filter set (light-preset auto); the free imagers' background under a HILO sheet (the DNA-PAINT presets' illum-bfp 0.95), the Gibson-Lanni + Zernike PSF (MixedRealisticObjective aberrations), Kinetix22 sCMOS noise; 60 s after the illumination came on.",
       "options": {} },
     { "id": "sr-dense", "title": "Dense activation",
       "text": "The microtubules' imager at 14.3 nM (the default is 1 nM): ~14 times the binding rate, overlapping emitters and a ~14 times brighter free-imager background.",
@@ -148,12 +148,24 @@
     { "id": "gt-both", "title": "Both targets, ground truth", "gt": ["mt", "npc"],
       "text": "Microtubules and nuclear pores together.",
       "options": {} },
-    { "id": "nr-paint-tirf", "title": "DNA-PAINT, TIRF-like",
-      "text": "specimen Nanorulers, the ATTO 655 imager at 20 nM, 100 ms frames, with only 0.2 um of imager solution lit (chamber-height-um 0.2) as TIRF would. inSiliScope has no TIRF or HILO excitation yet: only the free imager's background depth changes, not the excitation of the strands.",
-      "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100, "chamber-height-um": 0.2} },
-    { "id": "nr-paint-hilo", "title": "DNA-PAINT, HILO-like",
-      "text": "The same with 1.5 um of imager solution lit (chamber-height-um 1.5) as a HILO sheet would (the default, 5 um, stands for epi). Again only the background depth.",
-      "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100, "chamber-height-um": 1.5} }
+    { "id": "nr-paint-tirf", "title": "DNA-PAINT nanorulers, TIRF",
+      "text": "specimen Nanorulers: DNA-origami rods on the coverslip, three spots of five docking strands 80 nm apart, the ATTO 655 imager at its default 20 nM, 100 ms frames, in TIRF (the nanorulers' light preset, illum-bfp 1.03): an evanescent layer about 150 nm deep lights the strands and only the imager near the coverslip.",
+      "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100} },
+    { "id": "nr-paint-hilo", "title": "DNA-PAINT nanorulers, HILO",
+      "text": "The same in HILO (illum-bfp 0.95): an inclined sheet a few um thick lights the imager above the strands too.",
+      "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100, "illum-bfp": 0.95} },
+    { "id": "nr-paint-epi", "title": "DNA-PAINT nanorulers, epi",
+      "text": "The same in epi (illum-bfp 0): the 20 nM imager in the whole lit column raises the background about ninefold.",
+      "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100, "illum-bfp": 0} },
+    { "id": "light-epi", "title": "Epi illumination",
+      "text": "illum-bfp 0: the laser spot at the centre of the back focal plane, the beam straight up through the sample. The default DNA-PAINT movie is HILO (0.95); in epi the free imager in the whole lit column adds its background.",
+      "options": {"illum-bfp": 0} },
+    { "id": "light-tirf", "title": "TIRF",
+      "text": "illum-bfp 1.03: past the critical angle, an evanescent layer about 150 nm deep (at 640 nm). The free-imager background drops, and the microtubules above the layer go dark: only those near the coverslip are lit.",
+      "options": {"illum-bfp": 1.03} },
+    { "id": "light-flat", "title": "Flat beam profile",
+      "text": "illum-profile Flat: a laterally infinite beam instead of the default FlatTop (a soft-edged disc, FWHM 100 % of the field's width): the corners are as bright as the centre.",
+      "options": {"illum-profile": "Flat"} }
   ],
   "sections": [
     { "title": "One sample, three microscopes",
@@ -192,6 +204,12 @@
         {"panels": [["wf-zsweep", "widefield, 0 to 4 um"], ["bf-zsweep", "brightfield, -2 to 2 um (4x wider field)"]], "caption": "Focus sweeps, one frame per 0.25 um. In brightfield the cells are nearly invisible in focus and change contrast through it."},
         {"panels": [["sr-na-low", "NA 0.9"], ["sr-default", "NA 1.4 (default)"], ["sr-na-high", "NA 1.49"]], "shared": true, "caption": "A higher NA collects more light into a smaller spot."}
       ] },
+    { "title": "How the light reaches the sample",
+      "story": "Where the laser spot sits in the objective's back focal plane decides the light's path: in its centre the beam goes straight up (epi), towards the edge it leaves at a slant as a thin sheet (HILO), past the critical angle it is reflected and only an evanescent layer reaches the cells (TIRF). The beam is a soft-edged disc over the field by default.",
+      "rows": [
+        {"panels": [["light-epi", "epi"], ["sr-default", "HILO (default)"], ["light-tirf", "TIRF"]], "shared": true, "caption": "Epi lights the free imager through the whole chamber, HILO only a sheet, TIRF only the first ~150 nm: the background falls, and in TIRF the microtubules higher in the cell go dark."},
+        {"panels": [["sr-default", "FlatTop beam (default)"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A flat-top beam dims towards the corners; a flat one lights the field evenly."}
+      ] },
     { "title": "Shaping the PSF",
       "story": "The default PSF is a Gibson-Lanni model with Zernike aberrations of a realistic objective. Aberrations can be dialled in on purpose: astigmatism makes spots stretch with their height, which is how 3D SMLM works.",
       "rows": [
@@ -224,7 +242,7 @@
     { "title": "DNA-origami nanorulers",
       "story": "The second sample: DNA-origami rods on the coverslip, each with three spots of docking strands 80 nm apart, or flat origami in any design. A standard for testing resolution.",
       "rows": [
-        {"panels": [["nr-paint-tirf", "DNA-PAINT, TIRF-like"], ["nr-paint-hilo", "DNA-PAINT, HILO-like"]], "shared": true, "caption": "The three spots of a rod fall within one pixel; only the localisations resolve them. TIRF and HILO are approximated by how much imager solution is lit (0.2 and 1.5 um): the free imager's background, not yet the excitation field."},
+        {"panels": [["nr-paint-tirf", "DNA-PAINT, TIRF (default)"], ["nr-paint-hilo", "HILO"], ["nr-paint-epi", "epi"]], "shared": true, "caption": "The three spots of a rod fall within one pixel; only the localisations resolve them. The deeper the light reaches into the imager solution, the brighter its background."},
         {"panels": [["nr-widefield", "rods, widefield"], ["nr-logo-widefield", "TU Delft logos, 320 nm spacing"]], "caption": "In widefield every strand glows at once: one diffraction-limited spot per rod. Flat origami with the strands spread wider than the PSF: the logo reads without super-resolution."}
       ] },
     { "title": "Render quality",

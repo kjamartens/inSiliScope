@@ -11,6 +11,13 @@ dark frames' mean.
 - PALM (mEos3.2): the 405 line off -> the activated dyes blink on (the first frames after keep > 50% of the signal)
   and then die out (no new activations).
 - Stop/start: a second sequence continues where the first stopped.
+- Edge: 0.6 s of WideField under the FlatTop beam; the fraction kept changes smoothly with the radius (the exact
+  dose, no step at the half contour where the stepped history levels, removed 2026-10-16, had one).
+- Edge, dye by dye (3 % labelling, the continuous populations per dye): dSTORM (AF647, 0.5 kW/cm^2: the initial ON
+  dyes and their blinks) for 2 s and WideField per dye (mEGFP) for 0.7 s; the fraction kept by radius steps by less
+  than 0.13 between rings (the levels gave 0.17 and 0.16 at the half contour) and the centre keeps less than the rim.
+- Height (the history's z bands, 2026-10-13): bleached 2 s in TIRF (Lasers.BfpPosition 1.03), the first epi frame is
+  far brighter than after 2 s in epi (the dyes above the evanescent layer were never lit).
 - SampleHolder.TimeWhileIdle: Paused -> 2 s idle with the lasers open changes nothing; Running -> they bleach the
   sample meanwhile; lasers at 0 kW/cm^2 bleach nothing even then.
 - Drift: Paused -> 2 s idle moves the sample by at most a frame's step; Running -> by ~speed x 2 s (directed drift,
@@ -68,7 +75,8 @@ def main():
     core.setExposure(50)
     assert core.getProperty("SampleHolder", "TimeWhileIdle") == "Paused"
     # Places with cells (seed 7), 40 um apart: each check starts on a sample never lit.
-    places = iter([(0.0, 0.0), (80.0, 40.0), (40.0, 40.0), (120.0, 0.0), (160.0, 0.0), (160.0, 80.0), (40.0, 80.0)])
+    places = iter([(0.0, 0.0), (80.0, 40.0), (40.0, 40.0), (120.0, 0.0), (160.0, 0.0), (160.0, 80.0), (440.0, 40.0),
+                   (240.0, 80.0)])
 
     def fresh_place():
         x, y = next(places)
@@ -98,7 +106,7 @@ def main():
     after = sig(sequence(core, 5))
     decay, ratio = before[-1] / before[0], after[0] / before[-1]
     print(f"WideField: 20 frames at {P:g} kW/cm^2 decay to {decay:.2f}; at x4 the first frame is {ratio:.2f}x the "
-          f"last (expected ~4)")
+          f"last (expected 3-4: x4, less the faster bleaching within the frame)")
     assert before[0] > 5, f"WideField: too little signal ({before[0]:.2f} ADU)"
     assert decay < 0.8, f"WideField: the sample should bleach visibly in 1 s (decay {decay:.2f})"
     assert 3.0 < ratio < 4.8, f"WideField: x4 power should give ~4x the last frame, got {ratio:.2f}"
@@ -110,6 +118,44 @@ def main():
     cont = s2[0] / s1[-1]
     print(f"Stop/start: the next sequence's first frame is {cont:.2f}x the last one (expected ~0.97)")
     assert 0.85 < cont < 1.1, f"stop/start: the sample should continue, got {cont:.2f}"
+
+    # ---- Edge: the bleached area has the beam's soft edge ----
+    fresh_place()
+    fr = sequence(core, 14)
+    first, last = (fr[0] + fr[1]) / 2 - dark, (fr[-2] + fr[-1]) / 2 - dark
+    yy, xx = np.mgrid[:first.shape[0], :first.shape[1]]
+    r = np.hypot(xx - (first.shape[1] - 1) / 2, yy - (first.shape[0] - 1) / 2) / first.shape[1]  # FOV widths
+    rings = [(r >= a) & (r < a + 0.03) for a in np.arange(0.0, 0.67, 0.03)]   # the beam's half contour at 0.5
+    kept = np.array([last[m].sum() / first[m].sum() for m in rings])
+
+    def kept_by_ring(fr):
+        """The fraction kept per ring (last two frames / first two) and its largest step between neighbouring rings,
+        over the rings from 0.12 FOV widths out (the innermost have few pixels) with signal (> 5 % of the most)."""
+        f = np.array([((fr[0] + fr[1]) / 2 - dark)[m].sum() for m in rings])
+        k = np.array([((fr[-2] + fr[-1]) / 2 - dark)[m].sum() for m in rings]) / f
+        use = (f > 0.05 * f.max()) & (np.arange(len(rings)) >= 4)
+        both = use[:-1] & use[1:]
+        return k, np.abs(np.diff(k))[both].max(), k[use][:3].mean(), k[use][-3:].mean()
+    step = np.abs(np.diff(kept)).max()
+    print(f"Edge: kept after 0.6 s by radius (FOV widths, 0.03 rings) {' '.join(f'{k:.2f}' for k in kept)}; "
+          f"largest step {step:.2f}")
+    assert kept[:5].mean() < 0.6 and kept[-1] > kept[:5].mean() + 0.3, \
+        f"Edge: the centre should bleach and the rim less ({kept[:5].mean():.2f}, {kept[-1]:.2f})"
+    assert step < 0.15, f"Edge: the bleached fraction should follow the beam's soft edge, a step of {step:.2f}"
+
+    # ---- Height: TIRF, then epi ----
+    def epi_after(bfp):
+        fresh_place()
+        core.setProperty("Lasers", "BfpPosition", str(bfp))
+        lit = sig(sequence(core, 40))
+        core.setProperty("Lasers", "BfpPosition", "0")
+        return lit, sig(sequence(core, 3))[0]
+    tirf, after_tirf = epi_after(1.03)
+    epi, after_epi = epi_after(0)
+    print(f"Height: after 2 s in TIRF the first epi frame is {after_tirf:.2f} ADU, after 2 s in epi {after_epi:.2f} "
+          f"(TIRF frames {tirf[0]:.2f} -> {tirf[-1]:.2f}, epi {epi[0]:.2f} -> {epi[-1]:.2f})")
+    assert core.getProperty("Lasers", "IlluminationRegime") == "Epi"
+    assert after_tirf > 1.5 * after_epi, f"TIRF should leave the dyes higher in the cell fresh ({after_tirf:.2f} vs {after_epi:.2f})"
 
     # ---- TimeWhileIdle: idle light ----
     fresh_place()
@@ -150,6 +196,29 @@ def main():
     assert first > 0.5 * level, f"PALM: the activated dyes should keep blinking after the 405 goes off ({first:.2f})"
     assert last < 0.6 * first, f"PALM: without the 405 the blinking should die out ({first:.2f} -> {last:.2f})"
     lasers(core, l405=l405, l561=l561)
+
+    # ---- Edge, dye by dye: dSTORM (the initial ON and the blinks), WideField per dye ----
+    mf = {k: core.getProperty("Renderer", k) for k in ("MeanFieldDensityPerUm2", "MeanFieldMaxEmitters")}
+    core.setProperty("Renderer", "MeanFieldDensityPerUm2", "1e6")   # every continuous population per dye
+    core.setProperty("Renderer", "MeanFieldMaxEmitters", "1e9")
+    label(core, "dSTORM", "AF647")
+    lasers(core, l640=0.5)
+    core.setProperty("CellField", "Microtubules_LabelingPct", "3")   # (a label sets its mode's labelling)
+    fresh_place()
+    k_st, step_st, in_st, out_st = kept_by_ring(sequence(core, 40))
+    label(core, "WideField", "mEGFP")
+    custom_microtubule_dye(core, PhotonBudget=f"{emission * 1.5:.6g}")
+    lasers(core, l488=P)
+    core.setProperty("CellField", "Microtubules_LabelingPct", "3")
+    fresh_place()
+    k_wf, step_wf, in_wf, out_wf = kept_by_ring(sequence(core, 14))
+    for prop, v in mf.items():
+        core.setProperty("Renderer", prop, v)
+    print(f"Edge per dye: dSTORM kept {' '.join(f'{k:.2f}' for k in k_st)}, largest step {step_st:.2f}; WideField "
+          f"{' '.join(f'{k:.2f}' for k in k_wf)}, largest step {step_wf:.2f} (the levels: 0.17, 0.16)")
+    for name, step, inner, outer in (("dSTORM", step_st, in_st, out_st), ("WideField per dye", step_wf, in_wf, out_wf)):
+        assert inner < outer - 0.15, f"Edge, {name}: the centre should keep less than the rim ({inner:.2f}, {outer:.2f})"
+        assert step < 0.13, f"Edge, {name}: the kept fraction should follow the beam's soft edge, a step of {step:.2f}"
 
     # ---- Drift between acquisitions ----
     label(core, "WideField", "mEGFP")

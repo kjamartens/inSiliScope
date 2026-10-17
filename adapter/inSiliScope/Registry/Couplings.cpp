@@ -123,6 +123,7 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
          return;
       }
       state_.SetLight(id, q.lasers, q.excitationFilter, q.dichroic, q.emissionFilter);
+      state_.SetOption("illum-bfp", q.bfpPosition);   // the geometry: DNA-PAINT HILO, the nanorulers TIRF, else epi
    }
    else
    {
@@ -131,6 +132,8 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
          return;
       state_.SetLight(id, std::vector<double>(q->lasers, q->lasers + lines.size()),
                       q->excitationFilter ? q->excitationFilter : "None", q->dichroic, q->emissionFilter);
+      state_.SetOption("illum-bfp",
+                       sim::ScopePresetBfpPosition(isc::BuildScopeSpec(state_, 0, 0, 0, 0, 1), q->bfpPosition));
    }
    for (size_t l = 0; l < lines.size(); ++l)
       Notify("laser-" + std::to_string(lines[l]));
@@ -138,6 +141,7 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
    Notify("dichroic");
    Notify("em-filter");
    Notify("light-preset");
+   Notify("illum-bfp");
 }
 
 void InSiliScopeHub::ClearLightPreset()

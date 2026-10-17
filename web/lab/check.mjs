@@ -113,10 +113,10 @@ for (const spec of [`size=32 frames=4 ${K}`,
   } catch (e) { bad(`imaging ${spec}: ${e.message}`); }
 }
 // The regression anchor of the two targets: with the pores off, the auto light preset is the microtubules' own
-// (PAINT-640), i.e. the light path of the options' defaults (light-preset -1).
+// (PAINT-640), i.e. the light path of the options' defaults (light-preset -1) with the preset's HILO (illum-bfp).
 {
   const c = workCells[0], frames = [];
-  for (const lp of ['', ' light-preset=-1']) {
+  for (const lp of ['', ' light-preset=-1 illum-bfp=0.95']) {
     const a = [];
     renderScopeMovie(imagingP, `world-seed=${seed} x=${c.nuc.x + c.nuc.a} y=${c.nuc.y} size=24 frames=2 ${K} npc-dye=None${lp}`, (f, adu) => a.push(Array.from(adu)));
     frames.push(JSON.stringify(a));
@@ -124,6 +124,9 @@ for (const spec of [`size=32 frames=4 ${K}`,
   if (frames[0] !== frames[1]) bad('pores off: the auto light preset differs from the default light path');
   else console.log('pores off: auto light preset == the default light path (identical ADU)');
 }
+try {
+  console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/excitation_check.mjs')], { encoding: 'utf8' }).trim().split('\n').pop());
+} catch (e) { console.log(String(e.stdout)); bad('web/lab/excitation_check.mjs'); }
 try {
   console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/origami_check.mjs')], { encoding: 'utf8' }).trim().split('\n').pop());
 } catch (e) { console.log(String(e.stdout)); bad('web/lab/origami_check.mjs'); }

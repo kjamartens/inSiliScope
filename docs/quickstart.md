@@ -54,6 +54,10 @@ side-by-side movies: the [Gallery](gallery/index.md).
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
       `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`
       (`CellField` / `Nanorulers`, the `SampleHolder` position);
+    - `Illumination` (`Epi` / `HILO` / `TIRF`: where the laser spot sits in the objective's back focal plane,
+      `Lasers.BfpPosition` 0 / 0.95 / 1.03) and `BfpPosition` (the same as an editable field, 0 = epi, 1 = the critical
+      angle). The channels' light presets set it too: the DNA-PAINT channel HILO, the nanorulers TIRF, the others epi
+      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry));
     - `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)`: the two lines' powers at the sample as editable fields in
       the main window (one property each, `Lasers.Laser561KWcm2` / `Laser640KWcm2`; 0 = off), e.g. 561 alone for the
       nuclear pores, 640 alone for the microtubules;
@@ -88,8 +92,8 @@ side-by-side movies: the [Gallery](gallery/index.md).
 
 Every device and property, with its tier and default: [Micro-Manager properties](mm-properties.md). Snaps, live mode and
 sequences (also hardware z stacks: the `ZStage` is sequenceable) render live. `Renderer.WriteScopeSpecTo` (Expert)
-writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers how
-long each place of the sample has been lit (snaps, live acquisition and sequences add to it): imaging bleaches and uses
+writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers what
+light each place of the sample has had (snaps, live acquisition and sequences add to it): imaging bleaches and uses
 up dyes where you imaged, a place never lit starts fresh (dSTORM dyes first in their bright initial ON phase).
 
 The adapter computes the PSF kernel in the background as soon as the device initialises, so the first frame does not

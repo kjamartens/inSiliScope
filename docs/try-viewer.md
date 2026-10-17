@@ -28,8 +28,8 @@ through it step by step.
   the buttons shows the frame rate, the render time per frame, the image size and the pixel size, led by "Working..." while a
   slow frame, snap or recording is being rendered; the button turns red while live runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame
   takes is added to the sample's **illumination history**, so dSTORM dyes leave their initial ON state, PALM dyes
-  convert and bleach and widefield labels fade where you look, while a place you have not lit yet is fresh; moving away
-  and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
+  convert and bleach and widefield labels fade where you look, at the beam's own shape and depth, while a place you have
+  not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
   parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below;
   the Acquisition group is hidden for now). **Focus**: the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
@@ -108,8 +108,10 @@ through it step by step.
   Defaults: microtubules ATTO 655 DNA-PAINT through primary + secondary antibodies, pores Cy3B DNA-PAINT on SNAP-tagged
   Nup96. **Nuclear pores** sets their density on the nuclear envelope (default 8 per µm², at least 180 nm apart) and, in Advanced, the
   minimum spacing and the ring geometry. A mode or dye pick loads the dye's fields, the mode's labelling and the light
-  preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic, filter and,
-  under Geometry, the DNA-PAINT chamber height in Advanced). The preset is also the modality: "BrightField (lasers
+  preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
+  filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
+  how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
+  profile, its width and the DNA-PAINT chamber height; [Dyes and light path](physics/dyes-and-light-path.md)). The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.

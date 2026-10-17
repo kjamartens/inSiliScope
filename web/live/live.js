@@ -6,7 +6,7 @@
 //
 // Loaded after the viewer's main script (web/index.html) and uses its globals: movieSpec, spawnGenWorker,
 // genWorkers, view, requestDraw, resizeCanvas, makeMovie, uiKit. A live frame is a `live` job (cli/scope_wasm.cpp
-// isc_live_frame: sim::LiveScope, the adapter's live mode, with the sample's illumination history); an engine
+// isc_live_frame: sim::LiveScope, the adapter's live mode, with the sample's light history); an engine
 // without it (the lab's JS reference) gets single-frame `movie` jobs at an advancing start time instead.
 'use strict';
 (function () {
@@ -403,10 +403,10 @@ function renderPaths(bf, both) {
 // the frame shows its count in the row's tooltip. Phases not in the list add up in "other engine phases".
 const PHASES = [
   ['fl.total', 'fluorescence, total', 1], ['fl.setup', 'setup', 2], ['fl.make-setup', 'resolve the spec', 2],
-  ['fl.configure', 'labels, light path', 2], ['fl.history', 'illumination history', 2], ['fl.clock-regions', 'clock regions', 2],
-  ['fl.events-query', 'blink events (core)', 2], ['fl.events-sort', 'sort events', 2], ['fl.windows', 'per-dye windows', 2],
+  ['fl.configure', 'labels, light path', 2], ['fl.clock-map', 'light history: clock map', 2], ['fl.survey', 'survival survey', 2],
+  ['fl.events-query', 'blink events (core)', 2], ['fl.events-sort', 'sort events', 2], ['fl.windows', 'per-dye windows', 2], ['fl.windows-query', 'open windows (core)', 2],
   ['fl.dye-counts', 'dye counts', 2], ['fl.psf-kernels', 'PSF kernels', 2], ['fl.mean-field-scene', 'mean-field scene', 2],
-  ['fl.mean-field-weights', 'mean-field weights', 2], ['fl.mean-field-render', 'mean-field image', 2],
+  ['fl.mean-field-entries', 'mean-field map entries', 2], ['fl.mean-field-weights', 'mean-field weights', 2], ['fl.mean-field-render', 'mean-field image', 2],
   ['fl.frame.blinks (batches)', 'blinks (splat / binned)', 2], ['fl.frame.continuous', 'continuous dyes', 2],
   ['fl.frame.noise (batches)', 'camera noise', 2], ['fl.frame.onFrame', 'hand-over', 2],
   ['bf.total', 'BrightField, total', 1], ['bf.scene', 'BrightField scene', 2], ['bf.scene-update', 'BrightField scene update', 2],
@@ -462,7 +462,7 @@ function drawScale() {
 window.addEventListener('resize', drawScale);
 
 // ---- Record: the next N frames at the stage position, as fast as the engine goes ----
-// The live sample goes on (its illumination history, drift, noise counter), the frames are not paced to the exposure:
+// The live sample goes on (its light history, drift, noise counter), the frames are not paced to the exposure:
 // Record: N frames rendered as fast as the engine goes, saved as one 16-bit TIFF: ImageJ's header (frames, frame
 // interval, pixel size) and every setting (the engine spec). By default a fresh sample: one movie job of N frames on
 // the live worker (= "Make movie here", = insiliscope_cli --spec with the header's spec), the live sample untouched;
@@ -561,7 +561,7 @@ function openPlayer(n) {
   const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
     ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
       `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
-      'insiliscope.note=the frames continue the live sample (its illumination history and drift); insiliscope_cli --spec renders a fresh sample']
+      'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
       : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
   closePlayer();

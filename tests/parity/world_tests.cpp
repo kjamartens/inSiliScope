@@ -2079,6 +2079,645 @@ void Npcs()
    }
 }
 
+// ABI 14: the clock map (clockmap.h). A uniform map is the ABI 11 queries bit for bit and in order; a shaped map is
+// every dye on its own clock (a brute force per dye); the answers do not depend on the caches, the query history or
+// the threads; a pose change rebuilds no schedule; the C ABI reads the flat buffer and refuses bad ones.
+namespace clockmap_checks {
+
+ClockMap MapWith(const StructClock& mt, const Kinetics& other)
+{
+   ClockMap m;
+   m.s.assign(STRUCTURE_COUNT, StructClock());
+   for (StructClock& c : m.s) { c.hist.tStart = { 0.0 }; c.hist.kin = { other }; }
+   m.s[STRUCTURE_MT] = mt;
+   return m;
+}
+
+KineticsHistory Hist(std::vector<double> t, std::vector<Kinetics> k)
+{
+   KineticsHistory h;
+   h.tStart = std::move(t);
+   h.kin = std::move(k);
+   return h;
+}
+
+ClockTerm Term(int grid, int depth, double scale, double sx = 0, double sy = 0, double zp = 0, double ox = 0, double oy = 0)
+{
+   ClockTerm t;
+   t.grid = grid; t.depth = depth; t.scale = scale; t.sx = sx; t.sy = sy; t.zp = zp; t.ox = ox; t.oy = oy;
+   return t;
+}
+
+// A wavy field with a step (the soft and the hard parts of a beam), on 0.25 um nodes around the window.
+ClockGrid Wavy(double x0, double y0, double x1, double y1, double phase, double step)
+{
+   ClockGrid g;
+   g.h = 0.25;
+   g.x0 = x0 - 12;
+   g.y0 = y0 - 12;
+   g.nx = (int32_t)((x1 - x0 + 24) / g.h) + 1;
+   g.ny = (int32_t)((y1 - y0 + 24) / g.h) + 1;
+   const double xm = (x0 + x1) / 2;
+   for (int32_t j = 0; j < g.ny; j++)
+      for (int32_t i = 0; i < g.nx; i++) {
+         const double u = g.x0 + i * g.h, v = g.y0 + j * g.h;
+         g.v.push_back(1 + 0.8 * std::sin(1.3 * u + phase) * std::cos(0.7 * v) + (u > xm ? step : 0.0));
+      }
+   return g;
+}
+
+// The flat buffer of isc_world_set_clock_map.
+std::vector<double> Encode(const ClockMap& m)
+{
+   std::vector<double> v = { (double)ISC_CLOCK_MAP_FORMAT, (double)m.grids.size(), (double)m.depths.size() };
+   for (const ClockGrid& g : m.grids) {
+      v.insert(v.end(), { g.x0, g.y0, g.h, (double)g.nx, (double)g.ny });
+      v.insert(v.end(), g.v.begin(), g.v.end());
+   }
+   for (const ClockDepth& d : m.depths) {
+      v.insert(v.end(), { d.z0, d.dz, (double)d.v.size() });
+      v.insert(v.end(), d.v.begin(), d.v.end());
+   }
+   auto field = [&](const ClockField& f) {
+      v.push_back((double)f.size());
+      for (const ClockTerm& t : f) v.insert(v.end(), { (double)t.grid, (double)t.depth, t.ox, t.oy, t.zp, t.sx, t.sy, t.scale });
+   };
+   for (const StructClock& c : m.s) {
+      v.insert(v.end(), { (double)c.mode, (double)c.hist.Size() });
+      for (size_t e = 0; e < c.hist.Size(); e++) {
+         const Kinetics& q = c.hist.kin[e];
+         v.insert(v.end(), { c.hist.tStart[e], q.activationRatePerSec, q.onSec, q.offSec, q.bleachProb, q.photonCV,
+                             q.initialOnSec });
+      }
+      v.push_back((double)c.bound.size());
+      for (const ClockField& b : c.bound) field(b);
+      field(c.total);
+      v.push_back(c.totalC);
+      field(c.rate);
+      v.push_back(c.rateC);
+      v.push_back(c.tOpen);
+      v.push_back((double)c.steps.size());
+      for (const ClockStep& st : c.steps) {
+         v.insert(v.end(), { st.t0, st.t1, st.c });
+         field(st.field);
+      }
+      field(c.bleachTotal);
+      field(c.bleachRate);
+   }
+   return v;
+}
+
+struct Q { double x0, y0, x1, y1, zMin, zMax; };
+
+// Brute force: every dye of the window on its own, its whole schedule (no windows, no caches).
+void BruteEvents(uint32_t seed, World& w, const ClockMap& m, const Label& l, const Q& q, double t0, double t1,
+                 std::vector<WorldEvent>& out)
+{
+   const StructClock& c = m.s[STRUCTURE_MT];
+   std::vector<WorldDye> dyes;
+   w.SitesInWindow(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, dyes);
+   std::vector<Blink> b;
+   for (const WorldDye& d : dyes) {
+      if (d.structure != STRUCTURE_MT) continue;
+      const uint32_t h1 = DyeH1(seed, d.cx, d.cy, d.mtIndex);
+      b.clear();
+      if (c.mode == CLOCK_DOSE) {
+         const double tau = m.Eval(c.total, d.x, d.y, d.z, c.totalC), R = m.Eval(c.rate, d.x, d.y, d.z, c.rateC);
+         if (!(R > 0)) continue;
+         KineticsHistory h = Hist({ 0.0 }, { c.hist.kin[0] });
+         for (size_t e = 1; e < c.hist.Size(); e++) {
+            const double B = m.Eval(c.bound[e - 1], d.x, d.y, d.z);
+            if (B > h.tStart.back()) { h.tStart.push_back(B); h.kin.push_back(c.hist.kin[e]); }
+            else h.kin.back() = c.hist.kin[e];
+         }
+         LabelSchedule(h1, d.k, d.n, l, &b, nullptr, INF, &h);
+         const double a0 = tau + R * (t0 - c.tOpen), a1 = tau + R * (t1 - c.tOpen);
+         for (const Blink& x : b)
+            if (x.tOn < a1 && x.tOff > a0)
+               out.push_back({ d.x, d.y, d.z, c.tOpen + (x.tOn - tau) / R, c.tOpen + (x.tOff - tau) / R, x.brightness, 0.0,
+                               d.id, (uint8_t)STRUCTURE_MT, STATE_BLINK });
+      } else {
+         const double E = ActivationDraw(h1, d.k, d.n);
+         double H = 0, tA = NAN;
+         for (const ClockStep& st : c.steps) {
+            const double inc = m.Eval(st.field, d.x, d.y, d.z, st.c);
+            if (inc > 0 && E <= H + inc) {
+               tA = std::min(st.t1, std::max(st.t0, st.t0 + (st.t1 - st.t0) * ((E - H) / inc)));
+               break;
+            }
+            H = H + inc;
+         }
+         if (std::isnan(tA)) {
+            const double S = m.Eval(c.rate, d.x, d.y, d.z, c.rateC);
+            tA = S > 0 ? c.tOpen + (E - H) / S : INF;
+         }
+         if (!(tA < t1)) continue;
+         LabelScheduleActivated(h1, d.k, d.n, l, &c.hist, tA, &b, nullptr);
+         for (const Blink& x : b)
+            if (x.tOn < t1 && x.tOff > t0)
+               out.push_back({ d.x, d.y, d.z, x.tOn, x.tOff, x.brightness, 0.0, d.id, (uint8_t)STRUCTURE_MT, STATE_BLINK });
+      }
+   }
+}
+
+// ... the continuous windows of a dose clock, in the queries' order (dye order).
+void BruteWindows(uint32_t seed, World& w, const ClockMap& m, const Label& l, const Q& q, double tMin,
+                  std::vector<MapWindow>& out)
+{
+   const StructClock& c = m.s[STRUCTURE_MT];
+   std::vector<WorldDye> dyes;
+   w.SitesInWindow(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, dyes);
+   std::vector<ContWindow> cw;
+   for (const WorldDye& d : dyes) {
+      if (d.structure != STRUCTURE_MT) continue;
+      const double tau = m.Eval(c.total, d.x, d.y, d.z, c.totalC), R = m.Eval(c.rate, d.x, d.y, d.z, c.rateC);
+      KineticsHistory h = Hist({ 0.0 }, { c.hist.kin[0] });
+      for (size_t e = 1; e < c.hist.Size(); e++) {
+         const double B = m.Eval(c.bound[e - 1], d.x, d.y, d.z);
+         if (B > h.tStart.back()) { h.tStart.push_back(B); h.kin.push_back(c.hist.kin[e]); }
+         else h.kin.back() = c.hist.kin[e];
+      }
+      cw.clear();
+      LabelSchedule(DyeH1(seed, d.cx, d.cy, d.mtIndex), d.k, d.n, l, nullptr, &cw, INF, &h);
+      for (const ContWindow& x : cw) {
+         double on, off;
+         if (R > 0) {
+            on = c.tOpen + (x.tOn - tau) / R;
+            off = c.tOpen + (x.tOff - tau) / R;
+         } else {
+            if (x.tOn > tau || !(x.tOff > tau)) continue;
+            on = -INF;
+            off = INF;
+         }
+         if (x.state == STATE_ALWAYS_ON || x.state == STATE_PRE) {   // the photon budget: its hazard reaches the draw
+            const double B = m.Eval(c.bleachTotal, d.x, d.y, d.z), r = m.Eval(c.bleachRate, d.x, d.y, d.z);
+            if (!c.bleachTotal.empty() || !c.bleachRate.empty())
+               off = std::min(off, r > 0 ? c.tOpen + (x.aux - B) / r : x.aux > B ? INF : -INF);
+         }
+         if (off > tMin)
+            out.push_back({ { d.x, d.y, d.z, on, off, 1.0, x.aux, d.id, (uint8_t)STRUCTURE_MT, x.state }, tau, R });
+      }
+   }
+}
+
+bool SameWindows(const std::vector<MapWindow>& a, const std::vector<MapWindow>& b)
+{
+   if (a.size() != b.size()) return false;
+   for (size_t i = 0; i < a.size(); i++) {
+      const WorldEvent &x = a[i].e, &y = b[i].e;
+      if (x.id != y.id || std::memcmp(&x.x, &y.x, 7 * sizeof(double)) != 0 || x.structure != y.structure ||
+          x.state != y.state || a[i].clock != b[i].clock || a[i].rate != b[i].rate)
+         return false;
+   }
+   return true;
+}
+
+std::vector<WorldEvent> Events(World& w, const Q& q, double t0, double t1)
+{
+   std::vector<WorldEvent> e;
+   w.EventsInMap(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, t0, t1, e);
+   return e;
+}
+
+std::vector<MapWindow> Windows(World& w, const Q& q, double tMin)
+{
+   std::vector<MapWindow> e;
+   w.ContinuousInMap(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, tMin, e);
+   return e;
+}
+
+void Run()
+{
+   Params p = NoPores();
+   const uint32_t seed = 1249;
+   std::vector<Cell> near;
+   World probe(seed, p);
+   probe.CellsInRect(-30, -30, 30, 30, near);
+   if (near.empty()) { Check(false, "cells near the origin"); return; }
+   const Q q = { near[0].x + 4, near[0].y - 3, near[0].x + 8, near[0].y + 1, -5, 50 };
+   Kinetics kin;
+   kin.activationRatePerSec = 0.05; kin.onSec = 0.05; kin.offSec = 1.0; kin.bleachProb = 0.5; kin.photonCV = 0.5;
+   Kinetics pre = kin;
+   pre.initialOnSec = 2;
+   Kinetics k2 = pre;
+   k2.activationRatePerSec *= 3; k2.onSec *= 0.5; k2.initialOnSec = 0.5;
+   Label palm = MakeLabel(LabelMode::PALM, 0.05, kin);
+   palm.preState = true;
+   const Label storm = MakeLabel(LabelMode::dSTORM, 0.05, pre), paint = MakeLabel(LabelMode::DnaPaint, 0.03, kin),
+               wf = MakeLabel(LabelMode::WideField, 0.03, kin);
+   const double frames[][2] = { { 120, 120.05 }, { 0, 100 }, { 3, 3.05 }, { 60, 62 }, { 29.9, 30.2 } };
+   std::string err;
+   // Three worlds for every check (packing them is most of the cost): a label change keeps the cells and drops the
+   // dyes' schedules and map state; Tiny's caches hold less than one window.
+   World A = LabelledWorld(seed, p, storm), B = LabelledWorld(seed, p, storm), Tiny = LabelledWorld(seed, p, storm, 1, 1000);
+   auto use = [&](World& w, const Label& l) {
+      w.SetLabel(STRUCTURE_MT, l);
+      SetHist(w, {}, {});
+      w.ClearClockMap();
+      return std::ref(w);
+   };
+
+   // ---- Uniform maps = the ABI 11 queries, bit for bit and in order (one and two segments).
+   struct U { const char* name; Label l; int mode; std::vector<double> t; std::vector<Kinetics> k; };
+   const double Tb = 30.0;
+   const U us[] = {
+      { "dSTORM, dose", storm, CLOCK_DOSE, { 0.0 }, { pre } },
+      { "dSTORM, global", storm, CLOCK_GLOBAL, { 0.0 }, { pre } },
+      { "dSTORM, dose, epoch at 30 s", storm, CLOCK_DOSE, { 0.0, Tb }, { pre, k2 } },
+      { "dSTORM, global, segment at 30 s", storm, CLOCK_GLOBAL, { 0.0, Tb }, { pre, k2 } },
+      { "PALM (pre), activation", palm, CLOCK_ACTIVATION, { 0.0 }, { kin } },
+      { "DNA-PAINT, global", paint, CLOCK_GLOBAL, { 0.0 }, { kin } },
+      { "DNA-PAINT, global, segment at 30 s", paint, CLOCK_GLOBAL, { 0.0, Tb }, { kin, k2 } },
+      { "DNA-PAINT under a dose clock (read on T)", paint, CLOCK_DOSE, { 0.0, Tb }, { kin, k2 } },
+      { "WideField, dose", wf, CLOCK_DOSE, { 0.0 }, { kin } },
+   };
+   for (const U& u : us) {
+      World& a = use(A, u.l);
+      World& b = use(B, u.l);
+      if (u.t.size() > 1) SetHist(a, u.t, u.k);
+      StructClock c;
+      c.mode = u.mode;
+      c.hist = Hist(u.t, u.k);
+      if (u.mode == CLOCK_DOSE) {
+         c.rateC = 1;
+         for (size_t e = 1; e < u.t.size(); e++) c.bound.push_back({ Term(-1, -1, u.t[e]) });
+      }
+      if (u.mode == CLOCK_ACTIVATION) c.rateC = u.l.kin.activationRatePerSec;
+      const bool set = b.SetClockMap(MapWith(c, kin), &err);
+      bool same = set;
+      size_t n = 0;
+      for (const auto& f : frames) {
+         std::vector<WorldEvent> ea;
+         a.EventsInWindow(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, f[0], f[1], ea);
+         same = same && IdenticalEvents(ea, Events(b, q, f[0], f[1]));
+         n += ea.size();
+      }
+      bool sameC = true;
+      size_t nc = 0;
+      for (double tMin : { -INF, 1.0, 45.0 }) {
+         std::vector<WorldEvent> ca, cb;
+         a.ContinuousInWindow(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, tMin, ca);
+         for (const MapWindow& x : Windows(b, q, tMin)) cb.push_back(x.e);
+         sameC = sameC && IdenticalEvents(ca, cb);
+         nc += ca.size();
+      }
+      std::printf("      %-42s %5zu blinks %s, %5zu windows %s %s\n", u.name, n, same ? "identical" : "DIFFERENT", nc,
+                  sameC ? "identical" : "DIFFERENT", err.c_str());
+      Check(same && sameC && (n > 0 || nc > 0), "a uniform map = the ABI 11 queries, bit for bit and in order");
+   }
+   // PALM with two segments: the activation from a step (the same hazard, other arithmetic): within 1e-9 s.
+   {
+      Kinetics off = kin;
+      off.activationRatePerSec = 0.02;
+      World& a = use(A, palm);
+      World& b = use(B, palm);
+      SetHist(a, { 0.0, Tb }, { kin, off });
+      StructClock c;
+      c.mode = CLOCK_ACTIVATION;
+      c.hist = Hist({ 0.0, Tb }, { kin, off });
+      ClockStep st;
+      st.t0 = 0; st.t1 = Tb; st.c = kin.activationRatePerSec * Tb;
+      c.steps = { st };
+      c.tOpen = Tb;
+      c.rateC = off.activationRatePerSec;
+      b.SetClockMap(MapWith(c, kin));
+      double worst = 0;
+      bool count = true;
+      for (const auto& f : frames) {
+         std::vector<WorldEvent> ea;
+         a.EventsInWindow(q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, f[0], f[1], ea);
+         std::vector<WorldEvent> eb = Events(b, q, f[0], f[1]);
+         auto byId = [](std::vector<WorldEvent>& v) {
+            std::sort(v.begin(), v.end(), [](const WorldEvent& x, const WorldEvent& y) {
+               return std::tie(x.id, x.tOn) < std::tie(y.id, y.tOn);
+            });
+         };
+         byId(ea);
+         byId(eb);
+         count = count && ea.size() == eb.size();
+         for (size_t i = 0; count && i < ea.size(); i++)
+            worst = std::max({ worst, std::fabs(ea[i].tOn - eb[i].tOn), std::fabs(ea[i].tOff - eb[i].tOff) });
+      }
+      std::printf("      PALM, activation 0.05 -> 0.02 /s at 30 s as a step: same blinks %s, times within %.1e s\n",
+                  count ? "yes" : "NO", worst);
+      Check(count && worst <= 1e-9, "a uniform PALM step = the ABI 11 history (the activation's arithmetic aside)");
+   }
+
+   // ---- Shaped maps = every dye on its own clock (brute force), rates 0, 0.3, 1, 2.5 and a shaped rate.
+   ClockMap shapedBase;
+   shapedBase.grids = { Wavy(q.x0, q.y0, q.x1, q.y1, 0.0, 0.5), Wavy(q.x0, q.y0, q.x1, q.y1, 1.7, 0.3),
+                        Wavy(q.x0, q.y0, q.x1, q.y1, 2.9, 0.0) };
+   ClockDepth depth;
+   depth.z0 = 0; depth.dz = 0.5;
+   depth.v = { 1.0, 0.85, 0.7, 0.62, 0.5, 0.41, 0.33, 0.3 };
+   shapedBase.depths = { depth };
+   auto doseMap = [&](double rate, bool shapedRate, double tOpen) {
+      StructClock c;
+      c.mode = CLOCK_DOSE;
+      c.hist = Hist({ 0.0, 25.0 }, { pre, k2 });
+      c.bound = { { Term(0, 0, 25.0, 0.7, -0.3, 1.0) } };
+      c.total = { Term(0, 0, 25.0, 0.7, -0.3, 1.0), Term(1, -1, tOpen - 25.0, 0, 0, 0, 0.4, -0.2) };
+      if (shapedRate) c.rate = { Term(2, 0, rate, 0.7, -0.3, 1.0) };
+      else c.rateC = rate;
+      c.tOpen = tOpen;
+      ClockMap m = shapedBase;
+      m.s = MapWith(c, kin).s;
+      return m;
+   };
+   for (const auto& rv : { std::make_pair(0.0, false), std::make_pair(0.3, false), std::make_pair(1.0, false),
+                           std::make_pair(2.5, false), std::make_pair(1.0, true) }) {
+      const ClockMap m = doseMap(rv.first, rv.second, 50.0);
+      World& w = use(B, storm);
+      Check(w.SetClockMap(m, &err), "SetClockMap takes a shaped dose map");
+      bool same = true;
+      size_t n = 0;
+      for (const auto& f : { std::make_pair(50.0, 50.05), std::make_pair(55.0, 58.0), std::make_pair(20.0, 20.1),
+                             std::make_pair(0.0, 120.0), std::make_pair(80.0, 80.05) }) {
+         std::vector<WorldEvent> eb;
+         BruteEvents(seed, w, m, storm, q, f.first, f.second, eb);
+         same = same && SameEvents(Events(w, q, f.first, f.second), eb);
+         n += eb.size();
+      }
+      bool sameC = true;
+      size_t nc = 0;
+      for (double tMin : { -INF, 49.0, 60.0 }) {
+         std::vector<MapWindow> cb;
+         BruteWindows(seed, w, m, storm, q, tMin, cb);
+         sameC = sameC && SameWindows(Windows(w, q, tMin), cb);
+         nc += cb.size();
+      }
+      std::printf("      dSTORM, dose map, rate %s %.1f: %5zu blinks %s, %5zu windows %s\n", rv.second ? "field" : "const",
+                  rv.first, n, same ? "= brute force" : "DIFFERENT", nc, sameC ? "= brute force (in order)" : "DIFFERENT");
+      Check(same && sameC && (rv.first == 0 ? n == 0 : n > 0), "a shaped dose map = every dye on its own clock");
+   }
+   // WideField with a photon budget: the windows end at the bleach (its hazard a field by tOpen, a shaped rate after,
+   // one rate 0), asked at ever later times on one map (the block's ends in T made once) and again after a map change.
+   for (const double rb : { 0.0, 0.04 }) {
+      ClockMap m = doseMap(1.0, true, 50.0);
+      StructClock& c = m.s[STRUCTURE_MT];
+      c.hist = Hist({ 0.0 }, { kin });
+      c.bound.clear();
+      c.bleachTotal = { Term(1, 0, 0.012 * 50, 0.7, -0.3, 1.0) };
+      if (rb > 0) c.bleachRate = { Term(2, -1, rb) };
+      World& w = use(B, wf);
+      Check(w.SetClockMap(m, &err), "SetClockMap takes a map with a bleach");
+      bool sameC = true;
+      size_t nc = 0, n52 = 0, n90 = 0;
+      for (double tMin : { -INF, 49.0, 52.0, 60.0, 90.0, 55.0 }) {
+         std::vector<MapWindow> cb;
+         BruteWindows(seed, w, m, wf, q, tMin, cb);
+         sameC = sameC && SameWindows(Windows(w, q, tMin), cb);
+         nc += cb.size();
+         if (tMin == 52.0) n52 = cb.size();
+         if (tMin == 90.0) n90 = cb.size();
+      }
+      ClockMap m2 = m;
+      m2.s[STRUCTURE_MT].bleachTotal.push_back(Term(0, -1, 0.3));
+      w.SetClockMap(m2);
+      std::vector<MapWindow> cb;
+      BruteWindows(seed, w, m2, wf, q, 55.0, cb);
+      sameC = sameC && SameWindows(Windows(w, q, 55.0), cb);
+      // (the bleach does end windows: fewer than without it, and with a rate fewer as time goes on)
+      ClockMap plain = m;
+      plain.s[STRUCTURE_MT].bleachTotal.clear();
+      plain.s[STRUCTURE_MT].bleachRate.clear();
+      std::vector<MapWindow> all;
+      BruteWindows(seed, w, plain, wf, q, 52.0, all);
+      std::printf("      WideField, dose map with a bleach (rate %.2f): %5zu windows %s (open at 52 s %zu of %zu, at 90 s "
+                  "%zu)\n", rb, nc, sameC ? "= brute force (in order)" : "DIFFERENT", n52, all.size(), n90);
+      Check(sameC && n52 > 0 && n52 < all.size() && (rb == 0 ? n90 == n52 : n90 < n52),
+            "a map's bleach ends the budgeted windows = every dye on its own");
+   }
+   // PALM: three steps (sheared, a depth table, a constant), then a shaped rate.
+   auto palmMap = [&](double rateScale) {
+      StructClock c;
+      c.mode = CLOCK_ACTIVATION;
+      c.hist = Hist({ 0.0 }, { kin });
+      ClockStep s0, s1, s2;
+      s0.t0 = 0; s0.t1 = 10; s0.field = { Term(0, 0, 0.02 * 10, 0.7, -0.3, 1.0) };
+      s1.t0 = 10; s1.t1 = 25; s1.c = 1e-3; s1.field = { Term(1, -1, 0.05 * 15) };
+      s2.t0 = 25; s2.t1 = 40; s2.field = { Term(2, 0, 0.01 * 15, 0.7, -0.3, 1.0) };
+      c.steps = { s0, s1, s2 };
+      c.rate = { Term(0, -1, 0.03 * rateScale) };
+      c.rateC = 1e-4;
+      c.tOpen = 40;
+      ClockMap m = shapedBase;
+      m.s = MapWith(c, kin).s;
+      return m;
+   };
+   {
+      const ClockMap m = palmMap(1.0);
+      World& w = use(B, palm);
+      Check(w.SetClockMap(m, &err), "SetClockMap takes a PALM map");
+      bool same = true;
+      size_t n = 0;
+      for (const auto& f : { std::make_pair(40.0, 40.05), std::make_pair(45.0, 47.0), std::make_pair(12.0, 12.5),
+                             std::make_pair(0.0, 100.0), std::make_pair(41.0, 41.05) }) {
+         std::vector<WorldEvent> eb;
+         BruteEvents(seed, w, m, palm, q, f.first, f.second, eb);
+         same = same && SameEvents(Events(w, q, f.first, f.second), eb);
+         n += eb.size();
+      }
+      // A pose change: a fourth step (the open record closed) and another rate.
+      ClockMap m2 = m;
+      ClockStep s3;
+      s3.t0 = 40; s3.t1 = 46; s3.c = 1e-4 * 6; s3.field = { Term(0, -1, 0.03 * 6) };
+      m2.s[STRUCTURE_MT].steps.push_back(s3);
+      m2.s[STRUCTURE_MT].rate = { Term(1, -1, 0.04) };
+      m2.s[STRUCTURE_MT].tOpen = 46;
+      w.SetClockMap(m2);
+      for (const auto& f : { std::make_pair(46.0, 46.05), std::make_pair(50.0, 52.0) }) {
+         std::vector<WorldEvent> eb;
+         BruteEvents(seed, w, m2, palm, q, f.first, f.second, eb);
+         same = same && SameEvents(Events(w, q, f.first, f.second), eb);
+         n += eb.size();
+      }
+      std::printf("      PALM, activation map (3 steps, then a 4th): %zu blinks %s\n", n, same ? "= brute force" : "DIFFERENT");
+      Check(same && n > 0, "an activation map = every dye's own walk, also after a pose change");
+   }
+
+   // ---- Caches and query history: a tiny dye cache, another query order = the same answers in the same order.
+   {
+      const ClockMap m = doseMap(1.0, true, 50.0), pm = palmMap(1.0);
+      bool same = true;
+      for (int pass = 0; pass < 2; pass++) {
+         World& a = use(A, pass ? palm : storm);
+         World& b = use(Tiny, pass ? palm : storm);
+         a.SetClockMap(pass ? pm : m);
+         b.SetClockMap(pass ? pm : m);
+         // b: a different history first (late, long, early).
+         for (const auto& f : { std::make_pair(150.0, 150.05), std::make_pair(0.0, 200.0), std::make_pair(1.0, 1.05) })
+            Events(b, q, f.first, f.second);
+         for (const auto& f : { std::make_pair(50.0, 50.05), std::make_pair(52.0, 52.05), std::make_pair(30.0, 31.0),
+                                std::make_pair(55.0, 55.05) })
+            same = same && IdenticalEvents(Events(a, q, f.first, f.second), Events(b, q, f.first, f.second));
+         same = same && SameWindows(Windows(a, q, pass ? 0.0 : 49.0), Windows(b, q, pass ? 0.0 : 49.0));
+      }
+      Check(same, "map queries: the same answers in the same order whatever the caches and the query history");
+      // A pose change at 60 s (the dose map's total and rate move, its bound stays): no schedule rebuilt (the frame
+      // before it on the old map; the schedules' horizon follows time, not the pose).
+      World& a = use(A, storm);
+      a.SetClockMap(m);
+      Events(a, q, 59.95, 60.0);
+      // (the open record [50, 60) folds into the total, the beam moves by 0.3 um)
+      ClockMap moved = m;
+      StructClock& mc = moved.s[STRUCTURE_MT];
+      ClockTerm folded = mc.rate[0];
+      folded.scale *= 10;
+      mc.total.push_back(folded);
+      mc.rate[0].ox = 0.3;
+      mc.tOpen = 60;
+      const long s0 = a.Stats().schedulesBuilt;
+      a.SetClockMap(moved);
+      std::vector<WorldEvent> eb;
+      BruteEvents(seed, a, moved, storm, q, 60.0, 60.05, eb);
+      const bool ok = SameEvents(Events(a, q, 60.0, 60.05), eb);
+      std::printf("      pose change: %ld schedules rebuilt, %zu blinks %s\n", a.Stats().schedulesBuilt - s0, eb.size(),
+                  ok ? "= brute force" : "DIFFERENT");
+      Check(ok && a.Stats().schedulesBuilt == s0, "a pose change (the dose clock's present) rebuilds no schedule");
+      // Prefetch changes no answer.
+      World& c = use(A, storm);
+      World& d = use(B, storm);
+      c.SetClockMap(m);
+      d.SetClockMap(m);
+      c.PrefetchMap(q.x0 - 2, q.y0 - 2, q.x1 + 2, q.y1 + 2, -INF, INF, 50.0, 50.1, 1e9);
+      Check(IdenticalEvents(Events(c, q, 50.0, 50.05), Events(d, q, 50.0, 50.05)), "PrefetchMap changes no answer");
+   }
+
+   // ---- 8 threads = 1 thread.
+   {
+      const ClockMap m = doseMap(1.0, true, 50.0), pm = palmMap(1.0);
+      bool same = true;
+      size_t n = 0;
+      for (int pass = 0; pass < 2; pass++) {
+         World& a = use(A, pass ? palm : storm);
+         World& b = use(B, pass ? palm : storm);
+         a.SetClockMap(pass ? pm : m);
+         b.SetClockMap(pass ? pm : m);
+         for (int f = 0; f < 6 && same; f++) {
+            const double s = f < 3 ? 0.9 * f : 4 + 0.5 * f;   // moves, then a jump (inside the map's grids)
+            const Q r = { q.x0 - 3 + s, q.y0 - 3, q.x1 + 3 + s, q.y1 + 3, 0, 4 };
+            const double t0 = pass ? 40 + f : 50 + f * 0.05, t1 = pass ? 41 + f : 50 + (f + 1) * 0.05;
+            SetWorldThreads(1);
+            const std::vector<WorldEvent> ea = Events(a, r, t0, t1);
+            const std::vector<MapWindow> ca = Windows(a, r, 45);
+            SetWorldThreads(8);
+            const std::vector<WorldEvent> eb = Events(b, r, t0, t1);
+            const std::vector<MapWindow> cb = Windows(b, r, 45);
+            SetWorldThreads(0);
+            same = IdenticalEvents(ea, eb) && SameWindows(ca, cb);
+            n += ea.size();
+         }
+      }
+      std::printf("      threads: %zu blinks %s\n", n, same ? "identical" : "DIFFERENT");
+      Check(same && n > 100, "map queries: 8 threads = 1 thread, the same answers in the same order");
+   }
+
+   // ---- The C ABI: the flat buffer read back, bad buffers refused (and nothing changes).
+   {
+      const ClockMap m = doseMap(1.0, true, 50.0);
+      IscParams* pa = NoPoresAbi();
+      IscWorld* cw = isc_world_new(seed, pa);
+      isc_params_free(pa);
+      const double lab[] = { storm.density, storm.fluorescentFraction, (double)(int)storm.mode, pre.activationRatePerSec,
+                             pre.onSec, pre.offSec, pre.bleachProb, pre.photonCV, pre.initialOnSec };
+      isc_world_set_label(cw, 0, lab, 9);
+      std::vector<double> v = Encode(m);
+      const int r = isc_world_set_clock_map(cw, v.data(), (int32_t)v.size());
+      World& w = use(A, storm);
+      w.SetClockMap(m);
+      auto rowsOf = [&](double t0, double t1) {
+         const int32_t nr = isc_events_in_map(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, t0, t1, nullptr, 0);
+         std::vector<double> o((size_t)std::max(0, nr) * ISC_EVENT_STRIDE);
+         isc_events_in_map(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, t0, t1, o.data(), nr);
+         return o;
+      };
+      auto rowsExpected = [&](double t0, double t1) {
+         std::vector<double> o;
+         for (const WorldEvent& e : Events(w, q, t0, t1))
+            o.insert(o.end(), { e.x, e.y, e.z, e.tOn, e.tOff, e.brightness, (double)e.id, (double)e.structure,
+                                (double)e.state, e.aux });
+         return o;
+      };
+      const std::vector<double> before = rowsOf(50, 50.05);
+      bool readBack = r == 0 && before == rowsExpected(50, 50.05) && !before.empty();
+      {
+         const int32_t nw = isc_continuous_in_map(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 45, nullptr, 0);
+         std::vector<double> o((size_t)std::max(0, nw) * ISC_MAP_WINDOW_STRIDE);
+         isc_continuous_in_map(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 45, o.data(), nw);
+         std::vector<double> x;
+         for (const MapWindow& mw : Windows(w, q, 45))
+            x.insert(x.end(), { mw.e.x, mw.e.y, mw.e.z, mw.e.tOn, mw.e.tOff, mw.e.brightness, (double)mw.e.id,
+                                (double)mw.e.structure, (double)mw.e.state, mw.e.aux, mw.clock, mw.rate });
+         readBack = readBack && o == x;
+      }
+      // Bad buffers: each refused, the map unchanged.
+      std::vector<std::vector<double>> bad;
+      auto bent = [&](size_t at, double val) { std::vector<double> b = v; b[at] = val; bad.push_back(b); };
+      bent(0, ISC_CLOCK_MAP_FORMAT + 1);           // format
+      bent(1, 99);                                 // more grids than given
+      bent(6, 0);                                  // a grid's nx 0
+      bent(8, NAN);                                // a grid value
+      bad.push_back(std::vector<double>(v.begin(), v.end() - 1));   // short
+      { std::vector<double> b = v; b.push_back(0); bad.push_back(b); }   // trailing
+      {   // a DOSE clock with epochs but no bound
+         ClockMap x = m;
+         x.s[STRUCTURE_MT].bound.clear();
+         bad.push_back(Encode(x));
+      }
+      {   // epoch starts not increasing
+         ClockMap x = m;
+         x.s[STRUCTURE_MT].hist.tStart[1] = 0;
+         bad.push_back(Encode(x));
+      }
+      {   // a term naming a grid that is not there (in the total, in a bleach field)
+         ClockMap x = m;
+         x.s[STRUCTURE_MT].total[0].grid = 7;
+         bad.push_back(Encode(x));
+         ClockMap y = m;
+         y.s[STRUCTURE_MT].bleachRate = { Term(9, -1, 1.0) };
+         bad.push_back(Encode(y));
+      }
+      {   // steps on a dose clock; gaps in an activation clock's steps; steps not ending at tOpen
+         ClockMap x = m;
+         x.s[STRUCTURE_MT].steps.push_back(ClockStep{ 0, 1, 0, {} });
+         bad.push_back(Encode(x));
+         ClockMap y = palmMap(1.0);
+         y.s[STRUCTURE_MT].steps[1].t0 = 11;
+         bad.push_back(Encode(y));
+         ClockMap z = palmMap(1.0);
+         z.s[STRUCTURE_MT].tOpen = 41;
+         bad.push_back(Encode(z));
+      }
+      {   // bad kinetics, a negative tOpen
+         ClockMap x = m;
+         x.s[STRUCTURE_MT].hist.kin[0].onSec = 0;
+         bad.push_back(Encode(x));
+         ClockMap y = m;
+         y.s[STRUCTURE_MT].tOpen = -1;
+         bad.push_back(Encode(y));
+      }
+      bool refused = true;
+      for (const std::vector<double>& b : bad) refused = refused && isc_world_set_clock_map(cw, b.data(), (int32_t)b.size()) == -1;
+      refused = refused && rowsOf(50, 50.05) == before;
+      // n = 0 removes the map: the ABI 11 answer.
+      isc_world_set_clock_map(cw, nullptr, 0);
+      const int32_t n11 = isc_events_in_window(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 50, 50.05, nullptr, 0);
+      std::vector<double> o11((size_t)std::max(0, n11) * ISC_EVENT_STRIDE);
+      isc_events_in_window(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 50, 50.05, o11.data(), n11);
+      const bool cleared = rowsOf(50, 50.05) == o11;
+      std::printf("      C ABI: %zu values read back %s, %zu bad buffers %s, n = 0 %s\n", v.size(),
+                  readBack ? "(same answers)" : "(DIFFERENT)", bad.size(), refused ? "refused" : "NOT ALL REFUSED",
+                  cleared ? "removes the map" : "DOES NOT REMOVE IT");
+      Check(readBack && refused && cleared, "isc_world_set_clock_map reads the flat buffer and refuses bad ones");
+      isc_world_free(cw);
+   }
+}
+
+} // namespace clockmap_checks
+
+void ClockMapChecks() { clockmap_checks::Run(); }
+
 struct Section {
    const char* name;
    std::function<void()> run;
@@ -2120,6 +2759,7 @@ static const std::vector<Section>& Sections()
       { "optical_volume", OpticalVolume },
       { "edge_and_height", EdgeAndHeight },
       { "kinetics_history", KineticsHistoryChecks },
+      { "clock_map", ClockMapChecks },
       { "origami", Origami },
    };
    return s;

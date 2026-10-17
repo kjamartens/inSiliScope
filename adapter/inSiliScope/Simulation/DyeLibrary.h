@@ -43,7 +43,7 @@ constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 struct SpectrumData { const char* key; const double* values; };
 struct FilterData { const char* id; const char* name; const char* curve; IdealFilterSpec ideal; };
 struct LightPresetData { const char* id; const char* name; double lasers[5]; const char* excitationFilter; const char* dichroic;
-                         const char* emissionFilter; };
+                         const char* emissionFilter; double bfpPosition; /* NaN: none (epi) */ };
 enum CameraField { CAM_QE, CAM_READ_NOISE, CAM_GAIN, CAM_PREAMP, CAM_CIC, CAM_OFFSET, CAM_OFFSET_STD, CAM_DARK,
                    CAM_GAIN_STD_PCT, CAM_READ_NOISE_STD_PCT, CAM_BIT_DEPTH, CAM_GAIN_WF, CAM_PIXEL_UM, CAM_FIELDS };
 struct CameraData { const char* id; const char* name; const char* type; const char* qeCurve; double v[CAM_FIELDS]; };
@@ -166,6 +166,7 @@ struct SpecimenData
    const char* id;
    const char* name;
    int firstTarget, targetCount;   // its targets in TargetAt order
+   double bfpPosition;             // illumination.bfpPosition: in place of the light preset's (NaN = none)
 };
 int TargetCount();
 const TargetData& TargetAt(int i);
@@ -199,6 +200,10 @@ struct StatePhysics
    bool emits = false;   // false: a dark state (nothing else is set)
    double excitationPerSec = 0, emissionPerSec = 0, detectedFraction = 0, lambdaNm = 0, detectedPerSec = 0;
    const char* color = nullptr;
+   // Each laser line's share of the excitation (lines with none left out; Excitation.h: TIRF's depth depends on the
+   // wavelength).
+   struct LineShare { double nm, share; };
+   std::vector<LineShare> lineShares;
 };
 bool StatePhotophysics(const StateData& st, const LightPath& lp, StatePhysics& out, std::string& err);
 // A state's excitation and emission spectra on the spectra grid (the data's
@@ -230,12 +235,23 @@ struct LabelPhysics
    double photonBudget = 0, prePhotonBudget = 0;
    double imagerNm = 0, chamberHeightUm = 0;
    double initialOnSec = 0;     // the label's (scaled) dSTORM initial ON time
+   // PALM: kActPerSec's parts (spontaneous, the 405 nm line's, the primed pair's): at a local excitation factor a the
+   // activation is spont + lin a + quad a^2 (the activation lines taken to fall off as the main state's).
+   bool hasActivationParts = false;
+   double actSpont = 0, actLin = 0, actQuad = 0;
    bool preState = false;
    bool off = false;            // an off target (ScopeTargetOn false): density 0, no emitting state, no imager
    // The free imager's detected photons per pixel per second (DNA-PAINT):
    // c x N_A x chamber height x pixel area x its detected rate (no
    // depletion, no exclusion from cells; schnitzbauer2017).
    double ImagerBackgroundPerPxPerSec(double pixelUm) const;
+   // ... per um of lit column (x the chamber height for epi; x the excitation's column integral otherwise).
+   double ImagerPerPxPerUmPerSec(double pixelUm) const;
+   // PALM: the activation's scale at excitation factor a ((spont + lin a + quad a^2) / kAct; 1 for the others).
+   double ActivationScale(double a) const
+   {
+      return hasActivationParts && kActPerSec > 0 ? (actSpont + actLin * a + actQuad * a * a) / kActPerSec : 1.0;
+   }
 };
 bool MakeLabelPhysics(const EffectiveDye& eff, const LightPath& lp, const LabelPhysicsOptions& o, LabelPhysics& out,
                       std::string& err);

@@ -117,7 +117,7 @@
     <ClCompile Include="Registry\Couplings.cpp" />
     <ClCompile Include="Devices\Peripherals.cpp" />
     <ClCompile Include="Simulation\ScopeMovie.cpp" />
-    <ClCompile Include="Simulation\IlluminationHistory.cpp" />
+    <ClCompile Include="Simulation\LightHistory.cpp" />
     <ClCompile Include="InSiliScopeModule.cpp" />
     <ClCompile Include="InSiliScopeZStage.cpp" />
     <ClCompile Include="InSiliScopeXYStage.cpp" />
@@ -125,6 +125,7 @@
     <ClCompile Include="Simulation\Drift.cpp" />
     <ClCompile Include="Simulation\DyeLibrary.cpp" />
     <ClCompile Include="Simulation\LightPath.cpp" />
+    <ClCompile Include="Simulation\Excitation.cpp" />
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\BinnedBlinks.cpp" />
@@ -147,6 +148,7 @@
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
+    <ClCompile Include="..\..\core\src\clockmap.cpp" />
     <ClCompile Include="..\..\core\src\world.cpp" />
     <ClCompile Include="Simulation\SMLMSimulation.cpp" />
     <ClCompile Include="Simulation\SMLMNoise.cpp" />
@@ -174,9 +176,10 @@
     <ClInclude Include="Simulation\Drift.h" />
     <ClInclude Include="Simulation\DyeLibrary.h" />
     <ClInclude Include="Simulation\LightPath.h" />
+    <ClInclude Include="Simulation\Excitation.h" />
     <ClInclude Include="Simulation\Spectra.h" />
     <ClInclude Include="Simulation\ScopeMovie.h" />
-    <ClInclude Include="Simulation\IlluminationHistory.h" />
+    <ClInclude Include="Simulation\LightHistory.h" />
     <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\BinnedBlinks.h" />

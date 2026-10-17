@@ -47,6 +47,8 @@
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Drift.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="InSiliScopeHub.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -65,7 +67,7 @@
     <ClCompile Include="Devices\Peripherals.cpp">
       <Filter>Devices</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation\IlluminationHistory.cpp">
+    <ClCompile Include="Simulation\LightHistory.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\ScopeMovie.cpp">
@@ -75,6 +77,9 @@
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\LightPath.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\Excitation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
     <ClCompile Include="Simulation\Spectra.cpp">
@@ -140,6 +145,9 @@
     <ClCompile Include="..\..\core\src\params.cpp">
       <Filter>Core</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\core\src\clockmap.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\world.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -197,7 +205,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Drift.h">
-    <ClInclude Include="Simulation\IlluminationHistory.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\LightHistory.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\ScopeMovie.h">
@@ -210,6 +220,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\LightPath.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Excitation.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Spectra.h">

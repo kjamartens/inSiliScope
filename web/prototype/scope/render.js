@@ -36,7 +36,7 @@ export function renderGaussian(img, width, height, xPx, yPx, sigmaPx, totalPhoto
 }
 
 // The emitters of frame f among events (CollectFrameEmitters): camera-pixel position (drift added), photons (overlap
-// x brightness), the overlap and the kernel plane (nearestZIndex of zNm/1000 - zStageUm; 0 without a kernel). The one
+// x brightness x the excitation factor o.excite, if any), the overlap and the kernel plane (nearestZIndex of zNm/1000 - zStageUm; 0 without a kernel). The one
 // per-emitter arithmetic of the splat and the binned renderer (binned_blinks.js).
 export function frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx = 0.0, dyPx = 0.0) {
   const out = [];
@@ -47,6 +47,8 @@ export function frameEmitters(events, frameIndex, o, kernel, zStageUm, dxPx = 0.
     const xPx = e.xUm * 1000.0 / o.pixelSizeNm + dxPx, yPx = e.yUm * 1000.0 / o.pixelSizeNm + dyPx;
     let photons = o.photonsPerBlink * ov;
     if (e.brightness !== 1.0) photons *= e.brightness;
+    // The excitation at the dye's undrifted site (excitation.js; o.excite(xUm, yUm, zNm) in the FOV frame).
+    if (o.excite) photons *= o.excite(e.xUm, e.yUm, e.zNm);
     out.push({ xPx, yPx, photons, overlap: ov, zIndex: kernel ? nearestZIndex(kernel, e.zNm / 1000.0 - zStageUm) : 0 });
   }
   return out;

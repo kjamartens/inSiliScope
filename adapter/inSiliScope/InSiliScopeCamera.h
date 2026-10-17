@@ -35,7 +35,8 @@
 #include "Simulation/SampleSource.h"
 #include "Simulation/Drift.h"
 #include "Simulation/GpuSimD3D11.h"
-#include "Simulation/IlluminationHistory.h"
+#include "Simulation/Excitation.h"
+#include "Simulation/LightHistory.h"
 #include "Simulation/ScopeMovie.h"
 #include "Simulation/SMLMSimulation.h"
 #include "Simulation/SharedStageState.h"
@@ -139,15 +140,10 @@ private:
    unsigned FullHeight() const { return static_cast<unsigned>(cameraCCDYSize_ / binSize_); }
    // The illumination field of a w x h frame (empty when flat), logged.
    sim::StackShapingFields ShapingFields(unsigned w, unsigned h) const;
-   // ---- the illumination history (Simulation/IlluminationHistory.h) ----
-   // The rect a fluorescence frame lights at stage (x, y): the FOV, its
-   // 2 um margin (what the movie renders) and 0.5 um of slack, world um.
-   void LitRect(double stageXUm, double stageYUm, double& x0, double& y0, double& x1, double& y1) const;
-   // The illumination profile at a world position as a dose weight (peak 1,
-   // in 1/16 steps so the clocks of a profile form few regions; the margin
-   // takes the nearest FOV pixel); empty for the flat profile.
-   std::function<double(double, double)> HistoryWeight(const sim::StackShapingFields& shaping, double stageXUm,
-                                                       double stageYUm) const;
+   // ---- the sample's light history (Simulation/LightHistory.h) ----
+   // The light a frame of spec gives the sample (sim::MakeLightState: its pose, the HILO pivot at its focus; lightOn
+   // false: dark, with its env). A bad spec: dark (err set).
+   static sim::LightState LightStateOf(const sim::ScopeSpec& spec, bool lightOn, std::string& err);
    // Clears the history (and the sample's drift) when the world (seed, cells,
    // packing) changed.
    void SyncHistoryWorld();
@@ -168,7 +164,7 @@ private:
    // any D3D11 failure (logged once, and reported by GpuStatus).
    bool PrepareGpu(std::unique_ptr<sim::GpuSimulator>& gpu, const std::vector<const sim::PsfKernelCache*>& kernels,
                    unsigned w, unsigned h, const sim::PixelOffsetMap& offsetMap, const sim::PixelGainMap& gainMap,
-                   const sim::PixelReadNoiseMap& readNoiseMap, const sim::StackShapingFields& shaping,
+                   const sim::PixelReadNoiseMap& readNoiseMap, const std::vector<float>* backgroundMap,
                    const sim::SimulationParams& params);
    void SetGpuStatus(const std::string& s) { St().SetGpuStatus(s); }
    // A setting changed (the hub's listener): what it invalidates.
@@ -217,14 +213,13 @@ private:
    struct LiveBatchJob
    {
       long id = 0;
-      sim::ScopeSpec spec;          // frames = the batch's length
-      sim::ClockSnapshot clock;     // the dye clocks at its first frame
+      sim::ScopeSpec spec;          // frames = the batch's length, start-sec = the sample's time at its first frame
+      sim::LightState light;        // the light its frames give the sample (and its movie's clock map)
       sim::SimulationParams params;
       unsigned w = 0, h = 0;
       double zOffsetUm = 0.0;
       std::shared_ptr<const LiveStatics> statics;
-      std::vector<double> fadeSec;  // per frame: the background fade's elapsed time (the lit clock)
-      uint32_t epoch = 0;           // the rates its frames are lit with
+      std::vector<double> fadeSec;  // per frame: the background fade's dose (LightHistory::DoseAt)
       double decaySec = 0.0;
       uint32_t noiseSeed = 0, noiseBase = 0;
       bool useGpu = false;
@@ -276,6 +271,7 @@ private:
       std::unique_ptr<sim::GpuSimulator> splat;
       std::vector<uint64_t> kernelSerials;   // the kernels loaded, one per blink group (empty: none)
       double background = -1.0;    // and its background
+      std::vector<float> backgroundMap;   // (the excitation's per pixel, empty: flat)
       long statics = -1;           // the config version of the camera maps loaded
       long failedAt = -1;          // the config version the splat failed at
       std::unique_ptr<sim::WidefieldGpuD3D11> wf;
@@ -373,19 +369,17 @@ private:
    // When the front frame was published (its age when taken: mm.frame-age).
    sim::SharedStageState::Clock::time_point liveFramePublished_{};
    std::atomic<long long> liveSeqStartTicks_{0};
-   // The light a live frame shone (under frontFrameLock_): its lit rect (the
-   // drifted FOV: the light follows the sample), its exposure, the profile's
-   // dose weight and the epoch (the rates it was lit with). It goes into the
-   // illumination history when the frame is published if it lights the
-   // sample then (an acquisition's frame, or TimeWhileIdle Running with the
-   // lasers' shutter opened on purpose; light reaching the sample), else when
-   // a snap takes it (counted: already in). Also the frame's drift.
+   // The light a live frame shone (under frontFrameLock_): its exposure and
+   // light (the drifted pose: the light follows the sample). It goes into the
+   // light history when the frame is published if it lights the sample then
+   // (an acquisition's frame, or TimeWhileIdle Running with the lasers'
+   // shutter opened on purpose; light reaching the sample), else when a snap
+   // takes it (counted: already in). Also the frame's drift.
    struct LitFrame
    {
       bool valid = false, counted = false;
-      double x0 = 0, y0 = 0, x1 = 0, y1 = 0, dtSec = 0;
-      std::function<double(double, double)> weight;
-      uint32_t epoch = 0;
+      double dtSec = 0;
+      sim::LightState light;
       double driftNm[3] = { 0, 0, 0 };
    };
    LitFrame liveFrameLit_;
@@ -425,9 +419,10 @@ private:
    MM::MMTime sequenceStartTime_;
    long imageCounter_ = 0;
 
-   // Seconds of illumination per place of the sample (live frames and stacks
-   // add to it; every fluorescence frame reads its dyes' clocks from it).
-   sim::IlluminationHistory illumHistory_;
+   // The light every place of the sample has had and the sample's time (live
+   // frames and stacks add to it; every fluorescence frame reads its dyes'
+   // clocks from its map).
+   sim::LightHistory lightHistory_;
    std::mutex historyWorldMutex_;
    sim::SampleSettings historyWorld_;
    bool historyHaveWorld_ = false;

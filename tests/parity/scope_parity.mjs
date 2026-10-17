@@ -1,6 +1,8 @@
 // Imaging parity: the JS reference (web/prototype/scope/) against the C++ (the committed viewer WASM,
 // web/insiliscope_module.js: core world + ScopeMovie). Needs no build.
-//   node tests/parity/scope_parity.mjs [--quick] [--module <insiliscope_module.js>]
+//   node tests/parity/scope_parity.mjs [--quick] [--only <part of a case name>] [--jobs N] [--module <insiliscope_module.js>]
+// The full run spreads the movies over N processes (--jobs, default min(4, cores); each --shard i/N), so it stays
+// within a few minutes.
 // Checks: blink events of a dSTORM label (count, order, values to 1e-9), the BrightField optical volume
 // (bit-identical), then fluorescence movies (issue 16: every label mode, a PALM pre state, several lasers, per-dye and
 // mean-field continuous populations, a Gaussian-spectrum slot dye, light-preset=auto, start 0 and 60 s) and
@@ -11,7 +13,9 @@
 // Poisson flips) and its intensity within 1e-4 relative.
 // In iteration mode (PORT_PENDING.md) the JS is ahead on purpose and this fails: run it in the port.
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { loadPrototype } from './load_prototype.mjs';
 import { loadWasmScope } from './wasm_scope.mjs';
@@ -24,6 +28,27 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2);
 const quick = args.includes('--quick');
 const modPath = args.includes('--module') ? args[args.indexOf('--module') + 1] : path.join(ROOT, 'web/insiliscope_module.js');
+const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;   // cases whose name contains it
+const shard = args.includes('--shard') ? args[args.indexOf('--shard') + 1].split('/').map(Number) : null;
+const jobs = args.includes('--jobs') ? Math.max(1, Number(args[args.indexOf('--jobs') + 1])) : Math.min(4, os.cpus().length);
+if (!shard && !quick && !only && jobs > 1) {
+  // The shards in parallel, their output in shard order.
+  const t0 = performance.now();
+  const runs = await Promise.all(Array.from({ length: jobs }, (_, i) => new Promise(resolve => {
+    const k = spawn(process.execPath, [fileURLToPath(import.meta.url), ...args, '--shard', `${i}/${jobs}`], { stdio: ['ignore', 'pipe', 'inherit'] });
+    let out = '';
+    k.stdout.on('data', d => { out += d; });
+    k.on('close', code => resolve({ out, code }));
+  })));
+  let bad = 0;
+  for (const r of runs) {
+    process.stdout.write(r.out.split('\n').filter(l => l && !l.startsWith('scope parity:')).map(l => l + '\n').join(''));
+    if (r.code) bad++;
+  }
+  console.log(bad ? `scope parity: ${bad} shard(s) failed` : `scope parity: PASS (${jobs} processes, ${((performance.now() - t0) / 1000).toFixed(0)} s)`);
+  process.exit(bad ? 1 : 0);
+}
+const head = !shard || shard[0] === 0;   // the events, optical volume and BrightField intensity checks
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const P = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const C = await loadWasmScope(fs.readFileSync(modPath, 'utf8'));
@@ -32,7 +57,7 @@ let fails = 0;
 const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails++; };
 
 // ---- events ----
-{
+if (head) {
   // dSTORM, 7% of the sites, with an initial ON phase (the full mode table is tests/parity/label_parity.mjs).
   const seed = 1249;
   const kin = { activationRatePerSec: 0.05, onSec: 0.05, offSec: 1, bleachProb: 0.5, photonCV: 0.5, initialOnSec: 2 };
@@ -58,7 +83,7 @@ const report = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if 
 }
 
 // ---- optical volume (BrightField) ----
-{
+if (head) {
   const seed = 1249, W = new World(P, seed, P.paramsFrom(P.defaults));
   const [rect, nz, sub, n] = quick ? [[60, 0, 64, 4], 6, 1, 40] : [[58, -2, 68, 8], 6, 2, 50];
   const js = new Float32Array(3 * n * n * nz);
@@ -108,6 +133,19 @@ const CASES = [
   ['Linkage: microtubules Legacy, binder 5 nm; pores IgG1-PAINT, linker to 8 nm, Fixed', `${B} size=40 frames=6 psf-model=0 mt-binder=Legacy mt-binder-nm=5 npc-binder=IgG1-PAINT npc-linker-max-nm=8 npc-orient=Fixed`, 1],
   ['Sparse pores (4 /um^2, 300 nm apart, radius 60 nm), microtubules off', `${B} size=40 frames=6 psf-model=0 mt-label-pct=0 npc-density=4 p.npcMinDistNm=300 p.npcRadiusNm=60`, 1],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
+  // The excitation geometry (excitation.js; the defaults: FlatTop 100 %, epi; DNA-PAINT HILO, the nanorulers TIRF):
+  ['Excitation Flat epi (uniform: the old paths)', `${B} size=40 frames=6 psf-model=0 illum-profile=Flat illum-bfp=0`, 1],
+  ['Excitation Gaussian 60 %, epi, dSTORM AF647 at 60 s', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto illum-profile=Gaussian illum-fwhm=60`, 0.999],   // its initial ON: mean-field
+  ['Excitation HILO 0.9, dSTORM AF647 from t = 0 (local clock, initial ON)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 illum-bfp=0.9`, 0.999],
+  ['Excitation HILO 0.9, dSTORM blinks mean-field (map weights)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 blink-mean-field-max-emitters=0 illum-bfp=0.9`, 0.999],
+  ['Excitation HILO 0.95, PALM mEos3.2 pre state, 405 nm', `${B} size=40 frames=8 psf-model=0 mt-dye=mEos3.2 light-preset=auto laser-405=0.05 illum-bfp=0.95`, 0.999],
+  ['Excitation TIRF 1.03, WideField mEGFP mean field (depth planes)', `${B} size=40 frames=3 psf-kernel-half-width-nm=2500 mt-dye=mEGFP light-preset=auto illum-bfp=1.03`, 0.999],
+  ['Excitation TIRF 1.03, WideField mEGFP per dye, from t = 0', `${B} size=32 frames=4 psf-model=0 mt-dye=mEGFP light-preset=auto mt-label-pct=3 mean-field-density-per-um2=1e9 mean-field-max-emitters=1e9 start-sec=0 mt-dye.photon-budget=2000 illum-bfp=1.03`, 0.999],
+  ['Excitation TIRF 1.03, DNA-PAINT, blinks binned, drift', `${B} size=40 frames=8 psf-kernel-half-width-nm=2500 blink-binned-max-emitters=0 illum-bfp=1.03 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
+  // A focus between the background maps' grid foci (0.25 um apart): the map blended from the two around it.
+  ['Excitation HILO 0.95, DNA-PAINT, focus 0.6 um (the blended background map)', `${B} size=40 frames=4 psf-model=0 illum-bfp=0.95 z=0.6`, 0.999],
+  ['Excitation epi FlatTop, DNA-PAINT, focus 1.1 um (the blended background map)', `${B} size=40 frames=4 psf-model=0 illum-bfp=0 z=1.1`, 0.999],
+  ['Excitation clipped (NA 1.40, bfp 1.1): no light', `${B} size=32 frames=3 psf-model=0 na=1.4 illum-bfp=1.1`, 1],
   ['BrightField thin object (quality 1)', `${B} size=40 frames=3 modality=BrightField bf-quality=1`, 0.995],
   // The lamp pinned at 40000 photons/px/s (the default before 2026-10-05): the share of identical pixels falls with the
   // photon count (the ~1e-5 relative intensity difference flips more Poisson draws), 99.35% at 80000.
@@ -126,7 +164,9 @@ const CASES = [
   ['Nanorulers 40 nm spacing, DNA-PAINT', `${N} size=40 frames=20 psf-model=0 origami-spacing-nm=40 ruler-imager-nm=10`, 1],
   ['Nanorulers BrightField (no contrast: noise only)', `${N} size=32 frames=2 modality=BrightField bf-quality=1`, 0.995],
 ];
-for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
+const mine = quick ? CASES.slice(0, 2) : only ? CASES.filter(c => c[0].includes(only))
+  : shard ? CASES.filter((c, i) => i % shard[1] === shard[0]) : CASES;
+for (const [name, spec, need] of mine) {
   const t0 = performance.now();
   const c = C.movie(spec);
   const t1 = performance.now();
@@ -139,7 +179,7 @@ for (const [name, spec, need] of quick ? CASES.slice(0, 2) : CASES) {
     `(C++ ${((t1 - t0) / 1000).toFixed(1)} s, JS ${((t2 - t1) / 1000).toFixed(1)} s)`);
 }
 // ---- BrightField intensity: huge flux, coarse gain, no other noise, so ADU ~ transmitted intensity ----
-{
+if (head) {
   const spec = 'world-seed=1249 x=63 y=3 size=40 frames=1 modality=BrightField bf-quality=2 qe=1 dark-per-sec=0 offset=0 ' +
     'offset-std=0 read-noise=0 gain-std-pct=0 read-noise-std-pct=0 gain=20000 bf-photons-per-px-per-sec=2e10';
   const c = C.movie(spec);

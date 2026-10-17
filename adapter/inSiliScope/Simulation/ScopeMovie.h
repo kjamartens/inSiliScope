@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -132,6 +133,7 @@ struct ScopeLightPresetValues
 {
    std::string id, excitationFilter, dichroic, emissionFilter;
    std::vector<double> lasers;
+   double bfpPosition = 0;   // the illumination geometry it sets (ScopePresetBfpPosition)
 };
 // The auto light preset of a spec (JS autoLightPreset; light-preset 0): the presets of the labelled targets' dyes in
 // their modes combined, whatever the spec's light-preset option says.
@@ -229,39 +231,44 @@ KineticEnv ScopeKineticEnv(const ScopeSpec& spec);
 // through the excitation filter and the dichroic), kW/cm^2; 0 (or a bad
 // spec): it lights nothing.
 double ScopeSampleIntensityKwCm2(const ScopeSpec& spec);
+// The light history's inputs (LightHistory.h). The laser lines reaching the sample: each line's kW/cm^2 through the
+// excitation filter x the dichroic's reflectance at it, lines at 0 left out; false (err) on a bad spec.
+struct LaserLine;
+bool ScopeSampleLines(const ScopeSpec& spec, std::vector<LaserLine>& lines, std::string& err);
+// The labels a movie lit by a past env makes under the current spec (the env's light keys, and its dye keys while
+// every structure's dye and mode are the current ones; a dye or mode changed since: the current dye under the past
+// light): the rates that past ran at. env = ScopeKineticEnv(cur): the movie's own labels.
+struct LabelPhysics;
+bool ScopeEnvLabels(const ScopeSpec& cur, const KineticEnv& env, std::vector<LabelPhysics>& labels, std::string& err);
 
-// A host's per-region clock (the adapter's illumination history): the
-// seconds of illumination each world position (um) has had before frame 0. A
-// dye's schedule is read at its position's clock instead of start-sec; frame
-// f adds f x exposure everywhere (the whole query rect is lit while the movie
-// runs). Regions: the distinct (clock, history) pairs in a rect, each with the
-// bounding box of the positions that have it. A history (an id) is the rate
-// past of a position: its segments, each an env from clock tStart on (the
-// first from 0; the last is the movie's own, the frames run in it). None
-// (Segments empty): the movie's env from 0.
-struct ClockSegment
-{
-   double tStart = 0;
-   const KineticEnv* env = nullptr;
-};
-struct ClockRegion
-{
-   double tSec = 0, x0Um = 0, y0Um = 0, x1Um = 0, y1Um = 0;
-   uint32_t history = 0;
-};
-class DyeClock
-{
-public:
-   virtual ~DyeClock() = default;
-   virtual double At(double xUm, double yUm) const = 0;
-   virtual void KeyAt(double xUm, double yUm, double& tSec, uint32_t& history) const
-   {
-      tSec = At(xUm, yUm);
-      history = 0;
-   }
-   virtual void Segments(uint32_t /*history*/, std::vector<ClockSegment>& out) const { out.clear(); }
-   virtual void Regions(double x0Um, double y0Um, double x1Um, double y1Um, std::vector<ClockRegion>& out) const = 0;
-};
+// The BFP position a spec asks for (JS scopeBfpPosition): illum-bfp, else the light preset's bfpPosition (DNA-PAINT:
+// HILO) with the mounted specimen's in its place when it has one (the nanorulers: TIRF); 0 (epi) otherwise.
+double ScopeBfpPosition(const ScopeSpec& spec);
+// The BFP position a light preset sets: its bfpPosition (NaN: none, epi 0) with the mounted specimen's in its place when
+// the preset has one (a host applying a preset by name: Lasers.Preset).
+double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp);
+// The excitation geometry of a spec (JS scopeExcitation; Excitation.h): the beam profile over the FOV, the BFP
+// position, the objective and the medium; the HILO sheet pivots at the focal plane (focus-um + z).
+struct ExcitationSpec;
+ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
+// A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
+// shares of the first mounted label's main state (empty when no label emits); lightKinetics (optional): whether a
+// mounted label's kinetics follow the light (any mode but DNA-PAINT, whose binding needs none). False (err) when the
+// spec is bad.
+class Excitation;
+struct ExcitationLine;
+bool ScopeExcitation(const ScopeSpec& spec, Excitation& out, std::vector<ExcitationLine>& shares, std::string& err,
+                     bool* lightKinetics = nullptr);
+// The shaped background maps (FluorescenceMovie::Begin): made at foci on a kBackgroundFocusStepUm grid and blended
+// between the two around the focus, the grid's maps kept in a small cache. A host that moves the focus a lot (the MM
+// adapter's live mode) turns the prefetch on: a worker thread then also makes the grid's neighbouring maps (native
+// builds; the WASM viewer has no threads). Hosts that unload call BackgroundMapPrefetchShutdown (it joins the worker).
+constexpr double kBackgroundFocusStepUm = 0.25;
+// FluorescenceMovie::AnchorMeanField: how far the FOV may move from a mean-field scene's anchor (um; the scene's
+// margin is 2 um).
+constexpr double kMeanFieldAnchorUm = 1.0;
+void SetBackgroundMapPrefetch(bool on);
+void BackgroundMapPrefetchShutdown();
 
 // One blink group of a FluorescenceSimplePlan (a blinking label's main state):
 // its kernel, photons per blink and events, and the frames whose blinks the
@@ -287,9 +294,14 @@ struct FluorescenceSimplePlan
    bool ok = false;
    std::vector<FluorescenceSimpleGroup> groups;
    double backgroundPhotons = 0;
+   // The excitation's background per pixel (a shaped beam, the imager's column; photons per frame before the fade),
+   // nullptr: backgroundPhotons everywhere. Borrowed from the movie.
+   const std::vector<float>* backgroundMap = nullptr;
    bool populations = false;
 };
 
+class LightHistory;
+struct LightState;
 class FluorescenceMovie
 {
 public:
@@ -297,16 +309,24 @@ public:
    ~FluorescenceMovie();
    // accel (optional): a synchronous GPU host for the mean-field scenes (the
    // adapter's Direct3D 11 one); their images are then made at once on it.
-   // clock (optional): per-region dye clocks instead of start-sec (read
-   // during Begin only).
+   // history and light (optional, LightHistory.h): a host's light history and
+   // this movie's light; every dye then reads its clock from the history's map
+   // (LightHistory::BuildMap, over the query; the spec's start-sec is the
+   // sample's time the movie starts at, the history's T or later) instead of
+   // start-sec. Read during Begin only.
    bool Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel = nullptr,
-              const DyeClock* clock = nullptr);
+              LightHistory* history = nullptr, const LightState* light = nullptr);
    // Live (a movie per frame at a host clock): the per-dye populations' running
    // images carry over to the next movie in this process at the same geometry,
    // which then splats only the dyes whose windows changed (float rounding may
    // differ from a fresh build; off by default: stacks stay reproducible).
    // Call before Begin.
    void CarryRunningImages(bool on);
+   // Live under drift (a movie per frame, the pose moving a little each frame): the mean-field scenes stay posed at an
+   // anchor within kMeanFieldAnchorUm of the FOV (kept in this process across movies) and their images are shifted to
+   // the FOV by a phase ramp (exact, band-limited; the drift movies' RenderShiftedImages), instead of a new scene pose
+   // and a refocus of every dye plane per frame (~0.3 s). Off by default (= the cli and the JS). Call before Begin.
+   void AnchorMeanField(bool on);
    int MeanFieldScenes() const;
    WidefieldScene& MeanFieldScene(int i);
    // The images of scene i (one per job channel); false if they do not fit.
@@ -326,9 +346,10 @@ private:
 
 // Warms the shared world's caches around the spec's FOV (SampleSource::
 // Prefetch over the spec's query at its time, xy margin, at most budgetMs).
-// clock (optional): the dyes' clock and rate history at the FOV centre
-// instead of start-sec.
-bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, const DyeClock* clock = nullptr);
+// history and light (optional): the dyes' clocks from the history's map with
+// that light (FluorescenceMovie::Begin's).
+bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, LightHistory* history = nullptr,
+                   const LightState* light = nullptr);
 
 // Which lights are on (JS scopeLights): light-epi (the lasers' shutter) and
 // light-trans (the lamp's), each 1 open / 0 closed / -1 from modality

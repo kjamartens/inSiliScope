@@ -6,18 +6,21 @@
 const S_INIT = 0, S_DARK = 1, S_ON = 2, S_OFF = 3, S_BLEACHED = 4, S_INT = 5, NS = 6;
 const INSTANT = 1e12, ON_CAP = 20.0, BIN_SEC = 1.0;
 
-function matMul(a, b) {
-  const out = new Float64Array(NS * NS);
+// (Scratch matrices shared by every call: the arithmetic of the C++, without an allocation per product.)
+const XA = new Float64Array(NS * NS), XT = new Float64Array(NS * NS), XN = new Float64Array(NS * NS);
+const XE = new Float64Array(NS * NS), XW = new Float64Array(NS);
+
+function matMul(a, b, out) {
   for (let i = 0; i < NS; ++i) for (let j = 0; j < NS; ++j) {
     let s = 0.0;
     for (let k = 0; k < NS; ++k) s += a[i * NS + k] * b[k * NS + j];
     out[i * NS + j] = s;
   }
-  return out;
 }
 
+// exp(Q T) into XE.
 function expm(Q, T) {
-  const A = new Float64Array(NS * NS);
+  const A = XA, term = XT, next = XN, E = XE;
   let norm = 0.0;
   for (let i = 0; i < NS; ++i) {
     let r = 0.0;
@@ -26,23 +29,22 @@ function expm(Q, T) {
   }
   let s = 0, scale = 1.0;
   while (norm > 0.5) { norm *= 0.5; scale *= 0.5; ++s; }
-  let term = new Float64Array(NS * NS), E = new Float64Array(NS * NS);
   for (let i = 0; i < NS; ++i) for (let j = 0; j < NS; ++j) {
     A[i * NS + j] *= scale;
     term[i * NS + j] = i === j ? 1.0 : 0.0;
     E[i * NS + j] = term[i * NS + j];
   }
   for (let k = 1; k <= 16; ++k) {
-    const next = matMul(term, A);
+    matMul(term, A, next);
     for (let i = 0; i < NS * NS; ++i) { term[i] = next[i] / k; E[i] += term[i]; }
   }
-  for (let q = 0; q < s; ++q) E = matMul(E, E);
+  for (let q = 0; q < s; ++q) { matMul(E, E, next); E.set(next); }
   return E;
 }
 
 function propagate(v, Q, T) {
   if (!(T > 0.0)) return;
-  const E = expm(Q, T), w = new Float64Array(NS);
+  const E = expm(Q, T), w = XW;
   for (let j = 0; j < NS; ++j) { let s = 0.0; for (let i = 0; i < NS; ++i) s += v[i] * E[i * NS + j]; w[j] = s; }
   v.set(w);
 }

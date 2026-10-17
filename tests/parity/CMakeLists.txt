@@ -25,6 +25,14 @@ if(EMSCRIPTEN)
   target_link_options(isc_core_bench PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
 endif()
 
+# The clock map's speed check (ABI 14; not a test): isc_map_bench [seed] [--no-regions].
+add_executable(isc_map_bench map_bench.cpp)
+target_link_libraries(isc_map_bench PRIVATE insiliscope_core)
+target_include_directories(isc_map_bench PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+if(EMSCRIPTEN)
+  target_link_options(isc_map_bench PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
+endif()
+
 # Golden vectors (spec/golden): bit-identical to the frozen JS reference.
 find_program(ISC_NODE node NAMES node nodejs)
 if(EMSCRIPTEN AND NOT ISC_NODE)
@@ -35,7 +43,7 @@ endif()
 set(ISC_WORLD_SECTIONS basics determinism packing_off dye_statistics kinetics
   events_palm events_dnapaint events_dstorm cache_palm cache_dnapaint label_model
   threads_palm threads_dnapaint c_api block_injection density3d optical_volume edge_and_height
-  kinetics_history origami npcs)
+  kinetics_history clock_map origami npcs)
 foreach(sec IN LISTS ISC_WORLD_SECTIONS)
   if(EMSCRIPTEN)
     if(ISC_NODE)

@@ -7,8 +7,9 @@ import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
   mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM,
   PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, LEGACY_LINKAGE, normLinkage,
-  linkageReachNm } from './dyes.js';
+  linkageReachNm, labelScheduleActivated, activationDraw, EVENT_STATE } from './dyes.js';
 import { OrigamiField, SPECIMEN_NANORULERS, STRUCTURE_ORIGAMI } from './origami.js';
+import { readClockMap, evalField, doseHistory, activationTime, bleachEnd, CLOCK_GLOBAL, CLOCK_DOSE, CLOCK_ACTIVATION } from './clockmap.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
@@ -59,6 +60,7 @@ export class World {
     this.labels = [];
     this.hist = STRUCTURES.map(() => null);   // kinetics history per structure (setKineticsHistory)
     this.histKey = STRUCTURES.map(() => '');
+    this.map = null;   // the clock map of the map queries (setClockMap, ABI 14)
     this.setLabels(labels);
   }
 
@@ -79,6 +81,21 @@ export class World {
       this.hist[s] = h;
       this.histKey[s] = h ? JSON.stringify(h) : '';
     });
+  }
+
+  // isc_world_set_clock_map (ABI 14): the flat buffer of clockmap.js (readClockMap); null or [] removes the map. Throws
+  // on a bad buffer (nothing changes then).
+  setClockMap(v) {
+    this.map = v && v.length ? readClockMap(v, STRUCTURES.length) : null;
+  }
+
+  // The clock a map query reads for structure s (World::MapMode): DNA-PAINT, and a label other than PALM under an
+  // activation clock, on T.
+  mapMode(s) {
+    const c = this.map.s[s], mode = this.labels[s].mode;
+    if (mode === 'DNA-PAINT') return CLOCK_GLOBAL;
+    if (c.mode === CLOCK_ACTIVATION && mode !== 'PALM') return CLOCK_GLOBAL;
+    return c.mode;
   }
 
   // A change of density, fluorescent fraction or linkage redraws the dyes (the cells and microtubules stay); any other
@@ -404,6 +421,121 @@ export class World {
         persistentGen(b.h1, b.k[di], b.nIdx[di], kin, b0, b1, (tOn, on) => tOn < t1 && tOn + on > t0,
           (bin, j, tOn, on, br) => out.push({ x, y, z, tOn, tOff: tOn + on, brightness: br, id, structure: b.structure, state: 0, aux: 0 }),
           hist);
+      }
+    });
+    return out;
+  }
+
+  // World::EventsInMap (ABI 14): blinks overlapping [t0, t1) of the sample's time T, each dye on its own clock (the
+  // clock map), times in T, rows as eventsInWindow; a dye at a dose rate 0 now emits nothing. Order: by block, then
+  // (tOn, the blink's time on the dye's own clock, dye, blink) -- a global clock as eventsInWindow (its blinks in tOn
+  // order, ties in dye order, then the DNA-PAINT sites'). Without a map: eventsInWindow. Made per call (the C++ caches
+  // have no twin; a movie asks once).
+  eventsInMap(x0, y0, x1, y1, zMin, zMax, t0, t1) {
+    if (!this.map) return this.eventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1);
+    const out = [], m = this.map, bl = [];
+    const inWin = (x, y, z) => z >= zMin && z < zMax && x >= x0 && x < x1 && y >= y0 && y < y1;
+    this.forEachDyeBlock(x0, y0, x1, y1, zMin, zMax, b => {
+      if (!b.n || b.zHi < zMin || b.zLo >= zMax) return;
+      const s = b.structure, label = this.labels[s], c = m.s[s], mode = this.mapMode(s);
+      const ev = (i, tOn, tOff, brightness) => ({ x: b.x[i], y: b.y[i], z: b.z[i], tOn, tOff, brightness, id: b.id[i],
+        structure: s, state: 0, aux: 0 });
+      if (mode === CLOCK_GLOBAL) {
+        if (label.mode !== 'DNA-PAINT' && label.mode !== 'WideField') {
+          const hits = [];
+          for (let i = 0; i < b.n; i++) {
+            if (!inWin(b.x[i], b.y[i], b.z[i])) continue;
+            bl.length = 0;
+            labelSchedule(b.h1, b.k[i], b.nIdx[i], label, bl, null, t1, c.hist);
+            for (const x of bl) if (x.tOn < t1 && x.tOff > t0) hits.push(ev(i, x.tOn, x.tOff, x.brightness));
+          }
+          hits.sort((a, e) => a.tOn - e.tOn);   // stable: ties keep dye order
+          for (const e of hits) out.push(e);
+        }
+        if (label.mode !== 'DNA-PAINT') return;
+        const kin = label.kinetics, hist = c.hist;
+        const persist = hist.kin.some(q => q.activationRatePerSec > 0) && t1 > t0;
+        if (!persist) return;
+        const maxOn = persistentMaxOn(kin, hist);
+        const b0 = Math.max(0, Math.floor((t0 - maxOn) / PERSIST_BIN_SEC));
+        const b1 = Math.floor(t1 / PERSIST_BIN_SEC);
+        for (let i = 0; i < b.n; i++) {
+          if (!inWin(b.x[i], b.y[i], b.z[i])) continue;
+          persistentGen(b.h1, b.k[i], b.nIdx[i], kin, b0, b1, (tOn, on) => tOn < t1 && tOn + on > t0,
+            (bin, j, tOn, on, br) => out.push(ev(i, tOn, tOn + on, br)), hist);
+        }
+        return;
+      }
+      const cand = [];
+      for (let i = 0; i < b.n; i++) {
+        const x = b.x[i], y = b.y[i], z = b.z[i];
+        if (!inWin(x, y, z)) continue;
+        bl.length = 0;
+        if (mode === CLOCK_DOSE) {
+          const tau = evalField(m, c.total, x, y, z, c.totalC), R = evalField(m, c.rate, x, y, z, c.rateC);
+          if (!(R > 0)) continue;   // frozen
+          const a0 = tau + R * (t0 - c.tOpen), a1 = tau + R * (t1 - c.tOpen);
+          labelSchedule(b.h1, b.k[i], b.nIdx[i], label, bl, null, a1, c.hist.tStart.length > 1 ? doseHistory(m, c, x, y, z) : c.hist);
+          bl.forEach((e, j) => {
+            if (e.tOn < a1 && e.tOff > a0)
+              cand.push({ tOn: c.tOpen + (e.tOn - tau) / R, own: e.tOn, i, j, e: ev(i, c.tOpen + (e.tOn - tau) / R, c.tOpen + (e.tOff - tau) / R, e.brightness) });
+          });
+        } else {
+          const tA = activationTime(m, c, x, y, z, activationDraw(b.h1, b.k[i], b.nIdx[i]));
+          if (!(tA < t1)) continue;
+          labelScheduleActivated(b.h1, b.k[i], b.nIdx[i], label, c.hist, tA, bl, null, t1);
+          bl.forEach((e, j) => {
+            if (e.tOn < t1 && e.tOff > t0) cand.push({ tOn: e.tOn, own: e.tOn, i, j, e: ev(i, e.tOn, e.tOff, e.brightness) });
+          });
+        }
+      }
+      cand.sort((a, e) => a.tOn !== e.tOn ? a.tOn - e.tOn : a.own !== e.own ? a.own - e.own : a.i !== e.i ? a.i - e.i : a.j - e.j);
+      for (const k of cand) out.push(k.e);
+    });
+    return out;
+  }
+
+  // World::ContinuousInMap (ABI 14): the continuous windows ending after tMin (T), each dye on its own clock, times in
+  // T, with the dye's clock and rate (DOSE: its dose at tOpen and per second after; ACTIVATION: its activation time and
+  // 1; GLOBAL: tOpen and 1); a frozen dye's window that holds its dose lasts from -Infinity to Infinity; a budgeted
+  // window (ALWAYS_ON, PRE) ends at its bleach when that is earlier (the map's bleach fields, bleachEnd). Dye order per
+  // block. Without a map: continuousInWindow (clock 0, rate 1).
+  continuousInMap(x0, y0, x1, y1, zMin, zMax, tMin = -Infinity) {
+    if (!this.map) return this.continuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin).map(e => ({ ...e, clock: 0, rate: 1 }));
+    const out = [], cont = [], m = this.map;
+    this.forEachDye(x0, y0, x1, y1, zMin, zMax, (b, i) => {
+      const s = b.structure, label = this.labels[s];
+      if (label.mode === 'DNA-PAINT') return;
+      const c = m.s[s], mode = this.mapMode(s), x = b.x[i], y = b.y[i], z = b.z[i];
+      const bleach = c.bleachTotal.length > 0 || c.bleachRate.length > 0;
+      const row = (tOn, tOff, w, clock, rate) => {
+        const off = bleach && (w.state === EVENT_STATE.ALWAYS_ON || w.state === EVENT_STATE.PRE)
+          ? Math.min(tOff, bleachEnd(m, c, x, y, z, w.aux)) : tOff;
+        if (off > tMin) out.push({ x, y, z, tOn, tOff: off, brightness: 1, id: b.id[i], structure: s, state: w.state, aux: w.aux, clock, rate });
+      };
+      cont.length = 0;
+      if (mode === CLOCK_GLOBAL) {
+        labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont, Infinity, c.hist);
+        for (const w of cont) row(w.tOn, w.tOff, w, c.tOpen, 1);
+      } else if (mode === CLOCK_DOSE) {
+        labelSchedule(b.h1, b.k[i], b.nIdx[i], label, null, cont, Infinity, c.hist.tStart.length > 1 ? doseHistory(m, c, x, y, z) : c.hist);
+        const tau = evalField(m, c.total, x, y, z, c.totalC), R = evalField(m, c.rate, x, y, z, c.rateC);
+        for (const w of cont) {
+          let on, off;
+          if (R > 0) {
+            on = c.tOpen + (w.tOn - tau) / R;
+            off = c.tOpen + (w.tOff - tau) / R;
+          } else {   // frozen: a window holding its dose lasts, the others never are
+            if (w.tOn > tau || !(w.tOff > tau)) continue;
+            on = -Infinity;
+            off = Infinity;
+          }
+          row(on, off, w, tau, R);
+        }
+      } else {
+        const tA = activationTime(m, c, x, y, z, activationDraw(b.h1, b.k[i], b.nIdx[i]));
+        labelScheduleActivated(b.h1, b.k[i], b.nIdx[i], label, c.hist, tA, null, cont);
+        for (const w of cont) row(w.tOn, w.tOff, w, tA, 1);
       }
     });
     return out;

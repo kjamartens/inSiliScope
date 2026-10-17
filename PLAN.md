@@ -44,9 +44,21 @@ Upcoming ideas:
   removed, `Lasers.Preset` Auto), [x] GPU splat with up to 4 blink groups, [x] docs, figures, gallery.
   Next: [ ] the viewer's 8-fold ring layer and per-structure dye colours (visualisation branch), [ ] `--dyes-json`
   with each dye's binding site and binder end (the viewer's linkage layer), [ ] pore variability (CIR4MICS).
+- Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
+  spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
+  HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
+  nanorulers TIRF), [x] kinetics at the local light (dSTORM clock, PALM activation, windows, mean field on the map's weights),
+  [x] C++ port (engine, cli, viewer module; ctest `excitation`), [x] MM (`Lasers.BfpPosition`, the history in z bands,
+  render-ahead, config group `Illumination` Epi / HILO / TIRF), [x] viewer slider (with the regime readout), docs,
+  figures (`light-geometry`, `light-geometry-images`), gallery (`light-epi`, `light-tirf`, `light-flat`,
+  `nr-paint-epi`), the cli's excitation probe (`--setup-json` `excitation`), [x] the MM mean field bleaches by the
+  exact dose (no edge at the history levels' half contour; 2026-10-15), [x] blinks, per-dye windows and every mean
+  field by the exact dose on every consumer (the clock map, core ABI 14; branch `claude/exact-dose`, 2026-10-15/16),
+  [x] the history levels' code removed, docs and figures (P4, 2026-10-16), [x] the viewer's live microscope on the map
+  (P5, 2026-10-16, with the merge of main).
 - Live microscope in the viewer (2026-10-13, branch `claude/live-viewer`): [x] layout A2 (world view + View bar left,
   draggable live panel right: live image, Live/Snap/Rec, focus, configuration, settings with search), [x] the adapter's
-  live mode as an MM-free `sim::LiveScope` (illumination history, drift walker, running images, live noise counter;
+  live mode as an MM-free `sim::LiveScope` (light history, drift walker, running images, live noise counter;
   ctest `live_scope`) and in the viewer module (`isc_live_*`), [x] the Configuration from the Micro-Manager configs
   (`tools/gen_mm_configs.py` writes `web/live/mm_config.js` from the adapter's engine spec per preset;
   `tests/web/mm_config_check.mjs`), [x] docs. Next: [ ] the adapter's live producer on `LiveScope` (it keeps the GPU,
