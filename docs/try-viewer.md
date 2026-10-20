@@ -99,7 +99,9 @@ through it step by step.
   Sliders also follow the mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
-  zoomed further out, the dyes inside the camera's field are still all drawn, the others not).
+  zoomed further out, the dyes inside the camera's field are still all drawn, the others not). **Seed** (default 42,
+  **Random** draws a new one) is the one seed of the simulation, as in Micro-Manager (`inSiliScope.RandomSeed`) and the
+  cli (`seed`): the world comes from seed ^ 0x43454C4C, the blinking, drift and camera noise from the seed itself.
   The nanorulers are drawn from above as their bent rods (the **Nanorulers** checkbox, View) with the docking strands' dyes;
   the **Nanorulers** group sets the design, the density, the docking strands per spot (1-5 of the ring's 5) and, in
   Advanced, the bending (persistence length, default 1500 nm), the minimum spacing, the landing (attach height, roll)
@@ -132,7 +134,7 @@ through it step by step.
 - Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
   Everything falls back to the CPU on any GPU failure.
 - **Drift** (Configuration) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250
-  nm/s) and a random-walk jitter (0-50 nm/√s), the directions drawn per noise seed. Advanced shows those four values,
+  nm/s) and a random-walk jitter (0-50 nm/√s), the directions drawn per seed. Advanced shows those four values,
   the directions, how far direction and z speed swing (and how slowly) (see
   [Camera and background](physics/camera.md#drift)). Drifting mean-field images (WideField labels) render on the CPU, a
   drifting brightfield movie on one worker.

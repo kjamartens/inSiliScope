@@ -805,8 +805,8 @@ const UI_GROUPS = [
   { sect: 'Sample', id: 'field', title: 'Specimen', open: true, items: [
     select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json; the Samples pages of the docs): the cell field (adherent cells with microtubules) or DNA-origami nanorulers on the coverslip. Switching zooms to a scale that suits it. <code>SampleHolder</code>',
       DD.specimens.map((sp, i) => [String(i), sp.name]), String(SPECIMEN_DEFAULT)),
-    num('seed', 'World seed', 'integer', 'Every cell, microtubule, ruler and dye is a pure function of (seed, position): the same seed always gives the same world. The default is the world of seed 42 in Micro-Manager and the cli (42 ^ 0x43454C4C), the gallery’s.', null, null, 1, 1128615014),
-    button('reseed', 'Randomize seed', 'Draw a new random world seed.'),
+    num('seed', 'Seed', 'integer', 'One seed for the whole simulation, as Micro-Manager\'s <code>inSiliScope.RandomSeed</code> and the cli\'s <code>seed</code>: the world (every cell, microtubule, ruler and dye, a pure function of (seed, position)) is drawn from seed ^ 0x43454C4C, the blinking, drift and camera noise from the seed itself. 42 is the default of Micro-Manager, the cli and the gallery.', null, null, 1, 42),
+    button('reseed', 'Randomize seed', 'Draw a new random seed.'),
     range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, 0.33, { show: CF, fmt: v => (100 * v).toFixed(0) }),
     range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
     num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv, show: CF }),
@@ -1022,7 +1022,6 @@ const UI_GROUPS = [
     num('emissionMag', 'Magnification', '×', 'Magnification between the objective and the camera (tube lens / relay); a camera preset sets its own (Kinetix22 0.667, iXon Ultra 897 1.6). The pixel size follows. <code>EmissionPath.EmissionMagnification</code>', 0.1, 10, 'any', 0.667),
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Not a setting: pick the Camera, Objective and Magnification. <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { ro: true }),
-    num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
   ] },
   { sect: 'Microscope', id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
@@ -1290,7 +1289,7 @@ for (const g of UI_GROUPS) {
   const G = { g, det, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
   groups.push(G); G.sect.groups.push(G);
 }
-// The Randomize button sits small in the World seed row (in place of its unit), not on a row of its own.
+// The Randomize button sits small in the Seed row (in place of its unit), not on a row of its own.
 {
   const seedVal = $('seed').closest('.opt').querySelector('.val'), btn = $('reseed'), row = btn.closest('.opt');
   btn.textContent = 'Random';
@@ -1593,6 +1592,10 @@ const START = { cx: 14.8, cy: -6.0 };
 const view = { cx: START.cx, cy: START.cy, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
 
 const els = {};
+// The one Seed (the Sample group): the world is drawn from seed ^ 'CELL' (as Micro-Manager's hub and the cli derive it),
+// the blinking, drift and camera noise from the seed itself (the engine's seed option).
+const noiseSeed = () => (+els.seed.value) | 0;
+const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
 ['seed', 'reseed', 'chunkSize', 'jitter', 'jitterVal', 'density', 'densityVal',
  'cellDiamMin', 'cellDiamMax', 'cellElongMin', 'cellElongMax', 'cellBlob', 'cellBlobVal', 'cellRough', 'cellRoughVal', 'cellFractalDim', 'cellFractalDimVal',
  'nucLongMin', 'nucLongMax', 'nucRatioMin', 'nucRatioMax', 'nucHeightMin', 'nucHeightMax',
@@ -3754,7 +3757,7 @@ let previewState = null, detailPrev = null, lastFrame = null, lastThemeBg = '';
 function renderFrame(st, target) {
   target = target || {};
   const p = params();
-  const seed = (+els.seed.value) | 0;
+  const seed = worldSeed();
   const off = !!target.fbo;   // an off-screen frame (export): GL only, no 2D layers
   const S0 = p.chunkSize, W = target.W || cv.width, H = target.H || cv.height;
   const cam = curCam = cameraFor(st.camera, W, H);
@@ -3786,7 +3789,7 @@ function renderFrame(st, target) {
     target: null, dataMissing: [], animate: false };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   // the info box: one item per line (the counts are in its data- attributes, for the tests)
-  const hudHead = [`seed ${seed}`, `centre (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) µm`, `scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/µm`,
+  const hudHead = [`seed ${noiseSeed()}`, `centre (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) µm`, `scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/µm`,
     `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `, rotation ${azDeg}°` : '')].join('\n');
   hud.dataset.gpu = useGl ? '1' : '0';
 
@@ -4066,7 +4069,7 @@ window.iscScene = {
       scale: view.scale, cssW: cv.width / devicePixelRatio, cssH: cv.height / devicePixelRatio };
   },
   scaleBar: (g, W, H, pxPerUm, k) => drawScaleBarOn(g, W, H, pxPerUm, k),
-  seed: () => (+els.seed.value) | 0,
+  seed: () => worldSeed(),
   acquireData, dataStatus, dataParams, get dataKinds() { return DATA_KIND; },
 };
 
@@ -4503,7 +4506,7 @@ function updateOrigami(seed, p, F) {
 // The cached rods in view, one path, one fill (the theme's ruler.outline style); returns how many.
 function drawOrigami(F, g) {
   const c = oriCache, cam = F.cam, st = F.st;
-  if (!c || c.key !== assetSig((+els.seed.value) | 0, params())) return 0;
+  if (!c || c.key !== assetSig(worldSeed(), params())) return 0;
   const d = (self.ISC_ORIGAMI_DESIGNS || [])[+els.origamiDesign.value], z = (+els.origamiAttachNm.value + (d ? d.heightNm : 13) / 2) / 1000;
   if (z < F.zc[0] || z > F.zc[1]) return 0;
   const s = IscScene.resolveStyle(st.theme, 'ruler.outline', st.layers['ruler.outline'].style), col = s.color || [90, 169, 230];
@@ -4570,7 +4573,8 @@ function movieSpec(ov) {
   // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
   const mmExtra = self.ISC_MM_EXTRA || {};
   for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
-  o.push('world-seed=' + (((+els.seed.value) | 0) >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
+  if (!has('seed')) o.push('seed=' + noiseSeed());
+  o.push('world-seed=' + (worldSeed() >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
   for (const k in p) o.push('p.' + k + '=' + (+p[k])); // the viewer's world (UI-only keys are ignored)
   return o.join(' ');
@@ -4968,7 +4972,7 @@ function acquireStack(plan, onProgress, signal) {
     try {
       for (let p = 0; p < nz; p++) {
         if (signal && signal.aborted) throw new DOMException('cancelled', 'AbortError');
-        const spec = movieSpec(Object.assign({}, plan.ov, { z: plan.zs[p], seed: (+document.getElementById('mv_seed').value | 0) + 1000 * p,
+        const spec = movieSpec(Object.assign({}, plan.ov, { z: plan.zs[p], seed: noiseSeed() + 1000 * p,
           'start-sec': plan.t0 + (plan.seqT ? p * plan.locFrames * plan.exp : 0) }));
         const d = await movieJob(spec);
         if (plan.avg > 1) {   // WideField / BrightField: the mean of avg frames (less shot noise on a slice)
@@ -5014,7 +5018,7 @@ function srCrossTex(st, k, f, dp, F) {
     if (!info) { C.gt.delete(k); F.dataMissing.push('emitters'); return null; }
     const rect = [st.texOx, st.texOy, st.texOx + st.size * st.px, st.texOy + st.size * st.px];
     eventsJob({ rect, zMin: st.zs[k] - dp.captureUm, zMax: st.zs[k] + dp.captureUm, t0, t1: t0 + st.F * st.exp, labels: info.labels,
-      seed: (+els.seed.value) | 0, p, blocks: blocksForRect(p, rect) })
+      seed: worldSeed(), p, blocks: blocksForRect(p, rect) })
       .then(e => { C.gt.set(k, { e, t0, pps: info.detectedPerSec }); requestDraw(); }, () => C.gt.delete(k));
   }
   if (!ev) { F.dataMissing.push('emitters'); return null; }
@@ -5300,8 +5304,8 @@ function locPlan(key, dp) {
   // defocused PSF width
   const pps = info.detectedPerSec, qe = 1, sigma0 = 0.21 * 0.66 / 1.4, phRef = Math.max(1, pps * exp * qe);
   const o = { zs, t0s: zs.map((_, p) => t0 + (seq ? p * N * exp : 0)), N, exp, capture: cap, pps, qe,
-    sigma0, zR: 0.5, kz: dp.precZUm / dp.precXyUm, factor: dp.precXyUm * Math.sqrt(phRef) / sigma0, minPhotons: 100, seed: mv('seed') | 0, ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
-  const pk = assetSig((+els.seed.value) | 0, params());
+    sigma0, zR: 0.5, kz: dp.precZUm / dp.precXyUm, factor: dp.precXyUm * Math.sqrt(phRef) / sigma0, minPhotons: 100, seed: noiseSeed(), ox: (rect[0] + rect[2]) / 2, oy: (rect[1] + rect[3]) / 2, cap: 4e6 };
+  const pk = assetSig(worldSeed(), params());
   return { key: ['loc', key, step, cap, N, seq, JSON.stringify(info.labels), o.pps, o.seed, pk, dp.precXyUm, dp.precZUm, exp, t0].join('|'), cell: key, rect,
     labels: info.labels, mode: info.mode, dye: info.dye, o, zMin: -cap, zMax: b.z[1] + cap, t0, t1: t0 + (seq ? nz * N * exp : N * exp) };
 }
@@ -5326,7 +5330,7 @@ function acquireLocs(plan, onProgress, signal) {
     acqStatus.set(plan.key, { done: 0, total: 2 });
     try {
       if (onProgress) onProgress(0, 2);
-      const p = params(), seed = (+els.seed.value) | 0;
+      const p = params(), seed = worldSeed();
       const events = await eventsJob({ rect: plan.rect, zMin: plan.zMin, zMax: plan.zMax, t0: plan.t0, t1: plan.t1, labels: plan.labels, seed, p,
         blocks: blocksForRect(p, plan.rect) });
       acqStatus.set(plan.key, { done: 1, total: 2 });
