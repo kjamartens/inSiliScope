@@ -99,6 +99,20 @@ const same = await page.evaluate(async () => {
 });
 check(same === 0, `determinism: a frame captured twice is identical (${same} values differ)`);
 
+// 4. the nuclear pores: their layer alone lights the nucleus' pores, nothing without it; the depth look colours them
+// (and the microtubules) by height, several hues
+const pores = await page.evaluate(async () => {
+  const b = iscScene.cellBounds(__key), cam = { pivot: [b.center[0], b.center[1], 0], azimuthDeg: 0, tiltDeg: 30, fovUm: 20 };
+  const lit = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; };
+  const on = (await __cap(__st({ camera: cam, layers: { 'npc.lines': { style: { color: '#ffffff', opacity: 1 } } } }))).data;
+  const off = (await __cap(__st({ camera: cam, layers: {} }))).data;
+  const z = (await __cap(__st({ camera: cam, theme: 'fluoZ', layers: { 'npc.lines': {}, 'mt.lines': {} } }))).data, hues = new Set();
+  for (let i = 0; i < z.length; i += 4) if (z[i] + z[i + 1] + z[i + 2] > 120) hues.add((z[i] >> 5) + ',' + (z[i + 1] >> 5) + ',' + (z[i + 2] >> 5));
+  return { on: lit(on), off: lit(off), hues: hues.size };
+});
+check(pores.on > 200 && pores.off === 0 && pores.hues >= 6,
+  `nuclear pores: ${pores.on} px lit by their layer alone, ${pores.off} without; the depth look: ${pores.hues} colour bins`);
+
 // 4. the detail budget
 const det = await page.evaluate(async () => {
   els.detailCells.value = 3; els.detailCells.dispatchEvent(new Event('input', { bubbles: true }));

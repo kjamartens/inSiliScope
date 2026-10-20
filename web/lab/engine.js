@@ -173,6 +173,14 @@ export async function createEngine(src = {}) {
           paths.forEach((pts, i) => { lens[i] = pts.length; for (const q of pts) { xyz[k++] = q.x; xyz[k++] = q.y; xyz[k++] = q.z; } });
           out.mts = { xyz, lens };
           transfer.push(xyz.buffer, lens.buffer);
+          // the nuclear pores (isc_cell_npcs): centre, outward normal, e1 per pore, cell-local
+          const pores = w.npcsOfCell(d.cx, d.cy);
+          if (pores.length) {
+            const npcs = new Float64Array(pores.length * 9);
+            pores.forEach((q, i) => npcs.set([q.x, q.y, q.z, ...q.n, ...q.e1], i * 9));
+            out.npcs = npcs;
+            transfer.push(npcs.buffer);
+          }
         }
         return [out, transfer];
       }

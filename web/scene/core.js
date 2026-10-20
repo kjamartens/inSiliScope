@@ -82,13 +82,14 @@ const STRUCTURES = [
   { id: 'cyto', label: 'Cytoplasm', reps: ['surface', 'outline', 'contours'] },
   { id: 'cell', label: 'Whole cell', reps: ['bfSlice'] },   // BrightField images every structure at once
   { id: 'ruler', label: 'Nanorulers', reps: ['outline'] },   // DNA-origami rods (a nanoruler world; drawn in 2D, no GL kind)
+  { id: 'npc', label: 'Nuclear pores', reps: ['lines'] },     // the pores' two 8-fold rings on the nuclear envelope
 ];
 // Representations the renderer draws today; the other layers are listed but marked not available yet.
 const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs']);
 // GL kinds: the index of a layer in the renderer's clip tables (mesh kinds 0-3 share one draw per cell).
 const KIND = { 'cyto.surface': 0, 'nucleus.surface': 1, 'cyto.outline': 2, 'cyto.contours': 3, 'mt.lines': 4, 'mt.dyes': 5,
-  'mt.wfIso': 6, 'mt.locs': 7 };
-const N_KINDS = 8, IV_MAX = 4;
+  'mt.wfIso': 6, 'mt.locs': 7, 'npc.lines': 8 };
+const N_KINDS = 9, IV_MAX = 4;
 
 function buildLayers(structures) {
   const out = new Map();
@@ -110,8 +111,9 @@ const REGISTRY = { layers: LAYERS, structures: new Map(STRUCTURES.map(s => [s.id
   dyes: !!s.dyes, layers: [...LAYERS.values()].filter(L => L.structure === s.id).map(L => L.id) }])) };
 
 // ---- themes ---------------------------------------------------------------------------------------------------------
-// color: [r, g, b] 0-255, or null = the renderer's own colouring (depth colours for surfaces). opacity 0-1. width
-// (um, microtubules) and size (device px, points) are per layer.
+// color: [r, g, b] 0-255, or null = the renderer's own colouring (depth colours: surfaces, microtubules, pores; the
+// height over the cell's, 0 = the coverslip). opacity 0-1. width (um, microtubules) and size (device px, points) are
+// per layer.
 const THEMES = {
   viewer: { label: 'Viewer (depth colours)', bg: [5, 7, 10], layers: {
     'cyto.surface': { color: null, opacity: 0.6 },
@@ -127,6 +129,7 @@ const THEMES = {
     'ruler.outline': { color: [90, 169, 230], opacity: 0.55 },
     'mt.wfIso': { color: [120, 200, 255], opacity: 0.55, level: 1 },
     'mt.locs': { color: [255, 170, 60], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
+    'npc.lines': { color: [255, 190, 235], opacity: 1 },
   }, ghost: { color: null, opacity: 0.25 } },
   fluo: { label: 'Dark fluorescence', bg: [0, 0, 0], layers: {
     'cyto.surface': { color: [38, 70, 120], opacity: 0.3 },
@@ -142,8 +145,12 @@ const THEMES = {
     'ruler.outline': { color: [110, 170, 255], opacity: 0.45 },
     'mt.wfIso': { color: [255, 90, 200], opacity: 0.5, level: 1 },
     'mt.locs': { color: [255, 200, 80], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
+    'npc.lines': { color: [255, 90, 140], opacity: 1 },
   }, ghost: { color: [60, 90, 140], opacity: 0.18 } },
 };
+// Dark fluorescence with the microtubules and pores in depth colours (their height over the cell's).
+THEMES.fluoZ = { label: 'Dark fluorescence (depth)', bg: THEMES.fluo.bg, ghost: THEMES.fluo.ghost,
+  layers: Object.assign({}, THEMES.fluo.layers, { 'mt.lines': { color: null, opacity: 1 }, 'npc.lines': { color: null, opacity: 1 } }) };
 function themeOf(name) { return THEMES[name] || THEMES.viewer; }
 function hexToRgb(c) {
   if (Array.isArray(c) || c === null || c === undefined) return c;

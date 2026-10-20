@@ -364,7 +364,8 @@
     <div id="legend">
       <span class="cfOnly"><span class="sw" style="background:#5aa9e6"></span>cell body
       <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
-      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule</span>
+      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
+      <span class="sw" style="background:#ffbeeb;margin-left:10px"></span>nuclear pore</span>
       <span class="nrOnly" hidden><span class="sw" style="background:#5aa9e6"></span>nanoruler (DNA origami, from above)</span>
       <span class="sw" id="dyeSwatch" style="background:#ff4d4d;margin-left:10px"></span>dye
       <span class="cfOnly"><span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid</span>
@@ -754,11 +755,12 @@ const UI_GROUPS = [
     select('sceneScope', 'Scope', 'Which cells are drawn: all of them, the centre cell with faint neighbours, or the centre cell alone. Display only.',
       [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv, show: CF }),
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
-      [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence']], 'viewer', { adv }),
+      [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence'], ['fluoZ', 'Dark fluorescence (depth)']], 'viewer', { adv }),
     grid('Show', [
       check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true, { show: CF }),
       check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
       check('showMt', 'Microtubules', 'Draw the microtubules.', true, { show: CF }),
+      check('showNpcs', 'Nuclear pores', 'Draw the nuclear pores of the detailed cells: the two 8-fold rings of each (cytoplasmic light, nucleoplasmic dark), from 400 px/µm also the four Nup96 sites at each corner.', true, { show: CF }),
       check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
       check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv, show: CF }),
@@ -964,7 +966,7 @@ const UI_GROUPS = [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
     range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL, kids: [
-      select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '2', { adv, show: FL }),
+      select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
       num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
       num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
     ] }),
@@ -1612,7 +1614,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
- 'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showGrid', 'resetView', 'randomCell', 'prevCell',
+ 'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
@@ -1773,6 +1775,7 @@ function stateFromUI() {
   }
   if (els.showNucleus.checked) layers['nucleus.surface'] = {};
   if (els.showMt.checked) layers['mt.lines'] = {};
+  if (els.showNpcs.checked) layers['npc.lines'] = {};
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
   if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
@@ -1916,7 +1919,7 @@ const ORDER_Q = 0.5 * Math.PI / 180, ORDER_BUDGET_MS = 4;
 // kinds a cell outside the detail budget does not draw (nucleus, microtubules, dyes); a faint neighbour also
 // drops its contour lines
 const K = IscScene.KIND, IV = IscScene.IV_MAX;
-const HIDE_PLAIN = (1 << K['nucleus.surface']) | (1 << K['mt.lines']) | (1 << K['mt.dyes']);
+const HIDE_PLAIN = (1 << K['nucleus.surface']) | (1 << K['mt.lines']) | (1 << K['mt.dyes']) | (1 << K['npc.lines']);
 const HIDE_GHOST = HIDE_PLAIN | (1 << K['cyto.contours']);
 let frameExact = false, sortDeadline = Infinity, orderStale = false;
 let animPlaying = false;   // an animation preview is playing (the camera moves every frame)
@@ -2082,11 +2085,32 @@ function drawCell2D(c, asset, p, F, cf) {
   if (on(kMt) && F.mtW && asset.mts) {
     const o = kMt * IV;
     ctx.save();
-    ctx.strokeStyle = slotCss(F, o, cf.alpha, [230, 198, 90]);
+    ctx.strokeStyle = slotCss(F, o, cf.alpha, [80, 255, 225]);   // depth colours (no colour) are GL-only: one colour here
     ctx.translate(t.ox, t.H2 + (t.oy * t.cosT + t.pz * t.sinT) * t.S);
     ctx.scale(t.S, t.S);           // the path is in cell-local um (getMtPath2D)
     ctx.lineWidth = F.mtW / t.S;
     ctx.stroke(getMtPath2D(asset.mts, c, t, F.zc).path);
+    ctx.restore();
+  }
+  const kNpc = K['npc.lines'];
+  if (on(kNpc) && asset.npcs) {
+    const { pts, ring } = npcPolylines(asset.npcs, p, t.S >= NPC_ARC_PX_PER_UM * F.pxScale), base = slotCss(F, kNpc * IV, cf.alpha, null);
+    ctx.save();
+    ctx.translate(t.ox, t.H2 + (t.oy * t.cosT + t.pz * t.sinT) * t.S);
+    ctx.scale(t.S, t.S);
+    ctx.lineWidth = F.npcW / t.S;
+    for (let rg = 0; rg < 2; rg++) {
+      const path = new Path2D();
+      for (let v = 0; v < ring.length; v++) {
+        if (ring[v] !== rg || pts[4 * v + 2] < F.zc[0] || pts[4 * v + 2] > F.zc[1]) continue;
+        const lx = pts[4 * v], ly = pts[4 * v + 1], z = pts[4 * v + 2];
+        const sx = lx * t.cr - ly * t.sr, sy = (lx * t.sr + ly * t.cr) * t.cosT - z * t.sinT;
+        if (v > 0 && pts[4 * v - 1] === 1 && ring[v - 1] === rg) path.lineTo(sx, sy); else path.moveTo(sx, sy);
+      }
+      ctx.strokeStyle = base || depthColor(asset.npcs[2], 0, c.height, cf.alpha);
+      ctx.globalAlpha = rg === 0 ? 0.6 : 1;
+      ctx.stroke(path);
+    }
     ctx.restore();
   }
   if (!(on(0) || on(1) || on(2) || on(3))) return;
@@ -2165,7 +2189,7 @@ function drawCell2D(c, asset, p, F, cf) {
 // when the cell's effective rotation, the tilt or the contour step change), alpha-blended, depth-tested against
 // the microtubules but not written. Pan/zoom, what is shown and every clip interval only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glNpcProg = null, glNpcU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
 // u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
 // (sin, cos) of the tilt, u_pz: the pivot height. worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
@@ -2349,6 +2373,22 @@ void main() {
   float a = st.a * u_cellA;
   o = vec4((st.r < 0.0 ? v_col.rgb : st.rgb) * a, a);   // premultiplied
 }`;
+// Lines (microtubules, pores): a style without a colour (r < 0) draws the height over the cell's (u_zr) in depth colours.
+const glFsLine = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; out vec4 o; uniform vec2 u_zr;` + GL_CLIP + `
+vec3 depthRGB(float t) {
+  vec3 c0 = vec3(0.15, 0.25, 0.9), c1 = vec3(0.1, 0.75, 0.85), c2 = vec3(0.25, 0.8, 0.25), c3 = vec3(0.95, 0.85, 0.15), c4 = vec3(0.9, 0.2, 0.15);
+  float f = clamp(t, 0.0, 0.9999) * 4.0;
+  return f < 1.0 ? mix(c0, c1, f) : f < 2.0 ? mix(c1, c2, f - 1.0) : f < 3.0 ? mix(c2, c3, f - 2.0) : mix(c3, c4, f - 3.0);
+}
+void main() {
+  vec4 st = zoneStyle(${kind}, v_w);
+  if (st.a < 0.0) discard;
+  float a = st.a * u_cellA;
+  vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
+  o = vec4(rgb * a, a);
+}`;
 const glFsKind = kind => `#version 300 es
 precision highp float;
 in vec3 v_w; out vec4 o;` + GL_CLIP + `
@@ -2388,12 +2428,14 @@ function initGl() {
     return { pr, u };
   };
   const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
-  const b = link(GL_MT_VS, glFsKind(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW']);
+  const b = link(GL_MT_VS, glFsLine(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr']);
+  const np = link(GL_MT_VS, glFsLine(K['npc.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr']);
   const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
   const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr', 'u_sum', 'u_useCross', 'u_crossUp', 'u_crossCol', 'u_cross',
     'u_useMask', 'u_lo', 'u_hi', 'u_gamma', 'u_add', 'u_col']);
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
+  if (np) { glNpcProg = np.pr; glNpcU = np.u; } else console.warn('nuclear pores unavailable (shader)');
   if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
   const iso = link(GL_ISO_VS, GL_ISO_FS, ['a_p', 'a_n'], []);
   if (iso) { glIsoProg = iso.pr; glIsoU = iso.u; } else console.warn('thresholded surface unavailable (shader)');
@@ -2401,7 +2443,7 @@ function initGl() {
   if (loc) { glLocProg = loc.pr; glLocU = loc.u; } else console.warn('localizations unavailable (shader)');
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
-    for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; } // buffers died with the context
+    for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; a.entry.npcGl = null; } // buffers died with the context
     dyeGl = null; sliceGl = null; capFb = null;
     for (const st of stackStore.values()) { st.tex = st.maskTex = st.texGl = null; }
     for (const e of isoStore.values()) e.gl = null;
@@ -2411,11 +2453,12 @@ function initGl() {
   return true;
 }
 function freeMeshGl(entry) {
-  const g = entry.gl, m = entry.mtGl;
-  entry.gl = null; entry.mtGl = null;
+  const g = entry.gl, m = entry.mtGl, n = entry.npcGl;
+  entry.gl = null; entry.mtGl = null; entry.npcGl = null;
   if (!gl || gl.isContextLost()) return;
   if (g) { gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); gl.deleteVertexArray(g.vao); }
   if (m) for (const l of m.values()) { gl.deleteBuffer(l.vbo); gl.deleteVertexArray(l.vao); }
+  if (n) { gl.deleteBuffer(n.vbo); gl.deleteVertexArray(n.vao); }
 }
 const GL_STRIDE = 36; // a_pos 3f, a_oth 3f, a_ext 2f, a_col 4 x u8
 // Every kind is in the index buffer (what is shown is a uniform), so it changes only with the depth order.
@@ -2531,6 +2574,54 @@ function ensureMtGl(entry, mts, tolUm) {
   if (m.size > 2) { const [k0, l0] = m.entries().next().value; gl.deleteBuffer(l0.vbo); gl.deleteVertexArray(l0.vao); m.delete(k0); }
   return l;
 }
+// Nuclear pores (webSMLM's Nup96 model, Thevathasan et al. 2019; core/src/npcs.*): per pore its two rings (the
+// nucleoplasmic at -sep/2 along the outward normal n, the cytoplasmic at +sep/2) as closed octagons through the 8
+// corners at radius R (corner 0 along e1, e2 = n x e1); with arcs, each corner's 4 Nup96 sites (an arc of diameter
+// spread at -67.5 .. 67.5 deg about the corner) as a short line too. Returns polylines in cell-local um as
+// {pts: Float32Array(x, y, z, w per point; w = 1: a segment to the next point), ring: Uint8Array(per point: 0 inner, 1 outer)}.
+const NPC_ARC_PX_PER_UM = 400;
+function npcPolylines(npcs, p, arcs) {
+  const R = p.npcRadiusNm, half = p.npcRingSepNm / 2, arcR = p.npcCornerSpreadNm / 2, nP = npcs.length / 9;
+  const per = 2 * (9 + (arcs ? 8 * 4 : 0));
+  const pts = new Float32Array(nP * per * 4), ring = new Uint8Array(nP * per);
+  let w = 0;
+  for (let i = 0; i < nP; i++) {
+    const o = 9 * i, qx = npcs[o], qy = npcs[o + 1], qz = npcs[o + 2], nx = npcs[o + 3], ny = npcs[o + 4], nz = npcs[o + 5];
+    const ax = npcs[o + 6], ay = npcs[o + 7], az = npcs[o + 8];
+    const bx = ny * az - nz * ay, by = nz * ax - nx * az, bz = nx * ay - ny * ax;   // e2 = n x e1
+    const put = (a, b, c, more, rg) => {
+      pts[4 * w] = qx + (a * ax + b * bx + c * nx) * 1e-3; pts[4 * w + 1] = qy + (a * ay + b * by + c * ny) * 1e-3;
+      pts[4 * w + 2] = qz + (a * az + b * bz + c * nz) * 1e-3; pts[4 * w + 3] = more ? 1 : 0; ring[w++] = rg;
+    };
+    for (let rg = 0; rg < 2; rg++) {
+      const cz = rg === 0 ? -half : half;
+      for (let k = 0; k <= 8; k++) put(R * Math.cos(k * Math.PI / 4), R * Math.sin(k * Math.PI / 4), cz, k < 8, rg);
+      if (arcs) for (let k = 0; k < 8; k++) {
+        const th = k * Math.PI / 4, ct = Math.cos(th), st = Math.sin(th);
+        for (let j = 0; j < 4; j++) {
+          const phi = (-67.5 + 45 * j) * Math.PI / 180, u = Math.cos(phi) * arcR, v = Math.sin(phi) * arcR;
+          put(R * ct + (u * ct - v * st), R * st + (u * st + v * ct), cz, j < 3, rg);
+        }
+      }
+    }
+  }
+  return { pts: pts.subarray(0, 4 * w), ring: ring.subarray(0, w) };
+}
+function ensureNpcGl(entry, npcs, p, arcs) {
+  const key = [arcs, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm].join('|');
+  let l = entry.npcGl;
+  if (l && l.key === key) return l;
+  if (l) { gl.deleteBuffer(l.vbo); gl.deleteVertexArray(l.vao); }
+  const { pts } = npcPolylines(npcs, p, arcs);
+  l = entry.npcGl = { key, vbo: gl.createBuffer(), vao: gl.createVertexArray(), count: Math.max(0, pts.length / 4 - 1) };
+  gl.bindVertexArray(l.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, l.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 16, 16); gl.vertexAttribDivisor(1, 1);
+  gl.bindVertexArray(null);
+  return l;
+}
 // The dyes to draw on the GPU (drawDyes keeps it current): {vbo, vao, count, key, ox, oy}, positions relative to
 // the origin (ox, oy) so float32 keeps them exact.
 let dyeGl = null;
@@ -2570,6 +2661,24 @@ function drawSceneGl(cells, p, F) {
       const l = ensureMtGl(asset.entry, asset.mts, tolUm);
       if (!l.count) continue;
       cellU(glMtU, c, cf);
+      gl.uniform2f(glMtU.u_zr, 0, c.height);
+      gl.bindVertexArray(l.vao);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
+    }
+  }
+  const kNpc = K['npc.lines'];
+  if (Z.n[kNpc] && glNpcProg) {   // opaque pass: nuclear pores, depth written
+    gl.useProgram(glNpcProg); frame(glNpcU);
+    gl.uniform1f(glNpcU.u_halfW, F.npcW / 2);
+    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    const arcs = cam.S >= NPC_ARC_PX_PER_UM * F.pxScale;
+    for (const cf of cells) {
+      const { cell: c, asset } = cf;
+      if (!asset.npcs || ((cf.hide >> kNpc) & 1)) continue;
+      const l = ensureNpcGl(asset.entry, asset.npcs, p, arcs);
+      if (!l.count) continue;
+      cellU(glNpcU, c, cf);
+      gl.uniform2f(glNpcU.u_zr, 0, c.height);
       gl.bindVertexArray(l.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
     }
@@ -3124,6 +3233,9 @@ function iscEngine(M) {
           const lens = M.HEAPU32.slice(lensPtr / 4, lensPtr / 4 + nMt);
           out.mts = { xyz, lens };
           transfer.push(xyz.buffer, lens.buffer);
+          // the nuclear pores (ABI 13): centre, outward normal, e1 per pore, cell-local (ISC_NPC_STRIDE 9)
+          const nNpc = M._isc_cell_npcs(w, d.cx, d.cy, 0, 0);
+          if (nNpc > 0) { out.npcs = query((ptr, cap) => M._isc_cell_npcs(w, d.cx, d.cy, ptr, cap), 9, nNpc); transfer.push(out.npcs.buffer); }
         }
         return [out, transfer];
       }
@@ -3632,7 +3744,7 @@ function unpackAsset(d) {
   // ring is the footprint outline), the microtubules as xyz + lens, the nucleus rings as xyz. No per-vertex or
   // per-point objects.
   return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0 },
-    mts: d.mts || null, nuc: d.nuc || null, nucPts: d.nucPts || 0 };
+    mts: d.mts || null, npcs: d.npcs || null, nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
@@ -3785,7 +3897,8 @@ function renderFrame(st, target) {
   const nr = p.specimen === 1;   // a nanoruler world: no cells (no packing), the rods instead
   const Z = IscScene.packZones(st), mtStyle = Z.layer[K['mt.lines']], pxScale = target.pxScale || 1;
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
-    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale, css: new Map(), fbo: target.fbo || null,
+    mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale,
+    npcW: (pxPerUm < 60 * pxScale ? 2 : 1.2) * pxScale, css: new Map(), fbo: target.fbo || null,
     target: null, dataMissing: [], animate: false };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   // the info box: one item per line (the counts are in its data- attributes, for the tests)

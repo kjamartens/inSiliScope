@@ -147,10 +147,15 @@ through it step by step.
   the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
   between two heights above the coverslip; drag both knobs together for a slab moving through the cells (its full
   0-20 um range is off). The advanced **Turn height** sets the height of the point the view turns about.
-- **Detailed cells** (default 5): only the cells nearest the view centre get their microtubules, nucleus and dyes;
-  the others show their cytoplasm, so a zoomed-out, turned view stays fast. 0 draws every cell in full. Advanced:
-  **Scope** draws all cells, the centre cell with faint neighbours, or the centre cell alone; **Look** switches between
-  the depth colours and bright colours on black.
+- **Detailed cells** (default 5): only the cells nearest the view centre get their microtubules, nuclear pores,
+  nucleus and dyes; the others show their cytoplasm, so a zoomed-out, turned view stays fast. 0 draws every cell in
+  full. Advanced: **Scope** draws all cells, the centre cell with faint neighbours, or the centre cell alone; **Look**
+  switches between the depth colours, bright colours on black (Dark fluorescence) and Dark fluorescence (depth): on
+  black, the microtubules and nuclear pores coloured by their height in the cell (blue at the coverslip to red at the
+  cell's top; drawn on the GPU, the 2D fallback keeps one colour for the microtubules).
+- **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
+  (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
+  nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
