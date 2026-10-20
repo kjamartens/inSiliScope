@@ -421,6 +421,7 @@
         </div>
         <div class="lc" id="lv_illumHost"></div>
         <div class="lc" id="lv_objHost"></div>
+        <div class="lc" id="lv_camHost"></div>
         <div class="lc"><h5>Display</h5>
           <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
@@ -994,12 +995,9 @@ const UI_GROUPS = [
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
-  // the camera follows the Configuration at the Basic level (the pixel size from the objective, shown in the live bar)
-  { sect: 'Microscope', id: 'camera', title: 'Camera', show: () => document.body.dataset.level !== 'basic', items: [
-    num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
-    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × emission magnification, 0.667). Not a setting: pick the Camera and Objective (Configuration). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { adv, ro: true }),
-    num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
-    select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve and the noise values below (edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
+  // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
+  { id: 'camera', host: 'lv_camHost', title: 'Camera', open: true, items: [
+    select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve, the magnification and the noise values (Advanced; edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
         apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
           for (const id in K) if (c[K[id]] !== undefined) o[id] = c[K[id]];
@@ -1020,8 +1018,13 @@ const UI_GROUPS = [
           num('mv_cic', 'CIC', 'e⁻/px/frame', 'EMCCD clock-induced charge. <code>Camera.EMCCD_CicElectrons</code>', 0, 1, 'any', 0.002, { adv }),
           num('mv_bit-depth', 'Bit depth', 'bits', 'EMCCD ADC bit depth. <code>Camera.BitDepth</code>', 8, 16, 1, 16, { adv }),
         ] }),
+    num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
+    num('emissionMag', 'Magnification', '×', 'Magnification between the objective and the camera (tube lens / relay); a camera preset sets its own (Kinetix22 0.667, iXon Ultra 897 1.6). The pixel size follows. <code>EmissionPath.EmissionMagnification</code>', 0.1, 10, 'any', 0.667),
+    { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
+    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Not a setting: pick the Camera, Objective and Magnification. <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { ro: true }),
+    num('mv_seed', 'Noise seed', 'integer', 'Seed of the blinking and camera noise (the world has its own seed).', null, null, 1, 42, { adv }),
   ] },
-  { id: 'formation', title: 'Image formation', items: [
+  { sect: 'Microscope', id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
     num('mv_wf-plane-nm', 'Mean-field z plane', 'nm', 'Thickness of the mean-field dye planes. <code>Renderer.WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: FL }),
     num('mv_mean-field-density-per-um2', 'Mean-field above', '/µm²', 'A continuous population renders mean-field (fast, its mean image) while more than this many of its dyes emit per µm² within the focal slab, per dye (exact windows) below. <code>Renderer.MeanFieldDensityPerUm2</code>', 0, null, 1, 20, { adv, show: FL }),

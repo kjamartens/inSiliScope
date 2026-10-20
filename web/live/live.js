@@ -59,10 +59,10 @@ for (const num of document.querySelectorAll('#lv_illumHost input[type=number][id
   num.addEventListener('change', back);
 }
 
-// A settings group in the column (Illumination & light path, Objective & PSF) shows only when one of its rows does at
-// the current level (Objective & PSF has no Basic row).
+// A settings group in the column (Illumination & light path, Objective & PSF, Camera) shows only when one of its rows
+// does at the current level (Objective & PSF has no Basic row).
 function syncHostBoxes() {
-  for (const id of ['lv_illumHost', 'lv_objHost']) {
+  for (const id of ['lv_illumHost', 'lv_objHost', 'lv_camHost']) {
     const box = $(id);
     if (box) box.hidden = ![...box.querySelectorAll('.opt')].some(e => getComputedStyle(e).display !== 'none');
   }

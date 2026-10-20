@@ -13,13 +13,24 @@ if (!CFG || !host) return;
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const extra = self.ISC_MM_EXTRA = {};
 let optics = null;   // the objective's magnification as last picked (a preset's "optics"; from the tier's Startup)
-// The optics now: the objective's as picked, the camera's (sensor pixel, emission magnification) those of the camera
-// preset the panel is at (a camera picked in the settings counts too).
-function opticsNow() {
-  const o = { ...optics }, cp = $('mv_camera-preset');
+// The optics of a camera preset (sensor pixel, emission magnification), from the configurations that pick it.
+function cameraOptics(cam) {
+  const o = {};
   for (const T of Object.values(CFG)) for (const g of T.groups) for (const p of g.presets || [])
-    if (p.optics && cp && p.set['camera-preset'] === +cp.value) Object.assign(o, p.optics);
+    if (p.optics && p.set['camera-preset'] === cam) Object.assign(o, p.optics);
   return o;
+}
+// The optics now: the objective's as picked, the sensor pixel of the camera preset the panel is at (a camera picked in
+// the settings counts too) and the Magnification row (Camera box; a camera preset sets it to its own).
+function opticsNow() {
+  const cp = $('mv_camera-preset'), o = { ...optics, ...(cp ? cameraOptics(+cp.value) : {}) }, em = $('emissionMag');
+  if (em && +em.value > 0) o.emissionMag = +em.value;
+  return o;
+}
+// A camera preset brings its own magnification to the camera (EmissionPath.EmissionMagnification goes with the camera).
+function takeCameraMag(o) {
+  const em = $('emissionMag');
+  if (em && o && o.emissionMag && Math.abs(+em.value - o.emissionMag) > 1e-9) { em.value = o.emissionMag; fire(em); }
 }
 let engine = null;   // option name -> default (isc_scope_options), once a worker has answered
 self.onEngineOptions = (names, defaults) => {
@@ -75,7 +86,8 @@ function apply(preset) {
   if (preset.optics) {
     // the pixel size, as Micro-Manager works it out: the sensor pixel / (objective x emission magnification)
     if (preset.optics.objectiveMag) optics.objectiveMag = preset.optics.objectiveMag;
-    setPixelSize({ ...opticsNow(), ...preset.optics });
+    takeCameraMag(preset.optics);
+    setPixelSize(opticsNow());
   }
   if (set['camera-preset'] !== undefined && $('qeFlat') && $('qeFlat').checked) { $('qeFlat').checked = false; fire($('qeFlat')); }
   if (preset.light) {
@@ -90,8 +102,10 @@ function apply(preset) {
 }
 // The pixel size as Micro-Manager works it out: the sensor pixel / (objective x emission magnification).
 function setPixelSize(o) {
-  const px = o.sensorUm * 1000 / (o.objectiveMag * o.emissionMag), el = $('mv_pixel-nm');
+  const px = o.sensorUm * 1000 / (o.objectiveMag * o.emissionMag), el = $('mv_pixel-nm'), rd = $('magReadout');
   if (el && Number.isFinite(px) && px > 0 && Math.abs(+el.value - px) > 1e-9) { el.value = px; fire(el); }
+  if (rd && Number.isFinite(px) && px > 0)
+    rd.textContent = `total ${+(o.objectiveMag * o.emissionMag).toFixed(1)}× (objective ${o.objectiveMag}×), sensor pixel ${o.sensorUm} µm`;
 }
 function pruneExtra() { if (engine) for (const k in extra) if (!engine.has(k) && !/^light-(epi|trans)$/.test(k)) delete extra[k]; }
 
@@ -136,7 +150,7 @@ function render() {
   if (!optics) optics = { ...T.optics };
   host.innerHTML = '';
   rows = [];
-  const first = ['Channel', 'Objective', 'Camera'];
+  const first = ['Specimen', 'Channel', 'Objective', 'Camera'];
   const groups = T.groups.slice().sort((a, b) => ((first.indexOf(a.name) + 1 || 99) - (first.indexOf(b.name) + 1 || 99)));
   for (const g of groups) {
     // the laser powers are set in Illumination & light path (sliders there), not here
@@ -182,12 +196,16 @@ function render() {
   markCurrent();
 }
 render();
-if (optics) setPixelSize(opticsNow());   // the pixel size is the camera's and the objective's from the start
+if (optics) { const cp = $('mv_camera-preset'); if (cp) takeCameraMag(cameraOptics(+cp.value)); setPixelSize(opticsNow()); }   // from the start
 new MutationObserver(render).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 let markTimer = 0;
 $('panel').addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
 $('panel').addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
-// A camera picked in the settings changes the pixel size too (its sensor pixel, the objective as picked).
-if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () => { if (optics) setPixelSize(opticsNow()); });
+// A camera picked in the settings changes the pixel size too (its sensor pixel and magnification, the objective as
+// picked); so does the Magnification row.
+if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () => {
+  if (optics) { takeCameraMag(cameraOptics(+$('mv_camera-preset').value)); setPixelSize(opticsNow()); }
+});
+if ($('emissionMag')) $('emissionMag').addEventListener('input', () => { if (optics && +$('emissionMag').value > 0) setPixelSize(opticsNow()); });
 self.mmConfig = { apply, render, markCurrent, pruneExtra, matches, valueOf, extra, config: CFG };
 })();

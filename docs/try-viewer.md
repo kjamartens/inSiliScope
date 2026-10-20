@@ -70,19 +70,22 @@ through it step by step.
   the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).
 - **Configuration** (in the controls column): the config groups of the adapter's Micro-Manager configurations
-  (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Mode (the
+  (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Specimen, Mode (the
   configurations' Channel group, its presets named by the mode alone, without the dye they also pick: dSTORM,
-  DNA-PAINT, PALM, WideField, BrightField, and in Advanced WideField + BrightField), Objective, Camera, Quality, Drift and Specimen (the configurations'
+  DNA-PAINT, PALM, WideField, BrightField, and in Advanced WideField + BrightField), Objective, Camera, then the others
+  (Aberrations, Drift, Illumination, Quality; the configurations'
   laser-power groups are not shown here: the lasers are in Illumination & light path). A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
-  the adapter itself, so the two stay the same); the pixel size follows the objective and camera as in Micro-Manager
-  (sensor pixel / (objective x 0.667 emission magnification): 97.45 nm at 100x with the Kinetix22). The select shows
-  the preset the settings are at, or "—" once a setting differs. The pixel size is
-  not a setting: it follows the camera and the objective (shown read-only under Camera, Advanced). The Camera group of
-  the settings shows from the Advanced level on (at Basic the camera is the Configuration's, the image 128 px).
+  the adapter itself, so the two stay the same). The select shows the preset the settings are at, or "—" once a
+  setting differs.
+- **Camera** (in the controls column, under Objective & PSF): the camera, the field of view (px) and the
+  **Magnification** between the objective and the camera (`EmissionPath.EmissionMagnification`; a camera preset sets its
+  own: 0.667 with the Kinetix22, 1.6 with the iXon), with the total magnification under it. The pixel size is not a
+  setting: it follows as in Micro-Manager, sensor pixel / (objective x magnification), 97.45 nm at 100x with the
+  Kinetix22, shown read-only. Advanced adds the camera's noise values.
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
-  (camera, image formation; illumination and the objective are in the controls column) and acquisition. Every group,
+  (image formation; illumination, the objective and the camera are in the controls column) and acquisition. Every group,
   here and in the controls column, is a box laid out like the Configuration (names in a column, the controls beside
   them, a number's unit right after it), open in full when the page loads; a click on its title folds it. Every option
   has a unit and a help text that shows when the pointer rests on its name. A setting that differs from its default
