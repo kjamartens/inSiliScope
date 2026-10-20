@@ -335,7 +335,7 @@
   .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   /* sidebar tabs: the settings panel and the animation editor (web/anim/editor.js styles its own panel) */
   #tabs{display:flex;gap:4px;margin-top:8px}
-  #tabs[hidden]{display:none}   /* shown by the menu's "Show animation pane (WIP)" (web/anim/editor.js) */
+  #tabs[hidden]{display:none}   /* shown by the menu's "Show animation pane (beta)" (web/anim/editor.js) */
   #tabs button{flex:1;padding:4px 6px;border-radius:5px 5px 0 0;border-bottom:none;color:var(--muted)}
   #tabs button.on{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--in-bg))}
   #animPanel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
@@ -1408,10 +1408,11 @@ for (const r of entries) if (r.init) r.init();
 // ---- hamburger menu: level, style, expand/collapse ----
 const menu = $('menu'), menuBtn = $('menuBtn');
 menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
-  '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (work in progress)"><input type="checkbox" id="showAnimPane"> Show animation pane (WIP)</label>' +
+  '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show animation pane (beta)</label>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
-  '<div class="note" id="advNote"></div>';
+  '<div class="note" id="advNote"></div>' +
+  (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '');
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
   document.body.dataset.level = v;

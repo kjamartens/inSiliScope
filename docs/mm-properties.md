@@ -37,6 +37,7 @@ inSiliScope: a simulated fluorescence/BrightField microscope (hub of its devices
 |---|---|---|---|---|
 | `Detail` | pre-init | Basic | `Advanced`, `Basic`, `Expert` | set before the devices initialize |
 | `RandomSeed` | pre-init | 42 |  | set before the devices initialize |
+| `Version` | Basic | 0.1.0 |  | the release (read-only) |
 
 ## Camera
 

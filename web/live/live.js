@@ -559,10 +559,10 @@ const PLAY = L.play = { on: false, frames: null, w: 0, h: 0, n: 0, desc: '', i: 
 function openPlayer(n) {
   const exp = REC.exp || exposureSec();   // the exposure the frames were taken at
   const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
-    ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.sample-time-sec=${REC.tStart}`,
+    ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.sample-time-sec=${REC.tStart}`,
       `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
       'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
-      : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.recorded=${new Date().toISOString()}`,
+      : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
   closePlayer();
   Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,

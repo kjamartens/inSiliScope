@@ -28,6 +28,9 @@ TYPES = {"CameraDevice": "Camera", "StageDevice": "Stage", "XYStageDevice": "XY 
          "ShutterDevice": "Shutter", "MagnifierDevice": "Magnifier", "GenericDevice": "Generic", "HubDevice": "Hub"}
 
 
+HUB_RO = {}   # the hub's own read-only rows (read_adapter)
+
+
 def cell(s):
     return str(s).replace("|", "\\|").replace("\n", " ")
 
@@ -52,6 +55,9 @@ def read_adapter():
     # The pre-init defaults, before Detail is set.
     pre = {d: {p: (core.getProperty(d, p), list(core.getAllowedPropertyValues(d, p)))
                for p in core.getDevicePropertyNames(d) if core.isPropertyPreInit(d, p)} for d in [HUB] + ALL_DEVICES}
+    # The hub's own read-only rows (not in the registry): the release.
+    global HUB_RO
+    HUB_RO = {p: core.getProperty(HUB, p) for p in ["Version"] if core.hasProperty(HUB, p)}
     core.setProperty(HUB, "Detail", "Expert")
     core.initializeAllDevices()
     devices = {}
@@ -109,6 +115,9 @@ def build(devices, pre, rows):
                 continue
             listed.append(f"| `{p}` | pre-init | {cell(val)} | {', '.join(f'`{a}`' for a in allowed)} | "
                           f"set before the devices initialize |")
+        if d == HUB:
+            for p, val in HUB_RO.items():
+                listed.append(f"| `{p}` | Basic | {cell(val)} |  | the release (read-only) |")
         for t in TIERS:
             for r in by_dev.get(d, []):
                 if r["tier"] != t or r["name"] in pre.get(d, {}):

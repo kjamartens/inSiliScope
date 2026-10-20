@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(insiliscope LANGUAGES CXX)
+# The release version: the VERSION file, which core/include/insiliscope/version.h must repeat (the MSBuild adapter reads
+# the header).
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" ISC_VERSION_FILE LIMIT_COUNT 1)
+string(STRIP "${ISC_VERSION_FILE}" ISC_VERSION_FILE)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/core/include/insiliscope/version.h" ISC_VERSION_HEADER)
+if(NOT ISC_VERSION_HEADER MATCHES "#define ISC_VERSION \"${ISC_VERSION_FILE}\"")
+  message(FATAL_ERROR "core/include/insiliscope/version.h does not say ISC_VERSION \"${ISC_VERSION_FILE}\" (the VERSION file)")
+endif()
+project(insiliscope VERSION ${ISC_VERSION_FILE} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

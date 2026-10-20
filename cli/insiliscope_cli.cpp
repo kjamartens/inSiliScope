@@ -15,6 +15,7 @@
 #include "ScopeMovie.h"
 #include "scope_probes.h"
 #include "tiff_writer.h"
+#include "insiliscope/version.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -31,7 +32,8 @@ namespace {
 
 void Usage()
 {
-   std::printf("usage: insiliscope_cli --out file.tif [--option value ...]\n\n"
+   std::printf("insiliscope_cli " ISC_VERSION "\n"
+               "usage: insiliscope_cli --out file.tif [--option value ...]\n\n"
                "options (default):\n");
    for (const sim::ScopeOption& o : sim::ScopeMovieOptions())
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
@@ -97,6 +99,7 @@ int RunCli(int argc, char** argv)
    for (int i = 1; i < argc; i++) {
       const std::string a = argv[i];
       if (a == "--help" || a == "-h") { Usage(); return 0; }
+      if (a == "--version") { std::printf("insiliscope_cli %s\n", ISC_VERSION); return 0; }
       if (a == "--out" && i + 1 < argc) { out = argv[++i]; continue; }
       if (a == "--geometry-json" && i + 1 < argc) { geometryOut = argv[++i]; continue; }
       if (a == "--geometry-um" && i + 1 < argc) { geometryUm = std::atof(argv[++i]); continue; }
@@ -241,7 +244,7 @@ int RunCli(int argc, char** argv)
    std::string err;
    bool writeOk = true;
    const bool ok = sim::RenderScopeMovie(spec, [&](long f, const std::vector<uint16_t>& adu) {
-      writeOk = tif.Page(adu, info.width, info.height, f == 0 ? info.description : "");
+      writeOk = tif.Page(adu, info.width, info.height, f == 0 ? info.description + " version=" ISC_VERSION : "");
       return writeOk;
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }

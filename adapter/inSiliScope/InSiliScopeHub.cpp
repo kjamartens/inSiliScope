@@ -13,6 +13,7 @@
 #include "InSiliScopeHub.h"
 
 #include "ModuleInterface.h"
+#include "insiliscope/version.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -61,6 +62,7 @@ InSiliScopeHub::InSiliScopeHub()
    AddAllowedValue("Detail", "Expert");
    CreateIntegerProperty("RandomSeed", state_.seed.load(), false,
                          new CPropertyAction(this, &InSiliScopeHub::OnRandomSeed), true);
+   CreateStringProperty("Version", ISC_VERSION, true);   // the release (core/include/insiliscope/version.h)
 }
 
 InSiliScopeHub::~InSiliScopeHub()

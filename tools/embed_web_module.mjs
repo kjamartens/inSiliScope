@@ -25,6 +25,7 @@ if (/[^\x09\x0a\x0d\x20-\x7e]/.test(mod)) throw new Error('module is not plain A
 const header = fs.readFileSync(path.join(ROOT, 'core/include/insiliscope/insiliscope.h'), 'utf8');
 const abi = /#define ISC_ABI_VERSION (\d+)/.exec(header)[1];
 const worldVersion = /#define ISC_WORLD_VERSION "([^"]+)"/.exec(header)[1];
+const version = fs.readFileSync(path.join(ROOT, 'VERSION'), 'utf8').trim();
 const cache = fs.readFileSync(path.join(ROOT, 'build/wasm/CMakeCache.txt'), 'utf8');
 const tc = (/CMAKE_TOOLCHAIN_FILE:\w+=(.+)/.exec(cache) || [])[1];
 const verFile = tc && path.resolve(path.dirname(tc.trim()), '../../../emscripten-version.txt');
@@ -43,6 +44,8 @@ const text =
 self.ISC_MODULE_SRC = ${JSON.stringify(mod)};
 // The generator's version (ISC_WORLD_VERSION): keys the viewer's packed-block store in local storage.
 self.ISC_WORLD_VERSION = ${JSON.stringify(worldVersion)};
+// The release (the VERSION file): the menu shows it and recordings carry it.
+self.ISC_VERSION = ${JSON.stringify(version)};
 // The WideField GPU kernels (adapter/inSiliScope/Simulation/WidefieldGpu.wgsl), for web/wf_gpu.js.
 self.ISC_WF_WGSL = ${JSON.stringify(wgsl)};
 `;
