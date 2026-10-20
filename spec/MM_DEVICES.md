@@ -170,7 +170,7 @@ rows exist in a session; a row above it is never created and its setting keeps i
 `SceneState` setting or engine option, limits/choices, invalidate, one-line help); the setting in `SceneState` and in
 `BuildScopeSpec` if new; couplings in `Registry/Couplings.cpp`; a check in `tools/test_insiliscope.py` or
 `tools/test_cellfield_stage.py`; regenerate the property reference (`tools/gen_property_reference.py` ->
-`docs/mm-properties.md`) and, if a config group sets it, the configs (`tools/gen_mm_configs.py`, checked by
+`docs/micro-manager.md`) and, if a config group sets it, the configs (`tools/gen_mm_configs.py`, checked by
 `tools/test_mm_configs.py`); docs; a gallery entry if it changes the image (not for caches or preparation switches).
 
 **A new target in a specimen:** the core geometry; its entry in `data/specimens.json` (name, option prefix, core
@@ -203,4 +203,4 @@ per-target rows are `<Target>_<Name>`; sensor-specific rows are `sCMOS_` / `EMCC
 | `InSiliScopeXYStage.*`, `InSiliScopeZStage.*` | the stages |
 | `tools/isc_mm.py` | loading the devices in pymmcore-plus (the test scripts) |
 | `config/inSiliScope_{Basic,Advanced,Expert}.cfg` | the shipped configurations (release assets): devices, roles, the Channel / Objective / Aberrations / Camera / Quality / Drift / Specimen / Illumination groups (+ `BfpPosition`, Advanced and up), startup, pixel sizes per objective x camera; written by `tools/gen_mm_configs.py` (never by hand; `--check`), loaded and checked by `tools/test_mm_configs.py` |
-| `docs/mm-properties.md` | every device and property with tier, default, values and help; written by `tools/gen_property_reference.py` from the registry (the Test row `Renderer.Test_WriteRegistryTo` exports it) |
+| `docs/micro-manager.md` (its "Devices and properties" section) | every device and property with tier, default, values and help; written by `tools/gen_property_reference.py` from the registry (the Test row `Renderer.Test_WriteRegistryTo` exports it) |

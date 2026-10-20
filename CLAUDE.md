@@ -253,7 +253,7 @@ a line's power x the filter's T at it. The EMCCD ignores the sCMOS per-pixel spr
 `<Target>_Mode` (Basic; no experiment-wide mode) and `<Target>_Label` (`Typical` = `data/dyes/library.json`
 `typicalLabels`, a dye with data for the mode, or `None`), `_Binder` (linkage preset); `Lasers.Preset` `Auto` combines
 the labelled targets' presets. Shipped configs `adapter/inSiliScope/config/inSiliScope_{Basic,Advanced,Expert}.cfg` (release
-assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
+assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/micro-manager.md` (its property section) by
 `tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
 (precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
 Live pacing (2026-10-07, docs/dev/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
@@ -635,7 +635,7 @@ the group, so property names carry no group prefix (`Objective.NA`, `Camera.Offs
 `Test_` (created with `ISC_TEST=1`). MM's standard keywords (`Exposure`, `Binning`, `State`, `Label`, `Position`, ...)
 and allowed-value strings are unchanged. The old single-camera names with group prefixes (`General_`, `SimType_`,
 `FluoParam_`, `Optics_`, `CamParam_`, `PSFParam_`, `Background_`) in the history sections of this file are the pre-hub
-names; every current device and property, with tier, default and help: [docs/mm-properties.md](docs/mm-properties.md)
+names; every current device and property, with tier, default and help: [docs/micro-manager.md](docs/micro-manager.md)
 (generated). Keep `PARITY.md` in the websmlm repo in step when a mapping to webSMLM's groups shifts.
 
 ## Diffraction PSF feature -- status

@@ -63,6 +63,7 @@ viewer_top=" $(cd "$OUT" && ls -A | grep -v '^docs$' | tr '\n' ' ') "
   redirect "$OUT/$f" "$up/docs/$d/"
 done
 redirect "$OUT/viewer/index.html" "../"
+redirect "$OUT/docs/mm-properties/index.html" "../micro-manager/#devices-and-properties"   # renamed 2026-10-20
 touch "$OUT/.nojekyll"
 rm -rf .site_docs
 echo "site built in $OUT"

@@ -90,7 +90,7 @@ side-by-side movies: the [Gallery](gallery/index.md).
    (the Utilities `Multi Shutter`, as in the Advanced channel `mEGFP WideField + BrightField`) the camera sums the two;
    with none open it takes dark frames. The autoshutter opens the Core-Shutter for each image.
 
-Every device and property, with its tier and default: [Micro-Manager properties](mm-properties.md). Snaps, live mode and
+Every device and property, with its tier and default: [Micro-Manager](micro-manager.md#devices-and-properties). Snaps, live mode and
 sequences (also hardware z stacks: the `ZStage` is sequenceable) render live. `Renderer.WriteScopeSpecTo` (Expert)
 writes the settings of the next frame to a file that `insiliscope_cli --spec <file>` renders. The camera remembers what
 light each place of the sample has had (snaps, live acquisition and sequences add to it): imaging bleaches and uses

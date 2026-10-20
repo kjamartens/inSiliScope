@@ -60,7 +60,7 @@ nav:
   - Viewer (live): https://kjamartens.github.io/inSiliScope/
   - Quickstart: quickstart.md
   - Gallery: gallery/index.md
-  - Micro-Manager properties: mm-properties.md
+  - Micro-Manager: micro-manager.md
   - Samples:
       - Overview: samples/index.md
       - Cell field:

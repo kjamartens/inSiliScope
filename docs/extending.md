@@ -81,7 +81,7 @@ dSTORM/PALM/DNA-PAINT presets are combinations of the labelling fractions, activ
 
 Add one row to the property registry (`adapter/inSiliScope/Registry/PropertyTable.cpp`) on the device and tier that
 `spec/MM_DEVICES.md` picks, with a one-line help, and add the same option to `ScopeMovieOptions()` and its JS twin so
-the CLI and viewer reach it. Regenerate `docs/mm-properties.md` (`tools/gen_property_reference.py`) and, if a config
+the CLI and viewer reach it. Regenerate the property section of `docs/micro-manager.md` (`tools/gen_property_reference.py`) and, if a config
 group sets it, the shipped configurations (`tools/gen_mm_configs.py`).
 
 ## Recipe: a new modality
