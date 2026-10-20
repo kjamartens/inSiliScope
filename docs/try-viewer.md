@@ -79,9 +79,9 @@ through it step by step.
   setting differs.
 - **Camera** (in the controls column, under Objective & PSF): the camera, the field of view (px) and the
   **Magnification** between the objective and the camera (`EmissionPath.EmissionMagnification`; a camera preset sets its
-  own: 0.667 with the Kinetix22, 1.6 with the iXon), with the total magnification under it. The pixel size is not a
-  setting: it follows as in Micro-Manager, sensor pixel / (objective x magnification), 97.45 nm at 100x with the
-  Kinetix22, shown read-only. Advanced adds the camera's noise values.
+  own: 0.667 with the Kinetix22, 1.6 with the iXon), with the total magnification under it. The pixel size follows as in
+  Micro-Manager, sensor pixel / (objective x magnification), 97.45 nm at 100x with the Kinetix22; typing a pixel size
+  sets the magnification that gives it. Advanced adds the camera's noise values.
 - The options are grouped the way a microscope is set up: sample (the specimen; for the cell field its cell
   shape, nucleus, cytoplasm, packing, microtubules; for the nanorulers their design, density and bending), sample
   preparation (labelling and fluorophore, refractive index), microscope
@@ -94,9 +94,10 @@ through it step by step.
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
   hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
-  and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. The level and the
-  look are remembered in your browser.
-  Sliders also follow the mouse wheel, one step per notch.
+  and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level and the
+  look are remembered in your browser across reloads (Reset all forgets them, and puts the panel and x-z view sizes back).
+  A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
+  mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
   zoomed further out, the dyes inside the camera's field are still all drawn, the others not). **Seed** (default 42,
@@ -145,21 +146,26 @@ through it step by step.
   SMLM and widefield movies also reuse the cells of the previous movie.
 - **Tilt** (0 = straight down, 90 = from the side) and **Rotation** (about the vertical through the view centre) turn
   the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
-  between two heights above the coverslip; drag both knobs together for a slab moving through the cells (its full
-  0-20 um range is off). The advanced **Turn height** sets the height of the point the view turns about.
-- **Detailed cells** (default 5): only the cells nearest the view centre get their microtubules, nuclear pores,
-  nucleus and dyes; the others show their cytoplasm, so a zoomed-out, turned view stays fast. 0 draws every cell in
+  between two heights above the coverslip (a vertical slider, 0-6 µm; its full range is off); drag both knobs together
+  for a slab moving through the cells. **Soft Z clip** (on) fades what lies just outside it over 0.2 µm, lines widening
+  as if out of focus; **Follow live focus** keeps the clip on the live focal plane ± 0.3 µm. Surfaces are drawn as
+  shells: a clip through the nucleus shows its rim. The advanced **Turn height** sets the height of the point the view turns about.
+- **Detailed cells** (Advanced, default 5): only the cells nearest the view centre get their microtubules, nuclear
+  pores and dyes; the others show their cytoplasm and nucleus, so a zoomed-out, turned view stays fast. 0 draws every cell in
   full. Advanced: **Scope** draws all cells, the centre cell with faint neighbours, or the centre cell alone; **Look**
-  switches between the depth colours, bright colours on black (Dark fluorescence) and Dark fluorescence (depth): on
-  black, the microtubules and nuclear pores coloured by their height in the cell (blue at the coverslip to red at the
-  cell's top; drawn on the GPU, the 2D fallback keeps one colour for the microtubules).
+  switches between the depth colours, bright colours on black (Dark fluorescence) and Dark fluorescence (depth, the
+  default): on black, the microtubules and nuclear pores coloured by their height in the cell, the nucleus by its own
+  height (drawn on the GPU, the 2D fallback keeps one colour for the microtubules). **Microtubule / Nuclear pore /
+  Nucleus colours** pick each one's colour scale (previewed in the list; defaults ice, warm and greys); the legend
+  shows only what is drawn.
 - **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
   (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
   nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
-  the tallest cell in view (+ 1 µm), so a flat field leaves more room for the map.
+  the tallest cell in view (+ 0.5 µm), so a flat field leaves more room for the map; drag its top edge to set it (down
+  to hide it), double-click it to fit again. Outside the Z clip it is drawn in grey.
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
   cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
   above it and a nearer cell covers a farther one.

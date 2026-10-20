@@ -150,7 +150,13 @@ const THEMES = {
 };
 // Dark fluorescence with the microtubules and pores in depth colours (their height over the cell's).
 THEMES.fluoZ = { label: 'Dark fluorescence (depth)', bg: THEMES.fluo.bg, ghost: THEMES.fluo.ghost,
-  layers: Object.assign({}, THEMES.fluo.layers, { 'mt.lines': { color: null, opacity: 1 }, 'npc.lines': { color: null, opacity: 1 } }) };
+  layers: Object.assign({}, THEMES.fluo.layers, {
+    // the cell in neutral greys, so the depth colours (blue..red) of the lines are the only hues besides the dyes
+    'cyto.surface': { color: [70, 76, 88], opacity: 0.3 },
+    'nucleus.surface': { color: null, opacity: 0.22 },   // the View's nucleus scale over its own height (the top shell dominates)
+    'cyto.outline': { color: [150, 160, 178], opacity: 0.5 },
+    'cyto.contours': { color: [90, 98, 112], opacity: 0.35 },
+    'mt.lines': { color: null, opacity: 1 }, 'npc.lines': { color: null, opacity: 1 } }) };
 function themeOf(name) { return THEMES[name] || THEMES.viewer; }
 function hexToRgb(c) {
   if (Array.isArray(c) || c === null || c === undefined) return c;

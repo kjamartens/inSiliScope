@@ -44,6 +44,10 @@ viewBtn.addEventListener('click', () => showViewPanel(viewPanel.hidden));
 // the idle image's ▶ Live = the bar's
 $('lv_idleLive').addEventListener('click', () => $('lv_live').click());
 showViewPanel(store.get('viewPanel', '0') === '1');
+// a click anywhere outside the pop-over (and its button) closes it
+document.addEventListener('pointerdown', ev => {
+  if (!viewPanel.hidden && !viewPanel.contains(ev.target) && !viewBtn.contains(ev.target)) showViewPanel(false);
+}, true);
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !viewPanel.hidden && viewPanel.contains(document.activeElement)) showViewPanel(false); });
 
 // ---- the laser rows of Illumination & light path (in the controls column): a slider beside each number ----
@@ -348,6 +352,7 @@ window.addEventListener('resize', applyZoom);
 window.addEventListener('isc-reset', () => {
   $('lv_zStep').value = '0.1'; $('lv_zStep').dispatchEvent(new Event('input'));
   $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
+  setLiveFrac(0.5, true); resizeCanvas(); drawScale();   // the panel's width (the splitter) too
 });
 $('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 

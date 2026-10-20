@@ -6,9 +6,9 @@
 <style>
   /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
      below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
-  :root{--side-w:380px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#0c0f14;--panel:#11161d;--border:#232a35;--text:#dfe6ee;--muted:#8b97a8;--accent:#4a90d9;
-    --link:#8bb8e8;--in-bg:#1a212b;--in-border:#2c3644;--grp-bg:transparent;--grp-head:transparent;--tip-bg:#1d2530;
-    --row-gap:4px;--fs:12px;--radius:6px;--guide:#2f3a4a}
+  :root{--side-w:380px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#040507;--panel:#141b25;--border:#36414f;--text:#eef2f7;--muted:#adb8c8;--accent:#559ded;
+    --link:#9cc6f2;--in-bg:#1f2836;--in-border:#4a576c;--grp-bg:transparent;--grp-head:transparent;--tip-bg:#222c39;
+    --row-gap:4px;--fs:12px;--radius:6px;--guide:#46546a}
   body[data-ui-style=focus]{--panel:#0f141b;--border:#26303d;--grp-bg:#161d27;--grp-head:#1b2430;--accent:#5aa9e6;--guide:#3a4a60}
   body[data-ui-style=light]{--panel:#f5f6f8;--border:#d9dde3;--text:#1f2329;--muted:#5d6672;--accent:#4051b5;
     --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
@@ -20,13 +20,38 @@
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
+  #viewBar #mmLink{margin-right:20px}
   #viewBar a.back:hover{text-decoration:underline}
   #viewBar .sp{flex:1}
   #viewBar button{padding:3px 8px}
   #viewBar button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
-  #viewPanel{pointer-events:auto;flex:0 1 auto;min-height:0;width:340px;max-width:calc(100vw - 40px);overflow-y:auto;box-sizing:border-box;margin-top:4px;
+  #viewPanel{pointer-events:auto;flex:0 1 auto;min-height:0;width:206px;--lab-w:76px;--val-w:44px;max-width:calc(100vw - 40px);overflow-y:auto;box-sizing:border-box;margin-top:4px;
     padding:4px 0 0;border-top:1px solid #232a35;color:var(--text);font-size:var(--fs)}
   #viewPanel[hidden]{display:none}
+  #viewPanel{overflow-x:hidden;padding-left:7px!important}   /* room for the changed-row bar at the left */
+  #viewPanel .opt.btnrow{flex-direction:column;gap:4px;align-items:stretch}
+  #viewPanel .opt.btnrow button{flex:none;width:100%}
+  .mapPick{position:relative;min-width:0}
+  #viewPanel .opt:has(.mapPick){grid-template-columns:1fr;row-gap:2px}
+  .mapBtn{width:100%;display:block;padding:2px 4px;text-align:left;background:var(--in-bg);border:1px solid var(--in-border);border-radius:4px;color:var(--text);cursor:pointer}
+  .mapBtn::after{content:'▾';position:absolute;right:6px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:10px}
+  .mapList{position:absolute;z-index:20;right:0;min-width:170px;top:calc(100% + 2px);max-height:260px;overflow-y:auto;background:var(--panel);border:1px solid var(--in-border);border-radius:4px;padding:2px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .mapList[hidden]{display:none}
+  .mapItem{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;cursor:pointer;white-space:nowrap}
+  .mapList .mapItem:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+  .mapList .mapItem.sel{outline:1px solid var(--accent)}
+  .mapItem .bar{flex:none;width:34px;height:9px;border-radius:2px;outline:1px solid rgba(255,255,255,.15)}
+  .mapItem .nm{overflow:hidden;text-overflow:ellipsis;font-size:11px}
+  #viewPanel .opt.pair:has(#zClipMin){align-items:start}
+  #viewPanel .opt.pair:has(#zClipMin) .ctl{display:grid;grid-template-columns:26px auto 1fr;grid-template-rows:auto 1fr auto;column-gap:6px;row-gap:4px;height:74px}
+  #viewPanel .opt.pair:has(#zClipMin) .dual{grid-column:1;grid-row:1 / 4;align-self:center;justify-self:center;width:70px!important;min-width:70px;flex:none;transform:rotate(-90deg)}
+  #viewPanel #zClipMax{grid-column:2;grid-row:1}
+  #viewPanel #zClipMin{grid-column:2;grid-row:3}
+  #viewPanel .opt.pair:has(#zClipMin) .ctl .u{grid-column:3;grid-row:2;align-self:center;width:auto}
+  #viewPanel button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
+  #viewPanel .opt.pair .ctl input[type=number]{width:40px}
+  #viewPanel .opt.gridrow{grid-template-columns:1fr}
+  #viewPanel .opt.gridrow>label{margin-bottom:2px}
   #splitter{cursor:col-resize;background:var(--border);opacity:.6}
   #splitter:hover,#splitter.drag{background:var(--accent);opacity:1}
   #side{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);box-sizing:border-box;font-size:var(--fs)}
@@ -309,7 +334,10 @@
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
   /* x-z side view: the bottom --xz-h of the canvas area (the three layers above shrink to the rest) */
-  #cvXZ{position:absolute;left:0;bottom:0;display:none;background:#05070a;border-top:1px solid #232a35;box-sizing:border-box;z-index:2}
+  #cvXZ{position:absolute;left:0;bottom:0;display:none;background:#05070a;box-sizing:border-box;z-index:2}
+  #xzSplit{position:absolute;left:0;right:0;height:9px;bottom:calc(var(--xz-h, 0px) - 4px);z-index:4;display:none;cursor:ns-resize;touch-action:none;
+    background:linear-gradient(transparent 3px,#3a4454 3px,#3a4454 6px,transparent 6px)}
+  #xzSplit:hover,#xzSplit.drag{background:linear-gradient(transparent 3px,var(--accent) 3px,var(--accent) 6px,transparent 6px)}
   #canvasHost.xz #legend{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
@@ -324,14 +352,14 @@
     display:flex;flex-direction:column;align-items:flex-start;max-height:calc(100% - 16px);box-sizing:border-box}
   #canvasHost.xz #hud{max-height:calc(100% - var(--xz-h) - 16px)}
   #hudText{white-space:pre;margin-top:4px}
-  #hud:has(#viewPanel:not([hidden])){background:rgba(10,13,18,.94)}
+  #hud:has(#viewPanel:not([hidden])){background:rgba(10,13,18,.94);z-index:5}
   /* the View group in the box: no box or title of its own */
   #viewPanel details.grp,body[data-ui-style=focus] #viewPanel details.grp[open]{border:0;background:none;margin:0}
   #viewPanel details.grp>summary{display:none}
   #viewPanel details.grp>.body{padding:0}
   #hud #viewBtn{pointer-events:auto;padding:2px 8px}
   #hud #viewBtn.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
-  #legend{position:absolute;bottom:8px;left:8px;font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
+  #legend{position:absolute;bottom:8px;left:8px;max-width:calc(100% - 150px);font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
   .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
   /* sidebar tabs: the settings panel and the animation editor (web/anim/editor.js styles its own panel) */
   #tabs{display:flex;gap:4px;margin-top:8px}
@@ -348,6 +376,7 @@
   <div id="viewBar">
     <h1>inSiliScope</h1>
     <span class="sp"></span>
+    <a id="mmLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
   <div id="canvasHost">
@@ -361,15 +390,8 @@
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
     <div id="animBar"></div>
-    <div id="legend">
-      <span class="cfOnly"><span class="sw" style="background:#5aa9e6"></span>cell body
-      <span class="sw" style="background:#e6a23c;margin-left:10px"></span>nucleus (colour = depth)
-      <span class="sw" style="background:#e6c65a;margin-left:10px"></span>microtubule
-      <span class="sw" style="background:#ffbeeb;margin-left:10px"></span>nuclear pore</span>
-      <span class="nrOnly" hidden><span class="sw" style="background:#5aa9e6"></span>nanoruler (DNA origami, from above)</span>
-      <span class="sw" id="dyeSwatch" style="background:#ff4d4d;margin-left:10px"></span>dye
-      <span class="cfOnly"><span class="sw" style="background:#3a4454;margin-left:10px"></span>chunk grid</span>
-    </div>
+    <div id="legend"></div>
+    <div id="xzSplit" title="Drag to resize the x-z view (down to hide it); double-click: fit it to the cells again"></div>
   </div>
   </div>
 
@@ -434,6 +456,7 @@
   </div>
 </div>
 
+<script src="live/settle.js"></script>
 <script src="dye_library.js"></script>
 <script src="live/mm_config.js"></script>
 <script src="origami_designs.js"></script>
@@ -726,6 +749,7 @@ const head = (label, tip, o) => ({ kind: 'head', label, tip, ...o });
 const buttons = list => ({ kind: 'buttons', buttons: list });
 // checkboxes in two columns after one label
 const grid = (label, kids, o) => ({ kind: 'grid', label, kids, ...o });
+const LINE_MAP_ITEMS = [['auto', 'The Look\'s'], ['rainbow', 'Rainbow'], ['cool', 'Cool (blue-green)'], ['warm', 'Warm (red-yellow)'], ['viridis', 'Viridis (bright)'], ['plasma', 'Plasma (bright)'], ['ice', 'Ice (blue-white)'], ['blues', 'Blues'], ['cyans', 'Cyans'], ['greens', 'Greens'], ['yellows', 'Yellows'], ['oranges', 'Oranges'], ['reds', 'Reds'], ['magentas', 'Magentas'], ['purples', 'Purples'], ['greys', 'Greys']];
 const sliceKind = () => ($('dataSlice') ? $('dataSlice').value : 'none');
 const sliceOn = () => sliceKind() !== 'none';
 const locsOn = () => !!($('showLocs') && $('showLocs').checked);
@@ -750,12 +774,20 @@ const UI_GROUPS = [
     ]),
 
     head('What is drawn'),
-    pair('zClip', 'Z clip', 'µm', 'Draw only what lies between these heights above the coverslip (cytoplasm, nucleus, microtubules, dyes). Drag both knobs together for a moving slab; the full range is off. Display only.', 0, 20, 0.1, 0, 20, { bounded: true }),
-    num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nucleus and dyes; the rest show their cytoplasm. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5, { show: CF }),
+    pair('zClip', 'Z clip', 'µm', 'Draw only what lies between these heights above the coverslip (cytoplasm, nucleus, microtubules, dyes). Drag both knobs together for a moving slab; the full range is off. Display only.', 0, 6, 0.1, 0, 6, { bounded: true }),
+    check('zSoft', 'Soft Z clip', 'Outside the Z clip, structures fade out over 0.2 µm instead of stopping at its edge, and lines and pores widen and dim as they get further from it, like structures out of focus. Off: a hard cut. Display only.', true),
+    buttons([['zFollow', 'Follow live focus', 'Keep the Z clip on the live microscope\'s focal plane ± 0.3 µm while it moves (the focus box, the wheel over the image, a z stack). Click again, or move the Z clip by hand, to stop.']]),
+    num('detailCells', 'Detailed cells', 'cells', 'Only this many cells nearest the view centre get microtubules, nuclear pores and dyes; the rest show their cytoplasm and nucleus. 0 = every cell (slow when zoomed out and turned). Display only.', 0, 100, 1, 5, { adv, show: CF }),
     select('sceneScope', 'Scope', 'Which cells are drawn: all of them, the centre cell with faint neighbours, or the centre cell alone. Display only.',
       [['all', 'All cells'], ['ghosts', 'Centre cell + faint neighbours'], ['target', 'Centre cell only']], 'all', { adv, show: CF }),
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
-      [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence'], ['fluoZ', 'Dark fluorescence (depth)']], 'viewer', { adv }),
+      [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence'], ['fluoZ', 'Dark fluorescence (depth)']], 'fluoZ', { adv }),
+    select('mtMap', 'Microtubule colours', 'The microtubules\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
+      LINE_MAP_ITEMS, 'ice', { adv, show: CF }),
+    select('npcMap', 'Pore colours', 'The nuclear pores\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
+      LINE_MAP_ITEMS, 'warm', { adv, show: CF }),
+    select('nucMap', 'Nucleus colours', 'The nucleus\' colours: a scale over its own height (its bottom to its top), so its shape reads as shading; the small bars preview each choice. The Look\'s: as the Look draws it (the viewer\'s depth colours over the cell\'s height, or one colour). Display only.',
+      LINE_MAP_ITEMS, 'greys', { adv, show: CF }),
     grid('Show', [
       check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true, { show: CF }),
       check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
@@ -1023,7 +1055,7 @@ const UI_GROUPS = [
     num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
     num('emissionMag', 'Magnification', '×', 'Magnification between the objective and the camera (tube lens / relay); a camera preset sets its own (Kinetix22 0.667, iXon Ultra 897 1.6). The pixel size follows. <code>EmissionPath.EmissionMagnification</code>', 0.1, 10, 'any', 0.667),
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
-    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Not a setting: pick the Camera, Objective and Magnification. <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { ro: true }),
+    num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Typing a size sets the Magnification that gives it (the camera and objective stay). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { derived: true, changedWith: 'emissionMag' }),
   ] },
   { sect: 'Microscope', id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
@@ -1323,7 +1355,7 @@ const isDefault = r => r.kind === 'pair'
 // A setting the reset and the "differs from the default" mark cover: a value of its own with a default (not a button,
 // a preset select (it follows its kids) or a read-only value (it follows others))
 // (a dye's own fields are left out: they hold the picked dye's library values, reloaded when its dye is reset)
-const resettable = r => !!r.id && !r.ro && !/(-dye|^mv_dye\d+)\./.test(r.id) && (r.kind === 'pair' ? r.vMin !== undefined
+const resettable = r => !!r.id && !r.ro && !r.derived && !/(-dye|^mv_dye\d+)\./.test(r.id) && (r.kind === 'pair' ? r.vMin !== undefined
   : ['range', 'number', 'check', 'select', 'radio', 'text'].includes(r.kind) && r.value !== undefined);
 // Every setting back to its default, its handlers fired (so what follows it, the column's mirrors too, follows);
 // a second pass catches values a handler moved again (a dye pick loading its light preset, ...).
@@ -1365,6 +1397,10 @@ function sync() {
     if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
     if (r.row && resettable(r)) r.row.classList.toggle('changed', !isDefault(r));
+    else if (r.row && r.changedWith) {   // a derived row is marked with the row it follows (the pixel size: the Magnification)
+      const o = entries.find(e => e.id === r.changedWith);
+      r.row.classList.toggle('changed', !!o && resettable(o) && !isDefault(o));
+    }
   }
   // a heading shows when a row under it (up to the next heading) shows at this level
   let head = null, headAny = false;
@@ -1448,9 +1484,22 @@ document.addEventListener('wheel', ev => {
   const dual = el.closest('.dual');
   if (dual) {
     const [lo, hi] = dual.querySelectorAll('input');
-    const r = dual.getBoundingClientRect(), f = (ev.clientX - r.left) / r.width;
+    const r = dual.getBoundingClientRect(), f = r.height > r.width ? (r.bottom - ev.clientY) / r.height : (ev.clientX - r.left) / r.width;
     const pos = i => (+i.value - +i.min) / (+i.max - +i.min);
     el = lo.value === hi.value ? (dir > 0 ? hi : lo) : Math.abs(f - pos(lo)) <= Math.abs(f - pos(hi)) ? lo : hi;
+  }
+  // a number box: one step per notch (step 'any': 0.1), kept within its min/max and, in a min/max pair, its partner
+  if (el.tagName === 'INPUT' && el.type === 'number' && !el.disabled && !el.readOnly) {
+    ev.preventDefault();
+    const st = el.step && el.step !== 'any' ? +el.step : 0.1, dec = Math.max(0, -Math.floor(Math.log10(st) + 1e-9));
+    let v = +(+el.value || 0) + dir * st;
+    if (el.min !== '') v = Math.max(+el.min, v);
+    if (el.max !== '') v = Math.min(+el.max, v);
+    const m = /^(.*)(Min|Max)$/.exec(el.id), other = m && document.getElementById(m[1] + (m[2] === 'Min' ? 'Max' : 'Min'));
+    if (other && other.type === 'number') v = m[2] === 'Min' ? Math.min(v, +other.value) : Math.max(v, +other.value);
+    const nv = String(+v.toFixed(dec));
+    if (nv !== el.value) { el.value = nv; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }
+    return;
   }
   if (el.tagName !== 'INPUT' || el.type !== 'range' || el.disabled) return;
   ev.preventDefault();
@@ -1523,7 +1572,7 @@ window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the a
 
 // On the Pages site the viewer is the landing page and the docs live in docs/ beside it: link there relatively (forks,
 // previews); opened from disk or from the lab server (/web/), the absolute docs URL stays.
-if (/^https?:$/.test(location.protocol) && !/\/web\//.test(location.pathname)) document.getElementById('docsLink').href = 'docs/';
+if (/^https?:$/.test(location.protocol) && !/\/web\//.test(location.pathname)) { document.getElementById('docsLink').href = 'docs/'; document.getElementById('mmLink').href = 'docs/micro-manager/'; }
 
 // ---- drawing helpers (the generator itself is the WASM core) ----------------
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -1532,15 +1581,55 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 // this project's own reference imagery -- makes the nucleus's 3D-ness legible
 // at a glance instead of just being a flat-shaded blob.
 const DEPTH_STOPS = [[0.15, 0.25, 0.9], [0.1, 0.75, 0.85], [0.25, 0.8, 0.25], [0.95, 0.85, 0.15], [0.9, 0.2, 0.15]];
-function depthRGB(z, zmin, zmax) {
+// Depth scales of the lines without a colour: the microtubules on a cool map (blue -> cyan -> green), the nuclear pores
+// on a warm one (red -> orange -> light yellow), so the two read apart; both bright from the coverslip up. The surfaces keep DEPTH_STOPS.
+const MT_STOPS = [[0.35, 0.45, 1], [0.2, 0.75, 1], [0.3, 0.95, 0.8], [0.55, 1, 0.5]];
+const PORE_STOPS = [[0.9, 0.22, 0.22], [1, 0.45, 0.15], [1, 0.7, 0.25], [1, 0.93, 0.62]];
+// The View's colour choices for the lines (at most 6 stops; one colour = two equal stops); 'auto' = the Look's.
+const LINE_MAPS = {
+  rainbow: DEPTH_STOPS, cool: MT_STOPS, warm: PORE_STOPS,
+  viridis: [[0.23, 0.32, 0.55], [0.13, 0.57, 0.55], [0.37, 0.79, 0.38], [0.99, 0.91, 0.14]],
+  plasma: [[0.62, 0.2, 0.78], [0.84, 0.34, 0.56], [0.98, 0.58, 0.3], [0.94, 0.98, 0.13]],
+  ice: [[0.25, 0.45, 0.95], [0.55, 0.78, 1], [0.95, 0.98, 1]],
+  // one hue, dark (still visible on black) at the coverslip -> light at the top
+  blues: [[0.12, 0.22, 0.6], [0.3, 0.5, 0.95], [0.78, 0.88, 1]],
+  cyans: [[0.05, 0.38, 0.45], [0.15, 0.8, 0.88], [0.8, 1, 1]],
+  greens: [[0.1, 0.4, 0.15], [0.3, 0.82, 0.35], [0.82, 1, 0.8]],
+  yellows: [[0.45, 0.38, 0.05], [0.92, 0.8, 0.15], [1, 0.98, 0.75]],
+  oranges: [[0.5, 0.22, 0.03], [0.98, 0.52, 0.1], [1, 0.88, 0.7]],
+  reds: [[0.5, 0.06, 0.08], [0.92, 0.22, 0.2], [1, 0.8, 0.78]],
+  magentas: [[0.45, 0.06, 0.38], [0.92, 0.25, 0.8], [1, 0.82, 0.96]],
+  purples: [[0.28, 0.12, 0.55], [0.6, 0.38, 0.95], [0.9, 0.84, 1]],
+  greys: [[0.3, 0.32, 0.36], [0.65, 0.67, 0.7], [1, 1, 1]],
+};
+// The scale a line kind draws its height in (when its style has no colour).
+function setStopsU(u, stops) {
+  const a = new Float32Array(18);
+  stops.slice(0, 6).forEach((c, i) => a.set(c, 3 * i));
+  gl.uniform3fv(u.u_stops, a); gl.uniform1i(u.u_nst, Math.min(6, stops.length));
+}
+function lineStops(kind) {
+  const isNpc = kind === K['npc.lines'], el = document.getElementById(isNpc ? 'npcMap' : 'mtMap');
+  return (el && LINE_MAPS[el.value]) || (isNpc ? PORE_STOPS : MT_STOPS);
+}
+function depthRGB(z, zmin, zmax, stops = DEPTH_STOPS) {
   const t = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0.5;
-  const f = Math.min(0.9999, Math.max(0, t)) * (DEPTH_STOPS.length - 1);
+  const f = Math.min(0.9999, Math.max(0, t)) * (stops.length - 1);
   const i = Math.floor(f), frac = f - i;
-  const a = DEPTH_STOPS[i], b = DEPTH_STOPS[Math.min(DEPTH_STOPS.length - 1, i + 1)];
+  const a = stops[i], b = stops[Math.min(stops.length - 1, i + 1)];
   return [lerp(a[0], b[0], frac) * 255, lerp(a[1], b[1], frac) * 255, lerp(a[2], b[2], frac) * 255];
 }
-function depthColor(z, zmin, zmax, alpha) {
-  const [r, g, bl] = depthRGB(z, zmin, zmax);
+// The nucleus' scale: a scale whose bottom is (nearly) black would draw its lowest shell as black on black, so it then
+// uses only its 10-100 % part (resampled into 6 stops).
+function nucScale(key) {
+  const st = LINE_MAPS[key];
+  if (!st) return null;
+  const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  if (lum(st[0]) >= 0.12) return st;
+  return [0, 1, 2, 3, 4, 5].map(i => depthRGB(0.1 + 0.9 * i / 5, 0, 1, st).map(x => x / 255));
+}
+function depthColor(z, zmin, zmax, alpha, stops) {
+  const [r, g, bl] = depthRGB(z, zmin, zmax, stops);
   return `rgba(${r | 0},${g | 0},${bl | 0},${alpha})`;
 }
 
@@ -1615,7 +1704,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
- 'showDyes', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
+ 'showDyes', 'mtMap', 'npcMap', 'nucMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
@@ -1750,12 +1839,103 @@ function labelsForDyes() {
 const mountedLabel = () => labelsForDyes()[DYE_UI.structure()];
 
 // Display-only settings of the View group: never part of params(), which keys the worlds and the cell assets.
-const ZCLIP_LO = 0, ZCLIP_HI = 20;   // the Z clip slider's range; its full range means no clip
+const ZCLIP_LO = 0, ZCLIP_HI = 6;   // the Z clip slider's range; its full range means no clip
+// The colour selects as dropdowns that show each choice's colour bar (the height scales as gradients; the Look's = what
+// the Look draws). The <select> stays (hidden) and holds the value; the picker sets it and fires its events.
+function mapCss(stops) {
+  const c = stops.map(v => `rgb(${v[0] * 255 | 0},${v[1] * 255 | 0},${v[2] * 255 | 0})`);
+  return c.length > 1 ? `linear-gradient(90deg,${c.join(',')})` : c[0];
+}
+function lookStops(kindId) {
+  const th = IscScene.THEMES[els.theme.value] || IscScene.THEMES.viewer, col = th.layers[kindId] && th.layers[kindId].color;
+  return col ? [[col[0] / 255, col[1] / 255, col[2] / 255]] : (kindId === 'npc.lines' ? PORE_STOPS : kindId === 'nucleus.surface' ? DEPTH_STOPS : MT_STOPS);
+}
+const mapPickers = [];
+const closeMapLists = except => { for (const m of mapPickers) if (m !== except) m.list.hidden = true; };
+for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nucMap', 'nucleus.surface']]) {
+  const sel = els[id];
+  if (!sel || !sel.parentNode) continue;
+  const lsKey = 'isc.ui.' + id;   // the choice is remembered across reloads
+  try { const v = localStorage.getItem(lsKey); if (v && [...sel.options].some(o => o.value === v)) sel.value = v; } catch (e) { /* private window */ }
+  sel.addEventListener('change', () => { try { localStorage.setItem(lsKey, sel.value); } catch (e) { /* private window */ } });
+  const wrap = document.createElement('div'); wrap.className = 'mapPick';
+  const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'mapBtn';
+  const list = document.createElement('div'); list.className = 'mapList'; list.hidden = true;
+  const item = (v, label) => {
+    const it = document.createElement('div'); it.className = 'mapItem'; it.dataset.v = v;
+    it.innerHTML = '<span class="bar"></span><span class="nm"></span>';
+    it.lastChild.textContent = label;
+    return it;
+  };
+  for (const o of sel.options) {
+    const it = item(o.value, o.textContent);
+    it.addEventListener('click', () => {
+      sel.value = o.value; list.hidden = true;
+      sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    list.append(it);
+  }
+  btn.append(item('', ''));
+  btn.addEventListener('click', ev => { ev.stopPropagation(); const open = list.hidden; closeMapLists(); list.hidden = !open; });
+  wrap.append(btn, list);
+  sel.style.display = 'none';
+  sel.after(wrap);
+  mapPickers.push({ sel, btn, list, kindId });
+}
+document.addEventListener('pointerdown', ev => { for (const m of mapPickers) if (!m.btn.parentNode.contains(ev.target)) m.list.hidden = true; }, true);
+function updateMapChips() {
+  for (const { sel, btn, list, kindId } of mapPickers) {
+    const css = v => mapCss(v === 'auto' ? lookStops(kindId) : LINE_MAPS[v]);
+    for (const it of list.children) { it.firstChild.style.background = css(it.dataset.v); it.classList.toggle('sel', it.dataset.v === sel.value); }
+    const cur = btn.firstChild, opt = [...sel.options].find(o => o.value === sel.value);
+    cur.firstChild.style.background = css(sel.value); cur.lastChild.textContent = opt ? opt.textContent : '';
+  }
+}
+for (const id of ['mtMap', 'npcMap', 'nucMap', 'theme']) for (const ev of ['input', 'change']) els[id].addEventListener(ev, updateMapChips);
+updateMapChips();
+
+// Follow live focus: the Z clip = the focal plane (mv_z, the live focus) +- ZFOLLOW_UM, set on the Z clip's own boxes.
+const ZFOLLOW_UM = 0.3;
+let zFollow = false, zFollowSetting = false;
+function applyZFollow() {
+  if (!zFollow) return;
+  const z = +document.getElementById('mv_z').value;
+  if (!Number.isFinite(z)) return;
+  const lo = Math.max(ZCLIP_LO, z - ZFOLLOW_UM), hi = Math.min(ZCLIP_HI, Math.max(lo, z + ZFOLLOW_UM));
+  zFollowSetting = true;
+  for (const [el, v] of [[els.zClipMax, hi], [els.zClipMin, lo]]) {
+    const t = String(+v.toFixed(2));
+    if (el.value !== t) { el.value = t; el.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
+  zFollowSetting = false;
+  requestDraw();
+}
+// remembered across reloads (isc.set.zFollow, as persist.js keeps the controls; read now, before its restore of the
+// Z clip's boxes would end following, and switched back on after it)
+const ZFOLLOW_KEY = 'isc.set.zFollow';
+let zFollowStored = null;
+try { zFollowStored = localStorage.getItem(ZFOLLOW_KEY); } catch (e) { /* private window */ }
+function setZFollow(on) {
+  zFollow = on;
+  els.zFollow.classList.toggle('on', zFollow);
+  try { if (on) localStorage.setItem(ZFOLLOW_KEY, '1'); else localStorage.removeItem(ZFOLLOW_KEY); } catch (e) { /* */ }
+  if (zFollow) applyZFollow();
+}
+els.zFollow.addEventListener('click', () => setZFollow(!zFollow));
+if (zFollowStored === '1') {
+  const back = () => setTimeout(() => setZFollow(true), 300);
+  if (document.readyState === 'complete') back(); else window.addEventListener('load', back);
+}
+for (const id of ['mv_z', 'lv_z']) for (const ev of ['input', 'change']) document.getElementById(id)?.addEventListener(ev, () => applyZFollow());
+// a hand-made Z clip ends following
+for (const el of [els.zClipMin, els.zClipMax, ...els.zClipMin.closest('.opt').querySelectorAll('input[type=range]')])
+  el.addEventListener('input', () => { if (zFollow && !zFollowSetting) setZFollow(false); });
 function viewParams() {
   const zl = +els.zClipMin.value, zh = Math.max(zl, +els.zClipMax.value);
   return {
     tiltDeg: +els.tiltDeg.value, azimuthDeg: +els.azimuthDeg.value, pivotZ: +els.pivotZ.value || 0,
     zClip: zl <= ZCLIP_LO && zh >= ZCLIP_HI ? null : [zl, zh],
+    zSoft: !!(els.zSoft && els.zSoft.checked),
     detailCells: Math.max(0, Math.round(+els.detailCells.value || 0)), scope: els.sceneScope.value || 'all',
     theme: els.theme.value || 'viewer',
   };
@@ -1774,9 +1954,10 @@ function stateFromUI() {
     layers['cyto.surface'] = {}; layers['cyto.outline'] = {};
     if (p.showCytoContours) layers['cyto.contours'] = {};
   }
-  if (els.showNucleus.checked) layers['nucleus.surface'] = {};
-  if (els.showMt.checked) layers['mt.lines'] = {};
-  if (els.showNpcs.checked) layers['npc.lines'] = {};
+  const mapOver = id => els[id] && els[id].value !== 'auto' ? { style: { color: null } } : {};
+  if (els.showNucleus.checked) layers['nucleus.surface'] = mapOver('nucMap');
+  if (els.showMt.checked) layers['mt.lines'] = mapOver('mtMap');
+  if (els.showNpcs.checked) layers['npc.lines'] = mapOver('npcMap');
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
   if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
@@ -1789,25 +1970,29 @@ function stateFromUI() {
 }
 function sceneState(v, layers) {
   return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
-    scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, sweep: null, layers,
+    scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, zSoft: v.zSoft, sweep: null, layers,
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
 }
 
 // x-z side view: as tall as the tallest cell in view (+ XZ_MARGIN_UM, at the view's scale; fitXZ), between XZ_MIN_PX
 // and XZ_MAX_FRAC of the canvas area; XZ_FRAC until the first frame says.
-const XZ_FRAC = 0.2, XZ_MIN_PX = 56, XZ_MAX_FRAC = 0.45, XZ_MARGIN_UM = 1;
+const XZ_FRAC = 0.2, XZ_MIN_PX = 24, XZ_MAX_FRAC = 0.45, XZ_MARGIN_UM = 0.5;
 let xzWantPx = 0, xzFitAt = 0;
-function xzHeightFor(avail) { return Math.round(Math.min(avail * XZ_MAX_FRAC, Math.max(XZ_MIN_PX, xzWantPx || avail * XZ_FRAC))); }
+let xzUserPx = null;   // the side view's height set by dragging its top edge (null: fit to the cells)
+function xzHeightFor(avail) {
+  if (xzUserPx !== null) return Math.round(Math.min(avail * 0.85, Math.max(0, xzUserPx)));
+  return Math.round(Math.min(avail * XZ_MAX_FRAC, Math.max(XZ_MIN_PX, xzWantPx || avail * XZ_FRAC)));
+}
 function fitXZ(visCells, st, cam) {
   if (!visCells.length) return;
   let top = 0;
   for (const c of visCells) top = Math.max(top, c.height);
   const sz = xzSliceZ(st);
   if (sz !== null) top = Math.max(top, sz);
-  const want = Math.round((top + XZ_MARGIN_UM) * cam.S / devicePixelRatio + XZ_FLOOR_PX + 4);
+  const want = Math.round((top + XZ_MARGIN_UM) * cam.S / devicePixelRatio + XZ_FLOOR_PX);
   // grow at once, shrink only by a margin and not right after a change (a tall cell at the view's edge could flip it)
   const now = performance.now();
-  if (want > xzWantPx + 2 || (want < xzWantPx - 12 && now - xzFitAt > 800)) {
+  if (want > xzWantPx + 2 || (want < xzWantPx - 3 && now - xzFitAt > 800)) {
     xzWantPx = want; xzFitAt = now;
     const r = host.getBoundingClientRect(), h = xzHeightFor(r.height - animBarH());
     if (Math.abs(h - (parseFloat(cvXZ.style.height) || 0)) >= 2) setTimeout(resizeCanvas, 0);
@@ -1838,8 +2023,23 @@ function resizeCanvas() {
   }
   host.classList.toggle('xz', !!(xzH + barH));
   host.style.setProperty('--xz-h', (xzH + barH) + 'px');
+  document.getElementById('xzSplit').style.display = els.showXZ.checked && !previewState ? 'block' : 'none';
   requestDraw();
 }
+// Drag the side view's top edge: its height follows (below ~12 px it hides); a double-click fits it again.
+const xzSplit = document.getElementById('xzSplit');
+xzSplit.addEventListener('pointerdown', ev => {
+  ev.preventDefault(); xzSplit.setPointerCapture(ev.pointerId); xzSplit.classList.add('drag');
+  const move = e => {
+    const r = host.getBoundingClientRect(), hpx = r.bottom - animBarH() - e.clientY;
+    xzUserPx = hpx < 12 ? 0 : hpx;
+    resizeCanvas();
+  };
+  const up = () => { xzSplit.classList.remove('drag'); xzSplit.removeEventListener('pointermove', move); xzSplit.removeEventListener('pointerup', up); xzSplit.removeEventListener('pointercancel', up); };
+  xzSplit.addEventListener('pointermove', move); xzSplit.addEventListener('pointerup', up); xzSplit.addEventListener('pointercancel', up);
+});
+xzSplit.addEventListener('dblclick', () => { xzUserPx = null; resizeCanvas(); });
+window.addEventListener('isc-reset', () => { xzUserPx = null; resizeCanvas(); });   // Reset all: the x-z view fits again
 
 // The camera of the frame being drawn (web/scene/core.js makeCamera): orthographic, turned by the rotation about
 // the vertical through the view centre, then tilted: x along the turned horizontal, the turned y foreshortened by
@@ -1917,10 +2117,10 @@ const LINE_DEPTH_BIAS = 0.25;         // um: a contour line sorts after the surf
 const COL_OUTLINE = [90, 169, 230, 0.25], COL_CONTOUR = [20, 30, 45, 0.55];
 const ALPHA_CYTO = 0.6, ALPHA_NUC = 0.5;
 const ORDER_Q = 0.5 * Math.PI / 180, ORDER_BUDGET_MS = 4;
-// kinds a cell outside the detail budget does not draw (nucleus, microtubules, dyes); a faint neighbour also
+// kinds a cell outside the detail budget does not draw (microtubules, pores, dyes); a faint neighbour also
 // drops its contour lines
 const K = IscScene.KIND, IV = IscScene.IV_MAX;
-const HIDE_PLAIN = (1 << K['nucleus.surface']) | (1 << K['mt.lines']) | (1 << K['mt.dyes']) | (1 << K['npc.lines']);
+const HIDE_PLAIN = (1 << K['mt.lines']) | (1 << K['mt.dyes']) | (1 << K['npc.lines']);
 const HIDE_GHOST = HIDE_PLAIN | (1 << K['cyto.contours']);
 let frameExact = false, sortDeadline = Infinity, orderStale = false;
 let animPlaying = false;   // an animation preview is playing (the camera moves every frame)
@@ -2108,7 +2308,7 @@ function drawCell2D(c, asset, p, F, cf) {
         const sx = lx * t.cr - ly * t.sr, sy = (lx * t.sr + ly * t.cr) * t.cosT - z * t.sinT;
         if (v > 0 && pts[4 * v - 1] === 1 && ring[v - 1] === rg) path.lineTo(sx, sy); else path.moveTo(sx, sy);
       }
-      ctx.strokeStyle = base || depthColor(asset.npcs[2], 0, c.height, cf.alpha);
+      ctx.strokeStyle = base || depthColor(asset.npcs[2], 0, c.height, cf.alpha, lineStops(kNpc));
       ctx.globalAlpha = rg === 0 ? 0.6 : 1;
       ctx.stroke(path);
     }
@@ -2204,17 +2404,26 @@ vec4 clipOf(vec2 s, float depth) {   // depth = nearness (v sin + z cos, um); ne
 // The clip test (fragment shaders): w = (u, v, z), the turned-frame offset from the pivot and the absolute height.
 // The style of the interval holding the fragment, or alpha -1 (not drawn). rgb < 0: the vertex's own colour.
 const GL_CLIP = `
-uniform vec4 u_axis; uniform vec2 u_zclip; uniform float u_ivN[${IscScene.N_KINDS}];
+uniform vec4 u_axis; uniform vec2 u_zclip; uniform float u_zfade; uniform float u_ivN[${IscScene.N_KINDS}];
 uniform vec2 u_iv[${IscScene.N_KINDS * IV}]; uniform vec4 u_ivSt[${IscScene.N_KINDS * IV}];
 uniform int u_hide; uniform float u_cellA;
+// Outside the Z clip: 0 = not drawn; with u_zfade > 0 the opacity falls off over 3 u_zfade (quadratically).
+float zFade(float z) {
+  float d = max(u_zclip.x - z, z - u_zclip.y);
+  if (d <= 0.0) return 1.0;
+  if (u_zfade <= 0.0) return 0.0;
+  float f = 1.0 - d / (3.0 * u_zfade);
+  return f <= 0.0 ? 0.0 : f * f;
+}
 vec4 zoneStyle(int kind, vec3 w) {
-  if (((u_hide >> kind) & 1) != 0 || w.z < u_zclip.x || w.z > u_zclip.y) return vec4(0.0, 0.0, 0.0, -1.0);
+  float zf = zFade(w.z);
+  if (((u_hide >> kind) & 1) != 0 || zf <= 0.0) return vec4(0.0, 0.0, 0.0, -1.0);
   float s = dot(u_axis.xyz, w) + u_axis.w;
   int n = int(u_ivN[kind]);
   for (int j = 0; j < ${IV}; j++) {
     if (j >= n) break;
     vec2 r = u_iv[kind * ${IV} + j];
-    if (s >= r.x && s <= r.y) return u_ivSt[kind * ${IV} + j];
+    if (s >= r.x && s <= r.y) { vec4 st = u_ivSt[kind * ${IV} + j]; return vec4(st.rgb, st.a * zf); }
   }
   return vec4(0.0, 0.0, 0.0, -1.0);
 }`;
@@ -2236,7 +2445,7 @@ void main() {
 }`;
 const GL_MT_VS = `#version 300 es
 in vec4 a_p0; in vec4 a_p1;   // one segment per instance: its end points (local xyz; w = 0: no segment)
-uniform float u_halfW; out vec3 v_w;` + GL_COMMON + `
+uniform float u_halfW; uniform vec2 u_zclip; uniform float u_zfade; out vec3 v_w; out float v_k;` + GL_COMMON + `
 void main() {
   if (a_p0.w < 0.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
   float e = float(gl_VertexID >> 1), side = float(gl_VertexID & 1) * 2.0 - 1.0;
@@ -2244,7 +2453,11 @@ void main() {
   vec2 d = s1 - s0;
   float L = length(d);
   d = L > 1e-6 ? d / L : vec2(1.0, 0.0);
-  vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW;   // square caps close the joints
+  // out of the Z clip (fade on): wider by k = 1 + distance / u_zfade (at most 4), dimmer by 1/k (a defocused line)
+  float zm = 0.5 * (a_p0.z + a_p1.z), dz = max(u_zclip.x - zm, zm - u_zclip.y);
+  float k = u_zfade > 0.0 && dz > 0.0 ? min(4.0, 1.0 + dz / u_zfade) : 1.0;
+  v_k = k;
+  vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW * k;   // square caps close the joints
   gl_Position = clipOf(s, mix(depthOf(a_p0.xyz, w0), depthOf(a_p1.xyz, w1), e));
   v_w = mix(vec3(w0, a_p0.z), vec3(w1, a_p1.z), e);
 }`;
@@ -2367,26 +2580,42 @@ void main() {
 }`;
 const GL_FS = `#version 300 es
 precision highp float;
-in vec4 v_col; in vec3 v_w; flat in int v_kind; out vec4 o;` + GL_CLIP + `
+in vec4 v_col; in vec3 v_w; flat in int v_kind; out vec4 o;
+uniform vec2 u_nzr; uniform float u_nrim; uniform vec3 u_nstops[6]; uniform int u_nnst;` + GL_CLIP + `
+vec3 nucRGB(float z) {
+  float f = clamp((z - u_nzr.x) / max(1e-6, u_nzr.y - u_nzr.x), 0.0, 0.9999) * float(u_nnst - 1);
+  int i = int(floor(f));
+  vec3 a = u_nstops[0], b = u_nstops[1];
+  for (int k = 0; k < 5; k++) if (k == i) { a = u_nstops[k]; b = u_nstops[k + 1]; }
+  return mix(a, b, f - float(i));
+}
 void main() {
-  vec4 st = zoneStyle(v_kind, v_w);
+  vec3 w = v_w;   // the shell only (a Z clip through a structure shows its section's rim, no cut face)
+  vec4 st = zoneStyle(v_kind, w);
   if (st.a < 0.0) discard;
   float a = st.a * u_cellA;
-  o = vec4((st.r < 0.0 ? v_col.rgb : st.rgb) * a, a);   // premultiplied
+  vec3 rgb = st.r >= 0.0 ? st.rgb : v_col.rgb;
+  o = vec4(rgb * a, a);   // premultiplied
 }`;
 // Lines (microtubules, pores): a style without a colour (r < 0) draws the height over the cell's (u_zr) in depth colours.
+// u_stops / u_nst: the height scale (lineStops), 2-6 colours, a piecewise-linear ramp
 const glFsLine = kind => `#version 300 es
 precision highp float;
-in vec3 v_w; out vec4 o; uniform vec2 u_zr;` + GL_CLIP + `
+in vec3 v_w; in float v_k; out vec4 o; uniform vec2 u_zr; uniform vec3 u_stops[6]; uniform int u_nst; uniform int u_fadePass;` + GL_CLIP + `
 vec3 depthRGB(float t) {
-  vec3 c0 = vec3(0.15, 0.25, 0.9), c1 = vec3(0.1, 0.75, 0.85), c2 = vec3(0.25, 0.8, 0.25), c3 = vec3(0.95, 0.85, 0.15), c4 = vec3(0.9, 0.2, 0.15);
-  float f = clamp(t, 0.0, 0.9999) * 4.0;
-  return f < 1.0 ? mix(c0, c1, f) : f < 2.0 ? mix(c1, c2, f - 1.0) : f < 3.0 ? mix(c2, c3, f - 2.0) : mix(c3, c4, f - 3.0);
+  float f = clamp(t, 0.0, 0.9999) * float(u_nst - 1);
+  int i = int(floor(f));
+  vec3 a = u_stops[0], b = u_stops[1];
+  for (int k = 0; k < 5; k++) if (k == i) { a = u_stops[k]; b = u_stops[k + 1]; }
+  return mix(a, b, f - float(i));
 }
 void main() {
   vec4 st = zoneStyle(${kind}, v_w);
   if (st.a < 0.0) discard;
-  float a = st.a * u_cellA;
+  bool faded = v_k > 1.0 || zFade(v_w.z) < 1.0;
+  if (faded != (u_fadePass == 1)) discard;   // a faded line writes no depth: it must not hide what is behind it
+  float a = st.a * u_cellA / v_k;
+  if (a < 0.004) discard;
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
   o = vec4(rgb * a, a);
 }`;
@@ -2400,7 +2629,7 @@ void main() {
   o = vec4(max(st.rgb, 0.0) * a, a);
 }`;
 const GL_UNIFORMS = ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', 'u_pz',
-  'u_axis', 'u_zclip', 'u_ivN', 'u_iv', 'u_ivSt', 'u_hide', 'u_cellA'];
+  'u_axis', 'u_zclip', 'u_zfade', 'u_ivN', 'u_iv', 'u_ivSt', 'u_hide', 'u_cellA'];
 function setLayerMode(gpu) {
   useGl = gpu;
   cvGl.style.display = gpu ? 'block' : 'none';
@@ -2428,9 +2657,9 @@ function initGl() {
     for (const n of [...GL_UNIFORMS, ...unis]) u[n] = gl.getUniformLocation(pr, n);
     return { pr, u };
   };
-  const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart']);
-  const b = link(GL_MT_VS, glFsLine(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr']);
-  const np = link(GL_MT_VS, glFsLine(K['npc.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr']);
+  const a = link(GL_VS, GL_FS, ['a_pos', 'a_oth', 'a_ext', 'a_col'], ['u_lineHalfW', 'u_kindStart', 'u_nzr', 'u_nrim', 'u_nstops', 'u_nnst']);
+  const b = link(GL_MT_VS, glFsLine(K['mt.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr', 'u_stops', 'u_nst', 'u_fadePass']);
+  const np = link(GL_MT_VS, glFsLine(K['npc.lines']), ['a_p0', 'a_p1'], ['u_halfW', 'u_zr', 'u_stops', 'u_nst', 'u_fadePass']);
   const d = link(GL_PT_VS, glFsKind(K['mt.dyes']), ['a_pt'], ['u_ptHalf']);
   const e = link(GL_SLICE_VS, GL_SLICE_FS, ['a_w'], ['u_px', 'u_z0', 'u_dz', 'u_tex', 'u_mask', 'u_nz', 'u_F', 'u_frame', 'u_sr', 'u_sum', 'u_useCross', 'u_crossUp', 'u_crossCol', 'u_cross',
     'u_useMask', 'u_lo', 'u_hi', 'u_gamma', 'u_add', 'u_col']);
@@ -2478,13 +2707,20 @@ function ensureMeshGl(entry, c, t, step, must) {
     gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.UNSIGNED_BYTE, true, GL_STRIDE, 32);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, g.ibo);
   }
-  if (g.step !== L.step) {   // vertices: the mesh's, then 4 per line (A+, A-, B+, B-)
+  const nucKey = els.nucMap ? els.nucMap.value : 'auto', nucStops = nucScale(nucKey);
+  if (g.step !== L.step || g.nucKey !== nucKey) {   // vertices: the mesh's, then 4 per line (A+, A-, B+, B-)
+    g.nucKey = nucKey;
+    let nz0 = Infinity, nz1 = -Infinity;   // the nucleus' own height range (its scale spans it)
+    for (let v = r.nvC; v < r.nv; v++) { nz0 = Math.min(nz0, r.h[v]); nz1 = Math.max(nz1, r.h[v]); }
+    // the cut face's scale (the shader): the nucleus' range in the View's scale, else the Look's depth colours
+    const nzm = (nz0 + nz1) / 2;
+    g.nucCut = nucStops ? { zr: [nz0, nz1], stops: nucStops, z0: nzm } : { zr: [0, c.height], stops: DEPTH_STOPS, z0: nzm };
     const nvt = r.nv + 4 * L.nl, buf = new ArrayBuffer(nvt * GL_STRIDE), f = new Float32Array(buf), u8 = new Uint8Array(buf);
     const S = GL_STRIDE / 4;
     for (let v = 0; v < r.nv; v++) {
       const o = v * S;
       f[o] = f[o + 3] = r.lx[v]; f[o + 1] = f[o + 4] = r.ly[v]; f[o + 2] = f[o + 5] = r.h[v];
-      const [R, G, B] = depthRGB(r.h[v], 0, c.height), ob = v * GL_STRIDE + 32;
+      const [R, G, B] = v >= r.nvC && nucStops ? depthRGB(r.h[v], nz0, nz1, nucStops) : depthRGB(r.h[v], 0, c.height), ob = v * GL_STRIDE + 32;
       u8[ob] = R; u8[ob + 1] = G; u8[ob + 2] = B; u8[ob + 3] = Math.round((v < r.nvC ? ALPHA_CYTO : ALPHA_NUC) * 255);
     }
     const seg = L.seg;
@@ -2640,7 +2876,7 @@ function drawSceneGl(cells, p, F) {
   const frame = u => {
     gl.uniform2f(u.u_canvas, W, H); gl.uniform1f(u.u_scale, cam.S);
     gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_dscale, 1 / D); gl.uniform1f(u.u_pz, cam.pz);
-    gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+    gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]); gl.uniform1f(u.u_zfade, F.zfade || 0);
     gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
     gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
   };
@@ -2650,11 +2886,13 @@ function drawSceneGl(cells, p, F) {
     gl.uniform2f(u.u_rot, Math.cos(rot), Math.sin(rot));
     gl.uniform1i(u.u_hide, cf.hide); gl.uniform1f(u.u_cellA, cf.alpha);
   };
+  const kNpc = K['npc.lines'];
   const kMt = K['mt.lines'], kDye = K['mt.dyes'];
-  if (Z.n[kMt] && F.mtW) {   // opaque pass: microtubules, depth written
+  const drawLines = fadePass => {
+  if (Z.n[kMt] && F.mtW) {   // microtubules
     gl.useProgram(glMtProg); frame(glMtU);
     gl.uniform1f(glMtU.u_halfW, F.mtW / 2);
-    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    setStopsU(glMtU, lineStops(kMt)); gl.uniform1i(glMtU.u_fadePass, fadePass);
     const tolUm = Math.pow(2, Math.max(-10, Math.floor(Math.log2(MT_TOL_PX / cam.S))));   // <= MT_TOL_PX on screen
     for (const cf of cells) {
       const { cell: c, asset } = cf;
@@ -2667,11 +2905,10 @@ function drawSceneGl(cells, p, F) {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
     }
   }
-  const kNpc = K['npc.lines'];
-  if (Z.n[kNpc] && glNpcProg) {   // opaque pass: nuclear pores, depth written
+  if (Z.n[kNpc] && glNpcProg) {   // nuclear pores
     gl.useProgram(glNpcProg); frame(glNpcU);
     gl.uniform1f(glNpcU.u_halfW, F.npcW / 2);
-    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    setStopsU(glNpcU, lineStops(kNpc)); gl.uniform1i(glNpcU.u_fadePass, fadePass);
     const arcs = cam.S >= NPC_ARC_PX_PER_UM * F.pxScale;
     for (const cf of cells) {
       const { cell: c, asset } = cf;
@@ -2684,6 +2921,9 @@ function drawSceneGl(cells, p, F) {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
     }
   }
+  };
+  // opaque pass: the lines inside the Z clip, depth written
+  gl.depthFunc(gl.LESS); gl.depthMask(true); drawLines(0);
   if (Z.n[kDye] && dyeGl && dyeGl.count) {   // opaque pass: dyes, depth written
     gl.useProgram(glPtProg); frame(glPtU);
     gl.uniform2f(glPtU.u_off, cam.u(dyeGl.ox, dyeGl.oy), cam.v(dyeGl.ox, dyeGl.oy));
@@ -2694,6 +2934,7 @@ function drawSceneGl(cells, p, F) {
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, dyeGl.count);
   }
   if (glSliceProg) drawDataGl(F, F.target, 'opaque');   // opaque data slices: depth written, before the translucent pass
+  if (F.zfade) { gl.depthFunc(gl.LEQUAL); gl.depthMask(false); drawLines(1); gl.depthMask(true); gl.depthFunc(gl.LESS); }
   if ([0, 1, 2, 3].some(k => Z.n[k])) {   // translucent pass: per cell, back to front; tested against the opaque pass, not written
     gl.useProgram(glProg); frame(glU);
     gl.uniform1f(glU.u_lineHalfW, Math.max(1, 0.04 * cam.S) / 2);
@@ -2703,6 +2944,12 @@ function drawSceneGl(cells, p, F) {
       if (![0, 1, 2, 3].some(k => Z.n[k] && !((cf.hide >> k) & 1))) continue;
       const t = cellXform(c), g = ensureMeshGl(asset.entry, c, t, p.cytoContourStep, cf.detailed);
       if (!g.nIdx) continue;
+      const nc = g.nucCut;   // (u_nrim = the nucleus' mid height)
+      if (nc) {
+        gl.uniform2f(glU.u_nzr, nc.zr[0], nc.zr[1]); gl.uniform1f(glU.u_nrim, nc.z0);
+        const sa = new Float32Array(18); nc.stops.slice(0, 6).forEach((q, i) => sa.set(q, 3 * i));
+        gl.uniform3fv(glU.u_nstops, sa); gl.uniform1i(glU.u_nnst, Math.min(6, nc.stops.length));
+      } else gl.uniform1f(glU.u_nrim, 1e30);
       const r = asset.entry.render;
       cellU(glU, c, cf);
       gl.uniform3i(glU.u_kindStart, r.nvC, r.nv, r.nv + 4 * r.lines.nO);
@@ -2786,6 +3033,45 @@ function getXZProfile(entry, c, rot, yl, yh) {
 // and in front of the nucleus), rebuilt when the zoom, rotation, slab or clip changes (past the frame's budget:
 // the tag's last path).
 const mtPathCacheXZ = new WeakMap();
+// The same, cut into depth slices XZ_SLAB_UM thick along the turned y (a segment goes by its midpoint): the side view
+// paints a cell slice by slice, far to near, with its pores and nucleus in between, so what is nearer covers what is
+// behind it. One Path2D per slice; cached per cell like getMtPathXZ.
+const XZ_SLAB_UM = 0.3;
+const mtSlabCacheXZ = new WeakMap();
+function getMtSlabsXZ(mts, t, yl, yh, zc, tag) {
+  const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
+  const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh + '|' + zc[0] + '|' + zc[1];
+  let hits = mtSlabCacheXZ.get(mts);
+  if (!hits) mtSlabCacheXZ.set(mts, hits = new Map());
+  const hit = hits.get(key);
+  if (hit) return hit;
+  if (hits.has(tag) && xzLate()) return hits.get(tag);
+  const slabs = new Map(), m2 = minPx * minPx, xyz = mts.xyz, lens = mts.lens;
+  const slabOf = wy => Math.floor(wy / XZ_SLAB_UM);
+  let o = 0;
+  for (let m = 0; m < lens.length; m++) {
+    const len = lens[m];
+    let down = false, lx0 = 0, ly0 = 0, lw = 0;
+    for (let k = 0; k < len; k++, o += 3) {
+      const lx = xyz[o], ly = xyz[o + 1], wy = lx * t.sr + ly * t.cr, z = xyz[o + 2];
+      if (wy < yl || wy > yh || z < zc[0] || z > zc[1]) { down = false; continue; }
+      const sx = (lx * t.cr - ly * t.sr) * t.S, sy = -z * t.S;
+      if (!down) { down = true; lx0 = sx; ly0 = sy; lw = wy; continue; }
+      const dx = sx - lx0, dy = sy - ly0;
+      if (dx * dx + dy * dy < m2 && k !== len - 1) continue;
+      const i = slabOf((wy + lw) / 2);
+      let sl = slabs.get(i);
+      if (!sl) slabs.set(i, sl = { path: new Path2D(), ex: NaN, ey: NaN });
+      if (sl.ex !== lx0 || sl.ey !== ly0) sl.path.moveTo(lx0, ly0);
+      sl.path.lineTo(sx, sy); sl.ex = sx; sl.ey = sy;
+      lx0 = sx; ly0 = sy; lw = wy;
+    }
+  }
+  const out = [...slabs.entries()].sort((a, b) => a[0] - b[0]).map(([i, sl]) => ({ i, path: sl.path }));
+  if (hits.size >= 10) for (const k of hits.keys()) if (k.includes('|')) { hits.delete(k); break; }
+  hits.set(key, out); hits.set(tag, out);
+  return out;
+}
 function getMtPathXZ(mts, t, yl, yh, zc, tag) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
   const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh + '|' + zc[0] + '|' + zc[1];
@@ -2808,7 +3094,7 @@ function getMtPathXZ(mts, t, yl, yh, zc, tag) {
       if (dx * dx + dy * dy >= m2 || k === len - 1) { path.lineTo(sx, sy); lastX = sx; lastY = sy; }
     }
   }
-  if (hits.size >= 6) for (const k of hits.keys()) if (k !== 'back' && k !== 'front') { hits.delete(k); break; }
+  if (hits.size >= 10) for (const k of hits.keys()) if (k.includes('|')) { hits.delete(k); break; }
   hits.set(key, path); hits.set(tag, path);
   return path;
 }
@@ -2835,6 +3121,34 @@ function nucXZSections(c, entry, t, y0, y1) {
   }
   return out;
 }
+// The legend: only the layers the view draws, each in its theme colour (a style without a colour: the depth scale).
+let legendKey = '';
+function updateLegend(Z, st, nr) {
+  const depth = 'linear-gradient(90deg,' + DEPTH_STOPS.map(c => `rgb(${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0})`).join(',') + ')';
+  const grad = stops => 'linear-gradient(90deg,' + stops.map(c => `rgb(${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0})`).join(',') + ')';
+  const mtDepth = grad(lineStops(K['mt.lines']));
+  const poreDepth = grad(lineStops(K['npc.lines'])) + ' ';   // (a trailing space: never equal to mtDepth)
+  const sw = k => {
+    const o = 4 * k * IV, s = Z.st;
+    return s[o] < 0 ? (k === K['npc.lines'] ? poreDepth : k === K['mt.lines'] ? mtDepth : k === K['nucleus.surface'] && nucScale(els.nucMap.value) ? grad(nucScale(els.nucMap.value)) + '  ' : depth) : `rgb(${s[o] * 255 | 0},${s[o + 1] * 255 | 0},${s[o + 2] * 255 | 0})`;
+  };
+  const on = id => Z.n[K[id]] > 0, items = [];
+  if (nr) { if (on('ruler.outline')) items.push([sw(K['ruler.outline']), 'nanoruler (DNA origami)']); }
+  else {
+    if (on('cyto.surface')) items.push([sw(K['cyto.surface']), 'cell body']);
+    else if (on('cyto.outline')) items.push([sw(K['cyto.outline']), 'cell outline']);
+    if (on('nucleus.surface')) items.push([sw(K['nucleus.surface']), 'nucleus']);
+    if (on('mt.lines')) items.push([sw(K['mt.lines']), 'microtubules']);
+    if (on('npc.lines')) items.push([sw(K['npc.lines']), 'nuclear pores']);
+  }
+  if (on('mt.dyes')) items.push([sw(K['mt.dyes']), 'dyes']);
+  if (st.grid && !nr) items.push(['#4a5668', 'chunk grid']);
+    const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
+  if (html === legendKey) return;
+  legendKey = html;
+  const el = document.getElementById('legend');
+  el.innerHTML = html; el.hidden = !items.length;
+}
 // While the view turns (a drag, a playing animation) the side view is drawn at the rotation rounded to XZ_TURN_Q,
 // so its per-cell paths and profiles are rebuilt once per step instead of on every frame.
 const XZ_TURN_Q = 3 * Math.PI / 180;
@@ -2856,68 +3170,141 @@ function drawXZWith(vis, p, F, cam) {
   g.clearRect(0, 0, W, H);
   // z grid: a 1-2-5 step at least ~26 CSS px apart
   let step = 0.1;
-  for (const m of [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]) { step = m; if (m * S >= 26 * dpr) break; }
+  // (closer, down to ~13 px, when the panel is short, so at least two z lines show)
+  const zGap = Math.max(13 * dpr, Math.min(26 * dpr, (z0 - 4 * dpr) / 2));
+  const zRoom = z0 - 8 * dpr;   // the highest label's line must stay below this
+  for (const m of [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]) { if (m * S > zRoom && step * S >= 10 * dpr) break; step = m; if (m * S >= zGap) break; }
   g.strokeStyle = 'rgba(58,68,84,0.6)'; g.lineWidth = 1; g.setLineDash([3 * dpr, 4 * dpr]);
   g.beginPath();
   for (let z = step; Y(z) > 0; z += step) { g.moveTo(0, Y(z)); g.lineTo(W, Y(z)); }
   g.stroke(); g.setLineDash([]);
   const Z = F.Z, on = (k, cf) => Z.n[k] > 0 && !((cf.hide >> k) & 1);
-  if (clipped) { g.save(); g.beginPath(); g.rect(0, Y(Math.min(zc[1], 1e6)), W, Y(Math.max(zc[0], -1e6)) - Y(Math.min(zc[1], 1e6))); g.clip(); }
-
   // Far (small turned y) cells first; within a cell, inside out: the microtubules behind the nucleus centre, the
   // nucleus, the microtubules in front of it, then the cytoplasm (translucent, it holds all of them).
   const order = vis.slice().sort((a, b) => cam.v(a.cell.x, a.cell.y) - cam.v(b.cell.x, b.cell.y));
-  for (const cf of order) {
+  // With a Z clip: what lies above or below it in grey (dimmed), the band itself in colour.
+  const bandTop = Y(Math.min(zc[1], 1e6)), bandBot = Y(Math.max(zc[0], -1e6));
+  if (clipped) {
+    g.save(); g.beginPath(); g.rect(0, 0, W, H); g.rect(0, bandTop, W, bandBot - bandTop); g.clip('evenodd');
+    g.filter = 'grayscale(1)';
+    cellsPass([-1e30, 1e30], 'g', 0.55);
+    g.restore();
+    g.save(); g.beginPath(); g.rect(0, bandTop, W, bandBot - bandTop); g.clip();
+  }
+  cellsPass(zc, '', 1);
+  function cellsPass(zc, tagp, dim) {
+  for (const cf0 of order) {
+    const cf = dim === 1 ? cf0 : Object.assign({}, cf0, { alpha: cf0.alpha * dim });
     const { cell: c, asset } = cf, t = cellXform(c);
     const yl = y0 - t.oy, yh = y1 - t.oy;
-    const mts = on(K['mt.lines'], cf) && asset.mts;
+    const kMt = K['mt.lines'], kNpc = K['npc.lines'], kNuc = K['nucleus.surface'], kCyto = K['cyto.surface'], kOut = K['cyto.outline'];
+    const mts = on(kMt, cf) && asset.mts, npcs = on(kNpc, cf) && asset.npcs;
     const nucY = c.nucOffX * t.sr + c.nucOffY * t.cr;   // the nucleus centre's turned y - the cell centre's
-    g.globalAlpha = cf.alpha;
-    const strokeMts = (a, b, tag) => {
-      if (!mts || a > b) return;
-      g.strokeStyle = '#e6c65a'; g.globalAlpha = 0.8 * cf.alpha;
-      g.lineWidth = Math.max(0.6, p.mtLineWidth * S);
-      g.save(); g.translate(t.ox, z0);
-      g.stroke(getMtPathXZ(mts, t, a, b, zc, tag));
-      g.restore(); g.globalAlpha = cf.alpha;
+    // the xy view's styles (theme + layer); a style without a colour = depth colours over 0..the cell's height
+    const opa = (k, mul) => Z.st[4 * k * IV + 3] * mul * cf.alpha;
+    const depthGrad = (yBase, alpha, stops = DEPTH_STOPS) => {
+      const gr = g.createLinearGradient(0, yBase, 0, yBase - c.height * S);
+      stops.forEach((s, i) => gr.addColorStop(i / (stops.length - 1),
+        `rgba(${s[0] * 255 | 0},${s[1] * 255 | 0},${s[2] * 255 | 0},${alpha})`));
+      return gr;
     };
-    strokeMts(yl, Math.min(yh, nucY), 'back');
-    if (on(K['nucleus.surface'], cf)) {
-      const sec = nucXZSections(c, asset.entry, t, y0, y1);
+    g.globalAlpha = 1;
+    const mtCss = mts ? slotCss(F, kMt * IV, cf.alpha, null) : null, mtLayer = Z.layer[kMt] || {};
+    const mtSlabs = mts ? getMtSlabsXZ(mts, t, yl, yh, zc, tagp + 'slabs') : [];
+    const mtStroke = mts ? mtCss || depthGrad(0, opa(kMt, 1), lineStops(kMt)) : null;
+    const mtWidth = Math.max(0.6, (mtLayer.width || p.mtLineWidth) * S);
+    const npcCss = npcs ? slotCss(F, kNpc * IV, cf.alpha, null) : null;
+    const npcLines = npcs ? npcPolylines(npcs, p, S >= NPC_ARC_PX_PER_UM * F.pxScale) : null;
+    // the pores in view by depth slice (of their centre)
+    const npcSlabs = new Map();
+    if (npcs) for (let i = 0; i < npcs.length / 9; i++) {
+      const qx = npcs[9 * i], qy = npcs[9 * i + 1], qz = npcs[9 * i + 2], wy = qx * t.sr + qy * t.cr;
+      if (wy < yl || wy > yh || qz < zc[0] || qz > zc[1]) continue;
+      const k = Math.floor(wy / XZ_SLAB_UM);
+      (npcSlabs.get(k) || npcSlabs.set(k, []).get(k)).push(i);
+    }
+    const strokeNpcs = list => {   // the pores of one slice
+      const { pts, ring } = npcLines, per = pts.length / 4 / (npcs.length / 9);
+      g.save(); g.translate(t.ox, z0); g.lineWidth = F.npcW;
+      for (const i of list) {
+        const v0 = i * per, qz = npcs[9 * i + 2];
+        g.strokeStyle = npcCss || depthColor(qz, 0, c.height, opa(kNpc, 1), lineStops(kNpc));
+        g.beginPath();
+        for (let v = v0; v < v0 + per; v++) {
+          const lx = pts[4 * v], ly = pts[4 * v + 1], sx = (lx * t.cr - ly * t.sr) * S, sy = -pts[4 * v + 2] * S;
+          if (v > v0 && pts[4 * v - 1] === 1 && ring[v - 1] === ring[v]) g.lineTo(sx, sy); else g.moveTo(sx, sy);
+        }
+        g.stroke();
+      }
+      g.restore();
+    };
+    const drawNucleus = () => {
+    if (on(kNuc, cf)) {
+      const sec = nucXZSections(c, asset.entry, t, y0, y1), nucCss = slotCss(F, kNuc * IV, cf.alpha, null);
+      const nStops = nucScale(els.nucMap.value);
+      let nz0 = Infinity, nz1 = -Infinity;
+      for (const q of sec) { nz0 = Math.min(nz0, q.zl, q.zr); nz1 = Math.max(nz1, q.zl, q.zr); }
+      // the shell's section: its left and right edges, closed at the bottom and top sections
+      const col = z => nucCss || (nStops ? depthColor(z, nz0, nz1, Math.min(1, opa(kNuc, 1) * 3), nStops)
+        : depthColor(z, 0, c.height, Math.min(1, opa(kNuc, 1) * 3)));
+      const seg = (x1, z1, x2, z2) => { g.strokeStyle = col((z1 + z2) / 2); g.beginPath(); g.moveTo(X(x1), Y(z1)); g.lineTo(X(x2), Y(z2)); g.stroke(); };
+      g.lineWidth = 1.5 * dpr; g.lineCap = 'round';
       for (let k = 0; k + 1 < sec.length; k++) {
         const a = sec[k], b = sec[k + 1];
-        g.fillStyle = depthColor((a.zl + a.zr + b.zl + b.zr) / 4, 0, c.height, 0.55);
-        g.beginPath();
-        g.moveTo(X(a.xl), Y(a.zl)); g.lineTo(X(a.xr), Y(a.zr)); g.lineTo(X(b.xr), Y(b.zr)); g.lineTo(X(b.xl), Y(b.zl));
-        g.closePath(); g.fill();
+        seg(a.xl, a.zl, b.xl, b.zl); seg(a.xr, a.zr, b.xr, b.zr);
+      }
+      if (sec.length) {
+        const a = sec[0], b = sec[sec.length - 1];
+        seg(a.xl, a.zl, a.xr, a.zr); seg(b.xl, b.zl, b.xr, b.zr);
       }
     }
-    strokeMts(Math.max(yl, nucY), yh, 'front');
-    if (on(K['cyto.surface'], cf)) {
+    };
+    // far to near: each slice's microtubules, then its pores; the nucleus where the slices pass its centre
+    const slabIds = [...new Set([...mtSlabs.map(e => e.i), ...npcSlabs.keys()])].sort((a, b) => a - b);
+    const mtBy = new Map(mtSlabs.map(e => [e.i, e.path]));
+    const nucSlab = Math.floor(nucY / XZ_SLAB_UM);
+    let nucDone = false;
+    for (const k of slabIds) {
+      if (!nucDone && k > nucSlab) { drawNucleus(); nucDone = true; }
+      const path = mtBy.get(k);
+      if (path) { g.save(); g.translate(t.ox, z0); g.strokeStyle = mtStroke; g.lineWidth = mtWidth; g.stroke(path); g.restore(); }
+      const list = npcSlabs.get(k);
+      if (list) strokeNpcs(list);
+    }
+    if (!nucDone) drawNucleus();
+    if (on(kCyto, cf) || on(kOut, cf)) {
       const pr = getXZProfile(asset.entry, c, t.rot, yl, yh);
       if (pr) {
         const { x0, dx, top } = pr, ox = t.ox, nb = top.length;
         const grp = Math.max(1, Math.floor(1 / (dx * S))); // bins per screen pixel when zoomed out
+        const topPath = new Path2D();   // the cell body's shell: its top only
         g.beginPath();
         for (let i = 0; i < nb;) {   // one closed outline per run of non-empty bins
           if (top[i] < 0) { i++; continue; }
           let j = i;
           while (j < nb && top[j] >= 0) j++;
           g.moveTo(ox + (x0 + i * dx) * S, z0);
+          topPath.moveTo(ox + (x0 + i * dx) * S, z0);
           for (let k = i; k < j; k += grp) {
             const e = Math.min(j, k + grp);
             let m = 0;
             for (let q = k; q < e; q++) m = Math.max(m, top[q]);
             g.lineTo(ox + (x0 + (k + e) / 2 * dx) * S, z0 - m * S);
+            topPath.lineTo(ox + (x0 + (k + e) / 2 * dx) * S, z0 - m * S);
           }
+          topPath.lineTo(ox + (x0 + j * dx) * S, z0);
           g.lineTo(ox + (x0 + j * dx) * S, z0); g.closePath();
           i = j;
         }
-        g.fillStyle = 'rgba(90,169,230,0.22)'; g.fill();
-        g.strokeStyle = 'rgba(90,169,230,0.75)'; g.lineWidth = 1; g.stroke();
+        if (on(kCyto, cf)) {
+          g.strokeStyle = slotCss(F, kCyto * IV, Math.min(1, cf.alpha * 2.5), null) || depthGrad(z0, Math.min(1, opa(kCyto, 2.5)));
+          g.lineWidth = 1.5 * dpr; g.lineJoin = 'round'; g.stroke(topPath);
+        }
+        if (on(kOut, cf)) { g.strokeStyle = slotCss(F, kOut * IV, cf.alpha, null) || 'rgba(90,169,230,0.75)'; g.lineWidth = 1; g.stroke(); }
       }
     }
     g.globalAlpha = 1;
+  }
   }
   if (clipped) {
     g.restore();
@@ -3900,16 +4287,38 @@ function renderFrame(st, target) {
   const F = { st, cam, Z, ax: IscScene.axisInView(cam, st.sweep), zc: st.zClip ? [st.zClip[0], st.zClip[1]] : [-1e30, 1e30],
     mtW: mtStyle ? Math.max(0.6 * pxScale, (mtStyle.width || p.mtLineWidth) * pxPerUm) : 0, pxScale,
     npcW: (pxPerUm < 60 * pxScale ? 2 : 1.2) * pxScale, css: new Map(), fbo: target.fbo || null,
+    // soft Z clip: a third of the fade's reach (gone, and 4x wide, 0.2 um outside the clip); 0 = a hard cut
+    zfade: st.zClip && st.zSoft ? 0.2 / 3 : 0,
     target: null, dataMissing: [], animate: false };
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   // the info box: one item per line (the counts are in its data- attributes, for the tests)
-  const hudHead = [`seed ${noiseSeed()}`, `centre (${view.cx.toFixed(1)}, ${view.cy.toFixed(1)}) µm`, `scale ${(pxPerUm / devicePixelRatio).toFixed(2)} px/µm`,
-    `tilt ${+(st.camera.tiltDeg || 0).toFixed(1)}°` + (azDeg ? `, rotation ${azDeg}°` : '')].join('\n');
+  const hudHead = '';
   hud.dataset.gpu = useGl ? '1' : '0';
+  if (st.ui) updateLegend(Z, st, nr);
 
   if (st.grid && coreCount <= RENDER_CAP) {
     ctx = bg;
-    ctx.strokeStyle = '#3a4454';
+    // a fine reference grid under the chunk lines: the chunk split into n equal parts (n = 2, 4, 5, 10, 20, ...),
+    // the finest whose lines stay at least ~25 CSS px apart
+    let nSub = 1;
+    for (const n of [2, 4, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000]) if (S0 / n * pxPerUm >= 25 * devicePixelRatio * pxScale) nSub = n;
+    const step = S0 / nSub;
+    if (nSub > 1) {
+      const x0 = cx0 * S0, x1 = cx1 * S0, y0 = cy0 * S0, y1 = cy1 * S0;
+      ctx.strokeStyle = '#262d38';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0, x = x0; x <= x1 + 1e-9; x = x0 + ++i * step) {
+        const [ax, ay] = project(x, y0, 0), [bx, by] = project(x, y1, 0);
+        ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+      }
+      for (let i = 0, y = y0; y <= y1 + 1e-9; y = y0 + ++i * step) {
+        const [ax, ay] = project(x0, y, 0), [bx, by] = project(x1, y, 0);
+        ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#4a5668';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let cx = cx0; cx <= cx1; cx++) {
@@ -3929,7 +4338,7 @@ function renderFrame(st, target) {
     if (st.xz) drawXZ([], p, F);
     if (st.ui) {
       drawScaleBar(pxPerUm);
-      hudText.textContent = hudHead + '\nzoom in to render';
+      hudText.textContent = 'zoom in to render';
     }
     return { loading: 1, dyes: 0 };
   }
@@ -4011,7 +4420,7 @@ function renderFrame(st, target) {
     const nDet = vis.filter(v => v.detailed).length;
     Object.assign(hud.dataset, nr ? { rulers: nRulers, cells: '' } : { rulers: '', cells: nCells, onScreen: vis.length,
       detailed: scope === 'all' && N > 0 ? nDet : '', microtubules: nMt, chunks: coreCount });
-    hudText.textContent = [hudHead, st.zClip ? `z clip ${st.zClip[0]}–${st.zClip[1]} µm` : '',
+    hudText.textContent = [hudHead,
       nr && oriPending ? 'loading nanorulers…' : '', !coreReady() ? 'loading core…' : '',
       blockPending.size ? `packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…` : '', nLoading ? `loading ${nLoading} cells…` : '',
       withinCap ? '' : 'view too large: zoom in', labelNote || '', acqStatus.size ? 'making data…' : ''].filter(Boolean).join('\n');
@@ -4494,7 +4903,6 @@ function selectDyes(c, cells, key, clip) {
 // x-z marks; returns a HUD note ('' if none).
 function updateDyes(seed, p, F, vis, nr) {
   const cam = F.cam, st = F.st, dyeColor = mountedLabel().color;
-  document.getElementById('dyeSwatch').style.background = dyeColor;
   // Nanorulers zoomed out: the dyes in the camera's field of view only (all of them; the rest wait for a zoom in).
   const camOnly = nr && st.ui && cam.S < DYE_MIN_PX_PER_UM;
   if (st.ui && cam.S < DYE_MIN_PX_PER_UM && !nr) { dyeSel = null; return 'zoom in to show dyes'; }
@@ -5389,7 +5797,7 @@ function drawIsoGl(F, stack, e, style, alpha) {
   gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
   gl.uniform2f(u.u_off, cam.u(stack.texOx, stack.texOy), cam.v(stack.texOx, stack.texOy));
   gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
-  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]); gl.uniform1f(u.u_zfade, F.zfade || 0);
   gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
   gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
   gl.bindVertexArray(e.gl.vao);
@@ -5485,7 +5893,7 @@ function drawLocsGl(F, L, style, alpha) {
   gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
   gl.uniform2f(u.u_off, cam.u(L.ox, L.oy), cam.v(L.ox, L.oy));
   gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
-  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]);
+  gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]); gl.uniform1f(u.u_zfade, F.zfade || 0);
   gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
   gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
   const half = ((style.size || 1.5) / 2) * F.pxScale, pts = !spread && 2 * half <= (L.gl.ptMax || (L.gl.ptMax = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1]));
@@ -5633,8 +6041,6 @@ for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '
 function syncSpecimen() {
   const nr = DYE_UI.nanorulers();
   els.randomCell.hidden = els.prevCell.hidden = nr;
-  for (const e of document.querySelectorAll('#legend .cfOnly')) e.hidden = nr;
-  for (const e of document.querySelectorAll('#legend .nrOnly')) e.hidden = !nr;
 }
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
@@ -5935,5 +6341,6 @@ resizeCanvas();
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="anim/editor.js"></script>
+<script src="live/persist.js"></script>
 </body>
 </html>

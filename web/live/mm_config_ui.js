@@ -101,9 +101,13 @@ function apply(preset) {
   markCurrent();
 }
 // The pixel size as Micro-Manager works it out: the sensor pixel / (objective x emission magnification).
+let settingPx = false;   // (the pixel size set from the optics, not typed)
 function setPixelSize(o) {
   const px = o.sensorUm * 1000 / (o.objectiveMag * o.emissionMag), el = $('mv_pixel-nm'), rd = $('magReadout');
-  if (el && Number.isFinite(px) && px > 0 && Math.abs(+el.value - px) > 1e-9) { el.value = px; fire(el); }
+  if (el && Number.isFinite(px) && px > 0 && Math.abs(+el.value - px) > 1e-9) {
+    el.value = px; settingPx = true;
+    try { fire(el); } finally { settingPx = false; }
+  }
   if (rd && Number.isFinite(px) && px > 0)
     rd.textContent = `total ${+(o.objectiveMag * o.emissionMag).toFixed(1)}× (objective ${o.objectiveMag}×), sensor pixel ${o.sensorUm} µm`;
 }
@@ -207,5 +211,13 @@ if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () =
   if (optics) { takeCameraMag(cameraOptics(+$('mv_camera-preset').value)); setPixelSize(opticsNow()); }
 });
 if ($('emissionMag')) $('emissionMag').addEventListener('input', () => { if (optics && +$('emissionMag').value > 0) setPixelSize(opticsNow()); });
+// A pixel size typed in: as in Micro-Manager it follows from the optics, so the Magnification moves to give it
+// (sensor pixel / (objective x pixel size)); the camera and objective stay.
+if ($('mv_pixel-nm')) $('mv_pixel-nm').addEventListener('input', () => {   // (a typed value arrives settled, settle.js)
+  const px = +$('mv_pixel-nm').value, em = $('emissionMag');
+  if (settingPx || !optics || !em || !(px > 0)) return;
+  const o = opticsNow(), mag = o.sensorUm * 1000 / (o.objectiveMag * px);
+  if (Number.isFinite(mag) && mag > 0 && Math.abs(+em.value - mag) > 1e-9) { em.value = mag; fire(em); }
+});
 self.mmConfig = { apply, render, markCurrent, pruneExtra, matches, valueOf, extra, config: CFG };
 })();
