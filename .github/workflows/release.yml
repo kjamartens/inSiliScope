@@ -25,7 +25,7 @@ env:
   VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
-  # The tag must be v<VERSION> (the VERSION file; core/include/insiliscope/version.h repeats it, CMake checks that).
+  # The tag must be v<VERSION> or v<VERSION>-rcN (the VERSION file; core/include/insiliscope/version.h repeats it, CMake checks that).
   version:
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +33,8 @@ jobs:
       - name: Tag = v<VERSION>
         run: |
           want="v$(tr -d '[:space:]' < VERSION)"
-          if [ "$VERSION" != "$want" ]; then echo "::error::release $VERSION, but the VERSION file says $want"; exit 1; fi
+          # a release candidate v<VERSION>-rcN is the coming VERSION
+          if [ "${VERSION%-rc*}" != "$want" ]; then echo "::error::release $VERSION, but the VERSION file says $want"; exit 1; fi
           grep -q "#define ISC_VERSION \"${want#v}\"" core/include/insiliscope/version.h \
             || { echo "::error::core/include/insiliscope/version.h is not ${want#v}"; exit 1; }
           grep -q "^version: ${want#v}$" CITATION.cff || { echo "::error::CITATION.cff is not version ${want#v}"; exit 1; }
