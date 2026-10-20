@@ -33,7 +33,7 @@ ScopeSpec Spec(const std::string& extra)
 {
    ScopeSpec s;
    std::string err;
-   const std::string text = "size=32 exposure-ms=100 npc-dye=None mt-mode=dSTORM x=3 y=-2 z=0.5 " + extra;
+   const std::string text = "size=32 exposure-ms=100 npc-dye=None mt-mode=dSTORM x=3 y=-2 z=0.5 illum-profile=FlatTop " + extra;
    if (!ParseScopeSpec(text, s, err))
    {
       std::printf("FAIL  spec: %s\n", err.c_str());
@@ -76,8 +76,8 @@ int main()
    std::vector<Shot> shots;
    for (int k = 0; k < 6; k++)
       shots.push_back(Take(live, here));
-   // The dose per lit frame at the FOV centre: the exposure x the beam there (the default FlatTop's centre, within
-   // 0.1 % of its peak).
+   // The dose per lit frame at the FOV centre: the exposure x the beam there (the FlatTop's centre, within 0.1 %
+   // of its peak).
    const double step = shots[1].info.litSec;
    bool ok = std::fabs(step - 0.1) < 1e-4;
    for (int k = 0; k < 6; k++)

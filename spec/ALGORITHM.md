@@ -841,7 +841,7 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   linearly is linear in u = n_i sin(theta_i) / n_s, and the critical angle sits at u = 1 for every objective and
   medium (n_s = `bf-n-medium`, 1.337). The 1.40 objective's edge is 1.047, the 1.49's 1.114, a water objective's < 1.
 - **The beam.** The in-plane profile P (Flat, Gaussian, FlatTop: the logistic-edged disc of the SMLM Challenge
-  simulator, sage2019), FWHM as % of the FOV width (default FlatTop 100 %), centred on the optical axis. On a plane at
+  simulator, sage2019), FWHM as % of the FOV width (default Gaussian 100 %; FlatTop until 2026-10-20), centred on the optical axis. On a plane at
   height z it lands as P((x - (z - z_p) tan theta_s) cos theta_i, y): stretched along x by 1 / cos theta_i, and below
   the critical angle moving with z, so an inclined beam is an inclined **sheet** (HILO, tokunaga2008) crossing the axis
   at the focal plane z_p (the movie's focus). Its thickness on the axis is W / (tan theta_s cos theta_i).
@@ -855,7 +855,7 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
 - **Several lines.** d depends on lambda: each dye state's factor mixes its lines' factors by its excitation share per
   line (`lineShares`).
 - **Uniform = the old paths.** Flat at u = 0 is exactly 1 everywhere and every renderer skips the factor: outputs are
-  bit for bit the old ones. The default (FlatTop 100 %) is not uniform: it moved every default image.
+  bit for bit the old ones. The default (Gaussian 100 %, FlatTop 100 % before 2026-10-20) is not uniform: it moved every default image.
 - **Where it acts.** Blinks: photons x the factor at the emitter (`CollectFrameEmitters`, the running images' unit
   splats, the per-dye windows). Mean-field populations: per WideField plane and grid cell F x lateral(cell, plane
   centre) x the plane's exact mean of the depth decay (a 25 nm plane at d = 100 nm would be biased by its centre value);

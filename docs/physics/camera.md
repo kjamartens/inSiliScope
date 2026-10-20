@@ -75,7 +75,7 @@ A flat background (`SampleHolder.BackgroundPhotonsPerSec`) multiplies an illumin
   ([Illumination history](photophysics.md#illumination-history-micro-manager-adapter): one value per frame, the fade
   does not vary across the FOV);
 - **illumination**: the excitation's lateral footprint at the coverslip (`illum-profile`, `illum-fwhm`; MM
-  `Lasers.IlluminationProfile`, `Lasers.IlluminationFwhmPct`; default a FlatTop the width of the FOV) multiplies the
+  `Lasers.IlluminationProfile`, `Lasers.IlluminationFwhmPct`; default a Gaussian with a FWHM of the FOV's width) multiplies the
   background ([Dyes and light path](dyes-and-light-path.md#illumination-geometry)).
 
 For fluorescence the background is in detected photons: it is multiplied by the camera's QE at the emission filter's

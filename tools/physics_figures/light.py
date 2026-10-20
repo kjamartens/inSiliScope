@@ -286,7 +286,7 @@ def light_geometry(ctx):
     body = ctx.plot("", draw, h=5.4, alt="The excitation factor in epi, HILO and TIRF")
     return figure(body,
                   "The excitation factor a movie applies (laser power x this; the cli's setup output, %g nm, the "
-                  "default FlatTop beam over a 25.6 µm field, focus 0.5 µm: dotted). Top: a section through the axis "
+                  "default Gaussian beam over a 25.6 µm field, focus 0.5 µm: dotted). Top: a section through the axis "
                   "along the incidence plane, one colour scale: epi lights every height alike, HILO an inclined sheet "
                   "through the focus (dyes above and below it unlit), TIRF only a layer of about d over the coverslip, "
                   "with the interface's field enhancement. Bottom: the factor on the axis against height for BFP "

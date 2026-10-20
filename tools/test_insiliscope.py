@@ -129,7 +129,7 @@ print("Live mode OK:", len(live_frames), "frames captured, frames vary over time
 assert not core.hasProperty("Fluorophores", "Mode"), "no experiment-wide mode since issue 15"
 fresh(pores=True)
 for (dev, name), expected in {
-    ("Lasers", "IlluminationProfile"): "FlatTop",
+    ("Lasers", "IlluminationProfile"): "Gaussian",
     ("Lasers", "IlluminationFwhmPct"): "100",
     ("Lasers", "BfpPosition"): "0.95",   # the DNA-PAINT light presets: HILO
     ("Lasers", "IlluminationRegime"): "HILO",

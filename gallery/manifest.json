@@ -164,8 +164,11 @@
       "text": "illum-bfp 1.03: past the critical angle, an evanescent layer about 150 nm deep (at 640 nm). The free-imager background drops, and the microtubules above the layer go dark: only those near the coverslip are lit.",
       "options": {"illum-bfp": 1.03} },
     { "id": "light-flat", "title": "Flat beam profile",
-      "text": "illum-profile Flat: a laterally infinite beam instead of the default FlatTop (a soft-edged disc, FWHM 100 % of the field's width): the corners are as bright as the centre.",
-      "options": {"illum-profile": "Flat"} }
+      "text": "illum-profile Flat: a laterally infinite beam instead of the default Gaussian (FWHM 100 % of the field's width, a quarter of the centre's light in the corners): the corners are as bright as the centre.",
+      "options": {"illum-profile": "Flat"} },
+    { "id": "light-flattop", "title": "FlatTop beam profile",
+      "text": "illum-profile FlatTop: a disc with a soft edge (the logistic edge of the SMLM Challenge simulator), FWHM 100 % of the field's width, instead of the default Gaussian: even over most of the field, dimmer only in the corners.",
+      "options": {"illum-profile": "FlatTop"} }
   ],
   "sections": [
     { "title": "One sample, three microscopes",
@@ -205,10 +208,10 @@
         {"panels": [["sr-na-low", "NA 0.9"], ["sr-default", "NA 1.4 (default)"], ["sr-na-high", "NA 1.49"]], "shared": true, "caption": "A higher NA collects more light into a smaller spot."}
       ] },
     { "title": "How the light reaches the sample",
-      "story": "Where the laser spot sits in the objective's back focal plane decides the light's path: in its centre the beam goes straight up (epi), towards the edge it leaves at a slant as a thin sheet (HILO), past the critical angle it is reflected and only an evanescent layer reaches the cells (TIRF). The beam is a soft-edged disc over the field by default.",
+      "story": "Where the laser spot sits in the objective's back focal plane decides the light's path: in its centre the beam goes straight up (epi), towards the edge it leaves at a slant as a thin sheet (HILO), past the critical angle it is reflected and only an evanescent layer reaches the cells (TIRF). The beam is a Gaussian as wide as the field by default.",
       "rows": [
         {"panels": [["light-epi", "epi"], ["sr-default", "HILO (default)"], ["light-tirf", "TIRF"]], "shared": true, "caption": "Epi lights the free imager through the whole chamber, HILO only a sheet, TIRF only the first ~150 nm: the background falls, and in TIRF the microtubules higher in the cell go dark."},
-        {"panels": [["sr-default", "FlatTop beam (default)"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A flat-top beam dims towards the corners; a flat one lights the field evenly."}
+        {"panels": [["sr-default", "Gaussian beam (default)"], ["light-flattop", "FlatTop beam"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A Gaussian beam dims steadily towards the edges, a flat-top one only in the corners; a flat one lights the field evenly."}
       ] },
     { "title": "Shaping the PSF",
       "story": "The default PSF is a Gibson-Lanni model with Zernike aberrations of a realistic objective. Aberrations can be dialled in on purpose: astigmatism makes spots stretch with their height, which is how 3D SMLM works.",

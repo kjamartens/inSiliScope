@@ -133,7 +133,7 @@ const CASES = [
   ['Linkage: microtubules Legacy, binder 5 nm; pores IgG1-PAINT, linker to 8 nm, Fixed', `${B} size=40 frames=6 psf-model=0 mt-binder=Legacy mt-binder-nm=5 npc-binder=IgG1-PAINT npc-linker-max-nm=8 npc-orient=Fixed`, 1],
   ['Sparse pores (4 /um^2, 300 nm apart, radius 60 nm), microtubules off', `${B} size=40 frames=6 psf-model=0 mt-label-pct=0 npc-density=4 p.npcMinDistNm=300 p.npcRadiusNm=60`, 1],
   ['EMCCD, Fft placement, sparse', 'world-seed=1249 x=63 y=3 size=24 frames=3 psf-kernel-half-width-nm=1200 psf-interp=Fft camera-type=EMCCD mt-label-pct=5', 1],
-  // The excitation geometry (excitation.js; the defaults: FlatTop 100 %, epi; DNA-PAINT HILO, the nanorulers TIRF):
+  // The excitation geometry (excitation.js; the defaults: Gaussian 100 %, epi; DNA-PAINT HILO, the nanorulers TIRF):
   ['Excitation Flat epi (uniform: the old paths)', `${B} size=40 frames=6 psf-model=0 illum-profile=Flat illum-bfp=0`, 1],
   ['Excitation Gaussian 60 %, epi, dSTORM AF647 at 60 s', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto illum-profile=Gaussian illum-fwhm=60`, 0.999],   // its initial ON: mean-field
   ['Excitation HILO 0.9, dSTORM AF647 from t = 0 (local clock, initial ON)', `${B} size=40 frames=8 psf-model=0 mt-dye=AF647 light-preset=auto start-sec=0 illum-bfp=0.9`, 0.999],

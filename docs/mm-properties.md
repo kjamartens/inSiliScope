@@ -134,7 +134,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `Laser640KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
-| `IlluminationProfile` | Basic | FlatTop | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
+| `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
 | `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). |
 | `IlluminationRegime` | Advanced (read-only) | HILO |  | Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only). |

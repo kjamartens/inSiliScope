@@ -129,8 +129,9 @@ NA / n of the medium (1.047 for the 1.40 objective in water, n = `bf-n-medium`, 
 beyond it no light reaches the sample (MM `Lasers.IlluminationRegime` reads `Clipped`). The position is linear in the
 BFP radius, so 0.5 is half-way to the critical angle.
 
-The beam's cross-section is `illum-profile` (Flat, Gaussian, or FlatTop: a disc with a soft edge, the default) with
-`illum-fwhm` (% of the FOV width, default 100). Each dye is excited by the laser power times a factor at its place:
+The beam's cross-section is `illum-profile` (Flat, Gaussian, the default, or FlatTop: a disc with a soft edge) with
+`illum-fwhm` (% of the FOV width, default 100: the default Gaussian gives the middle of each edge half the centre's
+light and the corners a quarter). Each dye is excited by the laser power times a factor at its place:
 
 - epi: the profile, the same at every height;
 - HILO: the profile tilted into a sheet through the focal plane, about W / (tan θ<sub>s</sub> cos θ<sub>i</sub>)
@@ -174,8 +175,9 @@ focal-plane irradiance of a dye at defocus \(\delta\) is \(\delta / 2\pi(\delta^
 lit disc of radius \(a\) the column is \(\int_0^H 1 - \delta/\sqrt{a^2 + \delta^2}\,d\delta \approx a\) for
 \(H \gg a\); the Fresnel weighting favours the steep rays, so the effective column is a little deeper.
 
-So in epi the background is set by the **beam's width**, not the chamber's height: about 14 µm on the axis of the
-default 25.6 µm FlatTop beam (100 µm before this model), and about half that at the beam's edge. In TIRF only the
+So in epi the background is set by the **beam's width**, not the chamber's height: about 15 µm on the axis of the
+default beam, a Gaussian of 25.6 µm FWHM (14 µm with a FlatTop that wide; 100 µm before this model), and about half
+that at the beam's edge. In TIRF only the
 evanescent layer is lit (about the field factor times the decay depth, ~0.5 µm), in HILO about the inclined sheet. That
 is why DNA-PAINT is imaged in HILO or TIRF: the DNA-PAINT light presets set HILO (`illum-bfp` 0.95), the nanorulers TIRF
 (1.03), both *estimates*; TIRF cuts the nanorulers' imager background about 13-fold against epi. The renderers evaluate

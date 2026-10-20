@@ -1032,7 +1032,7 @@ change, golden unchanged).
 - `Simulation/Excitation.{h,cpp}` = `excitation.js` (`ExcitationSpec` -> `Excitation`: `F`, `Regime`, `Lateral`, `Depth`,
   `DepthMean`, `At`, `Column` (HILO: 256 midpoints over the crossed heights), `DepthNm`, `Uniform`; `DoseNodes` and
   `HatWeight` went with the stepped history, section 23). The render engine uses `std::exp` (not bit-exact with V8; the parity tolerances below absorb it).
-- Options: `illum-profile` (Flat / Gaussian / FlatTop, default FlatTop), `illum-fwhm` (100 % of the FOV width),
+- Options: `illum-profile` (Flat / Gaussian / FlatTop, default Gaussian since 2026-10-20, FlatTop before), `illum-fwhm` (100 % of the FOV width),
   `illum-bfp` (default 0; the light preset's `bfpPosition` and the specimen's `illumination.bfpPosition` replace it
   when the preset applies: DNA-PAINT 0.95, nanorulers 1.03), `chamber-height-um` 5 -> 100. `illum-geometry` is
   accepted and ignored (old specs; the viewer's select gave way to the BFP slider). Not kinetic keys. `ScopeBfpPosition`, `ScopeExcitationSpec`.

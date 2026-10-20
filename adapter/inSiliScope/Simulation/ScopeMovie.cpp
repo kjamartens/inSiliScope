@@ -225,7 +225,7 @@ const OptionTable& Options()
          { "laser-custom-nm", 0, "wavelength of an extra laser line, nm (0 = none; not in Micro-Manager)" },
          { "laser-custom", 0, "its intensity, kW/cm^2" },
          { "light-preset", 0, "Lasers.Preset: auto (0, the default) = the light presets of the labelled targets' dyes in their modes combined: each laser line at its highest power over them, the filters of the one preset, or the multi-band set (light_path.json multiTarget) when the presets' filters differ; -1 = none (the laser/dichroic/filter options as given); or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
-         { "illum-profile", 2, "Lasers.IlluminationProfile: the cross-section of the beam, 0 Flat, 1 Gaussian, 2 FlatTop (a soft-edged disc; names accepted)" },
+         { "illum-profile", 1, "Lasers.IlluminationProfile: the cross-section of the beam, 0 Flat, 1 Gaussian (the default), 2 FlatTop (a soft-edged disc; names accepted)" },
          { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the width of the field of view" },
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },

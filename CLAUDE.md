@@ -278,7 +278,8 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the merge of main into the exact light history (2026-10-16: main's dim-blink cut,
+`adapter_pixel_hash` reference since the Gaussian beam default (2026-10-20, `Lasers.IlluminationProfile` Gaussian, was
+FlatTop): TOTAL bf98d1ae.... Before it, the reference since the merge of main into the exact light history (2026-10-16: main's dim-blink cut,
 `Renderer.BlinkMinPhotons` 50, moved `defaults`, `gaussian-psf`, `palm`, `emccd`, `drift`, `zernike`, `pores`; with
 `--set Renderer.BlinkMinPhotons=0` every config = the reference before the merge): TOTAL a84a7116... (before pores
 6ce549ae...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0` TOTAL 3e69b9b0... (before pores
@@ -302,7 +303,7 @@ Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5
 
 **Excitation geometry (2026-10-13, spec/PORT.md 22, spec/ALGORITHM.md):** `illum-bfp` / MM `Lasers.BfpPosition`
 (Basic, 0-1.2) = the laser spot in the BFP (0 epi, 1 the critical angle, HILO between, TIRF above, clipped beyond
-NA / `bf-n-medium` = MM `SampleHolder.MediumIndex`); beam `illum-profile` (default FlatTop) / `illum-fwhm` (100 % of
+NA / `bf-n-medium` = MM `SampleHolder.MediumIndex`); beam `illum-profile` (default Gaussian since 2026-10-20, FlatTop before) / `illum-fwhm` (100 % of
 the FOV), engine options now (the adapter's own 2D field is gone); `chamber-height-um` 100 (the free imager's light is
 collected defocused: `Excitation::ImagerMap`, epi's column ~ the beam's radius, not the chamber; the map is made on a 0.25 um
 focus grid and blended, cached in `BgMapCache`, the neighbours prefetched in MM (`SetBackgroundMapPrefetch`; joined by
