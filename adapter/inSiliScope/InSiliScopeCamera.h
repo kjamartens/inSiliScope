@@ -194,7 +194,7 @@ private:
    void StopLiveProducer();
    void LiveProducerLoop();
 
-   // ---- render-ahead (LiveAhead.cpp; spec/PERF_PASS.md phase 2) ------------
+   // ---- render-ahead (LiveAhead.cpp; docs/dev/PERF_PASS.md phase 2) ------------
    // While a live/MDA sequence runs in an unchanged state, a helper thread
    // renders batches of the next frames with one movie (one setup and query
    // per batch, frames side by side on all cores, one GPU dispatch); the

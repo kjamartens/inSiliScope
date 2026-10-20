@@ -6,7 +6,7 @@ inSiliScope adapter (native), (2) the browser viewer in `web/` (WASM) and (3) we
 CI-generated block: WASM as base64 + thin JS wrapper, published by CI; brought into the fork
 `kjamartens/webSMLM` by a separate change there -- CI never opens PRs). No second hand-maintained implementation.
 
-**Plan and status: [PLAN.md](PLAN.md).** Keep its checklist current: tick items off in the commit
+**Plan and status: [docs/dev/PLAN.md](docs/dev/PLAN.md).** Keep its checklist current: tick items off in the commit
 that finishes them.
 
 ## Layout
@@ -107,7 +107,7 @@ that finishes them.
   `adapter_pixel_hash.py`, `test_insiliscope.py`, `test_cellfield_stage.py`, `test_mm_configs.py`, `isc_mm.py`,
   `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`.
 
-## Rules for core (why each exists is in spec/m0-feasibility.md)
+## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
 
 - **Address-based determinism.** Every cell/MT/dye is a pure function of `(seed, address)`, never of a
   running stream, draw order, viewport, or cache state. Caches are for speed only.
@@ -256,7 +256,7 @@ the labelled targets' presets. Shipped configs `adapter/inSiliScope/config/inSil
 assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `docs/mm-properties.md` by
 `tools/gen_property_reference.py`; `Renderer.WriteScopeSpecTo` + `insiliscope_cli --spec <file>` reproduce an MM frame
 (precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
-Live pacing (2026-10-07, spec/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
+Live pacing (2026-10-07, docs/dev/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
 timing: Windows rounds it up to 15.6 ms), an absolute frame schedule, a condition variable from producer to consumer;
 `tools/bench_live.py` measures fps per channel x exposure and action latencies (Test rows `Test_LiveRenderMs`,
 `Test_LivePrefetchMs`). Profiling (2026-10-07): every `TimingLog` phase (`Simulation/Timing.h`; live frames: `live.*`,
@@ -268,7 +268,7 @@ count/total/mean/max per phase as JSON (MMCore strings stop at 1024 chars) and s
 the latest frame breakdown on the site's Benchmarks page. Add a `TimingLog` for any new per-frame step (and a line in
 `benchmarks_page.py` `DESCRIBE`). `ParallelFor` (`Simulation/Parallel.h`) runs on a persistent pool (a per-call
 thread spawn cost ~1 ms); the camera's `Shutdown` joins it (`ParallelPoolShutdown`) before the DLL can unload.
-Render-ahead (2026-10-07, `LiveAhead.cpp`, spec/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
+Render-ahead (2026-10-07, `LiveAhead.cpp`, docs/dev/PERF_PASS.md phase 2): in a sequence acquisition at an unchanged
 state a helper thread renders batches of the next frames (K = 300 ms / exposure, 2-16, ramped from 2 after any change;
 `ISC_AHEAD_K` fixes it; one K-frame `FluorescenceMovie`, slot-labelled, on the light history's map, its later frames on
 the open record's rate); any change flushes; not with the lamp or drift; `ISC_RENDER_AHEAD=0` off. The producer and the helper share `liveGpu_` (D3D11 hosts kept across live

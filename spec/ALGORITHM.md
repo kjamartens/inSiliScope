@@ -1035,7 +1035,7 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
 Started as an exploration on webSMLM's `cell-field-simulation` branch (`cell_field_sim/`), kept out of
 `webSMLM.html` while the paradigm (infinite, coordinate-addressed field vs. webSMLM's finite, whole-FOV
 `buildStructure()`) was open. Its history was imported into this repo under `web/`; the decision taken
-is to port it once to C++ (`core/`) and consume that everywhere (see [PLAN.md](../PLAN.md)).
+is to port it once to C++ (`core/`) and consume that everywhere (see [PLAN.md](../docs/dev/PLAN.md)).
 
 ## Microtubule surface labels (debug preview)
 

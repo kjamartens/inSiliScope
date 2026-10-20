@@ -7,7 +7,7 @@ Nothing to install: the whole simulation runs in your browser as WebAssembly.
 <div class="isc-launch" markdown>
 [Open the viewer :material-open-in-new:](../../){ .md-button .md-button--primary target="_blank" }
 
-It opens in a new tab and loads about 1 MB; a desktop browser with a mouse works best.
+It opens in a new tab and loads about 2.5 MB (under 1 MB compressed); a desktop browser with a mouse works best.
 </div>
 
 A first tour, about five minutes:
@@ -147,5 +147,5 @@ Each release carries `cellfield_block.js`. In the webSMLM repository run
 
 ## Build from source
 
-See `CLAUDE.md` in the repository for the full build and test matrix (core native and WASM, adapter MSBuild,
-golden vectors, GPU checks).
+See [BUILDING.md](https://github.com/kjamartens/inSiliScope/blob/main/BUILDING.md) in the repository for the build
+and test steps (core native and WASM, the viewer, the webSMLM block, the Micro-Manager adapter, the docs site).

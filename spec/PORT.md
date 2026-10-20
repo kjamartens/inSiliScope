@@ -5,7 +5,7 @@
 > `web/` changes in a way that affects anything described here (hash channels, defaults, geometry, dye
 > model, function names), update this file in the same commit. Correct it when reality diverges from it
 > (a decision changed, a section turned out wrong), and mark finished steps in section 11 (the overall
-> milestones are tracked in [PLAN.md](../PLAN.md)). Delete the file only once the port is complete and
+> milestones are tracked in [PLAN.md](../docs/dev/PLAN.md)). Delete the file only once the port is complete and
 > [ALGORITHM.md](ALGORITHM.md) plus `CLAUDE.md` carry everything that is still true.
 >
 > **Changed by the insiliscope decisions (M0/M1), overriding the text below where they conflict:**
@@ -13,7 +13,7 @@
 > `adapter/inSiliScope/Simulation/`; the adapter only calls core through its C ABI
 > (`core/include/insiliscope/insiliscope.h`). Every transcendental in core goes through `isc::jsm`
 > (V8's fdlibm), not `<cmath>`, which is what makes native/WASM/JS bit-identical (see
-> [m0-feasibility.md](m0-feasibility.md)). Golden vectors live in [golden/](golden/), not
+> [m0-feasibility.md](../docs/dev/m0-feasibility.md)). Golden vectors live in [golden/](golden/), not
 > `tools/cellfield_parity_check/`.
 
 **Audience:** a coding agent working in this repo.
@@ -32,7 +32,7 @@ gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 Prototype changes are tried in the lab first (`web/lab/`, [README](../web/lab/README.md)) and ported here in the
 PR to main, listed in `PORT_PENDING.md` until then. The imaging path (dyes, kinetics, PSF, render, camera, WideField)
 has a JS twin too, `web/prototype/scope/` (2026-10-01), held equal to the C++ by `tests/parity/scope_parity.mjs`.
-All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from `C:\GitHub\websmlm\cell_field_sim\`). Line numbers drift; grep
+All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from the webSMLM repository's `cell_field_sim/`). Line numbers drift; grep
 the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
 README).
 

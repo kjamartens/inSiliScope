@@ -5,7 +5,7 @@
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   Live BrightField: the scene of the current pose, a cache of
 //                its images at recent foci, and a thread that computes the
-//                foci the user is likely to go to next (spec/PERF_PASS.md
+//                foci the user is likely to go to next (docs/dev/PERF_PASS.md
 //                phase 4: at 20x a focus change re-images a large grid,
 //                0.3-0.8 s). The images are Image()'s pixels; the prefetch
 //                computes on half the cores under a shared lock and stops

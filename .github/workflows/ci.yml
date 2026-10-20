@@ -105,7 +105,7 @@ jobs:
         run: ctest --test-dir build/wasm -j 8 --output-on-failure
       - name: Viewer module up to date (web/insiliscope_module.js)
         run: node tools/embed_web_module.mjs --check
-      - name: webSMLM block (dist/cellfield_block.js; published by the "webSMLM block" workflow)
+      - name: webSMLM block (dist/cellfield_block.js; published as a release asset by release.yml)
         run: |
           node tools/make_cellfield_block.mjs
           node tests/block/check_cellfield_block.mjs

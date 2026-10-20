@@ -1597,7 +1597,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          const char* e = std::getenv("ISC_AHEAD_K");   // investigation knob: a fixed batch size
          return e ? std::max(0L, std::min(64L, std::atol(e))) : 0L;
       }();
-      // About 300 ms of frames, 2-16 (spec/PERF_PASS.md: a batch's setup and
+      // About 300 ms of frames, 2-16 (docs/dev/PERF_PASS.md: a batch's setup and
       // events query, 10-35 ms, spread over more frames; past 16 the splat
       // itself is the cost), from 2 after a change.
       const long aheadKMax = std::max(2L, std::min(16L, std::lround(300.0 / std::max(1.0, exposureNowMs))));

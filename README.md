@@ -69,7 +69,7 @@ cmake --preset wasm && cmake --build --preset wasm && node tools/embed_web_modul
 ```
 
 The Micro-Manager adapter is MSBuild-only and needs the `third_party/mmCoreAndDevices` submodule and a locally built
-`third_party/SMLMPsfEmbedded.jar`; see [CLAUDE.md](CLAUDE.md) and [docs/dev/BUILD_AND_USAGE.md](docs/dev/BUILD_AND_USAGE.md).
+`third_party/SMLMPsfEmbedded.jar`; see [BUILDING.md](BUILDING.md).
 Tagged releases build everything in CI ([.github/workflows/release.yml](.github/workflows/release.yml)).
 
 ## Repository layout

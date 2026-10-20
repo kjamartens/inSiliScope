@@ -163,7 +163,7 @@ through it step by step.
 - Tilted views are drawn in depth order: each cell's cytoplasm surface, nucleus and contour lines back to front, the
   cells far to near, and the microtubules and dyes depth-tested on the GPU, so a nucleus shows through the cytoplasm
   above it and a nearer cell covers a farther one.
-- The **Animation** tab (work in progress: turn on "Show animation pane (WIP)" in the ☰ menu for the Settings /
+- The **Animation** tab (beta: turn on "Show animation pane (beta)" in the ☰ menu for the Settings /
   Animation tabs) builds short animations of one cell for talks: the view orbits the cell
   while its structures appear. An animation is a list of **cycles**, each bound to a structure (microtubules, nucleus,
   cytoplasm) and made of **steps**. A step lasts some seconds, moves the camera (turning by the cycle's orbit, tilting,
@@ -185,8 +185,7 @@ through it step by step.
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Simulated data** (hidden for now, with its Data acquisition settings; they are in View ▾, under the Show
-  checkboxes, when the page sets `self.ISC_SHOW_DATA`; **Random cell** / **Previous cell** sit with Reset
+- **Simulated data** (not shown in this release, nor its Data acquisition settings; **Random cell** / **Previous cell** sit with Reset
   view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
   height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
   included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;

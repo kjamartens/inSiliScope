@@ -1,6 +1,6 @@
 # Notes for webSMLM: porting Zernike-aberration PSFs
 
-**Audience**: a future Claude session working in `C:\Users\koen-\Documents\GitHub\webSMLM`
+**Audience**: a future Claude session working in the webSMLM repository
 (single-file client-side app, `webSMLM.html`). Written from *this* repo
 (`demoCam_SMLM_MM`, a C++ Micro-Manager device adapter) right after
 finishing its own Zernike-aberration PSF feature there, as a handoff of

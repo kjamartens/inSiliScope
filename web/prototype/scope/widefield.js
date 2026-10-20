@@ -11,7 +11,7 @@
 // dye-tile LRU, GPU. The C++ convolves in float32; this in float64 (agreement ~1e-6 relative).
 const COLUMN_MIN_UM = -5.0, COLUMN_MAX_UM = 50.0;
 const TILE = 64;
-// TODO(human) in the C++ too: the Gaussian WideField PSF ignores defocus (in-focus sigma, 0.21 lambda / NA).
+// Limitation (as in the C++): the Gaussian WideField PSF ignores defocus (in-focus sigma, 0.21 lambda / NA).
 export const gaussianSigmaUm = (defocusUm, lambdaNm, na) => 0.21 * lambdaNm / Math.max(0.01, na) / 1000.0;
 
 const snapFloor = x => { const r = Math.round(x); return Math.abs(x - r) < 1e-9 ? r : Math.floor(x); };

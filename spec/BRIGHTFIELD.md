@@ -84,7 +84,7 @@ core's worker pool and parallel cell generation the 256 px level 3 movie is 0.47
 the image's inverse transform skips the columns where the detection pupil is zero (|kx| > k0 NA; at 20x/0.75 about
 27 % of the columns are left instead of 47 %, at NA >= n_medium nothing changes): the 128 px 20x cli movie 4.8 -> 3.8 s.
 A focus image at low magnification stays expensive (256 px at 20x: a ~1350^2 grid, 24 sources, ~0.5-0.8 s on 12
-threads), so live Micro-Manager computes the next foci ahead (`Simulation/BrightfieldLive.*`, spec/PERF_PASS.md).
+threads), so live Micro-Manager computes the next foci ahead (`Simulation/BrightfieldLive.*`, docs/dev/PERF_PASS.md).
 
 ## Quality: speed vs precision (`General_BrightFieldQuality`, cli/viewer `bf-quality`)
 

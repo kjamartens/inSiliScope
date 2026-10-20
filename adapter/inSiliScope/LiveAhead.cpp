@@ -3,7 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Micro-Manager device adapter: the inSiliScope camera
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Render-ahead for live fluorescence (spec/PERF_PASS.md phase
+// DESCRIPTION:   Render-ahead for live fluorescence (docs/dev/PERF_PASS.md phase
 //                2): a helper thread renders a batch of the next live frames
 //                with one FluorescenceMovie of that many frames -- one setup
 //                and one events query per batch, the frames rendered side by

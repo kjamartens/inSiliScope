@@ -88,7 +88,7 @@ jobs:
             "Licence: with PSFGenerator (GPL-3.0, EPFL BIG, https://github.com/Biomedical-Imaging-Group/PSFGenerator) embedded",
             "this DLL is GPL-3.0 as a whole (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE).",
             "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime only for the RichardsWolf/GibsonLanni PSF models);",
-            "devices: the hub inSiliScope and its peripherals (Camera, XYStage, ZStage, Objective, EmissionPath, FilterCube, ExcitationFilter, Dichroic, EmissionFilter, Lasers, TransmittedLamp, SampleHolder, CellField, Fluorophores, Renderer) in module inSiliScope;",
+            "devices: the hub inSiliScope and its peripherals (Camera, XYStage, ZStage, Objective, EmissionPath, FilterCube, ExcitationFilter, Dichroic, EmissionFilter, Lasers, TransmittedLamp, SampleHolder, CellField, Nanorulers, Fluorophores, Renderer) in module inSiliScope;",
             "configurations: inSiliScope_Basic.cfg, inSiliScope_Advanced.cfg, inSiliScope_Expert.cfg (File > Load System Configuration in Micro-Manager)."
           ) | Out-File -Encoding utf8 out/BUILD_INFO.txt
           Get-Content out/BUILD_INFO.txt

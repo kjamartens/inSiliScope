@@ -119,7 +119,7 @@ double WidefieldBleachingPhotons(double eta, double budget, double d0, double dD
 
 double WidefieldGaussianSigmaUm(double defocusUm, double lambdaNm, double na, double immersionIndex)
 {
-   // TODO(human): the emission PSF's width at a defocus. This placeholder is
+   // Limitation (docs/roadmap.md): the emission PSF's width at a defocus. This is
    // the in-focus sigma (the cli's 0.21 lambda / NA) and ignores z, so the
    // Gaussian WideField image has no out-of-focus haze yet. Candidates:
    //   Gaussian-beam law     sigma0 * sqrt(1 + (dz / zR)^2)

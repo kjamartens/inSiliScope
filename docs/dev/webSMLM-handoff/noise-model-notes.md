@@ -1,7 +1,7 @@
 # Notes for webSMLM: camera noise models in demoCam_SMLM_MM
 
 **Audience**: a future Claude session working in
-`C:\Users\koen-\Documents\GitHub\webSMLM` (single-file client-side app,
+the webSMLM repository (single-file client-side app,
 `webSMLM.html`). Written from *this* repo (`demoCam_SMLM_MM`, a C++
 Micro-Manager device adapter) after extending its own camera noise model,
 as a handoff — not a plan to execute here. Companion to

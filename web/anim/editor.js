@@ -261,7 +261,7 @@ function setTab(tab) {
   else { exitPreview(); mode = 'off'; S.setAnimBar(false); }
 }
 $('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setTab(b.dataset.tab); });
-// The tabs show only with "Show animation pane (WIP)" in the hamburger menu (remembered); off, the settings panel.
+// The tabs show only with "Show animation pane (beta)" in the hamburger menu (remembered); off, the settings panel.
 const animPaneOn = () => UI.store.get('animPane', '0') === '1';
 function setAnimPane(on) {
   $('tabs').hidden = !on; $('showAnimPane').checked = on;
