@@ -3,6 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>inSiliScope viewer</title>
+<!-- Link previews (LinkedIn, X, Slack, ...): social.jpg is web/social.jpg, copied to the site root by tools/build_site.sh. -->
+<meta name="description" content="A simulated fluorescence microscope in your browser: synthetic cells and DNA-origami nanorulers in 3D, imaged live with realistic dyes, optics and camera noise (dSTORM, PALM, DNA-PAINT, widefield, brightfield). Also a Micro-Manager device adapter.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="inSiliScope">
+<meta property="og:title" content="inSiliScope: a simulated fluorescence microscope">
+<meta property="og:description" content="Fly through synthetic cells in 3D and image them live with realistic dyes, optics and camera noise, in the browser or in Micro-Manager.">
+<meta property="og:url" content="https://kjamartens.github.io/inSiliScope/">
+<meta property="og:image" content="https://kjamartens.github.io/inSiliScope/social.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A synthetic cell in 3D: microtubules, nucleus and nuclear pores">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23040507'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23559ded' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23f0a050'/%3E%3C/svg%3E">
 <style>
   /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
      below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
@@ -20,7 +33,8 @@
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
-  #viewBar #mmLink{margin-right:20px}
+  #viewBar #mmLink,#viewBar #docsLink{margin-right:14px}
+  #viewBar .tagline{flex:1 1 0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   #viewBar a.back:hover{text-decoration:underline}
   #viewBar .sp{flex:1}
   #viewBar button{padding:3px 8px}
@@ -341,6 +355,8 @@
   #canvasHost.xz #legend{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
+  #loading.err{pointer-events:auto;color:#eef2f7;line-height:1.6;padding:0 24px;text-align:center}
+  #loading.err a{color:#9cc6f2}
   #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie .t.drag{cursor:move;user-select:none}
@@ -375,9 +391,11 @@
   <div id="worldCol">
   <div id="viewBar">
     <h1>inSiliScope</h1>
+    <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; press ▶ Live on the right.">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt, then &#9654; Live</span>
     <span class="sp"></span>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
+    <a id="ghLink" class="back" target="_blank" rel="noopener" data-umami-event="link" data-umami-event-to="github" href="https://github.com/kjamartens/inSiliScope" title="Source code (BSD-3-Clause), releases, issues">GitHub &rarr;</a>
   </div>
   <div id="canvasHost">
     <canvas id="cvBase"></canvas>
@@ -456,7 +474,9 @@
   </div>
 </div>
 
-<script src="live/analytics.js"></script>
+<script src="live/usage.js"></script>
+<!-- usage.js missing (an ad-blocker): the buttons call iscTrack all the same. -->
+<script>self.iscTrack = self.iscTrack || Object.assign(() => {}, { framesBucket: () => "" });</script>
 <script src="live/settle.js"></script>
 <script src="dye_library.js"></script>
 <script src="live/mm_config.js"></script>
@@ -1108,14 +1128,17 @@ const UI_GROUPS = [
   ] },
 
   { sect: 'About', id: 'about', title: 'About this viewer', items: [
-    { kind: 'html', html: `<p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in Web Workers). Every cell,
-      microtubule and dye is a pure function of (seed, address): pan anywhere and come back to the same structure. Cells
-      are packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager adapter images. The JS prototype
-      this was ported from is in <a href="prototype/index.html">prototype/</a>.</p>
-      <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion case for the inSiliScope adapter:
-      the field does not move, the viewport (camera FOV) does, and the same world coordinate always re-derives the same
-      structure. Packing moves and turns overlapping cells apart (never shrinks them) and drops a cell still stuck after
-      relaxation. Dyes are the real labelled sites of the core (13_3 lattice, binder + linker), shown once zoomed in.</p>` },
+    { kind: 'html', html: `<p class="sub">inSiliScope is a simulated fluorescence microscope. On the left is the sample: a field of
+      synthetic cells (cell body, nucleus, microtubules, nuclear pores) or DNA-origami nanorulers, endless in every
+      direction. Every cell and every dye follows from the seed and its position, so you can pan away and come back to
+      the same structure. On the right is the microscope: the dashed box is the camera's view, imaged with the dyes,
+      light path, PSF and camera noise you set here (press ▶ Live).</p>
+      <p class="sub">Drag to pan, wheel to zoom, Shift-drag to tilt and turn. The same simulation runs as a device
+      adapter in Micro-Manager, and as a headless command-line tool: <a href="https://kjamartens.github.io/inSiliScope/docs/quickstart/"
+      target="_top">Quickstart</a> &middot; <a href="https://kjamartens.github.io/inSiliScope/docs/" target="_top">Documentation</a> &middot;
+      <a href="https://github.com/kjamartens/inSiliScope" target="_blank" rel="noopener">Source (BSD-3-Clause)</a> &middot;
+      <a href="https://github.com/kjamartens/inSiliScope/issues" target="_blank" rel="noopener">Report a problem</a>.
+      Dye spectra from <a href="https://www.fpbase.org" target="_blank" rel="noopener">FPbase</a> (CC BY-SA 4.0).</p>` },
   ] },
 ];
 
@@ -3876,12 +3899,29 @@ function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
   if (engineUrl()) {
-    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); });
+    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); }).catch(showLoadError);
     return;
   }
-  (0, eval)(self.ISC_MODULE_SRC); // defines createInsiliscope
-  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); });
+  try { (0, eval)(self.ISC_MODULE_SRC); } // defines createInsiliscope
+  catch (e) { showLoadError(e); return; }
+  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); })
+    .catch(showLoadError);
 }
+// The core could not start (no WebAssembly, out of memory, a blocked script): say so where "Loading..." stood, instead
+// of leaving it there for good. Also after 90 s without a first cell (a stalled start).
+function showLoadError(err) {
+  const el = document.getElementById('loading');
+  if (!el) return;
+  console.error('inSiliScope could not start:', err);
+  el.classList.add('err');
+  el.innerHTML = `<div><b>The viewer could not start in this browser.</b><br>${err ? String(err.message || err).replace(/[<>&]/g, '') + '<br>' : ''}
+    It needs WebAssembly and Web Workers and a few hundred MB of memory: try a current Chrome, Edge, Firefox or Safari on a
+    desktop or laptop, close other tabs, or reload.<br>
+    <a href="https://kjamartens.github.io/inSiliScope/docs/" target="_top">Documentation</a> &middot;
+    <a href="https://github.com/kjamartens/inSiliScope/issues" target="_blank" rel="noopener">Report a problem</a></div>`;
+}
+if (typeof WebAssembly === 'undefined') setTimeout(() => showLoadError(new Error('This browser has no WebAssembly.')), 0);
+setTimeout(() => { if (document.getElementById('loading')) showLoadError(new Error('The cell field did not load within 90 s.')); }, 90000);
 
 // ---- packed-map cache -----------------------------------------------------
 // STANDING RULE: draw() runs on every pan/zoom event, so it must not redo work a

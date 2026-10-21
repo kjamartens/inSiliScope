@@ -20,6 +20,14 @@ if [ -f release_assets/gallery.zip ]; then
 else
   printf '# Gallery\n\nThe gallery is rendered on each release; none has been published yet.\n' > .site_docs/gallery/index.md
 fi
+# The download buttons and release links name the newest release, pre-releases included (pages.yml writes its tag;
+# GitHub's releases/latest skips pre-releases). Without a tag they stay on releases/latest.
+if [ -f release_assets/release_tag ]; then
+  tag="$(tr -d '[:space:]' < release_assets/release_tag)"
+  { grep -rl 'releases/latest' .site_docs --include='*.md' || true; } | while read -r f; do
+    sed -i -e "s#releases/latest/download/#releases/download/$tag/#g" -e "s#releases/latest)#releases/tag/$tag)#g" "$f"
+  done
+fi
 # The Home page's 2x2 overview shows the release's gallery images; without them, drop it (no broken images).
 if [ ! -f .site_docs/gallery/overview_map.png ]; then
   sed -i '/<!-- overview:start/,/<!-- overview:end -->/d' .site_docs/index.md
@@ -45,7 +53,7 @@ docs_dir: .site_docs
 mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT/docs"
 rm -f .mkdocs_site.yml
 
-cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js "$OUT/"
+cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js web/social.jpg "$OUT/"
 for d in scene anim encode live; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
 [ -d web/prototype ] && cp -r web/prototype "$OUT/prototype"
 

@@ -189,7 +189,7 @@ function render() {
     }
     const sel = document.createElement('select');
     sel.title = g.name;
-    sel.dataset.pick = mode ? 'mode' : g.name.toLowerCase();   // its choices are counted (analytics.js)
+    sel.dataset.pick = mode ? 'mode' : g.name.toLowerCase();   // its choices are counted (usage.js)
     sel.append(Object.assign(document.createElement('option'), { value: '', textContent: '—', disabled: true }));
     const shown = p => mode ? p.name.replace(/^\S+\s+(?=(dSTORM|DNA-PAINT|PALM|WideField)\b)/, '') : p.name;
     for (const p of g.presets) sel.append(Object.assign(document.createElement('option'), { value: p.name, textContent: shown(p) }));

@@ -3,10 +3,9 @@ inSiliScope -- licensing overview
 The source code in this repository written for this project is licensed under the BSD 3-Clause
 License below, unless a file states otherwise.
 
-Distributed builds that combine it with GPL-3.0 code are licensed as a whole under the GNU General
-Public License version 3 (LICENSE-GPL-3.0.txt). In particular, the Micro-Manager device adapter
-mmgr_dal_inSiliScope.dll embeds EPFL's PSFGenerator (GPL-3.0) and is therefore distributed under
-GPL-3.0. Third-party components and their licenses: THIRD_PARTY_NOTICES.md.
+The Micro-Manager device adapter mmgr_dal_inSiliScope.dll is distributed under the GNU General
+Public License version 3 (LICENSE-GPL-3.0.txt). Third-party components and their licenses:
+THIRD_PARTY_NOTICES.md.
 
 --------------------------------------------------------------------------------------------------
 

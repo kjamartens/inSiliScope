@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
-// The viewer's usage counts (web/live/analytics.js) in headless Chromium, with Umami stubbed (nothing leaves the
+// The viewer's usage counts (web/live/usage.js) in headless Chromium, with Umami stubbed (nothing leaves the
 // machine; the stub's track() keeps the events in sessionStorage, which outlives leaving the page): on localhost no request goes to Umami; served as the published site, restored settings count nothing,
 // a person's level, Mode, Live and Snap clicks count, and the summary goes when the page closes.
 //   node tests/web/viewer_analytics.mjs [--channel=chrome]

@@ -51,8 +51,10 @@ jobs:
         run: |
           mkdir -p release_assets
           # newest release incl. pre-releases (plain `gh release download` skips those)
-          tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          tag=$(gh release list --limit 1 --exclude-drafts --json tagName -q '.[0].tagName')
           if [ -n "$tag" ]; then gh release download "$tag" --pattern gallery.zip --pattern benchmarks.json --dir release_assets; else echo "no release yet"; fi
+          # the docs' download buttons point at this release (build_site.sh), pre-releases included
+          if [ -n "$tag" ]; then echo "$tag" > release_assets/release_tag; fi
       # The physics pages' figures, from the native cli (the adapter's Simulation/ render code); build_site.sh
       # puts them in place of the pages' <!-- fig:<id> --> markers.
       - name: Physics figures

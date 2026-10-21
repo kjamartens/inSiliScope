@@ -18,13 +18,15 @@
 | `Gaussian` | \(\sigma = 0.21\lambda/\mathrm{NA}\) [[zhang2007](../references.md#zhang2007)]; no defocus law yet |
 | `RichardsWolf` | Vectorial focus field [[richards1959](../references.md#richards1959)], in-focus, no index mismatch (PSFGenerator [[kirshner2013](../references.md#kirshner2013)]) |
 | `GibsonLanni` | Adds the sample/immersion index mismatch and depth [[gibson1992](../references.md#gibson1992)] (PSFGenerator [[kirshner2013](../references.md#kirshner2013)]) |
-| `GibsonLanniZernike` (default) | Scalar Gibson-Lanni [[gibson1992](../references.md#gibson1992)] plus a pupil wavefront from OSA/ANSI Zernike modes 0-27 [[thibos2002](../references.md#thibos2002)] (this project, C++, chirp-Z; the same model as [webSMLM](https://github.com/kjamartens/webSMLM)) |
+| `GibsonLanniZernike` (default) | Scalar Gibson-Lanni [[gibson1992](../references.md#gibson1992)] plus a pupil wavefront from OSA/ANSI Zernike modes 0-27 [[thibos2002](../references.md#thibos2002)] (this project, C++, chirp-Z; the same model as [webSMLM](https://github.com/HohlbeinLab/webSMLM)) |
 
 `GibsonLanniZernike` is a **scalar** model: a unit-amplitude pupil (no apodization, no polarization) whose phase is the
 Gibson-Lanni optical path difference (sample depth and immersion defocus), the Zernike sum and an optional mask. It is the
 same model as webSMLM's, computed in C++ (`Simulation/ZernikePsf.cpp`), identical to webSMLM's JavaScript to the last
 float32 bit on the reference cases at webSMLM's 64-sample pupil (ctest `zernike_psf`; the default grid is finer, below) and to the original Java class (`GibsonLanniZernikePSF.java`, kept
-as a reference) to ~1e-12 relative L2. It needs no Java; only `RichardsWolf` and `GibsonLanni` run in PSFGenerator's JVM.
+as a reference) to ~1e-12 relative L2. It needs no Java. `RichardsWolf` and `GibsonLanni` run in PSFGenerator's JVM and only in a DLL built with
+PSFGenerator ([BUILDING.md](https://github.com/kjamartens/inSiliScope/blob/main/BUILDING.md)); the released DLL has
+neither.
 
 The default PSF next to the unaberrated one, as the movie's kernel holds it:
 

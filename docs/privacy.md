@@ -21,7 +21,7 @@ with advertisers. The Micro-Manager adapter, the command-line tool and the webSM
 | `save-tiff` | that a TIFF was saved, from a recording or a movie; its length in a range |
 | `make-movie` | that a movie was made; fluorescence or brightfield |
 | `anim-export` | that an animation was exported; its format (MP4, WebM, GIF) |
-| `link` | that the Docs, Micro-Manager or releases link was followed |
+| `link` | that the Docs, Micro-Manager, GitHub or releases link was followed |
 | `summary` | once, when the page closes: the specimen, mode, Look and level in use, whether live, record, save or movie were used, and the time on the page in a range (up to 1, 5, 15, 30, 60 minutes) |
 
 - **Docs:** page views, and a click on a download button (which file).

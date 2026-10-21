@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
-// web/live/analytics.js in Node on a stub page: off the published site, with Do Not Track, Global Privacy Control or
+// web/live/usage.js in Node on a stub page: off the published site, with Do Not Track, Global Privacy Control or
 // umami.disabled it loads and sends nothing; on it, the Umami tag carries the site's attributes, events wait for the
 // tag, a pick counts only from a person (a trusted change of a counted select; never a restored or preset change, a
 // text field or a select that is not counted), the level buttons count, the summary goes once, and event data keeps
@@ -12,7 +12,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SRC = fs.readFileSync(path.join(ROOT, 'web/live/analytics.js'), 'utf8');
+const SRC = fs.readFileSync(path.join(ROOT, 'web/live/usage.js'), 'utf8');
 const t0 = Date.now();
 let fail = 0;
 const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`); };

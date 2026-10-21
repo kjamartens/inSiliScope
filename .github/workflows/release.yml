@@ -159,9 +159,11 @@ jobs:
           {
             echo "inSiliScope ${VERSION}, built from ${GITHUB_SHA}."
             echo
-            echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64). GPL-3.0 as a whole (embeds PSFGenerator). Copy into the Micro-Manager folder."
+            di=$(tr -dc '0-9' < assets/mmgr_dal_inSiliScope-windows-x64/device_interface.txt)
+            echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64, GPL-3.0). Needs a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) with device interface ${di} (from 21 February 2026 on); older builds refuse it. Copy it into the Micro-Manager folder; getting started: https://kjamartens.github.io/inSiliScope/docs/micro-manager/"
             echo "- \`inSiliScope_Basic.cfg\`, \`inSiliScope_Advanced.cfg\`, \`inSiliScope_Expert.cfg\`: Micro-Manager hardware configurations (the devices, Channel/Objective/Camera/Quality/Drift groups, pixel sizes) at each level of detail."
             echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
+            echo "- \`LICENSE\`, \`LICENSE-GPL-3.0.txt\`, \`THIRD_PARTY_NOTICES.md\`: the licences of the DLL and of what it includes."
             echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings: the cli, and Micro-Manager live speed with where each frame's time goes (also on the project site)."
             echo
             echo '```'
@@ -176,6 +178,9 @@ jobs:
             assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Basic.cfg \
             assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Advanced.cfg \
             assets/mmgr_dal_inSiliScope-windows-x64/inSiliScope_Expert.cfg \
+            assets/mmgr_dal_inSiliScope-windows-x64/LICENSE \
+            assets/mmgr_dal_inSiliScope-windows-x64/LICENSE-GPL-3.0.txt \
+            assets/mmgr_dal_inSiliScope-windows-x64/THIRD_PARTY_NOTICES.md \
             assets/cellfield_block/cellfield_block.js \
             assets/cellfield_block/cellfield_block.js.sha256 \
             assets/gallery/gallery.zip assets/benchmarks/benchmarks.json \

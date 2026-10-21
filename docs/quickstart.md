@@ -40,11 +40,13 @@ side-by-side movies: the [Gallery](gallery/index.md).
 
 ## Micro-Manager
 
+The adapter needs a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) from 21 February 2026 or later (device interface 75);
+older builds refuse the DLL.
+
 1. Download `mmgr_dal_inSiliScope.dll` and the configurations `inSiliScope_Basic.cfg`, `inSiliScope_Advanced.cfg` and
    `inSiliScope_Expert.cfg` from the latest [release](https://github.com/kjamartens/inSiliScope/releases){ data-umami-event="link" data-umami-event-to="releases" } (verify the
    DLL with its `.sha256` file) and copy them into your Micro-Manager folder.
-   The default PSF (`GibsonLanniZernike`) and the Gaussian need nothing else. A Java runtime is needed only for the
-   `RichardsWolf` and `GibsonLanni` models (the DLL embeds PSFGenerator and starts, or attaches to, a JVM).
+   The PSF (a scalar Gibson-Lanni model with Zernike aberration modes, or a Gaussian) needs nothing else.
 2. Start Micro-Manager with `inSiliScope_Basic.cfg`. It loads the hub `inSiliScope` and one device per part of the
    microscope: `Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, `Lasers`, `TransmittedLamp`,
    `SampleHolder`, `CellField`, `Nanorulers`, `Fluorophores` and `Renderer`, with the config groups
