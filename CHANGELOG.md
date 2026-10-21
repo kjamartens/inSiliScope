@@ -23,6 +23,8 @@ A simulated fluorescence microscope around one world model of a sample, the same
   nuclei, dyes; looks with depth colours), a live microscope panel driven by the Micro-Manager configurations
   (Configuration, illumination, objective, camera with its magnification, focus, record to TIFF), one seed for the
   world and the noise as in Micro-Manager.
+- **Usage counts**: the viewer and the docs count anonymous usage with Umami, without cookies or personal data
+  ([Privacy](docs/privacy.md)); nothing with Do Not Track or Global Privacy Control. The adapter and the cli send nothing.
 - **Micro-Manager adapter** (`mmgr_dal_inSiliScope.dll`, Windows x64): a hub with one device per part of the
   microscope, properties in Basic / Advanced / Expert tiers, shipped configurations, live mode, sequences and hardware z
   stacks, GPU rendering (Direct3D 11).

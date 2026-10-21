@@ -6,6 +6,7 @@ docs_dir: docs
 
 theme:
   name: material
+  custom_dir: overrides   # the analytics tag (overrides/partials/integrations/analytics/custom.html)
   features:
     - navigation.sections
     - navigation.top
@@ -41,6 +42,8 @@ extra_css:
   - stylesheets/extra.css
 
 extra:
+  analytics:
+    provider: custom   # Umami, cookieless: docs/privacy.md
   social:
     - icon: fontawesome/solid/house
       link: https://kjamartens.github.io
@@ -78,4 +81,5 @@ nav:
   - Extending: extending.md
   - Benchmarks: benchmarks.md
   - Roadmap: roadmap.md
+  - Privacy: privacy.md
   - kjamartens.github.io: https://kjamartens.github.io

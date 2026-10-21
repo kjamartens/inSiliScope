@@ -96,6 +96,8 @@ through it step by step.
   hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
   and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level and the
   look are remembered in your browser across reloads (Reset all forgets them, and puts the panel and x-z view sizes back).
+  The viewer counts anonymous usage (which specimen, mode and Look are picked, Live, Record, saved TIFFs), without
+  cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
   mouse wheel, one step per notch.
 - **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's

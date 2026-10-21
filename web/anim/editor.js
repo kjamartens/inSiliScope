@@ -773,6 +773,7 @@ async function runExport() {
       exportJob.done = i / n; exportJob.text = `frame ${i}/${n} · ${(i / el).toFixed(1)} fps · ${Math.ceil(left)} s left`;
       if (exportJob.bar) { exportJob.bar.value = exportJob.done; exportJob.label.textContent = exportJob.text; }
     } });
+    iscTrack('anim-export', { format: r.ext });
     E.download(r.blob, `insiliscope_${(seq.name || 'animation').replace(/[^\w.-]+/g, '_')}_${r.width}x${r.height}.${r.ext}`);
     if (r.fellBack) alert('Saved as ' + r.ext.toUpperCase() + ': ' + r.fellBack + '.');
   } catch (e) { if (e.name !== 'AbortError') alert('export failed: ' + (e.message || e)); }

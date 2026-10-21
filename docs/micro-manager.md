@@ -4,11 +4,11 @@ A simulated microscope for [Micro-Manager](https://micro-manager.org): a device 
 sample as the viewer -- a field of cells or DNA-origami nanorulers -- live, as you move the stage, change the focus,
 switch channels or open the shutters. Windows x64.
 
-[Download the adapter :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/mmgr_dal_inSiliScope.dll){ .md-button .md-button--primary }
-[Basic configuration :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/inSiliScope_Basic.cfg){ .md-button }
+[Download the adapter :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/mmgr_dal_inSiliScope.dll){ .md-button .md-button--primary data-umami-event="download" data-umami-event-asset="dll" }
+[Basic configuration :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/inSiliScope_Basic.cfg){ .md-button data-umami-event="download" data-umami-event-asset="config-basic" }
 
 Every file of a release (the Advanced and Expert configurations, the DLL's `.sha256`, the build info) is on the
-[releases page](https://github.com/kjamartens/inSiliScope/releases/latest). The DLL is GPL-3.0 as a whole (it embeds
+[releases page](https://github.com/kjamartens/inSiliScope/releases/latest){ data-umami-event="link" data-umami-event-to="releases" }. The DLL is GPL-3.0 as a whole (it embeds
 EPFL's PSFGenerator); see [Building](https://github.com/kjamartens/inSiliScope/blob/main/BUILDING.md) to build it
 yourself.
 
