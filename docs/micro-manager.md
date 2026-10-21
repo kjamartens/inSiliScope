@@ -4,25 +4,32 @@ A simulated microscope for [Micro-Manager](https://micro-manager.org): a device 
 sample as the viewer -- a field of cells or DNA-origami nanorulers -- live, as you move the stage, change the focus,
 switch channels or open the shutters. Windows x64.
 
+!!! note "Which Micro-Manager"
+    The adapter needs a **Micro-Manager 2.0 nightly build from 21 February 2026 or later** (device interface 75):
+    [nightly builds](https://micro-manager.org/Micro-Manager_Nightly_Builds). Older builds refuse the DLL. From Python:
+    a pymmcore for device interface 75 (12.5.0.75.x; [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/)
+    installs it).
+
 [Download the adapter :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/mmgr_dal_inSiliScope.dll){ .md-button .md-button--primary data-umami-event="download" data-umami-event-asset="dll" }
 [Basic configuration :material-download:](https://github.com/kjamartens/inSiliScope/releases/latest/download/inSiliScope_Basic.cfg){ .md-button data-umami-event="download" data-umami-event-asset="config-basic" }
 
 Every file of a release (the Advanced and Expert configurations, the DLL's `.sha256`, the build info) is on the
-[releases page](https://github.com/kjamartens/inSiliScope/releases/latest){ data-umami-event="link" data-umami-event-to="releases" }. The DLL is GPL-3.0 as a whole (it embeds
-EPFL's PSFGenerator); see [Building](https://github.com/kjamartens/inSiliScope/blob/main/BUILDING.md) to build it
+[releases page](https://github.com/kjamartens/inSiliScope/releases/latest){ data-umami-event="link" data-umami-event-to="releases" }. The DLL is GPL-3.0 (its licence files are on the
+releases page too); see [Building](https://github.com/kjamartens/inSiliScope/blob/main/BUILDING.md) to build it
 yourself.
 
 ## Getting started
 
-1. Copy `mmgr_dal_inSiliScope.dll` and `inSiliScope_Basic.cfg` into your Micro-Manager folder (for example
+1. Install a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) (21 February 2026 or later).
+2. Copy `mmgr_dal_inSiliScope.dll` and `inSiliScope_Basic.cfg` into your Micro-Manager folder (for example
    `C:\Program Files\Micro-Manager-2.0`).
-2. Start Micro-Manager and load `inSiliScope_Basic.cfg` as the hardware configuration.
-3. Press **Live**: you see the cell field at the coverslip, 0.5 um above it. Move the XY stage to go elsewhere in the
+3. Start Micro-Manager and load `inSiliScope_Basic.cfg` as the hardware configuration.
+4. Press **Live**: you see the cell field at the coverslip, 0.5 um above it. Move the XY stage to go elsewhere in the
    field, the Z stage to focus (its position is the focal plane's height above the coverslip).
-4. Pick a **Channel** (the label mode and its dye: `AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
+5. Pick a **Channel** (the label mode and its dye: `AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
    `mEGFP WideField`, `BrightField`), an **Illumination** (Epi / HILO / TIRF) and a **Quality** (Fast / Realistic /
    Exhaustive). The **Specimen** group mounts the nanorulers instead of the cells.
-5. Acquire as with a real microscope: snaps, live, sequences and hardware z stacks. Imaging bleaches where you look.
+6. Acquire as with a real microscope: snaps, live, sequences and hardware z stacks. Imaging bleaches where you look.
 
 From Python, with [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/):
 

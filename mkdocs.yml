@@ -6,7 +6,7 @@ docs_dir: docs
 
 theme:
   name: material
-  custom_dir: overrides   # the analytics tag (overrides/partials/integrations/analytics/custom.html)
+  custom_dir: overrides   # the analytics tag (overrides/partials/integrations/analytics/custom.html), link previews (main.html)
   features:
     - navigation.sections
     - navigation.top

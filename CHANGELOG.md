@@ -16,8 +16,8 @@ A simulated fluorescence microscope around one world model of a sample, the same
 - **Light path**: lasers, excitation, dichroic and emission filters, the camera's QE curve; the beam in the back focal
   plane (epi, HILO, TIRF) with a Gaussian, FlatTop or flat cross-section (default Gaussian, FWHM the width of the
   field of view).
-- **Optics and camera**: scalar Gibson-Lanni + Zernike PSF (aberration presets, double helix), Gaussian PSF, and in
-  the Micro-Manager adapter PSFGenerator's Richards-Wolf and Gibson-Lanni; sCMOS (Kinetix22) and EMCCD (iXon Ultra 897)
+- **Optics and camera**: a scalar Gibson-Lanni PSF with Zernike aberration modes (aberration presets, double helix)
+  or a Gaussian PSF; sCMOS (Kinetix22) and EMCCD (iXon Ultra 897)
   noise; sample drift; brightfield by multislice propagation through the cells.
 - **Browser viewer** (the site's landing page): pan, zoom and tilt through the sample in 3D (microtubules, nuclear pores,
   nuclei, dyes; looks with depth colours), a live microscope panel driven by the Micro-Manager configurations

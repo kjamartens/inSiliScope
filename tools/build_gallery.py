@@ -4,7 +4,8 @@
 usage: build_gallery.py --cli build/native/cli/insiliscope_cli --out site_gallery [--only id,id]  ("overview" is an id too)
 Needs: numpy, pillow, tifffile (pip install numpy pillow tifffile).
 Outputs <out>/<id>.gif, <out>/<id>.tif (16-bit), <out>/gallery.json and <out>/gallery.md, and, when the manifest
-has an "overview" block, the 2x2 overview panels (tools/build_overview.py) at the top of the page.
+has an "overview" block, the 2x2 overview panels (tools/build_overview.py) at the top of the page, under the 3D
+overview <out>/overview_3d.jpg when tools/build_hero.mjs has put it there first.
 An entry with "z_sweep": [lo, hi, step] is a focus sweep: one frame per height (cli z) from lo to hi and back.
 An entry with "gt": ["mt", "npc"] is a still image of the ground truth instead of a movie: the microtubules and/or
 the nuclear pores of its field of view (insiliscope_cli --geometry-json, the same world the movies image).
@@ -46,23 +47,17 @@ def to_gif(stack, path, fps=10, scale=None, rng=None):
 
 
 def draw_ground_truth(geo, layers, path):
-    """The ground truth of a field of view: the microtubules ("mt", coloured by height) and the nuclear pores ("npc",
-    a dot of about their size per pore) over a faint outline of the nucleus and the cell."""
-    cv = build_overview.Canvas(geo)
+    """The ground truth of a field of view in the viewer's colours (build_overview's layers): the microtubules ("mt")
+    and the nuclear pores ("npc", a dot of about their size per pore) coloured by height, over the cell and nucleus."""
+    cv = build_overview.Canvas(geo, build_overview.VIEWER_BG)
     cells = geo["cells"]
-    for c in cells:
-        pts = cv.poly(build_overview.nucleus_poly(c["nucleus"]))
-        cv.draw.line(pts + pts[:1], fill=(240, 120, 230, 110), width=build_overview.SS)
+    build_overview.layer_cell(cv, cells)
+    build_overview.layer_nucleus(cv, cells)
     build_overview.layer_outline(cv, cells)
     if "mt" in layers:
         build_overview.layer_microtubules(cv, cells)
     if "npc" in layers:
-        r = max(2.0, 0.06 * cv.s)   # ~120 nm across, at least a few pixels
-        for c in cells:
-            for q in c.get("npcs", []):
-                x, y = cv.p(q[0], q[1])
-                col = (255, 190, 70, 235) if q[5] < 0 else (255, 120, 60, 110)   # bright: the lower envelope
-                cv.draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
+        build_overview.layer_pores(cv, cells, r=max(2.0, 0.06 * cv.s))   # ~120 nm across, at least a few pixels
     cv.scale_bar(2, "2 µm")
     cv.save(path)
 
@@ -101,6 +96,11 @@ def run_sweep(cli, out_dir, eid, args, sweep):
         p.stdin.close()
         p.wait()
     return np.stack([frames[z] for z in order]), heights
+
+
+# The 3D overview (tools/build_hero.mjs), above the 2x2 here and on Home (docs/index.md has the same figure).
+HERO_HTML = ('<figure class="isc-hero"><img src="%soverview_3d.jpg" alt="The cell field in 3D in the viewer, with the '
+             'camera box and its live widefield and SMLM (DNA-PAINT) frames" loading="lazy"></figure>')
 
 
 def main():
@@ -203,8 +203,14 @@ def main():
              "reproduces it; frames use a square-root intensity scale. Open *How these movies were made* under a "
              "section for each movie's settings and command line, or try any of it live in the "
              "[viewer](../../){ target=\"_blank\" }.", ""]
+    hero = os.path.exists(os.path.join(a.out, "overview_3d.jpg"))   # tools/build_hero.mjs (the viewer), run before this
+    if hero or overview:
+        lines += ["## What inSiliScope is", ""]
+    if hero:
+        lines += [HERO_HTML % "", "", "The cell field in the [viewer](../../){ target=\"_blank\" }: tilted, in perspective, with what "
+                  "its live microscope sees in the dashed camera box (`tools/build_hero.mjs`).", ""]
     if overview:
-        lines += ["## What inSiliScope is", "",
+        lines += [
                   "One spot of the endless cell field, four ways: where it is, what is there, and how a widefield "
                   "and an SMLM camera see it.", "", build_overview.grid_html(""), "",
                   "`%s`  " % overview["wf_cli"], "`%s`" % overview["sr_cli"], ""]

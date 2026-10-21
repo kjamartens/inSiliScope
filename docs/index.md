@@ -12,10 +12,17 @@ nanorulers (rods with three spots of docking strands 80 nm apart).
 The live microscope in your browser; the [Quickstart](quickstart.md) shows what to try.
 </div>
 
+<!-- hero:start (the release's 3D overview, tools/build_hero.mjs; tools/build_site.sh keeps this or the 2x2 below) -->
+<figure class="isc-hero"><img src="gallery/overview_3d.jpg" alt="The cell field in 3D in the viewer, with the camera box and its live widefield and SMLM (DNA-PAINT) frames" loading="lazy"></figure>
+
+The cell field in the viewer, tilted and in perspective, and what its live microscope sees in the dashed camera box. More
+in the [Gallery](gallery/index.md).
+<!-- hero:end -->
+
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
   <figure><img src="gallery/overview_map.png" alt="A field of synthetic cells; the box is the camera's view" loading="lazy"><figcaption>A field of synthetic cells; the box is the camera's view</figcaption></figure>
-  <figure><img src="gallery/overview_structures.png" alt="The structures in the box: cytoplasm height, nucleus, microtubules" loading="lazy"><figcaption>The structures in the box: cytoplasm height, nucleus, microtubules</figcaption></figure>
+  <figure><img src="gallery/overview_structures.png" alt="The structures in the box: cell, nucleus, microtubules and nuclear pores" loading="lazy"><figcaption>The structures in the box: cell, nucleus, microtubules and nuclear pores</figcaption></figure>
   <figure><img src="gallery/overview_wf.webp" alt="Widefield movie of the box (Gibson-Lanni + Zernike PSF)" loading="lazy"><figcaption>Widefield movie of the box (Gibson-Lanni + Zernike PSF)</figcaption></figure>
   <figure><img src="gallery/overview_sr.webp" alt="SMLM movie of the box" loading="lazy"><figcaption>SMLM movie of the box</figcaption></figure>
 </div>
@@ -28,9 +35,9 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets), render SMLM, widefield and brightfield movies, save TIFFs (WASM, WebGPU for widefield); simulated data in 3D and cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
-| **Micro-Manager adapter** | A hub (`mmgr_dal_inSiliScope.dll`) with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample): move the stage, change focus, run live or precomputed acquisitions against a sample that never changes | [Quickstart](quickstart.md) |
-| **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/kjamartens/webSMLM) | [Quickstart](quickstart.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets) that records TIFF stacks (WASM); cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
+| **Micro-Manager adapter** | A hub (`mmgr_dal_inSiliScope.dll`) with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample): move the stage, change focus, run live acquisitions, sequences and z stacks against a sample that never changes | [Micro-Manager](micro-manager.md) |
+| **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/HohlbeinLab/webSMLM) | [Quickstart](quickstart.md) |
 
 ## Why it exists
 
@@ -50,10 +57,10 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's
   QE curve decide what is excited and detected, and at which wavelength (the PSF follows). See
   [Dyes and light path](physics/dyes-and-light-path.md).
-- **Two modalities.** *Fluorescence* with a diffraction PSF (scalar Gibson-Lanni with Zernike aberrations by default,
-  double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator). *BrightField* (exploration): transmitted light through
+- **Two modalities.** *Fluorescence* with a diffraction PSF (a scalar Gibson-Lanni model with Zernike aberration
+  modes, double helix) or a Gaussian. *BrightField* (exploration): transmitted light through
   the cells' refractive index, partially coherent multislice wave optics, a speed/precision quality setting.
-- **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background, haze and illumination profiles.
+- **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background and illumination profiles.
 - **More than one sample.** The geometry of a sample is separate from the photophysics and the imaging: the cell
   field and the [nanorulers](samples/nanorulers/index.md) share the dyes, the light path, the PSF and the camera.
   Switch in the viewer's Sample select, Micro-Manager's `SampleHolder` or the cli's `--specimen`; see
@@ -76,6 +83,6 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 
 ## License
 
-The source is BSD-3-Clause. The Micro-Manager DLL embeds EPFL's PSFGenerator (GPL-3.0), so the distributed DLL is
-GPL-3.0 as a whole; the viewer and the webSMLM block are BSD-3-Clause. See the repository's `LICENSE` and
+The source is BSD-3-Clause. The distributed Micro-Manager DLL is GPL-3.0; the viewer and the webSMLM block are
+BSD-3-Clause. See the repository's `LICENSE` and
 `THIRD_PARTY_NOTICES.md`.

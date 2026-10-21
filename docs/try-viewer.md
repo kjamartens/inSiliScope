@@ -31,8 +31,7 @@ through it step by step.
   convert and bleach and widefield labels fade where you look, at the beam's own shape and depth, while a place you have
   not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below;
-  the Acquisition group is hidden for now). **Focus**: the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
@@ -52,8 +51,7 @@ through it step by step.
   new recording close it too),
   and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
   itself. A recording is a fresh sample: a movie starting at
-  the Start time, the same one "Make movie here" makes and `insiliscope_cli --spec` renders from the spec in the
-  file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
+  the Start time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
   Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
   With **continue the live sample** (in the box, Advanced level) the frames go on from the live sample instead: its
@@ -125,29 +123,27 @@ through it step by step.
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
   Dipole orientations other than Free are not implemented yet. Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
-- Movies use the same PSF as the Micro-Manager adapter: scalar Gibson-Lanni + Zernike aberrations by default (the
-  "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The kernel of the current
-  PSF settings is computed in the background as soon as the page is ready and whenever those settings change, so a
-  movie usually finds it ready. In Advanced, **Preview PSF** shows that kernel in the movie player: the oversampled
-  kernel beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from
-  the focal plane.
+- The live image uses the same PSF as the Micro-Manager adapter: a scalar Gibson-Lanni model with Zernike aberration
+  modes by default (the "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The
+  kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
+  settings change. In Advanced, **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
+  beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from the
+  focal plane (its title bar drags it).
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
-  reproduces a viewer movie with the CLI. Blinks also take the default halo cut (pixels below 3e-6 of the emitter's
+  reproduces a viewer recording with the CLI. Blinks also take the default halo cut (pixels below 3e-6 of the emitter's
   photons are left out) and skip a frame they give fewer than 50 photons ([Optics](physics/optics.md)).
-- Widefield movies use WebGPU when your browser exposes a hardware adapter; the movie's info line says `GPU` or `CPU`.
-  Everything falls back to the CPU on any GPU failure.
 - **Drift** (Configuration) makes the sample drift: Off, Low, Medium, High or Extreme set the xy and z speeds (0-250
   nm/s) and a random-walk jitter (0-50 nm/√s), the directions drawn per seed. Advanced shows those four values,
   the directions, how far direction and z speed swing (and how slowly) (see
-  [Camera and background](physics/camera.md#drift)). Drifting mean-field images (WideField labels) render on the CPU, a
-  drifting brightfield movie on one worker.
-- Brightfield movies run on the CPU, spread over the browser's workers (the condenser source points are shared out;
-  the movie's info line says how many workers took part); the **BF quality** slider trades speed for precision (1: thin
-  object, 6 condenser points ... 4: 0.25 um slices, 48 points). At 256 px the default level 3 takes well under a second
-  once the cells are built (the first movie at a new place also builds the cells); repeating a movie is instant, and
-  SMLM and widefield movies also reuse the cells of the previous movie.
+  [Camera and background](physics/camera.md#drift)).
+- Brightfield frames run on the CPU; the **BF quality** slider trades speed for precision (1: thin object, 6 condenser
+  points ... 4: 0.25 um slices, 48 points).
 - **Tilt** (0 = straight down, 90 = from the side) and **Rotation** (about the vertical through the view centre) turn
-  the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
+  the view; Shift-drag on the map does both (sideways turns, up and down tilts). The advanced **Perspective** (0-90°,
+  the field of view, default 35°; 0 = orthographic) makes near things larger and far ones smaller, so a tilted floor
+  recedes; the scale bar holds at the depth of the view centre. With perspective, **Distance haze** (75 %) fades cells
+  and floor further away into a mist, and **Fade out far cells** (on) lets them fade out completely and draws nothing
+  beyond about the eye's distance behind the view centre (fewer cells to load in a steeply tilted view). **Z clip** draws only what lies
   between two heights above the coverslip (a vertical slider, 0-6 µm; its full range is off); drag both knobs together
   for a slab moving through the cells. **Soft Z clip** (on) fades what lies just outside it over 0.2 µm, lines widening
   as if out of focus; **Follow live focus** keeps the clip on the live focal plane ± 0.3 µm. Surfaces are drawn as
@@ -188,49 +184,15 @@ through it step by step.
   renders every frame off screen (not a screen recording) as MP4 (H.264; WebM where the browser cannot encode it), WebM
   or GIF, at 720p to 4K, with an optional scale bar, per-step captions, the plane's position and a legend. Animations
   are kept in the browser, with undo/redo, and saved or opened as `.json` files. Layers can also be simulated image
-  data (below): a **WideField slice**, **SMLM camera frames** or a **BrightField slice** riding on the sweeping plane,
+  data: a **WideField slice**, **SMLM camera frames** or a **BrightField slice** riding on the sweeping plane,
   the **thresholded WideField** surface or the **SMLM localizations** in its wake (e.g. "Simulated up, WideField down,
   thresholded wake", or the ready-made "Simulated, WideField, thresholded" sequence); the export makes their data first
   (a sweep along the screen's depth shows an x-z slice). The data an animation needs is made by itself as soon as it is
   previewed or edited.
-- **Simulated data** (not shown in this release, nor its Data acquisition settings; **Random cell** / **Previous cell** sit with Reset
-  view, and in the Animation tab): simulated images of the cell nearest the view centre, drawn in 3D at the **slice
-  height**. **Image slice** picks one: off, the WideField image with its focus there (the out-of-focus blur of the rest
-  included), the WideField z-stack summed over z, the SMLM camera frames at the nearest focus position (blinking;
-  **SMLM frames + localized emitters** adds a faint cross at the true position of every emitter localized in the frame
-  shown), or the BrightField image. Picking a layer makes its data in the background straight away (for the centre
-  cell, once per cell and settings); a status list under the layers shows each data set (WideField, SMLM frame and
-  BrightField z-stacks, SMLM localizations) as ready, being made (with progress), queued or not made, and which layer
-  needs it. The data are made one at a time; ✕ removes an item from the queue (it stays removed until "Make"), and an
-  item whose cell leaves the view is removed by itself (it queues again when the cell is back at the centre). While an
-  image slice is shown, its slice height and the movie's focus height (Acquisition) move together. The data use the movie settings
-  (Microscope, Acquisition, the structure's label; the other targets are left out): WideField images the structure's dye in WideField mode, SMLM in the
-  structure's mode when that blinks (dSTORM, PALM, DNA-PAINT; else the dye's own blinking mode), each with that dye
-  mode's light preset when it differs from the panel's; labelling, camera and PSF are the panel's. SMLM planes start at
-  the movie's start time (60 s by default). One movie per focus position over the cell's box, from 1 µm below the
-  coverslip to 1 µm above the cell top (the slice height slider covers the same range); WideField and BrightField planes the
-  mean of a few frames (advanced, Data acquisition: step, averaging, SMLM frames and step). They are kept in the browser, so a cell is
-  acquired once per settings. "Crop to the cell" shows only the cell's own footprint. SMLM frames are drawn opaque;
-  in the "Dark fluorescence" look the WideField slice adds as light (black is see-through) unless "Opaque slice" is
-  on (in an animation step: the checkbox next to a slice's colour). "WideField, sum over z" shows the WideField z-stack summed over
-  its planes instead of the plane at the slice height (in an animation step: the second checkbox of a WideField slice). SMLM planes start with fresh dyes
-  by default (advanced: sequential, where bleaching dyes run out in later planes). **WideField thresholded** segments the
-  cell from the WideField z-stack: out-of-focus light of a thin cell is nearly the same in every plane, so it thresholds
-  the in-focus fine structure of each plane (Otsu's level x the Threshold slider) and fills each column from the
-  coverslip up to its highest in-focus point. **SMLM localizations**
-  emulate a multi-plane SMLM acquisition: at focus positions every SMLM step, 5000 frames each (advanced), every blink
-  within the capture range (±400 nm) is localized per frame, displaced by its precision: "Precision xy" and "Precision z"
-  (default 8 and 20 nm; an animation that shows localizations has its own in its Data section) are those of an in-focus blink ON for a whole frame (the dye's detected photons per second
-  through the light path and camera), worse with fewer photons and with defocus; the blinks are the core's, with the
-  label's kinetics; drawn coloured by height, or as Gaussian spots of their precision. Dyes are drawn in the dye's
-  emission colour in every look, and an animation's legend names the dye and mode of each dye and data layer.
-- The dashed white square on the map shows what the camera covers. A finished
-  movie plays by itself at its exposure time per frame; the player starts in the bottom-right corner (over the x-z
-  view) and its title bar drags it anywhere over the view.
-- The movie player also saves the movie as a GIF or MP4 (as shown: the display range, scaled up to at least 512 px).
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
-- The original JS prototype the core was ported from is at [`prototype/`](../../prototype/index.html); it is
-  the reference implementation that the golden vectors are frozen from.
+- The original JS prototype the core was ported from is at
+  [`prototype/`](https://kjamartens.github.io/inSiliScope/prototype/index.html); it is the reference implementation
+  that the golden vectors are frozen from.

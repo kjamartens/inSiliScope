@@ -10,10 +10,17 @@ single-molecule localisation (SMLM) movie or as a widefield image, with a physic
 cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
 any order, on any platform, with identical results.
 
-- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field, look through a live microscope (the
-  adapter's live mode with the sample's illumination history, set up with its Micro-Manager config presets), render
-  SMLM/widefield/brightfield movies, save TIFFs; show a cell's simulated z-stacks, thresholded widefield and SMLM localizations in 3D; make animations of a
-  cell (orbits, layers building up, slices sweeping through) and export them as MP4, WebM or GIF.
+<p align="center"><a href="https://kjamartens.github.io/inSiliScope/"><img src="web/social.jpg" width="820"
+  alt="A synthetic cell in the viewer, tilted in 3D: microtubules, nucleus and nuclear pores, with a side view below"></a></p>
+
+| A field of synthetic cells | What is in the box | Widefield camera | Single-molecule (SMLM) camera |
+|:---:|:---:|:---:|:---:|
+| <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_map.png" width="200" alt="A field of synthetic cells; the box is the camera's view"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_structures.png" width="200" alt="Cell, nucleus, microtubules and nuclear pores in the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_wf.webp" width="200" alt="Widefield movie of the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_sr.webp" width="200" alt="SMLM movie of the box"> |
+
+- **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field in 3D, look through a live microscope
+  (the adapter's live mode with the sample's illumination history, set up with its Micro-Manager config presets) and
+  record TIFF stacks; make animations of a cell (orbits, layers building up, slices sweeping through) and export them
+  as MP4, WebM or GIF.
 - **Micro-Manager adapter**: a hub with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample, labels, renderer) at three levels of detail, and ready-made configurations; live acquisitions against a sample that never changes.
 - **webSMLM block**: the same core as one generated JS file.
 
@@ -24,7 +31,7 @@ The viewer (live in your browser): **https://kjamartens.github.io/inSiliScope/**
 | I want to... | Do this |
 |---|---|
 | try it | open the [viewer](https://kjamartens.github.io/inSiliScope/) ([a quick tour](https://kjamartens.github.io/inSiliScope/docs/quickstart/)) |
-| use it in Micro-Manager | download `mmgr_dal_inSiliScope.dll` from the [latest release](https://github.com/kjamartens/inSiliScope/releases), copy it to your Micro-Manager folder (Windows x64), add the module `inSiliScope` |
+| use it in Micro-Manager | install a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) (21 February 2026 or later: device interface 75), download `mmgr_dal_inSiliScope.dll` and `inSiliScope_Basic.cfg` from the [latest release](https://github.com/kjamartens/inSiliScope/releases), copy them to your Micro-Manager folder (Windows x64) and load the configuration ([getting started](https://kjamartens.github.io/inSiliScope/docs/micro-manager/)) |
 | script it | build `insiliscope_cli` (below) and write TIFF movies headlessly |
 
 ## What it models
@@ -41,8 +48,8 @@ The viewer (live in your browser): **https://kjamartens.github.io/inSiliScope/**
   (imager binding, free-imager background) and WideField (all dyes at once, bleaching by photon budget); lasers,
   dichroics, emission filters and camera QE curves set excitation, detected fraction and each state's PSF wavelength
   ([Dyes and light path](https://kjamartens.github.io/inSiliScope/docs/physics/dyes-and-light-path/)).
-- **Fluorescence imaging**: blinks splatted with diffraction PSFs (scalar Gibson-Lanni with Zernike aberrations by
-  default, double helix; Richards-Wolf and Gibson-Lanni via PSFGenerator), continuous populations mean-field (3D PSF
+- **Fluorescence imaging**: blinks splatted with a diffraction PSF (a scalar Gibson-Lanni model with Zernike
+  aberration modes, double helix) or a Gaussian, continuous populations mean-field (3D PSF
   convolution by FFT, GPU path: WebGPU / Direct3D 11) or per dye, sub-pixel placement, sCMOS/EMCCD noise, background,
   drift, hardware z stacks.
 - **BrightField** (exploration): transmitted light through the cells' refractive index (cytoplasm, nucleus,
@@ -95,8 +102,7 @@ See [CITATION.cff](CITATION.cff).
 
 ## License
 
-This project's source is BSD-3-Clause ([LICENSE](LICENSE)). The Micro-Manager DLL embeds EPFL's PSFGenerator
-(GPL-3.0), so the distributed DLL is GPL-3.0 as a whole ([LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt)). The viewer and the
-webSMLM block contain no GPL code and are BSD-3-Clause. Third-party components and credits:
+This project's source is BSD-3-Clause ([LICENSE](LICENSE)). The distributed Micro-Manager DLL is GPL-3.0
+([LICENSE-GPL-3.0.txt](LICENSE-GPL-3.0.txt)). The viewer and the webSMLM block are BSD-3-Clause. Third-party components and credits:
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). inSiliScope builds on
-[webSMLM](https://github.com/kjamartens/webSMLM) (MIT) and its camera and PSF models.
+[webSMLM](https://github.com/HohlbeinLab/webSMLM) (MIT) and its camera and PSF models.

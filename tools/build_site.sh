@@ -20,9 +20,21 @@ if [ -f release_assets/gallery.zip ]; then
 else
   printf '# Gallery\n\nThe gallery is rendered on each release; none has been published yet.\n' > .site_docs/gallery/index.md
 fi
-# The Home page's 2x2 overview shows the release's gallery images; without them, drop it (no broken images).
-if [ ! -f .site_docs/gallery/overview_map.png ]; then
+# The download buttons and release links name the newest release, pre-releases included (pages.yml writes its tag;
+# GitHub's releases/latest skips pre-releases). Without a tag they stay on releases/latest.
+if [ -f release_assets/release_tag ]; then
+  tag="$(tr -d '[:space:]' < release_assets/release_tag)"
+  { grep -rl 'releases/latest' .site_docs --include='*.md' || true; } | while read -r f; do
+    sed -i -e "s#releases/latest/download/#releases/download/$tag/#g" -e "s#releases/latest)#releases/tag/$tag)#g" "$f"
+  done
+fi
+# Home shows the release's 3D overview (tools/build_hero.mjs) or, from a release without it, the 2x2 overview; without
+# the images, neither (no broken images).
+if [ -f .site_docs/gallery/overview_3d.jpg ] || [ ! -f .site_docs/gallery/overview_map.png ]; then
   sed -i '/<!-- overview:start/,/<!-- overview:end -->/d' .site_docs/index.md
+fi
+if [ ! -f .site_docs/gallery/overview_3d.jpg ]; then
+  sed -i '/<!-- hero:start/,/<!-- hero:end -->/d' .site_docs/index.md
 fi
 
 # The physics pages' figures (tools/build_physics_figures.py, rendered by the cli in pages.yml): each
@@ -45,7 +57,7 @@ docs_dir: .site_docs
 mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT/docs"
 rm -f .mkdocs_site.yml
 
-cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js "$OUT/"
+cp web/index.html web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js web/social.jpg "$OUT/"
 for d in scene anim encode live; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
 [ -d web/prototype ] && cp -r web/prototype "$OUT/prototype"
 

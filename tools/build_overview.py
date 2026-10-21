@@ -2,7 +2,7 @@
 """The gallery's and Home page's 2x2 overview of one spot of the cell field.
 
     (a) overview_map.png         many cells around the spot, the camera's field of view boxed
-    (b) overview_structures.png  the structures in that box: cytoplasm height, nucleus, microtubules
+    (b) overview_structures.png  the structures in that box, in the viewer's colours: cell, nucleus, microtubules, pores
     (c) overview_wf.webp         a widefield movie of the box
     (d) overview_sr.webp         an SMLM movie of the box
 
@@ -23,12 +23,6 @@ PANEL = 512           # px, every panel
 SS = 2                # supersampling for the drawn panels
 BG = (17, 17, 17)
 
-# 16-stop viridis, for the cytoplasm height.
-VIRIDIS = [(68, 1, 84), (72, 26, 108), (71, 47, 125), (65, 68, 135), (57, 86, 140), (49, 104, 142), (42, 120, 142),
-           (35, 136, 142), (31, 152, 139), (34, 168, 132), (53, 183, 121), (84, 197, 104), (122, 209, 81),
-           (165, 219, 54), (210, 226, 27), (253, 231, 37)]
-
-
 def label_font(px):
     """A TrueType font with a micro sign (Pillow's built-in one has none); None if none is found."""
     for name in ("DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "arial.ttf",
@@ -38,13 +32,6 @@ def label_font(px):
         except OSError:
             pass
     return None
-
-
-def viridis(t):
-    t = min(1.0, max(0.0, t)) * (len(VIRIDIS) - 1)
-    i = min(int(t), len(VIRIDIS) - 2)
-    f = t - i
-    return tuple(int(round(a + (b - a) * f)) for a, b in zip(VIRIDIS[i], VIRIDIS[i + 1]))
 
 
 def cli_geometry(cli, opts, size_um, detail):
@@ -62,10 +49,10 @@ def cli_geometry(cli, opts, size_um, detail):
 class Canvas:
     """World um -> supersampled pixels of a square panel."""
 
-    def __init__(self, geo):
+    def __init__(self, geo, bg=BG):
         self.x0, self.y0 = geo["x0"], geo["y0"]
         self.s = PANEL * SS / (geo["x1"] - geo["x0"])
-        self.img = Image.new("RGB", (PANEL * SS, PANEL * SS), BG)
+        self.img = Image.new("RGB", (PANEL * SS, PANEL * SS), bg)
         self.draw = ImageDraw.Draw(self.img, "RGBA")
 
     def p(self, x, y):
@@ -99,56 +86,68 @@ def nucleus_poly(n, k=48):
 
 # ---- (b) structure layers: one function each, drawn in this order -------------
 # A new structure (NPCs, DNA, ...) is one more function here, fed by more geometry from ScopeGeometryJson.
+# The colours are the viewer's default look, "Dark fluorescence (depth)" (web/scene/core.js THEMES.fluoZ; the scales
+# LINE_MAPS in web/index.html, defaults ice / warm / greys): the cell in neutral greys on black, the microtubules and
+# the nuclear pores coloured by their height from the coverslip to the top of their cell. Keep them in step.
+VIEWER_BG = (0, 0, 0)
+CELL_FILL = (70, 76, 88, int(0.3 * 255))
+CELL_OUTLINE = (150, 160, 178, int(0.5 * 255))
+ICE = [(0.25, 0.45, 0.95), (0.55, 0.78, 1), (0.95, 0.98, 1)]                       # microtubules
+WARM = [(0.9, 0.22, 0.22), (1, 0.45, 0.15), (1, 0.7, 0.25), (1, 0.93, 0.62)]       # nuclear pores
+GREYS = [(0.3, 0.32, 0.36), (0.65, 0.67, 0.7), (1, 1, 1)]                          # nucleus
 
-def layer_cytoplasm(cv, cells):
-    hmax = max((max(v[2] for v in c["mesh"]["v"]) for c in cells if c["mesh"]["v"]), default=1.0) or 1.0
+
+def scale_rgb(stops, t):
+    """A viewer colour scale at t in [0, 1] (stops evenly spaced, linear between), 0-255."""
+    t = min(1.0, max(0.0, t)) * (len(stops) - 1)
+    i = min(int(t), len(stops) - 2)
+    f = t - i
+    return tuple(int(round(255 * (a + (b - a) * f))) for a, b in zip(stops[i], stops[i + 1]))
+
+
+def cell_top(c):
+    """The top of a cell (its cytoplasm's highest point, um): the end of its height scale."""
+    v = c.get("mesh", {}).get("v") or []
+    return max((p[2] for p in v), default=0.0) or max((p[2] for mt in c["mts"] for p in mt), default=1.0) or 1.0
+
+
+def layer_cell(cv, cells):
     for c in cells:
-        m = c["mesh"]
-        R, n, v = m["rings"], m["n"], m["v"]
-        for k in range(R):
-            for i in range(n):
-                j = (i + 1) % n
-                q = [v[k * n + i], v[k * n + j], v[(k + 1) * n + j], v[(k + 1) * n + i]]
-                h = sum(p[2] for p in q) / 4
-                col = tuple(int(0.55 * ch) for ch in viridis(h / hmax))  # dimmed: the microtubules go on top
-                cv.draw.polygon(cv.poly([(p[0], p[1]) for p in q]), fill=col)
+        cv.draw.polygon(cv.poly(c["outline"]), fill=CELL_FILL)
 
 
 def layer_outline(cv, cells):
     for c in cells:
         pts = cv.poly(c["outline"])
-        cv.draw.line(pts + pts[:1], fill=(230, 230, 230, 200), width=2 * SS)
+        cv.draw.line(pts + pts[:1], fill=CELL_OUTLINE, width=SS)
 
 
 def layer_microtubules(cv, cells):
-    zmax = max((max(p[2] for p in mt) for c in cells for mt in c["mts"] if mt), default=1.0) or 1.0
     for c in cells:
+        top = cell_top(c)
         for mt in c["mts"]:
             for a, b in zip(mt, mt[1:]):
-                t = min(1.0, max(0.0, (a[2] + b[2]) / 2 / zmax))
-                col = (int(60 + 195 * t), int(200 + 55 * t), 255, 150)  # cyan (low) -> white (high)
+                col = scale_rgb(ICE, (a[2] + b[2]) / 2 / top) + (230,)
                 cv.draw.line([cv.p(a[0], a[1]), cv.p(b[0], b[1])], fill=col, width=SS)
 
 
 def layer_nucleus(cv, cells):
     for c in cells:
-        pts = cv.poly(nucleus_poly(c["nucleus"]))
-        cv.draw.polygon(pts, fill=(220, 60, 200, 90))
-        cv.draw.line(pts + pts[:1], fill=(240, 120, 230, 230), width=2 * SS)
+        cv.draw.polygon(cv.poly(nucleus_poly(c["nucleus"])), fill=scale_rgb(GREYS, 0.5) + (int(0.22 * 255),))
 
 
-def layer_pores(cv, cells):
-    """The nuclear pores (geometry detail "npcs": centre, outward normal, e1): a dot per pore, light on the upper
-    half of the envelope (normal up), dark on the lower half, as the viewer's bordeaux."""
-    r = max(1, SS // 2)
+def layer_pores(cv, cells, r=None):
+    """The nuclear pores (geometry detail "npcs": centre, outward normal, e1): a dot per pore, coloured by its height
+    as in the viewer."""
+    r = r or max(1.5 * SS, 0.04 * cv.s)   # ~80 nm across, at least 3 px
     for c in cells:
+        top = cell_top(c)
         for q in c.get("npcs", []):
             x, y = cv.p(q[0], q[1])
-            col = (230, 120, 150, 200) if q[5] >= 0 else (150, 30, 70, 200)
-            cv.draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
+            cv.draw.ellipse([x - r, y - r, x + r, y + r], fill=scale_rgb(WARM, q[2] / top) + (235,))
 
 
-STRUCTURE_LAYERS = [layer_cytoplasm, layer_microtubules, layer_nucleus, layer_pores, layer_outline]
+STRUCTURE_LAYERS = [layer_cell, layer_nucleus, layer_microtubules, layer_pores, layer_outline]
 
 
 def draw_map(geo, fov, path):
@@ -164,7 +163,7 @@ def draw_map(geo, fov, path):
 
 
 def draw_structures(geo, path):
-    cv = Canvas(geo)
+    cv = Canvas(geo, VIEWER_BG)
     for layer in STRUCTURE_LAYERS:
         layer(cv, geo["cells"])
     cv.scale_bar(5, "5 µm")
@@ -211,7 +210,7 @@ def build(cli, out, ov, seed=42):
 
 
 CAPTIONS = [("overview_map.png", "A field of synthetic cells; the box is the camera's view"),
-            ("overview_structures.png", "The structures in the box: cytoplasm height, nucleus, microtubules"),
+            ("overview_structures.png", "The structures in the box: cell, nucleus, microtubules and nuclear pores"),
             ("overview_wf.webp", "Widefield movie of the box (Gibson-Lanni + Zernike PSF)"),
             ("overview_sr.webp", "SMLM movie of the box")]
 

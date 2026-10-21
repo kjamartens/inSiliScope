@@ -1,6 +1,6 @@
 name: Build adapter DLL
 
-# Builds mmgr_dal_inSiliScope.dll (Windows x64) with the PSFGenerator jar embedded (RichardsWolf/GibsonLanni).
+# Builds mmgr_dal_inSiliScope.dll (Windows x64), with the PSFGenerator jar embedded when it can be downloaded.
 # Called by release.yml; can also be run by hand (Actions -> Build adapter DLL). The DLL is only
 # ever uploaded as an artifact / release asset, never committed.
 on:
@@ -36,7 +36,7 @@ jobs:
           java-version: '17'
       # SMLMPsfEmbedded.jar = PSFGenerator.jar (GPL-3.0, EPFL BIG; never committed) + this project's
       # bridge classes, built as CLAUDE.md describes. If PSFGenerator cannot be downloaded, an empty
-      # placeholder is embedded: the DLL then works (the default GibsonLanniZernike PSF is C++), but RichardsWolf/GibsonLanni fall back to Gaussian.
+      # placeholder is embedded: the DLL then works (the default GibsonLanniZernike PSF is C++), but RichardsWolf/GibsonLanni are unavailable.
       - name: Embedded PSF jar
         shell: pwsh
         run: |
@@ -61,7 +61,7 @@ jobs:
             "PSFGenerator: embedded (RichardsWolf/GibsonLanni available; GibsonLanniZernike is C++)" | Out-File -Encoding utf8 psf_status.txt
           } else {
             New-Item -ItemType File -Force third_party/SMLMPsfEmbedded.jar | Out-Null
-            "PSFGenerator: NOT embedded (PSFGenerator.jar unavailable in CI); RichardsWolf/GibsonLanni fall back to Gaussian, GibsonLanniZernike (C++) unaffected" | Out-File -Encoding utf8 psf_status.txt
+            "PSFGenerator: NOT embedded (PSFGenerator.jar unavailable in CI); RichardsWolf/GibsonLanni unavailable, GibsonLanniZernike (C++) unaffected" | Out-File -Encoding utf8 psf_status.txt
           }
           Get-Content psf_status.txt
       - name: MSBuild Release|x64
@@ -79,15 +79,16 @@ jobs:
           Copy-Item adapter/inSiliScope/config/*.cfg out/
           $hash = (Get-FileHash out/mmgr_dal_inSiliScope.dll -Algorithm SHA256).Hash.ToLower()
           "$hash  mmgr_dal_inSiliScope.dll" | Out-File -Encoding ascii out/mmgr_dal_inSiliScope.dll.sha256
+          $di = (Select-String -Path third_party/mmCoreAndDevices/MMDevice/MMDevice.h -Pattern 'define DEVICE_INTERFACE_VERSION (\d+)').Matches[0].Groups[1].Value
+          $di | Out-File -Encoding ascii out/device_interface.txt
           @(
-            "mmgr_dal_inSiliScope.dll, version ${{ inputs.version }} (Micro-Manager device interface of third_party/mmCoreAndDevices)",
+            "mmgr_dal_inSiliScope.dll, version ${{ inputs.version }}, Micro-Manager device interface $di",
             "source commit: $env:GITHUB_SHA ($env:GITHUB_REF_NAME)",
             "built: $(Get-Date -Format o) by GitHub Actions run $env:GITHUB_RUN_ID",
-            (Get-Content psf_status.txt),
             "sha256: $hash",
-            "Licence: with PSFGenerator (GPL-3.0, EPFL BIG, https://github.com/Biomedical-Imaging-Group/PSFGenerator) embedded",
-            "this DLL is GPL-3.0 as a whole (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE).",
-            "Install: copy the DLL into your Micro-Manager folder (a JRE is needed at runtime only for the RichardsWolf/GibsonLanni PSF models);",
+            "Licence: GPL-3.0 (LICENSE-GPL-3.0.txt); inSiliScope's own source is BSD-3-Clause (LICENSE); third parties: THIRD_PARTY_NOTICES.md.",
+            "Needs: a Micro-Manager 2.0 nightly build with device interface $di (https://micro-manager.org/Micro-Manager_Nightly_Builds); older builds refuse the DLL.",
+            "Install: copy the DLL into your Micro-Manager folder;",
             "devices: the hub inSiliScope and its peripherals (Camera, XYStage, ZStage, Objective, EmissionPath, FilterCube, ExcitationFilter, Dichroic, EmissionFilter, Lasers, TransmittedLamp, SampleHolder, CellField, Nanorulers, Fluorophores, Renderer) in module inSiliScope;",
             "configurations: inSiliScope_Basic.cfg, inSiliScope_Advanced.cfg, inSiliScope_Expert.cfg (File > Load System Configuration in Micro-Manager)."
           ) | Out-File -Encoding utf8 out/BUILD_INFO.txt

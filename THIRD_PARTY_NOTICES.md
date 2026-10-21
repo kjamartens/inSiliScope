@@ -1,19 +1,40 @@
 # Third-party notices
 
-inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-Manager DLL is GPL-3.0 as a whole
-(`LICENSE-GPL-3.0.txt`) because it links PSFGenerator. It includes, links or is derived from the following.
-**Maintainers: verify each entry (exact copyright holders and license texts) before the first public release.**
+inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-Manager DLL is GPL-3.0
+(`LICENSE-GPL-3.0.txt`). It includes, links or is derived from the following.
 
 ## Linked into the Micro-Manager DLL
 
 - **PSFGenerator** (EPFL Biomedical Imaging Group, https://github.com/Biomedical-Imaging-Group/PSFGenerator),
-  GPL-3.0. The standalone `PSFGenerator.jar` is downloaded at build time and merged with this project's bridge
-  classes (`adapter/inSiliScope/Simulation/psfbridge-java/`) into a jar embedded in `mmgr_dal_inSiliScope.dll`.
-  It is not stored in this repository. Source: the PSFGenerator repository above, and this repository for the bridge.
+  GPL-3.0, optional: a DLL built with it (BUILDING.md) merges the standalone `PSFGenerator.jar` with this project's
+  bridge classes (`adapter/inSiliScope/Simulation/psfbridge-java/`) into an embedded jar (the `RichardsWolf` and
+  `GibsonLanni` PSF models). It is not stored in this repository. Source: the PSFGenerator repository above, and this repository for the bridge.
   Cite: Kirshner, Aguet, Sage, Unser, "3-D PSF fitting for fluorescence microscopy: implementation and localization
   application", J. Microsc. 249 (2013).
-- **Micro-Manager MMDevice / mmCoreAndDevices** (https://github.com/micro-manager/mmCoreAndDevices), LGPL-2.1,
-  as the `third_party/mmCoreAndDevices` submodule.
+- **Micro-Manager MMDevice** (https://github.com/micro-manager/mmCoreAndDevices, the `third_party/mmCoreAndDevices`
+  submodule), BSD-3-Clause, compiled into the DLL. Its notice (`MMDevice/license.txt`):
+
+  > Copyright (c) 2007, Regents of the University of California. All rights reserved.
+  >
+  > Redistribution and use in source and binary forms, with or without modification, are permitted provided that the
+  > following conditions are met:
+  >
+  > * Redistributions of source code must retain the above copyright notice, this list of conditions and the
+  >   following disclaimer.
+  > * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the
+  >   following disclaimer in the documentation and/or other materials provided with the distribution.
+  > * Neither the name of the University of California nor the names of its contributors may be used to endorse or
+  >   promote products derived from this software without specific prior written permission.
+  >
+  > THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+  > WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+  > PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  > INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+  > GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+  > LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+  > OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- **JNI headers** (`third_party/jni/`, from the OpenJDK), GPL-2.0 with the Classpath Exception: the JVM interface
+  the adapter uses to reach PSFGenerator.
 
 ## Derived from webSMLM
 

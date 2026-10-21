@@ -3,6 +3,19 @@
 <head>
 <meta charset="utf-8">
 <title>inSiliScope viewer</title>
+<!-- Link previews (LinkedIn, X, Slack, ...): social.jpg is web/social.jpg, copied to the site root by tools/build_site.sh. -->
+<meta name="description" content="A simulated fluorescence microscope in your browser: synthetic cells and DNA-origami nanorulers in 3D, imaged live with realistic dyes, optics and camera noise (dSTORM, PALM, DNA-PAINT, widefield, brightfield). Also a Micro-Manager device adapter.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="inSiliScope">
+<meta property="og:title" content="inSiliScope: a simulated fluorescence microscope">
+<meta property="og:description" content="Fly through synthetic cells in 3D and image them live with realistic dyes, optics and camera noise, in the browser or in Micro-Manager.">
+<meta property="og:url" content="https://kjamartens.github.io/inSiliScope/">
+<meta property="og:image" content="https://kjamartens.github.io/inSiliScope/social.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A synthetic cell in 3D: microtubules, nucleus and nuclear pores">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23040507'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23559ded' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23f0a050'/%3E%3C/svg%3E">
 <style>
   /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
      below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
@@ -21,6 +34,7 @@
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
   #viewBar #mmLink{margin-right:20px}
+  #viewBar .tagline{flex:1 1 0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   #viewBar a.back:hover{text-decoration:underline}
   #viewBar .sp{flex:1}
   #viewBar button{padding:3px 8px}
@@ -341,6 +355,8 @@
   #canvasHost.xz #legend{bottom:calc(var(--xz-h) + 8px)}
   #hud,#legend,#movie{z-index:3;color:#dfe6ee}
   #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
+  #loading.err{pointer-events:auto;color:#eef2f7;line-height:1.6;padding:0 24px;text-align:center}
+  #loading.err a{color:#9cc6f2}
   #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie .t.drag{cursor:move;user-select:none}
@@ -375,6 +391,7 @@
   <div id="worldCol">
   <div id="viewBar">
     <h1>inSiliScope</h1>
+    <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; press ▶ Live on the right.">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt, then &#9654; Live</span>
     <span class="sp"></span>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
@@ -456,7 +473,9 @@
   </div>
 </div>
 
-<script src="live/analytics.js"></script>
+<script src="live/usage.js"></script>
+<!-- usage.js missing (an ad-blocker): the buttons call iscTrack all the same. -->
+<script>self.iscTrack = self.iscTrack || Object.assign(() => {}, { framesBucket: () => "" });</script>
 <script src="live/settle.js"></script>
 <script src="dye_library.js"></script>
 <script src="live/mm_config.js"></script>
@@ -767,6 +786,9 @@ const UI_GROUPS = [
     range('tiltDeg', 'Tilt', '°', 'Tilts the view about the horizontal axis for a 3D impression: 0 = straight down, 90 = from the side. Shift-drag on the view tilts and turns it. Display only.', 0, 90, 1, 0, { fmt: fx(0),
       side: { id: 'showXZ', label: 'x–z', tip: 'Side view of everything in view along the bottom of the canvas, seen along the view\'s depth (along y when not turned); horizontal and z at the same scale as the view. Display only.', value: true } }),
     range('azimuthDeg', 'Rotation', '°', 'Turns the view about the vertical axis through the view centre (Shift-drag sideways on the view). Display only.', -180, 180, 1, 0, { fmt: fx(0) }),
+    range('perspDeg', 'Perspective', '°', 'Field of view of a perspective camera: near things larger, far things smaller, so a tilted floor recedes. 0 = orthographic (sizes independent of depth). The scale bar holds at the depth of the view centre. Display only; the WebGL view only.', 0, 90, 1, 35, { fmt: fx(0), adv }),
+    range('perspMist', 'Distance haze', '%', 'With perspective: cells and the floor further away fade into a haze, from about a tenth of the eye’s distance behind the view centre. 0 = none. Display only.', 0, 100, 5, 75, { fmt: fx(0), adv }),
+    check('perspCut', 'Fade out far cells', 'With perspective: cells further back than the haze fade out, and nothing beyond about the eye’s distance behind the view centre is drawn (fewer cells to load in a tilted view). Display only.', true, { adv }),
     num('pivotZ', 'Turn height', 'µm', 'Height of the point the view turns and tilts about (it stays at the centre of the canvas). Display only.', 0, 20, 0.5, 0, { adv }),
     buttons([
       ['resetView', 'Reset view', 'Back to the start position (the gallery’s spot, x 14.8, y −6.0 µm) at the default zoom.'],
@@ -796,7 +818,7 @@ const UI_GROUPS = [
       check('showNpcs', 'Nuclear pores', 'Draw the nuclear pores of the detailed cells: the two 8-fold rings of each (cytoplasmic light, nucleoplasmic dark), from 400 px/µm also the four Nup96 sites at each corner.', true, { show: CF }),
       check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
-      check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', false, { adv, show: CF }),
+      check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', true, { adv, show: CF }),
       check('showCytoContours', 'Contours', 'Draw contour lines of the cytoplasm height.', false, { adv, show: CF }),
     ]),
     range('cytoContourStep', 'Contour step', 'µm', 'Height step between two contour lines.', 0.1, 1, 0.05, 0.25, { adv, fmt: fx(2), show: () => $('showCytoContours').checked }),
@@ -1108,14 +1130,17 @@ const UI_GROUPS = [
   ] },
 
   { sect: 'About', id: 'about', title: 'About this viewer', items: [
-    { kind: 'html', html: `<p class="sub">The insiliscope world model (C++ core, compiled to WASM, run in Web Workers). Every cell,
-      microtubule and dye is a pure function of (seed, address): pan anywhere and come back to the same structure. Cells
-      are packed on fixed 8x8-chunk blocks, so what you see is what the Micro-Manager adapter images. The JS prototype
-      this was ported from is in <a href="prototype/index.html">prototype/</a>.</p>
-      <p class="sub">Drag to pan, wheel to zoom. Panning is exactly the stage-motion case for the inSiliScope adapter:
-      the field does not move, the viewport (camera FOV) does, and the same world coordinate always re-derives the same
-      structure. Packing moves and turns overlapping cells apart (never shrinks them) and drops a cell still stuck after
-      relaxation. Dyes are the real labelled sites of the core (13_3 lattice, binder + linker), shown once zoomed in.</p>` },
+    { kind: 'html', html: `<p class="sub">inSiliScope is a simulated fluorescence microscope. On the left is the sample: a field of
+      synthetic cells (cell body, nucleus, microtubules, nuclear pores) or DNA-origami nanorulers, endless in every
+      direction. Every cell and every dye follows from the seed and its position, so you can pan away and come back to
+      the same structure. On the right is the microscope: the dashed box is the camera's view, imaged with the dyes,
+      light path, PSF and camera noise you set here (press ▶ Live).</p>
+      <p class="sub">Drag to pan, wheel to zoom, Shift-drag to tilt and turn. The same simulation runs as a device
+      adapter in Micro-Manager, and as a headless command-line tool: <a href="https://kjamartens.github.io/inSiliScope/docs/quickstart/"
+      target="_top">Quickstart</a> &middot; <a href="https://kjamartens.github.io/inSiliScope/docs/" target="_top">Documentation</a> &middot;
+      <a href="https://github.com/kjamartens/inSiliScope" target="_blank" rel="noopener">Source (BSD-3-Clause)</a> &middot;
+      <a href="https://github.com/kjamartens/inSiliScope/issues" target="_blank" rel="noopener">Report a problem</a>.
+      Dye spectra from <a href="https://www.fpbase.org" target="_blank" rel="noopener">FPbase</a> (CC BY-SA 4.0).</p>` },
   ] },
 ];
 
@@ -1707,7 +1732,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
  'showDyes', 'mtMap', 'npcMap', 'nucMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
- 'azimuthDeg', 'azimuthDegVal', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
+ 'azimuthDeg', 'azimuthDegVal', 'perspDeg', 'perspDegVal', 'perspMist', 'perspMistVal', 'perspCut', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
  'mv_specimen', 'showRulers', 'origamiDesign', 'origamiSpacingNm', 'origamiDensity', 'origamiMinSpacingNm', 'origamiStrandsPerSpot', 'origamiStrandsPerSpotVal',
@@ -1935,7 +1960,9 @@ for (const el of [els.zClipMin, els.zClipMax, ...els.zClipMin.closest('.opt').qu
 function viewParams() {
   const zl = +els.zClipMin.value, zh = Math.max(zl, +els.zClipMax.value);
   return {
-    tiltDeg: +els.tiltDeg.value, azimuthDeg: +els.azimuthDeg.value, pivotZ: +els.pivotZ.value || 0,
+    tiltDeg: +els.tiltDeg.value, azimuthDeg: +els.azimuthDeg.value, perspDeg: +els.perspDeg.value || 0, perspCut: !!els.perspCut.checked,
+    pivotZ: +els.pivotZ.value || 0,
+    mist: (+els.perspMist.value || 0) / 100,
     zClip: zl <= ZCLIP_LO && zh >= ZCLIP_HI ? null : [zl, zh],
     zSoft: !!(els.zSoft && els.zSoft.checked),
     detailCells: Math.max(0, Math.round(+els.detailCells.value || 0)), scope: els.sceneScope.value || 'all',
@@ -1971,8 +1998,8 @@ function stateFromUI() {
   return sceneState(v, layers);
 }
 function sceneState(v, layers) {
-  return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, scale: view.scale },
-    scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, zClip: v.zClip, zSoft: v.zSoft, sweep: null, layers,
+  return { slice: { axis: 'z', pos: +els.sliceZ.value }, srFrame: Math.floor(performance.now() / 100), camera: { pivot: [view.cx, view.cy, v.pivotZ], azimuthDeg: v.azimuthDeg, tiltDeg: v.tiltDeg, perspDeg: v.perspDeg, perspCut: v.perspCut, scale: view.scale },
+    scope: v.scope, target: null, detailCells: v.detailCells, theme: v.theme, mist: v.mist, zClip: v.zClip, zSoft: v.zSoft, sweep: null, layers,
     grid: els.showGrid.checked, xz: els.showXZ.checked, ui: true };
 }
 
@@ -2048,13 +2075,16 @@ window.addEventListener('isc-reset', () => { xzUserPx = null; resizeCanvas(); })
 // cos(tilt), z lifting a point by sin(tilt). Tilt 0, rotation 0 is the plain top-down view. renderFrame() sets it;
 // every projection below goes through it.
 let curCam = null;
+// With perspective: the distance haze runs from FOG_DC[0] to FOG_DC[1] eye distances behind the pivot; with the far
+// cut-off on, cells then fade out and nothing beyond FAR_DC is drawn (the floor ends in the haze).
+const FOG_DC = [0.12, 0.72], FAR_DC = 1;
 // cam.fovUm: the frame's width in um; with cam.frameAspect (an animation previewed on the screen) the frame of that
 // aspect is fitted into W x H instead.
 function cameraFor(cam, W, H) {
   const c = cam || {}, pv = c.pivot || [view.cx, view.cy, 0];
   const S = c.fovUm ? (c.frameAspect ? Math.min(W / c.fovUm, H * c.frameAspect / c.fovUm) : W / c.fovUm) : (c.scale || view.scale) * devicePixelRatio;
   return IscScene.makeCamera({ px: pv[0], py: pv[1], pz: pv[2] || 0, az: (c.azimuthDeg || 0) * Math.PI / 180,
-    tilt: (c.tiltDeg || 0) * Math.PI / 180, S, W, H });
+    tilt: (c.tiltDeg || 0) * Math.PI / 180, S, W, H, persp: (c.perspDeg || 0) * Math.PI / 180, farDc: c.perspCut ? FAR_DC : 0 });
 }
 function project(x, y, z) { return curCam.project(x, y, z); }
 
@@ -2260,8 +2290,11 @@ function cellXform(c) {
 }
 
 function cellVisible(c) {
-  const k = curCam, sx = k.W2 + k.u(c.x, c.y) * k.S, sy = k.H2 + (k.v(c.x, c.y) * k.ct + k.pz * k.st) * k.S;
-  const r = (c.rOuter + c.height + 1) * k.S; // rOuter bounds the outline; height lifts it on screen when tilted
+  const k = curCam, [sx, sy] = k.project(c.x, c.y, 0), d = k.depth(c.x, c.y, 0);
+  if (k.persp && (d + c.rOuter * k.st) * k.persp > 0.9) return false;   // at or behind the eye
+  if (k.far && -(d + c.rOuter * k.st) > k.far) return false;            // past the far cut-off
+  // rOuter bounds the outline; height lifts it on screen when tilted; nearer cells are larger with perspective
+  const r = (c.rOuter + c.height + 1) * k.S * k.scaleAt(d + c.rOuter * k.st);
   return sx + r >= 0 && sx - r <= k.W && sy + r >= 0 && sy - r <= k.H;
 }
 
@@ -2394,12 +2427,13 @@ function drawCell2D(c, asset, p, F, cf) {
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
 let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glNpcProg = null, glNpcU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
 // u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
-// (sin, cos) of the tilt, u_pz: the pivot height. worldOf() is a point's turned-frame (u, v) offset from the pivot.
+// (sin, cos) of the tilt, u_pz: the pivot height, u_persp: 1 / the eye's distance (0 = orthographic; core.js). worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
-uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale, u_dscale, u_pz;
+uniform vec2 u_off, u_rot, u_canvas, u_tilt; uniform float u_scale, u_dscale, u_pz, u_persp;
 vec2 worldOf(vec3 p) { return vec2(p.x * u_rot.x - p.y * u_rot.y, p.x * u_rot.y + p.y * u_rot.x) + u_off; }
-vec2 screenOf(vec3 p, vec2 w) { return vec2(u_canvas.x * 0.5 + w.x * u_scale, u_canvas.y * 0.5 + (w.y * u_tilt.y - (p.z - u_pz) * u_tilt.x) * u_scale); }
 float depthOf(vec3 p, vec2 w) { return w.y * u_tilt.x + (p.z - u_pz) * u_tilt.y; }
+float perspOf(vec3 p, vec2 w) { return 1.0 / max(0.05, 1.0 - depthOf(p, w) * u_persp); }   // 1 without perspective
+vec2 screenOf(vec3 p, vec2 w) { return vec2(u_canvas.x * 0.5, u_canvas.y * 0.5) + vec2(w.x, w.y * u_tilt.y - (p.z - u_pz) * u_tilt.x) * (u_scale * perspOf(p, w)); }
 vec4 clipOf(vec2 s, float depth) {   // depth = nearness (v sin + z cos, um); nearer = smaller NDC z
   return vec4(s.x / u_canvas.x * 2.0 - 1.0, 1.0 - s.y / u_canvas.y * 2.0, clamp(-depth * u_dscale, -1.0, 1.0), 1.0);
 }`;
@@ -2409,6 +2443,17 @@ const GL_CLIP = `
 uniform vec4 u_axis; uniform vec2 u_zclip; uniform float u_zfade; uniform float u_ivN[${IscScene.N_KINDS}];
 uniform vec2 u_iv[${IscScene.N_KINDS * IV}]; uniform vec4 u_ivSt[${IscScene.N_KINDS * IV}];
 uniform int u_hide; uniform float u_cellA;
+// Distance haze (perspective only): the distance behind the pivot is dot(u_fogAxis.xyz, w) + u_fogAxis.w; u_fog = (start,
+// 1 / length, strength, far cut-off); a fragment that far back turns towards u_fogCol and fades (u_fog.z = 0: no haze),
+// and from the haze's end to the cut-off (u_fog.w > 0) it fades out entirely.
+uniform vec4 u_fogAxis, u_fog; uniform vec3 u_fogCol;
+vec4 fogged(vec3 rgb, float a, vec3 w) {
+  float dist = dot(u_fogAxis.xyz, w) + u_fogAxis.w;
+  float m = u_fog.z * smoothstep(0.0, 1.0, (dist - u_fog.x) * u_fog.y);
+  a *= 1.0 - 0.6 * m;
+  if (u_fog.w > 0.0) a *= 1.0 - smoothstep(u_fog.x + 1.0 / u_fog.y, u_fog.w, dist);
+  return vec4(mix(rgb, u_fogCol, m) * a, a);
+}
 // Outside the Z clip: 0 = not drawn; with u_zfade > 0 the opacity falls off over 3 u_zfade (quadratically).
 float zFade(float z) {
   float d = max(u_zclip.x - z, z - u_zclip.y);
@@ -2459,7 +2504,8 @@ void main() {
   float zm = 0.5 * (a_p0.z + a_p1.z), dz = max(u_zclip.x - zm, zm - u_zclip.y);
   float k = u_zfade > 0.0 && dz > 0.0 ? min(4.0, 1.0 + dz / u_zfade) : 1.0;
   v_k = k;
-  vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW * k;   // square caps close the joints
+  float f = mix(perspOf(a_p0.xyz, w0), perspOf(a_p1.xyz, w1), e);   // nearer lines wider with perspective
+  vec2 s = mix(s0, s1, e) + (vec2(-d.y, d.x) * side + d * (e * 2.0 - 1.0)) * u_halfW * k * f;   // square caps close the joints
   gl_Position = clipOf(s, mix(depthOf(a_p0.xyz, w0), depthOf(a_p1.xyz, w1), e));
   v_w = mix(vec3(w0, a_p0.z), vec3(w1, a_p1.z), e);
 }`;
@@ -2597,7 +2643,7 @@ void main() {
   if (st.a < 0.0) discard;
   float a = st.a * u_cellA;
   vec3 rgb = st.r >= 0.0 ? st.rgb : v_col.rgb;
-  o = vec4(rgb * a, a);   // premultiplied
+  o = fogged(rgb, a, w);   // premultiplied
 }`;
 // Lines (microtubules, pores): a style without a colour (r < 0) draws the height over the cell's (u_zr) in depth colours.
 // u_stops / u_nst: the height scale (lineStops), 2-6 colours, a piecewise-linear ramp
@@ -2619,7 +2665,7 @@ void main() {
   float a = st.a * u_cellA / v_k;
   if (a < 0.004) discard;
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
-  o = vec4(rgb * a, a);
+  o = fogged(rgb, a, v_w);
 }`;
 const glFsKind = kind => `#version 300 es
 precision highp float;
@@ -2628,10 +2674,10 @@ void main() {
   vec4 st = zoneStyle(${kind}, v_w);
   if (st.a < 0.0) discard;
   float a = st.a * u_cellA;
-  o = vec4(max(st.rgb, 0.0) * a, a);
+  o = fogged(max(st.rgb, 0.0), a, v_w);
 }`;
-const GL_UNIFORMS = ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', 'u_pz',
-  'u_axis', 'u_zclip', 'u_zfade', 'u_ivN', 'u_iv', 'u_ivSt', 'u_hide', 'u_cellA'];
+const GL_UNIFORMS = ['u_off', 'u_rot', 'u_canvas', 'u_tilt', 'u_scale', 'u_dscale', 'u_pz', 'u_persp',
+  'u_axis', 'u_zclip', 'u_zfade', 'u_ivN', 'u_iv', 'u_ivSt', 'u_hide', 'u_cellA', 'u_fogAxis', 'u_fog', 'u_fogCol'];
 function setLayerMode(gpu) {
   useGl = gpu;
   cvGl.style.display = gpu ? 'block' : 'none';
@@ -2877,10 +2923,14 @@ function drawSceneGl(cells, p, F) {
   gl.enable(gl.DEPTH_TEST);
   const frame = u => {
     gl.uniform2f(u.u_canvas, W, H); gl.uniform1f(u.u_scale, cam.S);
-    gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_dscale, 1 / D); gl.uniform1f(u.u_pz, cam.pz);
+    gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_dscale, 1 / D); gl.uniform1f(u.u_pz, cam.pz); gl.uniform1f(u.u_persp, cam.persp);
     gl.uniform4fv(u.u_axis, F.ax); gl.uniform2f(u.u_zclip, F.zc[0], F.zc[1]); gl.uniform1f(u.u_zfade, F.zfade || 0);
     gl.uniform1fv(u.u_ivN, Z.n); gl.uniform2fv(u.u_iv, Z.iv); gl.uniform4fv(u.u_ivSt, Z.st);
     gl.uniform1i(u.u_hide, 0); gl.uniform1f(u.u_cellA, 1);
+    const fg = F.fog;
+    gl.uniform4f(u.u_fogAxis, 0, -cam.st, -cam.ct, cam.pz * cam.ct);
+    gl.uniform4f(u.u_fog, fg ? fg.start : 0, fg ? 1 / fg.len : 0, fg ? fg.k : 0, fg ? fg.far : 0);
+    gl.uniform3fv(u.u_fogCol, fg ? fg.col : [0, 0, 0]);
   };
   const cellU = (u, c, cf) => {
     const rot = cam.cellRot(c.packRot);
@@ -3876,12 +3926,29 @@ function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
   if (engineUrl()) {
-    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); });
+    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); }).catch(showLoadError);
     return;
   }
-  (0, eval)(self.ISC_MODULE_SRC); // defines createInsiliscope
-  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); });
+  try { (0, eval)(self.ISC_MODULE_SRC); } // defines createInsiliscope
+  catch (e) { showLoadError(e); return; }
+  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); })
+    .catch(showLoadError);
 }
+// The core could not start (no WebAssembly, out of memory, a blocked script): say so where "Loading..." stood, instead
+// of leaving it there for good. Also after 90 s without a first cell (a stalled start).
+function showLoadError(err) {
+  const el = document.getElementById('loading');
+  if (!el) return;
+  console.error('inSiliScope could not start:', err);
+  el.classList.add('err');
+  el.innerHTML = `<div><b>The viewer could not start in this browser.</b><br>${err ? String(err.message || err).replace(/[<>&]/g, '') + '<br>' : ''}
+    It needs WebAssembly and Web Workers and a few hundred MB of memory: try a current Chrome, Edge, Firefox or Safari on a
+    desktop or laptop, close other tabs, or reload.<br>
+    <a href="https://kjamartens.github.io/inSiliScope/docs/" target="_top">Documentation</a> &middot;
+    <a href="https://github.com/kjamartens/inSiliScope/issues" target="_blank" rel="noopener">Report a problem</a></div>`;
+}
+if (typeof WebAssembly === 'undefined') setTimeout(() => showLoadError(new Error('This browser has no WebAssembly.')), 0);
+setTimeout(() => { if (document.getElementById('loading')) showLoadError(new Error('The cell field did not load within 90 s.')); }, 90000);
 
 // ---- packed-map cache -----------------------------------------------------
 // STANDING RULE: draw() runs on every pan/zoom event, so it must not redo work a
@@ -4159,14 +4226,18 @@ function pumpAssets() {
   const w = v.cx1 - v.cx0 + 1, h = v.cy1 - v.cy0 + 1;
   const px = Math.ceil(w * PREFETCH_VIEWS), py = Math.ceil(h * PREFETCH_VIEWS);
   const mx = (v.cx0 + v.cx1) / 2, my = (v.cy0 + v.cy1) / 2, cand = [];
+  const want = (key, cell, inView) => {
+    const a = assets.get(key), mt = v.mtKeys.has(key);
+    if ((a && a.sig === v.sig && (a.hasMt || !mt)) || assetInflight.get(key) === v.sig) return;
+    cand.push({ key, cell, mt, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cell.cx - mx, cell.cy - my) });
+  };
   for (let cx = v.cx0 - px; cx <= v.cx1 + px; cx++) for (let cy = v.cy0 - py; cy <= v.cy1 + py; cy++) {
     const key = cx + ',' + cy, cell = v.map.get(key);
-    if (!cell) continue;
-    const a = assets.get(key), mt = v.mtKeys.has(key);
-    if ((a && a.sig === v.sig && (a.hasMt || !mt)) || assetInflight.get(key) === v.sig) continue;
-    const inView = cx >= v.cx0 && cx <= v.cx1 && cy >= v.cy0 && cy <= v.cy1;
-    cand.push({ key, cell, mt, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cx - mx, cy - my) });
+    if (cell) want(key, cell, cx >= v.cx0 && cx <= v.cx1 && cy >= v.cy0 && cy <= v.cy1);
   }
+  // visible cells beyond that (far ones in perspective, which the visible rect's cap leaves out)
+  for (const cell of v.vis) if (cell.cx < v.cx0 - px || cell.cx > v.cx1 + px || cell.cy < v.cy0 - py || cell.cy > v.cy1 + py)
+    want(cell.cx + ',' + cell.cy, cell, true);
   cand.sort((a, b) => a.rank - b.rank);
   let ci = 0;
   for (let wi = 0; wi < genWorkers.busy.length && ci < cand.length; wi++) {
@@ -4292,6 +4363,12 @@ function renderFrame(st, target) {
     // soft Z clip: a third of the fade's reach (gone, and 4x wide, 0.2 um outside the clip); 0 = a hard cut
     zfade: st.zClip && st.zSoft ? 0.2 / 3 : 0,
     target: null, dataMissing: [], animate: false };
+  // distance haze with perspective (FOG_DC), towards a misty grey lifted from the theme's background; the far cut-off
+  if (cam.persp && (st.mist > 0 || cam.far)) {
+    const Dc = 1 / cam.persp, bgc = IscScene.themeOf(st.theme).bg.map(c => c / 255);
+    F.fog = { start: FOG_DC[0] * Dc, len: (FOG_DC[1] - FOG_DC[0]) * Dc, k: Math.min(1, st.mist || 0), far: cam.far, bg: bgc,
+      col: bgc.map((c, i) => c + ([0.42, 0.47, 0.56][i] - c) * 0.32) };
+  }
   const azDeg = +(cam.az * 180 / Math.PI).toFixed(1);
   // the info box: one item per line (the counts are in its data- attributes, for the tests)
   const hudHead = '';
@@ -4332,6 +4409,20 @@ function renderFrame(st, target) {
       ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
     }
     ctx.stroke();
+  }
+  // the haze over the floor behind the cells (they get theirs in the shaders): screen rows of the haze's start and
+  // end on the coverslip under the view centre
+  if (F.fog && useGl) {
+    const fg = F.fog, rowAt = d => { const v = (cam.pz * cam.ct - d) / Math.max(cam.st, 1e-6); return cam.project(cam.px - cam.sa * v, cam.py + cam.ca * v, 0)[1]; };
+    const y0 = rowAt(fg.start), y1 = rowAt(fg.start + fg.len), y2 = fg.far ? rowAt(fg.far) : y1;
+    if (y0 > 0 && y0 > y2) {
+      const css = (col, a) => `rgba(${col.map(c => Math.round(c * 255)).join(',')},${a})`, gr = bg.createLinearGradient(0, y0, 0, y2);
+      gr.addColorStop(0, css(fg.col, 0));
+      // with the cut-off the floor ends in the background colour (the grid fades out with the cells)
+      if (fg.far) { gr.addColorStop(Math.min(1, (y0 - y1) / (y0 - y2)), css(fg.col, 0.6 * fg.k)); gr.addColorStop(1, css(fg.bg, 1)); }
+      else gr.addColorStop(1, css(fg.col, 0.6 * fg.k));
+      bg.fillStyle = gr; bg.fillRect(0, 0, W, y0);
+    }
   }
 
   ctx = ctxTop;
@@ -4386,7 +4477,7 @@ function renderFrame(st, target) {
           alpha: scope === 'ghosts' ? ghostA : 1, detailed: false });
     if (mtKeys.has(key) && detailed && !asset.hasMt) nLoading++;
   }
-  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, detail: det.set };
+  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, detail: det.set, vis: visCells };
   evictAssets();
   pumpAssets();
   if (st.xz) drawXZ(vis, p, F); // before the dyes, which add their x-z points to it
@@ -5659,7 +5750,7 @@ function drawDataGl(F, target, phase) {
     // added they would hide nothing and their blinks would float in the cell)
     const col = style.color || [255, 255, 255], cam = F.cam, u = glSliceU;
     gl.useProgram(glSliceProg);
-    gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+    gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_persp, cam.persp);
     gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
     gl.uniform2f(u.u_off, cam.u(stack.texOx, stack.texOy), cam.v(stack.texOx, stack.texOy));
     gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
@@ -5797,7 +5888,7 @@ function drawIsoGl(F, stack, e, style, alpha) {
   }
   const cam = F.cam, u = glIsoU, Z = F.Z;
   gl.useProgram(glIsoProg);
-  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_persp, cam.persp);
   gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
   gl.uniform2f(u.u_off, cam.u(stack.texOx, stack.texOy), cam.v(stack.texOx, stack.texOy));
   gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
@@ -5893,7 +5984,7 @@ function drawLocsGl(F, L, style, alpha) {
   }
   const cam = F.cam, u = glLocU, Z = F.Z, col = style.color || [255, 200, 80], spread = !!style.spread;
   gl.useProgram(glLocProg);
-  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct);
+  gl.uniform2f(u.u_canvas, cam.W, cam.H); gl.uniform1f(u.u_scale, cam.S); gl.uniform2f(u.u_tilt, cam.st, cam.ct); gl.uniform1f(u.u_persp, cam.persp);
   gl.uniform1f(u.u_dscale, 1 / (cam.halfV() + 200)); gl.uniform1f(u.u_pz, cam.pz);
   gl.uniform2f(u.u_off, cam.u(L.ox, L.oy), cam.v(L.ox, L.oy));
   gl.uniform2f(u.u_rot, Math.cos(-cam.az), Math.sin(-cam.az));
@@ -5991,11 +6082,17 @@ function drawPlannedFov() {
   ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(1, devicePixelRatio);
   ctx.setLineDash([4 * devicePixelRatio, 3 * devicePixelRatio]);
   ctx.beginPath(); pts.forEach(([sx, sy], i) => (i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
-  // the label sits on the outline's top edge, starting at its left end
-  const byY = pts.slice().sort((a, b) => a[1] - b[1]), at = byY[0][0] <= byY[1][0] ? byY[0] : byY[1];
+  // the label lies along the outline's far edge (the one highest on screen), turned with it, reading left to right,
+  // just outside the box from its left end
+  let e = 0;
+  for (let i = 1; i < 4; i++) if (pts[i][1] + pts[(i + 1) % 4][1] < pts[e][1] + pts[(e + 1) % 4][1]) e = i;
+  let a = pts[e], b = pts[(e + 1) % 4];
+  if (b[0] < a[0]) [a, b] = [b, a];
   ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = `${11 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText(planning ? `next movie: ${n} × ${n} px` : 'camera', at[0], Math.min(byY[0][1], byY[1][1]) - 3 * devicePixelRatio);
+  ctx.save(); ctx.translate(a[0], a[1]); ctx.rotate(Math.atan2(b[1] - a[1], b[0] - a[0]));
+  ctx.fillText(planning ? `next movie: ${n} × ${n} px` : 'camera', 2 * devicePixelRatio, -3 * devicePixelRatio);
+  ctx.restore();
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {
