@@ -1,0 +1,20 @@
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!-- Anonymous page counts for the docs (Umami Cloud, cookieless; docs/privacy.md). The same rules as the viewer's
+     web/live/analytics.js (keep the website id in step): only on the published site, nothing with Do Not Track, Global
+     Privacy Control or localStorage umami.disabled. Links with data-umami-event (the download buttons) count a click. -->
+<script>
+  (function () {
+    var SITE = 'kjamartens.github.io', out = false;
+    try { out = !!localStorage.getItem('umami.disabled'); } catch (e) { /* private window */ }
+    if (location.hostname !== SITE || out || navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.globalPrivacyControl === true) return;
+    var s = document.createElement('script');
+    s.defer = true;
+    s.src = 'https://cloud.umami.is/script.js';
+    s.dataset.websiteId = 'e83bad18-7e9d-4c4c-9fae-90f55826533e';
+    s.dataset.domains = SITE;
+    s.dataset.doNotTrack = 'true';
+    s.dataset.excludeSearch = 'true';
+    s.dataset.excludeHash = 'true';
+    document.head.appendChild(s);
+  })();
+</script>

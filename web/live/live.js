@@ -494,6 +494,7 @@ function startRec() {
   const max = Math.floor(1e9 / (2 * side * side));
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
     exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+  iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
@@ -614,6 +615,7 @@ $('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); 
 $('lv_playClose').addEventListener('click', () => { closePlayer(); REC.msg = ''; showInfo(); });
 $('lv_playSave').addEventListener('click', () => {
   if (!PLAY.on) return;
+  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n) });
   const blob = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
   const a = document.createElement('a'), name = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}.tif`;
   a.href = URL.createObjectURL(blob);
@@ -671,9 +673,9 @@ function setLive(on) {
   syncButtons();
   if (on) { closePlayer(); L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
 }
-$('lv_live').addEventListener('click', () => setLive(!L.on));
+$('lv_live').addEventListener('click', () => { setLive(!L.on); if (L.on) iscTrack('live'); });
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
-$('lv_snap').addEventListener('click', () => { if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
+$('lv_snap').addEventListener('click', () => { iscTrack('snap'); if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });
 window.liveRedraw = () => { paint(); drawScale(); };
 })();

@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs
+      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs
 
   # JS imaging reference (web/prototype/scope) == the C++ (the committed WASM module): events, SR, WideField.
   scope-parity:
