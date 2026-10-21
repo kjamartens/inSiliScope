@@ -15,7 +15,7 @@ The live microscope in your browser; the [Quickstart](quickstart.md) shows what 
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
   <figure><img src="gallery/overview_map.png" alt="A field of synthetic cells; the box is the camera's view" loading="lazy"><figcaption>A field of synthetic cells; the box is the camera's view</figcaption></figure>
-  <figure><img src="gallery/overview_structures.png" alt="The structures in the box: cytoplasm height, nucleus, microtubules" loading="lazy"><figcaption>The structures in the box: cytoplasm height, nucleus, microtubules</figcaption></figure>
+  <figure><img src="gallery/overview_structures.png" alt="The structures in the box: cell, nucleus, microtubules and nuclear pores" loading="lazy"><figcaption>The structures in the box: cell, nucleus, microtubules and nuclear pores</figcaption></figure>
   <figure><img src="gallery/overview_wf.webp" alt="Widefield movie of the box (Gibson-Lanni + Zernike PSF)" loading="lazy"><figcaption>Widefield movie of the box (Gibson-Lanni + Zernike PSF)</figcaption></figure>
   <figure><img src="gallery/overview_sr.webp" alt="SMLM movie of the box" loading="lazy"><figcaption>SMLM movie of the box</figcaption></figure>
 </div>

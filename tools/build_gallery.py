@@ -46,23 +46,17 @@ def to_gif(stack, path, fps=10, scale=None, rng=None):
 
 
 def draw_ground_truth(geo, layers, path):
-    """The ground truth of a field of view: the microtubules ("mt", coloured by height) and the nuclear pores ("npc",
-    a dot of about their size per pore) over a faint outline of the nucleus and the cell."""
-    cv = build_overview.Canvas(geo)
+    """The ground truth of a field of view in the viewer's colours (build_overview's layers): the microtubules ("mt")
+    and the nuclear pores ("npc", a dot of about their size per pore) coloured by height, over the cell and nucleus."""
+    cv = build_overview.Canvas(geo, build_overview.VIEWER_BG)
     cells = geo["cells"]
-    for c in cells:
-        pts = cv.poly(build_overview.nucleus_poly(c["nucleus"]))
-        cv.draw.line(pts + pts[:1], fill=(240, 120, 230, 110), width=build_overview.SS)
+    build_overview.layer_cell(cv, cells)
+    build_overview.layer_nucleus(cv, cells)
     build_overview.layer_outline(cv, cells)
     if "mt" in layers:
         build_overview.layer_microtubules(cv, cells)
     if "npc" in layers:
-        r = max(2.0, 0.06 * cv.s)   # ~120 nm across, at least a few pixels
-        for c in cells:
-            for q in c.get("npcs", []):
-                x, y = cv.p(q[0], q[1])
-                col = (255, 190, 70, 235) if q[5] < 0 else (255, 120, 60, 110)   # bright: the lower envelope
-                cv.draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
+        build_overview.layer_pores(cv, cells, r=max(2.0, 0.06 * cv.s))   # ~120 nm across, at least a few pixels
     cv.scale_bar(2, "2 µm")
     cv.save(path)
 

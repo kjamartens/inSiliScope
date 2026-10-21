@@ -15,7 +15,7 @@ any order, on any platform, with identical results.
 
 | A field of synthetic cells | What is in the box | Widefield camera | Single-molecule (SMLM) camera |
 |:---:|:---:|:---:|:---:|
-| <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_map.png" width="200" alt="A field of synthetic cells; the box is the camera's view"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_structures.png" width="200" alt="Cytoplasm height, nucleus and microtubules in the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_wf.webp" width="200" alt="Widefield movie of the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_sr.webp" width="200" alt="SMLM movie of the box"> |
+| <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_map.png" width="200" alt="A field of synthetic cells; the box is the camera's view"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_structures.png" width="200" alt="Cell, nucleus, microtubules and nuclear pores in the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_wf.webp" width="200" alt="Widefield movie of the box"> | <img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_sr.webp" width="200" alt="SMLM movie of the box"> |
 
 - **Live viewer** (browser, WebAssembly): pan, tilt and turn through the field in 3D, look through a live microscope
   (the adapter's live mode with the sample's illumination history, set up with its Micro-Manager config presets) and
