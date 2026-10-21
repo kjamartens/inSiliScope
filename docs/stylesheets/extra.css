@@ -26,6 +26,17 @@
   }
 }
 
+/* The 3D overview (tools/build_hero.mjs) on Home and at the top of the gallery. */
+.isc-hero {
+  margin: 1rem 0 0.6rem;
+  width: 100%;
+}
+.isc-hero img {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
 /* Physics figures (tools/build_physics_figures.py, injected by tools/build_site.sh). */
 .md-typeset .isc-fig {
   width: 100%;

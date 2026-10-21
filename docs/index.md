@@ -12,6 +12,13 @@ nanorulers (rods with three spots of docking strands 80 nm apart).
 The live microscope in your browser; the [Quickstart](quickstart.md) shows what to try.
 </div>
 
+<!-- hero:start (the release's 3D overview, tools/build_hero.mjs; tools/build_site.sh keeps this or the 2x2 below) -->
+<figure class="isc-hero"><img src="gallery/overview_3d.jpg" alt="The cell field in 3D in the viewer, with the camera box and its live widefield and SMLM (DNA-PAINT) frames" loading="lazy"></figure>
+
+The cell field in the viewer, tilted and in perspective, and what its live microscope sees in the dashed camera box. More
+in the [Gallery](gallery/index.md).
+<!-- hero:end -->
+
 <!-- overview:start (removed by tools/build_site.sh when no gallery release provides the images) -->
 <div class="isc-overview">
   <figure><img src="gallery/overview_map.png" alt="A field of synthetic cells; the box is the camera's view" loading="lazy"><figcaption>A field of synthetic cells; the box is the camera's view</figcaption></figure>

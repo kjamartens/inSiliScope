@@ -11,17 +11,42 @@
 // At az = 0, pz = 0 this is exactly the viewer's original oblique projection (x unchanged, y foreshortened by
 // cos t, z lifting the point by sin t). A cell's local frame (packRot) composes with the turn into one
 // effective rotation packRot - az, so every per-cell cache keyed on packRot works unchanged on that angle.
+// Perspective (spec.persp, the vertical field of view in radians; 0 = orthographic): an eye at Dc um in front of
+// the pivot, Dc chosen so the pivot's plane fills the canvas height at that angle; a point's screen offset from the
+// centre is scaled by f = Dc / (Dc - depth) (1 at the pivot's depth, so the scale bar holds there). With spec.farDc
+// the view ends that many eye distances behind the pivot (cam.far, um; the viewer fades cells out before it).
 'use strict';
 (function () {
 const DEG = Math.PI / 180;
 
-// spec: {px, py, pz, az, tilt (radians), S (device px per um), W, H (device px)}
+// spec: {px, py, pz, az, tilt (radians), S (device px per um), W, H (device px), persp (radians, 0 = orthographic)}
 function makeCamera(spec) {
   const az = spec.az || 0, tilt = spec.tilt || 0;
   const ca = Math.cos(az), sa = Math.sin(az), ct = Math.cos(tilt), st = Math.sin(tilt);
   const px = spec.px, py = spec.py, pz = spec.pz || 0, S = spec.S, W2 = spec.W / 2, H2 = spec.H / 2;
+  const fov = Math.min(spec.persp || 0, 120 * DEG);
+  const P = fov > 0 ? Math.tan(fov / 2) / (H2 / S) : 0;   // 1 / Dc (um^-1)
+  // the scale of a point at nearness d (clamped: nothing is drawn within 5 % of the eye)
+  const fOf = d => P ? 1 / Math.max(0.05, 1 - d * P) : 1;
+  // the far cut-off (spec.farDc, in eye distances behind the pivot; 0 = none): nothing further back is drawn
+  const far = P && spec.farDc > 0 ? spec.farDc / P : 0;
+  // the turned-frame (u, v) at screen offset (X, Y) (um at the pivot's scale) on the plane z; v from -vFar (the cut-off,
+  // at most 3 Dc back along the floor: the horizon's side) to vNear (0.9 Dc towards the eye)
+  const vFar = P ? Math.min(far || Infinity, 3 / P) / Math.max(st, 1e-6) : Infinity, vNear = P ? 0.9 / (P * Math.max(st, 1e-6)) : Infinity;
+  const onPlane = (X, Y, z) => {
+    const dz = (z || 0) - pz;
+    if (!P) return [X, (Y + dz * st) / Math.max(0.15, ct)];
+    const den = ct + Y * P * st;   // <= 0: the ray passes over the horizon
+    let v = den > 1e-6 ? (Y - Y * P * dz * ct + dz * st) / den : -vFar;
+    v = Math.max(-vFar, Math.min(vNear, v));
+    return [X * Math.max(0.05, 1 - (v * st + dz * ct) * P), v];
+  };
+  // the turned-frame box of the four canvas corners on the plane z = 0 (orthographic: the tilt-widened rectangle)
+  const corners = [[-W2, -H2], [W2, -H2], [-W2, H2], [W2, H2]].map(([X, Y]) => onPlane(X / S, Y / S, 0));
+  const uMax = Math.max(...corners.map(c => Math.abs(c[0]))), vLo = Math.min(...corners.map(c => c[1])),
+    vHi = Math.max(...corners.map(c => c[1]));
   const cam = {
-    az, tilt, ca, sa, ct, st, px, py, pz, S, W: spec.W, H: spec.H, W2, H2,
+    az, tilt, ca, sa, ct, st, px, py, pz, S, W: spec.W, H: spec.H, W2, H2, persp: P, far,
     // rows of the world -> view rotation (u, screen-y, depth), for shaders and tests
     r0: [ca, sa, 0], r1: [-sa * ct, ca * ct, -st], r2: [-sa * st, ca * st, ct],
     // turned-frame offset of a world point from the pivot
@@ -29,24 +54,29 @@ function makeCamera(spec) {
     v(x, y) { return -sa * (x - px) + ca * (y - py); },
     project(x, y, z) {
       const dx = x - px, dy = y - py, u = ca * dx + sa * dy, v = -sa * dx + ca * dy;
-      return [W2 + u * S, H2 + (v * ct - (z - pz) * st) * S];
+      const f = fOf(v * st + (z - pz) * ct);
+      return [W2 + u * S * f, H2 + (v * ct - (z - pz) * st) * S * f];
     },
     depth(x, y, z) { const v = -sa * (x - px) + ca * (y - py); return v * st + (z - pz) * ct; },
+    // the perspective scale at a nearness (1 without perspective)
+    scaleAt: fOf,
     // the effective rotation of a cell's local frame in the view frame
     cellRot(packRot) { return (packRot || 0) - az; },
     // world point at screen (sx, sy) on the plane z (tilt clamped like the view extent)
     unproject(sx, sy, z) {
-      const u = (sx - W2) / S, v = ((sy - H2) / S + ((z || 0) - pz) * st) / Math.max(0.15, ct);
+      const [u, v] = onPlane((sx - W2) / S, (sy - H2) / S, z);
       return [px + ca * u - sa * v, py + sa * u + ca * v];
     },
-    // half extents of the view in the turned frame (um): the visible v range widens with the tilt
-    halfU() { return W2 / S; },
-    halfV() { return H2 / S / Math.max(0.15, ct); },
-    // world-axis-aligned box [x0, y0, x1, y1] holding the view's turned rectangle
+    // half extents of the view in the turned frame (um): the visible v range widens with the tilt (and, with
+    // perspective, reaches further back)
+    halfU() { return uMax; },
+    halfV() { return Math.max(-vLo, vHi); },
+    // world-axis-aligned box [x0, y0, x1, y1] holding the view's turned rectangle (trapezoid with perspective)
     visibleRect() {
-      const hu = W2 / S, hv = H2 / S / Math.max(0.15, ct);
+      const hu = uMax, vc = (vLo + vHi) / 2, hv = (vHi - vLo) / 2;
+      const cx = px - sa * vc, cy = py + ca * vc;
       const ex = Math.abs(ca) * hu + Math.abs(sa) * hv, ey = Math.abs(sa) * hu + Math.abs(ca) * hv;
-      return [px - ex, py - ey, px + ex, py + ey];
+      return [cx - ex, cy - ey, cx + ex, cy + ey];
     },
     // world displacement of the pivot for a drag of (dx, dy) device px (the scene follows the pointer)
     panDelta(dx, dy) {

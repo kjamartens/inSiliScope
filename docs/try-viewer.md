@@ -139,7 +139,11 @@ through it step by step.
 - Brightfield frames run on the CPU; the **BF quality** slider trades speed for precision (1: thin object, 6 condenser
   points ... 4: 0.25 um slices, 48 points).
 - **Tilt** (0 = straight down, 90 = from the side) and **Rotation** (about the vertical through the view centre) turn
-  the view; Shift-drag on the map does both (sideways turns, up and down tilts). **Z clip** draws only what lies
+  the view; Shift-drag on the map does both (sideways turns, up and down tilts). The advanced **Perspective** (0-90°,
+  the field of view, default 35°; 0 = orthographic) makes near things larger and far ones smaller, so a tilted floor
+  recedes; the scale bar holds at the depth of the view centre. With perspective, **Distance haze** (75 %) fades cells
+  and floor further away into a mist, and **Fade out far cells** (on) lets them fade out completely and draws nothing
+  beyond about the eye's distance behind the view centre (fewer cells to load in a steeply tilted view). **Z clip** draws only what lies
   between two heights above the coverslip (a vertical slider, 0-6 µm; its full range is off); drag both knobs together
   for a slab moving through the cells. **Soft Z clip** (on) fades what lies just outside it over 0.2 µm, lines widening
   as if out of focus; **Follow live focus** keeps the clip on the live focal plane ± 0.3 µm. Surfaces are drawn as

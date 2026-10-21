@@ -28,9 +28,13 @@ if [ -f release_assets/release_tag ]; then
     sed -i -e "s#releases/latest/download/#releases/download/$tag/#g" -e "s#releases/latest)#releases/tag/$tag)#g" "$f"
   done
 fi
-# The Home page's 2x2 overview shows the release's gallery images; without them, drop it (no broken images).
-if [ ! -f .site_docs/gallery/overview_map.png ]; then
+# Home shows the release's 3D overview (tools/build_hero.mjs) or, from a release without it, the 2x2 overview; without
+# the images, neither (no broken images).
+if [ -f .site_docs/gallery/overview_3d.jpg ] || [ ! -f .site_docs/gallery/overview_map.png ]; then
   sed -i '/<!-- overview:start/,/<!-- overview:end -->/d' .site_docs/index.md
+fi
+if [ ! -f .site_docs/gallery/overview_3d.jpg ]; then
+  sed -i '/<!-- hero:start/,/<!-- hero:end -->/d' .site_docs/index.md
 fi
 
 # The physics pages' figures (tools/build_physics_figures.py, rendered by the cli in pages.yml): each

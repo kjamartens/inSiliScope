@@ -93,6 +93,15 @@ jobs:
         run: |
           cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native --target insiliscope_cli
+      # The 3D overview: the viewer (the committed web/insiliscope_module.js) in headless Chromium (tools/build_hero.mjs),
+      # before the gallery, which puts it above the 2x2 overview.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: 3D overview
+        run: |
+          (cd web/tools && npm ci && npx playwright install --with-deps chromium)
+          node tools/build_hero.mjs --out site_gallery
       - name: Gallery
         run: python tools/build_gallery.py --cli build/native/cli/insiliscope_cli --out site_gallery
       - name: Benchmarks (history from the previous release, if any)

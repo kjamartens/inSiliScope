@@ -80,6 +80,36 @@ const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol * Math.max(1, Math.abs
   }
   check(ok, 'visibleRect holds every screen corner on the coverslip');
 }
+// 4b. perspective: persp 0 = orthographic; unproject inverts project; the pivot's depth keeps the scale; far is
+// smaller; visibleRect holds the corners (the far ones clamped where the floor runs past the horizon)
+{
+  let ok = true;
+  const spec = { px: 3, py: -4, pz: 1.5, az: 0.35, tilt: 72 * S.DEG, S: 20, W: 800, H: 600 };
+  const o = S.makeCamera(spec), z0 = S.makeCamera({ ...spec, persp: 0 });
+  for (const q of [[7.5, 2.25, 3.1], [-2, -9, 0]]) if (String(o.project(...q)) !== String(z0.project(...q))) ok = false;
+  for (const fovDeg of [20, 35, 60]) {
+    const c = S.makeCamera({ ...spec, persp: fovDeg * S.DEG });
+    for (const [x, y, z] of [[7.5, 2.25, 3.1], [0, -12, 0], [5, 4, 1.5]]) {
+      const [sx, sy] = c.project(x, y, z);
+      if (c.depth(x, y, z) * c.persp < 0.8) {
+        const [ux, uy] = c.unproject(sx, sy, z);
+        if (!near(ux, x, 1e-9) || !near(uy, y, 1e-9)) ok = false;
+      }
+    }
+    // a point at the pivot's depth projects as without perspective; one further back lands nearer the centre
+    const p0 = c.project(3 + 2 * Math.cos(0.35), -4 + 2 * Math.sin(0.35), 1.5);
+    if (!near(p0[0], 440) || !near(p0[1], 300)) ok = false;
+    const back = [3 + 5 * Math.sin(0.35), -4 - 5 * Math.cos(0.35)];   // 5 um back along the view's turned y
+    const a = c.project(back[0] + Math.cos(0.35), back[1] + Math.sin(0.35), 0), b = c.project(back[0], back[1], 0);
+    if (!(a[0] - b[0] < 20 - 1e-9 && a[0] - b[0] > 0)) ok = false;
+    const [x0, y0, x1, y1] = c.visibleRect();
+    for (const [sx, sy] of [[0, 0], [800, 0], [0, 600], [800, 600], [400, 300]]) {
+      const [x, y] = c.unproject(sx, sy, 0);
+      if (!isFinite(x) || x < x0 - 1e-9 || x > x1 + 1e-9 || y < y0 - 1e-9 || y > y1 + 1e-9) ok = false;
+    }
+  }
+  check(ok, 'perspective: 0 = orthographic, unproject inverts project, scale 1 at the pivot depth, far is smaller');
+}
 // 5. packZones / zoneSlot
 {
   const st = { theme: 'fluo', layers: {

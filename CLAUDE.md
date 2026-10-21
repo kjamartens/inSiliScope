@@ -182,8 +182,10 @@ that finishes them.
 - Releases (2026-10-01): push a tag `vX.Y.Z` (or run Actions -> Release with a version). `release.yml` runs `ci.yml`,
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
   the gallery (`tools/build_gallery.py` over `gallery/manifest.json`, including the 2x2 overview of its `overview` block
-  by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; shown on Home too, dropped by
-  `build_site.sh` when no release provides it) and benchmarks (`tools/bench.py`, history kept in
+  by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; above it the 3D overview
+  `overview_3d.jpg`, the viewer in headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT
+  frames as insets), shown on Home instead of the 2x2; `build_site.sh` falls back to the 2x2, or drops both, when a
+  release lacks them) and benchmarks (`tools/bench.py`, history kept in
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
