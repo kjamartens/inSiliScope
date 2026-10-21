@@ -7,6 +7,7 @@ docs_dir: docs
 theme:
   name: material
   custom_dir: overrides   # the analytics tag (overrides/partials/integrations/analytics/custom.html), link previews (main.html)
+  favicon: https://kjamartens.github.io/favicon-32x32.png   # the site's icon, as the viewer's (web/index.html)
   features:
     - navigation.sections
     - navigation.top
