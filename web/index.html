@@ -15,7 +15,9 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="A synthetic cell in 3D: microtubules, nucleus and nuclear pores">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23040507'/%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%23559ded' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23f0a050'/%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="32x32" href="https://kjamartens.github.io/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://kjamartens.github.io/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://kjamartens.github.io/apple-touch-icon.png">
 <style>
   /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
      below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
@@ -3124,6 +3126,41 @@ function getMtSlabsXZ(mts, t, yl, yh, zc, tag) {
   hits.set(key, out); hits.set(tag, out);
   return out;
 }
+// The pores the same way, by the depth slice of their centre, but XZ_NPC_SLABS slices together (filed under the
+// group's nearest slice, so they paint over that group's microtubules): per group one Path2D per colour level (the
+// centre's height in `levels` steps over the cell's height; 1 = a fixed colour), so a group costs a stroke per colour,
+// not one per pore (a pore at a time cost ~30-70 ms per frame with a few detailed cells: every live frame redraws the
+// view).
+const XZ_NPC_SLABS = 4, XZ_NPC_LEVELS = 12, XZ_NUC_LEVELS = 32;
+const npcSlabCacheXZ = new WeakMap();
+function getNpcSlabsXZ(npcs, p, arcs, t, yl, yh, zc, height, levels, tag) {
+  const key = [t.S, t.cr, t.sr, arcs, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm, yl, yh, zc[0], zc[1], height, levels].join('|');
+  let hits = npcSlabCacheXZ.get(npcs);
+  if (!hits) npcSlabCacheXZ.set(npcs, hits = new Map());
+  const hit = hits.get(key);
+  if (hit) return hit;
+  if (hits.has(tag) && xzLate()) return hits.get(tag);
+  const { pts, ring } = npcPolylines(npcs, p, arcs), nP = npcs.length / 9, per = nP ? pts.length / 4 / nP : 0;
+  const slabs = new Map();
+  for (let i = 0; i < nP; i++) {
+    const qx = npcs[9 * i], qy = npcs[9 * i + 1], qz = npcs[9 * i + 2], wy = qx * t.sr + qy * t.cr;
+    if (wy < yl || wy > yh || qz < zc[0] || qz > zc[1]) continue;
+    const s = XZ_NPC_SLABS * Math.floor(wy / (XZ_NPC_SLABS * XZ_SLAB_UM)) + XZ_NPC_SLABS - 1;
+    const lv = levels > 1 && height > 0 ? Math.min(levels - 1, Math.max(0, Math.floor(qz / height * levels))) : 0;
+    let sl = slabs.get(s);
+    if (!sl) slabs.set(s, sl = new Map());
+    let path = sl.get(lv);
+    if (!path) sl.set(lv, path = new Path2D());
+    for (let v = i * per; v < (i + 1) * per; v++) {
+      const lx = pts[4 * v], ly = pts[4 * v + 1], sx = (lx * t.cr - ly * t.sr) * t.S, sy = -pts[4 * v + 2] * t.S;
+      if (v > i * per && pts[4 * v - 1] === 1 && ring[v - 1] === ring[v]) path.lineTo(sx, sy); else path.moveTo(sx, sy);
+    }
+  }
+  const out = new Map([...slabs.entries()].map(([s, sl]) => [s, [...sl.entries()].sort((a, b) => a[0] - b[0])]));
+  if (hits.size >= 10) for (const k of hits.keys()) if (k.includes('|')) { hits.delete(k); break; }
+  hits.set(key, out); hits.set(tag, out);
+  return out;
+}
 function getMtPathXZ(mts, t, yl, yh, zc, tag) {
   const minPx = performance.now() < interactingUntil ? MT_MIN_SEG_PX_MOVING : MT_MIN_SEG_PX;
   const key = t.S + '|' + t.cr + '|' + t.sr + '|' + minPx + '|' + yl + '|' + yh + '|' + zc[0] + '|' + zc[1];
@@ -3154,7 +3191,11 @@ function getMtPathXZ(mts, t, yl, yh, zc, tag) {
 // and reduced to its leftmost and rightmost point along the turned x: { xl, zl, xr, zr } (turned x relative to the
 // pivot). From nucRingsLocal (both poles included, so they reach the true top and bottom of a shaped nucleus).
 function nucXZSections(c, entry, t, y0, y1) {
+  // cached per cell for its pose in the view and the y range (a live frame redraws the view without moving it)
+  const key = [t.ou, t.oy, t.cr, t.sr, y0, y1].join('|'), hit = entry.nucXZ;
+  if (hit && hit.key === key && hit.nuc === entry.nuc) return hit.out;
   const out = [], { xyz: a, np } = nucRingsLocal(c, entry), cr = t.cr, sr = t.sr;
+  entry.nucXZ = { key, nuc: entry.nuc, out };
   for (let o = 0; o < a.length; o += np * 3) {
     const s = { xl: Infinity, zl: 0, xr: -Infinity, zr: 0 };
     for (let i = 0; i < np; i++) {
@@ -3266,27 +3307,16 @@ function drawXZWith(vis, p, F, cam) {
     const mtStroke = mts ? mtCss || depthGrad(0, opa(kMt, 1), lineStops(kMt)) : null;
     const mtWidth = Math.max(0.6, (mtLayer.width || p.mtLineWidth) * S);
     const npcCss = npcs ? slotCss(F, kNpc * IV, cf.alpha, null) : null;
-    const npcLines = npcs ? npcPolylines(npcs, p, S >= NPC_ARC_PX_PER_UM * F.pxScale) : null;
-    // the pores in view by depth slice (of their centre)
-    const npcSlabs = new Map();
-    if (npcs) for (let i = 0; i < npcs.length / 9; i++) {
-      const qx = npcs[9 * i], qy = npcs[9 * i + 1], qz = npcs[9 * i + 2], wy = qx * t.sr + qy * t.cr;
-      if (wy < yl || wy > yh || qz < zc[0] || qz > zc[1]) continue;
-      const k = Math.floor(wy / XZ_SLAB_UM);
-      (npcSlabs.get(k) || npcSlabs.set(k, []).get(k)).push(i);
-    }
+    const npcLevels = npcCss ? 1 : XZ_NPC_LEVELS;
+    // the pores in view by depth slice (of their centre), each slice's paths by colour level
+    const npcSlabs = npcs ? getNpcSlabsXZ(npcs, p, S >= NPC_ARC_PX_PER_UM * F.pxScale, t, yl, yh, zc, c.height, npcLevels, tagp + 'npc') : new Map();
+    const npcStops = npcs && !npcCss ? lineStops(kNpc) : null, npcA = npcs ? opa(kNpc, 1) : 0;
+    const npcCols = [];   // per colour level, made on first use
     const strokeNpcs = list => {   // the pores of one slice
-      const { pts, ring } = npcLines, per = pts.length / 4 / (npcs.length / 9);
       g.save(); g.translate(t.ox, z0); g.lineWidth = F.npcW;
-      for (const i of list) {
-        const v0 = i * per, qz = npcs[9 * i + 2];
-        g.strokeStyle = npcCss || depthColor(qz, 0, c.height, opa(kNpc, 1), lineStops(kNpc));
-        g.beginPath();
-        for (let v = v0; v < v0 + per; v++) {
-          const lx = pts[4 * v], ly = pts[4 * v + 1], sx = (lx * t.cr - ly * t.sr) * S, sy = -pts[4 * v + 2] * S;
-          if (v > v0 && pts[4 * v - 1] === 1 && ring[v - 1] === ring[v]) g.lineTo(sx, sy); else g.moveTo(sx, sy);
-        }
-        g.stroke();
+      for (const [lv, path] of list) {
+        g.strokeStyle = npcCss || npcCols[lv] || (npcCols[lv] = depthColor((lv + 0.5) / npcLevels * c.height, 0, c.height, npcA, npcStops));
+        g.stroke(path);
       }
       g.restore();
     };
@@ -3297,10 +3327,14 @@ function drawXZWith(vis, p, F, cam) {
       let nz0 = Infinity, nz1 = -Infinity;
       for (const q of sec) { nz0 = Math.min(nz0, q.zl, q.zr); nz1 = Math.max(nz1, q.zl, q.zr); }
       // the shell's section: its left and right edges, closed at the bottom and top sections
-      const col = z => nucCss || (nStops ? depthColor(z, nz0, nz1, Math.min(1, opa(kNuc, 1) * 3), nStops)
-        : depthColor(z, 0, c.height, Math.min(1, opa(kNuc, 1) * 3)));
-      const seg = (x1, z1, x2, z2) => { g.strokeStyle = col((z1 + z2) / 2); g.beginPath(); g.moveTo(X(x1), Y(z1)); g.lineTo(X(x2), Y(z2)); g.stroke(); };
-      g.lineWidth = 1.5 * dpr; g.lineCap = 'round';
+      // each segment in the colour of its mid height, in XZ_NUC_LEVELS steps: one path and stroke per colour
+      const zl = nStops ? nz0 : 0, zh = nStops ? nz1 : c.height, nl = nucCss ? 1 : XZ_NUC_LEVELS, paths = new Map();
+      const seg = (x1, z1, x2, z2) => {
+        const lv = nl > 1 && zh > zl ? Math.min(nl - 1, Math.max(0, Math.floor(((z1 + z2) / 2 - zl) / (zh - zl) * nl))) : 0;
+        let path = paths.get(lv);
+        if (!path) paths.set(lv, path = new Path2D());
+        path.moveTo(X(x1), Y(z1)); path.lineTo(X(x2), Y(z2));
+      };
       for (let k = 0; k + 1 < sec.length; k++) {
         const a = sec[k], b = sec[k + 1];
         seg(a.xl, a.zl, b.xl, b.zl); seg(a.xr, a.zr, b.xr, b.zr);
@@ -3308,6 +3342,12 @@ function drawXZWith(vis, p, F, cam) {
       if (sec.length) {
         const a = sec[0], b = sec[sec.length - 1];
         seg(a.xl, a.zl, a.xr, a.zr); seg(b.xl, b.zl, b.xr, b.zr);
+      }
+      g.lineWidth = 1.5 * dpr; g.lineCap = 'round';
+      const na = Math.min(1, opa(kNuc, 1) * 3);
+      for (const [lv, path] of paths) {
+        g.strokeStyle = nucCss || depthColor(zl + (lv + 0.5) / nl * (zh - zl), zl, zh, na, nStops || undefined);
+        g.stroke(path);
       }
     }
     };
