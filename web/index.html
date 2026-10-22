@@ -357,6 +357,13 @@
   #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
   #mStage:not(.worldBig)>#canvasHost :is(#hud,#legend,#animBar,#movie,#xzSplit,#loading),
   #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
+  #mFocus{display:none}
+  body.mobile #mFocus{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:12px}
+  body.mobile #lv_z,body.mobile #lv_z+.u{display:none}   /* the knob instead (its readout shows the height) */
+  body.mobile #liveCtl .zrow{justify-content:flex-end}
+  body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:20px;line-height:1;touch-action:manipulation}
+  #mKnob{flex:1 1 0;min-width:0;height:34px;cursor:ew-resize;touch-action:none}
+  #mZ{flex:none;min-width:58px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
   body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--border)}
   body.mobile #liveBar>button,body.mobile #lv_recWrap>button{padding:6px 10px}
   body.mobile #lv_live{width:84px}
@@ -393,10 +400,12 @@
   body.mobile .mapList{max-width:calc(100vw - 24px)}
   body.mobile #movie{left:4px!important;right:4px!important;top:auto!important;bottom:4px!important;max-height:calc(100% - 8px);overflow:auto}
   body.mobile #mv_cv{max-width:100%;height:auto!important}
+  body.mobile #legend{pointer-events:none}   /* a large part of the small view: its gestures go through it */
   .m-only{display:none}
   body.mobile .m-only{display:revert}
   #canvasHost{position:relative;min-height:0;flex:1}
   canvas{display:block;cursor:grab}
+  #cv,#cvXZ,#lv_cv{touch-action:none}   /* their drags and pinches are the view's, not the page's */
   canvas.dragging{cursor:grabbing}
   /* Three stacked layers, all the same pixel size: #cvBase (grid + microtubules, 2D), #cvGl (cell bodies, WebGL2),
      #cv (nuclei + scale bar, 2D, the interactive one). #cvGl/#cvBase are display:none when WebGL2 is unavailable. */
@@ -1592,7 +1601,7 @@ document.addEventListener('wheel', ev => {
   if (el.value !== before) el.dispatchEvent(new Event('input', { bubbles: true }));
 }, { passive: false });
 
-// ---- tooltips: one floating box, on hover over a setting's name ----
+// ---- tooltips: one floating box, on hover over a setting's name (touch: a long press on it) ----
 const tip = h('div', { id: 'tip', role: 'tooltip' });
 document.body.append(tip);
 function showTip(t) {
@@ -1606,10 +1615,25 @@ function showTip(t) {
 const hideTip = () => { tip.style.display = 'none'; };
 for (const el of [$('side'), $('viewPanel')]) {
   const tipOf = ev => ev.target instanceof Element ? ev.target.closest('label[data-tip],.subhead [data-tip]') : null;
-  el.addEventListener('mouseover', ev => { const t = tipOf(ev); if (t) showTip(t); });
-  el.addEventListener('mouseout', ev => { if (tipOf(ev)) hideTip(); });
+  el.addEventListener('pointerover', ev => { const t = ev.pointerType !== 'touch' && tipOf(ev); if (t) showTip(t); });
+  el.addEventListener('pointerout', ev => { if (ev.pointerType !== 'touch' && tipOf(ev)) hideTip(); });
   el.addEventListener('focusout', hideTip);
+  // touch: held ~450 ms without moving, the name shows its help, and the press does not also act as a tap on it (a
+  // checkbox's label would toggle it); the next touch anywhere hides it
+  let press = null;
+  el.addEventListener('pointerdown', ev => {
+    const t = ev.pointerType === 'touch' && tipOf(ev);
+    if (!t) return;
+    press = { x: ev.clientX, y: ev.clientY, shown: false };
+    press.timer = setTimeout(() => { showTip(t); press.shown = true; }, 450);
+  });
+  el.addEventListener('pointermove', ev => { if (press && !press.shown && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) { clearTimeout(press.timer); press = null; } });
+  const endPress = () => { if (press) clearTimeout(press.timer); };
+  el.addEventListener('pointerup', endPress); el.addEventListener('pointercancel', () => { endPress(); press = null; });
+  el.addEventListener('click', ev => { if (press && press.shown) { ev.preventDefault(); ev.stopPropagation(); } press = null; }, true);
+  el.addEventListener('contextmenu', ev => { if (press) ev.preventDefault(); });
 }
+document.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch' && tip.style.display === 'block') hideTip(); }, true);
 panel.addEventListener('scroll', hideTip);
 $('viewPanel').addEventListener('scroll', hideTip);
 
@@ -3983,7 +4007,9 @@ function initGenWorkers() {
         iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
       genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     }
-    const K = Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 2));
+    // (a touch screen: at most 2 cell workers, as each one holds its own WASM heap of >= 96 MB and a phone's tab is
+    // stopped well below what a desktop's may use)
+    const K = Math.max(1, Math.min(matchMedia('(pointer:coarse)').matches ? 2 : 6, (navigator.hardwareConcurrency || 4) - 2));
     genWorkers.pack = spawnGenWorker();
     genWorkers.pack.onmessage = e => onBlockResult(e.data);
     for (let i = 0; i < K; i++) {
@@ -4788,36 +4814,77 @@ window.iscScene = {
 // ---- pan / zoom / turn ------------------------------------------------------
 // Drag pans (the scene follows the pointer), Shift-drag turns (sideways) and tilts (up and down) the view about its
 // centre, the wheel zooms. The side view pans and zooms the same view (a drag there moves along its horizontal only).
-// While an animation previews (cameraLocked), the camera is the animation's.
+// Touch: one finger pans; two fingers pinch (zoom), twist (turn) and pan with their midpoint, or, when they first move
+// up or down together, tilt. While an animation previews (cameraLocked), the camera is the animation's.
 const ORBIT_DEG_PER_PX = 0.4;
 let dragging = null, dragMode = 'pan', lastX = 0, lastY = 0, orbitAz = 0, orbitTilt = 0, cameraLocked = false;
+const fingers = new Map();   // pointerId -> { x, y } of the pointers down on the view
+let two = null;              // the two fingers' last midpoint, distance and angle, and the gesture they locked to
 function setInput(el, v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }
+function twoFingers() {
+  const [a, b] = [...fingers.values()];
+  return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), ang: Math.atan2(b.y - a.y, b.x - a.x) };
+}
+function setOrbit(az, tilt) {
+  if (az > 180) az -= 360; else if (az < -180) az += 360;
+  orbitAz = az; orbitTilt = Math.min(90, Math.max(0, tilt));
+  setInput(els.azimuthDeg, orbitAz); setInput(els.tiltDeg, orbitTilt);
+}
+function panView(c, dx, dy) {
+  const k = curCam || cameraFor(null, cv.width, cv.height), dpr = devicePixelRatio;
+  if (c === cv) { const [ddx, ddy] = k.panDelta(dx * dpr, dy * dpr); view.cx += ddx; view.cy += ddy; }
+  else { const du = -dx / view.scale; view.cx += k.ca * du; view.cy += k.sa * du; }
+}
+function endFinger(c, e) {
+  if (!fingers.delete(e.pointerId)) return;
+  if (fingers.size === 1) { const [p] = fingers.values(); lastX = p.x; lastY = p.y; dragMode = 'pan'; two = null; }   // the finger left goes on panning
+  else if (!fingers.size) { c.classList.remove('dragging'); dragging = null; two = null; }
+}
 for (const c of [cv, cvXZ]) {
   c.addEventListener('pointerdown', e => {
     if (pickHandler && c === cv) { const h = pickHandler; iscScene.armPick(null); h(pickCell(e.clientX, e.clientY)); return; }
+    if (dragging && dragging !== c) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    c.setPointerCapture(e.pointerId);
+    orbitAz = +els.azimuthDeg.value; orbitTilt = +els.tiltDeg.value;
+    if (fingers.size === 2 && c === cv) { dragMode = 'two'; two = twoFingers(); Object.assign(two, { lock: null, mx0: two.mx, my0: two.my, d0: two.d, ang0: two.ang }); return; }
+    if (fingers.size > 1) return;
     dragging = c; lastX = e.clientX; lastY = e.clientY;
     dragMode = e.shiftKey && c === cv ? 'orbit' : 'pan';
-    orbitAz = +els.azimuthDeg.value; orbitTilt = +els.tiltDeg.value;
-    c.setPointerCapture(e.pointerId);
     c.classList.add('dragging');
   });
   c.addEventListener('pointermove', e => {
-    if (dragging !== c) return;
+    if (dragging !== c || !fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dragMode === 'two') {
+      if (fingers.size < 2) return;
+      const g = twoFingers();
+      // lock to a tilt when the fingers first move up or down together (more than they spread, twist or slide sideways)
+      if (!two.lock) {
+        const ddy = Math.abs(g.my - two.my0), other = Math.max(Math.abs(g.d - two.d0), Math.abs(g.mx - two.mx0), Math.abs(g.ang - two.ang0) * g.d / 2);
+        if (ddy + other > 12) { two.lock = ddy > 2 * other ? 'tilt' : 'pinch'; Object.assign(two, { mx: two.mx0, my: two.my0, d: two.d0, ang: two.ang0 }); }   // (counted from the touch)
+      }
+      if (!cameraLocked && two.lock === 'tilt') setOrbit(orbitAz, orbitTilt - (g.my - two.my) * ORBIT_DEG_PER_PX);   // (up = more tilt, as in maps)
+      else if (!cameraLocked && two.lock === 'pinch') {
+        view.scale = Math.max(0.3, view.scale * g.d / two.d);
+        let da = g.ang - two.ang;
+        if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+        setOrbit(orbitAz - da * 180 / Math.PI, orbitTilt);
+        panView(c, g.mx - two.mx, g.my - two.my);
+      }
+      Object.assign(two, { mx: g.mx, my: g.my, d: g.d, ang: g.ang });
+      noteInteraction(); requestDraw();
+      return;
+    }
     const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX; lastY = e.clientY;
     if (cameraLocked) return;
-    if (dragMode === 'orbit') {
-      orbitAz += dx * ORBIT_DEG_PER_PX;
-      if (orbitAz > 180) orbitAz -= 360; else if (orbitAz < -180) orbitAz += 360;
-      orbitTilt = Math.min(90, Math.max(0, orbitTilt + dy * ORBIT_DEG_PER_PX));
-      setInput(els.azimuthDeg, orbitAz); setInput(els.tiltDeg, orbitTilt);
-    } else {
-      const k = curCam || cameraFor(null, cv.width, cv.height), dpr = devicePixelRatio;
-      if (c === cv) { const [ddx, ddy] = k.panDelta(dx * dpr, dy * dpr); view.cx += ddx; view.cy += ddy; }
-      else { const du = -dx / view.scale; view.cx += k.ca * du; view.cy += k.sa * du; }
-    }
+    if (dragMode === 'orbit') setOrbit(orbitAz + dx * ORBIT_DEG_PER_PX, orbitTilt + dy * ORBIT_DEG_PER_PX);
+    else panView(c, dx, dy);
     noteInteraction(); requestDraw();
   });
+  c.addEventListener('pointerup', e => endFinger(c, e));
+  c.addEventListener('pointercancel', e => endFinger(c, e));
   c.addEventListener('wheel', e => {
     e.preventDefault();
     if (cameraLocked) return;
@@ -4826,11 +4893,7 @@ for (const c of [cv, cvXZ]) {
     noteInteraction(); requestDraw();
   }, { passive: false });
 }
-window.addEventListener('pointerup', () => {
-  if (!dragging) return;
-  dragging.classList.remove('dragging');
-  dragging = null;
-});
+window.addEventListener('pointerup', e => { if (dragging) endFinger(dragging, e); });   // (a release the canvas missed)
 
 // ---- wiring -------------------------------------------------------------------
 // Value readouts, preset states and row visibility live with the panel (uiSchema script).

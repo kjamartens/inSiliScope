@@ -22,7 +22,16 @@ through it step by step.
   range and, at the Expert level, the performance. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
-  browser). On a narrow screen the parts stack.
+  browser).
+- **On a phone** (a window up to 700 px wide; a landscape phone or a tablet keeps the side-by-side layout) the live
+  image comes first, square across the screen, with the world view as a small inset in its top-right corner: a tap on
+  the inset swaps the two (remembered in your browser). ▶ Live / Snap / ● Record sit under the image and stay on screen
+  while the controls and settings below scroll with the page. One finger on the live image moves the stage; two fingers
+  moving up or down together move the focus (up = focus up), spread or pinched they zoom into the image. In the
+  **Focus** box a ruler replaces the focus field: swipe it like a focus knob (left = up, one step per notch, a fast
+  swipe goes further) or press − / + (held, they repeat). On the world view one finger pans; two fingers pinch to zoom,
+  twist to turn the view, and moved up or down together they tilt it. A long press on a setting's name shows its help.
+  The page starts at most two cell workers on a touch screen, to stay within a phone's memory.
 - **Live** (in the bar, or the **▶ Live** in the empty image, which shows "Starting..." until the first frame) renders
   one camera frame after the other at the view centre, at most one per exposure time (the line beside
   the buttons shows the frame rate, the render time per frame, the image size and the pixel size, led by "Working..." while a

@@ -40,6 +40,12 @@ that finishes them.
   synthetic events); data only from fixed lists (option values, booleans, buckets), never typed text or file names. A
   new event or counted control: add it to the table in docs/privacy.md in the same commit. The docs count page views and
   `data-umami-event` link clicks (download buttons). Release download counts: `python tools/download_stats.py`.
+- `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
+  `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
+  image big, world view the inset, `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
+  window; the focus knob `#mFocus` in the Focus box in place of `#lv_z`; touch: two fingers on the world view pinch /
+  twist / tilt, on the live image focus (up together) or zoom (`zoomAt`); long press = a setting's help; at most 2 cell
+  workers on a coarse pointer. Test: `tests/web/viewer_mobile.mjs` (touch through CDP).
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
   panel right): `live.js` (splitter, View pop-over, the live loop on its own worker: one `live` job per frame, at most one
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
@@ -98,7 +104,8 @@ that finishes them.
   Umami stubbed: nothing on localhost, restored settings uncounted, a person's picks, Live, Snap and the summary counted,
   ~35 s), `viewer_live_record.mjs` (browser: the one-line info, the square
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,
-  pixel size, the sample's time), `viewer_anim_export.mjs` (browser: export,
+  pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
+  `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`

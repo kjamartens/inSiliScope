@@ -21,7 +21,9 @@ A first tour, about five minutes:
    bleach where you look: move away and back and the place you imaged is dimmer than its fresh neighbours.
 3. **Focus and look closer.** The **Z** field (or Page Up / Page Down, or the wheel over the live image) moves the
    focus through the cells; the side view on the left shows the focal plane. **Ctrl + wheel** zooms into the live
-   image; **Display** sets the contrast over a live histogram.
+   image; **Display** sets the contrast over a live histogram. On a phone, the live image comes first with the sample as
+   an inset (tap it to swap them); two fingers up or down on the live image focus, a pinch zooms, and the **Focus** box
+   has a ruler to swipe ([the viewer reference](try-viewer.md) has every gesture).
 4. **Switch the microscope.** In **Configuration**, **Mode** changes the experiment: dSTORM, DNA-PAINT, PALM,
    WideField or BrightField, each with its typical dye, lasers and filters. Try **WideField**, then **BrightField**:
    the same cells, three very different pictures. **Drift** makes the sample wander, **Camera** swaps the sCMOS for an
@@ -30,7 +32,7 @@ A first tour, about five minutes:
 5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
    nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
    **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass). **Basic / Advanced /
-   Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover.
+   Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover (a long press on a phone).
 6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
    or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
