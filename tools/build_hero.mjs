@@ -27,9 +27,10 @@ const VIEW = { tiltDeg: 72, azimuthDeg: 20, perspDeg: 16, perspMist: 70, detailC
 const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'gallery/manifest.json'), 'utf8')).defaults;
 const PAINT = Object.fromEntries(['mt-imager-nm', 'mt-paint-on-sec', 'npc-imager-nm', 'npc-paint-on-sec'].map(k => [k, man[k]]));
 const LIVE_SEC = 15;
-// the loop: frames (four legs), frame rate, the longest path (um), its direction on screen in the final view (deg,
-// counterclockwise from the right), the low and high focus (um above the coverslip), the GIF's width
-const LOOP = { frames: 80, fps: 8, maxUm: 20, screenDeg: 10, zLow: 0.5, zHigh: 4, gifWidth: 720 };
+// the loop: frames (four legs), frame rate, the longest path (um), how far towards the edge it goes (a fraction of
+// the nucleus-to-edge line), its direction on screen in the final view (deg, counterclockwise from the right), the low
+// and high focus (um above the coverslip), the video's and the GIF's width
+const LOOP = { frames: 80, fps: 8, maxUm: 20, reach: 0.75, screenDeg: 10, zLow: 0.5, zHigh: 4, videoWidth: 1080, gifWidth: 480 };
 const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.wasm': 'application/wasm',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
@@ -92,6 +93,7 @@ try {
     const a = Math.max(0, len - L.maxUm);
     return { cell: c.cx + ',' + c.cy, len, A: [N[0] + best.u[0] * a, N[1] + best.u[1] * a], B: [N[0] + best.u[0] * len, N[1] + best.u[1] * len] };
   }, [VIEW, LOOP]);
+  line.B = [line.A[0] + (line.B[0] - line.A[0]) * LOOP.reach, line.A[1] + (line.B[1] - line.A[1]) * LOOP.reach];
   // [x, y, focus] per frame: edge -> nucleus (low), up, down, nucleus -> edge (low); each leg eased at both ends
   const ease = t => (1 - Math.cos(Math.PI * t)) / 2, lerp = (a, b, t) => a + (b - a) * t;
   const poses = Array.from({ length: LOOP.frames }, (_, i) => {
@@ -232,7 +234,20 @@ try {
       g.beginPath(); g.moveTo(...nl); g.lineTo(insets[0][0], insets[0][1]); g.moveTo(...nr); g.lineTo(insets[1][2], insets[1][1]); g.stroke();
       return c;
     };
+    const b64 = bytes => {
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    };
     const jpg = compose(0, 1).toDataURL('image/jpeg', 0.9).split(',')[1];
+    // the video (web/encode/video.js: H.264 in MP4, else VP9 / VP8 in WebM; none if the browser encodes neither)
+    const vs = LOOP.videoWidth / W.width, c0 = compose(0, vs);
+    const sink = await IscEncode.createSink({ format: 'mp4', width: c0.width, height: c0.height, fps: LOOP.fps, quality: 'high' });
+    let video = null;
+    if (sink.ext !== 'gif') {
+      for (let i = 0; i < boxes.length; i++) await sink.addFrame(i ? compose(i, vs) : c0);
+      video = { ext: sink.ext, codec: sink.codec, w: c0.width, h: c0.height, data: b64(new Uint8Array(await (await sink.finish()).arrayBuffer())) };
+    }
     const s = LOOP.gifWidth / W.width, frames = boxes.map((_, i) => {
       const c = compose(i, s);
       return { w: c.width, h: c.height, px: c.getContext('2d').getImageData(0, 0, c.width, c.height).data };
@@ -241,16 +256,18 @@ try {
     const enc = IscGif.encoder({ width: w, height: h, fps: LOOP.fps, dither: 'bayer4' });
     enc.setPalette(IscGif.buildPalette(frames.filter((_, i) => i % 4 === 0).map(f => f.px), [[0, 0, 0], [255, 255, 255], [235, 238, 245]]));
     for (const f of frames) enc.addFrame(f.px);
-    const bytes = enc.finish();
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return { jpg, gif: btoa(bin), w, h };
+    return { jpg, gif: b64(enc.finish()), video, w, h };
   }, [world, info.boxes, info.dpr, LOOP]);
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, 'overview_3d.jpg'), Buffer.from(out.jpg, 'base64'));
   const gif = Buffer.from(out.gif, 'base64');
   fs.writeFileSync(path.join(OUT, 'overview_3d.gif'), gif);
   log(`wrote ${path.join(OUT, 'overview_3d.jpg')} and overview_3d.gif (${out.w} x ${out.h}, ${LOOP.frames} frames at ${LOOP.fps} fps, ${(gif.length / 1e6).toFixed(1)} MB)`);
+  if (out.video) {
+    const v = Buffer.from(out.video.data, 'base64');
+    fs.writeFileSync(path.join(OUT, 'overview_3d.' + out.video.ext), v);
+    log(`wrote overview_3d.${out.video.ext} (${out.video.codec}, ${out.video.w} x ${out.video.h}, ${(v.length / 1e6).toFixed(1)} MB)`);
+  } else log('no video: this browser encodes neither H.264 nor VP9 / VP8');
 } finally {
   await browser.close();
   server.close();

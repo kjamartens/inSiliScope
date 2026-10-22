@@ -31,7 +31,9 @@
   margin: 1rem 0 0.6rem;
   width: 100%;
 }
-.isc-hero img {
+.isc-hero img,
+.isc-hero video {
+  display: block;
   width: 100%;
   height: auto;
   border-radius: 4px;

@@ -10,8 +10,8 @@ single-molecule localisation (SMLM) movie or as a widefield image, with a physic
 cell and molecule is a pure function of `(seed, address)`, so any window of the field can be generated on its own, in
 any order, on any platform, with identical results.
 
-<p align="center"><a href="https://kjamartens.github.io/inSiliScope/"><img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_3d.gif" width="720"
-  alt="The cell field in 3D in the viewer, with the camera box gliding over it and its live widefield and SMLM (DNA-PAINT) frames: single molecules blinking"></a></p>
+<p align="center"><a href="https://kjamartens.github.io/inSiliScope/"><img src="https://kjamartens.github.io/inSiliScope/docs/gallery/overview_3d.gif" width="480"
+  alt="The cell field in 3D in the viewer: the camera box goes in from a cell's edge to its nucleus, the focus rises through it and comes down, and the box goes back; its live widefield and SMLM (DNA-PAINT) frames beside it, single molecules blinking"></a></p>
 
 | A field of synthetic cells | What is in the box | Widefield camera | Single-molecule (SMLM) camera |
 |:---:|:---:|:---:|:---:|
