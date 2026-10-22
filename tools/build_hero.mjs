@@ -41,8 +41,11 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 
 // a clipped page screenshot of an element (an element screenshot waits for a "stable" page, which a view that
-// keeps redrawing on software GL never is)
-const shot = async (page, sel) => page.screenshot({ clip: await page.locator(sel).boundingBox(), timeout: 300000 });
+// keeps redrawing on software GL never is); the clip is measured once, on the fresh page (the layout stays, and a page
+// busy with a software-GL repaint can miss a 30 s timeout)
+const clips = {};
+const clipOf = async (page, sel) => (clips[sel] ||= await page.locator(sel).boundingBox({ timeout: 300000 }));
+const shot = async (page, sel) => page.screenshot({ clip: await clipOf(page, sel), timeout: 300000 });
 const t0 = Date.now(), log = s => console.log(`${s}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`);
 // --gpu: the machine's GPU (else SwiftShader, as on a CI runner: slow with every cell's microtubules)
 const browser = await chromium.launch({ channel: arg('channel') || undefined,
@@ -54,6 +57,7 @@ page.on('pageerror', e => console.log('pageerror', e.message));
 try {
   await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
   await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
+  await clipOf(page, '#canvasHost');
   const box = await page.locator('#cv').boundingBox();
   await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.5);
   for (let i = 0; i < VIEW.zoomSteps; i++) { await page.mouse.wheel(0, -300); await page.waitForTimeout(400); }
@@ -143,34 +147,17 @@ try {
     }
     await moveTo(poses[0]);
   };
-  // First the live frames, on a light flat view without its microtubules and pores (the world view repaints with every
-  // live frame, and a view of every cell's microtubules takes seconds per repaint); then the 3D view, once.
-  await set({ perspDeg: 0, showMt: false, showNpcs: false, ...Object.fromEntries(Object.entries(PAINT).map(([k, v]) => ['mv_' + k, v])) });
-  await page.click('#lv_live');
-  await page.waitForTimeout(LIVE_SEC * 1000);
-  log(`range ${await fixRange()}`);
-  await liveRun('__heroPaint');
-  log(`live DNA-PAINT frames (${poses.length})`);
-  const mode = await page.$eval('select[data-pick="mode"]', e => e.value);
-  await page.selectOption('select[data-pick="mode"]', { label: 'WideField' });
-  await autoRange(true);
-  await page.waitForTimeout(LIVE_SEC * 1000);
-  log(`range ${await fixRange()}`);
-  await liveRun('__heroWf');
-  log(`live widefield frames (${poses.length})`);
-  await page.click('#lv_live');
-  await autoRange(true);
-  await page.selectOption('select[data-pick="mode"]', mode);
-
-  // The world view, once, centred on the path and without its camera box: the composite draws the box at each pose
-  // (the stage moves under a still view, so only the box and the insets change from frame to frame).
+  // First the world view, once, centred on the path and without its camera box: the composite draws the box at each
+  // pose (the stage moves under a still view, so only the box and the insets change from frame to frame). It goes first,
+  // on a page with nothing else to do: on software GL every cell's microtubules take minutes to arrive and seconds per
+  // repaint.
   await moveTo(mid);
   await page.evaluate(() => { window.drawPlannedFov = () => {}; });
   await set({ showMt: true, showNpcs: true, showGrid: true, perspCut: false, detailCells: VIEW.detailCells, tiltDeg: VIEW.tiltDeg,
     azimuthDeg: VIEW.azimuthDeg, perspDeg: VIEW.perspDeg, perspMist: VIEW.perspMist });
   // the cells delivered: no block packing, no cell asset in flight, at most 3 cells still loading, and the microtubule
   // count unchanged over 8 polls and 3 s (on software GL one repaint can block the page for seconds, so time alone
-  // passes at the first poll after it); at most 4 min
+  // passes at the first poll after it); at most 10 min
   await page.waitForFunction(() => {
     const t = document.getElementById('hudText').textContent, n = +document.getElementById('hud').dataset.microtubules || 0;
     const m = /loading (\d+) cell/.exec(t);
@@ -178,7 +165,7 @@ try {
       window.__heroN = n; window.__heroT = performance.now(); window.__heroP = 0; return false;
     }
     return ++window.__heroP >= 8 && performance.now() - window.__heroT > 3000;
-  }, null, { timeout: 240000, polling: 250 }).catch(async () => log('cells still arriving after 4 min, going on: '
+  }, null, { timeout: 600000, polling: 250 }).catch(async () => log('cells still arriving after 10 min, going on: '
     + await page.evaluate(() => document.getElementById('hudText').textContent.replace(/\s+/g, ' '))));
   // the camera box of every pose on screen (the frame drawn with these settings), as the viewer draws it
   const info = await page.evaluate(async poses => {
@@ -196,6 +183,25 @@ try {
   await page.waitForTimeout(500);
   const world = (await shot(page, '#canvasHost')).toString('base64');
   log(`world view: ${info.mt} microtubules`);
+  // Then the live frames, on a light flat view without its microtubules and pores (the world view repaints with every
+  // live frame, and a view of every cell's microtubules takes seconds per repaint).
+  await set({ perspDeg: 0, showMt: false, showNpcs: false, ...Object.fromEntries(Object.entries(PAINT).map(([k, v]) => ['mv_' + k, v])) });
+  await page.click('#lv_live');
+  await page.waitForTimeout(LIVE_SEC * 1000);
+  log(`range ${await fixRange()}`);
+  await liveRun('__heroPaint');
+  log(`live DNA-PAINT frames (${poses.length})`);
+  const mode = await page.$eval('select[data-pick="mode"]', e => e.value);
+  await page.selectOption('select[data-pick="mode"]', { label: 'WideField' });
+  await autoRange(true);
+  await page.waitForTimeout(LIVE_SEC * 1000);
+  log(`range ${await fixRange()}`);
+  await liveRun('__heroWf');
+  log(`live widefield frames (${poses.length})`);
+  await page.click('#lv_live');
+  await autoRange(true);
+  await page.selectOption('select[data-pick="mode"]', mode);
+
 
   // The composite, drawn on a canvas in the page: frame i at scale s (1 = the screenshot's size); the JPEG of frame 0,
   // the GIF of all of them (web/encode/gif.js: one palette, ordered dithering, only the changed rectangle per frame).
