@@ -98,12 +98,11 @@ def run_sweep(cli, out_dir, eid, args, sweep):
     return np.stack([frames[z] for z in order]), heights
 
 
-# The 3D overview (tools/build_hero.mjs: the looping video, MP4 or WebM, with the still as its poster and all a release
-# before the video shows), above the 2x2 here and on Home (docs/index.md has the same figure).
-HERO_ALT = ("The cell field in 3D in the viewer: the camera box goes in from a cell's edge to its nucleus, the focus rises through it and comes down, and the box goes back; its live widefield and SMLM (DNA-PAINT) frames beside it, single molecules blinking")
-HERO_HTML = ('<figure class="isc-hero"><video autoplay loop muted playsinline preload="auto" poster="overview_3d.jpg" '
-             'aria-label="' + HERO_ALT + '"><source src="overview_3d.mp4" type="video/mp4">'
-             '<source src="overview_3d.webm" type="video/webm"><img src="overview_3d.jpg" alt="' + HERO_ALT + '"></video></figure>')
+# The 3D overview (tools/build_hero.mjs: the looping GIF, else its still), above the 2x2 here and on Home
+# (docs/index.md has the same figure).
+HERO_HTML = ('<figure class="isc-hero"><img src="%s%s" alt="The cell field in 3D in the viewer: the camera box goes in from a '
+             "cell's edge to its nucleus, the focus rises through it and comes down, and the box goes back; its live "
+             'widefield and SMLM (DNA-PAINT) frames beside it, single molecules blinking" loading="lazy"></figure>')
 
 
 def main():
@@ -206,11 +205,12 @@ def main():
              "reproduces it; frames use a square-root intensity scale. Open *How these movies were made* under a "
              "section for each movie's settings and command line, or try any of it live in the "
              "[viewer](../../){ target=\"_blank\" }.", ""]
-    hero = os.path.exists(os.path.join(a.out, "overview_3d.jpg"))   # tools/build_hero.mjs (the viewer), run before this
+    # tools/build_hero.mjs (the viewer), run before this: the GIF, or the still of a release without it
+    hero = next((f for f in ("overview_3d.gif", "overview_3d.jpg") if os.path.exists(os.path.join(a.out, f))), None)
     if hero or overview:
         lines += ["## What inSiliScope is", ""]
     if hero:
-        lines += [HERO_HTML, "", "The cell field in the [viewer](../../){ target=\"_blank\" }: tilted, in perspective, "
+        lines += [HERO_HTML % ("", hero), "", "The cell field in the [viewer](../../){ target=\"_blank\" }: tilted, in perspective, "
                   "with what its live microscope sees in the dashed camera box as the stage takes it from the cell's edge to its nucleus, the focus rises through the nucleus and comes back down, and the box returns to the edge "
                   "(`tools/build_hero.mjs`).", ""]
     if overview:
