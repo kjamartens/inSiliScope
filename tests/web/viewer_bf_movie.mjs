@@ -30,7 +30,7 @@ for (const [quality, want, query, drift] of [['1', /BrightField/, ''], ['3', /Br
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`http://localhost:${port}/index.html${query}`);
+  await page.goto(`http://localhost:${port}/index.html?live=0${query.replace('?', '&')}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   const shown = await page.evaluate(([q, d]) => {
     document.getElementById('mv_drift-xy-nm-per-sqrt-sec').value = d || '0';

@@ -351,7 +351,7 @@
   #mTop{position:sticky;top:0;z-index:10;background:var(--panel)}
   #mStage{position:relative;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
   #mStage>#liveView,#mStage>#canvasHost{position:absolute;inset:0;width:auto;height:auto;aspect-ratio:auto;flex:none;overflow:hidden}
-  #mStage>#canvasHost,#mStage.worldBig>#liveView,#mSwap{inset:6px 6px auto auto;width:30%;height:30%;z-index:5;box-sizing:border-box;
+  #mStage>#canvasHost,#mStage.worldBig>#liveView,#mSwap{inset:6px 6px auto auto;width:37.5%;height:37.5%;z-index:5;box-sizing:border-box;
     border:1px solid rgba(255,255,255,.6);border-radius:4px}
   #mStage.worldBig>#canvasHost{inset:0;width:auto;height:auto;z-index:auto;border:0;border-radius:0}
   #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
@@ -456,7 +456,7 @@
   <div id="worldCol">
   <div id="viewBar">
     <h1>inSiliScope</h1>
-    <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; press ▶ Live on the right.">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt, then &#9654; Live</span>
+    <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
     <span class="sp"></span>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
@@ -1200,7 +1200,7 @@ const UI_GROUPS = [
       synthetic cells (cell body, nucleus, microtubules, nuclear pores) or DNA-origami nanorulers, endless in every
       direction. Every cell and every dye follows from the seed and its position, so you can pan away and come back to
       the same structure. On the right is the microscope: the dashed box is the camera's view, imaged with the dyes,
-      light path, PSF and camera noise you set here (press ▶ Live).</p>
+      light path, PSF and camera noise you set here (live from the start; ■ Stop stops it).</p>
       <p class="sub">Drag to pan, wheel to zoom, Shift-drag to tilt and turn. The same simulation runs as a device
       adapter in Micro-Manager, and as a headless command-line tool: <a href="https://kjamartens.github.io/inSiliScope/docs/quickstart/"
       target="_top">Quickstart</a> &middot; <a href="https://kjamartens.github.io/inSiliScope/docs/" target="_top">Documentation</a> &middot;

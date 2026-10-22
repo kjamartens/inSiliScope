@@ -690,7 +690,7 @@ function syncBusy() {
 }
 function syncIdle() {
   syncBusy();
-  const starting = (L.on || !!L.pending) && !L.frames;
+  const starting = (L.on || !!L.pending || L.auto) && !L.frames;
   $('lv_idlePress').hidden = starting; $('lv_idleStart').hidden = !starting;
 }
 function syncButtons() {
@@ -709,6 +709,18 @@ function setLive(on) {
   if (on) { closePlayer(); L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
 }
 $('lv_live').addEventListener('click', () => { setLive(!L.on); if (L.on) iscTrack('live'); });
+// Live starts by itself once the engine is up (not counted as a pick), unless the user pressed Live, Snap or Record
+// first; ?live=0 keeps it off (the browser tests, which drive it themselves).
+L.auto = !/[?&]live=0(&|$)/.test(location.search);
+for (const id of ['lv_live', 'lv_snap', 'lv_rec']) $(id).addEventListener('click', () => { if (L.auto) { L.auto = false; syncIdle(); } }, true);
+if (L.auto) {
+  const t = setInterval(() => {
+    if (!L.auto) { clearInterval(t); return; }
+    if (!genWorkers.ok) return;
+    clearInterval(t); L.auto = false;
+    if (!L.on && !REC.on) setLive(true);
+  }, 200);
+}
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
 $('lv_snap').addEventListener('click', () => { iscTrack('snap'); if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });

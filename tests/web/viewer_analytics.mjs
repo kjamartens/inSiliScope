@@ -40,7 +40,7 @@ try {
     await ctx.route('**/*umami*/**', r => { hits.push(r.request().url()); r.abort(); });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(e.message));
-    await page.goto(`http://localhost:${server.address().port}/index.html`);
+    await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
     await page.waitForFunction(() => typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
     await page.click('#levelSeg button[data-level=advanced]');
     const off = await page.evaluate(() => typeof iscTrack === 'function' && !iscTrack._test.on);

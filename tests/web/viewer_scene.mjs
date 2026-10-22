@@ -31,7 +31,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
-await page.goto(`http://localhost:${server.address().port}/index.html`);
+await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
 await page.waitForFunction(() => window.iscScene && +document.getElementById('hud').dataset.cells > 0 && iscScene.packingIdle(), null, { timeout: 300000 });
 
 // Runtime (< 5 min on SwiftShader): every check renders its own off-screen frame, but a readPixels also waits for

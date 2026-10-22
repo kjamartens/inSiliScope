@@ -30,7 +30,7 @@ for (const [query, want] of [['?wfgpu=any', /GPU: /], ['', process.env.ISC_CHROM
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`http://localhost:${port}/index.html${query}`);
+  await page.goto(`http://localhost:${port}/index.html?live=0${query.replace('?', '&')}`);
   await page.waitForFunction(() => typeof createInsiliscope === 'function' || !!self.ISC_MODULE_SRC);
   await page.evaluate(() => {
     // The mode first: the Dye select lists only the dyes with data for it (DNA-PAINT by default).

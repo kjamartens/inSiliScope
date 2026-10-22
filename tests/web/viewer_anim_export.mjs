@@ -36,7 +36,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
-await page.goto(`http://localhost:${port}/index.html`);
+await page.goto(`http://localhost:${port}/index.html?live=0`);
 await page.waitForFunction(() => window.iscAnim && +document.getElementById('hud').dataset.cells > 0, null, { timeout: 300000 });
 await page.evaluate(() => { for (const id of ['showCyto', 'showNucleus', 'showMt', 'showXZ']) { els[id].checked = false; els[id].dispatchEvent(new Event('input', { bubbles: true })); } });
 

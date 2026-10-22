@@ -43,7 +43,7 @@ const ctx = await browser.newContext({ viewport: { width: 1600, height: 828 }, d
 const page = await ctx.newPage();
 page.on('pageerror', e => console.log('pageerror', e.message));
 try {
-  await page.goto(`http://localhost:${server.address().port}/index.html`);
+  await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
   await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
   const box = await page.locator('#cv').boundingBox();
   await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.5);

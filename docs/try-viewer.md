@@ -32,7 +32,8 @@ through it step by step.
   swipe goes further) or press − / + (held, they repeat). On the world view one finger pans; two fingers pinch to zoom,
   twist to turn the view, and moved up or down together they tilt it. A long press on a setting's name shows its help.
   The page starts at most two cell workers on a touch screen, to stay within a phone's memory.
-- **Live** (in the bar, or the **▶ Live** in the empty image, which shows "Starting..." until the first frame) renders
+- **Live** starts by itself once the engine is up (the empty image shows "Starting..." until the first frame; it does
+  not count as a press in the usage counts; `?live=0` in the address keeps it off) and renders
   one camera frame after the other at the view centre, at most one per exposure time (the line beside
   the buttons shows the frame rate, the render time per frame, the image size and the pixel size, led by "Working..." while a
   slow frame, snap or recording is being rendered; the button turns red while live runs). It runs the adapter's live mode itself (`LiveScope`, in WebAssembly): the light a frame

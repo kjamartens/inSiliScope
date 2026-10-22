@@ -49,7 +49,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 try {
-  await page.goto(`http://localhost:${server.address().port}/index.html`);
+  await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
   await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
   await page.evaluate(() => {
     document.querySelector('#levelSeg button[data-level=expert]').click();

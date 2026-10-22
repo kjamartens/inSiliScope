@@ -16,7 +16,8 @@ A first tour, about five minutes:
    microtubules and nuclear pores. Drag to move the stage, scroll to zoom. **Shift-drag** tilts and turns the field
    into 3D; the strip along the bottom is a side view (x-z). **View ▾** (top left) switches layers on and off. The
    dashed square is what the camera sees.
-2. **Go live.** Press **▶ Live** on the right. Every frame is a simulated camera image of the dashed square: by default
+2. **Go live.** The live view on the right starts by itself once the engine is up (**■ Stop** stops it, **▶ Live** goes
+   on). Every frame is a simulated camera image of the dashed square: by default
    DNA-PAINT, so single molecules flash on and off as imagers bind. The sample remembers the light it got, so dyes
    bleach where you look: move away and back and the place you imaged is dimmer than its fresh neighbours.
 3. **Focus and look closer.** The **Z** field (or Page Up / Page Down, or the wheel over the live image) moves the

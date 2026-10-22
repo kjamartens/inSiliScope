@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer on a phone (web/live/mobile.js) in headless Chromium with touch: the layout (no sideways scroll, the
-// square stage at full width, the world view as the inset in its top-right corner), Live, the focus knob (a swipe and
+// square stage at full width, the world view as the inset in its top-right corner), Live starting by itself, the focus knob (a swipe and
 // − / +), two fingers on the live image (up = focus up, a spread = zoom), the inset swap (kept over a reload), two
 // fingers on the world view (pinch = zoom, both up = tilt), and a wide window putting every node back.
 //   node tests/web/viewer_mobile.mjs [--channel=chrome]
@@ -61,15 +61,14 @@ try {
       s: [s.left, s.width, s.height], h: [h.right, h.top - s.top, h.width / s.width] };
   });
   check(lay.mobile && lay.sw <= lay.iw && lay.s[0] === 0 && Math.abs(lay.s[1] - lay.iw) < 1 && Math.abs(lay.s[1] - lay.s[2]) < 1
-    && Math.abs(lay.h[0] - (lay.s[1] - 6)) < 2 && lay.h[1] < 10 && Math.abs(lay.h[2] - 0.3) < 0.02,
+    && Math.abs(lay.h[0] - (lay.s[1] - 6)) < 2 && lay.h[1] < 10 && Math.abs(lay.h[2] - 0.375) < 0.02,
     `layout: body.mobile, no sideways scroll (${lay.sw}/${lay.iw} px), the stage square at full width, the world view the top-right inset ${JSON.stringify(lay)}`);
 
   await page.evaluate(() => { document.getElementById('mv_size').value = 64; document.getElementById('mv_size').dispatchEvent(new Event('input', { bubbles: true })); });
-  await tap('#lv_live');
-  await page.waitForFunction(() => liveState.frames >= 2, null, { timeout: 120000 });
-  check(true, 'Live from a tap gives frames');
-  await page.evaluate(() => document.getElementById('lv_live').click());   // (stopped: touches wait on busy frames)
+  await page.waitForFunction(() => liveState.on && liveState.frames >= 2, null, { timeout: 120000 });
+  await tap('#lv_live');   // (stopped: touches wait on busy frames)
   await page.waitForFunction(() => !liveState.on && !liveState.pending, null, { timeout: 60000 });
+  check(true, 'Live starts by itself, a tap on Stop stops it');
 
   // the focus knob (in the Focus box): a slow swipe 60 px to the left = 5 steps up; then − once
   const k = await rect('#mKnob'), z0 = await z();

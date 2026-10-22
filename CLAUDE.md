@@ -42,12 +42,13 @@ that finishes them.
   `data-umami-event` link clicks (download buttons). Release download counts: `python tools/download_stats.py`.
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
-  image big, world view the inset, `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
+  image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
   window; the focus knob `#mFocus` in the Focus box in place of `#lv_z`; touch: two fingers on the world view pinch /
   twist / tilt, on the live image focus (up together) or zoom (`zoomAt`); long press = a setting's help; at most 2 cell
   workers on a coarse pointer. Test: `tests/web/viewer_mobile.mjs` (touch through CDP).
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
-  panel right): `live.js` (splitter, View pop-over, the live loop on its own worker: one `live` job per frame, at most one
+  panel right): `live.js` (splitter, View pop-over, the live loop on its own worker, started by itself once the engine is up (2026-10-22, `L.auto`, not counted;
+  `?live=0` keeps it off: every browser test that drives Live loads the page with it): one `live` job per frame, at most one
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
