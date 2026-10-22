@@ -191,7 +191,7 @@ that finishes them.
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
   the gallery (`tools/build_gallery.py` over `gallery/manifest.json`, including the 2x2 overview of its `overview` block
   by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; above it the 3D overview
-  `overview_3d.gif` (2026-10-22: a 5 s loop in four legs: from the right-hand cell edge in to the nucleus at 0.5 um, the focus up to 3 um and down, back out; a live WF / DNA-PAINT frame per
+  `overview_3d.gif` (2026-10-22: a 10 s loop in four legs: from the right-hand cell edge in to the nucleus at 0.5 um, the focus up to 4 um and down, back out; a live WF / DNA-PAINT frame per
   frame, `LOOP` in the script; README.md shows the published one) and its still `overview_3d.jpg`, the viewer in
   headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT frames as insets), shown on Home
   instead of the 2x2; `build_site.sh` falls back to the still, then to the 2x2, or drops both, when a release lacks them) and benchmarks (`tools/bench.py`, history kept in

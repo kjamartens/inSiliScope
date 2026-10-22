@@ -29,7 +29,7 @@ const PAINT = Object.fromEntries(['mt-imager-nm', 'mt-paint-on-sec', 'npc-imager
 const LIVE_SEC = 15;
 // the loop: frames (four legs), frame rate, the longest path (um), its direction on screen in the final view (deg,
 // counterclockwise from the right), the low and high focus (um above the coverslip), the GIF's width
-const LOOP = { frames: 40, fps: 8, maxUm: 20, screenDeg: 10, zLow: 0.5, zHigh: 3, gifWidth: 720 };
+const LOOP = { frames: 80, fps: 8, maxUm: 20, screenDeg: 10, zLow: 0.5, zHigh: 4, gifWidth: 720 };
 const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.wasm': 'application/wasm',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
