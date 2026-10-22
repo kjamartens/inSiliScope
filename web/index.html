@@ -6431,11 +6431,15 @@ function scheduleSpecPlot() {
   clearTimeout(specTimer);
   specTimer = setTimeout(() => { drawSpecPlot(false); if (!document.getElementById('specBig').hidden) drawSpecPlot(true); }, 120);
 }
-// big: the enlarged plot (#specBig, click the small one), drawn at k = 2 (its canvas has twice the CSS pixels).
+// big: the enlarged plot (#specBig, click the small one), drawn at k = 2 (its canvas has twice the CSS pixels); the
+// small one (laid out on 300 x 96) at the screen pixels it covers (k = its CSS width / 300 x devicePixelRatio, up to 4:
+// sharp on a phone, the same size and look on the page).
+const SPEC_W = 300, SPEC_H = 96;
 async function drawSpecPlot(big) {
   const cv2 = document.getElementById(big ? 'specPlotBig' : 'specPlot'), out = document.getElementById(big ? 'specBigReadout' : 'specReadout');
   if (!cv2 || !cv2.offsetParent) return;
-  const k = big ? 2 : 1;
+  const k = big ? 2 : Math.min(4, Math.max(1, (cv2.clientWidth || SPEC_W) / SPEC_W * (devicePixelRatio || 1)));
+  if (!big && cv2.width !== Math.round(SPEC_W * k)) { cv2.width = Math.round(SPEC_W * k); cv2.height = Math.round(SPEC_H * k); }
   try {
     specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
     const [SM, DL] = await specMods;
@@ -6453,7 +6457,7 @@ async function drawSpecPlot(big) {
           laser: nm => waveColour(nm, false) };
     const legend = [];   // [label, style] for the enlarged plot's legend
     g.clearRect(0, 0, W, H);
-    g.font = (big ? 22 : 10) + 'px sans-serif'; g.fillStyle = P.text;
+    g.font = (big ? 22 : 10 * k) + 'px sans-serif'; g.fillStyle = P.text;
     const step = big ? 50 : 100;
     for (let nm = 400; nm <= 800; nm += step) { g.fillText(String(nm), X(nm) - 9 * k, H - 3 * k); g.fillRect(X(nm), bot, k, 3 * k); }
     if (big) g.fillText('nm', X(x0) + 4 * k, H - 3 * k);
@@ -6544,6 +6548,7 @@ for (const id of ['panel', 'liveCtl']) {
 document.getElementById('panel').addEventListener('toggle', e => { if (e.target.dataset && e.target.dataset.group === 'acq') requestDraw(); }, true);
 for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality', 'mv_z']) document.getElementById(id).addEventListener('input', requestDraw);
 scheduleSpecPlot();
+window.addEventListener('resize', scheduleSpecPlot);   // (a new pixel density: another screen, a page zoom, the phone layout)
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
 });
