@@ -210,7 +210,7 @@ def main():
         lines += ["## What inSiliScope is", ""]
     if hero:
         lines += [HERO_HTML % ("", hero), "", "The cell field in the [viewer](../../){ target=\"_blank\" }: tilted, in perspective, "
-                  "with what its live microscope sees in the dashed camera box as the stage takes it from a nucleus out to the cell's edge and back "
+                  "with what its live microscope sees in the dashed camera box as the stage takes it from the cell's edge to its nucleus, the focus rises through the nucleus and comes back down, and the box returns to the edge "
                   "(`tools/build_hero.mjs`).", ""]
     if overview:
         lines += [

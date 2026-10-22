@@ -5,10 +5,11 @@
 // live microscope's DNA-PAINT and widefield frames of the camera box as two insets on the floor under the box, tied to
 // its near corners by dashed lines. The DNA-PAINT imagers are the gallery's (gallery/manifest.json defaults: a tenth of
 // the cli's, bound 10x longer). Two files: overview_3d.jpg (a still, full size) and overview_3d.gif (a loop of
-// LOOP.frames frames at LOOP.fps: the stage takes the camera box from the nucleus of the cell under the start
-// position out to that cell's edge (on a line that runs diagonally up and left on screen, clear of the insets; at most
-// LOOP.maxUm long) and eases back, each frame with its own live widefield and DNA-PAINT frame there, so the field moves
-// in the widefield inset and the single molecules blink). Rendered by release.yml before tools/build_gallery.py, which puts it above the 2x2 overview;
+// LOOP.frames frames at LOOP.fps in four eased legs: at the low focus the camera box goes from the right-hand edge of
+// the cell under the start position (on a line that runs to the right on screen, a little up, clear of the insets; at
+// most LOOP.maxUm long) in to its nucleus, the focus rises to LOOP.zHigh there and comes down again, and the box goes
+// back out; each frame with its own live widefield and DNA-PAINT frame, so the field moves, the focus goes through the
+// nucleus and the single molecules blink; the box is drawn at the focal plane). Rendered by release.yml before tools/build_gallery.py, which puts it above the 2x2 overview;
 // tools/build_site.sh shows it on Home; README.md shows the published GIF.
 //   node tools/build_hero.mjs --out site_gallery [--channel=chrome] [--gpu]   (a few min with --gpu, longer on SwiftShader; needs web/tools' Playwright)
 import http from 'node:http';
@@ -26,9 +27,9 @@ const VIEW = { tiltDeg: 72, azimuthDeg: 20, perspDeg: 16, perspMist: 70, detailC
 const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'gallery/manifest.json'), 'utf8')).defaults;
 const PAINT = Object.fromEntries(['mt-imager-nm', 'mt-paint-on-sec', 'npc-imager-nm', 'npc-paint-on-sec'].map(k => [k, man[k]]));
 const LIVE_SEC = 15;
-// the loop: frames, frame rate, the longest path (um), its direction on screen in the final view (deg, counterclockwise
-// from the right), the GIF's width
-const LOOP = { frames: 40, fps: 8, maxUm: 14, screenDeg: 150, gifWidth: 720 };
+// the loop: frames (four legs), frame rate, the longest path (um), its direction on screen in the final view (deg,
+// counterclockwise from the right), the low and high focus (um above the coverslip), the GIF's width
+const LOOP = { frames: 40, fps: 8, maxUm: 20, screenDeg: 10, zLow: 0.5, zHigh: 3, gifWidth: 720 };
 const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.wasm': 'application/wasm',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
@@ -91,16 +92,41 @@ try {
     const a = Math.max(0, len - L.maxUm);
     return { cell: c.cx + ',' + c.cy, len, A: [N[0] + best.u[0] * a, N[1] + best.u[1] * a], B: [N[0] + best.u[0] * len, N[1] + best.u[1] * len] };
   }, [VIEW, LOOP]);
-  // out and back, easing at both ends (pose 0 = the nucleus end)
+  // [x, y, focus] per frame: edge -> nucleus (low), up, down, nucleus -> edge (low); each leg eased at both ends
+  const ease = t => (1 - Math.cos(Math.PI * t)) / 2, lerp = (a, b, t) => a + (b - a) * t;
   const poses = Array.from({ length: LOOP.frames }, (_, i) => {
-    const f = (1 - Math.cos(2 * Math.PI * i / LOOP.frames)) / 2;
-    return [line.A[0] + (line.B[0] - line.A[0]) * f, line.A[1] + (line.B[1] - line.A[1]) * f];
+    const q = 4 * i / LOOP.frames, leg = Math.floor(q), t = ease(q - leg);
+    const f = leg === 0 ? 1 - t : leg === 3 ? t : 0;   // 1 = the edge, 0 = the nucleus
+    const z = leg === 1 ? lerp(LOOP.zLow, LOOP.zHigh, t) : leg === 2 ? lerp(LOOP.zHigh, LOOP.zLow, t) : LOOP.zLow;
+    return [lerp(line.A[0], line.B[0], f), lerp(line.A[1], line.B[1], f), z];
   });
-  const mid = [(line.A[0] + line.B[0]) / 2, (line.A[1] + line.B[1]) / 2];
+  const mid = [(line.A[0] + line.B[0]) / 2, (line.A[1] + line.B[1]) / 2, LOOP.zLow];
   log(`path: cell ${line.cell}, nucleus to edge ${line.len.toFixed(1)} um, ${Math.hypot(line.B[0] - line.A[0], line.B[1] - line.A[1]).toFixed(1)} um travelled`);
-  const moveTo = p => page.evaluate(p => { view.cx = p[0]; view.cy = p[1]; requestDraw(); }, p);
-  // the live display range: automatic while the light settles, then fixed, so the loop does not flicker
+  // the stage and the focus (the live Focus field, mirrored into the movie settings)
+  const moveTo = p => page.evaluate(p => {
+    view.cx = p[0]; view.cy = p[1];
+    const z = document.getElementById('lv_z');
+    if (+z.value !== p[2]) { z.value = p[2]; z.dispatchEvent(new Event('input', { bubbles: true })); z.dispatchEvent(new Event('change', { bubbles: true })); }
+    requestDraw();
+  }, p);
+  // the live display range: automatic while the light settles; then the widest automatic range of the loop's extremes
+  // (the edge, the nucleus low and high) is fixed, so the loop neither flickers nor clips over the nucleus
   const autoRange = on => page.evaluate(on => { const a = document.getElementById('lv_auto'); a.checked = on; a.dispatchEvent(new Event('change')); }, on);
+  const fixRange = async () => {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of [poses[0], poses[LOOP.frames / 4], poses[LOOP.frames / 2]]) {
+      await moveTo(p);
+      const f0 = await page.evaluate(() => liveState.frames);
+      await page.waitForFunction(f0 => liveState.frames >= f0 + 8, f0, { timeout: 120000 });   // the auto range is smoothed
+      const r = await page.evaluate(() => [+document.getElementById('lv_lo').value, +document.getElementById('lv_hi').value]);
+      lo = Math.min(lo, r[0]); hi = Math.max(hi, r[1]);
+    }
+    await page.evaluate(([lo, hi]) => {
+      const a = document.getElementById('lv_lo'), b = document.getElementById('lv_hi');
+      a.value = lo; b.value = hi; b.dispatchEvent(new Event('input'));   // turns the automatic range off
+    }, [lo, hi]);
+    return [lo, hi];
+  };
   // One live frame per pose (a frame started after the move: two new frames), kept in the page as a canvas copy.
   const liveRun = async key => {
     await page.evaluate(k => { window[k] = []; }, key);
@@ -120,14 +146,14 @@ try {
   await set({ perspDeg: 0, showMt: false, showNpcs: false, ...Object.fromEntries(Object.entries(PAINT).map(([k, v]) => ['mv_' + k, v])) });
   await page.click('#lv_live');
   await page.waitForTimeout(LIVE_SEC * 1000);
-  await autoRange(false);
+  log(`range ${await fixRange()}`);
   await liveRun('__heroPaint');
   log(`live DNA-PAINT frames (${poses.length})`);
   const mode = await page.$eval('select[data-pick="mode"]', e => e.value);
   await page.selectOption('select[data-pick="mode"]', { label: 'WideField' });
   await autoRange(true);
   await page.waitForTimeout(LIVE_SEC * 1000);
-  await autoRange(false);
+  log(`range ${await fixRange()}`);
   await liveRun('__heroWf');
   log(`live widefield frames (${poses.length})`);
   await page.click('#lv_live');
@@ -162,8 +188,8 @@ try {
     const cvr = cv.getBoundingClientRect(), host = document.getElementById('canvasHost').getBoundingClientRect();
     const k = devicePixelRatio, ox = (cvr.left - host.left) * k, oy = (cvr.top - host.top) * k;
     return { mt: +document.getElementById('hud').dataset.microtubules, dpr: k,
-      boxes: poses.map(([cx, cy]) => [[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size]].map(([x, y]) => {
-        const [sx, sy] = project(cx + x, cy + y, 0); return [sx + ox, sy + oy]; })) };
+      boxes: poses.map(([cx, cy, cz]) => [[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size]].map(([x, y]) => {
+        const [sx, sy] = project(cx + x, cy + y, cz); return [sx + ox, sy + oy]; })) };
   }, poses);
   await page.waitForTimeout(500);
   const world = (await shot(page, '#canvasHost')).toString('base64');
