@@ -191,9 +191,10 @@ that finishes them.
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
   the gallery (`tools/build_gallery.py` over `gallery/manifest.json`, including the 2x2 overview of its `overview` block
   by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; above it the 3D overview
-  `overview_3d.jpg`, the viewer in headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT
-  frames as insets), shown on Home instead of the 2x2; `build_site.sh` falls back to the 2x2, or drops both, when a
-  release lacks them) and benchmarks (`tools/bench.py`, history kept in
+  `overview_3d.gif` (2026-10-22: a 4 s loop, the stage once round a 1.5 um circle, a live WF / DNA-PAINT frame per
+  frame, `LOOP` in the script; README.md shows the published one) and its still `overview_3d.jpg`, the viewer in
+  headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT frames as insets), shown on Home
+  instead of the 2x2; `build_site.sh` falls back to the still, then to the 2x2, or drops both, when a release lacks them) and benchmarks (`tools/bench.py`, history kept in
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
