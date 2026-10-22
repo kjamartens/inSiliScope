@@ -5,9 +5,10 @@
 // live microscope's DNA-PAINT and widefield frames of the camera box as two insets on the floor under the box, tied to
 // its near corners by dashed lines. The DNA-PAINT imagers are the gallery's (gallery/manifest.json defaults: a tenth of
 // the cli's, bound 10x longer). Two files: overview_3d.jpg (a still, full size) and overview_3d.gif (a loop of
-// LOOP.frames frames at LOOP.fps: the stage goes once round a small circle (LOOP.radiusUm), so the camera box glides
-// over the still cell field and comes back, each frame with its own live widefield and DNA-PAINT frame there, so the
-// field moves in the widefield inset and the single molecules blink). Rendered by release.yml before tools/build_gallery.py, which puts it above the 2x2 overview;
+// LOOP.frames frames at LOOP.fps: the stage takes the camera box from the nucleus of the cell under the start
+// position out to that cell's edge (on a line that runs diagonally up and left on screen, clear of the insets; at most
+// LOOP.maxUm long) and eases back, each frame with its own live widefield and DNA-PAINT frame there, so the field moves
+// in the widefield inset and the single molecules blink). Rendered by release.yml before tools/build_gallery.py, which puts it above the 2x2 overview;
 // tools/build_site.sh shows it on Home; README.md shows the published GIF.
 //   node tools/build_hero.mjs --out site_gallery [--channel=chrome] [--gpu]   (a few min with --gpu, longer on SwiftShader; needs web/tools' Playwright)
 import http from 'node:http';
@@ -25,8 +26,9 @@ const VIEW = { tiltDeg: 72, azimuthDeg: 20, perspDeg: 16, perspMist: 70, detailC
 const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'gallery/manifest.json'), 'utf8')).defaults;
 const PAINT = Object.fromEntries(['mt-imager-nm', 'mt-paint-on-sec', 'npc-imager-nm', 'npc-paint-on-sec'].map(k => [k, man[k]]));
 const LIVE_SEC = 15;
-// the loop: frames, frame rate, the stage's circle (it starts and ends at the start position), the GIF's width
-const LOOP = { frames: 32, fps: 8, radiusUm: 1.5, gifWidth: 720 };
+// the loop: frames, frame rate, the longest path (um), its direction on screen in the final view (deg, counterclockwise
+// from the right), the GIF's width
+const LOOP = { frames: 40, fps: 8, maxUm: 14, screenDeg: 150, gifWidth: 720 };
 const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.wasm': 'application/wasm',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
@@ -60,12 +62,42 @@ try {
       e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true }));
     }
   }, vals);
-  // The stage's poses: once round a circle through the start position (um; pose 0 = the start).
-  const c0 = await page.evaluate(() => [view.cx, view.cy]);
+  // The stage's path: the cell under the start position (its outline once its asset is in), from its nucleus centre
+  // to its edge; of the directions every 2 degrees, the one closest to LOOP.screenDeg on screen in the final view.
+  await page.waitForFunction(() => {
+    const k = typeof packCache !== 'undefined' && packCache && nearestCell(view.cx, view.cy), a = k && assets.get(k);
+    return !!(a && a.entry && a.entry.mesh);
+  }, null, { timeout: 120000 });
+  const line = await page.evaluate(([V, L]) => {
+    const inCell = (c, x, y) => {
+      const a = assets.get(c.cx + ',' + c.cy), dx = x - c.x, dy = y - c.y, d = Math.hypot(dx, dy);
+      if (d > c.rOuter || !(a && a.entry && a.entry.mesh)) return false;
+      const tab = footprintPolar(a.entry), r = -(c.packRot || 0), lx = dx * Math.cos(r) - dy * Math.sin(r), ly = dx * Math.sin(r) + dy * Math.cos(r);
+      return d <= tab[((Math.floor(Math.atan2(ly, lx) / (2 * Math.PI) * FOOT_BINS) % FOOT_BINS) + FOOT_BINS) % FOOT_BINS];
+    };
+    const c = [...packCache.map.values()].find(c => inCell(c, view.cx, view.cy)) || packCache.map.get(nearestCell(view.cx, view.cy));
+    const cr = Math.cos(c.packRot || 0), sr = Math.sin(c.packRot || 0);
+    const N = [c.x + c.nucOffX * cr - c.nucOffY * sr, c.y + c.nucOffX * sr + c.nucOffY * cr];
+    const cam = cameraFor({ pivot: [N[0], N[1], 0], azimuthDeg: V.azimuthDeg, tiltDeg: V.tiltDeg, scale: view.scale }, 1000, 1000);
+    const s0 = cam.project(N[0], N[1], 0);
+    let best = null;
+    for (let deg = 0; deg < 360; deg += 2) {
+      const u = [Math.cos(deg * Math.PI / 180), Math.sin(deg * Math.PI / 180)], s1 = cam.project(N[0] + u[0], N[1] + u[1], 0);
+      const off = Math.abs(((Math.atan2(s0[1] - s1[1], s1[0] - s0[0]) * 180 / Math.PI - L.screenDeg) % 360 + 540) % 360 - 180);
+      if (!best || off < best.off) best = { u, off };
+    }
+    let len = 0;
+    while (len < 60 && inCell(c, N[0] + best.u[0] * (len + 0.1), N[1] + best.u[1] * (len + 0.1))) len += 0.1;
+    const a = Math.max(0, len - L.maxUm);
+    return { cell: c.cx + ',' + c.cy, len, A: [N[0] + best.u[0] * a, N[1] + best.u[1] * a], B: [N[0] + best.u[0] * len, N[1] + best.u[1] * len] };
+  }, [VIEW, LOOP]);
+  // out and back, easing at both ends (pose 0 = the nucleus end)
   const poses = Array.from({ length: LOOP.frames }, (_, i) => {
-    const th = 2 * Math.PI * i / LOOP.frames;
-    return [c0[0] + LOOP.radiusUm * (Math.cos(th) - 1), c0[1] + LOOP.radiusUm * Math.sin(th)];
+    const f = (1 - Math.cos(2 * Math.PI * i / LOOP.frames)) / 2;
+    return [line.A[0] + (line.B[0] - line.A[0]) * f, line.A[1] + (line.B[1] - line.A[1]) * f];
   });
+  const mid = [(line.A[0] + line.B[0]) / 2, (line.A[1] + line.B[1]) / 2];
+  log(`path: cell ${line.cell}, nucleus to edge ${line.len.toFixed(1)} um, ${Math.hypot(line.B[0] - line.A[0], line.B[1] - line.A[1]).toFixed(1)} um travelled`);
   const moveTo = p => page.evaluate(p => { view.cx = p[0]; view.cy = p[1]; requestDraw(); }, p);
   // the live display range: automatic while the light settles, then fixed, so the loop does not flicker
   const autoRange = on => page.evaluate(on => { const a = document.getElementById('lv_auto'); a.checked = on; a.dispatchEvent(new Event('change')); }, on);
@@ -102,8 +134,9 @@ try {
   await autoRange(true);
   await page.selectOption('select[data-pick="mode"]', mode);
 
-  // The world view, once, at the start position and without its camera box: the composite draws the box at each pose
+  // The world view, once, centred on the path and without its camera box: the composite draws the box at each pose
   // (the stage moves under a still view, so only the box and the insets change from frame to frame).
+  await moveTo(mid);
   await page.evaluate(() => { window.drawPlannedFov = () => {}; });
   await set({ showMt: true, showNpcs: true, showGrid: true, perspCut: false, detailCells: VIEW.detailCells, tiltDeg: VIEW.tiltDeg,
     azimuthDeg: VIEW.azimuthDeg, perspDeg: VIEW.perspDeg, perspMist: VIEW.perspMist });
