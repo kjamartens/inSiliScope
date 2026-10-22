@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>inSiliScope viewer</title>
 <!-- Link previews (LinkedIn, X, Slack, ...): social.jpg is web/social.jpg, copied to the site root by tools/build_site.sh. -->
 <meta name="description" content="A simulated fluorescence microscope in your browser: synthetic cells and DNA-origami nanorulers in 3D, imaged live with realistic dyes, optics and camera noise (dSTORM, PALM, DNA-PAINT, widefield, brightfield). Also a Micro-Manager device adapter.">
@@ -334,13 +335,66 @@
   .dual input[type=range]::-moz-range-progress{background:none}
   .dual input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
   .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
-  @media (max-width:700px){
-    html,body{overflow:auto}
-    #wrap{grid-template-columns:1fr;grid-template-rows:55vh auto;height:auto}
-    #splitter{display:none}
-    #side{border-top:1px solid var(--border)}
-    #panel{overflow:visible}
-  }
+  /* Phones (body.mobile: a window at most 700 px wide, set by web/live/mobile.js): one column that scrolls with the
+     page. The title bar, then (sticky, kept on screen) the square stage (#mStage) with the live image filling it and
+     the world view as an inset in its top-right corner (.worldBig: the other way round; a tap on the inset swaps
+     them) and the live bar under it in two lines, then the controls column, the search and the settings. Controls
+     are finger-sized; inputs at 16 px, below which iOS zooms in on a focused field. */
+  html:has(>body.mobile),body.mobile{overflow:auto}
+  body.mobile{--fs:14px;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
+  body.mobile #wrap{display:block;height:auto}
+  body.mobile #splitter{display:none}
+  body.mobile #viewBar .tagline,body.mobile #viewBar .sp{display:none}
+  body.mobile #viewBar{justify-content:space-between;gap:10px}
+  body.mobile #viewBar #mmLink{margin:0 0 0 auto}
+  body.mobile #viewBar a.back{font-size:12px}
+  #mTop{position:sticky;top:0;z-index:10;background:var(--panel)}
+  #mStage{position:relative;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
+  #mStage>#liveView,#mStage>#canvasHost{position:absolute;inset:0;width:auto;height:auto;aspect-ratio:auto;flex:none;overflow:hidden}
+  #mStage>#canvasHost,#mStage.worldBig>#liveView,#mSwap{inset:6px 6px auto auto;width:30%;height:30%;z-index:5;box-sizing:border-box;
+    border:1px solid rgba(255,255,255,.6);border-radius:4px}
+  #mStage.worldBig>#canvasHost{inset:0;width:auto;height:auto;z-index:auto;border:0;border-radius:0}
+  #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
+  #mStage:not(.worldBig)>#canvasHost :is(#hud,#legend,#animBar,#movie,#xzSplit,#loading),
+  #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
+  body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--border)}
+  body.mobile #liveBar>button,body.mobile #lv_recWrap>button{padding:6px 10px}
+  body.mobile #lv_live{width:84px}
+  body.mobile #menuBtn{order:1;margin-left:auto;font-size:18px}
+  body.mobile #liveBar::after{content:'';order:1;flex-basis:100%;height:0}
+  body.mobile :is(#lv_busy,#lv_info,#levelSeg){order:2}
+  body.mobile #lv_info{flex:1 1 0;margin-left:0}
+  body.mobile #levelSeg button{padding:5px 9px;font-size:12px}
+  body.mobile #menu{max-width:calc(100vw - 16px);box-sizing:border-box}
+  body.mobile #sideBody{display:flex;flex-direction:column}
+  body.mobile #sideMain{display:contents}
+  body.mobile #liveCtl{order:1;overflow:visible;min-height:auto;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
+  body.mobile #sideTop{order:2;border-top:1px solid var(--border)}
+  body.mobile :is(#panel,#animPanel){order:3;overflow:visible;min-height:auto}
+  body.mobile :is(input[type=number],input[type=text],input[type=search],select){font-size:16px}
+  body.mobile :is(#liveCtl,#panel) :is(select,input[type=number],input[type=text]),body.mobile #setSearch{height:32px}
+  body.mobile :is(#liveCtl,#panel) .opt{min-height:32px}
+  body.mobile #liveCtl .opt input[type=number],body.mobile #liveCtl .crow input[type=number]{width:68px}
+  body.mobile #liveCtl .zrow #lv_z{width:84px}
+  body.mobile #liveCtl .zrow #lv_zStep{width:60px}
+  body.mobile .opt.pair .ctl input[type=number]{width:60px}
+  body.mobile button{padding:6px 10px}
+  body.mobile input[type=range]{height:28px}
+  body.mobile input[type=range]::-webkit-slider-thumb{width:20px;height:20px;margin-top:-8px}
+  body.mobile input[type=range]::-moz-range-thumb{width:18px;height:18px}
+  body.mobile .dual{height:28px}
+  body.mobile .dual .track,body.mobile .dual .fill{top:12px}
+  body.mobile .dual input{height:28px}
+  body.mobile .dual input[type=range]::-webkit-slider-runnable-track{height:28px}
+  body.mobile .dual input[type=range]::-webkit-slider-thumb{width:20px;height:20px;margin-top:4px}
+  body.mobile .dual input[type=range]::-moz-range-thumb{width:18px;height:18px}
+  body.mobile :is(label,.subhead){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  body.mobile #viewPanel{width:260px}
+  body.mobile .mapList{max-width:calc(100vw - 24px)}
+  body.mobile #movie{left:4px!important;right:4px!important;top:auto!important;bottom:4px!important;max-height:calc(100% - 8px);overflow:auto}
+  body.mobile #mv_cv{max-width:100%;height:auto!important}
+  .m-only{display:none}
+  body.mobile .m-only{display:revert}
   #canvasHost{position:relative;min-height:0;flex:1}
   canvas{display:block;cursor:grab}
   canvas.dragging{cursor:grabbing}
@@ -475,6 +529,7 @@
   </div>
 </div>
 
+<script src="live/mobile.js"></script>
 <script src="live/usage.js"></script>
 <!-- usage.js missing (an ad-blocker): the buttons call iscTrack all the same. -->
 <script>self.iscTrack = self.iscTrack || Object.assign(() => {}, { framesBucket: () => "" });</script>
@@ -2037,7 +2092,8 @@ function xzSliceZ(st) {
 function resizeCanvas() {
   const r = host.getBoundingClientRect();
   const barH = animBarH();   // the animation timeline (web/anim/editor.js) under the view, when shown
-  const xzH = els.showXZ.checked && !previewState ? xzHeightFor(r.height - barH) : 0;
+  const inset = self.iscMobile && iscMobile.worldInset;   // the world view as the phone's inset (web/live/mobile.js): no side view
+  const xzH = els.showXZ.checked && !previewState && !inset ? xzHeightFor(r.height - barH) : 0;
   const mainH = r.height - xzH - barH; // the view (and so the FOV) is the area above the side view
   cv.width = Math.round(r.width * devicePixelRatio);
   cv.height = Math.round(mainH * devicePixelRatio);
@@ -2054,7 +2110,7 @@ function resizeCanvas() {
   }
   host.classList.toggle('xz', !!(xzH + barH));
   host.style.setProperty('--xz-h', (xzH + barH) + 'px');
-  document.getElementById('xzSplit').style.display = els.showXZ.checked && !previewState ? 'block' : 'none';
+  document.getElementById('xzSplit').style.display = els.showXZ.checked && !previewState && !inset ? 'block' : 'none';
   requestDraw();
 }
 // Drag the side view's top edge: its height follows (below ~12 px it hides); a double-click fits it again.
