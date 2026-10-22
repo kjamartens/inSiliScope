@@ -71,6 +71,12 @@ Upcoming ideas:
   2026-10-14 and dropped: needs a server or a webSMLM change, to be decided), [x] per-frame performance breakdown (fixed
   rows), [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
   [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).
+- Fiducial markers on any sample (2026-10-22, branch `claude/fiducials`): [x] data (`data/fiducials/`: Balinovic et al.
+  2019's spectra read from figures 2a-6a with fitted tails, FPbase bead spectra, brightness from the paper's images,
+  gold Mie table; `tools/fiducial_spectra/`), [ ] JS model in iteration mode (Poisson field on any specimen, heights
+  Coverslip / OnTop / Layer, 12 % size spread, one emitter per bead with a sphere-averaged PSF, bleaching by a
+  half-time at each component's excitation peak, gold's laser scatter through the filters' blocking), [ ] core + engine
+  port, [ ] MM `Fiducials` device, [ ] viewer, [ ] docs, figures, gallery.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

@@ -4,8 +4,8 @@
 //   node tools/fetch_fpbase.mjs --missing  -> only the dyes and spectra the file lacks (the rest stay as fetched, so an
 //                                             FPbase edit since then cannot move an existing curve)
 // Reads data/dyes/library.json (dyes and fluorescent proteins by FPbase name), light_path.json (filter spectrum ids:
-// excitation filters, dichroics, emission filters)
-// and cameras.json (QE spectrum ids). Spectra are resampled linearly onto 300..900 nm in 1 nm steps (0 outside the
+// excitation filters, dichroics, emission filters), cameras.json (QE spectrum ids) and data/fiducials/types.json (the
+// fiducial components' 'fp:<id>' spectra). Spectra are resampled linearly onto 300..900 nm in 1 nm steps (0 outside the
 // FPbase range) and rounded to 1e-4; the scalars (peaks, eps, QY, lifetime, emission colour) are stored as FPbase has
 // them, so library.json overrides stay visible as overrides. Output: CC BY-SA 4.0 (FPbase data), with attribution.
 // Cite: Lambert TJ (2019) FPbase: a community-editable fluorescent protein database. Nat Methods 16:277-278.
@@ -107,6 +107,9 @@ for (const d of library.dyes) {
 }
 for (const f of [...lightPath.excitationFilters, ...lightPath.dichroics, ...lightPath.emissionFilters]) if (f.fpbase) wanted.set(f.fpbase, `filter ${f.id}`);
 for (const c of cameras.presets) if (typeof c.qeCurve === 'number') wanted.set(c.qeCurve, `camera ${c.id}`);
+const fiducials = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'fiducials', 'types.json'), 'utf8'));
+for (const t of fiducials.types) for (const c of t.components)
+  for (const k of ['ex', 'em']) if (c[k].startsWith('fp:')) wanted.set(Number(c[k].slice(3)), `fiducial ${t.id} ${c.id} ${k}`);
 
 const spectra = {};
 for (const [id, use] of [...wanted].sort((a, b) => a[0] - b[0])) {
