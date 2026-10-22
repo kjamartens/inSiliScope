@@ -113,6 +113,7 @@ $('liveView').addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.de
 // events or a movie; spawned on the first Live or Snap.
 const L = self.liveState = { on: false, worker: null, pending: null, id: 0, frames: 0, t: 0, history: null,
   lastShown: 0, fps: 0, ms: 0, w: 0, h: 0, frame: null, lo: 0, hi: 1, spec: '', snap: false, err: '' };
+L.stepZ = stepZ;   // (the phone's focus knob, web/live/mobile.js)
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;
@@ -305,31 +306,61 @@ function applyZoom() {
   cv.style.cursor = 'grab';
   drawScale();
 }
+// Zoom by a factor about a point on screen (the image under it stays put).
+function zoomAt(factor, clientX, clientY) {
+  const r = $('liveView').getBoundingClientRect(), S = r.width || 1;
+  const px = (clientX - r.left) / S, py = (clientY - r.top) / S;   // the point, as a fraction of the view
+  const u = Z.x + px / Z.z, v = Z.y + py / Z.z;                    // ... and of the image
+  Z.z *= factor;
+  Z.x = u - px / Math.min(32, Math.max(1, Z.z)); Z.y = v - py / Math.min(32, Math.max(1, Z.z));
+  applyZoom();
+}
 $('liveView').addEventListener('wheel', ev => {
   if (!ev.ctrlKey) return;   // the plain wheel steps the focus (above)
   ev.preventDefault(); ev.stopImmediatePropagation();
-  const r = $('liveView').getBoundingClientRect(), S = r.width || 1;
-  const px = (ev.clientX - r.left) / S, py = (ev.clientY - r.top) / S;   // the pointer, as a fraction of the view
-  const u = Z.x + px / Z.z, v = Z.y + py / Z.z;                          // ... and of the image
-  Z.z *= Math.exp(-ev.deltaY * 0.0025);
-  Z.x = u - px / Math.min(32, Math.max(1, Z.z)); Z.y = v - py / Math.min(32, Math.max(1, Z.z));
-  applyZoom();
+  zoomAt(Math.exp(-ev.deltaY * 0.0025), ev.clientX, ev.clientY);
 }, { passive: false, capture: true });
 $('lv_zoomNav').addEventListener('click', () => { Object.assign(Z, { z: 1, x: 0, y: 0 }); applyZoom(); });
 window.addEventListener('resize', applyZoom);
 
 // A drag in the live image moves the stage (the world view's centre): the sample follows the pointer, at the image's
 // scale (the camera's field over the image's width on screen); not while a recording plays. Zoomed in, a drag moves
-// the shown part within the image instead (the stage stays).
+// the shown part within the image instead (the stage stays). Two fingers (touch) either move the focus, both moving up
+// or down together (one focus step per FOCUS_PX_PER_STEP, up = focus up), or pinch the zoom; the gesture locks to the
+// one their first ~12 px of movement looks like.
+const FOCUS_PX_PER_STEP = 16;
 {
-  let drag = null;
+  let drag = null, two = null;
+  const fingers = new Map();
+  const pair = () => { const [a, b] = [...fingers.values()]; return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, d: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)) }; };
   cv.style.cursor = 'grab';
   cv.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0 || (PLAY.on && Z.z === 1)) return;
+    if (ev.button !== 0) return;
+    fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    cv.setPointerCapture(ev.pointerId);
+    if (fingers.size === 2) { drag = null; const p = pair(); two = { ...p, my0: p.my, d0: p.d, lock: null, acc: 0 }; return; }
+    if (fingers.size > 2 || (PLAY.on && Z.z === 1)) return;
     drag = { x: ev.clientX, y: ev.clientY };
-    cv.setPointerCapture(ev.pointerId); cv.style.cursor = 'grabbing';
+    cv.style.cursor = 'grabbing';
   });
   cv.addEventListener('pointermove', ev => {
+    if (!fingers.has(ev.pointerId)) return;
+    fingers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (two) {
+      if (fingers.size < 2) return;
+      const g = pair();
+      if (!two.lock) {
+        const dy = Math.abs(g.my - two.my0), dd = Math.abs(g.d - two.d0);
+        if (dy + dd > 12) { two.lock = dy > dd ? 'focus' : 'zoom'; two.my = two.my0; two.d = two.d0; }   // (counted from the touch)
+      }
+      if (two.lock === 'zoom') zoomAt(g.d / two.d, g.mx, g.my);
+      else if (two.lock === 'focus') {
+        two.acc += two.my - g.my;
+        while (Math.abs(two.acc) >= FOCUS_PX_PER_STEP) { const s = Math.sign(two.acc); stepZ(s); two.acc -= s * FOCUS_PX_PER_STEP; }
+      }
+      Object.assign(two, { mx: g.mx, my: g.my, d: g.d });
+      return;
+    }
     if (!drag) return;
     const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y, S = $('liveView').clientWidth || 1;
     drag = { x: ev.clientX, y: ev.clientY };
@@ -338,7 +369,11 @@ window.addEventListener('resize', applyZoom);
     view.cx -= dx * um; view.cy -= dy * um;
     noteInteraction(); requestDraw();
   });
-  const end = () => { drag = null; cv.style.cursor = 'grab'; };
+  const end = ev => {
+    if (!fingers.delete(ev.pointerId)) return;
+    if (fingers.size < 2) two = null;   // (the finger left does nothing until it is lifted)
+    if (!fingers.size) { drag = null; cv.style.cursor = 'grab'; }
+  };
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
 }
 // The Configuration's Exposure carries its setting's "differs from the default" mark
@@ -655,7 +690,7 @@ function syncBusy() {
 }
 function syncIdle() {
   syncBusy();
-  const starting = (L.on || !!L.pending) && !L.frames;
+  const starting = (L.on || !!L.pending || L.auto) && !L.frames;
   $('lv_idlePress').hidden = starting; $('lv_idleStart').hidden = !starting;
 }
 function syncButtons() {
@@ -674,6 +709,18 @@ function setLive(on) {
   if (on) { closePlayer(); L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
 }
 $('lv_live').addEventListener('click', () => { setLive(!L.on); if (L.on) iscTrack('live'); });
+// Live starts by itself once the engine is up (not counted as a pick), unless the user pressed Live, Snap or Record
+// first; ?live=0 keeps it off (the browser tests, which drive it themselves).
+L.auto = !/[?&]live=0(&|$)/.test(location.search);
+for (const id of ['lv_live', 'lv_snap', 'lv_rec']) $(id).addEventListener('click', () => { if (L.auto) { L.auto = false; syncIdle(); } }, true);
+if (L.auto) {
+  const t = setInterval(() => {
+    if (!L.auto) { clearInterval(t); return; }
+    if (!genWorkers.ok) return;
+    clearInterval(t); L.auto = false;
+    if (!L.on && !REC.on) setLive(true);
+  }, 200);
+}
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
 $('lv_snap').addEventListener('click', () => { iscTrack('snap'); if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });

@@ -40,8 +40,15 @@ that finishes them.
   synthetic events); data only from fixed lists (option values, booleans, buckets), never typed text or file names. A
   new event or counted control: add it to the table in docs/privacy.md in the same commit. The docs count page views and
   `data-umami-event` link clicks (download buttons). Release download counts: `python tools/download_stats.py`.
+- `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
+  `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
+  image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
+  window; the focus knob `#mFocus` in the Focus box in place of `#lv_z`; touch: two fingers on the world view pinch /
+  twist / tilt, on the live image focus (up together) or zoom (`zoomAt`); long press = a setting's help; at most 2 cell
+  workers on a coarse pointer. Test: `tests/web/viewer_mobile.mjs` (touch through CDP).
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
-  panel right): `live.js` (splitter, View pop-over, the live loop on its own worker: one `live` job per frame, at most one
+  panel right): `live.js` (splitter, View pop-over, the live loop on its own worker, started by itself once the engine is up (2026-10-22, `L.auto`, not counted;
+  `?live=0` keeps it off: every browser test that drives Live loads the page with it): one `live` job per frame, at most one
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
@@ -98,7 +105,8 @@ that finishes them.
   Umami stubbed: nothing on localhost, restored settings uncounted, a person's picks, Live, Snap and the summary counted,
   ~35 s), `viewer_live_record.mjs` (browser: the one-line info, the square
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,
-  pixel size, the sample's time), `viewer_anim_export.mjs` (browser: export,
+  pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
+  `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
@@ -183,9 +191,10 @@ that finishes them.
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
   the gallery (`tools/build_gallery.py` over `gallery/manifest.json`, including the 2x2 overview of its `overview` block
   by `tools/build_overview.py` from `insiliscope_cli --geometry-json` + movies; above it the 3D overview
-  `overview_3d.jpg`, the viewer in headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT
-  frames as insets), shown on Home instead of the 2x2; `build_site.sh` falls back to the 2x2, or drops both, when a
-  release lacks them) and benchmarks (`tools/bench.py`, history kept in
+  `overview_3d.gif` (2026-10-22: a 10 s loop in four legs: from near the right-hand cell edge in to the nucleus at 0.5 um, the focus up to 4 um and down, back out; a live WF / DNA-PAINT frame per
+  frame, `LOOP` in the script; README.md shows the published one) and its still `overview_3d.jpg`, the viewer in
+  headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT frames as insets), shown on Home
+  instead of the 2x2; `build_site.sh` falls back to the still, then to the 2x2, or drops both, when a release lacks them) and benchmarks (`tools/bench.py`, history kept in
   the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
