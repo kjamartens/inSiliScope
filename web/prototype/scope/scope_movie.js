@@ -22,6 +22,8 @@ import { ORIENTATION_MODES, MOTION_MODES, makeLabel, LEGACY_LINKAGE } from './dy
 import { ORIGAMI_DESIGNS, ORIGAMI_DEFAULTS, ORIGAMI_PARAM_NAMES, SPECIMEN_NANORULERS, normalizeOrigamiParams } from './origami.js';
 import { sampleAt } from './spectra.js';
 import { makeExcitation, ILLUM_PROFILES } from './excitation.js';
+import { FIDUCIAL_TYPES, FIDUCIAL_TYPE_IDS, FIDUCIAL_DEFAULTS, FIDUCIAL_PARAM_NAMES, FID_HEIGHTS, normalizeFiducialParams,
+  fiducialPhotophysics } from './fiducials.js';
 
 const LIGHT_PRESET_CHOICES = ['auto', ...DYE_DATA.lightPresets.map(q => q.id)];
 export const LINKAGE_PRESET_IDS = DYE_DATA.linkagePresets.map(q => q.id);
@@ -153,6 +155,17 @@ export const SCOPE_OPTIONS = [
   ['origami-roll', ORIGAMI_DEFAULTS.origamiRoll, 'Nanorulers.Roll: 0 Uniform (each rod landed at a random roll about its axis), 1 Fixed (origami-roll-deg; names accepted)'],
   ['origami-roll-deg', ORIGAMI_DEFAULTS.origamiRollDeg, 'Nanorulers.RollDeg: the fixed roll, deg'],
   ['origami-heights', ORIGAMI_DEFAULTS.origamiHeights, 'Nanorulers.KeepHeights: 0 = 2D (every strand at the rod axis height), 1 = the ring\'s heights (3D)'],
+  // ---- fiducial beads on any sample (Micro-Manager: Fiducials; core params fid*, fiducials.js; data/fiducials) ----
+  ['fid-type', idx(FIDUCIAL_TYPE_IDS, DYE_DATA.fiducials.defaults.type), `Fiducials.Type: the bead (data/fiducials/types.json; names accepted): ${FIDUCIAL_TYPE_IDS.map((id, i) => `${i} ${id}`).join(', ')}`],
+  ['fid-density', FIDUCIAL_DEFAULTS.fidDensity, 'Fiducials.DensityPerUm2: beads per um^2 of coverslip, placed at random (Poisson; 0 = no beads)'],
+  ['fid-diameter-nm', -1, "Fiducials.DiameterNm: mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's product size (FluoSpheres orange / red / dark red 200 nm, the others 100 nm)"],
+  ['fid-diameter-cv-pct', FIDUCIAL_DEFAULTS.fidDiameterCvPct, 'Fiducials.DiameterCvPct: bead-to-bead diameter spread, % (normal; estimate)'],
+  ['fid-height', FIDUCIAL_DEFAULTS.fidHeight, "Fiducials.Height: 0 Coverslip (on the glass), 1 OnTop (on the sample's surface), 2 Layer (anywhere in a gel layer of fid-layer-um, outside the cells; names accepted)"],
+  ['fid-layer-um', FIDUCIAL_DEFAULTS.fidLayerUm, "Fiducials.LayerUm: the gel layer's thickness, um (Layer)"],
+  ['fid-bleach-half-sec', DYE_DATA.fiducials.defaults.bleachHalfSec, "Fiducials.BleachHalfTimeSec: a bead's fluorescence half-time at fid-bleach-ref-kwcm2 at its dye's excitation peak, s (estimate: 8 h; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)"],
+  ['fid-bleach-ref-kwcm2', DYE_DATA.fiducials.defaults.bleachRefKWcm2, "Fiducials.BleachRefKWcm2: the intensity the half-time is given at, kW/cm^2"],
+  ['fid-dyes', -1, "Fiducials.DyeCount: equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component (-1 = the type's, fitted to balinovic2019)"],
+  ['fid-blocking-od', 8, "Fiducials.BlockingOD: the emission path (dichroic ~OD 2 x emission filter ~OD 6 at the laser line; estimate) blocks a laser line by at least this optical density: gold's scattered laser light (ideal filters would block it fully)"],
   // ---- camera (Micro-Manager: Camera): a preset sets every value below that the spec does not give ----
   ['camera-preset', idx(CAMERA_IDS, DYE_DATA.cameraDefault), 'Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)'],
   ['qe-curve', -1, 'Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset\'s, Custom = flat at qe'],
@@ -228,6 +241,7 @@ const NAMES = {
   'origami-design': ORIGAMI_DESIGNS.map(d => d.id), 'origami-roll': ['Uniform', 'Fixed'],
   'dye1.source': DYE_IDS, 'dye2.source': DYE_IDS, 'dye3.source': DYE_IDS,
   'ex-filter': EXCITATION_FILTER_IDS, dichroic: DICHROIC_IDS, 'em-filter': EMISSION_FILTER_IDS, 'light-preset': LIGHT_PRESET_CHOICES, 'camera-preset': CAMERA_IDS, 'qe-curve': CAMERA_IDS,
+  'fid-type': FIDUCIAL_TYPE_IDS, 'fid-height': FID_HEIGHTS,
   'camera-type': ['sCMOS', 'EMCCD'], 'illum-geometry': ['Epi'], 'illum-profile': ILLUM_PROFILES,
 };
 const DYE_OVERRIDE = /^(?:([a-z]+)-dye|dye([1-3]))\.([a-z0-9-]+)$/;
@@ -308,6 +322,23 @@ export function scopeSpecimenParams(spec) {
     origamiHeights: O('origami-heights') };
   for (const n of ORIGAMI_PARAM_NAMES) if (`p.${n}` in spec) v[n] = spec[`p.${n}`];
   return normalizeOrigamiParams(v);
+}
+// The world's fiducial params (core params fid*): the fid-* options, then p.<name> on top.
+export function scopeFiducialParams(spec) {
+  const O = getter(spec);
+  const t = FIDUCIAL_TYPES[Math.trunc(O('fid-type'))];
+  const v = { fidDensity: O('fid-density'), fidDiameterNm: O('fid-diameter-nm') >= 0 || !t ? O('fid-diameter-nm') : t.refDiameterNm, fidDiameterCvPct: O('fid-diameter-cv-pct'),
+    fidHeight: O('fid-height'), fidLayerUm: O('fid-layer-um') };
+  for (const n of FIDUCIAL_PARAM_NAMES) if (`p.${n}` in spec) v[n] = spec[`p.${n}`];
+  return normalizeFiducialParams(v);
+}
+// The beads' light (ScopeFiducials): off without beads, else the type and its components through the light path.
+export function scopeFiducials(spec, lp) {
+  const O = getter(spec), P = scopeFiducialParams(spec), t = Math.trunc(O('fid-type'));
+  if (!(t >= 0 && t < FIDUCIAL_TYPE_IDS.length)) throw new Error(`fid-type ${t}: not one of 0..${FIDUCIAL_TYPE_IDS.length - 1}`);
+  if (!(P.fidDensity > 0)) return { on: false, type: t, comps: [] };
+  return { on: true, type: t, comps: fiducialPhotophysics(t, lp, { dyes: O('fid-dyes'), halfSec: Math.max(0, O('fid-bleach-half-sec')),
+    refKWcm2: Math.max(1e-9, O('fid-bleach-ref-kwcm2')), blockingOD: O('fid-blocking-od') }) };
 }
 // The specimen's default focus (z when the spec does not give it): 0.5 um above the coverslip for the cell field, the
 // docking strands' height for the nanorulers (as when a user focuses on them).
@@ -524,7 +555,7 @@ export function scopeSetup(P, spec) {
     const name = k.slice(2);
     if (name in P.defaults) vals[name] = typeof P.defaults[name] === 'boolean' ? v !== 0 : v;
   }
-  const worldParams = { ...P.paramsFrom(vals), ...scopeSpecimenParams(spec) };
+  const worldParams = { ...P.paramsFrom(vals), ...scopeSpecimenParams(spec), ...scopeFiducialParams(spec) };
   const um = pixelSizeNm / 1000.0, margin = 2.0;
   const originXUm = O('x') - W * um / 2, originYUm = O('y') - H * um / 2;
   const q = {
@@ -549,7 +580,8 @@ export function scopeSetup(P, spec) {
     q.y0Um -= b.yHi / 1000.0; q.y1Um -= b.yLo / 1000.0;
     if (q.zHalfRangeUm > 0.0) q.zHalfRangeUm += Math.max(-b.zLo, b.zHi) / 1000.0;
   }
-  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, excite, mounted, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
+  const fid = scopeFiducials(spec, lp);
+  return { O, seed, W, H, N, expSec, t0Sec, p, cam, camera, lp, labels, excite, mounted, fid, worldSeed, worldParams, q, driftSettings, driftOn: isDrift, drift, driftBounds,
     meanField: { densityPerUm2: Math.max(0, O('mean-field-density-per-um2')), slabNm: Math.max(0, O('mean-field-slab-nm')),
       maxEmitters: Math.max(0, O('mean-field-max-emitters')) },
     blinkBinned: { densityPerUm2: Math.max(0, O('blink-binned-density-per-um2')), maxEmitters: Math.max(0, O('blink-binned-max-emitters')),

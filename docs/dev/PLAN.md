@@ -73,9 +73,11 @@ Upcoming ideas:
   [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).
 - Fiducial markers on any sample (2026-10-22, branch `claude/fiducials`): [x] data (`data/fiducials/`: Balinovic et al.
   2019's spectra read from figures 2a-6a with fitted tails, FPbase bead spectra, brightness from the paper's images,
-  gold Mie table; `tools/fiducial_spectra/`), [ ] JS model in iteration mode (Poisson field on any specimen, heights
-  Coverslip / OnTop / Layer, 12 % size spread, one emitter per bead with a sphere-averaged PSF, bleaching by a
-  half-time at each component's excitation peak, gold's laser scatter through the filters' blocking), [ ] core + engine
+  gold Mie table; `tools/fiducial_spectra/`), [x] JS model in iteration mode (`web/prototype/scope/fiducials.js`:
+  Poisson field on any specimen, heights Coverslip / OnTop / Layer, 12 % size spread, one emitter per bead with the
+  sphere's PSF in a 1 um core + the point PSF's halo, bleaching by a half-time at each component's excitation peak
+  through a Taylor basis of static images, gold's laser scatter through the filters' blocking (OD 8);
+  `web/lab/fiducial_check.mjs`: beads 1-4 % of a movie's time), [ ] core + engine
   port, [ ] MM `Fiducials` device, [ ] viewer, [ ] docs, figures, gallery.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.

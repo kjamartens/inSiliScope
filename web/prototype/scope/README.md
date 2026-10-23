@@ -17,6 +17,7 @@ change merges to main. ES modules, no build, Node or browser.
 | `render.js` | `SMLMSimulation.cpp` `RenderPhotonImage`/`BucketEventsByFrame`, `SMLMNoise.cpp` | frame photons, noise maps, `ApplyNoiseChain` (sCMOS, EMCCD) |
 | `widefield.js` | `WidefieldRender.cpp` (CPU path) | the mean-field image of a structure's dyes: dye planes on world tiles, PSF-plane deposition, FFT convolution, sub-cell shift |
 | `brightfield.js` | `BrightfieldRender.cpp`, `ScopeMovie.cpp` `ScopeBrightfieldSpec`/`RenderBrightfieldMovie` | refractive-index slices from the optical volume, margin taper, Abbe sources, thin / multislice propagation, detection pupil, defocus, binning |
+| `fiducials.js` | `core/src/fiducials.cpp`, `Simulation/Fiducials.*` (port pending) | fiducial beads on any sample: the Poisson field (height modes, diameter spread), the sphere's PSF (core + halo splat), the beads' light through the light path (equivalent dyes, gold's scatter), bleaching by a half-time |
 | `drift.js` | `Drift.cpp` | random-walk sample drift (trajectory, focus grid); also the webSMLM block's `driftTrajectory` |
 | `scope_movie.js` | `ScopeMovie.cpp` + `SampleSource.cpp` | the option table (= `insiliscope_cli` options), setup, `renderScopeMovie` |
 

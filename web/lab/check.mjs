@@ -2,7 +2,7 @@
 //   node web/lab/check.mjs [--base origin/main] [--seed N] [--cells 3] [--set mtWobbleTurn=1.2 ...]
 // Fails on: a load error, NaN geometry, or a cell that differs with query history (address determinism).
 // Prints shape metrics working vs baseline. No build, no C++. Then the nanorulers: web/lab/origami_check.mjs (the
-// model's checks, ~1 s) and their imaging smoke test.
+// model's checks, ~1 s) and their imaging smoke test, and the fiducial beads (web/lab/fiducial_check.mjs).
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
@@ -130,5 +130,9 @@ try {
 try {
   console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/origami_check.mjs')], { encoding: 'utf8' }).trim().split('\n').pop());
 } catch (e) { console.log(String(e.stdout)); bad('web/lab/origami_check.mjs'); }
+try {
+  // The fiducial beads (fiducials.js); the timing checks only when run by hand (CI machines vary).
+  console.log(execFileSync(process.execPath, [path.join(ROOT, 'web/lab/fiducial_check.mjs'), '--no-timing'], { encoding: 'utf8' }).trim().split('\n').pop());
+} catch (e) { console.log(String(e.stdout)); bad('web/lab/fiducial_check.mjs'); }
 console.log(fail ? `lab check: ${fail} failure(s)` : 'lab check: PASS');
 process.exit(fail ? 1 : 0);

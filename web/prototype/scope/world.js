@@ -9,6 +9,7 @@ import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, p
   PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, LEGACY_LINKAGE, normLinkage,
   linkageReachNm, labelScheduleActivated, activationDraw, EVENT_STATE } from './dyes.js';
 import { OrigamiField, SPECIMEN_NANORULERS, STRUCTURE_ORIGAMI } from './origami.js';
+import { FiducialField } from './fiducials.js';
 import { readClockMap, evalField, doseHistory, activationTime, bleachEnd, CLOCK_GLOBAL, CLOCK_DOSE, CLOCK_ACTIVATION } from './clockmap.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
@@ -54,6 +55,8 @@ export class World {
     this.p = params;
     this.specimen = Math.trunc(params.specimen ?? 0);
     this.origami = this.specimen === SPECIMEN_NANORULERS ? new OrigamiField(this.seed, params) : null;
+    // Fiducial beads on either specimen (fiducials.js; core params fid*): sites, not dyes (no label, no structure).
+    this.fiducials = new FiducialField(this.seed, params, (x, y) => this.surfaceHeightAt(x, y));
     this.blocks = new Map();   // packing blocks
     this.assets = new Map();   // cell assets by chunk
     this.dyeBlocks = new Map();
@@ -605,6 +608,28 @@ export class World {
   npcsOfCell(cx, cy) {
     const c = this.packedBlock(floorDiv(cx, PACK_BLOCK_CHUNKS), floorDiv(cy, PACK_BLOCK_CHUNKS)).find(q => q.cx === cx && q.cy === cy);
     return c ? this.npcs(this.cellAssets(c)).pores : [];
+  }
+
+  // The fiducial beads whose centre lies in the rect (isc_fiducials_in_window): [{tx, ty, i, x, y, z (um), d (nm)}].
+  fiducialsInRect(x0, y0, x1, y1) { return this.fiducials.inRect(x0, y0, x1, y1); }
+
+  // The sample's surface height at (x, y), um (World::SurfaceHeightAt): the highest cytoplasm over that point (the
+  // cells' mesh height, as opticalVolume samples it), 0 on bare glass; 0 for the nanorulers (13-20 nm rods).
+  surfaceHeightAt(x, y) {
+    if (this.origami) return 0.0;
+    const g = this.g;
+    let h = 0.0;
+    for (const c of this.cellsInRect(x, y, x, y)) {
+      this.cellAssets(c);
+      const rotated = !(c.packRot === 0 || Number.isNaN(c.packRot) || c.packRot == null);
+      const cr = rotated ? Math.cos(c.packRot) : 1, sr = rotated ? Math.sin(c.packRot) : 0;
+      const rIn = (c.semiMinor < c.semiMajor ? c.semiMinor : c.semiMajor) * c.modFloor * (1 - c.tailBound) * (1 - 1e-12);
+      const dx = x - c.x, dy = y - c.y, lx = dx * cr + dy * sr, ly = -dx * sr + dy * cr, rr = Math.hypot(lx, ly);
+      if (rr > c.rOuter || (rr > rIn && rr > g.cellRadiusAt(c, Math.atan2(ly, lx)))) continue;
+      const hc = g.sampleCytoMeshHeight(c, this.p, lx, ly);
+      if (hc > h) h = hc;
+    }
+    return h;
   }
 
   // Tallest cell (c.height) whose footprint meets the rect; 0 if none (SampleSource::MaxCellHeight).
