@@ -12,6 +12,10 @@ light.
 | **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules, nuclear pores | Microtubules (`mt-*`), nuclear pores (`npc-*`), imaged together | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
 | **Nanorulers** (`Nanorulers`) | DNA-origami rods lying on the coverslip, each with three spots of docking strands 80 nm apart; bent in the plane as a worm-like chain | Docking strands (`ruler-*`) | [DNA-origami nanorulers](nanorulers/index.md) |
 
+On top of either sample, optional **fiducial beads** (gold, TetraSpeck, FluoSpheres, nanodiamonds) mark the drift: on
+the coverslip, on the sample or in a gel layer, off by default ([Fiducial beads](fiducials.md); viewer: Fiducial beads,
+Micro-Manager: `Fiducials`, CLI: `--fid-*`). Changing them is not a new sample: the illumination history stays.
+
 The registry of samples and targets is `data/specimens.json`: each target's option prefix and core structure id, and
 (in `data/dyes/library.json` `typicalLabels`) its usual dye and labelled % per label mode.
 

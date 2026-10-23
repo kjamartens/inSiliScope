@@ -1017,8 +1017,12 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   else the component gets its own (a first-use PSF cost, memoized).
 - **Measured** (cli, 128 px, 200 frames, 15 beads, DNA-PAINT default scene): beads 0.07-0.11 s of 6.4-7.0 s (1-1.6 %);
   their setup is one extra PSF kernel (~1.1 s) when no dye group's wavelength serves them.
-- **Not modelled**: aggregate blinking, single-dye steps, BrightField contrast of the beads, live bleaching from the
-  light history (MM phase: `LightHistory::DoseAt` per bead).
+- **Live bleaching** (MM, the viewer's live mode: a host's light history): a bead's decay starts at its past light in
+  seconds of the light now, `DoseAt / DoseRate` at its centre (exact while the light's spectrum stays the same; hours of
+  half-time make the rest negligible), plus the frames between the history's now and the movie's start-sec (a
+  render-ahead batch after queued frames); 0 where no light reaches now. A bead setting is not a new world for the
+  history (`BuildSampleSettings` leaves `fid*` out).
+- **Not modelled**: aggregate blinking, single-dye steps, BrightField contrast of the beads.
 
 ## Known limitations / not yet done
 

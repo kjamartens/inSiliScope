@@ -64,7 +64,7 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 - **More than one sample.** The geometry of a sample is separate from the photophysics and the imaging: the cell
   field and the [nanorulers](samples/nanorulers/index.md) share the dyes, the light path, the PSF and the camera.
   Switch in the viewer's Sample select, Micro-Manager's `SampleHolder` or the cli's `--specimen`; see
-  [Samples](samples/index.md).
+  [Samples](samples/index.md). [Fiducial beads](samples/fiducials.md) can be added to either, for drift correction.
 - **Built to extend.** Samples, targets, photophysics and modalities are separate layers; see
   [Extending](extending.md).
 

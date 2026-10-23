@@ -1205,7 +1205,8 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
   (`SetPsfKernelMemoEntries` counts the components' own kernels up front). `Render`: the beads last in each frame's
   continuous pass, so a GPU host's `populationsOnly` image has them too. Timing phases `fl.fiducials-setup`,
   `fl.fiducials`; the description gains `fiducials=<type>:<beads>_beads:<component>:<nm>:<photons/s>...`. Each bead's
-  decay starts at `t0Sec` (the movie's start-sec): a live host sets it from its light history (phase 4).
+  decay starts at `t0Sec` (the movie's start-sec); under a host's light history (MM, `LiveScope`) at its past light,
+  `DoseAt / DoseRate` at the bead, + (start-sec - T) for a render-ahead batch (2026-10-23).
 - Options (`ScopeMovie.cpp` after `origami-heights`, JS the same place): `fid-type` (names; default
   FluoSpheresDarkRed), `fid-density`, `fid-diameter-nm` (-1 = the type's `refDiameterNm`, resolved in
   `ScopeFiducialParams` before `p.fid*`), `fid-diameter-cv-pct`, `fid-height` (names), `fid-layer-um`,

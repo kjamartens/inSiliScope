@@ -72,6 +72,7 @@ nav:
           - Structures: samples/cell-field/structures.md
       - Nanorulers:
           - DNA-origami nanorulers: samples/nanorulers/index.md
+      - Fiducial beads: samples/fiducials.md
   - Physics:
       - Dyes and light path: physics/dyes-and-light-path.md
       - Photophysics: physics/photophysics.md

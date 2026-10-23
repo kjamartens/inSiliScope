@@ -80,7 +80,7 @@ Upcoming ideas:
   `web/lab/fiducial_check.mjs`: beads 1-4 % of a movie's time), [x] core + engine
   port (ABI 15 `isc_fiducials_in_window`, `Simulation/Fiducials.*`, `fid-*` options; spec/PORT.md 24; golden,
   `world_checks.fiducials`, `scope_parity` 100 %; cli beads 1-1.6 % of a movie), [x] MM `Fiducials` device (live
-  bleaching from the light history's dose per bead; `tools/test_fiducials.py`), [x] viewer (Sample group, beads in the world view, `tests/web/viewer_fiducials.mjs`), [ ] docs, figures, gallery.
+  bleaching from the light history's dose per bead; `tools/test_fiducials.py`), [x] viewer (Sample group, beads in the world view, `tests/web/viewer_fiducials.mjs`), [x] docs (`docs/samples/fiducials.md`), figures (`fid-spectra`, `fid-heights`; cli `--setup-json` `fiducials`), gallery (`fid-drift`).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT
