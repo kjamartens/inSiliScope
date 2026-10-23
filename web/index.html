@@ -1046,7 +1046,8 @@ const UI_GROUPS = [
       num('mv_fid-diameter-nm', 'Diameter', 'nm', 'Mean bead diameter (brightness ~ d³; the image is the PSF averaged over the solid sphere); −1 = the type\'s product size (in its name). <code>Fiducials.DiameterNm</code>', -1, 2000, 10, -1, { show: FID }),
       num('mv_fid-diameter-cv-pct', 'Diameter spread', '%', 'Bead-to-bead spread of the diameter (normal; estimate). <code>Fiducials.DiameterCvPct</code>', 0, 50, 1, DD.fiducials.defaults.diameterCvPct, { show: FID }),
       select('mv_fid-height', 'Height', 'Where the beads sit: on the coverslip (also under the cells: put down first), on top of the sample (its highest surface there: the cytoplasm, a nucleus, a rod), or anywhere in a gel layer (e.g. agarose) between the coverslip and the layer\'s top, outside the cells. <code>Fiducials.Height</code>',
-        [['0', 'On the coverslip'], ['1', 'On top of the sample'], ['2', 'In a gel layer']], '0', { show: FID, kids: [
+        [['0', 'On the coverslip'], ['1', 'On top of the sample'], ['2', 'In a gel layer']],
+        String(['Coverslip', 'OnTop', 'Layer'].indexOf(DD.fiducials.defaults.height)), { show: FID, kids: [
           num('mv_fid-layer-um', 'Layer thickness', 'µm', 'The gel layer\'s thickness (In a gel layer). <code>Fiducials.LayerUm</code>', 0, 1000, 1, DD.fiducials.defaults.layerUm, { show: () => FID() && $('mv_fid-height').value === '2' }),
         ] }),
       num('mv_fid-bleach-half-sec', 'Bleach half-time', 's', 'A bead\'s fluorescence half-time at the reference intensity at its dye\'s excitation peak (28800 s = 8 h; estimate); slower off the peak and at less light (~ 1 / the excitation). Gold and nanodiamonds do not bleach; 0 = no bleaching. <code>Fiducials.BleachHalfTimeSec</code>', 0, 1e9, 60, DD.fiducials.defaults.bleachHalfSec, { show: FID }),
@@ -5358,6 +5359,21 @@ function drawFiducials(F, g, seed, p) {
   }
   g.fillStyle = rgba([...col, s.opacity === undefined ? 1 : s.opacity]);
   g.fill(path);
+  if (st.xz) {   // the x-z view: the beads in the view's turned-y range and the Z clip, at their height (as the dyes)
+    const S = cam.S, W = cvXZ.width, hv = cam.halfV(), z0 = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio, side = new Path2D();
+    let m = 0;
+    for (let i = 0; i < c.beads.length / 7; i++) {
+      const x = c.beads[7 * i + 3], y = c.beads[7 * i + 4], z = c.beads[7 * i + 5], rUm = c.beads[7 * i + 6] / 2000;
+      const v = cam.v(x, y), sx = W / 2 + cam.u(x, y) * S, r = Math.max(rMin, rUm * S);
+      if (v < -hv - rUm || v > hv + rUm || z < F.zc[0] || z > F.zc[1] || sx < -r || sx > W + r) continue;
+      side.moveTo(sx + r, z0 - z * S);
+      side.arc(sx, z0 - z * S, r, 0, 2 * Math.PI);
+      m++;
+    }
+    ctxXZ.fillStyle = g.fillStyle;
+    if (m) ctxXZ.fill(side);
+    hud.dataset.beadsXz = m;
+  } else hud.dataset.beadsXz = '';
   return n;
 }
 

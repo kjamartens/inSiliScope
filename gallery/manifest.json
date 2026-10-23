@@ -49,7 +49,7 @@
       "options": {"drift-xy-speed-nm-per-sec": 600, "drift-z-speed-nm-per-sec": 150, "drift-z-direction": 1, "drift-xy-angle-wander-deg": 20, "drift-speed-wander-pct": 30, "drift-wander-time-sec": 1, "drift-xy-nm-per-sqrt-sec": 20} },
     { "id": "fid-drift", "title": "Fiducial beads under drift",
       "text": "The random-walk drift of the panel before (drift-xy-nm-per-sqrt-sec 200, drift-z-nm-per-sqrt-sec 100) with 100 nm gold nanoparticles on the coverslip (fid-type Gold, fid-density 0.03 per um^2: 7 beads here). Gold does not bleach or blink: its photoluminescence (about 80000 detected photons/s per bead here, after Balinovic et al. 2019) plus a little scattered laser light that leaks through the filters. The beads move with the sample, so their positions over the movie are the drift the .drift.csv records.",
-      "options": {"fid-type": "Gold", "fid-density": 0.03, "drift-xy-nm-per-sqrt-sec": 200, "drift-z-nm-per-sqrt-sec": 100} },
+      "options": {"fid-type": "Gold", "fid-height": "Coverslip", "fid-density": 0.03, "drift-xy-nm-per-sqrt-sec": 200, "drift-z-nm-per-sqrt-sec": 100} },
     { "id": "sr-defocus", "title": "Focus 2 um above the coverslip",
       "text": "Z stage at 2 um: dyes near the focal plane are sharp, those above and below it blur with the 3D PSF.",
       "options": {"z": 2.0} },

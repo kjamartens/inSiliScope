@@ -18,9 +18,14 @@
 //                ~ sqrt(r^2 - rho^2)), faded into the point PSF over the core's
 //                outer kBeadFadeUm, read with the movie's interpolation (Fft:
 //                Cubic) --, and the halo beyond it: the point PSF of the nearest
-//                plane at its nearest sub-sample (one tap). Bead kernels are
-//                built per (point kernel, plane, diameter on a kBeadBinNm grid)
-//                and shared process-wide.
+//                plane at its nearest sub-sample (one tap) out to the point
+//                kernel's window, and beyond that, with a bead halo (BeadHalo:
+//                a window twice the FOV, one sample per pixel, one tap), the
+//                halo's samples out to where the bead's light ends (Extent);
+//                with a halo the part in the point kernel's window is scaled
+//                to the halo's share there. Bead kernels are built per (point
+//                kernel, plane, diameter on a kBeadBinNm grid) and shared
+//                process-wide.
 //
 //                Light per component (FiducialPhotophysics): an equivalent dye
 //                (data/fiducials, balinovic2019) through the light path, a bead
@@ -63,6 +68,38 @@ constexpr int kFiducialTaylorMaxOrder = 6;
 // The diameter bin of a bead kernel (JS beadBinNm).
 double BeadBinNm(double dNm);
 
+// The beads' halo: the point PSF over a window twice the FOV (half-width the FOV's larger side, at least the point
+// kernel's, at most kFiducialHaloMaxUm), one sample per camera pixel (so its planes are their own block sums), on the
+// point kernel's z planes: a bright or defocused bead lights the whole frame, where the point kernel's window (a few um
+// in the viewer) would cut its light off square.
+// A splat's halo ends where every sample beyond it gives fewer than kFiducialHaloMinPhotons per pixel (Extent), so a
+// dim bead costs little and a bright or defocused one reaches as far as its light shows.
+constexpr double kFiducialHaloMaxUm = 30, kFiducialHaloMinPhotons = 0.1;
+class BeadHalo
+{
+public:
+   explicit BeadHalo(const PsfKernelCache& wide);   // keeps its geometry and block sums
+   const PsfKernelCache& Geom() const { return geom_; }
+   const std::vector<float>& Plane(int k) const { return sums_[static_cast<size_t>(k)]; }
+   int Nz() const { return geom_.nz; }
+   uint64_t Id() const { return id_; }
+   // The camera half-width a splat of `photons` at plane k needs: beyond it every sample x |photons| is below
+   // kFiducialHaloMinPhotons (+ 1 for the interpolation's second tap), at most the window's.
+   int Extent(int k, double photons) const;
+
+private:
+   PsfKernelCache geom_;   // the geometry only (no data)
+   std::vector<std::vector<float>> sums_;
+   std::vector<std::vector<float>> beyond_;   // per plane and Chebyshev radius r: the largest sample at r or beyond
+   uint64_t id_;
+};
+// The halo of a request (oversampling 1, its half-width set by the caller; GibsonLanniZernike; memoized, a few
+// entries apart from the point kernels' memo, so the beads do not push the dyes' kernels out). False with err.
+bool BeadHaloFor(const PsfGeneratorRequest& req, std::shared_ptr<const BeadHalo>& out, std::string& err);
+// The halo's camera half-width for a W x H frame of pixelNm and a point kernel of camRad camera pixels (JS
+// beadHaloHalfWidthPx).
+int BeadHaloHalfWidthPx(unsigned W, unsigned H, double pixelNm, int camRad);
+
 // The bead kernels of one point kernel at one camera pixel size.
 class BeadKernel
 {
@@ -70,9 +107,10 @@ public:
    BeadKernel(const PsfKernelCache& K, double pixelNm);
    const PsfKernelCache& Point() const { return K_; }
    // Splat one bead of diameter dNm with `photons` (any sign: a Taylor image's odd orders are negative) at (xPx, yPx)
-   // (camera pixels) and plane k into img (JS splatBead).
+   // (camera pixels) and plane k into img's rows [rowLo, rowHi) (rowHi < 0: H), its halo from halo when given (on the
+   // same z planes) (JS splatBead, which takes every row).
    void Splat(std::vector<float>& img, unsigned W, unsigned H, int k, double dNm, double xPx, double yPx,
-              double photons);
+              double photons, const BeadHalo* halo = nullptr, int rowLo = 0, int rowHi = -1);
 
 private:
    struct Core
@@ -81,6 +119,12 @@ private:
       std::vector<float> blockSums;
    };
    const Core& CoreAt(int k, double dBin);
+   // With a halo, the point kernel's part ends at this camera radius: its window but the outermost ring, whose pixels
+   // reach half a pixel beyond its samples (at least the core's).
+   int InnerRadius() const { return std::max(rc_, K_.halfWidthOversampled / std::max(1, K_.oversampling) - 1); }
+   // The halo's photons in the point kernel's part (InnerRadius) over the point kernel's, at plane k (one emitter at a
+   // pixel centre).
+   double InnerScale(const BeadHalo& halo, int k);
    std::vector<float> Plane(int k, double dNm) const;
    PsfKernelCache K_;
    double pixelNm_;
@@ -88,6 +132,7 @@ private:
    PsfInterpMode interp_;
    std::mutex mu_;
    std::map<long long, std::unique_ptr<Core>> cores_;
+   std::map<uint64_t, std::vector<double>> scales_;   // per halo id, per plane (NaN: not yet)
 };
 // The bead kernels of K at pixelNm (memoized with the kernel's planes and interpolation; JS beadKernel).
 std::shared_ptr<BeadKernel> BeadKernelFor(const PsfKernelCache& K, double pixelNm);
@@ -134,6 +179,7 @@ struct FiducialMovieComponent
    double lambdaNm = 0, sigmaPx = 1;
    PsfKernelCache kernel;                 // !valid: the Gaussian of sigmaPx (+ the sphere)
    std::shared_ptr<BeadKernel> B;
+   std::shared_ptr<const BeadHalo> halo;  // the wide halo (with a kernel)
    int taylorState = -1;                  // -1 not built, 0 per frame, 1 the images
    double taylorZ = 0;                    // the focus they were built at
    std::vector<std::vector<float>> taylor;

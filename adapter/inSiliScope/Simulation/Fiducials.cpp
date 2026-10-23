@@ -3,11 +3,15 @@
 
 #include "Fiducials.h"
 #include "DyeLibrary.h"
+#include "Parallel.h"
 #include "Spectra.h"
+#include "ZernikePsf.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 namespace sim {
 
@@ -54,12 +58,13 @@ std::vector<Tap> SphereTaps(double rS)
 }
 
 // img += photons x the block sums B (of geometry cache) at setup st over the camera pixels (x0 + dx, y0 + dy), dx in
-// [dxLo, dxHi], dy in [dyLo, dyHi], clipped to the image and the block sums (JS splatRect; SplatRows' arithmetic).
-void SplatRect(std::vector<float>& img, unsigned W, unsigned H, const PsfKernelCache& cache, const SplatSetupResult& st,
-               const float* B, double photons, int dxLo, int dxHi, int dyLo, int dyHi)
+// [dxLo, dxHi], dy in [dyLo, dyHi], clipped to the image's rows [rowLo, rowHi) and the block sums (JS splatRect, every
+// row; SplatRows' arithmetic). A pixel's sum does not depend on the rows: bands of rows give the whole image's numbers.
+void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const PsfKernelCache& cache,
+               const SplatSetupResult& st, const float* B, double photons, int dxLo, int dxHi, int dyLo, int dyHi)
 {
    const int os = std::max(1, cache.oversampling), off = os - 1, bw = cache.blockSumWidth, NT = st.nTaps;
-   const int yLo = std::max(dyLo, -st.y0), yHi = std::min(dyHi, static_cast<int>(H) - 1 - st.y0);
+   const int yLo = std::max(dyLo, rowLo - st.y0), yHi = std::min(dyHi, rowHi - 1 - st.y0);
    const int xLo = std::max(dxLo, -st.x0), xHi = std::min(dxHi, static_cast<int>(W) - 1 - st.x0);
    for (int dy = yLo; dy <= yHi; ++dy)
    {
@@ -82,8 +87,9 @@ void SplatRect(std::vector<float>& img, unsigned W, unsigned H, const PsfKernelC
    }
 }
 
-// A photon-conserving 2D Gaussian of any sign (JS renderGaussian; RenderGaussianPSF takes only positive photons).
-void GaussianSigned(std::vector<float>& img, unsigned W, unsigned H, double xPx, double yPx, double sigmaPx,
+// A photon-conserving 2D Gaussian of any sign into the rows [rowLo, rowHi) (JS renderGaussian; RenderGaussianPSF takes
+// only positive photons).
+void GaussianSigned(std::vector<float>& img, unsigned W, int rowLo, int rowHi, double xPx, double yPx, double sigmaPx,
                     double photons)
 {
    if (photons == 0.0 || !(sigmaPx > 0.0))
@@ -91,7 +97,7 @@ void GaussianSigned(std::vector<float>& img, unsigned W, unsigned H, double xPx,
    const int rad = static_cast<int>(std::ceil(3.0 * sigmaPx));
    const int cx = static_cast<int>(std::lround(xPx)), cy = static_cast<int>(std::lround(yPx));
    const double amplitude = photons / (2.0 * kPiF * sigmaPx * sigmaPx), twoSigmaSq = 2.0 * sigmaPx * sigmaPx;
-   const int yLo = std::max(0, cy - rad), yHi = std::min(static_cast<int>(H) - 1, cy + rad);
+   const int yLo = std::max(rowLo, cy - rad), yHi = std::min(rowHi - 1, cy + rad);
    const int xLo = std::max(0, cx - rad), xHi = std::min(static_cast<int>(W) - 1, cx + rad);
    for (int py = yLo; py <= yHi; ++py)
    {
@@ -116,6 +122,75 @@ double MeanPhotonsOf(double ratePerSec, double lambda, double t0, double t1)
 double BeadBinNm(double dNm)
 {
    return std::max(kBeadBinNm, kBeadBinNm * std::floor(dNm / kBeadBinNm + 0.5));
+}
+
+BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide), sums_(wide.BlockSums())
+{
+   static std::atomic<uint64_t> next{ 0 };
+   id_ = ++next;
+   geom_.data.reset();
+   geom_.halo.reset();
+   const int n = geom_.sizeOversampled, c = geom_.halfWidthOversampled;
+   beyond_.assign(sums_.size(), std::vector<float>(static_cast<size_t>(c) + 1, 0.0f));
+   for (size_t k = 0; k < sums_.size(); ++k)
+   {
+      std::vector<float>& b = beyond_[k];
+      const float* p = sums_[k].data();
+      for (int y = 0; y < n; ++y)
+         for (int x = 0; x < n; ++x)
+         {
+            const size_t r = static_cast<size_t>(std::max(std::abs(x - c), std::abs(y - c)));
+            b[r] = std::max(b[r], p[static_cast<size_t>(y) * n + x]);
+         }
+      for (int r = c - 1; r >= 0; --r)
+         b[static_cast<size_t>(r)] = std::max(b[static_cast<size_t>(r)], b[static_cast<size_t>(r) + 1]);
+   }
+}
+
+int BeadHalo::Extent(int k, double photons) const
+{
+   const std::vector<float>& b = beyond_[static_cast<size_t>(k)];
+   const double a = std::fabs(photons);
+   // The largest r whose samples (or any beyond) reach the floor; b falls with r.
+   int lo = -1, hi = static_cast<int>(b.size()) - 1;
+   while (lo < hi)
+   {
+      const int mid = (lo + hi + 1) / 2;
+      if (b[static_cast<size_t>(mid)] * a >= kFiducialHaloMinPhotons)
+         lo = mid;
+      else
+         hi = mid - 1;
+   }
+   return std::min(geom_.halfWidthOversampled, lo + 1);
+}
+
+bool BeadHaloFor(const PsfGeneratorRequest& req, std::shared_ptr<const BeadHalo>& out, std::string& err)
+{
+   // The movie's components and the next movie's (gold: its photoluminescence and a scatter per laser line).
+   static std::mutex mu;
+   static std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const BeadHalo>>> memo;   // most recent first
+   std::lock_guard<std::mutex> lock(mu);
+   for (size_t i = 0; i < memo.size(); ++i)
+      if (PsfRequestsSameKernel(memo[i].first, req))
+      {
+         std::rotate(memo.begin(), memo.begin() + i, memo.begin() + i + 1);
+         out = memo.front().second;
+         return true;
+      }
+   PsfKernelCache wide;
+   if (!BuildZernikePsfKernelCache(req, wide, err))
+      return false;
+   out = std::make_shared<const BeadHalo>(wide);
+   memo.insert(memo.begin(), { req, out });
+   if (memo.size() > 6)
+      memo.pop_back();
+   return true;
+}
+
+int BeadHaloHalfWidthPx(unsigned W, unsigned H, double pixelNm, int camRad)
+{
+   const int fov = static_cast<int>(std::max(W, H)), cap = static_cast<int>(std::lround(kFiducialHaloMaxUm * 1000.0 / pixelNm));
+   return std::max(camRad, std::min(fov, cap));
 }
 
 BeadKernel::BeadKernel(const PsfKernelCache& K, double pixelNm) : K_(K), pixelNm_(pixelNm)
@@ -244,21 +319,68 @@ const BeadKernel::Core& BeadKernel::CoreAt(int k, double dBin)
    return *cores_.emplace(key, std::move(C)).first->second;
 }
 
+double BeadKernel::InnerScale(const BeadHalo& halo, int k)
+{
+   std::lock_guard<std::mutex> lock(mu_);
+   if (scales_.size() > 16 && !scales_.count(halo.Id()))
+      scales_.clear();
+   std::vector<double>& s = scales_[halo.Id()];
+   if (s.empty())
+      s.assign(static_cast<size_t>(K_.nz), std::numeric_limits<double>::quiet_NaN());
+   double& v = s[static_cast<size_t>(k)];
+   if (v == v)
+      return v;
+   const int rc = InnerRadius(), n = 2 * rc + 1;
+   std::vector<float> a(static_cast<size_t>(n) * n, 0.0f), b(static_cast<size_t>(n) * n, 0.0f);
+   const PsfKernelCache& G = halo.Geom();
+   SplatRect(a, n, 0, n, K_, SplatSetup(K_, rc, rc, PsfInterpMode::Nearest), K_.BlockSums()[static_cast<size_t>(k)].data(),
+             1.0, -rc, rc, -rc, rc);
+   SplatRect(b, n, 0, n, G, SplatSetup(G, rc, rc, PsfInterpMode::Nearest), halo.Plane(k).data(), 1.0, -rc, rc, -rc, rc);
+   double sa = 0.0, sb = 0.0;
+   for (size_t i = 0; i < a.size(); ++i)
+   {
+      sa += a[i];
+      sb += b[i];
+   }
+   v = sa > 0.0 ? sb / sa : 1.0;
+   return v;
+}
+
 void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, double dNm, double xPx, double yPx,
-                       double photons)
+                       double photons, const BeadHalo* halo, int rowLo, int rowHi)
 {
    const PsfKernelCache& K = K_;
    if (photons == 0.0 || !K.valid || k < 0 || k >= K.nz)
       return;
+   const int r0 = std::max(0, rowLo), r1 = rowHi < 0 ? static_cast<int>(H) : std::min(rowHi, static_cast<int>(H));
    const Core& C = CoreAt(k, BeadBinNm(dNm));
-   const int rc = rc_, camRad = K.halfWidthOversampled / std::max(1, K.oversampling);
-   SplatRect(img, W, H, C.geom, SplatSetup(C.geom, xPx, yPx, interp_), C.blockSums.data(), photons, -rc, rc, -rc, rc);
+   const int rc = rc_;
+   int camRad = K.halfWidthOversampled / std::max(1, K.oversampling);
+   // With a halo: the point kernel's window but its outermost ring of pixels (which its samples cover only half of)
+   // scaled to the halo's share there, then the halo beyond it.
+   const bool withHalo = halo && halo->Nz() == K.nz;
+   const double inner = withHalo ? photons * InnerScale(*halo, k) : photons;
+   if (withHalo)
+      camRad = InnerRadius();
+   SplatRect(img, W, r0, r1, C.geom, SplatSetup(C.geom, xPx, yPx, interp_), C.blockSums.data(), inner, -rc, rc, -rc, rc);
    const SplatSetupResult st = SplatSetup(K, xPx, yPx, PsfInterpMode::Nearest);
    const float* P = K.BlockSums()[static_cast<size_t>(k)].data();
-   SplatRect(img, W, H, K, st, P, photons, -camRad, camRad, -camRad, -rc - 1);
-   SplatRect(img, W, H, K, st, P, photons, -camRad, camRad, rc + 1, camRad);
-   SplatRect(img, W, H, K, st, P, photons, -camRad, -rc - 1, -rc, rc);
-   SplatRect(img, W, H, K, st, P, photons, rc + 1, camRad, -rc, rc);
+   SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, camRad, -camRad, -rc - 1);
+   SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, camRad, rc + 1, camRad);
+   SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, -rc - 1, -rc, rc);
+   SplatRect(img, W, r0, r1, K, st, P, inner, rc + 1, camRad, -rc, rc);
+   if (!withHalo)
+      return;
+   const int R = halo->Extent(k, photons);
+   if (R <= camRad)
+      return;
+   const PsfKernelCache& G = halo->Geom();
+   const SplatSetupResult sh = SplatSetup(G, xPx, yPx, PsfInterpMode::Nearest);
+   const float* Q = halo->Plane(k).data();
+   SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, R, -R, -camRad - 1);
+   SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, R, camRad + 1, R);
+   SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, -camRad - 1, -camRad, camRad);
+   SplatRect(img, W, r0, r1, G, sh, Q, photons, camRad + 1, R, -camRad, camRad);
 }
 
 std::shared_ptr<BeadKernel> BeadKernelFor(const PsfKernelCache& K, double pixelNm)
@@ -382,8 +504,8 @@ double BeadRatePerSec(const FiducialComponent& c, double dNm)
 
 namespace {
 
-// One bead into img with `photons` at the focus zf and drift (dx, dy) px (JS splatFiducial).
-void SplatFiducial(std::vector<float>& img, unsigned W, unsigned H, const FiducialMovieComponent& F,
+// One bead into img's rows [r0, r1) with `photons` at the focus zf and drift (dx, dy) px (JS splatFiducial).
+void SplatFiducial(std::vector<float>& img, unsigned W, unsigned H, int r0, int r1, const FiducialMovieComponent& F,
                    const FiducialBeadSite& e, double zf, double pixelNm, double photons, double dx, double dy)
 {
    const double xPx = e.xUm * 1000.0 / pixelNm + dx, yPx = e.yUm * 1000.0 / pixelNm + dy;
@@ -391,10 +513,29 @@ void SplatFiducial(std::vector<float>& img, unsigned W, unsigned H, const Fiduci
    {
       // The Gaussian PSF: the sphere's projection adds r^2 / 5 to the variance per axis.
       const double rPx = e.d / 2.0 / pixelNm;
-      GaussianSigned(img, W, H, xPx, yPx, std::sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), photons);
+      GaussianSigned(img, W, r0, r1, xPx, yPx, std::sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), photons);
       return;
    }
-   F.B->Splat(img, W, H, F.kernel.NearestZIndex(e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons);
+   F.B->Splat(img, W, H, F.kernel.NearestZIndex(e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons, F.halo.get(), r0, r1);
+}
+
+// The beads of F into img with photons(e) each (0: skipped), in bands of rows on all cores: every pixel adds the beads
+// in their order, as one pass over the whole image would (a bright bead's halo reaches over the whole frame).
+template <class PhotonsOf>
+void SplatFiducials(std::vector<float>& img, unsigned W, unsigned H, const FiducialMovieComponent& F, double zf,
+                    double pixelNm, double dx, double dy, PhotonsOf photonsOf)
+{
+   std::vector<double> w(F.beads.size());
+   for (size_t i = 0; i < F.beads.size(); ++i)
+      w[i] = photonsOf(F.beads[i]);
+   const unsigned bands = std::max(1u, std::min(H, 64u));
+   ParallelFor(bands, [&](unsigned b) {
+      const int r0 = static_cast<int>(static_cast<unsigned long long>(H) * b / bands);
+      const int r1 = static_cast<int>(static_cast<unsigned long long>(H) * (b + 1) / bands);
+      for (size_t i = 0; i < F.beads.size(); ++i)
+         if (w[i] != 0.0)
+            SplatFiducial(img, W, H, r0, r1, F, F.beads[i], zf, pixelNm, w[i], dx, dy);
+   });
 }
 
 } // namespace
@@ -423,14 +564,11 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
          for (int k = 0; F.taylorState == 1 && k <= D; k++)
          {
             std::vector<float> image(static_cast<size_t>(W) * H, 0.0f);
-            for (const FiducialBeadSite& e : F.beads)
-            {
+            SplatFiducials(image, W, H, F, zf, pixelNm, 0.0, 0.0, [&](const FiducialBeadSite& e) {
                // rate x e^-L (t0 + tm) x the frame integral's factor (1 - e^-L exp) / L, x (-L)^k.
                const double q = e.lambda > 0 ? (1.0 - std::exp(-e.lambda * exp)) / e.lambda : exp;
-               const double w = e.rate * std::exp(-e.lambda * (e.t0Sec + tm)) * q * std::pow(-e.lambda, static_cast<double>(k));
-               if (w != 0.0)
-                  SplatFiducial(image, W, H, F, e, zf, pixelNm, w, 0.0, 0.0);
-            }
+               return e.rate * std::exp(-e.lambda * (e.t0Sec + tm)) * q * std::pow(-e.lambda, static_cast<double>(k));
+            });
             F.taylor.push_back(std::move(image));
          }
       }
@@ -450,11 +588,10 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
          }
          continue;
       }
-      for (const FiducialBeadSite& e : F.beads)
-      {
+      SplatFiducials(img, W, H, F, zf, pixelNm, dx, dy, [&](const FiducialBeadSite& e) {
          const double tf = e.t0Sec + f * exp;
-         SplatFiducial(img, W, H, F, e, zf, pixelNm, MeanPhotonsOf(e.rate, e.lambda, tf, tf + exp), dx, dy);
-      }
+         return MeanPhotonsOf(e.rate, e.lambda, tf, tf + exp);
+      });
    }
 }
 

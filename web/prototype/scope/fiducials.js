@@ -16,7 +16,7 @@
 // it. A bead is a sphere: its brightness scales with d^3 (fluorescence.js).
 import { pcg4d, pcgA, unit } from './rng.js';
 import { DYE_DATA } from './dye_library_data.js';
-import { buildBlockSums, splatSetup, PSF_INTERP } from './psf.js';
+import { buildBlockSums, buildZernikeKernelCache, splatSetup, PSF_INTERP } from './psf.js';
 import { statePhotophysics, spectrum } from './dye_library.js';
 import { crossSectionUm2, photonFluxPerUm2, sampleAt, GRID_N, gridNm } from './spectra.js';
 
@@ -201,6 +201,51 @@ function beadPlane(K, pixelNm, k, dNm, h) {
   return out;
 }
 
+// The beads' halo (BeadHalo): the point PSF over a window twice the FOV (half-width the FOV's larger side, at least the
+// point kernel's, at most FID_HALO_MAX_UM), one sample per camera pixel (its planes are their own block sums), on the
+// point kernel's z planes: a bright or defocused bead lights the whole frame, where the point kernel's window (a few um
+// in the viewer) would cut its light off square. Memoized apart from the point kernels (a few entries).
+// A splat's halo ends where every sample beyond it gives fewer than FID_HALO_MIN_PHOTONS per pixel (haloExtent), so a
+// dim bead costs little and a bright or defocused one reaches as far as its light shows.
+export const FID_HALO_MAX_UM = 30, FID_HALO_MIN_PHOTONS = 0.1;
+let haloId = 0;
+const haloMemo = [];   // most recent first
+export function beadHaloFor(req) {
+  const key = JSON.stringify({ ...req, interpMode: 0 });
+  const i = haloMemo.findIndex(e => e.key === key);
+  if (i >= 0) { const e = haloMemo.splice(i, 1)[0]; haloMemo.unshift(e); return e.halo; }
+  const c = buildZernikeKernelCache(req), n = c.sizeOversampled, h = c.halfWidthOversampled;
+  // per plane and Chebyshev radius r: the largest sample at r or beyond
+  const beyond = c.blockSums.map(p => {
+    const b = new Float32Array(h + 1);
+    for (let y = 0; y < n; ++y) for (let x = 0; x < n; ++x) {
+      const r = Math.max(Math.abs(x - h), Math.abs(y - h));
+      if (p[y * n + x] > b[r]) b[r] = p[y * n + x];
+    }
+    for (let r = h - 1; r >= 0; --r) if (b[r + 1] > b[r]) b[r] = b[r + 1];
+    return b;
+  });
+  const halo = { id: ++haloId, nz: c.nz, sums: c.blockSums, beyond, geom: { oversampling: c.oversampling,
+    halfWidthOversampled: h, sizeOversampled: n, blockSumWidth: c.blockSumWidth } };
+  haloMemo.unshift({ key, halo });
+  haloMemo.length = Math.min(haloMemo.length, 6);
+  return halo;
+}
+// The camera half-width a splat of `photons` at plane k needs (BeadHalo::Extent): beyond it every sample x |photons| is
+// below FID_HALO_MIN_PHOTONS (+ 1 for the interpolation's second tap), at most the window's.
+function haloExtent(halo, k, photons) {
+  const b = halo.beyond[k], a = Math.abs(photons);
+  let lo = -1, hi = b.length - 1;
+  while (lo < hi) {
+    const mid = Math.trunc((lo + hi + 1) / 2);
+    if (b[mid] * a >= FID_HALO_MIN_PHOTONS) lo = mid; else hi = mid - 1;
+  }
+  return Math.min(halo.geom.halfWidthOversampled, lo + 1);
+}
+// The halo's camera half-width for a W x H frame of pixelNm and a point kernel of camRad camera pixels.
+export const beadHaloHalfWidthPx = (W, H, pixelNm, camRad) =>
+  Math.max(camRad, Math.min(Math.max(W, H), Math.round(FID_HALO_MAX_UM * 1000.0 / pixelNm)));
+
 // The bead kernels of a point kernel K (pixelNm: its camera pixel), built on demand per (plane, diameter bin) and
 // memoized with the kernel's planes.
 const beadMemo = new WeakMap();
@@ -213,7 +258,7 @@ export function beadKernel(K, pixelNm) {
   const os = Math.max(1, K.oversampling), camRad = Math.trunc(K.halfWidthOversampled / os);
   const rc = Math.min(camRad, Math.ceil(BEAD_CORE_UM * 1000.0 / pixelNm));
   B = { K, pixelNm, rc, h: Math.min(K.halfWidthOversampled, (rc + 2) * os),
-    interp: K.interpMode === PSF_INTERP.Fft ? PSF_INTERP.Cubic : K.interpMode, cores: new Map() };
+    interp: K.interpMode === PSF_INTERP.Fft ? PSF_INTERP.Cubic : K.interpMode, cores: new Map(), scales: new Map() };
   byKey.set(key, B);
   return B;
 }
@@ -249,18 +294,49 @@ function splatRect(img, W, H, cache, st, B, photons, dxLo, dxHi, dyLo, dyHi) {
     }
   }
 }
+// With a halo, the point kernel's part ends at this camera radius: its window but the outermost ring, whose pixels reach
+// half a pixel beyond its samples (at least the core's).
+const innerRadius = B => Math.max(B.rc, Math.trunc(B.K.halfWidthOversampled / Math.max(1, B.K.oversampling)) - 1);
+// The halo's photons in the point kernel's part (innerRadius) over the point kernel's, at plane k (one emitter at a pixel
+// centre).
+function innerScale(B, halo, k) {
+  if (B.scales.size > 16 && !B.scales.has(halo.id)) B.scales.clear();
+  let s = B.scales.get(halo.id);
+  if (!s) { s = new Float64Array(B.K.nz).fill(NaN); B.scales.set(halo.id, s); }
+  if (s[k] === s[k]) return s[k];
+  const K = B.K, rc = innerRadius(B), n = 2 * rc + 1;
+  const a = new Float32Array(n * n), b = new Float32Array(n * n);
+  splatRect(a, n, n, K, splatSetup(K, rc, rc, PSF_INTERP.Nearest), K.blockSums[k], 1.0, -rc, rc, -rc, rc);
+  splatRect(b, n, n, halo.geom, splatSetup(halo.geom, rc, rc, PSF_INTERP.Nearest), halo.sums[k], 1.0, -rc, rc, -rc, rc);
+  let sa = 0.0, sb = 0.0;
+  for (let i = 0; i < a.length; i++) { sa += a[i]; sb += b[i]; }
+  return (s[k] = sa > 0.0 ? sb / sa : 1.0);
+}
 // Splat one bead of diameter dNm with `photons` (any sign) at (xPx, yPx) (camera pixels) and plane k into img: the core square,
-// then the halo above, below, left and right of it.
-export function splatBead(img, W, H, B, k, dNm, xPx, yPx, photons) {
+// then the halo above, below, left and right of it out to the point kernel's window, and beyond that the bead halo's
+// samples (halo, on the same z planes) out to where the bead's light ends; with a halo, the part in the point kernel's
+// window is scaled to the halo's share there.
+export function splatBead(img, W, H, B, k, dNm, xPx, yPx, photons, halo = null) {
   const K = B.K;
   if (photons === 0.0 || !K.valid || k < 0 || k >= K.nz) return;   // photons < 0: a Taylor image's odd order
-  const C = beadCore(B, k, beadBinNm(dNm)), rc = B.rc, camRad = Math.trunc(K.halfWidthOversampled / Math.max(1, K.oversampling));
-  splatRect(img, W, H, C, splatSetup(C, xPx, yPx, B.interp), C.blockSums, photons, -rc, rc, -rc, rc);
+  const C = beadCore(B, k, beadBinNm(dNm)), rc = B.rc, withHalo = !!halo && halo.nz === K.nz;
+  // with a halo the point kernel's part ends before its outermost ring (innerRadius)
+  const camRad = withHalo ? innerRadius(B) : Math.trunc(K.halfWidthOversampled / Math.max(1, K.oversampling));
+  const inner = withHalo ? photons * innerScale(B, halo, k) : photons;
+  splatRect(img, W, H, C, splatSetup(C, xPx, yPx, B.interp), C.blockSums, inner, -rc, rc, -rc, rc);
   const st = splatSetup(K, xPx, yPx, PSF_INTERP.Nearest), P = K.blockSums[k];
-  splatRect(img, W, H, K, st, P, photons, -camRad, camRad, -camRad, -rc - 1);
-  splatRect(img, W, H, K, st, P, photons, -camRad, camRad, rc + 1, camRad);
-  splatRect(img, W, H, K, st, P, photons, -camRad, -rc - 1, -rc, rc);
-  splatRect(img, W, H, K, st, P, photons, rc + 1, camRad, -rc, rc);
+  splatRect(img, W, H, K, st, P, inner, -camRad, camRad, -camRad, -rc - 1);
+  splatRect(img, W, H, K, st, P, inner, -camRad, camRad, rc + 1, camRad);
+  splatRect(img, W, H, K, st, P, inner, -camRad, -rc - 1, -rc, rc);
+  splatRect(img, W, H, K, st, P, inner, rc + 1, camRad, -rc, rc);
+  if (!withHalo) return;
+  const R = haloExtent(halo, k, photons);
+  if (R <= camRad) return;
+  const G = halo.geom, sh = splatSetup(G, xPx, yPx, PSF_INTERP.Nearest), Q = halo.sums[k];
+  splatRect(img, W, H, G, sh, Q, photons, -R, R, -R, -camRad - 1);
+  splatRect(img, W, H, G, sh, Q, photons, -R, R, camRad + 1, R);
+  splatRect(img, W, H, G, sh, Q, photons, -R, -camRad - 1, -camRad, camRad);
+  splatRect(img, W, H, G, sh, Q, photons, camRad + 1, R, -camRad, camRad);
 }
 
 // Gold's elastic scattering cross section at a wavelength and diameter, um^2 (the Mie table, bilinear, clamped to it).

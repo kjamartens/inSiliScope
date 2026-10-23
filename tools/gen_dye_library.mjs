@@ -180,6 +180,10 @@ for (const k of Object.keys(library.linkagePresets.defaults))
 // excitation peak (the bleach half-time's reference wavelength).
 checkRefs('fiducials', Object.values(fiducialTypes.references).flatMap(r => r.refs));
 const fiducialEmitters = (t, c) => {
+  if (c.emittersSet !== undefined) {   // set by hand: wins over the calibration (whose fit stays in 'emitters')
+    if (!(c.emittersSet > 0)) throw new Error(`fiducial ${t.id} ${c.id}: emittersSet must be > 0`);
+    return c.emittersSet;
+  }
   if (c.calibration) {
     if (!(c.emitters > 0)) throw new Error(`fiducial ${t.id} ${c.id}: no emitters (run tools/fiducial_spectra/fit.mjs)`);
     return c.emitters;

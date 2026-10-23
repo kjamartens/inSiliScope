@@ -133,13 +133,14 @@ through it step by step.
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
   Dipole orientations other than Free are not implemented yet.
 - **Fiducial beads** (Sample, either specimen; off by default, density 0): beads per µm² of coverslip placed at random,
-  then the bead **Type** (gold, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red nanodiamonds; spectra and
+  then the bead **Type** (gold by default, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red nanodiamonds; spectra and
   brightness after Balinovic et al. 2019), in Advanced the diameter (default: the type's product size) and its spread
-  (12 %), the **Height** (on the coverslip, on top of the sample, or in a gel layer of a given thickness), in Expert the
+  (12 %), the **Height** (on top of the sample by default, on the coverslip, or in a gel layer of a given thickness), in Expert the
   bleach half-time (8 h at 1 kW/cm² at the dye's peak), the brightness as equivalent dyes and the filters' blocking OD
-  for gold's scattered laser light ([Fiducial beads](samples/fiducials.md)). The world view draws them as discs of
-  their diameter over the scene (the **Fiducial beads** checkbox, View); in the live image they are bright and do not
-  blink, and under the light they fade over hours, much more slowly off their excitation peak.
+  for gold's scattered laser light ([Fiducial beads](samples/fiducials.md)). The world view and its x-z side view draw
+  them as discs of their diameter over the scene (the **Fiducial beads** checkbox, View); in the live image they are
+  bright and do not blink, a defocused bead's light spreads over the whole frame (its PSF window is twice the field of
+  view), and under the light they fade over hours, much more slowly off their excitation peak.
 - Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - The live image uses the same PSF as the Micro-Manager adapter: a scalar Gibson-Lanni model with Zernike aberration

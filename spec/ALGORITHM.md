@@ -999,6 +999,19 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   sub-sample (one tap per pixel: the halo varies over many pixels). Bead kernels are cached per (point kernel, plane,
   diameter on a 10 nm grid). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
   (beads < 5 % of a movie): a full cubic point splat plus a correction kernel cost 10 % under drift.
+- **The bead's halo reaches over the whole frame** (2026-10-23, the user's request). A bead is ~1e3-1e6 times a dye,
+  and a bead above or below the focus spreads into a disc of radius ~ defocus x tan(theta) (2.4 um per um at NA 1.4):
+  the point kernel's window (+-3 um in the viewer, +-7 um in MM) cut such a bead's light off square and gave its
+  outside light to the inside (each plane is normalized in its window). So each component also has a **bead halo**:
+  the point PSF at its wavelength over a window twice the FOV (half-width the FOV's larger side, at least the point
+  kernel's, at most 30 um), one sample per camera pixel, on the point kernel's z planes, memoized apart from the dye
+  kernels. A splat takes the point kernel out to its window but its outermost pixel ring (which its samples cover
+  only half of: a visible square seam at a defocused bead otherwise), scaled to the halo's share of light there, and
+  the halo beyond, nearest sample, out to where every sample beyond gives fewer than 0.1 photon per pixel (`Extent`,
+  per plane a max over Chebyshev rings: a dim bead costs little; 0.1 photon is far under a camera's read noise).
+  Cost: 0.55 s per colour once (256 px FOV); a drifting movie splats every bead every frame, in bands of rows on all
+  cores (a pixel adds the beads in their order: the same numbers as one pass): 256 px x 200 frames, 33 TetraSpecks,
+  drift: 0.65 s of 4.7 s (3.3 s on one core); without drift 0.10 s of 4.3 s.
 - **Light.** Brightness is an equivalent dye count (eps 1e5 /M/cm, QY 0.5) per component at the type's reference
   diameter, fitted to the paper's max-pixel counts against single dyes in the same images, scaled with the volume
   (d^3). Spectral losses stay in the light path, not in the count: a dark-red bead at 561 nm through a 595/50 filter

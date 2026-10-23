@@ -1819,11 +1819,11 @@ export const DYE_DATA = {
    "qy": 0.5
   },
   "defaults": {
-   "type": "FluoSpheresDarkRed",
+   "type": "Gold",
    "densityPerUm2": 0,
    "diameterNm": 200,
    "diameterCvPct": 12,
-   "height": "Coverslip",
+   "height": "OnTop",
    "layerUm": 10,
    "bleachHalfSec": 28800,
    "bleachRefKWcm2": 1
@@ -1902,7 +1902,7 @@ export const DYE_DATA = {
       "ex": "fp:4251",
       "em": "fp:4252",
       "exPeakNm": 540,
-      "emitters": 40900,
+      "emitters": 1000,
       "bleaches": true
      }
     ]
@@ -1919,7 +1919,7 @@ export const DYE_DATA = {
       "ex": "fp:4564",
       "em": "fp:4565",
       "exPeakNm": 576,
-      "emitters": 40900,
+      "emitters": 1000,
       "bleaches": true
      }
     ]
@@ -1936,7 +1936,7 @@ export const DYE_DATA = {
       "ex": "cs:darkRedEx",
       "em": "cs:darkRedEm",
       "exPeakNm": 651,
-      "emitters": 40900,
+      "emitters": 1000,
       "bleaches": true
      }
     ]
@@ -1953,7 +1953,7 @@ export const DYE_DATA = {
       "ex": "cs:infraredEx",
       "em": "cs:infraredEm",
       "exPeakNm": 707,
-      "emitters": 4160000,
+      "emitters": 1000,
       "bleaches": true
      }
     ]

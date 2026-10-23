@@ -72,6 +72,8 @@ try {
   await page.waitForFunction(() => +(document.getElementById('hud').dataset.beads || 0) > 0, null, { timeout: 60000 });
   const nBeads = await page.evaluate(() => +document.getElementById('hud').dataset.beads);
   check(on.type && on.toggle && nBeads > 0, `beads on: Type and the View toggle show, ${nBeads} beads drawn in the world view ${JSON.stringify(on)}`);
+  const nXz = await page.evaluate(() => document.getElementById('showXZ').checked ? +(document.getElementById('hud').dataset.beadsXz || 0) : -1);
+  check(nXz > 0, `the x-z view draws the beads in its depth range too (${nXz})`);
   await set('showFids', false);
   await page.waitForFunction(() => (document.getElementById('hud').dataset.beads || '') === '', null, { timeout: 10000 });
   await set('showFids', true);

@@ -16,7 +16,7 @@
 //      each dye with its photons at its own clock (mean_field_map.js MapMeanField).
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
 import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, cellFieldEventsInMap, cellFieldContinuousInMap, kernelWavelengthNm,
-  driftInfo } from './scope_movie.js';
+  driftInfo, scopePsfRequest } from './scope_movie.js';
 import { bucketEventsByFrame, frameEmitters, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
 import { binnedBlinkRenderer } from './binned_blinks.js';
 import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
@@ -28,7 +28,7 @@ import { movieClockMap } from './light_history.js';
 import { CLOCK_DOSE, CLOCK_GLOBAL } from './clockmap.js';
 import { MapMeanField, clockPairAt, blinkClockAt, blinkPhotons, epochLambdas, survey, WINDOW_ALIVE_MIN } from './mean_field_map.js';
 import { STRUCTURES } from './world.js';
-import { beadKernel, splatBead, beadRatePerSec, FIDUCIAL_TYPE_IDS } from './fiducials.js';
+import { beadKernel, beadHaloFor, beadHaloHalfWidthPx, splatBead, beadRatePerSec, FIDUCIAL_TYPE_IDS } from './fiducials.js';
 
 const MIN_DETECTED_FRACTION = 1e-4;   // a (structure, state) detected less than this is skipped (no kernel)
 
@@ -92,7 +92,15 @@ function fiducialBeads(spec, S, world, groups, exciteFor, keep) {
     if (!kernel) kernel = scopeKernel(spec, lambdaNm, null, keep + ++own);
     // The Gaussian PSF: the sphere's projection adds r^2 / 5 to the variance per axis.
     const sigmaPx = gaussianSigmaPx(lambdaNm, S.p.na, pixelNm);
-    comps.push({ c, beads, kernel, B: kernel ? beadKernel(kernel, pixelNm) : null, sigmaPx, taylor: null, lambdaNm });
+    // The halo: the point PSF at the component's wavelength over a window twice the FOV, one sample per pixel.
+    let halo = null;
+    if (kernel) {
+      const hr = scopePsfRequest(spec, lambdaNm);
+      hr.oversampling = 1;
+      hr.kernelHalfWidthPx = beadHaloHalfWidthPx(S.W, S.H, pixelNm, Math.trunc(kernel.halfWidthOversampled / Math.max(1, kernel.oversampling)));
+      halo = beadHaloFor(hr);
+    }
+    comps.push({ c, beads, kernel, B: kernel ? beadKernel(kernel, pixelNm) : null, halo, sigmaPx, taylor: null, lambdaNm });
   }
   return { sites, comps, t0Sec: S.t0Sec, expSec: S.expSec, N: S.N, sec: 0.0 };
 }
@@ -104,7 +112,7 @@ function splatFiducial(img, W, H, F, e, zf, pixelNm, photons, dx, dy) {
     renderGaussian(img, W, H, xPx, yPx, Math.sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), photons);
     return;
   }
-  splatBead(img, W, H, F.B, nearestZIndex(F.kernel, e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons);
+  splatBead(img, W, H, F.B, nearestZIndex(F.kernel, e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons, F.halo);
 }
 // The beads' photons of frame f into img: per component, each bead's rate x the integral of its survival e^-L t over the
 // frame [t0 + f exp, t0 + (f + 1) exp) (meanPhotons). Without drift through the Taylor images (built at the first

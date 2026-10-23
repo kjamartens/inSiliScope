@@ -91,7 +91,7 @@ struct Params {
    double fidDensity = 0;               // beads per um^2 of coverslip (0 = none)
    double fidDiameterNm = 200;          // mean diameter, nm
    double fidDiameterCvPct = 12;        // diameter spread, % (estimate)
-   double fidHeight = 0;                // 0 Coverslip, 1 OnTop, 2 Layer
+   double fidHeight = 1;                // 0 Coverslip, 1 OnTop (default), 2 Layer
    double fidLayerUm = 10;              // Layer: the gel's thickness, um
 };
 

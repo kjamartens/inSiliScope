@@ -73,8 +73,8 @@ def main():
     load_scope(core, seed=7, fov="128x128")   # TimeWhileIdle Paused, the lasers open, autoshutter off
     core.setExposure(50)
     assert "Fiducials" in core.getLoadedDevices(), "the Fiducials device is not loaded"
-    for p, v in (("Type", "FluoSpheresDarkRed"), ("DensityPerUm2", 0), ("DiameterNm", -1), ("DiameterCvPct", 12),
-                 ("Height", "Coverslip"), ("LayerUm", 10), ("BleachHalfTimeSec", 28800), ("DyeCount", -1),
+    for p, v in (("Type", "Gold"), ("DensityPerUm2", 0), ("DiameterNm", -1), ("DiameterCvPct", 12),
+                 ("Height", "OnTop"), ("LayerUm", 10), ("BleachHalfTimeSec", 28800), ("DyeCount", -1),
                  ("BlockingOD", 8)):
         got = core.getProperty("Fiducials", p)
         assert (float(got) == v) if isinstance(v, (int, float)) else got == v, f"Fiducials.{p} = {got}, not {v}"
@@ -94,6 +94,7 @@ def main():
     print(f"Off: no spots (dark level {dark:.1f} ADU)")
 
     core.setProperty("Fiducials", "Type", "TetraSpeck")
+    core.setProperty("Fiducials", "Height", "Coverslip")   # in focus, as sharp spots
     core.setProperty("Fiducials", "DyeCount", "30")
     core.setProperty("Fiducials", "DensityPerUm2", "0.05")
     core.setProperty("Fiducials", "BleachHalfTimeSec", "0.1")

@@ -3933,7 +3933,26 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          }
          F.sigmaPx = GaussianSigmaPx(F.lambdaNm, ScopeSpecGet(spec, "na"), pixelNm);
          if (F.kernel.valid)
+         {
             F.B = BeadKernelFor(F.kernel, pixelNm);
+            // The halo: the point PSF at the component's wavelength over a window twice the FOV, one sample per pixel.
+            PsfGeneratorRequest hr;
+            if (!ScopePsfRequest(spec, F.lambdaNm, hr, psfErr))
+            {
+               err = psfErr;
+               return false;
+            }
+            hr.oversampling = 1;
+            hr.kernelHalfWidthPx = BeadHaloHalfWidthPx(S.W, S.H, pixelNm,
+                                                       F.kernel.halfWidthOversampled / std::max(1, F.kernel.oversampling));
+            const auto tHalo = TimingClock::now();
+            if (!BeadHaloFor(hr, F.halo, psfErr))
+            {
+               err = psfErr;
+               return false;
+            }
+            TimingLog("fl.fiducials-halo", TimingSince(tHalo));
+         }
          FM->comps.push_back(std::move(F));
       }
       FM->sec = TimingSince(tFid);
