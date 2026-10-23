@@ -1000,6 +1000,39 @@ std::vector<PropDef> BuildTable()
             AddTargetOrientRows(t, N, s);
    }
 
+   // =========================== Fiducials ===========================
+   // Beads on whatever specimen is mounted (the engine's fid-* options = the core params fid* and the beads' light;
+   // spec/ALGORITHM.md "Fiducial beads"). Off at density 0.
+   {
+      const char* D = "Fiducials";
+      add(OptNames(D, "Type", Tier::Basic, "fid-type", sim::FiducialTypeIds(), 0,
+                   "The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), "
+                   "TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red "
+                   "580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm)."));
+      add(Opt(D, "DensityPerUm2", Tier::Basic, "fid-density", 0, 100,
+              "Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads."));
+      add(Opt(D, "DiameterNm", Tier::Advanced, "fid-diameter-nm", -1, 2000,
+              "Mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's "
+              "product size."));
+      add(Opt(D, "DiameterCvPct", Tier::Advanced, "fid-diameter-cv-pct", 0, 50,
+              "Bead-to-bead diameter spread, % (normal; an estimate)."));
+      add(OptNames(D, "Height", Tier::Advanced, "fid-height", sim::ScopeFiducialHeightNames(), 0,
+                   "Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface), "
+                   "Layer (anywhere in a gel layer of LayerUm, outside the cells)."));
+      add(Opt(D, "LayerUm", Tier::Advanced, "fid-layer-um", 0, 1000, "The gel layer's thickness (Height = Layer), um."));
+      add(Opt(D, "BleachHalfTimeSec", Tier::Expert, "fid-bleach-half-sec", 0, 1e9,
+              "A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 8 h; "
+              "~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)."));
+      add(Opt(D, "BleachRefKWcm2", Tier::Expert, "fid-bleach-ref-kwcm2", 1e-6, 1000,
+              "The intensity the half-time is given at, kW/cm^2."));
+      add(Opt(D, "DyeCount", Tier::Expert, "fid-dyes", -1, 1e9,
+              "Equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component; -1 = the "
+              "type's (fitted to balinovic2019)."));
+      add(Opt(D, "BlockingOD", Tier::Expert, "fid-blocking-od", 0, 12,
+              "The emission path blocks a laser line by at least this optical density (gold's scattered laser light; "
+              "ideal filters would block it fully)."));
+   }
+
    // =========================== Fluorophores ===========================
    {
       // The targets' readouts (each target's mode is its specimen device's <Row>_Mode since issue 15: no experiment-wide

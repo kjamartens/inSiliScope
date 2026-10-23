@@ -1181,3 +1181,46 @@ reads its kinetics at the dose at its own (x, y, z), one core query per movie.
   `RUN_SERIAL`), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `wasm_abi_smoke`, `scope_parity`,
   `engine_check`, `tools/test_history.py` ("Edge": no step at the beam's half contour, mean field and dye by dye),
   `adapter_pixel_hash` (Flat / BFP 0: unchanged).
+
+## 24. Fiducial beads on any sample (2026-10-22/23)
+
+Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), then the port on branch
+`claude/fiducials`. The model and its reasons: spec/ALGORITHM.md "Fiducial beads".
+
+- Data: `data/fiducials/{types,paper_spectra,gold_johnson_christy,gold_mie}.json`, tools `tools/fiducial_spectra/`;
+  `tools/gen_dye_library.mjs` emits `DYE_DATA.fiducials` (JS) and `kFiducialComponents`, `kFiducialTypes`,
+  `kFiducialEquivalentDye`, `kFiducialDefaults`, `kGoldMie` (C++, `DyeLibrary.h` accessors `FiducialTypeIds`,
+  `FiducialTypeAt`, `FiducialComponentAt`, `FiducialDefaults`, `FiducialEquivalentExtCoeff` / `Qy`, `GoldMie`).
+- Core (`core/src/fiducials.{h,cpp}` = `fiducials.js` line for line): params `fidDensity` (0; 0-100 /um^2),
+  `fidDiameterNm` (200; 10-2000), `fidDiameterCvPct` (12; 0-50), `fidHeight` (0 Coverslip, 1 OnTop (default since
+  2026-10-23; golden `f00` sets 0), 2 Layer),
+  `fidLayerUm` (10; 0-1000), clamped in `NormalizeFiducialParams`; `PackingFingerprint` skips `fid*`.
+  `World::SurfaceHeightAt` (= `world.js surfaceHeightAt`), `World::FiducialsInRect`; beads on both specimens.
+  **ABI 15:** `isc_fiducials_in_window(w, x0, y0, x1, y1, out, cap)`, `ISC_FIDUCIAL_STRIDE` 7 (tx, ty, i, x, y, z um, d
+  nm; tile x outer, tile y inner, candidate order). `ISC_WORLD_VERSION` unchanged.
+- Engine (`Simulation/Fiducials.{h,cpp}`): `FiducialPhotophysics`, `BeadRatePerSec`, `GoldScatteringUm2`,
+  `BeadKernel` (`BeadKernelFor` memo of 8 (kernel serial, interpolation, pixel) entries; cores per (plane, diameter
+  bin)), `RenderFiducials` (Taylor images or per-frame splats; at one focus only: a host's z sequence splats per
+  frame); `SampleSource::Fiducials`. `FluorescenceMovie::Begin`: after the groups' kernels, the beads in the query rect
+  and z window, each component's beads at their excitation factor (undrifted centre), kernels shared within 10 nm
+  (`SetPsfKernelMemoEntries` counts the components' own kernels up front). `Render`: the beads last in each frame's
+  continuous pass, so a GPU host's `populationsOnly` image has them too. Timing phases `fl.fiducials-setup`,
+  `fl.fiducials`; the description gains `fiducials=<type>:<beads>_beads:<component>:<nm>:<photons/s>...`. Each bead's
+  decay starts at `t0Sec` (the movie's start-sec); under a host's light history (MM, `LiveScope`) at its past light,
+  `DoseAt / DoseRate` at the bead, + (start-sec - T) for a render-ahead batch (2026-10-23). The bead halo
+  (2026-10-23, spec/ALGORITHM.md): `BeadHalo` / `BeadHaloFor` (its own memo of 6, `BuildZernikePsfKernelCache` at
+  oversampling 1 and `BeadHaloHalfWidthPx`), `BeadKernel::InnerRadius` / `InnerScale`, `BeadHalo::Extent`
+  (`kFiducialHaloMinPhotons` 0.1), `PsfRequestsSameKernel`; JS `beadHaloFor`, `beadHaloHalfWidthPx`, `haloExtent`,
+  `innerScale`; the per-frame splats in row bands (`SplatFiducials`, C++ only); timing phase `fl.fiducials-halo`.
+- Options (`ScopeMovie.cpp` after `origami-heights`, JS the same place): `fid-type` (names; default
+  Gold since 2026-10-23, FluoSpheresDarkRed before), `fid-density`, `fid-diameter-nm` (-1 = the type's `refDiameterNm`, resolved in
+  `ScopeFiducialParams` before `p.fid*`), `fid-diameter-cv-pct`, `fid-height` (names), `fid-layer-um`,
+  `fid-bleach-half-sec` (28800), `fid-bleach-ref-kwcm2` (1), `fid-dyes` (-1), `fid-blocking-od` (8). The fid params
+  are world params (a change is a new world; the packed blocks come back from the cache).
+- JS: `Math.hypot(x, y)` in the bead plane's fade became `Math.sqrt(x * x + y * y)` (exact for the integer offsets, so
+  C++ = JS without fdlibm's hypot in the engine).
+- Checks: `web/lab/fiducial_check.mjs` (in `web/lab/check.mjs`), `world_checks.fiducials` (determinism under query
+  order, Poisson count, diameter spread, the three heights on a World's surface, cells unmoved, C ABI; 1.4 s), golden
+  4 `fiducials` cases (step surface; `compare.mjs` reads `fid` lines without a leading count), `scope_parity` 5 bead
+  movies (TetraSpeck static images, dark red OnTop Gaussian, gold Layer with scatter and drift, a 0.5 s half-time
+  from t = 0, nanorulers with orange FluoSpheres): 100 % identical ADU.

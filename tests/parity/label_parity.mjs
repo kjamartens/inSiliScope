@@ -47,7 +47,7 @@ const D = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dyes.j
 const { STRUCTURES, STRUCTURE_NPC } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const { STRUCTURE_ORIGAMI } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/origami.js')).href);
 const CM = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/clockmap.js')).href);
-if (M._isc_abi_version() !== 14) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 14');
+if (M._isc_abi_version() !== 15) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 15');
 if (STRUCTURES.length !== 3 || STRUCTURE_NPC !== 1 || STRUCTURE_ORIGAMI !== 2) throw new Error('structure ids moved');
 
 const seed = 1249, geom = P.paramsFrom(P.defaults);

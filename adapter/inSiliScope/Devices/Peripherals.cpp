@@ -30,6 +30,11 @@ NanorulersDevice::NanorulersDevice()
 {
 }
 
+FiducialsDevice::FiducialsDevice()
+   : GenericPeripheral("Fiducials", "Fiducial beads on the sample (any specimen): type, density, size, height")
+{
+}
+
 FluorophoresDevice::FluorophoresDevice()
    : GenericPeripheral("Fluorophores", "The dyes: label mode, photophysics readouts, custom dyes")
 {

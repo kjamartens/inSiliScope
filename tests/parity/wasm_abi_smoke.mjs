@@ -104,7 +104,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 14 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 15 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;

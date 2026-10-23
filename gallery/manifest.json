@@ -47,6 +47,9 @@
     { "id": "sr-drift-directed", "title": "Directed drift",
       "text": "drift-xy-speed-nm-per-sec 600 in a seed-drawn direction swinging within +/-20 deg, drift-z-speed-nm-per-sec 150 upwards (drift-z-direction 1) swinging between full speed and still (the default 90 deg z wander), 30% speed wander (correlation time 1 s here, 60 s by default) and a little random walk (20 nm/sqrt(s)). Exaggerated so it shows in 3 s.",
       "options": {"drift-xy-speed-nm-per-sec": 600, "drift-z-speed-nm-per-sec": 150, "drift-z-direction": 1, "drift-xy-angle-wander-deg": 20, "drift-speed-wander-pct": 30, "drift-wander-time-sec": 1, "drift-xy-nm-per-sqrt-sec": 20} },
+    { "id": "fid-drift", "title": "Fiducial beads under drift",
+      "text": "The random-walk drift of the panel before (drift-xy-nm-per-sqrt-sec 200, drift-z-nm-per-sqrt-sec 100) with 100 nm gold nanoparticles on the coverslip (fid-type Gold, fid-density 0.03 per um^2: 7 beads here). Gold does not bleach or blink: its photoluminescence (about 80000 detected photons/s per bead here, after Balinovic et al. 2019) plus a little scattered laser light that leaks through the filters. The beads move with the sample, so their positions over the movie are the drift the .drift.csv records.",
+      "options": {"fid-type": "Gold", "fid-height": "Coverslip", "fid-density": 0.03, "drift-xy-nm-per-sqrt-sec": 200, "drift-z-nm-per-sqrt-sec": 100} },
     { "id": "sr-defocus", "title": "Focus 2 um above the coverslip",
       "text": "Z stage at 2 um: dyes near the focal plane are sharp, those above and below it blur with the 3D PSF.",
       "options": {"z": 2.0} },
@@ -193,7 +196,7 @@
       "story": "A real SMLM frame is never just molecules. In DNA-PAINT the free imager in the buffer glows everywhere, autofluorescence adds more, and the sample creeps while you record. Each can be switched on and off on its own.",
       "rows": [
         {"panels": [["sr-paint-no-bg", "bound imagers only"], ["sr-default", "+ free imager (default)"], ["sr-background", "+ 50 photons/px/s"]], "shared": true, "caption": "Each source of background adds to the last."},
-        {"panels": [["sr-drift", "random walk"], ["sr-drift-directed", "directed drift"]], "caption": "Drift, exaggerated to show in 3 s: a random walk, and a fast creep (600 nm/s) whose direction swings. The cli writes the true path next to the movie."}
+        {"panels": [["sr-drift", "random walk"], ["sr-drift-directed", "directed drift"], ["fid-drift", "random walk + gold beads"]], "caption": "Drift, exaggerated to show in 3 s: a random walk, and a fast creep (600 nm/s) whose direction swings. The cli writes the true path next to the movie; fiducial beads on the sample follow it."}
       ] },
     { "title": "Two targets in one cell",
       "story": "The cell field carries two labelled structures at once: the microtubules and the nuclear pores, each with its own dye, mode and laser. The top row is what is really there, the bottom row what the camera makes of it. The pores sit on the nuclear envelope, so for the pores alone the focus goes up to where the nucleus starts (0.85 um).",

@@ -265,6 +265,26 @@ bool SampleSource::Sites(double x0, double y0, double x1, double y1, double zMin
    }
 }
 
+bool SampleSource::Fiducials(double x0, double y0, double x1, double y1, std::vector<double>& out)
+{
+   if (!world_)
+      return false;
+   int32_t cap = static_cast<int32_t>(out.size() / ISC_FIDUCIAL_STRIDE);
+   for (;;)
+   {
+      const int32_t n = isc_fiducials_in_window(world_, x0, y0, x1, y1, out.empty() ? nullptr : out.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+      {
+         out.resize(static_cast<size_t>(n) * ISC_FIDUCIAL_STRIDE);
+         return true;
+      }
+      cap = n + n / 4;
+      out.resize(static_cast<size_t>(cap) * ISC_FIDUCIAL_STRIDE);
+   }
+}
+
 bool SampleSource::SetKineticsHistory(const double* rows, int nSeg)
 {
    if (!world_)

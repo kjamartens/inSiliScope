@@ -1,0 +1,255 @@
+{
+  "about": "Fiducial-marker types (BSD-3-Clause; spectra keys 'fp:<id>' are FPbase, CC BY-SA 4.0, 'paper:<curve>' data/fiducials/paper_spectra.json, CC BY 3.0). A bead is one emitter per component: 'emitters' equivalent dyes (equivalentDye: extinction coefficient and quantum yield) at the type's reference diameter, scaled with the volume, with the component's spectra; it bleaches (when 'bleaches') with the fiducial bleach half-time at the reference intensity at its own excitation peak. 'calibration' fits 'emitters' (tools/fiducial_spectra/fit.mjs): the bead's maximum pixel above the background relative to a single reference molecule's in the same images of balinovic2019 (EM gain 300, both through the same laser and filter), so emitters = ratio x (eps QY readout of the reference) / (eps QY of the equivalent dye x the bead's excitation at the laser x its emission in the band, computed from its curves). The max-pixel readings (histogram modes) and the background (900 AD-counts, the images' colour-scale floor) are read by eye: estimates, +-50 %. 'scatter': elastic scattering of the laser lines (gold: Mie, gold_mie.json), detected through the filters' blocking.",
+  "equivalentDye": {
+    "extCoeff": 100000,
+    "qy": 0.5,
+    "notes": "definition (estimate): a component's brightness is that of 'emitters' dyes with eps 100000 /M/cm and QY 0.5 at its excitation peak"
+  },
+  "references": {
+    "mEos3.2": {
+      "extCoeff": 32200,
+      "qy": 0.55,
+      "refs": [
+        "lambert2019",
+        "balinovic2019"
+      ],
+      "notes": "mEos3.2 red state (FPbase scalars; the paper's A69T variant assumed the same); read-out 93 % through ET610/75, 94 % through ET605/70 (balinovic2019 figs 2a, 4a)"
+    },
+    "JF646": {
+      "extCoeff": 140000,
+      "qy": 0.589,
+      "refs": [
+        "lambert2019",
+        "balinovic2019"
+      ],
+      "notes": "Janelia Fluor 646 (FPbase: JF646-HaloTag conjugate; the paper's JF646-Hoechst assumed the same); read-out 41 % at 640 nm through HC 676/29 (balinovic2019 fig. 5b)"
+    }
+  },
+  "defaults": {
+    "type": "Gold",
+    "densityPerUm2": 0,
+    "diameterNm": 200,
+    "diameterCvPct": 12,
+    "height": "OnTop",
+    "layerUm": 10,
+    "bleachHalfSec": 28800,
+    "bleachRefKWcm2": 1,
+    "notes": "density 0 = no fiducials (off). Diameter spread 12 % (estimate; vendors quote a few % for FluoSpheres, aggregates and doublets widen it). Bleach half-time 8 h at 1 kW/cm^2 at each component's excitation peak (estimate). Default type gold and height OnTop (the beads on the sample: what a drift-correction sample usually has; the user's choice, 2026-10-23)."
+  },
+  "types": [
+    {
+      "id": "Gold",
+      "name": "Gold nanoparticles (100 nm)",
+      "refDiameterNm": 100,
+      "refs": [
+        "balinovic2019",
+        "johnson1972"
+      ],
+      "scatter": "gold",
+      "components": [
+        {
+          "id": "pl",
+          "name": "photoluminescence",
+          "ex": "paper:goldEx",
+          "em": "paper:goldEm",
+          "bleaches": false,
+          "calibration": {
+            "figure": "2d",
+            "reference": "mEos3.2",
+            "readout": 0.93,
+            "laserNm": 561,
+            "band": [568.5,642.5],
+            "ratio": 2.6,
+            "notes": "gold max pixel ~5000, mEos3.2 ~2500 (fig. 2c, d; background 900)"
+          },
+          "emitters": 2.53
+        }
+      ],
+      "notes": "Sigma-Aldrich 100 nm gold (balinovic2019): stable, few spikes; aggregates blink (not modelled). Photoluminescence as measured; the laser lines' elastic scattering is a second channel (Mie), blocked by the dichroic and emission filter down to their blocking floor."
+    },
+    {
+      "id": "TetraSpeck",
+      "name": "TetraSpeck microspheres (100 nm, 4 colours)",
+      "refDiameterNm": 100,
+      "refs": [
+        "balinovic2019",
+        "lambert2019"
+      ],
+      "components": [
+        {
+          "id": "blue",
+          "name": "blue dye (360/430)",
+          "ex": "fp:4583",
+          "em": "fp:4584",
+          "bleaches": true,
+          "emittersFrom": "orange",
+          "notes": "FPbase 'TetraSpeck blue dye'; emitters as the orange dye's (estimate)"
+        },
+        {
+          "id": "green",
+          "name": "green dye (505/515)",
+          "ex": "fp:4247",
+          "em": "fp:4248",
+          "bleaches": true,
+          "emittersFrom": "orange",
+          "notes": "spectra of FluoSpheres yellow-green (FPbase), the same nominal 505/515 (proxy, estimate); emitters as the orange dye's (estimate)"
+        },
+        {
+          "id": "orange",
+          "name": "orange dye (560/580)",
+          "ex": "paper:tetraSpeckOrangeEx",
+          "em": "paper:tetraSpeckOrangeEm",
+          "bleaches": true,
+          "calibration": {
+            "figure": "3b",
+            "reference": "mEos3.2",
+            "readout": 0.93,
+            "laserNm": 561,
+            "band": [568.5,642.5],
+            "ratio": 1840,
+            "notes": "~30000 at EM gain 3 over a 600 background (fig. 3b), x 100 to gain 300, over mEos3.2's ~1600 above background; single-dye steps of 7000-8000 at gain 300 (fig. 3d) give ~400 emitting dyes, consistent"
+          },
+          "emitters": 705
+        },
+        {
+          "id": "darkred",
+          "name": "dark red dye (660/680)",
+          "ex": "fp:4232",
+          "em": "fp:4233",
+          "bleaches": true,
+          "emittersFrom": "orange",
+          "notes": "spectra of FluoSpheres dark red (FPbase), the same nominal 660/680 (proxy, estimate); emitters as the orange dye's (estimate)"
+        }
+      ],
+      "notes": "ThermoFisher TetraSpeck (balinovic2019: saturating at EM gain 300 without 15 min pre-bleaching; discrete single-dye bleaching steps, not modelled at this brightness)."
+    },
+    {
+      "id": "FluoSpheresOrange",
+      "name": "FluoSpheres orange (200 nm, 540/560)",
+      "refDiameterNm": 200,
+      "refs": [
+        "lambert2019",
+        "thermofisher_fluospheres"
+      ],
+      "components": [
+        {
+          "id": "dye",
+          "name": "orange dye (540/560)",
+          "ex": "fp:4251",
+          "em": "fp:4252",
+          "bleaches": true,
+          "emittersFromType": "FluoSpheresDarkRed",
+          "notes": "FPbase 'FluoSpheres orange fluorescent microspheres'; emitters as the dark red 200 nm beads' (estimate). A red-shifted marker for a 488 nm channel."
+        }
+      ]
+    },
+    {
+      "id": "FluoSpheresRed",
+      "name": "FluoSpheres red (200 nm, 580/605)",
+      "refDiameterNm": 200,
+      "refs": [
+        "lambert2019",
+        "thermofisher_fluospheres"
+      ],
+      "components": [
+        {
+          "id": "dye",
+          "name": "red dye (580/605)",
+          "ex": "fp:4564",
+          "em": "fp:4565",
+          "bleaches": true,
+          "emittersFromType": "FluoSpheresDarkRed",
+          "notes": "FPbase 'FluoSpheres red fluorescent microspheres'; emitters as the dark red 200 nm beads' (estimate). Further red-shifted for a 488 nm channel."
+        }
+      ]
+    },
+    {
+      "id": "FluoSpheresDarkRed",
+      "name": "FluoSpheres dark red (200 nm, 660/680)",
+      "refDiameterNm": 200,
+      "refs": [
+        "balinovic2019"
+      ],
+      "components": [
+        {
+          "id": "dye",
+          "name": "dark red dye (660/680)",
+          "emittersSet": 1000,
+          "emittersSetNotes": "1000 equivalent dyes (the user's choice, 2026-10-23: dimmer than the paper fit in emitters, which saturates a camera under the bead's own laser; estimate)",
+          "ex": "paper:darkRedEx",
+          "em": "paper:darkRedEm",
+          "bleaches": true,
+          "calibration": {
+            "figure": "4b",
+            "reference": "mEos3.2",
+            "readout": 0.94,
+            "laserNm": 561,
+            "band": [570,640],
+            "ratio": 15,
+            "notes": "~25000 through ET605/70 (fig. 4b, middle; saturating at 52000 through ET610/75), mEos3.2 ~2500; background 900"
+          },
+          "emitters": 40900
+        }
+      ],
+      "notes": "The paper's red-shifted marker of choice at 561 nm: excited at 1 % and detected at 0.1-2 %, so a bright bead stays unsaturated beside single molecules."
+    },
+    {
+      "id": "FluoSpheresInfrared",
+      "name": "FluoSpheres infrared (100 nm, 715/755)",
+      "refDiameterNm": 100,
+      "refs": [
+        "balinovic2019"
+      ],
+      "components": [
+        {
+          "id": "dye",
+          "name": "infrared dye (715/755)",
+          "emittersSet": 1000,
+          "emittersSetNotes": "1000 equivalent dyes (the user's choice, 2026-10-23: dimmer than the paper fit in emitters, which saturates a camera under the bead's own laser; estimate)",
+          "ex": "paper:infraredEx",
+          "em": "paper:infraredEm",
+          "bleaches": true,
+          "calibration": {
+            "figure": "5e",
+            "reference": "JF646",
+            "readout": 0.41,
+            "laserNm": 640,
+            "band": [660,688],
+            "ratio": 12.3,
+            "notes": "~33000 through HC 676/29 (fig. 5e, bottom), JF646-Hoechst ~3500; background 900"
+          },
+          "emitters": 4160000
+        }
+      ],
+      "notes": "The red-shifted marker for a 640 nm channel (DNA-PAINT in the paper)."
+    },
+    {
+      "id": "Nanodiamond",
+      "name": "Red nanodiamonds (100 nm)",
+      "refDiameterNm": 100,
+      "refs": [
+        "balinovic2019"
+      ],
+      "components": [
+        {
+          "id": "nv",
+          "name": "NV centres",
+          "ex": "paper:nanodiamondEx",
+          "em": "paper:nanodiamondEm",
+          "bleaches": false,
+          "calibration": {
+            "figure": "6d",
+            "reference": "mEos3.2",
+            "readout": 0.93,
+            "laserNm": 561,
+            "band": [568.5,642.5],
+            "ratio": 8.8,
+            "notes": "~15000 through ET610/75 (fig. 6d, left), mEos3.2 ~2500; background 900"
+          },
+          "emitters": 193000
+        }
+      ],
+      "notes": "Adamas carboxylated nanodiamonds: photostable (no bleaching); they aggregate (not modelled)."
+    }
+  ]
+}

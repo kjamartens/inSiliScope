@@ -973,6 +973,70 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
   0-11 fps with the levels, 6-46 with the map, `bench_bfp`), elsewhere on par (stage moves and z scrubs within ~10 %);
   a WideField sample bleached into the per-dye regime 332 -> 0.9 ms per frame for its windows.
 
+## Fiducial beads (2026-10-22/23)
+
+Optional beads on either specimen, for drift correction (`core/src/fiducials.*` places them, `Simulation/Fiducials.*`
+renders them; JS twin `web/prototype/scope/fiducials.js`, bit-exact; data `data/fiducials/`, spectra and brightness
+from balinovic2019). Off by default (`fidDensity` 0): every other output is unchanged.
+
+- **Not a labelled structure.** A bead holds 1e4-1e6 dyes that bleach as their mean, so it needs no dye list, label,
+  kinetics row or clock-map block: the core gives sites (centre, diameter), the engine one emitter per bead and
+  component with a deterministic decay. `PackingFingerprint` skips `fid*` (no cell moves, block caches stay valid).
+- **Placement: complete spatial randomness.** A Poisson count per 2 um tile (one draw through the inverse CDF, cap
+  4096), each candidate on its own pcg4d channel (`seed ^ 'FIDU'`): no hard core and no thinning, so doublets and
+  overlaps happen as on a real coverslip. Any window, any order gives the same beads. Diameter normal about the mean
+  (`fidDiameterCvPct`, 12 %, *estimate*), at least 10 % of it.
+- **Heights.** Coverslip: centre at r (also under cells: beads go down before the cells). OnTop: the sample's surface
+  there + r, the surface being the highest cytoplasm mesh over the point (`World::SurfaceHeightAt`; 0 on bare glass and
+  for the nanorulers). Layer: uniform in [r, D - r]; a candidate below the surface + r is dropped, not redrawn, so the
+  gel's density per volume stays uniform around the cells.
+- **The bead's image: one splat, not a million.** The image of a uniformly bright solid sphere = the point PSF
+  averaged over it: in z over 10 nm slabs (disc-area weights, linear between the kernel's planes), then laterally over
+  its projection (column density sqrt(r^2 - rho^2), 4 x 4 sub-samples per kernel sample). Only the core needs it: the
+  sphere changes the PSF within ~1 um, so the bead kernel covers |dx|, |dy| <= ceil(1 um / pixel), faded into the
+  point PSF over its outer 0.4 um, with the light the z average moved past the core given back in proportion to the
+  point PSF (the bead keeps the point's photons, 0.9999). Beyond the core the halo is the point kernel at its nearest
+  sub-sample (one tap per pixel: the halo varies over many pixels). Bead kernels are cached per (point kernel, plane,
+  diameter on a 10 nm grid). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
+  (beads < 5 % of a movie): a full cubic point splat plus a correction kernel cost 10 % under drift.
+- **The bead's halo reaches over the whole frame** (2026-10-23, the user's request). A bead is ~1e3-1e6 times a dye,
+  and a bead above or below the focus spreads into a disc of radius ~ defocus x tan(theta) (2.4 um per um at NA 1.4):
+  the point kernel's window (+-3 um in the viewer, +-7 um in MM) cut such a bead's light off square and gave its
+  outside light to the inside (each plane is normalized in its window). So each component also has a **bead halo**:
+  the point PSF at its wavelength over a window twice the FOV (half-width the FOV's larger side, at least the point
+  kernel's, at most 30 um), one sample per camera pixel, on the point kernel's z planes, memoized apart from the dye
+  kernels. A splat takes the point kernel out to its window but its outermost pixel ring (which its samples cover
+  only half of: a visible square seam at a defocused bead otherwise), scaled to the halo's share of light there, and
+  the halo beyond, nearest sample, out to where every sample beyond gives fewer than 0.1 photon per pixel (`Extent`,
+  per plane a max over Chebyshev rings: a dim bead costs little; 0.1 photon is far under a camera's read noise).
+  Cost: 0.55 s per colour once (256 px FOV); a drifting movie splats every bead every frame, in bands of rows on all
+  cores (a pixel adds the beads in their order: the same numbers as one pass): 256 px x 200 frames, 33 TetraSpecks,
+  drift: 0.65 s of 4.7 s (3.3 s on one core); without drift 0.10 s of 4.3 s.
+- **Light.** Brightness is an equivalent dye count (eps 1e5 /M/cm, QY 0.5) per component at the type's reference
+  diameter, fitted to the paper's max-pixel counts against single dyes in the same images, scaled with the volume
+  (d^3). Spectral losses stay in the light path, not in the count: a dark-red bead at 561 nm through a 595/50 filter
+  keeps ~1e-5 of its light. Bleaching: the dyes' mean, rate (kEm / kEm at the reference) x ln 2 / half-time, the
+  reference being `fid-bleach-ref-kwcm2` at the component's own excitation peak (one half-time per material,
+  *estimate* 8 h at 1 kW/cm^2); gold and nanodiamonds do not bleach. Gold also scatters every laser line elastically
+  (Mie, Johnson & Christy constants; bohren1983): flux x collection x the emission path's transmission at the line,
+  floored at 10^-OD (OD 8 by default: dichroic ~2 x emitter ~6; at OD 6 a 100 nm bead's laser leak was 6x its
+  photoluminescence, which the paper's calibration already holds all of).
+- **Frames.** A bead's photons in a frame = rate x the integral of e^-L t over it. Without drift (and at one focus) the
+  movie's frames come from a few static images: e^-L(tau - tm) as a Taylor series about the movie's middle, of the
+  lowest order whose remainder (L_max tm)^(D+1) / (D+1)! is below 1e-9 (bleaching over hours: D = 1-3; a shaped beam
+  gives every bead its own L, which ruled out grouping beads by rate); a frame adds fround(c_k) x image k. Under drift,
+  or when no order <= 6 converges, one splat per bead per frame. A component under 1e-3 photons per frame for its
+  brightest bead is left out (no kernel); a dye group's kernel within 10 nm of a component's wavelength is reused,
+  else the component gets its own (a first-use PSF cost, memoized).
+- **Measured** (cli, 128 px, 200 frames, 15 beads, DNA-PAINT default scene): beads 0.07-0.11 s of 6.4-7.0 s (1-1.6 %);
+  their setup is one extra PSF kernel (~1.1 s) when no dye group's wavelength serves them.
+- **Live bleaching** (MM, the viewer's live mode: a host's light history): a bead's decay starts at its past light in
+  seconds of the light now, `DoseAt / DoseRate` at its centre (exact while the light's spectrum stays the same; hours of
+  half-time make the rest negligible), plus the frames between the history's now and the movie's start-sec (a
+  render-ahead batch after queued frames); 0 where no light reaches now. A bead setting is not a new world for the
+  history (`BuildSampleSettings` leaves `fid*` out).
+- **Not modelled**: aggregate blinking, single-dye steps, BrightField contrast of the beads.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

@@ -26,6 +26,7 @@ const Field kFields[] = {
    NUM(specimen), NUM(origamiDesign), NUM(origamiSpacingNm), NUM(origamiDensity), NUM(origamiMinSpacingNm), NUM(origamiBend), NUM(origamiLpNm),
    NUM(origamiStrandsPerSpot), NUM(origamiAttachNm), NUM(origamiLinkerNm), NUM(origamiRoll), NUM(origamiRollDeg),
    NUM(origamiHeights),
+   NUM(fidDensity), NUM(fidDiameterNm), NUM(fidDiameterCvPct), NUM(fidHeight), NUM(fidLayerUm),
 };
 #undef NUM
 #undef FLAG
@@ -43,7 +44,8 @@ uint64_t PackingFingerprint(const Params& p)
    };
    for (const Field& f : kFields) {
       if (std::strncmp(f.name, "mt", 2) == 0 || std::strncmp(f.name, "npc", 3) == 0 || std::strncmp(f.name, "label", 5) == 0 ||
-          std::strncmp(f.name, "origami", 7) == 0 || std::strcmp(f.name, "specimen") == 0)
+          std::strncmp(f.name, "origami", 7) == 0 || std::strcmp(f.name, "specimen") == 0 ||
+          std::strncmp(f.name, "fid", 3) == 0)
          continue;
       const double v = f.num ? p.*(f.num) : (p.*(f.flag) ? 1.0 : 0.0);
       mix(f.name, std::strlen(f.name));

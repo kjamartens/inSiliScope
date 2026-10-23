@@ -93,6 +93,13 @@ out.push('origami o03 5 12345678 -9876543 12345681 -9876540 origamiDensity=8 ori
 out.push('origami o04 31 -2 -2 4 4 origamiSpacingNm=40 origamiLpNm=600 origamiDensity=2');
 out.push('origami o05 77 -1 -1 5 5 origamiDesign=1 origamiSpacingNm=20 origamiHeights=1 origamiDensity=2');
 out.push('origami o06 78 0 0 9 9 origamiDesign=1 origamiSpacingNm=160 origamiRoll=1 origamiRollDeg=40');
+// Fiducial beads (ABI 15): the beads of a window (fiducials.js / fiducials.cpp) in each height mode, on a step surface
+// (1.5 um where x + y > 0; the World's own surface is checked by scope_parity's OnTop movie).
+// fiducials <id> <seed> <x0> <y0> <x1> <y1> [fid param=value ...]
+out.push('fiducials f00 1249 0 0 10 10 fidDensity=0.5 fidHeight=0');
+out.push('fiducials f01 -7 -5 -5 5 5 fidDensity=2 fidDiameterNm=150 fidDiameterCvPct=30 fidHeight=1');
+out.push('fiducials f02 90210 100000 -100000 100006 -99994 fidDensity=1 fidHeight=2 fidLayerUm=4');
+out.push('fiducials f03 5 -3 -3 3 3 fidDensity=20 fidDiameterNm=2000 fidDiameterCvPct=50 fidHeight=2 fidLayerUm=1');
 
 fs.writeFileSync(process.argv[2], out.join('\n') + '\n');
 console.log(`wrote ${out.length} lines to ${process.argv[2]}`);

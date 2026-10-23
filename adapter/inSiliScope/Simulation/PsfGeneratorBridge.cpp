@@ -875,6 +875,11 @@ bool ComputePsfKernelCacheUncached(const PsfGeneratorRequest& req, PsfKernelCach
 
 } // namespace
 
+bool PsfRequestsSameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b)
+{
+   return SameKernel(a, b);
+}
+
 void SetPsfKernelMemoEntries(size_t n)
 {
    g_kernelMemoEntries.store(std::max<size_t>(2, n));

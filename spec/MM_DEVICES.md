@@ -29,6 +29,7 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `SampleHolder` | State | which specimen is mounted (its positions: `data/specimens.json`, engine option `specimen`); what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
 | `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (`Microtubules_Label`: which dye, how dense) | photophysics of a dye |
 | `Nanorulers` | Generic | the DNA-origami nanorulers: design, density, strands per spot, bending (persistence length), landing; their target's labelling (`Docking_Label`) | photophysics of a dye |
+| `Fiducials` | Generic | fiducial beads on whatever specimen is mounted (an overlay, 2026-10-23): bead type, density, diameter and its spread, height (coverslip / on top / in a gel layer); Expert: bleach half-time, brightness, the filters' blocking floor for gold's scattered laser light | the specimen; the light path |
 | `Fluorophores` | Generic | the dyes: the experiment's label `Mode`, the targets' photophysics readouts, custom dyes (Expert) | which target is labelled |
 | `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, GPU, caches, debugging | physics |
 
@@ -78,7 +79,8 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 
 - One **specimen** device per kind of sample (`CellField`, `Nanorulers` (DNA-origami rods, 2026-10-12); a bead
   slide later). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
-  option `specimen`); optional **overlays** (fiducial beads, autofluorescence) add on top. Specimens do not overlap in
+  option `specimen`); optional **overlays** (fiducial beads: the `Fiducials` device, 2026-10-23; later autofluorescence) add on top: not a
+  new world (the illumination history stays), the same bead field on every specimen. Specimens do not overlap in
   space: one is mounted at a time. Mounting another is a new world (`BuildSampleSettings` carries the specimen and,
   while it is mounted, its params): the illumination history and the drift start afresh; the ZStage stays where it is
   (the nanorulers' dyes sit ~0.02 um above the coverslip, the cell field's start focus is 0.5 um). Every specimen's

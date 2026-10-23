@@ -129,6 +129,9 @@ public:
    // The fluorescent dyes in the window (isc_sites_in_window): ISC_SITE_STRIDE doubles each (world x, y, z, id,
    // structure), replacing out. False on a core failure.
    bool Sites(double x0, double y0, double x1, double y1, double zMin, double zMax, std::vector<double>& out);
+   // The fiducial beads whose centre lies in the window (isc_fiducials_in_window, ABI 15): ISC_FIDUCIAL_STRIDE doubles
+   // each (tx, ty, i, world x, y, z um, diameter nm), replacing out. False on a core failure.
+   bool Fiducials(double x0, double y0, double x1, double y1, std::vector<double>& out);
 
    // Pre-loads what q would need if the stage moved up to marginUm in x/y or
    // to any focus (the whole z column), nearest ring first, for at most about

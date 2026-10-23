@@ -677,6 +677,24 @@ int32_t isc_origami_in_window(IscWorld* w, double x0, double y0, double x1, doub
    }
 }
 
+int32_t isc_fiducials_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::FiducialBead> beads;
+      w->w.FiducialsInRect(x0, y0, x1, y1, beads);
+      if (beads.size() > (size_t)INT32_MAX) return -1;
+      for (size_t j = 0; j < beads.size() && (int32_t)j < cap; j++) {
+         const isc::FiducialBead& b = beads[j];
+         double* o = out + j * ISC_FIDUCIAL_STRIDE;
+         o[0] = b.tx; o[1] = b.ty; o[2] = b.i; o[3] = b.x; o[4] = b.y; o[5] = b.z; o[6] = b.d;
+      }
+      return (int32_t)beads.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
 int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t i, int32_t nPerSide, double* out,
                             int32_t capPts)
 {

@@ -1662,6 +1662,46 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "ExcitationFilter.CustomLoNm"
 },
+"fid-bleach-half-sec": {
+"tier": "Expert",
+"prop": "Fiducials.BleachHalfTimeSec"
+},
+"fid-bleach-ref-kwcm2": {
+"tier": "Expert",
+"prop": "Fiducials.BleachRefKWcm2"
+},
+"fid-blocking-od": {
+"tier": "Expert",
+"prop": "Fiducials.BlockingOD"
+},
+"fid-density": {
+"tier": "Basic",
+"prop": "Fiducials.DensityPerUm2"
+},
+"fid-diameter-cv-pct": {
+"tier": "Advanced",
+"prop": "Fiducials.DiameterCvPct"
+},
+"fid-diameter-nm": {
+"tier": "Advanced",
+"prop": "Fiducials.DiameterNm"
+},
+"fid-dyes": {
+"tier": "Expert",
+"prop": "Fiducials.DyeCount"
+},
+"fid-height": {
+"tier": "Advanced",
+"prop": "Fiducials.Height"
+},
+"fid-layer-um": {
+"tier": "Advanced",
+"prop": "Fiducials.LayerUm"
+},
+"fid-type": {
+"tier": "Basic",
+"prop": "Fiducials.Type"
+},
 "focus-um": {
 "tier": "Expert",
 "prop": "CellField.FocusHeightUm"
@@ -2221,6 +2261,16 @@ self.ISC_MM_TIERS = {
 "EmissionPath.EmissionMagnification": "Basic",
 "ExcitationFilter.CustomHiNm": "Expert",
 "ExcitationFilter.CustomLoNm": "Expert",
+"Fiducials.BleachHalfTimeSec": "Expert",
+"Fiducials.BleachRefKWcm2": "Expert",
+"Fiducials.BlockingOD": "Expert",
+"Fiducials.DensityPerUm2": "Basic",
+"Fiducials.DiameterCvPct": "Advanced",
+"Fiducials.DiameterNm": "Advanced",
+"Fiducials.DyeCount": "Expert",
+"Fiducials.Height": "Advanced",
+"Fiducials.LayerUm": "Advanced",
+"Fiducials.Type": "Basic",
 "Fluorophores.Docking_DetectedPct": "Advanced",
 "Fluorophores.Docking_EffectiveDye": "Advanced",
 "Fluorophores.Docking_EmissionNm": "Advanced",

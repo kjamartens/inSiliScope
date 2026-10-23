@@ -52,7 +52,7 @@ older builds refuse the DLL.
    The PSF (a scalar Gibson-Lanni model with Zernike aberration modes, or a Gaussian) needs nothing else.
 2. Start Micro-Manager with `inSiliScope_Basic.cfg`. It loads the hub `inSiliScope` and one device per part of the
    microscope: `Camera`, `XYStage`, `ZStage`, `Objective`, `EmissionPath`, `FilterCube`, `Lasers`, `TransmittedLamp`,
-   `SampleHolder`, `CellField`, `Nanorulers`, `Fluorophores` and `Renderer`, with the config groups
+   `SampleHolder`, `CellField`, `Nanorulers`, `Fiducials`, `Fluorophores` and `Renderer`, with the config groups
     - `Channel`: one preset per label mode with the cell field's typical dye (`AF647 dSTORM`, `mEos3.2 PALM`,
       `ATTO655 DNA-PAINT`, `mEGFP WideField`; the nanorulers' docking strands take their own typical dye in that mode)
       and `BrightField`;
@@ -81,7 +81,8 @@ older builds refuse the DLL.
    mounts the [DNA-origami nanorulers](samples/nanorulers/index.md) instead: set the Z stage to about 0.02 um (their
    dyes lie 13.5 nm above the glass); the `Nanorulers` device sets their design, density and docking strands per spot
    (Advanced: the bending's persistence length, the landing). Mounting a sample is a new sample: the lit history and
-   the drift start afresh.
+   the drift start afresh. `Fiducials.DensityPerUm2` (e.g. 0.02) puts [fiducial beads](samples/fiducials.md) on
+   either sample, `Fiducials.Type` picks the bead.
 4. Pick a `Channel`: the label mode and its typical dye for every target; the lasers and the filter cube follow
    (`Lasers.Preset` `Auto`: the presets of the labelled targets combined). The cell field has two targets, imaged
    together: the microtubules (`CellField.Microtubules_*`, ATTO 655 DNA-PAINT at 640 nm) and the nuclear pores

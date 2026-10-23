@@ -16,7 +16,7 @@
 //      each dye with its photons at its own clock (mean_field_map.js MapMeanField).
 // Then ApplyNoiseChain at QE 1 (the photons are detected photons: QE(lambda) sits in each dye's detected fraction).
 import { scopeKernel, scopeWorld, cellFieldEvents, cellFieldContinuous, cellFieldEventsInMap, cellFieldContinuousInMap, kernelWavelengthNm,
-  driftInfo } from './scope_movie.js';
+  driftInfo, scopePsfRequest } from './scope_movie.js';
 import { bucketEventsByFrame, frameEmitters, renderPhotonImage, renderGaussian, noiseMaps, applyNoiseChain } from './render.js';
 import { binnedBlinkRenderer } from './binned_blinks.js';
 import { nearestZIndex, planSplat, splatRows, withHaloCut } from './psf.js';
@@ -28,6 +28,7 @@ import { movieClockMap } from './light_history.js';
 import { CLOCK_DOSE, CLOCK_GLOBAL } from './clockmap.js';
 import { MapMeanField, clockPairAt, blinkClockAt, blinkPhotons, epochLambdas, survey, WINDOW_ALIVE_MIN } from './mean_field_map.js';
 import { STRUCTURES } from './world.js';
+import { beadKernel, beadHaloFor, beadHaloHalfWidthPx, splatBead, beadRatePerSec, FIDUCIAL_TYPE_IDS } from './fiducials.js';
 
 const MIN_DETECTED_FRACTION = 1e-4;   // a (structure, state) detected less than this is skipped (no kernel)
 
@@ -46,6 +47,111 @@ function splatUnit(img, W, H, e, g, zStage, pixelNm, sign, dxPx = 0.0, dyPx = 0.
 // Mean detected photons per dye of a decaying population in [t0, t1): rate x integral of exp(-lambda t).
 const meanPhotons = (ratePerSec, lambda, t0, t1) =>
   lambda > 0 ? ratePerSec * (Math.exp(-lambda * t0) - Math.exp(-lambda * t1)) / lambda : ratePerSec * (t1 - t0);
+
+// ---- fiducial beads (fiducials.js) ----
+// A component whose brightest bead gives fewer detected photons per frame than this is left out (no kernel, no splat):
+// gold's laser leak behind blocking filters, a TetraSpeck dye no laser excites.
+const FID_MIN_PHOTONS = 1e-3;
+// A bead component takes a dye group's kernel when that kernel's wavelength is within this (< 1.5 % in PSF width), so
+// beads add no PSF computation to a labelled sample; else a kernel of its own.
+const FID_KERNEL_REUSE_NM = 10;
+// The beads' static images (no drift): each bead's decay over the movie as a Taylor series about its middle frame,
+// e^-L(tau - tm) = sum_k (-L)^k (tau - tm)^k / k!, of the lowest order D whose remainder (L_max x half the span)^(D+1) /
+// (D+1)! is below FID_TAYLOR_TOL; one image per order, frame f = sum_k (tau_f - tm)^k / k! x image_k. Bleaching over
+// hours makes D 1-3; a bleach faster than FID_TAYLOR_MAX_ORDER allows splats per frame.
+const FID_TAYLOR_TOL = 1e-9, FID_TAYLOR_MAX_ORDER = 6;
+
+// The beads of the movie (FiducialBeads): their sites in the query rect and z window, per component the beads with
+// their rate (detected photons per second at their excitation a, before bleaching) and bleach rate (a x the
+// component's), the kernel and its bead corrections. null without beads.
+function fiducialBeads(spec, S, world, groups, exciteFor, keep) {
+  if (!S.fid.on) return null;
+  const q = S.q, pixelNm = S.p.pixelSizeNm;
+  const zMin = q.zHalfRangeUm > 0 ? q.zCullCentreUm - q.zHalfRangeUm : -Infinity;
+  const zMax = q.zHalfRangeUm > 0 ? q.zCullCentreUm + q.zHalfRangeUm : Infinity;
+  const sites = world.fiducialsInRect(q.x0Um, q.y0Um, q.x1Um, q.y1Um).filter(b => b.z >= zMin && b.z < zMax);
+  const comps = [];
+  let own = 0;
+  for (const c of S.fid.comps) {
+    const excite = exciteFor(c.lineShares), beads = [];
+    let maxRate = 0.0;
+    for (const b of sites) {
+      const xUm = b.x - q.originXUm, yUm = b.y - q.originYUm, zNm = (b.z - q.zRefUm) * 1000.0;
+      const a = excite ? excite(xUm, yUm, zNm) : 1.0, rate = beadRatePerSec(c, b.d) * a;
+      if (!(rate > 0)) continue;
+      beads.push({ xUm, yUm, zNm, d: b.d, rate, lambda: c.bleachPerSec * a });
+      if (rate > maxRate) maxRate = rate;
+    }
+    if (!beads.length || maxRate * S.expSec < FID_MIN_PHOTONS) continue;
+    const lambdaNm = kernelWavelengthNm(c.lambdaNm);
+    let kernel = null, best = Infinity;
+    for (const g of groups) {
+      const dl = Math.abs(g.lambdaNm - lambdaNm);
+      if (g.kernel && dl <= FID_KERNEL_REUSE_NM && dl < best) { best = dl; kernel = g.kernel; }
+    }
+    if (!kernel) kernel = scopeKernel(spec, lambdaNm, null, keep + ++own);
+    // The Gaussian PSF: the sphere's projection adds r^2 / 5 to the variance per axis.
+    const sigmaPx = gaussianSigmaPx(lambdaNm, S.p.na, pixelNm);
+    // The halo: the point PSF at the component's wavelength over a window twice the FOV, one sample per pixel.
+    let halo = null;
+    if (kernel) {
+      const hr = scopePsfRequest(spec, lambdaNm);
+      hr.oversampling = 1;
+      hr.kernelHalfWidthPx = beadHaloHalfWidthPx(S.W, S.H, pixelNm, Math.trunc(kernel.halfWidthOversampled / Math.max(1, kernel.oversampling)));
+      halo = beadHaloFor(hr);
+    }
+    comps.push({ c, beads, kernel, B: kernel ? beadKernel(kernel, pixelNm) : null, halo, sigmaPx, taylor: null, lambdaNm });
+  }
+  return { sites, comps, t0Sec: S.t0Sec, expSec: S.expSec, N: S.N, sec: 0.0 };
+}
+// One bead into img with `photons` at the stage height zf and drift (dx, dy) px.
+function splatFiducial(img, W, H, F, e, zf, pixelNm, photons, dx, dy) {
+  const xPx = e.xUm * 1000.0 / pixelNm + dx, yPx = e.yUm * 1000.0 / pixelNm + dy;
+  if (!F.B) {
+    const rPx = e.d / 2.0 / pixelNm;
+    renderGaussian(img, W, H, xPx, yPx, Math.sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), photons);
+    return;
+  }
+  splatBead(img, W, H, F.B, nearestZIndex(F.kernel, e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons, F.halo);
+}
+// The beads' photons of frame f into img: per component, each bead's rate x the integral of its survival e^-L t over the
+// frame [t0 + f exp, t0 + (f + 1) exp) (meanPhotons). Without drift through the Taylor images (built at the first
+// frame), else splatted one by one.
+function renderFiducials(img, W, H, FB, f, zf, pixelNm, drift, dx, dy) {
+  const t0 = FB.t0Sec, exp = FB.expSec, tm = (FB.N - 1) * exp / 2;
+  for (const F of FB.comps) {
+    if (!drift && F.taylor === null) {
+      let lMax = 0.0;
+      for (const e of F.beads) lMax = Math.max(lMax, e.lambda);
+      const x = lMax * tm;
+      let D = 0, rem = x;   // rem = x^(D+1) / (D+1)!
+      while (rem > FID_TAYLOR_TOL && D < FID_TAYLOR_MAX_ORDER) { D++; rem *= x / (D + 1); }
+      F.taylor = rem > FID_TAYLOR_TOL ? false : [];
+      for (let k = 0; F.taylor && k <= D; k++) {
+        const image = new Float32Array(W * H);
+        for (const e of F.beads) {
+          // rate x e^-L (t0 + tm) x the frame integral's factor (1 - e^-L exp) / L, x (-L)^k.
+          const q = e.lambda > 0 ? (1.0 - Math.exp(-e.lambda * exp)) / e.lambda : exp;
+          const w = e.rate * Math.exp(-e.lambda * (t0 + tm)) * q * Math.pow(-e.lambda, k);
+          if (w !== 0.0) splatFiducial(image, W, H, F, e, zf, pixelNm, w, 0.0, 0.0);
+        }
+        F.taylor.push(image);
+      }
+    }
+    if (!drift && F.taylor) {
+      const u = f * exp - tm;
+      let c = 1.0;
+      for (let k = 0; k < F.taylor.length; k++) {
+        if (k > 0) c = c * u / k;
+        const m = Math.fround(c), image = F.taylor[k];
+        for (let i = 0; i < img.length; i++) if (image[i] !== 0) img[i] += Math.fround(m * image[i]);
+      }
+      continue;
+    }
+    const tf = t0 + f * exp;
+    for (const e of F.beads) splatFiducial(img, W, H, F, e, zf, pixelNm, meanPhotons(e.rate, e.lambda, tf, tf + exp), dx, dy);
+  }
+}
 
 export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
   const t0 = performance.now();
@@ -85,6 +191,9 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
     groups.push(g);
     groupOf.set(`${w.s},${w.role}`, g);
   }
+  // The fiducial beads: after the dye groups, so a bead component can share their kernels.
+  const tFid = performance.now(), FB = fiducialBeads(spec, S, world, groups, exciteFor, wanted.length + 1);
+  if (FB) FB.sec = (performance.now() - tFid) / 1000;
   const tPsf = performance.now();
 
   // ---- the kinetics at the local light (a shaped excitation, excitation.js) ----
@@ -401,6 +510,13 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
         paths.push(`${POP_NAME[p.state]}: per dye (${p.wins.length} windows)`);
       }
     }
+    // The fiducial beads, last.
+    if (FB && FB.comps.length) {
+      const tb = performance.now();
+      renderFiducials(img, W, H, FB, f, zf, pixelNm, drift, dx, dy);
+      FB.sec += (performance.now() - tb) / 1000;
+      paths.push(`fiducials: ${FB.comps.map(F => `${F.beads.length} ${F.c.id}`).join(', ')}`);
+    }
     // opts.onPhotons(f, photons): the photon image goes there instead of the noise chain and onFrame (C++
     // FluorescenceFrameOptions::onPhotons; the combined light adds the lamp and runs its own noise chain).
     if ((opts.onPhotons ? opts.onPhotons(f, img) : onFrame(f, applyNoiseChain(img, S.cam, maps, f), img)) === false) break;
@@ -418,6 +534,10 @@ export function renderFluorescenceMovie(P, spec, S, onFrame, opts = {}) {
       states: Object.fromEntries(Object.entries(L.states).map(([k, v]) => [k, v && { lambdaNm: v.lambdaNm,
         detectedFraction: v.detectedFraction, detectedPerSec: v.detectedPerSec }])) }]),
     groups: groups.map(g => ({ structure: g.structure, role: g.role, lambdaNm: g.lambdaNm, perFrame: g.perFrame })),
+    fiducials: FB ? { type: FIDUCIAL_TYPE_IDS[S.fid.type], beads: FB.sites.length, sec: FB.sec,
+      components: FB.comps.map(F => ({ id: F.c.id, lambdaNm: F.lambdaNm, beads: F.beads.length,
+        meanPerSec: F.beads.reduce((m, e) => m + e.rate, 0) / F.beads.length,
+        bleachHalfSec: F.c.bleachPerSec > 0 ? Math.LN2 / F.c.bleachPerSec : Infinity })) } : null,
     populations: pops.filter(p => !p.blink).map(p => ({ structure: p.structure, state: p.state, dyes: p.nZ, inSlab: p.nSlab,
       meanFieldFrames: p.meanFieldFrames, perDyeFrames: p.perDyeFrames })),
   };

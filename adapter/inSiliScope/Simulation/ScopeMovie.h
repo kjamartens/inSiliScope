@@ -62,6 +62,11 @@ double ScopeSpecGet(const ScopeSpec& spec, const char* name);
 int ScopeSpecimen(const ScopeSpec& spec);
 std::vector<int> ScopeMountedStructures(const ScopeSpec& spec);
 std::vector<std::pair<std::string, double>> ScopeSpecimenParams(const ScopeSpec& spec);
+// The world's fiducial params (core params fid*): the fid-* options (fid-diameter-nm -1 = the type's size), then
+// p.<name> on top (JS scopeFiducialParams; the core clamps them).
+std::vector<std::pair<std::string, double>> ScopeFiducialParams(const ScopeSpec& spec);
+// The fid-height names (Coverslip, OnTop, Layer).
+const std::vector<std::string>& ScopeFiducialHeightNames();
 // The DNA-origami design ids (data/origami/designs.json; option origami-design = the index).
 std::vector<std::string> ScopeOrigamiDesignIds();
 // The focus when the spec gives no z (ScopeSpecGet(spec, "z") returns it): 0.5 um for the cell field, the docking

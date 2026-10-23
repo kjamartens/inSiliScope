@@ -1,0 +1,133 @@
+{
+  "about": "Fiducial-marker spectra read from Balinovic, Albrecht & Endesfelder 2019 (balinovic2019, CC BY 3.0), figures 2a-6a: normalised excitation (solid) and emission (dotted) of each marker, measured on a Jasco FP-8500 spectrofluorometer (no numbers published). Read by eye on calibrated grid overlays of the high-resolution figures (tools/fiducial_spectra/README.md); points are [nm, % of the peak], about +-1 nm and +-2 % of the peak. A linear plot cannot resolve the tails the paper's quoted efficiencies depend on (0.1-1 %), so a curve may carry a 'tail': exponential below its first point, v(nm) = v0 exp(-(nm0 - nm) / decayNm) from [nm0, v0], its decay fitted by tools/fiducial_spectra/fit_tails.mjs to the quoted value it names ('fitTo'). Resampled on the 300-900 nm grid by tools/gen_dye_library.mjs as spectra 'cs:<id>'.",
+  "curves": {
+    "goldEx": {
+      "figure": "2a",
+      "kind": "excitation",
+      "points": [[545,0],[546,1],[547,4],[548,7],[549,8.5],[550,10],[551,15],[552,22],[553,33],[554,47],[555,64],[556,82],[557,95],[558,100],[559,90],[560,73],[561,56],[562,42],[563,28],[564,17],[565,10],[566,6],[567,3],[568,1.5],[569,0.5],[570,0]],
+      "notes": "Gold nanoparticles (100 nm, Sigma-Aldrich): 56 % at 561 nm (quoted). The narrow peak (FWHM ~8 nm) looks like the fluorometer's elastic-scatter line rather than the particles' broad plasmon band (Mie: gold_mie.json); taken as published."
+    },
+    "goldEm": {
+      "figure": "2a",
+      "kind": "emission",
+      "points": [[544,0],[546,2],[548,6],[550,10],[552,14],[554,20],[556,32],[558,42],[560,50],[562.5,65],[564,72],[565.5,80],[567.5,88],[569.5,95],[572.5,100],[576,90],[578.5,73],[580.5,60],[581.5,50],[582.5,45],[584,35],[585.5,28],[587.5,20],[589.5,14],[591.5,9],[594.5,5],[597.5,2.5],[600,1],[603,0]],
+      "notes": "Gold nanoparticles: 70 % of the emission in ET610/75 (572.5-647.5 nm, quoted)."
+    },
+    "tetraSpeckOrangeEx": {
+      "figure": "3a",
+      "kind": "excitation",
+      "points": [[549.5,0],[551.5,4.5],[552.8,21],[554.2,29],[555.5,48],[557.1,68],[558.2,80],[559.5,92],[560.3,100],[562.7,90],[564.7,72],[566,60],[567.4,48],[568.4,29],[569.5,11],[570.8,2],[572,0]],
+      "notes": "TetraSpeck (100 nm, ThermoFisher) orange dye (560/580): 98 % at 561 nm (quoted). Scanned 500-590 nm only."
+    },
+    "tetraSpeckOrangeEm": {
+      "figure": "3a",
+      "kind": "emission",
+      "points": [[556,0],[558,2],[560,6],[562,13],[564,25],[566,40],[568,55],[570,66],[572,80],[574,92],[576,98],[578.5,100],[582,94],[583.6,86],[585.4,72],[587.1,60],[588.8,48],[590.8,37],[592.8,26],[595.5,15],[598.9,10],[602.2,4],[606.3,1],[615,0.5],[625,0]],
+      "notes": "TetraSpeck orange dye: 85 % of the emission in ET610/75 (quoted)."
+    },
+    "darkRedEx": {
+      "figure": "4a",
+      "kind": "excitation",
+      "points": [[555,1],[563.9,1],[573.4,0.5],[579.3,1.7],[585.3,4.1],[590,7.8],[594.8,12.6],[599.5,18.7],[604.3,24.8],[609,27.2],[613.8,27.7],[618.5,28.4],[624.5,34.5],[629.2,46.6],[632.8,58.7],[637.5,70.9],[642.3,85.4],[647,95.1],[651.3,100],[656.5,95.1],[661.3,80.6],[667.9,52.7],[674.3,24.8],[680.3,2.9],[683.1,0]],
+      "notes": "Dark red FluoSpheres (200 nm, ThermoFisher, 660/680): 1 % at 561 nm (quoted). Scanned 550-690 nm."
+    },
+    "darkRedEm": {
+      "figure": "4a",
+      "kind": "emission",
+      "points": [[636.3,0],[642.3,7.8],[648.2,24.8],[654.2,44.2],[657.7,61.2],[661.3,75.7],[664.8,87.9],[668.4,97.6],[672.7,100],[677.9,98.8],[682.7,85.4],[686.2,73.3],[689.8,56.3],[693.3,41.7],[696.9,27.2],[701.7,17.5],[706.4,10.2],[712.4,5.3],[718.3,1.7],[723,0]],
+      "tail": {
+        "fitTo": "darkRedEm",
+        "decayNm": 7.632
+      },
+      "notes": "Dark red FluoSpheres: 2 / 0.7 / 0.1 % of the emission in ET610/75, ET605/70, ET595/50 (quoted)."
+    },
+    "infraredEx": {
+      "figure": "5b",
+      "kind": "excitation",
+      "points": [[645.6,0],[650.3,5.5],[655.4,13],[660.5,20.5],[666.9,31],[672.1,41.5],[678.5,53.5],[683.6,65.5],[688.2,77.5],[693.8,89.5],[699,96.3],[706.7,100],[713.1,98.5],[719.5,91],[727.2,79],[733.6,64],[740,49],[746.4,37],[752.8,25],[759.2,13],[764.4,5.5],[768.2,0]],
+      "tail": {
+        "fitTo": "infraredEx640",
+        "decayNm": 2.57
+      },
+      "notes": "Infrared FluoSpheres (100 nm, ThermoFisher, 715/755): 0.1 % at 640 nm (quoted). The figure's caption calls this panel 5a; it is the lower half of panel b."
+    },
+    "infraredEm": {
+      "figure": "5b",
+      "kind": "emission",
+      "points": [[690,0],[699,8.5],[705.4,14.5],[711.8,23.5],[718.2,35.5],[722.1,46],[724.6,55],[728.5,65.5],[732.3,77.5],[737.4,88],[742.6,97],[746.4,100],[752.8,97.8],[757.9,92.5],[763.1,79],[768.2,64],[772.1,52],[775.9,41.5],[781,29.5],[786.2,19],[792.6,10],[801.5,4],[811.8,1],[822.1,1],[827.2,0]],
+      "tail": {
+        "fitTo": "infraredEm",
+        "decayNm": 6.462
+      },
+      "notes": "Infrared FluoSpheres: 0.2 % of the emission in BrightLine HC 676/29 (661.5-690.5 nm, quoted)."
+    },
+    "nanodiamondEx": {
+      "figure": "6a",
+      "kind": "excitation",
+      "points": [[588,0],[592,2],[595,3.5],[600,5],[605,8],[610,12],[613,15],[616,18],[619,17.5],[622,15],[625,13],[628,12.5],[630,15],[632,22],[634,40],[636,60],[638,80],[640,93],[642,100],[644,98],[646,85],[648,68],[650,52],[652,42],[654,37],[656,35],[660,34],[664,31],[667,27],[670,22],[673,16],[676,10],[679,5],[682,2],[686,0.5],[690,0]],
+      "tail": {
+        "fitTo": "nanodiamondEx561",
+        "decayNm": 22.36
+      },
+      "notes": "Red nanodiamonds (100 nm, Adamas, carboxylated): 0.5 % at 561 nm (quoted). The narrow peaks are as measured (NV centres emit broadly, 600-800 nm); taken as published."
+    },
+    "nanodiamondEm": {
+      "figure": "6a",
+      "kind": "emission",
+      "points": [[663.6,0],[665.8,5.6],[667.7,15.9],[669.2,27.6],[670.2,37.9],[670.9,48.2],[671.7,57.1],[672.4,65.9],[673.1,77.6],[674.2,90.9],[676.1,100],[678.2,99.7],[679.7,86.5],[681.2,70.3],[681.9,55.6],[683.4,35],[684.8,21.8],[686.3,7.1],[687.7,1.2],[689.2,0]],
+      "tail": {
+        "fitTo": "nanodiamondEm",
+        "decayNm": 8.925
+      },
+      "notes": "Red nanodiamonds: 0.3 % of the emission in ET610/75 (quoted)."
+    }
+  },
+  "quoted": {
+    "about": "The paper's efficiencies (balinovic2019, figure panels a and text): excitation = the normalised excitation spectrum at the laser line; emission = the fraction of the emission spectrum inside the ideal band of the filter (centre +- width / 2). The ET610/75 band is taken as the figures draw it (grey box 568.5-642.5 nm in figs 2a, 3a, 4a, 6a; nominal 572.5-647.5): the quoted 70 % (gold) and 85 % (TetraSpeck) need its blue edge. HC 676/29 likewise as drawn (660-688 nm, fig. 5b). ET605/70 and ET595/50 (fig. 4a, under the same grey) nominal.",
+    "goldEx561": {
+      "curve": "goldEx",
+      "laserNm": 561,
+      "value": 0.56
+    },
+    "goldEm": {
+      "curve": "goldEm",
+      "bands": [[568.5,642.5,0.7]]
+    },
+    "tetraSpeckOrangeEx561": {
+      "curve": "tetraSpeckOrangeEx",
+      "laserNm": 561,
+      "value": 0.98
+    },
+    "tetraSpeckOrangeEm": {
+      "curve": "tetraSpeckOrangeEm",
+      "bands": [[568.5,642.5,0.85]]
+    },
+    "darkRedEx561": {
+      "curve": "darkRedEx",
+      "laserNm": 561,
+      "value": 0.01
+    },
+    "darkRedEm": {
+      "curve": "darkRedEm",
+      "bands": [[568.5,642.5,0.02],[570,640,0.007],[570,620,0.001]]
+    },
+    "infraredEx640": {
+      "curve": "infraredEx",
+      "laserNm": 640,
+      "value": 0.001
+    },
+    "infraredEm": {
+      "curve": "infraredEm",
+      "bands": [[660,688,0.002]]
+    },
+    "nanodiamondEx561": {
+      "curve": "nanodiamondEx",
+      "laserNm": 561,
+      "value": 0.005
+    },
+    "nanodiamondEm": {
+      "curve": "nanodiamondEm",
+      "bands": [[568.5,642.5,0.003]]
+    }
+  }
+}

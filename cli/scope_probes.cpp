@@ -6,7 +6,9 @@
 #include "ScopeResolved.h"
 
 #include "BrightfieldRender.h"
+#include "DyeLibrary.h"
 #include "Excitation.h"
+#include "Fiducials.h"
 #include "PsfGeneratorBridge.h"
 #include "RenderPresets.h"
 #include "SMLMZernike.h"
@@ -372,6 +374,59 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
       j.Close('}');
    }
    j.Close(']');
+
+   // The fiducial beads' light under this light path (Fiducials.h FiducialPhotophysics; whatever fid-density is): per
+   // component its PSF wavelength, detected photons per second from one bead of the type's diameter at excitation 1
+   // (BeadRatePerSec), the detected fraction, the bleach hazard at excitation 1 and the half-time it gives; the dye
+   // components' spectra (gold's scatter, one per laser line, after them).
+   {
+      const int t = static_cast<int>(O("fid-type"));
+      sim::FiducialLightOptions fo;
+      fo.dyes = O("fid-dyes");
+      fo.halfSec = std::max(0.0, O("fid-bleach-half-sec"));
+      fo.refKWcm2 = std::max(1e-9, O("fid-bleach-ref-kwcm2"));
+      fo.blockingOD = O("fid-blocking-od");
+      std::vector<sim::FiducialComponent> comps;
+      std::string fe;
+      if (sim::FiducialPhotophysics(t, lp, fo, comps, fe))
+      {
+         const sim::FiducialTypeData& T = sim::FiducialTypeAt(t);
+         j.Key("fiducials");
+         j.Open('{');
+         j.KStr("type", T.id);
+         j.KStr("name", T.name);
+         j.KNum("ref_diameter_nm", T.refDiameterNm);
+         j.KNum("density_per_um2", O("fid-density"));
+         j.Key("components");
+         j.Open('[');
+         for (size_t i = 0; i < comps.size(); ++i)
+         {
+            const sim::FiducialComponent& c = comps[i];
+            j.Open('{');
+            j.KStr("id", c.id.c_str());
+            j.KStr("name", c.name.c_str());
+            j.KBool("scatter", c.scatter);
+            j.KNum("lambda_nm", c.lambdaNm);
+            j.KNum("photons_per_s", sim::BeadRatePerSec(c, T.refDiameterNm));
+            j.KNum("detected_fraction", c.detectedFraction);
+            j.KNum("emitters", c.emitters);
+            j.KNum("bleach_per_s", c.bleachPerSec);
+            j.KNum("half_s", c.bleachPerSec > 0 ? std::log(2.0) / c.bleachPerSec : -1);
+            if (!c.scatter && static_cast<int>(i) < T.componentCount)
+            {
+               const sim::FiducialComponentData& d = sim::FiducialComponentAt(T.firstComponent + static_cast<int>(i));
+               j.KNum("ex_peak_nm", d.exPeakNm);
+               if (const sim::Spectrum* ex = sim::SpectrumByKey(d.ex))
+                  SpectrumKey(j, "ex", *ex);
+               if (const sim::Spectrum* em = sim::SpectrumByKey(d.em))
+                  SpectrumKey(j, "em", *em);
+            }
+            j.Close('}');
+         }
+         j.Close(']');
+         j.Close('}');
+      }
+   }
 
    // The PSF a movie builds for the emitting state (ScopePsfRequest).
    double lambda = 0;

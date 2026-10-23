@@ -581,6 +581,7 @@ const mounted = () => DD.specimens[typeof document !== 'undefined' && $('mv_spec
                                                                                        : SPECIMEN_DEFAULT];
 const CF = () => mounted().id === 'CellField', NR = () => mounted().id === 'Nanorulers';
 const DATA = () => CF() && !!self.ISC_SHOW_DATA;   // the View's simulated-data layers, hidden for now
+const FID = () => typeof document === 'undefined' || !$('mv_fid-density') || +$('mv_fid-density').value > 0;   // beads on
 const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ specimen: sp.id }, t)));
 const curPrefix = () => mounted().targets[0].prefix;   // the mounted specimen's (first) target: the dye in use
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
@@ -883,6 +884,7 @@ const UI_GROUPS = [
       check('showMt', 'Microtubules', 'Draw the microtubules.', true, { show: CF }),
       check('showNpcs', 'Nuclear pores', 'Draw the nuclear pores of the detailed cells: the two 8-fold rings of each (cytoplasmic light, nucleoplasmic dark), from 400 px/µm also the four Nup96 sites at each corner.', true, { show: CF }),
       check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
+      check('showFids', 'Fiducial beads', 'Draw the fiducial beads (Sample: Fiducial beads) as discs of their diameter, over the scene.', true, { show: FID }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
       check('showGrid', 'Chunk grid', 'Draw the chunk grid (one candidate cell per chunk; packing runs on fixed 8×8-chunk blocks).', true, { adv, show: CF }),
       check('showCytoContours', 'Contours', 'Draw contour lines of the cytoplasm height.', false, { adv, show: CF }),
@@ -1035,6 +1037,25 @@ const UI_GROUPS = [
   ] },
 
   ...TARGETS.map(labelGroup),
+  // Fiducial beads on any specimen (engine options fid-*: the core params fid* and the beads' light; spec/ALGORITHM.md
+  // "Fiducial beads"; Micro-Manager: Fiducials). Off at density 0.
+  { id: 'fiducials', title: 'Fiducial beads', items: [
+    num('mv_fid-density', 'Density', '/µm²', 'Beads per µm² of coverslip, placed at random (Poisson: doublets and clusters happen, as on a real sample); 0 = no beads. 0.01-0.05 gives a few beads per camera field. <code>Fiducials.DensityPerUm2</code>', 0, 100, 0.01, 0, { kids: [
+      select('mv_fid-type', 'Type', 'The bead (data/fiducials; spectra and brightness after Balinovic et al. 2019 and FPbase): gold nanoparticles (photoluminescence + scattered laser light, no bleaching), TetraSpeck (four dyes, 360/430, 505/515, 560/580, 660/680), FluoSpheres orange (540/560: a marker for a 488 channel) and red (580/605), dark red (660/680: very bright under 640 nm), infrared (715/755), red nanodiamonds (no bleaching). <code>Fiducials.Type</code>',
+        DD.fiducials.types.map((t, i) => [String(i), t.name]), String(DD.fiducials.types.findIndex(t => t.id === DD.fiducials.defaults.type)), { show: FID }),
+      num('mv_fid-diameter-nm', 'Diameter', 'nm', 'Mean bead diameter (brightness ~ d³; the image is the PSF averaged over the solid sphere); −1 = the type\'s product size (in its name). <code>Fiducials.DiameterNm</code>', -1, 2000, 10, -1, { show: FID }),
+      num('mv_fid-diameter-cv-pct', 'Diameter spread', '%', 'Bead-to-bead spread of the diameter (normal; estimate). <code>Fiducials.DiameterCvPct</code>', 0, 50, 1, DD.fiducials.defaults.diameterCvPct, { show: FID }),
+      select('mv_fid-height', 'Height', 'Where the beads sit: on the coverslip (also under the cells: put down first), on top of the sample (its highest surface there: the cytoplasm, a nucleus, a rod), or anywhere in a gel layer (e.g. agarose) between the coverslip and the layer\'s top, outside the cells. <code>Fiducials.Height</code>',
+        [['0', 'On the coverslip'], ['1', 'On top of the sample'], ['2', 'In a gel layer']],
+        String(['Coverslip', 'OnTop', 'Layer'].indexOf(DD.fiducials.defaults.height)), { show: FID, kids: [
+          num('mv_fid-layer-um', 'Layer thickness', 'µm', 'The gel layer\'s thickness (In a gel layer). <code>Fiducials.LayerUm</code>', 0, 1000, 1, DD.fiducials.defaults.layerUm, { show: () => FID() && $('mv_fid-height').value === '2' }),
+        ] }),
+      num('mv_fid-bleach-half-sec', 'Bleach half-time', 's', 'A bead\'s fluorescence half-time at the reference intensity at its dye\'s excitation peak (28800 s = 8 h; estimate); slower off the peak and at less light (~ 1 / the excitation). Gold and nanodiamonds do not bleach; 0 = no bleaching. <code>Fiducials.BleachHalfTimeSec</code>', 0, 1e9, 60, DD.fiducials.defaults.bleachHalfSec, { show: FID }),
+      num('mv_fid-bleach-ref-kwcm2', 'Reference intensity', 'kW/cm²', 'The intensity the half-time is given at. <code>Fiducials.BleachRefKWcm2</code>', 1e-6, 1000, 0.1, DD.fiducials.defaults.bleachRefKWcm2, { show: FID }),
+      num('mv_fid-dyes', 'Equivalent dyes', '', 'Brightness: equivalent dyes (ε 10⁵, QY 0.5) per bead of the type\'s product size, every colour; −1 = the type\'s (fitted to the counts of Balinovic et al. 2019). <code>Fiducials.DyeCount</code>', -1, 1e9, 1, -1, { show: FID }),
+      num('mv_fid-blocking-od', 'Filter blocking', 'OD', 'The emission path blocks a laser line by at least this optical density (dichroic ~2 + emission filter ~6; estimate): gold\'s scattered laser light. <code>Fiducials.BlockingOD</code>', 0, 12, 0.5, 8, { show: FID }),
+    ] }),
+  ] },
   { id: 'slots', title: 'Custom dyes', adv, items: [
     { kind: 'html', html: '<p class="sub">Your own dyes (up to three), picked by a structure\'s Dye by their name. Each starts from a library dye; every value can be edited. <code>Fluorophores.DyeN_*</code></p>' },
     button('addUserDye', '+ Add a dye', 'Adds a custom dye (up to three) and selects it for the mounted specimen\'s target (the microtubules, the docking strands).', { onClick: () => {
@@ -1817,7 +1838,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
  'mv_specimen', 'showRulers', 'origamiDesign', 'origamiSpacingNm', 'origamiDensity', 'origamiMinSpacingNm', 'origamiStrandsPerSpot', 'origamiStrandsPerSpotVal',
- 'origamiBend', 'origamiLpNm', 'origamiAttachNm', 'origamiLinkerNm', 'origamiRoll', 'origamiRollDeg', 'origamiHeights']
+ 'origamiBend', 'origamiLpNm', 'origamiAttachNm', 'origamiLinkerNm', 'origamiRoll', 'origamiRollDeg', 'origamiHeights', 'showFids']
   .forEach(id => { els[id] = document.getElementById(id); });
 
 function params() {
@@ -2055,6 +2076,7 @@ function viewParams() {
 function stateFromUI() {
   const v = viewParams(), p = params(), layers = {};
   if (els.showDyes.checked) layers['mt.dyes'] = {};   // the mounted target's dyes
+  if (els.showFids.checked && +document.getElementById('mv_fid-density').value > 0) layers['fid.beads'] = {};   // on either specimen
   if (DYE_UI.nanorulers()) {   // a nanoruler world: the rods (the cell layers and the data layers need cells)
     if (els.showDyes.checked) layers['mt.dyes'] = { style: { size: 3 } };   // a few dozen dyes per µm²: bigger dots
     if (els.showRulers.checked) layers['ruler.outline'] = {};
@@ -3315,6 +3337,10 @@ function updateLegend(Z, st, nr) {
     if (on('npc.lines')) items.push([sw(K['npc.lines']), 'nuclear pores']);
   }
   if (on('mt.dyes')) items.push([sw(K['mt.dyes']), 'dyes']);
+  if (st.layers['fid.beads']) {
+    const c = IscScene.resolveStyle(st.theme, 'fid.beads', st.layers['fid.beads'].style).color || [255, 255, 255];
+    items.push([`rgb(${c[0]},${c[1]},${c[2]})`, 'fiducial beads']);
+  }
   if (st.grid && !nr) items.push(['#4a5668', 'chunk grid']);
     const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
   if (html === legendKey) return;
@@ -3537,7 +3563,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 14) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 14');
+  if (M._isc_abi_version() !== 15) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 15');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -3563,6 +3589,21 @@ function iscEngine(M) {
     injected = new Set();
     labelKey = '';
     return world;
+  }
+  // The fiducial job's world (the cell world's params + fid*): one of its own, so a bead setting leaves the cell world
+  // (its injected blocks, its labels) alone; it takes the same packed blocks (the beads move no cell).
+  let fidWorld = 0, fidKey = '', fidInjected = new Set();
+  function useFidWorld(seed, p) {
+    const key = (seed >>> 0) + '|' + Object.keys(p).sort().map(k => k + '=' + p[k]).join('|');
+    if (key === fidKey) return fidWorld;
+    const pp = M._isc_params_new();
+    for (const k of Object.keys(p)) if (!nonCore.has(k) && !setParam(pp, k, p[k])) nonCore.add(k);
+    if (fidWorld) M._isc_world_free(fidWorld);
+    fidWorld = M._isc_world_new(seed >>> 0, pp);
+    M._isc_params_free(pp);
+    fidKey = key;
+    fidInjected = new Set();
+    return fidWorld;
   }
   // The labels a job carries on the world (isc_world_set_label, ABI 13): a sites job's {density, fluorescentFraction,
   // linkage} per structure (which dyes there are and where; the rest the default label: dyes.js makeLabel), or an events
@@ -3606,12 +3647,12 @@ function iscEngine(M) {
   }
   const bfOpen = new Set();   // BrightField sessions begun here (bf-begin), closed by bf-movie / bf-end
   // Installs packed blocks (the pack worker's rows) this world does not have yet.
-  function inject(w, blocks) {
+  function inject(w, blocks, set = injected) {
     if (!blocks) return;
     for (const b of blocks) {
       const key = b.bx + ',' + b.by;
-      if (injected.has(key)) continue;
-      injected.add(key);
+      if (set.has(key)) continue;
+      set.add(key);
       const n = b.rows.length / 14, ptr = scratch(Math.max(8, b.rows.length * 8));
       M.HEAPF64.set(b.rows, ptr / 8);
       M._isc_world_set_block(w, b.bx, b.by, ptr, n);   // 0 = had it, 1 = installed, -1 = not this world's rows
@@ -3730,7 +3771,16 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'psf' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      if (d.type === 'fiducials') {
+        // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
+        // d (nm) each), on the beads' own world.
+        const fw = useFidWorld(d.seed, d.p);
+        inject(fw, d.blocks, fidInjected);
+        const [x0, y0, x1, y1] = d.rect;
+        const beads = query((ptr, cap) => M._isc_fiducials_in_window(fw, x0, y0, x1, y1, ptr, cap), 7, 1024);
+        return [{ type: 'fiducials', id: d.id, key: d.key, rect: d.rect, beads }, [beads.buffer]];
+      }
       if (d.type === 'psf') {
         // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
         const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
@@ -4014,7 +4064,8 @@ function initGenWorkers() {
     genWorkers.pack.onmessage = e => onBlockResult(e.data);
     for (let i = 0; i < K; i++) {
       const w = spawnGenWorker();
-      w.onmessage = e => (e.data.type === 'bf-sources' ? onBfSources(e.data) : e.data.type === 'block' ? onBlockResult(e.data) : onCellResult(i, e.data));
+      w.onmessage = e => (e.data.type === 'bf-sources' ? onBfSources(e.data) : e.data.type === 'block' ? onBlockResult(e.data)
+        : e.data.type === 'fiducials' ? onFiducialsResult(e.data) : onCellResult(i, e.data));
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
     genWorkers.dyes = spawnGenWorker();
@@ -4625,6 +4676,12 @@ function renderFrame(st, target) {
     if (wantDyes) labelNote = drawDyes2D(F) || labelNote;
   }
   ctx = ctxTop;
+  let nBeads = 0;
+  if (st.layers['fid.beads']) {   // over the scene (the top canvas)
+    const o = updateFiducials(seed, p, F, nr);
+    if (o) labelNote = labelNote ? labelNote + ', ' + o : o;
+    if (!off) nBeads = drawFiducials(F, ctxTop, seed, p);
+  }
 
   if (!off && st.camera.frameAspect) drawFrameMask(cam, st.camera.frameAspect);
   if (!off && afterDraw) afterDraw(ctxTop, st, cam);
@@ -4635,6 +4692,7 @@ function renderFrame(st, target) {
     const nDet = vis.filter(v => v.detailed).length;
     Object.assign(hud.dataset, nr ? { rulers: nRulers, cells: '' } : { rulers: '', cells: nCells, onScreen: vis.length,
       detailed: scope === 'all' && N > 0 ? nDet : '', microtubules: nMt, chunks: coreCount });
+    hud.dataset.beads = st.layers['fid.beads'] ? nBeads : '';
     hudText.textContent = [hudHead,
       nr && oriPending ? 'loading nanorulers…' : '', !coreReady() ? 'loading core…' : '',
       blockPending.size ? `packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…` : '', nLoading ? `loading ${nLoading} cells…` : '',
@@ -5249,6 +5307,74 @@ function drawDyes2D(F) {
   ctx = ctxTop;
   for (const [o, path] of paths) { ctx.fillStyle = slotCss(F, o, 1, [255, 77, 77]); ctx.fill(path); }
   return note;
+}
+
+// ---- fiducial beads (either specimen) ----
+// The beads meeting the view (padded by FID_PAD views each side) from the fiducials job (isc_fiducials_in_window on a
+// world with the fid* params), cached until the view leaves that window or a setting changes; drawn over the scene as
+// discs of their diameter (at least a few pixels). Zoomed out past FID_MAX_BEADS expected beads, none.
+const FID_PAD = 0.5, FID_MAX_BEADS = 20000;
+let fidCache = null, fidPending = null, fidId = 0;   // {key, rect, beads (7 per bead)}
+// The world's fid* params, as the movie's (scope_movie.js scopeFiducialParams): diameter -1 = the type's.
+function fidParams() {
+  const $ = id => document.getElementById(id);
+  const t = ISC_DYE_DATA.fiducials.types[+$('mv_fid-type').value], dNm = +$('mv_fid-diameter-nm').value;
+  return { fidDensity: Math.max(0, +$('mv_fid-density').value), fidDiameterNm: dNm >= 0 || !t ? dNm : t.refDiameterNm,
+    fidDiameterCvPct: +$('mv_fid-diameter-cv-pct').value, fidHeight: +$('mv_fid-height').value, fidLayerUm: +$('mv_fid-layer-um').value };
+}
+function onFiducialsResult(d) {
+  if (!fidPending || d.id !== fidPending.id) return;
+  fidPending = null;
+  fidCache = d;
+  requestDraw();
+}
+// Makes sure the view's window is cached or on its way; returns a HUD note ('' if none).
+function updateFiducials(seed, p, F, nr) {
+  const r = F.cam.visibleRect(), f = fidParams(), key = assetSig(seed, p) + '|' + JSON.stringify(f);
+  if ((r[2] - r[0]) * (r[3] - r[1]) * f.fidDensity > FID_MAX_BEADS) return 'zoom in to show the fiducial beads';
+  const has = c => c && c.key === key && r[0] >= c.rect[0] && r[1] >= c.rect[1] && r[2] <= c.rect[2] && r[3] <= c.rect[3];
+  if (!has(fidCache) && !has(fidPending)) {
+    const px = (r[2] - r[0]) * FID_PAD, py = (r[3] - r[1]) * FID_PAD, rect = [r[0] - px, r[1] - py, r[2] + px, r[3] + py];
+    const job = { type: 'fiducials', id: ++fidId, key, rect, seed, p: Object.assign({}, p, f), blocks: nr ? null : blocksForRect(p, rect) };
+    // on the last cell worker (short jobs; the dyes worker may be busy with a movie or the PSF preload for seconds)
+    if (genWorkers.ok) { fidPending = { id: job.id, key, rect }; genWorkers.cells[genWorkers.cells.length - 1].postMessage(job); }
+    else if (mainEngine) fidCache = mainEngine.handle(job)[0];
+  }
+  return fidPending ? 'loading fiducial beads…' : '';
+}
+// The cached beads in view and in the z clip, one path, one fill (the theme's fid.beads style); returns how many.
+function drawFiducials(F, g, seed, p) {
+  const c = fidCache, cam = F.cam, st = F.st;
+  if (!c || c.key !== assetSig(seed, p) + '|' + JSON.stringify(fidParams())) return 0;
+  const s = IscScene.resolveStyle(st.theme, 'fid.beads', st.layers['fid.beads'].style), col = s.color || [255, 255, 255];
+  const [x0, y0, x1, y1] = cam.visibleRect(), path = new Path2D(), rMin = 2.5 * F.pxScale;
+  let n = 0;
+  for (let i = 0; i < c.beads.length / 7; i++) {
+    const x = c.beads[7 * i + 3], y = c.beads[7 * i + 4], z = c.beads[7 * i + 5], rUm = c.beads[7 * i + 6] / 2000;
+    if (x < x0 - rUm || x > x1 + rUm || y < y0 - rUm || y > y1 + rUm || z < F.zc[0] || z > F.zc[1]) continue;
+    const [sx, sy] = cam.project(x, y, z), r = Math.max(rMin, rUm * cam.S);
+    path.moveTo(sx + r, sy);
+    path.arc(sx, sy, r, 0, 2 * Math.PI);
+    n++;
+  }
+  g.fillStyle = rgba([...col, s.opacity === undefined ? 1 : s.opacity]);
+  g.fill(path);
+  if (st.xz) {   // the x-z view: the beads in the view's turned-y range and the Z clip, at their height (as the dyes)
+    const S = cam.S, W = cvXZ.width, hv = cam.halfV(), z0 = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio, side = new Path2D();
+    let m = 0;
+    for (let i = 0; i < c.beads.length / 7; i++) {
+      const x = c.beads[7 * i + 3], y = c.beads[7 * i + 4], z = c.beads[7 * i + 5], rUm = c.beads[7 * i + 6] / 2000;
+      const v = cam.v(x, y), sx = W / 2 + cam.u(x, y) * S, r = Math.max(rMin, rUm * S);
+      if (v < -hv - rUm || v > hv + rUm || z < F.zc[0] || z > F.zc[1] || sx < -r || sx > W + r) continue;
+      side.moveTo(sx + r, z0 - z * S);
+      side.arc(sx, z0 - z * S, r, 0, 2 * Math.PI);
+      m++;
+    }
+    ctxXZ.fillStyle = g.fillStyle;
+    if (m) ctxXZ.fill(side);
+    hud.dataset.beadsXz = m;
+  } else hud.dataset.beadsXz = '';
+  return n;
 }
 
 // ---- the DNA-origami nanorulers (a nanoruler world) ----

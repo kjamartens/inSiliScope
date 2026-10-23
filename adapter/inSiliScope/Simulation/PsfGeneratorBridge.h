@@ -342,6 +342,9 @@ struct SplatSetupResult
 };
 SplatSetupResult SplatSetup(const PsfKernelCache& cache, double xPx, double yPx, PsfInterpMode interpMode);
 
+// Whether two requests give the same planes (everything but interpMode and javaHome; the kernel memo's test).
+bool PsfRequestsSameKernel(const PsfGeneratorRequest& a, const PsfGeneratorRequest& b);
+
 // A copy of cache whose splats leave out every camera pixel whose share of the
 // emitter's photons is below threshold (PsfHaloSpans); threshold <= 0 or an
 // invalid cache: the whole square (halo = nullptr), bit for bit the uncut

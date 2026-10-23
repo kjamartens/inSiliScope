@@ -548,6 +548,52 @@
       "journal": "Cambridge University Press", "volume": "", "pages": "",
       "use": "Fresnel amplitude transmission coefficients t_s = 2 n1 cos theta_i / (n1 cos theta_i + n2 cos theta_t), t_p = 2 n1 cos theta_i / (n2 cos theta_i + n1 cos theta_t) (section 1.5.2); the power transmittance T = (n2 cos theta_t / n1 cos theta_i) |t|^2 (section 1.5.3: the free imager's collected light into the coverslip, excitation.js collectionRings); Snell's law; the sine condition (the BFP radius ~ n sin theta)",
       "checked": "standard textbook results, written from the formulas (not checked against the book itself)"
+    },
+    "balinovic2019": {
+      "authors": "Balinovic A, Albrecht D, Endesfelder U",
+      "year": 2019,
+      "title": "Spectrally red-shifted fluorescent fiducial markers for optimal drift correction in localization microscopy",
+      "journal": "Journal of Physics D: Applied Physics", "volume": "52", "pages": "204002",
+      "doi": "10.1088/1361-6463/ab0862",
+      "use": "fiducial markers (data/fiducials/): excitation and emission spectra of gold nanoparticles, TetraSpeck orange dye, dark red and infrared FluoSpheres and red nanodiamonds read from figures 2a-6a (CC BY 3.0); their quoted excitation and filter efficiencies (figure panels a) and brightness relative to mEos3.2-A69T / JF646-Hoechst in the same images (max-pixel histograms, figs 2d, 3b, 4b, 5e, 6d: EM gain 300, 561 nm 725 W/cm^2, 640 nm 750 W/cm^2, iXon Ultra 888, NA 1.49; Methods)",
+      "checked": "citation via Crossref; figures and Methods read in the open-access article (iopscience); the curves read by eye on calibrated grid overlays (tools/fiducial_spectra/README.md)"
+    },
+    "johnson1972": {
+      "authors": "Johnson PB, Christy RW",
+      "year": 1972,
+      "title": "Optical constants of the noble metals",
+      "journal": "Physical Review B", "volume": "6", "pages": "4370-4379",
+      "doi": "10.1103/PhysRevB.6.4370",
+      "use": "optical constants n, k of gold (data/fiducials/gold_johnson_christy.json) for the gold fiducials' Mie cross sections",
+      "checked": "citation via Crossref; the table as distributed by refractiveindex.info (polyanskiy2024), not re-read from the paper"
+    },
+    "polyanskiy2024": {
+      "authors": "Polyanskiy MN",
+      "year": 2024,
+      "title": "Refractiveindex.info database of optical constants",
+      "journal": "Scientific Data", "volume": "11", "pages": "94",
+      "doi": "10.1038/s41597-023-02898-2",
+      "url": "https://refractiveindex.info",
+      "use": "the Johnson & Christy gold table (main/Au/nk/Johnson.yml, CC0 1.0)",
+      "checked": "citation via Crossref; data file fetched from refractiveindex.info"
+    },
+    "bohren1983": {
+      "authors": "Bohren CF, Huffman DR",
+      "year": 1983,
+      "title": "Absorption and Scattering of Light by Small Particles",
+      "journal": "Wiley-VCH", "volume": "", "pages": "",
+      "doi": "10.1002/9783527618156",
+      "use": "Mie theory: the BHMIE algorithm (appendix A: logarithmic derivative by downward recurrence, Riccati-Bessel recurrences) and the small-sphere limits (section 5.2) for the gold fiducials' cross sections (tools/fiducial_spectra/gold_mie.mjs)",
+      "checked": "citation via Crossref (Wiley online edition 1998); the algorithm written from the published BHMIE structure, checked against the dipole limit and a lossless sphere in the tool"
+    },
+    "thermofisher_fluospheres": {
+      "authors": "Thermo Fisher Scientific",
+      "year": 2026,
+      "title": "Summary of Molecular Probes FluoSpheres fluorescent microspheres (The Molecular Probes Handbook, table)",
+      "journal": "", "volume": "", "pages": "",
+      "url": "https://www.thermofisher.com/home/references/molecular-probes-the-handbook/tables/summary-of-molecular-probes-fluospheres-fluorescent-microspheres.html",
+      "use": "nominal excitation/emission maxima of FluoSpheres yellow-green (505/515), orange (540/560) and red (580/605); the dark red (660/680), infrared (715/755) and TetraSpeck (360/430, 505/515, 560/580, 660/680) maxima are as balinovic2019 quotes them",
+      "checked": "vendor table, read online 2026-10-22"
     }
   }
 }

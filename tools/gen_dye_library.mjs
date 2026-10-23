@@ -2,7 +2,8 @@
 // Builds the dye library the imaging code reads, from data/ (no network; refresh FPbase with tools/fetch_fpbase.mjs):
 //   node tools/gen_dye_library.mjs [--check]
 // Inputs: data/dyes/library.json, light_path.json, cameras.json (BSD-3-Clause), fpbase_spectra.json (CC BY-SA 4.0),
-// data/specimens.json (the specimens and their targets), data/references.json. Outputs (never edit by hand; --check fails when they are stale):
+// data/specimens.json (the specimens and their targets), data/references.json, data/fiducials/ (the fiducial-marker
+// types, the spectra read from balinovic2019 (CC BY 3.0) and the gold Mie table). Outputs (never edit by hand; --check fails when they are stale):
 //   web/prototype/scope/dye_library_data.js  the resolved library for the JS reference (and, later, the C++ twin)
 //   web/dye_library.js                        the same for the viewer's option panel (a classic script)
 //   docs/references.md                        the project reference list
@@ -16,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GRID_MIN_NM, GRID_MAX_NM, GRID_STEP_NM, GRID_N, idealTransmission, sampleAt, parametricExcitation, parametricEmission,
   crossSectionUm2, photonFluxPerUm2, collectionEfficiency, detection } from '../web/prototype/scope/spectra.js';
+import { curveValues } from './fiducial_spectra/curves.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK = process.argv.includes('--check');
@@ -24,12 +26,22 @@ const library = read('data/dyes/library.json'), lightPath = read('data/dyes/ligh
 const cameras = read('data/dyes/cameras.json'), fp = read('data/dyes/fpbase_spectra.json');
 const references = read('data/references.json').references;
 const specimens = read('data/specimens.json');
+const fiducialTypes = read('data/fiducials/types.json'), paperSpectra = read('data/fiducials/paper_spectra.json');
+const goldMie = read('data/fiducials/gold_mie.json');
 if (fp.grid.minNm !== GRID_MIN_NM || fp.grid.maxNm !== GRID_MAX_NM || fp.grid.stepNm !== GRID_STEP_NM)
   throw new Error('fpbase_spectra.json grid != spectra.js grid');
 
-const usedSpectra = new Set();
+const usedSpectra = new Set(), usedPaper = new Set();
 const spectrumKey = id => { if (fp.spectra[id] == null) throw new Error(`spectrum ${id} not fetched (run tools/fetch_fpbase.mjs)`); usedSpectra.add(String(id)); return `fp:${id}`; };
-const values = key => key.startsWith('fp:') ? fp.spectra[key.slice(3)].values : null;
+// A fiducial spectrum: 'fp:<id>' (FPbase) or 'paper:<curve>' (data/fiducials/paper_spectra.json) -> 'cs:<curve>'.
+const fiducialSpectrumKey = k => {
+  if (k.startsWith('fp:')) return spectrumKey(Number(k.slice(3)));
+  if (!k.startsWith('paper:') || !paperSpectra.curves[k.slice(6)]) throw new Error(`fiducial spectrum '${k}': not fp:<id> or paper:<curve>`);
+  usedPaper.add(k.slice(6));
+  return `cs:${k.slice(6)}`;
+};
+const values = key => key.startsWith('fp:') ? fp.spectra[key.slice(3)].values
+  : key.startsWith('cs:') ? curveValues(paperSpectra.curves[key.slice(3)]) : null;
 const checkRefs = (where, refs) => { for (const r of refs ?? []) if (!references[r]) throw new Error(`${where}: unknown reference '${r}'`); };
 
 // ---- dyes ----
@@ -162,6 +174,56 @@ const linkageDefaults = Object.fromEntries(targets.filter(t => t.id in library.l
 }));
 for (const k of Object.keys(library.linkagePresets.defaults))
   if (k !== 'notes' && !targets.some(t => t.id === k)) throw new Error(`linkagePresets.defaults: unknown target ${k}`);
+// ---- fiducial markers (data/fiducials/types.json) ----
+// Every component resolved: spectra keys, 'emitters' equivalent dyes at the type's reference diameter (fitted by
+// tools/fiducial_spectra/fit.mjs, or taken from another component / type: emittersFrom, emittersFromType), its
+// excitation peak (the bleach half-time's reference wavelength).
+checkRefs('fiducials', Object.values(fiducialTypes.references).flatMap(r => r.refs));
+const fiducialEmitters = (t, c) => {
+  if (c.emittersSet !== undefined) {   // set by hand: wins over the calibration (whose fit stays in 'emitters')
+    if (!(c.emittersSet > 0)) throw new Error(`fiducial ${t.id} ${c.id}: emittersSet must be > 0`);
+    return c.emittersSet;
+  }
+  if (c.calibration) {
+    if (!(c.emitters > 0)) throw new Error(`fiducial ${t.id} ${c.id}: no emitters (run tools/fiducial_spectra/fit.mjs)`);
+    return c.emitters;
+  }
+  if (c.emittersFrom) {
+    const o = t.components.find(x => x.id === c.emittersFrom);
+    if (!o) throw new Error(`fiducial ${t.id} ${c.id}: unknown emittersFrom '${c.emittersFrom}'`);
+    return fiducialEmitters(t, o);
+  }
+  if (c.emittersFromType) {
+    const u = fiducialTypes.types.find(x => x.id === c.emittersFromType);
+    if (!u || u.components.length !== 1 || u.refDiameterNm !== t.refDiameterNm)
+      throw new Error(`fiducial ${t.id} ${c.id}: emittersFromType needs a one-component type of the same diameter`);
+    return fiducialEmitters(u, u.components[0]);
+  }
+  if (c.emitters > 0) return c.emitters;
+  throw new Error(`fiducial ${t.id} ${c.id}: emitters, calibration, emittersFrom or emittersFromType`);
+};
+if (!(goldMie.lambdaNm.minNm >= GRID_MIN_NM && goldMie.lambdaNm.maxNm <= GRID_MAX_NM)) throw new Error('gold_mie.json: wavelengths outside the grid');
+const fiducials = {
+  equivalentDye: { extCoeff: fiducialTypes.equivalentDye.extCoeff, qy: fiducialTypes.equivalentDye.qy },
+  defaults: Object.fromEntries(Object.entries(fiducialTypes.defaults).filter(([k]) => k !== 'notes')),
+  types: fiducialTypes.types.map(t => {
+    checkRefs(`fiducial ${t.id}`, t.refs);
+    if (t.scatter && t.scatter !== 'gold') throw new Error(`fiducial ${t.id}: scatter '${t.scatter}' (only gold)`);
+    return { id: t.id, name: t.name, refDiameterNm: t.refDiameterNm, scatter: t.scatter ?? null,
+      components: t.components.map(c => {
+        const ex = fiducialSpectrumKey(c.ex), em = fiducialSpectrumKey(c.em), exv = values(ex);
+        let peak = 0;
+        for (let i = 1; i < GRID_N; ++i) if (exv[i] > exv[peak]) peak = i;
+        return { id: c.id, name: c.name, ex, em, exPeakNm: GRID_MIN_NM + peak * GRID_STEP_NM, emitters: fiducialEmitters(t, c),
+          bleaches: !!c.bleaches };
+      }) };
+  }),
+  // Gold spheres in water: Mie cross sections (um^2), rows per diameter, columns per wavelength (bilinear).
+  goldMie: { lambdaNm: goldMie.lambdaNm, diameterNm: goldMie.diameterNm, scatteringUm2: goldMie.scatteringUm2,
+    absorptionUm2: goldMie.absorptionUm2 },
+};
+if (!fiducials.types.some(t => t.id === fiducials.defaults.type)) throw new Error(`fiducial default type '${fiducials.defaults.type}'`);
+
 const data = {
   grid: fp.grid,
   fetched: fp.fetched,
@@ -196,17 +258,21 @@ const data = {
   typicalLabels,
   linkagePresets,
   linkageDefaults,
-  spectra: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values])),
-  spectrumInfo: Object.fromEntries([...usedSpectra].sort((a, b) => a - b).map(id => {
+  fiducials,
+  spectra: Object.fromEntries([...[...usedSpectra].sort((a, b) => a - b).map(id => [`fp:${id}`, fp.spectra[id].values]),
+    ...[...usedPaper].sort().map(c => [`cs:${c}`, values(`cs:${c}`)])]),
+  spectrumInfo: Object.fromEntries([...[...usedSpectra].sort((a, b) => a - b).map(id => {
     const s = fp.spectra[id];
     return [`fp:${id}`, { owner: s.owner, subtype: s.subtype, url: s.url }];
-  })),
+  }), ...[...usedPaper].sort().map(c => [`cs:${c}`, { owner: `balinovic2019 fig. ${paperSpectra.curves[c].figure}`,
+    subtype: paperSpectra.curves[c].kind === 'excitation' ? 'EX' : 'EM', url: 'https://doi.org/10.1088/1361-6463/ab0862' }])]),
 };
 if (Object.values(data.spectra).some(v => v.length !== GRID_N)) throw new Error('spectrum length != grid');
 
 const js = `// GENERATED by tools/gen_dye_library.mjs from data/dyes/*.json -- do not edit; run the generator.
 // Code: BSD-3-Clause. Spectra (DYE_DATA.spectra) and FPbase scalars: CC BY-SA 4.0, from FPbase
-// (https://www.fpbase.org), Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8.
+// (https://www.fpbase.org), Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8; the 'cs:' spectra
+// CC BY 3.0, read from Balinovic A et al. (2019) J Phys D 52:204002, doi:10.1088/1361-6463/ab0862.
 // Other values: see each entry's refs/notes and data/references.json (docs/references.md).
 export const DYE_DATA = ${JSON.stringify(data, null, 1).replace(/\[[\d\s.,eE+-]+\]/g, m => m.replace(/\s+/g, ''))};
 `;
@@ -231,7 +297,8 @@ ${Object.entries(references).sort((a, b) => a[0].localeCompare(b[0])).map(([k, r
 const viewerJs = `// GENERATED by tools/gen_dye_library.mjs from data/dyes/*.json -- do not edit; run the generator.
 // The dye library for the viewer's option panel (web/index.html): the same data as
 // web/prototype/scope/dye_library_data.js. Code: BSD-3-Clause; spectra and FPbase scalars: CC BY-SA 4.0, from FPbase
-// (https://www.fpbase.org), Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8.
+// (https://www.fpbase.org), Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8; the 'cs:' spectra
+// CC BY 3.0, read from Balinovic A et al. (2019) J Phys D 52:204002, doi:10.1088/1361-6463/ab0862.
 self.ISC_DYE_DATA = ${JSON.stringify(data).replace(/\[[\d\s.,eE+-]+\]/g, m => m.replace(/\s+/g, ''))};
 `;
 
@@ -288,7 +355,8 @@ const spectrumIds = Object.keys(data.spectra);
 const cpp = `// GENERATED by tools/gen_dye_library.mjs from data/dyes/*.json -- do not edit; run the generator.
 // The C++ twin of web/prototype/scope/dye_library_data.js, included by DyeLibrary.cpp (types in DyeLibrary.h).
 // Code: BSD-3-Clause. Spectra (kSpectra) and FPbase scalars: CC BY-SA 4.0, from FPbase (https://www.fpbase.org),
-// Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8. Other values: see data/dyes/*.json refs and
+// Lambert TJ (2019) Nat Methods 16:277-278, doi:10.1038/s41592-019-0352-8; the 'cs:' spectra CC BY 3.0, read from
+// Balinovic A et al. (2019) J Phys D 52:204002, doi:10.1088/1361-6463/ab0862. Other values: see data/dyes/*.json refs and
 // notes, data/references.json (docs/references.md).
 
 ${spectrumIds.map((k, i) => `static const double kSpectrum${i}[${GRID_N}] = {${data.spectra[k].map(num).join(',')}};`).join('\n')}
@@ -345,6 +413,22 @@ static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiT
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length}, ${num(sp.illumination && sp.illumination.bfpPosition)} },`).join('\n')}
 };
+// Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
+// peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference
+// diameter (nm), gold's laser scatter, its components (first, count); the equivalent dye (eps /M/cm, QY).
+static const FiducialComponentData kFiducialComponents[] = {
+${data.fiducials.types.flatMap(t => t.components.map(c => `   { ${str(c.id)}, ${str(c.name)}, ${str(c.ex)}, ${str(c.em)}, ${num(c.exPeakNm)}, ${num(c.emitters)}, ${c.bleaches ? 'true' : 'false'} },`)).join('\n')}
+};
+static const FiducialTypeData kFiducialTypes[] = {
+${data.fiducials.types.map((t, i) => `   { ${str(t.id)}, ${str(t.name)}, ${num(t.refDiameterNm)}, ${t.scatter === 'gold' ? 'true' : 'false'}, ${data.fiducials.types.slice(0, i).reduce((n, u) => n + u.components.length, 0)}, ${t.components.length} },`).join('\n')}
+};
+static const double kFiducialEquivalentDye[2] = { ${num(data.fiducials.equivalentDye.extCoeff)}, ${num(data.fiducials.equivalentDye.qy)} };
+// type, densityPerUm2, diameterNm, diameterCvPct, height, layerUm, bleachHalfSec, bleachRefKWcm2
+static const FiducialDefaultsData kFiducialDefaults = { ${str(data.fiducials.defaults.type)}, ${num(data.fiducials.defaults.densityPerUm2)}, ${num(data.fiducials.defaults.diameterNm)}, ${num(data.fiducials.defaults.diameterCvPct)}, ${str(data.fiducials.defaults.height)}, ${num(data.fiducials.defaults.layerUm)}, ${num(data.fiducials.defaults.bleachHalfSec)}, ${num(data.fiducials.defaults.bleachRefKWcm2)} };
+// Gold spheres' scattering cross section in water, um^2 (data/fiducials/gold_mie.json), [diameter][wavelength] on
+// the grids (min, max, step nm): wavelength, diameter.
+static const double kGoldMieScattering[] = {${data.fiducials.goldMie.scatteringUm2.flat().map(num).join(',')}};
+static const GoldMieData kGoldMie = { ${['lambdaNm', 'diameterNm'].flatMap(k => ['minNm', 'maxNm', 'stepNm'].map(f => num(data.fiducials.goldMie[k][f]))).join(', ')}, kGoldMieScattering };
 static const char* const kDefaultExcitationFilter = ${str(data.lightPathDefaults.excitationFilter)};
 static const char* const kDefaultDichroic = ${str(data.lightPathDefaults.dichroic)};
 static const char* const kDefaultEmissionFilter = ${str(data.lightPathDefaults.emissionFilter)};

@@ -171,6 +171,7 @@ World::World(uint32_t seed, const Params& p, size_t assetCacheCells, size_t dyeC
    NormalizeParams(p_);
    NormalizeOrigamiParams(p_);
    if ((int)p_.specimen == SPECIMEN_NANORULERS) origami_.reset(new OrigamiField(seed_, p_));
+   fiducials_.reset(new FiducialField(seed_, p_, [this](double x, double y) { return SurfaceHeightAt(x, y); }));
    for (int s = 0; s < STRUCTURE_COUNT; s++) {
       labels_[(size_t)s].linkage = NormLinkage(LegacyLinkage(s));
       labels_[(size_t)s].hasLinkage = true;
@@ -1155,6 +1156,28 @@ double Overlap(double a0, double a1, double b0, double b1)
    return std::max(0.0, std::min(a1, b1) - std::max(a0, b0));
 }
 } // namespace
+
+double World::SurfaceHeightAt(double x, double y)
+{
+   if (origami_) return 0.0;
+   std::vector<const Cell*> cells;
+   CellsInRectPtr(x, y, x, y, cells);
+   PrebuildAssets(cells);
+   double h = 0.0;
+   for (const Cell* cp : cells) {
+      const Cell& c = *cp;
+      CellAssets& A = Assets(c);
+      const bool rotated = !(c.packRot == 0 || std::isnan(c.packRot));
+      const double cr = rotated ? jsm::cos(c.packRot) : 1, sr = rotated ? jsm::sin(c.packRot) : 0;
+      const double rIn = CellInnerRadiusBound(c);
+      const double dx = x - c.x, dy = y - c.y, lx = dx * cr + dy * sr, ly = -dx * sr + dy * cr;
+      const double rr = jsm::hypot(lx, ly);
+      if (rr > c.rOuter || (rr > rIn && rr > CellRadiusAt(c, jsm::atan2(ly, lx)))) continue;
+      const double hc = SampleCytoMeshHeight(c, A.geom.mesh, lx, ly);
+      if (hc > h) h = hc;
+   }
+   return h;
+}
 
 long World::OpticalVolumeInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                                   int nx, int ny, int nz, int sub, float* out)

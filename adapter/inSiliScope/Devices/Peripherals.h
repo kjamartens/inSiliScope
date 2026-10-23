@@ -76,6 +76,13 @@ public:
    NanorulersDevice();
 };
 
+// Fiducial beads on whatever specimen is mounted (spec/MM_DEVICES.md "overlays"; engine options fid-*).
+class FiducialsDevice : public GenericPeripheral<FiducialsDevice>
+{
+public:
+   FiducialsDevice();
+};
+
 class FluorophoresDevice : public GenericPeripheral<FluorophoresDevice>
 {
 public:

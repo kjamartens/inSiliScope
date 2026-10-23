@@ -7,7 +7,9 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
   between the rings) and a drawn 8-fold ring layer in the viewer.
 - **More samples and origami**: 3D DNA-origami designs (cuboid and mesh bodies, 3D bending, the strands' ring heights
   validated), more nanoruler designs (other spacings, 2D grids), broken and misfolded rulers, stiffness patches and
-  built-in curvature (reserved in `data/origami/designs.json`); NPCs or a bead slide as samples of their own.
+  built-in curvature (reserved in `data/origami/designs.json`); NPCs or a bead slide as samples of their own. The
+  fiducial beads (2026-10-23): blinking of bead aggregates, single-dye steps, their BrightField contrast, measured
+  spectra and brightness for the infrared beads and nanodiamonds (the paper's tails underestimate them).
 - **Brightfield** (exploration branch): the structures that dominate real brightfield contrast are not simulated yet and
   are kept out until they are (nucleoli, lipid droplets, vesicles/granules, mitochondria, chromatin, membrane ruffles,
   actin; full list in `spec/BRIGHTFIELD.md`). Then: a GPU path, destination prefetch on stage moves, phase contrast and

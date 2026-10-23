@@ -40,6 +40,16 @@ that finishes them.
   synthetic events); data only from fixed lists (option values, booleans, buckets), never typed text or file names. A
   new event or counted control: add it to the table in docs/privacy.md in the same commit. The docs count page views and
   `data-umami-event` link clicks (download buttons). Release download counts: `python tools/download_stats.py`.
+- **Fiducial beads (2026-10-22/23, branch `claude/fiducials`, spec/ALGORITHM.md "Fiducial beads", spec/PORT.md 24,
+  docs/samples/fiducials.md):** on either specimen, off by default (`fid-density` 0). Core ABI 15
+  `isc_fiducials_in_window` (`core/src/fiducials.*`, params `fid*` outside the packing fingerprint), engine
+  `Simulation/Fiducials.*` (one bead kernel splat per bead and component, Taylor static images, gold Mie scatter,
+  bleaching from the light history in MM; 2026-10-23: the bead halo, a second PSF window twice the FOV at one sample per
+  pixel beyond the point kernel's, cut at 0.1 photon per pixel, splatted in row bands; defaults Gold, OnTop, the
+  FluoSpheres 1000 equivalent dyes (`emittersSet`)), JS twin `web/prototype/scope/fiducials.js`, data `data/fiducials/`
+  (balinovic2019). MM device `Fiducials` (`tools/test_fiducials.py`, 6 s); viewer group Fiducial beads + View toggle
+  `showFids` (layer `fid.beads`, drawn in the x-z view too, `#hud` `data-beads-xz`; a `fiducials` job on a cell worker
+  on a world of its own; `tests/web/viewer_fiducials.mjs`, ~5 s, on the nanorulers with their label off); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`.
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider

@@ -163,6 +163,13 @@ const CASES = [
   ['2D origami TU Delft logo, 20 nm spacing, DNA-PAINT', `${N} size=40 frames=20 psf-model=0 origami-design=TUDelftLogo origami-spacing-nm=20 ruler-imager-nm=10`, 1],
   ['Nanorulers 40 nm spacing, DNA-PAINT', `${N} size=40 frames=20 psf-model=0 origami-spacing-nm=40 ruler-imager-nm=10`, 1],
   ['Nanorulers BrightField (no contrast: noise only)', `${N} size=32 frames=2 modality=BrightField bf-quality=1`, 0.995],
+  // Fiducial beads (ABI 15; fiducials.js): the static Taylor images, the Gaussian PSF, per-frame splats (drift, a fast
+  // bleach), gold's scattered laser light, both specimens. Dye counts lowered so the beads do not saturate.
+  ['Fiducials TetraSpeck on the coverslip (static images)', `${B} size=40 frames=12 psf-kernel-half-width-nm=2500 fid-density=0.3 fid-type=TetraSpeck fid-dyes=30`, 1],
+  ['Fiducials dark red on the cells (OnTop), Gaussian PSF', `${B} size=40 frames=8 psf-model=0 fid-density=0.3 fid-height=OnTop fid-dyes=2`, 1],
+  ['Fiducials gold in a 5 um layer, scattered light (OD 3), drift, Linear', `${B} size=40 frames=10 psf-kernel-half-width-nm=2500 psf-interp=Linear fid-density=0.5 fid-type=Gold fid-height=Layer fid-layer-um=5 fid-blocking-od=3 drift-xy-nm-per-sqrt-sec=30 drift-z-nm-per-sqrt-sec=40`, 0.999],
+  ['Fiducials alone from t = 0, 0.5 s half-time (per-frame splats)', `${B} size=32 frames=10 psf-model=0 fid-density=0.5 fid-bleach-half-sec=0.5 fid-dyes=1 mt-dye=None npc-dye=None start-sec=0`, 1],
+  ['Nanorulers + orange FluoSpheres, 300 nm, 20 % spread', `${N} size=40 frames=8 psf-kernel-half-width-nm=2500 fid-density=0.3 fid-type=FluoSpheresOrange fid-diameter-nm=300 fid-diameter-cv-pct=20 fid-dyes=5 ruler-imager-nm=10`, 1],
 ];
 const mine = quick ? CASES.slice(0, 2) : only ? CASES.filter(c => c[0].includes(only))
   : shard ? CASES.filter((c, i) => i % shard[1] === shard[0]) : CASES;

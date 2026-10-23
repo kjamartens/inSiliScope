@@ -71,6 +71,16 @@ Upcoming ideas:
   2026-10-14 and dropped: needs a server or a webSMLM change, to be decided), [x] per-frame performance breakdown (fixed
   rows), [x] the focal plane in the x-z view (with drift), [x] the pixel size derived from camera and objective,
   [x] nanoruler dyes inside the camera drawn at any zoom, [x] dim blinks skipped (`blink-min-photons`, Quality).
+- Fiducial markers on any sample (2026-10-22, branch `claude/fiducials`): [x] data (`data/fiducials/`: Balinovic et al.
+  2019's spectra read from figures 2a-6a with fitted tails, FPbase bead spectra, brightness from the paper's images,
+  gold Mie table; `tools/fiducial_spectra/`), [x] JS model in iteration mode (`web/prototype/scope/fiducials.js`:
+  Poisson field on any specimen, heights Coverslip / OnTop / Layer, 12 % size spread, one emitter per bead with the
+  sphere's PSF in a 1 um core + the point PSF's halo, bleaching by a half-time at each component's excitation peak
+  through a Taylor basis of static images, gold's laser scatter through the filters' blocking (OD 8);
+  `web/lab/fiducial_check.mjs`: beads 1-4 % of a movie's time), [x] core + engine
+  port (ABI 15 `isc_fiducials_in_window`, `Simulation/Fiducials.*`, `fid-*` options; spec/PORT.md 24; golden,
+  `world_checks.fiducials`, `scope_parity` 100 %; cli beads 1-1.6 % of a movie), [x] MM `Fiducials` device (live
+  bleaching from the light history's dose per bead; `tools/test_fiducials.py`), [x] viewer (Sample group, beads in the world view, `tests/web/viewer_fiducials.mjs`), [x] docs (`docs/samples/fiducials.md`), figures (`fid-spectra`, `fid-heights`; cli `--setup-json` `fiducials`), gallery (`fid-drift`).
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

@@ -9,7 +9,9 @@ A simulated fluorescence microscope around one world model of a sample, the same
 
 - **Samples**: a field of adherent cells (cell body, shaped nucleus, cytoplasm, microtubules, nuclear pores; refractive
   index for brightfield) and DNA-origami nanorulers (rods and a 2D origami), each a pure function of the seed and the
-  position, endless in x and y.
+  position, endless in x and y. Optional fiducial beads on either sample (gold, TetraSpeck, FluoSpheres, nanodiamonds;
+  spectra and brightness after Balinovic et al. 2019), on the coverslip, on the sample or in a gel layer, slowly
+  bleaching, a defocused bead's light spread over the whole frame.
 - **Labels and photophysics**: per target a dye from a library of FPbase spectra in dSTORM, PALM, DNA-PAINT or
   WideField mode, a label linkage (antibodies, nanobody, SNAP/Halo), the illumination history of every place (bleaching
   where you looked), DNA-PAINT binding kinetics and the free imager's background.
