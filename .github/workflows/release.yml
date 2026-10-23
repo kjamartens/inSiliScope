@@ -3,6 +3,9 @@ name: Release
 # Push a tag `vX.Y.Z` (or run by hand with a version) to: run the CI tests, build the Micro-Manager
 # DLL and the webSMLM block, render the gallery and the benchmarks, publish a GitHub Release with
 # all of it, and redeploy the Pages site (viewer + docs + gallery + benchmarks).
+# A hotfix (a tag with -hotfix in it, e.g. v0.1.0-rc14-hotfix1, or `hotfix` ticked when run by hand): the same tests,
+# DLL, block and site, but no gallery, 3D overview or benchmarks: the release carries the previous release's
+# gallery.zip and benchmarks.json over, so the site keeps them.
 # Nothing is committed to the repository and no PR is opened; bringing the block into
 # kjamartens/webSMLM is a separate change made there (tools/sync_cellfield.mjs).
 on:
@@ -18,11 +21,16 @@ on:
         description: 'Download URL of PSFGenerator.jar (empty = the EPFL site)'
         type: string
         default: ''
+      hotfix:
+        description: 'Hotfix: skip the gallery, 3D overview and benchmarks (carried over from the previous release)'
+        type: boolean
+        default: false
 
 env:
   EMSDK_VERSION: 6.0.10   # same pin as ci.yml: the block's bytes depend on it
   NODE_VERSION: 24
   VERSION: ${{ inputs.version || github.ref_name }}
+  HOTFIX: ${{ (inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) && 'true' || 'false' }}
 
 jobs:
   # The tag must be v<VERSION> or v<VERSION>-rcN (the VERSION file; core/include/insiliscope/version.h repeats it, CMake checks that).
@@ -79,6 +87,7 @@ jobs:
 
   gallery:
     needs: tests
+    if: ${{ !(inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -122,6 +131,7 @@ jobs:
   # added to the cli benchmarks' entry of this version (benchmarks.json, the site's Benchmarks page).
   mm-bench:
     needs: [dll, gallery]
+    if: ${{ !(inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -153,6 +163,8 @@ jobs:
 
   release:
     needs: [dll, block, gallery, mm-bench]
+    # a hotfix runs without the gallery and benchmark jobs (skipped); anything else needs all four
+    if: ${{ !cancelled() && needs.dll.result == 'success' && needs.block.result == 'success' && (needs.mm-bench.result == 'success' || ((inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) && needs.gallery.result == 'skipped' && needs.mm-bench.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -163,6 +175,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: assets
+      - name: "Hotfix: the previous release's gallery and benchmarks"
+        if: env.HOTFIX == 'true'
+        run: |
+          prev=$(gh release list --limit 1 --exclude-drafts --json tagName -q '.[0].tagName')   # newest, incl. pre-releases
+          if [ -z "$prev" ]; then echo "::error::a hotfix needs a previous release to take the gallery from"; exit 1; fi
+          mkdir -p assets/gallery assets/benchmarks
+          gh release download "$prev" --pattern gallery.zip --dir assets/gallery
+          gh release download "$prev" --pattern benchmarks.json --dir assets/benchmarks
+          echo "$prev" > prev_tag
       - name: Publish
         run: |
           {
@@ -174,6 +195,7 @@ jobs:
             echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
             echo "- \`LICENSE\`, \`LICENSE-GPL-3.0.txt\`, \`THIRD_PARTY_NOTICES.md\`: the licences of the DLL and of what it includes."
             echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings: the cli, and Micro-Manager live speed with where each frame's time goes (also on the project site)."
+            if [ -f prev_tag ]; then echo "  This is a hotfix: both are carried over from $(cat prev_tag), not rendered again."; fi
             echo
             echo '```'
             cat assets/mmgr_dal_inSiliScope-windows-x64/BUILD_INFO.txt

@@ -46,7 +46,7 @@ that finishes them.
   `Simulation/Fiducials.*` (one bead kernel splat per bead and component, Taylor static images, gold Mie scatter,
   bleaching from the light history in MM; 2026-10-23: the bead halo, a second PSF window twice the FOV at one sample per
   pixel beyond the point kernel's, cut at 0.1 photon per pixel, splatted in row bands; defaults Gold, OnTop, the
-  FluoSpheres 1000 equivalent dyes (`emittersSet`)), JS twin `web/prototype/scope/fiducials.js`, data `data/fiducials/`
+  FluoSpheres 100000 equivalent dyes (`emittersSet`), bleach half-time 288 s at 1 kW/cm^2), JS twin `web/prototype/scope/fiducials.js`, data `data/fiducials/`
   (balinovic2019). MM device `Fiducials` (`tools/test_fiducials.py`, 6 s); viewer group Fiducial beads + View toggle
   `showFids` (layer `fid.beads`, drawn in the x-z view too, `#hud` `data-beads-xz`; a `fiducials` job on a cell worker
   on a world of its own; `tests/web/viewer_fiducials.mjs`, ~5 s, on the nanorulers with their label off); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`.
@@ -205,7 +205,9 @@ that finishes them.
   frame, `LOOP` in the script; README.md shows the published one) and its still `overview_3d.jpg`, the viewer in
   headless Chromium (`tools/build_hero.mjs`: perspective, haze, the live WF / DNA-PAINT frames as insets), shown on Home
   instead of the 2x2; `build_site.sh` falls back to the still, then to the 2x2, or drops both, when a release lacks them) and benchmarks (`tools/bench.py`, history kept in
-  the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages (`pages.yml`: docs via
+  the previous release's `benchmarks.json`), publishes all as release assets, then redeploys Pages. A **hotfix** (2026-10-23:
+  a tag with `-hotfix` in it, e.g. `v0.1.0-rc14-hotfix1`, or `hotfix` ticked by hand) skips the gallery, 3D overview and
+  benchmark jobs and carries the previous release's `gallery.zip` / `benchmarks.json` over (tests, DLL, block, site as usual); then it redeploys Pages (`pages.yml`: docs via
   `tools/build_site.sh` + the viewer). Nothing is committed back; `bin/` is no longer used. Bring the block into webSMLM
   with that repo's `node tools/sync_cellfield.mjs <path to cellfield_block.js>`. `build-dll.yml` can also be run by hand.
 - Docs: `docs/` is the mkdocs-material site (samples pages `docs/samples/`, physics pages, quickstart (with the viewer
