@@ -3884,17 +3884,32 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          if (rows[i + 5] >= zMin && rows[i + 5] < zMax)
             sites.push_back(&rows[i]);
       FM->sites = sites.size();
+      // When each bead's decay starts: the movie's start-sec, or under a host's light history the bead's past light
+      // as seconds of the light now (its dose there / the dose rate the light gives there; exact while the light's
+      // spectrum stays the same, ample for hours of half-time), plus the frames between the history's now and the
+      // movie's start-sec (a render-ahead batch after queued frames: the map's clocks run on to it as well).
+      std::vector<double> t0s(sites.size(), S.t0Sec);
+      if (history && light)
+      {
+         const double ahead = std::max(0.0, S.t0Sec - history->T());
+         for (size_t i = 0; i < sites.size(); ++i)
+         {
+            const double rate = history->DoseRate(*light, sites[i][3], sites[i][4]);
+            t0s[i] = rate > 0 ? history->DoseAt(sites[i][3], sites[i][4]) / rate + ahead : 0.0;
+         }
+      }
       for (const FiducialComponent& c : S.fidComps)
       {
          FiducialMovieComponent F;
          double maxRate = 0.0;
-         for (const double* b : sites)
+         for (size_t i = 0; i < sites.size(); ++i)
          {
+            const double* b = sites[i];
             const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
             const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
             if (!(rate > 0))
                continue;
-            F.beads.push_back({ xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, S.t0Sec });
+            F.beads.push_back({ xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[i] });
             maxRate = std::max(maxRate, rate);
          }
          if (F.beads.empty() || maxRate * S.expSec < kFiducialMinPhotons)
@@ -4275,7 +4290,7 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
    // The blink groups: the main groups of the blinking labels (a WideField
    // label's main group only lights its population), in Render's order.
    size_t blinks = 0;
-   sp.populations = !m.pops.empty();
+   sp.populations = !m.pops.empty() || (m.fid && !m.fid->comps.empty());   // the beads come in that image too
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
       const Group& g = m.groups[gi];

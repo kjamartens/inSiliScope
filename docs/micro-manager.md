@@ -75,6 +75,7 @@ Micro-Manager's own properties (`Exposure`, `Binning`, `State`, `Label`, `Positi
 | `SampleHolder` | State | Basic | The mounted specimen; drift and background of the sample |
 | `CellField` | Generic | Basic | Specimen: a field of cells with their labelled structures |
 | `Nanorulers` | Generic | Basic | Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder) |
+| `Fiducials` | Generic | Basic | Fiducial beads on the sample (any specimen): type, density, size, height |
 | `Fluorophores` | Generic | Basic | The dyes: label mode, photophysics readouts, custom dyes |
 | `Renderer` | Generic | Basic | How the images are computed: quality, GPU, caches, numerics |
 
@@ -327,6 +328,23 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | `Docking_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
 | `Docking_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
 | `Docking_Motion` | Expert | Static | `Static` | The dyes' motion. |
+
+### Fiducials
+
+Fiducial beads on the sample (any specimen): type, density, size, height.
+
+| Property | Tier | Default | Values | Description |
+|---|---|---|---|---|
+| `Type` | Basic | FluoSpheresDarkRed | `Gold`, `TetraSpeck`, `FluoSpheresOrange`, `FluoSpheresRed`, `FluoSpheresDarkRed`, `FluoSpheresInfrared`, `Nanodiamond` | The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange / RedOrange (200 nm, for a 488 / 561 channel), DarkRed (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm). |
+| `DensityPerUm2` | Basic | 0 | 0 .. 100 | Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads. |
+| `DiameterNm` | Advanced | -1 | -1 .. 2000 | Mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's product size. |
+| `DiameterCvPct` | Advanced | 12 | 0 .. 50 | Bead-to-bead diameter spread, % (normal; an estimate). |
+| `Height` | Advanced | Coverslip | `Coverslip`, `OnTop`, `Layer` | Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface), Layer (anywhere in a gel layer of LayerUm, outside the cells). |
+| `LayerUm` | Advanced | 10 | 0 .. 1000 | The gel layer's thickness (Height = Layer), um. |
+| `BleachHalfTimeSec` | Expert | 28800 | 0 .. 1000000000 | A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 8 h; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching). |
+| `BleachRefKWcm2` | Expert | 1 | 1e-06 .. 1000 | The intensity the half-time is given at, kW/cm^2. |
+| `DyeCount` | Expert | -1 | -1 .. 1000000000 | Equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component; -1 = the type's (fitted to balinovic2019). |
+| `BlockingOD` | Expert | 8 | 0 .. 12 | The emission path blocks a laser line by at least this optical density (gold's scattered laser light; ideal filters would block it fully). |
 
 ### Fluorophores
 

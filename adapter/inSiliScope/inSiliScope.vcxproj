@@ -146,7 +146,10 @@
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
     <ClCompile Include="..\..\core\src\npcs.cpp" />
     <ClCompile Include="..\..\core\src\origami.cpp" />
-    <ClCompile Include="..\..\core\src\fiducials.cpp" />
+    <ClCompile Include="..\..\core\src\fiducials.cpp">
+      <!-- Simulation\Fiducials.cpp compiles to Fiducials.obj too (file names are case-insensitive here) -->
+      <ObjectFileName>$(IntDir)core_fiducials.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
