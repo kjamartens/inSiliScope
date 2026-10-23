@@ -203,6 +203,23 @@ const std::vector<std::string>& SpecimenIds()
 
 const SpecimenData& SpecimenAt(int i) { return kSpecimens[i]; }
 
+const std::vector<std::string>& FiducialTypeIds()
+{
+   static const std::vector<std::string> v = [] {
+      std::vector<std::string> ids;
+      for (const FiducialTypeData& t : kFiducialTypes)
+         ids.push_back(t.id);
+      return ids;
+   }();
+   return v;
+}
+const FiducialTypeData& FiducialTypeAt(int i) { return kFiducialTypes[i]; }
+const FiducialComponentData& FiducialComponentAt(int i) { return kFiducialComponents[i]; }
+const FiducialDefaultsData& FiducialDefaults() { return kFiducialDefaults; }
+double FiducialEquivalentExtCoeff() { return kFiducialEquivalentDye[0]; }
+double FiducialEquivalentQy() { return kFiducialEquivalentDye[1]; }
+const GoldMieData& GoldMie() { return kGoldMie; }
+
 int IndexOf(const std::vector<std::string>& list, const std::string& id)
 {
    const auto it = std::find(list.begin(), list.end(), id);

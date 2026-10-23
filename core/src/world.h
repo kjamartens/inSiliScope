@@ -21,6 +21,7 @@
 #include "microtubules.h"
 #include "npcs.h"
 #include "origami.h"
+#include "fiducials.h"
 #include "parallel.h"
 #include "params.h"
 
@@ -149,6 +150,14 @@ public:
    int Specimen() const { return (int)p_.specimen; }
    // The origami field of a Nanorulers world (nullptr in a cell field).
    OrigamiField* Origami() { return origami_.get(); }
+   // The fiducial beads whose centre lies in [x0,x1) x [y0,y1) (fiducials.h; either specimen; none at fidDensity 0).
+   void FiducialsInRect(double x0, double y0, double x1, double y1, std::vector<FiducialBead>& out)
+   {
+      fiducials_->InRect(x0, y0, x1, y1, out);
+   }
+   // The sample's surface height at (x, y), um: the highest cytoplasm over that point (the cells' mesh height, as
+   // OpticalVolumeInWindow samples it), 0 on bare glass and in a nanoruler world (JS world.js surfaceHeightAt).
+   double SurfaceHeightAt(double x, double y);
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
    void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
    uint32_t Seed() const { return seed_; }
@@ -454,6 +463,7 @@ private:
    uint32_t seed_;
    Params p_;
    std::unique_ptr<OrigamiField> origami_;   // specimen 1
+   std::unique_ptr<FiducialField> fiducials_;   // either specimen
    size_t assetCap_;
    size_t dyeCap_;
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;

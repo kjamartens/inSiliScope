@@ -173,6 +173,45 @@ const TargetData& TargetAt(int i);
 const std::vector<std::string>& SpecimenIds();
 const SpecimenData& SpecimenAt(int i);
 
+// ---- fiducial beads (data/fiducials; JS DYE_DATA.fiducials) ----
+struct FiducialComponentData
+{
+   const char* id;
+   const char* name;
+   const char* ex;       // spectrum keys
+   const char* em;
+   double exPeakNm;      // the excitation spectrum's peak (the bleach half-time's reference)
+   double emitters;      // equivalent dyes at the type's reference diameter
+   bool bleaches;
+};
+struct FiducialTypeData
+{
+   const char* id;
+   const char* name;
+   double refDiameterNm;
+   bool scatterGold;     // gold: elastic scatter of every laser line (GoldMie)
+   int firstComponent, componentCount;
+};
+struct FiducialDefaultsData
+{
+   const char* type;
+   double densityPerUm2, diameterNm, diameterCvPct;
+   const char* height;
+   double layerUm, bleachHalfSec, bleachRefKWcm2;
+};
+struct GoldMieData
+{
+   double lambdaMinNm, lambdaMaxNm, lambdaStepNm, diameterMinNm, diameterMaxNm, diameterStepNm;
+   const double* scatteringUm2;   // [diameter][wavelength]
+};
+const std::vector<std::string>& FiducialTypeIds();
+const FiducialTypeData& FiducialTypeAt(int i);
+const FiducialComponentData& FiducialComponentAt(int i);   // FiducialTypeData::firstComponent + k
+const FiducialDefaultsData& FiducialDefaults();
+double FiducialEquivalentExtCoeff();
+double FiducialEquivalentQy();
+const GoldMieData& GoldMie();
+
 // The override fields (`<prefix>-dye.<field>`, `dye<N>.<field>`; JS DYE_FIELDS), in their order.
 const std::vector<std::string>& DyeFieldNames();
 

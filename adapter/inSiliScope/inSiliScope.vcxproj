@@ -129,6 +129,7 @@
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\BinnedBlinks.cpp" />
+    <ClCompile Include="Simulation\Fiducials.cpp" />
     <ClCompile Include="Simulation\BlinkExpectation.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
@@ -145,6 +146,7 @@
     <ClCompile Include="..\..\core\src\microtubules.cpp" />
     <ClCompile Include="..\..\core\src\npcs.cpp" />
     <ClCompile Include="..\..\core\src\origami.cpp" />
+    <ClCompile Include="..\..\core\src\fiducials.cpp" />
     <ClCompile Include="..\..\core\src\packing.cpp" />
     <ClCompile Include="..\..\core\src\parallel.cpp" />
     <ClCompile Include="..\..\core\src\params.cpp" />
@@ -183,6 +185,7 @@
     <ClInclude Include="Simulation\DyeLibraryData.inc" />
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\BinnedBlinks.h" />
+    <ClInclude Include="Simulation\Fiducials.h" />
     <ClInclude Include="Simulation\BlinkExpectation.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />

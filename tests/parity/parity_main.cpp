@@ -11,6 +11,7 @@
 #include "microtubules.h"
 #include "npcs.h"
 #include "origami.h"
+#include "fiducials.h"
 #include "packing.h"
 #include "params.h"
 #include "rng.h"
@@ -210,6 +211,21 @@ void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, doubl
    }
 }
 
+// The beads of a window of a fiducial field on the step surface (js_reference.mjs 'fiducials').
+void FiducialsCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1,
+                   const Params& p)
+{
+   FiducialField F(seed, p, [](double x, double y) { return x + y > 0 ? 1.5 : 0.0; });
+   std::vector<FiducialBead> beads;
+   F.InRect(x0, y0, x1, y1, beads);
+   std::fprintf(f, "fic %s 0 0 0 %zu\n", id.c_str(), beads.size());
+   for (const FiducialBead& b : beads) {
+      std::fprintf(f, "fid %s %d %d %d", id.c_str(), b.tx, b.ty, b.i);
+      PrintD(f, b.x); PrintD(f, b.y); PrintD(f, b.z); PrintD(f, b.d);
+      std::fprintf(f, "\n");
+   }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -277,6 +293,18 @@ int main(int argc, char** argv)
             }
          }
          OrigamiCase(f, id, ToU32(seed), x0, y0, x1, y1, p);
+      } else if (kind == "fiducials") {
+         std::string id, kv; long long seed; double x0, y0, x1, y1;
+         ss >> id >> seed >> x0 >> y0 >> x1 >> y1;
+         Params p;
+         while (ss >> kv) {
+            const size_t eq = kv.find('=');
+            if (!SetParam(p, kv.substr(0, eq).c_str(), std::stod(kv.substr(eq + 1)))) {
+               std::fprintf(stderr, "unknown param %s\n", kv.c_str());
+               return 2;
+            }
+         }
+         FiducialsCase(f, id, ToU32(seed), x0, y0, x1, y1, p);
       } else if (kind == "case") {
          std::string id, pname; long long seed; int cx0, cy0, cx1, cy1;
          ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1;

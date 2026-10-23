@@ -36,6 +36,8 @@ function parse(path) {
       case 'mtp': case 'mtl': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
       // DNA-origami molecules (ABI 12): their first value (count / x) must match like the cells'
       case 'ori': case 'oro': case 'ors': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
+      // fiducial beads (ABI 15): the window's count, then each bead's centre and diameter
+      case 'fic': case 'fid': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
       // nuclear pores (ABI 13): attachment points, pores per cell, dyes per linkage; first value = a count
       case 'npa': case 'npc': case 'npd': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
     }
@@ -141,8 +143,8 @@ if (ref.geom.size) {
       let same = og.size === rg.size, exact = true, maxd = 0;
       for (const [k, v] of rg) {
         const w = og.get(k);
-        // leading counts (points per microtubule, rings/n, labels) must agree exactly
-        if (!w || w.length !== v.length || (!k.startsWith('mesh') && v[0] !== w[0]) ||
+        // leading counts (points per microtubule, rings/n, labels) must agree exactly (a bead line has none)
+        if (!w || w.length !== v.length || (!k.startsWith('mesh') && !k.startsWith('fid ') && v[0] !== w[0]) ||
             (k.startsWith('mesh') && (v[0] !== w[0] || v[1] !== w[1]))) { same = false; continue; }
         const c = cmpNumLists(v, w); exact &&= c.exact; maxd = Math.max(maxd, c.maxd);
       }

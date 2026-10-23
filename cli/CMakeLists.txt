@@ -17,6 +17,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
+  ${ISC_SIM}/Fiducials.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
   ${ISC_SIM}/LiveScope.cpp

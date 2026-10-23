@@ -11,6 +11,7 @@
 #include "microtubules.h"
 #include "npcs.h"
 #include "origami.h"
+#include "fiducials.h"
 #include "parallel.h"
 #include "params.h"
 #include "world.h"
@@ -1590,6 +1591,114 @@ void NoContraction()
    Check(r == 1.490116119384765625e-8, "no floating-point contraction (x*x - 1 with x = 1 + 2^-27 is exactly 2^-26)");
 }
 
+// ABI 15: fiducial beads (fiducials.h; the JS twin's checks are web/lab/fiducial_check.mjs, the equality with it the
+// golden 'fiducials' lines and scope_parity's bead movies). Determinism under any query order, the Poisson density,
+// the diameter spread, the three heights on a World's own surface, the cells untouched, the C ABI.
+void Fiducials()
+{
+   auto P = [](std::initializer_list<std::pair<const char*, double>> kv) {
+      Params p = NoPores();
+      for (const auto& e : kv) SetParam(p, e.first, e.second);
+      return p;
+   };
+   auto key = [](const FiducialBead& b) { return std::make_tuple(b.tx, b.ty, b.i); };
+   auto sorted = [&](std::vector<FiducialBead> v) {
+      std::sort(v.begin(), v.end(), [&](const FiducialBead& a, const FiducialBead& b) { return key(a) < key(b); });
+      return v;
+   };
+   auto same = [&](const std::vector<FiducialBead>& a, const std::vector<FiducialBead>& b) {
+      if (a.size() != b.size()) return false;
+      for (size_t i = 0; i < a.size(); i++)
+         if (key(a[i]) != key(b[i]) || a[i].x != b[i].x || a[i].y != b[i].y || a[i].z != b[i].z || a[i].d != b[i].d)
+            return false;
+      return true;
+   };
+   const auto flat = [](double, double) { return 0.0; };
+   // Determinism: one query = the union of tiles queried in another order, by a fresh field.
+   {
+      const Params p = P({ { "fidDensity", 3 } });
+      FiducialField A(99, p, flat), B(99, p, flat);
+      std::vector<FiducialBead> whole, parts;
+      A.InRect(-7.3, -5.1, 9.2, 8.7, whole);
+      for (double x = 9.2; x > -7.3; x -= 1.7)
+         for (double y = -5.1; y < 8.7; y += 2.3)
+            B.InRect(std::max(-7.3, x - 1.7), y, x, std::min(8.7, y + 2.3), parts);
+      Check(!whole.empty() && same(sorted(whole), sorted(parts)), "fiducials: one query = the union of its pieces in any order");
+   }
+   // Density (Poisson) and the diameter spread.
+   {
+      const double S = 60, rho = 2, cv = 12;
+      FiducialField F(5, P({ { "fidDensity", rho }, { "fidDiameterNm", 200 }, { "fidDiameterCvPct", cv } }), flat);
+      std::vector<FiducialBead> b;
+      F.InRect(0, 0, S, S, b);
+      double m = 0, m2 = 0, zbad = 0;
+      for (const FiducialBead& e : b) {
+         m += e.d;
+         m2 += e.d * e.d;
+         zbad = std::max(zbad, std::fabs(e.z - e.d / 2000.0));
+      }
+      const double n = (double)b.size(), mean = m / n, sd = std::sqrt(m2 / n - mean * mean), want = rho * S * S;
+      std::printf("      %zu beads (Poisson mean %.0f), diameter %.1f nm +- %.2f %%\n", b.size(), want, mean, 100 * sd / mean);
+      Check(std::fabs(n - want) < 4 * std::sqrt(want), "fiducials: Poisson count within 4 sigma");
+      Check(std::fabs(mean / 200 - 1) < 0.01 && std::fabs(sd / mean * 100 / cv - 1) < 0.05, "fiducials: diameter mean and spread");
+      Check(zbad == 0, "fiducials: Coverslip puts each centre at its radius");
+   }
+   // The heights on a cell field's own surface (World::SurfaceHeightAt), and the cells do not move.
+   {
+      const double x0 = 55, y0 = -5, x1 = 70, y1 = 10;
+      World plain(1249, NoPores());
+      World top(1249, P({ { "fidDensity", 4 }, { "fidHeight", 1 } }));
+      World layer(1249, P({ { "fidDensity", 4 }, { "fidHeight", 2 }, { "fidLayerUm", 8 } }));
+      std::vector<Cell> ca, cb;
+      plain.CellsInRect(x0, y0, x1, y1, ca);
+      top.CellsInRect(x0, y0, x1, y1, cb);
+      bool cellsSame = ca.size() == cb.size() && !ca.empty();
+      for (size_t i = 0; cellsSame && i < ca.size(); i++) cellsSame = ca[i].x == cb[i].x && ca[i].y == cb[i].y;
+      Check(cellsSame, "fiducials: the cells do not move (fid* outside the packing fingerprint)");
+      std::vector<FiducialBead> bt, bl;
+      top.FiducialsInRect(x0, y0, x1, y1, bt);
+      layer.FiducialsInRect(x0, y0, x1, y1, bl);
+      double topErr = 0, onCells = 0, maxSurf = 0;
+      for (const FiducialBead& b : bt) {
+         const double s = plain.SurfaceHeightAt(b.x, b.y);
+         topErr = std::max(topErr, std::fabs(b.z - (s + b.d / 2000.0)));
+         onCells += s > 0;
+         maxSurf = std::max(maxSurf, s);
+      }
+      bool layerOk = !bl.empty();
+      for (const FiducialBead& b : bl) {
+         const double r = b.d / 2000.0;
+         layerOk = layerOk && b.z >= r && b.z <= 8 - r + 1e-12 && b.z >= plain.SurfaceHeightAt(b.x, b.y) + r;
+      }
+      std::printf("      OnTop: %zu beads, %.0f on cells (highest surface %.2f um); Layer: %zu beads\n", bt.size(), onCells,
+                  maxSurf, bl.size());
+      Check(topErr == 0 && onCells > 0 && maxSurf > 1, "fiducials: OnTop sits each bead on the sample's surface");
+      Check(layerOk && bl.size() < bt.size(), "fiducials: Layer keeps beads in the gel and out of the cells");
+   }
+   // The C ABI.
+   {
+      IscParams* ip = NoPoresAbi();
+      isc_params_set(ip, "fidDensity", 2);
+      isc_params_set(ip, "fidHeight", 1);
+      IscWorld* w = isc_world_new(1249, ip);
+      const int32_t n = isc_fiducials_in_window(w, 55, -5, 70, 10, nullptr, 0);
+      std::vector<double> rows((size_t)std::max(0, n) * ISC_FIDUCIAL_STRIDE);
+      const int32_t m = isc_fiducials_in_window(w, 55, -5, 70, 10, rows.data(), n);
+      World ref(1249, P({ { "fidDensity", 2 }, { "fidHeight", 1 } }));
+      std::vector<FiducialBead> b;
+      ref.FiducialsInRect(55, -5, 70, 10, b);
+      bool ok = n > 0 && m == n && (size_t)n == b.size();
+      for (size_t i = 0; ok && i < b.size(); i++) {
+         const double* r = &rows[i * ISC_FIDUCIAL_STRIDE];
+         ok = r[0] == b[i].tx && r[1] == b[i].ty && r[2] == b[i].i && r[3] == b[i].x && r[4] == b[i].y && r[5] == b[i].z &&
+              r[6] == b[i].d;
+      }
+      Check(ok && isc_fiducials_in_window(w, 1, 0, 0, 1, nullptr, 0) == -1, "fiducials: C ABI rows = the World's beads");
+      isc_world_free(w);
+      isc_params_free(ip);
+   }
+}
+
 // ABI 12: the DNA-origami nanorulers (origami.h; the JS twin's checks are web/lab/origami_check.mjs, the equality
 // with it is label_parity.mjs and the golden 'origami' lines). The shape's invariants and its worm-like-chain
 // statistics, the field's Matern spacing and density, a nanoruler World: sites independent of the query history,
@@ -2761,6 +2870,7 @@ static const std::vector<Section>& Sections()
       { "kinetics_history", KineticsHistoryChecks },
       { "clock_map", ClockMapChecks },
       { "origami", Origami },
+      { "fiducials", Fiducials },
    };
    return s;
 }

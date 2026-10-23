@@ -172,7 +172,7 @@ function beadPlane(K, pixelNm, k, dNm, h) {
   for (let y = -h; y <= h; y++)
     for (let x = -h; x <= h; x++) {
       const ky = c + y, kx = c + x, p = ky >= 0 && ky < n && kx >= 0 && kx < n ? pk[ky * n + kx] : 0.0;
-      const rho = Math.hypot(x, y), fade = rho <= fadeIn ? 1.0 : Math.max(0.0, 1.0 - (rho - fadeIn) / fadeLen);
+      const rho = Math.sqrt(x * x + y * y), fade = rho <= fadeIn ? 1.0 : Math.max(0.0, 1.0 - (rho - fadeIn) / fadeLen);
       let b = p;
       if (fade > 0.0) {
         let s = 0.0;

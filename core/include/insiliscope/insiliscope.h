@@ -33,7 +33,9 @@
  * relative to its binding site), isc_cell_npcs. ABI 14: the clock map
  * (isc_world_set_clock_map, isc_events_in_map, isc_continuous_in_map,
  * isc_world_prefetch_map): each dye's clock read at its own place from fields
- * the host gives (its light history), one query for every dye.
+ * the host gives (its light history), one query for every dye. ABI 15:
+ * fiducial beads on either specimen (params fid*; isc_fiducials_in_window):
+ * sites only, no label or structure (their light is the host's).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -54,7 +56,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 14
+#define ISC_ABI_VERSION 15
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -451,6 +453,14 @@ ISC_API int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t
  * Same cap/return convention, -1 when there is no such molecule. */
 #define ISC_ORIGAMI_SITE_STRIDE 11
 ISC_API int32_t isc_origami_sites(IscWorld* w, int32_t tx, int32_t ty, int32_t i, double* out, int32_t cap);
+/* ---- Fiducial beads (ABI 15; either specimen, params fid*) ----
+ * Beads whose centre lies in the window, ISC_FIDUCIAL_STRIDE doubles each: tx,
+ * ty, i (the bead's address: 2 um tile, candidate index), x, y, z (um, the
+ * centre; z above the coverslip), d (diameter, nm). Order: tile x, tile y,
+ * index. Same cap/return convention; 0 rows at fidDensity 0. */
+#define ISC_FIDUCIAL_STRIDE 7
+ISC_API int32_t isc_fiducials_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out,
+                                        int32_t cap);
 /* The designs (data/origami/designs.json): their count, and the id of design
  * i (NULL out of range). */
 ISC_API int32_t isc_origami_design_count(void);

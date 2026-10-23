@@ -10,6 +10,7 @@ import path from 'path';
 import { loadPrototype } from './load_prototype.mjs';
 import { OrigamiField, shapeOutline, moleculeSites } from '../../web/prototype/scope/origami.js';
 import { npcDyesInBlock, normLinkage, LEGACY_LINKAGE } from '../../web/prototype/scope/dyes.js';
+import { FiducialField } from '../../web/prototype/scope/fiducials.js';
 
 const [protoPath, casesPath, outPath] = process.argv.slice(2);
 // V8 < 13 computes Math.pow with its own fdlibm port; 13+ calls std::pow
@@ -220,6 +221,15 @@ for (const line of fs.readFileSync(casesPath, 'utf8').split('\n')) {
       for (const x of st) q.push(x.k, x.n, x.id, x.x, x.y, x.z, ...x.rest, ...x.bent);
       out.push(q.map(f).join(' '));
     }
+  } else if (kind === 'fiducials') {
+    // The beads of the window (count, then each bead's address, centre and diameter) on the step surface.
+    const [id, seedS, ...rest] = t.slice(1);
+    const [x0, y0, x1, y1] = rest.slice(0, 4).map(Number);
+    const kv = Object.fromEntries(rest.slice(4).map(e => { const [k, v] = e.split('='); return [k, +v]; }));
+    const F = new FiducialField(+seedS >>> 0, kv, (x, y) => (x + y > 0 ? 1.5 : 0));
+    const f = x => String(x), beads = F.inRect(x0, y0, x1, y1);
+    out.push(`fic ${id} 0 0 0 ${beads.length}`);
+    for (const b of beads) out.push([`fid ${id} ${b.tx} ${b.ty} ${b.i}`, b.x, b.y, b.z, b.d].map(f).join(' '));
   }
 }
 fs.writeFileSync(outPath, out.join('\n') + '\n');

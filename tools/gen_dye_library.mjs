@@ -409,6 +409,22 @@ static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiT
 static const SpecimenData kSpecimens[] = {
 ${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length}, ${num(sp.illumination && sp.illumination.bfpPosition)} },`).join('\n')}
 };
+// Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
+// peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference
+// diameter (nm), gold's laser scatter, its components (first, count); the equivalent dye (eps /M/cm, QY).
+static const FiducialComponentData kFiducialComponents[] = {
+${data.fiducials.types.flatMap(t => t.components.map(c => `   { ${str(c.id)}, ${str(c.name)}, ${str(c.ex)}, ${str(c.em)}, ${num(c.exPeakNm)}, ${num(c.emitters)}, ${c.bleaches ? 'true' : 'false'} },`)).join('\n')}
+};
+static const FiducialTypeData kFiducialTypes[] = {
+${data.fiducials.types.map((t, i) => `   { ${str(t.id)}, ${str(t.name)}, ${num(t.refDiameterNm)}, ${t.scatter === 'gold' ? 'true' : 'false'}, ${data.fiducials.types.slice(0, i).reduce((n, u) => n + u.components.length, 0)}, ${t.components.length} },`).join('\n')}
+};
+static const double kFiducialEquivalentDye[2] = { ${num(data.fiducials.equivalentDye.extCoeff)}, ${num(data.fiducials.equivalentDye.qy)} };
+// type, densityPerUm2, diameterNm, diameterCvPct, height, layerUm, bleachHalfSec, bleachRefKWcm2
+static const FiducialDefaultsData kFiducialDefaults = { ${str(data.fiducials.defaults.type)}, ${num(data.fiducials.defaults.densityPerUm2)}, ${num(data.fiducials.defaults.diameterNm)}, ${num(data.fiducials.defaults.diameterCvPct)}, ${str(data.fiducials.defaults.height)}, ${num(data.fiducials.defaults.layerUm)}, ${num(data.fiducials.defaults.bleachHalfSec)}, ${num(data.fiducials.defaults.bleachRefKWcm2)} };
+// Gold spheres' scattering cross section in water, um^2 (data/fiducials/gold_mie.json), [diameter][wavelength] on
+// the grids (min, max, step nm): wavelength, diameter.
+static const double kGoldMieScattering[] = {${data.fiducials.goldMie.scatteringUm2.flat().map(num).join(',')}};
+static const GoldMieData kGoldMie = { ${['lambdaNm', 'diameterNm'].flatMap(k => ['minNm', 'maxNm', 'stepNm'].map(f => num(data.fiducials.goldMie[k][f]))).join(', ')}, kGoldMieScattering };
 static const char* const kDefaultExcitationFilter = ${str(data.lightPathDefaults.excitationFilter)};
 static const char* const kDefaultDichroic = ${str(data.lightPathDefaults.dichroic)};
 static const char* const kDefaultEmissionFilter = ${str(data.lightPathDefaults.emissionFilter)};
