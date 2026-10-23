@@ -32,9 +32,9 @@
     "diameterCvPct": 12,
     "height": "OnTop",
     "layerUm": 10,
-    "bleachHalfSec": 28800,
+    "bleachHalfSec": 288,
     "bleachRefKWcm2": 1,
-    "notes": "density 0 = no fiducials (off). Diameter spread 12 % (estimate; vendors quote a few % for FluoSpheres, aggregates and doublets widen it). Bleach half-time 8 h at 1 kW/cm^2 at each component's excitation peak (estimate). Default type gold and height OnTop (the beads on the sample: what a drift-correction sample usually has; the user's choice, 2026-10-23)."
+    "notes": "density 0 = no fiducials (off). Diameter spread 12 % (estimate; vendors quote a few % for FluoSpheres, aggregates and doublets widen it). Bleach half-time 288 s at 1 kW/cm^2 at each component's excitation peak (estimate; the user's choice, 2026-10-23, was 8 h). Default type gold and height OnTop (the beads on the sample: what a drift-correction sample usually has; the user's choice, 2026-10-23)."
   },
   "types": [
     {
@@ -174,8 +174,8 @@
         {
           "id": "dye",
           "name": "dark red dye (660/680)",
-          "emittersSet": 1000,
-          "emittersSetNotes": "1000 equivalent dyes (the user's choice, 2026-10-23: dimmer than the paper fit in emitters, which saturates a camera under the bead's own laser; estimate)",
+          "emittersSet": 100000,
+          "emittersSetNotes": "100000 equivalent dyes (the user's choice, 2026-10-23, in place of the paper fit in emitters; estimate)",
           "ex": "paper:darkRedEx",
           "em": "paper:darkRedEm",
           "bleaches": true,
@@ -204,8 +204,8 @@
         {
           "id": "dye",
           "name": "infrared dye (715/755)",
-          "emittersSet": 1000,
-          "emittersSetNotes": "1000 equivalent dyes (the user's choice, 2026-10-23: dimmer than the paper fit in emitters, which saturates a camera under the bead's own laser; estimate)",
+          "emittersSet": 100000,
+          "emittersSetNotes": "100000 equivalent dyes (the user's choice, 2026-10-23, in place of the paper fit in emitters; estimate)",
           "ex": "paper:infraredEx",
           "em": "paper:infraredEm",
           "bleaches": true,

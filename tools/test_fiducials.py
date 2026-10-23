@@ -74,7 +74,7 @@ def main():
     core.setExposure(50)
     assert "Fiducials" in core.getLoadedDevices(), "the Fiducials device is not loaded"
     for p, v in (("Type", "Gold"), ("DensityPerUm2", 0), ("DiameterNm", -1), ("DiameterCvPct", 12),
-                 ("Height", "OnTop"), ("LayerUm", 10), ("BleachHalfTimeSec", 28800), ("DyeCount", -1),
+                 ("Height", "OnTop"), ("LayerUm", 10), ("BleachHalfTimeSec", 288), ("DyeCount", -1),
                  ("BlockingOD", 8)):
         got = core.getProperty("Fiducials", p)
         assert (float(got) == v) if isinstance(v, (int, float)) else got == v, f"Fiducials.{p} = {got}, not {v}"
@@ -120,7 +120,7 @@ def main():
           f"after DiameterCvPct {kept:.0f}")
 
     core.setProperty("Fiducials", "DiameterCvPct", "12")
-    core.setProperty("Fiducials", "BleachHalfTimeSec", "28800")
+    core.setProperty("Fiducials", "BleachHalfTimeSec", "288")
     core.setXYPosition("XYStage", 40.0, 40.0)
     core.waitForDevice("XYStage")
     glass = snap(core)

@@ -5,7 +5,7 @@ Beads added to any sample for drift correction. BSD-3-Clause, except the spectra
 - `types.json`: the bead types (gold nanoparticles, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red
   nanodiamonds), their components (one per dye; TetraSpeck has four), spectra keys, brightness (`emitters` equivalent
   dyes at the reference diameter, fitted from the paper's images; `emittersSet`, when given, overrides the fit: the
-  FluoSpheres are set to 1000), bleaching, and the fiducial defaults (gold, on top of the sample).
+  FluoSpheres are set to 100000), bleaching, and the fiducial defaults (gold, on top of the sample).
 - `paper_spectra.json`: excitation and emission spectra read from Balinovic et al. 2019 figures 2a-6a (CC BY 3.0,
   `balinovic2019`), their fitted tails, and the paper's quoted efficiencies.
 - `gold_johnson_christy.json`: gold's optical constants (Johnson & Christy 1972, via refractiveindex.info, CC0).

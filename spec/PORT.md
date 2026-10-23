@@ -1215,7 +1215,7 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
 - Options (`ScopeMovie.cpp` after `origami-heights`, JS the same place): `fid-type` (names; default
   Gold since 2026-10-23, FluoSpheresDarkRed before), `fid-density`, `fid-diameter-nm` (-1 = the type's `refDiameterNm`, resolved in
   `ScopeFiducialParams` before `p.fid*`), `fid-diameter-cv-pct`, `fid-height` (names), `fid-layer-um`,
-  `fid-bleach-half-sec` (28800), `fid-bleach-ref-kwcm2` (1), `fid-dyes` (-1), `fid-blocking-od` (8). The fid params
+  `fid-bleach-half-sec` (288; 28800 before 2026-10-23), `fid-bleach-ref-kwcm2` (1), `fid-dyes` (-1), `fid-blocking-od` (8). The fid params
   are world params (a change is a new world; the packed blocks come back from the cache).
 - JS: `Math.hypot(x, y)` in the bead plane's fade became `Math.sqrt(x * x + y * y)` (exact for the integer offsets, so
   C++ = JS without fdlibm's hypot in the engine).

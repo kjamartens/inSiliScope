@@ -270,7 +270,7 @@ const OptionTable& Options()
          { "fid-diameter-cv-pct", FiducialDefaults().diameterCvPct, "Fiducials.DiameterCvPct: bead-to-bead diameter spread, % (normal; estimate)" },
          { "fid-height", static_cast<double>(IndexOf(ScopeFiducialHeightNames(), FiducialDefaults().height)), "Fiducials.Height: 0 Coverslip (on the glass), 1 OnTop (on the sample's surface), 2 Layer (anywhere in a gel layer of fid-layer-um, outside the cells; names accepted)" },
          { "fid-layer-um", FiducialDefaults().layerUm, "Fiducials.LayerUm: the gel layer's thickness, um (Layer)" },
-         { "fid-bleach-half-sec", FiducialDefaults().bleachHalfSec, "Fiducials.BleachHalfTimeSec: a bead's fluorescence half-time at fid-bleach-ref-kwcm2 at its dye's excitation peak, s (estimate: 8 h; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)" },
+         { "fid-bleach-half-sec", FiducialDefaults().bleachHalfSec, "Fiducials.BleachHalfTimeSec: a bead's fluorescence half-time at fid-bleach-ref-kwcm2 at its dye's excitation peak, s (estimate: 288 s; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)" },
          { "fid-bleach-ref-kwcm2", FiducialDefaults().bleachRefKWcm2, "Fiducials.BleachRefKWcm2: the intensity the half-time is given at, kW/cm^2" },
          { "fid-dyes", -1, "Fiducials.DyeCount: equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component (-1 = the type's, fitted to balinovic2019)" },
          { "fid-blocking-od", 8, "Fiducials.BlockingOD: the emission path (dichroic ~OD 2 x emission filter ~OD 6 at the laser line; estimate) blocks a laser line by at least this optical density: gold's scattered laser light (ideal filters would block it fully)" },
