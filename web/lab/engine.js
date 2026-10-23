@@ -1,5 +1,5 @@
 // The viewer's engine (web/index.html iscEngine) on the JS reference instead of the WASM core: the same
-// handle(d) -> [message, transferList] for the jobs 'pack', 'cell', 'sites', 'origami', 'movie', the same reply fields and
+// handle(d) -> [message, transferList] for the jobs 'pack', 'cell', 'sites', 'origami', 'fiducials', 'movie', the same reply fields and
 // buffer types, so web/lab.html (= web/index.html served with self.ISC_ENGINE_URL, see serve.mjs) runs unchanged on
 // it. Geometry from the prototype (web/prototype/index.html + microtubules.js, via load_prototype.mjs), the world
 // and imaging from web/prototype/scope (World, renderScopeMovie). Edit those, reload, see it; port at merge.
@@ -33,16 +33,27 @@ export async function createEngine(src = {}) {
   // One World per (seed, params), like iscEngine's useWorld. The viewer sends its params() output; the
   // prototype's params() normalises the keys it knows, and every other key (a slider only the viewer has so far)
   // reaches the generator as sent. The labels (a sites job's d.labels) are set on it (World.setLabels).
-  function useWorld(seed, p, labels) {
-    const key = (seed >>> 0) + '|' + Object.keys(p).sort().map(k => k + '=' + p[k]).join('|');
-    if (key === worldKey) return withLabels(world, labels);
+  const keyOf = (seed, p) => (seed >>> 0) + '|' + Object.keys(p).sort().map(k => k + '=' + p[k]).join('|');
+  function makeWorld(seed, p) {
     const vals = { ...P.defaults };
     for (const k of Object.keys(p)) if (k in P.defaults) vals[k] = typeof P.defaults[k] === 'boolean' ? !!p[k] : p[k];
     const norm = P.paramsFrom(vals), params = { ...norm };
     for (const k of Object.keys(p)) if (!(k in norm)) params[k] = p[k];
-    world = new World(P, seed >>> 0, params);
+    return new World(P, seed >>> 0, params);
+  }
+  function useWorld(seed, p, labels) {
+    const key = keyOf(seed, p);
+    if (key === worldKey) return withLabels(world, labels);
+    world = makeWorld(seed, p);
     worldKey = key;
     return withLabels(world, labels);
+  }
+  // The fiducials job's world (the cell world's params + fid*), as the WASM engine's: one of its own.
+  let fidWorld = null, fidKey = '';
+  function useFidWorld(seed, p) {
+    const key = keyOf(seed, p);
+    if (key !== fidKey) { fidWorld = makeWorld(seed, p); fidKey = key; }
+    return fidWorld;
   }
   function withLabels(w, labels) {
     if (labels) {
@@ -128,6 +139,14 @@ export async function createEngine(src = {}) {
         } catch (e) {
           return [{ type: 'psf', id: d.id, error: String(e && e.message || e) }, []];
         }
+      }
+      if (d.type === 'fiducials') {
+        // the WASM engine's fiducials job: the beads whose centre lies in a rect, on a world with the fid* params
+        const fw = useFidWorld(d.seed, d.p);
+        inject(fw, d.blocks);
+        const [x0, y0, x1, y1] = d.rect, list = fw.fiducialsInRect(x0, y0, x1, y1), beads = new Float64Array(7 * list.length);
+        list.forEach((b, i) => beads.set([b.tx, b.ty, b.i, b.x, b.y, b.z, b.d], 7 * i));
+        return [{ type: 'fiducials', id: d.id, key: d.key, rect: d.rect, beads }, [beads.buffer]];
       }
       const w = useWorld(d.seed, d.p, d.labels);
       if (d.type === 'block') {

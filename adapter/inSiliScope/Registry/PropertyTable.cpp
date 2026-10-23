@@ -1007,8 +1007,8 @@ std::vector<PropDef> BuildTable()
       const char* D = "Fiducials";
       add(OptNames(D, "Type", Tier::Basic, "fid-type", sim::FiducialTypeIds(), 0,
                    "The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), "
-                   "TetraSpeck (100 nm, four dyes), FluoSpheres Orange / RedOrange (200 nm, for a 488 / 561 channel), "
-                   "DarkRed (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm)."));
+                   "TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red "
+                   "580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm)."));
       add(Opt(D, "DensityPerUm2", Tier::Basic, "fid-density", 0, 100,
               "Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads."));
       add(Opt(D, "DiameterNm", Tier::Advanced, "fid-diameter-nm", -1, 2000,

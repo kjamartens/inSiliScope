@@ -335,7 +335,7 @@ Fiducial beads on the sample (any specimen): type, density, size, height.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Type` | Basic | FluoSpheresDarkRed | `Gold`, `TetraSpeck`, `FluoSpheresOrange`, `FluoSpheresRed`, `FluoSpheresDarkRed`, `FluoSpheresInfrared`, `Nanodiamond` | The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange / RedOrange (200 nm, for a 488 / 561 channel), DarkRed (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm). |
+| `Type` | Basic | FluoSpheresDarkRed | `Gold`, `TetraSpeck`, `FluoSpheresOrange`, `FluoSpheresRed`, `FluoSpheresDarkRed`, `FluoSpheresInfrared`, `Nanodiamond` | The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red 580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm). |
 | `DensityPerUm2` | Basic | 0 | 0 .. 100 | Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads. |
 | `DiameterNm` | Advanced | -1 | -1 .. 2000 | Mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's product size. |
 | `DiameterCvPct` | Advanced | 12 | 0 .. 50 | Bead-to-bead diameter spread, % (normal; an estimate). |
