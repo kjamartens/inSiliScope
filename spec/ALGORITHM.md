@@ -1017,7 +1017,7 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   (d^3). Spectral losses stay in the light path, not in the count: a dark-red bead at 561 nm through a 595/50 filter
   keeps ~1e-5 of its light. Bleaching: the dyes' mean, rate (kEm / kEm at the reference) x ln 2 / half-time, the
   reference being `fid-bleach-ref-kwcm2` at the component's own excitation peak (one half-time per material,
-  *estimate* 8 h at 1 kW/cm^2); gold and nanodiamonds do not bleach. Gold also scatters every laser line elastically
+  *estimate* 288 s at 1 kW/cm^2, 8 h before 2026-10-23); gold and nanodiamonds do not bleach. Gold also scatters every laser line elastically
   (Mie, Johnson & Christy constants; bohren1983): flux x collection x the emission path's transmission at the line,
   floored at 10^-OD (OD 8 by default: dichroic ~2 x emitter ~6; at OD 6 a 100 nm bead's laser leak was 6x its
   photoluminescence, which the paper's calibration already holds all of).

@@ -156,7 +156,7 @@ struct FiducialComponent
 struct FiducialLightOptions
 {
    double dyes = -1;              // > 0: every component's equivalent dye count at the reference diameter
-   double halfSec = 28800, refKWcm2 = 1, blockingOD = 8;
+   double halfSec = 288, refKWcm2 = 1, blockingOD = 8;
 };
 // Bead type t (FiducialTypeIds() index) through lp (JS fiducialPhotophysics). False (with err) on a bad type.
 bool FiducialPhotophysics(int t, const LightPath& lp, const FiducialLightOptions& o, std::vector<FiducialComponent>& out,

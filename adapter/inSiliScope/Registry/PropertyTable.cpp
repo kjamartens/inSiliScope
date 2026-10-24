@@ -1021,7 +1021,7 @@ std::vector<PropDef> BuildTable()
                    "Layer (anywhere in a gel layer of LayerUm, outside the cells)."));
       add(Opt(D, "LayerUm", Tier::Advanced, "fid-layer-um", 0, 1000, "The gel layer's thickness (Height = Layer), um."));
       add(Opt(D, "BleachHalfTimeSec", Tier::Expert, "fid-bleach-half-sec", 0, 1e9,
-              "A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 8 h; "
+              "A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 288 s; "
               "~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)."));
       add(Opt(D, "BleachRefKWcm2", Tier::Expert, "fid-bleach-ref-kwcm2", 1e-6, 1000,
               "The intensity the half-time is given at, kW/cm^2."));

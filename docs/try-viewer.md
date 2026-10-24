@@ -136,11 +136,11 @@ through it step by step.
   then the bead **Type** (gold by default, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red nanodiamonds; spectra and
   brightness after Balinovic et al. 2019), in Advanced the diameter (default: the type's product size) and its spread
   (12 %), the **Height** (on top of the sample by default, on the coverslip, or in a gel layer of a given thickness), in Expert the
-  bleach half-time (8 h at 1 kW/cm² at the dye's peak), the brightness as equivalent dyes and the filters' blocking OD
+  bleach half-time (288 s at 1 kW/cm² at the dye's peak), the brightness as equivalent dyes and the filters' blocking OD
   for gold's scattered laser light ([Fiducial beads](samples/fiducials.md)). The world view and its x-z side view draw
   them as discs of their diameter over the scene (the **Fiducial beads** checkbox, View); in the live image they are
   bright and do not blink, a defocused bead's light spreads over the whole frame (its PSF window is twice the field of
-  view), and under the light they fade over hours, much more slowly off their excitation peak.
+  view), and under the light they fade (a half-time of about 5 minutes at 1 kW/cm² at their peak), much more slowly off it.
 - Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - The live image uses the same PSF as the Micro-Manager adapter: a scalar Gibson-Lanni model with Zernike aberration

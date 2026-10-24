@@ -341,7 +341,7 @@ Fiducial beads on the sample (any specimen): type, density, size, height.
 | `DiameterCvPct` | Advanced | 12 | 0 .. 50 | Bead-to-bead diameter spread, % (normal; an estimate). |
 | `Height` | Advanced | OnTop | `Coverslip`, `OnTop`, `Layer` | Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface), Layer (anywhere in a gel layer of LayerUm, outside the cells). |
 | `LayerUm` | Advanced | 10 | 0 .. 1000 | The gel layer's thickness (Height = Layer), um. |
-| `BleachHalfTimeSec` | Expert | 28800 | 0 .. 1000000000 | A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 8 h; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching). |
+| `BleachHalfTimeSec` | Expert | 288 | 0 .. 1000000000 | A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 288 s; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching). |
 | `BleachRefKWcm2` | Expert | 1 | 1e-06 .. 1000 | The intensity the half-time is given at, kW/cm^2. |
 | `DyeCount` | Expert | -1 | -1 .. 1000000000 | Equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component; -1 = the type's (fitted to balinovic2019). |
 | `BlockingOD` | Expert | 8 | 0 .. 12 | The emission path blocks a laser line by at least this optical density (gold's scattered laser light; ideal filters would block it fully). |

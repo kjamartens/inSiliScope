@@ -1825,7 +1825,7 @@ export const DYE_DATA = {
    "diameterCvPct": 12,
    "height": "OnTop",
    "layerUm": 10,
-   "bleachHalfSec": 28800,
+   "bleachHalfSec": 288,
    "bleachRefKWcm2": 1
   },
   "types": [
@@ -1902,7 +1902,7 @@ export const DYE_DATA = {
       "ex": "fp:4251",
       "em": "fp:4252",
       "exPeakNm": 540,
-      "emitters": 1000,
+      "emitters": 100000,
       "bleaches": true
      }
     ]
@@ -1919,7 +1919,7 @@ export const DYE_DATA = {
       "ex": "fp:4564",
       "em": "fp:4565",
       "exPeakNm": 576,
-      "emitters": 1000,
+      "emitters": 100000,
       "bleaches": true
      }
     ]
@@ -1936,7 +1936,7 @@ export const DYE_DATA = {
       "ex": "cs:darkRedEx",
       "em": "cs:darkRedEm",
       "exPeakNm": 651,
-      "emitters": 1000,
+      "emitters": 100000,
       "bleaches": true
      }
     ]
@@ -1953,7 +1953,7 @@ export const DYE_DATA = {
       "ex": "cs:infraredEx",
       "em": "cs:infraredEm",
       "exPeakNm": 707,
-      "emitters": 1000,
+      "emitters": 100000,
       "bleaches": true
      }
     ]

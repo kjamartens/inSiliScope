@@ -16,6 +16,11 @@ def wavelengths(lp):
     return lo + step * np.arange(int(n))
 
 
+def duration(sec):
+    """A half-time in s, min or h, two significant digits."""
+    return "%s s" % sig(sec, 2) if sec < 120 else "%s min" % sig(sec / 60, 2) if sec < 7200 else "%s h" % sig(sec / 3600, 2)
+
+
 @register("fid-spectra", "fiducials")
 def fid_spectra(ctx):
     setups = [load(ctx.cli(dict(LIGHT, size=32, frames=1, **{"fid-type": t, "prepare": 1}), tag=t,
@@ -63,7 +68,7 @@ def fid_spectra(ctx):
         f = s["fiducials"]
         for c in f["components"]:
             lit = c["photons_per_s"] > 0
-            half = "–" if not lit else "never" if c["half_s"] < 0 else "%s h" % sig(c["half_s"] / 3600, 2)
+            half = "–" if not lit else "never" if c["half_s"] < 0 else duration(c["half_s"])
             rows.append([f["name"] if c is f["components"][0] else "", c["name"], "%.0f" % c["lambda_nm"],
                          "–" if c["scatter"] else sig(c["emitters"], 3), sig(c["photons_per_s"], 2) if lit else "0",
                          "–" if c["scatter"] else "%.2g %%" % (100 * c["detected_fraction"]), half])
@@ -74,7 +79,7 @@ def fid_spectra(ctx):
                   "%s; grey: what the dichroic and the emission filter pass). The table gives, per component, the "
                   "wavelength its PSF is made at, its equivalent dyes (ε 10⁵, QY 0.5) at the product size, the photons "
                   "per second the camera detects from one bead of that size at the beam's peak, the share of its "
-                  "emission detected, and its fluorescence half-time under this light (the 8 h reference is at "
+                  "emission detected, and its fluorescence half-time under this light (the 288 s reference is at "
                   "1 kW/cm² at the dye's own excitation peak; off the peak a bead bleaches more slowly; – : no line "
                   "excites it). Gold's scattered laser light passes the filters only through their blocking floor "
                   "(OD 8)." %

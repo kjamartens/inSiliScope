@@ -30,8 +30,8 @@ Spectra and brightness follow Balinovic, Albrecht and Endesfelder 2019, who comp
 The brightness of each dye is an **equivalent dye count** (dyes with ε = 10⁵ M⁻¹ cm⁻¹ and QY 0.5) at the type's
 product size, scaling with the bead's volume (d³). For gold, TetraSpeck and the nanodiamonds it was fitted to the
 paper's counts: each bead's brightest pixel against single dyes (mEos3.2, JF646) in the same images. The FluoSpheres
-are set to **1000 equivalent dyes** (an *estimate*): the paper's fits (41 000 for the dark red, 4 × 10⁶ for the
-infrared, whose far tails the paper's curves underestimate) saturate a camera under the bead's own laser. The fits stay
+are set to **100 000 equivalent dyes** (an *estimate*) in place of the paper's fits (41 000 for the dark red, 4 × 10⁶
+for the infrared, whose far tails the paper's curves underestimate). The fits stay
 in `data/fiducials/types.json` as `emitters`; `emittersSet` overrides them. The spectral losses stay in the light path,
 not in the count. A dark-red bead under a 561 nm line behind a 595/50 filter, for example, keeps about 10⁻⁵ of its
 light, which is why beads of hundreds to tens of thousands of equivalent dyes are usable next to single molecules. The
@@ -71,7 +71,7 @@ a few per cent of a movie, about 15 % in a drifting one, where every bead is dra
 ## Bleaching
 
 The dyes in a bead bleach one by one, but there are so many that the bead's signal decays smoothly:
-`exp(−t ln 2 / t½)`. `BleachHalfTimeSec` (Expert, `--fid-bleach-half-sec`, 28800 s = 8 h, an *estimate*) is the
+`exp(−t ln 2 / t½)`. `BleachHalfTimeSec` (Expert, `--fid-bleach-half-sec`, 288 s, an *estimate*) is the
 half-time at `BleachRefKWcm2` (1 kW/cm², `--fid-bleach-ref-kwcm2`) at the dye's own excitation peak. The bleach rate
 follows the excitation rate, so a bead bleaches more slowly at less light and off its peak: TetraSpeck's dark-red dye
 under 561 nm fades about 10 times more slowly than at its peak at the same intensity. Gold and nanodiamonds do not bleach.
@@ -97,7 +97,7 @@ scattered light only; the dyes' light path is unchanged.
 | Type | `Type` (Basic) | `--fid-type` | `Gold` |
 | Diameter, Diameter spread | `DiameterNm`, `DiameterCvPct` (Advanced) | `--fid-diameter-nm`, `--fid-diameter-cv-pct` | the type's size, 12 % |
 | Height, Layer thickness | `Height`, `LayerUm` (Advanced) | `--fid-height`, `--fid-layer-um` | `OnTop`, 10 µm |
-| Bleach half-time, Reference intensity | `BleachHalfTimeSec`, `BleachRefKWcm2` (Expert) | `--fid-bleach-half-sec`, `--fid-bleach-ref-kwcm2` | 28800 s, 1 kW/cm² |
+| Bleach half-time, Reference intensity | `BleachHalfTimeSec`, `BleachRefKWcm2` (Expert) | `--fid-bleach-half-sec`, `--fid-bleach-ref-kwcm2` | 288 s, 1 kW/cm² |
 | Equivalent dyes | `DyeCount` (Expert) | `--fid-dyes` | −1 (the type's) |
 | Filter blocking | `BlockingOD` (Expert) | `--fid-blocking-od` | 8 |
 
