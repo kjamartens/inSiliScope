@@ -5668,7 +5668,7 @@ function finishBfSplit() {
 }
 function makeMovie() {
   cancelBfSplit();
-  iscTrack('make-movie', { modality: modality() === 1 ? 'brightfield' : 'fluorescence' });
+  iscTrack('make-movie', { modality: document.getElementById('mv_modality').value === '1' ? 'brightfield' : 'fluorescence' });
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
