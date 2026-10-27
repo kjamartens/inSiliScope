@@ -200,6 +200,17 @@ export async function createEngine(src = {}) {
             out.npcs = npcs;
             transfer.push(npcs.buffer);
           }
+          // the lamina points (isc_cell_lamin), when the view draws them: x, y, z and outward normal, cell-local
+          if (d.lamin) {
+            out.withLamin = true;
+            const pts = w.laminOfCell(d.cx, d.cy);
+            if (pts.length) {
+              const lamin = new Float64Array(pts.length * 6);
+              pts.forEach((q, i) => lamin.set([q.x, q.y, q.z, ...q.n], i * 6));
+              out.lamin = lamin;
+              transfer.push(lamin.buffer);
+            }
+          }
         }
         return [out, transfer];
       }

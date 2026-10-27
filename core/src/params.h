@@ -69,7 +69,7 @@ struct Params {
    double npcCornerSpreadNm = 12;
    // Nuclear lamina (2026-10-27, npcs.h BuildLaminForCell; ABI 16): points per um^2 of envelope, none within
    // laminNpcExclNm / 2 of a pore centre. 0 here: the world model has no lamina unless asked (the engine's
-   // lamin-density sets 50, an estimate, and its label is off by default).
+   // lamin-density sets 2000, an estimate, and its label is off by default).
    double laminDensity = 0;
    double laminNpcExclNm = 40;       // diameter of the lamina-free disc at each pore, nm (the user's choice 2026-10-27)
    // The labels (density, fluorescent fraction, mode, kinetics) are not

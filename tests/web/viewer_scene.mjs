@@ -113,6 +113,18 @@ const pores = await page.evaluate(async () => {
 check(pores.on > 200 && pores.off === 0 && pores.hues >= 6,
   `nuclear pores: ${pores.on} px lit by their layer alone, ${pores.off} without; the depth look: ${pores.hues} colour bins`);
 
+// 4. the nuclear lamina (View > Nuclear lamina, off by default): its layer alone lights the nucleus' lamina points
+// (2000 per um^2), nothing without it; the View toggle is off on a fresh page
+const lamina = await page.evaluate(async () => {
+  const b = iscScene.cellBounds(__key), cam = { pivot: [b.center[0], b.center[1], 0], azimuthDeg: 0, tiltDeg: 30, fovUm: 20 };
+  const lit = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; };
+  const on = (await __cap(__st({ camera: cam, layers: { 'lamin.points': { style: { color: '#ffffff', opacity: 1 } } } }))).data;
+  const off = (await __cap(__st({ camera: cam, layers: {} }))).data;
+  return { on: lit(on), off: lit(off), toggle: els.showLamin.checked, density: +els['mv_lamin-density'].value };
+});
+check(lamina.on > 2000 && lamina.off === 0 && !lamina.toggle && lamina.density === 2000,
+  `nuclear lamina: ${lamina.on} px lit by its layer alone, ${lamina.off} without; View toggle ${lamina.toggle ? 'on' : 'off'}, density ${lamina.density}`);
+
 // 4. the detail budget
 const det = await page.evaluate(async () => {
   els.detailCells.value = 3; els.detailCells.dispatchEvent(new Event('input', { bubbles: true }));

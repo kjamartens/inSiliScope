@@ -589,8 +589,9 @@ network later: replace that one function. ABI 16: `ISC_STRUCT_LAMIN` 2 (the dock
 `ISC_STRUCT_COUNT` 4, kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6). **Off by default**: the registry's new
 `defaultDye: "None"` (`data/specimens.json` -> `TargetData::defaultNone`, viewer `defaultDyeFor`, MM `SceneState`) makes
 `lamin-dye` None; the core's `laminDensity` defaults to 0 (goldens, the block), the engine's `lamin-density` / MM
-`CellField.NuclearLaminaDensityPerUm2` (Advanced) to 50 (*estimate*), `CellField.NuclearLaminaPoreExclusionNm` (Expert).
-`PackingFingerprint` and the pack keys skip `lamin*`. No drawing layer (the dyes layer shows labelled points). Checks:
+`CellField.NuclearLaminaDensityPerUm2` (Advanced; 100..10000) to 2000 (*estimate*; was 50), `CellField.NuclearLaminaPoreExclusionNm` (Expert).
+`PackingFingerprint` and the pack keys skip `lamin*`. Viewer: View toggle `showLamin` (off; layer `lamin.points`, GL kind 9,
+the detailed cells' `isc_cell_lamin` points, fetched only while on; `#hud` `data-lamina`; `tests/web/viewer_scene.mjs`). Checks:
 `web/lab/lamin_check.mjs`, ctest `world_checks.lamin` (~30 s), golden `lamin` cases (`lam`/`lmd` lines), `label_parity`,
 `wasm_abi_smoke`, the block check; every default output unchanged (cli TIFFs, nanorulers included).
 

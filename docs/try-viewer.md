@@ -125,7 +125,7 @@ through it step by step.
   Nup96. **Nuclear pores** sets their density on the nuclear envelope (default 8 per µm², at least 180 nm apart) and, in Advanced, the
   minimum spacing and the ring geometry. A third target, the **Nuclear lamina label**, is unlabelled by default (Dye
   None): pick a dye to show random lamina points on the nuclear envelope; **Nuclear lamina** (Advanced) sets their
-  density (default 50 per µm²) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
+  density (default 2000 per µm², 100 to 10 000) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
   preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
   filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
   how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
@@ -181,6 +181,8 @@ through it step by step.
 - **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
   (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
   nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
+- **Nuclear lamina** (View, off by default): the lamina points of each detailed cell as dots, labelled or not (also in
+  the x-z view). At the default 2000 per µm² that is a few hundred thousand points per nucleus.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows

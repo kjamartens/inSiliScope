@@ -261,7 +261,7 @@ Specimen: a field of cells with their labelled structures.
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
 | `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
-| `NuclearLaminaDensityPerUm2` | Advanced | 50 | 0 .. 500 | Nuclear lamina points per um^2 of nuclear envelope, uniform by area (50, an estimate: a random stand-in for the lamin network; 0 = no lamina, the target is off). Unlabelled by default: NuclearLamina_Label turns it on. |
+| `NuclearLaminaDensityPerUm2` | Advanced | 2000 | 100 .. 10000 | Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for the lamin network). Unlabelled by default: NuclearLamina_Label turns it on. |
 | `IndexCytoplasm` | Advanced | 1.35 | 1 .. 2 | Refractive index of the cytoplasm (BrightField). |
 | `IndexNucleus` | Advanced | 1.35 | 1 .. 2 | Refractive index of the nucleus (BrightField). |
 | `IndexMicrotubule` | Advanced | 1.48 | 1 .. 2 | Refractive index of a microtubule (BrightField). |

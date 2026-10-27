@@ -829,7 +829,8 @@ lines, `label_parity`, `world_checks.lamin`).
 - **No point at a pore**: a candidate within `laminNpcExclNm` / 2 (40 nm diameter, the user's choice; *estimate*) of
   a pore centre (3D distance, a hash grid of the pore centres; the answer of testing every pore) is rejected. The pores
   are the geometric ones (`npcDensity`), labelled or not; the lamin params never move a pore. No lamina-lamina spacing.
-- **Density**: the engine's `lamin-density` 50 per um^2 (the user's choice; *estimate*); the core's `laminDensity`
+- **Density**: the engine's `lamin-density` 2000 per um^2 (the user's choice, 2026-10-27, was 50; *estimate*; 100 to
+  10000 in the viewer and MM); the core's `laminDensity`
   defaults to **0**, so a world with the default labels (the goldens, webSMLM's block) has no lamina.
 - **Dyes**: one docking site per point (k = 0, n = the candidate index); per cell `H1 = pcg4d(seed ^ 0x4C414D44
   ("LAMD"), cx, cy, 0).a` and the `DYE_CH` channels, so labelling, schedules and orientation work unchanged. The label

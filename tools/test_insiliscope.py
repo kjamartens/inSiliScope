@@ -148,11 +148,11 @@ for (dev, name), expected in {
     ("CellField", "NuclearPores_Binder"): "SNAP-Halo",
     ("CellField", "NuclearPoreDensityPerUm2"): "8",
     ("CellField", "NuclearPoreMinDistNm"): "180",
-    # the nuclear lamina (2026-10-27): off until labelled, 50 points per um^2 when it is
+    # the nuclear lamina (2026-10-27): off until labelled, 2000 points per um^2 when it is
     ("CellField", "NuclearLamina_Label"): "None",
     ("CellField", "NuclearLamina_Mode"): "DNA-PAINT",
     ("CellField", "NuclearLamina_Binder"): "IgG2-PAINT",
-    ("CellField", "NuclearLaminaDensityPerUm2"): "50",
+    ("CellField", "NuclearLaminaDensityPerUm2"): "2000",
     ("CellField", "NuclearLaminaPoreExclusionNm"): "40",
     ("Lasers", "Preset"): "Auto",
     ("Lasers", "Laser561KWcm2"): "1",

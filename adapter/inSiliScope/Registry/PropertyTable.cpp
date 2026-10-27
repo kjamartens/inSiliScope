@@ -929,8 +929,8 @@ std::vector<PropDef> BuildTable()
          "Radius of a pore's Nup96 rings, nm.",
          "Distance between a pore's cytoplasmic and nucleoplasmic ring, nm.",
          "Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm.",
-         "Nuclear lamina points per um^2 of nuclear envelope, uniform by area (50, an estimate: a random stand-in for the "
-         "lamin network; 0 = no lamina, the target is off). Unlabelled by default: NuclearLamina_Label turns it on.",
+         "Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for "
+         "the lamin network). Unlabelled by default: NuclearLamina_Label turns it on.",
          "Diameter of the lamina-free disc around each nuclear pore's centre, nm (40).",
       };
       const char* names[CF_COUNT] = { "ChunkSizeUm", "Occupancy", "CellDiameterMinUm", "CellDiameterMaxUm",
@@ -940,9 +940,9 @@ std::vector<PropDef> BuildTable()
          "NuclearPoreDensityPerUm2", "NuclearPoreMinDistNm", "NuclearPoreRadiusNm", "NuclearPoreRingSepNm",
          "NuclearPoreCornerSpreadNm", "NuclearLaminaDensityPerUm2", "NuclearLaminaPoreExclusionNm" };
       const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, -10.0, 0.0,
-         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0 };
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 100.0, 0.0 };
       const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 10.0, 50.0,
-         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0, 500.0, 300.0 };
+         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0, 10000.0, 300.0 };
       // Cell size and densities are everyday physics; packing blocks, slab and shape parameters are expert.
       for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY, CF_NPC_DENSITY, CF_LAMIN_DENSITY })
          add(Arr(F, names[i], Tier::Advanced, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],

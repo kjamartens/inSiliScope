@@ -248,7 +248,7 @@ const OptionTable& Options()
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
          { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)" },
          { "npc-density", 8, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
-         { "lamin-density", 50, "CellField.NuclearLaminaDensityPerUm2: nuclear lamina points per um^2 of nuclear envelope (50: estimate, 2026-10-27; 0: no lamina, the target is off; it is unlabelled by default: lamin-dye None; p.laminNpcExclNm: no point within half of it of a pore centre, default 40 nm)" },
+         { "lamin-density", 2000, "CellField.NuclearLaminaDensityPerUm2: nuclear lamina points per um^2 of nuclear envelope (2000: estimate, 2026-10-27, was 50; 100 .. 10000 in the viewer and MM; 0: no lamina; it is unlabelled by default: lamin-dye None; p.laminNpcExclNm: no point within half of it of a pore centre, default 40 nm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
          { "origami-spacing-nm", 80, "Nanorulers.SpacingNm: lattice step between neighbouring spots, nm; the body grows with it (a rod keeps 20 nm ends; the UIs offer 640-5)" },

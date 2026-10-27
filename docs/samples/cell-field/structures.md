@@ -151,8 +151,9 @@ a random stand-in for the lamin network under the nuclear envelope: points, not 
   mesh picks the place, which is then put exactly on the membrane), but none within 20 nm of a pore's centre: a disc of
   `p.laminNpcExclNm` (MM `CellField.NuclearLaminaPoreExclusionNm`, Expert; default 40 nm, *estimate*) across around
   every pore, whether the pores are labelled or not.
-- **How many.** `lamin-density` (MM `CellField.NuclearLaminaDensityPerUm2`, Advanced) per µm² of envelope, default 50
-  (*estimate*): the count is that times the envelope's area, rounded. 0 = no lamina.
+- **How many.** `lamin-density` (MM `CellField.NuclearLaminaDensityPerUm2`, Advanced; 100 to 10 000 in the viewer and
+  Micro-Manager) per µm² of envelope, default 2000 (*estimate*): the count is that times the envelope's area, rounded
+  (some 250 000 on a nucleus of ~125 µm²). The viewer draws the points with View > Nuclear lamina.
 - **Label.** One docking site per point, labelled through the same path as the other targets (`lamin-dye`,
   `lamin-mode`, `lamin-label-pct`, `lamin-imager-nm`, the linkage `lamin-binder*`; MM `NuclearLamina_*`). The linkage
   points inward, along the envelope's inward normal (the lamina lines the nucleoplasmic face; *estimate*); default

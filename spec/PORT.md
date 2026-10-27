@@ -1237,10 +1237,11 @@ Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The mod
   its blocks walked after the pores' (`ForEachDyeBlock` items carry the structure). **ABI 16:** `ISC_STRUCT_LAMIN` 2,
   `ISC_STRUCT_ORIGAMI_SITES` 3, `ISC_STRUCT_COUNT` 4 (kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6: point,
   outward normal; cell-local). `ISC_WORLD_VERSION` unchanged.
-- Engine/cli: the registry's `lamin-*` label options (default dye None), `lamin-density` 50 (passed as the core's
+- Engine/cli: the registry's `lamin-*` label options (default dye None), `lamin-density` 2000 (passed as the core's
   `laminDensity`; `p.laminNpcExclNm` the exclusion), `kTargetText`.
 - Viewer: the Nuclear lamina label group (Dye None), a Nuclear lamina group (density, pore exclusion; Advanced), the
-  pack keys skip `lamin`; no drawing layer (the labelled dyes show in the dyes layer). Block: four structures,
+  pack keys skip `lamin`; the View toggle Nuclear lamina (`showLamin`, off; layer `lamin.points`, GL kind 9: the
+  points of the detailed cells from `isc_cell_lamin`, fetched only while it is on). Block: four structures,
   `laminDensity` 0 by default, the docking strands' sites `structure` 3, `abiVersion` 16.
 - MM: `CellField` rows `NuclearLamina_*` (from the registry; `_Label` default None), `NuclearLaminaDensityPerUm2`
   (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
