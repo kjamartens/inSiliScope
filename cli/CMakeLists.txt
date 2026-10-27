@@ -134,6 +134,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   target_link_libraries(brightfield_check PRIVATE insiliscope_sim)
   add_test(NAME brightfield COMMAND brightfield_check)
 
+  # The fiducial beads' light, bead kernel and bleaching movies (where they are: world_checks.fiducials).
+  add_executable(fiducials_check fiducials_check.cpp)
+  target_link_libraries(fiducials_check PRIVATE insiliscope_sim)
+  add_test(NAME fiducials COMMAND fiducials_check)
+
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp)
   target_link_libraries(zernike_psf_check PRIVATE insiliscope_sim)

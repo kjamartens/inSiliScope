@@ -1,19 +1,16 @@
 // Headless lab check (Node, seconds): the working-tree prototype vs a git baseline.
 //   node web/lab/check.mjs [--base origin/main] [--seed N] [--cells 3] [--set mtWobbleTurn=1.2 ...]
 // Fails on: a load error, NaN geometry, or a cell that differs with query history (address determinism).
-// Prints shape metrics working vs baseline. No build, no C++. Then the nanorulers: web/lab/origami_check.mjs (the
-// model's checks, ~1 s) and their imaging smoke test, and the fiducial beads (web/lab/fiducial_check.mjs).
+// Prints shape metrics working vs baseline, then an imaging smoke test of the JS reference. No build, no C++. (The
+// models' property checks are C++: ctest world_checks, excitation, fiducials; they hold the JS after the port.)
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { execFileSync, spawn } from 'child_process';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { loadPrototype } from '../../tests/parity/load_prototype.mjs';
 import { makeField } from './field.js';
 import { formatSummary } from './metrics.js';
 import { renderScopeMovie } from '../prototype/scope/scope_movie.js';
-import { npcCheck } from './npc_check.mjs';
-import { laminCheck } from './lamin_check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args = process.argv.slice(2);
@@ -29,16 +26,6 @@ const load = (html, mt) => makeField(loadPrototype(html, mt));
 
 let fail = 0;
 const bad = msg => { console.log('FAIL ' + msg); fail++; };
-// The separate checks run as child processes from the start, beside the rest (they take most of the time: the
-// excitation check ~2 min, the fiducials ~1 min); their output goes to files (no pipe fills while this one computes)
-// and is read at the end. (The fiducial beads' timing checks only when run by hand: CI machines vary.)
-const SUB = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-lab-check-'));
-const subChecks = [['excitation_check.mjs'], ['origami_check.mjs'], ['fiducial_check.mjs', '--no-timing']].map(([f, ...a]) => {
-  const out = path.join(SUB, f + '.txt'), fd = fs.openSync(out, 'w');
-  const child = spawn(process.execPath, [path.join(ROOT, 'web/lab', f), ...a], { stdio: ['ignore', fd, fd] });
-  return { f, out, done: new Promise(res => child.on('close', code => { fs.closeSync(fd); res(code); })) };
-});
-
 const work = () => load(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const W = work();
 let B = null;
@@ -76,11 +63,6 @@ for (const [cx, cy] of [...addrs].reverse()) {
   const b = workCells.find(c => c.cx === cx && c.cy === cy);
   if (!!a !== !!b || (a && sig(a) !== sig(b))) bad(`cell ${cx},${cy} depends on query history`);
 }
-
-// Nuclear pores (issue 15): placement statistics (web/lab/npc_check.mjs).
-fail += npcCheck({ seed, nCells: 4, overrides, log: m => console.log(m) });
-// The nuclear lamina (2026-10-27): placement and its dyes (web/lab/lamin_check.mjs).
-fail += laminCheck({ seed, nCells: 4, overrides, log: m => console.log(m) });
 
 const sw = W.metrics(workCells);
 let sb = null;
@@ -139,11 +121,5 @@ for (const spec of [`size=32 frames=4 ${K}`,
   if (frames[0] !== frames[1]) bad('pores off: the auto light preset differs from the default light path');
   else console.log('pores off: auto light preset == the default light path (identical ADU)');
 }
-for (const s of subChecks) {
-  const code = await s.done, text = fs.readFileSync(s.out, 'utf8').trim();
-  if (code === 0) console.log(text.split('\n').pop());
-  else { console.log(text); bad('web/lab/' + s.f); }
-}
-fs.rmSync(SUB, { recursive: true, force: true });
 console.log(fail ? `lab check: ${fail} failure(s)` : 'lab check: PASS');
 process.exit(fail ? 1 : 0);

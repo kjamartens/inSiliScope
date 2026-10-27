@@ -249,6 +249,21 @@ void Movies()
       Check(ok1 && ok2 && Identical(clipped, none) == 1.0, "a clipped spot (NA 1.40, bfp 1.1) = a sample without light");
    }
    {
+      // Per unit of the interface's intensity (the field factor F), TIRF keeps only the dyes near the coverslip: the
+      // microtubules (WideField: every dye shows) above the evanescent layer go dark.
+      bool ok1 = false, ok2 = false, ok3 = false;
+      const std::string C = "world-seed=1249 x=63 y=3 size=32 frames=1 psf-model=0 background-per-sec=0 npc-dye=None "
+                            "mt-dye=ATTO655 mt-mode=WideField z=0.1";
+      ScopeSpec tspec;
+      std::string err;
+      const double F = ParseScopeSpec(C + " illum-bfp=1.03", tspec, err) ? Excitation(ScopeExcitationSpec(tspec)).F() : 0;
+      const double dark = Mean(Movie(C + " light-epi=0", ok3));
+      const double epi = Mean(Movie(C + " illum-bfp=0", ok1)) - dark, tirf = Mean(Movie(C + " illum-bfp=1.03", ok2)) - dark;
+      std::snprintf(b, sizeof b, "TIRF dims the cell: WideField microtubules, mean ADU over dark: epi %.1f, TIRF %.2f / F %.2f",
+                    epi, tirf, F);
+      Check(ok1 && ok2 && ok3 && F > 1 && epi > 0 && tirf / F < 0.5 * epi, b);
+   }
+   {
       bool ok1 = false, ok2 = false, ok3 = false;
       const std::string R = "specimen=Nanorulers world-seed=1249 x=3 y=3 size=128 frames=1 psf-model=0 background-per-sec=0";
       const double dark = Mean(Movie(R + " light-epi=0", ok3));

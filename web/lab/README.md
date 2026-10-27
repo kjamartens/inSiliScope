@@ -53,9 +53,10 @@ movies by `web/prototype/scope/`. `web/lab/engine.js` is the glue: the viewer's 
   default for speed); "copy as cli command" gives the matching `insiliscope_cli` call.
 - Iterate on photophysics, PSF, camera, WideField or BrightField by editing `web/prototype/scope/*.js` (the README there maps each
   file to its C++ twin); saves hot-reload like prototype edits (~5 s for a 64 px, 20-frame movie).
-- Headless, ~15 s: `node web/lab/check.mjs [--cells 3] [--set mtWobbleTurn=1.2]`: prototype loads, no NaN geometry,
+- Headless, ~25 s: `node web/lab/check.mjs [--cells 3] [--set mtWobbleTurn=1.2]`: prototype loads, no NaN geometry,
   cells independent of query history, metrics vs the baseline, an SR, a WideField and a BrightField movie of the JS
-  imaging reference run. Also a CI job (`lab-check`).
+  imaging reference run. Also a CI job (`lab-check`). The models' property checks (pores, lamina, nanorulers, beads,
+  excitation) are C++ (ctest `world_checks.*`, `excitation`, `fiducials`): a JS change meets them in the port.
 - URL hash = full state (seed, cell, tweaks, preview); "copy link" shares a view.
 
 Do **not** in this phase: touch `core/`, run cmake/ctest, re-freeze `spec/golden`, rebuild the viewer module, or
@@ -84,7 +85,7 @@ and skips the C++/WASM/golden jobs, so the branch cannot merge):
 Files: `serve.mjs` (dev server: static + `/web/lab.html` + `/baseline/` + reload events), `engine.js` (lab.html's JS
 engine), `lab_html.js` (lab.html's badge and reload), `engine_check.mjs`, `lab.js`/`index.html` (page),
 `lab_worker.js` (one prototype instance per worker, or a ref's WASM for the C++ movie), `field.js` (packing window,
-world-space MTs), `metrics.js`, `check.mjs`, `npc_check.mjs` (nuclear pore placement statistics), `label_regression.mjs`
+world-space MTs), `metrics.js`, `check.mjs`, `label_regression.mjs`
 (labels vs origin/main, the label linkage), `linkage.html` (`/web/lab/linkage.html`: where each label's dyes sit around
 a microtubule and a pore, per linkage preset). Imaging: `web/prototype/scope/`; C++ side for comparisons:
 `tests/parity/wasm_scope.mjs`. The prototype is loaded by `tests/parity/load_prototype.mjs`, the same

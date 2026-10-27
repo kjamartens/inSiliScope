@@ -737,8 +737,8 @@ description is `docs/samples/nanorulers/index.md`.
   sqrt(ds / Lp) per segment, exact circular arcs (sinc form; half-angle 0 handled), placed with the chord along the
   yaw and its midpoint at the position (the "aligned" frame of `origami_bend.py`). The normals are Box-Muller on
   `pcg4d(h1, K_BEND, i >> 1, 0)` (cos for even i, sin for odd) with `jsm::` math, so C++ = JS bit for bit; the
-  cross-check (`tools/origami_reference/crosscheck.py`) feeds `origami_bend.py` the same normals: same sites to 1e-14
-  nm. Statistics (checked in `origami_check.mjs` and `world_checks.Origami`): end-angle variance L/Lp, tangent
+  cross-check (`tools/origami_reference/crosscheck.py`, frozen in `tests/parity/origami_bend_ref.inc`) feeds
+  `origami_bend.py` the same normals: same sites to 1e-14 nm. Statistics (checked in `world_checks.origami`): end-angle variance L/Lp, tangent
   correlation e^(-s/2Lp), <R^2> of the 2D chain. Fold-over (|kappa| D/2 >= 1) counted, kept.
 - **Default Lp 1500 nm** (*estimate*): measured bending persistence lengths of origami bundles are 0.74-1 um (4HB),
   1-3 um (6HB), 3-8.2 um (8HB) (chhabra2020); a 12-helix rod is stiffer, so 1500 leans soft.
@@ -915,7 +915,7 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
 - **The kinetics follow the local light**, every dye at the dose at its own (x, y, z), on every consumer (MM, cli,
   viewer, the JS reference): the clock map, "Exact light history" below. DNA-PAINT binding does not depend on the light
   (photons x the factor only). The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per mode
-  (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
+  (ctest `excitation`: 100 % identical ADU).
 - **Live under drift** (MM, fixed on purpose): the drift's z part enters a frame's focus on a 10 nm grid (the stage's
   own z stays exact), and the mean-field scenes stay posed at an anchor within 1 um of the FOV, their images shifted to
   it by a phase ramp (`FluorescenceMovie::AnchorMeanField`, the drift movies' `RenderShiftedImages`; the beam's axis

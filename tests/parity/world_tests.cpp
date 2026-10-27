@@ -1784,6 +1784,25 @@ void Fiducials()
       Check(std::fabs(mean / 200 - 1) < 0.01, "fiducials: diameter mean", Fmt("%.2f nm (200 +- 1 %%)", mean));
       Check(std::fabs(sd / mean * 100 / cv - 1) < 0.05, "fiducials: diameter spread", Fmt("CV %.2f %% (12 +- 5 %%)", 100 * sd / mean));
       Check(zbad == 0, "fiducials: Coverslip puts each centre at its radius", Fmt("worst %.3g um off", zbad));
+      // Complete spatial randomness: the mean nearest-neighbour distance 1 / (2 sqrt(density)) (Clark-Evans), no hard
+      // core (some pairs closer than 0.1 um), over the beads away from the window's edge.
+      double nnSum = 0, nnMin = 1e9;
+      int nIn = 0;
+      for (const FiducialBead& a : b) {
+         if (a.x < 4 || a.x > S - 4 || a.y < 4 || a.y > S - 4 || nIn >= 400) continue;
+         double best = 1e9;
+         for (const FiducialBead& o : b)
+            if (&o != &a) best = std::min(best, std::hypot(a.x - o.x, a.y - o.y));
+         nnSum += best;
+         nnMin = std::min(nnMin, best);
+         nIn++;
+      }
+      const double nnMean = nnSum / nIn, nnWant = 0.5 / std::sqrt(rho);
+      Check(std::fabs(nnMean / nnWant - 1) < 0.08 && nnMin < 0.1, "fiducials: placement is Poisson (Clark-Evans, no hard core)",
+            Fmt("mean nearest neighbour %.4f um vs %.4f, closest %.4f um (%d beads)", nnMean, nnWant, nnMin, nIn));
+      std::vector<FiducialBead> none;
+      FiducialField(5, CheapWith({ { "fidDensity", 0 } }), flat).InRect(0, 0, S, S, none);
+      Check(none.empty(), "fiducials: density 0, no beads", Fmt("%zu beads", none.size()));
    }
    // The heights on a cell field's own surface (World::SurfaceHeightAt), and the cells do not move.
    {
@@ -1818,6 +1837,23 @@ void Fiducials()
       Check(onCells > 0 && maxSurf > 1, "fiducials: OnTop beads on cells", Fmt("%.0f of %zu on cells, highest surface %.2f um", onCells, bt.size(), maxSurf));
       Same(layerBad, "fiducials: Layer keeps beads in the gel and out of the cells");
       Check(bl.size() < bt.size(), "fiducials: Layer drops the beads inside cells", Fmt("%zu in the layer vs %zu on top", bl.size(), bt.size()));
+      // The height mode moves a bead only in z: every Layer bead is an OnTop bead at the same x, y and diameter.
+      std::string moved;
+      for (const FiducialBead& b : bl) {
+         bool found = false;
+         for (const FiducialBead& t : bt) found = found || (t.x == b.x && t.y == b.y && t.d == b.d);
+         if (!found && moved.empty()) moved = Fmt("Layer bead at (%.9g, %.9g), d %.6g: no OnTop bead there", b.x, b.y, b.d);
+      }
+      Same(moved, "fiducials: the same candidates (x, y, diameter) in every height mode");
+   }
+   // On the nanorulers (no cells) OnTop is the coverslip: each centre at its radius.
+   {
+      World rulers(1249, CheapWith({ { "specimen", 1 }, { "fidDensity", 2 }, { "fidHeight", 1 } }));
+      std::vector<FiducialBead> b;
+      rulers.FiducialsInRect(-5, -5, 5, 5, b);
+      double worst = 0;
+      for (const FiducialBead& e : b) worst = std::max(worst, std::fabs(e.z - e.d / 2000.0));
+      Check(!b.empty() && worst == 0, "fiducials: nanorulers, OnTop at the radius", Fmt("%zu beads, worst %.3g um off", b.size(), worst));
    }
    // The C ABI.
    {
@@ -1947,23 +1983,55 @@ void Origami()
       Check(dl > 0, "origami: the TU Delft logo design exists");
       if (dl > 0) {
          const OrigamiDesign& dd = OrigamiDesignAt(dl);
-         const Params p = P({ { "origamiDesign", (double)dl }, { "origamiSpacingNm", 20 }, { "origamiLinkerNm", 0 } });
-         std::vector<OrigamiSite> sites;
-         OrigamiMoleculeSites(dd, p, mol(77), OrigamiBentShape(dd, p, 77), 1, 1, sites, true);
-         double nn = INF;
-         std::string rigid;
-         for (size_t a = 0; a < sites.size(); a++) {
-            if (rigid.empty() && !(sites[a].rest[2] == dd.heightNm / 2 && std::fabs(sites[a].bent[0] - sites[a].rest[0]) < 1e-9 &&
-                                   std::fabs(sites[a].bent[1] - sites[a].rest[1]) < 1e-9))
-               rigid = Fmt("strand %zu: rest (%g, %g, %g), bent (%g, %g)", a, sites[a].rest[0], sites[a].rest[1], sites[a].rest[2],
-                           sites[a].bent[0], sites[a].bent[1]);
-            for (size_t b = a + 1; b < sites.size(); b++)
-               nn = std::min(nn, jsm::hypot(sites[a].rest[0] - sites[b].rest[0], sites[a].rest[1] - sites[b].rest[1]));
+         std::string bad;
+         for (double sp : { 80.0, 20.0, 5.0 }) {
+            const Params p = P({ { "origamiDesign", (double)dl }, { "origamiSpacingNm", sp }, { "origamiLinkerNm", 0 } });
+            const OrigamiGeometry G = OrigamiGeometryOf(dd, p);
+            std::vector<OrigamiSite> sites;
+            OrigamiMolecule m = mol(77);
+            m.yaw = 0.7;
+            OrigamiMoleculeSites(dd, p, m, OrigamiBentShape(dd, p, 77), 1, 1, sites, true);
+            double nn = INF;
+            for (size_t a = 0; a < sites.size(); a++) {
+               const OrigamiSite& s = sites[a];
+               if (bad.empty() && !(s.rest[2] == G.H / 2 && std::fabs(s.bent[0] - s.rest[0]) < 1e-9 && std::fabs(s.bent[1] - s.rest[1]) < 1e-9))
+                  bad = Fmt("%g nm, strand %zu: rest (%g, %g, %g), bent (%g, %g): not rigid on the top face", sp, a, s.rest[0], s.rest[1],
+                            s.rest[2], s.bent[0], s.bent[1]);
+               if (bad.empty() && !(std::fabs(s.rest[0]) < G.L / 2 && std::fabs(s.rest[1]) < G.W / 2))
+                  bad = Fmt("%g nm, strand %zu at (%g, %g): outside the %g x %g nm plate", sp, a, s.rest[0], s.rest[1], G.L, G.W);
+               for (size_t b = a + 1; b < sites.size(); b++)
+                  nn = std::min(nn, jsm::hypot(s.rest[0] - sites[b].rest[0], s.rest[1] - sites[b].rest[1]));
+            }
+            if (bad.empty() && !(sites.size() == 37 && std::fabs(nn - sp) < 1e-9 * sp))
+               bad = Fmt("%g nm: %zu strands, nearest neighbours %.9f nm", sp, sites.size(), nn);
+            if (bad.empty() && p.origamiStrandsPerSpot != 1) bad = Fmt("%g nm: %d strands per spot", sp, (int)p.origamiStrandsPerSpot);
          }
-         Check(sites.size() == 37 && std::fabs(nn - 20) < 1e-9, "origami: logo = 37 strands 20 nm apart",
-               Fmt("%zu strands, nearest neighbours %.9f nm", sites.size(), nn));
-         Same(rigid, "origami: logo rigid, on the top face");
-         Check(p.origamiStrandsPerSpot == 1, "origami: logo clamps strands per spot to 1", Fmt("%d", (int)p.origamiStrandsPerSpot));
+         Same(bad, "origami: logo = 37 strands one spacing apart, rigid on the top face inside the plate, 1 per spot (80, 20, 5 nm)");
+         // Face up, never mirrored: the flame (cell 0601, column 6 row 1) lies up-left of the o (1506) in the molecule
+         // frame (+y = down, as on the screen), and 0809 on the same side of that line as in the map, whatever the roll
+         // options say. The outline is the plate's rectangle.
+         const Params p = P({ { "origamiDesign", (double)dl }, { "origamiRoll", 1 }, { "origamiRollDeg", 180 } });
+         const OrigamiShape S = OrigamiBentShape(dd, p, 3);
+         std::vector<OrigamiSite> sites;
+         OrigamiMoleculeSites(dd, p, mol(3), S, 1, 1, sites, true);
+         auto at = [&](const char* id) {
+            for (int i = 0; i < dd.nSpots; i++)
+               if (!std::strcmp(dd.spots[i].id, id)) return sites.at(i).rest;
+            return sites.at(0).rest;
+         };
+         const auto a = at("0601"), b = at("1506"), c = at("0809");
+         const double cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+         const double mapCross = (15 - 6) * (9.0 - 1.0) - (6.5 - 1.0) * (8 - 6);
+         Check(sites.size() == 37 && a[0] < b[0] && a[1] < b[1] && (cross > 0) == (mapCross > 0),
+               "origami: logo face up (unmirrored, roll ignored)", Fmt("0601 (%g, %g), 1506 (%g, %g), 0809 (%g, %g)", a[0], a[1], b[0], b[1], c[0], c[1]));
+         const OrigamiGeometry G = OrigamiGeometryOf(dd, p);
+         const std::vector<double> o = OrigamiShapeOutline(S);
+         std::string edge = o.empty() ? "no outline" : "";
+         for (size_t j = 0; j + 1 < o.size() && edge.empty(); j += 2)
+            if (std::fabs(o[j]) > G.L / 2 + 1e-9 || std::fabs(o[j + 1]) > G.W / 2 + 1e-9 ||
+                (std::fabs(std::fabs(o[j]) - G.L / 2) > 1e-9 && std::fabs(std::fabs(o[j + 1]) - G.W / 2) > 1e-9))
+               edge = Fmt("point (%g, %g) off the %g x %g nm rectangle", o[j], o[j + 1], G.L, G.W);
+         Same(edge, "origami: logo outline = the plate's rectangle");
       }
    }
    // Statistics at the default Lp (1500 nm): end angle, tangent correlation, spot distances vs the 2D WLC.
@@ -2028,6 +2096,43 @@ void Origami()
       const double r = 0.25, lamII = (1 - std::exp(-2 * jsm::PI * r * r)) / (jsm::PI * r * r), got = in / (S * S);
       Check(dmin >= 0.25, "origami: the minimum spacing holds", Fmt("closest centres %.1f nm (250)", dmin * 1000));
       Check(std::fabs(got / lamII - 1) < 0.05, "origami: Matern-II density (5 %)", Fmt("%.3f /um^2 vs %.3f", got, lamII));
+      // Another spacing moves no molecule (the placement draws do not depend on it).
+      OrigamiField A(9, P({})), B(9, P({ { "origamiSpacingNm", 20 } }));
+      std::vector<OrigamiMolecule> a, b;
+      A.MoleculesInRect(0, -4, 6, 2, a, -A.ReachUm());   // by centre (the reach grows with the spacing)
+      B.MoleculesInRect(0, -4, 6, 2, b, -B.ReachUm());
+      std::string moved = a.empty() ? "no molecules" : a.size() != b.size() ? Fmt("%zu vs %zu molecules", a.size(), b.size()) : "";
+      for (size_t i = 0; i < a.size() && moved.empty(); i++)
+         if (a[i].x != b[i].x || a[i].y != b[i].y || a[i].yaw != b[i].yaw || a[i].h1 != b[i].h1)
+            moved = Fmt("molecule %zu: (%.9g, %.9g) vs (%.9g, %.9g)", i, a[i].x, a[i].y, b[i].x, b[i].y);
+      Same(moved, "origami: the spacing leaves the placement alone");
+   }
+   // The model reference (tools/origami_reference/origami_bend.py, frozen by freeze_crosscheck.mjs): its bent sites for
+   // the bending normals the core draws, at Lp 273.1, 1500 and 100 nm, 3D heights, the molecule's roll fixed.
+   {
+      struct Ref { uint32_t h1; double lp, roll; int n; double endAngle; double sites[15 * 3]; };
+      static const Ref refs[] = {
+#include "origami_bend_ref.inc"
+      };
+      std::string bad;
+      for (const Ref& r : refs) {
+         const Params p = P({ { "origamiLpNm", r.lp }, { "origamiLinkerNm", 0 }, { "origamiHeights", 1 }, { "origamiAttachNm", 0 },
+                              { "origamiRoll", 1 }, { "origamiRollDeg", r.roll * 180 / jsm::PI } });
+         std::vector<double> normals(r.n);
+         for (int i = 0; i < r.n; i++) normals[i] = OrigamiBendNormal(r.h1, i);
+         const OrigamiShape S = OrigamiBentShape(d, p, r.h1, normals.data());
+         std::vector<OrigamiSite> sites;
+         OrigamiMoleculeSites(d, p, mol(r.h1), S, 1, 1, sites, true);
+         double e = 0;
+         for (const OrigamiSite& s : sites) {
+            const double* q = r.sites + 3 * (s.k * 5 + s.n);
+            e = std::max({ e, std::fabs(s.bent[0] - q[0]), std::fabs(s.bent[1] - q[1]), std::fabs(s.z * 1000 - q[2]) });
+         }
+         if (bad.empty() && !(S.n == r.n && sites.size() == 15 && e < 1e-9 && std::fabs(S.endAngle - r.endAngle) < 1e-12))
+            bad = Fmt("Lp %g: %d segments (want %d), %zu sites, %.3g nm off, end angle %.15g vs %.15g", r.lp, S.n, r.n, sites.size(), e,
+                      S.endAngle, r.endAngle);
+      }
+      Same(bad, "origami: the sites of origami_bend.py (Lp 273.1, 1500, 100 nm)");
    }
    // A nanoruler World.
    {

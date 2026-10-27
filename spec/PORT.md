@@ -962,7 +962,7 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
 - MM: `SampleHolder` positions = the registry's specimens (`MountSpecimen` sets `specimen`; the settings carry the
   origami params only while mounted, so a switch is a new world); device `Nanorulers` (spec/MM_DEVICES.md); per-target
   label rows and couplings (`LoadTargetDye`, camera gain and light preset follow the mounted specimen's target).
-- Checks: `web/lab/origami_check.mjs` (33, ~1 s, part of `web/lab/check.mjs`), `world_checks.Origami`, golden (4
+- Checks: `world_checks.origami` (with the `origami_bend.py` cross-check, `tests/parity/origami_bend_ref.inc`), golden (4
   origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
   nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
   `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
@@ -973,7 +973,7 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   `origamiGeometry`); `OrigamiMoleculeRoll(d, p, h1)` (flat = 0); `isc_origami_heights` uses heightNm. Design ids
   `Nanoruler` (renamed from `Nanoruler80`; saved MM configs naming it must be re-made) and `TUDelftLogo`. No ABI
   change; golden +3 origami cases (40 nm rod, logo at 20 and 160 nm), existing lines unchanged; `label_parity` and
-  `scope_parity` logo rows; `world_checks.Origami` and `origami_check.mjs` spacing/logo checks.
+  `scope_parity` logo rows; `world_checks.origami` spacing/logo checks.
 - DNA-PAINT binding kinetics are the target's (2026-10-12): `data/specimens.json` `paint` (k_on, mean bound time;
   `TargetData::paintKonPerMPerSec` / `paintOnSec`), options `<prefix>-paint-kon`, `<prefix>-paint-on-sec` right after
   `<prefix>-imager-nm` (rate-history light keys), `LabelPhysicsOptions::paint*` / `labelPhotophysics` `o.paint*`; the
@@ -1018,7 +1018,7 @@ complexes" and "Label linkage".
 - MM: `CellField` rows `NuclearPores_*` (the target rows, `_Mode` Basic per target), `NuclearPoreDensityPerUm2`
   (Advanced) and the geometry (Expert), `<Target>_Binder` (Advanced) + overrides (Expert); `Fluorophores.Mode` removed;
   `Lasers.Preset` `Auto` (spec/MM_DEVICES.md 4). `SampleSettings::SameLabels` compares bit for bit (NaN linkage slots).
-- Checks: `web/lab/npc_check.mjs` + `label_regression.mjs`, `world_checks.npcs`, golden `npcs` cases, `label_parity`
+- Checks: `label_regression.mjs`, `world_checks.npcs`, golden `npcs` cases, `label_parity`
   (three structures), `scope_parity` two-target cases, `engine_check` (pores, linkage, two-colour movie), the block
   check's pores window, `test_insiliscope.py` (defaults, couplings, GPU = CPU with two labels), `adapter_pixel_hash`
   (TOTAL before pores = the old reference with pores None and MT linkage Legacy; configs `pores`, `pores-dstorm`).
@@ -1219,8 +1219,8 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
   are world params (a change is a new world; the packed blocks come back from the cache).
 - JS: `Math.hypot(x, y)` in the bead plane's fade became `Math.sqrt(x * x + y * y)` (exact for the integer offsets, so
   C++ = JS without fdlibm's hypot in the engine).
-- Checks: `web/lab/fiducial_check.mjs` (in `web/lab/check.mjs`), `world_checks.fiducials` (determinism under query
-  order, Poisson count, diameter spread, the three heights on a World's surface, cells unmoved, C ABI; 1.4 s), golden
+- Checks: ctest `fiducials` (`cli/fiducials_check.cpp`: the light, the bead kernel, bleaching movies), `world_checks.fiducials` (determinism under query
+  order, Poisson count, Clark-Evans, diameter spread, the three heights on a World's surface, cells unmoved, C ABI; 1.4 s), golden
   4 `fiducials` cases (step surface; `compare.mjs` reads `fid` lines without a leading count), `scope_parity` 5 bead
   movies (TetraSpeck static images, dark red OnTop Gaussian, gold Layer with scatter and drift, a 0.5 s half-time
   from t = 0, nanorulers with orange FluoSpheres): 100 % identical ADU.
@@ -1245,6 +1245,6 @@ Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The mod
   `laminDensity` 0 by default, the docking strands' sites `structure` 3, `abiVersion` 16.
 - MM: `CellField` rows `NuclearLamina_*` (from the registry; `_Label` default None), `NuclearLaminaDensityPerUm2`
   (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
-- Checks: `web/lab/lamin_check.mjs` (in `check.mjs`), `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
+- Checks: `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
   lines), `label_parity` (two lamina specimens), `wasm_abi_smoke` (ABI 16, a lamina block), the block check (lamina on,
   docking strands at 3); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).
