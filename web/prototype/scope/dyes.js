@@ -19,6 +19,9 @@ export const NPC_DYE_SALT = 0x4E504344;   // "NPCD"
 export const NPC_SITES = 64;
 export const NPC_LINKER_MIN_NM = 2;
 export const NPC_LINKER_MAX_NM = 5;
+// Nuclear lamina (2026-10-27): one dye hash per cell (H1 = pcg4d(seed ^ LAMIN_DYE_SALT, cx, cy, 0)), one site per point
+// (k = 0), n = the point's candidate index (buildLaminForCell).
+export const LAMIN_DYE_SALT = 0x4C414D44;   // "LAMD"
 export const DYE_BLOCK_UM = 1.0;
 // Per-site purpose channels (the 4th pcg4d word). Issue 16 added FLUOR (fluorescent fraction), INIT_ON (dSTORM
 // initial ON time), AUX (unit-exponential bleach draw of a continuously emitting dye), ORIENT_U/ORIENT_PHI (Random
@@ -45,6 +48,7 @@ const NM = 1e-3;
 export const LEGACY_LINKAGE = {
   microtubules: { binderNm: MT_BINDER_NM, binderFlexNm: 0, linkerMinNm: MT_LINKER_MIN_NM, linkerMaxNm: MT_LINKER_MAX_NM },
   npcs: { binderNm: 0, binderFlexNm: 0, linkerMinNm: NPC_LINKER_MIN_NM, linkerMaxNm: NPC_LINKER_MAX_NM },
+  lamin: { binderNm: 0, binderFlexNm: 0, linkerMinNm: 0, linkerMaxNm: 0 },   // newer than the model: the dye on the point
 };
 // Clamped: lengths >= 0, linkerMaxNm >= linkerMinNm.
 export function normLinkage(lk) {
@@ -180,6 +184,7 @@ export const mtProtofilamentOffsetNm = k => (k * MT_LATTICE_START * MT_DIMER_NM 
 export const mtSeamPhase = (seed, cx, cy, mtIndex) => 2 * Math.PI * hashUnit(seed, cx, cy, MT_CH_SEAM_PHASE + mtIndex);
 export const dyeH1 = (seed, cx, cy, mtIndex) => pcgA((seed ^ DYE_SALT) >>> 0, cx >>> 0, cy >>> 0, mtIndex >>> 0);
 export const npcH1 = (seed, cx, cy) => pcgA((seed ^ NPC_DYE_SALT) >>> 0, cx >>> 0, cy >>> 0, 0);
+export const laminH1 = (seed, cx, cy) => pcgA((seed ^ LAMIN_DYE_SALT) >>> 0, cx >>> 0, cy >>> 0, 0);
 
 // A microtubule site: the axis point at arc S, the radial direction of protofilament (ct, st) in the segment's frame.
 function siteDye(pts, fr, seg, S, ct, st, L, h1, k, n, r1, r2, r3, parts) {
@@ -267,6 +272,41 @@ export function npcDyesInBlock(seed, cx, cy, pores, ids, sites, density, fluores
       out.push(withParts ? { pos, pore: pi, k, n, id: label, parts } : { pos, pore: pi, k, n, id: label });
     }
   }
+}
+
+// Fluorescent dyes of the lamina points pts[ids[0..]] of a cell (buildLaminForCell: position, outward normal n,
+// candidate index; cell-local um). Appends {pos (cell-local), point (index into pts), k (0: one site per point), n (=
+// the point's candidate index), id}. Labelled / fluorescent / linker draws as on a pore (npcDyesInBlock); the binder
+// along the inward normal (the lamina lines the nucleoplasmic face of the envelope). withParts as in dyesInBlock.
+export function laminDyesInBlock(seed, cx, cy, pts, ids, density, fluorescentFraction, out, linkage = LEGACY_LINKAGE.lamin,
+  withParts = false) {
+  const labelledBelow = Math.min(1.0, Math.max(0.0, density));
+  const ff = Math.min(1.0, Math.max(0.0, fluorescentFraction));
+  if (!(labelledBelow > 0) || !(ff > 0)) return;
+  const h1 = laminH1(seed, cx, cy);
+  const L = linkageSetup(linkage);
+  const k = 0;
+  for (const pi of ids) {
+    const q = pts[pi], n = q.cand;
+    const label = pcgA(h1, k, n, DYE_CH.LABEL);
+    if (unit(label) >= labelledBelow) continue;
+    if (ff < 1.0 && unit(pcgA(h1, k, n, DYE_CH.FLUOR)) >= ff) continue;
+    const r1 = unit(pcgA(h1, k, n, DYE_CH.LINK_U));
+    const r2 = unit(pcgA(h1, k, n, DYE_CH.LINK_PHI));
+    const r3 = unit(pcgA(h1, k, n, DYE_CH.LINK_R));
+    const a = { x: -q.n[0], y: -q.n[1], z: -q.n[2] };
+    const parts = withParts ? {} : null;
+    const pos = linkedDye({ x: q.x, y: q.y, z: q.z }, a, 0, L, h1, k, n, r1, r2, r3, parts);
+    out.push(withParts ? { pos, point: pi, k, n, id: label, parts } : { pos, point: pi, k, n, id: label });
+  }
+}
+
+// Orthonormal basis about the unit vector n (Duff et al. 2017, unturned): [f1, f2], each {x, y, z}; the lamina's
+// Fixed dye orientation reads its azimuth from f1.
+export function duffBasis(nx, ny, nz) {
+  const sg = nz >= 0 ? 1 : -1;
+  const a = -1 / (sg + nz), b = nx * ny * a;
+  return [{ x: 1 + sg * nx * nx * a, y: sg * b, z: -sg * nx }, { x: b, y: sg + ny * ny * a, z: -ny }];
 }
 
 // Log-normal factor with mean 1 and CV cv from two uniforms (Box-Muller).

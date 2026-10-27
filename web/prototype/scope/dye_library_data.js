@@ -1651,6 +1651,25 @@ export const DYE_DATA = {
       ],
       "notes": "k_on and onSec as the microtubules' (estimate: 9-10 nt imagers, 0.05 s). imagerNm 2.5 nM (estimate, chosen 2026-10-13; was 1 nM): 2.5x the binding of 1 nM, about 2-3 pore blinks per frame over the bottom of a nucleus; the pores' docking strands sit on a SNAP- or Halo-tagged Nup96 (schlichthaerle2019, whose own imager kinetics are not modelled)."
      }
+    },
+    {
+     "id": "lamin",
+     "name": "Nuclear lamina",
+     "prefix": "lamin",
+     "structure": 2,
+     "defaultDye": "None",
+     "notes": "Points on the nuclear envelope (core param laminDensity per um^2, uniform by area, none within laminNpcExclNm / 2 of a pore centre): a random stand-in for the lamin network (estimate, chosen 2026-10-27). Unlabelled by default (defaultDye None): a label (<prefix>-dye, Micro-Manager CellField.NuclearLamina_Label) turns it on.",
+     "paint": {
+      "konPerMPerSec": 1000000,
+      "onSec": 0.05,
+      "imagerNm": 2.5,
+      "refs": [
+       "jungmann2010",
+       "schnitzbauer2017",
+       "jungmann2014"
+      ],
+      "notes": "as the nuclear pores' (estimate: 9-10 nt imagers, 0.05 s, 2.5 nM)."
+     }
     }
    ]
   },
@@ -1662,7 +1681,7 @@ export const DYE_DATA = {
      "id": "docking",
      "name": "Docking strands",
      "prefix": "ruler",
-     "structure": 2,
+     "structure": 3,
      "paint": {
       "konPerMPerSec": 1000000,
       "onSec": 0.28853900817779266,
@@ -1713,6 +1732,24 @@ export const DYE_DATA = {
    "DNA-PAINT": {
     "dye": "Cy3B",
     "labelingPct": 60
+   },
+   "WideField": {
+    "dye": "mEGFP",
+    "labelingPct": 100
+   }
+  },
+  "lamin": {
+   "dSTORM": {
+    "dye": "AF647",
+    "labelingPct": 70
+   },
+   "PALM": {
+    "dye": "mEos3.2",
+    "labelingPct": 58
+   },
+   "DNA-PAINT": {
+    "dye": "Cy3B",
+    "labelingPct": 70
    },
    "WideField": {
     "dye": "mEGFP",
@@ -1811,7 +1848,8 @@ export const DYE_DATA = {
  ],
  "linkageDefaults": {
   "microtubules": "IgG2-PAINT",
-  "npcs": "SNAP-Halo"
+  "npcs": "SNAP-Halo",
+  "lamin": "IgG2-PAINT"
  },
  "fiducials": {
   "equivalentDye": {

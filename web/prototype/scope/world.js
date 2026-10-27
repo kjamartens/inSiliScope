@@ -7,23 +7,24 @@ import { DYE_DATA } from './dye_library_data.js';
 import { buildMtFrames, pointAtArc, dyesInBlock, labelSchedule, persistentGen, persistentMaxOn, dyeH1, dyeOrientation, mtSegmentAt,
   mtProtofilamentOffsetNm, makeLabel, validateLabel, DYE_BLOCK_UM, MT_DIMER_NM, MT_N_PROTOFILAMENTS, MT_RADIUS_NM,
   PERSIST_BIN_SEC, npcDyesInBlock, npcH1, dyeOrientationFixed, dyeOrientationRandom, LEGACY_LINKAGE, normLinkage,
-  linkageReachNm, labelScheduleActivated, activationDraw, EVENT_STATE } from './dyes.js';
+  linkageReachNm, labelScheduleActivated, activationDraw, EVENT_STATE, laminDyesInBlock, laminH1, duffBasis } from './dyes.js';
 import { OrigamiField, SPECIMEN_NANORULERS, STRUCTURE_ORIGAMI } from './origami.js';
 import { FiducialField } from './fiducials.js';
 import { readClockMap, evalField, doseHistory, activationTime, bleachEnd, CLOCK_GLOBAL, CLOCK_DOSE, CLOCK_ACTIVATION } from './clockmap.js';
 
 export const PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16): one label each, indexed by their position here = the targets of the
-// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*): the microtubules and the nuclear
-// pores (CellField, issue 15) and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target
+// specimens in data/specimens.json (their 'structure' = this index = ISC_STRUCT_*): the microtubules, the nuclear
+// pores (CellField, issue 15) and the nuclear lamina (CellField, 2026-10-27), and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target
 // there and its site generator here and in core/. A world holds one specimen (params.specimen; the core param
 // 'specimen'): its geometry (the cell field below, or origami.js's OrigamiField) yields the dye blocks; labels,
 // schedules and the queries are shared. A world never yields a structure of another specimen.
 export const STRUCTURES = DYE_DATA.specimens.flatMap(sp => sp.targets).map(t => ({ id: t.id, prefix: t.prefix, name: t.name,
-  paint: t.paint }));
+  paint: t.paint, defaultDye: t.defaultDye }));
 export const STRUCTURE_MT = 0;
 export const STRUCTURE_NPC = STRUCTURES.findIndex(s => s.id === 'npcs');   // = ISC_STRUCT_NPC
-// Nuclear pore dye blocks: the pores whose centre lies in one cell-local NPC_BLOCK_UM cube.
+export const STRUCTURE_LAMIN = STRUCTURES.findIndex(s => s.id === 'lamin');   // = ISC_STRUCT_LAMIN
+// Nuclear pore dye blocks: the pores whose centre lies in one cell-local NPC_BLOCK_UM cube; the lamina's the same.
 export const NPC_BLOCK_UM = 1.0;
 // eventsInWindow kinds: the blinks (dSTORM/PALM/DNA-PAINT), the continuous windows (EVENT_STATE PRE, INITIAL_ON,
 // ALWAYS_ON; continuousInWindow).
@@ -229,6 +230,29 @@ export class World {
     return Math.hypot(p.npcRadiusNm + p.npcCornerSpreadNm / 2, p.npcRingSepNm / 2) * 1e-3 +
       linkageReachNm(this.labels[STRUCTURE_NPC].linkage) * 1e-3;
   }
+  // The cell's lamina points (P.gen.buildLaminForCell, cell-local, candidate order; the pores of npcs() excluded) and
+  // their dye blocks: per NPC_BLOCK_UM cube as the pores' (npcs). Built when first asked for.
+  lamin(a) {
+    if (a.lamin) return a.lamin;
+    const c = a.cell, pts = this.g.buildLaminForCell(this.seed, c.cx, c.cy, c, this.p, this.npcs(a).pores);
+    const cubes = new Map();
+    let reachXY = 0;
+    pts.forEach((q, i) => {
+      const ix = Math.floor(q.x / NPC_BLOCK_UM), iy = Math.floor(q.y / NPC_BLOCK_UM), iz = Math.floor(q.z / NPC_BLOCK_UM);
+      const key = ix + ',' + iy + ',' + iz;
+      let b = cubes.get(key);
+      if (!b) { b = { ix, iy, iz, ids: [] }; cubes.set(key, b); }
+      b.ids.push(i);
+      reachXY = Math.max(reachXY, Math.hypot(q.x, q.y));
+    });
+    const blocks = [...cubes.values()].sort((u, v) => u.iz - v.iz || u.iy - v.iy || u.ix - v.ix);
+    for (const b of blocks) { b.x = (b.ix + 0.5) * NPC_BLOCK_UM; b.y = (b.iy + 0.5) * NPC_BLOCK_UM; b.z = (b.iz + 0.5) * NPC_BLOCK_UM; }
+    a.lamin = { pts, blocks, reachXY };
+    return a.lamin;
+  }
+  // The farthest a lamina dye can be from its point (um): the label's binder (with its flexibility) and longest linker.
+  laminDyeReach() { return linkageReachNm(this.labels[STRUCTURE_LAMIN].linkage) * 1e-3; }
+
   // The farthest a microtubule dye can be from the axis (um): the lattice radius, the binder with its flexibility and
   // the longest linker.
   mtDyeReach() {
@@ -260,18 +284,21 @@ export class World {
           fn(this.dyeBlock(c, A, i, b));
         }
       }
-      if (STRUCTURE_NPC < 0 || !(this.p.npcDensity > 0)) continue;
-      const nl = this.labels[STRUCTURE_NPC];
-      if (!(nl.density > 0) || !(nl.fluorescentFraction > 0)) continue;
-      const N = this.npcs(A), rb = Math.sqrt(3) / 2 * NPC_BLOCK_UM + this.npcDyeReach();
-      if (!N.blocks.length || centreDist > N.reachXY + rb) continue;
-      for (let b = 0; b < N.blocks.length; b++) {
-        const blk = N.blocks[b];
-        if (blk.z + rb < zMin || blk.z - rb >= zMax) continue;
-        const [wx, wy] = localToWorld(c, blk.x, blk.y);
-        if (rectDist(wx, wy, x0, y0, x1, y1) > rb) continue;
-        fn(this.npcDyeBlock(c, A, b));
-      }
+      // The envelope's targets, the pores then the lamina: their cubes near the rect, in (iz, iy, ix) order.
+      const cubes = (N, reach, block) => {
+        const rb = Math.sqrt(3) / 2 * NPC_BLOCK_UM + reach;
+        if (!N.blocks.length || centreDist > N.reachXY + rb) return;
+        for (let b = 0; b < N.blocks.length; b++) {
+          const blk = N.blocks[b];
+          if (blk.z + rb < zMin || blk.z - rb >= zMax) continue;
+          const [wx, wy] = localToWorld(c, blk.x, blk.y);
+          if (rectDist(wx, wy, x0, y0, x1, y1) > rb) continue;
+          fn(block(b));
+        }
+      };
+      const on = s => s >= 0 && this.labels[s].density > 0 && this.labels[s].fluorescentFraction > 0;
+      if (this.p.npcDensity > 0 && on(STRUCTURE_NPC)) cubes(this.npcs(A), this.npcDyeReach(), b => this.npcDyeBlock(c, A, b));
+      if (this.p.laminDensity > 0 && on(STRUCTURE_LAMIN)) cubes(this.lamin(A), this.laminDyeReach(), b => this.laminDyeBlock(c, A, b));
     }
   }
 
@@ -312,6 +339,28 @@ export class World {
     blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
       k: new Uint8Array(n), nIdx: new Int32Array(n), theta: null,
       cx: c.cx, cy: c.cy, mtIndex: -1, element: 0, h1: npcH1(this.seed, c.cx, c.cy), structure: STRUCTURE_NPC,
+      zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
+    raw.forEach((d, i) => {
+      const [wx, wy] = localToWorld(c, d.pos.x, d.pos.y);
+      blk.x[i] = wx; blk.y[i] = wy; blk.z[i] = d.pos.z; blk.id[i] = d.id; blk.k[i] = d.k; blk.nIdx[i] = d.n;
+      blk.zLo = Math.min(blk.zLo, d.pos.z);
+      blk.zHi = Math.max(blk.zHi, d.pos.z);
+    });
+    this.dyeBlocks.set(key, blk);
+    return blk;
+  }
+  // A block of lamina dyes: the points of cube `block` of the cell (lamin()); the pores' layout (k 0, n = the point's
+  // candidate index, element 0, no theta).
+  laminDyeBlock(c, A, block) {
+    const key = c.cx + ',' + c.cy + ',' + STRUCTURE_LAMIN + ',0,' + block;
+    let blk = this.dyeBlocks.get(key);
+    if (blk) return blk;
+    const N = this.lamin(A), raw = [], label = this.labels[STRUCTURE_LAMIN];
+    laminDyesInBlock(this.seed, c.cx, c.cy, N.pts, N.blocks[block].ids, label.density, label.fluorescentFraction, raw, label.linkage);
+    const n = raw.length;
+    blk = { n, x: new Float64Array(n), y: new Float64Array(n), z: new Float64Array(n), id: new Uint32Array(n),
+      k: new Uint8Array(n), nIdx: new Int32Array(n), theta: null,
+      cx: c.cx, cy: c.cy, mtIndex: -1, element: 0, h1: laminH1(this.seed, c.cx, c.cy), structure: STRUCTURE_LAMIN,
       zLo: Infinity, zHi: -Infinity, scheduled: false, events: null, continuous: null, maxOn: 0, persistent: [] };
     raw.forEach((d, i) => {
       const [wx, wy] = localToWorld(c, d.pos.x, d.pos.y);
@@ -390,7 +439,8 @@ export class World {
   }
 
   // Fluorescent dyes in [x0,x1) x [y0,y1) x [zMin,zMax), world um: [{x, y, z, id, cx, cy, mtIndex, element, k, n,
-  // theta, structure}] (nuclear pores: mtIndex -1, element 0, k = the attachment site, n = the pore's candidate index).
+  // theta, structure}] (nuclear pores: mtIndex -1, element 0, k = the attachment site, n = the pore's candidate index;
+  // the lamina: mtIndex -1, element 0, k 0, n = the point's candidate index).
   sitesInWindow(x0, y0, x1, y1, zMin, zMax) {
     const out = [];
     this.forEachDye(x0, y0, x1, y1, zMin, zMax, (b, i) => out.push(this.dyeAt(b, i)));
@@ -581,6 +631,16 @@ export class World {
       const r = { x: ct * q.e1[0] + st * q.e2[0], y: ct * q.e1[1] + st * q.e2[1], z: ct * q.e1[2] + st * q.e2[2] };
       return dyeOrientationFixed(o, t, r);
     }
+    if (d.structure === STRUCTURE_LAMIN) {
+      // Fixed: from the envelope's outward normal at the point, azimuth from duffBasis's f1 about it.
+      const h1 = laminH1(this.seed, d.cx, d.cy), o = label.orientation;
+      if (o.mode === 'Random') return dyeOrientationRandom(h1, d.k, d.n, o);
+      const pts = this.lamin(A).pts;
+      let lo = 0, hi = pts.length - 1;
+      while (lo < hi) { const m = (lo + hi) >>> 1; if (pts[m].cand < d.n) lo = m + 1; else hi = m; }
+      const q = pts[lo], [f1] = duffBasis(q.n[0], q.n[1], q.n[2]);
+      return dyeOrientationFixed(o, { x: q.n[0], y: q.n[1], z: q.n[2] }, f1);
+    }
     const fr = this.frames(A, d.mtIndex), S = (mtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
     return dyeOrientation(dyeH1(this.seed, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, mtSegmentAt(fr, S), d.theta);
   }
@@ -608,6 +668,13 @@ export class World {
   npcsOfCell(cx, cy) {
     const c = this.packedBlock(floorDiv(cx, PACK_BLOCK_CHUNKS), floorDiv(cy, PACK_BLOCK_CHUNKS)).find(q => q.cx === cx && q.cy === cy);
     return c ? this.npcs(this.cellAssets(c)).pores : [];
+  }
+
+  // The lamina points of the cell at chunk (cx, cy) (isc_cell_lamin): [{x, y, z, n, cand, piece}] cell-local, candidate
+  // order; [] if there is no cell there.
+  laminOfCell(cx, cy) {
+    const c = this.packedBlock(floorDiv(cx, PACK_BLOCK_CHUNKS), floorDiv(cy, PACK_BLOCK_CHUNKS)).find(q => q.cx === cx && q.cy === cy);
+    return c ? this.lamin(this.cellAssets(c)).pts : [];
   }
 
   // The fiducial beads whose centre lies in the rect (isc_fiducials_in_window): [{tx, ty, i, x, y, z (um), d (nm)}].

@@ -144,6 +144,8 @@ targets.forEach(t => {
   if (!q || !(q.konPerMPerSec >= 0) || !(q.onSec > 0) || !(q.imagerNm >= 0))
     throw new Error(`target ${t.id}: paint { konPerMPerSec >= 0, onSec > 0, imagerNm >= 0 } (its DNA-PAINT binding kinetics, default imager)`);
   checkRefs(`target ${t.id} paint`, q.refs);
+  // defaultDye: the <prefix>-dye default when it is not the typical dye; only 'None' (off until labelled) for now.
+  if (t.defaultDye !== undefined && t.defaultDye !== 'None') throw new Error(`target ${t.id}: defaultDye '${t.defaultDye}' (only 'None')`);
 });
 const typicalLabels = Object.fromEntries(targets.map(t => {
   const byMode = library.typicalLabels[t.id];
@@ -397,9 +399,10 @@ ${data.dyes.map(d => `   { ${str(d.id)}, ${str(d.name)}, ${str(d.defaultMode)}, 
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
 // typicalLabels: dye index, % of the sites) in the order ${MODE_NAMES.join(', ')}; the DNA-PAINT binding kinetics
 // (paint: k_on /M/s, mean bound time s, default imager concentration nM); the default linkage preset (index into
-// kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
+// kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults); defaultNone: the dye defaults to None
+// (specimens.json defaultDye: off until labelled).
 static const TargetData kTargets[] = {
-${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)}, ${num(t.paint.imagerNm)}, ${t.id in linkageDefaults ? linkagePresets.findIndex(q => q.id === linkageDefaults[t.id]) : -1} },`).join('\n')}
+${targets.map(t => `   { ${str(t.id)}, ${str(t.name)}, ${str(t.prefix)}, ${str(t.specimen)}, ${t.structure}, { ${MODE_NAMES.map(m => dyes.findIndex(d => d.id === typicalLabels[t.id][m].dye)).join(', ')} }, { ${MODE_NAMES.map(m => num(typicalLabels[t.id][m].labelingPct)).join(', ')} }, ${num(t.paint.konPerMPerSec)}, ${num(t.paint.onSec)}, ${num(t.paint.imagerNm)}, ${t.id in linkageDefaults ? linkagePresets.findIndex(q => q.id === linkageDefaults[t.id]) : -1}, ${t.defaultDye === 'None'} },`).join('\n')}
 };
 // The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is
 // each structure's built-in numbers (structureDefault).

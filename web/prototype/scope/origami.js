@@ -11,12 +11,14 @@
 // parameters, so changing those never moves a molecule.
 import { pcg4d, pcgA, unit } from './rng.js';
 import { DYE_CH } from './dyes.js';
+import { DYE_DATA } from './dye_library_data.js';
 import { ORIGAMI_DESIGNS } from './origami_designs_data.js';
 export { ORIGAMI_DESIGNS };
 
 export const SPECIMEN_CELLFIELD = 0;
 export const SPECIMEN_NANORULERS = 1;
-export const STRUCTURE_ORIGAMI = 2;   // ISC_STRUCT_ORIGAMI_SITES: the docking strands' target (data/specimens.json)
+// ISC_STRUCT_ORIGAMI_SITES (3 since ABI 16): the docking strands' target, its index in data/specimens.json.
+export const STRUCTURE_ORIGAMI = DYE_DATA.specimens.flatMap(sp => sp.targets).findIndex(t => t.id === 'docking');
 // The field is tiled in ORIGAMI_TILE_UM squares; a tile holds Poisson(density x area) candidates (capped), thinned
 // against the 3x3 tiles around it (Matern type II): a candidate is dropped when one of higher priority lies closer
 // than origamiMinSpacingNm (capped at the tile size, so 3x3 tiles suffice).

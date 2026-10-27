@@ -36,12 +36,15 @@ export const DEFAULT_LASER_640_KW = 1.0;
 // A target's label options (ScopeTargetLabelOptions, made from data/specimens.json): <prefix>-dye, -mode, -label-pct,
 // -imager-nm, -orient*, -wobble-deg, -motion, and for a target with a linkage model (library.json linkagePresets.defaults)
 // -binder, -binder-nm, -binder-flex-nm, -linker-min-nm, -linker-max-nm; the Micro-Manager rows <Device>.<Row>_*. The
-// default dye: the target's typical dye in the library's default mode. Texts per target; a new target adds its entry.
+// default dye: the target's typical dye in the library's default mode, or None for a target with defaultDye 'None' (the
+// lamina: off until labelled). Texts per target; a new target adds its entry.
 const TARGET_TEXT = {
   microtubules: { dev: 'CellField', row: 'Microtubules', what: 'the microtubules\'',
     sites: '% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label', axis: 'the microtubule axis' },
   npcs: { dev: 'CellField', row: 'NuclearPores', what: 'the nuclear pores\'',
     sites: '% of the 64 Nup96 sites per pore that carry a label', axis: 'the pore axis' },
+  lamin: { dev: 'CellField', row: 'NuclearLamina', what: 'the nuclear lamina\'s',
+    sites: '% of the lamina points that carry a label', axis: 'the envelope normal' },
   docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\'',
     sites: '% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)', axis: 'the rod axis' },
 };
@@ -66,7 +69,7 @@ function targetLabelOptions(s) {
   const pcts = MODES.map(m => `${m} ${typ[m].labelingPct}`).join(', ');
   const D = `${T.dev}.${T.row}`;
   return [
-    [`${P}-dye`, idx(DYE_CHOICES, typ[DYE_DATA.dyeDefault.mode].dye), `${D}_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
+    [`${P}-dye`, s.defaultDye === 'None' ? DYE_NONE : idx(DYE_CHOICES, typ[DYE_DATA.dyeDefault.mode].dye), `${D}_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = ${T.what} typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)`],
     [`${P}-mode`, -1, `${D}_Mode: -1 DyeDefault = the dye's default (Typical: the library's default mode), -2 Global = the mode option, 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField (names accepted)`],
     [`${P}-label-pct`, -1, `${D}_LabelingPct: ${T.sites} (0: none, the target is off); -1 = the target's typical % in its mode (typicalLabels: ${pcts})`],
     [`${P}-imager-nm`, s.paint.imagerNm, `${D}_ImagerNanoMol: DNA-PAINT imager concentration, nanomolar (binding rate k_on x c; the free imager adds a uniform background -- taken as constant: no depletion by binding or bleaching, no exclusion from cells)`],
@@ -141,6 +144,7 @@ export const SCOPE_OPTIONS = [
   ['cell-diam-max-um', 35, 'CellField.CellDiameterMaxUm'],
   ['mt-density', 0.9, 'CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)'],
   ['npc-density', 8, 'CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)'],
+  ['lamin-density', 50, 'CellField.NuclearLaminaDensityPerUm2: nuclear lamina points per um^2 of nuclear envelope (50: estimate, 2026-10-27; 0: no lamina, the target is off; it is unlabelled by default: lamin-dye None; p.laminNpcExclNm: no point within half of it of a pore centre, default 40 nm)'],
   ['packing', 1, 'CellField.Packing (1 on, 0 off)'],
   // ---- the nanorulers (Micro-Manager: Nanorulers; core params origami*, origami.js) ----
   ['origami-design', ORIGAMI_DEFAULTS.origamiDesign, 'Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)'],
@@ -549,7 +553,8 @@ export function scopeSetup(P, spec) {
     : Number(BigInt.asUintN(32, BigInt(seed) ^ 0x43454C4Cn));
   // Named world options, then p.* (prototype names) on top; the rest are the prototype's defaults.
   const vals = { ...P.defaults, chunkSize: O('chunk-um'), density: O('occupancy'), cellDiamMin: O('cell-diam-min-um'),
-    cellDiamMax: O('cell-diam-max-um'), mtDensity: O('mt-density'), npcDensity: O('npc-density'), enablePacking: O('packing') !== 0 };
+    cellDiamMax: O('cell-diam-max-um'), mtDensity: O('mt-density'), npcDensity: O('npc-density'), laminDensity: O('lamin-density'),
+    enablePacking: O('packing') !== 0 };
   for (const [k, v] of Object.entries(spec)) {
     if (!k.startsWith('p.')) continue;
     const name = k.slice(2);
