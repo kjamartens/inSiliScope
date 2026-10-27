@@ -528,7 +528,7 @@ they touch and their workers install them instead of packing, so a block is pack
 per worker (`web/index.html` `iscEngine.inject`, `web/lab/engine.js` `World.setPackedBlock`; the `?nw` path
 still packs its window in one `pack` job). `world_checks` `BlockInjection`: a world fed another's rows answers cells, mesh,
 microtubules, dyes and events byte-identically with `blocksPacked == 0`, still after `DropCaches`; foreign
-rows are rejected; the C ABI round trip is checked too (`wasm_abi_smoke.mjs` under Node).
+rows are rejected; the C ABI round trip is checked too (`label_parity.mjs` under Node).
 
 ### 6.6 Packed blocks across runs (ABI 8, 2026-10-04)
 `isc_world_set_cache_dir(w, dir)` gives a world a disk store of its packed blocks (`core/src/blockstore.*`):
@@ -667,8 +667,8 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   with noise on the GPU; `Create()` rejects software adapters and self-checks against the CPU; a failure
   mid-stream falls back to the CPU (`General_GpuStatus` says which). fp16 spectra cost <= 3e-4 rms of the
   image (measured 2.7e-5 .. 2.5e-4). Checks: ctest `widefield` (the job format through a CPU reference
-  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
-  Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
+  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` (headless
+  Chromium; `ISC_CHROME=1` for an adapter), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
   + Microsoft's HLSL compiler).
 * Limits: drift (section 16) renders on the CPU.
 
@@ -718,8 +718,8 @@ spread that work: its movie worker builds the world and the scene with the per-s
 worker builds a scene from those screens alone (`UpdateFromPhase`, no world) and computes its share of the sources
 (`SourceImageAt`, a round-robin split); the movie worker takes all sources' images and forms the image exactly as
 `Image` does (`SetImageFromSources`: the same float sum in source order), then renders the frames. ctest
-`brightfield` checks the three paths bit for bit; `tests/web/viewer_bf_movie.mjs` checks the split movie equals the
-single-worker one (`?bfsplit=0`). Not with the lab's JS engine.
+`brightfield` checks the three paths bit for bit; `tests/web/bf_split_check.mjs` checks the split movie equals the
+single-worker one (Node, the worker protocol on one module per engine). Not with the lab's JS engine.
 
 ## 16. Labels, dyes and the light path (issue 16, 2026-10-05)
 
@@ -882,7 +882,7 @@ per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleFo
   (shifted frame = the scene posed at -d, 5e-7; focus grid vs exact focus, 2e-5 rms), ctest `brightfield` (whole-cell
   shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
   scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
-  drift cases), `tests/block/check_cellfield_block.mjs`.
+  drift cases).
 
 ## 18. Micro-Manager hub and devices (2026-10-06)
 
@@ -963,7 +963,7 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   origami params only while mounted, so a switch is a new world); device `Nanorulers` (spec/MM_DEVICES.md); per-target
   label rows and couplings (`LoadTargetDye`, camera gain and light preset follow the mounted specimen's target).
 - Checks: `world_checks.origami` (with the `origami_bend.py` cross-check, `tests/parity/origami_bend_ref.inc`), golden (4
-  origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
+  origami cases), `label_parity` on two nanoruler worlds, ctest `cli_serve`, `scope_parity`
   nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
   `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
 - Site spacing and 2D origami (2026-10-13; spec/ALGORITHM.md): param `origamiSpacingNm` (80; clamp 1-10000), option
@@ -1178,7 +1178,7 @@ reads its kinetics at the dose at its own (x, y, z), one core query per movie.
 - **Checks**: ctest `world_checks.clock_map` (uniform map = ABI 11 bit for bit for every mode, interpolated clocks =
   per-dye ABI 11 queries, the order rule, cache independence, the bleach ends, threads, bad input), `history_check`
   (folds and maps against brute-force sums, signature rules, an averaged stack record = a per-pose fold, speed gates;
-  `RUN_SERIAL`), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `wasm_abi_smoke`, `scope_parity`,
+  since 2026-10-27 `history_check --bench`, not a test), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `scope_parity`,
   `engine_check`, `tools/test_history.py` ("Edge": no step at the beam's half contour, mean field and dye by dye),
   `adapter_pixel_hash` (Flat / BFP 0: unchanged).
 
@@ -1246,5 +1246,4 @@ Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The mod
 - MM: `CellField` rows `NuclearLamina_*` (from the registry; `_Label` default None), `NuclearLaminaDensityPerUm2`
   (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
 - Checks: `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
-  lines), `label_parity` (two lamina specimens), `wasm_abi_smoke` (ABI 16, a lamina block), the block check (lamina on,
-  docking strands at 3); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).
+  lines), `label_parity` (a lamina world, ABI 16); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).

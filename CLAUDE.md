@@ -49,7 +49,8 @@ that finishes them.
   FluoSpheres 100000 equivalent dyes (`emittersSet`), bleach half-time 288 s at 1 kW/cm^2), JS twin `web/prototype/scope/fiducials.js`, data `data/fiducials/`
   (balinovic2019). MM device `Fiducials` (`tools/test_fiducials.py`, 6 s); viewer group Fiducial beads + View toggle
   `showFids` (layer `fid.beads`, drawn in the x-z view too, `#hud` `data-beads-xz`; a `fiducials` job on a cell worker
-  on a world of its own; `tests/web/viewer_fiducials.mjs`, ~5 s, on the nanorulers with their label off); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`.
+  on a world of its own); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`. Checks: ctest `fiducials`
+  (`cli/fiducials_check.cpp`: the light, the bead kernel, bleaching movies) and `world_checks.fiducials` (the field).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
@@ -107,7 +108,11 @@ that finishes them.
   fetched by `tools/fetch_fpbase.mjs`, built into `web/prototype/scope/dye_library_data.js` by `tools/gen_dye_library.mjs
   [--check]`), `references.json` (the project reference list, rendered to `docs/references.md`), `specimens.json` (the
   samples and their targets) and `origami/designs.json` (DNA-origami designs, `tools/gen_origami_designs.mjs [--check]`).
-- `tests/web/` -- the viewer's WideField GPU path and BrightField movie in headless Chromium, `scene_core_check.mjs` (Node:
+- `tests/web/` -- the browser checks run on `browser.mjs` (2026-10-27: a server over `web/`, headless Chromium on the
+  hardware GPU by default (`--swiftshader`: the software one, ~10x slower), page errors collected, a watchdog that names
+  the last check, everything closed in every case); `wf_gpu_check.mjs` (the WideField GPU path; exit 77 = a visible skip
+  without an adapter, `ISC_CHROME=1` for real Chrome), `bf_split_check.mjs` (Node, 1.4 s: a BrightField movie split
+  over worker engines = the single-worker one), `scene_core_check.mjs` (Node:
   the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders), `mm_config_check.mjs` (every Configuration preset maps onto a viewer control or module option),
@@ -117,7 +122,8 @@ that finishes them.
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,
   pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
   `viewer_anim_export.mjs` (browser: export,
-  playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, data stacks = movie jobs); `tests/d3d11/` -- the adapter's.
+  playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, the lamina layer),
+  `viewer_data.mjs` (data stacks = movie jobs, localizations), `viewer_nanorulers.mjs`; `tests/d3d11/` -- the adapter's.
 - `tools/build_physics_figures.py` + `tools/physics_figures/` -- the **physics and samples pages' figures**: one registered
   function per figure (a module per page) runs `insiliscope_cli` (its read-only diagnostic outputs `--photons-out`
   (`--history-before`: a past light, then the movie's: a two-record light history), `--psf-out`, `--splat-out`, `--setup-json`, `--dyes-json`, `--density-out`, `--bf-screens-out`, `--nucleus-json`,
@@ -125,14 +131,18 @@ that finishes them.
   `pages.yml` rebuilds them on every deploy and `tools/build_site.sh` puts each in place of its `<!-- fig:<id> -->`
   marker in any page of `docs/` (links in the figures are written as from `docs/physics/` and rebased per page).
 - `tests/parity/` -- golden-vector and JS-parity harness (`label_parity.mjs`: the ABI 10 labels, every mode, and ABI 11
-  kinetics histories, C++ = JS number for number), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time:
+  kinetics histories, clock maps and the C ABI calls only it makes, C++ = JS number for number; one world per specimen,
+  ~6 s, in CI's core-wasm job), plus `world_tests.cpp` (ctest `world_checks.<section>`, one test per section so `ctest -j` runs them side by side, each printing its time
+  (2026-10-27: the sections share their worlds through a world bank, so the native ctest runs in ~35 s; every test
+  directory sets `ISC_THREADS=2` per test process, `isc_cap_test_threads()`; the thread checks run natively only):
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
   query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
   coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
   `cli/brightfield_check.cpp` (ctest `brightfield`);
   `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
-  `adapter_pixel_hash.py`, `test_insiliscope.py`, `test_cellfield_stage.py`, `test_mm_configs.py`, `isc_mm.py`,
+  `adapter_pixel_hash.py` (+ `adapter_pixel_hash_ref.txt`), `test_insiliscope.py`, `test_cellfield_stage.py`,
+  `test_history.py`, `test_specimens.py`, `test_fiducials.py`, `test_mm_configs.py`, `isc_mm.py`,
   `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`.
 
 ## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
@@ -173,29 +183,31 @@ that finishes them.
   `node web/lab/engine_check.mjs`: lab.html's engine == the viewer's WASM engine (part of `tools/port_check.sh`).
 - Core WASM: `source ~/emsdk/emsdk_env.sh` (Emscripten pinned to 6.0.10, see `.github/workflows/ci.yml`),
   `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8`, then
-  `node tools/embed_web_module.mjs` (viewer module; `--check` in CI). webSMLM block:
-  `node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs`.
+  `node tools/embed_web_module.mjs` (viewer module; `--check` in CI), `node tests/parity/label_parity.mjs` (~6 s).
+  webSMLM block: `node tools/make_cellfield_block.mjs` (its check script is gone, 2026-10-27).
 - Core on Linux/macOS: `cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release`, build, `ctest --test-dir build/native -j 8`.
 - Golden vectors: ctest `golden_vectors` (bit-identical to `spec/golden/ref_js.txt`; mesh/microtubule
-  lines may be `near`, <= 1e-6 um, where `pow` differs). Full JS parity incl. 40k math samples:
-  `node tests/parity/run.mjs`. Re-freeze: `node tests/parity/golden.mjs --freeze`, **with Node 24**
+  lines may be `near`, <= 1e-6 um, where `pow` differs; ~5k lines since 2026-10-27, the compare names the first
+  difference). Re-freeze: `node tests/parity/golden.mjs --freeze`, **with Node 24**
   (the CI pin; Node 22's V8 12.4 computes `Math.pow` with fdlibm, not `std::pow`).
 - Adapter: MSBuild `adapter/inSiliScope/inSiliScope.sln` Release|x64 (needs the submodule and the
   locally built `third_party/SMLMPsfEmbedded.jar`, see below). Output unchanged by a refactor:
-  `python tools/adapter_pixel_hash.py <dll dir>` before and after must print the same hashes.
+  `python tools/adapter_pixel_hash.py <dll dir>` (~20 s: 5-frame stacks) compares with `tools/adapter_pixel_hash_ref.txt`
+  and fails naming each config that moved; `--write-ref` after a deliberate change (say why in the commit).
   Smoke tests (each < 5 min): `ADAPTER_DIR=<dll dir> python tools/test_insiliscope.py`, then
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
   the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
   history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), `ADAPTER_DIR=<dll dir> python
   tools/test_specimens.py` (SampleHolder: CellField / Nanorulers, the switch is a new world; < 30 s), then
-  `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the shipped configs, < 3 min). After a registry change: `python tools/gen_mm_configs.py` and
+  `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the shipped configs, < 3 min). (2026-10-27: the scripts read
+  the defaults' rules from `data/`, not pinned numbers; each stack is as long as what it reads, `Test_StackLength`; no
+  wall-clock upper bounds.) After a registry change: `python tools/gen_mm_configs.py` and
   `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check`). Off Windows, `tools/build_adapter_linux.sh`
   builds a test-only `.so` (no JVM PSF, no GPU) that pymmcore-plus can load; the cell-field/stage
   checks run there, the PSF-model checks of `test_insiliscope.py` need the real DLL.
 - WideField GPU: `node tools/gen_wf_gpu.mjs [--check]` (needs `cargo install naga-cli`) after a
   `WidefieldGpu.wgsl` change, then `node tools/embed_web_module.mjs`. Viewer path: `node
-  tests/web/wf_gpu_check.mjs` and `node tests/web/viewer_wf_movie.mjs` (headless Chromium, WebGPU on
-  SwiftShader). D3D11 path: ctest `wf_gpu_d3d11` on Windows, or `tools/wine_wf_gpu_check.sh` on Linux
+  tests/web/wf_gpu_check.mjs` (headless Chromium; `ISC_CHROME=1` for an adapter, else a visible skip). D3D11 path: ctest `wf_gpu_d3d11` on Windows, or `tools/wine_wf_gpu_check.sh` on Linux
   (mingw-w64, Wine, Mesa lavapipe, Microsoft's d3dcompiler_47.dll -- see the script).
 - Releases (2026-10-01): push a tag `vX.Y.Z` (or run Actions -> Release with a version). `release.yml` runs `ci.yml`,
   then builds the DLL (`build-dll.yml`: embeds PSFGenerator if downloadable, BUILD_INFO says which), the webSMLM block,
@@ -311,28 +323,10 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
-`adapter_pixel_hash` reference since the Gaussian beam default (2026-10-20, `Lasers.IlluminationProfile` Gaussian, was
-FlatTop): TOTAL bf98d1ae.... Before it, the reference since the merge of main into the exact light history (2026-10-16: main's dim-blink cut,
-`Renderer.BlinkMinPhotons` 50, moved `defaults`, `gaussian-psf`, `palm`, `emccd`, `drift`, `zernike`, `pores`; with
-`--set Renderer.BlinkMinPhotons=0` every config = the reference before the merge): TOTAL a84a7116... (before pores
-6ce549ae...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0` TOTAL 3e69b9b0... (before pores
-ce0f552d...). Hash on a quiet machine: under heavy load (a parallel test batch) a config's frames have differed from run
-to run (`defaults`, `dstorm`; open). Before the merge, the reference of the exact light history (`claude/exact-dose`;
-against 3bd884d below the DNA-PAINT configs, BrightField, `emccd`, `cells-na`, `dstorm-ixon`, `pores`, `pores-dstorm`
-are identical, `dstorm`, `palm`, `mean-field` and `illum-bg` (its fade follows the dose) moved): TOTAL fbbd909e...
-(before pores e0f60aca...); Flat / BFP 0 TOTAL 87aa4e13... (before pores ecd48caf...).
-Before it, the reference since the imager's collected column (2026-10-13, FlatTop 100 %, DNA-PAINT HILO, 100 um
-chamber, the lit / unlit history footprint, the free imager's light collected defocused; 2026-10-14 the history light on
-the tile / 0.25 um focus grids, which moved `dstorm`, `palm`; 2026-10-14 the rim level and the dark rule, which moved
-`dstorm`, `palm`, `mean-field`; then the bleach basis grouped by the light now, float rounding in `dstorm`, `mean-field`:
-0.14 % of pixels, <= 9 ADU; 2026-10-15 the exact dose, which moved `dstorm` (7 % of pixels: the never-lit corners in
-their initial ON emit), `palm` (0.02 %), `mean-field` (47 %, mean +0.3 %)): TOTAL 91030dbb...
-(before pores 4561e46d...; before the exact dose 89cf2f70... / cd29ac0c...; before that basis 6e11627f... / 6a534ef9...;
-before the rim level a5b388b0... /
-09832cd5...; before the grids b1af15bc... / 630f8de9...; the plain imager column before it: 7eed01c0... / 10e50ed3...); with `--set Lasers.IlluminationProfile=Flat Lasers.BfpPosition=0
-Lasers.ChamberHeightUm=5` every config = the pore-defaults reference (TOTAL 2af5ef51..., 816101d) but `illum-bg`
-(9a01e6ab..., the engine's profile); its "TOTAL before pores" (the 12 older configs with `NuclearPores_Label` None and
-`Microtubules_Binder` Legacy) = the halo-cut reference eff940e4...
+`adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-10-27 on `lamin_network`: TOTAL
+5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default
+of 2026-10-20 and before, are in this file's git history; which commit since then moved bf98d1ae is not known). Hash
+on a quiet machine: under heavy load a config's frames have differed from run to run (`defaults`, `dstorm`; open).
 
 **Excitation geometry (2026-10-13, spec/PORT.md 22, spec/ALGORITHM.md):** `illum-bfp` / MM `Lasers.BfpPosition`
 (Basic, 0-1.2) = the laser spot in the BFP (0 epi, 1 the critical angle, HILO between, TIRF above, clipped beyond
@@ -369,7 +363,7 @@ shaped beam builds its own two-record map (the past = `start-sec` at its light);
 the map (`MappedWeight`, `AnchorDecay` / `RenderDecayed`). Semantics: DNA-PAINT binding and PALM's spontaneous
 activation run on T, lit or not (T follows `TimeWhileIdle`); a dye no light reaches now is frozen; a frame counts the
 whole beam to 1e-4 of its peak; a stack is one record over its drift path (`MergeLightPoses`). Checks: ctest
-`world_checks.clock_map`, `history_check` (`RUN_SERIAL`: speed gates), `label_parity` clock-map section,
+`world_checks.clock_map`, `history_check` (its speed gates: `history_check --bench`, not a test), `label_parity` clock-map section,
 `test_history.py` Edge (no step at the half contour, mean field and dye by dye), ctest `live_scope`. P5 (2026-10-16,
 the merge of main): `LiveScope` (viewer live) on the light history too, so it gains the shaped beam's history as MM has;
 found on the way: a sub-cell drift of the FOV left the mean field's bleach basis under the old excitation per cell
@@ -458,8 +452,8 @@ follows (defaults since 2026-10-01: excitation 4e8 photons/um^2/s, so shot noise
 `PSFParam_PsfNa`/`PsfImmersionIndex`, exact per-frame bleaching integral. The labelling split holds:
 non-bleaching dyes never bleach, so with the default labelling (0% bleaching) nothing visibly bleaches.
 Illumination is a modality-neutral `IlluminationPattern` (square over the FOV for now). Stacks are a
-fresh sample (reproducible); live mode keeps a world-anchored `BleachField` (bleach, move away and
-back: still dim), reset on a world or pitch change. Speed (2026-09-27, spec/PORT.md 13): world-anchored
+fresh sample (reproducible); live mode kept a world-anchored `BleachField` (bleach, move away and
+back: still dim; replaced by the light history, its dead code removed 2026-10-27), reset on a world or pitch change. Speed (2026-09-27, spec/PORT.md 13): world-anchored
 grid and dye tiles (shared, sparse), a mixed-radix real FFT, cached kernel and per-dye-plane spectra (a
 focus change is a re-pairing, ~10 ms at 256 px), a sub-cell stage move is a phase ramp, frames are
 weighted sums of per-focus images (no FFT per frame), a bleach basis (dose groups / Chebyshev) instead
@@ -495,8 +489,8 @@ across movies: 256 px level 3 is 0.7 s cli cold / 0.9 s in the viewer (was 3 s /
 `CamParam_GainStdPctPerPixel` (cli `gain-std-pct`) defaults to 0.5% since 2026-10-01 (was 5%: a static pattern far above
 the BF cell contrast; spec/BRIGHTFIELD.md). cli/viewer: `modality` 2, `bf-*` options (spec/PORT.md 15). Stacks: one image per
 distinct focus (z sequences work); live: scene per pose. No GPU; drift below. Checks: ctest `brightfield` (weak phase
-grating vs theory, thin and multislice, the worker split bit for bit), `cli_tiff_bf`, `world_checks` OpticalVolume,
-`tests/web/viewer_bf_movie.mjs` (the split movie = the single-worker one), `tools/test_cellfield_stage.py`. The viewer
+grating vs theory, thin and multislice, the worker split bit for bit), `cli_serve`, `world_checks` OpticalVolume,
+`tests/web/bf_split_check.mjs` (the split movie = the single-worker one), `tools/test_cellfield_stage.py`. The viewer
 splits a BF movie's condenser sources across its workers (2026-10-04, spec/PORT.md 15: `BrightfieldMovie`, the
 `isc_bf_*` exports). Not built with MSBuild or checked in Micro-Manager Studio yet.
 
@@ -539,7 +533,7 @@ mirror the `PSFParam_` properties and defaults: `psf-model` (0 Gaussian / 3), `p
 `psf-mask`, `psf-mask-modes`, `psf-mask-waist`, `psf-oversampling`, `psf-kernel-half-width-nm`, `psf-z-range-um`,
 `psf-z-step-um`, `psf-sample-index`, `psf-working-distance-um`, `psf-sample-depth-nm`, `psf-interp` (names accepted).
 The viewer has PSF/preset selects and sends `psf-kernel-half-width-nm=3000` (WASM memory). spec/PORT.md 14.
-Details: spec/PORT.md 13; ctest `widefield`, `cli_tiff_wf`.
+Details: spec/PORT.md 13; ctest `widefield`, `cli_serve`.
 
 **SuperRes speed-ups (2026-09-28), output bit-identical:** the core query runs its per-block work on
 threads (spec/PORT.md 6.1: 1000-frame stack query ~6x faster, stage jumps ~4x on 4 cores); the diffraction
@@ -593,8 +587,8 @@ network later: replace that one function. ABI 16: `ISC_STRUCT_LAMIN` 2 (the dock
 `PackingFingerprint` and the pack keys skip `lamin*`. Viewer: View toggle `showLamin` (off; layer `lamin.points`, GL kind 9,
 the detailed cells' `isc_cell_lamin` points, fetched only while on; colours `laminMap` (height scale, default greens; each
 colour select shows only while its structure is drawn); `#hud` `data-lamina`; `tests/web/viewer_scene.mjs`). Checks:
-`web/lab/lamin_check.mjs`, ctest `world_checks.lamin` (~30 s), golden `lamin` cases (`lam`/`lmd` lines), `label_parity`,
-`wasm_abi_smoke`, the block check; every default output unchanged (cli TIFFs, nanorulers included).
+ctest `world_checks.lamin`, golden `lamin` cases (`lam`/`lmd` lines), `label_parity`; every default output unchanged
+(cli TIFFs, nanorulers included).
 
 **DNA-origami nanorulers (2026-10-12, spec/PORT.md 20, spec/ALGORITHM.md, docs/samples/nanorulers/):** a second
 specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 2 since the nuclear pores took 1, 3 since the lamina, ABI 16). `core/src/origami.*`
@@ -609,8 +603,8 @@ The `World` branches on `specimen` (one dye block per molecule; no cells, empty 
 noise only); the photophysics is shared; only the mounted specimen's labels render. Core ABI 12 (`isc_origami_*`).
 Engine options `specimen`, `origami-*`, per-target label options from the registry (`ruler-*`); `z` defaults to the
 strands' height. MM: `SampleHolder` mounts CellField / Nanorulers (a new world: history and drift reset), device
-`Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `web/lab/origami_check.mjs`,
-`world_checks.Origami`, ctest `cli_origami`, `scope_parity`, `tools/test_specimens.py`. Their DNA-PAINT imager defaults
+`Nanorulers`; viewer: the Sample select; block: `buildWindow({specimen})`. Checks: `world_checks.origami` (with
+`origami_bend.py`'s sites frozen in `tests/parity/origami_bend_ref.inc` by `tools/origami_reference/freeze_crosscheck.mjs`), ctest `cli_serve`, `scope_parity`, `tools/test_specimens.py`. Their DNA-PAINT imager defaults
 to 20 nM (`paint.imagerNm`; the microtubules 1 nM): a rod binds about every 80 s per nM. **DNA-PAINT binding kinetics are the target's** (2026-10-12): k_on and
 the mean bound time live in `data/specimens.json` `paint` (microtubules 1e6 /M/s, 0.05 s, 1 nM; nuclear pores the same at 2.5 nM; docking strands 1e6, 0.2885 s
 = 200 ms half-time), options `<prefix>-paint-kon` / `<prefix>-paint-on-sec` (light keys of the rate history: a change
