@@ -44,6 +44,11 @@ Upcoming ideas:
   removed, `Lasers.Preset` Auto), [x] GPU splat with up to 4 blink groups, [x] docs, figures, gallery.
   Next: [ ] the viewer's 8-fold ring layer and per-structure dye colours (visualisation branch), [ ] `--dyes-json`
   with each dye's binding site and binder end (the viewer's linkage layer), [ ] pore variability (CIR4MICS).
+- Nuclear lamina, a third cell-field target (2026-10-27, branch `lamin_network`, spec/PORT.md 25, spec/ALGORITHM.md
+  "Nuclear lamina"): [x] random points on the envelope (50 /um^2, none within 20 nm of a pore centre), unlabelled by
+  default (registry `defaultDye: "None"`), [x] JS + core ABI 16 (lamina structure 2, docking strands 3,
+  `isc_cell_lamin`), [x] engine/cli `lamin-*`, viewer, block, MM `NuclearLamina_*`, [x] docs, gallery (`lamin-paint`).
+  Next: [ ] a non-random lamin network (meshwork / filaments) in place of `buildLaminForCell`, [ ] a drawn lamina layer.
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,

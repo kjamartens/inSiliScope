@@ -123,7 +123,9 @@ through it step by step.
   antibodies, nanobody, SNAP/Halo, ...; Advanced: its length, flexibility and linker) and the dipole orientation.
   Defaults: microtubules ATTO 655 DNA-PAINT through primary + secondary antibodies, pores Cy3B DNA-PAINT on SNAP-tagged
   Nup96. **Nuclear pores** sets their density on the nuclear envelope (default 8 per µm², at least 180 nm apart) and, in Advanced, the
-  minimum spacing and the ring geometry. A mode or dye pick loads the dye's fields, the mode's labelling and the light
+  minimum spacing and the ring geometry. A third target, the **Nuclear lamina label**, is unlabelled by default (Dye
+  None): pick a dye to show random lamina points on the nuclear envelope; **Nuclear lamina** (Advanced) sets their
+  density (default 50 per µm²) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
   preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
   filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
   how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam

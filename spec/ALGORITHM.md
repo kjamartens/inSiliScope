@@ -787,7 +787,8 @@ once: users saw the background move and not the blinks). Now a bin with a segmen
 
 ## Nuclear pore complexes, a second cell-field target (2026-10-12, issue 15)
 
-The cell field's second labelled structure (`ISC_STRUCT_NPC` 1; the nanorulers' docking strands moved to 2), imaged
+The cell field's second labelled structure (`ISC_STRUCT_NPC` 1; the nanorulers' docking strands moved to 2, and to 3
+with the lamina), imaged
 together with the microtubules, each with its own label. `core/src/npcs.*`, JS twin in `web/prototype/index.html`
 (`nucSurfaceMesh`, `buildNpcsForCell`), bit-exact (golden `npcs` lines, `label_parity`).
 
@@ -813,6 +814,34 @@ together with the microtubules, each with its own label. `core/src/npcs.*`, JS t
   after the cell's microtubule blocks (`BlockKey` {cx, cy, structure, element, block}).
 - **No cell moves**: `PackingFingerprint` and the pack keys skip `npc*`, `ISC_WORLD_VERSION` stays, the block caches stay
   valid. Pores add no BrightField contrast (BRIGHTFIELD.md).
+
+## Nuclear lamina, a third cell-field target (2026-10-27)
+
+The lamina under the nuclear envelope as a third labelled cell-field structure (`ISC_STRUCT_LAMIN` 2; the docking
+strands moved to 3, ABI 16). For now a **random stand-in** for the lamin network: points, not filaments, placed
+independently; the placement lives in one function (`buildLaminForCell` / `BuildLaminForCell`, `core/src/npcs.*`, JS
+twin in `web/prototype/index.html`) so a network (meshwork, filaments) can replace it later. Bit-exact (golden `lamin`
+lines, `label_parity`, `world_checks.lamin`).
+
+- **Placement: uniform by area over the whole envelope**, on the pores' surface mesh (`nucSurfaceMesh`; the sampling
+  `nucSamplePoint` / `nucPointNormal` was factored out of `buildNpcsForCell` with the pores' draws unchanged). Candidate
+  i is `pcg4d(seed ^ 0x4C414D31 ("LAM1"), cx, cy, i)`; N = round(`laminDensity` x area), at most 50 N candidates.
+- **No point at a pore**: a candidate within `laminNpcExclNm` / 2 (40 nm diameter, the user's choice; *estimate*) of
+  a pore centre (3D distance, a hash grid of the pore centres; the answer of testing every pore) is rejected. The pores
+  are the geometric ones (`npcDensity`), labelled or not; the lamin params never move a pore. No lamina-lamina spacing.
+- **Density**: the engine's `lamin-density` 50 per um^2 (the user's choice; *estimate*); the core's `laminDensity`
+  defaults to **0**, so a world with the default labels (the goldens, webSMLM's block) has no lamina.
+- **Dyes**: one docking site per point (k = 0, n = the candidate index); per cell `H1 = pcg4d(seed ^ 0x4C414D44
+  ("LAMD"), cx, cy, 0).a` and the `DYE_CH` channels, so labelling, schedules and orientation work unchanged. The label
+  linkage starts at the point along the **inward** normal (the lamina lines the nucleoplasmic face; *estimate*), attachNm
+  0; the built-in ("Legacy") linkage is the dye on the point. Dye blocks: the points in one cell-local 1 um cube, after
+  the pores' blocks. A Fixed orientation is about the outward normal (Duff frame).
+- **Off by default**: the registry's `defaultDye: "None"` makes `lamin-dye` default to None (engine, viewer, MM), so
+  every default output is unchanged. Typical labels (anti-lamin antibodies, lamin-FP fusions): DNA-PAINT Cy3B 70 %,
+  dSTORM AF647 70 %, PALM mEos3.2 58 %, WideField mEGFP 100 %, linkage IgG2-PAINT; DNA-PAINT kinetics as the pores'
+  (*estimates*).
+- **No cell moves**: `PackingFingerprint` and the pack keys skip `lamin*`, `ISC_WORLD_VERSION` stays. No BrightField
+  contrast (BRIGHTFIELD.md: only simulated structures, and the lamina is no volume).
 
 ## Label linkage: binder, linker, dye (2026-10-12)
 

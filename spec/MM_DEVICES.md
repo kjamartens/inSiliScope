@@ -92,7 +92,8 @@ of an existing component. A new device needs, in one commit: its class (`Devices
   `tools/gen_dye_library.mjs` builds both into the C++ (`TargetAt`, `SpecimenAt`) and the JS (`DYE_DATA.specimens`,
   `typicalLabels`) for the engine, the viewer and this adapter.
 - Each target gets the same label rows (Basic `<Target>_Mode` and `<Target>_Label`: Typical, a dye with data in the
-  mode, or None (unlabelled); Advanced `_LabelingPct`, `_ImagerNanoMol` (the DNA-PAINT imager concentration in
+  mode, or None (unlabelled); both Advanced for a target off by default, `defaultDye` None: the nuclear lamina, whose
+  `_Label` starts at None); Advanced `_LabelingPct`, `_ImagerNanoMol` (the DNA-PAINT imager concentration in
   nanomolar) and, for a target with a linkage model, `_Binder` (a linkage preset); Expert `_BinderNm`, `_BinderFlexNm`,
   `_LinkerMinNm`, `_LinkerMaxNm` (-1 = the preset's), `_Orientation`, ...), made by `AddTargetLabelRows()` /
   `AddTargetOrientRows()` in the registry on the specimen's device, and its readouts on `Fluorophores`

@@ -142,11 +142,31 @@ axis (the cytoplasmic one outside the nucleus, the nucleoplasmic one inside), ei
 
 <!-- fig:struct-npc -->
 
+## Nuclear lamina
+
+The cell field's third target (2026-10-27), **unlabelled by default**: it shows only once you give it a dye. For now
+a random stand-in for the lamin network under the nuclear envelope: points, not filaments.
+
+- **Where.** Points cover the whole nuclear envelope, uniformly by area and independently of each other (the pores'
+  mesh picks the place, which is then put exactly on the membrane), but none within 20 nm of a pore's centre: a disc of
+  `p.laminNpcExclNm` (MM `CellField.NuclearLaminaPoreExclusionNm`, Expert; default 40 nm, *estimate*) across around
+  every pore, whether the pores are labelled or not.
+- **How many.** `lamin-density` (MM `CellField.NuclearLaminaDensityPerUm2`, Advanced) per µm² of envelope, default 50
+  (*estimate*): the count is that times the envelope's area, rounded. 0 = no lamina.
+- **Label.** One docking site per point, labelled through the same path as the other targets (`lamin-dye`,
+  `lamin-mode`, `lamin-label-pct`, `lamin-imager-nm`, the linkage `lamin-binder*`; MM `NuclearLamina_*`). The linkage
+  points inward, along the envelope's inward normal (the lamina lines the nucleoplasmic face; *estimate*); default
+  anti-lamin primary + secondary antibodies (IgG2-PAINT). The typical labels per mode (DNA-PAINT Cy3B 70%, dSTORM AF647
+  70%, PALM mEos3.2 58%, WideField mEGFP 100%) and the DNA-PAINT binding (2.5 nM imager, the pores' k<sub>on</sub> and
+  bound time) are *estimates*. To turn it on: `lamin-dye Typical` on the cli, the Dye select of the Nuclear lamina
+  label group in the viewer, `CellField.NuclearLamina_Label` in Micro-Manager.
+- **Brightfield.** No brightfield contrast.
+
 ## Label linkage: where the dye sits
 
 A dye does not sit on its structure: a probe holds it there. One model for every target: the **binder** (the probe:
 primary + secondary antibodies, a nanobody, a SNAP or Halo tag, a fusion protein, a docking strand) points away from
-the structure (radially from a microtubule, from a pore's corner outwards) by its length, with a flexibility (a random
+the structure (radially from a microtubule, from a pore's corner outwards, from a lamina point inwards) by its length, with a flexibility (a random
 offset in a ball); then a short chemical **linker** in a random direction; then the **dye**. Presets (cli/viewer
 `<prefix>-binder`, MM `<Target>_Binder`, Advanced; the numbers in Expert) come from measured label shells
 [[fruh2021](../../references.md#fruh2021), [nieves2019](../../references.md#nieves2019)]. Defaults: the microtubules
@@ -158,7 +178,8 @@ microtubule).
 
 ## Adding the missing structures
 
-Lamins, mitochondria, DNA and other cell types are not implemented yet; see [Extending](../../extending.md) for how a new
+A lamin network (beyond the random lamina points above), mitochondria, DNA and other cell types are not implemented
+yet; see [Extending](../../extending.md) for how a new
 per-cell generator keyed off the same `(seed, address, channel)` scheme plugs in.
 
 Further details and the history of each fix: `spec/ALGORITHM.md`.

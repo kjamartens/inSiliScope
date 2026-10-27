@@ -1224,3 +1224,26 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
   4 `fiducials` cases (step surface; `compare.mjs` reads `fid` lines without a leading count), `scope_parity` 5 bead
   movies (TetraSpeck static images, dark red OnTop Gaussian, gold Layer with scatter and drift, a 0.5 s half-time
   from t = 0, nanorulers with orange FluoSpheres): 100 % identical ADU.
+
+## 25. Nuclear lamina, a third cell-field target (2026-10-27)
+
+Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The model: spec/ALGORITHM.md "Nuclear lamina".
+
+- Registry: `data/specimens.json` CellField target `lamin` (row `NuclearLamina`, prefix `lamin`, structure 2; the
+  nanorulers' `docking` moved to 3), the new field `defaultDye: "None"` (`gen_dye_library.mjs` -> JS, `TargetData::
+  defaultNone`); `typicalLabels.lamin`, `linkagePresets.defaults.lamin` IgG2-PAINT.
+- Core: `BuildLaminForCell` (`core/src/npcs.*`), `LaminDyesInBlock` (`dyes.*`), params `laminDensity` (0) and
+  `laminNpcExclNm` (40), skipped by `PackingFingerprint`; the world builds the lamina lazily per cell (after its pores),
+  its blocks walked after the pores' (`ForEachDyeBlock` items carry the structure). **ABI 16:** `ISC_STRUCT_LAMIN` 2,
+  `ISC_STRUCT_ORIGAMI_SITES` 3, `ISC_STRUCT_COUNT` 4 (kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6: point,
+  outward normal; cell-local). `ISC_WORLD_VERSION` unchanged.
+- Engine/cli: the registry's `lamin-*` label options (default dye None), `lamin-density` 50 (passed as the core's
+  `laminDensity`; `p.laminNpcExclNm` the exclusion), `kTargetText`.
+- Viewer: the Nuclear lamina label group (Dye None), a Nuclear lamina group (density, pore exclusion; Advanced), the
+  pack keys skip `lamin`; no drawing layer (the labelled dyes show in the dyes layer). Block: four structures,
+  `laminDensity` 0 by default, the docking strands' sites `structure` 3, `abiVersion` 16.
+- MM: `CellField` rows `NuclearLamina_*` (from the registry; `_Label` default None), `NuclearLaminaDensityPerUm2`
+  (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
+- Checks: `web/lab/lamin_check.mjs` (in `check.mjs`), `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
+  lines), `label_parity` (two lamina specimens), `wasm_abi_smoke` (ABI 16, a lamina block), the block check (lamina on,
+  docking strands at 3); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).

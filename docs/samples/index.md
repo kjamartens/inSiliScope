@@ -9,7 +9,7 @@ light.
 
 | Sample | What it is | Targets | Pages |
 |---|---|---|---|
-| **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules, nuclear pores | Microtubules (`mt-*`), nuclear pores (`npc-*`), imaged together | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
+| **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules, nuclear pores | Microtubules (`mt-*`), nuclear pores (`npc-*`), imaged together; the nuclear lamina (`lamin-*`), unlabelled by default | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
 | **Nanorulers** (`Nanorulers`) | DNA-origami rods lying on the coverslip, each with three spots of docking strands 80 nm apart; bent in the plane as a worm-like chain | Docking strands (`ruler-*`) | [DNA-origami nanorulers](nanorulers/index.md) |
 
 On top of either sample, optional **fiducial beads** (gold, TetraSpeck, FluoSpheres, nanodiamonds) mark the drift: on

@@ -580,8 +580,22 @@ memory-bound), WF 256 px 20 f 2.7 -> 1.7 s, 200 f 3.3 -> 1.8 s, BF 256 px level 
 core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 ms; viewer BF 256 px level 3
 0.9 -> 0.7 s, level 4 3.7 -> 2.5 s.
 
+**Nuclear lamina, a third cell-field target (2026-10-27, branch `lamin_network`, spec/ALGORITHM.md "Nuclear lamina",
+spec/PORT.md 25):** random points on the nuclear envelope (`BuildLaminForCell` in `core/src/npcs.*`, JS twin
+`buildLaminForCell` in `web/prototype/index.html`): the pores' surface mesh, salt "LAM1", round(`laminDensity` x area),
+none within `laminNpcExclNm` / 2 (40 nm diameter) of a geometric pore centre; one docking site per point, the linkage
+along the inward normal (`LaminDyesInBlock`, salt "LAMD"), 1 um cube blocks after the pores'. A placeholder for a real
+network later: replace that one function. ABI 16: `ISC_STRUCT_LAMIN` 2 (the docking strands moved to 3,
+`ISC_STRUCT_COUNT` 4, kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6). **Off by default**: the registry's new
+`defaultDye: "None"` (`data/specimens.json` -> `TargetData::defaultNone`, viewer `defaultDyeFor`, MM `SceneState`) makes
+`lamin-dye` None; the core's `laminDensity` defaults to 0 (goldens, the block), the engine's `lamin-density` / MM
+`CellField.NuclearLaminaDensityPerUm2` (Advanced) to 50 (*estimate*), `CellField.NuclearLaminaPoreExclusionNm` (Expert).
+`PackingFingerprint` and the pack keys skip `lamin*`. No drawing layer (the dyes layer shows labelled points). Checks:
+`web/lab/lamin_check.mjs`, ctest `world_checks.lamin` (~30 s), golden `lamin` cases (`lam`/`lmd` lines), `label_parity`,
+`wasm_abi_smoke`, the block check; every default output unchanged (cli TIFFs, nanorulers included).
+
 **DNA-origami nanorulers (2026-10-12, spec/PORT.md 20, spec/ALGORITHM.md, docs/samples/nanorulers/):** a second
-specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 2 since the nuclear pores took 1). `core/src/origami.*`
+specimen (`specimen` 1; registry `data/specimens.json`, target `docking`, prefix `ruler`, structure 2 since the nuclear pores took 1, 3 since the lamina, ABI 16). `core/src/origami.*`
 (JS twin `web/prototype/scope/origami.js`, bit-exact; model reference `tools/origami_reference/origami_bend.py`): 2 um
 tiles, Matern-II field (`origamiDensity` 1.2 /um^2, `origamiMinSpacingNm` 0 = no thinning), designs `data/origami/designs.json`
 (3D-ready schema; spots in lattice steps of `origamiSpacingNm` (80; MM `Nanorulers.SpacingNm` 640..5, 2026-10-13), the body
