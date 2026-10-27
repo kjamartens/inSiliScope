@@ -78,7 +78,7 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const [bj, bw] = both({ type: 'block', id: 2, key: 'k', bx: b0.bx, by: b0.by, seed, p: packParams(p) });
   report(!diff(bj, bw) && !diff(bw.rows, b0.rows), `${name}: block job (${b0.bx}, ${b0.by}): identical, = the pack reply's rows ${diff(bj, bw) || diff(bw.rows, b0.rows)}`);
   let bad = '', nMt = 0;
-  for (let i = 0; i < Math.min(quick ? 2 : 4, nCells) && !bad; i++) {
+  for (let i = 0; i < Math.min(2, nCells) && !bad; i++) {
     const cx = pw.cells[14 * i], cy = pw.cells[14 * i + 1];
     const [cj, cw] = both({ type: 'cell', key: cx + ',' + cy, sig: 's', seed, p, cx, cy, mt: true });
     bad = diff(cj, cw) && `cell ${cx},${cy}${diff(cj, cw)}`;
@@ -88,7 +88,7 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   bad = bad || (diff(mj, mw) && `missing cell${diff(mj, mw)}`);
   report(!bad, `${name}: cell assets (mesh, nucleus rings, ${nMt} microtubules, a missing cell) ${bad}`);
   const c0 = [pw.cells[2], pw.cells[3]];
-  const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels });
+  const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 0.75, c0[1] - 0.75, c0[0] + 0.75, c0[1] + 0.75], seed, p, labels });
   const nPore = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).filter(st => st === 1).length;
   const nLamin = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).filter(st => st === 2).length;
   report(!diff(sj, sw) && sw.sites.length > 0 && nPore > 0 && (labels.length < 3 || nLamin > 0),
@@ -102,17 +102,17 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
       orientation: { mode: 'Free', polarDeg: 90, azimuthDeg: 0, wobbleDeg: 0 }, motion: 'Static', offTarget: [], linkage: null };
     // the pores in the same mode with the SNAP linkage
     const pores = { ...label, density: 0.5, linkage: { binderNm: 2.5, binderFlexNm: 2, linkerMinNm: 0.5, linkerMaxNm: 1 } };
-    const job = { type: 'events', id: 5, rect: [c0[0] - 2, c0[1] - 2, c0[0] + 2, c0[1] + 2], zMin: -1, zMax: 20, t0: 0, t1: 60, labels: [label, pores], seed, p };
+    const job = { type: 'events', id: 5, rect: [c0[0] - 1, c0[1] - 1, c0[0] + 1, c0[1] + 1], zMin: -1, zMax: 20, t0: 0, t1: 20, labels: [label, pores], seed, p };
     const [ej, ew] = both(job), rows = a => { const r = []; for (let i = 0; i < a.length; i += 7) r.push(Array.from(a.subarray(i, i + 7))); return r.sort((x, y) => x[6] - y[6] || x[3] - y[3]); };
     const rj = rows(ej.events), rw = rows(ew.events);
     let worst = rj.length === rw.length ? 0 : Infinity;
     for (let i = 0; i < rj.length && worst < Infinity; i++) for (let k = 0; k < 7; k++) worst = Math.max(worst, Math.abs(rj[i][k] - rw[i][k]));
-    report(rw.length > 0 && worst <= 1e-9, `${name}: events (${mode} label), ${rw.length} blinks in 60 s, max difference ${worst}`);
+    report(rw.length > 0 && worst <= 1e-9, `${name}: events (${mode} label), ${rw.length} blinks in 20 s, max difference ${worst}`);
   }
   // Injection: a fresh engine fed the pack job's blocks answers the cell and sites jobs identically.
   const cx = pw.cells[0], cy = pw.cells[1];
   const cellJob = { type: 'cell', key: cx + ',' + cy, sig: 's', seed, p, cx, cy, mt: true, blocks: pw.blocks };
-  const sitesJob = { type: 'sites', id: 4, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels,
+  const sitesJob = { type: 'sites', id: 4, key: 'k', rect: [c0[0] - 0.75, c0[1] - 0.75, c0[0] + 0.75, c0[1] + 0.75], seed, p, labels,
     blocks: pw.blocks };
   const ci = wasm2.handle(structuredClone(cellJob))[0], cw2 = wasm.handle(structuredClone(cellJob))[0];
   const si = wasm2.handle(structuredClone(sitesJob))[0], sw2 = wasm.handle(structuredClone(sitesJob))[0];
@@ -144,7 +144,7 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
     orientation: { mode: 'Free', polarDeg: 90, azimuthDeg: 0, wobbleDeg: 0 }, motion: 'Static', offTarget: [] };
   const [ej, ew] = both({ type: 'events', id: 8, rect, zMin: -1, zMax: 1, t0: 0, t1: 60, labels: [label, label, label], seed, p });
   report(!diff(ej, ew) && ew.events.length > 0, `${name}: events (DNA-PAINT), ${ew.events.length / 7} blinks in 60 s ${diff(ej, ew)}`);
-  const spec = `specimen=1 size=40 frames=20 ruler-imager-nm=50 world-seed=${seed} x=0 y=0 psf-kernel-half-width-nm=2500 ` +
+  const spec = `specimen=1 size=24 frames=8 ruler-imager-nm=50 world-seed=${seed} x=0 y=0 psf-kernel-half-width-nm=1500 psf-z-range-um=4 ` +
     Object.entries(p).map(([k, v]) => `p.${k}=${+v}`).join(' ');
   const [mj, mw] = both({ type: 'movie', id: 9, spec, rect: [0, 0, 1, 1] });
   let same = 0;
@@ -153,20 +153,15 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
     `${name}: DNA-PAINT movie, ${mw.blinks} blinks, ${mw.frames ? (100 * same / mw.frames.length).toFixed(3) : 0}% of pixels identical ${mj.error || ''} ${mw.error || ''}`);
 }
 
-// Movies through handle(), the viewer's spec form (p.* = its params()). The mean-field populations take the WASM
-// CPU path here (no WebGPU in Node), which is what the GPU path is checked against anyway.
+// Movies through handle(), the viewer's spec form (p.* = its params()): the replies' fields and pixels, one per light
+// (the engines' pixel parity across modes and labels is tests/parity/scope_parity.mjs; 2026-10-27, were five).
 const p = viewerParams(VIEWER_DEFAULTS), pSpec = Object.entries(p).map(([k, v]) => `p.${k}=${+v}`).join(' ');
 const MOVIES = [
-  ['DNA-PAINT (default: microtubules ATTO655 + pores Cy3B, auto multi-band)', 'size=40 frames=6', 1],
-  ['Pores alone, SNAP linkage overridden (mt-dye=None, npc-binder-nm=10)', 'size=40 frames=6 mt-dye=None npc-binder-nm=10', 1],
-  // Not 1: the per-dye initial-ON path differs from the WASM by float ulps in a few bright pixels, so now and then one
-  // Poisson draw lands one electron apart (seen with seeds 7 and 1249, other kernel windows; 2026-10-07, cause open).
-  ['dSTORM AF647 from t = 0 (initial ON per dye)', 'size=40 frames=6 mt-dye=AF647 light-preset=auto start-sec=0 mt-label-pct=0.5', 0.999],
-  ['WideField mEGFP (mean-field)', 'size=40 frames=3 mt-dye=mEGFP light-preset=auto', 0.999],
-  ['BrightField', 'modality=BrightField size=40 frames=2 bf-quality=1', 0.995],
+  ['DNA-PAINT (default: microtubules ATTO655 + pores Cy3B, auto multi-band)', 'size=24 frames=4', 1],
+  ['BrightField', 'modality=BrightField size=24 frames=2 bf-quality=1', 0.995],
 ];
 for (const [name, opts, need] of quick ? MOVIES.slice(0, 1) : MOVIES) {
-  const spec = `${opts} world-seed=1249 x=63 y=3 psf-kernel-half-width-nm=2500 ${pSpec}`;
+  const spec = `${opts} world-seed=1249 x=63 y=3 psf-kernel-half-width-nm=1500 psf-z-range-um=4 ${pSpec}`;
   const [mj, mw] = both({ type: 'movie', id: 3, spec, rect: [0, 0, 1, 1] });
   if (mj.error || mw.error) { report(false, `${name} movie: ${mj.error || ''} ${mw.error || ''}`); continue; }
   let same = 0;

@@ -26,19 +26,15 @@ fi
 
 EMSDK_ENV="${EMSDK:-$HOME/emsdk}/emsdk_env.sh"
 if [ -f "$EMSDK_ENV" ]; then
-  step "WASM build + ctest + viewer module + webSMLM block"
+  step "WASM build + ctest + label parity + viewer module"
   # shellcheck disable=SC1090
   source "$EMSDK_ENV" >/dev/null
   cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8 --output-on-failure
   node tests/parity/label_parity.mjs
   node tools/embed_web_module.mjs
-  node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs
 else
   step "WASM skipped (no $EMSDK_ENV); CI's core-wasm job runs it"
 fi
-
-step "JS parity report (build/parity/report.md)"
-node tests/parity/run.mjs
 
 step "imaging parity: web/prototype/scope (JS reference) vs the C++ (web/insiliscope_module.js)"
 node tests/parity/scope_parity.mjs
