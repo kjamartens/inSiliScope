@@ -9,9 +9,10 @@
 //   - the map of a movie under a new light (the open record closed at T) = the map once its frame is counted, byte
 //     for byte; a movie's averaged record = the per-pose fold;
 //   - the core reads the buffers (dose clock and rate per dye = the host's, PALM's steps accepted);
-//   - a 60 s HILO stage drag: the fold per frame <= 5 ms, a map <= 15 ms, memory <= 64 MB.
 //
 //   history_check          exit code 0 = all checks passed
+//   history_check --bench  a 60 s HILO stage drag: the fold per frame <= 5 ms, a map <= 15 ms, memory <= 64 MB (a speed
+//                          check: run it on a quiet machine, not under ctest)
 //
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 #include "DyeLibrary.h"
@@ -603,9 +604,15 @@ void Drag()
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    const double t0 = Now();
+   if (argc > 1 && std::string(argv[1]) == "--bench")
+   {
+      Drag();
+      return g_failures ? 1 : 0;
+   }
    IscParams* p = isc_params_new();
    IscWorld* w = isc_world_new(1249, p);
    Fresh(w);
@@ -616,7 +623,6 @@ int main()
    OpenRecord();
    Averaged();
    Palm(w);
-   Drag();
    isc_world_free(w);
    isc_params_free(p);
    std::printf("%s (%.1f s)\n", g_failures ? "FAILED" : "all passed", Now() - t0);

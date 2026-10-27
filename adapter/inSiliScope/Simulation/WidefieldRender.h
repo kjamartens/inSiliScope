@@ -75,7 +75,7 @@ struct WidefieldGridSettings
 // World-anchored upscaled xy grid and z slab of a dye grid: cell (i, j) is
 // world [(ix0 + i) pitch, (ix0 + i + 1) pitch) x [(iy0 + j) pitch, ...), the
 // same cells whatever the stage pose, so a dye is binned the same way from
-// every pose and BleachField cells map one-to-one onto grid cells.
+// every pose.
 struct WidefieldGridSpec
 {
    long ix0 = 0, iy0 = 0;
@@ -225,28 +225,6 @@ private:
    PsfKernelCache c_; // a copy: the arrays are shared, so this keeps the stack alive
    int r_; // oversampled cells per grid cell
    int s0_; // first oversampled index of grid cell 0
-};
-
-// World-anchored emitted-photon dose (photons per dye) in sparse 256 x 256
-// tiles of `pitch`; cell i = floor(x / pitch). A grid of the same pitch maps
-// its columns one-to-one onto cells whatever its offset (column j -> the cell
-// holding its centre), so reads and deposits stay consistent.
-class BleachField
-{
-public:
-   void Reset(double pitchUm);
-   double Pitch() const { return pitch_; }
-   bool Empty() const { return tiles_.empty(); }
-   // Dose of the cell holding each grid cell's centre; grid corner (x0, y0).
-   void DoseOver(double x0Um, double y0Um, unsigned nx, unsigned ny, std::vector<float>& out) const;
-   // Adds dDPerUnitI x the pattern value at each cell centre, over the
-   // pattern's whole support around the axis (world um).
-   void Deposit(const IlluminationPattern& pattern, double axisXUm, double axisYUm, double dDPerUnitI);
-
-private:
-   static constexpr int kTile = 256;
-   std::map<std::pair<long long, long long>, std::vector<float>> tiles_;
-   double pitch_ = 0.0;
 };
 
 struct WidefieldSceneSpec
@@ -479,10 +457,8 @@ public:
    const unsigned* PlanesPerLevel() const { return planesPerLevel_; }
    size_t CachedSpectraBytes() const { return cacheBytes_; }
 
-   // Per-column camera photons per bleaching dye for a frame: fresh sample
-   // (D0 = framesBefore x dD) or from a dose map (BleachField::DoseOver).
+   // Per-column camera photons per bleaching dye for a frame of a fresh sample (D0 = framesBefore x dD).
    void FreshBleachWeights(double framesBefore, std::vector<float>& wb) const;
-   void BleachWeightsFromDose(const std::vector<float>& d0, std::vector<float>& wb) const;
 
    // Anchors the bleaching basis at wb (spectra and images of every basis
    // map for the current focus). single: one map, wb itself (it holds that

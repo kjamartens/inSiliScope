@@ -4,7 +4,7 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   ParallelFor(n, fn): fn(0..n-1) on up to hardware_concurrency
-//                threads (serial under Emscripten). Callers make each index's
+//                threads (ISC_THREADS=n caps it; serial under Emscripten). Callers make each index's
 //                work independent, so results never depend on the thread
 //                count. A ParallelFor inside a ParallelFor worker runs
 //                serially (no nested thread pools).
@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <vector>
 #if !defined(__EMSCRIPTEN__)
 #include <condition_variable>
@@ -47,6 +48,25 @@ inline std::atomic<unsigned long>& ParallelForSpawns()
 }
 
 #if !defined(__EMSCRIPTEN__)
+// The threads a call may use: the hardware's, or ISC_THREADS=n (ctest runs several test processes side by side).
+inline unsigned HardwareThreads()
+{
+   static const unsigned n = [] {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)   // getenv
+#endif
+      const char* e = std::getenv("ISC_THREADS");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+      const int cap = e ? std::atoi(e) : 0;
+      const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+      return cap > 0 ? std::min(hw, (unsigned)cap) : hw;
+   }();
+   return n;
+}
+
 class ParallelPool
 {
 public:
@@ -177,7 +197,7 @@ void ParallelFor(unsigned n, Fn fn)
    for (unsigned i = 0; i < n; ++i)
       fn(i);
 #else
-   const unsigned T = ParallelDepth() > 0 ? 1u : std::max(1u, std::min(n, std::thread::hardware_concurrency()));
+   const unsigned T = ParallelDepth() > 0 ? 1u : std::max(1u, std::min(n, HardwareThreads()));
    if (T <= 1)
    {
       for (unsigned i = 0; i < n; ++i)
@@ -220,7 +240,7 @@ void ParallelForOn(ParallelPool* pool, unsigned n, Fn fn)
       ParallelFor(n, fn);
       return;
    }
-   unsigned T = ParallelDepth() > 0 ? 1u : std::max(1u, std::min(n, std::thread::hardware_concurrency()));
+   unsigned T = ParallelDepth() > 0 ? 1u : std::max(1u, std::min(n, HardwareThreads()));
    if (pool->ThreadCap())
       T = std::min(T, pool->ThreadCap());
    const std::function<void(unsigned)> f = [&fn](unsigned i) { fn(i); };

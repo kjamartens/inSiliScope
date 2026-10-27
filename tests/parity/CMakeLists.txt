@@ -40,10 +40,12 @@ if(EMSCRIPTEN AND NOT ISC_NODE)
 endif()
 # world_checks: one test per section of world_tests.cpp (its Sections() list), so
 # `ctest -j` runs them side by side; isc_world_tests without an argument runs all.
-set(ISC_WORLD_SECTIONS basics determinism packing_off dye_statistics kinetics
-  events_palm events_dnapaint events_dstorm cache_palm cache_dnapaint label_model
-  threads_palm threads_dnapaint c_api block_injection density3d optical_volume edge_and_height
-  kinetics_history clock_map origami npcs lamin fiducials)
+set(ISC_WORLD_SECTIONS basics determinism dye_statistics events caches label_model kinetics_history
+  c_api block_injection density3d optical_volume edge_and_height clock_map origami npcs lamin fiducials)
+# (the thread checks compare 8 threads with 1: natively only, WASM has no threads)
+if(NOT EMSCRIPTEN)
+  list(APPEND ISC_WORLD_SECTIONS threads)
+endif()
 foreach(sec IN LISTS ISC_WORLD_SECTIONS)
   if(EMSCRIPTEN)
     if(ISC_NODE)
@@ -57,3 +59,4 @@ if(ISC_NODE)
   add_test(NAME golden_vectors
     COMMAND ${ISC_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/golden.mjs $<TARGET_FILE:isc_parity>)
 endif()
+isc_cap_test_threads()

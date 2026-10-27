@@ -262,6 +262,7 @@ void Movies()
 
 int main()
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    const auto t0 = std::chrono::steady_clock::now();
    Units();
    Movies();

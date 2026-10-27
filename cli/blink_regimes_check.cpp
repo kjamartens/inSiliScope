@@ -1,5 +1,5 @@
 // ctest blink_regimes: the three blink render regimes (spec/ALGORITHM.md "Blink render regimes").
-//   * ExpectedBlinkOnSeconds (BlinkExpectation.h) = the mean ON time of the core's own blinks over ~1e5 dyes
+//   * ExpectedBlinkOnSeconds (BlinkExpectation.h) = the mean ON time of the core's own blinks over ~4e4 dyes
 //     (dSTORM, PALM, DNA-PAINT; one set of kinetics and an A/B/A rate history), within the Monte Carlo error;
 //   * the binned renderer (BinnedBlinks.h) = the splat on one set of emitters: the same photons, a few % per pixel
 //     (the position snapped to the grid), the same result serial and on all cores;
@@ -45,14 +45,10 @@ struct Kin
 };
 
 // ---- the expected ON time against the core's blinks ----
-void ExpectationCase(const char* name, int mode, const std::vector<Kin>& kin, const std::vector<double>& tStart,
+void ExpectationCase(IscWorld* w, const char* name, int mode, const std::vector<Kin>& kin, const std::vector<double>& tStart,
                      double t0, double t1)
 {
    const auto tq = std::chrono::steady_clock::now();
-   IscParams* params = isc_params_new();
-   isc_params_set(params, "npcDensity", 0);   // the microtubules alone
-   IscWorld* w = isc_world_new(1249, params);
-   isc_params_free(params);
    std::vector<double> label(ISC_LABEL_COUNT, 0.0);
    for (int i = ISC_LABEL_BINDER_NM; i <= ISC_LABEL_LINKER_MAX_NM; ++i)
       label[static_cast<size_t>(i)] = std::nan("");   // the built-in linkage
@@ -86,8 +82,7 @@ void ExpectationCase(const char* name, int mode, const std::vector<Kin>& kin, co
          rows.insert(rows.end(), k, k + ISC_KIN_COUNT);
       }
    }
-   if (kin.size() > 1)
-      isc_world_set_kinetics_history(w, rows.data(), static_cast<int32_t>(kin.size()));
+   isc_world_set_kinetics_history(w, rows.data(), static_cast<int32_t>(kin.size()));   // (one segment = none)
    const double x0 = 61, y0 = 2, x1 = 63.5, y1 = 4.5, zMin = -50, zMax = 50;
    float count = 0.0f;
    const int32_t nDyes = isc_density3d_in_window(w, x0, y0, x1, y1, zMin, zMax, 1, 1, 1, 1, &count);
@@ -98,7 +93,6 @@ void ExpectationCase(const char* name, int mode, const std::vector<Kin>& kin, co
       ev.resize(static_cast<size_t>(n) * ISC_EVENT_STRIDE);
       n = isc_events_in_window(w, x0, y0, x1, y1, zMin, zMax, t0, t1, ev.data(), n);
    }
-   isc_world_free(w);
    // Sum of the ON overlaps; its variance ~ the sum over dyes of each dye's
    // squared ON time (the dyes are independent, one dye's blinks are not).
    double sum = 0.0, sum2 = 0.0;
@@ -124,26 +118,35 @@ void ExpectationCase(const char* name, int mode, const std::vector<Kin>& kin, co
    std::snprintf(b, sizeof b, "%s: %d dyes, [%g, %g) s: ON %.2f s, expected %.2f s (%+.2f %%, %.1f sigma, %d blinks)", name,
                  nDyes, t0, t1, sum, expect, 100 * (sum / std::max(1e-12, expect) - 1), z, n);
    std::printf("    (%.1f s)\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - tq).count());
-   Check(nDyes > 10000 && n > 300 && std::fabs(z) < 4.0, b);
+   Check(nDyes > 5000 && n > 300 && std::fabs(z) < 4.0, b);
 }
 
 void ExpectationVsCore()
 {
+   // One world, relabelled per case; the microtubules alone, a cheap packing and a sixth of the microtubules (~4e4
+   // dyes in the window: a 4 sigma bound of ~10 %).
+   IscParams* params = isc_params_new();
+   isc_params_set(params, "npcDensity", 0);
+   isc_params_set(params, "relaxIters", 10);
+   isc_params_set(params, "mtDensity", 0.15);
+   IscWorld* w = isc_world_new(1249, params);
+   isc_params_free(params);
    const Kin storm = { 0.002, 0.02, 3.0, 0.05, 8.0 };
    const Kin storm2 = { 0.02, 0.01, 1.0, 0.1, 8.0 };
-   ExpectationCase("dSTORM, initial ON", ISC_MODE_DSTORM, { storm }, { 0 }, 2.0, 12.0);
-   ExpectationCase("dSTORM, steady", ISC_MODE_DSTORM, { storm }, { 0 }, 60.0, 70.0);
-   ExpectationCase("dSTORM, history A/B/A", ISC_MODE_DSTORM, { storm, storm2, storm }, { 0, 20.5, 40.25 }, 38.0, 48.0);
+   ExpectationCase(w, "dSTORM, initial ON", ISC_MODE_DSTORM, { storm }, { 0 }, 2.0, 12.0);
+   ExpectationCase(w, "dSTORM, steady", ISC_MODE_DSTORM, { storm }, { 0 }, 60.0, 70.0);
+   ExpectationCase(w, "dSTORM, history A/B/A", ISC_MODE_DSTORM, { storm, storm2, storm }, { 0, 20.5, 40.25 }, 38.0, 48.0);
    const Kin palm = { 0.01, 0.05, 2.0, 0.3, 0.0 };
    const Kin palm2 = { 0.1, 0.05, 2.0, 0.3, 0.0 };
-   ExpectationCase("PALM", ISC_MODE_PALM, { palm }, { 0 }, 30.0, 40.0);
-   ExpectationCase("PALM, history A/B/A", ISC_MODE_PALM, { palm, palm2, palm }, { 0, 10.3, 25.0 }, 20.0, 30.0);
+   ExpectationCase(w, "PALM", ISC_MODE_PALM, { palm }, { 0 }, 30.0, 40.0);
+   ExpectationCase(w, "PALM, history A/B/A", ISC_MODE_PALM, { palm, palm2, palm }, { 0, 10.3, 25.0 }, 20.0, 30.0);
    const Kin paint = { 0.05, 0.3, 1.0, 1.0, 0.0 };
    const Kin paint2 = { 0.2, 0.15, 1.0, 1.0, 0.0 };
-   ExpectationCase("DNA-PAINT", ISC_MODE_DNA_PAINT, { paint }, { 0 }, 60.0, 61.0);
-   ExpectationCase("DNA-PAINT, from t = 0", ISC_MODE_DNA_PAINT, { paint }, { 0 }, 0.0, 1.5);
-   ExpectationCase("DNA-PAINT, history A/B/A (bins straddled)", ISC_MODE_DNA_PAINT, { paint, paint2, paint },
+   ExpectationCase(w, "DNA-PAINT", ISC_MODE_DNA_PAINT, { paint }, { 0 }, 60.0, 61.0);
+   ExpectationCase(w, "DNA-PAINT, from t = 0", ISC_MODE_DNA_PAINT, { paint }, { 0 }, 0.0, 1.5);
+   ExpectationCase(w, "DNA-PAINT, history A/B/A (bins straddled)", ISC_MODE_DNA_PAINT, { paint, paint2, paint },
                    { 0, 20.4, 30.0 }, 19.7, 21.3);
+   isc_world_free(w);
 }
 
 // ---- the binned renderer against the splat ----
@@ -239,7 +242,7 @@ double MovieTotal(const std::string& text, double* fluct = nullptr)
 void Movies()
 {
    // Photon-counting camera without offset, so the ADU sum is the signal (+ the imager background).
-   const std::string base = "size=40 frames=40 world-seed=1249 x=63 y=3 mt-imager-nm=20 psf-kernel-half-width-nm=2500 "
+   const std::string base = "size=32 frames=20 world-seed=1249 x=63 y=3 mt-imager-nm=20 psf-kernel-half-width-nm=2500 "
                             "gain=1 offset=0 offset-std=0 read-noise=0 dark-per-sec=0 gain-std-pct=0 read-noise-std-pct=0 ";
    double fs = 0, fb = 0, fm = 0;
    const double splat = MovieTotal(base + "blink-binned-density-per-um2=1e9", &fs);

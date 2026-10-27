@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #ifndef ISC_NO_THREADS
 #include <condition_variable>
 #include <mutex>
@@ -33,7 +34,20 @@ int WorldThreads()
 #else
    const int want = g_want.load();
    if (want > 0) return want;
-   return (int)std::max(1u, std::min(std::thread::hardware_concurrency(), 16u));
+   // ISC_THREADS=n caps the default (ctest runs several test processes side by side).
+   static const unsigned cap = [] {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)   // getenv
+#endif
+      const char* e = std::getenv("ISC_THREADS");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+      const int n = e ? std::atoi(e) : 0;
+      return n > 0 ? (unsigned)n : 16u;
+   }();
+   return (int)std::max(1u, std::min(std::thread::hardware_concurrency(), cap));
 #endif
 }
 

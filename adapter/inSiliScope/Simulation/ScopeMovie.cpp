@@ -4870,12 +4870,11 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                  "insiliscope modality=BrightField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g frames=%ld focus_um=%g quality=%d sources=%d upscale=%d sub=%d slices=%d grid=%ux%u "
                  "na=%g condenser_na=%g lambda_nm=%g n_medium=%g n_cytoplasm=%g n_nucleus=%g n_microtubule=%g "
-                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g setup_ms=%.0f image_ms=%.0f",
+                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g",   // (no times: the same file every run)
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, N, focusUm, bs.quality,
                  scene.Sources(), q.upscale, q.sub, scene.Slices(), scene.GridNx(), scene.GridNy(), bs.na,
                  bs.condenserNa, bs.wavelengthNm, bs.nMedium, bs.nCytoplasm, bs.nNucleus, bs.nMicrotubule,
-                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, scene.SetupMs(),
-                 scene.LastImageMs());
+                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec);
    info.description = desc;
    DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);

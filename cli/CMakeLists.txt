@@ -88,16 +88,6 @@ add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp)
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_sim)
 
 if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
-  add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
-  add_test(NAME cli_geometry COMMAND insiliscope_cli --geometry-json ${CMAKE_CURRENT_BINARY_DIR}/cli_geometry.json --geometry-um 30 --geometry-detail 1 --x 5 --y -3)
-  add_test(NAME cli_tiff_bf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_bf.tif --modality BrightField --frames 3 --size 64 --x -4 --y -5 --bf-quality 2)
-  add_test(NAME cli_tiff_wf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_wf.tif --mt-mode WideField --frames 10 --size 64 --x -4 --y -5)
-  # The DNA-origami nanorulers (specimen 1): a DNA-PAINT movie and the molecules' geometry with every strand.
-  add_test(NAME cli_origami COMMAND insiliscope_cli --specimen Nanorulers --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_origami.tif
-           --frames 20 --size 48 --ruler-imager-nm 20)
-  add_test(NAME cli_origami_geometry COMMAND insiliscope_cli --specimen Nanorulers --geometry-json
-           ${CMAKE_CURRENT_BINARY_DIR}/cli_origami.json --geometry-um 10 --geometry-detail 1)
-
   add_executable(sr_render_check sr_render_check.cpp)
   target_link_libraries(sr_render_check PRIVATE insiliscope_sim)
   add_test(NAME sr_render COMMAND sr_render_check)
@@ -114,9 +104,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
   add_executable(history_check history_check.cpp)
   target_link_libraries(history_check PRIVATE insiliscope_sim)
-  add_test(NAME history_check COMMAND history_check)
-  # (its speed gates -- a fold <= 5 ms, a map <= 15 ms -- measure the host, not the other checks beside it)
-  set_tests_properties(history_check PROPERTIES RUN_SERIAL TRUE)
+  add_test(NAME history_check COMMAND history_check)   # (its speed check: history_check --bench)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)
@@ -136,6 +124,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(probes_check probes_check.cpp scope_probes.cpp)
   target_link_libraries(probes_check PRIVATE insiliscope_sim)
   add_test(NAME cli_probes COMMAND probes_check WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  # The cli end to end (SR, WideField, BrightField, nanorulers, drift, probes, geometry), its outputs read back, and
   # --serve (many commands in one process, the figure builder's way) = separate runs, byte for byte.
   add_test(NAME cli_serve COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:insiliscope_cli>
            -DDIR=${CMAKE_CURRENT_BINARY_DIR}/serve_check -P ${CMAKE_CURRENT_SOURCE_DIR}/serve_check.cmake)
@@ -155,5 +144,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
                    ${ISC_SIM}/WidefieldGpuD3D11.cpp)
     target_link_libraries(wf_gpu_d3d11_check PRIVATE insiliscope_sim)
     add_test(NAME wf_gpu_d3d11 COMMAND wf_gpu_d3d11_check)
+    set_tests_properties(wf_gpu_d3d11 PROPERTIES SKIP_RETURN_CODE 77)   # no hardware Direct3D 11 device
   endif()
+  isc_cap_test_threads()
 endif()

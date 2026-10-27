@@ -42,6 +42,15 @@ option(ISC_BUILD_TESTS "Build the parity harness" ON)
 if(ISC_BUILD_TESTS)
   enable_testing()
 endif()
+# Each check would use every core: with `ctest -j 8` that is 8 x the cores. Two threads each (ISC_THREADS, read by
+# core/src/parallel.cpp and Simulation/Parallel.h); a check that compares thread counts sets its own. Called at the end
+# of each directory that adds tests (test properties are set where the tests are).
+function(isc_cap_test_threads)
+  get_property(isc_tests DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY TESTS)
+  if(isc_tests)
+    set_tests_properties(${isc_tests} PROPERTIES ENVIRONMENT ISC_THREADS=2)
+  endif()
+endfunction()
 
 add_subdirectory(core)
 add_subdirectory(cli)

@@ -588,8 +588,7 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
   `FluoParam_IllumProfile`.
 * **Dye grid (world-anchored).** Upscaled grid, pitch = pixel / upscale, cell i = world [i pitch, (i+1)
-  pitch): the same cells from every stage pose (the dyes bin the same way; `BleachField` cells map one to
-  one). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
+  pitch): the same cells from every stage pose (the dyes bin the same way). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
   plus one cell for the sub-cell shift; z planes of `zPlaneNm`, world-anchored; slab =
   `SimType_CellFieldZRangeUm` around the focus (0 = [-5, 50] um), applied per focus to the cached planes.
 * **Dye tiles** (`WidefieldDyeTiles`, C1). 64 x 64-cell world tiles holding the whole [-5, 50] um column
@@ -641,9 +640,10 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   per batch of frames; frames rendered in parallel between re-anchors (since 2026-10-04 the cli/viewer
   movie too: each frame's bleach coefficients serially, then a batch of frames in parallel, the frame
   that re-anchors alone; with no bleaching dyes the weights of `Begin` are reused, no `exp` per frame; and
-  the cli/viewer keep the scene, PSF and world across movies as BrightField does). **Live**: `BleachField`,
-  world-anchored dose in sparse 256^2 tiles of the grid pitch, deposited over the pattern support after
-  each frame; reset on a world change or a pitch change. The producer renders the frame (a weighted sum)
+  the cli/viewer keep the scene, PSF and world across movies as BrightField does). **Live** (history: replaced by the exact light history,
+  section 23; the unused `BleachField` class was removed on 2026-10-27): `BleachField`, world-anchored dose in
+  sparse 256^2 tiles of the grid pitch, deposited over the pattern support after each frame; reset on a world
+  change or a pitch change. The producer renders the frame (a weighted sum)
   and hands background, noise and publication to a finisher thread that overlaps the next frame's scene
   work (D4). During a stage move a worker builds the destination's scene (own `CellFieldSource`, shared
   tiles) and the live loop swaps it in on arrival (C3). Frames are never stale: each is the image of its

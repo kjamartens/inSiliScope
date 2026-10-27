@@ -299,67 +299,6 @@ void KernelWidefieldPsf::Kernel(int p, int R, std::vector<float>& out) const
    }
 }
 
-// ---- Bleach field ------------------------------------------------------------
-
-void BleachField::Reset(double pitchUm)
-{
-   tiles_.clear();
-   pitch_ = pitchUm;
-}
-
-void BleachField::DoseOver(double x0Um, double y0Um, unsigned nx, unsigned ny, std::vector<float>& out) const
-{
-   out.assign(static_cast<size_t>(nx) * ny, 0.0f);
-   if (tiles_.empty() || !(pitch_ > 0.0))
-      return;
-   const long long cx0 = static_cast<long long>(std::floor(x0Um / pitch_ + 0.5));
-   const long long cy0 = static_cast<long long>(std::floor(y0Um / pitch_ + 0.5));
-   for (unsigned iy = 0; iy < ny; ++iy)
-   {
-      const long long cy = cy0 + iy;
-      const long long ty = cy >= 0 ? cy / kTile : -((-cy + kTile - 1) / kTile);
-      for (unsigned ix = 0; ix < nx; ++ix)
-      {
-         const long long cx = cx0 + ix;
-         const long long tx = cx >= 0 ? cx / kTile : -((-cx + kTile - 1) / kTile);
-         auto it = tiles_.find({tx, ty});
-         if (it == tiles_.end())
-            continue;
-         out[static_cast<size_t>(iy) * nx + ix] =
-            it->second[static_cast<size_t>(cy - ty * kTile) * kTile + static_cast<size_t>(cx - tx * kTile)];
-      }
-   }
-}
-
-void BleachField::Deposit(const IlluminationPattern& pattern, double axisXUm, double axisYUm, double dDPerUnitI)
-{
-   if (!(pitch_ > 0.0) || !(dDPerUnitI > 0.0))
-      return;
-   double sx0, sy0, sx1, sy1;
-   pattern.Support(sx0, sy0, sx1, sy1);
-   const long long cx0 = static_cast<long long>(std::floor((axisXUm + sx0) / pitch_));
-   const long long cx1 = static_cast<long long>(std::floor((axisXUm + sx1) / pitch_));
-   const long long cy0 = static_cast<long long>(std::floor((axisYUm + sy0) / pitch_));
-   const long long cy1 = static_cast<long long>(std::floor((axisYUm + sy1) / pitch_));
-   for (long long cy = cy0; cy <= cy1; ++cy)
-   {
-      const long long ty = cy >= 0 ? cy / kTile : -((-cy + kTile - 1) / kTile);
-      const double dy = (cy + 0.5) * pitch_ - axisYUm;
-      for (long long cx = cx0; cx <= cx1; ++cx)
-      {
-         const double I = pattern.At((cx + 0.5) * pitch_ - axisXUm, dy);
-         if (!(I > 0.0))
-            continue;
-         const long long tx = cx >= 0 ? cx / kTile : -((-cx + kTile - 1) / kTile);
-         std::vector<float>& t = tiles_[{tx, ty}];
-         if (t.empty())
-            t.assign(static_cast<size_t>(kTile) * kTile, 0.0f);
-         t[static_cast<size_t>(cy - ty * kTile) * kTile + static_cast<size_t>(cx - tx * kTile)] +=
-            static_cast<float>(dDPerUnitI * I);
-      }
-   }
-}
-
 // ---- Sparse dye planes and tiles ---------------------------------------------
 
 WidefieldDyePlanes WidefieldDyePlanes::FromGrid(const WidefieldDyeGrid& g)
@@ -1622,14 +1561,6 @@ void WidefieldScene::FreshBleachWeights(double framesBefore, std::vector<float>&
    }
    for (size_t i = 0; i < dD_.size(); ++i)
       wb[i] = static_cast<float>(WidefieldBleachingPhotons(spec_.eta, B, framesBefore * dD_[i], dD_[i]));
-}
-
-void WidefieldScene::BleachWeightsFromDose(const std::vector<float>& d0, std::vector<float>& wb) const
-{
-   wb.resize(dD_.size());
-   const double B = spec_.phot.photonBudget;
-   for (size_t i = 0; i < dD_.size(); ++i)
-      wb[i] = static_cast<float>(WidefieldBleachingPhotons(spec_.eta, B, i < d0.size() ? d0[i] : 0.0f, dD_[i]));
 }
 
 namespace {
