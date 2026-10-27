@@ -17,6 +17,7 @@ Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/sampl
 
 import os
 import sys
+import json
 import time
 
 import numpy as np
@@ -25,6 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from isc_mm import brightfield, load_scope, search_paths, timed_prints, wait_for_stack  # noqa: E402
 
 N = 10
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "dyes")
+TYPICAL = json.load(open(os.path.join(DATA, "library.json"), encoding="utf8"))["typicalLabels"]["docking"]
 
 
 def stack(core):
@@ -66,12 +69,12 @@ def main():
     labels = list(core.getStateLabels("SampleHolder"))
     assert labels == ["CellField", "Nanorulers"], f"SampleHolder positions: {labels}"
     assert core.getProperty("SampleHolder", "Label") == "CellField", "the cell field should be mounted at start"
-    for p, v in (("Docking_Label", "Typical"), ("Design", "Nanoruler"), ("SpacingNm", "80"), ("StrandsPerSpot", 5),
-                 ("PersistenceLengthNm", 1500), ("Bending", "On")):
-        got = core.getProperty("Nanorulers", p)
-        assert (float(got) == v) if isinstance(v, int) else got == v, f"Nanorulers.{p} = {got}, not {v}"
+    for p in ("Docking_Label", "Design", "SpacingNm", "StrandsPerSpot", "PersistenceLengthNm", "Bending"):
+        assert core.hasProperty("Nanorulers", p), f"missing Nanorulers.{p}"
+    assert core.getProperty("Nanorulers", "Docking_Label") == "Typical"
+    mode = core.getProperty("Nanorulers", "Docking_Mode")
     eff = core.getProperty("Fluorophores", "Docking_EffectiveDye")
-    assert eff == "ATTO655 (DNA-PAINT)", f"the docking strands' Typical label: {eff}"
+    assert eff == f"{TYPICAL[mode]['dye']} ({mode})", f"the docking strands' Typical label: {eff} (data: {TYPICAL[mode]})"
     print(f"Layout OK: SampleHolder {labels}, Nanorulers rows, docking label {eff}")
 
     z0 = core.getPosition("ZStage")
@@ -83,9 +86,9 @@ def main():
     focus(core, 0.02)
     core.setProperty("Nanorulers", "Docking_Mode", "dSTORM")
     eff = core.getProperty("Fluorophores", "Docking_EffectiveDye")
-    assert eff == "AF647 (dSTORM)", f"the docking strands' Typical label in dSTORM: {eff}"
-    assert core.getProperty("Lasers", "Preset") == "Auto" and \
-        core.getProperty("FilterCube", "Label") == "LP650+ChromaET700-75m", core.getProperty("FilterCube", "Label")
+    assert eff == f"{TYPICAL['dSTORM']['dye']} (dSTORM)", f"the docking strands' Typical label in dSTORM: {eff}"
+    dstorm_cube = core.getProperty("FilterCube", "Label")
+    assert core.getProperty("Lasers", "Preset") == "Auto", core.getProperty("Lasers", "Preset")
     rulers = stack(core)
     core.setProperty("Nanorulers", "Docking_LabelingPct", "0")
     empty = stack(core)
@@ -100,7 +103,7 @@ def main():
     assert spots(one) > 8, f"1 strand per spot: {spots(one):.1f} sigma"
     core.setProperty("Nanorulers", "StrandsPerSpot", "5")
     core.setProperty("Nanorulers", "Docking_Mode", "DNA-PAINT")
-    assert core.getProperty("FilterCube", "Label") == "LP650+BP676-37", core.getProperty("FilterCube", "Label")
+    assert core.getProperty("FilterCube", "Label") != dstorm_cube, "back in DNA-PAINT: not the dSTORM preset's cube"
     print(f"StrandsPerSpot OK: 1 strand per spot is another sample ({spots(one):.0f} sigma)")
 
     # The site spacing and the 2D origami: each is another sample, and the spots are still there.

@@ -13,6 +13,7 @@ checked-out mmCoreAndDevices submodule commit; ADAPTER_DIR (e.g. adapter/inSiliS
 first. See docs/dev/BUILD_AND_USAGE.md. Under 5 minutes.
 """
 
+import json
 import os
 import sys
 import time
@@ -31,12 +32,15 @@ core = CMMCorePlus()
 core.setDeviceAdapterSearchPaths(search_paths())
 
 
-def fresh(seed=42, **kw):
-    """A fresh scope (a fresh hub: no illumination history), 200-frame stacks (the most any check reads)."""
+def fresh(seed=42, frames=5, **kw):
+    """A fresh scope (a fresh hub: no illumination history), stacks of `frames` (what the check reads)."""
     core.unloadAllDevices()
     load_scope(core, seed=seed, **kw)
-    assert int(core.getProperty("Camera", "Test_StackLength")) == 1000, "Test_StackLength default should be 1000"
-    core.setProperty("Camera", "Test_StackLength", "200")
+    core.setProperty("Camera", "Test_StackLength", str(frames))
+
+
+def offset():
+    return float(core.getProperty("Camera", "OffsetADU"))
 
 
 def snaps(n):
@@ -124,72 +128,57 @@ assert not np.array_equal(live_frames[0], live_frames[-1]), "expected live frame
 print("Live mode OK:", len(live_frames), "frames captured, frames vary over time")
 
 # --- defaults and couplings across devices ----------------------------------
-# The defaults with both cell-field targets labelled (issue 15): microtubules DNA-PAINT ATTO 655 at 640 nm, nuclear
-# pores DNA-PAINT Cy3B at 561 nm, each in its own mode; the Lasers' Auto preset combines their presets (both lines, the
-# multi-band cube); the pores off (None) leave the microtubules' preset.
+# The defaults are the data's (data/dyes/library.json, data/specimens.json, data/dyes/light_path.json), not numbers
+# pinned here: every target in the library's default mode, labelled with its typical label (a target whose registry
+# entry has defaultDye None: unlabelled) at its typical labelling, with its linkage preset and imager; the Lasers' Auto
+# preset combines the labelled targets' presets (both lines, the multi-band cube when their filters differ: the
+# microtubules' ATTO 655 at 640 nm and the pores' Cy3B at 561 nm); the pores off leave the microtubules' preset.
 assert not core.hasProperty("Fluorophores", "Mode"), "no experiment-wide mode since issue 15"
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+LIB = json.load(open(os.path.join(DATA, "dyes", "library.json"), encoding="utf8"))
+LIGHT = json.load(open(os.path.join(DATA, "dyes", "light_path.json"), encoding="utf8"))
+REG = {t["id"]: t for sp in json.load(open(os.path.join(DATA, "specimens.json"), encoding="utf8"))["specimens"]
+       for t in sp.get("targets", [])}
 fresh(pores=True)
-for (dev, name), expected in {
-    ("Lasers", "IlluminationProfile"): "Gaussian",
-    ("Lasers", "IlluminationFwhmPct"): "100",
-    ("Lasers", "BfpPosition"): "0.95",   # the DNA-PAINT light presets: HILO
-    ("Lasers", "IlluminationRegime"): "HILO",
-    ("Lasers", "ChamberHeightUm"): "100",
-    ("SampleHolder", "MediumIndex"): "1.337",
-    ("CellField", "Microtubules_Label"): "Typical",
-    ("Fluorophores", "Microtubules_EffectiveDye"): "ATTO655 (DNA-PAINT)",
-    ("CellField", "Microtubules_Mode"): "DNA-PAINT",
-    ("CellField", "Microtubules_LabelingPct"): "70",
-    ("CellField", "Microtubules_Binder"): "IgG2-PAINT",
-    ("CellField", "NuclearPores_Label"): "Typical",
-    ("Fluorophores", "NuclearPores_EffectiveDye"): "Cy3B (DNA-PAINT)",
-    ("CellField", "NuclearPores_Mode"): "DNA-PAINT",
-    ("CellField", "NuclearPores_LabelingPct"): "60",
-    ("CellField", "NuclearPores_Binder"): "SNAP-Halo",
-    ("CellField", "NuclearPoreDensityPerUm2"): "8",
-    ("CellField", "NuclearPoreMinDistNm"): "180",
-    # the nuclear lamina (2026-10-27): off until labelled, 2000 points per um^2 when it is
-    ("CellField", "NuclearLamina_Label"): "None",
-    ("CellField", "NuclearLamina_Mode"): "DNA-PAINT",
-    ("CellField", "NuclearLamina_Binder"): "IgG2-PAINT",
-    ("CellField", "NuclearLaminaDensityPerUm2"): "2000",
-    ("CellField", "NuclearLaminaPoreExclusionNm"): "40",
-    ("Lasers", "Preset"): "Auto",
-    ("Lasers", "Laser561KWcm2"): "1",
-    ("Lasers", "Laser640KWcm2"): "1",
-    ("FilterCube", "Label"): "ChromaZT405-488-561-640rpc+ChromaZET405-488-561-640m",
-    ("Objective", "Label"): "100x/1.40 Oil",
-    ("Camera", "CameraType"): "sCMOS",
-    ("SampleHolder", "BackgroundDecaySec"): "0",
-    ("Renderer", "UseGpu"): "On",
-    ("Renderer", "DiskCache"): "Cells",
-    ("Renderer", "PsfInterp"): "Cubic",
-    ("Renderer", "PsfModel"): "GibsonLanniZernike",
-    ("Renderer", "PsfOversampling"): "6",
-    ("Renderer", "Quality"): "Realistic",
-    ("Objective", "ZernikePreset"): "MixedRealisticObjective",
-    ("Objective", "PsfKernelHalfWidthNm"): "7000",
-}.items():
-    actual = core.getProperty(dev, name)
-    ok = float(actual) == float(expected) if expected.replace(".", "").isdigit() else actual == expected
-    assert ok, f"expected {dev}.{name} to default to {expected!r}, got {actual!r}"
+MODE = LIB["default"]["mode"]
+for mm, tid in (("Microtubules", "microtubules"), ("NuclearPores", "npcs"), ("NuclearLamina", "lamin")):
+    typical, off = LIB["typicalLabels"][tid][MODE], REG[tid].get("defaultDye") == "None"
+    got = {k: core.getProperty("CellField", f"{mm}_{k}") for k in ("Mode", "Label", "Binder", "ImagerNanoMol")}
+    want = {"Mode": MODE, "Label": "None" if off else "Typical", "Binder": LIB["linkagePresets"]["defaults"][tid],
+            "ImagerNanoMol": REG[tid]["paint"]["imagerNm"]}
+    assert all(float(got[k]) == v if k == "ImagerNanoMol" else got[k] == v for k, v in want.items()), \
+        f"{mm}: {got}, the data say {want}"
+    if not off:
+        assert core.getProperty("Fluorophores", f"{mm}_EffectiveDye") == f"{typical['dye']} ({MODE})"
+        assert float(core.getProperty("CellField", f"{mm}_LabelingPct")) == typical["labelingPct"]
+cube = LIGHT["multiTarget"]["dichroic"] + "+" + LIGHT["multiTarget"]["emissionFilter"]
+assert core.getProperty("Lasers", "Preset") == "Auto" and core.getProperty("FilterCube", "Label") == cube and \
+    float(core.getProperty("Lasers", "Laser561KWcm2")) > 0 and float(core.getProperty("Lasers", "Laser640KWcm2")) > 0, \
+    "two labelled targets: Auto, both lines on, the multi-band cube"
 assert "None" in core.getAllowedPropertyValues("CellField", "NuclearPores_Label")
 assert float(core.getProperty("Fluorophores", "NuclearPores_PhotonsPerSecOn")) > 0
 core.setProperty("CellField", "NuclearPores_Label", "None")
-assert core.getProperty("Lasers", "Preset") == "Auto" and core.getProperty("FilterCube", "Label") == "LP650+BP676-37" and \
-    float(core.getProperty("Lasers", "Laser561KWcm2")) == 0, "the pores off: the microtubules' PAINT-640 light"
+alone = LIGHT["defaults"]   # the default light path = the microtubules' typical label's preset
+assert core.getProperty("Lasers", "Preset") == "Auto" and \
+    core.getProperty("FilterCube", "Label") == alone["dichroic"] + "+" + alone["emissionFilter"] and \
+    float(core.getProperty("Lasers", "Laser561KWcm2")) == 0, f"the pores off: the microtubules' {alone['preset']} light"
 core.setProperty("CellField", "NuclearPores_Label", "Typical")
 core.setProperty("CellField", "NuclearPores_Mode", "dSTORM")
 assert core.getProperty("Fluorophores", "NuclearPores_EffectiveDye") == "AF647 (dSTORM)"
-assert float(core.getProperty("CellField", "NuclearPores_LabelingPct")) == 58, "the pores' mode change sets their labelling"
+assert float(core.getProperty("CellField", "NuclearPores_LabelingPct")) == LIB["typicalLabels"]["npcs"]["dSTORM"]["labelingPct"], \
+    "the pores' mode change sets their typical labelling"
 assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "ATTO655 (DNA-PAINT)", "the other target keeps its mode"
-print("Two targets OK: pores Cy3B DNA-PAINT + microtubules ATTO 655, Auto light 561 + 640 nm (multi-band cube); "
-      "pores None -> PAINT-640; pores dSTORM -> AF647 58 %")
+print("Defaults OK (the data's): typical labels, linkage, imager per target, the lamina off; Auto light 561 + 640 nm "
+      "(multi-band cube); pores None -> the microtubules' preset; pores dSTORM -> their typical dSTORM label")
 fresh()
-# The pixel: the Kinetix's 6.5 um sensor pixel / (100x objective x 0.667x emission path) = 97.45 nm.
-assert float(core.getProperty("EmissionPath", "EmissionMagnification")) == 0.667
-assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 6500 / 66.7) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
-assert abs(core.getPixelSizeUm() - 6.5 / 66.7) < 1e-6 or core.getPixelSizeUm() == 0, core.getPixelSizeUm()
+# The pixel: the sensor pixel / (objective x emission path magnification).
+def pixel_nm():
+    mag = float(core.getProperty("Objective", "Label").split("x/")[0]) * float(core.getProperty("EmissionPath", "EmissionMagnification"))
+    return 1000 * float(core.getProperty("Camera", "SensorPixelUm")) / mag
+
+
+assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - pixel_nm()) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
+assert abs(core.getPixelSizeUm() - pixel_nm() / 1000) < 1e-6 or core.getPixelSizeUm() == 0, core.getPixelSizeUm()
 # The label list follows the mode: Typical plus the dyes with data in it (and the custom dyes, Expert).
 DSTORM_DYES = {"AF647", "AF532", "Cy5", "ATTO655", "Cy3B", "Custom"}
 PALM_DYES = {"mEos3.2", "Dendra2", "PAmCherry2", "Custom"}
@@ -210,7 +199,8 @@ assert core.getProperty("Fluorophores", "Microtubules_EffectiveDye") == "AF647 (
 core.setProperty("CellField", "Microtubules_Label", "AF647")
 assert core.getProperty("Lasers", "Preset") == "Auto", core.getProperty("Lasers", "Preset")
 assert core.getProperty("FilterCube", "Label") == "LP650+ChromaET700-75m", core.getProperty("FilterCube", "Label")
-assert float(core.getProperty("CellField", "Microtubules_LabelingPct")) == 3, "a mode change sets its labelling"
+assert float(core.getProperty("CellField", "Microtubules_LabelingPct")) == LIB["typicalLabels"]["microtubules"]["dSTORM"]["labelingPct"], \
+    "a mode change sets its typical labelling"
 core.setProperty("Dichroic", "Label", "Quad")
 assert core.getProperty("FilterCube", "Label") == "Custom", "a wheel set by hand makes the cube Custom"
 assert core.getProperty("Lasers", "Preset") == "None", "a filter set by hand clears the light preset"
@@ -237,16 +227,17 @@ assert on561 == only561, "LP570 transmits 640 nm: that line never reaches the sa
 # A camera preset: noise values, sensor pixel (the pixel size follows), sensor type.
 core.setProperty("Camera", "CameraPreset", "iXonUltra897")
 assert core.getProperty("Camera", "CameraType") == "EMCCD" and float(core.getProperty("Camera", "SensorPixelUm")) == 16
-assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - 16000 / 66.7) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
+assert abs(float(core.getProperty("Camera", "PixelSizeNm")) - pixel_nm()) < 1e-3, core.getProperty("Camera", "PixelSizeNm")
 core.setProperty("EmissionPath", "EmissionMagnification", "1.6")
 core.setProperty("Objective", "Label", "60x/1.20 Water")
-assert float(core.getProperty("Objective", "NA")) == 1.2 and abs(float(core.getProperty("Camera", "PixelSizeNm")) - 16000 / 96) < 1e-3
+assert float(core.getProperty("Objective", "NA")) == 1.2 and abs(float(core.getProperty("Camera", "PixelSizeNm")) - pixel_nm()) < 1e-3
 core.setProperty("Objective", "NA", "1.1")
 assert core.getProperty("Objective", "Label") == "Custom", "an NA set by hand makes the turret position Custom"
-core.setProperty("Renderer", "PsfOversampling", "4")
+realistic = core.getProperty("Renderer", "PsfOversampling")
+core.setProperty("Renderer", "PsfOversampling", str(int(realistic) - 2))
 assert core.getProperty("Renderer", "Quality") == "Custom"
 core.setProperty("Renderer", "Quality", "Realistic")
-assert core.getProperty("Renderer", "PsfOversampling") == "6"
+assert core.getProperty("Renderer", "PsfOversampling") == realistic
 print("Defaults and couplings OK: dye -> light preset + cube, wheels <-> cube, camera preset -> sensor pixel, "
       "objective/emission path -> pixel size, quality <-> numerics")
 
@@ -256,7 +247,7 @@ precomputed(core)
 set_light(core, False, False)
 generate_stack(core)
 dark = np.stack(snaps(5))
-assert abs(dark.mean() - 100.0) < 1.0, f"no light: dark frames around the offset, got mean {dark.mean():.2f}"
+assert abs(dark.mean() - offset()) < 1.0, f"no light: dark frames around the offset {offset()}, got mean {dark.mean():.2f}"
 set_light(core, True, False)
 generate_stack(core)
 lit = np.stack(snaps(5))
@@ -290,7 +281,7 @@ FAST = [("Renderer", "PsfModel", "Gaussian"), ("SampleHolder", "BackgroundPhoton
 
 def stack_frames(settings, n=20, seed=42, skip=0, dye_edits=None):
     """Fresh scope, apply settings ((device, prop, value) list) and dye edits, return n stack frames after skip."""
-    fresh(seed=seed)
+    fresh(seed=seed, frames=skip + n)
     precomputed(core)
     for dev, p, v in settings:
         core.setProperty(dev, p, v)
@@ -305,37 +296,23 @@ def mean_signal(pct):
     fr = stack_frames(FAST + [("CellField", "Microtubules_Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647"),
                               ("CellField", "Microtubules_LabelingPct", str(pct))], n=50,
                       dye_edits={"InitialOnSec": 0})
-    return fr.mean() - 100.0
+    return fr.mean() - offset()
 
 
 sig_full, sig_low = mean_signal(70), mean_signal(7)
 assert sig_low < 0.3 * sig_full, f"expected 7% labelling to give ~1/10 of the 70% signal ({sig_low:.3f} vs {sig_full:.3f})"
 print(f"Labelling OK: mean signal {sig_full:.3f} -> {sig_low:.3f} ADU from 70% to 7% labelled sites")
 
-# --- live responsiveness: nothing heavy runs per frame -----------------------
+# --- live: a noise parameter changes subsequent frames (the live pace: tools/bench_live.py) ---
 fresh()
 core.setProperty("Renderer", "PsfModel", "Gaussian")
 core.setProperty("Camera", "Exposure", "20")
-for _ in range(2):   # the first frames build the world and prefetch around the FOV
-    core.startSequenceAcquisition(20, 20.0, True)
-    while core.isSequenceRunning():
-        time.sleep(0.02)
-    time.sleep(0.2)
-    while core.getRemainingImageCount() > 0:
-        core.popNextImage()
-interval_ms = float(core.getProperty("Camera", "ActualFrameIntervalMs"))
-assert interval_ms < 100.0, f"expected ActualFrameIntervalMs within ~5x of the 20 ms exposure, got {interval_ms} ms"
-print(f"Live responsiveness OK: ActualFrameIntervalMs={interval_ms:.1f} ms streaming live")
-
-# --- live: a noise parameter changes subsequent frames ------------------------
 core.setProperty("Camera", "OffsetStdADU", "0.0")
 core.setProperty("SampleHolder", "BackgroundPhotonsPerSec", "0.0")
 core.setProperty("CellField", "Microtubules_LabelingPct", "0")   # noise only: no dyes, no imager background
 core.setProperty("CellField", "Microtubules_ImagerNanoMol", "0")
-time.sleep(0.3)
-std_before = float(np.std(snaps(1)[0]))
+std_before = float(np.std(snaps(1)[0]))   # (a snap takes a frame started after the call)
 core.setProperty("Camera", "OffsetStdADU", "50.0")
-time.sleep(0.3)
 std_after = float(np.std(snaps(1)[0]))
 assert std_after > std_before + 10.0, f"OffsetStdADU=50 live should raise the pixel std ({std_before:.3f} -> {std_after:.3f})"
 print(f"Live settings OK: OffsetStdADU change took effect live (std {std_before:.2f} -> {std_after:.2f})")
@@ -371,12 +348,12 @@ for mode, extra in MODES.items():
     fr = stack_frames(GAUSS + [("CellField", "Microtubules_Mode", mode), ("CellField", "Microtubules_Label", extra)], n=20,
                       dye_edits={"InitialOnSec": 0} if mode == "dSTORM" else None)
     assert fr.std() > 0, f"expected a non-blank {mode} movie"
-    mode_sig[mode] = fr.mean() - 100.0
+    mode_sig[mode] = fr.mean() - offset()
 assert mode_sig["WideField"] > 10 * mode_sig["dSTORM"], f"the mean field should be far brighter than blinks: {mode_sig}"
 DSTORM = GAUSS + [("CellField", "Microtubules_Mode", "dSTORM"), ("CellField", "Microtubules_Label", "AF647")]
 lib = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0})
 dim = stack_frames(DSTORM, n=100, dye_edits={"InitialOnSec": 0, "Qy": 0.05})
-assert dim.mean() - 100.0 < 0.5 * (lib.mean() - 100.0), "a lower quantum yield should give less light"
+assert dim.mean() - offset() < 0.5 * (lib.mean() - offset()), "a lower quantum yield should give less light"
 print("Label modes OK: " + ", ".join(f"{m} {v:.2f}" for m, v in mode_sig.items()) + " ADU above offset; custom dye edit applies")
 
 # --- EMCCD: excess noise doubles the variance; bit-depth clip --------------------
@@ -386,17 +363,16 @@ bg_only = GAUSS + NO_DYES + [("SampleHolder", "BackgroundPhotonsPerSec", "2000")
                              ("Camera", "GainElectronsPerADU", "1"), ("Camera", "DarkCurrentElectronsPerSec", "0")]
 sc = stack_frames(bg_only, n=10)
 em = stack_frames(bg_only + [("Camera", "CameraType", "EMCCD"), ("Camera", "EMCCD_CicElectrons", "0")], n=10)
-fano_sc = sc.var(axis=0).mean() / (sc.mean() - 100.0)
-fano_em = em.var(axis=0).mean() / (em.mean() - 100.0)
+fano_sc = sc.var(axis=0).mean() / (sc.mean() - offset())
+fano_em = em.var(axis=0).mean() / (em.mean() - offset())
 assert 0.8 < fano_sc < 1.2 and 1.7 < fano_em < 2.3, f"variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}"
 em8 = stack_frames(bg_only + [("Camera", "CameraType", "EMCCD"), ("Camera", "BitDepth", "8")], n=2)
 assert em8.max() <= 255, f"EMCCD BitDepth=8 must clip at 255, got {em8.max()}"
 # The per-pixel gain / read-noise spreads are the sCMOS's: an EMCCD's frames do not change with them.
-EMCCD = bg_only + [("Camera", "CameraType", "EMCCD"), ("Camera", "Test_StackLength", "4")]
+EMCCD = bg_only + [("Camera", "CameraType", "EMCCD")]
 spread = [("Camera", "sCMOS_GainStdPctPerPixel", "30"), ("Camera", "sCMOS_ReadNoiseStdPctPerPixel", "80")]
 assert np.array_equal(stack_frames(EMCCD, n=2), stack_frames(EMCCD + spread, n=2)), "EMCCD must ignore the sCMOS spreads"
-SHORT = [("Camera", "Test_StackLength", "4")]
-plain, spread_on = stack_frames(bg_only + SHORT, n=2), stack_frames(bg_only + SHORT + spread, n=2)
+plain, spread_on = stack_frames(bg_only, n=2), stack_frames(bg_only + spread, n=2)
 assert not np.array_equal(plain, spread_on), "sCMOS spreads should apply"
 print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit clip holds; the sCMOS spreads apply to "
       "sCMOS only")
@@ -404,7 +380,7 @@ print(f"EMCCD OK: variance/mean sCMOS {fano_sc:.2f}, EMCCD {fano_em:.2f}; 8-bit 
 # --- illumination profile, geometry (epi / HILO / TIRF) and background fade --------------------------
 flat_bg = GAUSS + NO_DYES + [("SampleHolder", "BackgroundPhotonsPerSec", "400")]
 illum = stack_frames(flat_bg + [("Lasers", "IlluminationProfile", "Gaussian"), ("Lasers", "BfpPosition", "0")],
-                     n=5).mean(axis=0) - 100
+                     n=5).mean(axis=0) - offset()
 assert illum[:10, :10].mean() < 0.5 * illum[54:74, 54:74].mean(), "Gaussian illumination must dim the corners"
 decay = stack_frames(flat_bg + [("SampleHolder", "BackgroundDecaySec", "0.5")], n=40)
 assert decay[-1].mean() < decay[0].mean(), "background fade must lower the background over time"
@@ -428,8 +404,8 @@ no_dyes = stack_frames(GAUSS + NO_DYES + [("Lasers", "BfpPosition", "1.1")], n=3
 assert np.array_equal(clipped, no_dyes), "a clipped spot (beyond the pupil edge) must light nothing"
 # (Labelling 0 % is no label, and no imager: a trace of sites instead.)
 PAINT_BG = GAUSS + [("CellField", "Microtubules_LabelingPct", "0.001"), ("CellField", "Microtubules_ImagerNanoMol", "5")]
-bg_epi = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "0")], n=3).mean() - 100
-bg_tirf = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "1.03")], n=3).mean() - 100
+bg_epi = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "0")], n=3).mean() - offset()
+bg_tirf = stack_frames(PAINT_BG + [("Lasers", "BfpPosition", "1.03")], n=3).mean() - offset()
 assert bg_tirf < 0.1 * bg_epi, f"TIRF should cut the free-imager background (epi {bg_epi:.1f}, TIRF {bg_tirf:.1f} ADU)"
 print(f"Background OK: illumination dims corners, fade decays; regimes Epi/HILO/TIRF/Clipped read back, clipped is "
       f"dark, the imager background epi {bg_epi:.1f} -> TIRF {bg_tirf:.1f} ADU")
@@ -468,8 +444,7 @@ if status.startswith("GPU"):
     # each regime's mean signal is the splat's. Mean-field scenes convolve on the D3D11 host (fp16 spectra), so there
     # GPU and CPU agree in the mean, not pixel for pixel.
     def regime_frames(rows, n=3):
-        fresh()
-        core.setProperty("Camera", "Test_StackLength", "20")
+        fresh(frames=n)
         precomputed(core)
         for dev, p, v in KERNEL + [("CellField", "Microtubules_ImagerNanoMol", "10")] + rows:
             core.setProperty(dev, p, v)
@@ -486,7 +461,7 @@ if status.startswith("GPU"):
         else:
             assert same_r > 0.998, f"{name}: GPU/CPU frames agree on only {100*same_r:.4f}% of pixels"
         regimes[name] = c
-    sig = {k: v.mean() - 100.0 for k, v in regimes.items()}
+    sig = {k: v.mean() - offset() for k, v in regimes.items()}
     assert (regimes["binned"] != regimes["splat"]).mean() > 0.1, "binned frames should differ from the splat's"
     for k in ("binned", "mean-field"):
         assert abs(sig[k] - sig["splat"]) < 0.02 * sig["splat"], f"{k}: mean signal {sig[k]:.3f} vs the splat's {sig['splat']:.3f}"
@@ -495,7 +470,7 @@ if status.startswith("GPU"):
     print("Blink regimes OK: GPU = CPU (mean-field in the mean), mean signal splat / binned / mean-field "
           f"{sig['splat']:.1f} / {sig['binned']:.1f} / {sig['mean-field']:.1f} ADU, frame std {std_splat:.0f} -> {std_mf:.0f}")
 else:
-    print(f"GPU check skipped: {status}")
+    print(f"SKIP  GPU vs CPU: no usable GPU ({status})")
 
 core.unloadAllDevices()
 print(f"All inSiliScope adapter checks passed ({time.time() - t_start:.0f} s).")

@@ -1,10 +1,14 @@
 """Pixel hash of the inSiliScope adapter's precomputed output for fixed seeds.
 
-Used to prove a refactor did not change the image output: run it against the
-DLL built before and after, and compare the printed hashes.
+Used to prove a refactor did not change the image output: the hashes are compared with the reference in
+tools/adapter_pixel_hash_ref.txt (exit 1 naming each config that differs); after a deliberate output change,
+--write-ref stores the new ones (say why in the commit). With --set or --frames the hashes are only printed.
 
-    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_inSiliScope.dll> [--frames N]
-                                       [--set Device.Property=value ...]
+    python tools/adapter_pixel_hash.py <dir containing mmgr_dal_inSiliScope.dll> [--write-ref]
+                                       [--frames N] [--set Device.Property=value ...]
+
+Each stack is as long as the frames it hashes (Test_StackLength; a stack's first frames do not depend on its length:
+checked 2026-10-27, every hash the same as with the 1000-frame default), ~20 s for the 14 configs.
 
 --set applies to every config, after its own settings, where the DLL has the row (an older DLL without it is left
 as it is): e.g. a newer DLL at an older one's defaults (the excitation geometry, 2026-10-13: Lasers.IlluminationProfile=Flat
@@ -27,6 +31,7 @@ import hashlib
 import os
 import sys
 import time
+from pathlib import Path
 
 os.environ["ISC_TEST"] = "1"   # the Test rows (precomputed stack) exist only with this
 
@@ -104,6 +109,7 @@ OLD = {
 }
 # Hub-layout rows renamed since: the new name -> the name an older hub DLL has.
 RENAMED = {("CellField", "Microtubules_ImagerNanoMol"): "Microtubules_ImagerNanoMol"}
+REF = Path(__file__).with_name("adapter_pixel_hash_ref.txt")
 PERIPHERALS = ["Camera", "XYStage", "ZStage", "Objective", "EmissionPath", "FilterCube", "Lasers", "TransmittedLamp",
                "SampleHolder", "CellField", "Fluorophores", "Renderer"]
 
@@ -136,7 +142,7 @@ def wait_for_stack(core, label, status_prop, timeout_s=900.0):
         time.sleep(0.1)
 
 
-def load_hub_layout(core, seed):
+def load_hub_layout(core, seed, frames):
     """The hub and its devices; returns the stack property names."""
     core.loadDevice("Hub", "inSiliScope", "inSiliScope")
     core.setProperty("Hub", "Detail", "Expert")
@@ -155,10 +161,12 @@ def load_hub_layout(core, seed):
     core.setProperty("Lasers", "State", "1")   # the epi light on (fluorescence)
     core.setPosition("ZStage", 0.0)            # the coverslip in focus (the old layout had no ZStage)
     set_checked(core, "Renderer", "UseGpu", "Off")
+    if core.hasProperty("Camera", "Test_StackLength"):
+        core.setProperty("Camera", "Test_StackLength", str(frames))
     return "Camera", "Test_AcqMode", "Test_GenerateStack", "Test_StackGenerationStatus"
 
 
-def load_old_layout(core, seed):
+def load_old_layout(core, seed, frames):
     core.loadDevice("Camera", "inSiliScope", "Camera")
     core.setProperty("Camera", "SimType_RandomSeed", str(seed))
     core.initializeDevice("Camera")
@@ -197,7 +205,9 @@ def main():
     ap.add_argument("--frames", type=int, default=5)
     ap.add_argument("--set", nargs="*", default=[], metavar="Device.Property=value",
                     help="settings for every config, after its own (skipped where the DLL has no such row)")
+    ap.add_argument("--write-ref", action="store_true", help=f"store the hashes as the reference ({REF.name})")
     args = ap.parse_args()
+    compare = not args.set and args.frames == 5
     overrides = []
     for item in args.set:
         key, _, value = item.partition("=")
@@ -205,13 +215,15 @@ def main():
         overrides.append((device, prop, value))
 
     total = hashlib.sha256()
+    got = {}
     for k, (name, seed, props) in enumerate(CONFIGS + PORE_CONFIGS):
         if k == len(CONFIGS):
+            got["TOTAL before pores"] = total.hexdigest()
             print(f"{'TOTAL before pores':14s} {total.hexdigest()}", flush=True)
         core = CMMCorePlus()
         core.setDeviceAdapterSearchPaths([os.path.abspath(args.adapter_dir), find_mm_dir()])
         hub_layout = "inSiliScope" in core.getAvailableDevices("inSiliScope")
-        cam, acq, gen, status = (load_hub_layout if hub_layout else load_old_layout)(core, seed)
+        cam, acq, gen, status = (load_hub_layout if hub_layout else load_old_layout)(core, seed, args.frames)
         if k >= len(CONFIGS) and not (hub_layout and core.hasProperty("CellField", "NuclearPores_Label")):
             print(f"{name:14s} (no nuclear pores in this DLL)", flush=True)
             core.unloadAllDevices()
@@ -230,9 +242,21 @@ def main():
             img = core.getImage()
             h.update(str(img.shape).encode() + str(img.dtype).encode() + img.tobytes())
         total.update(h.digest())
+        got[name] = h.hexdigest()
         print(f"{name:14s} {h.hexdigest()}  ({time.time() - t0:.1f} s)", flush=True)
         core.unloadAllDevices()
+    got["TOTAL"] = total.hexdigest()
     print(f"{'TOTAL':14s} {total.hexdigest()}")
+    if args.write_ref:
+        REF.write_text("# adapter_pixel_hash.py reference (config, sha256 of its first 5 frames); --write-ref rewrites it.\n" +
+                       "".join(f"{k}\t{v}\n" for k, v in got.items()), encoding="utf8")
+        print(f"wrote {REF.name}")
+    elif compare:
+        ref = dict(line.split("\t") for line in REF.read_text(encoding="utf8").splitlines() if line and not line.startswith("#"))
+        bad = [k for k in ref if got.get(k) != ref[k]] + [k for k in got if k not in ref]
+        if bad:
+            sys.exit(f"FAIL: differs from {REF.name}: {', '.join(bad)} (a deliberate change: --write-ref)")
+        print(f"PASS: = {REF.name}")
 
 
 if __name__ == "__main__":

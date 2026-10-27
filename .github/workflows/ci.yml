@@ -44,6 +44,8 @@ jobs:
       - run: node web/lab/check.mjs
       # data/dyes -> the generated dye library and docs/references.md are current.
       - run: node tools/gen_dye_library.mjs --check
+      # data/origami/designs.json -> the JS, core and viewer design tables are current.
+      - run: node tools/gen_origami_designs.mjs --check
       # data/fiducials: the curves give balinovic2019's quoted efficiencies; fitted tails, emitters and the gold Mie table current.
       - run: node tools/fiducial_spectra/check.mjs
 
