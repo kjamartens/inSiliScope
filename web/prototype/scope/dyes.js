@@ -277,7 +277,8 @@ export function npcDyesInBlock(seed, cx, cy, pores, ids, sites, density, fluores
 // Fluorescent dyes of the lamina points pts[ids[0..]] of a cell (buildLaminForCell: position, outward normal n,
 // candidate index; cell-local um). Appends {pos (cell-local), point (index into pts), k (0: one site per point), n (=
 // the point's candidate index), id}. Labelled / fluorescent / linker draws as on a pore (npcDyesInBlock); the binder
-// along the inward normal (the lamina lines the nucleoplasmic face of the envelope). withParts as in dyesInBlock.
+// along a uniform random direction (the user's choice, 2026-10-27: no side of the envelope preferred), drawn at the
+// unused site address k = 1 (LINK_U: cos of the polar angle, LINK_PHI: azimuth). withParts as in dyesInBlock.
 export function laminDyesInBlock(seed, cx, cy, pts, ids, density, fluorescentFraction, out, linkage = LEGACY_LINKAGE.lamin,
   withParts = false) {
   const labelledBelow = Math.min(1.0, Math.max(0.0, density));
@@ -294,7 +295,10 @@ export function laminDyesInBlock(seed, cx, cy, pts, ids, density, fluorescentFra
     const r1 = unit(pcgA(h1, k, n, DYE_CH.LINK_U));
     const r2 = unit(pcgA(h1, k, n, DYE_CH.LINK_PHI));
     const r3 = unit(pcgA(h1, k, n, DYE_CH.LINK_R));
-    const a = { x: -q.n[0], y: -q.n[1], z: -q.n[2] };
+    const au = unit(pcgA(h1, 1, n, DYE_CH.LINK_U)) * 2 - 1;
+    const aphi = unit(pcgA(h1, 1, n, DYE_CH.LINK_PHI)) * 2 * Math.PI;
+    const as = Math.sqrt(1 - au * au);
+    const a = { x: as * Math.cos(aphi), y: as * Math.sin(aphi), z: au };
     const parts = withParts ? {} : null;
     const pos = linkedDye({ x: q.x, y: q.y, z: q.z }, a, 0, L, h1, k, n, r1, r2, r3, parts);
     out.push(withParts ? { pos, point: pi, k, n, id: label, parts } : { pos, point: pi, k, n, id: label });

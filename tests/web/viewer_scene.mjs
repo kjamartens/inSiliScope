@@ -120,10 +120,19 @@ const lamina = await page.evaluate(async () => {
   const lit = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; };
   const on = (await __cap(__st({ camera: cam, layers: { 'lamin.points': { style: { color: '#ffffff', opacity: 1 } } } }))).data;
   const off = (await __cap(__st({ camera: cam, layers: {} }))).data;
-  return { on: lit(on), off: lit(off), toggle: els.showLamin.checked, density: +els['mv_lamin-density'].value };
+  // the height scale (Lamina colours, no style colour): the dots' red channel spreads with their height; flat: one colour
+  const spread = d => { const rs = []; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 150) rs.push(d[i]);
+    rs.sort((a, b) => a - b); return rs.length ? rs[Math.floor(rs.length * 0.9)] - rs[Math.floor(rs.length * 0.1)] : 0; };
+  const scale = spread((await __cap(__st({ camera: cam, layers: { 'lamin.points': { style: { color: null } } } }))).data);
+  const flat = spread((await __cap(__st({ camera: cam, layers: { 'lamin.points': {} } }))).data);
+  const row = els.laminMap.closest('.opt');
+  return { on: lit(on), off: lit(off), toggle: els.showLamin.checked, density: +els['mv_lamin-density'].value, scale, flat,
+    mapHidden: row ? row.style.display === 'none' : null };
 });
-check(lamina.on > 2000 && lamina.off === 0 && !lamina.toggle && lamina.density === 2000,
-  `nuclear lamina: ${lamina.on} px lit by its layer alone, ${lamina.off} without; View toggle ${lamina.toggle ? 'on' : 'off'}, density ${lamina.density}`);
+check(lamina.on > 2000 && lamina.off === 0 && !lamina.toggle && lamina.density === 2000 && lamina.scale > 30 &&
+  lamina.flat < lamina.scale / 2 && lamina.mapHidden !== false,
+  `nuclear lamina: ${lamina.on} px lit by its layer alone, ${lamina.off} without; View toggle ${lamina.toggle ? 'on' : 'off'}, ` +
+  `density ${lamina.density}; height scale spread ${lamina.scale} vs ${lamina.flat} flat; Lamina colours hidden while off (${lamina.mapHidden})`);
 
 // 4. the detail budget
 const det = await page.evaluate(async () => {

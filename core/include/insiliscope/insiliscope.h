@@ -188,8 +188,8 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  *                        label linkage -- the probe reaches BINDER_NM from the
  *                        binding site along the structure's axis (microtubule:
  *                        radially out of the lattice; pore: its corner's
- *                        direction in the ring plane; lamina: the envelope's
- *                        inward normal), its end lies uniformly in
+ *                        direction in the ring plane; lamina: a uniform
+ *                        random direction), its end lies uniformly in
  *                        a ball of BINDER_FLEX_NM about that, and the dye at the
  *                        end of a linker of length uniform in volume in
  *                        [LINKER_MIN_NM, LINKER_MAX_NM], direction uniform.

@@ -240,7 +240,11 @@ void LaminDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<L
       const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
       const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
       const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
-      const Pt3 a = { -q.n.x, -q.n.y, -q.n.z };
+      // The binder's direction: uniform (no side of the envelope preferred), drawn at the unused site address k = 1.
+      const double au = Unit(Pcg4d(h1, 1u, (uint32_t)n, DYE_CH::LINK_U).a) * 2 - 1;
+      const double aphi = Unit(Pcg4d(h1, 1u, (uint32_t)n, DYE_CH::LINK_PHI).a) * 2 * jsm::PI;
+      const double as = jsm::sqrt(1 - au * au);
+      const Pt3 a = { as * jsm::cos(aphi), as * jsm::sin(aphi), au };
       LinkageParts lp;
       const Pt3 pos = LinkedDye(q.c, a, 0, L, h1, k, n, r1, r2, r3, parts ? &lp : nullptr);
       out.push_back({ pos, pi, k, n, label });

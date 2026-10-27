@@ -303,7 +303,7 @@ uint32_t LaminH1(uint32_t seed, int32_t cx, int32_t cy);
 
 struct LaminPoint;
 // Fluorescent dyes of the lamina points pts[ids[..]] of a cell (BuildLaminForCell): one site per point (k 0), the
-// draws as on a pore (NpcDyesInBlock), the binder along the inward normal (the lamina lines the nucleoplasmic face).
+// draws as on a pore (NpcDyesInBlock), the binder along a uniform random direction (the user's choice: no side of the envelope preferred; drawn at k = 1).
 // NpcDye rows: pore = the point's index into pts. Appends (parts: one per dye, if given).
 void LaminDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<LaminPoint>& pts, const std::vector<int32_t>& ids,
                       double density, double fluorescentFraction, std::vector<NpcDye>& out, const Linkage& linkage,

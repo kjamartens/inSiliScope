@@ -176,13 +176,13 @@ through it step by step.
   switches between the depth colours, bright colours on black (Dark fluorescence) and Dark fluorescence (depth, the
   default): on black, the microtubules and nuclear pores coloured by their height in the cell, the nucleus by its own
   height (drawn on the GPU, the 2D fallback keeps one colour for the microtubules). **Microtubule / Nuclear pore /
-  Nucleus colours** pick each one's colour scale (previewed in the list; defaults ice, warm and greys); the legend
-  shows only what is drawn.
+  Nucleus / Lamina colours** pick each one's colour scale (previewed in the list; defaults ice, warm, greys and greens),
+  each shown only while its structure is drawn; the legend shows only what is drawn.
 - **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
   (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
   nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
 - **Nuclear lamina** (View, off by default): the lamina points of each detailed cell as dots, labelled or not (also in
-  the x-z view). At the default 2000 per µm² that is a few hundred thousand points per nucleus.
+  the x-z view), coloured by their height (Lamina colours; the Look's = one colour). At the default 2000 per µm² that is a few hundred thousand points per nucleus.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows

@@ -834,7 +834,9 @@ lines, `label_parity`, `world_checks.lamin`).
   defaults to **0**, so a world with the default labels (the goldens, webSMLM's block) has no lamina.
 - **Dyes**: one docking site per point (k = 0, n = the candidate index); per cell `H1 = pcg4d(seed ^ 0x4C414D44
   ("LAMD"), cx, cy, 0).a` and the `DYE_CH` channels, so labelling, schedules and orientation work unchanged. The label
-  linkage starts at the point along the **inward** normal (the lamina lines the nucleoplasmic face; *estimate*), attachNm
+  linkage starts at the point along a **uniform random direction** (`u = 2 unit(pcgA(H1, 1, n, LINK_U)) - 1`, `phi = 2 pi
+  unit(pcgA(H1, 1, n, LINK_PHI))`: the unused site address k = 1; the user's choice, 2026-10-27, no side of the envelope
+  preferred; it pointed inward before), attachNm
   0; the built-in ("Legacy") linkage is the dye on the point. Dye blocks: the points in one cell-local 1 um cube, after
   the pores' blocks. A Fixed orientation is about the outward normal (Duff frame).
 - **Off by default**: the registry's `defaultDye: "None"` makes `lamin-dye` default to None (engine, viewer, MM), so

@@ -584,14 +584,15 @@ core packing block 88 -> 19 ms, cold dyes 225 -> 48 ms; WASM packing 741 -> 408 
 spec/PORT.md 25):** random points on the nuclear envelope (`BuildLaminForCell` in `core/src/npcs.*`, JS twin
 `buildLaminForCell` in `web/prototype/index.html`): the pores' surface mesh, salt "LAM1", round(`laminDensity` x area),
 none within `laminNpcExclNm` / 2 (40 nm diameter) of a geometric pore centre; one docking site per point, the linkage
-along the inward normal (`LaminDyesInBlock`, salt "LAMD"), 1 um cube blocks after the pores'. A placeholder for a real
+along a uniform random direction (drawn at site k = 1; inward before 2026-10-27; `LaminDyesInBlock`, salt "LAMD"), 1 um cube blocks after the pores'. A placeholder for a real
 network later: replace that one function. ABI 16: `ISC_STRUCT_LAMIN` 2 (the docking strands moved to 3,
 `ISC_STRUCT_COUNT` 4, kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6). **Off by default**: the registry's new
 `defaultDye: "None"` (`data/specimens.json` -> `TargetData::defaultNone`, viewer `defaultDyeFor`, MM `SceneState`) makes
 `lamin-dye` None; the core's `laminDensity` defaults to 0 (goldens, the block), the engine's `lamin-density` / MM
 `CellField.NuclearLaminaDensityPerUm2` (Advanced; 100..10000) to 2000 (*estimate*; was 50), `CellField.NuclearLaminaPoreExclusionNm` (Expert).
 `PackingFingerprint` and the pack keys skip `lamin*`. Viewer: View toggle `showLamin` (off; layer `lamin.points`, GL kind 9,
-the detailed cells' `isc_cell_lamin` points, fetched only while on; `#hud` `data-lamina`; `tests/web/viewer_scene.mjs`). Checks:
+the detailed cells' `isc_cell_lamin` points, fetched only while on; colours `laminMap` (height scale, default greens; each
+colour select shows only while its structure is drawn); `#hud` `data-lamina`; `tests/web/viewer_scene.mjs`). Checks:
 `web/lab/lamin_check.mjs`, ctest `world_checks.lamin` (~30 s), golden `lamin` cases (`lam`/`lmd` lines), `label_parity`,
 `wasm_abi_smoke`, the block check; every default output unchanged (cli TIFFs, nanorulers included).
 

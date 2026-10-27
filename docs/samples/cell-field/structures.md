@@ -156,7 +156,7 @@ a random stand-in for the lamin network under the nuclear envelope: points, not 
   (some 250 000 on a nucleus of ~125 µm²). The viewer draws the points with View > Nuclear lamina.
 - **Label.** One docking site per point, labelled through the same path as the other targets (`lamin-dye`,
   `lamin-mode`, `lamin-label-pct`, `lamin-imager-nm`, the linkage `lamin-binder*`; MM `NuclearLamina_*`). The linkage
-  points inward, along the envelope's inward normal (the lamina lines the nucleoplasmic face; *estimate*); default
+  starts at the point in a random direction (every direction equally likely, no side of the envelope preferred); default
   anti-lamin primary + secondary antibodies (IgG2-PAINT). The typical labels per mode (DNA-PAINT Cy3B 70%, dSTORM AF647
   70%, PALM mEos3.2 58%, WideField mEGFP 100%) and the DNA-PAINT binding (2.5 nM imager, the pores' k<sub>on</sub> and
   bound time) are *estimates*. To turn it on: `lamin-dye Typical` on the cli, the Dye select of the Nuclear lamina
@@ -167,7 +167,7 @@ a random stand-in for the lamin network under the nuclear envelope: points, not 
 
 A dye does not sit on its structure: a probe holds it there. One model for every target: the **binder** (the probe:
 primary + secondary antibodies, a nanobody, a SNAP or Halo tag, a fusion protein, a docking strand) points away from
-the structure (radially from a microtubule, from a pore's corner outwards, from a lamina point inwards) by its length, with a flexibility (a random
+the structure (radially from a microtubule, from a pore's corner outwards, from a lamina point in a random direction) by its length, with a flexibility (a random
 offset in a ball); then a short chemical **linker** in a random direction; then the **dye**. Presets (cli/viewer
 `<prefix>-binder`, MM `<Target>_Binder`, Advanced; the numbers in Expert) come from measured label shells
 [[fruh2021](../../references.md#fruh2021), [nieves2019](../../references.md#nieves2019)]. Defaults: the microtubules

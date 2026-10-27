@@ -880,11 +880,13 @@ const UI_GROUPS = [
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
       [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence'], ['fluoZ', 'Dark fluorescence (depth)']], 'fluoZ', { adv }),
     select('mtMap', 'Microtubule colours', 'The microtubules\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
-      LINE_MAP_ITEMS, 'ice', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'ice', { adv, show: () => CF() && $('showMt').checked }),
     select('npcMap', 'Pore colours', 'The nuclear pores\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
-      LINE_MAP_ITEMS, 'warm', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'warm', { adv, show: () => CF() && $('showNpcs').checked }),
     select('nucMap', 'Nucleus colours', 'The nucleus\' colours: a scale over its own height (its bottom to its top), so its shape reads as shading; the small bars preview each choice. The Look\'s: as the Look draws it (the viewer\'s depth colours over the cell\'s height, or one colour). Display only.',
-      LINE_MAP_ITEMS, 'greys', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'greys', { adv, show: () => CF() && $('showNucleus').checked }),
+    select('laminMap', 'Lamina colours', 'The nuclear lamina points\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: one colour. Display only.',
+      LINE_MAP_ITEMS, 'greens', { adv, show: () => CF() && $('showLamin').checked }),
     grid('Show', [
       check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true, { show: CF }),
       check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
@@ -1046,7 +1048,7 @@ const UI_GROUPS = [
   // The nuclear lamina (2026-10-27; core params lamin*, spec/ALGORITHM.md "Nuclear lamina"): random points on the
   // envelope, none at the pores. Unlabelled by default (its label group: Dye None).
   { id: 'lamin', title: 'Nuclear lamina', show: CF, items: [
-    range('mv_lamin-density', 'Density', '/µm²', 'Nuclear lamina points per µm² of nuclear envelope, over the whole envelope (2000; an estimate: a random stand-in for the lamin network, to be replaced by a network later). Placed uniformly by area and independently, none within half the Pore exclusion of a pore centre. Each carries one docking site; its label linkage points inward (the lamina lines the nucleoplasmic side). It shows only when labelled (Nuclear lamina label: Dye) or drawn (View: Nuclear lamina). <code>CellField.NuclearLaminaDensityPerUm2</code>', 100, 10000, 100, 2000, { adv, fmt: fx(0) }),
+    range('mv_lamin-density', 'Density', '/µm²', 'Nuclear lamina points per µm² of nuclear envelope, over the whole envelope (2000; an estimate: a random stand-in for the lamin network, to be replaced by a network later). Placed uniformly by area and independently, none within half the Pore exclusion of a pore centre. Each carries one docking site; its label linkage leaves the point in a random direction. It shows only when labelled (Nuclear lamina label: Dye) or drawn (View: Nuclear lamina). <code>CellField.NuclearLaminaDensityPerUm2</code>', 100, 10000, 100, 2000, { adv, fmt: fx(0) }),
     num('laminNpcExclNm', 'Pore exclusion', 'nm', 'Diameter of the disc around each nuclear pore\'s centre that holds no lamina point (40 nm; estimate). <code>CellField.NuclearLaminaPoreExclusionNm</code>', 0, 300, 5, 40, { adv }),
   ] },
 
@@ -1752,8 +1754,10 @@ function setStopsU(u, stops) {
   gl.uniform3fv(u.u_stops, a); gl.uniform1i(u.u_nst, Math.min(6, stops.length));
 }
 function lineStops(kind) {
-  const isNpc = kind === K['npc.lines'], el = document.getElementById(isNpc ? 'npcMap' : 'mtMap');
-  return (el && LINE_MAPS[el.value]) || (isNpc ? PORE_STOPS : MT_STOPS);
+  const [id, def] = kind === K['npc.lines'] ? ['npcMap', PORE_STOPS] : kind === K['lamin.points'] ? ['laminMap', LINE_MAPS.greens]
+    : ['mtMap', MT_STOPS];
+  const el = document.getElementById(id);
+  return (el && LINE_MAPS[el.value]) || def;
 }
 function depthRGB(z, zmin, zmax, stops = DEPTH_STOPS) {
   const t = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0.5;
@@ -1848,7 +1852,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
  'mv_lamin-density', 'mv_lamin-densityVal', 'laminNpcExclNm',
- 'showDyes', 'mtMap', 'npcMap', 'nucMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showLamin', 'showGrid', 'resetView', 'randomCell', 'prevCell',
+ 'showDyes', 'mtMap', 'npcMap', 'nucMap', 'laminMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showLamin', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'perspDeg', 'perspDegVal', 'perspMist', 'perspMistVal', 'perspCut', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
@@ -1995,11 +1999,12 @@ function mapCss(stops) {
 }
 function lookStops(kindId) {
   const th = IscScene.THEMES[els.theme.value] || IscScene.THEMES.viewer, col = th.layers[kindId] && th.layers[kindId].color;
-  return col ? [[col[0] / 255, col[1] / 255, col[2] / 255]] : (kindId === 'npc.lines' ? PORE_STOPS : kindId === 'nucleus.surface' ? DEPTH_STOPS : MT_STOPS);
+  return col ? [[col[0] / 255, col[1] / 255, col[2] / 255]] : (kindId === 'npc.lines' ? PORE_STOPS : kindId === 'nucleus.surface' ? DEPTH_STOPS
+    : kindId === 'lamin.points' ? LINE_MAPS.greens : MT_STOPS);
 }
 const mapPickers = [];
 const closeMapLists = except => { for (const m of mapPickers) if (m !== except) m.list.hidden = true; };
-for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nucMap', 'nucleus.surface']]) {
+for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nucMap', 'nucleus.surface'], ['laminMap', 'lamin.points']]) {
   const sel = els[id];
   if (!sel || !sel.parentNode) continue;
   const lsKey = 'isc.ui.' + id;   // the choice is remembered across reloads
@@ -2038,7 +2043,7 @@ function updateMapChips() {
     cur.firstChild.style.background = css(sel.value); cur.lastChild.textContent = opt ? opt.textContent : '';
   }
 }
-for (const id of ['mtMap', 'npcMap', 'nucMap', 'theme']) for (const ev of ['input', 'change']) els[id].addEventListener(ev, updateMapChips);
+for (const id of ['mtMap', 'npcMap', 'nucMap', 'laminMap', 'theme']) for (const ev of ['input', 'change']) els[id].addEventListener(ev, updateMapChips);
 updateMapChips();
 
 // Follow live focus: the Z clip = the focal plane (mv_z, the live focus) +- ZFOLLOW_UM, set on the Z clip's own boxes.
@@ -2108,7 +2113,7 @@ function stateFromUI() {
   if (els.showNucleus.checked) layers['nucleus.surface'] = mapOver('nucMap');
   if (els.showMt.checked) layers['mt.lines'] = mapOver('mtMap');
   if (els.showNpcs.checked) layers['npc.lines'] = mapOver('npcMap');
-  if (els.showLamin.checked && p.laminDensity > 0) layers['lamin.points'] = {};
+  if (els.showLamin.checked && p.laminDensity > 0) layers['lamin.points'] = mapOver('laminMap');
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
   if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
@@ -2474,16 +2479,16 @@ function drawCell2D(c, asset, p, F, cf) {
   }
   const kLam = K['lamin.points'];
   if (on(kLam) && asset.lamin) {   // the lamina points: one square each, in the Z clip
-    const L = asset.lamin, size = ((Z.layer[kLam] && Z.layer[kLam].size) || 1.5) * F.pxScale, half = size / 2, path = new Path2D();
+    const L = asset.lamin, size = ((Z.layer[kLam] && Z.layer[kLam].size) || 1.5) * F.pxScale, half = size / 2;
+    const css = slotCss(F, kLam * IV, cf.alpha, null), nl = css ? 1 : LAMIN_LEVELS, paths = laminLevelPaths(nl);
     for (let i = 0; i < L.length; i += 6) {
       const lx = L[i], ly = L[i + 1], z = L[i + 2];
       if (z < F.zc[0] || z > F.zc[1]) continue;
       const sx = t.ox + (lx * t.cr - ly * t.sr) * t.S;
       const sy = t.H2 + ((t.oy + lx * t.sr + ly * t.cr) * t.cosT - (z - t.pz) * t.sinT) * t.S;
-      path.rect(sx - half, sy - half, size, size);
+      paths[laminLevel(z, c.height, nl)].rect(sx - half, sy - half, size, size);
     }
-    ctx.fillStyle = slotCss(F, kLam * IV, cf.alpha, [120, 230, 140]);
-    ctx.fill(path);
+    fillLaminLevels(ctx, paths, css, c.height, Z.st[4 * kLam * IV + 3] * cf.alpha);
   }
   if (!(on(0) || on(1) || on(2) || on(3))) return;
   ensureOrder(r, entry, t, p.cytoContourStep, cf.detailed);
@@ -2783,16 +2788,18 @@ void main() {
 }`;
 // Lines (microtubules, pores): a style without a colour (r < 0) draws the height over the cell's (u_zr) in depth colours.
 // u_stops / u_nst: the height scale (lineStops), 2-6 colours, a piecewise-linear ramp
-const glFsLine = kind => `#version 300 es
-precision highp float;
-in vec3 v_w; in float v_k; out vec4 o; uniform vec2 u_zr; uniform vec3 u_stops[6]; uniform int u_nst; uniform int u_fadePass;` + GL_CLIP + `
+const GL_DEPTH_RGB = `
+uniform vec2 u_zr; uniform vec3 u_stops[6]; uniform int u_nst;
 vec3 depthRGB(float t) {
   float f = clamp(t, 0.0, 0.9999) * float(u_nst - 1);
   int i = int(floor(f));
   vec3 a = u_stops[0], b = u_stops[1];
   for (int k = 0; k < 5; k++) if (k == i) { a = u_stops[k]; b = u_stops[k + 1]; }
   return mix(a, b, f - float(i));
-}
+}`;
+const glFsLine = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; in float v_k; out vec4 o; uniform int u_fadePass;` + GL_CLIP + GL_DEPTH_RGB + `
 void main() {
   vec4 st = zoneStyle(${kind}, v_w);
   if (st.a < 0.0) discard;
@@ -2802,6 +2809,16 @@ void main() {
   if (a < 0.004) discard;
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
   o = fogged(rgb, a, v_w);
+}`;
+// Points in a kind's style, or (no colour) the height scale over u_zr (the lamina).
+const glFsPointDepth = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; out vec4 o;` + GL_CLIP + GL_DEPTH_RGB + `
+void main() {
+  vec4 st = zoneStyle(${kind}, v_w);
+  if (st.a < 0.0) discard;
+  vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
+  o = fogged(rgb, st.a * u_cellA, v_w);
 }`;
 const glFsKind = kind => `#version 300 es
 precision highp float;
@@ -2850,7 +2867,7 @@ function initGl() {
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
   if (np) { glNpcProg = np.pr; glNpcU = np.u; } else console.warn('nuclear pores unavailable (shader)');
-  const lam = link(GL_PT_VS, glFsKind(K['lamin.points']), ['a_pt'], ['u_ptHalf']);
+  const lam = link(GL_PT_VS, glFsPointDepth(K['lamin.points']), ['a_pt'], ['u_ptHalf', 'u_zr', 'u_stops', 'u_nst']);
   if (lam) { glLamProg = lam.pr; glLamU = lam.u; } else console.warn('nuclear lamina unavailable (shader)');
   if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
   const iso = link(GL_ISO_VS, GL_ISO_FS, ['a_p', 'a_n'], []);
@@ -3046,6 +3063,18 @@ function ensureNpcGl(entry, npcs, p, arcs) {
   gl.bindVertexArray(null);
   return l;
 }
+// The 2D fallback and the x-z view draw the lamina's height scale in LAMIN_LEVELS steps of the cell's height: one path
+// and one fill per step (one path in a flat colour).
+const LAMIN_LEVELS = 12;
+const laminLevelPaths = nl => Array.from({ length: nl }, () => new Path2D());
+const laminLevel = (z, height, nl) => nl > 1 && height > 0 ? Math.min(nl - 1, Math.max(0, Math.floor(z / height * nl))) : 0;
+function fillLaminLevels(g, paths, css, height, alpha) {
+  const stops = css ? null : lineStops(K['lamin.points']);
+  paths.forEach((path, lv) => {
+    g.fillStyle = css || depthColor((lv + 0.5) / paths.length * height, 0, height, alpha, stops);
+    g.fill(path);
+  });
+}
 // The lamina points of a cell as GL_PT_VS instances (x, y, z cell-local, w unused), made once per asset.
 function ensureLaminGl(entry, lamin) {
   if (entry.laminGl) return entry.laminGl;
@@ -3141,12 +3170,14 @@ function drawSceneGl(cells, p, F) {
   if (Z.n[kLam] && glLamProg) {   // opaque pass: the lamina points, depth written, per cell in its own frame
     gl.useProgram(glLamProg); frame(glLamU);
     gl.uniform1f(glLamU.u_ptHalf, ((Z.layer[kLam] && Z.layer[kLam].size) || 1.5) / 2 * F.pxScale);
+    setStopsU(glLamU, lineStops(kLam));
     gl.depthFunc(gl.LESS); gl.depthMask(true);
     for (const cf of cells) {
       const { cell: c, asset } = cf;
       if (!asset.lamin || ((cf.hide >> kLam) & 1)) continue;
       const l = ensureLaminGl(asset.entry, asset.lamin);
       cellU(glLamU, c, cf);
+      gl.uniform2f(glLamU.u_zr, 0, c.height);
       gl.bindVertexArray(l.vao);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, l.count);
     }
@@ -3385,9 +3416,10 @@ function updateLegend(Z, st, nr) {
   const grad = stops => 'linear-gradient(90deg,' + stops.map(c => `rgb(${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0})`).join(',') + ')';
   const mtDepth = grad(lineStops(K['mt.lines']));
   const poreDepth = grad(lineStops(K['npc.lines'])) + ' ';   // (a trailing space: never equal to mtDepth)
+  const laminDepth = grad(lineStops(K['lamin.points'])) + '   ';
   const sw = k => {
     const o = 4 * k * IV, s = Z.st;
-    return s[o] < 0 ? (k === K['npc.lines'] ? poreDepth : k === K['mt.lines'] ? mtDepth : k === K['nucleus.surface'] && nucScale(els.nucMap.value) ? grad(nucScale(els.nucMap.value)) + '  ' : depth) : `rgb(${s[o] * 255 | 0},${s[o + 1] * 255 | 0},${s[o + 2] * 255 | 0})`;
+    return s[o] < 0 ? (k === K['npc.lines'] ? poreDepth : k === K['lamin.points'] ? laminDepth : k === K['mt.lines'] ? mtDepth : k === K['nucleus.surface'] && nucScale(els.nucMap.value) ? grad(nucScale(els.nucMap.value)) + '  ' : depth) : `rgb(${s[o] * 255 | 0},${s[o + 1] * 255 | 0},${s[o + 2] * 255 | 0})`;
   };
   const on = id => Z.n[K[id]] > 0, items = [];
   if (nr) { if (on('ruler.outline')) items.push([sw(K['ruler.outline']), 'nanoruler (DNA origami)']); }
@@ -3405,7 +3437,7 @@ function updateLegend(Z, st, nr) {
     items.push([`rgb(${c[0]},${c[1]},${c[2]})`, 'fiducial beads']);
   }
   if (st.grid && !nr) items.push(['#4a5668', 'chunk grid']);
-    const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
+    const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth || c === laminDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
   if (html === legendKey) return;
   legendKey = html;
   const el = document.getElementById('legend');
@@ -3535,14 +3567,14 @@ function drawXZWith(vis, p, F, cam) {
     if (!nucDone) drawNucleus();
     const kLam = K['lamin.points'];
     if (on(kLam, cf) && asset.lamin) {   // the lamina points in the view's turned-y range and the Z clip
-      const L = asset.lamin, path = new Path2D(), sz = 1.2 * dpr;
+      const L = asset.lamin, sz = 1.2 * dpr, css = slotCss(F, kLam * IV, cf.alpha, null), nl = css ? 1 : LAMIN_LEVELS;
+      const paths = laminLevelPaths(nl);
       for (let i = 0; i < L.length; i += 6) {
         const lx = L[i], ly = L[i + 1], z = L[i + 2], ty = lx * t.sr + ly * t.cr;
         if (ty < yl || ty > yh || z < zc[0] || z > zc[1]) continue;
-        path.rect(t.ox + (lx * t.cr - ly * t.sr) * S - sz / 2, z0 - z * S - sz / 2, sz, sz);
+        paths[laminLevel(z, c.height, nl)].rect(t.ox + (lx * t.cr - ly * t.sr) * S - sz / 2, z0 - z * S - sz / 2, sz, sz);
       }
-      g.fillStyle = slotCss(F, kLam * IV, cf.alpha, [120, 230, 140]);
-      g.fill(path);
+      fillLaminLevels(g, paths, css, c.height, opa(kLam, 1));
     }
     if (on(kCyto, cf) || on(kOut, cf)) {
       const pr = getXZProfile(asset.entry, c, t.rot, yl, yh);
