@@ -4,7 +4,7 @@
 // frame to frame) with one decimal per time; ● Record saves N frames as one 16-bit ImageJ TIFF stack (the pixel size
 // as XResolution, the frame interval and every setting in the header): by default a fresh sample (a movie; the live
 // sample's time stays), with "continue the live sample" the live sample's time runs on by N frames.
-//   node tests/web/viewer_live_record.mjs [--channel=chrome]
+//   node tests/web/viewer_live_record.mjs [--channel=chrome] [--swiftshader]   (the hardware GPU; --swiftshader: software GL, ~10x slower)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,7 +43,7 @@ function readTiff(buf) {
 
 let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
-const browser = await chromium.launch({ channel: arg('channel') || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ channel: arg('channel') || undefined, args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 }, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];

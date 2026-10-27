@@ -49,7 +49,8 @@ jobs:
 
   # The viewer's DOM-free modules in Node: scene core (camera, clip tables, detail budget, layer registry), data-layer
   # computations (thresholded surface, localizations), animation
-  # sequences, export encoders (GIF decoded back, MP4/WebM structure). The browser checks (tests/web/*) stay local.
+  # sequences, export encoders (GIF decoded back, MP4/WebM structure), the BrightField worker split on the viewer's own
+  # worker code (iscEngine, the committed module). The browser checks (tests/web/viewer_*) stay local.
   viewer-js:
     runs-on: ubuntu-latest
     steps:
@@ -57,7 +58,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs
+      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs && node tests/web/bf_split_check.mjs
 
   # JS imaging reference (web/prototype/scope) == the C++ (the committed WASM module): events, SR, WideField.
   scope-parity:

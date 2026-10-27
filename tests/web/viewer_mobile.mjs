@@ -4,7 +4,7 @@
 // square stage at full width, the world view as the inset in its top-right corner), Live starting by itself, the focus knob (a swipe and
 // − / +), two fingers on the live image (up = focus up, a spread = zoom), the inset swap (kept over a reload), two
 // fingers on the world view (pinch = zoom, both up = tilt), and a wide window putting every node back.
-//   node tests/web/viewer_mobile.mjs [--channel=chrome]
+//   node tests/web/viewer_mobile.mjs [--channel=chrome] [--swiftshader]   (the hardware GPU; --swiftshader: software GL, ~10x slower)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,7 +28,7 @@ let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 setTimeout(() => { console.log('FAIL  timed out after 240 s'); process.exit(1); }, 240000).unref();
-const browser = await chromium.launch({ channel: arg('channel') || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ channel: arg('channel') || undefined, args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
 const page = await ctx.newPage();
 const cdp = await ctx.newCDPSession(page);

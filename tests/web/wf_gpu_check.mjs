@@ -29,6 +29,7 @@ const port = server.address().port;
 const browser = await chromium.launch(process.env.ISC_CHROME ? { channel: 'chrome', args: ['--enable-unsafe-webgpu'] } :
   { args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-vulkan=swiftshader',
     '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface'] });
+const dog = setTimeout(() => { console.log('FAIL  wf_gpu_check: no end after 120 s'); process.exit(2); }, 120000);
 const page = await browser.newPage();
 page.on('console', m => console.log('[page]', m.text()));
 await page.goto(`http://localhost:${port}/`);
@@ -40,7 +41,9 @@ const r = await page.evaluate(async () => {
   const gpu = await IscWfGpu.create(self.ISC_WF_WGSL, true);
   if (!gpu) return { skip: 'no WebGPU adapter' };
   const out = { adapter: gpu.adapterInfo, cases: [] };
+  let stage = '';
   const run = async (spec) => {
+    stage = 'isc_wf_begin';
     const err = M._malloc(512), s = M._malloc(spec.length + 1);
     M.stringToUTF8(spec, s, spec.length + 1);
     const h = M._isc_wf_begin(s, err, 512);
@@ -50,9 +53,11 @@ const r = await page.evaluate(async () => {
     if (scenes < 1) { M._isc_wf_end(h); return { spec, error: 'no mean-field scene' }; }
     M._isc_wf_select(h, 0);
     let t = performance.now();
+    stage = 'jobFromModule';
     const job = IscWfGpu.jobFromModule(M, h);
     const tJob = performance.now() - t;
     t = performance.now();
+    stage = 'the GPU images';
     const gi = await gpu.images(job);
     const tGpu = performance.now() - t;
     t = performance.now();
@@ -61,6 +66,7 @@ const r = await page.evaluate(async () => {
     const cs = job.cw * job.ch, n = job.channels.length;
     const cp = M._malloc(n * cs * 4);
     t = performance.now();
+    stage = 'isc_wf_cpu_images';
     M._isc_wf_cpu_images(h, cp);
     const tCpu = performance.now() - t;
     const cpu = M.HEAPF32.slice(cp / 4, cp / 4 + n * cs);
@@ -76,6 +82,7 @@ const r = await page.evaluate(async () => {
     gi.forEach((g, c) => all.set(g, c * cs));
     const ip = M._malloc(all.byteLength);
     M.HEAPF32.set(all, ip / 4);
+    stage = 'isc_wf_set_images + isc_wf_movie';
     M._isc_wf_set_images(h, ip);
     const info = M._malloc(24);
     const need = M._isc_wf_movie(h, 0, 0, info, err, 512);
@@ -85,6 +92,7 @@ const r = await page.evaluate(async () => {
     const sp = M._malloc(spec.length + 1);
     M.stringToUTF8(spec, sp, spec.length + 1);
     const cm0 = M._malloc(need * 2);
+    stage = 'isc_scope_movie';
     M._isc_scope_movie(sp, cm0, need, info, err, 512);
     const cm = M.HEAPU16.slice(cm0 / 2, cm0 / 2 + need);
     let diff = 0, maxd = 0, sg = 0, sc = 0, off = 100 * need;
@@ -97,13 +105,17 @@ const r = await page.evaluate(async () => {
       movieDiffPx: diff / need, movieMaxAdu: maxd, meanRel };
   };
   // A WideField label; and a PALM label whose green pre state is mean-field next to its blinks (two kernel groups).
-  out.cases.push(await run('size=64 frames=4 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto'));
-  out.cases.push(await run('size=64 frames=4 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=50 start-sec=12'));
+  try { out.cases.push(await run('size=32 frames=2 psf-kernel-half-width-nm=3000 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto')); }
+  catch (e) { out.cases.push({ spec: 'size=32 frames=2 psf-kernel-half-width-nm=3000 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto', error: `${e.message} in ${stage}` }); return out; }   // (an abort ends the module)
+  try { out.cases.push(await run('size=32 frames=2 psf-kernel-half-width-nm=3000 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=3 start-sec=12')); }
+  catch (e) { out.cases.push({ spec: 'size=32 frames=2 psf-kernel-half-width-nm=3000 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=3 start-sec=12', error: `${e.message} in ${stage}` }); return out; }   // (an abort ends the module)
   return out;
 });
+clearTimeout(dog);
 await browser.close();
 server.close();
-if (r.skip) { console.log('SKIP', r.skip); process.exit(0); }
+// (a visible skip: 77 = ctest's SKIP_RETURN_CODE, not a pass)
+if (r.skip) { console.log(`SKIP  ${r.skip}: nothing checked (exit 77)`); process.exit(77); }
 console.log('adapter:', r.adapter);
 let fail = 0;
 for (const c of r.cases) {
