@@ -10,6 +10,8 @@ params nucplain nucIrregMin=0 nucIrregMax=0 nucBendMin=0 nucBendMax=0 nucThickIr
 params nucwild nucIrregMin=0.3 nucIrregMax=0.3 nucBendMin=1 nucBendMax=1 nucSmooth=0 nucThickIrreg=0.4 nucAsym=-0.9 nucWidestMin=1 nucWidestMax=1 nucHeightMin=0.4 nucHeightMax=0.4 mtDensity=0.1 mtDirKappa=0
 params npcvar nucAsym=0 npcDensity=25 npcMinDistNm=0 npcRadiusNm=60 npcRingSepNm=40 npcCornerSpreadNm=20 mtDensity=0.1
 params npcjam npcDensity=30 npcMinDistNm=250 mtDensity=0.1
+params lamin laminDensity=50 laminNpcExclNm=120 mtDensity=0.1
+params laminjam nucAsym=0 npcDensity=25 npcMinDistNm=0 laminDensity=200 laminNpcExclNm=300 mtDensity=0.1
 rng 0 0 0 0
 rng 0 0 0 1
 rng 0 0 0 44
@@ -332,6 +334,8 @@ npcs p01 2024 nucplain -2 -2 2 2 2
 npcs p02 9001 nucwild -2 -2 2 2 2
 npcs p03 77 npcvar -3 -3 3 3 2
 npcs p04 4711 npcjam -3 -3 3 3 1
+lamin l00 1249 lamin -2 -2 1 1 2
+lamin l01 77 laminjam -3 -3 3 3 1
 origami o00 1249 0 0 6 6
 origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3
 origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2

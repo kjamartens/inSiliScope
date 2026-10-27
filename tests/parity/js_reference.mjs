@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { loadPrototype } from './load_prototype.mjs';
 import { OrigamiField, shapeOutline, moleculeSites } from '../../web/prototype/scope/origami.js';
-import { npcDyesInBlock, normLinkage, LEGACY_LINKAGE } from '../../web/prototype/scope/dyes.js';
+import { npcDyesInBlock, laminDyesInBlock, normLinkage, LEGACY_LINKAGE } from '../../web/prototype/scope/dyes.js';
 import { FiducialField } from '../../web/prototype/scope/fiducials.js';
 
 const [protoPath, casesPath, outPath] = process.argv.slice(2);
@@ -34,7 +34,8 @@ const PARAM_KEYS = ['chunkSize', 'jitter', 'density', 'cellDiamMin', 'cellDiamMa
   'cytoMidDistanceMax', 'cytoMaxSlope', 'cytoDomeSlope', 'cytoRelaxUm', 'cytoRings', 'cytoTheta',
   'enablePacking', 'allowPackRotation', 'packFrac', 'relaxIters', 'relaxDamping',
   'mtDensity', 'mtStartDecayPct', 'mtEndDecayPct', 'mtDirKappa', 'mtWobbleTurn', 'mtWobbleFactor', 'mtStepLen', 'mtSmoothLen', 'mtMinTurnRadius',
-  'mtMinSeparation', 'mtMaxZSlope', 'npcDensity', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm'];
+  'mtMinSeparation', 'mtMaxZSlope', 'npcDensity', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
+  'laminDensity', 'laminNpcExclNm'];
 const defaults = {};
 for (const k of PARAM_KEYS) if (k in proto.defaults) defaults[k] = proto.defaults[k];
 const missing = PARAM_KEYS.filter(k => !(k in defaults));
@@ -196,6 +197,44 @@ for (const line of fs.readFileSync(casesPath, 'utf8').split('\n')) {
           for (let i = 0; i < dyes.length; i += 7) {
             const e = dyes[i], P = e.parts;
             d.push(e.pore, e.k, e.n, e.id, e.pos.x, e.pos.y, e.pos.z, P.site.x, P.site.y, P.site.z,
+              P.rigid.x, P.rigid.y, P.rigid.z, P.tip.x, P.tip.y, P.tip.z);
+          }
+          out.push(d.map(f).join(' '));
+        });
+      }
+    }
+  } else if (kind === 'lamin') {
+    // Per present cell the point count and the area, sums over every point and every 23rd point; the dyes of the first
+    // 200 points (density 0.7, fluorescent 0.9) under the lamina's built-in linkage and a flexible one, with every 7th
+    // dye's linkage parts.
+    const [id, seedS, pname, ...rest] = t.slice(1);
+    const [cx0, cy0, cx1, cy1, maxCells] = rest.map(Number);
+    const p = paramSets[pname], seed = +seedS;
+    const f = x => String(x);
+    const LINKS = [LEGACY_LINKAGE.lamin, { binderNm: 19.3, binderFlexNm: 15.3, linkerMinNm: 0.5, linkerMaxNm: 2 }];
+    let done = 0;
+    for (let cx = cx0; cx <= cx1 && done < maxCells; cx++) {
+      for (let cy = cy0; cy <= cy1 && done < maxCells; cy++) {
+        const c = g.rawCandidate(seed, cx, cy, p);
+        if (!c.present) continue;
+        done++;
+        const M = g.nucSurfaceMesh(c);
+        const pts = g.buildLaminForCell(seed, cx, cy, c, p, g.buildNpcsForCell(seed, cx, cy, c, p));
+        const s = new Array(6).fill(0);
+        for (const q of pts) { s[0] += q.x; s[1] += q.y; s[2] += q.z; s[3] += q.n[0]; s[4] += q.n[1]; s[5] += q.n[2]; }
+        const l = [`lam ${id} ${cx} ${cy} 0 ${pts.length}`, M.area, ...s];
+        for (let i = 0; i < pts.length; i += 23) { const q = pts[i]; l.push(q.cand, q.piece, q.x, q.y, q.z, ...q.n); }
+        out.push(l.map(f).join(' '));
+        const ids = pts.slice(0, 200).map((_, i) => i);
+        LINKS.forEach((lk, v) => {
+          const dyes = [];
+          laminDyesInBlock(seed >>> 0, cx, cy, pts, ids, 0.7, 0.9, dyes, normLinkage(lk), true);
+          let sx = 0, sy = 0, sz = 0;
+          for (const e of dyes) { sx += e.pos.x; sy += e.pos.y; sz += e.pos.z; }
+          const d = [`lmd ${id} ${cx} ${cy} ${v} ${dyes.length}`, sx, sy, sz];
+          for (let i = 0; i < dyes.length; i += 7) {
+            const e = dyes[i], P = e.parts;
+            d.push(e.point, e.k, e.n, e.id, e.pos.x, e.pos.y, e.pos.z, P.site.x, P.site.y, P.site.z,
               P.rigid.x, P.rigid.y, P.rigid.z, P.tip.x, P.tip.y, P.tip.z);
           }
           out.push(d.map(f).join(' '));

@@ -336,11 +336,13 @@ static const DyeData kDyes[] = {
 // The specimens and their targets (data/specimens.json), the targets' typical labels per mode (library.json
 // typicalLabels: dye index, % of the sites) in the order dSTORM, PALM, DNA-PAINT, WideField; the DNA-PAINT binding kinetics
 // (paint: k_on /M/s, mean bound time s, default imager concentration nM); the default linkage preset (index into
-// kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults).
+// kLinkagePresets; -1 = no linkage model, library.json linkagePresets.defaults); defaultNone: the dye defaults to None
+// (specimens.json defaultDye: off until labelled).
 static const TargetData kTargets[] = {
-   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 1000000.0, 0.05, 1.0, 3 },
-   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 }, 1000000.0, 0.05, 2.5, 7 },
-   { "docking", "Docking strands", "ruler", "Nanorulers", 2, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, 1000000.0, 0.28853900817779266, 20.0, -1 },
+   { "microtubules", "Microtubules", "mt", "CellField", 0, { 0, 6, 3, 9 }, { 3.0, 25.0, 70.0, 70.0 }, 1000000.0, 0.05, 1.0, 3, false },
+   { "npcs", "Nuclear pores", "npc", "CellField", 1, { 0, 6, 5, 9 }, { 58.0, 58.0, 60.0, 100.0 }, 1000000.0, 0.05, 2.5, 7, false },
+   { "lamin", "Nuclear lamina", "lamin", "CellField", 2, { 0, 6, 5, 9 }, { 70.0, 58.0, 70.0, 100.0 }, 1000000.0, 0.05, 2.5, 3, true },
+   { "docking", "Docking strands", "ruler", "Nanorulers", 3, { 0, 6, 3, 3 }, { 80.0, 80.0, 80.0, 80.0 }, 1000000.0, 0.28853900817779266, 20.0, -1, false },
 };
 // The label linkage presets (library.json linkagePresets): binder, flexibility, linker min, max (nm); the first is
 // each structure's built-in numbers (structureDefault).
@@ -360,8 +362,8 @@ static const char* const kMultiTargetDichroic = "ChromaZT405-488-561-640rpc";
 static const char* const kMultiTargetEmissionFilter = "ChromaZET405-488-561-640m";
 // id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none).
 static const SpecimenData kSpecimens[] = {
-   { "CellField", "Cell field", 0, 2, kNaN },
-   { "Nanorulers", "DNA-origami nanorulers", 2, 1, 1.03 },
+   { "CellField", "Cell field", 0, 3, kNaN },
+   { "Nanorulers", "DNA-origami nanorulers", 3, 1, 1.03 },
 };
 // Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
 // peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference

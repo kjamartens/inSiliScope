@@ -39,6 +39,8 @@ const char* g_CellFieldCoreParam[CF_COUNT] = {
    "npcRadiusNm",
    "npcRingSepNm",
    "npcCornerSpreadNm",
+   nullptr,   // laminDensity: the engine option lamin-density
+   "laminNpcExclNm",
 };
 
 SceneState::SceneState()
@@ -48,10 +50,11 @@ SceneState::SceneState()
    // the coverslip in focus), then the nucleus shape and microtubule start/end
    // at the core's defaults (core/src/params.h).
    // The nuclear pores at the core's defaults (core/src/params.h: 8 per um^2 of envelope, 180 nm apart, Nup96 rings of
-   // 53.5 nm radius 50 nm apart, 12 nm corner arcs).
+   // 53.5 nm radius 50 nm apart, 12 nm corner arcs); the lamina at the engine's (50 per um^2, an estimate; unlabelled by
+   // default) and the core's 40 nm pore exclusion.
    const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 7.0,
       0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5,
-      8.0, 180.0, 53.5, 50.0, 12.0 };
+      8.0, 180.0, 53.5, 50.0, 12.0, 50.0, 40.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField[i] = cellFieldDefaults[i];
    // Mean-field grid: 1 cell/pixel, 25 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm).
@@ -74,14 +77,15 @@ SceneState::SceneState()
    // The scope options with adapter defaults of their own: the labelling at
    // the default dye's mode suggestion, the QE curve of the default camera.
    // The labels: each target in its own mode (issue 15: no experiment-wide mode), the library's default (DNA-PAINT),
-   // with its typical dye (Typical) -- microtubules ATTO 655, nuclear pores Cy3B, docking strands ATTO 655.
+   // with its typical dye (Typical) -- microtubules ATTO 655, nuclear pores Cy3B, docking strands ATTO 655 -- or None
+   // for a target that is off until labelled (the nuclear lamina: data/specimens.json defaultDye).
    using namespace sim;
    const int mode = DefaultDyeMode();
    for (int t = 0; t < TargetCount() && t < kMaxTargets; ++t)
    {
       const std::string prefix = TargetAt(t).prefix;
       options_[prefix + "-mode"] = mode;
-      options_[prefix + "-dye"] = -1;
+      options_[prefix + "-dye"] = TargetAt(t).defaultNone ? DyeNoneChoice() : -1;
       options_[prefix + "-label-pct"] = TargetAt(t).typicalPct[mode];
       lastTargetMode[t] = mode;
    }

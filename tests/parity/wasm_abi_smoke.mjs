@@ -2,7 +2,7 @@
 // parity cases through isc_pack_window and checks them against the JS
 // reference output (build/parity/ref_js.txt from run.mjs), then drives the
 // world queries (cells / sites / density / events in a window; labels, ABI 10; kinetics history, ABI 11; nuclear pores
-// and the label linkage, ABI 13).
+// and the label linkage, ABI 13; the nuclear lamina, ABI 16).
 //   node tests/parity/wasm_abi_smoke.mjs
 import fs from 'fs';
 import path from 'path';
@@ -104,7 +104,7 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   for (let i = 0; i < nr * 3; i++) ringsOk = ringsOk && Number.isFinite(M.HEAPF64[rb / 8 + i]);
   M._free(cb); M._free(rb);
   const ok = n > 0 && n2 === n && n3 === n && gs === n && nc > 0 && n4 === g3s && n4 === n && ringsOk &&
-    M._isc_abi_version() === 15 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
+    M._isc_abi_version() === 16 && cstr(M._isc_world_version()).length >= 10;   // ABI 8: the generator's version
   console.log(`world: ${nc} cells, ${n} dyes (z ${zmin.toFixed(2)}..${zmax.toFixed(2)} um, xy checksum ${sum.toFixed(6)}) ` +
     `in ${ms.toFixed(0)} ms, density sum ${gs} -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
@@ -122,11 +122,11 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
   console.log(`events: ${ne} blinks overlapping [1.0, 1.1) s in ${(performance.now() - te).toFixed(0)} ms -> ${eok ? 'ok' : 'MISMATCH'}`);
   if (!eok) bad++;
   // ABI 11: a one-segment kinetics history equal to the label = no history; a bad one is refused. ABI 12: a row is
-  // tStart + 6 kinetics per structure (three since ABI 13).
+  // tStart + 6 kinetics per structure (three since ABI 13, four since ABI 16).
   {
-    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 0], row = 1 + 3 * k.length;
+    const k = [0.5, 0.05, 0.5, 0.3, 0.4, 0], row = 1 + 4 * k.length;
     const hb = M._malloc(row * 8 * 2);
-    M.HEAPF64.set([0, ...k, ...k, ...k, 1, ...k, ...k, ...k], hb / 8);
+    M.HEAPF64.set([0, ...k, ...k, ...k, ...k, 1, ...k, ...k, ...k, ...k], hb / 8);
     const hok0 = M._isc_world_set_kinetics_history(w, hb, 1) === 0;
     const nh = M._isc_events_in_window(w, win[0], win[1], win[2], win[3], win[4], win[5], 1.0, 1.1, 0, 0);
     const hbad = M._isc_world_set_kinetics_history(w, hb + 8 * row, 1) === -1;   // tStart 1: not 0
@@ -224,5 +224,53 @@ console.log(`${checked - bad}/${checked} cases bit-exact through the WASM C ABI`
     `inf refused, NaN = built-in -> ${ok ? 'ok' : 'MISMATCH'}`);
   if (!ok) bad++;
   M._isc_world_free(w); M._isc_params_free(p);
+}
+// ---- ABI 16: the nuclear lamina (structure 2): none at the core's default density; at 50 per um^2 unit outward
+// normals, no point within 20 nm of a pore centre, and its dyes (structure 2) once labelled ----
+{
+  const p0 = makeParams([]), p = makeParams([['laminDensity', 50]]);
+  const w0 = M._isc_world_new(1249, p0), w = M._isc_world_new(1249, p);
+  const cb = M._malloc(14 * 8);
+  M._isc_cells_in_window(w, -4, -7, 0, -3, cb, 1);
+  const cx = M.HEAPF64[cb / 8], cy = M.HEAPF64[cb / 8 + 1];
+  M._free(cb);
+  const n0 = M._isc_cell_lamin(w0, cx, cy, 0, 0);
+  const nl = M._isc_cell_lamin(w, cx, cy, 0, 0);
+  const lb = M._malloc(Math.max(1, nl) * 6 * 8);
+  const nl2 = M._isc_cell_lamin(w, cx, cy, lb, nl);
+  const np = M._isc_cell_npcs(w, cx, cy, 0, 0);
+  const pb = M._malloc(Math.max(1, np) * 9 * 8);
+  M._isc_cell_npcs(w, cx, cy, pb, np);
+  let lok = n0 === 0 && nl > 1000 && nl2 === nl, dmin = Infinity;
+  for (let i = 0; i < nl2; i++) {
+    const h = M.HEAPF64.subarray(lb / 8 + 6 * i, lb / 8 + 6 * i + 6);
+    lok &&= h.every(Number.isFinite) && Math.abs(Math.hypot(h[3], h[4], h[5]) - 1) < 1e-12;
+    if (i % 10) continue;   // (every 10th point against every pore: the time)
+    for (let j = 0; j < np; j++) {
+      const o = pb / 8 + 9 * j;
+      dmin = Math.min(dmin, Math.hypot(h[0] - M.HEAPF64[o], h[1] - M.HEAPF64[o + 1], h[2] - M.HEAPF64[o + 2]));
+    }
+  }
+  lok &&= dmin >= 0.02;
+  M._free(lb); M._free(pb);
+  const lab = M._malloc(20 * 8);
+  M.HEAPF64.set([0, 1, 2], lab / 8);
+  M._isc_world_set_label(w, 0, lab, 3);   // microtubules and pores off
+  M._isc_world_set_label(w, 1, lab, 3);
+  M.HEAPF64.set([0.7, 1, 2, 0.05, 0.05, 0.5, 0.3, 0.4, 0, 0, 0, 90, 0, 0, 0, 0, 19.3, 15.3, 0.5, 2], lab / 8);
+  const sok = M._isc_world_set_label(w, 2, lab, 20) === 0;
+  M._free(lab);
+  const win = [cx * 26 - 20, cy * 26 - 20, cx * 26 + 20, cy * 26 + 20, -Infinity, Infinity];
+  const nd = M._isc_sites_in_window(w, ...win, 0, 0);
+  const db = M._malloc(Math.max(1, nd) * 5 * 8);
+  const nd2 = M._isc_sites_in_window(w, ...win, db, nd);
+  let dok = nd > 0 && nd2 === nd;
+  for (let i = 0; i < nd2; i++) dok &&= M.HEAPF64[db / 8 + 5 * i + 4] === 2;
+  M._free(db);
+  const ok = lok && sok && dok;
+  console.log(`lamina: ${n0} at the default density, ${nl} on cell (${cx}, ${cy}) at 50 per um^2, unit normals, ` +
+    `nearest pore ${(dmin * 1e3).toFixed(1)} nm; ${nd} lamina dyes (structure 2) -> ${ok ? 'ok' : 'MISMATCH'}`);
+  if (!ok) bad++;
+  M._isc_world_free(w0); M._isc_world_free(w); M._isc_params_free(p0); M._isc_params_free(p);
 }
 process.exit(bad ? 1 : 0);

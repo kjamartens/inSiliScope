@@ -30,7 +30,7 @@ const viewerParams = new Function('vals',
   'const els = new Proxy({}, { get: (_, k) => ({ value: String(vals[k]), checked: !!vals[k] }) });\n' +
   paramsSource(viewer) + '\nreturn params();');
 const VIEWER_DEFAULTS = schemaDefaults(viewer, read('web/dye_library.js'));
-const PACK_KEY_SKIP = /^(mt|npc|showCytoContours$|cytoContourStep$)/; // = index.html
+const PACK_KEY_SKIP = /^(mt|npc|lamin|showCytoContours$|cytoContourStep$)/; // = index.html
 const packParams = p => Object.fromEntries(Object.entries(p).filter(([k]) => !PACK_KEY_SKIP.test(k)));
 
 let fails = 0;
@@ -58,13 +58,14 @@ function diff(a, b, at = '') {
 const both = job => [js.handle(structuredClone(job))[0], wasm.handle(structuredClone(job))[0]];
 
 // [name, seed, params overrides, the sites jobs' labels (density, fluorescent fraction, linkage per structure:
-// microtubules, nuclear pores, docking strands; issues 15, 16)]
+// microtubules, nuclear pores, nuclear lamina, docking strands; issues 15, 16; the lamina 2026-10-27)]
 const WORLDS = [
   ['defaults, seed 1249', 1249, {}, [{ density: 0.7, fluorescentFraction: 1 }, { density: 0.6, fluorescentFraction: 1 }]],
-  ['seed 7, wobbly MTs, rough edges, 30% labelled, half fluorescent, IgG2 microtubules, SNAP pores, sparse pores', 7,
-    { mtWobbleTurn: 1.6, cellRough: 0.4, 'mv_npc-density': 5, npcMinDistNm: 200 },
+  ['seed 7, wobbly MTs, rough edges, 30% labelled, half fluorescent, IgG2 microtubules, SNAP pores, sparse pores, lamina on', 7,
+    { mtWobbleTurn: 1.6, cellRough: 0.4, 'mv_npc-density': 5, npcMinDistNm: 200, 'mv_lamin-density': 30, laminNpcExclNm: 80 },
     [{ density: 0.3, fluorescentFraction: 0.5, linkage: { binderNm: 19.3, binderFlexNm: 15.3, linkerMinNm: 0.5, linkerMaxNm: 0.5 } },
-     { density: 0.8, fluorescentFraction: 0.9, linkage: { binderNm: 2.5, binderFlexNm: 2, linkerMinNm: 0.5, linkerMaxNm: 1 } }]],
+     { density: 0.8, fluorescentFraction: 0.9, linkage: { binderNm: 2.5, binderFlexNm: 2, linkerMinNm: 0.5, linkerMaxNm: 1 } },
+     { density: 0.7, fluorescentFraction: 1, linkage: { binderNm: 19.3, binderFlexNm: 15.3, linkerMinNm: 0.5, linkerMaxNm: 2 } }]],
 ];
 for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const p = viewerParams({ ...VIEWER_DEFAULTS, ...over });
@@ -89,7 +90,9 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
   const c0 = [pw.cells[2], pw.cells[3]];
   const [sj, sw] = both({ type: 'sites', id: 2, key: 'k', rect: [c0[0] - 1.5, c0[1] - 1.5, c0[0] + 1.5, c0[1] + 1.5], seed, p, labels });
   const nPore = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).filter(st => st === 1).length;
-  report(!diff(sj, sw) && sw.sites.length > 0 && nPore > 0, `${name}: sites, ${sw.sites.length / 5} dyes (${nPore} on pores) ${diff(sj, sw)}`);
+  const nLamin = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).filter(st => st === 2).length;
+  report(!diff(sj, sw) && sw.sites.length > 0 && nPore > 0 && (labels.length < 3 || nLamin > 0),
+    `${name}: sites, ${sw.sites.length / 5} dyes (${nPore} on pores, ${nLamin} on the lamina) ${diff(sj, sw)}`);
   // Blinks (the localizations' ground truth) under a whole label (the movie's, scopeLabels'): the same events, sorted
   // by (id, tOn) -- the engines may list a window's dye blocks in another order -- within 1e-9 (the schedules are
   // bit-exact; the brightness goes through exp). A dSTORM label (bleaching blinks) and a DNA-PAINT one (persistent).
@@ -125,14 +128,16 @@ for (const [name, seed, over, labels] of quick ? WORLDS.slice(0, 1) : WORLDS) {
 }
 
 // A nanoruler world (the Sample select at Nanorulers: params() adds specimen + origami*; ABI 12): the origami job
-// (molecules and their bent outlines), the sites and the blinks of the docking strands (structure 2), and a movie.
+// (molecules and their bent outlines), the sites and the blinks of the docking strands (structure 3 since ABI 16), and
+// a movie.
 {
   const name = 'nanorulers, seed 1249', seed = 1249, p = viewerParams({ ...VIEWER_DEFAULTS, mv_specimen: '1' }), rect = [-3, -3, 3, 3];
   const [oj, ow] = both({ type: 'origami', id: 6, key: 'k', rect, seed, p, nPerSide: 24 });
   report(p.specimen === 1 && !diff(oj, ow) && ow.mols.length > 0, `${name}: origami job, ${ow.mols.length / 10} molecules ${diff(oj, ow)}`);
-  const labels = [{ density: 0.7, fluorescentFraction: 1 }, { density: 0.6, fluorescentFraction: 1 }, { density: 0.8, fluorescentFraction: 0.9 }];
+  const labels = [{ density: 0.7, fluorescentFraction: 1 }, { density: 0.6, fluorescentFraction: 1 }, { density: 0.7, fluorescentFraction: 1 },
+    { density: 0.8, fluorescentFraction: 0.9 }];
   const [sj, sw] = both({ type: 'sites', id: 7, key: 'k', rect, seed, p, labels });
-  const ruler = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).every(st => st === 2);
+  const ruler = Array.from({ length: sw.sites.length / 5 }, (_, i) => sw.sites[5 * i + 4]).every(st => st === 3);
   report(!diff(sj, sw) && sw.sites.length > 0 && ruler, `${name}: sites, ${sw.sites.length / 5} docking-strand dyes ${diff(sj, sw)}`);
   const kinetics = { activationRatePerSec: 0.05, onSec: 0.3, offSec: 1, bleachProb: 1, photonCV: 0.3, initialOnSec: 0 };
   const label = { density: 0.8, fluorescentFraction: 1, mode: 'DNA-PAINT', kinetics, preState: false,

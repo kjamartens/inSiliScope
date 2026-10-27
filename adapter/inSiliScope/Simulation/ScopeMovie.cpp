@@ -85,6 +85,8 @@ const TargetText kTargetText[] = {
      "% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label", "the microtubule axis" },
    { "npcs", "CellField", "NuclearPores", "the nuclear pores'", "% of the 64 Nup96 sites per pore that carry a label",
      "the pore axis" },
+   { "lamin", "CellField", "NuclearLamina", "the nuclear lamina's", "% of the lamina points that carry a label",
+     "the envelope normal" },
    { "docking", "Nanorulers", "Docking", "the docking strands'",
      "% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)",
      "the rod axis" },
@@ -159,7 +161,8 @@ const OptionTable& Options()
       // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Row>_* rows, Fluorophores):
       // <prefix>-dye, -mode, -label-pct, -imager-nm, -orient*, -wobble-deg, -motion, and for a target with a linkage
       // model (library.json linkagePresets.defaults) -binder, -binder-nm, -binder-flex-nm, -linker-min-nm,
-      // -linker-max-nm. The default dye: the target's typical dye in the library's default mode (JS targetLabelOptions).
+      // -linker-max-nm. The default dye: the target's typical dye in the library's default mode, or None for a target
+      // with defaultNone (the lamina: off until labelled; JS targetLabelOptions).
       for (int s = 0; s < TargetCount(); ++s)
       {
          const TargetData& tg = TargetAt(s);
@@ -172,7 +175,7 @@ const OptionTable& Options()
             std::snprintf(b, sizeof b, "%s%s %g", m ? ", " : "", DyeModeNames()[static_cast<size_t>(m)].c_str(), tg.typicalPct[m]);
             pcts += b;
          }
-         v.push_back({ keep(P + "-dye"), static_cast<double>(tg.typicalDye[DefaultDyeMode()]),
+         v.push_back({ keep(P + "-dye"), static_cast<double>(tg.defaultNone ? DyeNoneChoice() : tg.typicalDye[DefaultDyeMode()]),
                        keep(D + "_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = " + T.what +
                             " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
          v.push_back({ keep(P + "-mode"), -1,
@@ -245,6 +248,7 @@ const OptionTable& Options()
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
          { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)" },
          { "npc-density", 8, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
+         { "lamin-density", 50, "CellField.NuclearLaminaDensityPerUm2: nuclear lamina points per um^2 of nuclear envelope (50: estimate, 2026-10-27; 0: no lamina, the target is off; it is unlabelled by default: lamin-dye None; p.laminNpcExclNm: no point within half of it of a pore centre, default 40 nm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
          { "origami-spacing-nm", 80, "Nanorulers.SpacingNm: lattice step between neighbouring spots, nm; the body grows with it (a rod keeps 20 nm ends; the UIs offer 640-5)" },
@@ -1340,7 +1344,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
-      { "mtDensity", O("mt-density") }, { "npcDensity", O("npc-density") },
+      { "mtDensity", O("mt-density") }, { "npcDensity", O("npc-density") }, { "laminDensity", O("lamin-density") },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // The specimen and its params (the origami-* options; p.<name> on top, below).

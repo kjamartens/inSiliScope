@@ -603,7 +603,7 @@ const USER_DYES = {
   modeIndex: n => +$('ud' + n + '-mode').value,
 };
 // A target's dye choice and mode (P: its prefix, data/specimens.json).
-const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(firstDyeFor(TARGETS.find(t => t.prefix === P), DD.dyeDefault.mode)));
+const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(defaultDyeFor(TARGETS.find(t => t.prefix === P))));
 const modeOf = P => {
   const m = $('mv_' + P + '-mode') ? +$('mv_' + P + '-mode').value : -1, v = choiceOf(P);
   if (m >= 0) return MODE_NAMES[m];
@@ -617,6 +617,9 @@ const inMode = (P, ...modes) => () => FL() && modes.includes(modeOf(P));
 const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
 // The target's typical dye in a mode (data/dyes/library.json typicalLabels; the engine's <prefix>-dye = -1).
 const firstDyeFor = (t, m) => dyeIndex(DD.typicalLabels[t.id][m].dye);
+// A target's dye at load: None for a target that is off until labelled (data/specimens.json defaultDye: the nuclear
+// lamina), else its typical dye in the library's default mode (the engine's <prefix>-dye default).
+const defaultDyeFor = t => t.defaultDye === 'None' ? DYE_NONE_V : firstDyeFor(t, DD.dyeDefault.mode);
 function filterDyes(P) {
   const sel = $('mv_' + P + '-dye'), m = modeOf(P);
   for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
@@ -732,8 +735,9 @@ const basicLaserShown = nm => {
 // A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
 const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
-// The panel's first light: the cell field's default labels' presets combined (as the engine's auto).
-const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.map(t =>
+// The panel's first light: the cell field's default labels' presets combined (as the engine's auto; a target with
+// no default label adds none).
+const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.filter(t => t.defaultDye !== 'None').map(t =>
   DD.dyes[firstDyeFor(t, DD.dyeDefault.mode)].modes[DD.dyeDefault.mode].lightPreset)), DD.specimens[SPECIMEN_DEFAULT]);
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
@@ -750,6 +754,9 @@ const LABEL_TEXT = {
     cells: 'no exclusion from cells' },
   npcs: { dev: 'CellField', row: 'NuclearPores', what: 'the nuclear pores\' label', axis: 'the pore axis', pct: 'Labelled sites',
     sites: 'Share of the 64 Nup96 sites per pore (2 rings x 8 corners x 4) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 60 %, dSTORM 58 %, PALM 58 %, WideField 100 %; data/dyes/library.json typicalLabels).',
+    cells: 'no exclusion from the nucleus' },
+  lamin: { dev: 'CellField', row: 'NuclearLamina', what: 'the nuclear lamina\'s label', axis: 'the envelope normal', pct: 'Labelled points',
+    sites: 'Share of the lamina points (Nuclear lamina: Density) that carry a label, one docking site per point. Unlabelled by default (Dye None): pick a dye to turn the lamina on. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 70 %, PALM 58 %, WideField 100 %; estimates, data/dyes/library.json typicalLabels).',
     cells: 'no exclusion from the nucleus' },
   docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\' label', axis: 'the rod axis', pct: 'Labelled strands',
     sites: 'Share of the designed docking strands (Strands per spot, Nanorulers) that are incorporated and labelled: each strand independently (80 % in every mode; estimate).',
@@ -769,7 +776,7 @@ const linkageItems = (t, id, code) => !(t.id in DD.linkageDefaults) ? [] : [
 ];
 const labelGroup = (t, i) => {
   const P = t.prefix, T = LABEL_TEXT[t.id], id = k => 'mv_' + P + '-' + k, code = k => '<code>' + T.dev + '.' + T.row + '_' + k + '</code>';
-  const dyeDef = firstDyeFor(t, DD.dyeDefault.mode);
+  const dyeDef = defaultDyeFor(t), rowsDye = firstDyeFor(t, DD.dyeDefault.mode);   // (the rows: a library dye)
   return Object.assign(i === 0 ? { sect: 'Sample preparation' } : {}, { id: P + 'label', title: t.name + ' label', open: true,
     show: () => mounted().id === t.specimen, items: [
     range(id('label-pct'), T.pct, '%', T.sites + ' 0 = the target is off. ' + code('LabelingPct'), 0, 100, 0.5, DD.typicalLabels[t.id][DD.dyeDefault.mode].labelingPct, { fmt: fx(1) }),
@@ -783,7 +790,7 @@ const labelGroup = (t, i) => {
       } }),
     select(id('dye'), 'Dye', 'Dye of ' + T.what + ': a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye), or None (no label: the target is off). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. A pick also loads the light preset of the labelled targets\' dyes together. ' + code('Label'),
       [...DD.dyes.map((d, j) => [String(j), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)']), [String(DYE_NONE_V), 'None (no label)']],
-      String(dyeDef), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P)))), kids: dyeRows(P, {}, dyeDef) }),
+      String(dyeDef), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P)))), kids: dyeRows(P, {}, rowsDye) }),
     num(id('imager-nm'), 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and ' + T.cells + '. ' + code('ImagerNanoMol'), 0, null, 0.1, t.paint.imagerNm, { show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-on-sec'), 'Bound time', 's', 'DNA-PAINT: mean time an imager stays bound to a docking site (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye (data/specimens.json paint). ' + code('BoundTimeSec'), 0.001, null, 0.01, t.paint.onSec, { adv, show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-kon'), 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration (the target\'s docking sequence; data/specimens.json paint). ' + code('KonPerMolarPerSec'), 0, null, 1e5, t.paint.konPerMPerSec, { adv, show: inMode(P, 'DNA-PAINT') }),
@@ -1034,6 +1041,12 @@ const UI_GROUPS = [
     num('npcRadiusNm', 'Ring radius', 'nm', 'Radius of the Nup96 rings (53.5 nm; Thevathasan et al. 2019, as webSMLM). <code>CellField.NuclearPoreRadiusNm</code>', 20, 150, 0.5, 53.5, { adv }),
     num('npcRingSepNm', 'Ring separation', 'nm', 'Distance between the cytoplasmic and the nucleoplasmic ring (50 nm; Thevathasan et al. 2019). <code>CellField.NuclearPoreRingSepNm</code>', 0, 150, 1, 50, { adv }),
     num('npcCornerSpreadNm', 'Corner spread', 'nm', 'Each of the 8 corners holds 4 Nup96 on an arc of this diameter (12 nm; webSMLM after Thevathasan et al. 2019). <code>CellField.NuclearPoreCornerSpreadNm</code>', 0, 30, 0.5, 12, { adv }),
+  ] },
+  // The nuclear lamina (2026-10-27; core params lamin*, spec/ALGORITHM.md "Nuclear lamina"): random points on the
+  // envelope, none at the pores. Unlabelled by default (its label group: Dye None).
+  { id: 'lamin', title: 'Nuclear lamina', show: CF, items: [
+    range('mv_lamin-density', 'Density', '/µm²', 'Nuclear lamina points per µm² of nuclear envelope, over the whole envelope (50; an estimate: a random stand-in for the lamin network, to be replaced by a network later). Placed uniformly by area and independently, none within half the Pore exclusion of a pore centre. Each carries one docking site; its label linkage points inward (the lamina lines the nucleoplasmic side). It shows only when labelled (Nuclear lamina label: Dye). 0 = no lamina, the target is off. <code>CellField.NuclearLaminaDensityPerUm2</code>', 0, 500, 1, 50, { adv, fmt: fx(0) }),
+    num('laminNpcExclNm', 'Pore exclusion', 'nm', 'Diameter of the disc around each nuclear pore\'s centre that holds no lamina point (40 nm; estimate). <code>CellField.NuclearLaminaPoreExclusionNm</code>', 0, 300, 5, 40, { adv }),
   ] },
 
   ...TARGETS.map(labelGroup),
@@ -1833,6 +1846,7 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
+ 'mv_lamin-density', 'mv_lamin-densityVal', 'laminNpcExclNm',
  'showDyes', 'mtMap', 'npcMap', 'nucMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'perspDeg', 'perspDegVal', 'perspMist', 'perspMistVal', 'perspCut', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
@@ -1910,6 +1924,9 @@ function params() {
     npcRadiusNm: Math.max(0, +els.npcRadiusNm.value),
     npcRingSepNm: Math.max(0, +els.npcRingSepNm.value),
     npcCornerSpreadNm: Math.max(0, +els.npcCornerSpreadNm.value),
+    // The nuclear lamina (2026-10-27): the density is the engine's lamin-density option (mv_lamin-density; 0 = off).
+    laminDensity: Math.max(0, +els['mv_lamin-density'].value),
+    laminNpcExclNm: Math.max(0, +els.laminNpcExclNm.value),
     // The DNA-origami nanorulers (the Sample select at 1 = data/specimens.json's Nanorulers = core param specimen 1):
     // their core params, only then, so a cell field's params (and every cache keyed on them) stay as they were.
     ...(+els.mv_specimen.value === 1 ? {
@@ -3563,7 +3580,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 15) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 15');
+  if (M._isc_abi_version() !== 16) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 16');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -4225,7 +4242,7 @@ function blocksOfRect(p, [x0, y0, x1, y1]) {
   for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
   return out;
 }
-const PACK_KEY_SKIP = /^(mt|npc|showCytoContours$|cytoContourStep$)/;
+const PACK_KEY_SKIP = /^(mt|npc|lamin|showCytoContours$|cytoContourStep$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);

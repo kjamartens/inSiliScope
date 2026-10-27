@@ -35,7 +35,10 @@
  * isc_world_prefetch_map): each dye's clock read at its own place from fields
  * the host gives (its light history), one query for every dye. ABI 15:
  * fiducial beads on either specimen (params fid*; isc_fiducials_in_window):
- * sites only, no label or structure (their light is the host's).
+ * sites only, no label or structure (their light is the host's). ABI 16: the
+ * nuclear lamina, a third cell-field target (structure ISC_STRUCT_LAMIN 2, so
+ * the docking strands move to 3 and ISC_STRUCT_COUNT is 4; params lamin*:
+ * points on the nuclear envelope, none at the pores), isc_cell_lamin.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -56,7 +59,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 15
+#define ISC_ABI_VERSION 16
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -100,7 +103,8 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * ABI 12: the param 'specimen' (ISC_SPECIMEN_*) picks the geometry. A
  * nanoruler world has no cells (the cell calls return 0 rows or -1, its
  * optical volume is empty, isc_world_set_cache_dir keeps nothing) and only
- * ISC_STRUCT_ORIGAMI_SITES dyes; a cell field only ISC_STRUCT_MICROTUBULE. */
+ * ISC_STRUCT_ORIGAMI_SITES dyes; a cell field ISC_STRUCT_MICROTUBULE, _NPC and
+ * _LAMIN. */
 #define ISC_SPECIMEN_CELLFIELD 0
 #define ISC_SPECIMEN_NANORULERS 1
 typedef struct IscWorld IscWorld;
@@ -164,8 +168,9 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  * The structures that carry dyes, one label each: */
 #define ISC_STRUCT_MICROTUBULE 0
 #define ISC_STRUCT_NPC 1             /* ABI 13: the nuclear pores of a cell field (64 Nup96 sites each) */
-#define ISC_STRUCT_ORIGAMI_SITES 2   /* ABI 12 (2 since ABI 13): the docking strands of a nanoruler world */
-#define ISC_STRUCT_COUNT 3
+#define ISC_STRUCT_LAMIN 2           /* ABI 16: the nuclear lamina of a cell field (points on the envelope, none at a pore) */
+#define ISC_STRUCT_ORIGAMI_SITES 3   /* ABI 12 (2 since ABI 13, 3 since ABI 16): the docking strands of a nanoruler world */
+#define ISC_STRUCT_COUNT 4
 /* A label is ISC_LABEL_COUNT doubles at these indices:
  *   DENSITY              fraction of the structure's binding sites labelled (0..1)
  *   FLUORESCENT_FRACTION fraction of those whose dye is fluorescent (0..1; 1 = all)
@@ -183,14 +188,15 @@ ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1
  *                        label linkage -- the probe reaches BINDER_NM from the
  *                        binding site along the structure's axis (microtubule:
  *                        radially out of the lattice; pore: its corner's
- *                        direction in the ring plane), its end lies uniformly in
+ *                        direction in the ring plane; lamina: the envelope's
+ *                        inward normal), its end lies uniformly in
  *                        a ball of BINDER_FLEX_NM about that, and the dye at the
  *                        end of a linker of length uniform in volume in
  *                        [LINKER_MIN_NM, LINKER_MAX_NM], direction uniform.
  *                        Negative values count as 0 (LINKER_MAX at least
  *                        LINKER_MIN). Not given (n <= 16) or any of the four NaN:
  *                        the structure's built-in numbers (microtubules 12, 0,
- *                        2, 5; pores 0, 0, 2, 5). The docking strands ignore it
+ *                        2, 5; pores 0, 0, 2, 5; lamina 0, 0, 0, 0). The docking strands ignore it
  *                        (their own origamiLinkerNm).
  * Schedules: dSTORM = initial ON, then blinks (first after Exp(1/rate), ON
  * Exp(onSec), bleach with BLEACH_PROB or dark Exp(offSec), at most 1000
@@ -395,6 +401,12 @@ ISC_API int32_t isc_cell_microtubules(IscWorld* w, int32_t cx, int32_t cy, doubl
  * count (0 with npcDensity 0), or -1 if the chunk holds no cell. */
 #define ISC_NPC_STRIDE 9
 ISC_API int32_t isc_cell_npcs(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap);
+/* Nuclear lamina (ABI 16): the lamina points of the cell of chunk (cx, cy) in
+ * candidate order, ISC_LAMIN_STRIDE doubles each, cell-local: x, y, z (on the
+ * membrane) and the outward unit normal. Up to cap points; returns the point
+ * count (0 with laminDensity 0), or -1 if the chunk holds no cell. */
+#define ISC_LAMIN_STRIDE 6
+ISC_API int32_t isc_cell_lamin(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap);
 ISC_API int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
                                        double* out, int32_t capPts);
 

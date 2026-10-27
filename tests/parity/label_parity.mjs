@@ -3,8 +3,8 @@
 // (continuousInWindow) for every label mode, a fluorescent fraction, a pre state and an initial ON, over a query
 // history (late window first, then a long one, then early ones); then ABI 11 kinetics histories (rate steps per mode,
 // two histories alternating on one world); the same for a DNA-origami nanoruler world (ABI 12, specimen 1: the
-// docking strands, structure 2 since ABI 13), and for the cell field's nuclear pores (ABI 13, structure 1) and the
-// label linkage (ISC_LABEL_BINDER_NM ..; a label without one sends NaN = the structure's built-in numbers); then ABI 14
+// docking strands, structure 2 since ABI 13, 3 since ABI 16), for the cell field's nuclear pores (ABI 13, structure 1)
+// and nuclear lamina (ABI 16, structure 2), and the label linkage (ISC_LABEL_BINDER_NM ..; a label without one sends NaN = the structure's built-in numbers); then ABI 14
 // clock maps (isc_events_in_map / isc_continuous_in_map against world.js eventsInMap / continuousInMap): dose clocks
 // with shear, a depth table, an unlit band (frozen dyes) and epochs (one giving way), activation clocks with steps,
 // DNA-PAINT and dSTORM read on T, a uniform global clock; a moved present on the same worlds; the map removed.
@@ -44,11 +44,12 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const P = loadPrototype(read('web/prototype/index.html'), read('web/prototype/microtubules.js'));
 const { World } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const D = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/dyes.js')).href);
-const { STRUCTURES, STRUCTURE_NPC } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
+const { STRUCTURES, STRUCTURE_NPC, STRUCTURE_LAMIN } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/world.js')).href);
 const { STRUCTURE_ORIGAMI } = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/origami.js')).href);
 const CM = await import(pathToFileURL(path.join(ROOT, 'web/prototype/scope/clockmap.js')).href);
-if (M._isc_abi_version() !== 15) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 15');
-if (STRUCTURES.length !== 3 || STRUCTURE_NPC !== 1 || STRUCTURE_ORIGAMI !== 2) throw new Error('structure ids moved');
+if (M._isc_abi_version() !== 16) throw new Error('core ABI ' + M._isc_abi_version() + ', expected 16');
+if (STRUCTURES.length !== 4 || STRUCTURE_NPC !== 1 || STRUCTURE_LAMIN !== 2 || STRUCTURE_ORIGAMI !== 3)
+  throw new Error('structure ids moved');
 
 const seed = 1249, geom = P.paramsFrom(P.defaults);
 const MODES = { dSTORM: 0, PALM: 1, 'DNA-PAINT': 2, WideField: 3 };
@@ -114,8 +115,9 @@ const CASES = [
 ];
 const jsLabels = (label, s, other = null) => STRUCTURES.map((_, i) => i === s ? label : other ?? D.makeLabel());
 // The specimens: the cell field (the label on the microtubules, the pores keeping the default label, so both emit;
-// then on the pores alone: the microtubules' 70 % DNA-PAINT would be ~20x their dyes) and the nanorulers (docking
-// strands; their own params on top).
+// then on the pores alone: the microtubules' 70 % DNA-PAINT would be ~20x their dyes; the lamina alone, at its engine
+// density (the core's default 0 = no lamina) and with a flexible linkage and a wide pore exclusion) and the nanorulers
+// (docking strands; their own params on top).
 const OFF = D.makeLabel({ density: 0 });
 const SPECIMENS = [
   { name: '', specimen: 0, s: 0, extra: {} },
@@ -124,6 +126,11 @@ const SPECIMENS = [
     extra: { npcDensity: 5, npcMinDistNm: 200, npcRadiusNm: 60 },
     label: { linkage: { binderNm: 10, binderFlexNm: 4, linkerMinNm: 1, linkerMaxNm: 6 },
              orientation: { mode: 'Fixed', polarDeg: 30, azimuthDeg: 40 } } },
+  { name: 'lamina ', specimen: 0, s: STRUCTURE_LAMIN, extra: { laminDensity: 50 }, other: OFF },
+  { name: 'lamina (IgG2-PAINT linkage, Fixed, 120 nm exclusion) ', specimen: 0, s: STRUCTURE_LAMIN, other: OFF,
+    extra: { laminDensity: 30, laminNpcExclNm: 120 },
+    label: { linkage: { binderNm: 19.3, binderFlexNm: 15.3, linkerMinNm: 0.5, linkerMaxNm: 2 },
+             orientation: { mode: 'Fixed', polarDeg: 30, azimuthDeg: 40 } } },
   { name: 'microtubules (IgG-like linkage) ', specimen: 0, s: 0, extra: {},
     label: { linkage: { binderNm: 17.5, binderFlexNm: 5, linkerMinNm: 0, linkerMaxNm: 2 } } },
   { name: 'nanorulers ', specimen: 1, s: STRUCTURE_ORIGAMI, extra: {} },
@@ -131,6 +138,7 @@ const SPECIMENS = [
     extra: { origamiLpNm: 273.1, origamiStrandsPerSpot: 3, origamiHeights: 1, origamiDensity: 2 } },
   { name: '2D origami (logo, 20 nm) ', specimen: 1, s: STRUCTURE_ORIGAMI, extra: { origamiDesign: 1, origamiSpacingNm: 20, origamiDensity: 2 } },
 ];
+const RULERS = SPECIMENS.find(sp => sp.name === 'nanorulers ');   // the histories' and maps' third specimen
 const tl0 = performance.now();
 if (SECTION === 'labels') for (const sp of SPECIMENS) for (const [cname, opts] of CASES) {
   const name = sp.name + cname, label = D.makeLabel({ ...opts, ...(sp.label || {}) });
@@ -178,7 +186,7 @@ const HCASES = [
 ];
 if (SECTION === 'labels') console.log(`labels: ${((performance.now() - tl0) / 1000).toFixed(1)} s`);
 const th0 = performance.now();
-if (SECTION === 'histories') for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [cname, opts, hists] of HCASES) {
+if (SECTION === 'histories') for (const sp of [SPECIMENS[0], SPECIMENS[1], RULERS]) for (const [cname, opts, hists] of HCASES) {
   const name = sp.name + cname, label = D.makeLabel(opts);
   const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));
   const w = cWorld(label, sp.specimen, sp.s, sp.extra, sp.other);
@@ -265,7 +273,7 @@ function setMap(w, js, m) {
 const mapRow = e => [...evRow(e), e.clock, e.rate];
 const MFRAMES = [[50, 50.05], [52, 54], [120, 120.05], [0, 200], [30, 31], [3, 3.05], [60, 62], [61, 61.05]];
 const tm0 = performance.now();
-if (SECTION === 'maps') for (const sp of [SPECIMENS[0], SPECIMENS[1], SPECIMENS[4]]) for (const [ci, [cname, opts, clock]] of MCASES.entries()) {
+if (SECTION === 'maps') for (const sp of [SPECIMENS[0], SPECIMENS[1], RULERS]) for (const [ci, [cname, opts, clock]] of MCASES.entries()) {
   if (clock.bleachRate && sp !== SPECIMENS[0]) continue;   // (the bleach on the first specimen: the time budget)
   const name = sp.name + cname, label = D.makeLabel(opts);
   const js = new World(P, seed, { ...geom, specimen: sp.specimen, ...sp.extra }, jsLabels(label, sp.s, sp.other));

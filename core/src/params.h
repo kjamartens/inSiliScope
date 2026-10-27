@@ -67,6 +67,11 @@ struct Params {
    double npcRadiusNm = 53.5;
    double npcRingSepNm = 50;
    double npcCornerSpreadNm = 12;
+   // Nuclear lamina (2026-10-27, npcs.h BuildLaminForCell; ABI 16): points per um^2 of envelope, none within
+   // laminNpcExclNm / 2 of a pore centre. 0 here: the world model has no lamina unless asked (the engine's
+   // lamin-density sets 50, an estimate, and its label is off by default).
+   double laminDensity = 0;
+   double laminNpcExclNm = 40;       // diameter of the lamina-free disc at each pore, nm (the user's choice 2026-10-27)
    // The labels (density, fluorescent fraction, mode, kinetics) are not
    // params since issue 16 (ABI 10): World::SetLabel, isc_world_set_label.
 
@@ -103,7 +108,7 @@ void NormalizeParams(Params& p);
 bool SetParam(Params& p, const char* name, double value);
 
 // A 64-bit hash of the fields a cell's packed pose depends on: everything
-// but the microtubule (mt*) and nuclear pore (npc*) parameters (and the labels, not params), which only
+// but the microtubule (mt*), nuclear pore (npc*) and lamina (lamin*) parameters (and the labels, not params), which only
 // shape what hangs off a packed cell (the viewer's pack key makes the same
 // cut), the specimen's (specimen, origami*), which the cell field never
 // reads, and the fiducial beads' (fid*), which move no cell. Keys the packed-block store (blockstore.h).

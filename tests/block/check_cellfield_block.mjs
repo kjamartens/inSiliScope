@@ -68,12 +68,18 @@ const noPores = CellField.buildWindow(W, H, { ...base, focusUm: 3, slabNm: 3000 
 const nPore = pores.sites.filter(s => s[3] === 1).length;
 ok(nPore > 1000 && same(pores.sites.filter(s => s[3] === 0), noPores.sites),
    `npcDensity 12: ${nPore} pore dyes (structure 1) in 0-6 um, the microtubules' ${noPores.sites.length} unchanged`);
+// The nuclear lamina (ABI 16), off by default too: opts.params.laminDensity adds lamina dyes (structure 2).
+const lamina = CellField.buildWindow(W, H, { ...base, focusUm: 3, slabNm: 3000, params: { laminDensity: 50 } });
+const nLamin = lamina.sites.filter(s => s[3] === 2).length;
+ok(nLamin > 1000 && same(lamina.sites.filter(s => s[3] === 0), noPores.sites),
+   `laminDensity 50: ${nLamin} lamina dyes (structure 2) in 0-6 um, the microtubules' unchanged`);
 
 // The DNA-origami nanorulers (opts.specimen, ABI 12): docking-strand dyes near the coverslip, no cells, the same
-// answer twice, two halves = the full window, and the strands-per-spot switch reaching the world.
+// answer twice, two halves = the full window, and the strands-per-spot switch reaching the world (structure 3 since
+// ABI 16).
 const NR = { ...base, specimen: 'Nanorulers', focusUm: 0, slabNm: 100 };
 const r = CellField.buildWindow(W, H, NR);
-ok(r.nRulers > 50 && r.nCells === 0 && r.nMt === 0 && r.sites.length > 10 * r.nRulers / 2 && r.sites.every(s => s[2] > 0 && s[2] < 30 && s[3] === 2),
+ok(r.nRulers > 50 && r.nCells === 0 && r.nMt === 0 && r.sites.length > 10 * r.nRulers / 2 && r.sites.every(s => s[2] > 0 && s[2] < 30 && s[3] === 3),
    `nanorulers: ${r.nRulers} rulers, ${r.sites.length} docking-strand dyes at 0-30 nm`);
 ok(same(r.sites, CellField.buildWindow(W, H, { ...NR, specimen: 1 }).sites), 'nanorulers: specimen 1 = \'Nanorulers\', identical');
 const NL = { ...NR, xUm: -6.4 }, NRr = { ...NR, xUm: 6.4 };

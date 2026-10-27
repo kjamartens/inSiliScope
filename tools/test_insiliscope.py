@@ -79,7 +79,8 @@ for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers",
              ("EmissionPath", "EmissionMagnification"),
              ("Renderer", "Quality"), ("TransmittedLamp", "IntensityPhotonsPerPxPerSec")):
     assert must in basic, f"{must} should be Basic"
-for hidden in (("Objective", "NA"), ("Renderer", "PsfOversampling"), ("Camera", "GainElectronsPerADU")):
+for hidden in (("Objective", "NA"), ("Renderer", "PsfOversampling"), ("Camera", "GainElectronsPerADU"),
+               ("CellField", "NuclearLamina_Label")):   # (a target off by default: Advanced)
     assert hidden not in basic and hidden in expert, f"{hidden} should be above Basic"
 print(f"Tiers OK: Basic shows {len(basic)} properties, Expert {len(expert)}")
 fresh()
@@ -147,6 +148,12 @@ for (dev, name), expected in {
     ("CellField", "NuclearPores_Binder"): "SNAP-Halo",
     ("CellField", "NuclearPoreDensityPerUm2"): "8",
     ("CellField", "NuclearPoreMinDistNm"): "180",
+    # the nuclear lamina (2026-10-27): off until labelled, 50 points per um^2 when it is
+    ("CellField", "NuclearLamina_Label"): "None",
+    ("CellField", "NuclearLamina_Mode"): "DNA-PAINT",
+    ("CellField", "NuclearLamina_Binder"): "IgG2-PAINT",
+    ("CellField", "NuclearLaminaDensityPerUm2"): "50",
+    ("CellField", "NuclearLaminaPoreExclusionNm"): "40",
     ("Lasers", "Preset"): "Auto",
     ("Lasers", "Laser561KWcm2"): "1",
     ("Lasers", "Laser640KWcm2"): "1",

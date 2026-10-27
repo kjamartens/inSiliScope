@@ -46,7 +46,7 @@ void Check(bool ok, const char* what)
 const double INF = std::numeric_limits<double>::infinity();
 
 // The checks written before the nuclear pores (issue 15) run without them (npcDensity 0: the microtubules alone, as
-// they were); the Npcs section checks the pores.
+// they were); the Npcs section checks the pores, the Lamin section the lamina.
 Params NoPores()
 {
    Params p;
@@ -2188,6 +2188,162 @@ void Npcs()
    }
 }
 
+// ABI 16: the nuclear lamina (structure 2). Points uniform by area on the envelope at round(density x area) per cell,
+// none within laminNpcExclNm / 2 of a pore centre, outward unit normals; the pores unchanged by the lamin* params; the
+// dyes structure 2 only, tiled, by density3d bit 2, on 8 threads = 1; isc_cell_lamin = the points.
+void Lamin()
+{
+   const uint32_t seed = 1249;
+   Params p;
+   p.laminDensity = 50;
+   p.laminNpcExclNm = 120;   // wider than the default 40 nm, so the exclusion rejects candidates
+   World w(seed, p);
+   std::vector<Cell> cells;
+   w.CellsInRect(-40, -40, 40, 40, cells);
+   Check(cells.size() >= 2, "lamina: cells near the origin");
+   if (cells.empty()) return;
+   if (cells.size() > 3) cells.resize(3);   // (the pair test below: the time)
+   const double rEx = p.laminNpcExclNm / 2 * 1e-3;
+   long pts = 0, want = 0, flips = 0, badNormal = 0, notOrdered = 0, inPore = 0, skipped = 0;
+   double nearest = INF;
+   for (const Cell& c : cells) {
+      std::vector<LaminPoint> v;
+      std::vector<Npc> pores;
+      if (!w.CellLamin(c.cx, c.cy, v) || !w.CellNpcs(c.cx, c.cy, pores)) { Check(false, "lamina: CellLamin finds the cell"); return; }
+      want += (long)std::floor(p.laminDensity * BuildNucSurfaceMesh(c).area + 0.5);
+      pts += (long)v.size();
+      for (size_t i = 0; i < v.size(); i++) {
+         const LaminPoint& q = v[i];
+         if (i > 0 && !(q.cand > v[i - 1].cand)) notOrdered++;
+         if (i > 0) skipped += q.cand - v[i - 1].cand - 1;
+         const Pt3 out = { q.c.x + q.n.x * 1e-3, q.c.y + q.n.y * 1e-3, q.c.z + q.n.z * 1e-3 };
+         const Pt3 in = { q.c.x - q.n.x * 1e-3, q.c.y - q.n.y * 1e-3, q.c.z - q.n.z * 1e-3 };
+         if (InsideNucleus(c, in) && !InsideNucleus(c, out)) flips++;
+         if (std::fabs(q.n.x * q.n.x + q.n.y * q.n.y + q.n.z * q.n.z - 1) > 1e-12) badNormal++;
+         for (const Npc& o : pores) {
+            const double dx = q.c.x - o.c.x, dy = q.c.y - o.c.y, dz = q.c.z - o.c.z;
+            const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            nearest = std::min(nearest, d);
+            if (d < rEx) inPore++;
+         }
+      }
+   }
+   char msg[256];
+   std::snprintf(msg, sizeof msg, "lamina: count = round(density x area) per cell (%ld of %ld over %zu cells)", pts, want,
+                 cells.size());
+   Check(pts == want && pts > 1000, msg);
+   std::snprintf(msg, sizeof msg, "lamina: none within %.0f nm of a pore centre (nearest %.1f nm; %ld candidates rejected)",
+                 rEx * 1000, nearest * 1000, skipped);
+   Check(inPore == 0 && skipped > 0, msg);
+   std::snprintf(msg, sizeof msg, "lamina: on the membrane, normal outward (+-1 nm along n flips inside/outside: %ld of %ld)",
+                 flips, pts);
+   Check(flips == pts, msg);
+   Check(badNormal == 0 && notOrdered == 0, "lamina: unit normals, candidate order");
+   const Cell& c0 = cells[0];
+   // The same points from a fresh world after other queries; the pores unchanged by the lamin* params; lamin* outside
+   // the packing fingerprint; the core's default density 0 = no lamina.
+   {
+      World w2(seed, p);
+      std::vector<WorldDye> junk;
+      w2.SitesInWindow(200, 200, 210, 210, -INF, INF, junk);
+      std::vector<LaminPoint> a, b;
+      w.CellLamin(c0.cx, c0.cy, a);
+      w2.CellLamin(c0.cx, c0.cy, b);
+      bool same = a.size() == b.size() && !a.empty();
+      for (size_t i = 0; same && i < a.size(); i++)
+         same = a[i].c.x == b[i].c.x && a[i].c.y == b[i].c.y && a[i].c.z == b[i].c.z && a[i].n.z == b[i].n.z &&
+                a[i].cand == b[i].cand;
+      Check(same, "lamina: independent of the query history");
+      Params q;   // the defaults: laminDensity 0
+      World w0(seed, q);
+      std::vector<Npc> pa, pb;
+      w.CellNpcs(c0.cx, c0.cy, pa);
+      w0.CellNpcs(c0.cx, c0.cy, pb);
+      bool samePores = pa.size() == pb.size() && !pa.empty();
+      for (size_t i = 0; samePores && i < pa.size(); i++) samePores = pa[i].c.x == pb[i].c.x && pa[i].cand == pb[i].cand;
+      Check(samePores && PackingFingerprint(q) == PackingFingerprint(p), "lamina: lamin* params move no pore and no cell");
+      std::vector<LaminPoint> none;
+      Check(q.laminDensity == 0 && w0.CellLamin(c0.cx, c0.cy, none) && none.empty(), "lamina: the default density 0 = none");
+   }
+   // Lamina dyes: only structure 2 under the mask, tiling, density3d bit 2, 8 threads = 1.
+   double nx, ny;
+   LocalToWorld(c0, c0.nucOffX, c0.nucOffY, nx, ny);
+   const double X0 = nx - 4, Y0 = ny - 4, X1 = nx + 4, Y1 = ny + 4;
+   auto labelled = [&](World& a, const Label& l) {
+      a.SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::DnaPaint, 0));
+      a.SetLabel(STRUCTURE_NPC, MakeLabel(LabelMode::DnaPaint, 0));
+      a.SetLabel(STRUCTURE_LAMIN, l);
+   };
+   {
+      World a(seed, p);
+      labelled(a, MakeLabel(LabelMode::dSTORM, 0.6));
+      std::vector<WorldDye> all, tiles;
+      a.SitesInWindow(X0, Y0, X1, Y1, -INF, INF, all);
+      bool only = !all.empty();
+      for (const WorldDye& d : all) only = only && d.structure == STRUCTURE_LAMIN && d.mtIndex == -1 && d.k == 0;
+      std::snprintf(msg, sizeof msg, "lamina dyes: structure 2, one site per point (%zu dyes in 8 x 8 um over a nucleus)",
+                    all.size());
+      Check(only && all.size() > 500, msg);
+      World b(seed, p);
+      labelled(b, MakeLabel(LabelMode::dSTORM, 0.6));
+      for (int i = 0; i < 2; i++)
+         for (int j = 0; j < 2; j++) b.SitesInWindow(X0 + 4 * i, Y0 + 4 * j, X0 + 4 * (i + 1), Y0 + 4 * (j + 1), -INF, INF, tiles);
+      Check(SameDyes(Sorted(all), Sorted(tiles)), "lamina dyes: 2 x 2 tiles = the whole window");
+      std::vector<float> g(8 * 8);
+      World m(seed, p);
+      m.SetLabel(STRUCTURE_LAMIN, MakeLabel(LabelMode::dSTORM, 0.6));
+      const long n1 = m.Density3dInWindow(X0, Y0, X1, Y1, -INF, INF, 8, 8, 1, 1u << STRUCTURE_LAMIN, g.data());
+      Check(n1 == (long)all.size(), "lamina dyes: density3d bit 2 counts the lamina dyes alone");
+      World off(seed, Params());
+      off.SetLabel(STRUCTURE_LAMIN, MakeLabel(LabelMode::dSTORM, 0.6));
+      std::vector<WorldDye> offDyes;
+      off.SitesInWindow(X0, Y0, X1, Y1, -INF, INF, offDyes);
+      bool noLamin = true;
+      for (const WorldDye& d : offDyes) noLamin = noLamin && d.structure != STRUCTURE_LAMIN;
+      Check(noLamin, "lamina dyes: none at density 0, even labelled");
+      for (LabelMode mode : { LabelMode::DnaPaint, LabelMode::dSTORM }) {
+         Kinetics k;
+         k.activationRatePerSec = 0.05; k.onSec = 0.05; k.offSec = 0.5; k.bleachProb = 0.5;
+         World t1(seed, p), t8(seed, p);
+         for (World* t : { &t1, &t8 }) {
+            t->SetLabel(STRUCTURE_MT, MakeLabel(LabelMode::dSTORM, 0.02, k));
+            t->SetLabel(STRUCTURE_LAMIN, MakeLabel(mode, 0.6, k));
+         }
+         std::vector<WorldEvent> e1, e8;
+         SetWorldThreads(1);
+         t1.EventsInWindow(X0, Y0, X1, Y1, -INF, INF, 20, 25, e1);
+         SetWorldThreads(8);
+         t8.EventsInWindow(X0, Y0, X1, Y1, -INF, INF, 20, 25, e8);
+         SetWorldThreads(0);
+         bool lam = false;
+         for (const WorldEvent& e : e1) lam = lam || e.structure == STRUCTURE_LAMIN;
+         Check(lam && IdenticalEvents(e1, e8), mode == LabelMode::DnaPaint ? "lamina dyes: 8 threads = 1 (DNA-PAINT)"
+                                                                           : "lamina dyes: 8 threads = 1 (dSTORM)");
+      }
+   }
+   // isc_cell_lamin: the cap convention and the rows.
+   {
+      IscParams* ip = isc_params_new();
+      isc_params_set(ip, "laminDensity", p.laminDensity);
+      isc_params_set(ip, "laminNpcExclNm", p.laminNpcExclNm);
+      IscWorld* cw = isc_world_new(seed, ip);
+      isc_params_free(ip);
+      const int32_t n = isc_cell_lamin(cw, c0.cx, c0.cy, nullptr, 0);
+      std::vector<double> rows((size_t)std::max(0, n) * ISC_LAMIN_STRIDE);
+      const int32_t n2 = isc_cell_lamin(cw, c0.cx, c0.cy, rows.data(), n);
+      std::vector<LaminPoint> v;
+      w.CellLamin(c0.cx, c0.cy, v);
+      bool same = n > 0 && n2 == n && (size_t)n == v.size();
+      for (int32_t i = 0; same && i < n; i++) {
+         const double* r = &rows[(size_t)i * ISC_LAMIN_STRIDE];
+         same = r[0] == v[i].c.x && r[1] == v[i].c.y && r[2] == v[i].c.z && r[3] == v[i].n.x && r[5] == v[i].n.z;
+      }
+      Check(same && isc_cell_lamin(cw, 999999, 999999, nullptr, 0) == -1 && isc_cell_lamin(cw, c0.cx, c0.cy, nullptr, 5) == -1,
+            "C ABI: isc_cell_lamin rows = the points, cap convention, -1 without a cell");
+      isc_world_free(cw);
+   }
+}
+
 // ABI 14: the clock map (clockmap.h). A uniform map is the ABI 11 queries bit for bit and in order; a shaped map is
 // every dye on its own clock (a brute force per dye); the answers do not depend on the caches, the query history or
 // the threads; a pose change rebuilds no schedule; the C ABI reads the flat buffer and refuses bad ones.
@@ -2860,6 +3016,7 @@ static const std::vector<Section>& Sections()
       { "cache_dnapaint", [] { CacheUnderLoad(LabelMode::DnaPaint, "caches under load: DNA-PAINT"); } },
       { "label_model", LabelModel },
       { "npcs", Npcs },
+      { "lamin", Lamin },
       { "threads_palm", [] { Threads(LabelMode::PALM, 0.3, "threads: PALM 30 %"); } },
       { "threads_dnapaint", [] { Threads(LabelMode::DnaPaint, 0.3, "threads: DNA-PAINT 30 %"); } },
       { "c_api", CApi },

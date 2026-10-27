@@ -390,11 +390,18 @@ PropDef LabelReadout(int s, const char* suffix, int what, const std::string& hel
 // A target's label (structure s of a specimen device): Typical (the target's typical dye in its mode, data/dyes
 // library.json typicalLabels), every library dye with data in that mode, in Expert the custom dyes Dye1-3, and None (no
 // label: the target is off). The list follows the mode (InSiliScopeHub::TargetModeChanged rebuilds it).
+// The tier of a target's mode and label: Basic, Advanced for a target off until labelled (data/specimens.json
+// defaultDye None: the nuclear lamina).
+Tier TargetLabelTier(int s)
+{
+   return sim::TargetAt(s).defaultNone ? Tier::Advanced : Tier::Basic;
+}
+
 PropDef TargetLabel(const char* device, int s)
 {
    const sim::TargetData& t = sim::TargetAt(s);
    const std::string option = std::string(t.prefix) + "-dye";
-   PropDef d = Row(device, TargetRowName(s) + "_Label", Tier::Basic, option,
+   PropDef d = Row(device, TargetRowName(s) + "_Label", TargetLabelTier(s), option,
                    "The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: "
                    "the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the "
                    "Lasers Auto preset.");
@@ -418,7 +425,8 @@ PropDef TargetLabel(const char* device, int s)
    return d;
 }
 
-// A target's label rows on its specimen device: its mode and label (Basic), the labelled %, the DNA-PAINT imager
+// A target's label rows on its specimen device: its mode and label (Basic; Advanced for a target off by default), the
+// labelled %, the DNA-PAINT imager
 // concentration (NanoMol, not nm) and binding kinetics (the target's, not the dye's) (Advanced), and for a target
 // with a linkage model the attachment (Advanced) and its four numbers (Expert); the engine options <prefix>-mode,
 // -dye, -label-pct, -imager-nm, -paint-kon, -paint-on-sec, -binder*.
@@ -426,7 +434,7 @@ void AddTargetLabelRows(std::vector<PropDef>& t, const char* device, int s)
 {
    using namespace sim;
    const std::string P = TargetRowName(s), prefix = TargetAt(s).prefix, what = TargetWhat(s);
-   PropDef d = OptNames(device, P + "_Mode", Tier::Basic, prefix + "-mode", DyeModeNames(), 0, "");
+   PropDef d = OptNames(device, P + "_Mode", TargetLabelTier(s), prefix + "-mode", DyeModeNames(), 0, "");
    d.help = "How the " + what + "' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change "
             "sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it.";
    ThenText(d, [s](H& h) { h.TargetModeChanged(s); });
@@ -921,19 +929,22 @@ std::vector<PropDef> BuildTable()
          "Radius of a pore's Nup96 rings, nm.",
          "Distance between a pore's cytoplasmic and nucleoplasmic ring, nm.",
          "Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm.",
+         "Nuclear lamina points per um^2 of nuclear envelope, uniform by area (50, an estimate: a random stand-in for the "
+         "lamin network; 0 = no lamina, the target is off). Unlabelled by default: NuclearLamina_Label turns it on.",
+         "Diameter of the lamina-free disc around each nuclear pore's centre, nm (40).",
       };
       const char* names[CF_COUNT] = { "ChunkSizeUm", "Occupancy", "CellDiameterMinUm", "CellDiameterMaxUm",
          "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "NucBaseMinUm", "NucBaseMaxUm", "NucIrregMin",
          "NucIrregMax", "NucBendMin", "NucBendMax", "NucSmooth", "NucThickIrreg", "NucAsym", "NucWidestMin",
          "NucWidestMax", "MicrotubuleStartDecayPct", "MicrotubuleEndDecayPct", "MicrotubuleDirKappa",
          "NuclearPoreDensityPerUm2", "NuclearPoreMinDistNm", "NuclearPoreRadiusNm", "NuclearPoreRingSepNm",
-         "NuclearPoreCornerSpreadNm" };
+         "NuclearPoreCornerSpreadNm", "NuclearLaminaDensityPerUm2", "NuclearLaminaPoreExclusionNm" };
       const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, -10.0, 0.0,
-         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0 };
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 0.0, 0.0 };
       const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 10.0, 50.0,
-         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0 };
+         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0, 500.0, 300.0 };
       // Cell size and densities are everyday physics; packing blocks, slab and shape parameters are expert.
-      for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY, CF_NPC_DENSITY })
+      for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY, CF_NPC_DENSITY, CF_LAMIN_DENSITY })
          add(Arr(F, names[i], Tier::Advanced, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
                  help[i]));
       const char* indexNames[] = { "IndexMedium", "IndexCytoplasm", "IndexNucleus", "IndexMicrotubule" };
@@ -946,7 +957,7 @@ std::vector<PropDef> BuildTable()
                  BF_INDEX_MEDIUM + k, 1.0, 2.0, indexHelp[k]));
       for (int i = 0; i < CF_COUNT; ++i)
          if (i != CF_CELL_DIAM_MIN_UM && i != CF_CELL_DIAM_MAX_UM && i != CF_OCCUPANCY && i != CF_MT_DENSITY &&
-             i != CF_NPC_DENSITY)
+             i != CF_NPC_DENSITY && i != CF_LAMIN_DENSITY)
             add(Arr(F, names[i], Tier::Expert, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
                     help[i]));
       add(OnOff(F, "Packing", Tier::Expert, "packing", &SceneState::cellFieldPacking,

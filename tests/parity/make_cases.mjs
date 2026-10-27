@@ -33,6 +33,10 @@ const PARAM_SETS = {
   npcvar: { nucAsym: 0, npcDensity: 25, npcMinDistNm: 0, npcRadiusNm: 60, npcRingSepNm: 40, npcCornerSpreadNm: 20,
             mtDensity: 0.1 },
   npcjam: { npcDensity: 30, npcMinDistNm: 250, mtDensity: 0.1 },
+  // The nuclear lamina (2026-10-27): the engine's density with a wide pore exclusion, and a crowded envelope (dense
+  // pores, no pore spacing, a 300 nm exclusion: many candidates rejected).
+  lamin: { laminDensity: 50, laminNpcExclNm: 120, mtDensity: 0.1 },
+  laminjam: { nucAsym: 0, npcDensity: 25, npcMinDistNm: 0, laminDensity: 200, laminNpcExclNm: 300, mtDensity: 0.1 },
 };
 for (const [name, kv] of Object.entries(PARAM_SETS))
   out.push(['params', name, ...Object.entries(kv).map(([k, v]) => `${k}=${v}`)].join(' '));
@@ -86,6 +90,9 @@ out.push('npcs p01 2024 nucplain -2 -2 2 2 2');
 out.push('npcs p02 9001 nucwild -2 -2 2 2 2');
 out.push('npcs p03 77 npcvar -3 -3 3 3 2');
 out.push('npcs p04 4711 npcjam -3 -3 3 3 1');
+// The nuclear lamina (structure 2, ABI 16): lamin <id> <seed> <params> <cx0> <cy0> <cx1> <cy1> <maxCells>.
+out.push('lamin l00 1249 lamin -2 -2 1 1 2');
+out.push('lamin l01 77 laminjam -3 -3 3 3 1');
 out.push('origami o00 1249 0 0 6 6');
 out.push('origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3');
 out.push('origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2');

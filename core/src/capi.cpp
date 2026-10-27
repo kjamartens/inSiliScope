@@ -13,7 +13,8 @@
 #include <vector>
 
 static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE == isc::STRUCTURE_MT &&
-                 ISC_STRUCT_NPC == isc::STRUCTURE_NPC && ISC_NPC_STRIDE == 9 &&
+                 ISC_STRUCT_NPC == isc::STRUCTURE_NPC && ISC_NPC_STRIDE == 9 && ISC_STRUCT_LAMIN == isc::STRUCTURE_LAMIN &&
+                 ISC_LAMIN_STRIDE == 6 &&
                  ISC_STRUCT_ORIGAMI_SITES == isc::STRUCTURE_ORIGAMI, "structures");
 static_assert(ISC_SPECIMEN_CELLFIELD == isc::SPECIMEN_CELLFIELD && ISC_SPECIMEN_NANORULERS == isc::SPECIMEN_NANORULERS,
               "specimens");
@@ -549,6 +550,24 @@ int32_t isc_cell_npcs(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t 
          o[6] = q.e1.x; o[7] = q.e1.y; o[8] = q.e1.z;
       }
       return (int32_t)pores.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
+int32_t isc_cell_lamin(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap)
+{
+   if (!w || cap < 0 || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::LaminPoint> pts;
+      if (!w->w.CellLamin(cx, cy, pts)) return -1;
+      for (size_t i = 0; i < pts.size() && (int32_t)i < cap; i++) {
+         const isc::LaminPoint& q = pts[i];
+         double* o = out + ISC_LAMIN_STRIDE * i;
+         o[0] = q.c.x; o[1] = q.c.y; o[2] = q.c.z;
+         o[3] = q.n.x; o[4] = q.n.y; o[5] = q.n.z;
+      }
+      return (int32_t)pts.size();
    } catch (...) {
       return -1;
    }
