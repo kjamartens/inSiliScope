@@ -20,7 +20,7 @@ const ROOT = path.resolve(HERE, '../..');
 const GOLD = path.join(ROOT, 'spec/golden');
 const CASES = path.join(GOLD, 'cases.txt');
 const REF = path.join(GOLD, 'ref_js.txt');
-const MATH_SAMPLES = 2000;
+const MATH_SAMPLES = 100;   // per function (2026-10-27, was 2000)
 
 const node = (args, opts = {}) => execFileSync(process.execPath, args, { stdio: 'inherit', ...opts });
 

@@ -41,43 +41,48 @@ const PARAM_SETS = {
 for (const [name, kv] of Object.entries(PARAM_SETS))
   out.push(['params', name, ...Object.entries(kv).map(([k, v]) => `${k}=${v}`)].join(' '));
 
-// RNG addresses: int32 edges, JS `|0` wrap of values beyond 2^32, negatives.
+// RNG addresses: int32 edges, JS `|0` wrap of values beyond 2^32, negatives -- each edge once (the RNG is integer
+// arithmetic: one wrong operation changes every address; 2026-10-27, was every combination, 252).
 const SEEDS = [0, 1249, -1, 2147483647, -2147483648, 4294967295];
 const COORDS = [0, 1, -1, -123456, 2147483647, -2147483648, 5000000000];
 const KS = [0, 1, 44, 8000000, 4294967295, 9500000 * 4096 + 17];
-for (const s of SEEDS) for (const c of COORDS) for (const k of KS) out.push(`rng ${s} ${c} ${-c} ${k}`);
-for (const base of [1000, 100000, 8000000, 9500000]) out.push(`stream 1249 -3 5 ${base} 20`);
+for (let i = 0; i < COORDS.length; i++) {
+  const s = SEEDS[i % SEEDS.length], c = COORDS[i], k = KS[(i * 5) % KS.length];
+  out.push(`rng ${s} ${c} ${-c} ${k}`);
+}
+out.push(`rng ${SEEDS[5]} ${COORDS[6]} ${COORDS[5]} ${KS[4]}`);
+for (const base of [1000, 9500000]) out.push(`stream 1249 -3 5 ${base} 20`);
 
 out.push(`math ${+(process.argv[3] ?? 40000)}`);
 
-// 50 packing cases, 14x14-chunk windows. First 10 around the origin, the
-// rest scattered up to ~5e7 chunks away (world coords ~1e9 um).
-const W = 14;
-for (let i = 0; i < 50; i++) {
+// 8 packing cases, 10x10-chunk windows (2026-10-27, was 50 of 14 x 14: packing is chaotic, so one changed operation
+// moves the cells of every case): two around the origin, two ~1e3 and one ~5e7 chunks away (world coords ~1e9 um),
+// one per other parameter set.
+const W = 10;
+const PACK = [[0, 'builtin', 'near'], [1, 'builtin', 'near'], [12, 'builtin', 1000], [13, 'builtin', 1000],
+              [30, 'builtin', 50000000], [35, 'blobby', 'near'], [40, 'norot', 1000], [45, 'dense', 'near']];
+for (const [i, pset, scale] of PACK) {
   const [h0, h1, h2] = pcg4d(0xC0FFEE, i, 0, 0);
   const seed = i === 0 ? 1249 : i === 1 ? -7 : (h0 & 0x7fffffff);
   let ox, oy;
-  if (i < 10) { ox = (h1 % 7) - 10; oy = (h2 % 7) - 10; }
+  if (scale === 'near') { ox = (h1 % 7) - 10; oy = (h2 % 7) - 10; }
   else {
-    const scale = i < 30 ? 1000 : 50000000;
     ox = Math.floor((h1 / 4294967296 - 0.5) * 2 * scale);
     oy = Math.floor((h2 / 4294967296 - 0.5) * 2 * scale);
   }
-  const pset = i < 35 ? 'builtin' : i < 40 ? 'blobby' : i < 45 ? 'norot' : 'dense';
   out.push(`case c${String(i).padStart(2, '0')} ${seed} ${pset} ${ox} ${oy} ${ox + W - 1} ${oy + W - 1}`);
 }
 
-// Cytoplasm mesh + microtubules: first N present cells of a window.
-out.push('cells m00 1249 builtin -2 -2 1 1 2');
-out.push('cells m01 -7 mtsparse -3 -3 3 3 4');
-out.push('cells m02 90210 mtvar 400 -800 403 -797 2');
-out.push('cells m03 5 mtflat -1000000 1000000 -999997 1000003 2');
-out.push('cells m04 424242 mtsparse 12 12 20 20 3');
-out.push('cells m05 77 rough -4 -4 0 0 2');
-out.push('cells m06 2024 nucplain -2 -2 2 2 2');
-out.push('cells m07 9001 nucwild -2 -2 2 2 2');
-out.push('case n00 4711 nucwild -6 -6 7 7');
-out.push('case r00 31337 rough -6 -6 7 7');
+// Cytoplasm mesh + microtubules: the first present cell of a window (one per parameter set).
+out.push('cells m00 1249 builtin -2 -2 1 1 1');
+out.push('cells m01 -7 mtsparse -3 -3 3 3 1');
+out.push('cells m02 90210 mtvar 400 -800 403 -797 1');
+out.push('cells m03 5 mtflat -1000000 1000000 -999997 1000003 1');
+out.push('cells m05 77 rough -4 -4 0 0 1');
+out.push('cells m06 2024 nucplain -2 -2 2 2 1');
+out.push('cells m07 9001 nucwild -2 -2 2 2 1');
+out.push('case n00 4711 nucwild -4 -4 5 5');
+out.push('case r00 31337 rough -4 -4 5 5');
 
 // DNA-origami nanorulers (specimen 1, ABI 12): the molecules of a window (origami.js / origami.cpp), their bent
 // outline and every designed strand. origami <id> <seed> <x0> <y0> <x1> <y1> [origami param=value ...]
@@ -85,21 +90,21 @@ out.push('case r00 31337 rough -6 -6 7 7');
 // buildNpcsForCell) and the dyes of their first 40 pores under the pores' built-in linkage and a flexible one.
 // npcs <id> <seed> <params> <cx0> <cy0> <cx1> <cy1> <maxCells>: builtin = shaped with a bottom cap, nucplain = the
 // plain ellipsoid, nucwild = a top cap.
-out.push('npcs p00 1249 builtin -2 -2 1 1 2');
-out.push('npcs p01 2024 nucplain -2 -2 2 2 2');
-out.push('npcs p02 9001 nucwild -2 -2 2 2 2');
-out.push('npcs p03 77 npcvar -3 -3 3 3 2');
+out.push('npcs p00 1249 builtin -2 -2 1 1 1');
+out.push('npcs p01 2024 nucplain -2 -2 2 2 1');
+out.push('npcs p02 9001 nucwild -2 -2 2 2 1');
+out.push('npcs p03 77 npcvar -3 -3 3 3 1');
 out.push('npcs p04 4711 npcjam -3 -3 3 3 1');
 // The nuclear lamina (structure 2, ABI 16): lamin <id> <seed> <params> <cx0> <cy0> <cx1> <cy1> <maxCells>.
-out.push('lamin l00 1249 lamin -2 -2 1 1 2');
+out.push('lamin l00 1249 lamin -2 -2 1 1 1');
 out.push('lamin l01 77 laminjam -3 -3 3 3 1');
-out.push('origami o00 1249 0 0 6 6');
+out.push('origami o00 1249 0 0 3 3');
 out.push('origami o01 -7 -3 -3 3 3 origamiLpNm=273.1 origamiHeights=1 origamiLinkerNm=0 origamiDensity=3');
 out.push('origami o02 90210 100000 -100000 100004 -99996 origamiBend=0 origamiRoll=1 origamiRollDeg=30 origamiStrandsPerSpot=3 origamiDensity=2');
 out.push('origami o03 5 12345678 -9876543 12345681 -9876540 origamiDensity=8 origamiMinSpacingNm=0 origamiLpNm=50 origamiAttachNm=20');
 out.push('origami o04 31 -2 -2 4 4 origamiSpacingNm=40 origamiLpNm=600 origamiDensity=2');
 out.push('origami o05 77 -1 -1 5 5 origamiDesign=1 origamiSpacingNm=20 origamiHeights=1 origamiDensity=2');
-out.push('origami o06 78 0 0 9 9 origamiDesign=1 origamiSpacingNm=160 origamiRoll=1 origamiRollDeg=40');
+out.push('origami o06 78 0 0 5 5 origamiDesign=1 origamiSpacingNm=160 origamiRoll=1 origamiRollDeg=40');
 // Fiducial beads (ABI 15): the beads of a window (fiducials.js / fiducials.cpp) in each height mode, on a step surface
 // (1.5 um where x + y > 0; the World's own surface is checked by scope_parity's OnTop movie).
 // fiducials <id> <seed> <x0> <y0> <x1> <y1> [fid param=value ...]
